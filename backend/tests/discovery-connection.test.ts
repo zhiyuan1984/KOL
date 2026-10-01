@@ -238,7 +238,7 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
   it("maps crawl_active to Chinese copy and never persists empty-code JSON", async () => {
     const now = new Date().toISOString();
     getConn().prepare(
-      `INSERT INTO work_items
+      `INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(

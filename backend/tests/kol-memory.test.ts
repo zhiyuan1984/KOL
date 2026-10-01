@@ -757,7 +757,7 @@ ${body.state?.target_criteria || ""}`;
     const now = new Date().toISOString();
     for (let i = 0; i < 3; i += 1) {
       getConn().prepare(
-        `INSERT INTO work_items
+        `INSERT INTO tickets
          (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
@@ -775,7 +775,7 @@ ${body.state?.target_criteria || ""}`;
     const now = new Date().toISOString();
     const insertItem = (id: string, status = "queued") => {
       getConn().prepare(
-        `INSERT INTO work_items
+        `INSERT INTO tickets
          (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
@@ -802,7 +802,7 @@ ${body.state?.target_criteria || ""}`;
     expect(detail.applied).toBe(false);
     expect(detail.failed).toBe(true);
 
-    const item = getConn().prepare("SELECT status FROM work_items WHERE id='tsk_verb_illegal'").get() as { status: string };
+    const item = getConn().prepare("SELECT status FROM tickets WHERE id='tsk_verb_illegal'").get() as { status: string };
     expect(item.status).toBe("failed");
     const run = getConn().prepare("SELECT status, error FROM task_runs WHERE id='run_verb_illegal'").get() as {
       status: string;
@@ -819,7 +819,7 @@ ${body.state?.target_criteria || ""}`;
       actions: ["send_mail"],
     })).rejects.toBeInstanceOf(HttpFail);
     expect(
-      (getConn().prepare("SELECT status FROM work_items WHERE id='tsk_verb_worker'").get() as { status: string }).status,
+      (getConn().prepare("SELECT status FROM tickets WHERE id='tsk_verb_worker'").get() as { status: string }).status,
     ).toBe("failed");
 
     insertItem("tsk_verb_legal", "waiting");
@@ -831,7 +831,7 @@ ${body.state?.target_criteria || ""}`;
     expect(legal.body.applied).toBe(false);
     expect(legal.body.failed).toBe(false);
     expect(
-      (getConn().prepare("SELECT status FROM work_items WHERE id='tsk_verb_legal'").get() as { status: string }).status,
+      (getConn().prepare("SELECT status FROM tickets WHERE id='tsk_verb_legal'").get() as { status: string }).status,
     ).toBe("waiting");
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n)).toBe(followsBefore);
 
@@ -841,7 +841,7 @@ ${body.state?.target_criteria || ""}`;
       artifact: { type: "kol_analyze_brief", actions: ["starry_stage"] },
     })).toThrow(HttpFail);
     expect(
-      (getConn().prepare("SELECT status FROM work_items WHERE id='tsk_verb_legal'").get() as { status: string }).status,
+      (getConn().prepare("SELECT status FROM tickets WHERE id='tsk_verb_legal'").get() as { status: string }).status,
     ).toBe("failed");
   });
 });

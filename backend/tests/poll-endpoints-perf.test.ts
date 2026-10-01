@@ -99,7 +99,7 @@ describe("GET /api/tasks list payloads", () => {
     const listed = await request("GET", "/api/tasks?view=open");
     expect(listed.status).toBe(200);
     const expected = Number((
-      getConn().prepare(`SELECT COUNT(*) AS c FROM work_items WHERE owner_user_id=? AND ${OPEN_WORK_ITEM_SQL}`)
+      getConn().prepare(`SELECT COUNT(*) AS c FROM tickets WHERE owner_user_id=? AND ${OPEN_WORK_ITEM_SQL}`)
         .get(DEMO_USER.id) as { c: number }
     ).c);
     expect(listed.body.total).toBe(expected);
@@ -360,7 +360,7 @@ describe("GET /api/home/board list caps", () => {
     conn.prepare("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'").run();
     const collab = conn.prepare("SELECT id,handle FROM collaborations WHERE id='col_xiaomei'").get() as { id: string; handle: string };
     const insert = conn.prepare(
-      `INSERT INTO work_items (id,owner_user_id,task_type,title,source,status,priority,skill,profile,collaboration_id,project_id,input,entities,created_at,updated_at,content,risk_level)
+      `INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,collaboration_id,project_id,input,entities,created_at,updated_at,content,risk_level)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
     for (let i = 0; i < MAX_KOL_TASKS + 4; i += 1) {

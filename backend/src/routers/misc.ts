@@ -534,7 +534,7 @@ misc.get("/projects", (c) => {
       WHERE ? = 1
          OR IFNULL(c.list_in_projects, 0) = 1
          OR EXISTS (SELECT 1 FROM stage_transitions t WHERE t.collaboration_id = c.id)
-         OR EXISTS (SELECT 1 FROM work_items w WHERE w.collaboration_id = c.id)
+         OR EXISTS (SELECT 1 FROM tickets w WHERE w.collaboration_id = c.id)
          OR EXISTS (SELECT 1 FROM drafts d WHERE d.collaboration_id = c.id)
          OR EXISTS (SELECT 1 FROM kol_mail_items m WHERE m.collaboration_id = c.id)
       ORDER BY c.display_name`,

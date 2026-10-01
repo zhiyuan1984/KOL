@@ -22,7 +22,7 @@ function owner(): string {
 }
 
 function task(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM work_items WHERE id=?").get(id) as Row | undefined;
+  const row = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(id) as Row | undefined;
   if (!row || (!isAdmin() && String(row.owner_user_id) !== owner())) throw new HttpFail(404, "task not found");
   return row;
 }

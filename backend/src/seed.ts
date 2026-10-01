@@ -52,7 +52,27 @@ export function resetDemoRuntimeState(): void {
   const conn = getConn();
   conn.prepare("DELETE FROM starry_stage_writes").run();
   conn.prepare("DELETE FROM task_events").run();
-  conn.prepare("DELETE FROM work_items").run();
+  conn.prepare("DELETE FROM tickets").run();
+  // 工单表（tickets）是任务运行与工单的统一记录，重置演示数据时一并清空。
+  // 业务事件是事实账本：重置演示数据时临时移除不可变触发器再重建（仿 stage_transitions）。
+  conn.exec("DROP TRIGGER IF EXISTS business_events_no_update");
+  conn.exec("DROP TRIGGER IF EXISTS business_events_no_delete");
+  try {
+    conn.prepare("DELETE FROM business_events").run();
+  } finally {
+    conn.exec(`
+      CREATE TRIGGER IF NOT EXISTS business_events_no_update
+      BEFORE UPDATE ON business_events
+      BEGIN
+        SELECT RAISE(ABORT, 'business_events are immutable');
+      END;
+      CREATE TRIGGER IF NOT EXISTS business_events_no_delete
+      BEFORE DELETE ON business_events
+      BEGIN
+        SELECT RAISE(ABORT, 'business_events are immutable');
+      END;
+    `);
+  }
   // Library sync keeps operator tags when Starry sends []. A workbench reset
   // must still drop them, or the next E2E case toggles 犹豫谨慎 off.
   conn.prepare("UPDATE collaborations SET follow_style_tags=NULL").run();
@@ -96,7 +116,7 @@ function seedCore(): void {
   seedMailboxOwners();
   ensureSystemCronJobs(conn);
   // 演示对象是给人看/点的：「项目」组只列「跟我有关的」（有往来/有阶段写入/有任务/有草稿，
-  // 或显式放进项目），而 e2e 每次启动都会清掉 work_items —— 所以这四条显式放进来，
+  // 或显式放进项目），而 e2e 每次启动都会清掉 tickets —— 所以这四条显式放进来，
   // 否则桩环境里项目组会是空的。
   conn.prepare(
     `UPDATE collaborations SET list_in_projects=1
@@ -116,7 +136,7 @@ function stripLegacyDemoData(): void {
   }
   for (const id of DEMO_WORK_ITEM_IDS) {
     conn.prepare("DELETE FROM task_events WHERE work_item_id=?").run(id);
-    conn.prepare("DELETE FROM work_items WHERE id=?").run(id);
+    conn.prepare("DELETE FROM tickets WHERE id=?").run(id);
   }
   for (const id of DEMO_INBOUND_IDS) conn.prepare("DELETE FROM inbound WHERE id=?").run(id);
   for (const id of DEMO_SESSION_IDS) {

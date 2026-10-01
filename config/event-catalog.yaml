@@ -1,0 +1,1770 @@
+{
+  "version": 1,
+  "generated_from": [
+    "docs/ontop/KOL业务对象-事件（Event）清单.md"
+  ],
+  "events": [
+    {
+      "code": "crawl.job_created",
+      "name": "采集作业已创建",
+      "category": "human_action",
+      "object_type": "crawl_batch",
+      "payload": [
+        "platform",
+        "filter_parameters",
+        "submitter",
+        "source_batch"
+      ],
+      "producer": "creator_discovery",
+      "clauses": [
+        "BIZ-10",
+        "ADR-2026-09-28（公海/「分析已选」）"
+      ],
+      "status": "built",
+      "carrier": "crawl_jobs + crawl_job_events",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.progress_updated",
+      "name": "采集进度已更新",
+      "category": "system_job",
+      "object_type": "crawl_batch",
+      "payload": [
+        "current_platform",
+        "fetched_count"
+      ],
+      "producer": "crawl_job_monitor",
+      "clauses": [
+        "BIZ-10"
+      ],
+      "status": "built",
+      "carrier": "crawl_job_events",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.job_completed",
+      "name": "采集作业已完成",
+      "category": "system_job",
+      "object_type": "crawl_batch",
+      "payload": [
+        "terminal_status",
+        "produced_candidates"
+      ],
+      "producer": "crawl_job_monitor",
+      "clauses": [
+        "BIZ-10"
+      ],
+      "status": "built",
+      "carrier": "crawl_job_events",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.job_cancelled",
+      "name": "采集作业已取消",
+      "category": "system_job",
+      "object_type": "crawl_batch",
+      "payload": [
+        "cancelled_by",
+        "cancelled_at"
+      ],
+      "producer": "crawl_job_monitor",
+      "clauses": [
+        "BIZ-10"
+      ],
+      "status": "built",
+      "carrier": "crawl_job_events",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.job_failed",
+      "name": "采集作业已失败",
+      "category": "system_job",
+      "object_type": "crawl_batch",
+      "payload": [
+        "failure_reason",
+        "retry_entry"
+      ],
+      "producer": "crawl_job_monitor",
+      "clauses": [
+        "BIZ-10",
+        "PROD-AGENT-09"
+      ],
+      "status": "built",
+      "carrier": "crawl_job_events",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.candidate_generated",
+      "name": "候选线索已生成",
+      "category": "authorized_auto",
+      "object_type": "creator_candidate",
+      "payload": [
+        "platform_data",
+        "source_url",
+        "source_batch",
+        "profile_basis"
+      ],
+      "producer": "crawl_ingest",
+      "clauses": [
+        "BIZ-10"
+      ],
+      "status": "built",
+      "carrier": "creator_candidates",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.import_submitted",
+      "name": "导入已提交",
+      "category": "human_action",
+      "object_type": "creator_candidate",
+      "payload": [
+        "batch",
+        "object_list",
+        "submitter"
+      ],
+      "producer": "discovery_import",
+      "clauses": [
+        "BIZ-10",
+        "BIZ-14"
+      ],
+      "status": "built",
+      "carrier": "discovery_ingest_confirms + discovery_ingest_receipts",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.import_item_succeeded",
+      "name": "导入项已成功（逐项）",
+      "category": "human_action",
+      "object_type": "creator_candidate",
+      "payload": [
+        "real_id",
+        "dedupe_key"
+      ],
+      "producer": "discovery_import",
+      "clauses": [
+        "BIZ-10"
+      ],
+      "status": "built",
+      "carrier": "discovery_ingest_receipts",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.import_item_failed",
+      "name": "导入项已失败（逐项）",
+      "category": "human_action",
+      "object_type": "creator_candidate",
+      "payload": [
+        "failure_reason",
+        "partial_success_disposition"
+      ],
+      "producer": "discovery_import",
+      "clauses": [
+        "BIZ-10"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.import_item_skipped",
+      "name": "导入项已跳过（重复）",
+      "category": "authorized_auto",
+      "object_type": "creator_candidate",
+      "payload": [
+        "external_id",
+        "source_batch"
+      ],
+      "producer": "dedupe_rule",
+      "clauses": [
+        "BIZ-10"
+      ],
+      "status": "partial",
+      "carrier": "discovery_ingest_receipts + creator_candidates（status）",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.library_sync_completed",
+      "name": "档案同步已完成",
+      "category": "system_job",
+      "object_type": "kol_profile",
+      "payload": [
+        "sync_result",
+        "diff"
+      ],
+      "producer": "creator_library_sync",
+      "clauses": [
+        "BUSINESS 技能表（creator_library_sync）"
+      ],
+      "status": "built",
+      "carrier": "kol_profile_index + collaborations",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "crawl.library_sync_failed",
+      "name": "档案同步已失败",
+      "category": "system_job",
+      "object_type": "kol_profile",
+      "payload": [
+        "failure_reason",
+        "diff"
+      ],
+      "producer": "creator_library_sync",
+      "clauses": [
+        "BUSINESS 技能表（creator_library_sync）"
+      ],
+      "status": "partial",
+      "carrier": "audit_events",
+      "source_ref": "事件清单 §2"
+    },
+    {
+      "code": "kol.profile_created",
+      "name": "画像已建档",
+      "category": "human_action",
+      "object_type": "kol_profile",
+      "payload": [
+        "source",
+        "version",
+        "stable_external_id"
+      ],
+      "producer": "profile_ingest",
+      "clauses": [
+        "BIZ-02",
+        "BIZ-10"
+      ],
+      "status": "built",
+      "carrier": "kol_profile_index",
+      "source_ref": "事件清单 §3"
+    },
+    {
+      "code": "kol.profile_updated",
+      "name": "画像已更新",
+      "category": "human_action",
+      "object_type": "kol_profile",
+      "payload": [
+        "source",
+        "version",
+        "freshness"
+      ],
+      "producer": "profile_sync",
+      "clauses": [
+        "BIZ-02"
+      ],
+      "status": "built",
+      "carrier": "kol_profile_index",
+      "source_ref": "事件清单 §3"
+    },
+    {
+      "code": "kol.profile_note_updated",
+      "name": "档案备注已更新",
+      "category": "human_action",
+      "object_type": "kol_profile",
+      "payload": [
+        "diff",
+        "actor"
+      ],
+      "producer": "deal_memory",
+      "clauses": [
+        "BUSINESS 技能表",
+        "org-permissions"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §3"
+    },
+    {
+      "code": "kol.contact_decrypted",
+      "name": "联系方式已解密",
+      "category": "human_action",
+      "object_type": "kol_profile",
+      "payload": [
+        "authorization_scope",
+        "receipt",
+        "audit"
+      ],
+      "producer": "creator_contact_decrypt",
+      "clauses": [
+        "BIZ-14"
+      ],
+      "status": "partial",
+      "carrier": "audit_events（执行回执）",
+      "source_ref": "事件清单 §3"
+    },
+    {
+      "code": "kol.score_generated",
+      "name": "评分已生成",
+      "category": "authorized_auto",
+      "object_type": "kol_profile",
+      "payload": [
+        "basis",
+        "version",
+        "uncertainty"
+      ],
+      "producer": "kol_assessment",
+      "clauses": [
+        "BIZ-10"
+      ],
+      "status": "partial",
+      "carrier": "kol_profile_index（potential_probabilities/risk_probabilities）",
+      "source_ref": "事件清单 §3"
+    },
+    {
+      "code": "kol.sync_status_changed",
+      "name": "画像同步状态已变更",
+      "category": "system_job",
+      "object_type": "kol_profile",
+      "payload": [
+        "sync_status"
+      ],
+      "producer": "crawler_sync",
+      "clauses": [
+        "domain-objects §2.6"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §3"
+    },
+    {
+      "code": "kol.index_updated",
+      "name": "KOL 索引已更新",
+      "category": "derived",
+      "object_type": "kol_index",
+      "payload": [
+        "stable_id",
+        "platform",
+        "direction",
+        "source",
+        "updated_at"
+      ],
+      "producer": "memory_index",
+      "clauses": [
+        "BIZ-18"
+      ],
+      "status": "built",
+      "carrier": "kol_profile_index",
+      "source_ref": "事件清单 §3"
+    },
+    {
+      "code": "follow.connection_recognized",
+      "name": "建联已认定",
+      "category": "human_action",
+      "object_type": "follow_relation",
+      "payload": [
+        "evidence",
+        "recognized_at",
+        "recognized_by"
+      ],
+      "producer": "business_recognition",
+      "clauses": [
+        "BIZ-05"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §4"
+    },
+    {
+      "code": "follow.ownership_established",
+      "name": "归属已建立",
+      "category": "human_action",
+      "object_type": "follow_relation",
+      "payload": [
+        "employee",
+        "kol_uid",
+        "exclusive_scope",
+        "effective_at"
+      ],
+      "producer": "ownership_establish",
+      "clauses": [
+        "BIZ-05"
+      ],
+      "status": "built",
+      "carrier": "kol_follow_index",
+      "source_ref": "事件清单 §4"
+    },
+    {
+      "code": "follow.ownership_claimed",
+      "name": "归属已领取",
+      "category": "human_action",
+      "object_type": "follow_relation",
+      "payload": [
+        "claimer"
+      ],
+      "producer": "claim_follow",
+      "clauses": [
+        "BIZ-07"
+      ],
+      "status": "built",
+      "carrier": "kol_follow_index",
+      "source_ref": "事件清单 §4"
+    },
+    {
+      "code": "follow.ownership_renewed",
+      "name": "归属已续期",
+      "category": "authorized_auto",
+      "object_type": "follow_relation",
+      "payload": [
+        "last_effective_mail_at",
+        "correspondence_event_ref"
+      ],
+      "producer": "record_effective_correspondence",
+      "clauses": [
+        "BIZ-06"
+      ],
+      "status": "built",
+      "carrier": "kol_follow_index",
+      "source_ref": "事件清单 §4"
+    },
+    {
+      "code": "follow.ownership_released",
+      "name": "归属已自动释放（回公海）",
+      "category": "authorized_auto",
+      "object_type": "follow_relation",
+      "payload": [
+        "latest_interaction_check",
+        "ownership_version",
+        "stale_task_disposition"
+      ],
+      "producer": "ownership_release_job",
+      "clauses": [
+        "BIZ-06",
+        "TECH-BE-05"
+      ],
+      "status": "built",
+      "carrier": "kol_follow_index + audit_events",
+      "source_ref": "事件清单 §4"
+    },
+    {
+      "code": "follow.ownership_transferred",
+      "name": "归属已移交",
+      "category": "human_action",
+      "object_type": "follow_relation",
+      "payload": [
+        "owner_before",
+        "owner_after",
+        "reason",
+        "effective_at",
+        "authorization_source"
+      ],
+      "producer": "ownership_transfer",
+      "clauses": [
+        "BIZ-07"
+      ],
+      "status": "partial",
+      "carrier": "kol_follow_index（领取/释放已实现）",
+      "source_ref": "事件清单 §4"
+    },
+    {
+      "code": "collaboration.created",
+      "name": "合作关系已建立",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "company",
+        "brand",
+        "campaign",
+        "kol_uid"
+      ],
+      "producer": "collaboration_create",
+      "clauses": [
+        "BIZ-01",
+        "BIZ-19"
+      ],
+      "status": "built",
+      "carrier": "collaborations",
+      "source_ref": "事件清单 §5.1"
+    },
+    {
+      "code": "stage.advanced",
+      "name": "阶段已前进（相邻 +1）",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "target_stage_code",
+        "target_stage_name",
+        "evidence",
+        "expected_version"
+      ],
+      "producer": "confirm_stage",
+      "clauses": [
+        "BIZ-12",
+        "stage-transitions §3/§4"
+      ],
+      "status": "built",
+      "carrier": "stage_transitions + business_events（本批接线）",
+      "source_ref": "事件清单 §5.1"
+    },
+    {
+      "code": "stage.forward_skipped",
+      "name": "阶段已跨段前进",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "target_stage_code",
+        "target_stage_name",
+        "evidence",
+        "expected_version",
+        "reason"
+      ],
+      "producer": "confirm_stage",
+      "clauses": [
+        "stage-transitions §3"
+      ],
+      "status": "built",
+      "carrier": "stage_transitions + business_events（本批接线）",
+      "source_ref": "事件清单 §5.1"
+    },
+    {
+      "code": "stage.completed",
+      "name": "合作已完成（结算后的 Host 侧终态）",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "to_stage",
+        "occurred_at",
+        "data_version_after"
+      ],
+      "producer": "confirm_stage",
+      "clauses": [
+        "BIZ-08",
+        "stage-transitions §1"
+      ],
+      "status": "built",
+      "carrier": "stage_transitions + business_events（本批接线）",
+      "source_ref": "事件清单 §5.1"
+    },
+    {
+      "code": "stage.regressed",
+      "name": "阶段已回退",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "target_stage_code",
+        "target_stage_name",
+        "evidence",
+        "expected_version",
+        "reason"
+      ],
+      "producer": "confirm_stage",
+      "clauses": [
+        "stage-transitions §3"
+      ],
+      "status": "built",
+      "carrier": "stage_transitions + business_events（本批接线）",
+      "source_ref": "事件清单 §5.1"
+    },
+    {
+      "code": "stage.exception_entered",
+      "name": "已进入异常（旁路）",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "exception_type",
+        "reason"
+      ],
+      "producer": "confirm_stage",
+      "clauses": [
+        "stage-transitions §3/§4",
+        "BIZ-08"
+      ],
+      "status": "built",
+      "carrier": "stage_transitions + business_events（本批接线）",
+      "source_ref": "事件清单 §5.1"
+    },
+    {
+      "code": "stage.exception_left",
+      "name": "已离开异常",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "target_stage_code",
+        "reason"
+      ],
+      "producer": "confirm_stage",
+      "clauses": [
+        "stage-transitions §3/§4"
+      ],
+      "status": "built",
+      "carrier": "stage_transitions + business_events（本批接线）",
+      "source_ref": "事件清单 §5.1"
+    },
+    {
+      "code": "quote.received",
+      "name": "报价已收到",
+      "category": "external_fact",
+      "object_type": "quote",
+      "payload": [
+        "amount",
+        "currency",
+        "version",
+        "basis"
+      ],
+      "producer": "quote_intake",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.2"
+    },
+    {
+      "code": "quote.approved",
+      "name": "报价已认可",
+      "category": "human_action",
+      "object_type": "quote",
+      "payload": [
+        "version",
+        "confirmed_by",
+        "confirmed_at"
+      ],
+      "producer": "quote_confirm",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.2"
+    },
+    {
+      "code": "contract.sent",
+      "name": "合同已发送",
+      "category": "human_action",
+      "object_type": "contract",
+      "payload": [
+        "contract_version",
+        "object_ref"
+      ],
+      "producer": "contract_send",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.3"
+    },
+    {
+      "code": "contract.reviewed",
+      "name": "合同已审核",
+      "category": "human_action",
+      "object_type": "contract",
+      "payload": [
+        "review_conclusion"
+      ],
+      "producer": "contract_review",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.3"
+    },
+    {
+      "code": "contract.signed",
+      "name": "合同已签署",
+      "category": "external_fact",
+      "object_type": "contract",
+      "payload": [
+        "signing_evidence"
+      ],
+      "producer": "contract_sign",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.3"
+    },
+    {
+      "code": "sample.shipping_info_confirmed",
+      "name": "寄样信息已确认",
+      "category": "human_action",
+      "object_type": "sample",
+      "payload": [
+        "product_model",
+        "quantity",
+        "recipient_info"
+      ],
+      "producer": "sample_confirm",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.4"
+    },
+    {
+      "code": "sample.shipped",
+      "name": "样品已发货",
+      "category": "external_fact",
+      "object_type": "sample",
+      "payload": [
+        "tracking_number",
+        "shipping_evidence"
+      ],
+      "producer": "logistics_receipt",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.4"
+    },
+    {
+      "code": "sample.receipt_recorded",
+      "name": "签收已记录",
+      "category": "external_fact",
+      "object_type": "sample",
+      "payload": [
+        "logistics_receipt"
+      ],
+      "producer": "logistics_receipt",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.4"
+    },
+    {
+      "code": "sample.creator_confirmation_recorded",
+      "name": "本人确认已记录",
+      "category": "external_fact",
+      "object_type": "sample",
+      "payload": [
+        "creator_feedback"
+      ],
+      "producer": "creator_confirmation",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.4"
+    },
+    {
+      "code": "sample.test_feedback_recorded",
+      "name": "测试反馈已记录",
+      "category": "human_action",
+      "object_type": "sample",
+      "payload": [
+        "feedback_content",
+        "feedback_at"
+      ],
+      "producer": "sample_feedback",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.4"
+    },
+    {
+      "code": "content.brief_recorded",
+      "name": "Brief 已记录",
+      "category": "human_action",
+      "object_type": "content",
+      "payload": [
+        "core_selling_points",
+        "prohibited_wording"
+      ],
+      "producer": "brief_record",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.5"
+    },
+    {
+      "code": "content.first_draft_submitted",
+      "name": "初稿已提交",
+      "category": "external_fact",
+      "object_type": "content",
+      "payload": [
+        "delivery_version"
+      ],
+      "producer": "draft_delivery",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.5"
+    },
+    {
+      "code": "content.review_completed",
+      "name": "审核已完成",
+      "category": "human_action",
+      "object_type": "content",
+      "payload": [
+        "delivery_version"
+      ],
+      "producer": "content_review",
+      "clauses": [
+        "BIZ-08",
+        "BIZ-15"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.5"
+    },
+    {
+      "code": "content.schedule_confirmed",
+      "name": "排期已确定",
+      "category": "human_action",
+      "object_type": "content",
+      "payload": [
+        "schedule"
+      ],
+      "producer": "schedule_confirm",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.5"
+    },
+    {
+      "code": "content.published",
+      "name": "已发布",
+      "category": "external_fact",
+      "object_type": "content",
+      "payload": [
+        "publish_link",
+        "delivery_completeness"
+      ],
+      "producer": "publish_verify",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.5"
+    },
+    {
+      "code": "content.performance_reviewed",
+      "name": "效果已复盘",
+      "category": "human_action",
+      "object_type": "content",
+      "payload": [
+        "scope",
+        "period",
+        "metric_definition",
+        "source",
+        "updated_at"
+      ],
+      "producer": "performance_review",
+      "clauses": [
+        "BIZ-17"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.5"
+    },
+    {
+      "code": "settlement.invoice_received",
+      "name": "发票已收到",
+      "category": "external_fact",
+      "object_type": "settlement",
+      "payload": [
+        "invoice_info"
+      ],
+      "producer": "invoice_intake",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.6"
+    },
+    {
+      "code": "settlement.payment_requested",
+      "name": "付款已申请",
+      "category": "human_action",
+      "object_type": "settlement",
+      "payload": [
+        "amount",
+        "currency",
+        "policy_version"
+      ],
+      "producer": "payment_request",
+      "clauses": [
+        "BIZ-08",
+        "BIZ-14"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.6"
+    },
+    {
+      "code": "settlement.payment_succeeded",
+      "name": "付款已成功",
+      "category": "external_fact",
+      "object_type": "settlement",
+      "payload": [
+        "payment_receipt"
+      ],
+      "producer": "payment_receipt",
+      "clauses": [
+        "BIZ-08"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.6"
+    },
+    {
+      "code": "collaboration.reinvestment_confirmed",
+      "name": "复投已确认",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "scenario_record"
+      ],
+      "producer": "reinvest_confirm",
+      "clauses": [
+        "BIZ-09"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.7"
+    },
+    {
+      "code": "collaboration.paused",
+      "name": "合作已暂缓",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "reason"
+      ],
+      "producer": "collaboration_pause",
+      "clauses": [
+        "BIZ-09"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.7"
+    },
+    {
+      "code": "collaboration.restarted",
+      "name": "合作已重启",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "restart_basis"
+      ],
+      "producer": "collaboration_restart",
+      "clauses": [
+        "BIZ-09"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.7"
+    },
+    {
+      "code": "collaboration.terminated",
+      "name": "合作已终止（善后）",
+      "category": "human_action",
+      "object_type": "collaboration",
+      "payload": [
+        "sample_disposition",
+        "cost_disposition",
+        "asset_disposition"
+      ],
+      "producer": "collaboration_terminate",
+      "clauses": [
+        "BIZ-09"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §5.7"
+    },
+    {
+      "code": "email.received",
+      "name": "邮件已到达",
+      "category": "external_fact",
+      "object_type": "email",
+      "payload": [
+        "occurred_at",
+        "received_at",
+        "source_version"
+      ],
+      "producer": "mail_sync",
+      "clauses": [
+        "TECH-BE-04"
+      ],
+      "status": "built",
+      "carrier": "kol_mail_items + business_events（本批接线）",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.send_confirmed",
+      "name": "发送已确认",
+      "category": "human_action",
+      "object_type": "email",
+      "payload": [
+        "from_mailbox",
+        "to_recipients",
+        "subject",
+        "body",
+        "attachments",
+        "key_business_info",
+        "confirmed_version"
+      ],
+      "producer": "mail_send_confirmation",
+      "clauses": [
+        "BIZ-11"
+      ],
+      "status": "built",
+      "carrier": "drafts + approvals + audit_events",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.sent",
+      "name": "邮件已发送",
+      "category": "human_action",
+      "object_type": "email",
+      "payload": [
+        "gateway_receipt",
+        "sent_at"
+      ],
+      "producer": "mail_gateway",
+      "clauses": [
+        "BIZ-11"
+      ],
+      "status": "built",
+      "carrier": "starry_sends + drafts",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.send_uncertain",
+      "name": "发送结果不确定",
+      "category": "external_fact",
+      "object_type": "email",
+      "payload": [
+        "status_probe",
+        "manual_check"
+      ],
+      "producer": "mail_gateway_probe",
+      "clauses": [
+        "BIZ-11",
+        "TECH-BE-03"
+      ],
+      "status": "built",
+      "carrier": "drafts（status=send_unknown） + audit_events",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.bounced",
+      "name": "退信已收到",
+      "category": "external_fact",
+      "object_type": "email",
+      "payload": [
+        "receipt_status"
+      ],
+      "producer": "mail_sync",
+      "clauses": [
+        "BIZ-06（空白）"
+      ],
+      "status": "partial",
+      "carrier": "kol_mail_items（receipt_status）",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.auto_reply_received",
+      "name": "自动回复已到达",
+      "category": "external_fact",
+      "object_type": "email",
+      "payload": [
+        "receipt_status"
+      ],
+      "producer": "mail_sync",
+      "clauses": [
+        "BIZ-06（空白）"
+      ],
+      "status": "partial",
+      "carrier": "kol_mail_items（receipt_status）",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.reply_analyzed",
+      "name": "回复已分析",
+      "category": "authorized_auto",
+      "object_type": "email",
+      "payload": [
+        "evidence_priority",
+        "suggested_stage",
+        "uncertainty",
+        "risk",
+        "next_step"
+      ],
+      "producer": "reply_analysis",
+      "clauses": [
+        "BIZ-13"
+      ],
+      "status": "partial",
+      "carrier": "task_artifacts + audit_events",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.draft_created",
+      "name": "草稿已生成（L2）",
+      "category": "authorized_auto",
+      "object_type": "email",
+      "payload": [
+        "subject_en",
+        "body_zh_internal",
+        "l2_label"
+      ],
+      "producer": "draft_compose",
+      "clauses": [
+        "BIZ-11"
+      ],
+      "status": "built",
+      "carrier": "drafts",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.draft_updated",
+      "name": "草稿已修改（L2）",
+      "category": "human_action",
+      "object_type": "email",
+      "payload": [
+        "last_edited_version"
+      ],
+      "producer": "draft_edit",
+      "clauses": [
+        "BIZ-11"
+      ],
+      "status": "built",
+      "carrier": "drafts",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "email.draft_saved",
+      "name": "草稿已暂存（L2）",
+      "category": "human_action",
+      "object_type": "email",
+      "payload": [
+        "last_edited_version",
+        "draft_status"
+      ],
+      "producer": "draft_save",
+      "clauses": [
+        "BIZ-11"
+      ],
+      "status": "built",
+      "carrier": "drafts",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "mailbox.authorized",
+      "name": "邮箱已授权",
+      "category": "human_action",
+      "object_type": "mailbox",
+      "payload": [
+        "responsible_status",
+        "brand_scope"
+      ],
+      "producer": "mailbox_governance",
+      "clauses": [
+        "BIZ-04",
+        "domain-objects §2.5"
+      ],
+      "status": "partial",
+      "carrier": "mailbox_owners（远端镜像）",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "mailbox.transferred",
+      "name": "邮箱已移交",
+      "category": "human_action",
+      "object_type": "mailbox",
+      "payload": [
+        "responsible_status",
+        "brand_scope"
+      ],
+      "producer": "mailbox_governance",
+      "clauses": [
+        "BIZ-04",
+        "domain-objects §2.5"
+      ],
+      "status": "partial",
+      "carrier": "mailbox_owners（远端镜像）",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "mailbox.disabled",
+      "name": "邮箱已停用",
+      "category": "human_action",
+      "object_type": "mailbox",
+      "payload": [
+        "responsible_status"
+      ],
+      "producer": "mailbox_governance",
+      "clauses": [
+        "BIZ-04",
+        "domain-objects §2.5"
+      ],
+      "status": "partial",
+      "carrier": "mailbox_owners（远端镜像）",
+      "source_ref": "事件清单 §6"
+    },
+    {
+      "code": "task.created",
+      "name": "任务已创建",
+      "category": "human_action",
+      "object_type": "follow_task",
+      "payload": [
+        "owner",
+        "object_ref",
+        "basis",
+        "due_at",
+        "summary",
+        "next_step"
+      ],
+      "producer": "task_intake",
+      "clauses": [
+        "BIZ-16",
+        "任务篇 §2.1"
+      ],
+      "status": "built",
+      "carrier": "task_events + work_items",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.candidate_created",
+      "name": "任务候选已生成",
+      "category": "authorized_auto",
+      "object_type": "follow_task",
+      "payload": [
+        "adoption_audit"
+      ],
+      "producer": "task_candidate",
+      "clauses": [
+        "BIZ-16",
+        "PROD-AGENT-08",
+        "ADR-2026-09-28（候选推荐）"
+      ],
+      "status": "built",
+      "carrier": "employee_today_briefs + employee_todo_briefs",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.assigned",
+      "name": "任务已分配",
+      "category": "human_action",
+      "object_type": "follow_task",
+      "payload": [
+        "assignee"
+      ],
+      "producer": "task_assign",
+      "clauses": [
+        "BIZ-16"
+      ],
+      "status": "built",
+      "carrier": "work_items + task_events",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.reassigned",
+      "name": "任务已转办",
+      "category": "human_action",
+      "object_type": "follow_task",
+      "payload": [
+        "owner_before",
+        "owner_after"
+      ],
+      "producer": "task_transfer",
+      "clauses": [
+        "BIZ-16"
+      ],
+      "status": "partial",
+      "carrier": "work_items + audit_events",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.queued",
+      "name": "任务已排队",
+      "category": "system_job",
+      "object_type": "follow_task",
+      "payload": [
+        "queue_reason",
+        "auto_start"
+      ],
+      "producer": "task_queue",
+      "clauses": [
+        "ADR-2026-09-30",
+        "PROD-AGENT-09"
+      ],
+      "status": "built",
+      "carrier": "task_events",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "run.started",
+      "name": "任务已开始执行",
+      "category": "system_job",
+      "object_type": "run_record",
+      "payload": [],
+      "producer": "run_queue",
+      "clauses": [
+        "ADR-2026-09-30"
+      ],
+      "status": "built",
+      "carrier": "task_runs + task_events",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.completed",
+      "name": "任务已成功",
+      "category": "system_job",
+      "object_type": "follow_task",
+      "payload": [
+        "result_generated",
+        "terminal_readable"
+      ],
+      "producer": "run_queue",
+      "clauses": [
+        "ADR-2026-09-30"
+      ],
+      "status": "built",
+      "carrier": "task_events + work_items",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.failed",
+      "name": "任务已失败",
+      "category": "system_job",
+      "object_type": "follow_task",
+      "payload": [
+        "failure_reason",
+        "recovery_entry"
+      ],
+      "producer": "run_queue",
+      "clauses": [
+        "ADR-2026-09-30",
+        "PROD-AGENT-09"
+      ],
+      "status": "built",
+      "carrier": "task_events + work_items",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "run.stopped",
+      "name": "任务已停止",
+      "category": "human_action",
+      "object_type": "run_record",
+      "payload": [
+        "retained_content",
+        "rerunnable"
+      ],
+      "producer": "run_control",
+      "clauses": [
+        "ADR-2026-09-30"
+      ],
+      "status": "built",
+      "carrier": "task_runs + task_events",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.cancelled",
+      "name": "任务已取消",
+      "category": "human_action",
+      "object_type": "follow_task",
+      "payload": [],
+      "producer": "task_cancel",
+      "clauses": [
+        "ADR-2026-09-30"
+      ],
+      "status": "built",
+      "carrier": "task_events + work_items",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.accepted",
+      "name": "任务已完成",
+      "category": "human_action",
+      "object_type": "follow_task",
+      "payload": [
+        "acceptance_criteria"
+      ],
+      "producer": "task_acceptance",
+      "clauses": [
+        "BIZ-16"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.overdue",
+      "name": "任务已逾期",
+      "category": "authorized_auto",
+      "object_type": "follow_task",
+      "payload": [],
+      "producer": "overdue_scan",
+      "clauses": [
+        "任务篇"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "task.escalated",
+      "name": "任务已升级",
+      "category": "authorized_auto",
+      "object_type": "follow_task",
+      "payload": [],
+      "producer": "overdue_escalation",
+      "clauses": [
+        "任务篇"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §7"
+    },
+    {
+      "code": "approval.submitted",
+      "name": "审批已提交",
+      "category": "human_action",
+      "object_type": "approval",
+      "payload": [
+        "applicant",
+        "object_ref",
+        "amount",
+        "currency",
+        "purpose",
+        "policy_version",
+        "fx_rate",
+        "fx_date",
+        "fx_source"
+      ],
+      "producer": "business_approval",
+      "clauses": [
+        "BIZ-14"
+      ],
+      "status": "built",
+      "carrier": "approvals + audit_events",
+      "source_ref": "事件清单 §8"
+    },
+    {
+      "code": "approval.approved",
+      "name": "审批已通过",
+      "category": "human_action",
+      "object_type": "approval",
+      "payload": [
+        "decision",
+        "approver",
+        "decided_at",
+        "idempotency_key"
+      ],
+      "producer": "approval_decision",
+      "clauses": [
+        "BIZ-14",
+        "org-permissions"
+      ],
+      "status": "built",
+      "carrier": "approvals + audit_events",
+      "source_ref": "事件清单 §8"
+    },
+    {
+      "code": "approval.rejected",
+      "name": "审批已拒绝",
+      "category": "human_action",
+      "object_type": "approval",
+      "payload": [
+        "reason"
+      ],
+      "producer": "approval_decision",
+      "clauses": [
+        "BIZ-14",
+        "BIZ-15"
+      ],
+      "status": "built",
+      "carrier": "approvals + audit_events",
+      "source_ref": "事件清单 §8"
+    },
+    {
+      "code": "risk.identified",
+      "name": "风险已识别",
+      "category": "authorized_auto",
+      "object_type": "risk",
+      "payload": [
+        "risk_type",
+        "evidence",
+        "uncertainty"
+      ],
+      "producer": "risk_scan",
+      "clauses": [
+        "BIZ-13"
+      ],
+      "status": "partial",
+      "carrier": "cron_runs + work_items.risk_level",
+      "source_ref": "事件清单 §9"
+    },
+    {
+      "code": "risk.resolved",
+      "name": "风险已解除",
+      "category": "human_action",
+      "object_type": "risk",
+      "payload": [
+        "resolution_basis"
+      ],
+      "producer": "risk_resolve",
+      "clauses": [
+        "BIZ-13"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §9"
+    },
+    {
+      "code": "risk.scan_completed",
+      "name": "风险扫描已完成",
+      "category": "system_job",
+      "object_type": "risk",
+      "payload": [
+        "scheduled_rule",
+        "retryable"
+      ],
+      "producer": "risk_scan",
+      "clauses": [
+        "BUSINESS 技能表（risk_scan）",
+        "PROD-PLAT-06"
+      ],
+      "status": "partial",
+      "carrier": "cron_runs + cron_jobs",
+      "source_ref": "事件清单 §9"
+    },
+    {
+      "code": "project.created",
+      "name": "项目已创建",
+      "category": "human_action",
+      "object_type": "project",
+      "payload": [
+        "name",
+        "company_brand_scope",
+        "owner",
+        "goal",
+        "status"
+      ],
+      "producer": "project_create",
+      "clauses": [
+        "BIZ-19"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §10"
+    },
+    {
+      "code": "campaign.created",
+      "name": "活动已创建",
+      "category": "human_action",
+      "object_type": "campaign",
+      "payload": [
+        "name",
+        "company_brand_scope",
+        "owner",
+        "goal",
+        "status",
+        "project_ref"
+      ],
+      "producer": "campaign_create",
+      "clauses": [
+        "BIZ-19"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §10"
+    },
+    {
+      "code": "cost.recorded",
+      "name": "用量已记录（成本）",
+      "category": "system_job",
+      "object_type": "cost_event",
+      "payload": [
+        "source",
+        "is_estimate",
+        "aggregation_scope"
+      ],
+      "producer": "cost_recorder",
+      "clauses": [
+        "PROD-PLAT-08",
+        "ADR-2026-09-29"
+      ],
+      "status": "built",
+      "carrier": "cost_events",
+      "source_ref": "事件清单 §10"
+    },
+    {
+      "code": "budget.threshold_triggered",
+      "name": "预算阈值已触发",
+      "category": "authorized_auto",
+      "object_type": "cost_event",
+      "payload": [
+        "threshold_percent",
+        "hard_stop",
+        "reason",
+        "recovery_entry"
+      ],
+      "producer": "budget_guard",
+      "clauses": [
+        "PROD-PLAT-08"
+      ],
+      "status": "partial",
+      "carrier": "cost_budgets + audit_events",
+      "source_ref": "事件清单 §10"
+    },
+    {
+      "code": "budget.changed",
+      "name": "预算已变更",
+      "category": "human_action",
+      "object_type": "cost_event",
+      "payload": [
+        "operator",
+        "scope",
+        "version_before",
+        "version_after",
+        "changed_at"
+      ],
+      "producer": "budget_update",
+      "clauses": [
+        "PROD-PLAT-08"
+      ],
+      "status": "partial",
+      "carrier": "cost_budgets + audit_events",
+      "source_ref": "事件清单 §10"
+    },
+    {
+      "code": "report.generated",
+      "name": "报表已生成（按项目／活动汇总）",
+      "category": "authorized_auto",
+      "object_type": "report",
+      "payload": [
+        "scope",
+        "period",
+        "currency",
+        "source",
+        "calculation_basis",
+        "updated_at"
+      ],
+      "producer": "report_generate",
+      "clauses": [
+        "BIZ-17",
+        "BIZ-19"
+      ],
+      "status": "designed",
+      "carrier": "待建",
+      "source_ref": "事件清单 §10"
+    },
+    {
+      "code": "index.updated",
+      "name": "索引已更新",
+      "category": "derived",
+      "object_type": "kol_index",
+      "payload": [
+        "source",
+        "source_version"
+      ],
+      "producer": "memory_index",
+      "clauses": [
+        "PROD-AGENT-07"
+      ],
+      "status": "built",
+      "carrier": "kol_profile_index + kol_follow_index",
+      "source_ref": "事件清单 §11"
+    },
+    {
+      "code": "summary.updated",
+      "name": "摘要已更新",
+      "category": "derived",
+      "object_type": "mail_summary",
+      "payload": [
+        "participants",
+        "time_range",
+        "key_agreements",
+        "open_questions",
+        "next_step",
+        "mail_refs"
+      ],
+      "producer": "summary_job",
+      "clauses": [
+        "BIZ-18",
+        "PROD-AGENT-07"
+      ],
+      "status": "built",
+      "carrier": "kol_thread_summary",
+      "source_ref": "事件清单 §11"
+    },
+    {
+      "code": "summary.failed_marked_stale",
+      "name": "摘要已失败并标记过期",
+      "category": "derived",
+      "object_type": "mail_summary",
+      "payload": [
+        "old_summary_retained",
+        "stale_label"
+      ],
+      "producer": "summary_job",
+      "clauses": [
+        "PROD-AGENT-07"
+      ],
+      "status": "partial",
+      "carrier": "kol_thread_summary + kol_mail_items（memory_error）",
+      "source_ref": "事件清单 §11"
+    },
+    {
+      "code": "memory.recorded",
+      "name": "记忆已记录",
+      "category": "derived",
+      "object_type": "memory_entry",
+      "payload": [
+        "direct_memory_service",
+        "no_thread_or_turn"
+      ],
+      "producer": "memory_service",
+      "clauses": [
+        "CONST-07",
+        "PROD-AGENT-01/04"
+      ],
+      "status": "built",
+      "carrier": "memory_entries",
+      "source_ref": "事件清单 §11"
+    },
+    {
+      "code": "memory.updated",
+      "name": "记忆已修改",
+      "category": "derived",
+      "object_type": "memory_entry",
+      "payload": [
+        "direct_memory_service",
+        "no_thread_or_turn"
+      ],
+      "producer": "memory_service",
+      "clauses": [
+        "CONST-07",
+        "PROD-AGENT-01/04"
+      ],
+      "status": "built",
+      "carrier": "memory_entries",
+      "source_ref": "事件清单 §11"
+    },
+    {
+      "code": "memory.deleted",
+      "name": "记忆已删除",
+      "category": "derived",
+      "object_type": "memory_entry",
+      "payload": [
+        "direct_memory_service",
+        "no_thread_or_turn"
+      ],
+      "producer": "memory_service",
+      "clauses": [
+        "CONST-07",
+        "PROD-AGENT-01/04"
+      ],
+      "status": "built",
+      "carrier": "memory_entries",
+      "source_ref": "事件清单 §11"
+    }
+  ]
+}

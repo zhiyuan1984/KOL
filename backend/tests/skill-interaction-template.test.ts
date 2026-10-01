@@ -207,7 +207,7 @@ describe("template and runtime version binding", () => {
     const res = await request("POST", "/api/tasks", { task_type: skillId, input: { skill_template_version: "old" } });
     expect(res.status).toBe(409);
     expect(JSON.stringify(res.body)).toContain("skill_template_version_conflict");
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type=?").get(skillId)).toMatchObject({ n: 0 });
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(skillId)).toMatchObject({ n: 0 });
   });
 
   it("retains the task snapshot after SOP changes and blocks execution of a different pair", async () => {
@@ -228,7 +228,7 @@ describe("template and runtime version binding", () => {
     const res = await request("POST", `/api/sessions/${queued.body.session_id}/messages`, queued.body.pending_message);
     expect(res.status).toBe(409);
     expect(JSON.stringify(res.body)).toContain("skill_template_version_conflict");
-    expect(getConn().prepare("SELECT status FROM work_items WHERE id=?").get(created.body.id)).toMatchObject({ status: "needs_clarification" });
+    expect(getConn().prepare("SELECT status FROM tickets WHERE id=?").get(created.body.id)).toMatchObject({ status: "needs_clarification" });
   });
 
   it("mounts the shared schema and boundaries for Codex even with an SOP overlay", () => {

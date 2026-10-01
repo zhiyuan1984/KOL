@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "generated_from": [
+    "docs/ontop/前后端设计-员工端与管理端.md",
+    "docs/ontop/概念设计方案.md",
+    "docs/ontop/KOL项目技能（Skill）清单.md",
+    "docs/superpowers/specs/2026-10-01-ontology-three-tables-design.md"
+  ],
+  "note": "票型目录是工单（tickets）分类的唯一真相源；match.task_type 只能引用真实存在的技能或内置任务类型。新增票种只改本文件。",
+  "kinds": [
+    {
+      "code": "service",
+      "name": "客服工单",
+      "desc": "面向 KOL 的沟通与答疑：邮件撰写、会话查阅、回复分析与归档（「客服」在 KOL 场景即对上下游的往来处理）。",
+      "match": {
+        "task_type": [
+          "email_compose",
+          "email_conversation_read",
+          "email_conversation_list",
+          "email_app_conversation_list",
+          "email_mailbox_list",
+          "reply_analysis",
+          "mail_summary",
+          "mail_translate",
+          "deal_memory"
+        ]
+      },
+      "clauses": ["BIZ-04", "BIZ-11", "BIZ-13"],
+      "source_ref": "概念设计方案 §四（任务=工单）；Skill 清单 §二（建联/邮件族技能）"
+    },
+    {
+      "code": "follow_up",
+      "name": "跟进工单",
+      "desc": "建联、跟进、档案与阶段建议类工作：外联、每日任务、负责人与状态更新、画像分析、阶段 SOP 建议。",
+      "match": {
+        "task_type": [
+          "creator_outreach",
+          "creator_daily_tasks",
+          "creator_owner_update",
+          "creator_status_update",
+          "creator_profile",
+          "kol_analyze",
+          "creator_risk_conversations",
+          "creator_scoring",
+          "stage_sop",
+          "sop_initial_contact",
+          "sop_interested",
+          "sop_evaluating",
+          "sop_negotiating",
+          "sop_quote_pending",
+          "sop_plan_pending"
+        ]
+      },
+      "clauses": ["BIZ-05", "BIZ-06", "BIZ-16"],
+      "source_ref": "属性清单 §2.5（任务）；Skill 清单 §二（建联/评估族技能）"
+    },
+    {
+      "code": "delivery",
+      "name": "履约交付工单",
+      "desc": "合同、寄样、测试、内容与结算全链的履约交付工作（阶段 SOP 覆盖段）。",
+      "match": {
+        "task_type": [
+          "sop_contracting",
+          "sop_sample_pending",
+          "sop_shipped",
+          "sop_testing",
+          "sop_content_planning",
+          "sop_content_review",
+          "sop_publish_pending",
+          "sop_published",
+          "sop_settling"
+        ]
+      },
+      "clauses": ["BIZ-08", "BIZ-09", "BIZ-15"],
+      "source_ref": "Skill 清单 §二（内容/寄样/结算族技能）；stage-transitions §1"
+    },
+    {
+      "code": "approval",
+      "name": "审批工单",
+      "desc": "业务审批与受控动作（费用、阶段、内容、结算、解密等）的决定类工单。",
+      "match": {
+        "task_type": ["business_approval", "confirm_stage"]
+      },
+      "clauses": ["BIZ-12", "BIZ-14"],
+      "source_ref": "BIZ-14；属性清单 §2.12"
+    },
+    {
+      "code": "risk",
+      "name": "风险工单",
+      "desc": "失联、延期、内容风险等业务风险的识别与处置类工单。",
+      "match": {
+        "task_type": ["risk_scan"]
+      },
+      "clauses": ["BIZ-13"],
+      "source_ref": "属性清单 §2.13；事件清单 §9"
+    },
+    {
+      "code": "crawl",
+      "name": "采集工单",
+      "desc": "MediaCrawler 异步采集作业：同一时间只跑一个采集任务，须有进度、取消、重试与真实终态。",
+      "match": {
+        "task_type": ["creator_discovery", "discovery_crawl"]
+      },
+      "clauses": ["BIZ-10", "07-mcp"],
+      "source_ref": "BIZ-10；07-mcp-data-contract（真实调用规则）"
+    },
+    {
+      "code": "discovery",
+      "name": "发现工单",
+      "desc": "AI 发现与简报/计划类工单（读取类产物）。",
+      "match": {
+        "task_type": ["discovery_brief", "discovery_plan"]
+      },
+      "clauses": ["BIZ-10", "PROD-AGENT-08"],
+      "source_ref": "概念设计方案 §2.2（发现载体）"
+    },
+    {
+      "code": "planning",
+      "name": "规划工单",
+      "desc": "今日/待办规划与每日业务分析类内置工单。",
+      "match": {
+        "task_type": ["today_plan", "todo_plan", "today_analyze"]
+      },
+      "clauses": ["PROD-AGENT-08", "PROD-PLAT-06"],
+      "source_ref": "概念设计方案 §八（workspace-planner 载体）"
+    },
+    {
+      "code": "library",
+      "name": "数据工单",
+      "desc": "红人库与报表类查询/同步工单（只读或受控同步）。",
+      "match": {
+        "task_type": [
+          "creator_library_query",
+          "creator_library_all",
+          "creator_library_sync",
+          "creator_filter_options",
+          "creator_lifecycle_kanban",
+          "creator_budget_report"
+        ]
+      },
+      "clauses": ["BIZ-17", "BIZ-18"],
+      "source_ref": "BIZ-17；概念设计方案 §2.2（B18 报表）"
+    },
+    {
+      "code": "general",
+      "name": "通用工单",
+      "desc": "兜底票型：未显式归类的任务（如敏感解密等单点受控动作）。",
+      "match": {
+        "task_type": ["creator_contact_decrypt"]
+      },
+      "clauses": ["BIZ-14", "07-mcp"],
+      "source_ref": "07-mcp-data-contract（解密属 L3 受控动作）"
+    }
+  ],
+  "channels": [
+    {
+      "code": "email",
+      "name": "邮件工单",
+      "desc": "由邮件往来触发或针对邮件会话的工单（优先级最高：命中邮件族 task_type 即为邮件渠道）。",
+      "order": 1,
+      "match": {
+        "task_type": [
+          "email_compose",
+          "email_conversation_read",
+          "email_conversation_list",
+          "email_app_conversation_list",
+          "email_mailbox_list",
+          "reply_analysis",
+          "mail_summary",
+          "mail_translate"
+        ]
+      },
+      "clauses": ["BIZ-04", "BIZ-11"],
+      "source_ref": "属性清单 §2.6（邮件）"
+    },
+    {
+      "code": "system",
+      "name": "系统提单",
+      "desc": "由定时/规则/后台作业产生的工单（规划、发现、采集容器等）。",
+      "order": 2,
+      "match": {
+        "source": ["schedule", "planning", "discovery", "home_discovery"]
+      },
+      "clauses": ["PROD-PLAT-06"],
+      "source_ref": "PROD-PLAT-06（自动任务）；work_items.source 取值"
+    },
+    {
+      "code": "agent",
+      "name": "Agent 提单",
+      "desc": "由 AI 建议产生、经员工采纳（promote）后进入待办的工单。",
+      "order": 3,
+      "match": {
+        "source": ["ai"]
+      },
+      "clauses": ["BIZ-16", "PROD-AGENT-08"],
+      "source_ref": "BIZ-16（未授权 AI 建议保持候选）；work_items.source=ai"
+    },
+    {
+      "code": "human",
+      "name": "人工提单",
+      "desc": "员工手动创建（表单/文本/入队）的工单；兜底渠道。",
+      "order": 99,
+      "fallback": true,
+      "match": {
+        "source": ["manual", "text", "kol-analyze-enqueue"]
+      },
+      "clauses": ["BIZ-16"],
+      "source_ref": "work_items.source 取值（manual/text/kol-analyze-enqueue）"
+    }
+  ]
+}

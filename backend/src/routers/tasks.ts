@@ -19,6 +19,7 @@ import { applyKolAnalyzeAction, KOL_ANALYZE_TASK_TYPE } from "../host/kol-memory
 import { extractTaskFieldUpdates, type TaskFieldUpdates } from "../tasks/openai-intent.js";
 import { parseTaskFieldUpdatesFallback } from "../tasks/task-field-updates.js";
 import { parseTaskRecommendationCandidate } from "../host/task-recommendations.js";
+import { ensureTicketForWorkItem, ticketStatusFromWorkItem } from "../tickets.js";
 
 export const tasks = new Hono();
 
@@ -110,6 +111,10 @@ function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinit
     skill_template: template,
     entities: parseJson(row.entities),
     ...(discoveryRun?.id ? { discovery_run_id: discoveryRun.id } : {}),
+    ticket_id: String(row.id),
+    ticket_kind: row.kind ? String(row.kind) : null,
+    ticket_channel: row.channel ? String(row.channel) : null,
+    ticket_status: ticketStatusFromWorkItem(String(row.status)),
   };
 }
 
@@ -183,7 +188,7 @@ function parseLimit(raw: string | undefined, fallback = 50): number {
 }
 
 function ownedWorkItem(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM work_items WHERE id=?").get(id) as Row | undefined;
+  const row = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(id) as Row | undefined;
   if (!row) throw new HttpFail(404, "task not found");
   if (!isAdmin() && String(row.owner_user_id) !== ownerId()) throw new HttpFail(404, "task not found");
   return row;
@@ -238,7 +243,7 @@ function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; a
   if (!applied.length) return { task: publicWorkItem(item), applied };
   const now = nowIso();
   tx((db) => {
-    db.prepare(`UPDATE work_items SET ${sets.join(",")},updated_at=?,data_version=data_version+1 WHERE id=?`)
+    db.prepare(`UPDATE tickets SET ${sets.join(",")},updated_at=?,data_version=data_version+1 WHERE id=?`)
       .run(...values, now, item.id);
   });
   const names = applied.map((field) => TASK_FIELD_LABELS[field] || field).join("、");
@@ -256,7 +261,7 @@ function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; a
 
 /** Shared guard: the work item (and run, when given) must still exist. */
 function taskEventTarget(db: SqliteConn, workItemId: string, runId: string | null): boolean {
-  const item = db.prepare("SELECT id FROM work_items WHERE id=?").get(workItemId) as
+  const item = db.prepare("SELECT id FROM tickets WHERE id=?").get(workItemId) as
     | { id: string }
     | undefined;
   if (!item) return false;
@@ -426,7 +431,7 @@ function createWorkItem(body: Json, source: string): Json {
   const owner = ownerId();
   tx((db) => {
     db.prepare(
-      `INSERT INTO work_items
+      `INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
         collaboration_id,session_id,due_at,start_date,content,risk_level,input,entities,data_version,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -437,6 +442,7 @@ function createWorkItem(body: Json, source: string): Json {
       startDate, content, riskLevel,
       JSON.stringify(input), JSON.stringify(resolution.entities), 1, now, now,
     );
+    ensureTicketForWorkItem(id, { conn: db });
   });
   appendTaskEvent(id, null, "task.created", definition.title, status,
     resolution.missing_fields.length ? `缺少：${formatMissingFields(resolution.missing_fields)}` : "任务已创建");
@@ -483,14 +489,14 @@ tasks.get("/agent-manifest", (c) => {
 /**
  * Cheap "did anything the list reads change" fingerprint. MAX(rowid) is O(1)
  * on the implicit rowid index; MAX(updated_at) rides the new
- * work_items(owner_user_id, updated_at) index. Any write that moves it drops
+ * tickets(owner_user_id, updated_at) index. Any write that moves it drops
  * the cached projection immediately instead of waiting out the TTL.
  */
 function tasksEpoch(): string {
   const row = getConn().prepare(
     `SELECT (SELECT MAX(rowid) FROM task_events) AS events,
-            (SELECT MAX(updated_at) FROM work_items) AS work_items,
-            (SELECT COUNT(*) FROM work_items) AS work_item_count,
+            (SELECT MAX(updated_at) FROM tickets) AS work_items,
+            (SELECT COUNT(*) FROM tickets) AS work_item_count,
             (SELECT COUNT(*) FROM collaborations) AS collaborations`,
   ).get() as { events: number | null; work_items: string | null; work_item_count: number; collaborations: number };
   return pollEpoch([row.events, row.work_items, row.work_item_count, row.collaborations]);
@@ -532,12 +538,12 @@ tasks.get("/tasks", (c) => {
   const payload = cachedPoll(cacheKey, tasksEpoch(), () => {
     const definitions = taskDefinitionIndex();
     const total = openView
-      ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM work_items ${where}`).get(...values) as { c: number }).c || 0)
+      ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM tickets ${where}`).get(...values) as { c: number }).c || 0)
       : 0;
     const rows = getConn().prepare(
       openView
-        ? `SELECT * FROM work_items ${where} ORDER BY ${order[sort]} LIMIT ?`
-        : `SELECT * FROM work_items ${where} ORDER BY ${order[sort]}`,
+        ? `SELECT * FROM tickets ${where} ORDER BY ${order[sort]} LIMIT ?`
+        : `SELECT * FROM tickets ${where} ORDER BY ${order[sort]}`,
     ).all(...(openView ? [...values, limit] : values)) as Row[];
     const ids = rows.map((row) => String(row.id));
     const lastByTask = openView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
@@ -623,7 +629,7 @@ function findDuplicateTodoRow(owner: string, suggestion: {
   collaboration_id?: string | null;
 }): Row | undefined {
   const rows = getConn().prepare(
-    "SELECT * FROM work_items WHERE owner_user_id=? AND dismissed_at IS NULL ORDER BY updated_at DESC",
+    "SELECT * FROM tickets WHERE owner_user_id=? AND dismissed_at IS NULL ORDER BY updated_at DESC",
   ).all(owner) as Row[];
   const recId = normDedupe(suggestion.id);
   const title = normDedupe(suggestion.title);
@@ -690,7 +696,7 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
       const nextTitle = candidate.title;
       tx((db) => {
         db.prepare(
-          "UPDATE work_items SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,title=CASE WHEN ?!='' THEN ? ELSE title END,updated_at=?,data_version=data_version+1 WHERE id=?",
+          "UPDATE tickets SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,title=CASE WHEN ?!='' THEN ? ELSE title END,updated_at=?,data_version=data_version+1 WHERE id=?",
         ).run(now, nextTitle, nextTitle, now, item.id);
       });
       if (!item.promoted_at) {
@@ -730,7 +736,7 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
   const now = nowIso();
   tx((db) => {
     db.prepare(
-      "UPDATE work_items SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,updated_at=? WHERE id=?",
+      "UPDATE tickets SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,updated_at=? WHERE id=?",
     ).run(now, now, created.id);
   });
   appendTaskEvent(String(created.id), null, "task.adopted", "采纳为待办", String(created.status), "今天推荐已写入正式待办");
@@ -862,7 +868,7 @@ tasks.post("/tasks/from-text", async (c) => {
 
 tasks.get("/tasks/by-session/:sid", (c) => {
   const row = getConn().prepare(
-    "SELECT * FROM work_items WHERE session_id=? ORDER BY updated_at DESC LIMIT 1",
+    "SELECT * FROM tickets WHERE session_id=? ORDER BY updated_at DESC LIMIT 1",
   ).get(c.req.param("sid")) as Row | undefined;
   if (!row) throw new HttpFail(404, "task not found");
   return c.json(publicWorkItem(ownedWorkItem(String(row.id))));
@@ -927,7 +933,7 @@ tasks.post("/tasks/:id/run", async (c) => {
     input: runInput,
   });
   if (resolution.needs_clarification) {
-    getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
+    getConn().prepare("UPDATE tickets SET status='needs_clarification',updated_at=? WHERE id=?")
       .run(nowIso(), item.id);
     appendTaskEvent(String(item.id), null, "task.clarification", "还需要补充信息", "needs_clarification",
       resolution.missing_fields.length
@@ -949,7 +955,7 @@ tasks.post("/tasks/:id/run", async (c) => {
        (id,work_item_id,session_id,status,input,entities,created_at)
        VALUES (?,?,?,?,?,?,?)`,
     ).run(runId, item.id, sid, "pending", JSON.stringify(runInput), JSON.stringify(resolution.entities), now);
-    db.prepare("UPDATE work_items SET session_id=?,input=?,status='pending',updated_at=?,data_version=data_version+1 WHERE id=?")
+    db.prepare("UPDATE tickets SET session_id=?,input=?,status='pending',updated_at=?,data_version=data_version+1 WHERE id=?")
       .run(sid, JSON.stringify(runInput), now, item.id);
   });
   appendTaskEvent(String(item.id), runId, "run.pending", "任务已加入队列", "pending", "等待会话开始执行");
@@ -989,7 +995,7 @@ tasks.post("/tasks/:id/acknowledge", async (c) => {
   const nextStatus = status === "pending" || status === "queued" ? "in_progress" : status;
   tx((db) => {
     db.prepare(
-      `UPDATE work_items
+      `UPDATE tickets
        SET last_acted_at=?,
            acknowledged_at=COALESCE(acknowledged_at,?),
            status=?,
@@ -1022,7 +1028,7 @@ tasks.post("/tasks/:id/promote", async (c) => {
   const now = nowIso();
   tx((db) => {
     db.prepare(
-      "UPDATE work_items SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=?",
     ).run(now, now, item.id);
   });
   if (!item.promoted_at) {
@@ -1040,7 +1046,7 @@ tasks.post("/tasks/:id/dismiss", async (c) => {
   const now = nowIso();
   tx((db) => {
     db.prepare(
-      "UPDATE work_items SET dismissed_at=COALESCE(dismissed_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET dismissed_at=COALESCE(dismissed_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
     ).run(now, now, item.id);
   });
   if (!item.dismissed_at) {
@@ -1059,7 +1065,7 @@ tasks.post("/tasks/:id/cancel", async (c) => {
   }
   const now = nowIso();
   tx((db) => {
-    db.prepare("UPDATE work_items SET status='cancelled',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=?").run(now, now, item.id);
+    db.prepare("UPDATE tickets SET status='cancelled',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=?").run(now, now, item.id);
     db.prepare("UPDATE task_runs SET status='cancelled',completed_at=? WHERE work_item_id=? AND status IN ('pending','queued','running')").run(now, item.id);
   });
   appendTaskEvent(String(item.id), null, "task.cancelled", "任务已取消", "cancelled", "任务尚未开始执行，已从队列移除");
@@ -1099,7 +1105,7 @@ tasks.post("/tasks/:id/complete", async (c) => {
   const now = nowIso();
   tx((db) => {
     db.prepare(
-      "UPDATE work_items SET status=?,completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET status=?,completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=?",
     ).run(status, now, now, item.id);
     if (body.run_id) {
       db.prepare("UPDATE task_runs SET status=?,error=?,completed_at=? WHERE id=? AND work_item_id=?")

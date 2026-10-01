@@ -185,7 +185,7 @@ describe("PATCH /api/tasks/:id", () => {
     expect((await request("PATCH", "/api/tasks/tsk_missing", { title: "x" })).status).toBe(404);
     const now = new Date().toISOString();
     getConn().prepare(
-      `INSERT INTO work_items
+      `INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run("tsk_foreign", "usr_other", "risk_scan", "别人的任务", "manual", "pending", "normal",
@@ -232,12 +232,12 @@ describe("POST /api/tasks/:id/edit", () => {
   it("returns 422 without writing when nothing is recognized", async () => {
     const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "无法识别" });
     const id = String(created.body.id);
-    const before = getConn().prepare("SELECT data_version FROM work_items WHERE id=?").get(id) as { data_version: number };
+    const before = getConn().prepare("SELECT data_version FROM tickets WHERE id=?").get(id) as { data_version: number };
     const edited = await request("POST", `/api/tasks/${id}/edit`, { text: "今天天气真不错" });
     expect(edited.status).toBe(422);
     expect(edited.body.code).toBe("edit_not_recognized");
     expect(edited.body.message).toBe("没有识别出要修改的字段");
-    const after = getConn().prepare("SELECT data_version FROM work_items WHERE id=?").get(id) as { data_version: number };
+    const after = getConn().prepare("SELECT data_version FROM tickets WHERE id=?").get(id) as { data_version: number };
     expect(after.data_version).toBe(before.data_version);
     const events = getConn().prepare("SELECT COUNT(*) AS c FROM task_events WHERE work_item_id=? AND event_type='task.updated'")
       .get(id) as { c: number };

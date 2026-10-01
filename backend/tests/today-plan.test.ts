@@ -47,7 +47,7 @@ function insertWorkItem(row: {
 }) {
   const now = nowIso();
   getConn().prepare(
-    `INSERT INTO work_items
+    `INSERT INTO tickets
      (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
       collaboration_id,session_id,due_at,input,entities,data_version,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -168,7 +168,7 @@ describe("today_plan harness", () => {
     it("GET brief creates no session and does not call run", async () => {
       const run = vi.spyOn(runner, "runWorker");
       const beforeSessions = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
-      const beforeItems = Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type=?").get(taskType) as { n: number }).n);
+      const beforeItems = Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(taskType) as { n: number }).n);
       const res = await request("GET", briefPath);
       expect(res.status).toBe(200);
       expect(res.body.planning).toBe(false);
@@ -177,7 +177,7 @@ describe("today_plan harness", () => {
       expect(res.body.calls_model).toBe(false);
       expect(run).not.toHaveBeenCalled();
       expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions);
-      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(beforeItems);
+      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(beforeItems);
     });
 
     it("POST plan creates work_item+session and skips from-text recognition", async () => {
@@ -188,7 +188,7 @@ describe("today_plan harness", () => {
       expect(res.body.work_item_id).toBeTruthy();
       expect(res.body.session_id).toBeTruthy();
       expect(res.body.run_id).toBeTruthy();
-      const item = getConn().prepare("SELECT * FROM work_items WHERE id=?").get(res.body.work_item_id) as {
+      const item = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(res.body.work_item_id) as {
         task_type: string;
         source: string;
         session_id: string;
@@ -229,7 +229,7 @@ describe("today_plan harness", () => {
       expect(second.body.session_id).toBe("ses_running_plan");
       expect(first.body.work_item_id).toBe("tsk_running_plan");
       expect(second.body.work_item_id).toBe(first.body.work_item_id);
-      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(1);
+      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(1);
     });
   });
 
@@ -346,7 +346,7 @@ describe("today_plan harness", () => {
     expect(mount.skills).toEqual(["today_plan"]);
     expect(mount.forbidden).toEqual(expect.arrayContaining(["follow", "send", "confirm-stage"]));
     const res = await request("POST", "/api/home/today-brief/plan");
-    const item = getConn().prepare("SELECT input FROM work_items WHERE id=?").get(res.body.work_item_id) as { input: string };
+    const item = getConn().prepare("SELECT input FROM tickets WHERE id=?").get(res.body.work_item_id) as { input: string };
     const input = JSON.parse(item.input) as Json;
     expect(input.mode).toBe("today_plan");
     expect(input.expert_id).toBe("platform:workspace-planner");
@@ -530,10 +530,10 @@ describe("stale planning watchdog", () => {
     getConn().prepare(
       "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
     ).run(`run_${id}`, `tsk_${id}`, `ses_${id}`, status, "{}", "{}", at, at);
-    getConn().prepare("UPDATE work_items SET created_at=?, updated_at=? WHERE id=?").run(at, at, `tsk_${id}`);
+    getConn().prepare("UPDATE tickets SET created_at=?, updated_at=? WHERE id=?").run(at, at, `tsk_${id}`);
   }
 
-  const statusOf = (table: "work_items" | "task_runs", id: string) =>
+  const statusOf = (table: "tickets" | "task_runs", id: string) =>
     String((getConn().prepare(`SELECT status FROM ${table} WHERE id=?`).get(id) as { status: string }).status);
 
   it("fails a planning run past the watchdog instead of capturing every later entry", () => {
@@ -543,7 +543,7 @@ describe("stale planning watchdog", () => {
     // The dead run must not be returned: returning it is what left the card
     // polling a plan that could never finish.
     expect(runningTodayPlan(owner(), "today")).toBeNull();
-    expect(statusOf("work_items", "tsk_stuck")).toBe("failed");
+    expect(statusOf("tickets", "tsk_stuck")).toBe("failed");
     expect(statusOf("task_runs", "run_stuck")).toBe("failed");
     // Failing it first is what frees `one_running_today_plan`, so a new plan can
     // actually be created afterwards.
@@ -560,7 +560,7 @@ describe("stale planning watchdog", () => {
   it("still attaches to a plan that is genuinely running", () => {
     insertPlanRun("live", "running", nowIso());
     expect(runningTodayPlan(owner(), "today")?.work_item_id).toBe("tsk_live");
-    expect(statusOf("work_items", "tsk_live")).toBe("running");
+    expect(statusOf("tickets", "tsk_live")).toBe("running");
   });
 
   it("boot reconcile fails open planning rows only", () => {
@@ -574,8 +574,8 @@ describe("stale planning watchdog", () => {
     expect(failed).toContain("tsk_boot_pending");
     expect(failed).not.toContain("tsk_boot_done");
     expect(failed).not.toContain("tsk_boot_other");
-    expect(statusOf("work_items", "tsk_boot_done")).toBe("completed");
-    expect(statusOf("work_items", "tsk_boot_other")).toBe("running");
+    expect(statusOf("tickets", "tsk_boot_done")).toBe("completed");
+    expect(statusOf("tickets", "tsk_boot_other")).toBe("running");
     // A reconciled plan no longer blocks a fresh one.
     expect(runningTodayPlan(owner(), "today")).toBeNull();
     expect(runningTodayPlan(owner(), "todo")).toBeNull();
@@ -640,7 +640,7 @@ describe("previous plan snapshot", () => {
     }).ok).toBe(true);
 
     insertWorkItem({ id: "tsk_failed_now", title: "本轮失败规划", task_type: "today_plan", status: "failed" });
-    getConn().prepare("UPDATE work_items SET created_at='2099-01-01T00:00:00.000Z' WHERE id='tsk_failed_now'").run();
+    getConn().prepare("UPDATE tickets SET created_at='2099-01-01T00:00:00.000Z' WHERE id='tsk_failed_now'").run();
 
     const snapshot = todayBriefSnapshot(owner(), "today");
     // The result pane keeps its last valid brief, while the folded row must be

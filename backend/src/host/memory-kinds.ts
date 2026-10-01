@@ -1,6 +1,6 @@
 /** Employee memories per plan scope. They update independently and must not upsert each other.
  *
- * task         = formal work_items (source != planning). Facts only.
+ * task         = formal tickets (source != planning). Facts only.
  * task_result  = Codex-processed rows used to RENDER the today list.
  * task_cover   = today_brief lead/sections/primary. Not the list.
  * todo_result  = Codex-processed rows used to RENDER the todo list.

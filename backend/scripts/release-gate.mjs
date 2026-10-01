@@ -50,6 +50,7 @@ const stubE2eEnv = {
 
 const steps = [
   { id: "kol-data", cwd: backend, command: process.execPath, args: ["scripts/validate-kol-data.mjs"] },
+  { id: "registry", cwd: backend, command: process.execPath, args: ["scripts/validate-registry.mjs", "--require-all"] },
   { id: "contracts-pilot", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs"] },
   ...(internal ? [] : [
     { id: "contracts-production", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs", "--production"] },

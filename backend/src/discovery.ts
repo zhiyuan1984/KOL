@@ -15,6 +15,7 @@ import {
 import { startCrawl, onCrawlJobSettled } from "./crawl/service.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "./crawl/platforms.js";
 import { audit, getConn, nowIso, tx } from "./db.js";
+import { ensureTicketForWorkItem } from "./tickets.js";
 import { recordDiscoveryFact } from "./host/discovery-facts.js";
 import { ingestFormalProfile } from "./host/kol-memory.js";
 import {
@@ -710,7 +711,7 @@ function createContainerWorkItem(input: {
   const now = nowIso();
   const title = `AI发现 · ${input.platform} · ${input.keywords.join(" ") || input.mode}`.slice(0, 200);
   getConn().prepare(
-    `INSERT INTO work_items
+    `INSERT INTO tickets
      (id,owner_user_id,task_type,title,source,status,priority,skill,profile,
       input,entities,data_version,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
@@ -734,6 +735,7 @@ function createContainerWorkItem(input: {
     now,
     now,
   );
+  ensureTicketForWorkItem(id);
   return id;
 }
 

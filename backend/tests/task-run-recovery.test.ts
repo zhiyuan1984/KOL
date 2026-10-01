@@ -37,7 +37,7 @@ async function createAndQueueTask() {
 }
 
 function workItemStatus(taskId: string): string {
-  return String((getConn().prepare("SELECT status FROM work_items WHERE id=?").get(taskId) as { status: string }).status);
+  return String((getConn().prepare("SELECT status FROM tickets WHERE id=?").get(taskId) as { status: string }).status);
 }
 
 function runRow(runId: string): { status: string; error: string | null } {
@@ -126,7 +126,7 @@ describe("task run lifecycle honesty", () => {
     // Simulate a worker that died with the previous process: the run row was
     // left running with no execution and no terminal event.
     getConn().prepare("UPDATE task_runs SET status='running',started_at=? WHERE id=?").run(nowIso(), runId);
-    getConn().prepare("UPDATE work_items SET status='running' WHERE id=?").run(taskId);
+    getConn().prepare("UPDATE tickets SET status='running' WHERE id=?").run(taskId);
     const touched = failInterruptedTaskRuns("Host 重启时该运行仍在执行");
     expect(touched).toContain(taskId);
     expect(workItemStatus(taskId)).toBe("failed");

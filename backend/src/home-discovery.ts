@@ -8,6 +8,7 @@
  */
 import { authDisabled, isAdmin, scopedUser } from "./auth.js";
 import { DEMO_USER } from "./config.js";
+import { ensureTicketForWorkItem } from "./tickets.js";
 import { avgViews10, candidateContactEmail, recentViewsOf } from "./discovery-import.js";
 import { emptyDiscoveryHint } from "./discovery-keywords.js";
 import {
@@ -585,7 +586,7 @@ function createWorkItem(input: {
   const id = nid("tsk");
   const now = nowIso();
   getConn().prepare(
-    `INSERT INTO work_items
+    `INSERT INTO tickets
      (id,owner_user_id,task_type,title,source,status,priority,skill,profile,
       session_id,input,entities,data_version,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
@@ -605,6 +606,7 @@ function createWorkItem(input: {
     now,
     now,
   );
+  ensureTicketForWorkItem(id);
   return id;
 }
 
@@ -635,7 +637,7 @@ function updateRunStatus(runId: string, status: string, extra: { error?: string 
             : "running";
     if (run.work_item_id) {
       getConn().prepare(
-        `UPDATE work_items
+        `UPDATE tickets
             SET status=?, completed_at=?, updated_at=?, data_version=data_version+1
           WHERE id=?`,
       ).run(
@@ -686,7 +688,7 @@ async function startHomeCrawl(run: Row): Promise<void> {
         WHERE id=?`,
     ).run(job.id, job.remote_task_id || null, nowIso(), nowIso(), run.id);
     getConn().prepare(
-      "UPDATE work_items SET status='running', completed_at=NULL, updated_at=?, data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET status='running', completed_at=NULL, updated_at=?, data_version=data_version+1 WHERE id=?",
     ).run(nowIso(), run.work_item_id);
     event(String(run.work_item_id || ""), "crawl_started", "crawling", "发现采集已开始");
   } catch (error) {
@@ -1170,7 +1172,7 @@ export async function createHomeDiscoveryPlan(body: Json): Promise<Json> {
      (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)
      VALUES (?,?,NULL,'discovery_spec',NULL,1,?,?)`,
   ).run(nid("art"), workItemId, JSON.stringify({ schema: "discovery_spec/v1", ...spec }), nowIso());
-  getConn().prepare("UPDATE work_items SET status='waiting',updated_at=? WHERE id=?").run(nowIso(), workItemId);
+  getConn().prepare("UPDATE tickets SET status='waiting',updated_at=? WHERE id=?").run(nowIso(), workItemId);
   return {
     entry: "think",
     task_type: "discovery_plan",

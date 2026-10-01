@@ -13,7 +13,7 @@ export function failInterruptedTaskRuns(reason: string): string[] {
   const rows = getConn().prepare(
     `SELECT r.id AS run_id, r.work_item_id AS work_item_id
        FROM task_runs r
-       JOIN work_items w ON w.id = r.work_item_id
+       JOIN tickets w ON w.id = r.work_item_id
       WHERE r.status = 'running'`,
   ).all() as { run_id: string; work_item_id: string }[];
   const touched: string[] = [];
@@ -24,7 +24,7 @@ export function failInterruptedTaskRuns(reason: string): string[] {
         "UPDATE task_runs SET status='failed',error=?,completed_at=? WHERE id=? AND status='running'",
       ).run(JSON.stringify({ code: "interrupted", message: reason }), now, row.run_id);
       db.prepare(
-        "UPDATE work_items SET status='failed',updated_at=?,data_version=data_version+1 WHERE id=? AND status IN ('running','in_progress','starting')",
+        "UPDATE tickets SET status='failed',updated_at=?,data_version=data_version+1 WHERE id=? AND status IN ('running','in_progress','starting')",
       ).run(now, row.work_item_id);
       return Number(run.changes) > 0;
     });

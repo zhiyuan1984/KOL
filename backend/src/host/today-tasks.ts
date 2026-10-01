@@ -132,7 +132,7 @@ function dropClosedItems(results: TodayTaskResults | null): TodayTaskResults | n
   const ids = results.items.map((item) => item.work_item_id);
   const placeholders = ids.map(() => "?").join(",");
   const rows = getConn().prepare(
-    `SELECT id, status, dismissed_at FROM work_items WHERE id IN (${placeholders})`,
+    `SELECT id, status, dismissed_at FROM tickets WHERE id IN (${placeholders})`,
   ).all(...ids) as Array<{ id: string; status?: unknown; dismissed_at?: unknown }>;
   const hostById = new Map(rows.map((row) => [String(row.id), row]));
   const items = results.items.filter((item) => {

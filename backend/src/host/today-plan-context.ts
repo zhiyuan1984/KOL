@@ -176,7 +176,7 @@ export function trimAdded(items: SourceItem[], cap = PLANNING_MAX_ADDED): Source
 
 function collectFormalTasks(owner: string): SourceItem[] {
   const rows = getConn().prepare(
-    "SELECT * FROM work_items WHERE owner_user_id=? ORDER BY updated_at DESC",
+    "SELECT * FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC",
   ).all(owner) as Row[];
   return rows.filter((row) => {
     if (isPlanningWorkItem(row)) return false;
@@ -203,7 +203,7 @@ function collectFailedRuns(owner: string): SourceItem[] {
   const rows = getConn().prepare(
     `SELECT r.*, w.title AS work_title, w.collaboration_id, w.task_type
        FROM task_runs r
-       JOIN work_items w ON w.id = r.work_item_id
+       JOIN tickets w ON w.id = r.work_item_id
       WHERE w.owner_user_id=? AND r.status='failed'
         AND w.task_type NOT IN (${planningPlaceholders})
       ORDER BY r.created_at DESC`,
@@ -262,7 +262,7 @@ function collectDiscoveryAnomalies(owner: string): SourceItem[] {
 
 function collectCorrespondence(owner: string): SourceItem[] {
   const rows = getConn().prepare(
-    `SELECT * FROM work_items
+    `SELECT * FROM tickets
       WHERE owner_user_id=? AND task_type IN ('email_compose','reply_analysis','email_conversation_read')
       ORDER BY updated_at DESC`,
   ).all(owner) as Row[];
@@ -282,7 +282,7 @@ function collectCorrespondence(owner: string): SourceItem[] {
 
 function collectFollowPlans(owner: string): SourceItem[] {
   const rows = getConn().prepare(
-    `SELECT * FROM work_items
+    `SELECT * FROM tickets
       WHERE owner_user_id=? AND (
         task_type IN ('creator_outreach','email_compose')
         OR title LIKE '%跟进%'
@@ -354,7 +354,7 @@ function filterTodoCatalog(catalog: SourceItem[]): SourceItem[] {
   if (!formalIds.length) return catalog.filter((item) => item.kind !== "formal_task");
   const placeholders = formalIds.map(() => "?").join(",");
   const rows = getConn().prepare(
-    `SELECT * FROM work_items WHERE id IN (${placeholders})`,
+    `SELECT * FROM tickets WHERE id IN (${placeholders})`,
   ).all(...formalIds) as Row[];
   const todayIds = new Set(rows.filter((row) => isTodayWorkItem(row)).map((row) => String(row.id)));
   return catalog.filter((item) => item.kind !== "formal_task" || !todayIds.has(String(item.work_item_id)));
@@ -435,7 +435,7 @@ export function loadLatestTodayBrief(owner = ownerId(), scope: PlanScope = "toda
   const latest = getConn().prepare(
     `SELECT a.id, a.payload, a.work_item_id
        FROM task_artifacts a
-       JOIN work_items w ON w.id = a.work_item_id
+       JOIN tickets w ON w.id = a.work_item_id
       WHERE w.owner_user_id=? AND a.artifact_type='today_brief' AND w.task_type=?
       ORDER BY a.created_at DESC LIMIT 1`,
   ).get(owner, planTaskType(scope)) as { id: string; payload: string; work_item_id: string } | undefined;

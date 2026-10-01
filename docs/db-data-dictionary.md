@@ -68,13 +68,14 @@
 | 5 | KOL 主数据·协作·阶段 | 12 | `kol_profile_index`、`kol_follow_index`、`kol_thread_summary`、`claw_creators`、`creator_candidates`、`creator_snapshots`、`ingestion_batches`、`retention_policy`、`stage_transitions`、`starry_sends`、`starry_stage_writes`、`wecom_cards` |
 | 6 | 采集与发现 | 7 | `crawl_jobs`、`crawl_job_events`、`discovery_requests`、`discovery_runs`、`discovery_memory_facts`、`discovery_ingest_receipts`、`discovery_ingest_confirms` |
 | 7 | 邮件 | 3 | `kol_mail_items`、`kol_mail_threads`、`kol_mail_seen` |
-| 8 | 任务运行时 | 4 | `work_items`、`task_runs`、`task_events`、`task_artifacts` |
+| 8 | 任务运行时 | 3 | `task_runs`、`task_events`、`task_artifacts`（原 `work_items` 已并入 `tickets`，见分组 14） |
 | 9 | 技能 | 12 | `skill_drafts`、`skill_flags`、`skill_grants`、`skill_lifecycle`、`skill_sops`、`skill_stage_history`、`skill_test_runs`、`skill_tests`、`skill_versions`、`runtime_agent_skills`、`runtime_skill_connectors`、`runtime_skill_tools` |
 | 10 | 知识 | 9 | `knowledge`、`knowledge_bindings`、`knowledge_citations`、`knowledge_deprecations`、`knowledge_extract_jobs`、`knowledge_grants`、`knowledge_proposals`、`knowledge_raw`、`knowledge_versions` |
 | 11 | 连接器运行时治理 | 13 | `runtime_connector_config`、`runtime_connector_organization_nodes`、`runtime_connector_organization_sync`、`runtime_connector_probes`、`runtime_connector_scope_bindings`、`runtime_connector_scope_modes`、`runtime_connector_scope_policies`、`runtime_connector_tool_inventory`、`runtime_credentials`、`runtime_tool_global_scopes`、`runtime_tool_policies`、`runtime_tool_scope_bindings`、`runtime_bootstrap_migrations` |
 | 12 | 评测考试 | 6 | `exams`、`exam_assignments`、`exam_attempts`、`exam_items`、`exam_qualifications`、`exam_snapshots` |
 | 13 | 成本·定时任务·记忆简报 | 8 | `cost_budgets`、`cost_events`、`cron_jobs`、`cron_runs`、`memory_entries`、`employee_memory_items`、`employee_today_briefs`、`employee_todo_briefs` |
-| — | **合计** | **100** | 另有 `sqlite_sequence`（SQLite 内部表）与 `stage_transitions` 的两个不可变触发器，见正文与附录。 |
+| 14 | 事实账本与工单（2026-10-01 本体三表） | 2 | `business_events`、`tickets`（工单表：原 `work_items` 已并入） |
+| — | **合计** | **101** | 另有 `sqlite_sequence`（SQLite 内部表）与 `stage_transitions`、`business_events` 的不可变触发器，见正文与附录。§一 的基准库扫描快照生成于本次换表之前，重扫前以分组 8 / 分组 14 为准。 |
 
 ---
 
@@ -1219,11 +1220,14 @@ KOL 往来邮件主线、会话线与已读标记。
 
 工作项、任务运行、任务事件与任务产物。
 
-### work_items — 工作项（任务）
+### work_items → tickets — 工单（任务运行与工单的统一记录）
 
-- **用途**：一张「工作项 / 任务」的正式记录，是员工端待办、今日任务与执行排队的唯一事实源。用户提交任务（文本、表单、定时、采纳推荐）、AI 发现生成容器任务、今日/待办规划生成规划任务时都会在此落一行；`task_runs`、`task_events`、`task_artifacts` 全部挂在它下面。
+> 换表（2026-10-01，DECISIONS ADR-2026-10-01 二）：原 `work_items` 已重命名为 `tickets`，票型列并入同表；`work_items` 表不再存在。
+> 本节字段说明适用于 `tickets` 的既有列；票型列（`kind`/`channel`/`requester_type`/`requester_id`/`object_type`/`object_id`/`kind_version`）见分组 14。
+
+- **用途**：一张「工单 / 任务」的正式记录，是员工端待办、今日任务与执行排队的唯一事实源。用户提交任务（文本、表单、定时、采纳推荐）、AI 发现生成容器任务、今日/待办规划生成规划任务时都会在此落一行；`task_runs`、`task_events`、`task_artifacts` 全部挂在它下面。
 - **主键 / 唯一约束**：`id`（主键）；另有两条**部分唯一索引**：`one_running_today_plan`（同一 owner 最多一个未结束的 `today_plan`）与 `one_running_todo_plan`（同一 owner 最多一个未结束的 `todo_plan`），谓词均为 `status IN ('pending','queued','running','in_progress','starting')`。
-- **关键索引**：`work_items_owner_updated`（`owner_user_id, updated_at DESC`）——`GET /api/tasks` 列表按 owner 排序读取；`work_items_owner_status`（`owner_user_id, status, updated_at`）——按状态筛选；两条部分唯一索引兼作规划任务的并发闸门。外键 `session_id→sessions(id)` 无显式索引。
+- **关键索引**：`tickets_owner_updated`（`owner_user_id, updated_at DESC`）——`GET /api/tasks` 列表按 owner 排序读取；`tickets_owner_status`（`owner_user_id, status, updated_at`）——按状态筛选；两条部分唯一索引兼作规划任务的并发闸门。外键 `session_id→sessions(id)` 无显式索引。
 - **写入方**：
   - `backend/src/routers/tasks.ts` — `createWorkItem()`（`POST /api/tasks`、`POST /api/tasks/from-text`）创建；`applyTaskUpdate()`（`PATCH /api/tasks/:id`、`POST /api/tasks/:id/edit`）更新 `title/content/status/priority/risk_level/start_date/due_at`；`POST /api/tasks/:id/run` 写 `session_id/input/status='pending'`；`/acknowledge`、`/promote`、`/dismiss`、`/cancel`、`/complete` 分别写 `last_acted_at`+`acknowledged_at`、`promoted_at`、`dismissed_at`、`status='cancelled'`、终态。
   - `backend/src/host/api.ts` — 会话执行期把任务推进到 `running`/`queued`/`stopped`/`failed`/`waiting`/`needs_clarification`（`startBoundTask`/`queueBoundTask`/`failBoundTask`/`cancelBoundTask`/`stoppedBoundTask`/`finishBoundTask`）。
@@ -2291,6 +2295,64 @@ KOL 往来邮件主线、会话线与已读标记。
 | `work_item_id` | TEXT | 非空，外键 | 工作项 ID | 生成该待办简报的 planning 工作项 `work_items.id`；级联删除。 |
 | `updated_at` | TEXT | 非空 | 更新时间 | ISO 8601 字符串，每次 upsert 指针时刷新。 |
 | `result_artifact_id` | TEXT | 可空 | 结果产物 ID | 指向待办任务执行结果 artifact；由 `today-tasks.ts` 回写，未执行过为 NULL。 |
+
+---
+
+## 十六、分组 14：事实账本与工单（2 张表，2026-10-01 本体三表新增）
+
+统一业务事件账本与独立工单表。设计契约：`docs/superpowers/specs/2026-10-01-ontology-three-tables-design.md`；机器可读目录：`config/objects-registry.yaml`、`config/event-catalog.yaml`、`config/ticket-types.yaml`。两表由 `backend/src/db.ts` `initSchema()` 与 `backend/migrations/018_business_events.sql`、`019_tickets.sql` 建立（本节的表数 / 字段数为本节事实，§一 的基准库扫描快照生成于新增两表之前）。
+
+### business_events — 统一业务事件（不可变事实账本）
+
+- **用途**：业务事实的统一账本（一表三用：触发器 / 账本 / 记忆源）。事件类型目录见 `config/event-catalog.yaml`（99 条，事件清单 §2–§11 全量）。本批接线两条：「阶段已前进 / 已回退 / 已进入异常 / 已离开异常 / 已完成 / 跨段前进」（`backend/src/adapters/starry.ts` `confirmStage()` 同事务）与「邮件已到达」（`backend/src/starrykol/mail-sync.ts` `rememberItem()`，仅 inbound）。
+- **主键 / 唯一约束**：`id`（主键，`nid("evt")`）；`business_events_idempotency` 为 `idempotency_key` 的部分唯一索引（非空时生效，重复提交以 `INSERT OR IGNORE` 去重、不落第二条）。
+- **关键索引**：`business_events_object`（`object_type, object_id, occurred_at`）；`business_events_type`（`event_type, occurred_at`）；`business_events_correlation`（`correlation_id`）。
+- **不可变**：`business_events_no_update` / `business_events_no_delete` 两个触发器，命中即 `RAISE(ABORT,'business_events are immutable')`；`backend/src/seed.ts` 重置演示数据时临时 DROP 再重建（仿 `stage_transitions`）。
+- **写入方**：`backend/src/business-events.ts` `appendBusinessEvent()`（目录白名单校验：默认容错并告警、`strict` 模式抛错；幂等键去重）；调用点见上。读取方：`listBusinessEvents()` 与 `GET /api/events`（`backend/src/routers/events.ts`，支持 `object_type` / `object_id` / `event_type` / `before` / `limit`，limit ≤ 200）。
+- **备注**：`occurred_at`（发生时间）与 `received_at`（接收时间）分开记录（TECH-BE-05）；本表是事实账本，正式状态仍以权威记录核验（BIZ-18）；其余域（任务 / 审批 / 采集 / 成本 / 发现）后续逐域迁入，分域表保持原职责不变。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 事件 ID | `nid("evt")` 生成，形如 `evt_...`。 |
+| `event_type` | TEXT | 非空 | 事件类型 | 取自 `config/event-catalog.yaml`（如 `stage.advanced`、`email.received`）；服务层白名单校验。 |
+| `object_type` | TEXT | 非空 | 主体对象类型 | 对象注册表 code（如 `collaboration`、`email`、`follow_task`）。 |
+| `object_id` | TEXT | 非空 | 主体对象 ID | 与 `object_type` 配对。 |
+| `occurred_at` | TEXT | 非空 | 发生时间 | ISO 8601；外部事实取来源时间，本地事实取写入时刻。 |
+| `received_at` | TEXT | 非空 | 接收时间 | ISO 8601；入库 / 接收时刻，与发生时间分开。 |
+| `source` | TEXT | 非空 | 来源 | 如 `starry`、`host`、`system`。 |
+| `source_version` | TEXT | 可空 | 来源版本 | 来源系统版本或快照标识；缺省 NULL。 |
+| `actor_type` | TEXT | 非空 | 执行者类型 | `human` / `agent` / `system` / `external`。 |
+| `actor_id` | TEXT | 可空 | 执行者 | 员工 handle、服务身份或外部来源标识。 |
+| `action_ref` | TEXT | 可空 | 关联动作 | Skill / 工具 / 命令名（如 `confirm_stage`）。 |
+| `payload` | TEXT | 非空，默认 `'{}'` | 载荷（JSON） | 事件关键字段快照。 |
+| `evidence` | TEXT | 非空，默认 `'{}'` | 证据（JSON） | 证据指针 / 结构化证据。 |
+| `receipt` | TEXT | 可空 | 外部回执（JSON） | 外部提交回执；无则 NULL。 |
+| `diff` | TEXT | 可空 | 前后 diff（JSON） | 变更类事件的前后差异；无则 NULL。 |
+| `idempotency_key` | TEXT | 可空 | 幂等键 | 非空时受部分唯一索引保护（重复提交被忽略、不重复副作用事件）。 |
+| `correlation_id` | TEXT | 可空 | 关联链 ID | 串联同一业务链（如 `lifecycle_id`、`thread_id`）。 |
+| `created_at` | TEXT | 非空 | 落库时间 | ISO 8601，写入时刻。 |
+
+### tickets — 工单（任务运行与工单的统一表）
+
+- **用途**：任务运行与工单的**唯一表**（2026-10-01 换表：原 `work_items` 已重命名并入本表，见「work_items → tickets」一节）。票型分类只来自 `config/ticket-types.yaml`（10 kinds × 4 channels；`kind` 含「客服工单」等业务类型，`channel` 含「邮件工单」）；执行运行 / 会话 / 产物由 `task_runs` / `sessions` / `task_artifacts` 承载。
+- **主键 / 唯一约束**：`id`（主键，`nid("tsk")`）；两条部分唯一索引 `one_running_today_plan` / `one_running_todo_plan`（见上一节）。
+- **关键索引**：`tickets_owner_updated`；`tickets_owner_status`；`tickets_status_updated`（`status, updated_at`）；`tickets_kind`；`tickets_channel`。
+- **外键**：`session_id → sessions(id) ON DELETE SET NULL`；子表 `task_runs` / `task_events` / `task_artifacts` / `employee_today_briefs` / `employee_todo_briefs` 的 `work_item_id` → `tickets(id)`（列名保留历史命名，语义即 tickets.id）。
+- **写入方**：任务创建 / 状态推进路径（`routers/tasks.ts`、`host/api.ts`、`host/today-plan-run.ts`、`crawl/service.ts`、`home-discovery.ts` 等）直接写本表；创建后由 `backend/src/tickets.ts` `ensureTicketForWorkItem()` 就地落票型分类（`kind`/`channel`/`requester_*`/`object_*`/`kind_version`，接线 5 处：建任务、规划任务、KOL 分析入队、AI 发现容器、首页发现）；历史行分类由 `reconcileTickets()` 启动时一次性回填（`app_state` 键 `tickets_classified_v1`），挂 `backend/src/app.ts` `createApp()`。
+- **迁移**：`backend/src/db.ts` `mergeWorkItemsIntoTickets()`（丢弃旧镜像表 → `work_items` 重命名为 `tickets` 并同步改写外键引用 → 补票型列 → 清理镜像触发器与旧索引名 → 重建 `tickets_*` 索引）；老库由首次启动自动完成。
+- **读取方**：`GET /api/tasks`、`GET /api/tasks/:id` 序列化附 `ticket_id`（= 行 id）/ `ticket_kind` / `ticket_channel` / `ticket_status`（后三者为表内列与派生展示值，只增字段）。本批未提供独立工单列表接口与前端呈现（票面 UI 批次再建）。
+
+本表列 = 「work_items → tickets」一节的既有列 + 下列票型列：
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `kind` | TEXT | 非空，默认 `general` | 票型（业务类型） | `config/ticket-types.yaml` 的 kind（service / follow_up / delivery / approval / risk / crawl / discovery / planning / library / general）。 |
+| `channel` | TEXT | 非空，默认 `human` | 渠道 | email / system / agent / human（目录规则按序派生）。 |
+| `requester_type` | TEXT | 非空，默认 `human` | 提单方类型 | human / system / agent（由渠道派生）。 |
+| `requester_id` | TEXT | 可空 | 提单人 | 系统单为 NULL；否则为创建时的 `owner_user_id`。 |
+| `object_type` | TEXT | 可空 | 主体对象类型 | 有合作关系时为 `collaboration`。 |
+| `object_id` | TEXT | 可空 | 主体对象 ID | 同 `collaboration_id`。 |
+| `kind_version` | INTEGER | 非空，默认 `1` | 票型目录版本 | 分类时 `config/ticket-types.yaml` 的 version。 |
 
 ---
 

@@ -117,8 +117,8 @@ function dailyTaskSnapshot(ctx: CronHandlerContext): CronHandlerResult {
 
   const viewerId = ctx.viewer?.id;
   const workSql = viewerId
-    ? "SELECT * FROM work_items WHERE status IN ('pending','waiting') AND owner_user_id=? ORDER BY updated_at DESC"
-    : "SELECT * FROM work_items WHERE status IN ('pending','waiting') ORDER BY updated_at DESC";
+    ? "SELECT * FROM tickets WHERE status IN ('pending','waiting') AND owner_user_id=? ORDER BY updated_at DESC"
+    : "SELECT * FROM tickets WHERE status IN ('pending','waiting') ORDER BY updated_at DESC";
   const workRows = (viewerId
     ? db.prepare(workSql).all(viewerId)
     : db.prepare(workSql).all()) as Row[];
@@ -144,7 +144,7 @@ function dailyTaskSnapshot(ctx: CronHandlerContext): CronHandlerResult {
       side_effect: "read",
       created_session: false,
       source: "local_collaborations_and_work_items",
-      gap: "未调用远端 kolclaw.get_daily_tasks（NO LIVE）；用本地合作阶段 + 待办 work_items 做只读快照",
+      gap: "未调用远端 kolclaw.get_daily_tasks（NO LIVE）；用本地合作阶段 + 待办工单（tickets）做只读快照",
       counts: {
         greet: buckets.greet.length,
         follow: buckets.follow.length,

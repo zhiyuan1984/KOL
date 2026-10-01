@@ -1,4 +1,5 @@
 import { audit, getConn, nowIso, tx } from "../db.js";
+import { appendBusinessEvent, stageEventType } from "../business-events.js";
 import { nid } from "../ids.js";
 import { BY_CODE, label as stageLabel, normalizeStage, STAGES } from "../stages.js";
 import { assertStageTransition } from "../stage-transitions-graph.js";
@@ -101,6 +102,28 @@ export function confirmStage(lifecycleId: string, body: Json): Json {
       transition.data_version_after,
       transition.capability_profile,
       transition.advancement_mode,
+    );
+    appendBusinessEvent(
+      {
+        eventType: stageEventType(from, code),
+        objectType: "collaboration",
+        objectId: transition.collaboration_id,
+        occurredAt: transition.occurred_at,
+        source: "starry",
+        actorType: graphActor === "auto" ? "system" : "human",
+        actorId: transition.approver,
+        actionRef: "confirm_stage",
+        payload: {
+          from_stage: from,
+          to_stage: code,
+          reason_code: transition.reason_code,
+          capability_profile: transition.capability_profile,
+        },
+        evidence: transition.evidence,
+        idempotencyKey: `stage_transition:${transitionId}`,
+        correlationId: lifecycleId,
+      },
+      { conn: c },
     );
   });
   audit("starry", "starry.stage", {

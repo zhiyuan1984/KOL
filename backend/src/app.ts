@@ -38,10 +38,13 @@ import { restoreActiveCrawlJobs } from "./crawl/service.js";
 import { restoreActiveDiscoveryRuns } from "./discovery.js";
 import { restoreActiveHomeDiscoveryRuns } from "./home-discovery.js";
 import { seedIfEmpty } from "./seed.js";
+import { events } from "./routers/events.js";
+import { reconcileTickets } from "./tickets.js";
 
 export function createApp(): Hono {
   getConn();
   seedIfEmpty();
+  reconcileTickets();
   ensureRuntimeSchema();
   ensureDemoAdmin();
   restoreActiveCrawlJobs();
@@ -102,6 +105,7 @@ export function createApp(): Hono {
   app.route("/api", homeToday);
   app.route("/api", misc);
   app.route("/api", tasks);
+  app.route("/api", events);
   app.route("/api", crawlRouter);
   app.route("/mock/starry", starryRouter);
   if (codexMode() === "stub" || clawMode() === "mock") app.route("/mock/claw", clawRouter);

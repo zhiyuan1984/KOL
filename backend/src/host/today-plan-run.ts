@@ -1,5 +1,6 @@
 import { audit, getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
+import { ensureTicketForWorkItem } from "../tickets.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
 import { appendTaskEvent, upsertTaskEvent } from "../routers/tasks.js";
@@ -65,7 +66,7 @@ function createPlanningWorkItem(input: {
   const id = nid("tsk");
   tx((db) => {
     db.prepare(
-      `INSERT INTO work_items
+      `INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
         collaboration_id,session_id,due_at,input,entities,data_version,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -89,6 +90,7 @@ function createPlanningWorkItem(input: {
       now,
       now,
     );
+    ensureTicketForWorkItem(id, { conn: db });
   });
   return id;
 }
@@ -103,7 +105,7 @@ function createPlanningRun(workItemId: string, sessionId: string, payload: Json)
        VALUES (?,?,?,?,?,?,?,?)`,
     ).run(runId, workItemId, sessionId, "running", JSON.stringify(payload), "{}", now, now);
     db.prepare(
-      "UPDATE work_items SET started_at=COALESCE(started_at,?), updated_at=?, data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET started_at=COALESCE(started_at,?), updated_at=?, data_version=data_version+1 WHERE id=?",
     ).run(now, now, workItemId);
   });
   return runId;
@@ -392,7 +394,7 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
   // failed one; the brief pointer only exists after a success, so it is the
   // last resort rather than the default.
   const newestRun = getConn().prepare(
-    `SELECT id FROM work_items WHERE owner_user_id=? AND task_type=? ORDER BY created_at DESC LIMIT 1`,
+    `SELECT id FROM tickets WHERE owner_user_id=? AND task_type=? ORDER BY created_at DESC LIMIT 1`,
   ).get(owner, planTaskType(scope)) as { id: string } | undefined;
   const traceItem = running?.work_item_id || newestRun?.id || latest?.work_item_id || null;
   const briefItem = running?.work_item_id || latest?.work_item_id || null;
@@ -431,14 +433,14 @@ export function previousPlan(owner: string, scope: PlanScope, currentWorkItemId:
   const artifacts = getConn().prepare(
     `SELECT a.work_item_id, a.payload
        FROM task_artifacts a
-       JOIN work_items w ON w.id = a.work_item_id
+       JOIN tickets w ON w.id = a.work_item_id
       WHERE w.owner_user_id=? AND w.task_type=? AND a.artifact_type='today_brief'
       ORDER BY a.created_at DESC
       LIMIT 4`,
   ).all(owner, planTaskType(scope)) as { work_item_id: string; payload: string }[];
   const previousArtifact = artifacts.find((row) => String(row.work_item_id) !== current) || null;
   const runs = getConn().prepare(
-    `SELECT id FROM work_items WHERE owner_user_id=? AND task_type=? ORDER BY created_at DESC LIMIT 4`,
+    `SELECT id FROM tickets WHERE owner_user_id=? AND task_type=? ORDER BY created_at DESC LIMIT 4`,
   ).all(owner, planTaskType(scope)) as { id: string }[];
   const previousRun = runs.find((row) => String(row.id) !== current) || null;
   return {

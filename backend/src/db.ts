@@ -278,6 +278,50 @@ function initSchema(db: SqliteConn): void {
             payload TEXT NOT NULL
         );
 
+        -- 统一业务事件表（不可变业务事实账本）。目录见 config/event-catalog.yaml，
+        -- 服务见 backend/src/business-events.ts；发生时间与接收时间分列（TECH-BE-05）。
+        CREATE TABLE IF NOT EXISTS business_events (
+            id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            object_type TEXT NOT NULL,
+            object_id TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            source_version TEXT,
+            actor_type TEXT NOT NULL,
+            actor_id TEXT,
+            action_ref TEXT,
+            payload TEXT NOT NULL DEFAULT '{}',
+            evidence TEXT NOT NULL DEFAULT '{}',
+            receipt TEXT,
+            diff TEXT,
+            idempotency_key TEXT,
+            correlation_id TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS business_events_object
+            ON business_events(object_type, object_id, occurred_at);
+        CREATE INDEX IF NOT EXISTS business_events_type
+            ON business_events(event_type, occurred_at);
+        CREATE INDEX IF NOT EXISTS business_events_correlation
+            ON business_events(correlation_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS business_events_idempotency
+            ON business_events(idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+        CREATE TRIGGER IF NOT EXISTS business_events_no_update
+        BEFORE UPDATE ON business_events
+        BEGIN
+          SELECT RAISE(ABORT, 'business_events are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS business_events_no_delete
+        BEFORE DELETE ON business_events
+        BEGIN
+          SELECT RAISE(ABORT, 'business_events are immutable');
+        END;
+
         CREATE TABLE IF NOT EXISTS starry_sends (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             conversation_id TEXT NOT NULL,
@@ -369,7 +413,7 @@ function initSchema(db: SqliteConn): void {
             last_checked_at TEXT,
             updated_at TEXT NOT NULL,
             completed_at TEXT,
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE,
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE CASCADE,
             FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE SET NULL
         );
 
@@ -684,7 +728,10 @@ function initSchema(db: SqliteConn): void {
             FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS work_items (
+        -- 工单表（tickets）：任务运行与工单的统一记录（原 work_items 于 2026-10-01 并入本表，
+        -- 迁移见 migrateSchema 的 mergeWorkItemsIntoTickets）。票型列只来自
+        -- config/ticket-types.yaml；设计见 docs/superpowers/specs/2026-10-01-ontology-three-tables-design.md。
+        CREATE TABLE IF NOT EXISTS tickets (
             id TEXT PRIMARY KEY,
             owner_user_id TEXT NOT NULL,
             task_type TEXT NOT NULL,
@@ -709,6 +756,13 @@ function initSchema(db: SqliteConn): void {
             data_version INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'general',
+            channel TEXT NOT NULL DEFAULT 'human',
+            requester_type TEXT NOT NULL DEFAULT 'human',
+            requester_id TEXT,
+            object_type TEXT,
+            object_id TEXT,
+            kind_version INTEGER NOT NULL DEFAULT 1,
             FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE SET NULL
         );
 
@@ -726,7 +780,7 @@ function initSchema(db: SqliteConn): void {
             created_at TEXT NOT NULL,
             started_at TEXT,
             completed_at TEXT,
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE,
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE CASCADE,
             FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE SET NULL
         );
 
@@ -742,7 +796,7 @@ function initSchema(db: SqliteConn): void {
             time TEXT NOT NULL,
             created_at TEXT NOT NULL,
             UNIQUE(work_item_id, sequence),
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE,
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE CASCADE,
             FOREIGN KEY(run_id) REFERENCES task_runs(id) ON DELETE CASCADE
         );
 
@@ -755,13 +809,13 @@ function initSchema(db: SqliteConn): void {
             version INTEGER NOT NULL DEFAULT 1,
             payload TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE,
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE CASCADE,
             FOREIGN KEY(run_id) REFERENCES task_runs(id) ON DELETE SET NULL,
             FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE SET NULL
         );
 
-        CREATE INDEX IF NOT EXISTS work_items_owner_status
-            ON work_items(owner_user_id, status, updated_at);
+        -- tickets 的索引统一由 mergeWorkItemsIntoTickets() 在库形状确定后创建：
+        -- 旧库可能仍带镜像版 tickets 或缺票型列，直接在 initSchema 建索引会让打开失败。
         CREATE INDEX IF NOT EXISTS task_runs_work_item
             ON task_runs(work_item_id, created_at);
         CREATE INDEX IF NOT EXISTS task_events_work_item
@@ -772,7 +826,7 @@ function initSchema(db: SqliteConn): void {
             work_item_id TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE CASCADE
         );
         CREATE TABLE IF NOT EXISTS employee_todo_briefs (
             owner_user_id TEXT PRIMARY KEY,
@@ -780,14 +834,14 @@ function initSchema(db: SqliteConn): void {
             work_item_id TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE CASCADE
         );
         CREATE UNIQUE INDEX IF NOT EXISTS one_running_today_plan
-            ON work_items(owner_user_id)
+            ON tickets(owner_user_id)
             WHERE task_type='today_plan'
               AND status IN ('pending','queued','running','in_progress','starting');
         CREATE UNIQUE INDEX IF NOT EXISTS one_running_todo_plan
-            ON work_items(owner_user_id)
+            ON tickets(owner_user_id)
             WHERE task_type='todo_plan'
               AND status IN ('pending','queued','running','in_progress','starting');
         DROP INDEX IF EXISTS crawl_jobs_one_active;
@@ -839,7 +893,7 @@ function initSchema(db: SqliteConn): void {
             completed_at TEXT,
             FOREIGN KEY(request_id) REFERENCES discovery_requests(id) ON DELETE CASCADE,
             FOREIGN KEY(crawl_job_id) REFERENCES crawl_jobs(id) ON DELETE SET NULL,
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE SET NULL
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE SET NULL
         );
 
         CREATE TABLE IF NOT EXISTS creator_candidates (
@@ -1346,7 +1400,7 @@ function migrateSriphyIdentity(db: SqliteConn): void {
     ["auth_sessions", "user_id"], ["user_skill_grants", "user_id"], ["user_connector_grants", "user_id"],
     ["approval_role_bindings", "user_id"], ["exam_assignments", "user_id"], ["exam_attempts", "user_id"],
     ["user_preferences", "user_id"], ["user_starry_bindings", "user_id"], ["knowledge_citations", "user_id"],
-    ["knowledge_deprecations", "user_id"], ["sessions", "owner_user_id"], ["work_items", "owner_user_id"],
+    ["knowledge_deprecations", "user_id"], ["sessions", "owner_user_id"], ["tickets", "owner_user_id"],
     ["memory_entries", "owner_user_id"], ["user_uploads", "owner_user_id"], ["crawl_jobs", "owner_user_id"],
     ["discovery_requests", "owner_user_id"], ["discovery_runs", "owner_user_id"], ["creator_candidates", "owner_user_id"],
     ["employee_memory_items", "owner_user_id"], ["runtime_credentials", "created_by"],
@@ -1415,7 +1469,71 @@ function enforceManagedConnectorCatalog(db: SqliteConn): void {
   db.prepare("DELETE FROM connectors WHERE id IN ('enterprise_mail','emailmcp','kolclaw','starry','wecom')").run();
 }
 
+/**
+ * 换表迁移（2026-10-01）：原 `work_items` 并入 `tickets`（表名即工单表，docs/DECISIONS.md ADR-2026-10-01 二）。
+ * - 若存在旧「镜像工单表」（缺 session_id 的 tickets），直接丢弃（可由分类回填重新派生）；
+ * - 把 work_items 重命名为 tickets（SQLite 会同步改写其它表对它的外键引用）；
+ * - 补票型列、清理遗留镜像索引与触发器；kind/channel 的历史值由
+ *   backend/src/tickets.ts 的 backfillTicketClassification() 启动时一次性补齐。
+ */
+function mergeWorkItemsIntoTickets(db: SqliteConn): void {
+  const names = new Set(
+    (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[])
+      .map((row) => String(row.name)),
+  );
+  const count = (table: string): number =>
+    Number((db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n);
+  if (names.has("work_items")) {
+    db.exec("DROP TRIGGER IF EXISTS work_items_ticket_mirror");
+    // initSchema 会先建好 tickets：只有当 tickets 是「空表」或旧「镜像表」（缺 session_id）
+    // 时才把 work_items 重命名过来；两边都有真实数据时保留 tickets 并如实告警。
+    const ticketsIsMirror = names.has("tickets") && !cols(db, "tickets").has("session_id");
+    if (ticketsIsMirror) {
+      db.exec("DROP TABLE tickets");
+    } else if (names.has("tickets") && count("tickets") > 0 && count("work_items") > 0) {
+      console.warn(
+        `[db] work_items 仍有 ${count("work_items")} 行，但 tickets 已有 ${count("tickets")} 行；保留 tickets，丢弃 work_items`,
+      );
+      db.exec("DROP TABLE work_items");
+    } else if (names.has("tickets")) {
+      db.exec("DROP TABLE tickets");
+    }
+    const stillHasWorkItems = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_items'").all() as unknown[]
+    ).length > 0;
+    if (stillHasWorkItems) db.exec("ALTER TABLE work_items RENAME TO tickets");
+  }
+  db.exec("DROP INDEX IF EXISTS tickets_work_item");
+  db.exec("DROP INDEX IF EXISTS tickets_assignee_status");
+  db.exec("DROP INDEX IF EXISTS work_items_owner_status");
+  db.exec("DROP INDEX IF EXISTS work_items_owner_updated");
+  const ticketColumns: Array<[string, string]> = [
+    ["kind", "TEXT NOT NULL DEFAULT 'general'"],
+    ["channel", "TEXT NOT NULL DEFAULT 'human'"],
+    ["requester_type", "TEXT NOT NULL DEFAULT 'human'"],
+    ["requester_id", "TEXT"],
+    ["object_type", "TEXT"],
+    ["object_id", "TEXT"],
+    ["kind_version", "INTEGER NOT NULL DEFAULT 1"],
+  ];
+  for (const [name, ddl] of ticketColumns) add(db, "tickets", name, ddl);
+  db.exec("CREATE INDEX IF NOT EXISTS tickets_owner_status ON tickets(owner_user_id, status, updated_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS tickets_owner_updated ON tickets(owner_user_id, updated_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS tickets_status_updated ON tickets(status, updated_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS tickets_kind ON tickets(kind)");
+  db.exec("CREATE INDEX IF NOT EXISTS tickets_channel ON tickets(channel)");
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS one_running_today_plan ON tickets(owner_user_id) "
+      + "WHERE task_type='today_plan' AND status IN ('pending','queued','running','in_progress','starting')",
+  );
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS one_running_todo_plan ON tickets(owner_user_id) "
+      + "WHERE task_type='todo_plan' AND status IN ('pending','queued','running','in_progress','starting')",
+  );
+}
+
 function migrateSchema(db: SqliteConn): void {
+  mergeWorkItemsIntoTickets(db);
   const hadSkillOrigin = cols(db, "skill_lifecycle").has("origin");
   add(db, "skill_lifecycle", "origin", "TEXT NOT NULL DEFAULT 'official'");
   if (!hadSkillOrigin) {
@@ -1645,17 +1763,18 @@ function migrateSchema(db: SqliteConn): void {
   db.exec(`CREATE INDEX IF NOT EXISTS kol_mail_items_conversation ON kol_mail_items(conversation_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS kol_mail_items_thread ON kol_mail_items(thread_id)`);
   add(db, "workers", "profile_id", "TEXT");
-  add(db, "work_items", "promoted_at", "TEXT");
-  add(db, "work_items", "dismissed_at", "TEXT");
-  add(db, "work_items", "last_acted_at", "TEXT");
-  add(db, "work_items", "acknowledged_at", "TEXT");
-  add(db, "work_items", "content", "TEXT NOT NULL DEFAULT ''");
-  add(db, "work_items", "start_date", "TEXT");
-  add(db, "work_items", "risk_level", "TEXT NOT NULL DEFAULT 'none'");
+  add(db, "tickets", "promoted_at", "TEXT");
+  add(db, "tickets", "dismissed_at", "TEXT");
+  add(db, "tickets", "last_acted_at", "TEXT");
+  add(db, "tickets", "acknowledged_at", "TEXT");
+  add(db, "tickets", "content", "TEXT NOT NULL DEFAULT ''");
+  add(db, "tickets", "start_date", "TEXT");
+  add(db, "tickets", "risk_level", "TEXT NOT NULL DEFAULT 'none'");
+  // 注：app_state 键名 'work_items_priority_v2' 是历史一次性迁移标记，保留原名（表已并入 tickets）。
   if (!db.prepare("SELECT value FROM app_state WHERE key='work_items_priority_v2'").get()) {
-    db.prepare("UPDATE work_items SET priority='important' WHERE priority='high'").run();
-    db.prepare("UPDATE work_items SET priority='important_urgent' WHERE priority='urgent'").run();
-    db.prepare("UPDATE work_items SET priority='normal' WHERE priority='medium'").run();
+    db.prepare("UPDATE tickets SET priority='important' WHERE priority='high'").run();
+    db.prepare("UPDATE tickets SET priority='important_urgent' WHERE priority='urgent'").run();
+    db.prepare("UPDATE tickets SET priority='normal' WHERE priority='medium'").run();
     db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES ('work_items_priority_v2','done')").run();
   }
   add(db, "claw_creators", "platform_creator_id", "TEXT");
@@ -1907,7 +2026,7 @@ function migrateSchema(db: SqliteConn): void {
             work_item_id TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE CASCADE
         );
         CREATE TABLE IF NOT EXISTS employee_todo_briefs (
             owner_user_id TEXT PRIMARY KEY,
@@ -1915,14 +2034,14 @@ function migrateSchema(db: SqliteConn): void {
             work_item_id TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
-            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+            FOREIGN KEY(work_item_id) REFERENCES tickets(id) ON DELETE CASCADE
         );
         CREATE UNIQUE INDEX IF NOT EXISTS one_running_today_plan
-            ON work_items(owner_user_id)
+            ON tickets(owner_user_id)
             WHERE task_type='today_plan'
               AND status IN ('pending','queued','running','in_progress','starting');
         CREATE UNIQUE INDEX IF NOT EXISTS one_running_todo_plan
-            ON work_items(owner_user_id)
+            ON tickets(owner_user_id)
             WHERE task_type='todo_plan'
               AND status IN ('pending','queued','running','in_progress','starting');
   `);
@@ -2079,8 +2198,8 @@ function migrateSchema(db: SqliteConn): void {
             ON workers(session_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS drafts_session_id
             ON drafts(session_id, id DESC);
-        CREATE INDEX IF NOT EXISTS work_items_owner_updated
-            ON work_items(owner_user_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS tickets_owner_updated
+            ON tickets(owner_user_id, updated_at DESC);
   `);
 }
 

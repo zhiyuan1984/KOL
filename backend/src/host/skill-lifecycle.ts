@@ -350,24 +350,24 @@ export function skillMetrics(id: string, days = 7): Json {
   const conn = getConn();
   const totals = conn
     .prepare(
-      "SELECT COUNT(*) AS calls, SUM(CASE WHEN status IN ('completed','approved','done','succeeded') THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) AS failed FROM work_items WHERE skill = ? AND created_at >= ?",
+      "SELECT COUNT(*) AS calls, SUM(CASE WHEN status IN ('completed','approved','done','succeeded') THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) AS failed FROM tickets WHERE skill = ? AND created_at >= ?",
     )
     .get(id, since) as { calls: number; ok: number | null; failed: number | null };
   const calls = totals.calls || 0;
   const ok = totals.ok || 0;
   const daily = conn
     .prepare(
-      "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM work_items WHERE skill = ? AND created_at >= ? GROUP BY day ORDER BY day",
+      "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM tickets WHERE skill = ? AND created_at >= ? GROUP BY day ORDER BY day",
     )
     .all(id, since) as { day: string; n: number }[];
   const durations = conn
     .prepare(
-      "SELECT AVG((julianday(r.completed_at) - julianday(r.created_at)) * 86400000) AS avg_ms FROM task_runs r JOIN work_items w ON w.id = r.work_item_id WHERE w.skill = ? AND r.created_at >= ? AND r.completed_at IS NOT NULL",
+      "SELECT AVG((julianday(r.completed_at) - julianday(r.created_at)) * 86400000) AS avg_ms FROM task_runs r JOIN tickets w ON w.id = r.work_item_id WHERE w.skill = ? AND r.created_at >= ? AND r.completed_at IS NOT NULL",
     )
     .get(id, since) as { avg_ms: number | null };
   const alerts = conn
     .prepare(
-      "SELECT COUNT(*) AS n FROM work_items WHERE skill = ? AND created_at >= ? AND status IN ('failed','error','blocked')",
+      "SELECT COUNT(*) AS n FROM tickets WHERE skill = ? AND created_at >= ? AND status IN ('failed','error','blocked')",
     )
     .get(id, since) as { n: number };
   return {

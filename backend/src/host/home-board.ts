@@ -33,7 +33,7 @@ export const MAX_KOL_TASKS = 3;
 export const MAX_KOL_MAIL_THREADS = 3;
 /** Rows kept in each workbench list (open/todo/today/insights). */
 export const MAX_WORKBENCH_TASKS = 50;
-/** Board task rows, newest first (work_items are read ORDER BY updated_at DESC). */
+/** Board task rows, newest first (tickets are read ORDER BY updated_at DESC). */
 export const MAX_BOARD_TASKS = 50;
 
 /**
@@ -845,7 +845,7 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
   const creatorByHandle = new Map(creators.map((row) => [String(row.handle || row.name || ""), row]));
 
   const taskRows = conn.prepare(
-    "SELECT * FROM work_items WHERE owner_user_id=? ORDER BY updated_at DESC",
+    "SELECT * FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC",
   ).all(owner) as Row[];
   const taskIds = taskRows.map((row) => String(row.id));
   const lastEventByTask = new Map<string, Row>();

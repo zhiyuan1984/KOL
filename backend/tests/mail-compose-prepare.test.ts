@@ -147,7 +147,7 @@ describe("POST /api/email-compose/prepare", () => {
     const before = {
       drafts: Number((conn.prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n),
       messages: Number((conn.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n),
-      workItems: Number((conn.prepare("SELECT COUNT(*) AS n FROM work_items").get() as { n: number }).n),
+      workItems: Number((conn.prepare("SELECT COUNT(*) AS n FROM tickets").get() as { n: number }).n),
       runs: Number((conn.prepare("SELECT COUNT(*) AS n FROM task_runs").get() as { n: number }).n),
       stage: String((conn.prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_xiaomei") as { stage_code: string }).stage_code),
     };
@@ -172,7 +172,7 @@ describe("POST /api/email-compose/prepare", () => {
     const after = {
       drafts: Number((conn.prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n),
       messages: Number((conn.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n),
-      workItems: Number((conn.prepare("SELECT COUNT(*) AS n FROM work_items").get() as { n: number }).n),
+      workItems: Number((conn.prepare("SELECT COUNT(*) AS n FROM tickets").get() as { n: number }).n),
       runs: Number((conn.prepare("SELECT COUNT(*) AS n FROM task_runs").get() as { n: number }).n),
       stage: String((conn.prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_xiaomei") as { stage_code: string }).stage_code),
     };

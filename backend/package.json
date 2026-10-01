@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "test": "node scripts/test.mjs",
     "validate:kol-data": "node scripts/validate-kol-data.mjs",
+    "validate:registry": "node scripts/validate-registry.mjs",
     "validate:contracts": "node scripts/validate-contracts.mjs",
     "validate:tb-binding": "node scripts/validate-tb-binding.mjs",
     "eval:kol": "node scripts/run-kol-evals.mjs",

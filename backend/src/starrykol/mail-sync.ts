@@ -1,4 +1,5 @@
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
+import { appendBusinessEvent } from "../business-events.js";
 import { mailPreview } from "../host/mail-preview.js";
 import {
   itemsForCollaboration,
@@ -350,13 +351,15 @@ function rememberItem(
     summary_zh: message.summary_zh,
     summary_source: message.summary_source,
   });
+  const itemId = nid("kmi");
+  const occurredAt = firstString(message.sentAt, message.createdAt, message.time, message.ts) || nowIso();
   getConn().prepare(
     `INSERT INTO kol_mail_items
      (id, thread_id, collaboration_id, conversation_id, provider_message_id, direction, subject, title, snippet, unread, occurred_at, created_at,
       from_addr, from_name, to_addr, body_text, summary, summary_zh, summary_source, receipt_status, receipt_at, effective)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
-    nid("kmi"),
+    itemId,
     threadId,
     collaborationId,
     conversationId,
@@ -366,7 +369,7 @@ function rememberItem(
     title,
     body.slice(0, 280),
     inbound && isUnread(message) ? 1 : inbound ? 1 : 0,
-    firstString(message.sentAt, message.createdAt, message.time, message.ts) || nowIso(),
+    occurredAt,
     nowIso(),
     from.email,
     from.name,
@@ -379,6 +382,25 @@ function rememberItem(
     null,
     0,
   );
+  // 「邮件已到达」是外部事实（事件清单 §6）：验源去重后落统一事件账本，
+  // 幂等键取外部邮件标识；发生时间取邮件时间、接收时间取入库时刻。
+  if (inbound) {
+    appendBusinessEvent({
+      eventType: "email.received",
+      objectType: "email",
+      objectId: itemId,
+      occurredAt,
+      source: "starry",
+      actorType: "external",
+      payload: {
+        thread_id: threadId,
+        conversation_id: conversationId,
+        from: from.email || "",
+      },
+      idempotencyKey: `email.received:${providerId || identity.identity_hash}`,
+      correlationId: collaborationId || threadId,
+    });
+  }
   return inbound;
 }
 

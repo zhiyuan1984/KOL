@@ -197,7 +197,7 @@ export async function startCrawl(input: {
       next_action: "请在根目录 .env 配置 MEDIACRAWLER_MCP_URL 和 MEDIACRAWLER_MCP_TOKEN 后重启服务。",
     });
   }
-  const workItem = getConn().prepare("SELECT id FROM work_items WHERE id=?").get(input.workItemId) as
+  const workItem = getConn().prepare("SELECT id FROM tickets WHERE id=?").get(input.workItemId) as
     | { id: string }
     | undefined;
   if (!workItem) {
@@ -236,7 +236,7 @@ export async function startCrawl(input: {
         platform, mode, JSON.stringify(input.parameters), now, now,
       );
       db.prepare(
-        "UPDATE work_items SET status='running',started_at=COALESCE(started_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
+        "UPDATE tickets SET status='running',started_at=COALESCE(started_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
       ).run(now, now, input.workItemId);
     });
   } catch (error) {
@@ -475,7 +475,7 @@ async function completeJob(jobId: string): Promise<void> {
        WHERE id=?`,
     ).run(now, now, jobId);
     db.prepare(
-      "UPDATE work_items SET status='waiting',updated_at=?,data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET status='waiting',updated_at=?,data_version=data_version+1 WHERE id=?",
     ).run(now, job.work_item_id);
   });
   event(jobId, "result_ready", "result_ready", `Result ready with ${candidates.length} candidates`);
@@ -492,7 +492,7 @@ function failJob(jobId: string, error: unknown): void {
        data_version=data_version+1 WHERE id=?`,
     ).run(safe, now, now, jobId);
     if (job) db.prepare(
-      "UPDATE work_items SET status='failed',updated_at=?,data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET status='failed',updated_at=?,data_version=data_version+1 WHERE id=?",
     ).run(now, job.work_item_id);
   });
   event(jobId, "error", "error", safe);
@@ -515,7 +515,7 @@ export async function stopCrawl(jobId: string): Promise<Json> {
     db.prepare(
       "UPDATE crawl_jobs SET status='stopped',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=?",
     ).run(now, now, jobId);
-    db.prepare("UPDATE work_items SET status='waiting',updated_at=? WHERE id=?").run(now, job.work_item_id);
+    db.prepare("UPDATE tickets SET status='waiting',updated_at=? WHERE id=?").run(now, job.work_item_id);
   });
   event(jobId, "stopped", "stopped", "Crawl stopped");
   notifySettled(jobId);

@@ -124,7 +124,7 @@ describe("home workbench", () => {
 
   it("seedAll does not plant demo KOL work items", () => {
     seedAll();
-    expect(getConn().prepare("SELECT COUNT(*) AS c FROM work_items WHERE id LIKE 'tsk_home_%'").get() as { c: number }).toEqual({ c: 0 });
+    expect(getConn().prepare("SELECT COUNT(*) AS c FROM tickets WHERE id LIKE 'tsk_home_%'").get() as { c: number }).toEqual({ c: 0 });
     expect(getConn().prepare("SELECT COUNT(*) AS c FROM collaborations WHERE id LIKE 'col_%'").get() as { c: number }).toEqual({ c: 0 });
   });
 
@@ -177,7 +177,7 @@ describe("home workbench", () => {
       "2026-09-01T00:00:00+00:00",
     );
     getConn().prepare(
-      `INSERT INTO work_items
+      `INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
         collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -188,7 +188,7 @@ describe("home workbench", () => {
     const reset = await request("POST", "/api/demo/reset", { workbench: true });
     expect(reset.status).toBe(200);
     expect(getConn().prepare("SELECT COUNT(*) AS c FROM starry_stage_writes").get() as { c: number }).toEqual({ c: 0 });
-    expect(getConn().prepare("SELECT id FROM work_items WHERE id=?").get("tsk_leak")).toBeUndefined();
+    expect(getConn().prepare("SELECT id FROM tickets WHERE id=?").get("tsk_leak")).toBeUndefined();
     expect(getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_xiaomei") as { stage_code: string })
       .toEqual({ stage_code: "INITIAL_CONTACT" });
     resetDemoRuntimeState();
@@ -353,8 +353,8 @@ describe("home workbench", () => {
     expect(todo?.candidate).toBe(false);
   });
 
-  it("persists promote columns on work_items", () => {
-    const cols = getConn().prepare("PRAGMA table_info(work_items)").all() as { name: string }[];
+  it("persists promote columns on tickets", () => {
+    const cols = getConn().prepare("PRAGMA table_info(tickets)").all() as { name: string }[];
     expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining([
       "promoted_at",
       "dismissed_at",

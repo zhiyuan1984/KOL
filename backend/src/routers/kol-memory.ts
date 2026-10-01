@@ -37,6 +37,7 @@ import { starryLibraryStatus } from "../starrykol/library-sync.js";
 import { HttpFail } from "../host/errors.js";
 import { currentFollowScope } from "../host/starry-bind.js";
 import { nid } from "../ids.js";
+import { ensureTicketForWorkItem } from "../tickets.js";
 import { taskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
 
@@ -404,7 +405,7 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
   const title = String(body.title || definition.title).slice(0, 200);
   tx((db) => {
     db.prepare(
-      `INSERT INTO work_items
+      `INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
         collaboration_id,session_id,due_at,input,entities,data_version,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -416,6 +417,7 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
       JSON.stringify({ kol_uids: people, task_type: KOL_ANALYZE_TASK_TYPE }),
       1, now, now,
     );
+    ensureTicketForWorkItem(id, { conn: db });
   });
   audit(employee.id, "kol.analyze.enqueue", {
     work_item_id: id,

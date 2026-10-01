@@ -570,7 +570,7 @@ function resolveBoundTask(sid: string, body: Json): BoundTask | null {
     if (body.run_id || body.task_type) throw new HttpFail(400, "work_item_id required for task message");
     return null;
   }
-  const item = getConn().prepare("SELECT * FROM work_items WHERE id=?").get(body.work_item_id) as Row | undefined;
+  const item = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(body.work_item_id) as Row | undefined;
   if (!item) throw new HttpFail(404, "task not found");
   const user = scopedUser();
   if (!authDisabled() && (!user || (!isAdmin(user) && String(item.owner_user_id) !== user.id))) {
@@ -596,7 +596,7 @@ function resolveBoundTask(sid: string, body: Json): BoundTask | null {
     tx((db) => {
       db.prepare("UPDATE task_runs SET status='failed',error=?,completed_at=? WHERE id=?")
         .run(JSON.stringify(detail), nowIso(), run.id);
-      db.prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
+      db.prepare("UPDATE tickets SET status='needs_clarification',updated_at=? WHERE id=?")
         .run(nowIso(), item.id);
     });
     appendTaskEvent(String(item.id), String(run.id), "run.template_changed", "技能模板已更新", "needs_clarification", detail.message);
@@ -624,7 +624,7 @@ function startBoundTask(bound: BoundTask | null): boolean {
       "UPDATE task_runs SET status='running',started_at=COALESCE(started_at,?),error=NULL WHERE id=? AND work_item_id=? AND status IN ('pending','queued','failed')",
     ).run(now, bound.runId, bound.workItemId);
     db.prepare(
-      "UPDATE work_items SET status='running',started_at=COALESCE(started_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET status='running',started_at=COALESCE(started_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
     ).run(now, now, bound.workItemId);
     return Number(run.changes) > 0;
   });
@@ -643,7 +643,7 @@ function queueBoundTask(bound: BoundTask | null): void {
       "UPDATE task_runs SET status='queued',error=NULL WHERE id=? AND work_item_id=? AND status IN ('pending','failed')",
     ).run(bound.runId, bound.workItemId);
     db.prepare(
-      "UPDATE work_items SET status='queued',updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
+      "UPDATE tickets SET status='queued',updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
     ).run(now, bound.workItemId);
     return Number(run.changes) > 0;
   });
@@ -679,7 +679,7 @@ function failBoundTask(bound: BoundTask | null, error: unknown): void {
       "UPDATE task_runs SET status='failed',error=?,completed_at=? WHERE id=? AND work_item_id=? AND status IN ('pending','queued','running')",
     ).run(JSON.stringify({ code: needsInput ? "needs_clarification" : "not_started", message }), now, bound.runId, bound.workItemId);
     db.prepare(
-      "UPDATE work_items SET status=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
+      "UPDATE tickets SET status=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
     ).run(status, now, bound.workItemId);
     return Number(run.changes) > 0;
   });
@@ -705,7 +705,7 @@ function cancelBoundTask(bound: BoundTask | null, summary: string): void {
       "UPDATE task_runs SET status='cancelled',error=NULL,completed_at=? WHERE id=? AND work_item_id=? AND status IN ('pending','queued','running')",
     ).run(now, bound.runId, bound.workItemId);
     db.prepare(
-      "UPDATE work_items SET status='cancelled',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
+      "UPDATE tickets SET status='cancelled',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
     ).run(now, now, bound.workItemId);
     return Number(run.changes) > 0;
   });
@@ -723,7 +723,7 @@ function stoppedBoundTask(bound: BoundTask | null): void {
       "UPDATE task_runs SET status='cancelled',error=?,completed_at=? WHERE id=? AND work_item_id=? AND status='running'",
     ).run(JSON.stringify({ code: "worker_stopped", message: "已停止生成" }), now, bound.runId, bound.workItemId);
     db.prepare(
-      "UPDATE work_items SET status='stopped',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status IN ('running','in_progress','starting')",
+      "UPDATE tickets SET status='stopped',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status IN ('running','in_progress','starting')",
     ).run(now, now, bound.workItemId);
     return Number(run.changes) > 0;
   });
@@ -770,7 +770,7 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
         bound.workItemId,
       );
       db.prepare(
-        "UPDATE work_items SET status=?,completed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=?",
+        "UPDATE tickets SET status=?,completed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=?",
       ).run(taskStatus, now, bound.workItemId);
       const run = db.prepare("SELECT created_at FROM task_runs WHERE id=?").get(bound.runId) as
         | { created_at: string }
@@ -833,7 +833,7 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
       ? ["$result exceeds the memory size limit"]
       : validateTaskResultSchema(definition.result_schema, summary);
     if (!issues.length && !isSafeSkillResultForMemory(summary)) issues.push("$result contains credential-like material");
-    const owner = getConn().prepare("SELECT owner_user_id FROM work_items WHERE id=?").get(bound.workItemId) as
+    const owner = getConn().prepare("SELECT owner_user_id FROM tickets WHERE id=?").get(bound.workItemId) as
       | { owner_user_id?: string }
       | undefined;
     if (issues.length || !owner?.owner_user_id || !workerItems.length) {
@@ -884,7 +884,7 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
 
 async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): Promise<void> {
   try {
-    const item = getConn().prepare("SELECT owner_user_id FROM work_items WHERE id=?").get(bound.workItemId) as
+    const item = getConn().prepare("SELECT owner_user_id FROM tickets WHERE id=?").get(bound.workItemId) as
       | { owner_user_id: string }
       | undefined;
     if (!item) return;
@@ -896,7 +896,7 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
       const message = platform
         ? `不支持的采集平台：${platform}。可用平台：${CRAWL_PLATFORMS.join(" / ")}。`
         : "启动采集前需要补充平台。";
-      getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
+      getConn().prepare("UPDATE tickets SET status='needs_clarification',updated_at=? WHERE id=?")
         .run(nowIso(), bound.workItemId);
       appendTaskEvent(
         bound.workItemId,
@@ -917,7 +917,7 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
     const required = mode === "detail" ? "specified_ids" : mode === "creator" ? "creator_ids" : "keywords";
     const value = plan[required];
     if (!Array.isArray(value) || !value.length) {
-      getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
+      getConn().prepare("UPDATE tickets SET status='needs_clarification',updated_at=? WHERE id=?")
         .run(nowIso(), bound.workItemId);
       appendTaskEvent(
         bound.workItemId,
@@ -948,13 +948,13 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
         },
         idempotencyKey: `auto:${bound.runId}`,
       });
-      if (!getConn().prepare("SELECT id FROM work_items WHERE id=?").get(bound.workItemId)) return;
+      if (!getConn().prepare("SELECT id FROM tickets WHERE id=?").get(bound.workItemId)) return;
       addMsg(sid, "assistant", "assistant", {
         text: "远程创作者采集已自动启动，进度会持续更新。",
       });
     } catch (error) {
       if (isSqliteForeignKeyError(error) || isSqliteClosedError(error) || isSessionNotFound(error)) return;
-      if (!getConn().prepare("SELECT id FROM work_items WHERE id=?").get(bound.workItemId)) return;
+      if (!getConn().prepare("SELECT id FROM tickets WHERE id=?").get(bound.workItemId)) return;
       const detail = error instanceof HttpFail && error.detail && typeof error.detail === "object"
         ? error.detail as Json
         : {};
@@ -963,7 +963,7 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
       const nextAction = String(
         detail.next_action || "检查远程 Claw 配置或等待当前采集任务完成后重试。",
       );
-      getConn().prepare("UPDATE work_items SET status='failed',updated_at=? WHERE id=?")
+      getConn().prepare("UPDATE tickets SET status='failed',updated_at=? WHERE id=?")
         .run(nowIso(), bound.workItemId);
       appendTaskEvent(bound.workItemId, bound.runId, "crawl.start_failed", "远程采集启动失败", "failed", message);
       addMsg(sid, "assistant", "error_card", {

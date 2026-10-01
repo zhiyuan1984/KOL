@@ -227,7 +227,7 @@ export function markTodayPlanFailed(workItemId: string, runId: string | null, re
   const now = nowIso();
   tx((db) => {
     db.prepare(
-      "UPDATE work_items SET status='failed', updated_at=?, data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET status='failed', updated_at=?, data_version=data_version+1 WHERE id=?",
     ).run(now, workItemId);
     if (runId) {
       db.prepare(
@@ -241,7 +241,7 @@ export function markTodayPlanCompleted(workItemId: string, runId: string | null)
   const now = nowIso();
   tx((db) => {
     db.prepare(
-      "UPDATE work_items SET status='completed', completed_at=?, updated_at=?, data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET status='completed', completed_at=?, updated_at=?, data_version=data_version+1 WHERE id=?",
     ).run(now, now, workItemId);
     if (runId) {
       db.prepare(
@@ -275,7 +275,7 @@ function placeholders(count: number): string {
 export function failStuckPlans(reason: string, olderThanMs?: number, ownerUserId?: string): string[] {
   const cutoff = olderThanMs == null ? null : new Date(Date.now() - olderThanMs).toISOString();
   const rows = getConn().prepare(
-    `SELECT id, updated_at, created_at FROM work_items
+    `SELECT id, updated_at, created_at FROM tickets
       WHERE task_type IN (${placeholders(PLANNING_TASK_TYPES.length)})
         AND status IN (${placeholders(PLANNING_OPEN_STATUSES.length)})
         ${ownerUserId ? "AND owner_user_id=?" : ""}`,
@@ -305,7 +305,7 @@ export function runningTodayPlan(owner: string, scope: PlanScope = "today"): {
   const row = getConn().prepare(
     `SELECT w.id AS work_item_id, w.session_id, w.status, r.id AS run_id,
             COALESCE(r.created_at, w.updated_at) AS touched_at
-       FROM work_items w
+       FROM tickets w
        LEFT JOIN task_runs r ON r.work_item_id = w.id
       WHERE w.owner_user_id=? AND w.task_type=?
         AND w.status IN ('pending','queued','running','in_progress','starting')

@@ -414,7 +414,7 @@ describe("task CRUD and run flow", () => {
     });
     getConn().prepare("DELETE FROM task_events WHERE work_item_id=?").run(task.id);
     getConn().prepare("DELETE FROM task_runs WHERE work_item_id=?").run(task.id);
-    getConn().prepare("DELETE FROM work_items WHERE id=?").run(task.id);
+    getConn().prepare("DELETE FROM tickets WHERE id=?").run(task.id);
     expect(appendTaskEvent(String(task.id), runId, "crawl.start_failed", "远程采集启动失败", "failed")).toBeNull();
     expect(appendTaskEvent("wi_missing", null, "task.created", "gone", "pending")).toBeNull();
   });

@@ -334,7 +334,7 @@ export function seedWorkbenchFixtures(): void {
     },
   ];
   const insItem = conn.prepare(
-    `INSERT OR REPLACE INTO work_items
+    `INSERT OR REPLACE INTO tickets
      (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
       collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,

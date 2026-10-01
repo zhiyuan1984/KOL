@@ -1010,7 +1010,7 @@ export function listActiveFollows(db: SqliteConn = getConn()): Row[] {
 
 export function countKolAnalyzeInFlight(ownerUserId: string, db: SqliteConn = getConn()): number {
   const row = db.prepare(
-    `SELECT COUNT(*) AS n FROM work_items
+    `SELECT COUNT(*) AS n FROM tickets
       WHERE owner_user_id=? AND task_type=?
         AND status IN ('queued','running','pending','waiting')`,
   ).get(ownerUserId, KOL_ANALYZE_TASK_TYPE) as { n: number };
@@ -1071,7 +1071,7 @@ export function failKolAnalyzeIllegalVerb(workItemId: string | null | undefined,
   if (workItemId) {
     const db = getConn();
     db.prepare(
-      "UPDATE work_items SET status='failed',updated_at=?,data_version=data_version+1 WHERE id=?",
+      "UPDATE tickets SET status='failed',updated_at=?,data_version=data_version+1 WHERE id=?",
     ).run(now, workItemId);
     db.prepare(
       `UPDATE task_runs
@@ -1121,7 +1121,7 @@ export function applyKolAnalyzeAction(input: {
   artifact?: Json;
 }): Json {
   const db = getConn();
-  const item = db.prepare("SELECT * FROM work_items WHERE id=?").get(input.workItemId) as Row | undefined;
+  const item = db.prepare("SELECT * FROM tickets WHERE id=?").get(input.workItemId) as Row | undefined;
   if (!item) throw new HttpFail(404, { code: "task_not_found", message: "task not found" });
   if (String(item.task_type) !== KOL_ANALYZE_TASK_TYPE) {
     throw new HttpFail(409, { code: "not_kol_analyze", message: "only kol_analyze tasks enforce this verb whitelist" });
