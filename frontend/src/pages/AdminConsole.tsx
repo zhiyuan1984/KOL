@@ -8,6 +8,8 @@ import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
 import AdminCosts from "./AdminCosts";
 import AdminScheduling from "./AdminScheduling";
+import AdminOverview from "./AdminOverview";
+import AdminAudit from "./AdminAudit";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
 import { EmployeeDirectory, type DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
@@ -101,7 +103,9 @@ export default function AdminConsole() {
         {tab === "exams" && <AdminExams exams={exams} assignments={assignments} users={users} onReload={load} />}
         {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
         {tab === "cost" && <AdminCosts />}
+        {tab === "overview" && <AdminOverview />}
         {tab === "scheduling" && <AdminScheduling />}
+        {tab === "audit" && <AdminAudit />}
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "kol" && <LegacyAdmin />}
       </div>

@@ -804,6 +804,44 @@ misc.get("/audit", (c) => {
   return c.json(listAudit(c.req.query("event_type")));
 });
 
+/** Bounded admin audit reader; raw `/audit` remains only for existing screens. */
+misc.get("/admin/audit/events", (c) => {
+  requireAdmin();
+  const limit = Math.min(Math.max(1, Number(c.req.query("limit") || 50)), 200);
+  const cursor = Number(c.req.query("cursor") || 0);
+  if (!Number.isInteger(cursor) || cursor < 0) throw new HttpFail(400, "invalid audit cursor");
+  const eventType = String(c.req.query("event_type") || "").trim();
+  const actor = String(c.req.query("actor") || "").trim();
+  const clauses: string[] = [];
+  const values: unknown[] = [];
+  if (cursor) {
+    clauses.push("id<?");
+    values.push(cursor);
+  }
+  if (eventType) {
+    clauses.push("event_type=?");
+    values.push(eventType);
+  }
+  if (actor) {
+    clauses.push("actor=?");
+    values.push(actor);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const rows = getConn().prepare(
+    `SELECT id,ts,actor,event_type,payload FROM audit_events ${where} ORDER BY id DESC LIMIT ?`,
+  ).all(...values, limit + 1) as Row[];
+  const page = rows.slice(0, limit).map((row) => ({
+    id: Number(row.id), ts: row.ts, actor: row.actor, event_type: row.event_type,
+    payload: (() => { try { return JSON.parse(String(row.payload || "{}")); } catch { return {}; } })(),
+  }));
+  return c.json({
+    items: page,
+    next_cursor: rows.length > limit && page.length ? page.at(-1)?.id || null : null,
+    as_of: nowIso(),
+    source_refs: [{ type: "audit_events", scope: "admin" }],
+  });
+});
+
 misc.get("/workers", (c) => {
   const user = scopedUser();
   const rows = !authDisabled() && user && !isAdmin(user)

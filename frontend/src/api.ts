@@ -437,6 +437,14 @@ export type ExecutionWorker = {
   stale: boolean;
 };
 
+export type AdminAuditEvent = {
+  id: number;
+  ts: string;
+  actor: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+};
+
 export type TodayBriefPrimary = {
   verb?: string;
   label?: string;
@@ -2337,6 +2345,16 @@ export const api = {
   adminAssignments: () => request<Record<string, unknown>[]>("/api/admin/exam-assignments"),
   adminDataPolicy: () => request<Record<string, unknown>>("/api/admin/retention-policy"),
   adminAudit: () => request<Record<string, unknown>[]>("/api/audit"),
+  adminAuditEvents: (opts: { limit?: number; cursor?: number; event_type?: string; actor?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.limit) query.set("limit", String(opts.limit));
+    if (opts.cursor) query.set("cursor", String(opts.cursor));
+    if (opts.event_type) query.set("event_type", opts.event_type);
+    if (opts.actor) query.set("actor", opts.actor);
+    return request<{ items: AdminAuditEvent[]; next_cursor: number | null; as_of: string; source_refs: Array<Record<string, unknown>> }>(
+      `/api/admin/audit/events${query.size ? `?${query}` : ""}`,
+    );
+  },
   /** 成本与预算：只读汇总 + 最近事件 + 预算写入（乐观锁版本冲突 → 409）。 */
   adminCostsSummary: (month?: string) =>
     request<AdminCostsSummary>(`/api/admin/costs/summary${month ? `?month=${encodeURIComponent(month)}` : ""}`),

@@ -55,6 +55,7 @@
 | `POST /api/tickets/:id/commands` | 带 `expected_version` 和 `Idempotency-Key` 的 `complete`/`cancel`；完成必须有验收证据。 |
 | `GET /api/workbench/plan` | 返回计划 artifact 快照、producer、来源 revision、生成时间及 `stale_reason`；源集合变化时保留上次可用计划并明确标过期。 |
 | `/admin/scheduling` | Job 状态、Outbox 积压、Worker 心跳和 failed low-risk Job 的显式重新投递；不对高风险/不确定作业伪造恢复能力。 |
+| `/admin/overview`、`/admin/audit` | 概览组合调度健康与最近审计；审计中心通过有界、降序、可按 event type/actor 过滤的 `/api/admin/audit/events` 读取真实 `audit_events`。 |
 
 正式工单创建、`task.created` 事件和 ticket 映射现在同处一个数据库事务；`complete`/`cancel` 已同样以命令回执、状态投影和不可变生命周期事件原子提交。
 
@@ -64,6 +65,7 @@
 - `ScheduleSpec`/`ScheduleRun`、`BusinessRule`/`ProjectionSnapshot` 的独立正式模型和规则发布回放。
 - 采集、任务摘要等其余长运行注册为 BullMQ handler；规划和今日对象分析已迁离 API 进程，但不能据此声称全部业务执行路径均已迁离。
 - DLQ 可视化、跨类型全局并发配额（尤其 MediaCrawler=1）、完整 SSE 续接、接管/补跑/案例处置 UI。
+- 审计案件详情、案件笔记/裁决/导出及其 SLA；当前审计中心只提供权限受控的事件检索。
 - 派单/转派、SLA、升级与业务规则审批发布；规则空白仍保持自动决策关闭。
 
 ## 验收证据（本批）
