@@ -133,7 +133,9 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "mail.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  process.env.openai_api_key = "sk-test-mail-memory";
+  // envApiKey accepts OPENAI_API_KEY / CODEX_API_KEY. Use the latter so this
+  // suite remains self-contained on CI runners without a real OpenAI secret.
+  process.env.CODEX_API_KEY = "sk-test-mail-memory";
   setIntentLlmFetch(async (_input, _init) => new Response(JSON.stringify({
     output_text: JSON.stringify({ digest: "测试摘要：双方正在确认合作细节。", zh: "测试中文译文。", translation: "测试中文译文。" }),
   }), { status: 200, headers: { "Content-Type": "application/json" } }));
@@ -153,7 +155,7 @@ beforeEach(async () => {
 afterEach(() => {
   setStarryKolClientFactory();
   setIntentLlmFetch();
-  delete process.env.openai_api_key;
+  delete process.env.CODEX_API_KEY;
   delete process.env.INTENT_LLM_MODE;
   resetFollowedMailSync();
   resetConn();
