@@ -27,29 +27,41 @@ async function filledCtaCount(page: Page, scope: string): Promise<number> {
 }
 
 test.describe("知识库 v2 主页（管理端）", () => {
-  test("主页骨架：顶栏、快捷视图、真实列表、右栏三 tab", async ({ page }) => {
+  test("主页骨架：中栏筛选、右栏五条浏览与下方详情", async ({ page }) => {
     await page.goto("/admin/knowledge");
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
-    await expect(page.locator("[data-kbv-top]")).toBeVisible();
+    await expect(page.locator("[data-kbv-top]")).toHaveCount(0);
+    await expect(page.locator("[data-kbv-filter-pane]")).toBeVisible();
+    await expect(page.locator("[data-kbv-count]")).toHaveText(/\d+ 条知识/);
     await expect(page.locator("[data-kbv-view]")).toHaveCount(5);
     await expect(page.locator("[data-kb-scope-family]").first()).toBeVisible();
     await expect(page.locator("[data-kb-filter='brand']")).toBeVisible();
+    await expect(page.locator("[data-kb-filter='brand'] [data-kb-filter-value=''] [data-kb-facet-count]")).toHaveText(/\d+/);
+    await expect(page.locator("[data-kb-filter='kind'] [data-kb-kind]")).toHaveCount(7);
+    await expect(page.locator("[data-kb-kind='question_template']")).toHaveText("问题模板");
+    await expect(page.locator("[data-kb-kind='glossary']")).toHaveText("用词");
+    await expect(page.locator("[data-kbv-record]")).toHaveCount(5);
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
 
-    // 适用阶段标签行：＋增加、×移除，无「全部」标签（select 选项文本不计入芯片）。
+    // 正式阶段默认全显；移出常用区后可经＋找回，移除不改知识数据。
     const stageRow = page.locator("[data-kb-filter='stage']");
-    await expect(stageRow).not.toContainText("全部");
-    await stageRow.locator("[data-kb-stage-add]").selectOption("INITIAL_CONTACT");
-    await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toBeVisible();
+    await stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]').click();
+    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "true");
     await stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]').click();
     await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toHaveCount(0);
+    await stageRow.locator("[data-kb-stage-add]").selectOption("INITIAL_CONTACT");
+    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toBeVisible();
+    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "true");
 
     await page.locator("[data-kbv-record]").first().click();
-    await expect(page.locator("[data-kbv-detail-tab]")).toHaveCount(3);
-    await page.locator('[data-kbv-detail-tab="props"]').click();
-    await expect(page.locator("[data-kbv-detail]")).toContainText("知识标识");
-    await page.locator('[data-kbv-detail-tab="versions"]').click();
-    await expect(page.locator("[data-kbv-detail]")).toContainText("版本");
+    await expect(page.locator("[data-kbv-detail]")).toContainText("正文");
+    await expect(page.locator("[data-kbv-detail]")).toContainText("属性与范围");
+    await expect(page.locator("[data-kbv-detail]")).toContainText("来源与版本");
+
+    // 翻页后，原选中项不在当前页时自动选中新页第一条。
+    await page.locator("[data-kbv-next]").click();
+    await expect(page.locator("[data-kbv-page]")).toHaveText(/第 2 \/ \d+ 页/);
+    await expect(page.locator("[data-kbv-record]").first()).toHaveAttribute("aria-current", "true");
   });
 
   test("诚实边界：上传弹窗三级 tab＋阶段标签、新建跳转目录、页面无工程话术", async ({ page }) => {

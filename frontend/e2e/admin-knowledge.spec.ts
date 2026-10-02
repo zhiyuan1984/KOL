@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
  * 知识治理管理端（IA v2，2026-10-02）的 e2e 契约。
  *
  * 断言只依赖页面自己的 DOM 契约与既有对话框钩子：
- *   新主页（默认路由）→ data-admin-kb-v2="home"：data-kbv-top / data-kbv-view（5 个）/ data-kbv-record / data-kbv-detail（3 个 tab）
+ *   新主页（默认路由）→ data-admin-kb-v2="home"：中栏筛选 / 右栏五条浏览 / 下方详情
  *   旧子视图过渡保留：data-admin-kb-tab 共 5 个（catalog|base|entry|ingest|bindings）＋ data-admin-kb-home-link 回链
  *   一页一问 → 每个视口最多 1 个实底主 CTA（--primary 实底）。
  *
@@ -63,17 +63,18 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
   });
 
-  test("新主页骨架：顶栏、快捷视图、右栏三 tab 与阶段标注", async ({ page }) => {
+  test("新主页骨架：中栏筛选、右栏详情与阶段标注", async ({ page }) => {
     await page.goto("/admin/knowledge");
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
-    await expect(page.locator("[data-kbv-top]")).toBeVisible();
+    await expect(page.locator("[data-kbv-top]")).toHaveCount(0);
+    await expect(page.locator("[data-kbv-filter-pane]")).toBeVisible();
+    await expect(page.locator("[data-kbv-count]")).toHaveText(/\d+ 条知识/);
+    await expect(page.locator("[data-kbv-record]")).toHaveCount(5);
 
     await page.locator("[data-kbv-record]").first().click();
-    await expect(page.locator("[data-kbv-detail-tab]")).toHaveCount(3);
-    await page.locator('[data-kbv-detail-tab="props"]').click();
-    await expect(page.locator("[data-kbv-detail]")).toContainText("知识标识");
-    await page.locator('[data-kbv-detail-tab="versions"]').click();
-    await expect(page.locator("[data-kbv-detail]")).toContainText("版本");
+    await expect(page.locator("[data-kbv-detail]")).toContainText("正文");
+    await expect(page.locator("[data-kbv-detail]")).toContainText("属性与范围");
+    await expect(page.locator("[data-kbv-detail]")).toContainText("来源与版本");
 
     // 上传弹窗：音视频格式在列；归档目标＝三级 tab；阶段标签可增可删；提交在服务接入前禁用。
     await page.locator("[data-kbv-upload]").click();

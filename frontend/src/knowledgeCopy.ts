@@ -263,10 +263,10 @@ export const KB_LEAD = "选择适合当前任务的资料，AI 会据此生成�
 export const KB_MARKET_LEAD = "这些是组织已发布、可直接选用的资料。选一份后，AI 会据此生成草稿。正式发送前仍需要你确认。";
 
 /** 分类选择（族 → 域 → 库）：`?cat=` 启发式 tab 已退役，分类只来自服务端分类字段。 */
-export const KB_SCOPE_LEAD = "按 业务域 → 业务主题 → 知识库 查找资料；只列出你有权查看的分类。";
+export const KB_SCOPE_LEAD = "按 业务族 → 业务域 → 知识库 查找资料；只列出你有权查看的分类。";
 export const KB_SCOPE_ALL = "全部";
-export const KB_SCOPE_FAMILY = "业务域";
-export const KB_SCOPE_DOMAIN = "业务主题";
+export const KB_SCOPE_FAMILY = "业务族";
+export const KB_SCOPE_DOMAIN = "业务域";
 export const KB_SCOPE_BASE = "知识库";
 export const KB_SCOPE_NONE = "暂无分类信息。";
 export const KB_EMPTY_SCOPE = "这个分类下暂时没有资料。换个分类或清空选择。";

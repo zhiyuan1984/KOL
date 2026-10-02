@@ -1,57 +1,58 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api";
-import { KB_FILTER_LABEL, kindLabel, sortStageCodes } from "../../knowledgeCopy";
-import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
-import FilterChips from "../../components/FilterChips";
-import StageTags from "../../components/StageTags";
+import { brandLabel, kindLabel } from "../../knowledgeCopy";
+import { MAIN_STAGE_TABS } from "../../kolStages";
+import type { ScopeOption } from "../../components/ScopeTabs";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
-import LibraryPane, { type KbView } from "./LibraryPane";
 import DetailRail from "./DetailRail";
+import KnowledgeFilters, { type FacetOption } from "./KnowledgeFilters";
+import LibraryPane, { type KbView } from "./LibraryPane";
 import UploadDialog from "./UploadDialog";
 
+const PAGE_SIZE = 5;
 const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
   pending: "pending_review",
   published: "published",
   draft: "draft",
   disabled: "archived",
 };
-
-const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: spec.label }));
-
+const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: kindLabel(spec.code) }));
 type KbScope = { familyId: string; domainId: string; baseId: string };
 const EMPTY_SCOPE: KbScope = { familyId: "", domainId: "", baseId: "" };
 
-/** 管理端知识主页（IA v2）：三级分类 tab＋筛选标签＋中栏列表＋右栏详情。 */
+/**
+ * 知识管理主页：中栏只承担筛选，右栏只承担浏览与查看。
+ * 筛选同组多选为任一匹配，跨筛选区为同时满足；所有计数基于当前可见数据。
+ */
 export default function KnowledgeHome() {
   const nav = useNavigate();
   const load = useCallback(async () => {
-    const [rows, bases, domains, documents] = await Promise.all([
+    const [rows, bases, domains] = await Promise.all([
       api.adminKnowledge(),
       api.adminKnowledgeBases(),
       api.adminKnowledgeDomains(),
-      api.adminKnowledgeDocuments({ status: "pending_review" }).catch(() => null),
     ]);
     return {
       rows: rows as KbAssetRow[],
       bases: bases.bases || [],
       domains: domains.domains || [],
-      pendingDocs: documents?.documents || [],
     };
   }, []);
   const { data, error, loading, reload } = useKbData(load);
 
   const [receipt, setReceipt] = useState("");
   const [actionError, setActionError] = useState("");
-  const [view, setView] = useState<KbView>("all");
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("");
   const [scope, setScope] = useState<KbScope>(EMPTY_SCOPE);
   const [brands, setBrands] = useState<string[]>([]);
   const [stages, setStages] = useState<string[]>([]);
-  const [sort, setSort] = useState<"updated" | "title">("updated");
+  const [kind, setKind] = useState("");
+  const [view, setView] = useState<KbView>("all");
+  const [hiddenBrands, setHiddenBrands] = useState<string[]>([]);
+  const [hiddenStages, setHiddenStages] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState("");
-  const [expanded, setExpanded] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
 
   const notify = useCallback((message: string) => {
@@ -66,8 +67,6 @@ export default function KnowledgeHome() {
   const rows = data?.rows || [];
   const bases = data?.bases || [];
   const domains = data?.domains || [];
-  const pendingDocsCount = data?.pendingDocs.length || 0;
-
   const basesById = useMemo(() => new Map(bases.map((base) => [base.id, base])), [bases]);
   const domainsById = useMemo(() => new Map(domains.map((domain) => [domain.id, domain])), [domains]);
 
@@ -78,265 +77,212 @@ export default function KnowledgeHome() {
     return [family?.name, domain?.name, base?.name].filter(Boolean).join(" / ");
   }, [basesById, domainsById]);
 
-  const counts = useMemo(() => {
-    const result: Record<KbView, number> = { all: rows.length, pending: 0, published: 0, draft: 0, disabled: 0 };
-    for (const row of rows) {
-      const status = String(row.status || "");
-      if (status === "pending_review") result.pending += 1;
-      else if (status === "published") result.published += 1;
-      else if (status === "archived") result.disabled += 1;
-      else result.draft += 1;
-    }
-    return result;
-  }, [rows]);
-
   const baseCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const row of rows) {
-      if (!row.base_id) continue;
-      map.set(row.base_id, (map.get(row.base_id) || 0) + 1);
-    }
-    return map;
+    const counts = new Map<string, number>();
+    rows.forEach((row) => {
+      if (row.base_id) counts.set(row.base_id, (counts.get(row.base_id) || 0) + 1);
+    });
+    return counts;
   }, [rows]);
-
   const domainCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const base of bases) {
+    const counts = new Map<string, number>();
+    bases.forEach((base) => {
       const count = baseCounts.get(base.id) || 0;
-      if (!count) continue;
-      map.set(base.domain_id, (map.get(base.domain_id) || 0) + count);
-    }
-    return map;
+      if (count) counts.set(base.domain_id, (counts.get(base.domain_id) || 0) + count);
+    });
+    return counts;
   }, [bases, baseCounts]);
 
-  const familyOptions = useMemo<ScopeOption[]>(
-    () => domains
-      .filter((domain) => domain.level === "family")
-      .map((family) => ({
-        id: family.id,
-        name: family.name,
-        count: domains
-          .filter((domain) => domain.level === "domain" && String(domain.parent_id || "") === family.id)
-          .reduce((sum, domain) => sum + (domainCounts.get(domain.id) || 0), 0),
-      }))
-      .filter((option) => option.count > 0),
-    [domains, domainCounts],
-  );
+  const familyOptions = useMemo<ScopeOption[]>(() => domains
+    .filter((domain) => domain.level === "family")
+    .map((family) => ({
+      id: family.id,
+      name: family.name,
+      count: domains
+        .filter((domain) => domain.level === "domain" && String(domain.parent_id || "") === family.id)
+        .reduce((sum, domain) => sum + (domainCounts.get(domain.id) || 0), 0),
+    }))
+    .filter((option) => (option.count || 0) > 0), [domains, domainCounts]);
 
-  const familyDomainIds = useMemo(
-    () => new Set(
-      domains
-        .filter((domain) => domain.level === "domain" && (!scope.familyId || String(domain.parent_id || "") === scope.familyId))
-        .map((domain) => domain.id),
-    ),
-    [domains, scope.familyId],
-  );
+  const availableDomainIds = useMemo(() => new Set(
+    domains
+      .filter((domain) => domain.level === "domain" && (!scope.familyId || String(domain.parent_id || "") === scope.familyId))
+      .map((domain) => domain.id),
+  ), [domains, scope.familyId]);
+  const domainOptions = useMemo<ScopeOption[]>(() => domains
+    .filter((domain) => domain.level === "domain" && availableDomainIds.has(domain.id))
+    .map((domain) => ({ id: domain.id, name: domain.name, count: domainCounts.get(domain.id) || 0 }))
+    .filter((option) => (option.count || 0) > 0), [domains, availableDomainIds, domainCounts]);
+  const baseOptions = useMemo<ScopeOption[]>(() => bases
+    .filter((base) => (scope.domainId ? base.domain_id === scope.domainId : availableDomainIds.has(base.domain_id)))
+    .map((base) => ({ id: base.id, name: base.name, count: baseCounts.get(base.id) || 0 }))
+    .filter((option) => (option.count || 0) > 0), [bases, scope.domainId, availableDomainIds, baseCounts]);
 
-  const domainOptions = useMemo<ScopeOption[]>(
-    () => domains
-      .filter((domain) => domain.level === "domain" && familyDomainIds.has(domain.id))
-      .map((domain) => ({ id: domain.id, name: domain.name, count: domainCounts.get(domain.id) || 0 }))
-      .filter((option) => option.count > 0),
-    [domains, domainCounts, familyDomainIds],
-  );
-
-  const baseOptions = useMemo<ScopeOption[]>(
-    () => bases
-      .filter((base) => (scope.domainId ? base.domain_id === scope.domainId : familyDomainIds.has(base.domain_id)))
-      .map((base) => ({ id: base.id, name: base.name, count: baseCounts.get(base.id) || 0 }))
-      .filter((option) => option.count > 0),
-    [bases, baseCounts, scope.domainId, familyDomainIds],
-  );
-
-  const familyTotal = rows.length;
-  const domainTotal = useMemo(
-    () => domainOptions.reduce((sum, option) => sum + (option.count || 0), 0),
-    [domainOptions],
-  );
-  const baseTotal = useMemo(
-    () => baseOptions.reduce((sum, option) => sum + (option.count || 0), 0),
-    [baseOptions],
-  );
-
-  const brandOptions = useMemo(
-    () => [...new Set(
-      rows.map((row) => String(row.brand || "").trim()).filter((code) => code && code !== "*"),
-    )].sort(),
-    [rows],
-  );
-
-  const stageOptions = useMemo(
-    () => sortStageCodes([...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))]),
-    [rows],
-  );
-
-  const filtered = useMemo(() => {
+  const matches = useCallback((row: KbAssetRow, includeBrand = true, includeStage = true) => {
     const q = query.trim().toLowerCase();
-    return rows
-      .filter((row) => {
-        if (view !== "all" && String(row.status || "") !== VIEW_STATUS[view]) return false;
-        if (kind && row.kind !== kind) return false;
-        const base = row.base_id ? basesById.get(row.base_id) : undefined;
-        if (scope.baseId && row.base_id !== scope.baseId) return false;
-        if (scope.domainId && (!base || String(base.domain_id) !== scope.domainId)) return false;
-        if (scope.familyId) {
-          const domain = base ? domainsById.get(base.domain_id) : undefined;
-          if (!domain || String(domain.parent_id || "") !== scope.familyId) return false;
-        }
-        if (brands.length) {
-          const brand = String(row.brand || "");
-          if (brand && brand !== "*" && !brands.includes(brand)) return false;
-        }
-        if (stages.length && !(row.stage_codes || []).some((code) => stages.includes(code))) return false;
-        if (q) {
-          const haystack = [row.title, row.kind ? kindLabel(row.kind) : "", pathOf(row), row.created_by || ""]
-            .join(" ")
-            .toLowerCase();
-          if (!haystack.includes(q)) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (sort === "title") return String(a.title).localeCompare(String(b.title), "zh-CN");
-        return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
-      });
-  }, [rows, view, kind, scope, brands, stages, query, sort, basesById, domainsById, pathOf]);
+    const base = row.base_id ? basesById.get(row.base_id) : undefined;
+    const domain = base ? domainsById.get(base.domain_id) : undefined;
+    if (view !== "all" && String(row.status || "") !== VIEW_STATUS[view]) return false;
+    if (kind && row.kind !== kind) return false;
+    if (scope.baseId && row.base_id !== scope.baseId) return false;
+    if (scope.domainId && (!base || String(base.domain_id) !== scope.domainId)) return false;
+    if (scope.familyId && (!domain || String(domain.parent_id || "") !== scope.familyId)) return false;
+    if (includeBrand && brands.length) {
+      const brand = String(row.brand || "").trim();
+      if (brand && brand !== "*" && !brands.includes(brand)) return false;
+    }
+    if (includeStage && stages.length) {
+      const rowStages = row.stage_codes || [];
+      if (rowStages.length && !rowStages.some((code) => stages.includes(code))) return false;
+    }
+    if (q) {
+      const haystack = [row.title, kindLabel(row.kind), pathOf(row), row.created_by || ""].join(" ").toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  }, [query, scope, brands, stages, kind, view, basesById, domainsById, pathOf]);
 
-  const selectedRow = useMemo(
-    () => filtered.find((row) => row.id === selectedId) || filtered[0] || null,
-    [filtered, selectedId],
+  const filtered = useMemo(() => rows.filter((row) => matches(row)), [rows, matches]);
+
+  const brandCodes = useMemo(() => {
+    const values = new Set(rows.map((row) => String(row.brand || "").trim()).filter(Boolean));
+    return [...values].sort((a, b) => {
+      if (a === "*") return 1;
+      if (b === "*") return -1;
+      return brandLabel(a).localeCompare(brandLabel(b), "zh-CN");
+    });
+  }, [rows]);
+  const brandOptions = useMemo<FacetOption[]>(() => brandCodes.map((value) => ({
+    value,
+    count: rows.filter((row) => {
+      if (!matches(row, false, true)) return false;
+      const rowBrand = String(row.brand || "").trim();
+      return value === "*" ? !rowBrand || rowBrand === "*" : !rowBrand || rowBrand === "*" || rowBrand === value;
+    }).length,
+  })), [brandCodes, rows, matches]);
+  const brandAllCount = useMemo(
+    () => rows.filter((row) => matches(row, false, true)).length,
+    [rows, matches],
   );
 
-  // 0–1 实底主 CTA：待审批行选中时让位给右栏「审核」；其它状态顶栏保持主 CTA。
-  const demoteNew = selectedRow ? String(selectedRow.status || "") === "pending_review" : false;
+  const stageOptions = useMemo<FacetOption[]>(() => MAIN_STAGE_TABS.map((stage) => ({
+    value: stage.code,
+    count: rows.filter((row) => {
+      if (!matches(row, true, false)) return false;
+      const rowStages = row.stage_codes || [];
+      return !rowStages.length || rowStages.includes(stage.code);
+    }).length,
+  })), [rows, matches]);
 
-  const toggleBrand = (value: string) => {
-    setBrands((current) => (
-      current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
-    ));
-  };
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage],
+  );
+  const selectedRow = useMemo(
+    () => pageRows.find((row) => row.id === selectedId) || pageRows[0] || null,
+    [pageRows, selectedId],
+  );
 
-  const reset = useCallback(() => {
-    setQuery("");
-    setKind("");
-    setScope(EMPTY_SCOPE);
-    setBrands([]);
-    setStages([]);
-    setView("all");
+  useEffect(() => {
+    setPage(1);
+  }, [query, kind, view, scope.familyId, scope.domainId, scope.baseId, brands, stages]);
+  useEffect(() => {
+    if (page !== currentPage) setPage(currentPage);
+  }, [page, currentPage]);
+  useEffect(() => {
+    const first = pageRows[0]?.id || "";
+    if (first && !pageRows.some((row) => row.id === selectedId)) setSelectedId(first);
+    if (!first && selectedId) setSelectedId("");
+  }, [pageRows, selectedId]);
+
+  const toggleBrand = useCallback((value: string) => {
+    setBrands((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  }, []);
+  const removeBrand = useCallback((value: string) => {
+    setHiddenBrands((current) => current.includes(value) ? current : [...current, value]);
+  }, []);
+  const restoreBrand = useCallback((value: string) => {
+    setHiddenBrands((current) => current.filter((item) => item !== value));
+  }, []);
+  const toggleStage = useCallback((value: string) => {
+    setStages((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  }, []);
+  const removeStage = useCallback((value: string) => {
+    setHiddenStages((current) => current.includes(value) ? current : [...current, value]);
+  }, []);
+  const restoreStage = useCallback((value: string) => {
+    setHiddenStages((current) => current.filter((item) => item !== value));
   }, []);
 
-  const openCreate = useCallback(() => {
-    nav("/admin/knowledge/catalog");
-  }, [nav]);
-
-  const filters = (
-    <>
-      <ScopeTabs
-        familyOptions={familyOptions}
-        domainOptions={domainOptions}
-        baseOptions={baseOptions}
-        familyId={scope.familyId}
-        domainId={scope.domainId}
-        baseId={scope.baseId}
-        onFamily={(id) => setScope({ familyId: id, domainId: "", baseId: "" })}
-        onDomain={(id) => setScope((current) => ({ ...current, domainId: id, baseId: "" }))}
-        onBase={(id) => setScope((current) => ({ ...current, baseId: id }))}
-        familyTotal={familyTotal}
-        domainTotal={domainTotal}
-        baseTotal={baseTotal}
-      />
-      <FilterChips
-        label={KB_FILTER_LABEL.brand}
-        filterKey="brand"
-        options={brandOptions}
-        selected={brands}
-        onToggle={toggleBrand}
-        onClear={() => setBrands([])}
-      />
-      <StageTags
-        selected={stages}
-        onChange={setStages}
-        options={stageOptions}
-        rootAttrs={{ "data-kb-filter": "stage" }}
-      />
-      <div className="kbv-filters">
-        <select aria-label="知识类型" data-kbv-kind value={kind} onChange={(event) => setKind(event.target.value)}>
-          <option value="">全部类型</option>
-          {KIND_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-        <button type="button" className="kbv-link-plain" data-kbv-reset onClick={reset}>重置</button>
-      </div>
-    </>
-  );
-
   return (
-    <section className="kbv" data-admin-knowledge data-admin-kb-v2="home">
-      {receipt ? (
-        <p className="admin-receipt status-ok" data-admin-receipt role="status">{receipt}</p>
-      ) : null}
+    <section className="kbv kbv-filter-browser" data-admin-knowledge data-admin-kb-v2="home">
+      {receipt ? <p className="admin-receipt status-ok" data-admin-receipt role="status">{receipt}</p> : null}
       {actionError ? <p className="error" role="alert">{actionError}</p> : null}
       {error && !actionError ? <p className="error" role="alert">{errorMessage(error)}</p> : null}
 
-      <header className="kbv-top" data-kbv-top>
-        <div className="kbv-heading">
-          <h1>知识管理</h1>
-          <span className="kbv-lead">维护可信、可用的知识</span>
-        </div>
-        <div className="kbv-actions">
-          <button type="button" className="btn" data-kbv-upload onClick={() => setUploadOpen(true)}>
-            上传文件
-          </button>
-          <button
-            type="button"
-            className={demoteNew ? "btn" : "btn work"}
-            data-kbv-new
-            onClick={openCreate}
-          >
-            新建知识
-          </button>
-        </div>
-      </header>
-
       <div className="kbv-workspace">
-        <LibraryPane
-          rows={filtered}
-          totalCount={rows.length}
-          counts={counts}
-          view={view}
-          onView={setView}
+        <KnowledgeFilters
           query={query}
           onQuery={setQuery}
-          sort={sort}
-          onSort={setSort}
-          selectedId={selectedRow?.id || ""}
-          onSelect={setSelectedId}
-          expanded={expanded}
-          onToggleExpand={() => setExpanded((current) => !current)}
-          pendingDocsCount={pendingDocsCount}
-          loading={loading}
-          pathOf={pathOf}
+          scope={scope}
+          onFamily={(id) => setScope({ familyId: id, domainId: "", baseId: "" })}
+          onDomain={(id) => setScope((current) => ({ ...current, domainId: id, baseId: "" }))}
+          onBase={(id) => setScope((current) => ({ ...current, baseId: id }))}
+          familyOptions={familyOptions}
+          domainOptions={domainOptions}
+          baseOptions={baseOptions}
+          brandOptions={brandOptions}
+          brandAllCount={brandAllCount}
+          hiddenBrands={hiddenBrands}
+          selectedBrands={brands}
+          onToggleBrand={toggleBrand}
+          onRemoveBrand={removeBrand}
+          onRestoreBrand={restoreBrand}
+          stageOptions={stageOptions}
+          hiddenStages={hiddenStages}
+          selectedStages={stages}
+          onToggleStage={toggleStage}
+          onRemoveStage={removeStage}
+          onRestoreStage={restoreStage}
+          kind={kind}
+          kinds={KIND_OPTIONS}
+          onKind={setKind}
+          view={view}
+          onView={setView}
           onUpload={() => setUploadOpen(true)}
-          onCreate={openCreate}
-          filters={filters}
+          onCreate={() => nav("/admin/knowledge/catalog")}
         />
 
-        <aside className="kbv-rail" aria-label="知识详情" data-kbv-detail>
-          {selectedRow ? (
-            <DetailRail
-              key={selectedRow.id}
-              row={selectedRow}
-              path={pathOf(selectedRow)}
-              baseKind={selectedRow.base_id ? basesById.get(selectedRow.base_id)?.kind : undefined}
-              notify={notify}
-              fail={fail}
-              reload={reload}
-            />
-          ) : (
-            <p className="kbv-empty">从列表选择一条知识，查看内容与来源。</p>
-          )}
-        </aside>
+        <section className="kbv-browser" aria-label="浏览知识">
+          <LibraryPane
+            rows={pageRows}
+            totalCount={filtered.length}
+            page={currentPage}
+            pageCount={pageCount}
+            selectedId={selectedRow?.id || ""}
+            onSelect={setSelectedId}
+            onPrevious={() => setPage((current) => Math.max(1, current - 1))}
+            onNext={() => setPage((current) => Math.min(pageCount, current + 1))}
+            loading={loading}
+          />
+          <aside className="kbv-admin-detail" aria-label="知识详情" data-kbv-detail>
+            {selectedRow ? (
+              <DetailRail
+                key={selectedRow.id}
+                row={selectedRow}
+                path={pathOf(selectedRow)}
+                baseKind={selectedRow.base_id ? basesById.get(selectedRow.base_id)?.kind : undefined}
+                notify={notify}
+                fail={fail}
+                reload={reload}
+              />
+            ) : (
+              <p className="kbv-empty">从上方列表选择一条知识，查看详情。</p>
+            )}
+          </aside>
+        </section>
       </div>
 
       <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} />
