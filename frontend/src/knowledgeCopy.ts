@@ -1,5 +1,6 @@
 import type { KnowledgeRow } from "./api";
 import { stageLabel } from "./labels";
+import { MAIN_STAGE_TABS } from "./kolStages";
 
 export const KB_FILL_STASH = "kb_fill_composer";
 
@@ -669,14 +670,26 @@ export const KB_PROVENANCE_LABEL = {
   scope: "适用",
 } as const;
 
-/** 行内适用 chips：有阶段/品牌就显示代码，没有就诚实写「全阶段 / 通用」。 */
-export function kbScopeTags(row: Pick<KnowledgeRow, "stage_codes" | "brand">): string[] {
-  const stages = (row.stage_codes || []).map((code) => String(code || "").trim()).filter(Boolean);
+/** 阶段代码按 SOP 自然序排序（筛选标签展示用）；未知代码排最后。 */
+export function sortStageCodes(codes: string[]): string[] {
+  const rank = (code: string) => {
+    const index = MAIN_STAGE_TABS.findIndex((item) => item.code === code);
+    return index < 0 ? MAIN_STAGE_TABS.length : index;
+  };
+  return [...codes].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+/** 适用 chips：阶段给中文标签、品牌只留值；单行行内省阶段（withStage=false），右栏保留。没有就诚实写「全阶段 / 通用」。 */
+export function kbScopeTags(
+  row: Pick<KnowledgeRow, "stage_codes" | "brand">,
+  opts?: { withStage?: boolean },
+): string[] {
+  const stages = (row.stage_codes || []).map((code) => stageLabel(code)).filter(Boolean);
   const brand = String(row.brand || "").trim();
-  return [
-    stages.length ? `阶段：${stages.join(" / ")}` : "全阶段",
-    brand && brand !== "*" ? `品牌：${brand}` : "通用",
-  ];
+  const tags: string[] = [];
+  if (opts?.withStage !== false) tags.push(stages.length ? `阶段：${stages.join(" / ")}` : "全阶段");
+  tags.push(brand && brand !== "*" ? brand : "通用");
+  return tags;
 }
 
 /** 与后端 knowledgeListFilters 同口径：无阶段/无品牌行视为通用，不被筛选排除。 */

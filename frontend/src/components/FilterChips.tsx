@@ -5,10 +5,12 @@ type Props = {
   selected: string[];
   onToggle: (value: string) => void;
   onClear: () => void;
+  /** 展示名（值仍按原始代码过滤）：如阶段代码显示为中文标签。 */
+  labelOf?: (value: string) => string;
 };
 
 /** 适用范围筛选标签：值全部露出，点击即筛；品牌支持多选（selected 多项），阶段单选。 */
-export default function FilterChips({ label, filterKey, options, selected, onToggle, onClear }: Props) {
+export default function FilterChips({ label, filterKey, options, selected, onToggle, onClear, labelOf }: Props) {
   return (
     <div className="kbv-chip-row" data-kb-filter={filterKey}>
       <span className="kbv-scope-name">{label}</span>
@@ -30,7 +32,7 @@ export default function FilterChips({ label, filterKey, options, selected, onTog
           data-kb-filter-value={value}
           onClick={() => onToggle(value)}
         >
-          {value}
+          {labelOf ? labelOf(value) : value}
         </button>
       ))}
     </div>

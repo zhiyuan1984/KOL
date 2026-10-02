@@ -941,23 +941,23 @@
   font-weight: 600;
 }
 
-/* 单行行式（仅管理端列表，>700px）：标题与分类同行，状态/维护人在右、单行显示 */
+/* 单行行式（双端列表，>700px）：标题与分类同行，状态/维护人在右、单行显示 */
 @media (min-width: 701px) {
-  .kbv:not(.kbv-page) .kbv-record-copy {
+  .kbv .kbv-record-copy {
     display: flex;
     align-items: baseline;
     gap: var(--space-2);
     overflow: hidden;
   }
 
-  .kbv:not(.kbv-page) .kbv-record-meta {
+  .kbv .kbv-record-meta {
     margin-top: 0;
     flex-wrap: nowrap;
     overflow: hidden;
     min-width: 0;
   }
 
-  .kbv:not(.kbv-page) .kbv-record-end {
+  .kbv .kbv-record-end {
     display: flex;
     flex-direction: row;
     align-items: baseline;
@@ -965,20 +965,33 @@
     white-space: nowrap;
   }
 
-  .kbv:not(.kbv-page) .kbv-record-end > span + span::before {
+  .kbv .kbv-record-end > span + span::before {
     content: "· ";
   }
 
-  .kbv:not(.kbv-page) .kbv-record-title {
+  .kbv .kbv-record-title {
     flex: 0 1 auto;
   }
 
-  .kbv:not(.kbv-page) .kbv-record-meta {
+  .kbv .kbv-record-meta {
     flex: 1 1 auto;
   }
 
-  .kbv:not(.kbv-page) .kbv-record-meta > span {
+  .kbv .kbv-record-meta > span {
     white-space: nowrap;
+  }
+
+  /* chips 容器（.kb-scope 自带 wrap）在单行行式内不换行，超出由 meta 裁切。 */
+  .kbv .kbv-record-meta .kb-scope {
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* 员工端行内优先级：标题与类型标签保持完整，先由适用 chips 裁切让位（空间不够只截 chips）。 */
+  .kbv-page .kbv-record-title,
+  .kbv-page .kbv-record-meta > span:first-child {
+    flex-shrink: 0;
   }
 }
 

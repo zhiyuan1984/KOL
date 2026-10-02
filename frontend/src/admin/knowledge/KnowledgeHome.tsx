@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api";
-import { KB_FILTER_LABEL, kindLabel } from "../../knowledgeCopy";
+import { KB_FILTER_LABEL, kindLabel, sortStageCodes } from "../../knowledgeCopy";
+import { stageLabel } from "../../labels";
 import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
 import FilterChips from "../../components/FilterChips";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
@@ -165,7 +166,7 @@ export default function KnowledgeHome() {
   );
 
   const stageOptions = useMemo(
-    () => [...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))].sort(),
+    () => sortStageCodes([...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))]),
     [rows],
   );
 
@@ -263,6 +264,7 @@ export default function KnowledgeHome() {
         selected={stage ? [stage] : []}
         onToggle={toggleStage}
         onClear={() => setStage("")}
+        labelOf={stageLabel}
       />
       <div className="kbv-filters">
         <select aria-label="知识类型" data-kbv-kind value={kind} onChange={(event) => setKind(event.target.value)}>

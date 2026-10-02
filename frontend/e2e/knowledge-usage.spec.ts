@@ -5,7 +5,8 @@ import { expect, test } from "@playwright/test";
  *
  * 只断言页面自己的 DOM 契约，不改 workbench.spec.ts 的既有基线：
  *   搜索 → [data-kb-search]（debounce 后走 GET /api/knowledge?q=）
- *   适用 → 行内 [data-kb-scope] chips，筛选 [data-kb-filter='stage'|'brand']
+ *   适用 → 行内 [data-kb-scope] chips 只露品牌值（阶段在右栏给中文标签），
+ *          筛选 [data-kb-filter='stage'|'brand'] 的展示名为中文标签、值仍为代码
  *   溯源 → 右栏 [data-kb-provenance]：发布人 / 版本 / 更新时间 / 适用
  *   芯片 → 草稿与回执 [data-draft-knowledge]：模板：{标题} v{n}
  *
@@ -52,26 +53,30 @@ test("同页详情给出来源与版本与全文（右栏常显）", async ({ pa
   await expect(provenance).toContainText("发布人");
   await expect(provenance).toContainText("v1");
   await expect(provenance).toContainText("更新时间");
-  await expect(provenance).toContainText("阶段：INITIAL_CONTACT");
+  await expect(provenance).toContainText("阶段：初步接触");
 
   const body = rail.locator("[data-kb-preview-body]");
   await expect(body).toContainText("Just a quick follow-up");
   await expect(body).toContainText("Happy to share the spec sheet");
 });
 
-test("行内适用 chips 显示阶段与品牌，无适用范围时写全阶段 · 通用", async ({ page }) => {
+test("行内只露品牌值；阶段中文标签在右栏；无适用范围写全阶段 · 通用", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
 
   const mail = kb.locator('[data-knowledge="kb_mail_followup"] [data-kb-scope]');
   await expect(mail).toBeVisible();
-  await expect(mail).toContainText("阶段：INITIAL_CONTACT / INTERESTED");
-  await expect(mail).toContainText("品牌：LT");
+  await expect(mail).toContainText("LT");
+  await expect(mail).not.toContainText("初步接触");
 
   const policy = kb.locator('[data-knowledge="kb_followup"] [data-kb-scope]');
   await expect(policy).toBeVisible();
-  await expect(policy).toContainText("全阶段");
   await expect(policy).toContainText("通用");
+
+  await kb.locator('[data-kb-open="kb_followup"]').click();
+  const rail = page.locator('[data-kb-preview="kb_followup"] [data-kb-scope]');
+  await expect(rail).toContainText("全阶段");
+  await expect(rail).toContainText("通用");
 
   await expect(kb.locator("[data-kb-filter='stage']")).toBeVisible();
   await expect(kb.locator("[data-kb-filter='brand']")).toBeVisible();

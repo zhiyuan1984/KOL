@@ -9,6 +9,7 @@ import {
 } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import VersionDiff from "../../components/VersionDiff";
+import { stageLabel } from "../../labels";
 import {
   KB_ADMIN_ACTION,
   KB_ADMIN_EMPTY,
@@ -275,7 +276,7 @@ export default function EntryView({ id, notify, fail }: KbFeed & { id: string })
             <dd>{[row.family_name, row.domain_name].filter(Boolean).join(" / ") || "未归类"}</dd>
           </div>
           <div><dt>品牌 / 语言</dt><dd>{brandLabel(row.brand)} · {row.lang || "en"}</dd></div>
-          <div><dt>适用阶段</dt><dd>{listText((row.stage_codes || []).join(" / ")) || "全阶段"}</dd></div>
+          <div><dt>适用阶段</dt><dd>{listText((row.stage_codes || []).map((code) => stageLabel(code)).join(" / ")) || "全阶段"}</dd></div>
           <div><dt>标签</dt><dd>{listText(row.tags) || "—"}</dd></div>
           <div><dt>更新</dt><dd>{formatKbTime(row.updated_at) || "—"}</dd></div>
           <div><dt>创建</dt><dd>{row.created_by || "—"} · {formatKbTime(row.created_at) || "—"}</dd></div>

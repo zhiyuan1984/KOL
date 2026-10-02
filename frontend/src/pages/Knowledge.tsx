@@ -4,6 +4,7 @@ import { api, type KnowledgeRow, type SkillTemplate } from "../api";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
 import FilterChips from "../components/FilterChips";
+import { stageLabel } from "../labels";
 import { stashComposerDraft } from "../composer/draft";
 import { templateQuestionDraft } from "../skillTemplate";
 import {
@@ -34,6 +35,7 @@ import {
   readKbFavorites,
   readKbRecent,
   rememberKbRecent,
+  sortStageCodes,
   stashComposerFill,
   toggleKbFavorite,
 } from "../knowledgeCopy";
@@ -98,11 +100,11 @@ function Hinted({
   );
 }
 
-/** 适用 chips：有则显示阶段/品牌，无则「全阶段 / 通用」，行内与详情共用。 */
-function ScopeChips({ row }: { row: KnowledgeRow }) {
+/** 适用 chips：阶段中文标签、品牌只留值，无则「全阶段 / 通用」；行内省阶段，右栏保留。 */
+function ScopeChips({ row, withStage = true }: { row: KnowledgeRow; withStage?: boolean }) {
   return (
     <span className="kb-scope" data-kb-scope>
-      {kbScopeTags(row).map((tag) => (
+      {kbScopeTags(row, { withStage }).map((tag) => (
         <span className="chip kb-scope-chip" key={tag}>{tag}</span>
       ))}
     </span>
@@ -214,7 +216,7 @@ export default function Knowledge() {
   }, [baseId, baseOptions]);
 
   const stageOptions = useMemo(
-    () => [...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))].sort(),
+    () => sortStageCodes([...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))]),
     [rows],
   );
   const brandOptions = useMemo(
@@ -403,6 +405,7 @@ export default function Knowledge() {
                 selected={stageFilter ? [stageFilter] : []}
                 onToggle={(value) => setStageFilter((current) => (current === value ? "" : value))}
                 onClear={() => setStageFilter("")}
+                labelOf={stageLabel}
               />
               {anyFilter ? (
                 <div className="kbv-filters">
@@ -505,7 +508,7 @@ export default function Knowledge() {
                       <span className="kbv-record-title">{row.title}</span>
                       <span className="kbv-record-meta">
                         <span>{kindLabel(row.kind)}</span>
-                        <ScopeChips row={row} />
+                        <ScopeChips row={row} withStage={false} />
                         {row.deprecated ? <span className="chip chip-warn">已隐藏</span> : null}
                         {favorited ? <span aria-hidden="true">★</span> : null}
                       </span>
