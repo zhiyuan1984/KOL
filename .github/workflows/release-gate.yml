@@ -137,6 +137,9 @@ jobs:
           else
             echo "Canonical KOL source is not present on this deployment host; skipping optional validation."
           fi
+          # The PostgreSQL authority is long-lived, so new tables/indexes must
+          # be applied explicitly before the API starts querying them.
+          bash scripts/apply-postgres-schema.sh
           sudo -n systemctl restart lingong
           REMOTE
 

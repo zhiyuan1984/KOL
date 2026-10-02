@@ -94,6 +94,13 @@ function rewriteJsonExtract(sql: string): string {
   return sql.replace(/json_extract\(\s*([A-Za-z_][\w.]*)\s*,\s*'\$\.([A-Za-z_][\w]*)'\s*\)/gi, "$1::jsonb ->> '$2'");
 }
 
+function rewriteNoCaseCollation(sql: string): string {
+  // SQLite's built-in NOCASE collation name is not installed in PostgreSQL.
+  // All current uses are expression-level ORDER BY terms, where LOWER preserves
+  // the intended case-insensitive sort without requiring cluster configuration.
+  return sql.replace(/([A-Za-z_][\w.]*)\s+COLLATE\s+NOCASE\b/gi, "LOWER($1)");
+}
+
 function rewriteSqliteMaster(sql: string): string {
   if (!/sqlite_master/i.test(sql)) return sql;
   return sql
@@ -115,6 +122,7 @@ export function translateSqliteSql(sql: string): string {
   let output = source;
   output = rewriteSqliteMaster(output);
   output = output.replace(/\bIFNULL\s*\(/gi, "COALESCE(");
+  output = rewriteNoCaseCollation(output);
   output = output.replace(/([A-Za-z_][\w.]*)\s+NOT\s+GLOB\s+'\*\[\^([^\]]+)\]\*'/gi, "$1 !~ '[^$2]'");
   output = rewriteJsonExtract(output);
   output = output.replace(/\bINSERT\s+OR\s+IGNORE\b/gi, "INSERT");

@@ -592,19 +592,20 @@ tasks.get("/agent-manifest", (c) => {
 });
 
 /**
- * Cheap "did anything the list reads change" fingerprint. MAX(rowid) is O(1)
- * on the implicit rowid index; MAX(updated_at) rides the new
- * tickets(owner_user_id, updated_at) index. Any write that moves it drops
- * the cached projection immediately instead of waiting out the TTL.
+ * Cheap "did anything the list reads change" fingerprint. Keep it portable
+ * across SQLite and PostgreSQL: task event count catches every append and the
+ * latest creation time provides a readable companion value. Any write that
+ * moves it drops the cached projection immediately instead of waiting out TTL.
  */
 function tasksEpoch(): string {
   const row = getConn().prepare(
-    `SELECT (SELECT MAX(rowid) FROM task_events) AS events,
+    `SELECT (SELECT COUNT(*) FROM task_events) AS event_count,
+            (SELECT MAX(created_at) FROM task_events) AS event_updated_at,
             (SELECT MAX(updated_at) FROM tickets) AS work_items,
             (SELECT COUNT(*) FROM tickets) AS work_item_count,
             (SELECT COUNT(*) FROM collaborations) AS collaborations`,
-  ).get() as { events: number | null; work_items: string | null; work_item_count: number; collaborations: number };
-  return pollEpoch([row.events, row.work_items, row.work_item_count, row.collaborations]);
+  ).get() as { event_count: number; event_updated_at: string | null; work_items: string | null; work_item_count: number; collaborations: number };
+  return pollEpoch([row.event_count, row.event_updated_at, row.work_items, row.work_item_count, row.collaborations]);
 }
 
 /** Canonical employee task projection. Today is deliberately a subset of todo. */

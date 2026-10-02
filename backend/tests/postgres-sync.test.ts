@@ -20,6 +20,11 @@ describe("PostgreSQL synchronous repository bridge", () => {
     expect(translateSqliteSql("schema_hash NOT GLOB '*[^0123456789abcdef]*'"))
       .toBe("schema_hash !~ '[^0123456789abcdef]'");
   });
+
+  it("maps SQLite NOCASE sorting without requiring a PostgreSQL collation", () => {
+    expect(translateSqliteSql("SELECT id,label FROM connectors ORDER BY label COLLATE NOCASE, id"))
+      .toBe("SELECT id,label FROM connectors ORDER BY LOWER(label), id");
+  });
 });
 
 type StubStep = "drop" | { afterMs?: number; payload: unknown };

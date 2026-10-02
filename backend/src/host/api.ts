@@ -1039,18 +1039,23 @@ function sessionsEpoch(): string {
             (SELECT MAX(updated_at) FROM sessions) AS updated_at,
             (SELECT COALESCE(MAX(archived_at), '') FROM sessions) AS archived_at,
             (SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL) AS deleted,
-            (SELECT MAX(rowid) FROM workers) AS workers,
-            (SELECT MAX(rowid) FROM drafts) AS drafts`,
+            (SELECT COUNT(*) FROM workers) AS worker_count,
+            (SELECT COALESCE(MAX(created_at), '') FROM workers) AS worker_created_at,
+            (SELECT COUNT(*) FROM drafts) AS draft_count,
+            (SELECT COALESCE(MAX(sent_at), '') FROM drafts) AS draft_sent_at`,
   ).get() as {
     session_count: number;
     updated_at: string | null;
     archived_at: string;
     deleted: number;
-    workers: number | null;
-    drafts: number | null;
+    worker_count: number;
+    worker_created_at: string;
+    draft_count: number;
+    draft_sent_at: string;
   };
   return pollEpoch([
-    row.session_count, row.updated_at, row.archived_at, row.deleted, row.workers, row.drafts, runControlRevision(),
+    row.session_count, row.updated_at, row.archived_at, row.deleted,
+    row.worker_count, row.worker_created_at, row.draft_count, row.draft_sent_at, runControlRevision(),
   ]);
 }
 
