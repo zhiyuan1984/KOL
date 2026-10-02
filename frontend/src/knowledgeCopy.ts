@@ -34,7 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
   pending_review: "待审批",
   published: "已发布",
-  archived: "已归档",
+  archived: "已停用",
 };
 
 const BRAND_LABEL: Record<string, string> = {
@@ -541,7 +541,7 @@ export function kbBaseKindLabel(kind?: string): string {
 
 export const KB_BASE_STATUS_LABEL: Record<string, string> = {
   active: "启用",
-  archived: "已归档",
+  archived: "已停用",
 };
 
 /** 非结构化库（P1，2026-10-02）：解析与检索由 PageIndex 本地承担；先接入 PDF。 */
@@ -559,7 +559,7 @@ export const KB_DOC_STATUS_LABEL: Record<string, string> = {
   indexing: "建索引中",
   pending_review: "待审",
   published: "已发布",
-  archived: "已归档",
+  archived: "已停用",
   failed: "失败",
   cancelled: "已取消",
 };

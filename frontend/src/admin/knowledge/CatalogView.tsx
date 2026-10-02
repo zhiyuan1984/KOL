@@ -286,7 +286,7 @@ export default function CatalogView({ notify, fail }: KbFeed) {
                                   </span>
                                 )}
                                 {" · "}{base.code}
-                                {base.status === "archived" ? " · 已归档" : ""}
+                                {base.status === "archived" ? " · 已停用" : ""}
                                 {base.description ? ` · ${base.description}` : ""}
                               </p>
                             </div>
