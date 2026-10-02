@@ -99,11 +99,31 @@ codex login
 ```bash
 # 二选一：宿主机先 codex login（compose 会挂载 ~/.codex），或：
 # export OPENAI_API_KEY=sk-...
+# 首次从既有 SQLite 数据切换：先停止旧服务的写入，再运行一次迁移
+docker compose --profile migration run --rm migrate
+# 指纹核验成功后启动 PostgreSQL、Redis、API、Outbox 发布器及 Worker
 docker compose up --build
 ```
 
 同样是 http://127.0.0.1:8765。宿主机上“已经运行的 Codex 进程”不能跨容器复用；
-Compose 会安装 Codex CLI，并挂载 `${HOME}/.codex`、透传 `OPENAI_API_KEY`。
+Compose 会安装 Codex CLI，并挂载 `${HOME}/.codex`、透传 `OPENAI_API_KEY`。`migrate`
+从 `/app/data/lingong.db` 复制全部现有 SQLite 表与行到 PostgreSQL，并在结束前逐表
+校验内容指纹；迁移完成后 `DATABASE_URL` 使 API 拒绝回退写 SQLite。Redis/BullMQ 仅作
+派发，`execution_jobs` 和 `execution_outbox` 的 PostgreSQL 记录才是作业状态和回执权威。
+
+**本机无容器的切换：**
+
+```bash
+cd backend
+export DATABASE_URL=postgresql://lingong:password@127.0.0.1:5432/lingong
+export REDIS_URL=redis://127.0.0.1:6379
+# 停止旧 SQLite 写入后执行；非空目标默认拒绝覆盖
+npm run db:migrate:postgres -- --source /absolute/path/to/lingong.db
+npm run db:verify:postgres -- --source /absolute/path/to/lingong.db
+npm run worker:outbox
+# 在另一个终端；可按容量启动多个实例
+npm run worker:execution
+```
 
 **服务器部署（ECS + systemd）：**
 

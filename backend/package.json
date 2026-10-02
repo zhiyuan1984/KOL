@@ -7,6 +7,9 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "worker:execution": "tsx src/execution-worker.ts",
+    "worker:outbox": "tsx src/outbox-publisher.ts",
+    "db:migrate:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
+    "db:verify:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts --verify-only",
     "test": "node scripts/test.mjs",
     "validate:kol-data": "node scripts/validate-kol-data.mjs",
     "validate:registry": "node scripts/validate-registry.mjs",
@@ -24,7 +27,10 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@typesafe-ai/sdk": "0.6.0",
     "better-sqlite3": "^11.8.1",
+    "bullmq": "^6.3.11",
     "hono": "^4.7.5",
+    "ioredis": "^5.8.2",
+    "pg": "^8.23.1",
     "smol-toml": "1.9.0",
     "tsx": "^4.19.3",
     "undici": "^7.30.0",
@@ -33,6 +39,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.10",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9",
     "zod": "^4.6.5"

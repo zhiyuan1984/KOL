@@ -1,4 +1,4 @@
-import { audit, getConn, nowIso, txImmediate, type SqliteConn } from "../db.js";
+import { audit, databaseEngine, getConn, nowIso, txImmediate, type SqliteConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import type { Row } from "../types.js";
 import type { AppUser } from "../auth.js";
@@ -272,6 +272,17 @@ export async function processNextCronExecutionJob(workerId = "cron-worker", view
   return executeClaimedCronJob(claimed, viewer, nowMs);
 }
 
+/**
+ * Broker consumers receive a durable execution-job ID rather than polling a
+ * local queue. Claiming remains authoritative in PostgreSQL so duplicate
+ * BullMQ deliveries cannot execute the same run twice.
+ */
+export async function processCronExecutionJobById(executionJobId: string, workerId = "cron-worker", viewer?: AppUser, nowMs = Date.now()): Promise<string | null> {
+  const claimed = claimExecutionJobById(executionJobId, workerId, { now: new Date(nowMs) });
+  if (!claimed) return null;
+  return executeClaimedCronJob(claimed, viewer, nowMs);
+}
+
 async function executeCronRunViaDurableJob(runId: string, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
   const job = executionJobByIdempotencyKey(`cron-run:${runId}`);
   if (!job) throw new HttpFail(500, "missing durable cron job");
@@ -333,15 +344,17 @@ export async function tickCronDue(now = new Date(), viewer?: AppUser): Promise<{
     markStaleRunning(db, now);
     return enqueueDueJobs(db, now);
   });
-  for (const runId of claimed) {
-    await executeCronRunViaDurableJob(runId, viewer, now.getTime());
+  if (databaseEngine() === "sqlite") {
+    for (const runId of claimed) {
+      await executeCronRunViaDurableJob(runId, viewer, now.getTime());
+    }
   }
   return { claimed, stale: false };
 }
 
 export async function runCronJobNow(jobId: string, viewer?: AppUser, scheduledFor?: string): Promise<{ run_id: string }> {
   const enqueued = enqueueManualRun(jobId, scheduledFor);
-  if (!enqueued.duplicate) {
+  if (!enqueued.duplicate && databaseEngine() === "sqlite") {
     await executeCronRunViaDurableJob(enqueued.run_id, viewer);
   }
   return { run_id: enqueued.run_id };
