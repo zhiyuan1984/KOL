@@ -2360,7 +2360,7 @@ export const api = {
   adminExamScores: () => request<Record<string, unknown>[]>("/api/admin/exam-scores"),
   adminAssignments: () => request<Record<string, unknown>[]>("/api/admin/exam-assignments"),
   adminDataPolicy: () => request<Record<string, unknown>>("/api/admin/retention-policy"),
-  adminAudit: () => request<Record<string, unknown>[]>("/api/audit"),
+  adminAudit: () => request<Record<string, unknown>[]>("/api/audit?limit=200"),
   adminAuditEvents: (opts: { limit?: number; cursor?: number; event_type?: string; actor?: string } = {}) => {
     const query = new URLSearchParams();
     if (opts.limit) query.set("limit", String(opts.limit));

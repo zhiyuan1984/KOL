@@ -2453,13 +2453,39 @@ export function audit(actor: string, eventType: string, payload: Json): void {
     .run(nowIso(), actor === "usr_sriphy" ? "sriphy" : actor, eventType, JSON.stringify(payload));
 }
 
-export function listAudit(eventType?: string | null): Row[] {
+export const AUDIT_PAYLOAD_PREVIEW_CHARS = 8_192;
+
+/**
+ * Parses an audit payload already truncated by SQL. Full audit JSON can include
+ * a large external receipt; administrative list screens must never pull that
+ * receipt into the synchronous PostgreSQL bridge.
+ */
+export function auditPayloadPreview(raw: string, payloadSize: number): Json {
+  const truncated = payloadSize > raw.length;
+  if (!truncated) {
+    try { return JSON.parse(raw || "{}") as Json; } catch { /* use preview below */ }
+  }
+  return {
+    preview: raw,
+    truncated: true,
+    payload_size: payloadSize,
+  };
+}
+
+export function listAudit(eventType?: string | null, options: { limit?: number } = {}): Row[] {
   const db = getConn();
+  const limit = Math.min(Math.max(1, Number(options.limit || 200)), 500);
   const rows = eventType
-    ? db.prepare("SELECT * FROM audit_events WHERE event_type = ? ORDER BY id").all(eventType)
-    : db.prepare("SELECT * FROM audit_events ORDER BY id").all();
+    ? db.prepare(
+      `SELECT id,ts,actor,event_type,substr(payload,1,?) AS payload_preview,length(payload) AS payload_size
+         FROM (SELECT * FROM audit_events WHERE event_type=? ORDER BY id DESC LIMIT ?) recent ORDER BY id`,
+    ).all(AUDIT_PAYLOAD_PREVIEW_CHARS, eventType, limit)
+    : db.prepare(
+      `SELECT id,ts,actor,event_type,substr(payload,1,?) AS payload_preview,length(payload) AS payload_size
+         FROM (SELECT * FROM audit_events ORDER BY id DESC LIMIT ?) recent ORDER BY id`,
+    ).all(AUDIT_PAYLOAD_PREVIEW_CHARS, limit);
   return (rows as Row[]).map((r) => ({
     ...r,
-    payload: JSON.parse(String(r.payload || "{}")),
+    payload: auditPayloadPreview(String(r.payload_preview || ""), Number(r.payload_size || 0)),
   }));
 }

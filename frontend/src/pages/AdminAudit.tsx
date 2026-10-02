@@ -10,9 +10,14 @@ function formatTime(value: string): string {
 }
 
 function payloadSummary(payload: Record<string, unknown>): string {
+  if (payload.truncated === true) {
+    const bytes = Number(payload.payload_size || 0);
+    return `审计附加信息过大，已截断预览（原始 ${bytes.toLocaleString("zh-CN")} 字符）。`;
+  }
   const entries = Object.entries(payload).filter(([, value]) => value !== null && value !== "").slice(0, 4);
   if (!entries.length) return "无附加字段";
-  return entries.map(([key, value]) => `${key}=${typeof value === "string" ? value : JSON.stringify(value)}`).join(" · ");
+  const summary = entries.map(([key, value]) => `${key}=${typeof value === "string" ? value : JSON.stringify(value)}`).join(" · ");
+  return summary.length > 320 ? `${summary.slice(0, 320)}…` : summary;
 }
 
 /** Read-only cross-domain audit timeline. It never mutates business facts. */
