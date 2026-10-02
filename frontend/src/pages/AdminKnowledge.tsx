@@ -1,25 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import {
+  KB_ADMIN_DEFAULT_PATH,
   KB_ADMIN_NAV,
   KB_ADMIN_VIEW_LEAD,
   KB_ADMIN_VIEW_TITLE,
   type KbAdminView,
 } from "../knowledgeCopy";
 import { errorMessage } from "../admin/knowledge/shared";
-import ReviewView from "../admin/knowledge/ReviewView";
 import CatalogView from "../admin/knowledge/CatalogView";
 import BaseView from "../admin/knowledge/BaseView";
 import EntryView from "../admin/knowledge/EntryView";
 import IngestView from "../admin/knowledge/IngestView";
 import BindingsView from "../admin/knowledge/BindingsView";
+import KnowledgeHome from "../admin/knowledge/KnowledgeHome";
 import "../admin/knowledge/knowledge-admin.css";
+import "../knowledge-page.css";
 
 /**
- * 知识治理宿主：自己解析 pathname，映射六个子视图（一页一问）。
- *
- * DOM 契约（规格 §5.2）：view ∈ review | catalog | base | entry | ingest | bindings。
- * 子导航是链接式 tab：深链可达；base / entry 是上下文视图，没有 id 时提示先去目录。
+ * 知识治理宿主（IA v2，2026-10-02）：
+ * - 默认路由 `/admin/knowledge` ＝新主页（列表＋同页详情）；
+ * - 旧子视图（catalog / bases / entries / ingest / bindings）过渡保留：slim 导航（← 知识首页 ＋ 5 项），
+ *   能力逐项折叠进主页后退役（见 docs/superpowers/plans/2026-10-02-knowledge-ia-v2-implementation.md）。
  */
 export function parseKnowledgePath(pathname: string): { view: KbAdminView; id: string } {
   const rest = pathname.replace(/^\/admin\/knowledge\/?/, "");
@@ -36,6 +38,14 @@ export function parseKnowledgePath(pathname: string): { view: KbAdminView; id: s
 export default function AdminKnowledge() {
   const location = useLocation();
   const { view, id } = parseKnowledgePath(location.pathname);
+  if (view === "review") return <KnowledgeHome />;
+  return <LegacyKnowledgeHost view={view} id={id} />;
+}
+
+const LEGACY_NAV = KB_ADMIN_NAV.filter((item) => item.view !== "review");
+
+/** 旧六子视图的过渡宿主：只换导航壳，视图本身原样保留。 */
+function LegacyKnowledgeHost({ view, id }: { view: KbAdminView; id: string }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -67,12 +77,14 @@ export default function AdminKnowledge() {
         </div>
       </header>
 
-      <nav className="kb-tabs kbadmin-tabs" aria-label="知识治理子视图">
-        {KB_ADMIN_NAV.map((item) => (
+      <nav className="kb-tabs kbadmin-tabs" aria-label="知识治理子视图（旧版过渡）">
+        <Link to={KB_ADMIN_DEFAULT_PATH} data-admin-kb-home-link className="kbadmin-action-link">
+          ← 知识首页
+        </Link>
+        {LEGACY_NAV.map((item) => (
           <NavLink
             key={item.view}
             to={item.path}
-            end={item.view === "review"}
             data-admin-kb-tab={item.view}
             title={item.question}
             className={({ isActive }) => (isActive ? "active" : undefined)}
@@ -82,7 +94,6 @@ export default function AdminKnowledge() {
         ))}
       </nav>
 
-      {view === "review" ? <ReviewView notify={notify} fail={fail} /> : null}
       {view === "catalog" ? <CatalogView notify={notify} fail={fail} /> : null}
       {view === "base" ? (
         id ? (

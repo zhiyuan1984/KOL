@@ -700,7 +700,7 @@
   padding: var(--space-2) 0 var(--space-1) var(--space-4);
 }
 
-.kbv-tree .kbv-topics button {
+.kbv-tree button {
   text-align: left;
   border: 0;
   background: none;
@@ -716,7 +716,7 @@
   cursor: pointer;
 }
 
-.kbv-tree .kbv-topics button:hover {
+.kbv-tree button:hover {
   background: var(--bg-elevated);
 }
 
