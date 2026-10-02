@@ -10,7 +10,7 @@ import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { isSkillTemplateSnapshot } from "../tasks/skill-template.js";
 import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
-import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, OPEN_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, type TaskDefinitionIndex } from "../host/home-board.js";
+import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, isTodoWorkItem, OPEN_WORK_ITEM_SQL, TODO_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, todayMembershipReasons, type TaskDefinitionIndex } from "../host/home-board.js";
 import { cachedPoll, pollEpoch } from "../host/response-cache.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
@@ -187,6 +187,69 @@ function parseLimit(raw: string | undefined, fallback = 50): number {
   return Math.min(200, Math.floor(n));
 }
 
+function decodeProjectionCursor(raw: string | undefined): { updated_at: string; id: string } | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as { updated_at?: unknown; id?: unknown };
+    if (!value.updated_at || !value.id) throw new Error("invalid");
+    return { updated_at: String(value.updated_at), id: String(value.id) };
+  } catch {
+    throw new HttpFail(400, "invalid cursor");
+  }
+}
+
+function encodeProjectionCursor(row: Row): string {
+  return Buffer.from(JSON.stringify({ updated_at: String(row.updated_at), id: String(row.id) })).toString("base64url");
+}
+
+function requestMetadata(): { request_id: string; as_of: string; schema_version: string } {
+  return { request_id: nid("req"), as_of: nowIso(), schema_version: "ticket-api.v1" };
+}
+
+function ticketMissingFields(row: Row): string[] {
+  const input = parseJson(row.input) as Json;
+  const reasons = input.due_reason || input.due_reason_code;
+  const fields: string[] = [];
+  if (!String(row.title || "").trim()) fields.push("title");
+  if (!String(row.owner_user_id || "").trim()) fields.push("assignment_ref");
+  if (!row.object_type && !row.collaboration_id && !row.project_id) fields.push("object_ref");
+  if (!row.due_at && !reasons) fields.push("due_at_or_reason");
+  if (!input.acceptance_criteria) fields.push("acceptance_criteria");
+  return fields;
+}
+
+function ticketAllowedActions(row: Row): string[] {
+  const status = String(row.status || "");
+  if (["completed", "failed", "cancelled"].includes(status)) return [];
+  const actions: string[] = [];
+  if (["pending", "queued", "waiting", "needs_clarification"].includes(status)) actions.push("cancel");
+  if (["waiting", "waiting_approval", "in_progress"].includes(status)) actions.push("complete");
+  return actions;
+}
+
+function ticketSourceRefs(row: Row): Json[] {
+  const refs: Json[] = [{ type: "ticket", id: String(row.id), version: Number(row.data_version || 1) }];
+  if (row.collaboration_id) refs.push({ type: "collaboration", id: String(row.collaboration_id) });
+  if (row.project_id && String(row.project_id) !== String(row.collaboration_id || "")) {
+    refs.push({ type: "project", id: String(row.project_id) });
+  }
+  return refs;
+}
+
+function ticketView(row: Row, definitions?: TaskDefinitionIndex, collab?: Row | null): Json {
+  const resolvedCollab = collab === undefined && (row.collaboration_id || row.project_id)
+    ? (getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(row.collaboration_id || row.project_id) as Row | undefined)
+    : collab || undefined;
+  const base = decorateTaskFromCollab(publicWorkItem(row, resolvedCollab || null, definitions), resolvedCollab);
+  return {
+    ...base,
+    ticket_id: String(row.id),
+    missing_fields: ticketMissingFields(row),
+    allowed_actions: ticketAllowedActions(row),
+    source_refs: ticketSourceRefs(row),
+  };
+}
+
 function ownedWorkItem(id: string): Row {
   const row = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(id) as Row | undefined;
   if (!row) throw new HttpFail(404, "task not found");
@@ -290,6 +353,41 @@ function taskEventCount(db: SqliteConn, workItemId: string): number {
   return Number(row?.n || 0);
 }
 
+function appendTaskEventInConn(
+  db: SqliteConn,
+  workItemId: string,
+  runId: string | null,
+  eventType: string,
+  label: string,
+  status: string,
+  safeSummary?: string,
+): Row | null {
+  if (!taskEventTarget(db, workItemId, runId)) return null;
+  if (taskEventCount(db, workItemId) >= taskEventLimit()) return null;
+  const current = db.prepare(
+    "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
+  ).get(workItemId) as { sequence: number };
+  const row = {
+    id: nid("tev"),
+    work_item_id: workItemId,
+    run_id: runId,
+    sequence: Number(current.sequence) + 1,
+    event_type: eventType,
+    label: label.slice(0, 160),
+    status,
+    safe_summary: safeSummary?.slice(0, 1000) || null,
+    time: nowIso(),
+    created_at: nowIso(),
+  };
+  db.prepare(
+    `INSERT INTO task_events
+     (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).run(row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.label, row.status,
+    row.safe_summary, row.time, row.created_at);
+  return row;
+}
+
 export function appendTaskEvent(
   workItemId: string,
   runId: string | null,
@@ -299,32 +397,7 @@ export function appendTaskEvent(
   safeSummary?: string,
 ): Row | null {
   try {
-    return tx((db) => {
-      if (!taskEventTarget(db, workItemId, runId)) return null;
-      if (taskEventCount(db, workItemId) >= taskEventLimit()) return null;
-      const current = db.prepare(
-        "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
-      ).get(workItemId) as { sequence: number };
-      const row = {
-        id: nid("tev"),
-        work_item_id: workItemId,
-        run_id: runId,
-        sequence: Number(current.sequence) + 1,
-        event_type: eventType,
-        label: label.slice(0, 160),
-        status,
-        safe_summary: safeSummary?.slice(0, 1000) || null,
-        time: nowIso(),
-        created_at: nowIso(),
-      };
-      db.prepare(
-        `INSERT INTO task_events
-         (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      ).run(row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.label, row.status,
-        row.safe_summary, row.time, row.created_at);
-      return row;
-    });
+    return tx((db) => appendTaskEventInConn(db, workItemId, runId, eventType, label, status, safeSummary));
   } catch (error) {
     // Fire-and-forget crawl/worker follow-up can land after a test reset or
     // after the parent work item was already removed. Never surface that as
@@ -521,6 +594,340 @@ function tasksEpoch(): string {
   ).get() as { events: number | null; work_items: string | null; work_item_count: number; collaborations: number };
   return pollEpoch([row.events, row.work_items, row.work_item_count, row.collaborations]);
 }
+
+/** Canonical employee task projection. Today is deliberately a subset of todo. */
+tasks.get("/workbench/tasks", (c) => {
+  const view = String(c.req.query("view") || "");
+  if (view !== "today" && view !== "todo") throw new HttpFail(400, "view must be today or todo");
+  const limit = parseLimit(c.req.query("limit"));
+  const cursor = decodeProjectionCursor(c.req.query("cursor"));
+  const owner = ownerId();
+  const todoCount = getConn().prepare(`SELECT COUNT(*) AS count FROM tickets WHERE owner_user_id=? AND ${TODO_WORK_ITEM_SQL}`)
+    .get(owner) as { count: number };
+  // Today is currently evaluated by a versioned server predicate rather than a
+  // SQL business rule. Scan bounded raw chunks until this filtered page is full;
+  // the cursor remains the last emitted ticket so no non-matching raw row can
+  // make a later matching ticket disappear between pages.
+  const rows: Row[] = [];
+  let scanCursor = cursor;
+  let exhausted = false;
+  const rawChunk = Math.max(limit + 1, 200);
+  while (!exhausted && rows.length < limit + 1) {
+    const clauses = ["owner_user_id=?", TODO_WORK_ITEM_SQL];
+    const values: unknown[] = [owner];
+    if (scanCursor) {
+      clauses.push("(updated_at < ? OR (updated_at = ? AND id < ?))");
+      values.push(scanCursor.updated_at, scanCursor.updated_at, scanCursor.id);
+    }
+    const batch = getConn().prepare(
+      `SELECT * FROM tickets WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT ?`,
+    ).all(...values, rawChunk) as Row[];
+    if (!batch.length) {
+      exhausted = true;
+      break;
+    }
+    for (const row of batch) {
+      if (view === "todo" || todayMembershipReasons(row).length > 0) rows.push(row);
+      scanCursor = { updated_at: String(row.updated_at), id: String(row.id) };
+      if (rows.length >= limit + 1) break;
+    }
+    if (batch.length < rawChunk) exhausted = true;
+  }
+  const page = rows.slice(0, limit);
+  const collabs = collabsByIds(page.map((row) => String(row.project_id || "")).filter(Boolean));
+  const definitions = taskDefinitionIndex();
+  const items = page
+    .map((row) => {
+      const reasons = todayMembershipReasons(row);
+      const projected = decorateTaskFromCollab(publicWorkItem(row, collabs.get(String(row.project_id || "")) || null, definitions), collabs.get(String(row.project_id || "")));
+      return {
+        ...projected,
+        plan_view: reasons.length ? "today" : "todo",
+        is_today: reasons.length > 0,
+        membership_reason: reasons,
+        source_ref: { ticket_id: String(row.id), data_version: Number(row.data_version || 1) },
+      };
+    });
+  const hasMore = rows.length > limit || !exhausted;
+  const meta = requestMetadata();
+  c.header("Cache-Control", "no-store");
+  return c.json({
+    items,
+    page: { limit, next_cursor: hasMore && page.length ? encodeProjectionCursor(page.at(-1)!) : null, total_estimate: Number(todoCount.count || 0) },
+    ...meta,
+    evaluated_at: meta.as_of,
+    timezone: c.req.query("timezone") || "Asia/Shanghai",
+    projection_version: "task-workbench.v1",
+    source_refs: [{ type: "ticket_projection", version: "task-workbench.v1" }],
+  });
+});
+
+function ticketObjectRef(raw: string | undefined): { type: string; id: string } | null {
+  if (!raw) return null;
+  const pivot = raw.indexOf(":");
+  if (pivot < 1 || pivot === raw.length - 1) throw new HttpFail(400, "object_ref must be type:id");
+  return { type: raw.slice(0, pivot), id: raw.slice(pivot + 1) };
+}
+
+function taskRunView(run: Row): Json {
+  return {
+    run_id: String(run.id),
+    id: String(run.id),
+    ticket_id: String(run.work_item_id),
+    session_id: run.session_id || null,
+    thread_id: run.thread_id || null,
+    turn_id: run.turn_id || null,
+    worker_id: run.worker_id || null,
+    status: String(run.status),
+    input: parseJson(run.input),
+    entities: parseJson(run.entities),
+    error: run.error ? parseJson(run.error) : null,
+    created_at: run.created_at,
+    started_at: run.started_at || null,
+    completed_at: run.completed_at || null,
+  };
+}
+
+function ownedTaskRun(runId: string): { run: Row; ticket: Row } {
+  const row = getConn().prepare(
+    `SELECT tr.*, t.owner_user_id AS ticket_owner_user_id
+       FROM task_runs tr JOIN tickets t ON t.id=tr.work_item_id WHERE tr.id=?`,
+  ).get(runId) as Row | undefined;
+  if (!row || (!isAdmin() && String(row.ticket_owner_user_id) !== ownerId())) throw new HttpFail(404, "run not found");
+  const ticket = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(row.work_item_id) as Row | undefined;
+  if (!ticket) throw new HttpFail(404, "ticket not found");
+  return { run: row, ticket };
+}
+
+function ticketSummaryView(ticket: Row): Json {
+  const latestEvent = getConn().prepare(
+    "SELECT id,sequence,event_type,label,status,safe_summary,time FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT 1",
+  ).get(ticket.id) as Row | undefined;
+  const latestArtifact = getConn().prepare(
+    "SELECT id,version,artifact_type,created_at FROM task_artifacts WHERE work_item_id=? ORDER BY created_at DESC LIMIT 1",
+  ).get(ticket.id) as Row | undefined;
+  const input = parseJson(ticket.input) as Json;
+  const goal = String(ticket.content || input.goal || input.prompt || ticket.title || "");
+  return {
+    ticket_id: String(ticket.id),
+    goal,
+    progress: ticketStatusFromWorkItem(String(ticket.status)) || String(ticket.status),
+    risk: String(ticket.risk_level || "none"),
+    conclusion: latestEvent?.safe_summary || latestEvent?.label || null,
+    evidence_refs: [
+      ...(latestEvent ? [{ type: "task_event", id: String(latestEvent.id), sequence: Number(latestEvent.sequence) }] : []),
+      ...(latestArtifact ? [{ type: "task_artifact", id: String(latestArtifact.id), version: Number(latestArtifact.version || 1) }] : []),
+    ],
+    source_fingerprint: `ticket:${ticket.id}:v${Number(ticket.data_version || 1)}:event:${latestEvent?.sequence || 0}:artifact:${latestArtifact?.version || 0}`,
+    producer: "rule",
+    status: "current",
+    stale_reason: null,
+    generated_at: ticket.updated_at,
+  };
+}
+
+/** Target v1 list: formal tickets only, authorized before query, stable cursor. */
+tasks.get("/tickets", (c) => {
+  const limit = parseLimit(c.req.query("limit"));
+  const cursor = decodeProjectionCursor(c.req.query("cursor"));
+  const clauses = ["owner_user_id=?"];
+  const values: unknown[] = [ownerId()];
+  const status = c.req.query("status");
+  if (status) {
+    const statuses = status.split(",").map((value) => value.trim()).filter(Boolean);
+    if (!statuses.length) throw new HttpFail(400, "invalid status");
+    clauses.push(`status IN (${statuses.map(() => "?").join(",")})`);
+    values.push(...statuses);
+  }
+  const kind = c.req.query("kind");
+  if (kind) {
+    clauses.push("kind=?");
+    values.push(kind);
+  }
+  const objectRef = ticketObjectRef(c.req.query("object_ref"));
+  if (objectRef) {
+    clauses.push("object_type=? AND object_id=?");
+    values.push(objectRef.type, objectRef.id);
+  }
+  if (cursor) {
+    clauses.push("(updated_at < ? OR (updated_at = ? AND id < ?))");
+    values.push(cursor.updated_at, cursor.updated_at, cursor.id);
+  }
+  const where = clauses.join(" AND ");
+  const rows = getConn().prepare(
+    `SELECT * FROM tickets WHERE ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`,
+  ).all(...values, limit + 1) as Row[];
+  const page = rows.slice(0, limit);
+  const collabs = collabsByIds(page.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean));
+  const definitions = taskDefinitionIndex();
+  const meta = requestMetadata();
+  return c.json({
+    items: page.map((row) => ticketView(row, definitions, collabs.get(String(row.collaboration_id || row.project_id || "")) || null)),
+    page: { limit, next_cursor: rows.length > limit && page.length ? encodeProjectionCursor(page.at(-1)!) : null },
+    ...meta,
+    source_refs: [{ type: "tickets", scope: "current_user" }],
+  });
+});
+
+tasks.get("/tickets/:id/summary", (c) => {
+  const ticket = ownedWorkItem(c.req.param("id"));
+  const meta = requestMetadata();
+  return c.json({ ...ticketSummaryView(ticket), ...meta, source_refs: ticketSourceRefs(ticket) });
+});
+
+tasks.get("/tickets/:id/timeline", (c) => {
+  const ticket = ownedWorkItem(c.req.param("id"));
+  const after = Math.max(0, Number(c.req.query("after") || 0));
+  if (!Number.isFinite(after)) throw new HttpFail(400, "invalid after");
+  const limit = parseLimit(c.req.query("limit"), 100);
+  const events = getConn().prepare(
+    "SELECT * FROM task_events WHERE work_item_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+  ).all(ticket.id, after, limit) as Row[];
+  // Existing business facts retain their own immutable IDs and clock; they are
+  // references here, never relabelled as task-run progress.
+  const relatedBusinessEvents = ticket.collaboration_id
+    ? getConn().prepare(
+      "SELECT id,event_type,object_type,object_id,occurred_at,received_at,source,source_version FROM business_events WHERE object_type='collaboration' AND object_id=? ORDER BY occurred_at DESC,id DESC LIMIT 20",
+    ).all(ticket.collaboration_id) as Row[]
+    : [];
+  const meta = requestMetadata();
+  return c.json({
+    ticket_id: String(ticket.id),
+    items: events.map((event) => ({
+      event_id: String(event.id), sequence: Number(event.sequence), occurred_at: event.time, received_at: event.created_at,
+      run_id: event.run_id || null, type: event.event_type, phase: "task_run", status: event.status,
+      safe_summary: event.safe_summary || null, label: event.label,
+      source_ref: { type: "task_event", id: String(event.id) },
+    })),
+    related_business_events: relatedBusinessEvents.map((event) => ({
+      event_id: String(event.id), type: event.event_type, object_ref: { type: event.object_type, id: event.object_id },
+      occurred_at: event.occurred_at, received_at: event.received_at, source: event.source, source_version: event.source_version || null,
+    })),
+    next_sequence: events.length ? Number(events.at(-1)?.sequence || after) : after,
+    ...meta,
+    source_refs: ticketSourceRefs(ticket),
+  });
+});
+
+tasks.get("/tickets/:id", (c) => {
+  const ticket = ownedWorkItem(c.req.param("id"));
+  const latest = getConn().prepare("SELECT * FROM task_runs WHERE work_item_id=? ORDER BY created_at DESC LIMIT 1").get(ticket.id) as Row | undefined;
+  const meta = requestMetadata();
+  return c.json({
+    ...ticketView(ticket, taskDefinitionIndex()),
+    latest_run: latest ? taskRunView(latest) : null,
+    summary: ticketSummaryView(ticket),
+    ...meta,
+  });
+});
+
+tasks.post("/tickets/:id/commands", async (c) => {
+  const ticket = ownedWorkItem(c.req.param("id"));
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const action = String(body.action || "");
+  if (action !== "complete" && action !== "cancel") {
+    throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持完成或取消工单命令" });
+  }
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    throw new HttpFail(400, "Idempotency-Key is required");
+  }
+  const expectedVersion = Number(body.expected_version);
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    throw new HttpFail(400, "expected_version is required");
+  }
+  const replay = getConn().prepare(
+    "SELECT ticket_id,action,result_json FROM ticket_command_receipts WHERE idempotency_key=?",
+  ).get(idempotencyKey) as Row | undefined;
+  if (replay) {
+    if (String(replay.ticket_id) !== String(ticket.id) || String(replay.action) !== action) {
+      throw new HttpFail(409, { code: "idempotency_key_reused", message: "幂等键已用于另一条工单命令" });
+    }
+    return c.json({ ...(parseJson(replay.result_json) as Json), replayed: true });
+  }
+  if (Number(ticket.data_version || 1) !== expectedVersion) {
+    throw new HttpFail(409, {
+      code: "version_conflict",
+      message: "工单已更新，请刷新后确认。",
+      expected_version: expectedVersion,
+      current_version: Number(ticket.data_version || 1),
+      refresh: `/api/tickets/${ticket.id}`,
+    });
+  }
+  if (!ticketAllowedActions(ticket).includes(action)) {
+    throw new HttpFail(409, { code: "action_not_allowed", message: "当前工单状态不能执行此动作" });
+  }
+  const acceptanceEvidence = body.acceptance_evidence;
+  if (action === "complete" && (!acceptanceEvidence || typeof acceptanceEvidence !== "object" || Array.isArray(acceptanceEvidence))) {
+    throw new HttpFail(422, { code: "acceptance_evidence_required", missing_fields: ["acceptance_evidence"] });
+  }
+  const now = nowIso();
+  const result = tx((db) => {
+    const nextStatus = action === "complete" ? "completed" : "cancelled";
+    const changed = db.prepare(
+      `UPDATE tickets SET status=?, completed_at=CASE WHEN ?='completed' THEN ? ELSE completed_at END,
+       updated_at=?, data_version=data_version+1 WHERE id=? AND data_version=?`,
+    ).run(nextStatus, nextStatus, now, now, ticket.id, expectedVersion);
+    if (!changed.changes) {
+      throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。", refresh: `/api/tickets/${ticket.id}` });
+    }
+    const event = appendTaskEventInConn(
+      db,
+      String(ticket.id),
+      null,
+      action === "complete" ? "task.accepted" : "task.cancelled",
+      action === "complete" ? "任务验收完成" : "任务已取消",
+      nextStatus,
+      action === "complete" ? "已记录验收证据；运行成功与工单完成分别保留。" : String(body.reason || "任务在未开始外部执行前已取消").slice(0, 1000),
+    );
+    const response = {
+      ticket_id: String(ticket.id),
+      action,
+      status: nextStatus,
+      version: expectedVersion + 1,
+      event_id: event?.id || null,
+      replayed: false,
+    };
+    db.prepare(
+      "INSERT INTO ticket_command_receipts (idempotency_key,ticket_id,action,result_json,created_at) VALUES (?,?,?,?,?)",
+    ).run(idempotencyKey, ticket.id, action, JSON.stringify(response), now);
+    return response;
+  });
+  audit(ownerId(), `ticket.${action}`, {
+    ticket_id: ticket.id,
+    expected_version: expectedVersion,
+    idempotency_key: idempotencyKey,
+    ...(action === "complete" ? { acceptance_evidence_recorded: true } : {}),
+  });
+  return c.json({ ...result, ticket: ticketView(ownedWorkItem(String(ticket.id)), taskDefinitionIndex()) });
+});
+
+tasks.get("/runs/:id/events", (c) => {
+  const { run, ticket } = ownedTaskRun(c.req.param("id"));
+  const after = Math.max(0, Number(c.req.query("after") || 0));
+  if (!Number.isFinite(after)) throw new HttpFail(400, "invalid after");
+  const limit = parseLimit(c.req.query("limit"), 100);
+  const events = getConn().prepare(
+    "SELECT * FROM task_events WHERE work_item_id=? AND run_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+  ).all(ticket.id, run.id, after, limit) as Row[];
+  const meta = requestMetadata();
+  return c.json({
+    run_id: String(run.id), ticket_id: String(ticket.id),
+    items: events.map((event) => ({
+      event_id: String(event.id), sequence: Number(event.sequence), occurred_at: event.time, received_at: event.created_at,
+      run_id: String(run.id), ticket_id: String(ticket.id), type: event.event_type, phase: "task_run",
+      status: event.status, safe_summary: event.safe_summary || null, label: event.label,
+    })),
+    next_sequence: events.length ? Number(events.at(-1)?.sequence || after) : after,
+    ...meta,
+  });
+});
+
+tasks.get("/runs/:id", (c) => {
+  const { run, ticket } = ownedTaskRun(c.req.param("id"));
+  const meta = requestMetadata();
+  return c.json({ ...taskRunView(run), ...meta, source_refs: ticketSourceRefs(ticket) });
+});
 
 tasks.get("/tasks", (c) => {
   const view = String(c.req.query("view") || "");

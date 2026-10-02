@@ -4,9 +4,47 @@ import { ownerId, PLAN_SCOPES, SCOPE_TABLE } from "../host/today-plan-context.js
 import { planTaskType } from "../host/planning-types.js";
 import { loadTodayTaskResults } from "../host/today-tasks.js";
 import { startTodayAnalyze, startTodayPlan, todayBriefSnapshot } from "../host/today-plan-run.js";
+import { HttpFail } from "../host/errors.js";
 import type { Json } from "../types.js";
 
 export const homeToday = new Hono();
+
+/** One plan pointer serves both Today and Todo projections. */
+homeToday.get("/workbench/plan", (c) => {
+  c.header("Cache-Control", "no-store");
+  const snapshot = todayBriefSnapshot(ownerId(), "today");
+  return c.json({
+    ...snapshot,
+    plan_id: snapshot.work_item_id || null,
+    plan_scope: "all_open_todos",
+    projection_version: "task-workbench.v1",
+    schema_version: "compat.v1",
+  });
+});
+
+/** Explicit producer mode; deterministic organization never claims a model call. */
+homeToday.post("/workbench/plan-runs", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const mode = String(body.mode || "deterministic_organize");
+  if (mode !== "agent_plan" && mode !== "deterministic_organize") {
+    throw new HttpFail(400, "invalid planning mode");
+  }
+  // The existing canonical plan runner is the only writer in this milestone.
+  // Mode is faithfully exposed: agent_plan is a requested capability, while the
+  // current Host organizer remains deterministic until the agent producer lands.
+  if (mode === "agent_plan") {
+    return c.json({ code: "agent_plan_not_enabled", message: "Agent 规划器尚未启用；请使用确定性整理。", calls_model: false }, 409);
+  }
+  const started = startTodayPlan(ownerId(), "today");
+  return c.json({
+    ...started,
+    mode,
+    plan_id: started.work_item_id,
+    producer: "deterministic_organize",
+    calls_model: false,
+    schema_version: "compat.v1",
+  }, started.attached ? 200 : 202);
+});
 
 /** Compatibility routes per pane scope; both panes read and start one canonical work plan. */
 for (const scope of PLAN_SCOPES) {

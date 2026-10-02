@@ -31,7 +31,7 @@ const day = (offset: number) => {
  * These are the executable form of that promise (docs/DESIGN.md, CONST-10).
  */
 describe("pane parity", () => {
-  it("splits the same open memory into two disjoint, complete slices", () => {
+  it("keeps Today as a focused subset of the complete open todo set", () => {
     const rows = [
       task({ id: "overdue", title: "已逾期", due_at: day(-3) }),
       task({ id: "due_today", title: "今天到期", due_at: day(0) }),
@@ -44,9 +44,9 @@ describe("pane parity", () => {
     const todo = scopeRows("todo", rows).map((row) => row.id);
 
     expect(today).toEqual(["overdue", "due_today", "running"]);
-    expect(todo).toEqual(["later"]);
-    // Complete over the open rows and disjoint: nothing is lost or shown twice.
-    expect(new Set([...today, ...todo]).size).toBe(today.length + todo.length);
+    expect(todo).toEqual(["overdue", "due_today", "running", "later"]);
+    // Today does not remove an item from My Todo; it is a different projection.
+    expect(today.every((id) => todo.includes(id))).toBe(true);
     expect(today).not.toContain("planning");
     expect(todo).not.toContain("closed");
   });
@@ -67,7 +67,7 @@ describe("pane parity", () => {
     ];
     const layout = [{ work_item_id: "later", rank: 1, why: "待办里先做这一件" }];
     const todo = scopeRows("todo", rows, layout);
-    expect(todo.map((row) => row.id)).toEqual(["later"]);
+    expect(todo.map((row) => row.id)).toEqual(["later", "due_today"]);
     expect(todo[0].layout_why).toBe("待办里先做这一件");
     const today = scopeRows("today", rows, [{ work_item_id: "due_today", rank: 9, why: "本轮先处理" }]);
     expect(today.map((row) => row.id)).toEqual(["due_today"]);
@@ -80,7 +80,7 @@ describe("pane parity", () => {
       task({ id: "backend_todo", title: "后端判定待办", priority: "important_urgent", plan_view: "todo" }),
     ];
     expect(scopeRows("today", rows).map((row) => row.id)).toEqual(["backend_today"]);
-    expect(scopeRows("todo", rows).map((row) => row.id)).toEqual(["backend_todo"]);
+    expect(scopeRows("todo", rows).map((row) => row.id)).toEqual(["backend_todo", "backend_today"]);
   });
 
   it("keeps one request site per scope path, shared by both tabs", () => {
@@ -88,8 +88,8 @@ describe("pane parity", () => {
     const tasksApi = read("./todayTasksApi.ts");
     const home = read("../pages/Home.tsx");
 
-    expect(api).toContain("`/api/home/${scope}-brief`");
-    expect(api).toContain("`/api/home/${scope}-brief/plan`");
+    expect(api).toContain('"/api/workbench/plan"');
+    expect(api).toContain('"/api/workbench/plan-runs"');
     expect(tasksApi).toContain("`/api/home/${scope}-tasks`");
     // One fetch site parameterized by scope — not one per tab.
     expect(tasksApi.match(/fetch\(/g)?.length).toBe(1);
@@ -98,8 +98,8 @@ describe("pane parity", () => {
       expect(tasksApi).toContain(`fetchScopeTasks("${scope}")`);
       expect(home).not.toContain(`/api/home/${scope}-`);
     }
-    // Opening memory and acting on a row are the same request for both tabs.
-    expect(home.match(/api\.tasks\(\{ view: "open" \}\)/g)?.length).toBe(2);
+    expect(home).toContain('api.workbenchTasks("today")');
+    expect(home).toContain('api.workbenchTasks("todo")');
   });
 
   it("forbids scope branches outside SCOPE_CONFIG and scopeRows", () => {

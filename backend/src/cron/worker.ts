@@ -5,6 +5,17 @@ import type { AppUser } from "../auth.js";
 import { cronHandler } from "./handlers.js";
 import { nextScheduledAt, type ScheduleWindow } from "./schedule.js";
 import {
+  claimExecutionJobById,
+  claimNextExecutionJob,
+  completeExecutionJob,
+  enqueueExecutionJob,
+  executionJobByIdempotencyKey,
+  executionJobPayload,
+  failExecutionJob,
+  publishExecutionOutboxForJob,
+  type ClaimedExecutionJob,
+} from "../execution-jobs/store.js";
+import {
   ensureSystemCronJobs,
   jobById,
   newRunId,
@@ -59,7 +70,7 @@ function markStaleRunning(db: SqliteConn, now: Date): void {
 }
 
 function enqueueDueJobs(db: SqliteConn, now: Date): string[] {
-  const claimed: string[] = [];
+  const queuedRunIds: string[] = [];
   const due = db.prepare(
     `SELECT * FROM cron_jobs
       WHERE status='published' AND next_run_at IS NOT NULL AND next_run_at <= ?
@@ -83,21 +94,59 @@ function enqueueDueJobs(db: SqliteConn, now: Date): string[] {
       }
       throw error;
     }
-    const flip = db.prepare(
-      "UPDATE cron_runs SET status='running', started_at=? WHERE id=? AND status='queued'",
-    ).run(created, runId);
+    enqueueExecutionJob({
+      job_type: "cron.run",
+      tenant_ref: "company:amperetime",
+      actor_ref: String(job.execute_as || "system"),
+      object_ref: { type: "cron_job", id: String(job.id) },
+      rule_id: String(job.job_key),
+      rule_version: String(job.published_rev || 1),
+      risk_level: "low",
+      scope_snapshot: { scope: JSON.parse(String(job.scope_json || "{}")), condition: JSON.parse(String(job.condition_json || "{}")) },
+      priority_class: "normal",
+      max_attempts: 1,
+      payload: { cron_run_id: runId, cron_job_id: String(job.id) },
+      idempotency_key: `cron-run:${runId}`,
+      outbox: {
+        event_type: "cron.run_queued",
+        aggregate_type: "cron_run",
+        aggregate_id: runId,
+        payload: { cron_job_id: String(job.id), trigger: "schedule", scheduled_for: scheduledFor },
+      },
+    }, { db, now });
     const next = nextFor(job, new Date(scheduledFor));
     db.prepare("UPDATE cron_jobs SET next_run_at=?, updated_at=? WHERE id=?").run(next, created, job.id);
-    if (flip.changes) claimed.push(runId);
+    queuedRunIds.push(runId);
   }
   const leftover = db.prepare("SELECT id FROM cron_runs WHERE status='queued' ORDER BY created_at").all() as Array<{ id: string }>;
   for (const row of leftover) {
-    const flip = db.prepare(
-      "UPDATE cron_runs SET status='running', started_at=? WHERE id=? AND status='queued'",
-    ).run(now.toISOString(), row.id);
-    if (flip.changes) claimed.push(row.id);
+    const run = runById(String(row.id), db);
+    if (!run) continue;
+    const job = jobById(String(run.job_id), db);
+    if (!job) continue;
+    enqueueExecutionJob({
+      job_type: "cron.run",
+      tenant_ref: "company:amperetime",
+      actor_ref: String(job.execute_as || "system"),
+      object_ref: { type: "cron_job", id: String(job.id) },
+      rule_id: String(job.job_key),
+      rule_version: String(job.published_rev || 1),
+      risk_level: "low",
+      scope_snapshot: { scope: JSON.parse(String(job.scope_json || "{}")), condition: JSON.parse(String(job.condition_json || "{}")) },
+      priority_class: "normal",
+      max_attempts: 1,
+      payload: { cron_run_id: String(run.id), cron_job_id: String(job.id) },
+      idempotency_key: `cron-run:${run.id}`,
+      outbox: {
+        event_type: "cron.run_queued",
+        aggregate_type: "cron_run",
+        aggregate_id: String(run.id),
+        payload: { cron_job_id: String(job.id), trigger: String(run.trigger), scheduled_for: String(run.scheduled_for) },
+      },
+    }, { db, now });
+    queuedRunIds.push(String(run.id));
   }
-  return claimed;
+  return [...new Set(queuedRunIds)];
 }
 
 export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Date.now()): Promise<Row> {
@@ -172,6 +221,65 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
   return runById(runId, db) as Row;
 }
 
+async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
+  const payload = executionJobPayload(claimed);
+  const runId = String(payload.cron_run_id || "");
+  if (!runId) {
+    failExecutionJob(String(claimed.id), { code: "invalid_payload", summary: "cron.run missing cron_run_id" });
+    throw new HttpFail(500, "invalid cron execution job payload");
+  }
+  const db = getConn();
+  const existing = runById(runId, db);
+  if (!existing) {
+    failExecutionJob(String(claimed.id), { code: "cron_run_missing", summary: `cron run missing: ${runId}` });
+    throw new HttpFail(404, "cron run not found");
+  }
+  publishExecutionOutboxForJob(String(claimed.id), claimed.worker_id, new Date(nowMs));
+  const started = new Date(nowMs).toISOString();
+  const changed = db.prepare(
+    "UPDATE cron_runs SET status='running',started_at=COALESCE(started_at,?) WHERE id=? AND status='queued'",
+  ).run(started, runId);
+  if (!changed.changes) {
+    const current = runById(runId, db) as Row;
+    if (["succeeded", "failed", "skipped", "needs_takeover"].includes(String(current.status))) {
+      completeExecutionJob(String(claimed.id), { cron_run_id: runId, cron_status: current.status, duplicate: true }, new Date(nowMs));
+      return runId;
+    }
+    failExecutionJob(String(claimed.id), { code: "cron_run_not_queued", summary: `cron run is ${current.status}` });
+    return runId;
+  }
+  const terminal = await executeCronRun(runId, viewer, nowMs);
+  const status = String(terminal.status);
+  if (status === "failed") {
+    failExecutionJob(String(claimed.id), {
+      code: String(terminal.error_code || "cron_handler_failed"),
+      summary: String(terminal.error_summary || "cron handler failed"),
+    }, { now: new Date(nowMs) });
+  } else {
+    completeExecutionJob(String(claimed.id), {
+      cron_run_id: runId,
+      cron_status: status,
+      receipt: terminal.receipt_json ? JSON.parse(String(terminal.receipt_json)) : {},
+    }, new Date(nowMs));
+  }
+  return runId;
+}
+
+/** Processes one queued Cron job. This is the entry used by the standalone transition worker. */
+export async function processNextCronExecutionJob(workerId = "cron-worker", viewer?: AppUser, nowMs = Date.now()): Promise<string | null> {
+  const claimed = claimNextExecutionJob(workerId, { job_types: ["cron.run"], now: new Date(nowMs) });
+  if (!claimed) return null;
+  return executeClaimedCronJob(claimed, viewer, nowMs);
+}
+
+async function executeCronRunViaDurableJob(runId: string, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
+  const job = executionJobByIdempotencyKey(`cron-run:${runId}`);
+  if (!job) throw new HttpFail(500, "missing durable cron job");
+  const claimed = claimExecutionJobById(String(job.id), "cron-inline-transition", { now: new Date(nowMs) });
+  if (!claimed) return runId;
+  return executeClaimedCronJob(claimed, viewer, nowMs);
+}
+
 export function enqueueManualRun(jobId: string, scheduledFor?: string): { run_id: string; duplicate: boolean } {
   ensureSystemCronJobs();
   const job = jobById(jobId);
@@ -194,14 +302,31 @@ export function enqueueManualRun(jobId: string, scheduledFor?: string): { run_id
       }
       throw error;
     }
-    db.prepare(
-      "UPDATE cron_runs SET status='running', started_at=? WHERE id=? AND status='queued'",
-    ).run(nowIso(), runId);
+    enqueueExecutionJob({
+      job_type: "cron.run",
+      tenant_ref: "company:amperetime",
+      actor_ref: String(job.execute_as || "system"),
+      object_ref: { type: "cron_job", id: String(job.id) },
+      rule_id: String(job.job_key),
+      rule_version: String(job.published_rev || 1),
+      risk_level: "low",
+      scope_snapshot: { scope: JSON.parse(String(job.scope_json || "{}")), condition: JSON.parse(String(job.condition_json || "{}")) },
+      priority_class: "normal",
+      max_attempts: 1,
+      payload: { cron_run_id: runId, cron_job_id: String(job.id) },
+      idempotency_key: `cron-run:${runId}`,
+      outbox: {
+        event_type: "cron.run_queued",
+        aggregate_type: "cron_run",
+        aggregate_id: runId,
+        payload: { cron_job_id: String(job.id), trigger: "manual", scheduled_for: slot },
+      },
+    }, { db });
     return { run_id: runId, duplicate: false };
   });
 }
 
-/** Claim due published jobs and leftover queued runs, then execute. Not an HTTP timer. */
+/** Enqueue due runs durably, then use the transition worker contract to execute them. */
 export async function tickCronDue(now = new Date(), viewer?: AppUser): Promise<{ claimed: string[]; stale: boolean }> {
   ensureSystemCronJobs(getConn(), now);
   const claimed = txImmediate((db) => {
@@ -209,7 +334,7 @@ export async function tickCronDue(now = new Date(), viewer?: AppUser): Promise<{
     return enqueueDueJobs(db, now);
   });
   for (const runId of claimed) {
-    await executeCronRun(runId, viewer, now.getTime());
+    await executeCronRunViaDurableJob(runId, viewer, now.getTime());
   }
   return { claimed, stale: false };
 }
@@ -217,8 +342,7 @@ export async function tickCronDue(now = new Date(), viewer?: AppUser): Promise<{
 export async function runCronJobNow(jobId: string, viewer?: AppUser, scheduledFor?: string): Promise<{ run_id: string }> {
   const enqueued = enqueueManualRun(jobId, scheduledFor);
   if (!enqueued.duplicate) {
-    await executeCronRun(enqueued.run_id, viewer);
+    await executeCronRunViaDurableJob(enqueued.run_id, viewer);
   }
   return { run_id: enqueued.run_id };
 }
-

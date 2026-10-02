@@ -176,6 +176,17 @@ describe("cron jobs P0/P1", () => {
     expect(n).toBe(1);
   });
 
+  it("exposes persisted execution and outbox facts to the admin read model", async () => {
+    const job = jobByKey("overdue-scan");
+    const queued = enqueueManualRun(String(job?.id), "2026-10-02T08:00:00.000Z");
+    expect(queued.duplicate).toBe(false);
+    const response = await request("GET", "/api/admin/scheduling/execution-jobs");
+    expect(response.status, response.text).toBe(200);
+    expect(response.body).toMatchObject({ execution_mode: "sqlite_single_worker_transition" });
+    expect((response.body.items as Json[]).some((item) => item.job_type === "cron.run" && item.status === "queued")).toBe(true);
+    expect(Number((response.body.outbox as Json).pending || 0)).toBeGreaterThan(0);
+  });
+
   it("tickCronDue claims a due published job via BEGIN IMMEDIATE and does not create a session", async () => {
     insertCollab({ id: "col_over", handle: "duekol", overdue: 1 });
     const job = jobByKey("overdue-scan");

@@ -20,6 +20,7 @@ import {
 } from "../cron/store.js";
 import { runCronJobNow, tickCronDue } from "../cron/worker.js";
 import { getConn, nowIso } from "../db.js";
+import { executionJobPublic, listExecutionJobs } from "../execution-jobs/store.js";
 import { HttpFail } from "../host/errors.js";
 import { label } from "../stages.js";
 import type { Json } from "../types.js";
@@ -90,6 +91,28 @@ function attention(jobs: Json[]): { failed: number; needs_takeover: number } {
 cron.get("/cron/jobs", (c) => {
   const jobs = visibleJobs();
   return c.json({ jobs, alerts: attention(jobs) });
+});
+
+/** Admin operational read-model; never synthesizes status or triggers a run. */
+cron.get("/admin/scheduling/execution-jobs", (c) => {
+  requireAdmin();
+  const limit = Math.min(Math.max(1, Number(c.req.query("limit") || 50)), 200);
+  const status = c.req.query("status") || undefined;
+  const jobs = listExecutionJobs({ status, limit }).map(executionJobPublic);
+  const statusCounts = getConn().prepare(
+    "SELECT status,COUNT(*) AS count FROM execution_jobs GROUP BY status ORDER BY status",
+  ).all() as Array<{ status: string; count: number }>;
+  const outboxCounts = getConn().prepare(
+    "SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status",
+  ).all() as Array<{ status: string; count: number }>;
+  return c.json({
+    items: jobs,
+    counts: Object.fromEntries(statusCounts.map((row) => [row.status, Number(row.count)])),
+    outbox: Object.fromEntries(outboxCounts.map((row) => [row.status, Number(row.count)])),
+    as_of: nowIso(),
+    execution_mode: "sqlite_single_worker_transition",
+    source_refs: [{ type: "execution_jobs" }, { type: "execution_outbox" }],
+  });
 });
 
 cron.post("/cron/jobs", async (c) => {
