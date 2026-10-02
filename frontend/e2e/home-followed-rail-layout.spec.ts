@@ -114,12 +114,12 @@ test("右栏顶部工具行：搜索与批量动作在最上、互不重叠，�
   expect(overlap).toEqual([]);
   await expect(page.locator("[data-followed-object-batch]")).toHaveCSS("margin-left", "0px");
 
-  // 总数只在中栏概览里：右栏工具行不重复「N 位当前跟进对象」。
+  // 总数只在中栏概览里：右栏工具行不重复「目前跟进了 N 位」。
   const rail = page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail]');
   const center = page.locator('[data-home-pane="lifecycle"] [data-scope-ai-workspace]');
   const railText = await rail.innerText();
-  expect(railText).not.toContain("位当前跟进对象");
-  await expect(center).toContainText("3 位当前跟进对象");
+  expect(railText).not.toContain("目前跟进了");
+  await expect(center.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 3 位");
   await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
   await expect(page.locator("[data-followed-selected-count]")).toHaveCount(0);
   // 全选始终是明确的全量动作。
@@ -185,8 +185,8 @@ test("读取没回来之前不许说「还没有跟进中的红人」，也不�
   // 读完之后：名单出现，等待态消失，总数只在中栏概览里。
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
-  await expect(page.locator("[data-followed-interaction]")).toContainText("2 位当前跟进对象");
-  expect((await rail.innerText()).includes("位当前跟进对象")).toBe(false);
+  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 2 位");
+  expect((await rail.innerText()).includes("目前跟进了")).toBe(false);
 });
 
 test("本地索引为空时，在历史协作投影合并前不下暂无结论", async ({ page }) => {
@@ -215,12 +215,12 @@ test("本地索引为空时，在历史协作投影合并前不下暂无结论",
   await expect(page.locator('[data-follow-empty="reconciling"]')).toContainText("正在核对跟进名单");
   await expect(page.locator('[data-follow-empty="mailbox"]')).toHaveCount(0);
   await expect(page.locator("[data-follow-empty-actions]")).toHaveCount(0);
-  await expect(center).not.toContainText("0 位当前跟进对象");
+  await expect(center.locator("[data-followed-overview-count]")).toHaveCount(0);
   await expect(page.locator("[data-followed-lifecycle-grid]")).toHaveCount(0);
 
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
   await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
-  await expect(center).toContainText("1 位当前跟进对象");
+  await expect(center.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 1 位");
   await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
 });
 
@@ -272,8 +272,7 @@ test("先展示本地名单，历史记录拼接完成后原位更新并提示",
   finishBoard();
 
   await expect(page.locator('[data-followed-kol="红人3"]')).toBeVisible();
-  await expect(page.locator("[data-followed-object-count]")).toHaveText("目前跟进了 3 位");
-  await expect(page.locator("[data-followed-interaction]")).toContainText("3 位当前跟进对象");
+  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 3 位");
   expect(followingReads).toBeGreaterThanOrEqual(2);
 });
 
@@ -294,7 +293,7 @@ test("未绑定邮箱范围时，首开我的红人不为旧协作对账等 boar
 
   // 名单与结论都在 board 落地之前就已经给出（未绑定范围 → 本地索引即完整答案）。
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
-  await expect(page.locator("[data-followed-interaction]")).toContainText("2 位当前跟进对象");
+  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 2 位");
   await expect(page.locator("[data-followed-summary-pending]")).toHaveCount(0);
   expect(boardServed).toBe(false);
   expect(followingReads.length).toBe(1);

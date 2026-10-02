@@ -97,7 +97,7 @@ test("历史协作投影读取失败时，本地空索引不能被表述为暂�
   await expect(page.locator("[data-follow-empty='down']")).toBeVisible();
   await expect(page.locator("[data-follow-empty='mailbox']")).toHaveCount(0);
   await expect(page.locator("[data-follow-empty-actions]")).toHaveCount(0);
-  await expect(page.locator("[data-followed-interaction]")).not.toContainText("0 位当前跟进对象");
+  await expect(page.locator("[data-followed-overview-count]")).toHaveCount(0);
   await expect(page.locator("[data-followed-lifecycle-grid]")).toHaveCount(0);
 });
 

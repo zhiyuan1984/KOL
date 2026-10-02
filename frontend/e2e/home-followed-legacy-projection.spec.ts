@@ -59,7 +59,7 @@ test("我的红人 automatically shows Larry's legacy mailbox-scoped follow reco
 
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
   // 总数只在中栏概览里；右栏工具行不重复一次计数。
-  await expect(page.locator("[data-followed-interaction]")).toContainText("1 位当前跟进对象");
+  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 1 位");
   await expect(page.locator("[data-followed-selected-count]")).toHaveCount(0);
   const list = page.locator("[data-followed-kol-list]");
   await expect(list).toBeVisible();

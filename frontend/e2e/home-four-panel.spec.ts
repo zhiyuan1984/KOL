@@ -748,7 +748,7 @@ test("followed toolbar separates 找谁 from 对选中做什么 and keeps stages
 
   const toolbar = page.locator("[data-followed-object-toolbar]");
   await expect(toolbar.locator("[data-followed-object-search]")).toBeVisible();
-  await expect(page.locator("[data-followed-interaction]")).toContainText("2 位当前跟进对象");
+  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 2 位");
   await expect(toolbar.locator("[data-followed-object-batch]")).toContainText("全选");
 
   // 计数不再与筛选控件的标签连读成「1 人 阶段（高级）」，也不重复简报里的总数：
