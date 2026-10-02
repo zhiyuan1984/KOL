@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import type { KnowledgeBaseRow, KnowledgeDomainRow } from "../../api";
 import KbvIcon from "../../knowledgeIcons";
 
@@ -16,7 +15,7 @@ type Props = {
   onPick: (next: KbCategory) => void;
 };
 
-/** 分类目录（选择态）：族→领域→主题（库）树＋搜索＋计数；管理动作在旧版目录（迁移中）。 */
+/** 分类目录（选择态）：族→领域→主题（库）树＋搜索＋计数。 */
 export default function CategoryDialog({ open, onClose, domains, bases, baseCounts, domainCounts, selected, onPick }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [search, setSearch] = useState("");
@@ -138,10 +137,7 @@ export default function CategoryDialog({ open, onClose, domains, bases, baseCoun
           ))}
           {familyRows.length === 0 ? <p className="muted">没有匹配的领域或主题。</p> : null}
         </div>
-        <p className="muted">
-          分类只做业务归类，不承载权限；新建/改名/合并需校验引用并保留历史标识。
-          结构管理暂在 <Link className="kbv-link-plain" to="/admin/knowledge/catalog">旧版目录（迁移中）</Link>。
-        </p>
+        <p className="muted">分类只做业务归类，不承载权限。</p>
       </div>
     </dialog>
   );

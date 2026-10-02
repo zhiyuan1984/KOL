@@ -98,8 +98,8 @@ export default function LibraryPane(props: Props) {
 
       {view === "pending" && pendingDocsCount > 0 ? (
         <div className="kbv-banner" data-kbv-pending-docs>
-          <span>另有 {pendingDocsCount} 份待审资料（非结构化）</span>
-          <Link className="kbv-link-plain" to="/admin/knowledge/ingest">前往旧版入库处理（迁移中）→</Link>
+          <span>另有 {pendingDocsCount} 份待审资料</span>
+          <Link className="kbv-link-plain" to="/admin/knowledge/ingest">前往处理 →</Link>
         </div>
       ) : null}
 

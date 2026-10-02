@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
  *   管理端 /admin/knowledge → data-admin-kb-v2="home"（顶栏 / 快捷视图 / 中栏列表 / 右栏三 tab）
  *   员工端 /kb → data-kb-v2="home"（同构：data-kbv-view ＋ data-kbv-record）
  *   旧子视图过渡保留：slim 导航（data-admin-kb-home-link ＋ 5 个 data-admin-kb-tab）
- *   P2/P3 未接能力显式标注：上传提交禁用、新建/修订给出阶段说明（不伪造）。
+ *   诚实边界：上传在服务接入前灰置并给出说明；新建知识进入目录（真实入口）；界面无工程阶段话术。
  * 依赖 data-e2e 种子（kb_mail_kol / kbase_legacy 等跨运行保留）。
  */
 
@@ -42,22 +42,24 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator("[data-kbv-detail]")).toContainText("版本");
   });
 
-  test("阶段标注：上传提交禁用、新建知识 P2 说明", async ({ page }) => {
+  test("诚实边界：上传灰置有说明、新建跳转目录、页面无工程话术", async ({ page }) => {
     await page.goto("/admin/knowledge");
+    const home = page.locator('[data-admin-kb-v2="home"]');
+    await expect(home).toBeVisible();
+    await expect(home).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
+
     await page.locator("[data-kbv-upload]").click();
     const upload = page.locator("[data-kbv-upload-dialog]");
     await expect(upload).toBeVisible();
     await expect(upload).toContainText("音视频将先转写");
+    await expect(upload).toContainText("上传服务暂不可用");
     await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
+    await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
     await page.keyboard.press("Escape");
     await expect(upload).toBeHidden();
 
     await page.locator("[data-kbv-new]").click();
-    const notice = page.locator("[data-kbv-phase-notice]");
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText("P2 接入");
-    await notice.locator(".kbv-dialog-actions").getByRole("button", { name: "关闭" }).click();
-    await expect(notice).toBeHidden();
+    await expect(page.locator('[data-admin-kb-view="catalog"]')).toBeVisible();
   });
 
   test("旧子视图过渡可达：slim 导航与首页回链", async ({ page }) => {

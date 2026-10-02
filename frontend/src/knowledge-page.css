@@ -870,3 +870,35 @@
     min-height: 44px;
   }
 }
+
+/* ── P1 视觉整改（用户复核）：减少详情底部留白、列表收口与窄屏密度 ── */
+
+/* 内容少时操作区紧随内容（不再钉在屏幕底），内容长时仍由 body 内部滚动。 */
+.kbv-rail-body {
+  flex: 0 1 auto;
+}
+
+.kbv-rail-foot > .kbv-actions {
+  margin-left: auto;
+}
+
+/* 「展开全部结果」收起为居中按钮，不再通栏。 */
+.kbv-more {
+  align-self: center;
+}
+
+/* 上传弹窗底部的灰置说明靠左排布。 */
+.kbv-upload-note {
+  margin-right: auto;
+}
+
+@media (max-width: 480px) {
+  /* 窄屏行内不再铺开适用 chips（详情右栏仍完整可见）。 */
+  .kbv-record-meta .kb-scope {
+    display: none;
+  }
+
+  .kbv-top .kbv-top-note {
+    display: none;
+  }
+}

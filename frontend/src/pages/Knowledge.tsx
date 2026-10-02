@@ -331,7 +331,7 @@ export default function Knowledge() {
             : <span className="kbv-lead" data-kb-loading>{KB_LOADING}</span>}
         </div>
         <div className="kbv-actions">
-          <small className="muted">仅展示已发布、且在你的范围内可见的知识</small>
+          <small className="muted kbv-top-note">仅展示已发布、且在你的范围内可见的知识</small>
         </div>
       </header>
 

@@ -77,7 +77,7 @@ function LegacyKnowledgeHost({ view, id }: { view: KbAdminView; id: string }) {
         </div>
       </header>
 
-      <nav className="kb-tabs kbadmin-tabs" aria-label="知识治理子视图（旧版过渡）">
+      <nav className="kb-tabs kbadmin-tabs" aria-label="知识治理子视图">
         <Link to={KB_ADMIN_DEFAULT_PATH} data-admin-kb-home-link className="kbadmin-action-link">
           ← 知识首页
         </Link>

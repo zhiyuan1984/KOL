@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../api";
 import { kindLabel } from "../../knowledgeCopy";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
@@ -7,7 +7,6 @@ import LibraryPane, { type KbView } from "./LibraryPane";
 import DetailRail from "./DetailRail";
 import CategoryDialog, { type KbCategory } from "./CategoryDialog";
 import UploadDialog from "./UploadDialog";
-import PhaseNotice from "./PhaseNotice";
 
 const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
   pending: "pending_review",
@@ -18,15 +17,9 @@ const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
 
 const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: spec.label }));
 
-const NEW_NOTICE = {
-  title: "新建知识 · P2 接入",
-  body: "新建与修订将在 P2 接入本页；过渡期可在旧版目录里进入知识库后新建条目。",
-  legacyHref: "/admin/knowledge/catalog",
-  legacyLabel: "打开旧版目录（迁移中）",
-};
-
-/** 管理端知识主页（IA v2）：顶栏＋中栏列表＋右栏详情（P1）。 */
+/** 管理端知识主页（IA v2）：顶栏＋中栏列表＋右栏详情。 */
 export default function KnowledgeHome() {
+  const nav = useNavigate();
   const load = useCallback(async () => {
     const [rows, bases, domains, documents] = await Promise.all([
       api.adminKnowledge(),
@@ -54,7 +47,6 @@ export default function KnowledgeHome() {
   const [expanded, setExpanded] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [newNotice, setNewNotice] = useState(false);
 
   const notify = useCallback((message: string) => {
     setActionError("");
@@ -122,8 +114,8 @@ export default function KnowledgeHome() {
     [filtered, selectedId],
   );
 
-  const selectedStatus = selectedRow ? String(selectedRow.status || "") : "";
-  const demoteNew = selectedStatus === "draft" || selectedStatus === "pending_review";
+  // 0–1 实底主 CTA：待审批行选中时让位给右栏「审核」；其它状态顶栏保持主 CTA。
+  const demoteNew = selectedRow ? String(selectedRow.status || "") === "pending_review" : false;
 
   const baseCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -161,6 +153,10 @@ export default function KnowledgeHome() {
     setView("all");
   }, []);
 
+  const openCreate = useCallback(() => {
+    nav("/admin/knowledge/catalog");
+  }, [nav]);
+
   return (
     <section className="kbv" data-admin-knowledge data-admin-kb-v2="home">
       {receipt ? (
@@ -185,7 +181,7 @@ export default function KnowledgeHome() {
             type="button"
             className={demoteNew ? "btn" : "btn work"}
             data-kbv-new
-            onClick={() => setNewNotice(true)}
+            onClick={openCreate}
           >
             新建知识
           </button>
@@ -217,7 +213,7 @@ export default function KnowledgeHome() {
           loading={loading}
           pathOf={pathOf}
           onUpload={() => setUploadOpen(true)}
-          onCreate={() => setNewNotice(true)}
+          onCreate={openCreate}
         />
 
         <aside className="kbv-rail" aria-label="知识详情" data-kbv-detail>
@@ -251,14 +247,6 @@ export default function KnowledgeHome() {
         }}
       />
       <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} />
-      <PhaseNotice
-        open={newNotice}
-        title={NEW_NOTICE.title}
-        body={NEW_NOTICE.body}
-        legacyHref={NEW_NOTICE.legacyHref}
-        legacyLabel={NEW_NOTICE.legacyLabel}
-        onClose={() => setNewNotice(false)}
-      />
     </section>
   );
 }

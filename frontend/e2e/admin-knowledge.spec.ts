@@ -90,21 +90,20 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await page.locator('[data-kbv-detail-tab="versions"]').click();
     await expect(page.locator("[data-kbv-detail]")).toContainText("版本");
 
-    // P2 标注：上传弹窗可开、音视频格式在列、提交按钮禁用；新建知识给阶段说明。
+    // 上传弹窗：音视频格式在列；提交在服务接入前禁用（灰置说明，不出现工程话术）。
     await page.locator("[data-kbv-upload]").click();
     const upload = page.locator("[data-kbv-upload-dialog]");
     await expect(upload).toBeVisible();
     await expect(upload).toContainText("音视频将先转写");
+    await expect(upload).toContainText("上传服务暂不可用");
     await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
+    await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
     await page.keyboard.press("Escape");
     await expect(upload).toBeHidden();
 
+    // 新建知识 → 进入目录（真实的创建入口）。
     await page.locator("[data-kbv-new]").click();
-    const notice = page.locator("[data-kbv-phase-notice]");
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText("P2 接入");
-    await notice.locator(".kbv-dialog-actions").getByRole("button", { name: "关闭" }).click();
-    await expect(notice).toBeHidden();
+    await expect(page.locator('[data-admin-kb-view="catalog"]')).toBeVisible();
   });
 
   test("目录列出族 / 域 / 库，库详情列出条目，条目详情可展开版本全文", async ({ page }) => {

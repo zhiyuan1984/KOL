@@ -17,11 +17,9 @@ import {
   type KbAssetRow,
   type Row,
 } from "./shared";
-import PhaseNotice from "./PhaseNotice";
 
 type VersionRow = Row & { version?: number };
 type RailTab = "content" | "props" | "versions";
-type Notice = { title: string; body: string; legacyHref?: string; legacyLabel?: string };
 
 const TABS: Array<{ key: RailTab; label: string }> = [
   { key: "content", label: "内容" },
@@ -38,12 +36,11 @@ type Props = {
   reload: () => void;
 };
 
-/** 管理端右栏：内容 / 属性与范围 / 版本记录＋按状态唯一主 CTA（IA v2，P1）。
- *  发布决断将在 P3 迁入审批系统；过渡期保留就地「审核」（同一 API 与回执口径）。 */
+/** 管理端右栏：内容 / 属性与范围 / 版本记录＋按状态唯一主 CTA（IA v2）。
+ *  就地「审核」沿用既有 API、确认与回执口径；修订与范围调整进入条目详情执行。 */
 export default function DetailRail({ row, path, baseKind, notify, fail, reload }: Props) {
   const { ask, dialog } = useAdminConfirm();
   const [tab, setTab] = useState<RailTab>("content");
-  const [phase, setPhase] = useState<Notice | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDialogElement>(null);
 
@@ -66,6 +63,7 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
   const needsApproval = status === "pending_review";
   const isDraft = status === "draft";
   const isPublished = status === "published";
+  const entryPath = `/admin/knowledge/entries/${encodeURIComponent(row.id)}`;
 
   const run = async (fn: () => Promise<unknown>, message: string) => {
     try {
@@ -92,31 +90,6 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
     }
   };
 
-  const editNotice: Notice = {
-    title: "修订 · P2 接入",
-    body: "修订（写入新版本草稿）将在 P2 接入本页；过渡期请使用旧版条目视图完成编辑。",
-    legacyHref: `/admin/knowledge/entries/${encodeURIComponent(row.id)}`,
-    legacyLabel: "打开旧版条目视图（迁移中）",
-  };
-  const submitNotice: Notice = {
-    title: "提交审批 · P2 接入",
-    body: "「提交审批」受理侧（创建审批单）将在 P2/P3 接入；过渡期可继续在旧版条目视图提交。",
-    legacyHref: `/admin/knowledge/entries/${encodeURIComponent(row.id)}`,
-    legacyLabel: "打开旧版条目视图（迁移中）",
-  };
-  const approvalNotice: Notice = {
-    title: "前往审批 · P3 接入",
-    body: "知识发布审批将接入平台审批系统（方案 B：/approvals 审批单、审批链与回执）；接入前请使用「审核」就地处理。",
-    legacyHref: "/approvals",
-    legacyLabel: "打开平台审批列表",
-  };
-  const scopeNotice: Notice = {
-    title: "调整适用范围 · P2 接入",
-    body: "范围调整将在 P2 接入本页；过渡期请使用旧版条目视图修改。",
-    legacyHref: `/admin/knowledge/entries/${encodeURIComponent(row.id)}`,
-    legacyLabel: "打开旧版条目视图（迁移中）",
-  };
-
   const closeMore = () => {
     moreRef.current?.close();
     setMoreOpen(false);
@@ -135,15 +108,6 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
   return (
     <>
       {dialog}
-      <PhaseNotice
-        open={Boolean(phase)}
-        title={phase?.title || ""}
-        body={phase?.body || ""}
-        legacyHref={phase?.legacyHref}
-        legacyLabel={phase?.legacyLabel}
-        onClose={() => setPhase(null)}
-      />
-
       <div className="kbv-rail-head">
         <div className="kbv-crumb">{path || "未分类"}</div>
         <div className="kbv-title-row">
@@ -180,9 +144,7 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
             {needsApproval ? (
               <div className="kbv-notice" data-kbv-approval-hint>
                 <strong>此版本正在审批中</strong>
-                <button type="button" className="kbv-link-plain" onClick={() => setPhase(approvalNotice)}>
-                  查看审批（P3 接入）→
-                </button>
+                <Link className="kbv-link-plain" to="/approvals">前往审批 →</Link>
               </div>
             ) : null}
             {fields.length ? (
@@ -218,33 +180,24 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
         ) : null}
 
         {tab === "props" ? (
-          <>
-            <dl className="kbv-properties">
-              <div><dt>知识标识</dt><dd>{row.id}</dd></div>
-              <div><dt>领域 / 主题</dt><dd>{path || "未分类"}</dd></div>
-              <div><dt>知识类型</dt><dd>{kindLabel(row.kind)}</dd></div>
-              <div><dt>内容模型</dt><dd>{baseKind ? kbBaseKindLabel(baseKind) : "—"}</dd></div>
-              <div><dt>状态</dt><dd>{statusLabel(status)} · 第 {version} 版</dd></div>
-              <div><dt>维护责任人</dt><dd>{row.created_by || "—"}</dd></div>
-              <div>
-                <dt>审批</dt>
-                <dd>
-                  {row.approved_at
-                    ? `${textValue((row as unknown as Row).approved_by) || "—"} · ${formatKbTime(row.approved_at)}`
-                    : "尚未审批"}
-                </dd>
-              </div>
-              {row.expires_at ? <div><dt>到期</dt><dd>{formatKbTime(row.expires_at)}</dd></div> : null}
-              <div><dt>更新时间</dt><dd>{row.updated_at ? formatKbTime(row.updated_at) : "—"}</dd></div>
-            </dl>
-            <p className="muted">
-              完整治理信息（范围授权 / 引用列表 / 审计）在
-              <Link className="kbv-link-plain" to={`/admin/knowledge/entries/${encodeURIComponent(row.id)}`}>
-                旧版条目视图（迁移中）
-              </Link>
-              。
-            </p>
-          </>
+          <dl className="kbv-properties">
+            <div><dt>知识标识</dt><dd>{row.id}</dd></div>
+            <div><dt>领域 / 主题</dt><dd>{path || "未分类"}</dd></div>
+            <div><dt>知识类型</dt><dd>{kindLabel(row.kind)}</dd></div>
+            <div><dt>内容模型</dt><dd>{baseKind ? kbBaseKindLabel(baseKind) : "—"}</dd></div>
+            <div><dt>状态</dt><dd>{statusLabel(status)} · 第 {version} 版</dd></div>
+            <div><dt>维护责任人</dt><dd>{row.created_by || "—"}</dd></div>
+            <div>
+              <dt>审批</dt>
+              <dd>
+                {row.approved_at
+                  ? `${textValue((row as unknown as Row).approved_by) || "—"} · ${formatKbTime(row.approved_at)}`
+                  : "尚未审批"}
+              </dd>
+            </div>
+            {row.expires_at ? <div><dt>到期</dt><dd>{formatKbTime(row.expires_at)}</dd></div> : null}
+            <div><dt>更新时间</dt><dd>{row.updated_at ? formatKbTime(row.updated_at) : "—"}</dd></div>
+          </dl>
         ) : null}
 
         {tab === "versions" ? (
@@ -260,32 +213,16 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
                 </div>
               );
             })}
-            <p className="muted">
-              版本对比与回滚在
-              <Link className="kbv-link-plain" to={`/admin/knowledge/entries/${encodeURIComponent(row.id)}`}>
-                旧版条目视图（迁移中）
-              </Link>
-              提供。
-            </p>
           </>
         ) : null}
       </div>
 
       <footer className="kbv-rail-foot">
-        <small className="muted">
-          {needsApproval
-            ? "审批系统接入中（P3）；过渡期可就地审核。"
-            : isDraft
-              ? "提交审批将在 P2 接入。"
-              : "操作保留确认与回执。"}
-        </small>
         <div className="kbv-actions">
           {needsApproval ? (
             <>
-              <button type="button" className="btn" data-kbv-action="goto-approval" onClick={() => setPhase(approvalNotice)}>
-                前往审批 ↗
-              </button>
-              <button type="button" className="btn" data-kbv-action="edit" onClick={() => setPhase(editNotice)}>修订</button>
+              <Link className="btn" data-kbv-action="goto-approval" to="/approvals">前往审批 ↗</Link>
+              <Link className="btn" data-kbv-action="edit" to={entryPath}>修订</Link>
               <button
                 type="button"
                 className="btn work"
@@ -298,7 +235,7 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
           ) : null}
           {isDraft ? (
             <>
-              <button type="button" className="btn" data-kbv-action="edit" onClick={() => setPhase(editNotice)}>修订</button>
+              <Link className="btn" data-kbv-action="edit" to={entryPath}>修订</Link>
               <button
                 type="button"
                 className="btn danger"
@@ -310,13 +247,18 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
               >
                 删除草稿
               </button>
-              <button type="button" className="btn work" data-kbv-action="submit" onClick={() => setPhase(submitNotice)}>提交审批</button>
             </>
           ) : null}
           {(isPublished || status === "archived") ? (
             <>
-              <button type="button" className="btn" data-kbv-action="edit" onClick={() => setPhase(editNotice)}>修订</button>
-              <button type="button" className="btn" data-kbv-action="more" aria-expanded={moreOpen} onClick={() => setMoreOpen(true)}>
+              <Link className="btn" data-kbv-action="edit" to={entryPath}>修订</Link>
+              <button
+                type="button"
+                className="btn"
+                data-kbv-action="more"
+                aria-expanded={moreOpen}
+                onClick={() => setMoreOpen(true)}
+              >
                 更多 ▾
               </button>
             </>
@@ -340,12 +282,15 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
           </button>
         </div>
         <div className="kbv-dialog-body">
-          <button type="button" className="btn" data-kbv-action="versions" onClick={() => { closeMore(); setTab("versions"); }}>
+          <button
+            type="button"
+            className="btn"
+            data-kbv-action="versions"
+            onClick={() => { closeMore(); setTab("versions"); }}
+          >
             查看版本记录
           </button>
-          <button type="button" className="btn" data-kbv-action="scope" onClick={() => { closeMore(); setPhase(scopeNotice); }}>
-            调整适用范围（P2 接入）
-          </button>
+          <Link className="btn" data-kbv-action="scope" to={entryPath} onClick={closeMore}>调整适用范围</Link>
           <button
             type="button"
             className="btn danger"
@@ -362,7 +307,6 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
           >
             停用已发布版本
           </button>
-          <p className="muted">正式写入前需再次确认并保留审计回执。</p>
         </div>
       </dialog>
     </>

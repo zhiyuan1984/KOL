@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import type { KnowledgeBaseRow } from "../../api";
 import { kbBaseKindLabel } from "../../knowledgeCopy";
 import KbvIcon from "../../knowledgeIcons";
 
-/** 上传弹窗（P1 壳）：选择/拖入/校验/目标库/队列为真实交互；
- *  「创建文件草稿」按 CONST-10 标注为 P2 接入（上传与提取管线），不伪造结果。 */
+/** 上传弹窗：选择 / 拖入 / 校验 / 目标库 / 队列为真实交互；
+ *  提交在后端上传通道接入前保持禁用，并给出灰置说明（不出现工程阶段话术）。 */
 const UPLOAD_FORMATS: Record<string, string> = {
   pdf: "PDF 文档",
   doc: "Word 文档", docx: "Word 文档",
@@ -92,7 +91,7 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
         </button>
       </div>
       <div className="kbv-dialog-body">
-        <p className="muted">支持批量选择或拖入文件；每个文件形成一条待整理草稿（P2 接入后）。</p>
+        <p className="muted">支持批量选择或拖入文件；每个文件形成一条待整理草稿。</p>
         <div
           className="kbv-file-info"
           data-kbv-upload-drop
@@ -156,20 +155,15 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
             ))}
           </select>
         </label>
-        <p className="muted">
-          P2 接入：上传、逐文件状态与提取管线；过渡期请使用
-          <Link className="kbv-link-plain" to="/admin/knowledge/ingest">旧版入库（迁移中）</Link>
-          。
-        </p>
       </div>
       <div className="kbv-dialog-actions">
+        <span className="muted kbv-upload-note">上传服务暂不可用</span>
         <button type="button" className="btn" onClick={onClose}>取消</button>
         <button
           type="button"
           className="btn work"
           data-kbv-upload-submit
           disabled
-          title="P2 接入：上传与提取管线"
         >
           创建文件草稿
         </button>

@@ -113,12 +113,6 @@ for (const [width, height, tag] of VIEWPORTS) {
       await page.screenshot({ path: path.join(out, "admin-1440-props.png") });
       await page.locator('[data-kbv-detail-tab="content"]').click();
       await page.waitForTimeout(200);
-
-      await page.locator("[data-kbv-new]").click();
-      await page.waitForSelector("[data-kbv-phase-notice][open]");
-      await page.waitForTimeout(250);
-      await page.screenshot({ path: path.join(out, "admin-1440-notice.png") });
-      await page.keyboard.press("Escape");
     }
   });
 }
