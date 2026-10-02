@@ -101,7 +101,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       },
       {
         id: "scheduling",
-        label: "调度",
+        label: "调度监控",
         href: "/admin/scheduling",
         icon: "M12 8v4l2.5 1.5 M7 3v3 M17 3v3 M5 7h14v12H5z",
       },

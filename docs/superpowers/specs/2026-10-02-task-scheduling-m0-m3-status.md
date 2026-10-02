@@ -41,6 +41,7 @@
 4. Worker 的心跳写入 `execution_worker_heartbeats`；租约恢复沿用低/中风险受控重试、高风险 `uncertain` 的语义。
 5. `npm run worker:outbox` 运行发布器，`npm run worker:execution` 在 PostgreSQL 模式下运行 BullMQ Worker；`docker-compose.yml` 提供 PostgreSQL、Redis、API、发布器和 Worker 服务。
 6. `work_plan.run` / `today_analyze.run` 在 API 事务中同时写入 session、ticket、task_run、不可变 `run.queued` 事件、execution job 与 Outbox；API 只返回 `202 queued`，绝不在请求线程调用模型。
+7. Cron 手动执行与 tick 同样只创建 `cron_runs + execution_jobs + execution_outbox`；测试通过显式 Dispatcher 模拟独立 Worker，API 不再有 SQLite 内联执行回退。
 
 ## M3 工单、运行、时间线读模型（已实施）
 

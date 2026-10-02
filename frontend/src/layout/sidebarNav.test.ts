@@ -71,7 +71,7 @@ describe("admin sidebar parity", () => {
       "治理",
       "数据",
       "成本",
-      "调度",
+      "调度监控",
       "配置",
     ]);
     for (const group of ADMIN_NAV_GROUPS) {
