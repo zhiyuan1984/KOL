@@ -356,6 +356,76 @@ export type TaskDetail = Task & {
   artifacts?: Array<Record<string, unknown>>;
 };
 
+export type WorkbenchTaskPage = {
+  items: Task[];
+  page: { limit: number; next_cursor: string | null; total_estimate: number };
+  as_of: string;
+  request_id?: string;
+  evaluated_at: string;
+  timezone: string;
+  projection_version: string;
+  schema_version: string;
+};
+
+/** Target ticket read-model. `Task` remains the compatibility projection during migration. */
+export type Ticket = Task & {
+  ticket_id: string;
+  data_version?: number;
+  missing_fields: string[];
+  allowed_actions: string[];
+  source_refs: Array<Record<string, unknown>>;
+};
+
+export type TicketRun = {
+  id: string;
+  run_id: string;
+  ticket_id: string;
+  status: string;
+  session_id?: string | null;
+  created_at?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error?: Record<string, unknown> | string | null;
+  [key: string]: unknown;
+};
+
+export type TicketTimelinePage = {
+  ticket_id: string;
+  items: Array<{ event_id: string; sequence: number; type: string; phase: string; status: string; occurred_at: string; safe_summary?: string | null; [key: string]: unknown }>;
+  related_business_events?: Array<Record<string, unknown>>;
+  next_sequence: number;
+  request_id: string;
+  as_of: string;
+};
+
+export type TicketSummary = {
+  ticket_id: string;
+  goal: string;
+  progress: string;
+  risk: string;
+  conclusion: string | null;
+  evidence_refs: Array<Record<string, unknown>>;
+  source_fingerprint: string;
+  producer: "rule" | string;
+  status: "current" | "stale" | string;
+  stale_reason?: string | null;
+  [key: string]: unknown;
+};
+
+export type ExecutionJob = {
+  id: string;
+  job_type: string;
+  status: string;
+  risk_level: string;
+  attempts: number;
+  max_attempts: number;
+  lease_until?: string | null;
+  error_code?: string | null;
+  error_summary?: string | null;
+  created_at: string;
+  [key: string]: unknown;
+};
+
 export type TodayBriefPrimary = {
   verb?: string;
   label?: string;
@@ -1069,6 +1139,38 @@ export const api = {
     });
     return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`);
   },
+  workbenchTasks: (view: "today" | "todo", opts?: { cursor?: string; limit?: number }) => {
+    const query = new URLSearchParams({ view });
+    if (opts?.cursor) query.set("cursor", opts.cursor);
+    if (opts?.limit) query.set("limit", String(opts.limit));
+    return request<WorkbenchTaskPage>(`/api/workbench/tasks?${query}`);
+  },
+  tickets: (opts: { cursor?: string; limit?: number; status?: string; kind?: string; object_ref?: string } = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
+    return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
+  },
+  ticket: (id: string) => request<Ticket & { latest_run: TicketRun | null; summary: TicketSummary; request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}`),
+  ticketSummary: (id: string) => request<TicketSummary & { request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}/summary`),
+  ticketTimeline: (id: string, opts: { after?: number; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.after != null) query.set("after", String(opts.after));
+    if (opts.limit != null) query.set("limit", String(opts.limit));
+    return request<TicketTimelinePage>(`/api/tickets/${encodeURIComponent(id)}/timeline${query.size ? `?${query}` : ""}`);
+  },
+  ticketCommand: (id: string, body: { action: "complete" | "cancel"; expected_version: number; idempotency_key: string; acceptance_evidence?: Record<string, unknown>; reason?: string }) =>
+    request<{ ticket_id: string; action: string; status: string; version: number; replayed: boolean; ticket?: Ticket }>(`/api/tickets/${encodeURIComponent(id)}/commands`, {
+      method: "POST",
+      headers: { "Idempotency-Key": body.idempotency_key },
+      body: JSON.stringify(body),
+    }),
+  ticketRun: (id: string) => request<TicketRun & { request_id: string; as_of: string }>(`/api/runs/${encodeURIComponent(id)}`),
+  ticketRunEvents: (id: string, opts: { after?: number; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.after != null) query.set("after", String(opts.after));
+    if (opts.limit != null) query.set("limit", String(opts.limit));
+    return request<TicketTimelinePage>(`/api/runs/${encodeURIComponent(id)}/events${query.size ? `?${query}` : ""}`);
+  },
   version: () =>
     request<{ version: string; started_at: string }>("/api/version"),
   taskDefinitions: () =>
@@ -1345,6 +1447,10 @@ export const api = {
   planToday: () => planScope("today"),
   todoBrief: () => scopeBrief("todo"),
   planTodo: () => planScope("todo"),
+  workbenchPlan: () => request<TodayBriefResponse>("/api/workbench/plan"),
+  startWorkbenchPlan: () => request<TodayPlanResult>("/api/workbench/plan-runs", {
+    method: "POST", body: JSON.stringify({ mode: "deterministic_organize" }),
+  }),
   enqueueTodayAnalyze: (body: Record<string, unknown> = {}) =>
     request<TodayPlanResult>("/api/home/today-brief/enqueue", {
       method: "POST",
@@ -1902,6 +2008,19 @@ export const api = {
     }),
   cron: () => request<Record<string, unknown>>("/api/cron/risks"),
   cronJobs: () => request<{ jobs: CronJob[]; alerts?: CronAlerts }>("/api/cron/jobs"),
+  adminExecutionJobs: (opts: { status?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.status) query.set("status", opts.status);
+    if (opts.limit) query.set("limit", String(opts.limit));
+    return request<{
+      items: ExecutionJob[];
+      counts: Record<string, number>;
+      outbox: Record<string, number>;
+      as_of: string;
+      execution_mode: string;
+      source_refs: Array<Record<string, unknown>>;
+    }>(`/api/admin/scheduling/execution-jobs${query.size ? `?${query}` : ""}`);
+  },
   createCronJob: (body: Record<string, unknown>) =>
     request<CronJob>("/api/cron/jobs", { method: "POST", body: JSON.stringify(body) }),
   cronJob: (id: string) =>

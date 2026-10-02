@@ -691,15 +691,15 @@ export default function Home() {
   const mode = parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {
-    listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
-    getBrief: () => api.todayBrief(),
-    startPlan: () => api.planToday(),
+    listOpenTasks: () => api.workbenchTasks("today").then((page) => page.items),
+    getBrief: () => api.workbenchPlan(),
+    startPlan: () => api.startWorkbenchPlan(),
     getDisplayTasks: () => fetchTodayTasks(),
   }, { enabled: mode === "today" });
   const todoPlan = usePlanScope("todo", {
-    listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
-    getBrief: () => api.todoBrief(),
-    startPlan: () => api.planTodo(),
+    listOpenTasks: () => api.workbenchTasks("todo").then((page) => page.items),
+    getBrief: () => api.workbenchPlan(),
+    startPlan: () => api.startWorkbenchPlan(),
     getDisplayTasks: () => fetchTodoTasks(),
   }, { enabled: mode === "todo" });
   const nav = useNavigate();

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
+    "worker:execution": "tsx src/execution-worker.ts",
     "test": "node scripts/test.mjs",
     "validate:kol-data": "node scripts/validate-kol-data.mjs",
     "validate:registry": "node scripts/validate-registry.mjs",

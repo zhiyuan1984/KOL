@@ -330,6 +330,45 @@ export function isHighRiskWorkItem(task: {
   return HIGH_RISK_TEXT.test(`${task.title || ""} ${task.current_stage || ""}`);
 }
 
+/**
+ * Published compatibility projection for the still-unpublished "today" rule.
+ *
+ * Today remains a service-side projection, not a frontend rule engine.  The
+ * explicit reason codes let the client explain a membership decision and make
+ * the future business-rule migration observable without changing ticket data.
+ */
+export function todayMembershipReasons(task: {
+  source?: unknown;
+  status?: unknown;
+  promoted_at?: unknown;
+  dismissed_at?: unknown;
+  due_at?: unknown;
+  risk?: unknown;
+  risk_level?: unknown;
+  priority?: unknown;
+  start_date?: unknown;
+  title?: unknown;
+  current_stage?: unknown;
+  task_type?: unknown;
+  skill?: unknown;
+}): string[] {
+  if (isPlanningWorkItem(task) || isClosedWorkItem(task) || task.dismissed_at) return [];
+  const reasons: string[] = [];
+  if (isHighRiskWorkItem(task)) reasons.push("high_risk");
+  const priority = normalizePriority(task.priority);
+  if (priority === "important_urgent" || priority === "important" || priority === "urgent") {
+    reasons.push("priority");
+  }
+  if (datePartOf(task.start_date) === todayDateStr()) reasons.push("start_today");
+  const flags = dueFlags(task.due_at);
+  if (flags.overdue) reasons.push("overdue");
+  else if (flags.due_today) reasons.push("due_today");
+  const status = String(task.status || "").toLowerCase();
+  if (status === "running" || status === "in_progress" || status === "starting") reasons.push("running");
+  if (status === "waiting_approval" || status === "awaiting_approval") reasons.push("awaiting_approval");
+  return reasons;
+}
+
 export function isTodayWorkItem(task: {
   source?: unknown;
   status?: unknown;
@@ -345,18 +384,7 @@ export function isTodayWorkItem(task: {
   task_type?: unknown;
   skill?: unknown;
 }): boolean {
-  if (isPlanningWorkItem(task)) return false;
-  if (isClosedWorkItem(task) || task.dismissed_at) return false;
-  if (isHighRiskWorkItem(task)) return true;
-  const priority = normalizePriority(task.priority);
-  if (priority === "important_urgent" || priority === "important" || priority === "urgent") return true;
-  if (datePartOf(task.start_date) === todayDateStr()) return true;
-  const flags = dueFlags(task.due_at);
-  if (flags.overdue || flags.due_today) return true;
-  const status = String(task.status || "").toLowerCase();
-  if (status === "running" || status === "in_progress" || status === "starting") return true;
-  if (status === "waiting_approval" || status === "awaiting_approval") return true;
-  return false;
+  return todayMembershipReasons(task).length > 0;
 }
 
 /** Full open memory list — not closed / not dismissed. No promote gate. */
@@ -789,7 +817,9 @@ export function buildWorkbench(tasks: Json[], kols: Json[], definitions = taskDe
   const open = tasks.filter((task) => isOpenWorkItem(task)).map((task) => ({ ...task } as Json));
   const todo = tasks.filter((task) => isTodoWorkItem(task)).map((task) => ({ ...task, candidate: false } as Json));
   const insights = tasks.filter((task) => isInsightWorkItem(task)).map((task) => ({ ...task, candidate: true } as Json));
-  const today = tasks.filter((task) => isTodayWorkItem(task)).map((task) => ({ ...task } as Json));
+  // Today is a subset of the same formal open-todo projection.  An unadopted
+  // AI candidate can be urgent, but it is not a formal todo until adoption.
+  const today = tasks.filter((task) => isTodoWorkItem(task) && isTodayWorkItem(task)).map((task) => ({ ...task } as Json));
   const waiting = open.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
   const overdue = open.filter((task) => dueFlags(task.due_at).overdue);
   const dueToday = open.filter((task) => dueFlags(task.due_at).due_today);
