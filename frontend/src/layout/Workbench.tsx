@@ -209,7 +209,7 @@ export default function Workbench() {
         ) : (
           <>
             <NavLink to="/">任务</NavLink>
-            <NavLink to="/agents" className={() => onAgents ? "active" : ""}>agent</NavLink>
+            <NavLink to="/agents" className={() => onAgents ? "active" : ""}>Agent</NavLink>
           </>
         )}
       </div>
@@ -288,16 +288,16 @@ export default function Workbench() {
           </NavLink>
         </nav>
 
-        <nav className="nav-group" aria-label="agent">
+        <nav className="nav-group" aria-label="Agent">
           <NavLink
             to="/agents"
             className={() => "nav-link" + (onAgents ? " active" : "")}
             data-nav="agents"
-            title="agent"
+            title="Agent"
             onClick={() => setMobileOpen(false)}
           >
             <Ico path="M8 5h8a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-2.2l-1.8 3-1.8-3H8a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z M9 11h.01 M15 11h.01 M9 14c1.7 1.3 4.3 1.3 6 0 M12 5V3 M9 3h6" />
-            <span className="sidebar-label">agent</span>
+            <span className="sidebar-label">Agent</span>
           </NavLink>
         </nav>
 

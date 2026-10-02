@@ -12,7 +12,7 @@ const WORKBENCH = fs.readFileSync(
 
 function todayNavOrder(source: string): string[] {
   const start = source.indexOf('aria-label="今日"');
-  const end = source.indexOf('aria-label="agent"');
+  const end = source.indexOf('aria-label="Agent"');
   const cluster = start >= 0 && end > start ? source.slice(start, end) : "";
   return [...cluster.matchAll(/data-nav="([^"]+)"/g)].map((match) => match[1]);
 }
@@ -25,6 +25,12 @@ describe("今日 sidebar IA", () => {
       "cron",
       "mail",
     ]);
+  });
+
+  it("uses the product-cased Agent label in the employee navigation", () => {
+    expect(WORKBENCH).toContain('aria-label="Agent"');
+    expect(WORKBENCH).toContain('title="Agent"');
+    expect(WORKBENCH).toContain('>Agent</span>');
   });
 
   it("keeps AI发现 / 公海 / 我跟进的红人 off the sidebar", () => {
