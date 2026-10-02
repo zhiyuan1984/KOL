@@ -303,6 +303,7 @@
 
 .kbv-record {
   display: flex;
+  align-items: center;
   width: 100%;
   text-align: left;
   gap: var(--space-3);
@@ -789,6 +790,14 @@
     position: sticky;
     bottom: 0;
     background: var(--bg);
+  }
+}
+
+/* 管理端中栏两栏并排（>1100px）：列表右侧补与 admin-body 同宽的外檐，
+   与左侧 --page-gutter 留白对称（不再顶到右栏分隔线）。 */
+@media (min-width: 1101px) {
+  .kbv:not(.kbv-page) .kbv-list {
+    padding-right: var(--page-gutter);
   }
 }
 
