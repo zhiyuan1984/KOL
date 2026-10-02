@@ -238,14 +238,15 @@ function listedSkills(market: boolean): Json[] {
 const VERSION_CACHE: { version: string; started_at: string } = { version: "", started_at: nowIso() };
 misc.get("/version", (c) => {
   if (!VERSION_CACHE.version) {
-    let commit = String(process.env.LINGONG_VERSION || "").trim();
+    // Deployment `.env` can outlive a `git reset` and thus contain a stale
+    // LINGONG_VERSION. Prefer the actual checked-out repository revision so
+    // health checks prove what process is serving traffic; containers without
+    // a Git worktree retain the explicit environment fallback.
+    let commit = String(process.env.DEPLOY_REVISION || "").trim();
     if (!commit) {
-      try {
-        commit = execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
-      } catch {
-        commit = "unknown";
-      }
+      try { commit = execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch { /* fallback below */ }
     }
+    if (!commit) commit = String(process.env.LINGONG_VERSION || "").trim();
     VERSION_CACHE.version = commit || "unknown";
   }
   return c.json(VERSION_CACHE);
