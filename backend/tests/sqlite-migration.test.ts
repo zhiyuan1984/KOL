@@ -32,4 +32,17 @@ describe("SQLite to PostgreSQL migration fingerprint", () => {
 
     expect(migrationFingerprint(source, COLUMNS)).not.toBe(migrationFingerprint(target, COLUMNS));
   });
+
+  it("ignores source and target text collation order differences", () => {
+    const source = [
+      { id: "creator_中文", followers: 12, score: 0.75, payload: "{}" },
+      { id: "creator_Z", followers: 13, score: 0.8, payload: "{}" },
+    ];
+    const target = [
+      { id: "creator_Z", followers: "13", score: "0.8", payload: "{}" },
+      { id: "creator_中文", followers: "12", score: "0.75", payload: "{}" },
+    ];
+
+    expect(migrationFingerprint(source, COLUMNS)).toBe(migrationFingerprint(target, COLUMNS));
+  });
 });

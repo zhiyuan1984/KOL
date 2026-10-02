@@ -155,9 +155,14 @@ function canonical(value: unknown, type: string): string {
 /** Deterministic data fingerprint after SQLite's declared scalar semantics. */
 export function migrationFingerprint(rows: Array<Record<string, unknown>>, orderedColumns: MigrationFingerprintColumn[]): string {
   const hash = createHash("sha256");
-  for (const row of rows) {
-    hash.update(`${orderedColumns.map((column) => canonical(row[column.name], column.type)).join("\u001f")}\n`);
-  }
+  // SQLite's BINARY collation and a PostgreSQL database's locale collation may
+  // order identical text primary keys differently (notably for CJK creator
+  // data). Hash a sorted canonical row multiset instead of trusting either
+  // database's ORDER BY semantics; duplicates remain present in the multiset.
+  const records = rows
+    .map((row) => orderedColumns.map((column) => canonical(row[column.name], column.type)).join("\u001f"))
+    .sort();
+  for (const record of records) hash.update(`${record}\n`);
   return hash.digest("hex");
 }
 
