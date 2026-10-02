@@ -29,19 +29,15 @@ homeToday.post("/workbench/plan-runs", async (c) => {
   if (mode !== "agent_plan" && mode !== "deterministic_organize") {
     throw new HttpFail(400, "invalid planning mode");
   }
-  // The existing canonical plan runner is the only writer in this milestone.
-  // Mode is faithfully exposed: agent_plan is a requested capability, while the
-  // current Host organizer remains deterministic until the agent producer lands.
-  if (mode === "agent_plan") {
-    return c.json({ code: "agent_plan_not_enabled", message: "Agent 规划器尚未启用；请使用确定性整理。", calls_model: false }, 409);
-  }
-  const started = startTodayPlan(ownerId(), "today");
+  const started = startTodayPlan(ownerId(), "today", mode);
   return c.json({
     ...started,
     mode,
     plan_id: started.work_item_id,
-    producer: "deterministic_organize",
-    calls_model: false,
+    job_id: started.execution_job_id,
+    status: started.attached ? "running" : "queued",
+    producer: started.producer,
+    calls_model: mode === "agent_plan",
     schema_version: "compat.v1",
   }, started.attached ? 200 : 202);
 });
@@ -81,16 +77,17 @@ for (const scope of PLAN_SCOPES) {
 
   /** Think POST. Locks the scope's plan task_type and runs internally. Never from-text. */
   homeToday.post(`/home/${scope}-brief/plan`, (c) => {
-    const started = startTodayPlan(ownerId(), scope);
+    const started = startTodayPlan(ownerId(), scope, "agent_plan");
     return c.json({
       ...started,
       // Both scopes answer the same shape; the pane renders one component.
       task_type: planTaskType(scope),
       canonical_scope: "today",
+      job_id: started.execution_job_id,
       entry: "think",
       kind: "think",
       creates_session: true,
-      calls_model: true,
+      calls_model: started.producer === "agent_plan",
     }, started.attached ? 200 : 202);
   });
 }

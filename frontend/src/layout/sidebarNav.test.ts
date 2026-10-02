@@ -46,9 +46,10 @@ describe("今日 sidebar IA", () => {
 });
 
 describe("admin sidebar parity", () => {
-  it("keeps the ten governance entries in one contract", () => {
+  it("keeps the scheduling operations entry in the governance navigation contract", () => {
     expect(ADMIN_SECTIONS).toEqual([
       "employees",
+      "overview",
       "connectors",
       "knowledge",
       "approvals",
@@ -57,11 +58,14 @@ describe("admin sidebar parity", () => {
       "agents",
       "data",
       "cost",
+      "scheduling",
+      "audit",
       "kol",
     ]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([1, 3, 1, 2, 3]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 3, 1, 2, 5]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
+      "概览",
       "连接",
       "知识",
       "审批",
@@ -70,6 +74,8 @@ describe("admin sidebar parity", () => {
       "治理",
       "数据",
       "成本",
+      "调度监控",
+      "审计中心",
       "配置",
     ]);
     for (const group of ADMIN_NAV_GROUPS) {
@@ -80,6 +86,8 @@ describe("admin sidebar parity", () => {
       }
     }
     expect(adminTabOf("/admin")).toBe("employees");
+    expect(adminTabOf("/admin/overview")).toBe("overview");
+    expect(adminTabOf("/admin/audit")).toBe("audit");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
     expect(adminTabOf("/admin/unknown")).toBe("employees");
   });

@@ -1,4 +1,5 @@
 import type { TodayBrief } from "../api";
+import type { PlanSnapshotInfo } from "./todayPlan";
 
 function isPolicySection(section: { title?: string; body?: string }): boolean {
   const blob = `${section.title || ""}${section.body || ""}`;
@@ -15,7 +16,11 @@ function statOf(brief: TodayBrief | null | undefined, key: string): number {
  * lives on the task row (`data-today-todo-act`), so this never renders a
  * business button. The label is scope copy so the todo pane never says 今日.
  */
-export default function PlanSummary({ brief, label = "今日计划摘要" }: { brief?: TodayBrief | null; label?: string }) {
+export default function PlanSummary({ brief, label = "今日计划摘要", snapshot }: {
+  brief?: TodayBrief | null;
+  label?: string;
+  snapshot?: PlanSnapshotInfo;
+}) {
   const sections = (Array.isArray(brief?.sections) ? brief.sections : []).filter((section) => !isPolicySection(section));
   const lead = String(brief?.lead || "").trim();
   const note = String(sections[0]?.body || "").trim();
@@ -42,6 +47,12 @@ export default function PlanSummary({ brief, label = "今日计划摘要" }: { b
       {lead ? <p className="today-plan-summary-lead" data-today-lead>{lead}</p> : null}
       {note ? <p className="today-plan-summary-note" data-today-sections>{note}</p> : null}
       {stats ? <p className="today-plan-summary-stats">{stats}</p> : null}
+      {snapshot?.generated_at ? (
+        <p className="today-plan-summary-stats" data-plan-snapshot-status>
+          {snapshot.stale_reason ? "来源已变化，正在显示上次可用计划" : "来源已核验"}
+          {snapshot.producer === "deterministic_organize" ? " · 确定性整理" : snapshot.producer === "agent_plan" ? " · Agent 规划" : ""}
+        </p>
+      ) : null}
     </section>
   );
 }

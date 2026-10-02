@@ -1,4 +1,4 @@
-import { audit, databaseEngine, getConn, nowIso, txImmediate, type SqliteConn } from "../db.js";
+import { audit, getConn, nowIso, txImmediate, type SqliteConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import type { Row } from "../types.js";
 import type { AppUser } from "../auth.js";
@@ -9,7 +9,6 @@ import {
   claimNextExecutionJob,
   completeExecutionJob,
   enqueueExecutionJob,
-  executionJobByIdempotencyKey,
   executionJobPayload,
   failExecutionJob,
   publishExecutionOutboxForJob,
@@ -221,7 +220,8 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
   return runById(runId, db) as Row;
 }
 
-async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
+/** Execute a durable Cron job already claimed by the common execution dispatcher. */
+export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
   const payload = executionJobPayload(claimed);
   const runId = String(payload.cron_run_id || "");
   if (!runId) {
@@ -283,14 +283,6 @@ export async function processCronExecutionJobById(executionJobId: string, worker
   return executeClaimedCronJob(claimed, viewer, nowMs);
 }
 
-async function executeCronRunViaDurableJob(runId: string, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
-  const job = executionJobByIdempotencyKey(`cron-run:${runId}`);
-  if (!job) throw new HttpFail(500, "missing durable cron job");
-  const claimed = claimExecutionJobById(String(job.id), "cron-inline-transition", { now: new Date(nowMs) });
-  if (!claimed) return runId;
-  return executeClaimedCronJob(claimed, viewer, nowMs);
-}
-
 export function enqueueManualRun(jobId: string, scheduledFor?: string): { run_id: string; duplicate: boolean } {
   ensureSystemCronJobs();
   const job = jobById(jobId);
@@ -337,25 +329,17 @@ export function enqueueManualRun(jobId: string, scheduledFor?: string): { run_id
   });
 }
 
-/** Enqueue due runs durably, then use the transition worker contract to execute them. */
+/** Enqueue due runs durably. Only a separate BullMQ worker may execute them. */
 export async function tickCronDue(now = new Date(), viewer?: AppUser): Promise<{ claimed: string[]; stale: boolean }> {
   ensureSystemCronJobs(getConn(), now);
   const claimed = txImmediate((db) => {
     markStaleRunning(db, now);
     return enqueueDueJobs(db, now);
   });
-  if (databaseEngine() === "sqlite") {
-    for (const runId of claimed) {
-      await executeCronRunViaDurableJob(runId, viewer, now.getTime());
-    }
-  }
   return { claimed, stale: false };
 }
 
 export async function runCronJobNow(jobId: string, viewer?: AppUser, scheduledFor?: string): Promise<{ run_id: string }> {
   const enqueued = enqueueManualRun(jobId, scheduledFor);
-  if (!enqueued.duplicate && databaseEngine() === "sqlite") {
-    await executeCronRunViaDurableJob(enqueued.run_id, viewer);
-  }
   return { run_id: enqueued.run_id };
 }

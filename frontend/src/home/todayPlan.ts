@@ -157,6 +157,7 @@ export type PlanCache = {
   memoryTasks: Task[];
   brief: TodayBrief | null;
   events: TaskEvent[];
+  snapshot?: PlanSnapshotInfo;
   phase: TodayPlanPhase;
 };
 
@@ -214,7 +215,11 @@ export type TodayPlanStep = {
   previousEvents?: TaskEvent[];
   planning?: boolean;
   attached?: boolean;
+  snapshot?: PlanSnapshotInfo;
 };
+
+export type PlanSnapshotInfo = Pick<TodayBriefResponse,
+  "plan_id" | "status" | "producer" | "source_revision" | "generated_at" | "stale_reason">;
 
 export type TodayPlanRefreshOptions = {
   pollMs?: number;
@@ -256,6 +261,18 @@ export function todayPlanEventLabels(events: TaskEvent[] | null | undefined): st
 
 function eventsOf(row: TodayBriefResponse | undefined): TaskEvent[] | undefined {
   return Array.isArray(row?.events) ? row.events : undefined;
+}
+
+function snapshotOf(row: TodayBriefResponse | undefined): PlanSnapshotInfo | undefined {
+  if (!row) return undefined;
+  return {
+    plan_id: row.plan_id,
+    status: row.status,
+    producer: row.producer,
+    source_revision: row.source_revision,
+    generated_at: row.generated_at,
+    stale_reason: row.stale_reason,
+  };
 }
 
 export function memoryTasksOf(rows: Task[] | null | undefined): Task[] {
@@ -358,6 +375,7 @@ export async function runTodayPlanRefresh(
   let events: TaskEvent[] | undefined;
   let previousBrief: TodayBrief | null | undefined;
   let previousEvents: TaskEvent[] | undefined;
+  let snapshot: PlanSnapshotInfo | undefined;
 
   /** The previous version rides along with every brief read. */
   const absorbPrevious = (row: TodayBriefResponse) => {
@@ -375,6 +393,7 @@ export async function runTodayPlanRefresh(
         if (events) step.events = events;
         if (previousBrief !== undefined) step.previousBrief = previousBrief;
         if (previousEvents) step.previousEvents = previousEvents;
+        if (snapshot) step.snapshot = snapshot;
       }
       onStep(step);
     }
@@ -382,6 +401,7 @@ export async function runTodayPlanRefresh(
   });
   const briefPromise = client.getBrief().then((row) => {
     memory = row;
+    snapshot = snapshotOf(row);
     if (row.brief !== undefined) brief = row.brief ?? null;
     const nextEvents = eventsOf(row);
     if (nextEvents) events = nextEvents;
@@ -396,6 +416,7 @@ export async function runTodayPlanRefresh(
         previousBrief,
         previousEvents,
         planning: Boolean(row.planning),
+        snapshot,
       });
     }
     return row;
@@ -412,6 +433,7 @@ export async function runTodayPlanRefresh(
         previousBrief,
         previousEvents,
         planning: Boolean(memory?.planning),
+        snapshot,
       });
     }
     return rows;
@@ -432,6 +454,7 @@ export async function runTodayPlanRefresh(
       events,
       previousBrief,
       previousEvents,
+      snapshot,
     };
     onStep(settled);
     return settled;
@@ -447,6 +470,7 @@ export async function runTodayPlanRefresh(
     previousEvents,
     planning: true,
     attached: Boolean(memory?.planning),
+    snapshot,
   });
 
   let attached = Boolean(memory?.planning);
@@ -468,6 +492,7 @@ export async function runTodayPlanRefresh(
       const row = await client.getBrief();
       if (aborted(signal)) return { phase: "idle" };
       errors = 0;
+      snapshot = snapshotOf(row);
       if (row.brief !== undefined) brief = row.brief ?? brief;
       const nextEvents = eventsOf(row);
       if (nextEvents) events = nextEvents;
@@ -475,7 +500,7 @@ export async function runTodayPlanRefresh(
       // The events table is written atomically with the worker's terminal
       // result. It may beat the separate `planning` field by one poll.
       if (planFailureFromEvents(events, scope)) {
-        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events, previousBrief, previousEvents };
+        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events, previousBrief, previousEvents, snapshot };
         onStep(failed);
         return failed;
       }
@@ -490,18 +515,19 @@ export async function runTodayPlanRefresh(
           previousEvents,
           planning: true,
           attached,
+          snapshot,
         });
         await sleep(pollMs);
         continue;
       }
       if (todayPlanFailedFromBrief(row, scope)) {
-        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events, previousBrief, previousEvents };
+        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events, previousBrief, previousEvents, snapshot };
         onStep(failed);
         return failed;
       }
       const nextDisplay = await loadDisplayTasks(client);
       if (nextDisplay) displayTasks = nextDisplay;
-      const refreshed: TodayPlanStep = { phase: "refreshed", tasks, displayTasks, brief, events, previousBrief, previousEvents };
+      const refreshed: TodayPlanStep = { phase: "refreshed", tasks, displayTasks, brief, events, previousBrief, previousEvents, snapshot };
       onStep(refreshed);
       return refreshed;
     } catch {

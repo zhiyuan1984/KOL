@@ -9,8 +9,10 @@ import {
   completeExecutionJob,
   enqueueExecutionJob,
   executionJobById,
+  failExecutionJob,
   publishExecutionOutboxForJob,
   recoverExpiredExecutionJobs,
+  retryFailedExecutionJob,
 } from "../src/execution-jobs/store.js";
 
 let tmp = "";
@@ -70,5 +72,28 @@ describe("SQLite transition execution jobs", () => {
     const recovered = recoverExpiredExecutionJobs(new Date("2030-10-02T00:01:00.000Z"));
     expect(recovered).toEqual({ requeued: 0, uncertain: 1 });
     expect(executionJobById(String(high.job.id))).toMatchObject({ status: "uncertain", error_code: "lease_expired" });
+  });
+
+  it("re-publishes only an explicitly requested failed low-risk job", () => {
+    const low = enqueueExecutionJob({
+      job_type: "work_plan.run", tenant_ref: "company:amperetime", actor_ref: "employee:test",
+      idempotency_key: "plan:test-004", risk_level: "low",
+    });
+    expect(claimExecutionJobById(String(low.job.id), "test-worker")).toBeTruthy();
+    failExecutionJob(String(low.job.id), { code: "model_timeout", summary: "model timeout" });
+    const retried = retryFailedExecutionJob(String(low.job.id), { actor_ref: "admin:test" });
+    expect(retried.retried).toBe(true);
+    expect(retried.job).toMatchObject({ status: "queued", error_code: null, max_attempts: 2 });
+    expect((getConn().prepare("SELECT COUNT(*) AS count FROM execution_outbox WHERE job_id=?").get(low.job.id) as { count: number }).count).toBe(2);
+
+    const high = enqueueExecutionJob({
+      job_type: "write.operation", tenant_ref: "company:amperetime", actor_ref: "employee:test",
+      idempotency_key: "write:test-005", risk_level: "high",
+    });
+    expect(claimExecutionJobById(String(high.job.id), "test-worker")).toBeTruthy();
+    failExecutionJob(String(high.job.id), { code: "write_timeout", summary: "outcome unknown" });
+    expect(retryFailedExecutionJob(String(high.job.id), { actor_ref: "admin:test" })).toMatchObject({
+      retried: false, reason: "not_failed",
+    });
   });
 });

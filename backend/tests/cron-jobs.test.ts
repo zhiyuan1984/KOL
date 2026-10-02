@@ -10,6 +10,7 @@ import { enqueueManualRun, tickCronDue } from "../src/cron/worker.js";
 import { nextRunAt, nextScheduledAt } from "../src/cron/schedule.js";
 import { CRON_HANDLERS } from "../src/cron/handlers.js";
 import { releaseFollowOwnershipIfEligible } from "../src/gateway/ownership-release.js";
+import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 
 type Json = Record<string, unknown>;
 let tmp: string;
@@ -23,6 +24,12 @@ async function request(method: string, url: string, body?: unknown, headers: Rec
   });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
+}
+
+async function consumeCronRun(runId: string): Promise<void> {
+  const row = getConn().prepare("SELECT id FROM execution_jobs WHERE idempotency_key=?").get(`cron-run:${runId}`) as { id: string } | undefined;
+  expect(row?.id).toBeTruthy();
+  await processExecutionJobById(String(row?.id), "cron-test-worker");
 }
 
 function insertCollab(row: {
@@ -141,6 +148,7 @@ describe("cron jobs P0/P1", () => {
     expect(started.status).toBe(200);
     expect(Object.keys(started.body)).toEqual(["run_id"]);
     expect(started.body.session_id).toBeUndefined();
+    await consumeCronRun(String(started.body.run_id));
     const run = await request("GET", `/api/cron/runs/${started.body.run_id}`);
     expect(run.status).toBe(200);
     const payload = (run.body.run as Json);
@@ -182,9 +190,11 @@ describe("cron jobs P0/P1", () => {
     expect(queued.duplicate).toBe(false);
     const response = await request("GET", "/api/admin/scheduling/execution-jobs");
     expect(response.status, response.text).toBe(200);
-    expect(response.body).toMatchObject({ execution_mode: "sqlite_single_worker_transition" });
+    expect(response.body).toMatchObject({ execution_mode: "sqlite_test_fixture_only" });
     expect((response.body.items as Json[]).some((item) => item.job_type === "cron.run" && item.status === "queued")).toBe(true);
     expect(Number((response.body.outbox as Json).pending || 0)).toBeGreaterThan(0);
+    expect(response.body.backlog).toMatchObject({ count: expect.any(Number) });
+    expect(response.body.workers).toEqual([]);
   });
 
   it("tickCronDue claims a due published job via BEGIN IMMEDIATE and does not create a session", async () => {
@@ -194,6 +204,7 @@ describe("cron jobs P0/P1", () => {
     const before = (getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n;
     const tick = await tickCronDue(new Date("2026-09-16T01:00:00.000Z"));
     expect(tick.claimed.length).toBeGreaterThan(0);
+    await consumeCronRun(tick.claimed[0]);
     const run = getConn().prepare("SELECT * FROM cron_runs WHERE id=?").get(tick.claimed[0]) as {
       status: string;
       session_id: string | null;
@@ -211,6 +222,7 @@ describe("cron jobs P0/P1", () => {
     insertCollab({ id: "col_quote", handle: "q1", overdue: 0, stage: "QUOTE_PENDING", days: 1 });
     insertCollab({ id: "col_neg", handle: "n1", overdue: 0, stage: "NEGOTIATING", days: 1 });
     const started = await request("POST", "/api/cron/jobs/daily-task-snapshot/run");
+    await consumeCronRun(String(started.body.run_id));
     const run = await request("GET", `/api/cron/runs/${started.body.run_id}`);
     const receipt = (run.body.run as Json).receipt as Json;
     const counts = receipt.counts as Record<string, number>;
@@ -234,6 +246,7 @@ describe("cron jobs P0/P1", () => {
     insertMail("col_old", staleAt);
     insertFollow({ collaborationId: "col_old", owner: "丙", lastAt: staleAt, kolUid: "stale" });
     const started = await request("POST", "/api/cron/jobs/ownership-release/run");
+    await consumeCronRun(String(started.body.run_id));
     const run = await request("GET", `/api/cron/runs/${started.body.run_id}`);
     const receipt = (run.body.run as Json).receipt as Json;
     const skipped = receipt.skipped as Array<{ collaboration_id: string; follow_id?: string; reason: string }>;
@@ -366,9 +379,11 @@ describe("cron jobs P0/P1", () => {
     expect(created.status, created.text).toBe(201);
     const run = await request("POST", `/api/cron/jobs/${created.body.id}/run`);
     expect(run.status, run.text).toBe(200);
-    expect(run.body.session_id).toBeTruthy();
+    expect(run.body.session_id).toBeUndefined();
+    await consumeCronRun(String(run.body.run_id));
     const recorded = await request("GET", `/api/cron/runs/${run.body.run_id}`);
-    expect((recorded.body.run as Json).session_id).toBe(run.body.session_id);
-    expect((getConn().prepare("SELECT COUNT(*) AS n FROM task_runs WHERE session_id=?").get(run.body.session_id) as { n: number }).n).toBe(1);
+    const sessionId = String((recorded.body.run as Json).session_id || "");
+    expect(sessionId).toBeTruthy();
+    expect((getConn().prepare("SELECT COUNT(*) AS n FROM task_runs WHERE session_id=?").get(sessionId) as { n: number }).n).toBe(1);
   });
 });

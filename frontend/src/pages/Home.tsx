@@ -2241,6 +2241,7 @@ export default function Home() {
               events={activePlan.events}
               previousBrief={activePlan.prevBrief}
               previousEvents={activePlan.prevEvents}
+              snapshot={activePlan.snapshot}
               memoryPending={activePlan.memoryTasks === null}
               centerHeader={(
                 <div className="home-hero today-center-hero">

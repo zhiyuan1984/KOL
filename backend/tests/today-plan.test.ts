@@ -11,6 +11,7 @@ import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../front
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
 import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot } from "../src/host/today-plan-run.js";
+import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
@@ -182,7 +183,7 @@ describe("today_plan harness", () => {
       expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(beforeItems);
     });
 
-    it("POST plan creates work_item+session and skips from-text recognition", async () => {
+    it("POST plan atomically creates work_item+session+durable job and skips from-text recognition", async () => {
       const recognizeSpy = vi.spyOn(recognize, "recognizeTaskIntent");
       const res = await request("POST", planPath);
       expect([200, 202]).toContain(res.status);
@@ -190,6 +191,7 @@ describe("today_plan harness", () => {
       expect(res.body.work_item_id).toBeTruthy();
       expect(res.body.session_id).toBeTruthy();
       expect(res.body.run_id).toBeTruthy();
+      expect(res.body.execution_job_id).toBeTruthy();
       const item = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(res.body.work_item_id) as {
         task_type: string;
         source: string;
@@ -205,8 +207,9 @@ describe("today_plan harness", () => {
       expect(session.expert_id).toBe("platform:workspace-planner");
       expect(session.kind).toBe(taskType);
       expect(recognizeSpy).not.toHaveBeenCalled();
-      const fromText = await request("POST", "/api/tasks/from-text", { text: "规划今天" });
-      expect(fromText.status === 201 || fromText.body.needs_clarification).toBeTruthy();
+      expect(getConn().prepare("SELECT status FROM task_runs WHERE id=?").get(res.body.run_id)).toMatchObject({ status: "queued" });
+      expect(getConn().prepare("SELECT status FROM execution_jobs WHERE id=?").get(res.body.execution_job_id)).toMatchObject({ status: "queued" });
+      expect(getConn().prepare("SELECT status FROM execution_outbox WHERE job_id=?").get(res.body.execution_job_id)).toMatchObject({ status: "pending" });
     });
 
     it("second POST plan while the plan is running returns the same session", async () => {
@@ -435,7 +438,7 @@ describe("today_plan harness", () => {
     }
   });
 
-  it("POST today-brief/enqueue creates a session and calls the model", async () => {
+  it("POST today-brief/enqueue creates a session then leaves model execution to the durable worker", async () => {
     const run = vi.spyOn(runner, "runWorker");
     const beforeSessions = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
     const res = await request("POST", "/api/home/today-brief/enqueue", { objects: [] });
@@ -445,6 +448,9 @@ describe("today_plan harness", () => {
     expect(res.body.calls_model).toBe(true);
     expect(res.body.task_type).toBe("today_analyze");
     expect(res.body.session_id).toBeTruthy();
+    expect(res.body.execution_job_id).toBeTruthy();
+    expect(run).not.toHaveBeenCalled();
+    await processExecutionJobById(String(res.body.execution_job_id), "test-analysis-worker");
     expect(run).toHaveBeenCalled();
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions + 1);
   });
@@ -464,6 +470,8 @@ describe("today_plan harness", () => {
       vi.spyOn(runner, "runWorker").mockReturnValue(held);
       const plan = await request("POST", planPath);
       expect([200, 202]).toContain(plan.status);
+      const processor = processExecutionJobById(String(plan.body.execution_job_id), "test-plan-worker");
+      await vi.waitFor(() => expect(runner.runWorker).toHaveBeenCalled());
       const mid = await request("GET", briefPath);
       expect(mid.body.planning).toBe(true);
       const midLabels = ((mid.body.events as Json[]) || []).map((event) => String(event.title || event.label || ""));
@@ -490,9 +498,17 @@ describe("today_plan harness", () => {
           todo_layout: unfinishedIds.map((id, index) => ({ work_item_id: id, rank: index + 1, why: "未了结" })),
         })],
       });
+      await processor;
       await vi.waitFor(async () => {
         const done = await request("GET", briefPath);
         expect(done.body.planning).toBe(false);
+        expect(done.body).toMatchObject({
+          status: "ready",
+          producer: "agent_plan",
+          plan_id: expect.any(String),
+          generated_at: expect.any(String),
+          stale_reason: null,
+        });
         const labels = ((done.body.events as Json[]) || []).map((event) => String(event.title || event.label || ""));
         expect(labels).toEqual(expect.arrayContaining([
           events.memoryRead,
@@ -691,6 +707,7 @@ describe("plan trace rows", () => {
     });
     const plan = await request("POST", "/api/home/today-brief/plan");
     expect([200, 202]).toContain(plan.status);
+    void processExecutionJobById(String(plan.body.execution_job_id), "test-trace-worker");
     const workItemId = String(plan.body.work_item_id);
     const rowFor = (eventType: string) =>
       getConn().prepare(
