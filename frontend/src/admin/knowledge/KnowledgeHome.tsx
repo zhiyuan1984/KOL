@@ -2,9 +2,9 @@ import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api";
 import { KB_FILTER_LABEL, kindLabel, sortStageCodes } from "../../knowledgeCopy";
-import { stageLabel } from "../../labels";
 import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
 import FilterChips from "../../components/FilterChips";
+import StageTags from "../../components/StageTags";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
 import LibraryPane, { type KbView } from "./LibraryPane";
 import DetailRail from "./DetailRail";
@@ -48,7 +48,7 @@ export default function KnowledgeHome() {
   const [kind, setKind] = useState("");
   const [scope, setScope] = useState<KbScope>(EMPTY_SCOPE);
   const [brands, setBrands] = useState<string[]>([]);
-  const [stage, setStage] = useState("");
+  const [stages, setStages] = useState<string[]>([]);
   const [sort, setSort] = useState<"updated" | "title">("updated");
   const [selectedId, setSelectedId] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -187,7 +187,7 @@ export default function KnowledgeHome() {
           const brand = String(row.brand || "");
           if (brand && brand !== "*" && !brands.includes(brand)) return false;
         }
-        if (stage && !(row.stage_codes || []).includes(stage)) return false;
+        if (stages.length && !(row.stage_codes || []).some((code) => stages.includes(code))) return false;
         if (q) {
           const haystack = [row.title, row.kind ? kindLabel(row.kind) : "", pathOf(row), row.created_by || ""]
             .join(" ")
@@ -200,7 +200,7 @@ export default function KnowledgeHome() {
         if (sort === "title") return String(a.title).localeCompare(String(b.title), "zh-CN");
         return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
       });
-  }, [rows, view, kind, scope, brands, stage, query, sort, basesById, domainsById, pathOf]);
+  }, [rows, view, kind, scope, brands, stages, query, sort, basesById, domainsById, pathOf]);
 
   const selectedRow = useMemo(
     () => filtered.find((row) => row.id === selectedId) || filtered[0] || null,
@@ -216,16 +216,12 @@ export default function KnowledgeHome() {
     ));
   };
 
-  const toggleStage = (value: string) => {
-    setStage((current) => (current === value ? "" : value));
-  };
-
   const reset = useCallback(() => {
     setQuery("");
     setKind("");
     setScope(EMPTY_SCOPE);
     setBrands([]);
-    setStage("");
+    setStages([]);
     setView("all");
   }, []);
 
@@ -257,14 +253,11 @@ export default function KnowledgeHome() {
         onToggle={toggleBrand}
         onClear={() => setBrands([])}
       />
-      <FilterChips
-        label={KB_FILTER_LABEL.stage}
-        filterKey="stage"
+      <StageTags
+        selected={stages}
+        onChange={setStages}
         options={stageOptions}
-        selected={stage ? [stage] : []}
-        onToggle={toggleStage}
-        onClear={() => setStage("")}
-        labelOf={stageLabel}
+        rootAttrs={{ "data-kb-filter": "stage" }}
       />
       <div className="kbv-filters">
         <select aria-label="知识类型" data-kbv-kind value={kind} onChange={(event) => setKind(event.target.value)}>

@@ -627,7 +627,12 @@
   justify-content: space-between;
   align-items: center;
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+/* 弹窗正文首段不留默认上下外边距：标题下的间距收紧。 */
+.kbv-dialog-body > p {
+  margin: 0;
 }
 
 .kbv-dialog-head h2 {
@@ -1018,9 +1023,57 @@
   align-self: center;
 }
 
-/* 上传弹窗底部的灰置说明靠左排布。 */
-.kbv-upload-note {
-  margin-right: auto;
+/* 上传弹窗：归档目标三级 tab 与一行阶段标签（标签可移除、＋可增加）。 */
+.kbv-stage-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.kbv-stage-tags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.kbv-stage-tag {
+  gap: var(--space-1);
+}
+
+.kbv-stage-x {
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0;
+}
+
+.kbv-stage-x:hover {
+  color: var(--text);
+}
+
+.kbv-stage-add {
+  appearance: none;
+  font: inherit;
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--ds-radius-tag);
+  min-height: var(--control-h-form);
+  inline-size: var(--control-h-form);
+  padding: 0;
+  text-align: center;
+  cursor: pointer;
+}
+
+.kbv-stage-add:hover {
+  color: var(--text);
 }
 
 @media (max-width: 480px) {

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KnowledgeBaseRow } from "../../api";
-import { kbBaseKindLabel } from "../../knowledgeCopy";
+import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
+import StageTags from "../../components/StageTags";
 import KbvIcon from "../../knowledgeIcons";
 
-/** 上传弹窗：选择 / 拖入 / 校验 / 目标库 / 队列为真实交互；
- *  提交在后端上传通道接入前保持禁用，并给出灰置说明（不出现工程阶段话术）。 */
+/** 上传弹窗：选择 / 拖入 / 校验 / 归档目标（业务域→业务主题→知识库三级 tab）/ 适用阶段标签 / 队列为真实交互；
+ *  提交在后端上传通道接入前保持禁用（不出现工程阶段话术）。 */
 const UPLOAD_FORMATS: Record<string, string> = {
   pdf: "PDF 文档",
   doc: "Word 文档", docx: "Word 文档",
@@ -33,7 +34,10 @@ type Props = {
 export default function UploadDialog({ open, onClose, bases }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [files, setFiles] = useState<File[]>([]);
+  const [familyId, setFamilyId] = useState("");
+  const [domainId, setDomainId] = useState("");
   const [baseId, setBaseId] = useState("");
+  const [stages, setStages] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -42,14 +46,44 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
     if (open && !el.open) {
       setFiles([]);
       setError("");
+      setFamilyId("");
+      setDomainId("");
+      setBaseId("");
+      setStages([]);
       el.showModal();
     }
     if (!open && el.open) el.close();
   }, [open]);
 
-  useEffect(() => {
-    if (open && !baseId && bases.length) setBaseId(bases[0].id);
-  }, [open, baseId, bases]);
+  const familyOptions = useMemo<ScopeOption[]>(() => {
+    const seen = new Map<string, string>();
+    for (const base of bases) {
+      const id = String(base.family_id || "");
+      if (!id || seen.has(id)) continue;
+      seen.set(id, String(base.family_name || id));
+    }
+    return [...seen].map(([id, name]) => ({ id, name }));
+  }, [bases]);
+
+  const domainOptions = useMemo<ScopeOption[]>(() => {
+    const seen = new Map<string, string>();
+    for (const base of bases) {
+      if (familyId && String(base.family_id || "") !== familyId) continue;
+      const id = String(base.domain_id || "");
+      if (!id || seen.has(id)) continue;
+      seen.set(id, String(base.domain_name || id));
+    }
+    return [...seen].map(([id, name]) => ({ id, name }));
+  }, [bases, familyId]);
+
+  const baseOptions = useMemo<ScopeOption[]>(
+    () => bases
+      .filter((base) => (domainId
+        ? base.domain_id === domainId
+        : !familyId || String(base.family_id || "") === familyId))
+      .map((base) => ({ id: base.id, name: base.name })),
+    [bases, familyId, domainId],
+  );
 
   const add = (incoming: File[]) => {
     const errors: string[] = [];
@@ -142,22 +176,33 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
           </div>
         ) : null}
         {error ? <p className="kbv-error" role="alert">{error}</p> : null}
-        <label className="kbv-field">
-          <span>统一归档到知识库</span>
-          <select data-kbv-upload-base value={baseId} onChange={(event) => setBaseId(event.target.value)}>
-            {bases.length === 0 ? <option value="">暂无可用知识库</option> : null}
-            {bases.map((base) => (
-              <option key={base.id} value={base.id}>
-                {base.family_name ? `${base.family_name} / ` : ""}
-                {base.domain_name ? `${base.domain_name} / ` : ""}
-                {base.name}（{kbBaseKindLabel(base.kind)}）
-              </option>
-            ))}
-          </select>
-        </label>
+        <div data-kbv-upload-scope>
+          <ScopeTabs
+            showCount={false}
+            familyOptions={familyOptions}
+            domainOptions={domainOptions}
+            baseOptions={baseOptions}
+            familyId={familyId}
+            domainId={domainId}
+            baseId={baseId}
+            onFamily={(id) => {
+              setFamilyId(id);
+              setDomainId("");
+              setBaseId("");
+            }}
+            onDomain={(id) => {
+              setDomainId(id);
+              setBaseId("");
+            }}
+            onBase={setBaseId}
+            familyTotal={0}
+            domainTotal={0}
+            baseTotal={0}
+          />
+        </div>
+        <StageTags selected={stages} onChange={setStages} />
       </div>
       <div className="kbv-dialog-actions">
-        <span className="muted kbv-upload-note">上传服务暂不可用</span>
         <button type="button" className="btn" onClick={onClose}>取消</button>
         <button
           type="button"

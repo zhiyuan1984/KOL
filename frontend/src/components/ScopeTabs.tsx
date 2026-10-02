@@ -15,6 +15,8 @@ type Props = {
   familyTotal: number;
   domainTotal: number;
   baseTotal: number;
+  /** 是否露出计数（默认显示；弹窗选择归档目标时关掉）。 */
+  showCount?: boolean;
 };
 
 /** 三级分类联动 tab：业务域 → 业务主题 → 知识库；值直接露出、点选即筛，上级变化时下级重算。 */
@@ -23,6 +25,7 @@ export default function ScopeTabs({
   familyId, domainId, baseId,
   onFamily, onDomain, onBase,
   familyTotal, domainTotal, baseTotal,
+  showCount = true,
 }: Props) {
   return (
     <div className="kbv-scope-rows" data-kb-scope-picker aria-label={KB_SCOPE_LEAD}>
@@ -36,7 +39,7 @@ export default function ScopeTabs({
             data-kb-scope-family=""
             onClick={() => onFamily("")}
           >
-            {KB_SCOPE_ALL} <small>{familyTotal}</small>
+            {KB_SCOPE_ALL}{showCount ? <small>{familyTotal}</small> : null}
           </button>
           {familyOptions.map((option) => (
             <button
@@ -47,7 +50,7 @@ export default function ScopeTabs({
               data-kb-scope-family={option.id}
               onClick={() => onFamily(option.id)}
             >
-              {option.name} <small>{option.count ?? 0}</small>
+              {option.name}{showCount ? <small>{option.count ?? 0}</small> : null}
             </button>
           ))}
         </div>
@@ -63,7 +66,7 @@ export default function ScopeTabs({
             data-kb-scope-domain=""
             onClick={() => onDomain("")}
           >
-            {KB_SCOPE_ALL} <small>{domainTotal}</small>
+            {KB_SCOPE_ALL}{showCount ? <small>{domainTotal}</small> : null}
           </button>
           {domainOptions.map((option) => (
             <button
@@ -74,7 +77,7 @@ export default function ScopeTabs({
               data-kb-scope-domain={option.id}
               onClick={() => onDomain(option.id)}
             >
-              {option.name} <small>{option.count ?? 0}</small>
+              {option.name}{showCount ? <small>{option.count ?? 0}</small> : null}
             </button>
           ))}
         </div>
@@ -90,7 +93,7 @@ export default function ScopeTabs({
             data-kb-scope-base=""
             onClick={() => onBase("")}
           >
-            {KB_SCOPE_ALL} <small>{baseTotal}</small>
+            {KB_SCOPE_ALL}{showCount ? <small>{baseTotal}</small> : null}
           </button>
           {baseOptions.map((option) => (
             <button
@@ -101,7 +104,7 @@ export default function ScopeTabs({
               data-kb-scope-base={option.id}
               onClick={() => onBase(option.id)}
             >
-              {option.name} <small>{option.count ?? 0}</small>
+              {option.name}{showCount ? <small>{option.count ?? 0}</small> : null}
             </button>
           ))}
         </div>

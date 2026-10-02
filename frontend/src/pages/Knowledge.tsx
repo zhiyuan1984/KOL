@@ -4,7 +4,7 @@ import { api, type KnowledgeRow, type SkillTemplate } from "../api";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
 import FilterChips from "../components/FilterChips";
-import { stageLabel } from "../labels";
+import StageTags from "../components/StageTags";
 import { stashComposerDraft } from "../composer/draft";
 import { templateQuestionDraft } from "../skillTemplate";
 import {
@@ -159,7 +159,7 @@ export default function Knowledge() {
   const [query, setQuery] = useState("");
   const [keyword, setKeyword] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const [stageFilter, setStageFilter] = useState("");
+  const [stageFilters, setStageFilters] = useState<string[]>([]);
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [familyId, setFamilyId] = useState("");
   const [domainId, setDomainId] = useState("");
@@ -227,12 +227,15 @@ export default function Knowledge() {
   );
 
   useEffect(() => {
-    if (stageFilter && !stageOptions.includes(stageFilter)) setStageFilter("");
+    setStageFilters((current) => {
+      const next = current.filter((code) => stageOptions.includes(code));
+      return next.length === current.length ? current : next;
+    });
     setBrandFilters((current) => {
       const next = current.filter((code) => brandOptions.includes(code));
       return next.length === current.length ? current : next;
     });
-  }, [stageFilter, stageOptions, brandOptions]);
+  }, [stageOptions, brandOptions]);
 
   const familyTotal = rows.length;
   const domainTotal = useMemo(
@@ -249,14 +252,14 @@ export default function Knowledge() {
       if (familyId && row.family_id !== familyId) return false;
       if (domainId && row.domain_id !== domainId) return false;
       if (baseId && row.base_id !== baseId) return false;
-      if (stageFilter && !(row.stage_codes || []).includes(stageFilter)) return false;
+      if (stageFilters.length && !(row.stage_codes || []).some((code) => stageFilters.includes(code))) return false;
       if (brandFilters.length) {
         const brand = String(row.brand || "");
         if (brand && brand !== "*" && !brandFilters.includes(brand)) return false;
       }
       return true;
     });
-  }, [rows, familyId, domainId, baseId, stageFilter, brandFilters]);
+  }, [rows, familyId, domainId, baseId, stageFilters, brandFilters]);
 
   const counts = useMemo(() => ({
     all: scopedVisible.length,
@@ -315,22 +318,22 @@ export default function Knowledge() {
     setFamilyId("");
     setDomainId("");
     setBaseId("");
-    setStageFilter("");
+    setStageFilters([]);
     setBrandFilters([]);
     setQuery("");
     setView("all");
   };
 
-  const anyFilter = scoped || Boolean(stageFilter || brandFilters.length || query.trim()) || view !== "all";
+  const anyFilter = scoped || Boolean(stageFilters.length || brandFilters.length || query.trim()) || view !== "all";
 
   const emptyCopy = useMemo(() => {
     if (view === "favorites") return "还没有收藏的知识。先把常用资料加入收藏。";
     if (view === "recent") return "还没有最近查看的知识。打开一条资料后会出现在这里。";
     if (keyword) return KB_EMPTY_SEARCH;
-    if (stageFilter || brandFilters.length) return KB_EMPTY_FILTER;
+    if (stageFilters.length || brandFilters.length) return KB_EMPTY_FILTER;
     if (scoped) return KB_EMPTY_SCOPE;
     return "暂无已发布资料。";
-  }, [view, brandFilters, keyword, stageFilter, scoped]);
+  }, [view, brandFilters, keyword, stageFilters, scoped]);
 
   return (
     <section className="kbv kbv-page" data-kb-page="mine" data-kb-v2="home">
@@ -398,14 +401,11 @@ export default function Knowledge() {
                 ))}
                 onClear={() => setBrandFilters([])}
               />
-              <FilterChips
-                label={KB_FILTER_LABEL.stage}
-                filterKey="stage"
+              <StageTags
+                selected={stageFilters}
+                onChange={setStageFilters}
                 options={stageOptions}
-                selected={stageFilter ? [stageFilter] : []}
-                onToggle={(value) => setStageFilter((current) => (current === value ? "" : value))}
-                onClear={() => setStageFilter("")}
-                labelOf={stageLabel}
+                rootAttrs={{ "data-kb-filter": "stage" }}
               />
               {anyFilter ? (
                 <div className="kbv-filters">

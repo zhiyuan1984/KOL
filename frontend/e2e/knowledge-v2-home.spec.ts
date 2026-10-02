@@ -36,6 +36,14 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator("[data-kb-filter='brand']")).toBeVisible();
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
 
+    // 适用阶段标签行：＋增加、×移除，无「全部」标签（select 选项文本不计入芯片）。
+    const stageRow = page.locator("[data-kb-filter='stage']");
+    await expect(stageRow).not.toContainText("全部");
+    await stageRow.locator("[data-kb-stage-add]").selectOption("INITIAL_CONTACT");
+    await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toBeVisible();
+    await stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]').click();
+    await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toHaveCount(0);
+
     await page.locator("[data-kbv-record]").first().click();
     await expect(page.locator("[data-kbv-detail-tab]")).toHaveCount(3);
     await page.locator('[data-kbv-detail-tab="props"]').click();
@@ -44,7 +52,7 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator("[data-kbv-detail]")).toContainText("版本");
   });
 
-  test("诚实边界：上传灰置有说明、新建跳转目录、页面无工程话术", async ({ page }) => {
+  test("诚实边界：上传弹窗三级 tab＋阶段标签、新建跳转目录、页面无工程话术", async ({ page }) => {
     await page.goto("/admin/knowledge");
     const home = page.locator('[data-admin-kb-v2="home"]');
     await expect(home).toBeVisible();
@@ -54,7 +62,9 @@ test.describe("知识库 v2 主页（管理端）", () => {
     const upload = page.locator("[data-kbv-upload-dialog]");
     await expect(upload).toBeVisible();
     await expect(upload).toContainText("音视频将先转写");
-    await expect(upload).toContainText("上传服务暂不可用");
+    await expect(upload.locator("[data-kb-scope-picker]")).toBeVisible();
+    await expect(upload.locator("[data-kb-stage-tags]")).toBeVisible();
+    await expect(upload).not.toContainText("上传服务暂不可用");
     await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
     await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
     await page.keyboard.press("Escape");
