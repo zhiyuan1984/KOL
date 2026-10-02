@@ -280,9 +280,11 @@ export default function CatalogView({ notify, fail }: KbFeed) {
                                 <span className="chip kbadmin-kind" data-admin-kb-base-kind={base.kind}>
                                   {kbBaseKindLabel(base.kind)}
                                 </span>
-                                <span data-admin-kb-base-entries={Number(base.entries || 0)}>
-                                  {Number(base.entries || 0)} 条条目
-                                </span>
+                                {base.kind === "unstructured" ? null : (
+                                  <span data-admin-kb-base-entries={Number(base.entries || 0)}>
+                                    {Number(base.entries || 0)} 条条目
+                                  </span>
+                                )}
                                 {" · "}{base.code}
                                 {base.status === "archived" ? " · 已归档" : ""}
                                 {base.description ? ` · ${base.description}` : ""}

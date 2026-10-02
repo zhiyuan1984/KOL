@@ -484,3 +484,95 @@
   margin: var(--space-2) 0 0;
   font-size: var(--font-xs);
 }
+
+/* ── 管理端知识模块视觉 v2（2026-10-02，作用域 .admin-kb）────────────
+   只改知识治理模块：页头、下划线 tab、面板密度、行节奏、动作链接、计数。
+   不动其它管理面板；数值只取 styles.css 既有 token。 */
+
+.admin-kb {
+  gap: var(--space-3);
+}
+
+/* 标题升一档、导语与计数降为辅助级（层级靠字号+字重，不靠更多容器） */
+.admin-kb .admin-section-head h2 {
+  font-size: var(--font-section);
+}
+.admin-kb .admin-section-head .muted {
+  font-size: var(--font-sm);
+}
+.admin-kb .admin-section-head > span[role="status"] {
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+/* 子导航：链接式下划线 tab（盒状/胶囊造型只留给状态语义，不做通用按钮） */
+.admin-kb .kbadmin-tabs {
+  gap: var(--space-4);
+  margin: var(--space-1) 0 var(--space-2);
+  border-bottom: var(--focus-ring-width) solid var(--border);
+}
+.admin-kb .kbadmin-tabs a {
+  padding: var(--space-2) 0;
+  margin-bottom: calc(var(--focus-ring-width) * -1);
+  border: 0;
+  border-bottom: calc(var(--focus-ring-width) * 2) solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  min-height: var(--hit-min);
+}
+.admin-kb .kbadmin-tabs a:hover {
+  color: var(--text);
+}
+.admin-kb .kbadmin-tabs a.active {
+  background: none;
+  border-color: transparent;
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* 面板与行：收紧圆角与节奏，列表行即内容 */
+.admin-kb .panel {
+  border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4);
+}
+.admin-kb .admin-row {
+  padding: var(--space-2) 0;
+  gap: var(--space-3);
+}
+.admin-kb .admin-row strong {
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+.admin-kb .admin-row .muted {
+  font-size: var(--font-sm);
+}
+
+/* 行内动作：保持链接可识别，但把下划线降噪、悬停恢复 */
+.admin-kb .kbadmin-action-link {
+  font-size: var(--font-sm);
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.admin-kb .kbadmin-action-link:hover {
+  text-decoration-color: currentColor;
+  text-decoration-thickness: var(--focus-ring-width);
+}
+.admin-kb .kbadmin-title-link {
+  font-size: var(--font-body);
+}
+
+/* CTA 不换行：页头动作按钮在窄处也不折行 */
+.admin-kb .admin-section-head .btn {
+  white-space: nowrap;
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+/* 键值网格：条目详情等处的长值不再溢出压邻列 */
+.admin-kb .admin-kv {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+}
+.admin-kb .admin-kv dd {
+  overflow-wrap: anywhere;
+}
