@@ -26,7 +26,7 @@ export default function PhaseNotice({ open, title, body, legacyHref, legacyLabel
     <dialog
       ref={ref}
       className="kbv-dialog"
-      data-kbv-phase-notice
+      data-kbv-phase-notice={open ? "" : undefined}
       onClose={onClose}
       onClick={(event) => {
         if (event.target === ref.current) onClose();

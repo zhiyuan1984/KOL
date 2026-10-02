@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * 员工端知识库「阶段 3」契约：服务端搜索、适用筛选、详情抽屉溯源与草稿卡引用芯片。
+ * 员工端知识库「阶段 3」契约：服务端搜索、适用筛选、同页详情（右栏）溯源与草稿卡引用芯片。
  *
  * 只断言页面自己的 DOM 契约，不改 workbench.spec.ts 的既有基线：
  *   搜索 → [data-kb-search]（debounce 后走 GET /api/knowledge?q=）
  *   适用 → 行内 [data-kb-scope] chips，筛选 [data-kb-filter='stage'|'brand']
- *   溯源 → 抽屉 [data-kb-provenance]：发布人 / 版本 / 更新时间 / 适用
+ *   溯源 → 右栏 [data-kb-provenance]：发布人 / 版本 / 更新时间 / 适用
  *   芯片 → 草稿与回执 [data-draft-knowledge]：模板：{标题} v{n}
  *
  * stub 种子（backend/src/host/knowledge.ts seedKnowledge）里：
@@ -39,14 +39,14 @@ test("搜索按关键词收敛到单条种子，清空后恢复", async ({ page 
   await expect(kb.locator('[data-knowledge="kb_mail_followup"]')).toBeVisible();
 });
 
-test("详情抽屉给出来源与版本、全文与关闭入口", async ({ page }) => {
+test("同页详情给出来源与版本与全文（右栏常显）", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
   await kb.locator('[data-kb-open="kb_mail_followup"]').click();
 
-  const drawer = page.locator('[data-kb-preview="kb_mail_followup"]');
-  await expect(drawer).toBeVisible();
-  const provenance = drawer.locator("[data-kb-provenance]");
+  const rail = page.locator('[data-kb-preview="kb_mail_followup"]');
+  await expect(rail).toBeVisible();
+  const provenance = rail.locator("[data-kb-provenance]");
   await expect(provenance).toBeVisible();
   await expect(provenance).toContainText("来源与版本");
   await expect(provenance).toContainText("发布人");
@@ -54,12 +54,9 @@ test("详情抽屉给出来源与版本、全文与关闭入口", async ({ page 
   await expect(provenance).toContainText("更新时间");
   await expect(provenance).toContainText("阶段：INITIAL_CONTACT");
 
-  const body = drawer.locator("[data-kb-preview-body]");
+  const body = rail.locator("[data-kb-preview-body]");
   await expect(body).toContainText("Just a quick follow-up");
   await expect(body).toContainText("Happy to share the spec sheet");
-
-  await drawer.getByRole("button", { name: "关闭" }).click();
-  await expect(drawer).toHaveCount(0);
 });
 
 test("行内适用 chips 显示阶段与品牌，无适用范围时写全阶段 · 通用", async ({ page }) => {
