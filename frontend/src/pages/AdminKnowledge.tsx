@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   KB_ADMIN_DEFAULT_PATH,
-  KB_ADMIN_NAV,
   KB_ADMIN_VIEW_LEAD,
   KB_ADMIN_VIEW_TITLE,
   type KbAdminView,
@@ -18,10 +17,9 @@ import "../admin/knowledge/knowledge-admin.css";
 import "../knowledge-page.css";
 
 /**
- * 知识治理宿主（IA v2，2026-10-02）：
- * - 默认路由 `/admin/knowledge` ＝新主页（列表＋同页详情）；
- * - 旧子视图（catalog / bases / entries / ingest / bindings）过渡保留：slim 导航（← 知识首页 ＋ 5 项），
- *   能力逐项折叠进主页后退役（见 docs/superpowers/plans/2026-10-02-knowledge-ia-v2-implementation.md）。
+ * 知识治理宿主（IA v2）：
+ * - 默认路由 `/admin/knowledge` ＝新主页（三级分类 tab＋列表＋同页详情）；
+ * - 子视图（catalog / bases / entries / ingest / bindings）直达可达，页面内仅保留「返回知识管理」回链。
  */
 export function parseKnowledgePath(pathname: string): { view: KbAdminView; id: string } {
   const rest = pathname.replace(/^\/admin\/knowledge\/?/, "");
@@ -39,13 +37,11 @@ export default function AdminKnowledge() {
   const location = useLocation();
   const { view, id } = parseKnowledgePath(location.pathname);
   if (view === "review") return <KnowledgeHome />;
-  return <LegacyKnowledgeHost view={view} id={id} />;
+  return <SubViewHost view={view} id={id} />;
 }
 
-const LEGACY_NAV = KB_ADMIN_NAV.filter((item) => item.view !== "review");
-
-/** 旧六子视图的过渡宿主：只换导航壳，视图本身原样保留。 */
-function LegacyKnowledgeHost({ view, id }: { view: KbAdminView; id: string }) {
+/** 子视图宿主：直达可达，仅保留返回回链。 */
+function SubViewHost({ view, id }: { view: KbAdminView; id: string }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -77,22 +73,11 @@ function LegacyKnowledgeHost({ view, id }: { view: KbAdminView; id: string }) {
         </div>
       </header>
 
-      <nav className="kb-tabs kbadmin-tabs" aria-label="知识治理子视图">
+      <p className="kbadmin-back">
         <Link to={KB_ADMIN_DEFAULT_PATH} data-admin-kb-home-link className="kbadmin-action-link">
-          ← 知识首页
+          ← 返回知识管理
         </Link>
-        {LEGACY_NAV.map((item) => (
-          <NavLink
-            key={item.view}
-            to={item.path}
-            data-admin-kb-tab={item.view}
-            title={item.question}
-            className={({ isActive }) => (isActive ? "active" : undefined)}
-          >
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
+      </p>
 
       {view === "catalog" ? <CatalogView notify={notify} fail={fail} /> : null}
       {view === "base" ? (

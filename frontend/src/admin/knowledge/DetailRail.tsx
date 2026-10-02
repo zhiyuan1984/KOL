@@ -182,7 +182,7 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
         {tab === "props" ? (
           <dl className="kbv-properties">
             <div><dt>知识标识</dt><dd>{row.id}</dd></div>
-            <div><dt>领域 / 主题</dt><dd>{path || "未分类"}</dd></div>
+            <div><dt>业务域 / 业务主题 / 知识库</dt><dd>{path || "未分类"}</dd></div>
             <div><dt>知识类型</dt><dd>{kindLabel(row.kind)}</dd></div>
             <div><dt>内容模型</dt><dd>{baseKind ? kbBaseKindLabel(baseKind) : "—"}</dd></div>
             <div><dt>状态</dt><dd>{statusLabel(status)} · 第 {version} 版</dd></div>

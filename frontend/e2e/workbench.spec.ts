@@ -4493,11 +4493,13 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
   await expect(kb.locator(".kbv-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
   await expect(kb).not.toContainText(/Codex|Harness|MCP|发送不等于推进阶段|发送不等于改阶段|发送\s*≠|不会改阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场|我的知识库|口径与其它/);
-  // 分类只来自服务端分类字段：族 → 域 → 库 行式下拉；快捷视图用 data-kbv-view（旧 data-kb-tab 保持 0）。
+  // 三级分类（业务域 → 业务主题 → 知识库）联动 tab；品牌多选 / 阶段标签筛选。
   await expect(kb.locator("[data-kb-scope-picker]")).toBeVisible();
-  await expect(kb.locator("[data-kb-scope-family]")).toBeVisible();
-  await expect(kb.locator("[data-kb-scope-domain]")).toBeVisible();
-  await expect(kb.locator("[data-kb-scope-base]")).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-family]").first()).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-domain]").first()).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-base]").first()).toBeVisible();
+  await expect(kb.locator("[data-kb-filter='brand']")).toBeVisible();
+  await expect(kb.locator("[data-kb-filter='stage']")).toBeVisible();
   await expect(kb.locator("[data-kb-tab]")).toHaveCount(0);
   await expect(kb.locator("[data-kbv-view]")).toHaveCount(3);
 
@@ -4521,12 +4523,12 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   await rail.getByRole("button", { name: "收藏" }).click();
   await expect(rail.getByRole("button", { name: "已收藏" })).toBeVisible();
 
-  // 按库收窄：种子存量统一在「历史知识」库下，收窄后仍能看到这条；清空筛选恢复全部。
-  await kb.locator("[data-kb-scope-base]").selectOption({ label: "历史知识" });
-  await expect(kb.locator("[data-kb-scope-path]")).toContainText("历史知识");
+  // 按库收窄：点击「历史知识」tab；清空筛选恢复「全部」。
+  await kb.locator('[data-kb-scope-base="kbase_legacy"]').click();
+  await expect(kb.locator('[data-kb-scope-base="kbase_legacy"]')).toHaveAttribute("aria-pressed", "true");
   await expect(followup).toBeVisible();
   await kb.locator("[data-kb-scope-clear]").click();
-  await expect(kb.locator("[data-kb-scope-base]")).toHaveValue("");
+  await expect(kb.locator('[data-kb-scope-base=""]')).toHaveAttribute("aria-pressed", "true");
 
   await followup.click();
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();

@@ -262,15 +262,15 @@ export const KB_LEAD = "选择适合当前任务的资料，AI 会据此生成�
 export const KB_MARKET_LEAD = "这些是组织已发布、可直接选用的资料。选一份后，AI 会据此生成草稿。正式发送前仍需要你确认。";
 
 /** 分类选择（族 → 域 → 库）：`?cat=` 启发式 tab 已退役，分类只来自服务端分类字段。 */
-export const KB_SCOPE_LEAD = "按 主题域族 → 主题域 → 知识库 查找资料；只列出你有权查看的分类。";
+export const KB_SCOPE_LEAD = "按 业务域 → 业务主题 → 知识库 查找资料；只列出你有权查看的分类。";
 export const KB_SCOPE_ALL = "全部";
-export const KB_SCOPE_FAMILY = "主题域族";
-export const KB_SCOPE_DOMAIN = "主题域";
+export const KB_SCOPE_FAMILY = "业务域";
+export const KB_SCOPE_DOMAIN = "业务主题";
 export const KB_SCOPE_BASE = "知识库";
 export const KB_SCOPE_NONE = "暂无分类信息。";
 export const KB_EMPTY_SCOPE = "这个分类下暂时没有资料。换个分类或清空选择。";
 export const KB_SCOPE_CURRENT = "当前范围";
-export const KB_SCOPE_CLEAR = "清空分类";
+export const KB_SCOPE_CLEAR = "清空筛选";
 
 export function kbSanitizeEmployeeCopy(text?: string) {
   return String(text || "")
@@ -412,7 +412,7 @@ export const KB_ADMIN_BINDINGS_PATH = "/admin/knowledge/bindings";
 /** 子导航顺序 = 路由顺序；深链直接可达，不靠前端状态。 */
 export const KB_ADMIN_NAV: KbAdminNavItem[] = [
   { view: "review", path: KB_ADMIN_DEFAULT_PATH, label: "待处置", question: "有什么在等我决定？" },
-  { view: "catalog", path: KB_ADMIN_CATALOG_PATH, label: "目录", question: "知识分在哪几个主题域族 / 主题域 / 知识库？" },
+  { view: "catalog", path: KB_ADMIN_CATALOG_PATH, label: "目录", question: "知识分在哪几个业务域 / 业务主题 / 知识库？" },
   { view: "base", path: KB_ADMIN_BASES_PATH, label: "库", question: "这个库里有哪些条目、什么状态？", contextual: true },
   { view: "entry", path: KB_ADMIN_ENTRIES_PATH, label: "条目", question: "这条知识的治理状态与影响面？", contextual: true },
   { view: "ingest", path: KB_ADMIN_INGEST_PATH, label: "入库", question: "素材入库与提取成败？" },
@@ -430,7 +430,7 @@ export const KB_ADMIN_VIEW_TITLE: Record<KbAdminView, string> = {
 
 export const KB_ADMIN_VIEW_LEAD: Record<KbAdminView, string> = {
   review: "待审、草稿、隔离提案、到期提醒与员工反馈处置汇总在这里；每行只把你带到条目详情。",
-  catalog: "族 → 域 → 库的目录树：分类只做业务归类，不承载权限；权限仍按组织范围与授权。",
+  catalog: "业务域 → 业务主题 → 知识库的目录树：分类只做业务归类，不承载权限；权限仍按组织范围与授权。",
   base: "这个库里有哪些内容、处于什么状态；新建只写草稿，发布仍要走审批。",
   entry: "这条知识的治理状态与影响面；主行动按当前状态唯一渲染。",
   ingest: "素材入库与提取的进展与成败。",
@@ -465,8 +465,8 @@ export const KB_ADMIN_ACTION = {
   saveDraft: "保存草稿",
   newEntry: "新建条目",
   newBase: "新建知识库",
-  newDomain: "新建主题域",
-  newFamily: "新建主题域族",
+  newDomain: "新建业务主题",
+  newFamily: "新建业务域",
   saveBase: "保存知识库",
   saveDomain: "保存分类",
   upload: "上传资料",
@@ -492,8 +492,8 @@ export const KB_ADMIN_EMPTY = {
   drafts: "没有还没发布的草稿。",
   proposals: "暂无隔离提案。",
   expiry: "30 天内没有到期的知识。",
-  catalog: "还没有分类。先建「主题域族」，再建「主题域」，最后建「知识库」。",
-  domains: "还没有主题域族 / 主题域；知识库必须挂在主题域下。",
+  catalog: "还没有分类。先建「业务域」，再建「业务主题」，最后建「知识库」。",
+  domains: "还没有业务域 / 业务主题；知识库必须挂在业务主题下。",
   bases: "这个分类下还没有知识库。",
   basesFiltered: "没有符合当前筛选的知识库。",
   baseMissing: "找不到这个知识库，可能已被归档或删除。",
@@ -520,8 +520,8 @@ export const KB_LEVEL_FAMILY = "family";
 export const KB_LEVEL_DOMAIN = "domain";
 
 export const KB_LEVEL_LABEL: Record<string, string> = {
-  family: "主题域族",
-  domain: "主题域",
+  family: "业务域",
+  domain: "业务主题",
 };
 
 export const KB_BASE_KIND_LABEL: Record<string, string> = {

@@ -871,7 +871,116 @@
   }
 }
 
-/* ── P1 视觉整改（用户复核）：减少详情底部留白、列表收口与窄屏密度 ── */
+/* ── 复核整改 v2（2026-10-02）：单行行式 / 三级 tab / 筛选标签 / 右栏内边距 ── */
+
+/* 右栏内容不贴左边界（员工端 .kbv-page 的 space-5 覆盖仍然生效）。 */
+.kbv-rail-head,
+.kbv-rail-tabs,
+.kbv-rail-body,
+.kbv-rail-foot {
+  padding-inline: var(--space-4);
+}
+
+/* 三级分类联动 tab（业务域 → 业务主题 → 知识库） */
+.kbv-scope-rows {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.kbv-scope-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.kbv-scope-name {
+  flex: 0 0 auto;
+  width: 4.5em;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+
+.kbv-scope-tabs {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* 适用范围筛选标签（品牌多选 / 阶段单选），值全部露出 */
+.kbv-chip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.kbv-filter-chip {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: var(--radius-control);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  color: var(--text-muted);
+  cursor: pointer;
+  min-height: var(--hit-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.kbv-filter-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* 单行行式（仅管理端列表，>700px）：标题与分类同行，状态/维护人在右、单行显示 */
+@media (min-width: 701px) {
+  .kbv:not(.kbv-page) .kbv-record-copy {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    overflow: hidden;
+  }
+
+  .kbv:not(.kbv-page) .kbv-record-meta {
+    margin-top: 0;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .kbv:not(.kbv-page) .kbv-record-end {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--space-2);
+    white-space: nowrap;
+  }
+
+  .kbv:not(.kbv-page) .kbv-record-end > span + span::before {
+    content: "· ";
+  }
+
+  .kbv:not(.kbv-page) .kbv-record-title {
+    flex: 0 1 auto;
+  }
+
+  .kbv:not(.kbv-page) .kbv-record-meta {
+    flex: 1 1 auto;
+  }
+
+  .kbv:not(.kbv-page) .kbv-record-meta > span {
+    white-space: nowrap;
+  }
+}
 
 /* 内容少时操作区紧随内容（不再钉在屏幕底），内容长时仍由 body 内部滚动。 */
 .kbv-rail-body {

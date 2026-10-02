@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useNavigate } from "react-router-dom";
 import { api, type KnowledgeRow, type SkillTemplate } from "../api";
 import SkillTemplateContext from "../components/SkillTemplateContext";
+import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
+import FilterChips from "../components/FilterChips";
 import { stashComposerDraft } from "../composer/draft";
 import { templateQuestionDraft } from "../skillTemplate";
 import {
@@ -9,18 +11,12 @@ import {
   KB_EMPTY_FILTER,
   KB_EMPTY_SEARCH,
   KB_EMPTY_SCOPE,
-  KB_FILTER_ALL,
   KB_FILTER_LABEL,
   KB_LEAD,
   KB_LOADING,
   KB_PROVENANCE_LABEL,
   KB_PROVENANCE_TITLE,
-  KB_SCOPE_ALL,
-  KB_SCOPE_BASE,
-  KB_SCOPE_CURRENT,
-  KB_SCOPE_DOMAIN,
-  KB_SCOPE_FAMILY,
-  KB_SCOPE_LEAD,
+  KB_SCOPE_CLEAR,
   KB_SCOPE_NONE,
   KB_SEARCH_LABEL,
   KB_SEARCH_PLACEHOLDER,
@@ -28,7 +24,6 @@ import {
   hideReasonLabel,
   kbAuthorLabel,
   kbIsMail,
-  kbMatchesFilter,
   kbRowVersionLine,
   kbScopeTags,
   kbStatusLabel,
@@ -114,30 +109,39 @@ function ScopeChips({ row }: { row: KnowledgeRow }) {
   );
 }
 
-type ScopeOption = { id: string; name: string };
-
-/** 从可见行里归纳分类选项：只列出你确实看得到的族 / 域 / 库。 */
+/** 从可见行里归纳分类选项（带计数）：只列出你确实看得到的业务域 / 业务主题 / 知识库。 */
 function collectScope(
   rows: KnowledgeRow[],
   level: "family" | "domain" | "base",
   parentId: string,
 ): ScopeOption[] {
-  const seen = new Map<string, string>();
+  const seen = new Map<string, { name: string; count: number }>();
   for (const row of rows) {
+    let id = "";
+    let name = "";
     if (level === "family") {
-      if (row.family_id) seen.set(row.family_id, row.family_name || row.family_id);
+      id = String(row.family_id || "");
+      name = row.family_name || id;
     } else if (level === "domain") {
       if (parentId && row.family_id !== parentId) continue;
-      if (row.domain_id) seen.set(row.domain_id, row.domain_name || row.domain_id);
+      id = String(row.domain_id || "");
+      name = row.domain_name || id;
     } else {
       if (parentId && row.domain_id !== parentId) continue;
-      if (row.base_id) seen.set(row.base_id, row.base_name || row.base_id);
+      id = String(row.base_id || "");
+      name = row.base_name || id;
     }
+    if (!id) continue;
+    const item = seen.get(id) || { name, count: 0 };
+    item.count += 1;
+    seen.set(id, item);
   }
-  return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  return [...seen.entries()]
+    .map(([id, item]) => ({ id, name: item.name, count: item.count }))
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
 }
 
-/** 员工端知识库（IA v2）：顶栏＋中栏列表＋右栏同页详情；保留既有筛选、收藏、反馈/隐藏与引用链路。 */
+/** 员工端知识库（IA v2）：三级分类 tab＋筛选标签＋中栏列表＋右栏同页详情。 */
 export default function Knowledge() {
   const [rows, setRows] = useState<KnowledgeRow[]>([]);
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
@@ -154,7 +158,7 @@ export default function Knowledge() {
   const [keyword, setKeyword] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [stageFilter, setStageFilter] = useState("");
-  const [brandFilter, setBrandFilter] = useState("");
+  const [brandFilters, setBrandFilters] = useState<string[]>([]);
   const [familyId, setFamilyId] = useState("");
   const [domainId, setDomainId] = useState("");
   const [baseId, setBaseId] = useState("");
@@ -222,17 +226,35 @@ export default function Knowledge() {
 
   useEffect(() => {
     if (stageFilter && !stageOptions.includes(stageFilter)) setStageFilter("");
-    if (brandFilter && !brandOptions.includes(brandFilter)) setBrandFilter("");
-  }, [brandFilter, brandOptions, stageFilter, stageOptions]);
+    setBrandFilters((current) => {
+      const next = current.filter((code) => brandOptions.includes(code));
+      return next.length === current.length ? current : next;
+    });
+  }, [stageFilter, stageOptions, brandOptions]);
+
+  const familyTotal = rows.length;
+  const domainTotal = useMemo(
+    () => (familyId ? domainOptions.reduce((sum, option) => sum + (option.count || 0), 0) : rows.length),
+    [familyId, domainOptions],
+  );
+  const baseTotal = useMemo(
+    () => (domainId ? baseOptions.reduce((sum, option) => sum + (option.count || 0), 0) : rows.length),
+    [domainId, baseOptions],
+  );
 
   const scopedVisible = useMemo(() => {
     return rows.filter((row) => {
       if (familyId && row.family_id !== familyId) return false;
       if (domainId && row.domain_id !== domainId) return false;
       if (baseId && row.base_id !== baseId) return false;
-      return kbMatchesFilter(row, stageFilter, brandFilter);
+      if (stageFilter && !(row.stage_codes || []).includes(stageFilter)) return false;
+      if (brandFilters.length) {
+        const brand = String(row.brand || "");
+        if (brand && brand !== "*" && !brandFilters.includes(brand)) return false;
+      }
+      return true;
     });
-  }, [rows, familyId, domainId, baseId, stageFilter, brandFilter]);
+  }, [rows, familyId, domainId, baseId, stageFilter, brandFilters]);
 
   const counts = useMemo(() => ({
     all: scopedVisible.length,
@@ -258,15 +280,6 @@ export default function Knowledge() {
       `${template.title} ${template.description} ${template.skill_id}`.toLowerCase().includes(needle)
     ));
   }, [query, skillTemplates]);
-
-  const scopeNames = useMemo(() => {
-    const pick = (options: ScopeOption[], id: string) => options.find((item) => item.id === id)?.name || "";
-    return [
-      familyId ? pick(familyOptions, familyId) : "",
-      domainId ? pick(domainOptions, domainId) : "",
-      baseId ? pick(baseOptions, baseId) : "",
-    ].filter(Boolean);
-  }, [familyId, domainId, baseId, familyOptions, domainOptions, baseOptions]);
 
   const openRow = (row: KnowledgeRow) => {
     closeTip();
@@ -296,30 +309,26 @@ export default function Knowledge() {
     nav("/");
   };
 
-  const clearScope = () => {
+  const resetAll = () => {
     setFamilyId("");
     setDomainId("");
     setBaseId("");
-  };
-
-  const resetAll = () => {
-    clearScope();
     setStageFilter("");
-    setBrandFilter("");
+    setBrandFilters([]);
     setQuery("");
     setView("all");
   };
 
-  const anyFilter = scoped || Boolean(stageFilter || brandFilter || query.trim()) || view !== "all";
+  const anyFilter = scoped || Boolean(stageFilter || brandFilters.length || query.trim()) || view !== "all";
 
   const emptyCopy = useMemo(() => {
     if (view === "favorites") return "还没有收藏的知识。先把常用资料加入收藏。";
     if (view === "recent") return "还没有最近查看的知识。打开一条资料后会出现在这里。";
     if (keyword) return KB_EMPTY_SEARCH;
-    if (stageFilter || brandFilter) return KB_EMPTY_FILTER;
+    if (stageFilter || brandFilters.length) return KB_EMPTY_FILTER;
     if (scoped) return KB_EMPTY_SCOPE;
     return "暂无已发布资料。";
-  }, [view, brandFilter, keyword, stageFilter, scoped]);
+  }, [view, brandFilters, keyword, stageFilter, scoped]);
 
   return (
     <section className="kbv kbv-page" data-kb-page="mine" data-kb-v2="home">
@@ -338,7 +347,7 @@ export default function Knowledge() {
       <div className="kbv-workspace">
         <section className="kbv-list" aria-label="知识列表" data-kbv-list>
           {loaded ? (
-            <div className="kbv-tools" data-kb-scope-picker aria-label={KB_SCOPE_LEAD}>
+            <div className="kbv-tools">
               <div className="kbv-search">
                 <KbvIcon name="search" />
                 <input
@@ -350,76 +359,58 @@ export default function Knowledge() {
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </div>
-              <div className="kbv-filters">
-                {hasTaxonomy ? (
-                  <>
-                    <span className="sr-only">{KB_SCOPE_CURRENT}</span>
-                    <select
-                      aria-label={KB_SCOPE_FAMILY}
-                      data-kb-scope-family
-                      value={familyId}
-                      onChange={(event) => {
-                        setFamilyId(event.target.value);
-                        setDomainId("");
-                        setBaseId("");
-                      }}
-                    >
-                      <option value="">{KB_SCOPE_ALL}族</option>
-                      {familyOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                    </select>
-                    <select
-                      aria-label={KB_SCOPE_DOMAIN}
-                      data-kb-scope-domain
-                      value={domainId}
-                      onChange={(event) => {
-                        setDomainId(event.target.value);
-                        setBaseId("");
-                      }}
-                    >
-                      <option value="">{KB_SCOPE_ALL}域</option>
-                      {domainOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                    </select>
-                    <select
-                      aria-label={KB_SCOPE_BASE}
-                      data-kb-scope-base
-                      value={baseId}
-                      onChange={(event) => setBaseId(event.target.value)}
-                    >
-                      <option value="">{KB_SCOPE_ALL}库</option>
-                      {baseOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                    </select>
-                  </>
-                ) : (
-                  <span className="muted" data-kb-scope-none>{KB_SCOPE_NONE}</span>
-                )}
-                <select
-                  aria-label={KB_FILTER_LABEL.stage}
-                  data-kb-filter="stage"
-                  value={stageFilter}
-                  onChange={(event) => setStageFilter(event.target.value)}
-                >
-                  <option value="">{KB_FILTER_LABEL.stage}{KB_FILTER_ALL}</option>
-                  {stageOptions.map((code) => (
-                    <option key={code} value={code}>{code}</option>
-                  ))}
-                </select>
-                <select
-                  aria-label={KB_FILTER_LABEL.brand}
-                  data-kb-filter="brand"
-                  value={brandFilter}
-                  onChange={(event) => setBrandFilter(event.target.value)}
-                >
-                  <option value="">{KB_FILTER_LABEL.brand}{KB_FILTER_ALL}</option>
-                  {brandOptions.map((code) => (
-                    <option key={code} value={code}>{code}</option>
-                  ))}
-                </select>
-                {anyFilter ? (
+
+              {hasTaxonomy ? (
+                <ScopeTabs
+                  familyOptions={familyOptions}
+                  domainOptions={domainOptions}
+                  baseOptions={baseOptions}
+                  familyId={familyId}
+                  domainId={domainId}
+                  baseId={baseId}
+                  onFamily={(id) => {
+                    setFamilyId(id);
+                    setDomainId("");
+                    setBaseId("");
+                  }}
+                  onDomain={(id) => {
+                    setDomainId(id);
+                    setBaseId("");
+                  }}
+                  onBase={setBaseId}
+                  familyTotal={familyTotal}
+                  domainTotal={domainTotal}
+                  baseTotal={baseTotal}
+                />
+              ) : (
+                <p className="muted" data-kb-scope-none>{KB_SCOPE_NONE}</p>
+              )}
+
+              <FilterChips
+                label={KB_FILTER_LABEL.brand}
+                filterKey="brand"
+                options={brandOptions}
+                selected={brandFilters}
+                onToggle={(value) => setBrandFilters((current) => (
+                  current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
+                ))}
+                onClear={() => setBrandFilters([])}
+              />
+              <FilterChips
+                label={KB_FILTER_LABEL.stage}
+                filterKey="stage"
+                options={stageOptions}
+                selected={stageFilter ? [stageFilter] : []}
+                onToggle={(value) => setStageFilter((current) => (current === value ? "" : value))}
+                onClear={() => setStageFilter("")}
+              />
+              {anyFilter ? (
+                <div className="kbv-filters">
                   <button className="kbv-link-plain" type="button" data-kb-scope-clear onClick={resetAll}>
-                    清空筛选
+                    {KB_SCOPE_CLEAR}
                   </button>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -443,7 +434,6 @@ export default function Knowledge() {
           {loaded ? (
             <div className="kbv-count">
               <span>{visible.length} 条知识</span>
-              {scoped ? <span data-kb-scope-path>{scopeNames.join(" / ")}</span> : null}
             </div>
           ) : null}
 

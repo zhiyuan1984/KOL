@@ -1,3 +1,4 @@
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { kindLabel, statusLabel } from "../../knowledgeCopy";
 import KbvIcon from "../../knowledgeIcons";
@@ -21,14 +22,8 @@ type Props = {
   onView: (view: KbView) => void;
   query: string;
   onQuery: (query: string) => void;
-  categoryLabel: string;
-  onOpenCategory: () => void;
-  kindOptions: Array<{ value: string; label: string }>;
-  kind: string;
-  onKind: (kind: string) => void;
   sort: "updated" | "title";
   onSort: (sort: "updated" | "title") => void;
-  onReset: () => void;
   selectedId: string;
   onSelect: (id: string) => void;
   expanded: boolean;
@@ -38,14 +33,16 @@ type Props = {
   pathOf: (row: KbAssetRow) => string;
   onUpload: () => void;
   onCreate: () => void;
+  /** 筛选区（三级分类 tab ＋ 品牌/阶段标签 ＋ 类型/重置），由宿主组合。 */
+  filters: ReactNode;
 };
 
 /** 管理端中栏：检索区＋快捷视图＋两行列表（IA v2，P1）。 */
 export default function LibraryPane(props: Props) {
   const {
-    rows, totalCount, counts, view, onView, query, onQuery, categoryLabel, onOpenCategory,
-    kindOptions, kind, onKind, sort, onSort, onReset, selectedId, onSelect, expanded,
-    onToggleExpand, pendingDocsCount, loading, pathOf, onUpload, onCreate,
+    rows, totalCount, counts, view, onView, query, onQuery, sort, onSort,
+    selectedId, onSelect, expanded, onToggleExpand, pendingDocsCount, loading,
+    pathOf, onUpload, onCreate, filters,
   } = props;
 
   return (
@@ -62,23 +59,7 @@ export default function LibraryPane(props: Props) {
             onChange={(event) => onQuery(event.target.value)}
           />
         </div>
-        <div className="kbv-filters">
-          <button type="button" className="btn" data-kbv-category-button onClick={onOpenCategory}>
-            {categoryLabel} ▾
-          </button>
-          <select
-            aria-label="知识类型"
-            data-kbv-kind
-            value={kind}
-            onChange={(event) => onKind(event.target.value)}
-          >
-            <option value="">全部类型</option>
-            {kindOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          <button type="button" className="kbv-link-plain" data-kbv-reset onClick={onReset}>重置</button>
-        </div>
+        {filters}
       </div>
 
       <div className="kbv-tabs" role="group" aria-label="快捷视图">
@@ -133,7 +114,7 @@ export default function LibraryPane(props: Props) {
             <h3>没有匹配的知识</h3>
             <p>试试其他关键词，或重置筛选。</p>
             <div className="kbv-actions">
-              <button type="button" className="btn" onClick={onReset}>重置筛选</button>
+              <button type="button" className="btn" onClick={() => onView("all")}>查看全部</button>
             </div>
           </div>
         )

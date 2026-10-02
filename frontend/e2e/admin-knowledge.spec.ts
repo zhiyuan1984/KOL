@@ -38,7 +38,7 @@ async function openView(page: Page, path: string, view: string) {
 }
 
 test.describe("知识治理管理端（/admin/knowledge）", () => {
-  test("新主页默认可达；旧子视图过渡保留（slim 导航 ＋ 深链）", async ({ page }) => {
+  test("新主页默认可达；子视图直达且可回链", async ({ page }) => {
     await page.goto("/admin/knowledge");
     const home = page.locator('[data-admin-kb-v2="home"]');
     await expect(home).toBeVisible();
@@ -46,34 +46,19 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await expect(page.locator("[data-kbv-view]")).toHaveCount(5);
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
     await expect(page.locator("[data-admin-kb-tab]")).toHaveCount(0);
+    // 三级分类联动 tab（业务域 → 业务主题 → 知识库）与筛选标签。
+    await expect(page.locator("[data-kb-scope-family]").first()).toBeVisible();
+    await expect(page.locator("[data-kb-scope-domain]").first()).toBeVisible();
+    await expect(page.locator("[data-kb-scope-base]").first()).toBeVisible();
+    await expect(page.locator("[data-kb-filter='brand']")).toBeVisible();
 
-    // 旧子视图：slim 导航（← 知识首页 ＋ 5 个 tab），全部深链可达。
+    // 子视图直达可达：仅保留返回回链（旧版导航已撤）。
     await openView(page, "/admin/knowledge/catalog", "catalog");
     await expect(page.locator("[data-admin-kb-home-link]")).toBeVisible();
-    await expect(page.locator("[data-admin-kb-tab]")).toHaveCount(5);
-
-    for (const [tab, view] of [
-      ["base", "base"],
-      ["entry", "entry"],
-      ["ingest", "ingest"],
-      ["bindings", "bindings"],
-      ["catalog", "catalog"],
-    ] as const) {
-      await page.locator(`[data-admin-kb-tab='${tab}']`).click();
-      await expect(page.locator(`[data-admin-kb-view='${view}']`)).toBeVisible();
-    }
-
-    // base / entry 是上下文视图：没有 id 时不猜测对象，回目录提示保留。
     await openView(page, "/admin/knowledge/bases", "base");
     await expect(page.locator("[data-admin-kb-context-hint]")).toBeVisible();
-
-    // 上下文视图深链直达：base = bases/:id，entry = entries/:id，slim 导航高亮对应 tab。
     await openView(page, "/admin/knowledge/bases/kbase_legacy", "base");
-    await expect(page.locator("[data-admin-kb-tab='base']")).toHaveAttribute("aria-current", "page");
     await openView(page, "/admin/knowledge/entries/kb_mail_kol", "entry");
-    await expect(page.locator("[data-admin-kb-tab='entry']")).toHaveAttribute("aria-current", "page");
-
-    // 首页回链。
     await page.locator("[data-admin-kb-home-link]").click();
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
   });

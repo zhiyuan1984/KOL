@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api";
-import { kindLabel } from "../../knowledgeCopy";
+import { KB_FILTER_LABEL, kindLabel } from "../../knowledgeCopy";
+import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
+import FilterChips from "../../components/FilterChips";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
 import LibraryPane, { type KbView } from "./LibraryPane";
 import DetailRail from "./DetailRail";
-import CategoryDialog, { type KbCategory } from "./CategoryDialog";
 import UploadDialog from "./UploadDialog";
 
 const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
@@ -17,7 +18,10 @@ const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
 
 const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: spec.label }));
 
-/** 管理端知识主页（IA v2）：顶栏＋中栏列表＋右栏详情。 */
+type KbScope = { familyId: string; domainId: string; baseId: string };
+const EMPTY_SCOPE: KbScope = { familyId: "", domainId: "", baseId: "" };
+
+/** 管理端知识主页（IA v2）：三级分类 tab＋筛选标签＋中栏列表＋右栏详情。 */
 export default function KnowledgeHome() {
   const nav = useNavigate();
   const load = useCallback(async () => {
@@ -41,11 +45,12 @@ export default function KnowledgeHome() {
   const [view, setView] = useState<KbView>("all");
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
-  const [category, setCategory] = useState<KbCategory>({ domainId: "", baseId: "" });
+  const [scope, setScope] = useState<KbScope>(EMPTY_SCOPE);
+  const [brands, setBrands] = useState<string[]>([]);
+  const [stage, setStage] = useState("");
   const [sort, setSort] = useState<"updated" | "title">("updated");
   const [selectedId, setSelectedId] = useState("");
   const [expanded, setExpanded] = useState(false);
-  const [categoryOpen, setCategoryOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
 
   const notify = useCallback((message: string) => {
@@ -84,39 +89,6 @@ export default function KnowledgeHome() {
     return result;
   }, [rows]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return rows
-      .filter((row) => {
-        if (view !== "all" && String(row.status || "") !== VIEW_STATUS[view]) return false;
-        if (kind && row.kind !== kind) return false;
-        if (category.baseId && row.base_id !== category.baseId) return false;
-        if (category.domainId && !category.baseId) {
-          const base = row.base_id ? basesById.get(row.base_id) : undefined;
-          if (!base || String(base.domain_id) !== category.domainId) return false;
-        }
-        if (q) {
-          const haystack = [row.title, row.kind ? kindLabel(row.kind) : "", pathOf(row), row.created_by || ""]
-            .join(" ")
-            .toLowerCase();
-          if (!haystack.includes(q)) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (sort === "title") return String(a.title).localeCompare(String(b.title), "zh-CN");
-        return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
-      });
-  }, [rows, view, kind, category, query, sort, basesById, pathOf]);
-
-  const selectedRow = useMemo(
-    () => filtered.find((row) => row.id === selectedId) || filtered[0] || null,
-    [filtered, selectedId],
-  );
-
-  // 0–1 实底主 CTA：待审批行选中时让位给右栏「审核」；其它状态顶栏保持主 CTA。
-  const demoteNew = selectedRow ? String(selectedRow.status || "") === "pending_review" : false;
-
   const baseCounts = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of rows) {
@@ -136,26 +108,173 @@ export default function KnowledgeHome() {
     return map;
   }, [bases, baseCounts]);
 
-  const categoryLabel = useMemo(() => {
-    if (category.baseId) {
-      const base = basesById.get(category.baseId);
-      const domain = base ? domainsById.get(base.domain_id) : undefined;
-      return base ? `${domain?.name || "未分类"} / ${base.name}` : "全部领域 / 主题";
-    }
-    if (category.domainId) return domainsById.get(category.domainId)?.name || "全部领域 / 主题";
-    return "全部领域 / 主题";
-  }, [category, basesById, domainsById]);
+  const familyOptions = useMemo<ScopeOption[]>(
+    () => domains
+      .filter((domain) => domain.level === "family")
+      .map((family) => ({
+        id: family.id,
+        name: family.name,
+        count: domains
+          .filter((domain) => domain.level === "domain" && String(domain.parent_id || "") === family.id)
+          .reduce((sum, domain) => sum + (domainCounts.get(domain.id) || 0), 0),
+      }))
+      .filter((option) => option.count > 0),
+    [domains, domainCounts],
+  );
+
+  const familyDomainIds = useMemo(
+    () => new Set(
+      domains
+        .filter((domain) => domain.level === "domain" && (!scope.familyId || String(domain.parent_id || "") === scope.familyId))
+        .map((domain) => domain.id),
+    ),
+    [domains, scope.familyId],
+  );
+
+  const domainOptions = useMemo<ScopeOption[]>(
+    () => domains
+      .filter((domain) => domain.level === "domain" && familyDomainIds.has(domain.id))
+      .map((domain) => ({ id: domain.id, name: domain.name, count: domainCounts.get(domain.id) || 0 }))
+      .filter((option) => option.count > 0),
+    [domains, domainCounts, familyDomainIds],
+  );
+
+  const baseOptions = useMemo<ScopeOption[]>(
+    () => bases
+      .filter((base) => (scope.domainId ? base.domain_id === scope.domainId : familyDomainIds.has(base.domain_id)))
+      .map((base) => ({ id: base.id, name: base.name, count: baseCounts.get(base.id) || 0 }))
+      .filter((option) => option.count > 0),
+    [bases, baseCounts, scope.domainId, familyDomainIds],
+  );
+
+  const familyTotal = rows.length;
+  const domainTotal = useMemo(
+    () => domainOptions.reduce((sum, option) => sum + (option.count || 0), 0),
+    [domainOptions],
+  );
+  const baseTotal = useMemo(
+    () => baseOptions.reduce((sum, option) => sum + (option.count || 0), 0),
+    [baseOptions],
+  );
+
+  const brandOptions = useMemo(
+    () => [...new Set(
+      rows.map((row) => String(row.brand || "").trim()).filter((code) => code && code !== "*"),
+    )].sort(),
+    [rows],
+  );
+
+  const stageOptions = useMemo(
+    () => [...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))].sort(),
+    [rows],
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows
+      .filter((row) => {
+        if (view !== "all" && String(row.status || "") !== VIEW_STATUS[view]) return false;
+        if (kind && row.kind !== kind) return false;
+        const base = row.base_id ? basesById.get(row.base_id) : undefined;
+        if (scope.baseId && row.base_id !== scope.baseId) return false;
+        if (scope.domainId && (!base || String(base.domain_id) !== scope.domainId)) return false;
+        if (scope.familyId) {
+          const domain = base ? domainsById.get(base.domain_id) : undefined;
+          if (!domain || String(domain.parent_id || "") !== scope.familyId) return false;
+        }
+        if (brands.length) {
+          const brand = String(row.brand || "");
+          if (brand && brand !== "*" && !brands.includes(brand)) return false;
+        }
+        if (stage && !(row.stage_codes || []).includes(stage)) return false;
+        if (q) {
+          const haystack = [row.title, row.kind ? kindLabel(row.kind) : "", pathOf(row), row.created_by || ""]
+            .join(" ")
+            .toLowerCase();
+          if (!haystack.includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sort === "title") return String(a.title).localeCompare(String(b.title), "zh-CN");
+        return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+      });
+  }, [rows, view, kind, scope, brands, stage, query, sort, basesById, domainsById, pathOf]);
+
+  const selectedRow = useMemo(
+    () => filtered.find((row) => row.id === selectedId) || filtered[0] || null,
+    [filtered, selectedId],
+  );
+
+  // 0–1 实底主 CTA：待审批行选中时让位给右栏「审核」；其它状态顶栏保持主 CTA。
+  const demoteNew = selectedRow ? String(selectedRow.status || "") === "pending_review" : false;
+
+  const toggleBrand = (value: string) => {
+    setBrands((current) => (
+      current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
+    ));
+  };
+
+  const toggleStage = (value: string) => {
+    setStage((current) => (current === value ? "" : value));
+  };
 
   const reset = useCallback(() => {
     setQuery("");
     setKind("");
-    setCategory({ domainId: "", baseId: "" });
+    setScope(EMPTY_SCOPE);
+    setBrands([]);
+    setStage("");
     setView("all");
   }, []);
 
   const openCreate = useCallback(() => {
     nav("/admin/knowledge/catalog");
   }, [nav]);
+
+  const filters = (
+    <>
+      <ScopeTabs
+        familyOptions={familyOptions}
+        domainOptions={domainOptions}
+        baseOptions={baseOptions}
+        familyId={scope.familyId}
+        domainId={scope.domainId}
+        baseId={scope.baseId}
+        onFamily={(id) => setScope({ familyId: id, domainId: "", baseId: "" })}
+        onDomain={(id) => setScope((current) => ({ ...current, domainId: id, baseId: "" }))}
+        onBase={(id) => setScope((current) => ({ ...current, baseId: id }))}
+        familyTotal={familyTotal}
+        domainTotal={domainTotal}
+        baseTotal={baseTotal}
+      />
+      <FilterChips
+        label={KB_FILTER_LABEL.brand}
+        filterKey="brand"
+        options={brandOptions}
+        selected={brands}
+        onToggle={toggleBrand}
+        onClear={() => setBrands([])}
+      />
+      <FilterChips
+        label={KB_FILTER_LABEL.stage}
+        filterKey="stage"
+        options={stageOptions}
+        selected={stage ? [stage] : []}
+        onToggle={toggleStage}
+        onClear={() => setStage("")}
+      />
+      <div className="kbv-filters">
+        <select aria-label="知识类型" data-kbv-kind value={kind} onChange={(event) => setKind(event.target.value)}>
+          <option value="">全部类型</option>
+          {KIND_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <button type="button" className="kbv-link-plain" data-kbv-reset onClick={reset}>重置</button>
+      </div>
+    </>
+  );
 
   return (
     <section className="kbv" data-admin-knowledge data-admin-kb-v2="home">
@@ -171,9 +290,6 @@ export default function KnowledgeHome() {
           <span className="kbv-lead">维护可信、可用的知识</span>
         </div>
         <div className="kbv-actions">
-          <button type="button" className="btn" data-kbv-category onClick={() => setCategoryOpen(true)}>
-            分类目录
-          </button>
           <button type="button" className="btn" data-kbv-upload onClick={() => setUploadOpen(true)}>
             上传文件
           </button>
@@ -197,14 +313,8 @@ export default function KnowledgeHome() {
           onView={setView}
           query={query}
           onQuery={setQuery}
-          categoryLabel={categoryLabel}
-          onOpenCategory={() => setCategoryOpen(true)}
-          kindOptions={KIND_OPTIONS}
-          kind={kind}
-          onKind={setKind}
           sort={sort}
           onSort={setSort}
-          onReset={reset}
           selectedId={selectedRow?.id || ""}
           onSelect={setSelectedId}
           expanded={expanded}
@@ -214,6 +324,7 @@ export default function KnowledgeHome() {
           pathOf={pathOf}
           onUpload={() => setUploadOpen(true)}
           onCreate={openCreate}
+          filters={filters}
         />
 
         <aside className="kbv-rail" aria-label="知识详情" data-kbv-detail>
@@ -233,19 +344,6 @@ export default function KnowledgeHome() {
         </aside>
       </div>
 
-      <CategoryDialog
-        open={categoryOpen}
-        onClose={() => setCategoryOpen(false)}
-        domains={domains}
-        bases={bases}
-        baseCounts={baseCounts}
-        domainCounts={domainCounts}
-        selected={category}
-        onPick={(next) => {
-          setCategory(next);
-          setView("all");
-        }}
-      />
       <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} />
     </section>
   );

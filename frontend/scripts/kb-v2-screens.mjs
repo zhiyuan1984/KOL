@@ -94,13 +94,6 @@ for (const [width, height, tag] of VIEWPORTS) {
     await metrics(page, `admin-${tag}-light`);
 
     if (tag === "1440") {
-      await page.locator("[data-kbv-category]").click();
-      await page.waitForSelector("[data-kbv-category-dialog][open]");
-      await page.waitForTimeout(300);
-      await page.screenshot({ path: path.join(out, "admin-1440-category.png") });
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(250);
-
       await page.locator("[data-kbv-upload]").click();
       await page.waitForSelector("[data-kbv-upload-dialog][open]");
       await page.waitForTimeout(300);

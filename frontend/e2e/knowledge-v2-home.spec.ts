@@ -32,6 +32,8 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
     await expect(page.locator("[data-kbv-top]")).toBeVisible();
     await expect(page.locator("[data-kbv-view]")).toHaveCount(5);
+    await expect(page.locator("[data-kb-scope-family]").first()).toBeVisible();
+    await expect(page.locator("[data-kb-filter='brand']")).toBeVisible();
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
 
     await page.locator("[data-kbv-record]").first().click();
@@ -62,11 +64,11 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator('[data-admin-kb-view="catalog"]')).toBeVisible();
   });
 
-  test("旧子视图过渡可达：slim 导航与首页回链", async ({ page }) => {
+  test("子视图直达与回链（无旧版导航痕迹）", async ({ page }) => {
     await page.goto("/admin/knowledge/ingest");
     await expect(page.locator('[data-admin-kb-view="ingest"]')).toBeVisible();
     await expect(page.locator("[data-admin-kb-home-link]")).toBeVisible();
-    await expect(page.locator("[data-admin-kb-tab]")).toHaveCount(5);
+    await expect(page.locator("[data-admin-kb-tab]")).toHaveCount(0);
     await page.locator("[data-admin-kb-home-link]").click();
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
   });
