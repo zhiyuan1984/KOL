@@ -541,9 +541,16 @@ function createWorkItem(body: Json, source: string): Json {
       JSON.stringify(input), JSON.stringify(resolution.entities), 1, now, now,
     );
     ensureTicketForWorkItem(id, { conn: db });
+    appendTaskEventInConn(
+      db,
+      id,
+      null,
+      "task.created",
+      definition.title,
+      status,
+      resolution.missing_fields.length ? `缺少：${formatMissingFields(resolution.missing_fields)}` : "任务已创建",
+    );
   });
-  appendTaskEvent(id, null, "task.created", definition.title, status,
-    resolution.missing_fields.length ? `缺少：${formatMissingFields(resolution.missing_fields)}` : "任务已创建");
   audit(owner, "task.created", { work_item_id: id, task_type: definition.id, source });
   return {
     ...publicWorkItem(ownedWorkItem(id)),

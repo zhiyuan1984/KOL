@@ -55,6 +55,8 @@
 | `GET /api/workbench/plan` | 返回计划 artifact 快照、producer、来源 revision、生成时间及 `stale_reason`；源集合变化时保留上次可用计划并明确标过期。 |
 | `/admin/scheduling` | Job 状态、Outbox 积压、Worker 心跳和 failed low-risk Job 的显式重新投递；不对高风险/不确定作业伪造恢复能力。 |
 
+正式工单创建、`task.created` 事件和 ticket 映射现在同处一个数据库事务；`complete`/`cancel` 已同样以命令回执、状态投影和不可变生命周期事件原子提交。
+
 ## 明确未实施（不得当作完成）
 
 - PostgreSQL Row-Level Security、租户级 policy、备份演练和生产密钥/连接池参数；当前权限仍由应用层先过滤。
