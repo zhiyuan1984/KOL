@@ -1,19 +1,94 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lingong}
+      POSTGRES_USER: ${POSTGRES_USER:-lingong}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Run once during cutover after stopping writes to the SQLite service:
+  # docker compose --profile migration run --rm migrate
+  # The migration creates all current tables, copies every row, and verifies a
+  # per-table SHA-256 fingerprint before PostgreSQL becomes authoritative.
+  migrate:
+    build: .
+    profiles: ["migration"]
+    command: ["npm", "run", "db:migrate:postgres", "--", "--source", "/app/data/lingong.db"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lingong}:${POSTGRES_PASSWORD:-local-dev-only}@postgres:5432/${POSTGRES_DB:-lingong}
+      SQLITE_SOURCE: /app/data/lingong.db
+    volumes:
+      - lingong-data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   lingong:
     build: .
     ports:
       - "8765:8765"
     environment:
-      STARRY_MODE: mock
-      CLAW_MODE: mock
+      STARRY_MODE: ${STARRY_MODE:-mock}
+      CLAW_MODE: ${CLAW_MODE:-mock}
       LINGONG_DATA: /app/data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lingong}:${POSTGRES_PASSWORD:-local-dev-only}@postgres:5432/${POSTGRES_DB:-lingong}
+      REDIS_URL: redis://redis:6379
       CODEX_HOME: /root/.codex
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - lingong-data:/app/data
-      # `codex login` is stored here on the host. The container cannot reuse
-      # an already-running host Codex process; it needs the credentials.
       - ${HOME}/.codex:/root/.codex
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  outbox-publisher:
+    build: .
+    command: ["npm", "run", "worker:outbox"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lingong}:${POSTGRES_PASSWORD:-local-dev-only}@postgres:5432/${POSTGRES_DB:-lingong}
+      REDIS_URL: redis://redis:6379
+      OUTBOX_POLL_MS: ${OUTBOX_POLL_MS:-500}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  execution-worker:
+    build: .
+    command: ["npm", "run", "worker:execution"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lingong}:${POSTGRES_PASSWORD:-local-dev-only}@postgres:5432/${POSTGRES_DB:-lingong}
+      REDIS_URL: redis://redis:6379
+      EXECUTION_WORKER_CONCURRENCY: ${EXECUTION_WORKER_CONCURRENCY:-4}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   lingong-data:
+  postgres-data:
+  redis-data:

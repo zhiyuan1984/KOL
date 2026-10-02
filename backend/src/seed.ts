@@ -1,5 +1,5 @@
 import { ensureSystemCronJobs } from "./cron/store.js";
-import { getConn } from "./db.js";
+import { databaseEngine, getConn } from "./db.js";
 import { seedDirectory } from "./host/grants.js";
 import { seedKnowledge } from "./host/knowledge.js";
 
@@ -125,6 +125,9 @@ function seedCore(): void {
 }
 
 function stripLegacyDemoData(): void {
+  // PostgreSQL starts only after a verified historical migration. Do not make
+  // bootstrap cleanup disable immutable event triggers or alter migrated facts.
+  if (databaseEngine() === "postgres") return;
   const conn = getConn();
   const legacyApprovals = conn.prepare(
     "SELECT id, wecom_card_id FROM approvals WHERE kind IN ('quote','stage','ingest','content','settlement')",

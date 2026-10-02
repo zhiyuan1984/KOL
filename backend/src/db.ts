@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import { boxDir, dataDir, dbPath } from "./config.js";
 import { BUILTIN_CONNECTORS } from "./connectors/catalog.js";
+import { PostgresSyncConn } from "./postgres/sync.js";
 import type { Json, Row } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -101,9 +102,23 @@ function openSqlite(file: string): SqliteConn {
   }
 }
 
+/** The active authority store. PostgreSQL is mandatory whenever DATABASE_URL is set. */
+export function databaseEngine(): "sqlite" | "postgres" {
+  return process.env.DATABASE_URL?.trim() ? "postgres" : "sqlite";
+}
+
 export function connect(): SqliteConn {
   fs.mkdirSync(dataDir(), { recursive: true });
   fs.mkdirSync(boxDir(), { recursive: true });
+  if (databaseEngine() === "postgres") {
+    const db = new PostgresSyncConn(String(process.env.DATABASE_URL));
+    const schema = db.prepare("SELECT to_regclass('public.app_state') AS table_name").get() as { table_name?: string | null } | undefined;
+    if (!schema?.table_name) {
+      db.close();
+      throw new Error("PostgreSQL schema is not initialized; run npm run db:migrate:postgres with SQLITE_SOURCE and DATABASE_URL before starting the application");
+    }
+    return db;
+  }
   const db = openSqlite(dbPath());
   db.pragma("foreign_keys = ON");
   db.pragma("journal_mode = WAL");
@@ -165,14 +180,15 @@ export function isSqliteForeignKeyError(error: unknown): boolean {
     ? String((error as { code?: unknown }).code || "")
     : "";
   const message = error instanceof Error ? error.message : String(error || "");
-  return /SQLITE_CONSTRAINT_FOREIGNKEY/i.test(code)
+  return code === "23503"
+    || /SQLITE_CONSTRAINT_FOREIGNKEY/i.test(code)
     || /FOREIGN KEY constraint failed/i.test(message);
 }
 
 /** True when a test reset or process teardown already closed the handle. */
 export function isSqliteClosedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
-  return /database is not open|SQLITE_MISUSE|The database connection is not open/i.test(message);
+  return /database is not open|SQLITE_MISUSE|The database connection is not open|PostgreSQL connection is not open/i.test(message);
 }
 
 export function asRow(row: unknown): Row {

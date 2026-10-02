@@ -1,4 +1,6 @@
 import { processNextCronExecutionJob } from "../cron/worker.js";
+import { databaseEngine } from "../db.js";
+import { runBullMqExecutionWorker } from "../queue/execution-worker.js";
 import { recoverExpiredExecutionJobs } from "./store.js";
 
 function wait(ms: number): Promise<void> {
@@ -10,6 +12,10 @@ function wait(ms: number): Promise<void> {
  * horizontal consumers require the planned PostgreSQL + broker migration.
  */
 export async function runExecutionWorker(options: { worker_id?: string; poll_ms?: number } = {}): Promise<void> {
+  if (databaseEngine() === "postgres") {
+    await runBullMqExecutionWorker({ workerId: options.worker_id });
+    return;
+  }
   const workerId = options.worker_id || process.env.EXECUTION_WORKER_ID || `worker-${process.pid}`;
   const pollMs = Math.max(100, Number(options.poll_ms || process.env.EXECUTION_WORKER_POLL_MS || 1_000));
   let stopping = false;

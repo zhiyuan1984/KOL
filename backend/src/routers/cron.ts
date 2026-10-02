@@ -19,7 +19,7 @@ import {
   runById,
 } from "../cron/store.js";
 import { runCronJobNow, tickCronDue } from "../cron/worker.js";
-import { getConn, nowIso } from "../db.js";
+import { databaseEngine, getConn, nowIso } from "../db.js";
 import { executionJobPublic, listExecutionJobs } from "../execution-jobs/store.js";
 import { HttpFail } from "../host/errors.js";
 import { label } from "../stages.js";
@@ -110,7 +110,7 @@ cron.get("/admin/scheduling/execution-jobs", (c) => {
     counts: Object.fromEntries(statusCounts.map((row) => [row.status, Number(row.count)])),
     outbox: Object.fromEntries(outboxCounts.map((row) => [row.status, Number(row.count)])),
     as_of: nowIso(),
-    execution_mode: "sqlite_single_worker_transition",
+    execution_mode: databaseEngine() === "postgres" ? "postgres_redis_bullmq_multi_worker" : "sqlite_single_worker_transition",
     source_refs: [{ type: "execution_jobs" }, { type: "execution_outbox" }],
   });
 });
