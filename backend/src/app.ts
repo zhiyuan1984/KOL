@@ -40,11 +40,13 @@ import { restoreActiveHomeDiscoveryRuns } from "./home-discovery.js";
 import { seedIfEmpty } from "./seed.js";
 import { events } from "./routers/events.js";
 import { reconcileTickets } from "./tickets.js";
+import { reconcileDocumentJobs } from "./host/knowledge-documents.js";
 
 export function createApp(): Hono {
   getConn();
   seedIfEmpty();
   reconcileTickets();
+  reconcileDocumentJobs();
   ensureRuntimeSchema();
   ensureDemoAdmin();
   restoreActiveCrawlJobs();

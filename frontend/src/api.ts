@@ -678,6 +678,85 @@ export type KnowledgeBaseRow = {
   updated_at?: string;
 };
 
+/** 非结构化资料（P1，2026-10-02）：PageIndex 本地流水线。 */
+export type KnowledgeDocumentJobRow = {
+  id: string;
+  document_id: string;
+  kind: "normalize" | "index" | string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled" | string;
+  progress_done: number;
+  progress_total: number;
+  detail?: Record<string, unknown> | null;
+  error?: string;
+  attempt: number;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export type KnowledgeDocumentRow = {
+  id: string;
+  base_id: string;
+  base_name?: string;
+  title: string;
+  filename: string;
+  media_type: string;
+  mime?: string;
+  size_bytes: number;
+  status: "uploaded" | "normalizing" | "indexing" | "pending_review" | "published" | "archived" | "failed" | "cancelled" | string;
+  error?: string;
+  retry_count: number;
+  artifacts?: Record<string, unknown> | null;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  published_at?: string | null;
+  latest_job?: KnowledgeDocumentJobRow | null;
+};
+
+export type KnowledgeDocumentDetail = {
+  document: KnowledgeDocumentRow;
+  base: {
+    id: string;
+    name: string;
+    kind: string;
+    status: string;
+    domain_name: string;
+    family_name: string;
+  } | null;
+  jobs: KnowledgeDocumentJobRow[];
+  text_preview: { name: string; text: string } | null;
+};
+
+export type KnowledgeSearchCitation = {
+  document: string;
+  engine_doc_id: string;
+  page: number | null;
+  document_id: string | null;
+  title: string;
+};
+
+export type KnowledgeSearchResult = {
+  answer: string;
+  citations: KnowledgeSearchCitation[];
+  usage?: Record<string, unknown> | null;
+  engine?: { mode: string; model: string };
+  scope?: {
+    base_id: string;
+    include_pending: boolean;
+    documents: { id: string; title: string; status: string }[];
+  };
+};
+
+export type KnowledgeIndexHealth = {
+  ok: boolean;
+  mode: string;
+  python?: string;
+  pageindex?: string;
+  code?: string;
+  message?: string;
+};
+
 /** 公海工作台四类动作的问题模板（kind='question_template' 的已发布知识）。 */
 export type QuestionTemplateRow = {
   slot: string;
@@ -1818,6 +1897,32 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  /** 非结构化资料（P1）：上传 → 规整 → 索引 → 待审 → 发布 → 试算。 */
+  adminKnowledgeDocuments: (opts: { base?: string; status?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.base) params.set("base", opts.base);
+    if (opts.status) params.set("status", opts.status);
+    const qs = params.toString();
+    return request<{ documents: KnowledgeDocumentRow[] }>(qs ? `/api/admin/knowledge/documents?${qs}` : "/api/admin/knowledge/documents");
+  },
+  adminKnowledgeDocument: (id: string) =>
+    request<KnowledgeDocumentDetail>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`),
+  adminKnowledgeDocumentUpload: (baseId: string, file: File) => {
+    const form = new FormData();
+    form.append("base_id", baseId);
+    form.append("file", file);
+    return request<{ document: KnowledgeDocumentRow }>("/api/admin/knowledge/documents", { method: "POST", body: form });
+  },
+  adminKnowledgeDocumentAction: (id: string, action: "retry" | "cancel" | "reprocess" | "publish" | "archive") =>
+    request<{ document: KnowledgeDocumentRow }>(
+      `/api/admin/knowledge/documents/${encodeURIComponent(id)}/${action}`,
+      { method: "POST" },
+    ),
+  adminKnowledgeDocumentDelete: (id: string) =>
+    request<{ deleted: boolean }>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  adminKnowledgeSearch: (body: { query: string; base_id: string; doc_ids?: string[]; include_pending?: boolean }) =>
+    request<KnowledgeSearchResult>("/api/admin/knowledge/search", { method: "POST", body: JSON.stringify(body) }),
+  adminKnowledgeIndexHealth: () => request<KnowledgeIndexHealth>("/api/admin/knowledge/index-health"),
   adminKnowledgeRaw: () => request<Record<string, unknown>[]>("/api/admin/knowledge/raw"),
   adminKnowledgeJobs: () => request<Record<string, unknown>[]>("/api/admin/knowledge/extract-jobs"),
   adminKnowledgeReview: () => request<KnowledgeRow[]>("/api/admin/knowledge/review"),

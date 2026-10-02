@@ -527,6 +527,50 @@ function initSchema(db: SqliteConn): void {
         );
         CREATE INDEX IF NOT EXISTS knowledge_bases_domain
             ON knowledge_bases(domain_id, status);
+        -- 非结构化资料（2026-10-02）：PageIndex 本地 ＋ 多模态规整层；状态机与闸门见
+        -- docs/superpowers/specs/2026-10-02-knowledge-unstructured-pageindex-design.md。
+        CREATE TABLE IF NOT EXISTS knowledge_documents (
+            id TEXT PRIMARY KEY,
+            base_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            mime TEXT,
+            size_bytes INTEGER NOT NULL DEFAULT 0,
+            source_path TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'uploaded',
+            error TEXT,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            artifacts TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            published_by TEXT,
+            published_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS knowledge_documents_base
+            ON knowledge_documents(base_id, status);
+        CREATE INDEX IF NOT EXISTS knowledge_documents_updated
+            ON knowledge_documents(updated_at DESC);
+        CREATE TABLE IF NOT EXISTS knowledge_document_jobs (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            progress_done INTEGER NOT NULL DEFAULT 0,
+            progress_total INTEGER NOT NULL DEFAULT 0,
+            detail TEXT,
+            error TEXT,
+            attempt INTEGER NOT NULL DEFAULT 1,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS knowledge_document_jobs_doc
+            ON knowledge_document_jobs(document_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS knowledge_document_jobs_status
+            ON knowledge_document_jobs(status);
         CREATE TABLE IF NOT EXISTS knowledge_versions (
             id TEXT PRIMARY KEY,
             knowledge_id TEXT NOT NULL,

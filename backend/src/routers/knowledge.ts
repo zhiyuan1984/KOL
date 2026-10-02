@@ -1,8 +1,23 @@
 import { Hono } from "hono";
+import fs from "node:fs";
 import { requireAdmin, requireSkill } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
+import {
+  archiveDocument,
+  cancelDocument,
+  deleteDocument,
+  documentIndexHealth,
+  documentSourceFile,
+  getDocumentDetail,
+  listDocuments,
+  publishDocument,
+  reprocessDocument,
+  retryDocument,
+  searchDocuments,
+  uploadDocument,
+} from "../host/knowledge-documents.js";
 import {
   adminList,
   adminAssets,
@@ -134,6 +149,38 @@ knowledge.get("/admin/knowledge/bases", (c) => c.json({
 }));
 knowledge.post("/admin/knowledge/bases", async (c) => c.json(createBase((await c.req.json()) as Json), 201));
 knowledge.put("/admin/knowledge/bases/:id", async (c) => c.json(editBase(c.req.param("id"), (await c.req.json()) as Json)));
+
+// 非结构化资料（P1，2026-10-02）：上传 → 规整 → 索引 → 待审 → 发布 → 试算。
+// 设计 docs/superpowers/specs/2026-10-02-knowledge-unstructured-pageindex-design.md §10。
+knowledge.get("/admin/knowledge/documents", (c) => c.json({
+  documents: listDocuments({ base: c.req.query("base"), status: c.req.query("status") }),
+}));
+knowledge.post("/admin/knowledge/documents", async (c) => {
+  requireAdmin();
+  const body = await c.req.parseBody();
+  const file = body.file;
+  if (!file || typeof file === "string") throw new HttpFail(400, "file required");
+  const buf = Buffer.from(await (file as File).arrayBuffer());
+  return c.json(uploadDocument(
+    { name: (file as File).name || "upload.pdf", type: (file as File).type || "", buf },
+    String(body.base_id || ""),
+  ), 201);
+});
+knowledge.get("/admin/knowledge/documents/:id", (c) => c.json(getDocumentDetail(c.req.param("id"))));
+knowledge.get("/admin/knowledge/documents/:id/file", (c) => {
+  const ref = documentSourceFile(c.req.param("id"));
+  c.header("Content-Type", ref.mime || "application/pdf");
+  c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
+  return c.body(new Uint8Array(fs.readFileSync(ref.path)));
+});
+knowledge.post("/admin/knowledge/documents/:id/retry", (c) => c.json(retryDocument(c.req.param("id"))));
+knowledge.post("/admin/knowledge/documents/:id/cancel", (c) => c.json(cancelDocument(c.req.param("id"))));
+knowledge.post("/admin/knowledge/documents/:id/reprocess", (c) => c.json(reprocessDocument(c.req.param("id"))));
+knowledge.post("/admin/knowledge/documents/:id/publish", (c) => c.json(publishDocument(c.req.param("id"))));
+knowledge.post("/admin/knowledge/documents/:id/archive", (c) => c.json(archiveDocument(c.req.param("id"))));
+knowledge.delete("/admin/knowledge/documents/:id", (c) => c.json(deleteDocument(c.req.param("id"))));
+knowledge.post("/admin/knowledge/search", async (c) => c.json(await searchDocuments((await c.req.json()) as Json)));
+knowledge.get("/admin/knowledge/index-health", async (c) => c.json(await documentIndexHealth()));
 
 knowledge.get("/admin/knowledge", (c) => {
   const num = (value: string | undefined): number | undefined => {

@@ -27,6 +27,8 @@ const startBackend = () => {
       AUTH_MODE: authMode,
       LINGONG_PORT: port,
       LINGONG_DATA: data,
+      // 知识非结构化层：stub gate 走 Node 夹具，不依赖 Python/PageIndex（设计 2026-10-02 §7.6）。
+      KNOWLEDGE_ENGINE_MODE: process.env.KNOWLEDGE_ENGINE_MODE || (mode === "stub" ? "stub" : "real"),
       // Deterministic test key so connector credential writes are exercisable in E2E.
       RUNTIME_CREDENTIAL_MASTER_KEY: process.env.RUNTIME_CREDENTIAL_MASTER_KEY || "0".repeat(64),
     },

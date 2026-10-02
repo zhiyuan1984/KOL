@@ -1,12 +1,14 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
-import { knowledgeArchiveConfirm, knowledgeProposalRejectConfirm } from "../../adminConfirm";
+import type { KnowledgeDocumentRow } from "../../api";
+import { knowledgeArchiveConfirm, knowledgeDocumentDeleteConfirm, knowledgeDocumentPublishConfirm, knowledgeProposalRejectConfirm } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import {
   HIDE_REASONS,
   KB_ADMIN_ACTION,
   KB_ADMIN_EMPTY,
+  KB_DOC_ACTION,
   brandLabel,
   formatKbTime,
   hideReasonLabel,
@@ -49,13 +51,20 @@ function feedbackKey(row: FeedbackRow): string {
 export default function ReviewView({ notify, fail }: KbFeed) {
   const { ask, dialog } = useAdminConfirm();
   const load = useCallback(async () => {
-    const [review, rows, proposals, feedback] = await Promise.all([
+    const [review, rows, proposals, feedback, documents] = await Promise.all([
       api.adminKnowledgeReview(),
       api.adminKnowledge(),
       api.adminKnowledgeProposals(),
       api.adminKnowledgeFeedback().catch(() => [] as Row[]),
+      api.adminKnowledgeDocuments({ status: "pending_review" }).catch(() => ({ documents: [] as KnowledgeDocumentRow[] })),
     ]);
-    return { review, rows: rows as KbAssetRow[], proposals, feedback: feedback as unknown as FeedbackRow[] };
+    return {
+      review,
+      rows: rows as KbAssetRow[],
+      proposals,
+      feedback: feedback as unknown as FeedbackRow[],
+      pendingDocuments: documents.documents || [],
+    };
   }, []);
   const { data, error, loading, reload } = useKbData(load);
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -75,6 +84,7 @@ export default function ReviewView({ notify, fail }: KbFeed) {
   const expiring = (data?.rows || []).filter((row) => expirySoon(row.expires_at));
   const proposals = data?.proposals || [];
   const feedback = data?.feedback || [];
+  const pendingDocuments = data?.pendingDocuments || [];
   const counts = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of feedback) {
@@ -150,6 +160,60 @@ export default function ReviewView({ notify, fail }: KbFeed) {
           </article>
         ))}
         {!drafts.length && <p className="muted">{KB_ADMIN_EMPTY.drafts}</p>}
+      </article>
+
+      <article className="panel" data-admin-kb-pending-documents>
+        <div className="admin-section-head">
+          <div>
+            <h2>待审资料（非结构化）</h2>
+            <p className="muted">发布后才参与检索；审批前可用「重新加工」重跑规整与索引。</p>
+          </div>
+          <span className="muted" role="status">{pendingDocuments.length} 份</span>
+        </div>
+        {pendingDocuments.map((doc) => (
+          <article className="admin-row" key={doc.id} data-admin-kb-pending-doc={doc.id}>
+            <div>
+              <strong>{doc.title}</strong>
+              <p className="muted">
+                {doc.base_name || doc.base_id} · 更新于 {formatKbTime(doc.updated_at) || "—"}
+                {doc.error ? ` · ${doc.error}` : ""}
+              </p>
+            </div>
+            <div className="kbadmin-row-actions">
+              <button
+                className="kbadmin-action-link"
+                type="button"
+                data-admin-kb-doc-publish={doc.id}
+                onClick={() => ask(
+                  knowledgeDocumentPublishConfirm(doc.title),
+                  () => run(() => api.adminKnowledgeDocumentAction(doc.id, "publish"), "已发布：该资料参与检索。"),
+                )}
+              >
+                {KB_DOC_ACTION.publish}
+              </button>
+              <button
+                className="kbadmin-action-link"
+                type="button"
+                data-admin-kb-doc-reprocess={doc.id}
+                onClick={() => run(() => api.adminKnowledgeDocumentAction(doc.id, "reprocess"), "已重新加工；完成后回到待审。")}
+              >
+                {KB_DOC_ACTION.reprocess}
+              </button>
+              <button
+                className="kbadmin-action-link kbadmin-action-danger"
+                type="button"
+                data-admin-kb-doc-delete={doc.id}
+                onClick={() => ask(
+                  knowledgeDocumentDeleteConfirm(doc.title),
+                  () => run(() => api.adminKnowledgeDocumentDelete(doc.id), "资料已删除（原文件与索引已清理）。"),
+                )}
+              >
+                {KB_DOC_ACTION.remove}
+              </button>
+            </div>
+          </article>
+        ))}
+        {!pendingDocuments.length && <p className="muted">没有待审资料。</p>}
       </article>
 
       <article className="panel" data-admin-knowledge-proposals>

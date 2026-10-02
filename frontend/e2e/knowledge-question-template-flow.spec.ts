@@ -156,7 +156,10 @@ test("归档槽位模板后，公海入口禁用并如实提示", async ({ page 
   const scoreEntry = page.locator("[data-pool-jev-assess]");
   await expect(scoreEntry).toBeDisabled();
   await expect(scoreEntry).toHaveAttribute("title", MISSING_COPY);
-  await expect(page.locator("[data-pool-analysis='risk']")).toHaveAttribute("title", MISSING_COPY);
+  // 归档只影响被归档的槽位：risk 仍可用（未选 KOL 时提示选择，而不是「未发布」）。
+  const riskEntry = page.locator("[data-pool-analysis='risk']");
+  await expect(riskEntry).toBeVisible();
+  await expect(riskEntry).not.toHaveAttribute("title", MISSING_COPY);
 });
 
 test("草稿未审批用户端不可见；发布后入口恢复并预填模板正文，点击不执行", async ({ page, request }) => {

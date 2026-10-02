@@ -3,17 +3,9 @@ import { Link } from "react-router-dom";
 import { api } from "../../api";
 import { knowledgeArchiveConfirm, knowledgeHardDeleteConfirm } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
-import {
-  KB_ADMIN_ACTION,
-  KB_ADMIN_EMPTY,
-  KB_UNSTRUCTURED_NOT_IMPLEMENTED,
-  brandLabel,
-  formatKbTime,
-  kbBaseKindLabel,
-  kindLabel,
-  statusLabel,
-} from "../../knowledgeCopy";
+import { KB_ADMIN_ACTION, KB_ADMIN_EMPTY, KB_UNSTRUCTURED_P1_NOTE, brandLabel, formatKbTime, kbBaseKindLabel, kindLabel, statusLabel } from "../../knowledgeCopy";
 import StructuredFields from "./StructuredFields";
+import UnstructuredBasePanel from "./UnstructuredBasePanel";
 import {
   KB_BRANDS,
   KB_LANGS,
@@ -167,24 +159,26 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
             <h2>{base.name}</h2>
             <p className="muted">
               <span className="chip" data-admin-kb-base-kind={base.kind}>{kbBaseKindLabel(base.kind)}</span>
-              {" "}{base.status === "archived" ? "已归档" : "启用中"} · {Number(base.entries || rows.length)} 条条目 · {base.code}
+              {" "}{base.status === "archived" ? "已归档" : "启用中"}
+              {unstructured ? "" : ` · ${Number(base.entries || rows.length)} 条条目`}
+              {" · "}{base.code}
             </p>
           </div>
-          <button
-            className={creating ? "btn ghost" : "btn work"}
-            type="button"
-            aria-expanded={creating}
-            disabled={!canCreateEntry}
-            data-admin-kb-create-entry
-            title={canCreateEntry ? undefined : KB_UNSTRUCTURED_NOT_IMPLEMENTED}
-            onClick={() => setCreating((value) => !value)}
-          >
-            {creating ? "收起表单" : KB_ADMIN_ACTION.newEntry}
-          </button>
+          {canCreateEntry ? (
+            <button
+              className={creating ? "btn ghost" : "btn work"}
+              type="button"
+              aria-expanded={creating}
+              data-admin-kb-create-entry
+              onClick={() => setCreating((value) => !value)}
+            >
+              {creating ? "收起表单" : KB_ADMIN_ACTION.newEntry}
+            </button>
+          ) : null}
         </div>
         {base.description ? <p className="muted">{base.description}</p> : null}
         {unstructured ? (
-          <p className="muted admin-note" data-admin-kb-unstructured-note>{KB_UNSTRUCTURED_NOT_IMPLEMENTED}</p>
+          <p className="muted admin-note" data-admin-kb-unstructured-note>{KB_UNSTRUCTURED_P1_NOTE}</p>
         ) : null}
         {!rowsKnown && allRows.length ? (
           <p className="muted admin-note" data-admin-kb-base-unfiltered>
@@ -245,6 +239,9 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
         </form>
       ) : null}
 
+      {unstructured ? (
+        <UnstructuredBasePanel baseId={id} notify={notify} fail={fail} />
+      ) : (
       <article className="panel" data-admin-knowledge-entries>
         <div className="admin-section-head">
           <div>
@@ -360,6 +357,7 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
           </div>
         ) : null}
       </article>
+      )}
     </>
   );
 }

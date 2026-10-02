@@ -221,6 +221,15 @@ export function textValue(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+/** 字节数的紧凑展示（列表元信息用；不参与业务判断）。 */
+export function formatBytes(bytes?: number): string {
+  const value = Number(bytes || 0);
+  if (!value) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1048576).toFixed(1)} MB`;
+}
+
 export function listText(value: unknown): string {
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).join(" / ");
   return String(value ?? "").trim();

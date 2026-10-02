@@ -104,12 +104,13 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await expect(page.locator("[data-admin-kb-version-body='1']")).toContainText("LiTime Mini 12V");
   });
 
-  test("入库视图：上传入口灰置并显式标注未实现", async ({ page }) => {
+  test("入库视图：stub 引擎健康时上传入口可用，资料区可见（不再灰置）", async ({ page }) => {
     await openView(page, "/admin/knowledge/ingest", "ingest");
-    const upload = page.locator("[data-admin-kb-upload-disabled]");
-    await expect(upload).toBeVisible();
-    await expect(upload).toBeDisabled();
-    await expect(page.locator("[data-admin-kb-ingest-unimplemented]")).toContainText("未实现");
+    await expect(page.locator("[data-admin-kb-doc-upload]")).toBeVisible();
+    await expect(page.locator("[data-admin-kb-engine-health]")).toContainText("PageIndex");
+    await expect(page.locator("[data-admin-kb-doc-upload-submit]")).toBeVisible();
+    await expect(page.locator("[data-admin-kb-documents]")).toBeVisible();
+    await expect(page.locator("[data-admin-kb-upload-disabled]")).toHaveCount(0);
   });
 
   test("引用视图：新建绑定后进入表格，试算同时渲染命中与跳过两栏", async ({ page }) => {

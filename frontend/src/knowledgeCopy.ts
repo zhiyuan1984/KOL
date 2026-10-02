@@ -431,9 +431,9 @@ export const KB_ADMIN_VIEW_TITLE: Record<KbAdminView, string> = {
 export const KB_ADMIN_VIEW_LEAD: Record<KbAdminView, string> = {
   review: "待审、草稿、隔离提案、到期提醒与员工反馈处置汇总在这里；每行只把你带到条目详情。",
   catalog: "族 → 域 → 库的目录树：分类只做业务归类，不承载权限；权限仍按组织范围与授权。",
-  base: "这个库里的条目与治理状态。新建只写草稿；发布仍要走审批。",
+  base: "这个库里有哪些内容、处于什么状态；新建只写草稿，发布仍要走审批。",
   entry: "这条知识的治理状态与影响面；主行动按当前状态唯一渲染。",
-  ingest: "上传只进原文库；抽取只生成待审草稿，不会自动发布。",
+  ingest: "素材入库与提取的进展与成败。",
   bindings: "绑定决定哪个技能在运行时取哪类知识。保存不等于已注入，下次运行才按新配置解析。",
 };
 
@@ -544,12 +544,84 @@ export const KB_BASE_STATUS_LABEL: Record<string, string> = {
   archived: "已归档",
 };
 
-/** 非结构化库：解析与检索尚未实现（CONST-10：页面显式标注，不降等、不伪装）。 */
-export const KB_UNSTRUCTURED_NOT_IMPLEMENTED =
-  "非结构化库的解析、分块与检索本阶段未实现：页面只登记库与外部引用，不提供上传 / 解析入口。";
+/** 非结构化库（P1，2026-10-02）：解析与检索由 PageIndex 本地承担；先接入 PDF。 */
+export const KB_UNSTRUCTURED_P1_NOTE =
+  "非结构化资料由 PageIndex 本地承担规整与检索；先接入 PDF，音视频 / PPTX 后续批次。";
 
-export const KB_INGEST_NOT_IMPLEMENTED =
-  "非结构化阶段未实现：上传入口灰置，不伪造上传、解析或进度。结构化条目请走「目录 → 知识库 → 新建条目」。";
+export const KB_INGEST_LEAD =
+  "上传只写原文库；规整与建索引产出待审资料，发布后才参与检索（审核后生效）。";
+
+/* ---- 非结构化资料（P1）：状态、进度与文案 ---- */
+
+export const KB_DOC_STATUS_LABEL: Record<string, string> = {
+  uploaded: "排队中（待加工）",
+  normalizing: "规整中",
+  indexing: "建索引中",
+  pending_review: "待审",
+  published: "已发布",
+  archived: "已归档",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+export const KB_DOC_JOB_KIND_LABEL: Record<string, string> = { normalize: "规整", index: "索引" };
+
+export const KB_DOC_JOB_STATUS_LABEL: Record<string, string> = {
+  queued: "排队中",
+  running: "进行中",
+  done: "完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+export const KB_DOC_ACTION = {
+  upload: "上传资料",
+  submit: "上传并开始加工",
+  retry: "重试",
+  cancel: "取消",
+  remove: "删除",
+  publish: "发布",
+  reprocess: "重新加工",
+  archive: "归档",
+  detail: "详情",
+  collapse: "收起",
+  openSource: "打开原文件",
+  trial: "试算",
+  trialRun: "运行试算",
+} as const;
+
+export const KB_DOC_EMPTY = {
+  bases: "还没有非结构化知识库；先在「目录」里创建一个，再回来上传 PDF。",
+  documents: "还没有资料；到「入库」上传 PDF。",
+  documentsAll: "还没有资料。上传一份 PDF，加工完成后到「待处置」发布。",
+  jobs: "暂无作业记录。",
+  trial: "还没有试算结果；发布资料后在这里直接提问。",
+  preview: "暂无留档稿（转写稿 / 抽取稿）。",
+} as const;
+
+export const KB_DOC_TRIAL_LEAD =
+  "试算直接返回 PageIndex 的答案与页级引用；未发布资料默认不参与，审批单份资料时可用「仅审核试算」。";
+
+export function kbDocStatusLabel(status?: string): string {
+  const code = String(status || "").trim();
+  return KB_DOC_STATUS_LABEL[code] || code || "—";
+}
+
+/** 真实进度文案：只来自最新作业的真实分子/分母；索引阶段无细分进度就如实写明。 */
+export function kbDocProgressText(doc: {
+  latest_job?: { kind?: string; status?: string; progress_done?: number; progress_total?: number } | null;
+}): string {
+  const job = doc.latest_job;
+  if (!job) return "";
+  const kind = String(job.kind || "");
+  const status = String(job.status || "");
+  if (status === "queued") return "排队中";
+  if (status !== "running") return "";
+  if (kind === "index") return "建索引中（无细分进度）";
+  const done = Number(job.progress_done || 0);
+  const total = Number(job.progress_total || 0);
+  return total > 0 ? `规整中 ${done}/${total}` : "规整中";
+}
 
 export const KB_STRUCTURED_LEAD =
   "结构化字段按类型定义渲染（与 config/knowledge-kinds.yaml 同步）；保存只写草稿，发布仍要审批。";

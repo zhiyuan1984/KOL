@@ -70,12 +70,12 @@
 | 7 | 邮件 | 3 | `kol_mail_items`、`kol_mail_threads`、`kol_mail_seen` |
 | 8 | 任务运行时 | 3 | `task_runs`、`task_events`、`task_artifacts`（原 `work_items` 已并入 `tickets`，见分组 14） |
 | 9 | 技能 | 12 | `skill_drafts`、`skill_flags`、`skill_grants`、`skill_lifecycle`、`skill_sops`、`skill_stage_history`、`skill_test_runs`、`skill_tests`、`skill_versions`、`runtime_agent_skills`、`runtime_skill_connectors`、`runtime_skill_tools` |
-| 10 | 知识 | 11 | `knowledge`、`knowledge_domains`、`knowledge_bases`、`knowledge_bindings`、`knowledge_citations`、`knowledge_deprecations`、`knowledge_extract_jobs`、`knowledge_grants`、`knowledge_proposals`、`knowledge_raw`、`knowledge_versions` |
+| 10 | 知识 | 13 | `knowledge`、`knowledge_domains`、`knowledge_bases`、`knowledge_documents`、`knowledge_document_jobs`、`knowledge_bindings`、`knowledge_citations`、`knowledge_deprecations`、`knowledge_extract_jobs`、`knowledge_grants`、`knowledge_proposals`、`knowledge_raw`、`knowledge_versions` |
 | 11 | 连接器运行时治理 | 13 | `runtime_connector_config`、`runtime_connector_organization_nodes`、`runtime_connector_organization_sync`、`runtime_connector_probes`、`runtime_connector_scope_bindings`、`runtime_connector_scope_modes`、`runtime_connector_scope_policies`、`runtime_connector_tool_inventory`、`runtime_credentials`、`runtime_tool_global_scopes`、`runtime_tool_policies`、`runtime_tool_scope_bindings`、`runtime_bootstrap_migrations` |
 | 12 | 评测考试 | 6 | `exams`、`exam_assignments`、`exam_attempts`、`exam_items`、`exam_qualifications`、`exam_snapshots` |
 | 13 | 成本·定时任务·记忆简报 | 8 | `cost_budgets`、`cost_events`、`cron_jobs`、`cron_runs`、`memory_entries`、`employee_memory_items`、`employee_today_briefs`、`employee_todo_briefs` |
 | 14 | 事实账本与工单（2026-10-01 本体三表） | 2 | `business_events`、`tickets`（工单表：原 `work_items` 已并入） |
-| — | **合计** | **103** | 另有 `sqlite_sequence`（SQLite 内部表）与 `stage_transitions`、`business_events` 的不可变触发器，见正文与附录。§一 的基准库扫描快照生成于本体换表与知识分层之前，重扫前以分组 8 / 分组 10 / 分组 14 为准。 |
+| — | **合计** | **105** | 另有 `sqlite_sequence`（SQLite 内部表）与 `stage_transitions`、`business_events` 的不可变触发器，见正文与附录。§一 的基准库扫描快照生成于本体换表、知识分层与资料流水线之前，重扫前以分组 8 / 分组 10 / 分组 14 为准。 |
 
 ---
 
@@ -1553,9 +1553,9 @@ KOL 往来邮件主线、会话线与已读标记。
 
 ---
 
-## 十二、分组 10：知识（11 张表）
+## 十二、分组 10：知识（13 张表）
 
-知识分类（主题域族 → 主题域 → 知识库）、知识条目、版本、引用、废止、原始素材、抽取作业、提案、授权与绑定。分类只做业务归类，不承载权限（权限仍走 `knowledge_grants` / 品牌 / 组织范围）；知识库分结构化（按键取用的受控条目）与非结构化（解析与检索后续阶段落地）。
+知识分类（主题域族 → 主题域 → 知识库）、知识条目、非结构化资料流水线（2026-10-02：`knowledge_documents` / `knowledge_document_jobs`）、版本、引用、废止、原始素材、抽取作业、提案、授权与绑定。分类只做业务归类，不承载权限（权限仍走 `knowledge_grants` / 品牌 / 组织范围）；知识库分结构化（按键取用的受控条目）与非结构化（资料由 PageIndex 本地模式规整与检索，先接入 PDF）。
 
 ### knowledge — 知识条目（Wiki 层）
 
@@ -1639,6 +1639,57 @@ KOL 往来邮件主线、会话线与已读标记。
 | `version` | INTEGER | NOT NULL DEFAULT 1 | 版本 | 乐观锁；每次编辑 +1，与 `expected_version` 比对。 |
 | `created_at` | TEXT | NOT NULL | 创建时间 | ISO 8601 字符串。 |
 | `updated_at` | TEXT | NOT NULL | 更新时间 | ISO 8601 字符串。 |
+
+### knowledge_documents — 非结构化资料（P1，2026-10-02）
+
+- **用途**：非结构化库里的一份源文件及其加工状态：`uploaded → normalizing → indexing → pending_review → published → archived`（含 `failed` / `cancelled`）。上传 → 规整（多模态模型 / 直通）→ 索引（PageIndex 本地，经 `backend/tools/pageindex-bridge/` 侧车）→ 待审 → 发布才参与检索（审核后生效）。
+- **主键 / 唯一约束**：`id`（主键）。无其他唯一约束。
+- **关键索引**：`knowledge_documents_base`（`base_id, status`）、`knowledge_documents_updated`（`updated_at DESC`）。
+- **写入方**：`backend/src/host/knowledge-documents.ts` —— `uploadDocument`（落盘 + 建行 + 入队）、流水线执行器（阶段状态与进度）、`publishDocument` / `archiveDocument` / `deleteDocument`（后者级联删作业与本地文件）；HTTP 入口见 `backend/src/routers/knowledge.ts` 的 `/admin/knowledge/documents*`。
+- **备注**：无数据库外键。`base_id` 逻辑指向非结构化且 `active` 的 `knowledge_bases`（创建时校验，400 `knowledge_base_not_unstructured` / `knowledge_base_archived`）；P1 只接受 PDF（其余格式 400 `knowledge_format_not_implemented`）。`source_path` 存相对 data 根的路径（越出 data 根时存绝对路径）；`artifacts` 为 JSON：`normalize`（mode/model/留档稿路径/页数/成本）与 `index`（engine/version/doc_id/library/pages）。彻底删除仅限未发布（`published` / `archived` 只能归档）；`normalizing` / `indexing` 需先取消。审计事件 `knowledge.document.upload|normalize|index|retry|cancel|publish|archive|delete`。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 资料 ID | `nid("kdoc")` 生成。 |
+| `base_id` | TEXT | NOT NULL | 所属知识库 | 必须是非结构化且启用的库。 |
+| `title` | TEXT | NOT NULL | 标题 | 默认取文件名（去扩展名）。 |
+| `filename` | TEXT | NOT NULL | 文件名 | 清洗后的原始文件名。 |
+| `media_type` | TEXT | NOT NULL | 类型 | P1 实际只写入 `pdf`；枚举 `pdf` / `pptx` / `image` / `audio` / `video`（后四类 P2 接入）。 |
+| `mime` | TEXT | 可空 | MIME | 浏览器给出的类型，未知为空。 |
+| `size_bytes` | INTEGER | NOT NULL DEFAULT 0 | 字节数 | 超过 `KNOWLEDGE_DOC_MAX_BYTES`（默认 512 MiB）时 413。 |
+| `source_path` | TEXT | NOT NULL | 原文件路径 | 相对 data 根（例 `knowledge/bases/<base>/documents/<id>/source.pdf`）。 |
+| `status` | TEXT | NOT NULL DEFAULT 'uploaded' | 状态 | `uploaded` / `normalizing` / `indexing` / `pending_review` / `published` / `archived` / `failed` / `cancelled`；转移由代码强制（见设计 §5）。 |
+| `error` | TEXT | 可空 | 最近失败原因 | 失败时写入；重试/重新加工时清空。 |
+| `retry_count` | INTEGER | NOT NULL DEFAULT 0 | 重试次数 | `retryDocument` 每次 +1。 |
+| `artifacts` | TEXT | 可空 | 加工产物 | JSON（见备注）。 |
+| `created_by` | TEXT | 可空 | 上传人 | 创建者用户 ID。 |
+| `created_at` | TEXT | NOT NULL | 创建时间 | ISO 8601。 |
+| `updated_at` | TEXT | NOT NULL | 更新时间 | ISO 8601；每次状态/产物变化刷新。 |
+| `published_by` | TEXT | 可空 | 发布人 | 审批发布时写入。 |
+| `published_at` | TEXT | 可空 | 发布时间 | ISO 8601。 |
+
+### knowledge_document_jobs — 资料加工作业
+
+- **用途**：记录每次「规整 / 索引」尝试（含重试历史与真实进度）。同一时间最多 1 个作业在跑（单并发队列，与 MediaCrawler 同级约束）；`progress_done / progress_total` 只为真实计量单位（音视频分段、扫描件页），索引阶段无细分进度时保持 `0/0` 并在页面写明。
+- **主键 / 唯一约束**：`id`（主键）。无其他唯一约束。
+- **关键索引**：`knowledge_document_jobs_doc`（`document_id, created_at DESC`）、`knowledge_document_jobs_status`（`status`）。
+- **写入方**：仅 `backend/src/host/knowledge-documents.ts`（入队建 `queued` → 执行置 `running` → 终态 `done` / `failed` / `cancelled`）；启动对账把 `running` 置 `failed(interrupted)` 并重新入队 `queued`。
+- **备注**：无外键；`document_id` 逻辑指向 `knowledge_documents.id`；删除资料时级联删除本表行。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 作业 ID | `nid("kdjob")` 生成。 |
+| `document_id` | TEXT | NOT NULL | 资料 ID | 指向 `knowledge_documents.id`。 |
+| `kind` | TEXT | NOT NULL | 作业类型 | `normalize`（规整）/ `index`（索引）。 |
+| `status` | TEXT | NOT NULL | 状态 | `queued` / `running` / `done` / `failed` / `cancelled`。 |
+| `progress_done` / `progress_total` | INTEGER | NOT NULL DEFAULT 0 | 真实进度 | 分子/分母；`0/0` 表示无细分进度。 |
+| `detail` | TEXT | 可空 | 阶段细节 | JSON：`mode`（stub / text-passthrough / scanned-ocr）、模型、备注等。 |
+| `error` | TEXT | 可空 | 失败原因 | 失败时写入（人类可读，截断 500 字符）。 |
+| `attempt` | INTEGER | NOT NULL DEFAULT 1 | 尝试序号 | 同一资料同一 `kind` 的第几次尝试。 |
+| `created_by` | TEXT | 可空 | 触发人 | 资料创建者。 |
+| `created_at` | TEXT | NOT NULL | 入队时间 | ISO 8601。 |
+| `started_at` | TEXT | 可空 | 开始时间 | `running` 时写入。 |
+| `finished_at` | TEXT | 可空 | 结束时间 | 终态时写入。 |
 
 ### knowledge_bindings — 知识-技能绑定
 

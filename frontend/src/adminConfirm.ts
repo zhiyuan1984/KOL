@@ -33,6 +33,9 @@ export type AdminConfirmKind =
   | "knowledge-archive"
   | "knowledge-hard-delete"
   | "knowledge-publish"
+  | "knowledge-document-publish"
+  | "knowledge-document-archive"
+  | "knowledge-document-delete"
   | "exam-publish"
   | "exam-assign"
   | "skill-delete"
@@ -215,6 +218,39 @@ export function knowledgePublishConfirm(title: string, version?: number): AdminC
     scope: "待审 / 草稿 → 运营知识库正式资产",
     consequence: "发布后运营可启用本版。邮件模板启用后会进入写信底稿。不是草稿预览。",
     confirmLabel: "确认发布",
+  };
+}
+
+export function knowledgeDocumentPublishConfirm(title: string): AdminConfirmCopy {
+  return {
+    kind: "knowledge-document-publish",
+    title: "发布资料到检索",
+    object: named(title),
+    scope: "待审资料 → 参与检索（管理端试算与后续 Worker 通道）",
+    consequence: "发布后该资料参与检索问答；未发布资料默认不参与。发布前可重新加工。",
+    confirmLabel: "确认发布",
+  };
+}
+
+export function knowledgeDocumentArchiveConfirm(title: string): AdminConfirmCopy {
+  return {
+    kind: "knowledge-document-archive",
+    title: "归档资料",
+    object: named(title),
+    scope: "已发布资料 → 归档（不是删除）",
+    consequence: "归档后不再参与检索；原文件与索引留在本机，可按需重新加工。",
+    confirmLabel: "确认归档",
+  };
+}
+
+export function knowledgeDocumentDeleteConfirm(title: string): AdminConfirmCopy {
+  return {
+    kind: "knowledge-document-delete",
+    title: "删除资料",
+    object: named(title),
+    scope: "未发布资料 · 原文件与索引一并清理",
+    consequence: "从资料库移除并清理本地文件与索引，不能撤销；已发布过的资料只能归档。",
+    confirmLabel: "确认删除",
   };
 }
 

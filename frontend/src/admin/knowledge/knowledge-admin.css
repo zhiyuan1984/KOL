@@ -44,6 +44,14 @@
 }
 
 .kbadmin-title-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
   color: var(--text);
   font-weight: 600;
   text-decoration: underline;
@@ -371,4 +379,108 @@
 
 .kbadmin-feedback-actions .field {
   margin: var(--space-2) 0;
+}
+
+/* 非结构化资料（P1）：详情、试算与作业列表。 */
+.kbadmin-doc-detail {
+  border-top: var(--focus-ring-width) solid var(--border);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+}
+
+.kbadmin-doc-jobs {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+
+.kbadmin-doc-jobs li + li {
+  margin-top: var(--space-1);
+}
+
+.kbadmin-trial-answer {
+  white-space: pre-wrap;
+  margin: var(--space-2) 0;
+}
+
+.kbadmin-trial-citations {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  font-size: var(--font-sm);
+}
+
+.kbadmin-inline-check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 视觉整改（2026-10-02）：受控文件选择、状态列与试算内容块。 */
+.kbadmin-file-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-form);
+}
+
+.kbadmin-file-name {
+  color: var(--muted);
+  font-size: var(--font-sm);
+  overflow-wrap: anywhere;
+}
+
+.kbadmin-field-grow {
+  flex: 1 1 var(--ds-control-w);
+}
+
+.kbadmin-doc-meta {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-sm);
+}
+
+.kbadmin-trial-result {
+  border: var(--focus-ring-width) solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.kbadmin-trial-answer {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
+  color: var(--text);
+}
+
+.kbadmin-trial-citations {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--font-sm);
+}
+
+.kbadmin-trial-citations li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.kbadmin-cite-tag {
+  flex: 0 0 auto;
+  padding: 0 var(--space-2);
+  border-radius: var(--ds-radius-tag);
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+
+.kbadmin-trial-usage {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-xs);
 }

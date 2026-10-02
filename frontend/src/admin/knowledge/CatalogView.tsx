@@ -4,7 +4,7 @@ import { api, type KnowledgeBaseRow, type KnowledgeDomainRow } from "../../api";
 import {
   KB_ADMIN_ACTION,
   KB_ADMIN_EMPTY,
-  KB_UNSTRUCTURED_NOT_IMPLEMENTED,
+  KB_UNSTRUCTURED_P1_NOTE,
   kbBaseKindLabel,
   kbLevelLabel,
 } from "../../knowledgeCopy";
@@ -241,7 +241,7 @@ export default function CatalogView({ notify, fail }: KbFeed) {
               </label>
               <label className="field">说明<input name="description" /></label>
             </div>
-            <p className="muted">{KB_UNSTRUCTURED_NOT_IMPLEMENTED}</p>
+            <p className="muted">{KB_UNSTRUCTURED_P1_NOTE}</p>
             <button className="btn work" data-admin-kb-base-submit>{KB_ADMIN_ACTION.saveBase}</button>
           </form>
         ) : null}

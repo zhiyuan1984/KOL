@@ -92,7 +92,7 @@
 - 新表 `knowledge_domains`（两级分类树）：`id, code, name, level('family'|'domain'), parent_id, sort, status('active'|'archived'), note, created_by, created_at, updated_at`。
   约束：`level='domain'` 必须有 `parent_id` 且父为 `family`；`level='family'` 不得带父；同一父下 `code` 唯一（部分唯一索引）。**只做业务归类，不承载权限。**
 - 新表 `knowledge_bases`（知识库＝容器＋策略）：`id, code, name, domain_id, kind('structured'|'unstructured'), description, owner_user_id, status, settings(JSON), external_ref(JSON), version, created_at, updated_at`。
-  `kind='structured'` 的库承载按键取用的受控条目（模板/提示词/术语表/问答）；`kind='unstructured'` 为文档/媒体库，解析与检索后端（WeKnora 或自建）在后续阶段落地，`external_ref` 预留外部库映射，本阶段恒空。
+  `kind='structured'` 的库承载按键取用的受控条目（模板/提示词/术语表/问答）；`kind='unstructured'` 为文档/媒体库：**修订（2026-10-02，用户决策）**——解析与检索由 **PageIndex 本地模式 ＋ 多模态规整层**承担（详见 [2026-10-02 非结构化详细设计](2026-10-02-knowledge-unstructured-pageindex-design.md)），`external_ref` 记录库级引擎绑定（`{"provider":"pageindex-local",…}`），原「WeKnora 或自建」表述作废。
 
 **条目层（增列）**
 
@@ -103,13 +103,13 @@
   **语义（按对象收窄）**：某条知识出现授权行时仅授权范围可见；无授权行者维持现行「已发布即可见」。与 `skill_grants` 的全局空表语义不同，此处取增量收窄，避免一次性改变全量可见性（`backend/src/host/grants.ts:36-61` 为对照实现）。
 - 新表 `knowledge_bindings`：`id, skill_id, selector(JSON), enabled, note, created_by, created_at, updated_at`。
 - 审计事件：`knowledge.resolve`（每次运行：解析到 id+版本、跳过项与原因）、`knowledge.binding.save`、`knowledge.grant.save`、`knowledge.rollback`、`knowledge.feedback.handle`、`knowledge.domain.save`、`knowledge.base.save`。
-- **不加** chunk / embedding / vector 表（结构化阶段）；非结构化阶段若接入外部检索后端，其分块与向量存在外部服务，本库不复制（§4.5、方案 C）。
+- **不加** chunk / embedding / vector 表；**修订（2026-10-02，用户决策）**——非结构化阶段采用 PageIndex 本地模式（树索引＋推理检索，**无向量库、无 embedding**），索引产物存本地目录，本库既不建向量表也不复制分块（原「分块与向量存在外部服务」表述作废）。
 
-### 4.3.1 知识流程（借 WeKnora 的阶段与版本语义，保留本仓审核闸门）
+### 4.3.1 知识流程（版本语义＋审核闸门；结构化本阶段、非结构化另案）
 
 - **结构化（本阶段）**：`录入/上传(md) → 字段与占位符校验 + 密钥扫描 → draft → pending_review → 审批（expected_version，冲突 409）→ published → 绑定 → 引用 → 个人隐藏/反馈处置`。
-- **版本语义（照 WeKnora）**：不可变原稿 `source_body` ＋ 当前内容 `body` ＋ 单调 `current_version`（乐观锁）＋ `knowledge_versions` 快照 ＋ **回滚＝生成新版本**（历史行不动）。
-- **非结构化（后续阶段）**：状态机沿用 WeKnora 的 `pending → processing → finalizing(子任务计数) → completed | failed | cancelled`，配阶段时间线与卡死重试；**但保留「审核后生效」**，不采用「索引即生效」。
+- **版本语义**：不可变原稿 `source_body` ＋ 当前内容 `body` ＋ 单调 `current_version`（乐观锁）＋ `knowledge_versions` 快照 ＋ **回滚＝生成新版本**（历史行不动）。
+- **非结构化（另案，2026-10-02 定案）**：引擎＝PageIndex 本地模式 ＋ 多模态规整层；状态机落为本仓 `uploaded→normalizing→indexing→pending_review→published→archived`（含 failed/cancelled、重试与重启对账），配阶段时间线；**保留「审核后生效」**，不采用「索引即生效」。详见 [2026-10-02 非结构化详细设计](2026-10-02-knowledge-unstructured-pageindex-design.md)。
 - **不照搬**：Space 多租户、Wiki 自动生成、知识图谱。
 
 ### 4.4 反馈与管理闭环
@@ -264,7 +264,7 @@
 ## 12. 不做（非目标）
 
 - 不建 MySQL、不引入向量库/embedding 服务、不上 GPU（触发条件见 §4.5）。
-- **修订（2026-10-01，用户决策）**：引入**受控两级业务分类**（主题域族 → 主题域）与知识库容器（`knowledge_domains` / `knowledge_bases`），仅作业务归类、不承载权限；**范围与权限仍沿用既有组织/品牌/区域维度与 grants**（原作废条款：「不引入命名空间重表」）。非结构化阶段的解析 / 分块 / 向量住在外部服务，本库不建向量表（§4.3、§4.5）。
+- **修订（2026-10-01，用户决策）**：引入**受控两级业务分类**（主题域族 → 主题域）与知识库容器（`knowledge_domains` / `knowledge_bases`），仅作业务归类、不承载权限；**范围与权限仍沿用既有组织/品牌/区域维度与 grants**（原作废条款：「不引入命名空间重表」）。**修订（2026-10-02，用户决策）**：非结构化阶段采用 PageIndex 本地模式（树索引＋推理检索；无向量库、无 embedding、不引外部知识服务），索引产物存本地目录，本库不建向量表（§4.3、§4.5、[2026-10-02 非结构化详细设计](2026-10-02-knowledge-unstructured-pageindex-design.md)）。
 - 不让模型读 wiki 原文；注入永远是编译载荷。
 - 不允许 AI 自动修改主文档（只产候选、人审门禁）。
 - 不新增顶层导航；不把 `/kb` 写成治理页；不在管理端做第二套 Home。
