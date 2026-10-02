@@ -1096,9 +1096,8 @@ function initSchema(db: SqliteConn): void {
         CREATE INDEX IF NOT EXISTS cron_runs_status
             ON cron_runs(status, scheduled_for);
 
-        -- M2 过渡执行脊柱：SQLite 单 Worker 的持久 job/outbox 契约。
-        -- 生产多 Worker 目标仍是 PostgreSQL + Outbox publisher + Redis/BullMQ；
-        -- 此处不把 SQLite 伪装成该目标，只保证进程退出不丢失已接受的作业。
+        -- 执行脊柱：PostgreSQL 是生产权威持久层，Outbox publisher 与
+        -- Redis/BullMQ 只负责派发；测试夹具也使用同一数据契约。
         CREATE TABLE IF NOT EXISTS execution_jobs (
             id TEXT PRIMARY KEY,
             job_type TEXT NOT NULL,
@@ -1156,6 +1155,27 @@ function initSchema(db: SqliteConn): void {
         );
         CREATE INDEX IF NOT EXISTS execution_outbox_ready
             ON execution_outbox(status, available_at, created_at);
+
+        -- M4 rule registry: records published policy and draft preview only.
+        -- No scheduler reads this table to make an automated assignment/SLA
+        -- decision until the business owner publishes the corresponding policy.
+        CREATE TABLE IF NOT EXISTS scheduling_rules (
+            id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            rule_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('draft','published','disabled','superseded')),
+            scope_json TEXT NOT NULL DEFAULT '{}',
+            definition_json TEXT NOT NULL DEFAULT '{}',
+            created_by TEXT NOT NULL,
+            published_by TEXT,
+            created_at TEXT NOT NULL,
+            published_at TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(id, version)
+        );
+        CREATE INDEX IF NOT EXISTS scheduling_rules_status
+            ON scheduling_rules(status, rule_type, updated_at);
 
         CREATE TABLE IF NOT EXISTS user_uploads (
             id TEXT PRIMARY KEY,

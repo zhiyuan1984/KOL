@@ -188,6 +188,12 @@ describe("cron jobs P0/P1", () => {
     const job = jobByKey("overdue-scan");
     const queued = enqueueManualRun(String(job?.id), "2026-10-02T08:00:00.000Z");
     expect(queued.duplicate).toBe(false);
+    getConn().prepare(
+      "INSERT INTO scheduling_rules (id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+    ).run(
+      "rule_sla_preview", 1, "sla", "报价跟进 SLA（草案）", "draft", "{}", "{}", "biz:owner", null,
+      "2026-10-02T08:00:00.000Z", null, "2026-10-02T08:00:00.000Z",
+    );
     const response = await request("GET", "/api/admin/scheduling/execution-jobs");
     expect(response.status, response.text).toBe(200);
     expect(response.body).toMatchObject({ execution_mode: "sqlite_test_fixture_only" });
@@ -195,6 +201,7 @@ describe("cron jobs P0/P1", () => {
     expect(Number((response.body.outbox as Json).pending || 0)).toBeGreaterThan(0);
     expect(response.body.backlog).toMatchObject({ count: expect.any(Number) });
     expect(response.body.workers).toEqual([]);
+    expect(response.body.rules).toEqual([expect.objectContaining({ id: "rule_sla_preview", status: "draft", rule_type: "sla" })]);
   });
 
   it("tickCronDue claims a due published job via BEGIN IMMEDIATE and does not create a session", async () => {

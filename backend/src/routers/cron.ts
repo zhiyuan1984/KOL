@@ -23,7 +23,7 @@ import { audit, databaseEngine, getConn, nowIso } from "../db.js";
 import { executionJobPublic, listExecutionJobs, retryFailedExecutionJob } from "../execution-jobs/store.js";
 import { HttpFail } from "../host/errors.js";
 import { label } from "../stages.js";
-import type { Json } from "../types.js";
+import type { Json, Row } from "../types.js";
 import { taskDefinition } from "../tasks/registry.js";
 
 export const cron = new Hono();
@@ -140,15 +140,25 @@ cron.get("/admin/scheduling/execution-jobs", (c) => {
   const backlog = getConn().prepare(
     "SELECT MIN(created_at) AS oldest_created_at,COUNT(*) AS count FROM execution_jobs WHERE status IN ('queued','retrying')",
   ).get() as { oldest_created_at: string | null; count: number };
+  const rules = (getConn().prepare(
+    "SELECT id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at FROM scheduling_rules ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,updated_at DESC LIMIT 100",
+  ).all() as Row[]).map((row) => ({
+    id: String(row.id), version: Number(row.version), rule_type: String(row.rule_type), title: String(row.title), status: String(row.status),
+    scope: (() => { try { return JSON.parse(String(row.scope_json || "{}")); } catch { return {}; } })(),
+    definition: (() => { try { return JSON.parse(String(row.definition_json || "{}")); } catch { return {}; } })(),
+    created_by: String(row.created_by), published_by: row.published_by || null,
+    created_at: String(row.created_at), published_at: row.published_at || null, updated_at: String(row.updated_at),
+  }));
   return c.json({
     items: jobs,
     counts: Object.fromEntries(statusCounts.map((row) => [row.status, Number(row.count)])),
     outbox: Object.fromEntries(outboxCounts.map((row) => [row.status, Number(row.count)])),
     workers,
     backlog: { count: Number(backlog.count || 0), oldest_created_at: backlog.oldest_created_at || null },
+    rules,
     as_of: asOf,
     execution_mode: databaseEngine() === "postgres" ? "postgres_redis_bullmq_multi_worker" : "sqlite_test_fixture_only",
-    source_refs: [{ type: "execution_jobs" }, { type: "execution_outbox" }, { type: "execution_worker_heartbeats" }],
+    source_refs: [{ type: "execution_jobs" }, { type: "execution_outbox" }, { type: "execution_worker_heartbeats" }, { type: "scheduling_rules" }],
   });
 });
 

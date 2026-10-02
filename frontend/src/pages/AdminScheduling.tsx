@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type ExecutionJob, type ExecutionWorker } from "../api";
+import { api, type ExecutionJob, type ExecutionWorker, type SchedulingRule } from "../api";
 
 function time(value?: string | null): string {
   if (!value) return "—";
@@ -39,6 +39,7 @@ export default function AdminScheduling() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [outbox, setOutbox] = useState<Record<string, number>>({});
   const [workers, setWorkers] = useState<ExecutionWorker[]>([]);
+  const [rules, setRules] = useState<SchedulingRule[]>([]);
   const [backlog, setBacklog] = useState<{ count: number; oldest_created_at: string | null }>({ count: 0, oldest_created_at: null });
   const [mode, setMode] = useState("");
   const [asOf, setAsOf] = useState<string | null>(null);
@@ -55,6 +56,7 @@ export default function AdminScheduling() {
       setCounts(data.counts || {});
       setOutbox(data.outbox || {});
       setWorkers(data.workers || []);
+      setRules(data.rules || []);
       setBacklog(data.backlog || { count: 0, oldest_created_at: null });
       setMode(data.execution_mode || "");
       setAsOf(data.as_of || null);
@@ -126,6 +128,18 @@ export default function AdminScheduling() {
           <div className="admin-row" key={worker.worker_id} data-worker-stale={worker.stale || undefined}>
             <div><strong>{worker.worker_id}</strong><p className="muted">{worker.worker_kind} · 并发 {String(worker.details?.concurrency || "—")} · 队列 {String(worker.details?.queue || "—")}</p></div>
             <div><strong className={worker.stale ? "status-warn" : "status-ok"}>{worker.stale ? "心跳超时" : label(worker.status)}</strong><p className="muted">{age(worker.heartbeat_at)}</p></div>
+          </div>
+        ))}
+      </article>
+
+      <article className="panel" style={{ gridColumn: "1 / -1" }}>
+        <h3>派单与 SLA 规则</h3>
+        <p className="muted">只读显示已发布版本与草案预览。规则未由业务负责人发布前，调度器不会据此自动派单、升级或改变工单状态。</p>
+        {!rules.length && <p className="muted">暂无已登记规则；自动派单与 SLA 升级保持关闭。</p>}
+        {rules.map((rule) => (
+          <div className="admin-row" key={`${rule.id}:${rule.version}`} data-scheduling-rule={rule.id}>
+            <div><strong>{rule.title}</strong><p className="muted">{rule.rule_type} · v{rule.version} · {rule.created_by}</p></div>
+            <div><strong className={rule.status === "published" ? "status-ok" : "status-warn"}>{label(rule.status)}</strong><p className="muted">{rule.published_at ? `发布于 ${time(rule.published_at)}` : "未发布，不参与自动决策"}</p></div>
           </div>
         ))}
       </article>

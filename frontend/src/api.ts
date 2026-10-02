@@ -437,6 +437,21 @@ export type ExecutionWorker = {
   stale: boolean;
 };
 
+export type SchedulingRule = {
+  id: string;
+  version: number;
+  rule_type: string;
+  title: string;
+  status: "draft" | "published" | "disabled" | "superseded" | string;
+  scope: Record<string, unknown>;
+  definition: Record<string, unknown>;
+  created_by: string;
+  published_by?: string | null;
+  created_at: string;
+  published_at?: string | null;
+  updated_at: string;
+};
+
 export type AdminAuditEvent = {
   id: number;
   ts: string;
@@ -2154,6 +2169,7 @@ export const api = {
       outbox: Record<string, number>;
       workers: ExecutionWorker[];
       backlog: { count: number; oldest_created_at: string | null };
+      rules: SchedulingRule[];
       as_of: string;
       execution_mode: string;
       source_refs: Array<Record<string, unknown>>;
