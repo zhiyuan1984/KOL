@@ -222,12 +222,23 @@ say "API is healthy; starting Outbox publisher and execution workers"
 # Nothing can be running as a worker here: the previous authority was stopped
 # above. Clear runtime presence rows so a stale "running" heartbeat from an
 # earlier attempt can never satisfy the check below.
-PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "DELETE FROM execution_worker_heartbeats" >/dev/null 2>&1 || true
-sudo systemctl restart "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"
+if ! delete_error="$(PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "DELETE FROM execution_worker_heartbeats" 2>&1 >/dev/null)"; then
+  say "WARNING: could not clear execution_worker_heartbeats: ${delete_error:-unknown error}"
+fi
+for unit in "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"; do
+  unit_state="$(systemctl is-active "$unit" 2>/dev/null || true)"
+  say "pre-restart ${unit}: ${unit_state:-unknown}"
+done
+restart_rc=0
+sudo systemctl restart "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B" || restart_rc=$?
+say "worker restart returned ${restart_rc}"
 workers_started=true
-sudo systemctl is-active --quiet "$OUTBOX_SERVICE"
-sudo systemctl is-active --quiet "$WORKER_A"
-sudo systemctl is-active --quiet "$WORKER_B"
+for unit in "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"; do
+  state_rc=0
+  unit_state="$(systemctl is-active "$unit" 2>/dev/null)" || state_rc=$?
+  say "unit ${unit}: state=${unit_state:-unknown} (is-active rc=${state_rc})"
+  [ "$unit_state" = "active" ] || die "unit ${unit} is not active after restart"
+done
 # Workers register their heartbeat several seconds after start (and create the
 # table on first use), so poll for two running heartbeats instead of asserting
 # the instant after restart.
@@ -235,9 +246,9 @@ running=0
 for attempt in $(seq 1 24); do
   running="$(PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "SELECT count(*) FROM execution_worker_heartbeats WHERE status='running'" 2>/dev/null || echo 0)"
   case "$running" in ''|*[!0-9]*) running=0 ;; esac
+  say "heartbeat poll ${attempt}: running=${running}"
   if [ "$running" -ge 2 ]; then break; fi
   if [ "$attempt" -eq 24 ]; then
-    say "expected two running execution worker heartbeats but observed ${running}"
     sudo systemctl --no-pager --full status "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B" || true
     sudo journalctl --no-pager -u "$OUTBOX_SERVICE" -u "$WORKER_A" -u "$WORKER_B" -n 120 || true
     die "execution workers did not report running heartbeats within 120s"
