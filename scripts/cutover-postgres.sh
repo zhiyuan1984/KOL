@@ -185,6 +185,10 @@ upsert_env REDIS_URL "redis://127.0.0.1:6379"
 upsert_env LINGONG_POSTGRES_DB "$POSTGRES_DB"
 upsert_env LINGONG_POSTGRES_USER "$POSTGRES_USER"
 upsert_env LINGONG_POSTGRES_PASSWORD "$PG_PASSWORD"
+EXPECTED_VERSION="$(git rev-parse --short HEAD)"
+# The health contract must identify the exact authority revision even when the
+# service is started from a detached SHA by the cutover workflow.
+upsert_env LINGONG_VERSION "$EXPECTED_VERSION"
 chmod 600 "$ROOT/.env"
 
 sudo install -m 644 "$ROOT/ops/systemd/lingong.service" /etc/systemd/system/lingong.service
@@ -192,19 +196,31 @@ sudo install -m 644 "$ROOT/ops/systemd/lingong-outbox.service" /etc/systemd/syst
 sudo install -m 644 "$ROOT/ops/systemd/lingong-execution-worker@.service" /etc/systemd/system/lingong-execution-worker@.service
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE" "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"
-sudo systemctl restart "$SERVICE"
-sudo systemctl restart "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"
-workers_started=true
 
-EXPECTED_VERSION="$(git rev-parse --short HEAD)"
+# Bring up the API alone first. Starting two BullMQ consumers at the same time
+# as the sync-bridge API creates an avoidable boot-time memory and connection
+# burst on the production VM, and it obscures whether the authority itself is
+# healthy. Workers start only after the API reports the expected revision.
+sudo systemctl restart "$SERVICE"
+last_actual="unavailable"
 for attempt in $(seq 1 48); do
   response="$(curl --fail --silent --show-error --connect-timeout 3 --max-time 8 http://127.0.0.1:8765/api/version || true)"
   actual="$(printf '%s' "$response" | node -e 'let b=""; process.stdin.on("data",x=>b+=x).on("end",()=>{try { console.log(JSON.parse(b).version || ""); } catch { console.log(""); }})')"
+  last_actual="${actual:-unavailable}"
   if [ "$actual" = "$EXPECTED_VERSION" ]; then break; fi
-  [ "$attempt" -eq 48 ] && die "API did not report expected revision $EXPECTED_VERSION"
+  if [ "$attempt" -eq 48 ]; then
+    say "API version probe expected $EXPECTED_VERSION but observed $last_actual"
+    sudo systemctl --no-pager --full status "$SERVICE" || true
+    sudo journalctl --no-pager -u "$SERVICE" -n 120 || true
+    die "API did not report expected revision $EXPECTED_VERSION"
+  fi
   sleep 5
 done
 sudo systemctl is-active --quiet "$SERVICE"
+
+say "API is healthy; starting Outbox publisher and execution workers"
+sudo systemctl restart "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"
+workers_started=true
 sudo systemctl is-active --quiet "$OUTBOX_SERVICE"
 sudo systemctl is-active --quiet "$WORKER_A"
 sudo systemctl is-active --quiet "$WORKER_B"
