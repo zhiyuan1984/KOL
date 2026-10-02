@@ -73,7 +73,7 @@ test("我的红人先读本地记忆并直接渲染互动结果", async ({ page 
   await expect(card).toBeVisible();
   await expect(card).toContainText("I am interested. Please share the rate card and next steps.");
   await expect(card.locator('[data-stage-code="INTERESTED"]')).toBeVisible();
-  await expect(page.locator("[data-followed-interaction]")).toContainText("1 位当前跟进对象");
+  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 1 位");
   await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
   // 本地索引和历史协作投影并行读取；非空索引可立即显示，但最终统计等两源合并。
   expect(resultRequests).toContain("/api/home/following");
