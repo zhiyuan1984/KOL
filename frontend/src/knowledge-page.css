@@ -118,6 +118,18 @@
   flex-direction: column;
 }
 
+.kbv-rail-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.kbv-list .kb-skill-templates .kb-skill-template-list {
+  max-height: 220px;
+  overflow: auto;
+}
+
 /* ── 中栏：检索区 ─────────────────────────────────────────────────── */
 
 .kbv-tools {

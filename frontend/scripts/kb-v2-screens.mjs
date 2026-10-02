@@ -73,5 +73,19 @@ await page.screenshot({ path: path.join(out, "probe-admin-upload.png") });
 await page.keyboard.press("Escape");
 await page.waitForTimeout(200);
 
-console.log(JSON.stringify({ base, records, views, countText, publishedCount, railTabs, railTitle, uploadSubmitDisabled, overflow, errors, out }, null, 2));
+await page.goto(base + "/kb", { waitUntil: "domcontentloaded" });
+await page.waitForSelector('[data-kb-page="mine"]', { timeout: 20000 });
+await page.waitForTimeout(900);
+const kbRecords = await page.locator("[data-knowledge]").count();
+const kbViews = await page.locator("[data-kbv-view]").count();
+await page.locator("[data-knowledge]").first().click();
+await page.waitForTimeout(400);
+const provenanceVisible = await page.locator("[data-kb-provenance]").isVisible().catch(() => false);
+const useVisible = await page.getByRole("button", { name: "用于当前任务" }).first().isVisible().catch(() => false);
+await page.screenshot({ path: path.join(out, "probe-employee-home.png") });
+
+console.log(JSON.stringify({
+  base, records, views, countText, publishedCount, railTabs, uploadSubmitDisabled,
+  kbRecords, kbViews, provenanceVisible, useVisible, overflow, errors, out,
+}, null, 2));
 await browser.close();
