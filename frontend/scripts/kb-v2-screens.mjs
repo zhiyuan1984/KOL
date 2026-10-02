@@ -56,5 +56,22 @@ await page.screenshot({ path: path.join(out, "probe-admin-category.png") });
 await page.keyboard.press("Escape");
 await page.waitForTimeout(200);
 
-console.log(JSON.stringify({ base, records, views, countText, overflow, errors, out }, null, 2));
+await page.locator('[data-kbv-view="published"]').click();
+await page.waitForTimeout(400);
+const publishedCount = await page.locator("[data-kbv-record]").count();
+await page.locator("[data-kbv-record]").first().click();
+await page.waitForTimeout(400);
+const railTabs = await page.locator("[data-kbv-detail-tab]").count();
+const railTitle = await page.locator("[data-kbv-detail] h2").first().textContent().catch(() => null);
+await page.screenshot({ path: path.join(out, "probe-admin-rail.png") });
+
+await page.locator("[data-kbv-upload]").click();
+await page.waitForSelector("[data-kbv-upload-dialog][open]", { timeout: 5000 });
+await page.waitForTimeout(300);
+const uploadSubmitDisabled = await page.locator("[data-kbv-upload-submit]").isDisabled();
+await page.screenshot({ path: path.join(out, "probe-admin-upload.png") });
+await page.keyboard.press("Escape");
+await page.waitForTimeout(200);
+
+console.log(JSON.stringify({ base, records, views, countText, publishedCount, railTabs, railTitle, uploadSubmitDisabled, overflow, errors, out }, null, 2));
 await browser.close();

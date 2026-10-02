@@ -547,6 +547,13 @@
   color: var(--text-muted);
 }
 
+.kbv-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
 .kbv-properties {
   display: grid;
   gap: var(--space-4);

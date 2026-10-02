@@ -4,7 +4,9 @@ import { api } from "../../api";
 import { kindLabel } from "../../knowledgeCopy";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
 import LibraryPane, { type KbView } from "./LibraryPane";
+import DetailRail from "./DetailRail";
 import CategoryDialog, { type KbCategory } from "./CategoryDialog";
+import UploadDialog from "./UploadDialog";
 import PhaseNotice from "./PhaseNotice";
 
 const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
@@ -16,9 +18,14 @@ const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
 
 const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: spec.label }));
 
-type Notice = { title: string; body: string; legacyHref: string; legacyLabel: string };
+const NEW_NOTICE = {
+  title: "新建知识 · P2 接入",
+  body: "新建与修订将在 P2 接入本页；过渡期可在旧版目录里进入知识库后新建条目。",
+  legacyHref: "/admin/knowledge/catalog",
+  legacyLabel: "打开旧版目录（迁移中）",
+};
 
-/** 管理端知识主页（IA v2，P1）：顶栏＋中栏列表＋右栏详情（右栏 P1.6 填充）。 */
+/** 管理端知识主页（IA v2）：顶栏＋中栏列表＋右栏详情（P1）。 */
 export default function KnowledgeHome() {
   const load = useCallback(async () => {
     const [rows, bases, domains, documents] = await Promise.all([
@@ -34,8 +41,10 @@ export default function KnowledgeHome() {
       pendingDocs: documents?.documents || [],
     };
   }, []);
-  const { data, error, loading } = useKbData(load);
+  const { data, error, loading, reload } = useKbData(load);
 
+  const [receipt, setReceipt] = useState("");
+  const [actionError, setActionError] = useState("");
   const [view, setView] = useState<KbView>("all");
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
@@ -44,7 +53,17 @@ export default function KnowledgeHome() {
   const [selectedId, setSelectedId] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
-  const [notice, setNotice] = useState<Notice | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [newNotice, setNewNotice] = useState(false);
+
+  const notify = useCallback((message: string) => {
+    setActionError("");
+    setReceipt(message);
+  }, []);
+  const fail = useCallback((cause: unknown, fallback = "操作失败") => {
+    setReceipt("");
+    setActionError(errorMessage(cause, fallback));
+  }, []);
 
   const rows = data?.rows || [];
   const bases = data?.bases || [];
@@ -103,6 +122,9 @@ export default function KnowledgeHome() {
     [filtered, selectedId],
   );
 
+  const selectedStatus = selectedRow ? String(selectedRow.status || "") : "";
+  const demoteNew = selectedStatus === "draft" || selectedStatus === "pending_review";
+
   const baseCounts = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of rows) {
@@ -141,7 +163,11 @@ export default function KnowledgeHome() {
 
   return (
     <section className="kbv" data-admin-knowledge data-admin-kb-v2="home">
-      {error ? <p className="error" role="alert">{errorMessage(error)}</p> : null}
+      {receipt ? (
+        <p className="admin-receipt status-ok" data-admin-receipt role="status">{receipt}</p>
+      ) : null}
+      {actionError ? <p className="error" role="alert">{actionError}</p> : null}
+      {error && !actionError ? <p className="error" role="alert">{errorMessage(error)}</p> : null}
 
       <header className="kbv-top" data-kbv-top>
         <div className="kbv-heading">
@@ -152,29 +178,14 @@ export default function KnowledgeHome() {
           <button type="button" className="btn" data-kbv-category onClick={() => setCategoryOpen(true)}>
             分类目录
           </button>
-          <button
-            type="button"
-            className="btn"
-            data-kbv-upload
-            onClick={() => setNotice({
-              title: "上传文件 · P2 接入",
-              body: "多格式上传与提取管线将在 P2 接入本页；过渡期请使用旧版入库视图完成上传。",
-              legacyHref: "/admin/knowledge/ingest",
-              legacyLabel: "打开旧版入库（迁移中）",
-            })}
-          >
+          <button type="button" className="btn" data-kbv-upload onClick={() => setUploadOpen(true)}>
             上传文件
           </button>
           <button
             type="button"
-            className="btn work"
+            className={demoteNew ? "btn" : "btn work"}
             data-kbv-new
-            onClick={() => setNotice({
-              title: "新建知识 · P2 接入",
-              body: "新建与修订将在 P2 接入本页；过渡期可在旧版目录里进入知识库后新建条目。",
-              legacyHref: "/admin/knowledge/catalog",
-              legacyLabel: "打开旧版目录（迁移中）",
-            })}
+            onClick={() => setNewNotice(true)}
           >
             新建知识
           </button>
@@ -205,29 +216,21 @@ export default function KnowledgeHome() {
           pendingDocsCount={pendingDocsCount}
           loading={loading}
           pathOf={pathOf}
-          onUpload={() => setNotice({
-            title: "上传文件 · P2 接入",
-            body: "多格式上传与提取管线将在 P2 接入本页；过渡期请使用旧版入库视图完成上传。",
-            legacyHref: "/admin/knowledge/ingest",
-            legacyLabel: "打开旧版入库（迁移中）",
-          })}
-          onCreate={() => setNotice({
-            title: "新建知识 · P2 接入",
-            body: "新建与修订将在 P2 接入本页；过渡期可在旧版目录里进入知识库后新建条目。",
-            legacyHref: "/admin/knowledge/catalog",
-            legacyLabel: "打开旧版目录（迁移中）",
-          })}
+          onUpload={() => setUploadOpen(true)}
+          onCreate={() => setNewNotice(true)}
         />
 
         <aside className="kbv-rail" aria-label="知识详情" data-kbv-detail>
           {selectedRow ? (
-            <p className="kbv-empty">
-              详情视图接入中；过渡期可在
-              <Link className="kbv-link-plain" to={`/admin/knowledge/entries/${encodeURIComponent(selectedRow.id)}`}>
-                旧版条目视图（迁移中）
-              </Link>
-              查看这条知识。
-            </p>
+            <DetailRail
+              key={selectedRow.id}
+              row={selectedRow}
+              path={pathOf(selectedRow)}
+              baseKind={selectedRow.base_id ? basesById.get(selectedRow.base_id)?.kind : undefined}
+              notify={notify}
+              fail={fail}
+              reload={reload}
+            />
           ) : (
             <p className="kbv-empty">从列表选择一条知识，查看内容与来源。</p>
           )}
@@ -247,13 +250,14 @@ export default function KnowledgeHome() {
           setView("all");
         }}
       />
+      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} />
       <PhaseNotice
-        open={Boolean(notice)}
-        title={notice?.title || ""}
-        body={notice?.body || ""}
-        legacyHref={notice?.legacyHref}
-        legacyLabel={notice?.legacyLabel}
-        onClose={() => setNotice(null)}
+        open={newNotice}
+        title={NEW_NOTICE.title}
+        body={NEW_NOTICE.body}
+        legacyHref={NEW_NOTICE.legacyHref}
+        legacyLabel={NEW_NOTICE.legacyLabel}
+        onClose={() => setNewNotice(false)}
       />
     </section>
   );
