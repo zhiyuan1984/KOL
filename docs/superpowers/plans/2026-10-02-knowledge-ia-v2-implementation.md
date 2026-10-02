@@ -45,10 +45,10 @@
 **Produces**：`.kbv`（页根，填充壳内高度）｜`.kbv-top`（顶栏）｜`.kbv-workspace`（grid：list 弹性＋rail `clamp(360px,54%,820px)`）｜`.kbv-list`/`.kbv-rail`（各自内部滚动）｜`.kbv-record` 双行列表行（选中左缘强调线）｜`.kbv-dialog` 弹窗基础｜断点：≤1100 上下堆叠＋列表折叠 6 条、≤860、≤480。
 
 **Steps**
-- [ ] 读壳层样式，确定页面全高填充方式（不改壳：页面内用 `height:100%`/`min-height:0` 结构适配）。
-- [ ] 写 `knowledge-page.css`（从 `space-3.css` 逐条翻译：选择器语义保留，数值全部替换为 styles.css 既有 token；不引入外部字体/图标）。
-- [ ] 运行 `cd frontend && npx tsc --noEmit`（文件尚未被引用，应通过）。
-- [ ] 提交：`feat(knowledge): P1.1 新页面样式基建（kbv-）`。
+- [x] 读壳层样式，确定页面全高填充方式（不改壳：页面内用 `height:100%`/`min-height:0` 结构适配）。
+- [x] 写 `knowledge-page.css`（从 `space-3.css` 逐条翻译：选择器语义保留，数值全部替换为 styles.css 既有 token；不引入外部字体/图标）。
+- [x] 运行 `cd frontend && npx tsc --noEmit`（文件尚未被引用，应通过）。
+- [x] 提交：`feat(knowledge): P1.1 新页面样式基建（kbv-）`。
 
 ### P1.2 管理端宿主重写（主页骨架＋过渡路由）
 
@@ -61,9 +61,9 @@
 - 过渡宿主：pathname 为 `catalog/bases/entries/ingest/bindings` 时渲染 slim 导航（`data-admin-kb-home-link` ← 知识首页 ＋ `data-admin-kb-tab` 5 项）＋原视图组件；`review` 段重定向到主页。
 
 **Steps**
-- [ ] 重写宿主（旧逻辑保留：notice/error 回执条、`CatalogHint`）。
-- [ ] `npx tsc --noEmit` 通过。
-- [ ] 提交：`feat(knowledge): P1.2 管理端宿主重写与旧路由过渡`。
+- [x] 重写宿主（旧逻辑保留：notice/error 回执条、`CatalogHint`）。
+- [x] `npx tsc --noEmit` 通过。
+- [x] 提交：`feat(knowledge): P1.2 管理端宿主重写与旧路由过渡`。
 
 ### P1.3 中栏 LibraryPane（真实数据、视图、检索）
 
@@ -76,10 +76,10 @@
 **行为**：视图＝全部/待审批/已发布/草稿/已停用＋真实计数；搜索＝标题/主题/维护人（客户端）；类型＝kind 下拉；分类＝领域/主题（来自 bases/domains join，无值显示「未分类」）；排序＝最近更新/标题；行两行（图标＋标题＋路径·类型＋状态/维护人）；≤1100 折叠 6 条＋「展开全部」；空态三分（无数据/无匹配）；待审批视图顶部一行「待审资料 N 份 → 旧版入库处理（迁移中）」链接（N>0 才出现）。
 
 **Steps**
-- [ ] 实现 LibraryPane＋宿主装载（`useKbData` 并行取数）。
-- [ ] 顺带统一知识域状态文案：「已归档」→「已停用」（`knowledgeCopy.ts` 与知识视图内硬编码处；不动 `AccountSettings` 等其它域同名词）；相关 e2e 断言在 P1.8 同批更新。
-- [ ] `npx tsc --noEmit` 通过。
-- [ ] 提交：`feat(knowledge): P1.3 中栏列表（真实数据）＋状态文案统一`。
+- [x] 实现 LibraryPane＋宿主装载（`useKbData` 并行取数）。
+- [x] 顺带统一知识域状态文案：「已归档」→「已停用」（`knowledgeCopy.ts` 与知识视图内硬编码处；不动 `AccountSettings` 等其它域同名词）；相关 e2e 断言在 P1.8 同批更新。
+- [x] `npx tsc --noEmit` 通过。
+- [x] 提交：`feat(knowledge): P1.3 中栏列表（真实数据）＋状态文案统一`。
 
 ### P1.4 分类目录弹窗
 
@@ -90,9 +90,9 @@
 **Produces**：`data-kbv-category-dialog|search|node|all`；选择态：族→领域→主题树行＋搜索＋计数，选中即过滤列表并关窗；管理态说明（「新建/改名/合并需校验引用，保留历史标识」）＋「旧版目录管理（迁移中）→ `/admin/knowledge/catalog`」。
 
 **Steps**
-- [ ] 实现弹窗（原生 `<dialog>`，焦点归还）。
-- [ ] `npx tsc --noEmit` 通过。
-- [ ] 提交：`feat(knowledge): P1.4 分类目录弹窗`。
+- [x] 实现弹窗（原生 `<dialog>`，焦点归还）。
+- [x] `npx tsc --noEmit` 通过。
+- [x] 提交：`feat(knowledge): P1.4 分类目录弹窗`。
 
 ### P1.5 上传弹窗＋「新建知识」阶段说明
 
@@ -105,9 +105,9 @@
 - 新建知识 → PhaseNotice：「P2 接入：新建与修订」＋「旧版新建（迁移中）→ `/admin/knowledge/catalog`（进库后新建条目）」。
 
 **Steps**
-- [ ] 实现两组件＋接线。
-- [ ] `npx tsc --noEmit` 通过。
-- [ ] 提交：`feat(knowledge): P1.5 上传弹窗与阶段说明`。
+- [x] 实现两组件＋接线。
+- [x] `npx tsc --noEmit` 通过。
+- [x] 提交：`feat(knowledge): P1.5 上传弹窗与阶段说明`。
 
 ### P1.6 详情 rail
 
@@ -129,10 +129,10 @@
   - 已停用：[修订]（同）｜[更多]＝版本记录。
 
 **Steps**
-- [ ] 读 `EntryView.tsx` 现有审批/归档/删除调用与确认文案，迁移为新 rail 的实现（不复制第二份审批逻辑判断，直接调用既有 API/确认构造器）。
-- [ ] 实现 rail＋接线。
-- [ ] `npx tsc --noEmit` 通过。
-- [ ] 提交：`feat(knowledge): P1.6 详情 rail（只读＋过渡动作）`。
+- [x] 读 `EntryView.tsx` 现有审批/归档/删除调用与确认文案，迁移为新 rail 的实现（不复制第二份审批逻辑判断，直接调用既有 API/确认构造器）。
+- [x] 实现 rail＋接线。
+- [x] `npx tsc --noEmit` 通过。
+- [x] 提交：`feat(knowledge): P1.6 详情 rail（只读＋过渡动作）`。
 
 ### P1.7 员工端重构（`/kb`）
 
@@ -145,9 +145,9 @@
 **契约保持**：`data-kb-page='mine'`、`data-knowledge=<id>`、`data-kb-open`（行选中）、`data-kb-search`、`data-draft-knowledge` 芯片、`data-kb-tip`。行为变化（登记）：适用（阶段/品牌）筛选按新设计收敛为 领域/主题＋类型（如需保留，P4 以高级筛选补回）。
 
 **Steps**
-- [ ] 重写页面（数据加载/反馈/引用逻辑从旧文件迁移，保持 API 调用不变）。
-- [ ] `npx tsc --noEmit` 通过。
-- [ ] 提交：`feat(knowledge): P1.7 员工端新结构`。
+- [x] 重写页面（数据加载/反馈/引用逻辑从旧文件迁移，保持 API 调用不变）。
+- [x] `npx tsc --noEmit` 通过。
+- [x] 提交：`feat(knowledge): P1.7 员工端新结构`。
 
 ### P1.8 e2e 更新与新增
 
@@ -162,8 +162,8 @@
 **命令**：`cd frontend && E2E_PORT=8899 npx playwright test e2e/admin-knowledge.spec.ts e2e/knowledge-v2-home.spec.ts e2e/knowledge-usage.spec.ts e2e/knowledge-documents.spec.ts e2e/knowledge-question-template-flow.spec.ts --workers=1 --retries=1`
 
 **Steps**
-- [ ] 改/写三个规格；跑上述命令至全绿（或列出与本次无关的既有失败并留证）。
-- [ ] 提交：`feat(knowledge): P1.8 e2e 更新（v2 主页契约）`。
+- [x] 改/写三个规格；跑上述命令至全绿（或列出与本次无关的既有失败并留证）。
+- [x] 提交：`feat(knowledge): P1.8 e2e 更新（v2 主页契约）`。
 
 ### P1.9 截图、门禁与报告
 
@@ -174,8 +174,8 @@
 **门禁**：`npx tsc --noEmit`；`npm run build`；P1.8 e2e 全绿；截图为证；把 P1 变更与「已知标注（P2/P3 项、适用筛选收敛）」写回本文件执行记录。
 
 **Steps**
-- [ ] 写脚本并跑出截图；核对无横向溢出、0–1 CTA、状态非纯色。
-- [ ] `npm run build` 通过；提交：`feat(knowledge): P1.9 截图与门禁证据`。
+- [x] 写脚本并跑出截图；核对无横向溢出、0–1 CTA、状态非纯色。
+- [x] `npm run build` 通过；提交：`feat(knowledge): P1.9 截图与门禁证据`。
 
 ---
 
@@ -183,4 +183,15 @@
 
 | 日期 | 事项 | 命令 / 证据 | 结果 |
 |---|---|---|---|
-| 2026-10-02 | 计划落档 | 本文件 | 完成 |
+| 2026-10-02 | 计划落档 | 本文件（db591ec） | 完成 |
+| 2026-10-02 | P1.1-P1.4 管理端主页 | efaf3d9/332ca72/b8ac3d1：styles 壳层挂点＋`knowledge-page.css`；宿主重写（旧子路由 slim 导航过渡）；中栏列表（真实数据/5 视图/分类弹窗/类型/排序/折叠/空态）；阶段说明弹窗；探针 45 条、0 溢出 | 完成 |
+| 2026-10-02 | P1.5-P1.6 上传＋详情 rail | 608b9c7：UploadDialog（含音视频格式/目标库/队列；提交禁用标注 P2）；DetailRail（内容/属性与范围/版本三 tab；审核过渡入口＝既有确认+409+回执；前往审批 P3 标注；停用/删除草稿真实动作；0-1 CTA 让位） | 完成 |
+| 2026-10-02 | P1.7 员工端 | 4916aa2：`/kb` 重构（顶栏/检索/族域库＋阶段品牌筛选/快捷视图 全部·收藏·最近/技能模板/双行列表/右栏同页详情）；保留 反馈三原因·隐藏·用于当前任务·引用链路与 `data-kb-*` 契约 | 完成 |
+| 2026-10-02 | P1.8 e2e | 7f4b3b8：知识套件 **20 过＋1 按计划跳过**（反馈处置 UI 随旧待处置视图退役、P2 接回）；workbench 知识用例 **3 过**；新增 `knowledge-v2-home`；documents 发布路径改走旧版入库视图 | 完成；1 项既有基线：`workbench:3078`（侧栏技能项计数，09-29 侧栏改版遗留；未触碰 `Workbench.tsx`，失败先于知识页、纯 DOM 计数与本次无关） |
+| 2026-10-02 | P1.9 截图与门禁 | `kb-v2-screens.mjs`：双端×5 视口×浅深＋4 弹窗＝**18 张**（`artifacts/knowledge-ia-v2/p1/`）；6 视口全部 **0 横向溢出、恰好 1 实底主 CTA、0 报错**；`tsc --noEmit`＋`npm run build` 通过 | **待视觉过审** |
+| 2026-10-02 | 偏差与后置登记 | ① 员工端分类保留行式下拉（族/域/库）＋阶段/品牌筛选，不换弹窗；类型筛选评估后置；② 管理端 `?view=&focus=` 深链参数未实现（P2）；③ 「反馈处置」的家、新建/修订/上传/审批接线＝P2/P3；④ 旧子路由退役时点＝能力折叠完成后 | 已登记 |
+| 2026-10-02 | P1.9 视觉整改（用户复核：留白＋工程话术） | ① 右栏操作区随内容收口（不再钉屏幕底）；②「展开全部结果」居中收口（不再通栏）；③ ≤480 隐藏行内 chips 与顶栏备注、行高恢复；④ 工程话术清零：未接线动作改**真实路径**（新建→目录、修订/调整范围→条目详情、前往审批→`/approvals`）或**灰置说明**（上传服务暂不可用），删除 PhaseNotice 组件；⑤ e2e 增加「页面无工程话术」断言；截图集重出（17 张，6 视口 0 溢出 / 1 实底 CTA / 0 报错） | 完成 |
+| 2026-10-02 | 术语统一＋三级 tab＋标签筛选（用户五点确认：品牌多选／带计数／弹窗退役／旧版痕迹清零／说明省略） | 共享组件 `ScopeTabs`（业务域→业务主题→知识库，三级联动 tab，带计数）＋`FilterChips`（品牌多选/阶段单选，值全部露出）；双端下拉全部替换；分类弹窗删除；子视图仅保留「← 返回知识管理」回链（旧版导航与文案清零）；管理端行式单行化（>700px：标题/分类同行、状态与维护人右侧单行）；右栏左内边距；e2e（workbench/usage/v2-home/admin-knowledge）与截图同批适配 | 完成 |
+| 2026-10-02 | 员工端同款单行化＋阶段中文标签（用户复核：管理端阶段改中文标签；员工端单行省阶段、值为中文、品牌只留值） | bedc75a：双端行式统一（>700px 单行：标题/类型/chips 一列，右端时间·版本；标题与类型不参与收缩）；行内省阶段 chip（右栏保留）、品牌只留值（LT/RO/通用）；阶段值中文标签（双端筛选 chips＋员工右栏＋管理端条目详情；过滤仍按代码）；阶段筛选按 SOP 自然序；e2e 知识套件 **16 过＋1 跳过**、workbench 知识 **3 过**（`workbench:3078` 既有基线不变）；截图 16 张刷新 | 完成 |
+| 2026-10-02 | 复核两处对齐（用户：单行图标与文字未居中；中栏左留白大于右） | 行 `align-items:center`（探针：图标-文字中线差 5px→1px，双端）；`>1100px` 管理端列表右补 `--page-gutter` 外檐，与 admin-body 左侧对称（探针 30.7/30.7，行不再顶到右栏分隔线）；e2e 同套件 16 过＋1 跳过、workbench 3 过；截图 16 张刷新 | 完成 |
+| 2026-10-02 | 上传弹窗改版＋阶段标签行统一（用户：头部留白多；去「统一归档到知识库」与「上传服务暂不可用」；归档改 3 行三级 tab；阶段标签可＋可×、无「全部」） | 弹窗：头部间距收紧（标题-描述 33.5→12.5px）；归档目标换 `ScopeTabs`（业务域→业务主题→知识库，`showCount=false`，三级联动）；提交仍禁用但去掉灰置说明；新增共享 `StageTags`（芯片＋增加、×移除，select 选项即阶段列表）同时用于双端筛选行与弹窗；双端筛选由单选改多选（命中任一阶段即显示）；e2e 断言改精确芯片定位（select 选项文本不计入）、知识套件 **16 过＋1 跳过**、workbench 3 过；截图 16 张刷新 | 完成 |

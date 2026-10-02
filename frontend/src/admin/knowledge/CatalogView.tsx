@@ -17,7 +17,7 @@ import {
 
 type CreateMode = "" | "family" | "domain" | "base";
 
-/** 目录：知识分在哪几个主题域族 / 主题域 / 知识库？—— 唯一实底 CTA 是「新建知识库」。 */
+/** 目录：知识分在哪几个业务域 / 业务主题 / 知识库？—— 唯一实底 CTA 是「新建知识库」。 */
 export default function CatalogView({ notify, fail }: KbFeed) {
   const load = useCallback(async () => {
     const [domains, bases] = await Promise.all([
@@ -85,12 +85,12 @@ export default function CatalogView({ notify, fail }: KbFeed) {
           <div>
             <h2>分类目录</h2>
             <p className="muted">
-              族 / 域 / 库只做业务归类，不承载权限；可见范围仍按组织范围与授权。
+              业务域 / 业务主题 / 知识库只做业务归类，不承载权限；可见范围仍按组织范围与授权。
               库分结构化（按键取用的受控条目）与非结构化（解析与检索后续阶段落地）。
             </p>
           </div>
           {/*
-            同一视口只有一个实底 CTA：有分类时是「新建知识库」，没有分类时先建「主题域族」。
+            同一视口只有一个实底 CTA：有分类时是「新建知识库」，没有分类时先建「业务域」。
           */}
           <button
             className={creating ? "btn ghost" : "btn work"}
@@ -142,17 +142,17 @@ export default function CatalogView({ notify, fail }: KbFeed) {
                   level: "family",
                   note: textValue(form.get("note")) || undefined,
                 }),
-                "主题域族已创建。",
+                "业务域已创建。",
               );
             }}
           >
-            <h3 className="kb-subhead">新建主题域族</h3>
+            <h3 className="kb-subhead">新建业务域</h3>
             <div className="kbadmin-form-grid">
               <label className="field">编码<input name="code" required placeholder="kol_business" /></label>
               <label className="field">名称<input name="name" required placeholder="KOL 业务" /></label>
               <label className="field">备注<input name="note" /></label>
             </div>
-            <p className="muted">族是最高一层分类；域必须挂在族下，库必须挂在域下。</p>
+            <p className="muted">业务域是最高一层分类；业务主题必须挂在业务域下，知识库必须挂在业务主题下。</p>
             <button className="btn work" data-admin-kb-family-submit>{KB_ADMIN_ACTION.saveDomain}</button>
           </form>
         ) : null}
@@ -172,13 +172,13 @@ export default function CatalogView({ notify, fail }: KbFeed) {
                   parent_id: textValue(form.get("parent_id")),
                   note: textValue(form.get("note")) || undefined,
                 }),
-                "主题域已创建。",
+                "业务主题已创建。",
               );
             }}
           >
-            <h3 className="kb-subhead">新建主题域</h3>
+            <h3 className="kb-subhead">新建业务主题</h3>
             <div className="kbadmin-form-grid">
-              <label className="field">所属族
+              <label className="field">所属业务域
                 <select
                   name="parent_id"
                   required
@@ -186,7 +186,7 @@ export default function CatalogView({ notify, fail }: KbFeed) {
                   data-admin-kb-domain-parent
                   onChange={(event) => setDomainParent(event.target.value)}
                 >
-                  <option value="">请选择族</option>
+                  <option value="">请选择业务域</option>
                   {families.map((family) => (
                     <option key={family.id} value={family.id}>{family.name}</option>
                   ))}
@@ -221,9 +221,9 @@ export default function CatalogView({ notify, fail }: KbFeed) {
           >
             <h3 className="kb-subhead">新建知识库</h3>
             <div className="kbadmin-form-grid">
-              <label className="field">所属主题域
+              <label className="field">所属业务主题
                 <select name="domain_id" required data-admin-kb-base-domain defaultValue="">
-                  <option value="">请选择主题域</option>
+                  <option value="">请选择业务主题</option>
                   {domainOptions.map((domain) => (
                     <option key={domain.id} value={domain.id}>
                       {[domainNameOf(domain, families), domain.name].filter(Boolean).join(" / ")}
@@ -258,7 +258,7 @@ export default function CatalogView({ notify, fail }: KbFeed) {
                   <span className="muted">{family.code}</span>
                 </p>
                 {!domainsByFamily.get(family.id)?.length ? (
-                  <p className="muted kbadmin-tree-empty">这个族下还没有主题域。</p>
+                  <p className="muted kbadmin-tree-empty">这个业务域下还没有业务主题。</p>
                 ) : null}
                 <ul className="kbadmin-tree-children">
                   {(domainsByFamily.get(family.id) || []).map((domain) => (
@@ -286,7 +286,7 @@ export default function CatalogView({ notify, fail }: KbFeed) {
                                   </span>
                                 )}
                                 {" · "}{base.code}
-                                {base.status === "archived" ? " · 已归档" : ""}
+                                {base.status === "archived" ? " · 已停用" : ""}
                                 {base.description ? ` · ${base.description}` : ""}
                               </p>
                             </div>

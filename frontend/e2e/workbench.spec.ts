@@ -4464,8 +4464,11 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
   await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
-  await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
-  await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已发布");
+  await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
+  const followupRow = page.locator('[data-knowledge="kb_mail_followup"]');
+  await expect(followupRow).toBeVisible();
+  await followupRow.click();
+  await expect(page.locator('[data-kb-preview="kb_mail_followup"]')).toBeVisible();
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
@@ -4481,52 +4484,53 @@ test("employee knowledge market URL redirects to /kb", async ({ page }) => {
   await expect(page).toHaveURL(/\/kb$/);
   await expect(page.locator("[data-kb-page='mine']")).toBeVisible();
   await expect(page.locator("[data-kb-page='market']")).toHaveCount(0);
-  await expect(page.locator(".kb-lead")).not.toContainText("知识市场");
+  await expect(page.locator(".kbv-lead")).not.toContainText("知识市场");
 });
 
-test("employee knowledge base uses task copy, taxonomy scope, and a content drawer", async ({ page }) => {
+test("employee knowledge base uses task copy, taxonomy scope, and an inline detail rail", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
   await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
-  await expect(kb.locator(".kb-hero .page-kicker")).toHaveText("知识库");
-  await expect(kb.locator(".kb-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
+  await expect(kb.locator(".kbv-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
   await expect(kb).not.toContainText(/Codex|Harness|MCP|发送不等于推进阶段|发送不等于改阶段|发送\s*≠|不会改阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场|我的知识库|口径与其它/);
-  // 分类只来自服务端分类字段：族 → 域 → 库 行式下拉，不做二次分栏；旧 ?cat= tab 已退役。
+  // 三级分类（业务域 → 业务主题 → 知识库）联动 tab；品牌多选 / 阶段标签筛选。
   await expect(kb.locator("[data-kb-scope-picker]")).toBeVisible();
-  await expect(kb.locator("[data-kb-scope-family]")).toBeVisible();
-  await expect(kb.locator("[data-kb-scope-domain]")).toBeVisible();
-  await expect(kb.locator("[data-kb-scope-base]")).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-family]").first()).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-domain]").first()).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-base]").first()).toBeVisible();
+  await expect(kb.locator("[data-kb-filter='brand']")).toBeVisible();
+  await expect(kb.locator("[data-kb-filter='stage']")).toBeVisible();
   await expect(kb.locator("[data-kb-tab]")).toHaveCount(0);
+  await expect(kb.locator("[data-kbv-view]")).toHaveCount(3);
 
   const followup = kb.locator('[data-knowledge="kb_mail_followup"]');
-  await expect(followup.locator("[data-kb-summary]")).toBeVisible();
+  await expect(followup).toBeVisible();
   await expect(followup).not.toContainText("Happy to share the spec sheet");
   await expect(followup).not.toContainText("unboxing angle");
-  await expect(followup.getByRole("button", { name: "用于当前任务" })).toBeVisible();
-  await expect(followup.getByRole("button", { name: "查看内容" })).toBeVisible();
-  await expect(followup.getByRole("button", { name: "收藏" })).toBeVisible();
-  await expect(followup.getByRole("button", { name: "从本账号停用" })).toHaveCount(0);
-  await expect(followup.getByRole("button", { name: "对本账号隐藏" })).toHaveCount(0);
+  await expect(kb.getByRole("button", { name: /停用/ })).toHaveCount(0);
 
-  await followup.locator("[data-kb-open]").click();
-  const drawer = page.locator('[data-kb-preview="kb_mail_followup"]');
-  await expect(drawer).toBeVisible();
-  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("Just a quick follow-up");
-  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("LiTime collab kit");
-  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("Happy to share the spec sheet");
-  await drawer.getByRole("button", { name: "关闭" }).click();
-  await expect(drawer).toHaveCount(0);
+  // 行选中 → 右栏常显详情：摘要、全文与动作（用于当前任务 / 收藏 / 反馈 · 隐藏）。
+  await followup.click();
+  const rail = page.locator('[data-kb-preview="kb_mail_followup"]');
+  await expect(rail).toBeVisible();
+  await expect(rail.locator("[data-kb-summary]")).toBeVisible();
+  await expect(rail.locator("[data-kb-preview-body]")).toContainText("Just a quick follow-up");
+  await expect(rail.locator("[data-kb-preview-body]")).toContainText("LiTime collab kit");
+  await expect(rail.locator("[data-kb-preview-body]")).toContainText("Happy to share the spec sheet");
+  await expect(rail.getByRole("button", { name: "用于当前任务" })).toBeVisible();
+  await expect(rail.getByRole("button", { name: "反馈 / 隐藏" })).toBeVisible();
 
-  await followup.getByRole("button", { name: "收藏" }).click();
-  await expect(followup.getByRole("button", { name: "已收藏" })).toBeVisible();
+  await rail.getByRole("button", { name: "收藏" }).click();
+  await expect(rail.getByRole("button", { name: "已收藏" })).toBeVisible();
 
-  // 按库收窄：种子存量统一在「历史知识」库下，收窄后仍能看到这条；清空分类恢复全部。
-  await kb.locator("[data-kb-scope-base]").selectOption({ label: "历史知识" });
-  await expect(kb.locator("[data-kb-scope-path]")).toContainText("历史知识");
+  // 按库收窄：点击「历史知识」tab；清空筛选恢复「全部」。
+  await kb.locator('[data-kb-scope-base="kbase_legacy"]').click();
+  await expect(kb.locator('[data-kb-scope-base="kbase_legacy"]')).toHaveAttribute("aria-pressed", "true");
   await expect(followup).toBeVisible();
   await kb.locator("[data-kb-scope-clear]").click();
-  await expect(kb.locator("[data-kb-scope-base]")).toHaveValue("");
+  await expect(kb.locator('[data-kb-scope-base=""]')).toHaveAttribute("aria-pressed", "true");
 
+  await followup.click();
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);

@@ -1,0 +1,1088 @@
+/* 知识库 IA v2 页面（管理端主页 + 员工端）：类前缀 .kbv-。
+   只用 frontend/src/styles.css 的既有 token；不写 hex、不写 px 字面量。
+   布局：顶栏 + 工作区（中栏列表 弹性 / 右栏详情 clamp(360px,54%,820px)）；外层不滚动、栏内滚动。 */
+
+/* ── 壳层适配：页面全高、栏内滚动（不改壳本身） ───────────────────────── */
+
+.admin-body:has(> .kbv) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-body:has(> .kbv) > .kbv {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.main > .kbv-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ── 页面骨架 ─────────────────────────────────────────────────────── */
+
+.kbv {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  min-width: 0;
+}
+
+.kbv :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.kbv svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.kbv-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: 0 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* 员工端为整页布局（无外层留白），顶栏自带内边距。 */
+.kbv-page .kbv-top {
+  padding: var(--space-4) var(--space-5) var(--space-3);
+}
+
+.kbv-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.kbv-heading h1 {
+  margin: 0;
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+  font-weight: 600;
+}
+
+.kbv-lead {
+  font-size: var(--ds-font-helper);
+  color: var(--text-muted);
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-3);
+}
+
+.kbv-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ── 工作区两栏 ───────────────────────────────────────────────────── */
+
+.kbv-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.kbv-list {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.kbv-rail {
+  flex: 0 0 clamp(360px, 54%, 820px);
+  min-width: 360px;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.kbv-rail-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.kbv-list .kb-skill-templates .kb-skill-template-list {
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* ── 中栏：检索区 ─────────────────────────────────────────────────── */
+
+.kbv-tools {
+  padding: var(--space-4) 0;
+  display: grid;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.kbv-page .kbv-tools {
+  padding: var(--space-4) var(--space-5);
+}
+
+.kbv-search {
+  display: flex;
+  align-items: center;
+  background: var(--control-bg);
+  border-radius: var(--radius-control);
+  padding-left: var(--space-2);
+  min-width: 0;
+}
+
+.kbv-search svg {
+  color: var(--text-muted);
+}
+
+.kbv-search input {
+  background: transparent;
+  border: 0;
+  min-height: var(--control-h-lg);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  color: inherit;
+}
+
+.kbv-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.kbv-filters > button {
+  max-width: 100%;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.kbv-filters select {
+  flex: 0 1 auto;
+  max-width: 200px;
+}
+
+.kbv-link-plain {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0 var(--space-1);
+  margin: 0;
+  font: inherit;
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: var(--focus-ring-offset);
+  cursor: pointer;
+  min-height: var(--hit-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.kbv-link-plain:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+/* ── 中栏：快捷视图 ───────────────────────────────────────────────── */
+
+.kbv-tabs {
+  display: flex;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  padding: 0;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.kbv-page .kbv-tabs {
+  padding: 0 var(--space-5);
+}
+
+.kbv-tab {
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: var(--space-2) 0;
+  color: var(--text-muted);
+  position: relative;
+  white-space: nowrap;
+  font: inherit;
+  cursor: pointer;
+}
+
+.kbv-tab[aria-pressed="true"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.kbv-tab[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+}
+
+.kbv-tab small {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.kbv-count {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  flex-shrink: 0;
+}
+
+.kbv-page .kbv-count {
+  padding: var(--space-2) var(--space-5);
+}
+
+.kbv-count select {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  min-height: var(--hit-min);
+}
+
+.kbv-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  font-size: var(--ds-font-helper);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.kbv-page .kbv-banner {
+  padding: var(--space-2) var(--space-5);
+}
+
+/* ── 中栏：列表 ───────────────────────────────────────────────────── */
+
+.kbv-records {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.kbv-record {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  gap: var(--space-3);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: var(--space-3) 0;
+  position: relative;
+  cursor: pointer;
+}
+
+.kbv-page .kbv-record {
+  padding: var(--space-3) var(--space-5);
+}
+
+.kbv-record[aria-current="true"] {
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+
+.kbv-record[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 3px;
+  background: var(--accent);
+}
+
+.kbv-record-icon {
+  display: grid;
+  place-items: center;
+  color: var(--cat-library);
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-control);
+  flex-shrink: 0;
+}
+
+.kbv-record-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.kbv-record-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  font-weight: 500;
+}
+
+.kbv-record-meta {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.kbv-record-meta > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.kbv-record-end {
+  text-align: right;
+  flex-shrink: 0;
+  font-size: var(--ds-font-helper);
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}
+
+.kbv-more {
+  display: none;
+  margin: var(--space-3) 0;
+}
+
+/* ── 状态与空态 ───────────────────────────────────────────────────── */
+
+.kbv-status {
+  white-space: nowrap;
+}
+
+.kbv-status.is-published {
+  color: var(--success);
+}
+
+.kbv-status.is-pending {
+  color: var(--warning);
+}
+
+.kbv-status.is-draft,
+.kbv-status.is-disabled {
+  color: var(--text-muted);
+}
+
+.kbv-empty {
+  padding: var(--space-5);
+  color: var(--text-muted);
+}
+
+.kbv-empty h3 {
+  color: var(--text);
+  margin: 0 0 var(--space-2);
+  font-size: var(--ds-font-body);
+}
+
+.kbv-empty .kbv-actions {
+  margin-top: var(--space-3);
+}
+
+/* ── 右栏：详情 ───────────────────────────────────────────────────── */
+
+.kbv-rail-head {
+  padding: var(--space-4) 0 var(--space-3);
+  flex-shrink: 0;
+}
+
+.kbv-rail-tabs {
+  padding: 0;
+}
+
+.kbv-rail-body {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: var(--space-5) 0;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-ui);
+}
+
+.kbv-rail-body section + section {
+  margin-top: var(--space-5);
+}
+
+.kbv-rail-body h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  font-weight: 600;
+}
+
+.kbv-rail-body p + p {
+  margin-top: var(--space-2);
+}
+
+.kbv-rail-foot {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+/* 员工端整页时右栏自带横向内边距。 */
+.kbv-page .kbv-rail-head,
+.kbv-page .kbv-rail-foot {
+  padding-inline: var(--space-5);
+}
+
+.kbv-page .kbv-rail-tabs {
+  padding-inline: var(--space-5);
+}
+
+.kbv-page .kbv-rail-body {
+  padding-inline: var(--space-5);
+}
+
+.kbv-crumb {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  margin-bottom: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.kbv-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.kbv-title-row h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+}
+
+.kbv-subtitle {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+
+.kbv-notice {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+  margin-bottom: var(--space-5);
+}
+
+.kbv-notice strong {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.kbv-steps {
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.kbv-steps li {
+  counter-increment: step;
+  margin: var(--space-3) 0;
+  padding-left: var(--spacing-32);
+  position: relative;
+}
+
+.kbv-steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+
+.kbv-quote {
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-4);
+  color: var(--text-muted);
+}
+
+.kbv-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.kbv-properties {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.kbv-properties dt {
+  font-size: var(--ds-font-helper);
+  color: var(--text-muted);
+}
+
+.kbv-properties dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.kbv-version {
+  border-left: 1px solid var(--border);
+  padding: 0 0 var(--space-5) var(--space-4);
+}
+
+.kbv-version h3 {
+  margin: 0 0 var(--space-1);
+}
+
+.kbv-version p {
+  margin: 0;
+}
+
+.kbv-version p.muted {
+  margin-top: var(--space-1);
+}
+
+/* ── 弹窗 ─────────────────────────────────────────────────────────── */
+
+.kbv-dialog {
+  width: var(--dialog-w-form);
+  max-width: calc(100vw - 32px);
+  max-height: 88dvh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  color: var(--text);
+  padding: var(--spacing-20);
+  overflow: auto;
+}
+
+.kbv-dialog[data-size="browse"] {
+  width: var(--dialog-w-browse);
+}
+
+.kbv-dialog::backdrop {
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+}
+
+.kbv-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+/* 弹窗正文首段不留默认上下外边距：标题下的间距收紧。 */
+.kbv-dialog-body > p {
+  margin: 0;
+}
+
+.kbv-dialog-head h2 {
+  margin: 0;
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+}
+
+.kbv-dialog-body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.kbv-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.kbv-field {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--ds-font-helper);
+}
+
+.kbv-field > span {
+  font-weight: 600;
+}
+
+.kbv-field input,
+.kbv-field select,
+.kbv-field textarea {
+  width: 100%;
+  min-height: var(--control-h-lg);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  color: inherit;
+}
+
+.kbv-field textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.kbv-error {
+  color: var(--danger);
+  margin: 0;
+  font-size: var(--ds-font-helper);
+}
+
+.kbv-file-info {
+  border: 1px dashed var(--control-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.kbv-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.kbv-file-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.kbv-file-row p {
+  margin: 0;
+}
+
+/* ── 分类树（弹窗内） ─────────────────────────────────────────────── */
+
+.kbv-tree details {
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) 0;
+}
+
+.kbv-tree summary {
+  cursor: pointer;
+  font-weight: 500;
+  padding: var(--space-1);
+}
+
+.kbv-tree .kbv-topics {
+  display: grid;
+  padding: var(--space-2) 0 var(--space-1) var(--space-4);
+}
+
+.kbv-tree button {
+  text-align: left;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-lg);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.kbv-tree button:hover {
+  background: var(--bg-elevated);
+}
+
+.kbv-tree h3 {
+  color: var(--text-muted);
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--ds-font-helper);
+  font-weight: 500;
+}
+
+/* ── 断点与设备 ───────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .kbv-workspace {
+    display: block;
+    overflow: auto;
+  }
+
+  .kbv-list {
+    min-height: 380px;
+  }
+
+  .kbv-records {
+    overflow: visible;
+  }
+
+  .kbv-records:not(.is-expanded) .kbv-record:nth-child(n + 7) {
+    display: none;
+  }
+
+  .kbv-more {
+    display: inline-flex;
+  }
+
+  .kbv-rail {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    min-width: 0;
+  }
+
+  .kbv-rail-body {
+    overflow: visible;
+  }
+
+  .kbv-rail-foot {
+    position: sticky;
+    bottom: 0;
+    background: var(--bg);
+  }
+}
+
+/* 管理端中栏两栏并排（>1100px）：列表右侧补与 admin-body 同宽的外檐，
+   与左侧 --page-gutter 留白对称（不再顶到右栏分隔线）。 */
+@media (min-width: 1101px) {
+  .kbv:not(.kbv-page) .kbv-list {
+    padding-right: var(--page-gutter);
+  }
+}
+
+@media (max-width: 860px) {
+  .kbv-top {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .kbv-lead {
+    display: none;
+  }
+
+  .kbv-tools,
+  .kbv-count,
+  .kbv-banner {
+    padding-inline: var(--space-4);
+  }
+
+  .kbv-tabs {
+    padding-inline: var(--space-4);
+  }
+
+  .kbv-record {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .kbv-rail-head {
+    padding: var(--space-4);
+  }
+
+  .kbv-rail-body {
+    padding: var(--space-4);
+  }
+
+  .kbv-rail-foot {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .kbv-dialog {
+    padding: var(--space-4);
+  }
+}
+
+@media (max-width: 480px) {
+  .kbv-record-end {
+    display: none;
+  }
+
+  .kbv-heading {
+    gap: var(--space-2);
+  }
+
+  .kbv-actions {
+    gap: var(--space-1);
+  }
+
+  .kbv-filters > * {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-height: 640px) {
+  .kbv-top {
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+
+  .kbv-tools {
+    padding-top: var(--space-3);
+    padding-bottom: var(--space-3);
+  }
+}
+
+@media (pointer: coarse) {
+  .kbv button,
+  .kbv a,
+  .kbv select,
+  .kbv summary {
+    min-height: 44px;
+  }
+}
+
+/* ── 复核整改 v2（2026-10-02）：单行行式 / 三级 tab / 筛选标签 / 右栏内边距 ── */
+
+/* 右栏内容不贴左边界（员工端 .kbv-page 的 space-5 覆盖仍然生效）。 */
+.kbv-rail-head,
+.kbv-rail-tabs,
+.kbv-rail-body,
+.kbv-rail-foot {
+  padding-inline: var(--space-4);
+}
+
+/* 三级分类联动 tab（业务域 → 业务主题 → 知识库） */
+.kbv-scope-rows {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.kbv-scope-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.kbv-scope-name {
+  flex: 0 0 auto;
+  width: 4.5em;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+
+.kbv-scope-tabs {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* 适用范围筛选标签（品牌多选 / 阶段单选），值全部露出 */
+.kbv-chip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.kbv-filter-chip {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: var(--radius-control);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  color: var(--text-muted);
+  cursor: pointer;
+  min-height: var(--hit-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.kbv-filter-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* 单行行式（双端列表，>700px）：标题与分类同行，状态/维护人在右、单行显示 */
+@media (min-width: 701px) {
+  .kbv .kbv-record-copy {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    overflow: hidden;
+  }
+
+  .kbv .kbv-record-meta {
+    margin-top: 0;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .kbv .kbv-record-end {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--space-2);
+    white-space: nowrap;
+  }
+
+  .kbv .kbv-record-end > span + span::before {
+    content: "· ";
+  }
+
+  .kbv .kbv-record-title {
+    flex: 0 1 auto;
+  }
+
+  .kbv .kbv-record-meta {
+    flex: 1 1 auto;
+  }
+
+  .kbv .kbv-record-meta > span {
+    white-space: nowrap;
+  }
+
+  /* chips 容器（.kb-scope 自带 wrap）在单行行式内不换行，超出由 meta 裁切。 */
+  .kbv .kbv-record-meta .kb-scope {
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* 员工端行内优先级：标题与类型标签保持完整，先由适用 chips 裁切让位（空间不够只截 chips）。 */
+  .kbv-page .kbv-record-title,
+  .kbv-page .kbv-record-meta > span:first-child {
+    flex-shrink: 0;
+  }
+}
+
+/* 内容少时操作区紧随内容（不再钉在屏幕底），内容长时仍由 body 内部滚动。 */
+.kbv-rail-body {
+  flex: 0 1 auto;
+}
+
+.kbv-rail-foot > .kbv-actions {
+  margin-left: auto;
+}
+
+/* 「展开全部结果」收起为居中按钮，不再通栏。 */
+.kbv-more {
+  align-self: center;
+}
+
+/* 上传弹窗：归档目标三级 tab 与一行阶段标签（标签可移除、＋可增加）。 */
+.kbv-stage-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.kbv-stage-tags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.kbv-stage-tag {
+  gap: var(--space-1);
+}
+
+.kbv-stage-x {
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0;
+}
+
+.kbv-stage-x:hover {
+  color: var(--text);
+}
+
+.kbv-stage-add {
+  appearance: none;
+  font: inherit;
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--ds-radius-tag);
+  min-height: var(--control-h-form);
+  inline-size: var(--control-h-form);
+  padding: 0;
+  text-align: center;
+  cursor: pointer;
+}
+
+.kbv-stage-add:hover {
+  color: var(--text);
+}
+
+@media (max-width: 480px) {
+  /* 窄屏行内不再铺开适用 chips（详情右栏仍完整可见）。 */
+  .kbv-record-meta .kb-scope {
+    display: none;
+  }
+
+  .kbv-top .kbv-top-note {
+    display: none;
+  }
+}

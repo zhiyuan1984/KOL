@@ -1,5 +1,6 @@
 import type { KnowledgeRow } from "./api";
 import { stageLabel } from "./labels";
+import { MAIN_STAGE_TABS } from "./kolStages";
 
 export const KB_FILL_STASH = "kb_fill_composer";
 
@@ -34,7 +35,7 @@ const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
   pending_review: "待审批",
   published: "已发布",
-  archived: "已归档",
+  archived: "已停用",
 };
 
 const BRAND_LABEL: Record<string, string> = {
@@ -262,15 +263,15 @@ export const KB_LEAD = "选择适合当前任务的资料，AI 会据此生成�
 export const KB_MARKET_LEAD = "这些是组织已发布、可直接选用的资料。选一份后，AI 会据此生成草稿。正式发送前仍需要你确认。";
 
 /** 分类选择（族 → 域 → 库）：`?cat=` 启发式 tab 已退役，分类只来自服务端分类字段。 */
-export const KB_SCOPE_LEAD = "按 主题域族 → 主题域 → 知识库 查找资料；只列出你有权查看的分类。";
+export const KB_SCOPE_LEAD = "按 业务域 → 业务主题 → 知识库 查找资料；只列出你有权查看的分类。";
 export const KB_SCOPE_ALL = "全部";
-export const KB_SCOPE_FAMILY = "主题域族";
-export const KB_SCOPE_DOMAIN = "主题域";
+export const KB_SCOPE_FAMILY = "业务域";
+export const KB_SCOPE_DOMAIN = "业务主题";
 export const KB_SCOPE_BASE = "知识库";
 export const KB_SCOPE_NONE = "暂无分类信息。";
 export const KB_EMPTY_SCOPE = "这个分类下暂时没有资料。换个分类或清空选择。";
 export const KB_SCOPE_CURRENT = "当前范围";
-export const KB_SCOPE_CLEAR = "清空分类";
+export const KB_SCOPE_CLEAR = "清空筛选";
 
 export function kbSanitizeEmployeeCopy(text?: string) {
   return String(text || "")
@@ -412,7 +413,7 @@ export const KB_ADMIN_BINDINGS_PATH = "/admin/knowledge/bindings";
 /** 子导航顺序 = 路由顺序；深链直接可达，不靠前端状态。 */
 export const KB_ADMIN_NAV: KbAdminNavItem[] = [
   { view: "review", path: KB_ADMIN_DEFAULT_PATH, label: "待处置", question: "有什么在等我决定？" },
-  { view: "catalog", path: KB_ADMIN_CATALOG_PATH, label: "目录", question: "知识分在哪几个主题域族 / 主题域 / 知识库？" },
+  { view: "catalog", path: KB_ADMIN_CATALOG_PATH, label: "目录", question: "知识分在哪几个业务域 / 业务主题 / 知识库？" },
   { view: "base", path: KB_ADMIN_BASES_PATH, label: "库", question: "这个库里有哪些条目、什么状态？", contextual: true },
   { view: "entry", path: KB_ADMIN_ENTRIES_PATH, label: "条目", question: "这条知识的治理状态与影响面？", contextual: true },
   { view: "ingest", path: KB_ADMIN_INGEST_PATH, label: "入库", question: "素材入库与提取成败？" },
@@ -430,7 +431,7 @@ export const KB_ADMIN_VIEW_TITLE: Record<KbAdminView, string> = {
 
 export const KB_ADMIN_VIEW_LEAD: Record<KbAdminView, string> = {
   review: "待审、草稿、隔离提案、到期提醒与员工反馈处置汇总在这里；每行只把你带到条目详情。",
-  catalog: "族 → 域 → 库的目录树：分类只做业务归类，不承载权限；权限仍按组织范围与授权。",
+  catalog: "业务域 → 业务主题 → 知识库的目录树：分类只做业务归类，不承载权限；权限仍按组织范围与授权。",
   base: "这个库里有哪些内容、处于什么状态；新建只写草稿，发布仍要走审批。",
   entry: "这条知识的治理状态与影响面；主行动按当前状态唯一渲染。",
   ingest: "素材入库与提取的进展与成败。",
@@ -465,8 +466,8 @@ export const KB_ADMIN_ACTION = {
   saveDraft: "保存草稿",
   newEntry: "新建条目",
   newBase: "新建知识库",
-  newDomain: "新建主题域",
-  newFamily: "新建主题域族",
+  newDomain: "新建业务主题",
+  newFamily: "新建业务域",
   saveBase: "保存知识库",
   saveDomain: "保存分类",
   upload: "上传资料",
@@ -492,8 +493,8 @@ export const KB_ADMIN_EMPTY = {
   drafts: "没有还没发布的草稿。",
   proposals: "暂无隔离提案。",
   expiry: "30 天内没有到期的知识。",
-  catalog: "还没有分类。先建「主题域族」，再建「主题域」，最后建「知识库」。",
-  domains: "还没有主题域族 / 主题域；知识库必须挂在主题域下。",
+  catalog: "还没有分类。先建「业务域」，再建「业务主题」，最后建「知识库」。",
+  domains: "还没有业务域 / 业务主题；知识库必须挂在业务主题下。",
   bases: "这个分类下还没有知识库。",
   basesFiltered: "没有符合当前筛选的知识库。",
   baseMissing: "找不到这个知识库，可能已被归档或删除。",
@@ -520,8 +521,8 @@ export const KB_LEVEL_FAMILY = "family";
 export const KB_LEVEL_DOMAIN = "domain";
 
 export const KB_LEVEL_LABEL: Record<string, string> = {
-  family: "主题域族",
-  domain: "主题域",
+  family: "业务域",
+  domain: "业务主题",
 };
 
 export const KB_BASE_KIND_LABEL: Record<string, string> = {
@@ -541,7 +542,7 @@ export function kbBaseKindLabel(kind?: string): string {
 
 export const KB_BASE_STATUS_LABEL: Record<string, string> = {
   active: "启用",
-  archived: "已归档",
+  archived: "已停用",
 };
 
 /** 非结构化库（P1，2026-10-02）：解析与检索由 PageIndex 本地承担；先接入 PDF。 */
@@ -559,7 +560,7 @@ export const KB_DOC_STATUS_LABEL: Record<string, string> = {
   indexing: "建索引中",
   pending_review: "待审",
   published: "已发布",
-  archived: "已归档",
+  archived: "已停用",
   failed: "失败",
   cancelled: "已取消",
 };
@@ -669,14 +670,26 @@ export const KB_PROVENANCE_LABEL = {
   scope: "适用",
 } as const;
 
-/** 行内适用 chips：有阶段/品牌就显示代码，没有就诚实写「全阶段 / 通用」。 */
-export function kbScopeTags(row: Pick<KnowledgeRow, "stage_codes" | "brand">): string[] {
-  const stages = (row.stage_codes || []).map((code) => String(code || "").trim()).filter(Boolean);
+/** 阶段代码按 SOP 自然序排序（筛选标签展示用）；未知代码排最后。 */
+export function sortStageCodes(codes: string[]): string[] {
+  const rank = (code: string) => {
+    const index = MAIN_STAGE_TABS.findIndex((item) => item.code === code);
+    return index < 0 ? MAIN_STAGE_TABS.length : index;
+  };
+  return [...codes].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+/** 适用 chips：阶段给中文标签、品牌只留值；单行行内省阶段（withStage=false），右栏保留。没有就诚实写「全阶段 / 通用」。 */
+export function kbScopeTags(
+  row: Pick<KnowledgeRow, "stage_codes" | "brand">,
+  opts?: { withStage?: boolean },
+): string[] {
+  const stages = (row.stage_codes || []).map((code) => stageLabel(code)).filter(Boolean);
   const brand = String(row.brand || "").trim();
-  return [
-    stages.length ? `阶段：${stages.join(" / ")}` : "全阶段",
-    brand && brand !== "*" ? `品牌：${brand}` : "通用",
-  ];
+  const tags: string[] = [];
+  if (opts?.withStage !== false) tags.push(stages.length ? `阶段：${stages.join(" / ")}` : "全阶段");
+  tags.push(brand && brand !== "*" ? brand : "通用");
+  return tags;
 }
 
 /** 与后端 knowledgeListFilters 同口径：无阶段/无品牌行视为通用，不被筛选排除。 */

@@ -1,25 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import {
-  KB_ADMIN_NAV,
+  KB_ADMIN_DEFAULT_PATH,
   KB_ADMIN_VIEW_LEAD,
   KB_ADMIN_VIEW_TITLE,
   type KbAdminView,
 } from "../knowledgeCopy";
 import { errorMessage } from "../admin/knowledge/shared";
-import ReviewView from "../admin/knowledge/ReviewView";
 import CatalogView from "../admin/knowledge/CatalogView";
 import BaseView from "../admin/knowledge/BaseView";
 import EntryView from "../admin/knowledge/EntryView";
 import IngestView from "../admin/knowledge/IngestView";
 import BindingsView from "../admin/knowledge/BindingsView";
+import KnowledgeHome from "../admin/knowledge/KnowledgeHome";
 import "../admin/knowledge/knowledge-admin.css";
+import "../knowledge-page.css";
 
 /**
- * 知识治理宿主：自己解析 pathname，映射六个子视图（一页一问）。
- *
- * DOM 契约（规格 §5.2）：view ∈ review | catalog | base | entry | ingest | bindings。
- * 子导航是链接式 tab：深链可达；base / entry 是上下文视图，没有 id 时提示先去目录。
+ * 知识治理宿主（IA v2）：
+ * - 默认路由 `/admin/knowledge` ＝新主页（三级分类 tab＋列表＋同页详情）；
+ * - 子视图（catalog / bases / entries / ingest / bindings）直达可达，页面内仅保留「返回知识管理」回链。
  */
 export function parseKnowledgePath(pathname: string): { view: KbAdminView; id: string } {
   const rest = pathname.replace(/^\/admin\/knowledge\/?/, "");
@@ -36,6 +36,12 @@ export function parseKnowledgePath(pathname: string): { view: KbAdminView; id: s
 export default function AdminKnowledge() {
   const location = useLocation();
   const { view, id } = parseKnowledgePath(location.pathname);
+  if (view === "review") return <KnowledgeHome />;
+  return <SubViewHost view={view} id={id} />;
+}
+
+/** 子视图宿主：直达可达，仅保留返回回链。 */
+function SubViewHost({ view, id }: { view: KbAdminView; id: string }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -67,22 +73,12 @@ export default function AdminKnowledge() {
         </div>
       </header>
 
-      <nav className="kb-tabs kbadmin-tabs" aria-label="知识治理子视图">
-        {KB_ADMIN_NAV.map((item) => (
-          <NavLink
-            key={item.view}
-            to={item.path}
-            end={item.view === "review"}
-            data-admin-kb-tab={item.view}
-            title={item.question}
-            className={({ isActive }) => (isActive ? "active" : undefined)}
-          >
-            {item.label}
-          </NavLink>
-        ))}
-      </nav>
+      <p className="kbadmin-back">
+        <Link to={KB_ADMIN_DEFAULT_PATH} data-admin-kb-home-link className="kbadmin-action-link">
+          ← 返回知识管理
+        </Link>
+      </p>
 
-      {view === "review" ? <ReviewView notify={notify} fail={fail} /> : null}
       {view === "catalog" ? <CatalogView notify={notify} fail={fail} /> : null}
       {view === "base" ? (
         id ? (
