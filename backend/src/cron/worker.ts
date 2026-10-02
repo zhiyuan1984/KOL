@@ -221,7 +221,8 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
   return runById(runId, db) as Row;
 }
 
-async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
+/** Execute a durable Cron job already claimed by the common execution dispatcher. */
+export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
   const payload = executionJobPayload(claimed);
   const runId = String(payload.cron_run_id || "");
   if (!runId) {

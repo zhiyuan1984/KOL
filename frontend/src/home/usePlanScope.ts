@@ -16,7 +16,7 @@ import type { Task, TaskEvent, TodayBrief, TodayBriefResponse, TodayPlanResult }
 import type { DisplayTaskRow } from "./displayTasks";
 import { projectDisplayTasks } from "./displayTasks";
 import { canonicalPlanCacheKey, memoryTasksOf, planStartEvent, restorePlanCache, runTodayPlanRefresh, savePlanCache, TODAY_PLAN_REFRESHED_MS, TODAY_PLAN_REFRESH_EVENT } from "./todayPlan";
-import type { PlanScope, TodayPlanPhase } from "./todayPlan";
+import type { PlanScope, PlanSnapshotInfo, TodayPlanPhase } from "./todayPlan";
 
 export interface PlanScopeClient {
   getBrief: () => Promise<TodayBriefResponse>;
@@ -32,6 +32,7 @@ export interface UsePlanScopeResult {
   phase: TodayPlanPhase;
   prevBrief: TodayBrief | null;
   prevEvents: TaskEvent[];
+  snapshot?: PlanSnapshotInfo;
   /** Re-runs the memory pass without POSTing (the refresh event does the same). */
   refresh: () => void;
 }
@@ -51,6 +52,7 @@ export function usePlanScope(
   const [phase, setPhase] = useState<TodayPlanPhase>("idle");
   const [prevBrief, setPrevBrief] = useState<TodayBrief | null>(null);
   const [prevEvents, setPrevEvents] = useState<TaskEvent[]>([]);
+  const [snapshot, setSnapshot] = useState<PlanSnapshotInfo | undefined>();
   const [tick, setTick] = useState(0);
   const startRef = useRef(false);
   const firstRun = useRef(true);
@@ -91,6 +93,7 @@ export function usePlanScope(
         setMemoryTasks(cache.memoryTasks);
         setBrief(cache.brief);
         setEvents(cache.events);
+        setSnapshot(cache.snapshot);
         setPhase(cache.phase);
         lastReadRef.current = Date.now();
         return;
@@ -124,6 +127,7 @@ export function usePlanScope(
         if (Array.isArray(step.events)) {
           setEvents(step.events);
         }
+        if (step.snapshot) setSnapshot(step.snapshot);
       },
       { signal: controller.signal, scope, startPlan: startRef.current },
     ).then((final) => {
@@ -155,9 +159,10 @@ export function usePlanScope(
       memoryTasks,
       brief,
       events,
+      snapshot,
       phase,
     });
-  }, [phase, memoryTasks, brief, events, scope]);
+  }, [phase, memoryTasks, brief, events, snapshot, scope]);
 
   return {
     brief,
@@ -166,6 +171,7 @@ export function usePlanScope(
     phase,
     prevBrief,
     prevEvents,
+    snapshot,
     refresh: () => setTick((tick) => tick + 1),
   };
 }

@@ -353,7 +353,12 @@ function taskEventCount(db: SqliteConn, workItemId: string): number {
   return Number(row?.n || 0);
 }
 
-function appendTaskEventInConn(
+/**
+ * Append an immutable task event into a caller-owned transaction. Durable
+ * command producers use this so acceptance, queueing, and the audit fact
+ * become one database commit rather than a best-effort follow-up write.
+ */
+export function appendTaskEventInConn(
   db: SqliteConn,
   workItemId: string,
   runId: string | null,

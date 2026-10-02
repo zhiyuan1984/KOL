@@ -226,6 +226,48 @@ export function failExecutionJob(id: string, error: { code: string; summary: str
   return executionJobById(id);
 }
 
+/**
+ * A human-requested recovery never reuses a broker message. It changes only a
+ * failed low-risk job back to queued and records a fresh Outbox dispatch fact
+ * in the same PostgreSQL transaction. Uncertain/high-risk outcomes deliberately
+ * remain outside this endpoint: they need an explicit investigation/takeover.
+ */
+export function retryFailedExecutionJob(id: string, options: { actor_ref?: string; now?: Date } = {}): {
+  job: Row | undefined;
+  retried: boolean;
+  reason?: "not_found" | "not_failed" | "risk_requires_takeover";
+} {
+  const now = options.now || new Date();
+  const stamp = now.toISOString();
+  return txImmediate((db) => {
+    const current = executionJobById(id, db);
+    if (!current) return { job: undefined, retried: false, reason: "not_found" as const };
+    if (String(current.status) !== "failed") return { job: current, retried: false, reason: "not_failed" as const };
+    if (String(current.risk_level) !== "low") return { job: current, retried: false, reason: "risk_requires_takeover" as const };
+    const changed = db.prepare(
+      `UPDATE execution_jobs
+          SET status='queued',lease_until=NULL,next_attempt_at=?,error_code=NULL,error_summary=NULL,
+              terminal_at=NULL,max_attempts=CASE WHEN max_attempts<=attempts THEN attempts+1 ELSE max_attempts END,
+              updated_at=?
+        WHERE id=? AND status='failed' AND risk_level='low'`,
+    ).run(stamp, stamp, id);
+    const job = executionJobById(id, db);
+    if (!changed.changes || !job) return { job, retried: false, reason: "not_failed" as const };
+    const attempt = Number(job.attempts || 0);
+    db.prepare(
+      `INSERT OR IGNORE INTO execution_outbox
+       (id,job_id,event_type,aggregate_type,aggregate_id,payload_json,idempotency_key,status,attempts,available_at,published_at,last_error,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      nid("obx"), id, "execution_job.retry_requested", "execution_job", id,
+      JSON.stringify({ actor_ref: options.actor_ref, attempt, risk_level: job.risk_level }),
+      `execution-job:${id}:manual-retry:${attempt}`,
+      "pending", 0, stamp, null, null, stamp, stamp,
+    );
+    return { job, retried: true };
+  });
+}
+
 export function recoverExpiredExecutionJobs(now = new Date()): { requeued: number; uncertain: number } {
   const stamp = now.toISOString();
   return txImmediate((db) => {

@@ -183,6 +183,7 @@ export function writeTodayBriefArtifact(input: {
   runId: string | null;
   brief: unknown;
   scope?: PlanScope;
+  producer?: "deterministic_organize" | "agent_plan";
 }): { ok: true; artifact_id: string; brief: Json } | { ok: false; reason: string; kept_artifact_id: string | null } {
   const scope = input.scope ?? "today";
   const checked = validateTodayBrief(input.brief);
@@ -191,6 +192,15 @@ export function writeTodayBriefArtifact(input: {
     return { ok: false, reason: checked.reason, kept_artifact_id: previous.artifact_id };
   }
   const now = nowIso();
+  // task_artifacts is the compatibility storage for an immutable plan
+  // snapshot. Persist enough metadata to describe its freshness without a
+  // model call or a second mutable task truth.
+  const snapshot: Json = {
+    ...checked.brief,
+    producer: input.producer || "agent_plan",
+    source_revision: String((checked.brief.source_cursor as Json | undefined)?.cursor_to || ""),
+    generated_at: now,
+  };
   const artifactId = nid("art");
   tx((db) => {
     db.prepare(
@@ -204,7 +214,7 @@ export function writeTodayBriefArtifact(input: {
       "today_brief",
       null,
       1,
-      JSON.stringify(checked.brief),
+      JSON.stringify(snapshot),
       now,
     );
   });
@@ -213,14 +223,14 @@ export function writeTodayBriefArtifact(input: {
     owner: input.owner,
     workItemId: input.workItemId,
     runId: input.runId,
-    brief: checked.brief,
+    brief: snapshot,
     scope,
   });
   if (!display.ok) {
     const previous = loadLatestTodayBrief(input.owner, scope);
     return { ok: false, reason: display.reason, kept_artifact_id: previous.artifact_id };
   }
-  return { ok: true, artifact_id: artifactId, brief: checked.brief };
+  return { ok: true, artifact_id: artifactId, brief: snapshot };
 }
 
 export function markTodayPlanFailed(workItemId: string, runId: string | null, reason: string): void {

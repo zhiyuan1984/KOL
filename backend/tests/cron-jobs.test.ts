@@ -182,9 +182,11 @@ describe("cron jobs P0/P1", () => {
     expect(queued.duplicate).toBe(false);
     const response = await request("GET", "/api/admin/scheduling/execution-jobs");
     expect(response.status, response.text).toBe(200);
-    expect(response.body).toMatchObject({ execution_mode: "sqlite_single_worker_transition" });
+    expect(response.body).toMatchObject({ execution_mode: "sqlite_test_fixture_only" });
     expect((response.body.items as Json[]).some((item) => item.job_type === "cron.run" && item.status === "queued")).toBe(true);
     expect(Number((response.body.outbox as Json).pending || 0)).toBeGreaterThan(0);
+    expect(response.body.backlog).toMatchObject({ count: expect.any(Number) });
+    expect(response.body.workers).toEqual([]);
   });
 
   it("tickCronDue claims a due published job via BEGIN IMMEDIATE and does not create a session", async () => {

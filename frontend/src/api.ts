@@ -426,6 +426,17 @@ export type ExecutionJob = {
   [key: string]: unknown;
 };
 
+export type ExecutionWorker = {
+  worker_id: string;
+  worker_kind: string;
+  status: string;
+  details?: Record<string, unknown>;
+  started_at: string;
+  heartbeat_at: string;
+  stopped_at?: string | null;
+  stale: boolean;
+};
+
 export type TodayBriefPrimary = {
   verb?: string;
   label?: string;
@@ -460,6 +471,12 @@ export type TodayBrief = {
 };
 
 export type TodayBriefResponse = {
+  plan_id?: string | null;
+  status?: "ready" | "running" | "stale" | "empty" | string;
+  producer?: "deterministic_organize" | "agent_plan" | string;
+  source_revision?: string | null;
+  generated_at?: string | null;
+  stale_reason?: string | null;
   planning?: boolean;
   brief?: TodayBrief | null;
   events?: TaskEvent[];
@@ -480,7 +497,13 @@ export type TodayPlanResult = {
   work_item_id?: string;
   session_id?: string;
   run_id?: string;
+  execution_job_id?: string;
+  job_id?: string;
+  status?: "queued" | "running" | string;
+  producer?: "deterministic_organize" | "agent_plan" | string;
+  mode?: "deterministic_organize" | "agent_plan" | string;
   creates_session?: boolean;
+  calls_model?: boolean;
 };
 
 export type RecommendedTask = {
@@ -2121,11 +2144,18 @@ export const api = {
       items: ExecutionJob[];
       counts: Record<string, number>;
       outbox: Record<string, number>;
+      workers: ExecutionWorker[];
+      backlog: { count: number; oldest_created_at: string | null };
       as_of: string;
       execution_mode: string;
       source_refs: Array<Record<string, unknown>>;
     }>(`/api/admin/scheduling/execution-jobs${query.size ? `?${query}` : ""}`);
   },
+  adminRetryExecutionJob: (id: string) =>
+    request<ExecutionJob & { retried: boolean }>(`/api/admin/scheduling/execution-jobs/${encodeURIComponent(id)}/retry`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   createCronJob: (body: Record<string, unknown>) =>
     request<CronJob>("/api/cron/jobs", { method: "POST", body: JSON.stringify(body) }),
   cronJob: (id: string) =>

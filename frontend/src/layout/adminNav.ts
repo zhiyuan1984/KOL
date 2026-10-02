@@ -100,6 +100,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M8.5 15.5l7-7 M9.5 9h.01 M14.5 15h.01",
       },
       {
+        id: "scheduling",
+        label: "调度",
+        href: "/admin/scheduling",
+        icon: "M12 8v4l2.5 1.5 M7 3v3 M17 3v3 M5 7h14v12H5z",
+      },
+      {
         id: "kol",
         label: "配置",
         href: "/admin/kol",
