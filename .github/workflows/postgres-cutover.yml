@@ -1,0 +1,113 @@
+name: lingong-postgres-cutover
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Verified main revision to cut over"
+        required: true
+        default: "main"
+        type: string
+      confirmation:
+        description: "Type POSTGRES_CUTOVER_621219F to authorize the production cutover"
+        required: true
+        type: string
+
+concurrency:
+  group: lingong-postgres-cutover
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    name: Verify release before cutover
+    if: inputs.confirmation == 'POSTGRES_CUTOVER_621219F'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Validate production contracts
+        working-directory: backend
+        run: npm run validate:contracts -- --production
+      - name: Backend typecheck and deterministic tests
+        working-directory: backend
+        run: |
+          npm run typecheck
+          npm test
+      - name: Frontend typecheck and build
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          npm run build
+
+  cutover:
+    name: Stop writes, migrate, verify, and start workers
+    needs: verify-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEPLOY_HOST: 47.88.94.205
+      DEPLOY_USER: ecs-user
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+      - id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Configure confirmed production SSH identity
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.KOL_PROD_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$DEPLOY_SSH_PRIVATE_KEY" || { echo "KOL_PROD_SSH_PRIVATE_KEY is required" >&2; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Confirmed by the operator before this cutover; do not trust a fresh keyscan.
+          printf '%s\n' '47.88.94.205 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGL0KFP8lQnrrAR81Q4aztoswNy3rBu6OTJaSthx5z6w' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Execute verified remote cutover
+        env:
+          SHA: ${{ steps.revision.outputs.sha }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "DEPLOY_REVISION='${SHA}' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+          cd ~/kol
+          git fetch github "$DEPLOY_REVISION"
+          git reset --hard "$DEPLOY_REVISION"
+          exec env DEPLOY_REVISION="$DEPLOY_REVISION" bash scripts/cutover-postgres.sh
+          REMOTE
+      - name: Verify public production health
+        env:
+          EXPECTED_VERSION: ${{ steps.revision.outputs.sha }}
+        run: |
+          expected="${EXPECTED_VERSION:0:7}"
+          for attempt in $(seq 1 48); do
+            response="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "http://${DEPLOY_HOST}/api/version" || true)"
+            actual="$(printf '%s' "$response" | jq -r '.version // empty' 2>/dev/null || true)"
+            if [ "$actual" = "$expected" ]; then
+              echo "Production PostgreSQL cutover verified at revision $actual"
+              exit 0
+            fi
+            echo "Attempt ${attempt}/48: waiting for ${expected}; observed ${actual:-unavailable}."
+            sleep 5
+          done
+          echo "::error::Production did not report expected revision ${expected}."
+          exit 1

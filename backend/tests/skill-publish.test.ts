@@ -75,7 +75,11 @@ describe("published skills on the Codex harness", () => {
     expect(body.id).toBe("imported_brief");
     expect(body.grants).toEqual({ org: [], team: [], user: [] });
     expect(body.import_receipt).toEqual(expect.objectContaining({ source: "third_party", status: "draft" }));
-    expect(body.lifecycle).toEqual(expect.objectContaining({ stage: "draft", tags: expect.arrayContaining(["第三方", "本地导入"]) }));
+    expect(body.lifecycle).toEqual(expect.objectContaining({
+      stage: "draft",
+      origin: "third_party",
+      tags: expect.arrayContaining(["本地导入"]),
+    }));
 
     const unsafe = new FormData();
     unsafe.append("file", new File([markdown.replace("整理信息", "api_key=abcdefghijklmnop 整理信息")], "unsafe.md", { type: "text/markdown" }));
@@ -99,6 +103,14 @@ describe("published skills on the Codex harness", () => {
     expect(fs.existsSync(runtime)).toBe(true);
     expect(fs.readFileSync(runtime, "utf8")).toContain("每日简报");
     expect(fs.readFileSync(runtime, "utf8")).toContain("禁止发送消息");
+
+    const draft = await request("GET", "/api/admin/skills");
+    const draftEntry = (draft.body.skills as Json[]).find((row) => row.id === "daily_brief");
+    expect((draftEntry?.lifecycle as Json).stage).toBe("draft");
+    for (const stage of ["editing", "testing", "published"]) {
+      const moved = await request("POST", "/api/admin/skills/daily_brief/stage", { stage });
+      expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    }
 
     const mine = await request("GET", "/api/skills");
     expect(mine.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: "daily_brief", granted: true })]));
@@ -142,12 +154,25 @@ describe("published skills on the Codex harness", () => {
       body: "# 每日简报\n\n改写后的运行说明。\n\n## 禁止事项\n\n- 禁止发送消息。\n- 禁止修改阶段。\n",
     });
     expect(rewritten.status, JSON.stringify(rewritten.body)).toBe(200);
-    expect(rewritten.body.title).toBe("今日达人简报");
-    expect(rewritten.body.description).toBe("改写后的简报摘要");
-    expect(taskDefinition("daily_brief")?.title).toBe("今日达人简报");
+    // Editing a live skill records a draft; its active runtime changes only
+    // after the explicit published -> testing -> published lifecycle path.
+    expect(rewritten.body.title).toBe("每日简报");
+    const rewrittenDraft = rewritten.body.draft as Json;
+    expect(rewrittenDraft.patch as Json).toMatchObject({
+      title: "今日达人简报",
+      description: "改写后的简报摘要",
+    });
+    expect(taskDefinition("daily_brief")?.title).toBe("每日简报");
     const runtimeAfter = fs.readFileSync(path.join(runtimeSkillsRoot(), "daily_brief", "SKILL.md"), "utf8");
-    expect(runtimeAfter).toContain("改写后的运行说明");
-    expect(runtimeAfter).toContain("今日达人简报");
+    expect(runtimeAfter).not.toContain("改写后的运行说明");
+    const testing = await request("POST", "/api/admin/skills/daily_brief/stage", { stage: "testing", reason: "验证每日简报改写" });
+    expect(testing.status, JSON.stringify(testing.body)).toBe(200);
+    const published = await request("POST", "/api/admin/skills/daily_brief/stage", { stage: "published", reason: "发布每日简报改写" });
+    expect(published.status, JSON.stringify(published.body)).toBe(200);
+    expect(taskDefinition("daily_brief")?.title).toBe("今日达人简报");
+    const runtimePublished = fs.readFileSync(path.join(runtimeSkillsRoot(), "daily_brief", "SKILL.md"), "utf8");
+    expect(runtimePublished).toContain("改写后的运行说明");
+    expect(runtimePublished).toContain("今日达人简报");
 
     const bundledRewrite = await request("PATCH", "/api/admin/skills/email_compose", {
       title: "不该改内置包",

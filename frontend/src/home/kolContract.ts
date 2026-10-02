@@ -643,6 +643,10 @@ export function runningBadgeHref(input: {
   if (firstSession) return `/s/${firstSession.id}`;
   const bound = input.analyzeItems.find((item) => isKolAnalyzeInFlight(item.status) && item.session_id);
   if (bound?.session_id) return `/s/${bound.session_id}`;
+  const taskBound = (input.tasks || []).find((task) => (
+    isKolAnalyzeInFlight(task.status) && Boolean(task.session_id)
+  ));
+  if (taskBound?.session_id) return `/s/${taskBound.session_id}`;
   return "/tasks";
 }
 

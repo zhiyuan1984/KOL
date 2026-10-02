@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import { boxDir, dataDir, dbPath } from "./config.js";
 import { BUILTIN_CONNECTORS } from "./connectors/catalog.js";
+import { PostgresSyncConn } from "./postgres/sync.js";
 import type { Json, Row } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -101,9 +102,23 @@ function openSqlite(file: string): SqliteConn {
   }
 }
 
+/** The active authority store. PostgreSQL is mandatory whenever DATABASE_URL is set. */
+export function databaseEngine(): "sqlite" | "postgres" {
+  return process.env.DATABASE_URL?.trim() ? "postgres" : "sqlite";
+}
+
 export function connect(): SqliteConn {
   fs.mkdirSync(dataDir(), { recursive: true });
   fs.mkdirSync(boxDir(), { recursive: true });
+  if (databaseEngine() === "postgres") {
+    const db = new PostgresSyncConn(String(process.env.DATABASE_URL));
+    const schema = db.prepare("SELECT to_regclass('public.app_state') AS table_name").get() as { table_name?: string | null } | undefined;
+    if (!schema?.table_name) {
+      db.close();
+      throw new Error("PostgreSQL schema is not initialized; run npm run db:migrate:postgres with SQLITE_SOURCE and DATABASE_URL before starting the application");
+    }
+    return db;
+  }
   const db = openSqlite(dbPath());
   db.pragma("foreign_keys = ON");
   db.pragma("journal_mode = WAL");
@@ -165,14 +180,15 @@ export function isSqliteForeignKeyError(error: unknown): boolean {
     ? String((error as { code?: unknown }).code || "")
     : "";
   const message = error instanceof Error ? error.message : String(error || "");
-  return /SQLITE_CONSTRAINT_FOREIGNKEY/i.test(code)
+  return code === "23503"
+    || /SQLITE_CONSTRAINT_FOREIGNKEY/i.test(code)
     || /FOREIGN KEY constraint failed/i.test(message);
 }
 
 /** True when a test reset or process teardown already closed the handle. */
 export function isSqliteClosedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
-  return /database is not open|SQLITE_MISUSE|The database connection is not open/i.test(message);
+  return /database is not open|SQLITE_MISUSE|The database connection is not open|PostgreSQL connection is not open/i.test(message);
 }
 
 export function asRow(row: unknown): Row {
@@ -901,12 +917,25 @@ function initSchema(db: SqliteConn): void {
             FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE SET NULL
         );
 
+        -- 正式工单命令的幂等回执：同一个确认/网络重试只能落一次状态与事件。
+        -- 该表不是第二份工单真相，结果只引用 tickets 的版本和事件 ID。
+        CREATE TABLE IF NOT EXISTS ticket_command_receipts (
+            idempotency_key TEXT PRIMARY KEY,
+            ticket_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+        );
+
         -- tickets 的索引统一由 mergeWorkItemsIntoTickets() 在库形状确定后创建：
         -- 旧库可能仍带镜像版 tickets 或缺票型列，直接在 initSchema 建索引会让打开失败。
         CREATE INDEX IF NOT EXISTS task_runs_work_item
             ON task_runs(work_item_id, created_at);
         CREATE INDEX IF NOT EXISTS task_events_work_item
             ON task_events(work_item_id, sequence);
+        CREATE INDEX IF NOT EXISTS ticket_command_receipts_ticket
+            ON ticket_command_receipts(ticket_id, created_at);
         CREATE TABLE IF NOT EXISTS employee_today_briefs (
             owner_user_id TEXT PRIMARY KEY,
             artifact_id TEXT NOT NULL,
@@ -1066,6 +1095,67 @@ function initSchema(db: SqliteConn): void {
             ON cron_runs(job_id, created_at);
         CREATE INDEX IF NOT EXISTS cron_runs_status
             ON cron_runs(status, scheduled_for);
+
+        -- M2 过渡执行脊柱：SQLite 单 Worker 的持久 job/outbox 契约。
+        -- 生产多 Worker 目标仍是 PostgreSQL + Outbox publisher + Redis/BullMQ；
+        -- 此处不把 SQLite 伪装成该目标，只保证进程退出不丢失已接受的作业。
+        CREATE TABLE IF NOT EXISTS execution_jobs (
+            id TEXT PRIMARY KEY,
+            job_type TEXT NOT NULL,
+            tenant_ref TEXT NOT NULL,
+            actor_ref TEXT NOT NULL,
+            object_ref_json TEXT NOT NULL DEFAULT '{}',
+            ticket_id TEXT,
+            run_id TEXT,
+            trigger_event_id TEXT,
+            rule_id TEXT,
+            rule_version TEXT,
+            risk_level TEXT NOT NULL DEFAULT 'low',
+            idempotency_key TEXT NOT NULL UNIQUE,
+            scope_snapshot_json TEXT NOT NULL DEFAULT '{}',
+            priority_class TEXT NOT NULL DEFAULT 'normal',
+            status TEXT NOT NULL DEFAULT 'queued',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            max_attempts INTEGER NOT NULL DEFAULT 1,
+            lease_until TEXT,
+            next_attempt_at TEXT,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            receipt_json TEXT,
+            error_code TEXT,
+            error_summary TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            terminal_at TEXT,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE SET NULL,
+            FOREIGN KEY(run_id) REFERENCES task_runs(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS execution_jobs_ready
+            ON execution_jobs(status, next_attempt_at, created_at);
+        CREATE INDEX IF NOT EXISTS execution_jobs_ticket
+            ON execution_jobs(ticket_id, created_at);
+        CREATE INDEX IF NOT EXISTS execution_jobs_run
+            ON execution_jobs(run_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS execution_outbox (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            aggregate_type TEXT NOT NULL,
+            aggregate_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            idempotency_key TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            available_at TEXT NOT NULL,
+            published_at TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(job_id) REFERENCES execution_jobs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS execution_outbox_ready
+            ON execution_outbox(status, available_at, created_at);
 
         CREATE TABLE IF NOT EXISTS user_uploads (
             id TEXT PRIMARY KEY,

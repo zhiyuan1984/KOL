@@ -1,0 +1,20 @@
+[Unit]
+Description=Lingong BullMQ execution worker %i
+After=network-online.target postgresql.service redis-server.service lingong-outbox.service
+Requires=postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ecs-user
+WorkingDirectory=/home/ecs-user/kol
+Environment=EXECUTION_WORKER_ID=production-%i
+Environment=EXECUTION_WORKER_CONCURRENCY=4
+ExecStart=/home/ecs-user/kol/scripts/worker.sh execution
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

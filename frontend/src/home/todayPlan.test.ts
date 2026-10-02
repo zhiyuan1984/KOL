@@ -64,10 +64,12 @@ describe("today plan wiring", () => {
     const workspace = fs.readFileSync(path.resolve(here, "./ScopeWorkspace.tsx"), "utf8");
     const progress = fs.readFileSync(path.resolve(here, "./TodayPlanProgress.tsx"), "utf8");
     const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
-    expect(home).toContain('api.tasks({ view: "open" })');
-    expect(home).toContain("api.todayBrief()");
-    expect(home).toContain("api.planToday()");
+    expect(home).toContain('api.workbenchTasks("today")');
+    expect(home).toContain('api.workbenchTasks("todo")');
+    expect(home).toContain("api.workbenchPlan()");
+    expect(home).toContain("api.startWorkbenchPlan()");
     expect(home).toContain("fetchTodayTasks");
+    expect(home).toContain("fetchTodoTasks");
     expect(home).toContain("usePlanScope");
     expect(hook).toContain("projectDisplayTasks");
     expect(hook).toContain("runTodayPlanRefresh");
@@ -117,7 +119,8 @@ describe("today plan wiring", () => {
     expect(workspace).not.toContain("todayBrief()");
     // The slice each tab answers for is the only row-level difference left.
     expect(slices).toContain("isTodayScheduled(task)");
-    expect(slices).toContain("!isTodayScheduled(task)");
+    // Todo retains the full open-task set; today is its focused subset.
+    expect(slices).not.toContain("!isTodayScheduled(task)");
     expect(homeModel).toContain("todoLayout?.length ? applyTodoLayout(members, todoLayout) : sortOpenWorkItems(members)");
   });
 

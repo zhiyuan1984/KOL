@@ -1,0 +1,18 @@
+[Unit]
+Description=Lingong PostgreSQL Outbox publisher
+After=network-online.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ecs-user
+WorkingDirectory=/home/ecs-user/kol
+ExecStart=/home/ecs-user/kol/scripts/worker.sh outbox
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

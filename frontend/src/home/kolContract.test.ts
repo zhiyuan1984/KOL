@@ -244,7 +244,7 @@ describe("kol workbench contract (#172)", () => {
     expect(runningBadgeHref({
       sessions: [],
       analyzeItems: [{ id: "tsk_analyze_1", status: "queued", task_type: "kol_analyze" }],
-    })).toBe("/?tab=todo");
+    })).toBe("/tasks");
     expect(runningBadgeHref({
       sessions: [],
       analyzeItems: [{ id: "tsk_analyze_1", status: "queued", session_id: "ses_1", task_type: "kol_analyze" }],

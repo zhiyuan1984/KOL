@@ -425,8 +425,9 @@ misc.patch("/admin/skills/:id", async (c) => {
     }
   }
   if (typeof in_market === "boolean") {
-    updated = skillMeta(updatePublishedSkill(id, { in_market }).id);
+    const changed = updatePublishedSkill(id, { in_market });
     clearSkillLookupCache();
+    updated = skillMeta(changed.id);
   }
   return c.json({ ...updated, grants: grantsForSkill(id), draft: getSkillDraft(id), lifecycle: skillLifecycleMeta(id) });
 });
