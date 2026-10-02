@@ -142,6 +142,11 @@ function pragmaSql(src: string): string | null {
 export class PostgresSyncConn implements SqliteConn {
   private readonly worker: Worker;
   private stopped = false;
+  // Requests are serialized by the Atomics.wait below, so one response buffer
+  // serves the whole connection. Allocating a fresh buffer per query left
+  // large shared allocations unreclaimed under sustained load.
+  private shared: SharedArrayBuffer | null = null;
+  private sharedBytes = 0;
 
   constructor(connectionString: string) {
     this.worker = new Worker(new URL("./sync-worker.mjs", import.meta.url), {
@@ -150,15 +155,32 @@ export class PostgresSyncConn implements SqliteConn {
     this.worker.unref();
   }
 
+  private dropBuffer(shared: SharedArrayBuffer): void {
+    // A timed-out worker call can still write into this buffer later; never
+    // let that late response be read as the next request's answer.
+    if (this.shared === shared) this.shared = null;
+  }
+
   private request(sql: string, params: unknown[] = []): QueryResponse {
     if (this.stopped) throw new Error("PostgreSQL connection is not open");
-    const shared = new SharedArrayBuffer(HEADER_BYTES + bufferBytes());
+    if (!this.shared) {
+      this.sharedBytes = bufferBytes();
+      this.shared = new SharedArrayBuffer(HEADER_BYTES + this.sharedBytes);
+    }
+    const shared = this.shared;
     const header = new Int32Array(shared, 0, 4);
+    Atomics.store(header, STATUS, 0);
     this.worker.postMessage({ sql: translateSqliteSql(sql), params, shared });
     const wait = Atomics.wait(header, STATUS, 0, timeoutMs());
-    if (wait === "timed-out") throw new Error(`PostgreSQL query timed out after ${timeoutMs()}ms`);
+    if (wait === "timed-out") {
+      this.dropBuffer(shared);
+      throw new Error(`PostgreSQL query timed out after ${timeoutMs()}ms`);
+    }
     const length = Atomics.load(header, LENGTH);
-    if (length < 0 || length > bufferBytes()) throw new Error("PostgreSQL bridge returned an invalid response length");
+    if (length < 0 || length > this.sharedBytes) {
+      this.dropBuffer(shared);
+      throw new Error("PostgreSQL bridge returned an invalid response length");
+    }
     const bytes = new Uint8Array(shared, HEADER_BYTES, length);
     const response = JSON.parse(new TextDecoder().decode(bytes)) as QueryResponse;
     if (!response.ok) {
