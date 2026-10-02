@@ -9,6 +9,7 @@ type SqliteDatabase = { prepare: (sql: string) => SqliteStatement; close: () => 
 type Column = { cid: number; name: string; type: string; notnull: number; dflt_value: string | null; pk: number };
 type Index = { seq: number; name: string; unique: number; origin: string; partial: number };
 type ForeignKey = { id: number; seq: number; table: string; from: string; to: string; on_update: string; on_delete: string };
+export type MigrationFingerprintColumn = Pick<Column, "name" | "type">;
 
 export type MigrationTableReport = { table: string; rows: number; fingerprint: string };
 export type SqlitePostgresMigrationReport = {
@@ -124,18 +125,50 @@ function foreignKeySql(table: string, key: ForeignKey[], ordinal: number): strin
   return `ALTER TABLE ${quote(table)} ADD CONSTRAINT ${quote(`fk_${table}_${ordinal}`)} FOREIGN KEY (${source}) REFERENCES ${quote(first.table)} (${target})${update}${del}`;
 }
 
-function canonical(value: unknown): string {
+function canonical(value: unknown, type: string): string {
   if (value === null || value === undefined) return "null";
   if (Buffer.isBuffer(value)) return `buffer:${value.toString("base64")}`;
+  const normalizedType = String(type || "TEXT").toUpperCase();
+  // `pg` returns BIGINT/NUMERIC as strings while better-sqlite3 returns the
+  // same values as JS numbers. Compare the declared SQLite representation,
+  // rather than the respective driver representation, so a lossless copy is
+  // not rejected merely because its reader has a different scalar policy.
+  if (normalizedType.includes("INT")) {
+    try { return `integer:${BigInt(String(value).trim()).toString()}`; } catch { return `integer:${String(value).trim()}`; }
+  }
+  if (normalizedType.includes("REAL") || normalizedType.includes("FLOA") || normalizedType.includes("DOUB")) {
+    const number = Number(value);
+    if (Number.isNaN(number)) return "float:NaN";
+    if (number === Infinity) return "float:Infinity";
+    if (number === -Infinity) return "float:-Infinity";
+    return `float:${number.toString()}`;
+  }
+  if (normalizedType.includes("NUM") || normalizedType.includes("DEC")) {
+    const number = Number(value);
+    return Number.isFinite(number) ? `numeric:${number.toString()}` : `numeric:${String(value).trim()}`;
+  }
   if (typeof value === "number" || typeof value === "bigint") return String(value);
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
-function fingerprintRows(rows: Array<Record<string, unknown>>, orderedColumns: string[]): string {
+/** Deterministic data fingerprint after SQLite's declared scalar semantics. */
+export function migrationFingerprint(rows: Array<Record<string, unknown>>, orderedColumns: MigrationFingerprintColumn[]): string {
   const hash = createHash("sha256");
-  for (const row of rows) hash.update(`${orderedColumns.map((column) => canonical(row[column])).join("\u001f")}\n`);
+  for (const row of rows) {
+    hash.update(`${orderedColumns.map((column) => canonical(row[column.name], column.type)).join("\u001f")}\n`);
+  }
   return hash.digest("hex");
+}
+
+function mismatchedFingerprintColumns(
+  sourceRows: Array<Record<string, unknown>>,
+  targetRows: Array<Record<string, unknown>>,
+  tableColumns: MigrationFingerprintColumn[],
+): string[] {
+  return tableColumns
+    .filter((column) => migrationFingerprint(sourceRows, [column]) !== migrationFingerprint(targetRows, [column]))
+    .map((column) => column.name);
 }
 
 function orderedRowsSql(table: string, tableColumns: Column[]): string {
@@ -245,10 +278,12 @@ export async function migrateSqliteToPostgres(input: {
       const sourceRows = sqlite.prepare(orderedRowsSql(table, tableColumns)).all();
       const target = await client.query(orderedRowsSql(table, tableColumns));
       if (sourceRows.length !== target.rows.length) throw new Error(`Row count mismatch for ${table}: sqlite=${sourceRows.length}, postgres=${target.rows.length}`);
-      const names = tableColumns.map((column) => column.name);
-      const sourceHash = fingerprintRows(sourceRows, names);
-      const targetHash = fingerprintRows(target.rows, names);
-      if (sourceHash !== targetHash) throw new Error(`Content fingerprint mismatch for ${table}`);
+      const sourceHash = migrationFingerprint(sourceRows, tableColumns);
+      const targetHash = migrationFingerprint(target.rows, tableColumns);
+      if (sourceHash !== targetHash) {
+        const mismatched = mismatchedFingerprintColumns(sourceRows, target.rows, tableColumns);
+        throw new Error(`Content fingerprint mismatch for ${table} (columns: ${mismatched.join(",") || "row-order"})`);
+      }
       report.push({ table, rows: sourceRows.length, fingerprint: sourceHash });
     }
     return {

@@ -161,9 +161,12 @@ sqlite3 "$BACKUP_DIR/lingong.sqlite3" 'PRAGMA integrity_check;' | grep -qx 'ok' 
 SOURCE_SHA256="$(sha256sum "$BACKUP_DIR/lingong.sqlite3" | awk '{print $1}')"
 
 say "migrating all SQLite tables and verifying PostgreSQL fingerprints"
+# DATABASE_URL was checked absent before the write stop. Any existing target
+# tables are therefore an abandoned target from an earlier failed cutover, not
+# the active authority; replace them so the rollback path is retryable.
 (
   cd "$ROOT/backend"
-  DATABASE_URL="$DATABASE_URL" npx tsx scripts/migrate-sqlite-to-postgres.ts --source "$BACKUP_DIR/lingong.sqlite3"
+  DATABASE_URL="$DATABASE_URL" npx tsx scripts/migrate-sqlite-to-postgres.ts --replace --source "$BACKUP_DIR/lingong.sqlite3"
 ) > "$BACKUP_DIR/migration-report.json"
 (
   cd "$ROOT/backend"
