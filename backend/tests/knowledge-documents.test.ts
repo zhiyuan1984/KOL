@@ -45,6 +45,13 @@ function pdfBytes(marker = ""): Buffer {
   return Buffer.from(`%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n${marker}\n%%EOF\n`, "utf8");
 }
 
+/** Node Buffer → 独立 ArrayBuffer，避开 Buffer<ArrayBufferLike> 与 BlobPart 的类型冲突。 */
+function blobPart(buf: Buffer): ArrayBuffer {
+  const copy = new ArrayBuffer(buf.byteLength);
+  new Uint8Array(copy).set(buf);
+  return copy;
+}
+
 async function createUnstructuredBase(code = "e2e_docs"): Promise<Json> {
   const family = (await (await request("POST", "/api/admin/knowledge/domains", {
     code: `${code}_fam`, name: "资料族", level: "family",
@@ -61,7 +68,7 @@ async function createUnstructuredBase(code = "e2e_docs"): Promise<Json> {
 async function upload(baseId: string, name: string, bytes: Buffer): Promise<Json> {
   const form = new FormData();
   form.append("base_id", baseId);
-  form.append("file", new File([bytes], name, { type: "application/pdf" }));
+  form.append("file", new File([blobPart(bytes)], name, { type: "application/pdf" }));
   const res = await request("POST", "/api/admin/knowledge/documents", form);
   expect(res.status).toBe(201);
   return (await res.json()).document as Json;
@@ -124,21 +131,21 @@ describe("knowledge documents (P1 pipeline)", () => {
 
     const form1 = new FormData();
     form1.append("base_id", String(structuredBase.id));
-    form1.append("file", new File([pdfBytes()], "a.pdf", { type: "application/pdf" }));
+    form1.append("file", new File([blobPart(pdfBytes())], "a.pdf", { type: "application/pdf" }));
     const res1 = await request("POST", "/api/admin/knowledge/documents", form1);
     expect(res1.status).toBe(400);
     expect(await detailCode(res1)).toBe("knowledge_base_not_unstructured");
 
     const form2 = new FormData();
     form2.append("base_id", String(base.id));
-    form2.append("file", new File([pdfBytes()], "deck.pptx", { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }));
+    form2.append("file", new File([blobPart(pdfBytes())], "deck.pptx", { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }));
     const res2 = await request("POST", "/api/admin/knowledge/documents", form2);
     expect(res2.status).toBe(400);
     expect(await detailCode(res2)).toBe("knowledge_format_not_implemented");
 
     const form3 = new FormData();
     form3.append("base_id", "kbase_missing");
-    form3.append("file", new File([pdfBytes()], "a.pdf", { type: "application/pdf" }));
+    form3.append("file", new File([blobPart(pdfBytes())], "a.pdf", { type: "application/pdf" }));
     const res3 = await request("POST", "/api/admin/knowledge/documents", form3);
     expect(res3.status).toBe(400);
     expect(await detailCode(res3)).toBe("knowledge_base_missing");
