@@ -219,12 +219,31 @@ done
 sudo systemctl is-active --quiet "$SERVICE"
 
 say "API is healthy; starting Outbox publisher and execution workers"
+# Nothing can be running as a worker here: the previous authority was stopped
+# above. Clear runtime presence rows so a stale "running" heartbeat from an
+# earlier attempt can never satisfy the check below.
+PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "DELETE FROM execution_worker_heartbeats" >/dev/null 2>&1 || true
 sudo systemctl restart "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"
 workers_started=true
 sudo systemctl is-active --quiet "$OUTBOX_SERVICE"
 sudo systemctl is-active --quiet "$WORKER_A"
 sudo systemctl is-active --quiet "$WORKER_B"
-PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "SELECT count(*) FROM execution_worker_heartbeats WHERE status='running'" | awk '$1 >= 2 {ok=1} END {exit ok ? 0 : 1}'
+# Workers register their heartbeat several seconds after start (and create the
+# table on first use), so poll for two running heartbeats instead of asserting
+# the instant after restart.
+running=0
+for attempt in $(seq 1 24); do
+  running="$(PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "SELECT count(*) FROM execution_worker_heartbeats WHERE status='running'" 2>/dev/null || echo 0)"
+  case "$running" in ''|*[!0-9]*) running=0 ;; esac
+  if [ "$running" -ge 2 ]; then break; fi
+  if [ "$attempt" -eq 24 ]; then
+    say "expected two running execution worker heartbeats but observed ${running}"
+    sudo systemctl --no-pager --full status "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B" || true
+    sudo journalctl --no-pager -u "$OUTBOX_SERVICE" -u "$WORKER_A" -u "$WORKER_B" -n 120 || true
+    die "execution workers did not report running heartbeats within 120s"
+  fi
+  sleep 5
+done
 PGPASSWORD="$PG_PASSWORD" pg_dump --format=custom --file="$BACKUP_DIR/lingong.postgres.dump" "$DATABASE_URL"
 chmod 600 "$BACKUP_DIR/lingong.postgres.dump"
 
