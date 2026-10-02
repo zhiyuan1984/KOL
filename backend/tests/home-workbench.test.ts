@@ -209,10 +209,11 @@ describe("home workbench", () => {
     expect(insights.every((row) => row.candidate === true)).toBe(true);
     expect(recs.every((row) => row.candidate === true)).toBe(true);
     expect(Array.isArray(today)).toBe(true);
+    // Today is the focused subset of formal todo work: the unadopted AI lost-
+    // contact suggestion remains an insight/recommendation rather than a task.
     expect(today.map((row) => String(row.id)).sort()).toEqual([
       "tsk_home_laozhang_quote",
       "tsk_home_trip_stage",
-      "tsk_home_xiaomei_lost",
     ]);
     expect(isTodayWorkItem({ source: "manual", status: "queued" })).toBe(false);
     expect(isTodayWorkItem({ source: "manual", status: "pending" })).toBe(false);

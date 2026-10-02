@@ -869,8 +869,17 @@ describe("host contracts", () => {
     });
     expect(put.status, await put.text()).toBe(200);
     const pj = await put.json();
-    expect(pj.edited).toBe(true);
+    // Editing an SOP creates a draft; employees see it only after the formal
+    // draft -> editing -> testing -> published lifecycle transition.
+    expect(pj.edited).toBe(false);
+    expect(pj.draft).toBe(true);
     expect(pj.summary).toBe("测试改过的达人发现摘要");
+    const beforePublish = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
+    expect(beforePublish.find((s) => s.id === "creator_discovery")?.summary).not.toBe("测试改过的达人发现摘要");
+    for (const stage of ["testing", "published"]) {
+      const moved = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage });
+      expect(moved.status, await moved.text()).toBe(200);
+    }
     const skills = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
     const discovery = skills.find((s) => s.id === "creator_discovery");
     expect(discovery?.summary).toBe("测试改过的达人发现摘要");
@@ -890,7 +899,7 @@ describe("host contracts", () => {
     expect(md).toContain("OPERATOR_SOP_MARK");
     const del = await request("DELETE", "/api/skills/creator_discovery/sop");
     expect(del.status).toBe(200);
-    expect((await del.json()).edited).toBe(false);
+    expect((await del.json()).draft).toBe(true);
   });
 
   it("pm assigns skills and ungranted skills cannot start", async () => {

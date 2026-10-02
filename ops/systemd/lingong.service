@@ -3,7 +3,8 @@
 # 部署不要用 systemctl restart 之外的手段：先在旧进程仍服务时构建前端，见 scripts/deploy.sh。
 [Unit]
 Description=Lingong KOL workbench (backend serves frontend dist on 8765)
-After=network-online.target
+After=network-online.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
 Wants=network-online.target
 
 [Service]
