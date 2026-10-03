@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库 · 中栏优化原型</title>
+<style>
+:root{
+  --primary:#d6336c; --primary-hover:#b02a5a;
+  --accent:#2563eb; --accent-text:#1d4ed8;
+  --text:#1a1d21; --text-quiet:#5b6470; --text-faint:#9aa3af;
+  --bg:#f3f4f6; --surface:#ffffff; --surface-2:#f7f8fa;
+  --border:#e3e6eb; --border-strong:#c7cdd6;
+  --success:#15803d; --warning:#b45309; --danger:#dc2626;
+  --chip-h:30px; --radius:6px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:13px;line-height:1.55;color:var(--text);background:var(--bg);
+  display:flex;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--radius)}
+
+/* 左栏：静态框，不可动 */
+.rail{width:200px;flex:none;background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;padding:12px 8px}
+.rail .logo{font-size:20px;font-weight:800;color:#1d4ed8;padding:4px 12px 16px;letter-spacing:.5px}
+.rail .logo small{display:block;font-size:9px;font-weight:400;color:var(--text-faint);letter-spacing:2px}
+.rail nav{display:flex;flex-direction:column;gap:2px;flex:1}
+.rail .nitem{padding:9px 12px;border-radius:var(--radius);font-size:14px;color:var(--text);cursor:default}
+.rail .nitem.on{background:#eff6ff;color:var(--accent-text);font-weight:600}
+.rail .ver{font-size:11px;color:var(--text-faint);padding:8px 12px 2px;font-family:ui-monospace,monospace}
+.rail .me{font-size:13px;padding:4px 12px;color:var(--text-quiet)}
+
+/* 中栏：优化目标态 */
+.mid{width:320px;flex:none;background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column}
+.mid-scroll{flex:1;overflow-y:auto;padding:6px 16px 16px;min-height:0}
+.mid-foot{flex:none;display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+.mid-foot .btn{flex:1;justify-content:center}
+.fsearch{position:relative;margin-bottom:18px}
+.fsearch svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);width:14px;height:14px;
+  color:var(--text-faint);pointer-events:none}
+.fsearch input{width:100%;height:30px;border:1px solid var(--border);border-radius:var(--radius);
+  padding:0 8px 0 30px;font-size:12px;background:var(--surface-2)}
+.fsearch input:focus{outline:none;border-color:var(--accent);background:#fff}
+.fgroup{padding:8px 0;border-bottom:1px solid var(--border)}
+.fgroup:last-child{border-bottom:none;padding-bottom:4px}
+.flabel{font-size:11px;color:var(--text-quiet);font-weight:600;margin-bottom:6px}
+.flabel.gap{margin-top:10px}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+/* 筛选 chips：贴合文字、无粗体；选中态用蓝色辅助色 */
+.chip{min-height:20px;padding:0 7px;border:1px solid var(--border);border-radius:4px;
+  background:#fff;font-size:11px;color:var(--text-quiet);cursor:pointer;white-space:nowrap;
+  display:inline-flex;align-items:center;justify-content:center;gap:3px}
+.chip:hover{border-color:#9aa3af;color:var(--text)}
+.chip[aria-pressed="true"]{border-color:var(--accent);color:#1d4ed8;background:#eff6ff}
+.chip .cnt{font-size:10px;color:var(--text-faint);font-weight:400}
+.chip[aria-pressed="true"] .cnt{color:#3b82f6}
+
+/* 右栏：联动列表 + 详情 */
+.right{flex:1;min-width:0;overflow-y:auto;padding:16px 20px}
+.receipt{display:flex;align-items:center;gap:8px;background:#ecfdf5;color:#065f46;
+  border:1px solid #a7f3d0;border-radius:var(--radius);padding:8px 12px;font-size:12px;margin-bottom:12px}
+.receipt[hidden]{display:none}
+.receipt button{margin-left:auto;background:none;border:none;color:#065f46;cursor:pointer;font-size:12px}
+.list-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px 16px;margin-bottom:16px}
+.list-head{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.list-head .n{font-size:12px;color:var(--text-quiet)}
+.pager{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-quiet)}
+.pager button{height:26px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--radius);
+  background:#fff;font-size:11px;cursor:pointer;color:var(--text)}
+.pager button:disabled{opacity:.4;cursor:default}
+.krow{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;
+  padding:9px 0;border:none;border-bottom:1px solid var(--border);background:none;cursor:pointer;
+  font-size:13px;color:var(--text);text-align:left}
+.krow:last-child{border-bottom:none}
+.krow:hover{background:var(--surface-2)}
+.krow.sel{background:#f4f5f7;box-shadow:inset 3px 0 0 #6b7280}
+.krow .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.krow .m{font-size:13px;color:var(--text-faint);white-space:nowrap;flex:none}
+.st-已发布{color:var(--success)} .st-待审批{color:var(--warning)}
+.st-草稿{color:var(--text-quiet)} .st-已停用{color:var(--text-faint)}
+.empty{padding:32px 0;text-align:center;color:var(--text-quiet);font-size:13px}
+.detail-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
+.detail-card h2{font-size:15px;margin:0 0 4px;font-weight:700}
+.detail-card .dsub{font-size:11px;color:var(--text-quiet);margin-bottom:12px}
+.detail-card h3{font-size:13px;margin:16px 0 8px}
+.detail-card pre{white-space:pre-wrap;font-family:inherit;font-size:12px;margin:0;color:var(--text)}
+.kv{display:grid;grid-template-columns:80px 1fr;gap:5px 12px;font-size:12px;margin:0}
+.kv dt{color:var(--text-quiet)} .kv dd{margin:0}
+.dactions{display:flex;gap:8px;margin-top:16px}
+
+/* 按钮 */
+.btn{display:inline-flex;align-items:center;height:32px;padding:0 14px;border-radius:var(--radius);
+  border:1px solid var(--border-strong);background:#fff;font-size:13px;color:var(--text);cursor:pointer}
+.btn:hover{border-color:var(--accent);color:var(--accent-text)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.btn.primary:hover{background:var(--primary-hover);color:#fff}
+.btn.sm{height:28px;padding:0 10px;font-size:12px}
+.btn.danger-o{border-color:#f3c2c2;color:var(--danger)}
+.btn.danger-o:hover{border-color:var(--danger);color:var(--danger)}
+.btn:disabled{opacity:.4;cursor:default}
+.linklike{background:none;border:none;color:var(--accent-text);cursor:pointer;font-size:12px;padding:0}
+
+/* 弹窗 */
+.dlg-back{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50}
+.dlg{width:440px;max-width:92vw;background:#fff;border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.dlg.w-lg{width:680px;border-radius:12px}
+.dlg-head{padding:16px 20px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.dlg-head h2{font-size:15px;margin:0}
+.dlg.w-lg .dlg-head{padding:20px 24px 0}
+.dlg.w-lg .dlg-head h2{font-size:20px;font-weight:700}
+.dlg-x{width:36px;height:36px;flex:none;border:1px solid var(--border-strong);border-radius:8px;background:#fff;
+  font-size:18px;line-height:1;color:var(--text-quiet);cursor:pointer}
+.dlg-x:hover{color:var(--text);border-color:#9aa3af}
+.dlg-desc{padding:8px 24px 0;color:var(--text-quiet);font-size:13px}
+.dlg-body{padding:16px 20px}
+.dlg.w-lg .dlg-body{padding:16px 24px}
+.dlg-foot{display:flex;justify-content:flex-end;gap:8px;padding:0 20px 16px}
+.dlg.w-lg .dlg-foot{padding:4px 24px 20px;gap:10px}
+.btn.primary:disabled{background:#f0b9cd;border-color:#f0b9cd;opacity:1;cursor:default;color:#fff}
+/* 上传 drop 区 */
+.drop{border:1.5px dashed #b9c2cd;border-radius:10px;padding:28px 20px;text-align:center;margin-bottom:6px}
+.drop.over{border-color:var(--accent);background:#f5f9ff}
+.drop .fmts{color:var(--text-quiet);font-size:12px;margin:14px 0 6px;line-height:1.8}
+.drop .fnote{color:var(--text-faint);font-size:12px;margin:0}
+.filelist{margin-top:14px;text-align:left;border-top:1px solid var(--border);padding-top:6px}
+.filelist[hidden]{display:none}
+.filerow{display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid var(--border);font-size:13px}
+.filerow:last-child{border-bottom:none}
+.filerow .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filerow .fs{color:var(--text-faint);font-size:12px;flex:none}
+.filerow .fx{border:none;background:none;color:var(--text-faint);cursor:pointer;font-size:15px;padding:0 4px}
+.filerow .fx:hover{color:var(--danger)}
+/* 元信息行：下划线 tab 选择器（参考线上截图） */
+.mrow{display:flex;align-items:flex-start;gap:14px;padding:9px 0}
+.mlab{flex:none;width:64px;font-size:13px;color:var(--text-quiet);padding-top:4px}
+.utabs{display:flex;gap:22px;flex-wrap:wrap}
+.utab{border:none;background:none;font-size:14px;color:var(--text-quiet);cursor:pointer;padding:2px 0 7px;position:relative}
+.utab:hover{color:var(--text)}
+.utab[aria-pressed="true"]{color:var(--text);font-weight:700}
+.utab[aria-pressed="true"]::after{content:"";position:absolute;left:2px;right:2px;bottom:0;height:3px;background:var(--accent);border-radius:2px}
+.stagepick{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.plusbtn{width:30px;height:30px;border:1px solid var(--border-strong);border-radius:8px;background:#fff;
+  font-size:17px;line-height:1;color:var(--text-quiet);cursor:pointer;flex:none}
+.plusbtn:hover{color:var(--text);border-color:#9aa3af}
+.stagepanel{border:1px solid var(--border);border-radius:8px;padding:12px;margin:2px 0 6px;background:var(--surface-2)}
+.stagepanel[hidden]{display:none}
+.minichip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 6px 0 10px;border:1px solid var(--border);
+  border-radius:6px;background:#f4f5f7;font-size:12px;color:var(--text);cursor:pointer}
+.minichip span{color:var(--text-faint)}
+.minichip:hover{border-color:var(--danger)}
+.minichip:hover span{color:var(--danger)}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:var(--text-quiet);margin-bottom:6px;font-weight:600}
+.field input[type=text],.field select,.field textarea{width:100%;border:1px solid var(--border-strong);
+  border-radius:var(--radius);padding:8px 10px;font-size:13px;font-family:inherit}
+.field textarea{min-height:90px;resize:vertical}
+.checks{display:flex;gap:12px;font-size:13px}
+.checks label{display:flex;align-items:center;gap:6px;font-weight:400;color:var(--text)}
+.hint{font-size:11px;color:var(--text-faint);margin-top:6px}
+@media (max-width:1100px){.rail{display:none}.mid{width:320px}}
+</style>
+</head>
+<body>
+
+<!-- 左栏：静态框，按要求不动 -->
+<aside class="rail" aria-label="导航（示意，不可交互）">
+  <div class="logo">LiTime<small>LIFE &amp; DISCOVERY</small></div>
+  <nav>
+    <div class="nitem">员工</div><div class="nitem">概览</div><div class="nitem">连接</div>
+    <div class="nitem on">知识</div><div class="nitem">审批</div><div class="nitem">技能</div>
+    <div class="nitem">考试</div><div class="nitem">治理</div><div class="nitem">数据</div>
+    <div class="nitem">成本</div>
+  </nav>
+  <div class="ver">v b8cfe46</div>
+  <div class="me">鄢琴</div>
+</aside>
+
+<!-- 中栏：优化目标态 -->
+<aside class="mid" aria-label="知识筛选">
+  <div class="mid-scroll">
+    <div class="fsearch">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+      <input type="search" id="kb-q" placeholder="搜索标题、主题、负责人…" aria-label="搜索知识">
+    </div>
+    <div class="fgroup">
+      <div class="flabel">业务族</div><div class="chips" id="chips-fam"></div>
+      <div class="flabel gap">业务域</div><div class="chips" id="chips-area"></div>
+      <div class="flabel gap">知识库</div><div class="chips" id="chips-kb"></div>
+    </div>
+    <div class="fgroup">
+      <div class="flabel">适用品牌</div><div class="chips" id="chips-brand"></div>
+    </div>
+    <div class="fgroup">
+      <div class="flabel">适用阶段</div><div class="chips" id="chips-stage"></div>
+    </div>
+    <div class="fgroup">
+      <div class="flabel">类型</div><div class="chips" id="chips-type"></div>
+    </div>
+    <div class="fgroup">
+      <div class="flabel">状态</div><div class="chips" id="chips-status"></div>
+    </div>
+  </div>
+  <div class="mid-foot">
+    <button class="btn" data-action="kb-upload">上传文件</button>
+    <button class="btn primary" data-action="kb-new">新建知识</button>
+  </div>
+</aside>
+
+<!-- 右栏：联动列表 + 详情 -->
+<main class="right">
+  <div class="receipt" id="receipt" hidden><span id="receipt-msg"></span><button data-action="receipt-x">收起</button></div>
+  <div class="list-card">
+    <div class="list-head">
+      <span class="n" id="kb-count"></span>
+      <div class="pager">
+        <button data-action="kb-prev" id="kb-prev">上一页</button>
+        <span id="kb-pageinfo"></span>
+        <button data-action="kb-next" id="kb-next">下一页</button>
+      </div>
+    </div>
+    <div id="kb-list"></div>
+  </div>
+  <div class="detail-card" id="kb-detail"></div>
+</main>
+
+<div id="dialog-root"></div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---------- mock 数据（取自线上截图） ---------- */
+const STAGES=["初步接触","已回复-有兴趣","合作评估","报价待确认","商务谈判","方案待确认","合同签署","待寄样","已发货","已签收-测试中","内容策划","内容审核","待发布","已发布","结算中/已付款"];
+const BRANDS=["LiTime","Renogy"];
+const TYPES=["邮件模板","提示词","用词","问题模板","口径","写法样例"];
+const STATUS=["待审批","已发布","草稿","已停用"];
+const ITEMS=[
+ {id:"kb1",title:"公海·KOL资料完整度检查问题模板",type:"写法样例",status:"草稿",brands:["LiTime"],stages:["初步接触"],fam:"",area:"",kb:"历史知识",code:"kb_pool_profile_completeness",updated:"2026-10-02",
+  body:"检查对象：{{KOL名称列表}}\n请检查这些 KOL 当前可见公开资料的完整度。\n按对象列出：已有字段、缺失字段、影响判断的关键缺口、建议补充来源和复核优先级。\n不得把缺失字段补写成推测事实，不得读取或推断私有联系方式、邮件、合同、价格或员工笔记。"},
+ {id:"kb2",title:"公海·高潜KOL分析问题模板",type:"写法样例",status:"草稿",brands:["LiTime"],stages:["初步接触"],fam:"",area:"",kb:"历史知识",code:"kb_kol_high_potential",updated:"2026-10-01",
+  body:"分析对象：{{KOL名称列表}}\n从内容调性、粉丝画像、历史带货表现三个维度评估高潜 KOL。\n输出：综合评分、合作建议、风险提示。"},
+ {id:"kb3",title:"公海·高风险KOL分析问题模板",type:"写法样例",status:"草稿",brands:["LiTime"],stages:["初步接触"],fam:"",area:"",kb:"历史知识",code:"kb_kol_high_risk",updated:"2026-09-30",
+  body:"分析对象：{{KOL名称列表}}\n识别高风险信号：负面舆情、数据异常、竞品深度绑定。\n输出：风险等级、证据摘要、是否建议拉黑。"},
+ {id:"kb4",title:"催大纲",type:"邮件模板",status:"已发布",brands:["LiTime","Renogy"],stages:["合作评估"],fam:"",area:"",kb:"默认库",code:"mail_urge_outline",updated:"2026-09-28",
+  body:"主题：关于{{项目名称}}内容大纲的确认\n您好，距离约定提交时间还有 {{剩余天数}} 天，烦请确认大纲进度…"},
+ {id:"kb5",title:"发货通知",type:"邮件模板",status:"已发布",brands:["LiTime","Renogy"],stages:["已发货"],fam:"",area:"",kb:"默认库",code:"mail_ship_notify",updated:"2026-09-25",
+  body:"主题：您的{{产品名称}}已发出\n物流单号：{{运单号}}，预计 {{到达日期}} 送达，请注意查收。"},
+ {id:"kb6",title:"报价单标准话术",type:"口径",status:"已发布",brands:["LiTime"],stages:["报价待确认"],fam:"",area:"",kb:"默认库",code:"spk_quotation",updated:"2026-09-22",
+  body:"报价有效期 15 天；不含税；批量折扣阶梯：100+/500+/1000+ 三档。"},
+ {id:"kb7",title:"售后安抚用词",type:"用词",status:"已发布",brands:["Renogy"],stages:["已签收-测试中"],fam:"",area:"",kb:"默认库",code:"wrd_aftercare",updated:"2026-09-20",
+  body:"可用：非常理解您的心情／我们马上处理；禁用：不可能／你自己搞错的。"},
+ {id:"kb8",title:"退货政策问答",type:"问题模板",status:"待审批",brands:["LiTime","Renogy"],stages:["商务谈判"],fam:"",area:"",kb:"默认库",code:"qa_return_policy",updated:"2026-10-02",
+  body:"Q：支持几天无理由？\nA：签收后 30 天内，配件齐全可退。\nQ：运费谁承担？\nA：质量问题我方承担，个人原因由客户承担。"},
+ {id:"kb9",title:"新品发布提示词",type:"提示词",status:"已发布",brands:["LiTime"],stages:["待发布"],fam:"",area:"",kb:"默认库",code:"prm_launch",updated:"2026-09-18",
+  body:"为{{产品名称}}写一条 120 字内的发布文案：突出 {{核心卖点}}，语气专业克制，结尾带行动号召。"},
+ {id:"kb10",title:"旧版合同条款模板",type:"邮件模板",status:"已停用",brands:["LiTime","Renogy"],stages:["合同签署"],fam:"",area:"",kb:"默认库",code:"mail_contract_v1",updated:"2026-06-30",
+  body:"（已停用，仅归档可查）旧版合作合同条款模板，2026-06-30 起停止使用。"},
+ {id:"kb11",title:"KOL合作邀约信",type:"邮件模板",status:"草稿",brands:["LiTime"],stages:["已回复-有兴趣"],fam:"",area:"",kb:"默认库",code:"mail_kol_invite",updated:"2026-10-01",
+  body:"主题：LiTime × {{KOL名称}} 合作邀约\n我们注意到您在{{领域}}的内容…期待进一步沟通合作形式与报价。"},
+ {id:"kb12",title:"价格异议应对口径",type:"口径",status:"已发布",brands:["Renogy"],stages:["方案待确认"],fam:"",area:"",kb:"默认库",code:"spk_price_objection",updated:"2026-09-15",
+  body:"先认同，再拆解：把总价拆到每天成本；不主动降价，可谈账期与赠品。"},
+ {id:"kb13",title:"物流时效用词",type:"用词",status:"已发布",brands:["LiTime","Renogy"],stages:["待寄样"],fam:"",area:"",kb:"默认库",code:"wrd_logistics",updated:"2026-09-12",
+  body:"可用：预计 3-5 个工作日送达；禁用：保证明天到／一定准时。"},
+ {id:"kb14",title:"催款通知",type:"邮件模板",status:"已发布",brands:["LiTime"],stages:["结算中/已付款"],fam:"",area:"",kb:"默认库",code:"mail_payment_remind",updated:"2026-09-10",
+  body:"主题：关于{{合同编号}}尾款的提醒\n账期已至，烦请安排 {{金额}} 的支付…"},
+ {id:"kb15",title:"产品卖点提示词",type:"提示词",status:"草稿",brands:["LiTime"],stages:["内容策划"],fam:"",area:"",kb:"默认库",code:"prm_selling_points",updated:"2026-09-28",
+  body:"把{{产品参数}}转写成 3 条用户语言的卖点，每条不超过 20 字，不用形容词堆砌。"},
+ {id:"kb16",title:"审核驳回话术",type:"口径",status:"待审批",brands:["Renogy"],stages:["内容审核"],fam:"",area:"",kb:"默认库",code:"spk_reject",updated:"2026-10-02",
+  body:"驳回时给具体修改点，不只说不行；涉及合规的一律转人工复核。"},
+ {id:"kb17",title:"发布前检查清单",type:"问题模板",status:"已发布",brands:["LiTime","Renogy"],stages:["已发布"],fam:"",area:"",kb:"默认库",code:"qa_prelaunch",updated:"2026-09-08",
+  body:"1. 标题是否含违禁词？2. 价格与 SKU 是否一致？3. 落地页链接是否可达？"},
+ {id:"kb18",title:"历史退货模板",type:"邮件模板",status:"已停用",brands:["LiTime"],stages:["合同签署"],fam:"",area:"",kb:"历史知识",code:"mail_return_hist",updated:"2025-12-20",
+  body:"（已停用，仅归档可查）2025 版退货通知模板。"},
+];
+const PAGE=5;
+const state={q:"",fam:"全部",area:"全部",kb:"全部",brand:"全部",stage:"全部",type:"全部",status:"全部",selId:"kb1",page:1};
+
+/* ---------- 筛选 ---------- */
+function filtered(){
+  const q=state.q.trim();
+  const one=(sel,vals)=>sel==="全部"||vals.includes(sel);
+  return ITEMS.filter(it=>
+    (!q||it.title.includes(q))&&
+    one(state.fam,[it.fam===""?"未分类":it.fam])&&
+    one(state.area,[it.area===""?"未分类":it.area])&&
+    one(state.kb,[it.kb])&&
+    one(state.brand,it.brands)&&
+    one(state.stage,it.stages)&&
+    one(state.type,[it.type])&&
+    one(state.status,[it.status]));
+}
+function chipsHTML(opts,sel,act,total){
+  const all=[["全部","全部",total],...opts];
+  return all.map(([v,l,c])=>`<button class="chip" data-action="${act}" data-id="${esc(v)}" aria-pressed="${sel===v}">${esc(l)}<span class="cnt">${c}</span></button>`).join("");
+}
+function facetCount(get){
+  const m={};
+  ITEMS.forEach(it=>{[].concat(get(it)).forEach(v=>{m[v]=(m[v]||0)+1;});});
+  return m;
+}
+function renderChips(){
+  const total=ITEMS.length;
+  const cB=facetCount(it=>it.brands),cS=facetCount(it=>it.stages),cT=facetCount(it=>it.type),
+        cSt=facetCount(it=>it.status),cK=facetCount(it=>it.kb);
+  $("#chips-fam").innerHTML=chipsHTML([["未分类","未分类",total]],state.fam,"f-fam",total);
+  $("#chips-area").innerHTML=chipsHTML([["未分类","未分类",total]],state.area,"f-area",total);
+  $("#chips-kb").innerHTML=chipsHTML([["默认库","默认库",cK["默认库"]||0],["历史知识","历史知识",cK["历史知识"]||0]],state.kb,"f-kb",total);
+  $("#chips-brand").innerHTML=chipsHTML(BRANDS.map(n=>[n,n,cB[n]||0]),state.brand,"f-brand",total);
+  $("#chips-stage").innerHTML=chipsHTML(STAGES.map(n=>[n,n,cS[n]||0]),state.stage,"f-stage",total);
+  $("#chips-type").innerHTML=chipsHTML(TYPES.map(t=>[t,t,cT[t]||0]),state.type,"f-type",total);
+  $("#chips-status").innerHTML=chipsHTML(STATUS.map(s=>[s,s,cSt[s]||0]),state.status,"f-status",total);
+}
+function renderList(){
+  const rows=filtered(),pages=Math.max(1,Math.ceil(rows.length/PAGE));
+  if(state.page>pages)state.page=pages;
+  if(!rows.find(r=>r.id===state.selId))state.selId=rows.length?rows[0].id:null;
+  const slice=rows.slice((state.page-1)*PAGE,state.page*PAGE);
+  $("#kb-count").textContent=`${rows.length} 条知识`;
+  $("#kb-pageinfo").textContent=`第 ${state.page} / ${pages} 页`;
+  $("#kb-prev").disabled=state.page<=1;$("#kb-next").disabled=state.page>=pages;
+  $("#kb-list").innerHTML=slice.map(it=>`
+    <button class="krow ${it.id===state.selId?"sel":""}" data-action="sel-kb" data-id="${it.id}">
+      <span class="t">${esc(it.title)}</span>
+      <span class="m">${esc(it.type)} · <span class="st-${esc(it.status)}">${esc(it.status)}</span> · ${esc(it.updated)}</span>
+    </button>`).join("")||
+    `<div class="empty">没有符合筛选的知识。<br><br><button class="btn sm" data-action="clear-f">清除筛选</button></div>`;
+  renderDetail();
+}
+function renderDetail(){
+  const it=ITEMS.find(x=>x.id===state.selId),box=$("#kb-detail");
+  if(!it){box.innerHTML=`<div class="empty">请选择一条知识查看详情。</div>`;return;}
+  box.innerHTML=`<h2>${esc(it.title)}</h2>
+    <div class="dsub"><span class="st-${esc(it.status)}">${esc(it.status)}</span> · ${esc(it.type)}</div>
+    <h3>正文</h3><pre>${esc(it.body)}</pre>
+    <h3>属性与范围</h3>
+    <dl class="kv"><dt>知识标识</dt><dd style="font-family:ui-monospace,monospace">${esc(it.code)}</dd>
+    <dt>知识类型</dt><dd>${esc(it.type)}</dd>
+    <dt>适用品牌</dt><dd>${it.brands.map(esc).join("、")}</dd>
+    <dt>适用阶段</dt><dd>${it.stages.map(esc).join("、")}</dd>
+    <dt>更新时间</dt><dd>${esc(it.updated)}</dd></dl>
+    <div class="dactions"><button class="btn sm" data-action="kb-edit" data-id="${it.id}">修订</button>
+    ${it.status==="草稿"?`<button class="btn sm danger-o" data-action="kb-del" data-id="${it.id}">删除草稿</button>`:""}</div>`;
+}
+
+/* ---------- 弹窗 ---------- */
+let pendingConfirm=null;
+function openDialog(o){
+  $("#dialog-root").innerHTML=`<div class="dlg-back" data-action="dlg-backdrop"><div class="dlg${o.wide?" w-lg":""}" role="dialog" aria-modal="true" aria-label="${esc(o.title)}">
+    <div class="dlg-head"><h2>${esc(o.title)}</h2>${o.x?`<button class="dlg-x" data-action="dlg-cancel" aria-label="关闭">×</button>`:""}</div>
+    ${o.desc?`<div class="dlg-desc">${esc(o.desc)}</div>`:""}
+    <div class="dlg-body">${o.body}</div><div class="dlg-foot">${o.foot}</div></div></div>`;
+  const f=$("#dialog-root").querySelector("input[type=text],textarea,select");if(f)f.focus();
+}
+function closeDialog(){$("#dialog-root").innerHTML="";}
+function confirmDlg(o){return new Promise(res=>{pendingConfirm=res;
+  openDialog({title:o.title,body:`<p style="font-size:13px;margin:0">${o.body}</p>`,
+    foot:`<button class="btn" data-action="dlg-cancel">取消</button><button class="btn ${o.danger?"danger-o":"primary"}" data-action="dlg-ok">${esc(o.okText||"确认")}</button>`});});}
+function receipt(msg){$("#receipt-msg").textContent=msg;$("#receipt").hidden=false;}
+/* ---------- 上传 / 新建弹窗（参考线上截图的对话框语言） ---------- */
+let DM=null;
+function resetDM(){DM={fam:"",area:"",kb:"__all",type:"邮件模板",brands:["LiTime"],stages:[],files:[]};}
+function famTabsHTML(sel,act){
+  return `<button class="utab" data-action="${act}" data-id="" aria-pressed="${sel===""}">全部</button>`+
+    `<button class="utab" data-action="${act}" data-id="未分类" aria-pressed="${sel==="未分类"}">未分类</button>`;
+}
+function kbTabsHTML(sel,act){
+  return `<button class="utab" data-action="${act}" data-id="__all" aria-pressed="${sel==="__all"}">全部</button>`+
+    `<button class="utab" data-action="${act}" data-id="默认库" aria-pressed="${sel==="默认库"}">默认库</button>`+
+    `<button class="utab" data-action="${act}" data-id="历史知识" aria-pressed="${sel==="历史知识"}">历史知识</button>`;
+}
+function stagePanelHTML(sel,act){
+  return STAGES.map(s=>`<button class="chip" data-action="${act}" data-id="${esc(s)}" aria-pressed="${sel.includes(s)}">${esc(s)}</button>`).join("");
+}
+function selStagesHTML(sel,act){
+  return sel.map(s=>`<button class="minichip" data-action="${act}" data-id="${esc(s)}" title="点击移除">${esc(s)}<span>×</span></button>`).join("");
+}
+function openNew(){
+  resetDM();
+  openDialog({title:"新建知识",wide:true,x:true,desc:"填写标题与分类信息，创建后进入草稿，可继续整理正文。",body:`
+    <div class="field"><label>标题</label><input type="text" id="nb-title2" placeholder="知识标题"></div>
+    <div class="mrow"><span class="mlab">类型</span><div class="utabs" id="nb-type">${TYPES.map(t=>`<button class="utab" data-action="nb-type" data-id="${esc(t)}" aria-pressed="${t===DM.type}">${esc(t)}</button>`).join("")}</div></div>
+    <div class="mrow"><span class="mlab">业务族</span><div class="utabs" id="nb-fam">${famTabsHTML(DM.fam,"nb-fam")}</div></div>
+    <div class="mrow"><span class="mlab">业务域</span><div class="utabs" id="nb-area">${famTabsHTML(DM.area,"nb-area")}</div></div>
+    <div class="mrow"><span class="mlab">知识库</span><div class="utabs" id="nb-kb">${kbTabsHTML(DM.kb,"nb-kb")}</div></div>
+    <div class="mrow"><span class="mlab">适用品牌</span><div class="utabs" id="nb-brand">${BRANDS.map(b=>`<button class="utab" data-action="nb-brand" data-id="${esc(b)}" aria-pressed="${DM.brands.includes(b)}">${esc(b)}</button>`).join("")}</div></div>
+    <div class="mrow"><span class="mlab">适用阶段</span><div class="stagepick"><span id="nb-stages"></span><button class="plusbtn" data-action="nb-stage-toggle" aria-label="添加适用阶段">+</button></div></div>
+    <div class="stagepanel" id="nb-stagepanel" hidden>${stagePanelHTML(DM.stages,"nb-stage-chip")}</div>
+    <div class="field"><label>正文</label><textarea id="nb-body2" placeholder="知识正文…"></textarea></div>`,
+    foot:`<button class="btn" data-action="dlg-cancel">取消</button><button class="btn primary" data-action="nb-create" id="nb-create" disabled>创建草稿</button>`});
+  $("#nb-title2").addEventListener("input",e=>{$("#nb-create").disabled=!e.target.value.trim();});
+}
+function openUpload(){
+  resetDM();
+  openDialog({title:"上传文件",wide:true,x:true,desc:"支持批量选择或拖入文件；每个文件形成一条待整理草稿。",body:`
+    <div class="drop" id="up-drop">
+      <input type="file" id="up-files" multiple hidden>
+      <button class="btn" data-action="up-pick">选择文件</button>
+      <p class="fmts">PDF · Word · Excel / CSV · PowerPoint · TXT / Markdown / HTML · 图片(PNG/JPG/WEBP) · 音视频(MP3/M4A/WAV/MP4/MOV/WEBM)</p>
+      <p class="fnote">音视频将先转写；扫描件将先 OCR。</p>
+      <div class="filelist" id="up-filelist" hidden></div>
+    </div>
+    <div class="mrow"><span class="mlab">业务族</span><div class="utabs" id="up-fam">${famTabsHTML(DM.fam,"up-fam")}</div></div>
+    <div class="mrow"><span class="mlab">业务域</span><div class="utabs" id="up-area">${famTabsHTML(DM.area,"up-area")}</div></div>
+    <div class="mrow"><span class="mlab">知识库</span><div class="utabs" id="up-kb">${kbTabsHTML(DM.kb,"up-kb")}</div></div>
+    <div class="mrow"><span class="mlab">适用阶段</span><div class="stagepick"><span id="up-stages"></span><button class="plusbtn" data-action="up-stage-toggle" aria-label="添加适用阶段">+</button></div></div>
+    <div class="stagepanel" id="up-stagepanel" hidden>${stagePanelHTML(DM.stages,"up-stage-chip")}</div>`,
+    foot:`<button class="btn" data-action="dlg-cancel">取消</button><button class="btn primary" data-action="up-create" id="up-create" disabled>创建文件草稿</button>`});
+  const fi=$("#up-files");
+  fi.addEventListener("change",()=>{addUpFiles(fi.files);fi.value="";});
+  const dz=$("#up-drop");
+  ["dragover","dragenter"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("over");}));
+  ["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("over");}));
+  dz.addEventListener("drop",e=>{if(e.dataTransfer&&e.dataTransfer.files.length)addUpFiles(e.dataTransfer.files);});
+}
+function addUpFiles(list){
+  [...list].forEach(f=>{if(!DM.files.some(x=>x.name===f.name&&x.size===f.size))DM.files.push({name:f.name,size:f.size});});
+  renderUpFiles();
+}
+function fmtSize(b){return b>1048576?(b/1048576).toFixed(1)+" MB":Math.max(1,Math.round(b/1024))+" KB";}
+function renderUpFiles(){
+  const box=$("#up-filelist");if(!box||!DM)return;
+  box.innerHTML=DM.files.map((f,i)=>`<div class="filerow"><span class="fn">${esc(f.name)}</span><span class="fs">${fmtSize(f.size)}</span><button class="fx" data-action="up-rmfile" data-id="${i}" aria-label="移除文件">×</button></div>`).join("");
+  box.hidden=DM.files.length===0;
+  const btn=$("#up-create");if(btn)btn.disabled=DM.files.length===0;
+}
+function openEdit(it){
+  openDialog({title:"修订知识",body:`
+    <div class="field"><label>标题</label><input type="text" id="eb-title" value="${esc(it.title)}"></div>
+    <div class="field"><label>正文</label><textarea id="eb-body">${esc(it.body)}</textarea></div>
+    <div class="hint">修订会写入新版本，当前版本自动归档。</div>`,
+    foot:`<button class="btn" data-action="dlg-cancel">取消</button><button class="btn primary" data-action="eb-ok" data-id="${it.id}">保存修订</button>`});
+}
+
+/* ---------- 事件 ---------- */
+function toggleArr(arr,v){const i=arr.indexOf(v);i>=0?arr.splice(i,1):arr.push(v);}
+function afterFilter(){state.page=1;renderChips();renderList();}
+document.addEventListener("click",async e=>{
+  const el=e.target.closest("[data-action]");if(!el)return;
+  const a=el.dataset.action,id=el.dataset.id;
+  if(a==="dlg-backdrop"&&e.target!==el)return;
+  switch(a){
+    case"receipt-x":$("#receipt").hidden=true;break;
+    case"dlg-backdrop":case"dlg-cancel":if(pendingConfirm){pendingConfirm(false);pendingConfirm=null;}closeDialog();break;
+    case"dlg-ok":if(pendingConfirm){pendingConfirm(true);pendingConfirm=null;}closeDialog();break;
+    case"clear-f":state.q="";$("#kb-q").value="";
+      state.fam=state.area=state.kb=state.brand=state.stage=state.type=state.status="全部";
+      afterFilter();break;
+    case"f-fam":state.fam=id;afterFilter();break;
+    case"f-area":state.area=id;afterFilter();break;
+    case"f-kb":state.kb=id;afterFilter();break;
+    case"f-brand":state.brand=id;afterFilter();break;
+    case"f-stage":state.stage=id;afterFilter();break;
+    case"f-type":state.type=id;afterFilter();break;
+    case"f-status":state.status=id;afterFilter();break;
+    case"sel-kb":state.selId=id;renderList();break;
+    case"kb-prev":if(state.page>1){state.page--;renderList();}break;
+    case"kb-next":state.page++;renderList();break;
+    case"kb-new":openNew();break;
+    case"kb-upload":openUpload();break;
+    case"up-pick":$("#up-files").click();break;
+    case"up-rmfile":DM.files.splice(+id,1);renderUpFiles();break;
+    case"up-fam":DM.fam=id;$("#up-fam").innerHTML=famTabsHTML(id,"up-fam");break;
+    case"up-area":DM.area=id;$("#up-area").innerHTML=famTabsHTML(id,"up-area");break;
+    case"up-kb":DM.kb=id;$("#up-kb").innerHTML=kbTabsHTML(id,"up-kb");break;
+    case"up-stage-toggle":{const p=$("#up-stagepanel");p.hidden=!p.hidden;break;}
+    case"up-stage-chip":toggleArr(DM.stages,id);
+      $("#up-stagepanel").innerHTML=stagePanelHTML(DM.stages,"up-stage-chip");
+      $("#up-stages").innerHTML=selStagesHTML(DM.stages,"up-stage-rm");break;
+    case"up-stage-rm":toggleArr(DM.stages,id);
+      $("#up-stagepanel").innerHTML=stagePanelHTML(DM.stages,"up-stage-chip");
+      $("#up-stages").innerHTML=selStagesHTML(DM.stages,"up-stage-rm");break;
+    case"up-create":{const n=DM.files.length;if(!n)break;
+      const kb=DM.kb==="__all"?"默认库":DM.kb, stages=DM.stages.length?[...DM.stages]:["初步接触"];
+      const names=[];
+      [...DM.files].reverse().forEach((f,i)=>{const nid="kb"+Date.now().toString(36)+i;
+        ITEMS.unshift({id:nid,title:f.name,type:"写法样例",status:"草稿",brands:["LiTime"],stages:[...stages],
+          fam:DM.fam,area:DM.area,kb,code:"kb_file_"+nid,updated:"2026-10-03",body:"（文件已上传，解析中…）"});
+        names.push(f.name);});
+      state.selId=ITEMS[0].id;closeDialog();afterFilter();
+      receipt(`已创建 ${n} 条文件草稿：${names.slice(0,2).join("、")}${n>2?"…":""}。`);break;}
+    case"nb-type":DM.type=id;$("#nb-type").innerHTML=TYPES.map(t=>`<button class="utab" data-action="nb-type" data-id="${esc(t)}" aria-pressed="${t===id}">${esc(t)}</button>`).join("");break;
+    case"nb-fam":DM.fam=id;$("#nb-fam").innerHTML=famTabsHTML(id,"nb-fam");break;
+    case"nb-area":DM.area=id;$("#nb-area").innerHTML=famTabsHTML(id,"nb-area");break;
+    case"nb-kb":DM.kb=id;$("#nb-kb").innerHTML=kbTabsHTML(id,"nb-kb");break;
+    case"nb-brand":toggleArr(DM.brands,id);
+      $("#nb-brand").innerHTML=BRANDS.map(b=>`<button class="utab" data-action="nb-brand" data-id="${esc(b)}" aria-pressed="${DM.brands.includes(b)}">${esc(b)}</button>`).join("");break;
+    case"nb-stage-toggle":{const p=$("#nb-stagepanel");p.hidden=!p.hidden;break;}
+    case"nb-stage-chip":toggleArr(DM.stages,id);
+      $("#nb-stagepanel").innerHTML=stagePanelHTML(DM.stages,"nb-stage-chip");
+      $("#nb-stages").innerHTML=selStagesHTML(DM.stages,"nb-stage-rm");break;
+    case"nb-stage-rm":toggleArr(DM.stages,id);
+      $("#nb-stagepanel").innerHTML=stagePanelHTML(DM.stages,"nb-stage-chip");
+      $("#nb-stages").innerHTML=selStagesHTML(DM.stages,"nb-stage-rm");break;
+    case"nb-create":{const t=$("#nb-title2").value.trim();if(!t)break;
+      const nid="kb"+Date.now().toString(36), kb=DM.kb==="__all"?"默认库":DM.kb;
+      ITEMS.unshift({id:nid,title:t,type:DM.type,status:"草稿",
+        brands:DM.brands.length?[...DM.brands]:["LiTime"],stages:DM.stages.length?[...DM.stages]:["初步接触"],
+        fam:DM.fam,area:DM.area,kb,code:"kb_custom_"+nid,updated:"2026-10-03",
+        body:$("#nb-body2").value.trim()||"（待补充正文）"});
+      state.selId=nid;closeDialog();afterFilter();receipt(`已创建草稿「${t}」。`);break;}
+    case"kb-edit":openEdit(ITEMS.find(x=>x.id===id));break;
+    case"eb-ok":{const it=ITEMS.find(x=>x.id===id),t=$("#eb-title").value.trim();
+      if(!t){$("#eb-title").focus();break;}
+      it.title=t;it.body=$("#eb-body").value;it.updated="2026-10-03";closeDialog();renderList();receipt(`已修订「${t}」，写入新版本。`);break;}
+    case"kb-del":{const it=ITEMS.find(x=>x.id===id);
+      const ok=await confirmDlg({title:"删除草稿",danger:true,okText:"删除",body:`删除草稿「${esc(it.title)}」？不可撤销。`});
+      if(ok){ITEMS.splice(ITEMS.indexOf(it),1);renderList();receipt(`已删除草稿「${it.title}」。`);}break;}
+  }
+});
+$("#kb-q").addEventListener("input",e=>{state.q=e.target.value;state.page=1;renderList();});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&$("#dialog-root").firstChild){if(pendingConfirm){pendingConfirm(false);pendingConfirm=null;}closeDialog();}
+});
+renderChips();renderList();
+</script>
+</body>
+</html>

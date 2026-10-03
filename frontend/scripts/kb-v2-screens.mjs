@@ -101,11 +101,12 @@ for (const [width, height, tag] of VIEWPORTS) {
       await page.keyboard.press("Escape");
       await page.waitForTimeout(250);
 
-      await page.locator('[data-kbv-detail-tab="props"]').click();
+      await page.locator("[data-kbv-new]").click();
+      await page.waitForSelector("[data-kbv-create-dialog][open]");
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(out, "admin-1440-create.png") });
+      await page.keyboard.press("Escape");
       await page.waitForTimeout(250);
-      await page.screenshot({ path: path.join(out, "admin-1440-props.png") });
-      await page.locator('[data-kbv-detail-tab="content"]').click();
-      await page.waitForTimeout(200);
     }
   });
 }

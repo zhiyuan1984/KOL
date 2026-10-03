@@ -1089,11 +1089,13 @@
 
 
 /* ── 知识管理筛选＋浏览重构（2026-10-02）──────────────────────────────
-   中栏只筛选，右栏只浏览与查看；没有跨两栏的页头。 */
+   中栏只筛选，右栏只浏览与查看；没有跨两栏的页头。
+   2026-10-03（kb-midcol 原型 v4）：七组统一「标签＋计数」chips、每组「全部」；
+   零计数收起；细线分组替代卡片壳；中栏宽 320px。 */
 
 .kbv-filter-browser .kbv-workspace {
   display: grid;
-  grid-template-columns: minmax(var(--left-width), 30%) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
   border-top: 1px solid var(--border);
@@ -1112,14 +1114,12 @@
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: var(--space-4);
-  display: grid;
-  align-content: start;
-  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-2);
 }
 
 .kbv-filter-scroll .kbv-search {
   width: 100%;
+  margin-bottom: var(--space-4);
 }
 
 .kbv-search-glyph {
@@ -1128,59 +1128,31 @@
   line-height: 1;
 }
 
-.kbv-filter-card {
+.kbv-filter-group {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--bg-elevated);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
 }
 
-.kbv-filter-card h2 {
-  margin: 0;
-  color: var(--text);
-  font-size: var(--ds-font-ui);
-  line-height: var(--ds-line-ui);
-  font-weight: 600;
+.kbv-filter-group:last-child {
+  border-bottom: 0;
 }
 
-.kbv-filter-card .kbv-scope-rows {
+.kbv-filter-block {
+  display: grid;
   gap: var(--space-2);
 }
 
-.kbv-filter-card .kbv-scope-row {
-  display: grid;
-  grid-template-columns: 1fr;
-  align-items: start;
-  gap: var(--space-1);
+.kbv-filter-block + .kbv-filter-block {
+  margin-top: var(--space-3);
 }
 
-.kbv-filter-card .kbv-scope-name {
-  width: auto;
-}
-
-.kbv-filter-card .kbv-scope-tabs {
-  flex-wrap: wrap;
-  overflow: visible;
-  gap: var(--space-1);
-}
-
-.kbv-filter-card .kbv-tab {
-  min-height: var(--chip-h);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--bg);
+.kbv-filter-name {
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
+  font-weight: 600;
   line-height: var(--ds-line-ui);
-}
-
-.kbv-filter-card .kbv-tab[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
-  color: var(--accent-text);
 }
 
 .kbv-facet-list {
@@ -1190,103 +1162,61 @@
   gap: var(--space-1);
 }
 
-.kbv-facet-chip {
+/* 统一 chips（kb-midcol 原型 v4）：贴合文字、不加粗；
+   选中态＝辅助色＋描边加厚（不只靠颜色一个通道）。 */
+.kbv-chip {
+  appearance: none;
   display: inline-flex;
-  min-width: 0;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--chip-h);
+  padding: 0 var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--bg);
-}
-
-.kbv-facet-chip:has(.kbv-filter-chip[aria-pressed="true"]) {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
-}
-
-.kbv-facet-chip .kbv-filter-chip {
-  min-width: 0;
-  max-width: none;
-  min-height: var(--chip-h);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-muted);
-  gap: var(--space-1);
-  white-space: normal;
-  text-align: left;
-}
-
-.kbv-facet-chip .kbv-filter-chip[aria-pressed="true"] {
-  border-color: transparent;
-  background: transparent;
-  color: var(--accent-text);
-}
-
-.kbv-facet-chip .kbv-filter-chip > span {
-  overflow-wrap: anywhere;
-}
-
-.kbv-facet-chip small {
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-}
-
-.kbv-facet-remove,
-.kbv-facet-add {
-  flex: 0 0 auto;
-  align-self: stretch;
-  min-height: var(--chip-h);
-  border: 0;
-  border-left: 1px solid var(--border);
-  background: transparent;
   color: var(--text-muted);
   font: inherit;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-ui);
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.kbv-facet-remove {
-  padding: 0 var(--space-1);
-}
-
-.kbv-facet-add {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  padding: 0 var(--space-1);
-}
-
-.kbv-facet-remove:hover,
-.kbv-facet-add:hover {
+.kbv-chip:hover {
+  border-color: var(--text-muted);
   color: var(--text);
 }
 
-.kbv-type-list,
-.kbv-status-list {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-1);
-}
-
-.kbv-type-choice,
-.kbv-status-choice {
-  min-height: var(--control-h-lg);
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--ds-font-helper);
-  text-align: left;
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-}
-
-.kbv-type-choice[aria-pressed="true"],
-.kbv-status-choice[aria-pressed="true"] {
+.kbv-chip[aria-pressed="true"] {
   border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, var(--bg));
   color: var(--accent-text);
-  font-weight: 600;
+}
+
+.kbv-chip small {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  font-weight: 400;
+}
+
+.kbv-chip[aria-pressed="true"] small {
+  color: var(--accent-text);
+}
+
+.kbv-chip-more {
+  border-style: dashed;
+}
+
+/* 弹窗里的下划线 tab 行允许换行（新建知识弹窗的类型 / 适用品牌）。 */
+.kbv-dialog .kbv-scope-tabs {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.kbv-dialog-actions .kbv-link-plain {
+  margin-right: auto;
+  align-self: center;
 }
 
 .kbv-filter-actions {
@@ -1384,6 +1314,11 @@
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
   white-space: nowrap;
+}
+
+/* 行元信息用点号分隔：类型 · 状态 · 日期（原型 v4）。 */
+.kbv-browser-record-meta > span + span::before {
+  content: "· ";
 }
 
 .kbv-browser-record-meta .kbv-status {
@@ -1513,11 +1448,7 @@
 }
 
 @media (pointer: coarse) {
-  .kbv-filter-browser .kbv-filter-chip,
-  .kbv-filter-browser .kbv-facet-remove,
-  .kbv-filter-browser .kbv-facet-add,
-  .kbv-filter-browser .kbv-type-choice,
-  .kbv-filter-browser .kbv-status-choice {
+  .kbv-filter-browser .kbv-chip {
     min-height: var(--hit-min);
   }
 }

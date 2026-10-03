@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * 知识治理管理端（IA v2，2026-10-02）的 e2e 契约。
+ * 知识治理管理端（IA v2，2026-10-02；中栏 chips 改版 2026-10-03）的 e2e 契约。
  *
  * 断言只依赖页面自己的 DOM 契约与既有对话框钩子：
- *   新主页（默认路由）→ data-admin-kb-v2="home"：中栏筛选 / 右栏五条浏览 / 下方详情
- *   旧子视图过渡保留：data-admin-kb-tab 共 5 个（catalog|base|entry|ingest|bindings）＋ data-admin-kb-home-link 回链
+ *   新主页（默认路由）→ data-admin-kb-v2="home"：中栏七组「标签＋计数」chips / 右栏五条浏览 / 下方详情
+ *   旧子视图过渡保留：子视图直达 ＋ data-admin-kb-home-link 回链（无旧导航痕迹）
  *   一页一问 → 每个视口最多 1 个实底主 CTA（--primary 实底）。
  *
  * stub 环境用 data-e2e 的种子知识（kb_mail_kol =「首封建联」，已发布、sriphy 已启用），
@@ -43,14 +43,22 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     const home = page.locator('[data-admin-kb-v2="home"]');
     await expect(home).toBeVisible();
     await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
-    await expect(page.locator("[data-kbv-view]")).toHaveCount(5);
+    await expect(page.locator("[data-kbv-view]")).toHaveCount(3);
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
     await expect(page.locator("[data-admin-kb-tab]")).toHaveCount(0);
-    // 三级分类联动 tab（业务域 → 业务主题 → 知识库）与筛选标签。
+    // 三级分类联动 chips（业务族 → 业务域 → 知识库）与筛选标签。
     await expect(page.locator("[data-kb-scope-family]").first()).toBeVisible();
     await expect(page.locator("[data-kb-scope-domain]").first()).toBeVisible();
     await expect(page.locator("[data-kb-scope-base]").first()).toBeVisible();
     await expect(page.locator("[data-kb-filter='brand']")).toBeVisible();
+    // 分类 chips 点选可用：选「历史知识」→ 列表仍在；点「全部」→ 恢复。
+    // （弹窗内也渲染分类 tab，断言限定在中栏内，避开 strict mode。）
+    const pane = page.locator("[data-kbv-filter-pane]");
+    await pane.locator("[data-kb-scope-base='kbase_legacy']").click();
+    await expect(pane.locator("[data-kb-scope-base='kbase_legacy']")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
+    await pane.locator("[data-kb-scope-base='']").click();
+    await expect(pane.locator("[data-kb-scope-base='']")).toHaveAttribute("aria-pressed", "true");
 
     // 子视图直达可达：仅保留返回回链（旧版导航已撤）。
     await openView(page, "/admin/knowledge/catalog", "catalog");
@@ -100,9 +108,12 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await page.keyboard.press("Escape");
     await expect(upload).toBeHidden();
 
-    // 新建知识 → 进入目录（真实的创建入口）。
+    // 新建知识 → 打开新建弹窗（真实写草稿入口）。
     await page.locator("[data-kbv-new]").click();
-    await expect(page.locator('[data-admin-kb-view="catalog"]')).toBeVisible();
+    await expect(page.locator("[data-kbv-create-dialog]")).toBeVisible();
+    await expect(page.locator("[data-kbv-create-submit]")).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-kbv-create-dialog]")).toBeHidden();
   });
 
   test("目录列出族 / 域 / 库，库详情列出条目，条目详情可展开版本全文", async ({ page }) => {
