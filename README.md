@@ -245,9 +245,9 @@ export MAX_ATTACHMENT_BYTES=10485760
 ./scripts/start.sh
 ```
 
-**开发分体：** 先起 API `cd backend && LINGONG_DATA=../data npx tsx src/index.ts`（默认 8765），再 `cd frontend && npm run dev`（Vite 4177，代理 `/api`）。
+**开发分体（PostgreSQL）：** 先准备数据库 `node scripts/dev-pg.mjs`——缺省连 `127.0.0.1:5432/lingong_dev`；没有本地 PG 时加 `--docker`（起仅监听 127.0.0.1 的 postgres:18 容器），`--fresh` 重建并从 `data/lingong.db` 重迁历史数据；脚本会在 `backend/` 以 PG 模式启动 API（默认 8765），并顺带把测试模板库 `lingong_template` 对齐。再 `cd frontend && npm run dev`（Vite 4177，代理 `/api`）。开发/测试不再以 SQLite `data/` 作为运行库；`data/lingong.db` 仅作一次性迁移源。后端测试从模板库克隆新库：`cd backend && TEST_DATABASE_URL=<同一 PG 的 postgres 库> npm test`。
 
-运行时不需要 Python。Host / Gateway / Worker / MCP / mock 都在 `backend/`（Hono + better-sqlite3）。
+运行时不需要 Python。Host / Gateway / Worker / MCP / mock 都在 `backend/`（Hono；权威存储为 PostgreSQL，桥接层保留 SQLite 方言兼容）。
 
 ## 被 mock 的东西
 
