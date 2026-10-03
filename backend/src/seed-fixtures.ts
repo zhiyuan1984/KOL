@@ -198,9 +198,12 @@ export function seedWorkbenchFixtures(): void {
   const insCr = conn.prepare(`
         INSERT OR REPLACE INTO claw_creators
         (id, handle, name, platform, followers, score, status, outreach_script, payload)
-        VALUES (@id,@handle,@name,@platform,@followers,@score,@status,@outreach_script,@payload)
+        VALUES (?,?,?,?,?,?,?,?,?)
   `);
-  for (const c of creators) insCr.run(c);
+  // 位置参数：SQLite 的 @name 绑定在 PostgreSQL 上不被支持（翻译层只转 ?）。
+  for (const c of creators) {
+    insCr.run(c.id, c.handle, c.name, c.platform, c.followers, c.score, c.status, c.outreach_script, c.payload);
+  }
 
   const candidates = JSON.stringify([
     { id: "col_xiaomei", handle: "小美妆日记", score: 0.42 },
