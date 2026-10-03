@@ -10,7 +10,7 @@ import {
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { RemoteMcpClient } from "../mcp/remote.js";
-import { appendTaskEvent } from "../routers/tasks.js";
+import { appendTaskEvent } from "../task-events.js";
 import type { Json, Row } from "../types.js";
 import { CRAWL_PLATFORM_SET } from "./platforms.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";

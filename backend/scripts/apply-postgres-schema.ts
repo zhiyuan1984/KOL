@@ -130,6 +130,34 @@ const migrations: Array<{ id: string; statements: string[] }> = [
       )`,
     ],
   },
+
+  {
+    id: "20261003_task_event_lifecycle_integrity",
+    statements: [
+      "ALTER TABLE task_events ADD COLUMN IF NOT EXISTS event_class TEXT NOT NULL DEFAULT 'run_trace'",
+      `UPDATE task_events SET event_class=CASE
+        WHEN event_type IN ('task.completed','task.failed') THEN 'legacy'
+        WHEN event_type LIKE 'task.%' THEN 'lifecycle'
+        ELSE 'run_trace'
+      END`,
+      "ALTER TABLE task_events DROP CONSTRAINT IF EXISTS task_events_event_class_check",
+      "ALTER TABLE task_events ADD CONSTRAINT task_events_event_class_check CHECK (event_class IN ('lifecycle','run_trace','legacy'))",
+      `CREATE OR REPLACE FUNCTION prevent_lifecycle_task_event_mutation()
+       RETURNS trigger AS $$
+       BEGIN
+         IF OLD.event_class = 'lifecycle' THEN
+           RAISE EXCEPTION 'lifecycle task event is immutable';
+         END IF;
+         IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+         RETURN NEW;
+       END;
+       $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS task_events_lifecycle_no_mutation ON task_events",
+      `CREATE TRIGGER task_events_lifecycle_no_mutation
+       BEFORE UPDATE OR DELETE ON task_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_lifecycle_task_event_mutation()`,
+    ],
+  },
 ];
 
 const client = new Client({ connectionString: databaseUrl });

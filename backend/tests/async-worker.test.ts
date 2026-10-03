@@ -328,7 +328,7 @@ describe("real Codex HTTP flow", () => {
   });
 
   it("does not throw when a bound crawl follow-up lands after the task is torn down", async () => {
-    const { appendTaskEvent } = await import("../src/routers/tasks.js");
+    const { appendTaskEvent } = await import("../src/task-events.js");
     const workItemId = "tsk_torn_down";
     const runId = "run_torn_down";
     // Same isolation as afterEach: a later test opens a new SQLite file, so a

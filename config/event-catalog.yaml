@@ -1226,7 +1226,7 @@
         "任务篇 §2.1"
       ],
       "status": "built",
-      "carrier": "task_events + work_items",
+      "carrier": "tickets + task_events（lifecycle）",
       "source_ref": "事件清单 §7"
     },
     {
@@ -1260,7 +1260,7 @@
         "BIZ-16"
       ],
       "status": "built",
-      "carrier": "work_items + task_events",
+      "carrier": "tickets + task_events",
       "source_ref": "事件清单 §7"
     },
     {
@@ -1277,7 +1277,7 @@
         "BIZ-16"
       ],
       "status": "partial",
-      "carrier": "work_items + audit_events",
+      "carrier": "tickets + audit_events",
       "source_ref": "事件清单 §7"
     },
     {
@@ -1314,8 +1314,8 @@
     },
     {
       "code": "task.completed",
-      "name": "任务已成功",
-      "category": "system_job",
+      "name": "历史旧任务完成写入（已废止）",
+      "category": "legacy",
       "object_type": "follow_task",
       "payload": [
         "result_generated",
@@ -1325,14 +1325,14 @@
       "clauses": [
         "ADR-2026-09-30"
       ],
-      "status": "built",
-      "carrier": "task_events + work_items",
+      "status": "retired",
+      "carrier": "task_events（legacy；新运行使用 run.completed）",
       "source_ref": "事件清单 §7"
     },
     {
       "code": "task.failed",
-      "name": "任务已失败",
-      "category": "system_job",
+      "name": "历史旧任务失败写入（已废止）",
+      "category": "legacy",
       "object_type": "follow_task",
       "payload": [
         "failure_reason",
@@ -1343,8 +1343,8 @@
         "ADR-2026-09-30",
         "PROD-AGENT-09"
       ],
-      "status": "built",
-      "carrier": "task_events + work_items",
+      "status": "retired",
+      "carrier": "task_events（legacy；新运行使用 run.failed）",
       "source_ref": "事件清单 §7"
     },
     {
@@ -1375,7 +1375,7 @@
         "ADR-2026-09-30"
       ],
       "status": "built",
-      "carrier": "task_events + work_items",
+      "carrier": "tickets + task_events（lifecycle）",
       "source_ref": "事件清单 §7"
     },
     {
@@ -1390,8 +1390,8 @@
       "clauses": [
         "BIZ-16"
       ],
-      "status": "designed",
-      "carrier": "待建",
+      "status": "built",
+      "carrier": "tickets + task_events（lifecycle）",
       "source_ref": "事件清单 §7"
     },
     {
