@@ -250,6 +250,14 @@ export function formatKbTime(value?: string) {
   });
 }
 
+/** 列表行元信息的日期（只到日，不带时间）。 */
+export function kbDateOnly(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
 export function versionLine(ver: Record<string, unknown>) {
   const n = Number(ver.version || 0);
   const when = formatKbTime(String(ver.created_at || ""));

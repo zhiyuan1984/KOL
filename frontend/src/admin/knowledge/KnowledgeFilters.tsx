@@ -1,9 +1,16 @@
-import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
-import { brandLabel, KB_FILTER_LABEL, kindLabel } from "../../knowledgeCopy";
+import { useState } from "react";
+import {
+  brandLabel,
+  KB_FILTER_LABEL,
+  KB_SCOPE_BASE,
+  KB_SCOPE_DOMAIN,
+  KB_SCOPE_FAMILY,
+} from "../../knowledgeCopy";
 import { stageLabel } from "../../labels";
 import type { KbView } from "./LibraryPane";
 
-export type FacetOption = { value: string; count: number };
+/** 一组筛选 chips：value=""/“all” 表示「全部」，count 为点选后的结果数（应用除本组外的筛选）。 */
+export type FilterOption = { value: string; label: string; count: number };
 
 type Scope = { familyId: string; domainId: string; baseId: string };
 
@@ -14,51 +21,83 @@ type Props = {
   onFamily: (id: string) => void;
   onDomain: (id: string) => void;
   onBase: (id: string) => void;
-  familyOptions: ScopeOption[];
-  domainOptions: ScopeOption[];
-  baseOptions: ScopeOption[];
-  brandOptions: FacetOption[];
-  brandAllCount: number;
-  hiddenBrands: string[];
+  familyOptions: FilterOption[];
+  domainOptions: FilterOption[];
+  baseOptions: FilterOption[];
+  brandOptions: FilterOption[];
   selectedBrands: string[];
   onToggleBrand: (value: string) => void;
-  onRemoveBrand: (value: string) => void;
-  onRestoreBrand: (value: string) => void;
-  stageOptions: FacetOption[];
-  hiddenStages: string[];
+  onClearBrands: () => void;
+  stageOptions: FilterOption[];
   selectedStages: string[];
   onToggleStage: (value: string) => void;
-  onRemoveStage: (value: string) => void;
-  onRestoreStage: (value: string) => void;
+  onClearStages: () => void;
+  kindOptions: FilterOption[];
   kind: string;
-  kinds: Array<{ value: string; label: string }>;
   onKind: (value: string) => void;
+  viewOptions: FilterOption[];
   view: KbView;
   onView: (value: KbView) => void;
   onUpload: () => void;
   onCreate: () => void;
 };
 
-const VIEWS: Array<{ value: KbView; label: string }> = [
-  { value: "all", label: "全部" },
-  { value: "pending", label: "待审批" },
-  { value: "published", label: "已发布" },
-  { value: "draft", label: "草稿" },
-  { value: "disabled", label: "已停用" },
-];
+/** chips 超过 8 项时先折叠，由「更多阶段」展开（DESIGN §4；选中项始终可见）。 */
+const CHIP_VISIBLE_LIMIT = 8;
 
-/** 管理端左侧筛选列：只有筛选在这里发生；底部操作始终固定可见。 */
+function FilterChip({ label, count, pressed, attrs, onClick }: {
+  label: string;
+  count: number;
+  pressed: boolean;
+  attrs: Record<string, string>;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className="kbv-chip" aria-pressed={pressed} {...attrs} onClick={onClick}>
+      <span>{label}</span>
+      <small data-kb-facet-count>{count}</small>
+    </button>
+  );
+}
+
+/**
+ * 管理端中栏筛选列：七组筛选全部为「标签＋计数」chips，每组一个「全部」。
+ * 分类（业务族 → 业务域 → 知识库）逐级收窄；品牌/阶段为多选，其余单选。
+ * 底部操作始终固定可见；中栏只做筛选，不再出现卡片壳。
+ */
 export default function KnowledgeFilters({
   query, onQuery, scope, onFamily, onDomain, onBase,
   familyOptions, domainOptions, baseOptions,
-  brandOptions, brandAllCount, hiddenBrands, selectedBrands, onToggleBrand, onRemoveBrand, onRestoreBrand,
-  stageOptions, hiddenStages, selectedStages, onToggleStage, onRemoveStage, onRestoreStage,
-  kind, kinds, onKind, view, onView, onUpload, onCreate,
+  brandOptions, selectedBrands, onToggleBrand, onClearBrands,
+  stageOptions, selectedStages, onToggleStage, onClearStages,
+  kindOptions, kind, onKind,
+  viewOptions, view, onView,
+  onUpload, onCreate,
 }: Props) {
-  const visibleBrands = brandOptions.filter((option) => !hiddenBrands.includes(option.value));
-  const hiddenBrandOptions = brandOptions.filter((option) => hiddenBrands.includes(option.value));
-  const visibleStages = stageOptions.filter((option) => !hiddenStages.includes(option.value));
-  const hiddenStageOptions = stageOptions.filter((option) => hiddenStages.includes(option.value));
+  const [stagesExpanded, setStagesExpanded] = useState(false);
+  const stageAll = stageOptions[0];
+  const stageRest = stageOptions.slice(1);
+  const stageFold = stageRest.length > CHIP_VISIBLE_LIMIT && !stagesExpanded;
+  const visibleStages = stageFold
+    ? stageRest.filter((option, index) => index < CHIP_VISIBLE_LIMIT || selectedStages.includes(option.value))
+    : stageRest;
+  const hiddenStageCount = stageRest.length - visibleStages.length;
+
+  const chipList = (
+    options: FilterOption[],
+    pressedOf: (value: string) => boolean,
+    attrsOf: (value: string) => Record<string, string>,
+    onClickOf: (value: string) => void,
+  ) => options.map((option) => (
+    <FilterChip
+      key={`${option.value || "__all"}`}
+      label={option.label}
+      count={option.count}
+      pressed={pressedOf(option.value)}
+      attrs={attrsOf(option.value)}
+      onClick={() => onClickOf(option.value)}
+    />
+  ));
 
   return (
     <aside className="kbv-filter-pane" aria-label="知识筛选" data-kbv-filter-pane>
@@ -75,167 +114,120 @@ export default function KnowledgeFilters({
           />
         </label>
 
-        <section className="kbv-filter-card" data-kb-filter="taxonomy">
-          <h2>分类</h2>
-          <ScopeTabs
-            showCount={false}
-            familyOptions={familyOptions}
-            domainOptions={domainOptions}
-            baseOptions={baseOptions}
-            familyId={scope.familyId}
-            domainId={scope.domainId}
-            baseId={scope.baseId}
-            onFamily={onFamily}
-            onDomain={onDomain}
-            onBase={onBase}
-            familyTotal={0}
-            domainTotal={0}
-            baseTotal={0}
-          />
-        </section>
-
-        <section className="kbv-filter-card" data-kb-filter="brand">
-          <h2>{KB_FILTER_LABEL.brand}</h2>
-          <div className="kbv-facet-list">
-            <button
-              type="button"
-              className="kbv-filter-chip"
-              aria-pressed={selectedBrands.length === 0}
-              data-kb-filter-value=""
-              onClick={() => selectedBrands.forEach((value) => onToggleBrand(value))}
-            >
-              <span>全部</span>
-              <small data-kb-facet-count>{brandAllCount}</small>
-            </button>
-            {visibleBrands.map((option) => (
-              <span className="kbv-facet-chip" key={option.value}>
-                <button
-                  type="button"
-                  className="kbv-filter-chip"
-                  aria-pressed={selectedBrands.includes(option.value)}
-                  data-kb-filter-value={option.value}
-                  onClick={() => onToggleBrand(option.value)}
-                >
-                  <span>{brandLabel(option.value)}</span>
-                  <small data-kb-facet-count>{option.count}</small>
-                </button>
-                <button
-                  type="button"
-                  className="kbv-facet-remove"
-                  data-kb-brand-remove={option.value}
-                  aria-label={`从常用品牌中移除 ${brandLabel(option.value)}`}
-                  onClick={() => onRemoveBrand(option.value)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {hiddenBrandOptions.length ? (
-              <select
-                className="kbv-facet-add"
-                aria-label="找回品牌筛选"
-                data-kb-brand-add
-                value=""
-                onChange={(event) => {
-                  if (event.target.value) onRestoreBrand(event.target.value);
-                }}
-              >
-                <option value="">＋</option>
-                {hiddenBrandOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{brandLabel(option.value)}</option>
-                ))}
-              </select>
-            ) : null}
+        <section className="kbv-filter-group" data-kb-filter="taxonomy">
+          <div className="kbv-filter-block">
+            <span className="kbv-filter-name">{KB_SCOPE_FAMILY}</span>
+            <div className="kbv-facet-list" role="group" aria-label={KB_SCOPE_FAMILY}>
+              {chipList(
+                familyOptions,
+                (value) => scope.familyId === value,
+                (value) => ({ "data-kb-scope-family": value }),
+                onFamily,
+              )}
+            </div>
+          </div>
+          <div className="kbv-filter-block">
+            <span className="kbv-filter-name">{KB_SCOPE_DOMAIN}</span>
+            <div className="kbv-facet-list" role="group" aria-label={KB_SCOPE_DOMAIN}>
+              {chipList(
+                domainOptions,
+                (value) => scope.domainId === value,
+                (value) => ({ "data-kb-scope-domain": value }),
+                onDomain,
+              )}
+            </div>
+          </div>
+          <div className="kbv-filter-block">
+            <span className="kbv-filter-name">{KB_SCOPE_BASE}</span>
+            <div className="kbv-facet-list" role="group" aria-label={KB_SCOPE_BASE}>
+              {chipList(
+                baseOptions,
+                (value) => scope.baseId === value,
+                (value) => ({ "data-kb-scope-base": value }),
+                onBase,
+              )}
+            </div>
           </div>
         </section>
 
-        <section className="kbv-filter-card" data-kb-filter="stage">
-          <h2>{KB_FILTER_LABEL.stage}</h2>
-          <div className="kbv-facet-list">
+        <section className="kbv-filter-group" data-kb-filter="brand">
+          <span className="kbv-filter-name">{KB_FILTER_LABEL.brand}</span>
+          <div className="kbv-facet-list" role="group" aria-label={KB_FILTER_LABEL.brand}>
+            <FilterChip
+              label="全部"
+              count={brandOptions[0]?.count ?? 0}
+              pressed={selectedBrands.length === 0}
+              attrs={{ "data-kb-filter-value": "" }}
+              onClick={onClearBrands}
+            />
+            {brandOptions.slice(1).map((option) => (
+              <FilterChip
+                key={option.value}
+                label={brandLabel(option.value) || option.value}
+                count={option.count}
+                pressed={selectedBrands.includes(option.value)}
+                attrs={{ "data-kb-filter-value": option.value }}
+                onClick={() => onToggleBrand(option.value)}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="kbv-filter-group" data-kb-filter="stage">
+          <span className="kbv-filter-name">{KB_FILTER_LABEL.stage}</span>
+          <div className="kbv-facet-list" role="group" aria-label={KB_FILTER_LABEL.stage}>
+            <FilterChip
+              label="全部"
+              count={stageAll?.count ?? 0}
+              pressed={selectedStages.length === 0}
+              attrs={{ "data-kb-stage-toggle": "" }}
+              onClick={onClearStages}
+            />
             {visibleStages.map((option) => (
-              <span className="kbv-facet-chip" key={option.value}>
-                <button
-                  type="button"
-                  className="kbv-filter-chip"
-                  aria-pressed={selectedStages.includes(option.value)}
-                  data-kb-stage-toggle={option.value}
-                  onClick={() => onToggleStage(option.value)}
-                >
-                  <span>{stageLabel(option.value) || option.value}</span>
-                  <small data-kb-facet-count>{option.count}</small>
-                </button>
-                <button
-                  type="button"
-                  className="kbv-facet-remove"
-                  data-kb-stage-remove={option.value}
-                  aria-label={`从常用标签中移除 ${stageLabel(option.value) || option.value}`}
-                  onClick={() => onRemoveStage(option.value)}
-                >
-                  ×
-                </button>
-              </span>
+              <FilterChip
+                key={option.value}
+                label={stageLabel(option.value) || option.label || option.value}
+                count={option.count}
+                pressed={selectedStages.includes(option.value)}
+                attrs={{ "data-kb-stage-toggle": option.value }}
+                onClick={() => onToggleStage(option.value)}
+              />
             ))}
-            {hiddenStageOptions.length ? (
-              <select
-                className="kbv-facet-add"
-                aria-label="找回阶段筛选"
-                data-kb-stage-add
-                value=""
-                onChange={(event) => {
-                  if (event.target.value) onRestoreStage(event.target.value);
-                }}
+            {stageRest.length > CHIP_VISIBLE_LIMIT ? (
+              <button
+                type="button"
+                className="kbv-chip kbv-chip-more"
+                data-kb-stage-more
+                aria-expanded={stagesExpanded}
+                onClick={() => setStagesExpanded((value) => !value)}
               >
-                <option value="">＋</option>
-                {hiddenStageOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{stageLabel(option.value) || option.value}</option>
-                ))}
-              </select>
+                {stagesExpanded ? "收起" : `＋ 更多阶段（${hiddenStageCount}）`}
+              </button>
             ) : null}
           </div>
         </section>
 
-        <section className="kbv-filter-card" data-kb-filter="kind">
-          <h2>类型</h2>
-          <div className="kbv-type-list">
-            <button
-              type="button"
-              className="kbv-type-choice"
-              aria-pressed={!kind}
-              data-kb-kind=""
-              onClick={() => onKind("")}
-            >
-              全部
-            </button>
-            {kinds.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className="kbv-type-choice"
-                aria-pressed={kind === option.value}
-                data-kb-kind={option.value}
-                onClick={() => onKind(option.value)}
-              >
-                {option.label || kindLabel(option.value)}
-              </button>
-            ))}
+        <section className="kbv-filter-group" data-kb-filter="kind">
+          <span className="kbv-filter-name">类型</span>
+          <div className="kbv-facet-list" role="group" aria-label="类型">
+            {chipList(
+              kindOptions,
+              (value) => kind === value,
+              (value) => ({ "data-kb-kind": value }),
+              onKind,
+            )}
           </div>
         </section>
 
-        <section className="kbv-filter-card" data-kb-filter="status">
-          <h2>状态</h2>
-          <div className="kbv-status-list" role="group" aria-label="状态">
-            {VIEWS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className="kbv-status-choice"
-                aria-pressed={view === option.value}
-                data-kbv-view={option.value}
-                onClick={() => onView(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+        <section className="kbv-filter-group" data-kb-filter="status">
+          <span className="kbv-filter-name">状态</span>
+          <div className="kbv-facet-list" role="group" aria-label="状态">
+            {chipList(
+              viewOptions,
+              (value) => view === value,
+              (value) => ({ "data-kbv-view": value }),
+              (value) => onView(value as KbView),
+            )}
           </div>
         </section>
       </div>

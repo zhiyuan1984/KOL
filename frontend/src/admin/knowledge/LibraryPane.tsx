@@ -1,4 +1,4 @@
-import { kindLabel, statusLabel } from "../../knowledgeCopy";
+import { kbDateOnly, kindLabel, statusLabel } from "../../knowledgeCopy";
 import type { KbAssetRow } from "./shared";
 
 export type KbView = "all" | "pending" | "published" | "draft" | "disabled";
@@ -79,6 +79,7 @@ function RecordRow({ row, selected, onSelect }: {
       <span className="kbv-browser-record-meta">
         <span>{kindLabel(row.kind)}</span>
         <span className={`kbv-status ${statusClass}`}>{statusLabel(status)}</span>
+        {row.updated_at ? <span className="kbv-record-date">{kbDateOnly(row.updated_at)}</span> : null}
       </span>
     </button>
   );
