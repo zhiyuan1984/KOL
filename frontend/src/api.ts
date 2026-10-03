@@ -532,6 +532,19 @@ export type TicketSummary = {
   [key: string]: unknown;
 };
 
+export type PersonalTicketRawCountReport = {
+  report_version: "ticket-personal-raw-count.v1" | string;
+  as_of: string;
+  timezone: string;
+  scope: "personal_authorized" | string;
+  source: "postgresql_formal_tickets" | string;
+  note: string;
+  total_authorized: number;
+  by_status: Record<string, number>;
+  memberships: { created: number; assigned_primary: number; watching: number };
+  request_id: string;
+};
+
 export type TicketOrganizationUnit = {
   id: string;
   display_name: string;
@@ -1593,6 +1606,7 @@ export const api = {
     if (opts.limit != null) query.set("limit", String(opts.limit));
     return request<TicketTimelinePage>(`/api/tickets/${encodeURIComponent(id)}/timeline${query.size ? `?${query}` : ""}`);
   },
+  personalTicketRawCountReport: (timezone = "Asia/Shanghai") => request<PersonalTicketRawCountReport>(`/api/tickets/reports/personal?timezone=${encodeURIComponent(timezone)}`),
   ticketCommand: (id: string, body: TicketCommandInput) =>
     request<TicketCommandResult>(`/api/tickets/${encodeURIComponent(id)}/commands`, {
       method: "POST",

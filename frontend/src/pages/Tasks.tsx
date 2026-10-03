@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Task, type TaskDetail, type TaskEvent, type Ticket } from "../api";
+import { api, type PersonalTicketRawCountReport, type Task, type TaskDetail, type TaskEvent, type Ticket } from "../api";
 import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
 import TicketCreateDialog from "../home/TicketCreateDialog";
 import TicketEditDialog from "../home/TicketEditDialog";
@@ -135,6 +135,7 @@ export default function Tasks() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createdTicketId, setCreatedTicketId] = useState("");
   const [editTarget, setEditTarget] = useState<Task | null>(null);
+  const [personalReport, setPersonalReport] = useState<PersonalTicketRawCountReport | null>(null);
   const selectedRunId = useMemo(() => {
     const runs = selected?.runs || [];
     const latest = [...runs].reverse().find((run) => typeof run.id === "string" || typeof run.run_id === "string");
@@ -182,6 +183,11 @@ export default function Tasks() {
   }, [selectedStatus, query, from, to]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let alive = true;
+    void api.personalTicketRawCountReport().then((report) => { if (alive) setPersonalReport(report); }).catch(() => { if (alive) setPersonalReport(null); });
+    return () => { alive = false; };
+  }, []);
   useEffect(() => {
     if (view !== "active") return;
     const refresh = () => {
@@ -329,6 +335,7 @@ export default function Tasks() {
 
       {error && <p className="surface-error" role="alert">{hidesSignalTimeout(error) ? "任务暂时无法读取，请稍后查看。" : error}</p>}
       {createdTicketId ? <p className="task-center-created" role="status">正式工单已创建：{createdTicketId}</p> : null}
+      {personalReport ? <p className="muted task-center-report" title={personalReport.note}>我的授权工单原始计数：{personalReport.total_authorized}（创建 {personalReport.memberships.created} · 主受理 {personalReport.memberships.assigned_primary} · 关注 {personalReport.memberships.watching}；关系计数可能重叠）</p> : null}
 
       {loading ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 ? (
         <section className="task-center-empty">
