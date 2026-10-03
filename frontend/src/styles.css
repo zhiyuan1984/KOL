@@ -788,6 +788,14 @@ summary:focus-visible,
   justify-content: center;
   line-height: 1;
 }
+.account-avatar img[data-account-avatar],
+.employee-person img[data-employee-avatar] {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  display: block;
+}
 .account-copy {
   min-width: 0;
   display: grid;

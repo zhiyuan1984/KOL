@@ -48,6 +48,15 @@ export type AdminEmployeeContext = {
   kols: AdminEmployeeKol[];
 };
 
+export type AdminOrganizationPerson = {
+  person_ref: string;
+  display_name: string;
+  avatar_url: string | null;
+  title: string | null;
+  org_unit_id: string | null;
+  user_id: string | null;
+};
+
 export type AdminEmployeeTool = {
   id: string;
   label: string;
@@ -970,6 +979,7 @@ export type StarryBinding = {
 
 export type Account = {
   id?: string;
+  avatar_url?: string | null;
   name: string;
   handle?: string;
   email?: string;
@@ -2344,6 +2354,7 @@ export const api = {
   adminEmployeeTools: (userId: string) =>
     request<{ tools: AdminEmployeeTool[] }>(`/api/admin/users/${encodeURIComponent(userId)}/tools`),
   adminOrganizationUnits: () => request<OrganizationUnitsResponse>("/api/admin/organization-units"),
+  adminOrganizationPeople: () => request<{ people: AdminOrganizationPerson[] }>("/api/admin/organization-people"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
   runtimeConnectorConfig: (connectorId: string) =>
     request<{ config: RuntimeConnectorConfig; version: number; probe_mode?: "directory" | "mediacrawler_start" }>(

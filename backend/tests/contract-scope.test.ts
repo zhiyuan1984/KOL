@@ -19,7 +19,8 @@ describe("KOL contract scope", () => {
       region_scope: "all",
       data_actions: ["read", "write"],
     });
-    expect(departmentHeadAccessForUser({ name: "刘敏" })).toMatchObject({ company_wide: true });
+    expect(departmentHeadAccessForUser({ name: "钟剑奎" })).toMatchObject({ company_wide: true });
+    expect(departmentHeadAccessForUser({ name: "刘敏" })).toBeNull();
     expect(departmentHeadAccessForUser({ name: "未确认人员" })).toBeNull();
   });
 

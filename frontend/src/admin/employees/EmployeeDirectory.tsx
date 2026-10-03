@@ -16,6 +16,7 @@ import "./employee-directory.css";
 export type DirectoryEmployee = Record<string, unknown> & {
   id: string;
   name?: string;
+  avatar_url?: string | null;
   username?: string;
   email?: string;
   site?: string;
@@ -444,7 +445,7 @@ export function EmployeeDirectory({ users, onReload }: { users: Employee[]; onRe
           const inactive = user.active === false;
           const skills = asList(user.skill_grants);
           return <tr key={user.id} data-employee-row={user.id} data-state={inactive ? "inactive" : "active"}>
-            <td><div className="employee-person"><span aria-hidden>{employeeLabel(user).slice(0, 1)}</span><div><strong>{employeeLabel(user)}</strong><p className="muted">{userEmail(user)}{text(user.position) ? ` · ${text(user.position)}` : ""}</p></div></div></td>
+            <td><div className="employee-person"><span aria-hidden>{user.avatar_url ? <img data-employee-avatar src={String(user.avatar_url)} alt="" aria-hidden /> : employeeLabel(user).slice(0, 1)}</span><div><strong>{employeeLabel(user)}</strong><p className="muted">{userEmail(user)}{text(user.position) ? ` · ${text(user.position)}` : ""}</p></div></div></td>
             <td><strong>{orgLabel(user.site, units)}</strong><p className="muted">{compactList(asList(user.brands))}</p></td>
             <td><p>{Number(user.mailbox_count || 0)} 个邮箱 · {Number(user.kol_count || 0)} 个 KOL</p><p className="muted">{inactive ? "账号已停用" : "账号正常"}</p></td>
             <td><strong>{skills.length} 项已授权</strong><p className="muted">{compactList(skills.slice(0, 2), "暂未授权")}{skills.length > 2 ? " …" : ""}</p></td>

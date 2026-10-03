@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { audit, getConn, nowIso, tx } from "./db.js";
 import { examPassed, examTodoCount } from "./exam.js";
 import { HttpFail } from "./host/errors.js";
-import { canUseSkill, visibleSkillIdsForUser } from "./runtime/organization-tree.js";
+import { avatarUrlForUser, canUseSkill, visibleSkillIdsForUser } from "./runtime/organization-tree.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
 import { DEMO_ADMIN, DEMO_USER, PERSONAS } from "./config.js";
@@ -283,6 +283,7 @@ function userPublic(user: AppUser): Json {
   const bind = getConn().prepare("SELECT mailbox_email,mailbox_id,owner_name,status,bearer_token,updated_at FROM user_starry_bindings WHERE user_id=? ORDER BY is_default DESC, updated_at ASC, mailbox_email ASC LIMIT 1").get(user.id) as Row | undefined;
   return {
     ...user,
+    avatar_url: avatarUrlForUser(user.id),
     email: user.email || (user.username.includes("@") ? user.username : ""),
     phone: user.phone || "",
     available_modes: ["employee", ...(isAdmin(user) ? ["admin"] : [])],

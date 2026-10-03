@@ -30,8 +30,13 @@ describe("constitutional redlines", () => {
   });
 
   it("gives confirmed department heads all configured brand mailboxes", () => {
-    const head = { ...PERSONAS.permission_blocked, name: "刘敏" };
+    const head = { ...PERSONAS.permission_blocked, name: "钟剑奎" };
     expect(resolveAuthorizedFrom("", head, null).allowed.map((item) => item.brand)).toEqual(["LT", "RO", "PQ"]);
+  });
+
+  it("does not keep the outgoing head on company-wide scope after a handover", () => {
+    const outgoing = { ...PERSONAS.permission_blocked, name: "刘敏" };
+    expect(resolveAuthorizedFrom("", outgoing, null).allowed).toEqual([]);
   });
 
   it("serves employee Agent entries and teams from the publish manifest", () => {

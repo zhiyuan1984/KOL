@@ -15,6 +15,7 @@ const employee = {
   mailbox_count: 2,
   kol_count: 2,
   skill_grants: ["email_compose"],
+  avatar_url: "/avatars/employees/ye_guanwang.png",
 };
 
 test("employee directory filters, shows business bindings, and saves a confirmed tool grant", async ({ page }) => {
@@ -63,6 +64,8 @@ test("employee directory filters, shows business bindings, and saves a confirmed
   await expect(directory.getByRole("heading", { name: "员工目录" })).toBeVisible();
   await expect(directory.locator("[data-employee-row='usr_directory']")).toContainText("目录员工");
   await expect(directory.locator("[data-employee-row='usr_directory']")).toContainText("2 个邮箱 · 2 个 KOL");
+  await expect(directory.locator("[data-employee-row='usr_directory'] [data-employee-avatar]"))
+    .toHaveAttribute("src", "/avatars/employees/ye_guanwang.png");
 
   await directory.locator("[data-employee-search]").fill("不存在");
   await expect(directory.locator("[data-employee-row]")).toHaveCount(0);
