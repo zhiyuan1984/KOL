@@ -1,7 +1,12 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { Client } from "pg";
+import { Client, types } from "pg";
 
 if (!parentPort) throw new Error("PostgreSQL sync bridge requires a worker parent port");
+
+// bigint(int8) 默认以字符串返回：SQLite 的 INTEGER 是 64 位，迁到 PG 后都成了 bigint，
+// 于是 `collaborations.locked` 这类布尔式数值变成 "0"（非空字符串在 JS 里为真），
+// 会让「承诺锁定期」之类的判断误触发。这里把 int8 按数值解析（平台内计数与标志位都在安全范围内）。
+types.setTypeParser(20, (value) => (value === null ? null : Number(value)));
 
 const client = new Client({ connectionString: String(workerData.connectionString) });
 const encoder = new TextEncoder();
