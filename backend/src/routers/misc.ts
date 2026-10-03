@@ -203,20 +203,7 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
 }
 
 function visibleForRequest(): Set<string> {
-  const vis = visibleSkillIds();
-  if (authDisabled() || isAdmin()) return vis;
-  const user = scopedUser();
-  if (!user) return vis;
-  const personal = new Set(
-    (getConn().prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(user.id) as Row[])
-      .map((row) => String(row.skill_id)),
-  );
-  const mem = getConn()
-    .prepare("SELECT scope FROM memberships WHERE user_handle = ?")
-    .all(user.handle) as { scope: string }[];
-  if (!mem.length) return personal;
-  if (!personal.size) return vis;
-  return new Set([...vis].filter((id) => personal.has(id)));
+  return visibleSkillIds();
 }
 
 function employeeVisibleSkill(id: string): boolean {

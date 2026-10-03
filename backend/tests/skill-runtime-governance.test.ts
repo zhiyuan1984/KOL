@@ -7,6 +7,7 @@ import { authMiddleware, authRouter, hashPassword } from "../src/auth.js";
 import { getConn, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import { getToolPolicy } from "../src/runtime/store.js";
+import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { skillRuntimeRouter } from "../src/routers/skill-runtime.js";
 import { runtimeDiscoveryRouter } from "../src/routers/runtime-discovery.js";
 
@@ -246,8 +247,12 @@ describe("skill runtime governance", () => {
     await request("PUT", "/api/admin/runtime/skills/creator_profile/connectors/runtime_mcp", { enabled: true, expected_version: 0 });
     await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/config", { ...validConfig, expected_version: 0 });
     expect((await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie)).body.capabilities).toEqual([]);
-    getConn().prepare("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES(?,?,?)")
-      .run("usr_runtime_employee", "creator_profile", "now");
+    // 资格来自 Agent 绑定（ADR-2026-10-03）：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_runtime_employee", "person:gu_jiarui");
+    createAgentBinding({
+      agent_id: "agent:creator", target_type: "organization_unit", target_id: "org:lt_team",
+      company_id: "company:amperetime", source: "test",
+    });
     let result = await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie);
     expect(result.body.capabilities).toEqual([expect.objectContaining({ skill_id: "creator_profile", unavailable_resources: 1, live_verified: false })]);
     const policy = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/tools/lookup", {

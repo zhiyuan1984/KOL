@@ -26,6 +26,8 @@ Starry KOL MCP 和 `data/kol/邮箱-负责人绑定清单.md` 提供 KOL 域事�
 
 ## 工具风险目录
 
+人员使用资格按 Agent 绑定校验；MCP、API 和知识库无独立人员授权，均经 Agent 所装配的技能调用。资源不设人员授权不降低以下工具风险分档、数据范围、凭据和正式副作用闸门（2026-10-03 修宪，见 [DECISIONS.md](DECISIONS.md) ADR-2026-10-03）。
+
 每个工具标记 `read_only`、`draft`、`reversible_write`、`external_side_effect`、`destructive`、`requires_confirmation`、`requires_admin`、`idempotent`。画像读取、邮件读取、爬虫状态为 L1；草稿/预览为 L2；`sendEmailNow`、`changeLifecycleStage`、联系方式解密、导入和删除按 L3/敏感动作闸门处理。
 
 ## 真实调用规则

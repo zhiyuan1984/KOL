@@ -1599,7 +1599,7 @@
       "authority_source": null,
       "authority_source_status": "blank",
       "clauses": ["org-permissions", "BIZ-03"],
-      "carrier": ["teams", "config/org-registry.yaml"],
+      "carrier": ["organization_units", "config/org-registry.yaml"],
       "implementation_status": "built",
       "source_ref": "对象清单 §五",
       "properties": [
@@ -1640,7 +1640,7 @@
       "authority_source": null,
       "authority_source_status": "blank",
       "clauses": ["org-permissions", "BIZ-03"],
-      "carrier": ["users", "directory_users"],
+      "carrier": ["users", "organization_people", "directory_users"],
       "implementation_status": "built",
       "source_ref": "对象清单 §五",
       "properties": [
@@ -1677,7 +1677,7 @@
       "authority_source": null,
       "authority_source_status": "blank",
       "clauses": ["org-permissions（关系模型）"],
-      "carrier": ["memberships"],
+      "carrier": ["organization_memberships", "memberships"],
       "implementation_status": "built",
       "source_ref": "对象清单 §五",
       "properties": [
@@ -1764,7 +1764,7 @@
       "authority_source": null,
       "authority_source_status": "blank",
       "clauses": ["org-permissions", "BIZ-03"],
-      "carrier": ["config/org-registry.yaml"],
+      "carrier": ["scope_memberships", "config/org-registry.yaml"],
       "implementation_status": "partial",
       "source_ref": "对象清单 §五",
       "properties": [
@@ -1785,7 +1785,7 @@
       "authority_source": null,
       "authority_source_status": "blank",
       "clauses": ["org-permissions", "BIZ-03"],
-      "carrier": ["config/org-registry.yaml"],
+      "carrier": ["scope_memberships", "config/org-registry.yaml"],
       "implementation_status": "partial",
       "source_ref": "对象清单 §五",
       "properties": []

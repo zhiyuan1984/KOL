@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { setAgentSkill, setConnectorConfig, setSkillConnector, setSkillTool, setToolPolicy, validateConnectorConfig } from "../src/runtime/store.js";
 import { SkillExecution, toolSchemaHash, type RuntimeContext } from "../src/runtime/execution.js";
+import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { previewOpenApi } from "../src/runtime/openapi.js";
 import { assertSafeConnectorEndpoint } from "../src/runtime/http.js";
 import type { Json } from "../src/types.js";
@@ -24,7 +25,13 @@ beforeEach(() => {
   const db = getConn();
   for (const [id, role] of [["user-a", "employee"], ["admin-a", "admin"]]) db.prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, id, id, "hash", JSON.stringify([role]), "[]", "", 1, "now", "now");
-  db.prepare("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES(?,?,?)").run(context.userId, context.skillId, "now");
+  // 人员资格锚点是「人 → Agent」绑定（CONST-05 / ADR-2026-10-03）：账号挂到
+  // 组织人员上，并把被测 Agent 绑定到该人员所在的三级组。
+  createAgentBinding({
+    agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team",
+    company_id: "company:amperetime", source: "test",
+  });
+  db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(context.userId, "person:ye_guanwang");
   db.prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('http_fixture','HTTP Fixture',1,'configured','now')").run();
   setAgentSkill(context.agentId, context.skillId, true, 0);
   setSkillConnector(context.skillId, "http_fixture", true, 0);

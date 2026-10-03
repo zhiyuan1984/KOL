@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { audit, getConn, nowIso, tx } from "./db.js";
 import { examPassed, examTodoCount } from "./exam.js";
 import { HttpFail } from "./host/errors.js";
+import { canUseSkill, visibleSkillIdsForUser } from "./runtime/organization-tree.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
 import { DEMO_ADMIN, DEMO_USER, PERSONAS } from "./config.js";
@@ -302,10 +303,7 @@ function userPublic(user: AppUser): Json {
 function permissions(user: AppUser): Json {
   const db = getConn();
   const admin = isAdmin(user);
-  const skills = admin
-    ? ["*"]
-    : (db.prepare("SELECT skill_id FROM user_skill_grants WHERE user_id = ?").all(user.id) as Row[])
-      .map((r) => String(r.skill_id));
+  const skills = admin ? ["*"] : visibleSkillIdsForUser(user.id);
   const connectors = Object.fromEntries(
     (db.prepare("SELECT connector_id, access FROM user_connector_grants WHERE user_id = ?").all(user.id) as Row[])
       .map((r) => [String(r.connector_id), String(r.access)]),
@@ -447,9 +445,7 @@ export function requireSkill(skillId: string): void {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   if (isAdmin(user)) return;
-  const grant = getConn().prepare("SELECT 1 FROM user_skill_grants WHERE user_id=? AND skill_id=?")
-    .get(user.id, skillId);
-  if (!grant) throw new HttpFail(403, { code: "skill_not_granted", skill_id: skillId });
+  if (!canUseSkill(user.id, skillId)) throw new HttpFail(403, { code: "agent_not_usable", skill_id: skillId });
 }
 
 export function requireConnector(connectorId: string, access: "read" | "write" | "admin"): void {

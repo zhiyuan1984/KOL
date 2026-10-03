@@ -6,12 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
 import { setDiscoveryBriefRunner } from "../src/home-discovery.js";
+import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
 
 /**
- * AI发现 提交的授权单位是技能（ADR-2026-09-27「对外只暴露技能」、TECH-BE-07）：
- * 连接器按人授权已退役，连接器未启用也不得把员工挡在提交之外。
+ * AI发现 提交的人员资格锚点是 Agent（ADR-2026-10-03、CONST-05）：员工由
+ * Agent 绑定的组织单元/人员覆盖获得资格，技能授权不再逐人下发。
  * 回归对象：`POST /api/home/discovery/run` 曾在按人连接器闸门（requireConnector）后
  * 抛 403 { code: "connector_disabled" }，前端只显示「请求失败 (403)」。
  */
@@ -122,16 +123,19 @@ describe("home discovery submit authorization", () => {
     expect(String(job?.crawl_job_id || "")).toMatch(/^crawl_/);
   });
 
-  it("gates employees by the creator_discovery skill, not by a connector grant", async () => {
+  it("gates employees by the Agent that assembles creator_discovery, not by a skill grant", async () => {
     const userId = await createEmployee("disc_nogrant");
     const employeeCookie = await login("disc_nogrant");
 
     const denied = await call("POST", "/api/home/discovery/run", RUN_BODY, employeeCookie);
     expect(denied.status).toBe(403);
-    expect(denied.json.detail).toMatchObject({ code: "skill_not_granted", skill_id: "creator_discovery" });
+    expect(denied.json.detail).toMatchObject({ code: "agent_not_usable", skill_id: "creator_discovery" });
 
-    getConn().prepare("INSERT OR IGNORE INTO user_skill_grants (user_id,skill_id,created_at) VALUES (?,?,?)")
-      .run(userId, "creator_discovery", new Date().toISOString());
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(userId, "person:ye_guanwang");
+    createAgentBinding({
+      agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
+      company_id: "company:amperetime", source: "test",
+    });
 
     const allowed = await call("POST", "/api/home/discovery/run", RUN_BODY, employeeCookie);
     expect(allowed.status, JSON.stringify(allowed.json)).toBe(202);

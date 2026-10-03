@@ -79,7 +79,7 @@
 
 ---
 
-## 三、分组 1：身份·组织·权限基础（9 张表）
+## 三、分组 1：身份·组织·权限基础（15 张表）
 
 平台用户、认证会话、组织与团队、目录用户、个人偏好、上传文件与键值状态。
 
@@ -229,6 +229,130 @@
 | `value` | TEXT | 非空 | 状态值 | 键对应的值；`persona` 存 persona 名（`sriphy`/`exam_blocked`/`permission_blocked`/`employee`，见 `backend/src/config.ts` 的 `PERSONAS`），同步类存 JSON 结果快照，迁移标记存 `done`。 |
 
 ---
+
+### organization_units — 组织单元（三级）
+
+- **用途**：权威组织树的落库载体（中心／项目组／部门／组），承载层级、负责人引用、组织版本与来源；绑定目标可以是其中任意一级（CONST-05、ADR-2026-10-03 之二）。
+- **主键 / 唯一约束**：`id`（主键，canonical `org:*`）；无其他唯一约束（展示名不作键，避免用姓名/名称当主键）。
+- **关键索引**：`organization_units_parent_idx(company_id, parent_id, level)`。
+- **写入方**：`backend/src/runtime/organization-tree.ts` 的 `reseedOrganizationTreeFromRegistry()`（启动一次性回填，`app_state` 键 `org_registry_v1` 门控；幂等 upsert）。声明来源为 `config/org-registry.yaml`。
+- **备注**：读取方为 `listOrganizationUnits()` 与 `effectiveAgentUsers()`。`level` 直属公司为 1，其余按 parent 链加一；`head_person_ref` 指向 `organization_people.person_ref`。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 组织单元 ID | canonical 引用，如 `org:brand_user_growth_center`。 |
+| `company_id` | TEXT | 非空 | 公司 | canonical 公司引用（`company:amperetime`）。 |
+| `display_name` | TEXT | 非空 | 显示名称 | 如「品牌与用户增长中心」「LT组」。 |
+| `type` | TEXT | 非空 | 类型 | 声明来源取值 `center` / `project_group` / `department` / `team`；层级由 `level` 表达，不靠类型判断。 |
+| `parent_id` | TEXT | 可空 | 上级单元 | 直属公司时为 NULL。 |
+| `level` | INTEGER | 非空，`>= 1` | 层级 | 1／2／3 分别对应一／二／三级组织单元。 |
+| `head_person_ref` | TEXT | 可空 | 负责人引用 | 指向 `organization_people.person_ref`；未登记负责人时为 NULL。 |
+| `head_display_name` | TEXT | 可空 | 负责人姓名 | 组织系统未接入期间的展示副本；不作授权键。 |
+| `status` | TEXT | 非空，默认 `active` | 状态 | `active` / `archived`。 |
+| `org_version` | INTEGER | 非空，默认 1，`>= 1` | 组织版本 | 行所属的组织版本，配合 `org_versions` 复核。 |
+| `source` | TEXT | 可空 | 来源 | 回填时写入 registry 的 revision；判断事实来源与证据。 |
+| `created_at` / `updated_at` | TEXT | 非空 | 时间戳 | ISO 时间。 |
+
+### organization_people — 人员外部引用
+
+- **用途**：组织系统尚未接入时的**外部引用表**（`org-permissions.md` §Canonical 标识）：给出稳定 `person_ref`、显示名与账号对应关系，避免用姓名当主键。
+- **主键 / 唯一约束**：`person_ref`（主键，canonical `person:*`）。
+- **关键索引**：无显式索引（仅有主键的隐式索引）。
+- **写入方**：`reseedOrganizationTreeFromRegistry()`（同 `organization_units`）。账号接入后由管理端回填 `user_id`。
+- **备注**：`user_id` 为空表示此人尚无登录账号；`effectiveAgentUsers()` 只把有 `user_id` 的人算作可用使用者，其余仅出现在覆盖预览里。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `person_ref` | TEXT | 主键，非空 | 人员引用 | canonical 引用，如 `person:zhang_huiling`。 |
+| `display_name` | TEXT | 非空 | 姓名 | 如「张慧玲」。 |
+| `user_ref` | TEXT | 可空 | 外部 User 引用 | registry 声明的 `user:*`（如 `user:liu_min`），与 `users.id` 不同源。 |
+| `user_id` | TEXT | 可空 | 登录账号 ID | 指向 `users.id`；未接入账号时为 NULL。 |
+| `status` | TEXT | 非空，默认 `active` | 状态 | `active` / `left`。 |
+| `source` | TEXT | 可空 | 来源 | 回填来源（含用户确认的组织图日期）。 |
+| `created_at` / `updated_at` | TEXT | 非空 | 时间戳 | ISO 时间。 |
+
+### organization_memberships — 组织成员关系
+
+- **用途**：人员与组织单元的成员关系（主组织／协作组织），并承载岗位（职务）与生效期；人员不是组织树节点，因此在关系上表达（`org-permissions.md`）。
+- **主键 / 唯一约束**：`id`（主键，`member:<person_ref>:<org_unit_id>:<relation>`）；部分唯一索引 `organization_memberships_active_uniq(person_ref, org_unit_id, relation) WHERE status='active'`。
+- **关键索引**：同上的部分唯一索引。
+- **写入方**：`reseedOrganizationTreeFromRegistry()`。
+- **备注**：`effectiveAgentUsers()` 按本表求「成员集合」；`status='ended'` 立即不再覆盖（组织变动后旧授权失效）。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 成员关系 ID | 稳定 id，保证回填幂等。 |
+| `person_ref` | TEXT | 非空 | 人员引用 | 指向 `organization_people.person_ref`。 |
+| `company_id` | TEXT | 非空 | 公司 | canonical 公司引用。 |
+| `org_unit_id` | TEXT | 非空 | 组织单元 | 指向 `organization_units.id`（一／二／三级均可）。 |
+| `relation` | TEXT | 非空，默认 `primary` | 关系 | `primary`（主组织）／`collaborative`（协作组织）。 |
+| `position` | TEXT | 可空 | 岗位 / 职务 | 如「高级副总裁」「推广部主管」；自由文本，不作授权键。 |
+| `status` | TEXT | 非空，默认 `active` | 状态 | `active` / `ended`。 |
+| `effective_from` / `effective_to` | TEXT | 可空 | 生效期 | 组织图未提供时留空，不编造。 |
+| `source` | TEXT | 可空 | 来源 | 回填来源。 |
+| `created_at` / `updated_at` | TEXT | 非空 | 时间戳 | ISO 时间。 |
+
+### scope_memberships — 品牌/区域范围关系
+
+- **用途**：把「人能服务哪些品牌与区域」保存为带生效期的**关系**（而非人员标签），主体可以是人员或组织单元；对应对象 C7/C8。品牌与区域字典仍以 `config/brand-registry.yaml` 为唯一权威，本表只引用其 canonical id。
+- **主键 / 唯一约束**：`id`（主键，`scope:<subject_type>:<subject_id>:brand:<brand|*>:region:<region|*>`）。
+- **关键索引**：`scope_memberships_subject_idx(subject_type, subject_id, status)`。
+- **写入方**：`reseedOrganizationTreeFromRegistry()`；组织单元的 `brand_scope` 落为 `region_id IS NULL` 的行。
+- **备注**：范围**不继承**（普通员工不继承负责人公司级范围，BIZ-03）；负责人公司级范围来自 `department_head_scope_policy`，不写成本表行。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 范围记录 ID | 稳定 id。 |
+| `subject_type` | TEXT | 非空 | 主体类型 | `person` / `organization_unit`。 |
+| `subject_id` | TEXT | 非空 | 主体引用 | `person_ref` 或 `org:*`。 |
+| `company_id` | TEXT | 非空 | 公司 | canonical 公司引用。 |
+| `brand_id` | TEXT | 可空 | 品牌引用 | `brand:lt` 等；为 NULL 表示不限品牌。 |
+| `region_id` | TEXT | 可空 | 区域引用 | `region:eu` / `region:us` / `region:ca_au`；为 NULL 表示不限区域。 |
+| `status` | TEXT | 非空，默认 `active` | 状态 | `active` / `ended`。 |
+| `effective_from` / `effective_to` | TEXT | 可空 | 生效期 | 组织图未提供时留空。 |
+| `source` | TEXT | 可空 | 来源 | 回填来源（含标签原文，如「LT-EU」）。 |
+| `created_at` / `updated_at` | TEXT | 非空 | 时间戳 | ISO 时间。 |
+
+### agent_bindings — Agent 使用绑定
+
+- **用途**：人员使用 Agent 的**唯一授权关系**（CONST-05）：绑定目标为任意组织单元（含三级组）或人员；有效使用者由服务端 `effectiveAgentUsers()` 统一计算。
+- **主键 / 唯一约束**：`id`（主键，`binding:<agent_id>:<target_type>:<target_id>`）；部分唯一索引 `agent_bindings_active_uniq(agent_id, target_type, target_id) WHERE status='active'`。
+- **关键索引**：同上的部分唯一索引。
+- **写入方**：`createAgentBinding()` / `revokeAgentBinding()`（`backend/src/runtime/organization-tree.ts`）；回填**不**写绑定，试点绑定点需由用户确认后显式创建。
+- **备注**：`effectiveAgentUsers()` 只读本表 + 组织表，不缓存；撤绑或组织变动后下一次请求立即复核。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 绑定 ID | 稳定 id。 |
+| `agent_id` | TEXT | 非空 | Agent | 如 `agent:kol`。 |
+| `target_type` | TEXT | 非空 | 绑定目标类型 | `organization_unit` / `person`。 |
+| `target_id` | TEXT | 非空 | 绑定目标 | `org:*` 或 `person_ref`。 |
+| `company_id` | TEXT | 非空 | 公司 | 绑定目标必须属于同一公司，跨公司拒绝。 |
+| `status` | TEXT | 非空，默认 `active` | 状态 | `active` / `revoked`。 |
+| `binding_version` | INTEGER | 非空，默认 1，`>= 1` | 绑定版本 | 变更计数。 |
+| `org_version` | INTEGER | 非空，`>= 1` | 组织版本 | 建立绑定时依据的组织版本。 |
+| `created_by` | TEXT | 可空 | 变更人 | 管理端操作者。 |
+| `reason` | TEXT | 可空 | 原因 / 撤绑理由 | 变更留痕。 |
+| `effective_from` / `effective_to` | TEXT | 可空 | 生效期 | 默认建立时间。 |
+| `source` | TEXT | 可空 | 来源 | 如 `admin`；回填不产生本表行。 |
+| `created_at` / `updated_at` | TEXT | 非空 | 时间戳 | ISO 时间。 |
+
+### org_versions — 组织版本
+
+- **用途**：组织事实的版本锚点（CONST-05 / PROD-PLAT-05 要求「依据的组织版本」）；组织变动后版本加一，旧授权按新版本复核。
+- **主键 / 唯一约束**：复合主键 `(company_id, version)`。
+- **关键索引**：无显式索引（仅有主键的隐式索引）。
+- **写入方**：`reseedOrganizationTreeFromRegistry()` 落版本 1；`bumpOrgVersion()` 递增。
+- **备注**：`currentOrgVersion()` 返回公司当前版本；`effectiveAgentUsers()` 回报该版本号，供覆盖预览与审计引用。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `company_id` | TEXT | 主键之一，非空 | 公司 | canonical 公司引用。 |
+| `version` | INTEGER | 主键之一，非空，`>= 1` | 版本号 | 从 1 递增。 |
+| `effective_at` | TEXT | 非空 | 生效时间 | ISO 时间。 |
+| `note` | TEXT | 可空 | 说明 | 变更原因。 |
+| `source` | TEXT | 可空 | 来源 | 如 `admin` 或 registry revision。 |
+| `created_at` | TEXT | 非空 | 创建时间 | ISO 时间。 |
 
 ## 四、分组 2：会话·消息·草稿·协作（6 张表）
 

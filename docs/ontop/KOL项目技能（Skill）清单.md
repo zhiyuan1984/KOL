@@ -1,5 +1,7 @@
 # KOL 项目技能（Skill）清单
 
+> **2026-10-03 口径更新：** 下文关于「人员授权只对技能」的 2026-10-01 快照已被 [ADR-2026-10-03](../DECISIONS.md) 取代；人员使用资格现由 Agent 绑定决定，技能仍为 Agent 可复用能力，MCP/API/知识库由技能调用。本清单不代表迁移已实施。
+
 > 整理时间：2026-10-01
 > 承接：[《Skill-定义与分层关系》](Skill-定义与分层关系.md)（Skill 口径）与[《概念落地对照表-总表》](概念落地对照表-总表.md)（载体）。对象、属性、关系、事件、规则、动作与智能体清单见本目录同系列文件（[《智能体（Agent）清单与定义》](智能体-清单与定义.md)、[《KOL业务对象-动作（Action）清单》](KOL业务对象-动作（Action）清单.md) 等）；本清单补上「Skill 层」的完整盘点。
 > 对照来源：[CONSTITUTION.md](../CONSTITUTION.md)（v2.1）、[PRODUCT.md](../PRODUCT.md)、[BUSINESS.md](../BUSINESS.md)、[TECHNOLOGY.md](../TECHNOLOGY.md)、[domain-objects.md](../domain-objects.md)（Skill 最低契约）、[07-mcp-data-contract.md](../07-mcp-data-contract.md)、[org-permissions.md](../org-permissions.md)、[ia-information-architecture.md](../ia-information-architecture.md)、[skill-runtime-operations.md](../skill-runtime-operations.md)（实施说明，非规范正文）。

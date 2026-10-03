@@ -21,15 +21,19 @@
 
 Agent 不拥有独立运行时。所有 Agent 共用同一个平台内核和 Codex harness，只通过配置改变能力、数据范围和策略。
 
+Agent 也是人员使用权限的锚点。`AgentBinding` 指向权威组织树中的任意组织单元（含三级组）或人员，并保存发布/组织版本与变更记录；有效使用者由该单元的下级组织成员及沿上级链的负责人关系计算。`AgentSkillBinding` 装配技能，`SkillResourceDependency` 指向 MCP、API 或知识库；三者职责不同。知识库查询是 Skill，管理端「绑定知识库」须落实为该 Skill 及资源依赖，不得把 `Agent→KnowledgeBase` 当直接执行路径。资源无独立人员授权，数据范围与动作风险仍由服务端校验。
+
 ### Expert / DigitalEmployee 发布资产
 
-`experts/<id>/manifest.yaml` 是首版岗位专家发布包（当前仅 `expert:kol`）。员工端字段锁定为：`id` / `version` / `status` / `display_name` / `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`。`agents/<id>/manifest.yaml` 仍是 Agent 发布包（内部依赖，由后端解析）。`POST /api/experts/:id/summon` 只创建绑定会话并持久化 `expert_id` + `expert_version`，返回 `{ session_id, expert_id, expert_version, intro }`；不发信、不写阶段、不自动做高风险动作。无专家团 API。本阶段不做组织/部门/品牌授权、审批模型或专家团队成员。员工专家中心不拥有并列能力面。
+`experts/<id>/manifest.yaml` 是首版岗位专家发布包（当前仅 `expert:kol`）。员工端字段锁定为：`id` / `version` / `status` / `display_name` / `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`。`agents/<id>/manifest.yaml` 仍是 Agent 发布包（内部依赖，由后端解析）。`POST /api/experts/:id/summon` 只创建绑定会话并持久化 `expert_id` + `expert_version`，返回 `{ session_id, expert_id, expert_version, intro }`；不发信、不写阶段、不自动做高风险动作。无专家团 API。原「本阶段不做组织/部门/品牌授权」口径于 2026-10-03 被 Agent 组织/人员绑定新法取代；当前接口不代表绑定校验已实现。员工专家中心不拥有并列能力面。
 
-安培时代已确认部门负责人公司级范围：`张慧玲`（品牌与用户增长中心）和 `刘敏`（推广部）自动获得全部品牌、全部区域和普通业务数据 `read/write`；发送、阶段变更、导入、解密等高风险动作仍由 Host Gateway 和确认/审批控制。
+安培时代已确认部门负责人公司级范围：`张慧玲`（品牌与用户增长中心，高级副总裁）和 `钟建奎`（推广部，2026-10-03 起接任）自动获得全部品牌、全部区域和普通业务数据 `read/write`；发送、阶段变更、导入、解密等高风险动作仍由 Host Gateway 和确认/审批控制。
 
 ### Skill 最低契约
 
 每个 Skill 必须声明：`id`、`version`、`description`、`profile`、`output`、`mcp`、`required_inputs`、`permissions`、`actions`、`risk_level`、`approval_policy`、`in_market`、`scope_inputs` 和 `output_schema`。正文必须说明示例输入、禁止事项、是否产生副作用和失败后的下一步。`scope_inputs` 必须引用 [`org-permissions.md`](org-permissions.md) 的公司/组织/品牌/区域范围，不得写自由文本名称。
+
+其中既有 `permissions` 字段只表达技能执行所需的数据/动作约束，不是授予某个人使用该技能的名单；旧实现若把它或 `user_skill_grants` 当人员使用资格，须按 Agent 绑定新法迁移。
 
 ---
 
@@ -45,7 +49,7 @@ brand_scope: [brand:lt, brand:pq, brand:ro, brand:tb]
 region_scope: [region:eu, region:us, region:ca_au]
 skills: [creator_discovery, email_compose, reply_analysis, confirm_stage]
 workflows: [creator_to_outreach, email_follow_up, campaign_delivery]
-mcp_servers: [starry_kol, mediacrawler]
+mcp_servers: [starry_kol, mediacrawler] # 旧包字段仅作资源依赖索引；执行必须经所装配技能，不作 Agent 直连入口
 policies: [send_email, change_stage, import_creator]
 ```
 

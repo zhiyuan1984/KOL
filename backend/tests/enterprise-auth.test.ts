@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
+import { createAgentBinding } from "../src/runtime/organization-tree.js";
 
 let tmp = "";
 let app: Hono;
@@ -95,7 +96,7 @@ describe("production account and enterprise controls", () => {
     expect(logout.response.headers.get("set-cookie")).toContain("SameSite=Lax");
   });
 
-  it("enforces admin authorization and per-user skill grants", async () => {
+  it("enforces admin authorization and Agent-derived skill availability", async () => {
     // Use the CI stub mode so this test reaches the employee skill PEP
     // without starting a real Codex turn. Publication no longer 409s.
     process.env.CODEX_MODE = "stub";
@@ -107,11 +108,19 @@ describe("production account and enterprise controls", () => {
       text: "写合作邮件",
       intent: "email_compose",
     }, cookie);
-    expect(denied.response.status).toBe(403);
-    expect(denied.json.detail).toMatchObject({ code: "skill_not_granted", skill_id: "email_compose" });
+    // 资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号在提交时就被拒绝。
+    expect(denied.response.status).toBe(400);
+    expect(denied.json.detail).toBe("未授权该技能");
+    // 保留的逐人技能授权表仍可写，但不再让技能可见或可执行。
     await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
+    expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.id), "person:ye_guanwang");
+    createAgentBinding({
+      agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
+      company_id: "company:amperetime", source: "test",
+    });
     const skills = await call("GET", "/api/skills", undefined, cookie);
-    expect((skills.json as unknown as { id: string }[]).map((skill) => skill.id)).toEqual(["email_compose"]);
+    expect((skills.json as unknown as { id: string }[]).map((skill) => skill.id)).toContain("email_compose");
   });
 
   it("stores preferences and versioned Markdown memory", async () => {
@@ -207,8 +216,8 @@ describe("production account and enterprise controls", () => {
       ).run(id, label, 1, "configured", null, now);
     }
     await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose", "creator_discovery"] });
-    // Personnel authorization is Skill-only (ADR-2026-09-27): the retained
-    // grant table is seeded directly for the still-published employee surface.
+    // 保留的逐人技能授权表仍可由管理端写入，供历史数据与过渡期核对；
+    // 人员资格已改由 Agent 绑定决定（ADR-2026-10-03），该表不再放行任何调用。
     for (const [id, access] of [["starrykol", "read"], ["claw", "read"], ["enterprise_mail", "write"], ["wecom", "read"]]) {
       getConn().prepare(
         "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",

@@ -10,6 +10,7 @@ import type { Json, Row } from "../types.js";
 import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js";
 import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
+import { canUseAgent, canUseSkill } from "./organization-tree.js";
 import { isMediaCrawlerHostConfig } from "./mediacrawler-config.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
@@ -93,30 +94,24 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
   const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(context.skillId) as Row | undefined;
   if (lifecycle && lifecycle.stage !== "published") reject("runtime_skill_not_published");
   if (!lifecycle && definition.source === "published") reject("runtime_skill_not_published");
-  if (definition.runtime_access === "granted" && !parseRoles(user.roles).includes("admin") && !getConn().prepare(
-    "SELECT 1 FROM user_skill_grants WHERE user_id=? AND skill_id=?",
-  ).get(context.userId, context.skillId)) reject("runtime_skill_not_granted");
+  // 人员资格锚点是「人 → Agent」使用绑定（CONST-05 / ADR-2026-10-03），不再有逐人技能授权。
+  if (!parseRoles(user.roles).includes("admin") && !canUseAgent(context.userId, context.agentId)) {
+    reject("runtime_agent_not_usable");
+  }
   const sop = getConn().prepare("SELECT summary,body,updated_at FROM skill_sops WHERE id=?").get(context.skillId);
   return { user, binding, skillVersion: runtimeHash({ definition, body: fs.readFileSync(definition.path, "utf8"), sop }) };
 }
-/** Administrators pass; everyone else needs the exact Skill grant. */
-function userHoldsSkill(userId: string, skillId: string): boolean {
-  const user = getConn().prepare("SELECT roles,active FROM users WHERE id=?").get(userId) as Row | undefined;
-  if (!user?.active) return false;
-  if (parseRoles(user.roles).includes("admin")) return true;
-  return Boolean(getConn().prepare("SELECT 1 FROM user_skill_grants WHERE user_id=? AND skill_id=?").get(userId, skillId));
-}
 /**
- * Runtime authorization for one connector. The only per-person unit is the
- * Skill grant (DECISIONS.md ADR-2026-09-27「对外只暴露技能」): holding the
- * Skill, an enabled Skill→Connector binding, an enabled connector and the
- * unchanged internal gates (tool policy, host-only, L3 via Host Gateway) are
- * required. Connectors and tools are never granted per person.
+ * Runtime authorization for one connector. The only per-person unit is Agent
+ * use qualification (CONST-05 / ADR-2026-10-03): being allowed to use the
+ * Agent that assembles this Skill, an enabled Skill→Connector binding, an
+ * enabled connector and the unchanged internal gates (tool policy, host-only,
+ * L3 via Host Gateway). Connectors and tools are never granted per person.
  */
 export function authorizeConnector(context: RuntimeContext, connectorId: string) {
   const skill = assertRuntimeSkill(context);
-  if (!userHoldsSkill(context.userId, context.skillId)) {
-    reject("runtime_skill_not_granted");
+  if (!parseRoles(skill.user.roles).includes("admin") && !canUseSkill(context.userId, context.skillId)) {
+    reject("runtime_agent_not_usable");
   }
   const binding = getSkillConnectors(context.skillId).find((row) => row.connector_id === connectorId);
   if (!binding?.enabled) reject("runtime_connector_unbound");

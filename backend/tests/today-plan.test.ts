@@ -16,6 +16,7 @@ import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
 import * as runner from "../src/worker/runner.js";
 import { assertRuntimeSkill } from "../src/runtime/execution.js";
+import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { getAgentSkills } from "../src/runtime/store.js";
 import type { Json, Row } from "../src/types.js";
 
@@ -142,6 +143,15 @@ describe("today_plan harness", () => {
       VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
       plannerUser, "workspace-planner", "工作规划员工", "not-for-login", JSON.stringify(["employee"]), "[]", "", 1, "now", "now",
     );
+    // 人员资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号即使技能是 authenticated 也不放行。
+    expect(() => assertRuntimeSkill({
+      agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight-denied",
+    })).toThrow(/runtime_agent_not_usable/);
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(plannerUser, "person:ye_guanwang");
+    createAgentBinding({
+      agent_id: "agent:workspace-planner", target_type: "organization_unit", target_id: "org:lt_team",
+      company_id: "company:amperetime", source: "test",
+    });
     expect(() => assertRuntimeSkill({
       agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight",
     })).not.toThrow();

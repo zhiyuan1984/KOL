@@ -1,6 +1,8 @@
 import { nid } from "../ids.js";
 import { audit, getConn, nowIso } from "../db.js";
 import { HttpFail } from "./errors.js";
+import { scopedUser, authDisabled, isAdmin } from "../auth.js";
+import { canUseSkill, visibleSkillIdsForUser } from "../runtime/organization-tree.js";
 import { SKILL_CATALOG } from "./skills-catalog.js";
 import { currentUser } from "./persona.js";
 
@@ -33,31 +35,15 @@ export function memberScopeIds(handle: string): { orgs: string[]; teams: string[
   };
 }
 
-export function visibleSkillIds(handle?: string): Set<string> {
-  const h = handle || currentUser().handle;
-  const db = getConn();
-  const n = db.prepare("SELECT COUNT(*) AS c FROM skill_grants").get() as { c: number };
-  if (!n.c) return new Set(SKILL_CATALOG.map((s) => s.id));
-  const mem = memberScopeIds(h);
-  const ids = new Set<string>();
-  const rows = db.prepare("SELECT skill_id, scope, scope_id FROM skill_grants").all() as {
-    skill_id: string;
-    scope: string;
-    scope_id: string;
-  }[];
-  for (const r of rows) {
-    if (r.scope === "org" && mem.orgs.includes(r.scope_id)) ids.add(r.skill_id);
-    if (r.scope === "team" && mem.teams.includes(r.scope_id)) ids.add(r.skill_id);
-    if (r.scope === "user" && r.scope_id === h) ids.add(r.skill_id);
-  }
-  return ids;
+/** 关闭鉴权的开发/测试态沿用既有放行口径；管理员保持与 requireSkill 一致的直通；其余按 Agent 使用资格派生。 */
+export function visibleSkillIds(userId?: string): Set<string> {
+  if (authDisabled() || isAdmin()) return new Set(SKILL_CATALOG.map((s) => s.id));
+  return new Set(visibleSkillIdsForUser(userId || scopedUser()?.id || null));
 }
 
-export function isSkillGranted(skillId: string, handle?: string): boolean {
-  if (!SKILL_CATALOG.some((s) => s.id === skillId)) return true;
-  const n = getConn().prepare("SELECT COUNT(*) AS c FROM skill_grants").get() as { c: number };
-  if (!n.c) return true;
-  return visibleSkillIds(handle).has(skillId);
+export function isSkillGranted(skillId: string, userId?: string): boolean {
+  if (authDisabled() || isAdmin()) return true;
+  return canUseSkill(userId || scopedUser()?.id || null, skillId);
 }
 
 export function grantsForSkill(skillId: string): { org: string[]; team: string[]; user: string[] } {

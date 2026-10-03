@@ -7,6 +7,7 @@ import type { Hono } from "hono";
 import { BRAND_MAILBOXES } from "../src/config.js";
 import { getConn, listAudit, resetConn, tx } from "../src/db.js";
 import { seedAll, seedIfEmpty } from "../src/seed.js";
+import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { workerCannotSend } from "../src/worker/common.js";
 import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
@@ -28,8 +29,12 @@ async function request(
   method: string,
   url: string,
   body?: unknown,
-): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
-  const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
+  cookie = "",
+): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string>; cookie: string }> {
+  const init: RequestInit = {
+    method,
+    headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) },
+  };
   if (body !== undefined) init.body = JSON.stringify(body);
   const res = await app.request(url, init);
   const text = await res.text();
@@ -37,6 +42,7 @@ async function request(
     status: res.status,
     text: async () => text,
     json: async () => (text ? (JSON.parse(text) as Json) : {}),
+    cookie: res.headers.get("set-cookie")?.split(";")[0] || "",
   };
 }
 
@@ -784,7 +790,9 @@ describe("host contracts", () => {
     }
     const sends = (await (await request("GET", "/api/audit?event_type=starry.send")).json()) as unknown as Json[];
     expect(sends).toHaveLength(0);
-  });
+    // 该用例逐个跑完全部目录技能，工作树环境（node_modules junction）下整文件执行约为
+    // 主检出的 1.5 倍；30s 上限会把这次集成巡检压到超时，断言本身不变。
+  }, 60_000);
 
   it("风险扫描 uses Starry KOL MCP through a worker turn", async () => {
     for (const prompt of ["风险扫描", "扫描在途风险", "超时/风险扫描", "扫描", "T8"]) {
@@ -902,20 +910,59 @@ describe("host contracts", () => {
     expect((await del.json()).draft).toBe(true);
   });
 
-  it("pm assigns skills and ungranted skills cannot start", async () => {
-    const auth = await request("POST", "/api/login", { username: "鄢棽", password: "123456789" });
-    expect(auth.status, await auth.text()).toBe(200);
-    const listed = await request("GET", "/api/admin/skills");
-    expect(listed.status).toBe(200);
-    const pack = await listed.json();
-    expect(((pack.directory as Json).orgs as Json[]).some((o) => o.id === "org_litime")).toBe(true);
-    const put = await request("PUT", "/api/admin/skills/creator_discovery/grants", { org: [], team: [], user: [] });
-    expect(put.status, await put.text()).toBe(200);
-    const mine = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
-    expect(mine.find((s) => s.id === "creator_discovery")).toBeFalsy();
-    const ses = await (await request("POST", "/api/sessions", { title: "no-discovery" })).json();
-    const r = await request("POST", `/api/sessions/${ses.id}/messages`, { text: "搜索 YouTube 露营达人", act: "ask", intent: "creator_discovery" });
-    expect(r.status).toBe(400);
+  it("admin Agent bindings, not pm skill grants, decide which skills an employee can start", async () => {
+    // 人员资格锚点是 Agent（ADR-2026-10-03）：只有开启鉴权才能验证未授权拒绝。
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
+    try {
+      const setup = await request("POST", "/api/auth/setup", {
+        username: "skills-admin",
+        name: "Skills Admin",
+        password: "admin-password",
+        brands: ["LT", "RO", "PQ"],
+      });
+      expect(setup.status, await setup.text()).toBe(201);
+      const adminCookie = setup.cookie;
+      const employee = await request("POST", "/api/admin/users", {
+        username: "skills-employee",
+        name: "Skills Employee",
+        password: "employee-password",
+        roles: ["employee"],
+        brands: ["LT"],
+      }, adminCookie);
+      expect(employee.status, await employee.text()).toBe(201);
+      const employeeId = String((await employee.json()).id);
+      const login = await request("POST", "/api/auth/login", { username: "skills-employee", password: "employee-password" });
+      expect(login.status, await login.text()).toBe(200);
+      const employeeCookie = login.cookie;
+
+      const listed = await request("GET", "/api/admin/skills", undefined, adminCookie);
+      expect(listed.status, await listed.text()).toBe(200);
+      const pack = await listed.json();
+      expect(((pack.directory as Json).orgs as Json[]).some((o) => o.id === "org_litime")).toBe(true);
+      // 保留的逐人技能授权表仍可写，但不再决定员工可见/可执行的技能。
+      const put = await request("PUT", "/api/admin/skills/creator_discovery/grants", { org: [], team: [], user: [] }, adminCookie);
+      expect(put.status, await put.text()).toBe(200);
+      const mine = (await (await request("GET", "/api/skills", undefined, employeeCookie)).json()) as unknown as Json[];
+      expect(mine.find((s) => s.id === "creator_discovery")).toBeFalsy();
+      const ses = await (await request("POST", "/api/sessions", { title: "no-discovery" }, employeeCookie)).json();
+      const denied = await request("POST", `/api/sessions/${ses.id}/messages`, {
+        text: "搜索 YouTube 露营达人", act: "ask", intent: "creator_discovery",
+      }, employeeCookie);
+      expect(denied.status).toBe(400);
+
+      // 资格来自 Agent 绑定：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
+      getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(employeeId, "person:ye_guanwang");
+      createAgentBinding({
+        agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
+        company_id: "company:amperetime", source: "test",
+      });
+      const granted = (await (await request("GET", "/api/skills", undefined, employeeCookie)).json()) as unknown as Json[];
+      expect(granted.find((s) => s.id === "creator_discovery")).toBeTruthy();
+    } finally {
+      if (previousAuthMode === undefined) delete process.env.AUTH_MODE;
+      else process.env.AUTH_MODE = previousAuthMode;
+    }
   });
 
   it("profiles api exposes capability domains on one Codex harness", async () => {

@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
+import { setAgentSkill } from "../src/runtime/store.js";
+import { createAgentBinding, revokeAgentBinding } from "../src/runtime/organization-tree.js";
 import { clearTaskRegistryCache, requireTaskDefinition, taskDefinitions } from "../src/tasks/registry.js";
 import { skillTemplate } from "../src/tasks/skill-template.js";
 import { resolveTaskIntent } from "../src/tasks/resolver.js";
@@ -111,7 +113,7 @@ describe("one Skill / one knowledge interaction template", () => {
     expect(() => taskDefinitions(root)).toThrow(/unsupported field/);
   });
 
-  it("filters ungranted skills and rechecks detail access after a grant is revoked", async () => {
+  it("filters ungranted skills and rechecks detail access after the Agent binding is revoked", async () => {
     process.env.AUTH_MODE = "enabled";
     const now = new Date().toISOString();
     getConn().prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
@@ -119,9 +121,19 @@ describe("one Skill / one knowledge interaction template", () => {
     const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get("template-user") as Json);
     const scoped = (url: string) => withScopedUser(user, () => knowledge.request(url));
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
+    // 旧的逐人技能授权表不再放行：写入后该技能依然不可见。
     getConn().prepare("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES(?,?,?)").run(user.id, skillId, now);
+    expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
+    // 资格来自「人 → Agent → 技能」装配（ADR-2026-10-03）：把技能装到 Agent 上，
+    // 再把 Agent 绑定到该人员所在的三级组。
+    setAgentSkill("agent:template-test", skillId, true, 0);
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(user.id, "person:ye_guanwang");
+    const binding = createAgentBinding({
+      agent_id: "agent:template-test", target_type: "organization_unit", target_id: "org:lt_team",
+      company_id: "company:amperetime", source: "test",
+    });
     expect((await (await scoped("/knowledge/skill-templates")).json() as Json[]).map((item) => item.skill_id)).toEqual([skillId]);
-    getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(user.id);
+    revokeAgentBinding(binding.id);
     // Bare router uses Hono's default 500 response for thrown HttpFail; invoke
     // through a wrapper that preserves the status, as createApp normally does.
     const { Hono } = await import("hono");

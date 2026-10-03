@@ -8,7 +8,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { getConn, resetConn } from "../src/db.js";
 import { setAgentSkill, setSkillConnector, setSkillTool, setConnectorConfig, setToolPolicy, getAgentSkills, getSkillConnectors, getToolPolicy } from "../src/runtime/store.js";
-import { SkillExecution, toolSchemaHash, type RuntimeContext, type RuntimeRemote } from "../src/runtime/execution.js";
+import { SkillExecution, assertRuntimeSkill, toolSchemaHash, type RuntimeContext, type RuntimeRemote } from "../src/runtime/execution.js";
+import { createAgentBinding, revokeAgentBinding } from "../src/runtime/organization-tree.js";
 import { startRuntimeProxy, type RuntimeProxy } from "../src/runtime/proxy.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../src/mcp/remote.js";
 import type { Json } from "../src/types.js";
@@ -20,6 +21,8 @@ import { isolatedCodexModelConfig } from "../src/worker/auth.js";
 let tmp: string;
 let cleanup: Array<() => Promise<unknown>>;
 const context: RuntimeContext = { agentId: "agent:runtime-test", skillId: "creator_profile", userId: "user-a", runId: "run-1" };
+const COMPANY = "company:amperetime";
+let runtimeBindingId = "";
 const tool = (name = "lookup"): Json => ({ name, description: "Look up a public creator", inputSchema: {
   type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false,
 } });
@@ -38,8 +41,14 @@ beforeEach(() => {
     db.prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
       VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, id, id, "not-for-login", JSON.stringify(id.startsWith("admin") ? ["admin"] : ["employee"]), "[]", "", 1, "now", "now");
   }
-  db.prepare("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES(?,?,?)").run(context.userId, context.skillId, "now");
   setAgentSkill(context.agentId, context.skillId, true, 0);
+  // 人员资格锚点是「人 → Agent」绑定（CONST-05 / ADR-2026-10-03）：把测试账号挂到
+  // 组织人员上，并把被测 Agent 绑定到该人员所在的三级组。
+  runtimeBindingId = createAgentBinding({
+    agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team",
+    company_id: COMPANY, source: "test",
+  }).id;
+  db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(context.userId, "person:ye_guanwang");
 });
 afterEach(async () => {
   for (const close of cleanup.reverse()) await close();
@@ -110,14 +119,14 @@ describe("governed Skill Runtime", () => {
     expect(fixture.calls).toHaveLength(2);
   });
 
-  // Per-person connector grants are retired (ADR-2026-09-27); revocation now
-  // means revoking the Skill grant.
-  it.each(["unbind", "disable", "skill_revoke", "user_disable", "agent_unbind"])("B: rejects an old handle after %s", async (action) => {
+  // Per-person skill grants are retired (ADR-2026-10-03); revocation now means
+  // revoking the Agent use binding, the Agent→Skill assembly or the account.
+  it.each(["unbind", "disable", "binding_revoke", "user_disable", "agent_unbind"])("B: rejects an old handle after %s", async (action) => {
     const { runtime, alias, calls } = await one();
     const db = getConn();
     if (action === "unbind") setSkillConnector(context.skillId, "catalog_a", false, Number(getSkillConnectors(context.skillId)[0].version));
     if (action === "disable") db.prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
-    if (action === "skill_revoke") db.prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(context.userId);
+    if (action === "binding_revoke") revokeAgentBinding(runtimeBindingId);
     if (action === "user_disable") db.prepare("UPDATE users SET active=0 WHERE id=?").run(context.userId);
     if (action === "agent_unbind") setAgentSkill(context.agentId, context.skillId, false, Number(getAgentSkills(context.agentId)[0].version));
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toHaveProperty("status");
@@ -158,6 +167,9 @@ describe("governed Skill Runtime", () => {
 
   it("admin still cannot use disabled connectors or unbound skills", async () => {
     const { factory } = await one();
+    // 管理员同样要挂到组织人员上才具备 Agent 使用资格；本用例验证的是
+    // 有资格之后，连接器停用与 Agent→技能解绑仍然拦住管理员。
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("admin-a", "person:xi_chucong");
     const admin = new SkillExecution({ ...context, userId: "admin-a" }, factory);
     const catalog = await admin.discover();
     getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
@@ -170,7 +182,11 @@ describe("governed Skill Runtime", () => {
     const { factory } = await one();
     getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)")
       .run("user-b", "catalog_a", "write", "now");
-    await expect(new SkillExecution({ ...context, userId: "user-b" }, factory).discover()).rejects.toMatchObject(denied("runtime_skill_not_granted"));
+    await expect(new SkillExecution({ ...context, userId: "user-b" }, factory).discover()).rejects.toMatchObject(denied("runtime_agent_not_usable"));
+    // 挂到同一个三级组的成员后立即获得资格：证明刚才的拒绝就是 Agent 绑定缺口。
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("user-b", "person:gu_jiarui");
+    const catalog = await new SkillExecution({ ...context, userId: "user-b" }, factory).discover();
+    expect(catalog.tools).toHaveLength(1);
   });
 
   it("legacy authorization also rejects disabled connectors for administrators and stage aliases", () => {
@@ -241,21 +257,21 @@ describe("governed Skill Runtime", () => {
     expect((await runtime.discover()).tools).toHaveLength(0);
   });
 
-  it("rechecks the Skill grant during the awaited discovery before dispatch", async () => {
+  it("rechecks the Agent use binding during the awaited discovery before dispatch", async () => {
     let revoke = false;
     const { runtime, alias, calls } = await one({ list: () => {
-      if (revoke) getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(context.userId);
+      if (revoke) revokeAgentBinding(runtimeBindingId);
     } });
     revoke = true;
-    await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_skill_not_granted"));
+    await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_agent_not_usable"));
     expect(calls).toHaveLength(0);
   });
 
-  it("suppresses a result arriving after a Skill revoke and records that dispatch already happened", async () => {
+  it("suppresses a result arriving after a binding revoke and records that dispatch already happened", async () => {
     const { runtime, alias, calls } = await one({ call: () => {
-      getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(context.userId);
+      revokeAgentBinding(runtimeBindingId);
     } });
-    await expect(runtime.invoke(alias, { query: "sensitive-input" })).rejects.toMatchObject(denied("runtime_skill_not_granted"));
+    await expect(runtime.invoke(alias, { query: "sensitive-input" })).rejects.toMatchObject(denied("runtime_agent_not_usable"));
     expect(calls).toHaveLength(1);
     const events = getConn().prepare("SELECT payload FROM audit_events WHERE event_type LIKE 'runtime.tool.%'").all() as Array<{ payload: string }>;
     const payloads = events.map((entry) => entry.payload).join("\n");
@@ -318,6 +334,11 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     setConnectorConfig("local_provider", { url: remote.url, headers_env: { "X-Test-Key": "RUNTIME_FIXTURE_SECRET" } }, 1);
     const existingKOLBinding = getAgentSkills(kolAgentScopeContext().agent_id).find((row) => row.skill_id === context.skillId);
     if (!existingKOLBinding) setAgentSkill(kolAgentScopeContext().agent_id, context.skillId, true, 0);
+    // runCodex 按技能声明的 runtime_agent_id 走 agent:kol，人员资格同样来自 Agent 绑定。
+    createAgentBinding({
+      agent_id: kolAgentScopeContext().agent_id, target_type: "organization_unit", target_id: "org:lt_team",
+      company_id: COMPANY, source: "test",
+    });
     getConn().prepare("INSERT INTO sessions(id,title,created_at,updated_at,thread_ref,owner_user_id) VALUES(?,?,?,?,?,?)")
       .run("runtime-session", "runtime", "now", "now", "stale-old-thread", context.userId);
     try {
@@ -386,6 +407,14 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
         .toEqual(expect.arrayContaining(["today_plan", "todo_plan", "today_analyze"]));
       expect(getAgentSkills(kolAgentScopeContext().agent_id).some((row) => row.skill_id === "today_plan")).toBe(false);
       expect(getSkillConnectors("today_plan")).toEqual([]);
+      // 未绑定：平台规划技能也不放行；绑定后才可运行（人员资格锚点是 Agent）。
+      expect(() => assertRuntimeSkill({
+        agentId: "agent:workspace-planner", skillId: "today_plan", userId: "user-b", runId: "planner-denied",
+      })).toThrow(/runtime_agent_not_usable/);
+      createAgentBinding({
+        agent_id: "agent:workspace-planner", target_type: "organization_unit", target_id: "org:lt_team",
+        company_id: COMPANY, source: "test",
+      });
       const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
       const result = await withScopedUser(user, () => runCodex(
         "planner-session",

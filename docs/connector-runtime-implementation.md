@@ -1,5 +1,7 @@
 # 配置化连接器 Runtime：一期实现说明
 
+> **2026-10-03 差距提示：** 本文的技能级人员授权描述是当时已实现代码的事实快照；新法改为 Agent 组织/人员绑定作为使用资格，尚未迁移。参见 [DECISIONS.md](DECISIONS.md) ADR-2026-10-03 与 [implementation-registry.md](implementation-registry.md) AGENT-AUTH-2026-10-03。
+
 **状态：已实现并回归验证（2026-09-26）。**
 
 本实现把 **Skill 的 MCP / HTTP 工具调用**收敛到一个配置驱动的 Runtime 路径。新增连接器、HTTP API 或工具，不需要在 Worker / Runtime 中新增供应商判断或第三方 HTTP 调用代码。
