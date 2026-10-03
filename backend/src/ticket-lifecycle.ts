@@ -41,7 +41,7 @@ export function ticketAllowedLifecycleActions(row: Row): TicketLifecycleAction[]
   const actions: TicketLifecycleAction[] = [];
   if (["pending", "queued", "waiting", "needs_clarification"].includes(status)) actions.push("cancel");
   if (status === "pending") actions.push("accept");
-  if (["waiting", "waiting_approval", "in_progress"].includes(status)) actions.push("complete");
+  if (["accepted", "waiting", "waiting_approval", "in_progress"].includes(status)) actions.push("complete");
   return actions;
 }
 

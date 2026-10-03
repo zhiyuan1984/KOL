@@ -440,6 +440,11 @@ export type Task = {
 export type TaskDetail = Task & {
   runs?: Array<Record<string, unknown>>;
   artifacts?: Array<Record<string, unknown>>;
+  assignments?: Array<Record<string, unknown>>;
+  watchers?: Array<Record<string, unknown>>;
+  basis_refs?: Array<Record<string, unknown>>;
+  acceptance?: Record<string, unknown> | null;
+  audit?: Array<Record<string, unknown>>;
 };
 
 export type TaskListPage = {
@@ -468,6 +473,25 @@ export type Ticket = Task & {
   missing_fields: string[];
   allowed_actions: string[];
   source_refs: Array<Record<string, unknown>>;
+  assignments?: Array<Record<string, unknown>>;
+  watchers?: Array<Record<string, unknown>>;
+  basis_refs?: Array<Record<string, unknown>>;
+  acceptance?: Record<string, unknown> | null;
+  audit?: Array<Record<string, unknown>>;
+};
+
+export type TicketCommandInput =
+  | { action: "accept" | "cancel"; expected_version: number; idempotency_key: string; reason?: string }
+  | { action: "complete"; expected_version: number; idempotency_key: string; acceptance_evidence: Record<string, unknown> }
+  | { action: "assign"; expected_version: number; idempotency_key: string; assignee_person_ref: string; assignee_unit_id: string; cross_group_reason?: string };
+
+export type TicketCommandResult = {
+  ticket_id: string;
+  action: string;
+  status?: string;
+  version: number;
+  replayed: boolean;
+  ticket?: Ticket;
 };
 
 export type TicketRun = {
@@ -1567,8 +1591,8 @@ export const api = {
     if (opts.limit != null) query.set("limit", String(opts.limit));
     return request<TicketTimelinePage>(`/api/tickets/${encodeURIComponent(id)}/timeline${query.size ? `?${query}` : ""}`);
   },
-  ticketCommand: (id: string, body: { action: "complete" | "cancel"; expected_version: number; idempotency_key: string; acceptance_evidence?: Record<string, unknown>; reason?: string }) =>
-    request<{ ticket_id: string; action: string; status: string; version: number; replayed: boolean; ticket?: Ticket }>(`/api/tickets/${encodeURIComponent(id)}/commands`, {
+  ticketCommand: (id: string, body: TicketCommandInput) =>
+    request<TicketCommandResult>(`/api/tickets/${encodeURIComponent(id)}/commands`, {
       method: "POST",
       headers: { "Idempotency-Key": body.idempotency_key },
       body: JSON.stringify(body),

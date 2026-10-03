@@ -134,5 +134,14 @@ describePostgres("native PostgreSQL ticket lifecycle", () => {
       "SELECT status,event_type,event_class FROM task_events WHERE work_item_id='t-native-accept'",
     );
     expect(event.rows).toEqual([{ status: "accepted", event_type: "task.claimed", event_class: "lifecycle" }]);
+    const completed = await transitionTicketLifecyclePostgres({
+      ticketId: "t-native-accept",
+      action: "complete",
+      expectedVersion: 2,
+      idempotencyKey: "native-ticket-accept-complete-0001",
+      actorId: "employee:native",
+      acceptanceEvidence: { note: "受理后验收" },
+    });
+    expect(completed).toMatchObject({ status: "completed", version: 3 });
   });
 });

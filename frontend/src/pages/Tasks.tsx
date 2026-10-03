@@ -229,6 +229,30 @@ export default function Tasks() {
     }
   };
 
+  const submitTicketCommand = async (task: Task, action: "accept" | "complete") => {
+    const version = Math.max(1, Number(task.data_version || 1));
+    if (action === "accept" && !window.confirm("确认受理该工单？受理不会自动完成工单。")) return;
+    let acceptanceEvidence: Record<string, unknown> | undefined;
+    if (action === "complete") {
+      const note = window.prompt("请填写验收证据或完成说明：");
+      if (!note?.trim()) return;
+      if (!window.confirm("确认以这条证据完成验收？完成后将形成不可变验收事实。")) return;
+      acceptanceEvidence = { note: note.trim(), submitted_from: "ticket_center" };
+    }
+    setActionBusy(`${action}:${task.id}`);
+    try {
+      const result = await api.ticketCommand(task.id, action === "complete"
+        ? { action, expected_version: version, idempotency_key: `ticket-complete-${crypto.randomUUID()}`, acceptance_evidence: acceptanceEvidence! }
+        : { action, expected_version: version, idempotency_key: `ticket-accept-${crypto.randomUUID()}` });
+      await load();
+      await openDetail({ ...task, ...(result.ticket || {}), data_version: result.version });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : action === "accept" ? "受理失败" : "验收失败");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
   const visible = useMemo(() => rows.filter((task) => belongsToTab(task, selectedStatus)), [rows, selectedStatus]);
   const counts = useMemo(() => {
     const next = new Map<TaskStatusTab, number>();
@@ -337,7 +361,7 @@ export default function Tasks() {
                     <td className="task-center-status-cell"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span>{task.queue_position ? <small>队列第 {task.queue_position} 位</small> : null}</td>
                     <td className="task-center-time-cell"><small>创建 {formatTime(task.created_at)}</small>{task.started_at ? <small>开始 {formatTime(task.started_at)}</small> : task.queued_at ? <small>入队 {formatTime(task.queued_at)}</small> : null}</td>
                     <td className="task-center-summary-cell" title={summary}><span>{summary}</span></td>
-                    <td className="task-center-actions"><button type="button" onClick={() => void openDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>{Array.isArray(task.allowed_actions) && task.allowed_actions.includes("edit") ? <button type="button" onClick={() => setEditTarget(task)}>编辑</button> : null}{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</td>
+                    <td className="task-center-actions"><button type="button" onClick={() => void openDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>{Array.isArray(task.allowed_actions) && task.allowed_actions.includes("accept") ? <button type="button" onClick={() => void submitTicketCommand(task, "accept")} disabled={Boolean(actionBusy)}>受理</button> : null}{Array.isArray(task.allowed_actions) && task.allowed_actions.includes("edit") ? <button type="button" onClick={() => setEditTarget(task)}>编辑</button> : null}{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</td>
                   </tr>
                 );
               })}
@@ -365,8 +389,11 @@ export default function Tasks() {
         <header><div><p className="eyebrow">任务详情</p><h2>{safeTaskText(selected.title, "未命名任务")}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelected(null)}>×</button></header>
         <dl className="task-detail-meta"><div><dt>状态</dt><dd>{statusOf(selected)}</dd></div><div><dt>任务 ID</dt><dd>{selected.id}</dd></div><div><dt>创建时间</dt><dd>{formatTime(selected.created_at)}</dd></div><div><dt>说明</dt><dd>{taskSummary(selected)}</dd></div></dl>
         <p className="muted">已尝试 {selected.runs?.length || 0} 次{selected.runs?.length ? `；最近一次：${String(selected.runs[selected.runs.length - 1]?.status || "未知")}` : ""}</p>
+        {Array.isArray(selected.assignments) && selected.assignments.length ? <section className="task-detail-facts"><h3>责任与关注</h3><dl><div><dt>当前主受理人</dt><dd>{String(selected.assignments.find((item) => item.status === "active" && item.role === "primary")?.assignee_person_ref || "—")}</dd></div><div><dt>关注人</dt><dd>{Array.isArray(selected.watchers) && selected.watchers.length ? selected.watchers.filter((item) => item.status === "active").map((item) => String(item.watcher_person_ref || item.watcher_user_id || "")).filter(Boolean).join("、") || "—" : "—"}</dd></div></dl></section> : null}
+        {Array.isArray(selected.basis_refs) && selected.basis_refs.length ? <section className="task-detail-facts"><h3>来源依据</h3><ul>{selected.basis_refs.map((item, index) => <li key={`${String(item.source_type || "basis")}-${String(item.source_id || index)}`}>{String(item.source_type || "来源")} · {String(item.source_id || "—")}{item.occurred_at ? ` · ${formatTime(String(item.occurred_at))}` : ""}</li>)}</ul></section> : null}
+        {selected.acceptance ? <section className="task-detail-facts"><h3>验收事实</h3><p>验收人：{String(selected.acceptance.accepted_by_user_id || "—")} · {formatTime(String(selected.acceptance.accepted_at || ""))}</p></section> : null}
         <section><h3>执行事件 {liveRunEvents.connected ? <small className="muted">实时更新中</small> : liveRunEvents.fallback ? <small className="muted">正在以安全补读更新</small> : null}</h3>{(liveRunEvents.events.length ? liveRunEvents.events : events).length ? <ol className="task-detail-events">{(liveRunEvents.events.length ? liveRunEvents.events : events).map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section>
-        <div className="task-detail-actions">{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("edit") ? <button type="button" className="button" onClick={() => setEditTarget(selected)}>编辑业务字段</button> : null}{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
+        <div className="task-detail-actions">{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("accept") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "accept")} disabled={Boolean(actionBusy)}>受理工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("complete") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "complete")} disabled={Boolean(actionBusy)}>提交验收完成</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("edit") ? <button type="button" className="button" onClick={() => setEditTarget(selected)}>编辑业务字段</button> : null}{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
       </aside></div> : null}
     </main>
   );
