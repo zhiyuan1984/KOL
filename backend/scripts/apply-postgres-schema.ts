@@ -41,6 +41,26 @@ type SchemaMigration = {
 
 const migrations: SchemaMigration[] = [
   {
+    // Phase 2：审批类型（四件套）
+    id: "20261003_approval_types",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS approval_types (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        grp TEXT NOT NULL DEFAULT '',
+        owner TEXT NOT NULL DEFAULT '',
+        visibility TEXT NOT NULL DEFAULT 'all',
+        form_schema TEXT NOT NULL DEFAULT '[]',
+        flow TEXT NOT NULL DEFAULT '{}',
+        version INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+    ],
+  },
+  {
     // 方案3.2：审批角色授权支持有效期，到期自动回收
     id: "20261003_approval_role_validity",
     statements: [

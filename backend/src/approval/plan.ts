@@ -31,7 +31,7 @@ function resolveRequester(org: OrgSnapshot, input: PlanInput): Employee | null {
     || employeeByMailbox(org, input.mailbox);
 }
 
-function effectivePerson(org: OrgSnapshot, person: Employee | null, policy: ApprovalPolicy): Employee | null {
+export function effectivePerson(org: OrgSnapshot, person: Employee | null, policy: ApprovalPolicy): Employee | null {
   if (!person) return null;
   if (policy.skip_inactive && (person.status === "inactive" || person.status === "vacant")) return null;
   if (policy.skip_vacant && person.status === "vacant") return null;
@@ -52,7 +52,7 @@ function walkFrom(org: OrgSnapshot, start: Employee, policy: ApprovalPolicy): Em
   return people;
 }
 
-function managerAt(org: OrgSnapshot, requester: Employee, level: number, policy: ApprovalPolicy): Employee | null {
+export function managerAt(org: OrgSnapshot, requester: Employee, level: number, policy: ApprovalPolicy): Employee | null {
   return walkFrom(org, requester, policy).filter((person) => !(policy.skip_self && person.id === requester.id))[level - 1]
     || null;
 }

@@ -606,6 +606,41 @@ export default function Approvals({
     );
   };
 
+  const countersign = (row: Approval) => {
+    setErr("");
+    if (row.version == null) {
+      setErr("缺少版本，无法加签。请刷新后重试。");
+      return;
+    }
+    const target = window.prompt("加签给谁？请输入员工姓名或工号（加签人仅查看，不继承你的审批权限）：", "");
+    if (!target || !target.trim()) return;
+    ask(
+      approvalDecideConfirm({
+        decision: "approve",
+        object: `加签：${moneyLine(row)}`,
+        scope: `当前等待 ${waitingName(row)}`,
+        change: `在当前节点后加签 ${target.trim()}`,
+        consequence: "加签后单据先经加签人确认，再继续原流程。",
+        approvalState: statusCopy(row),
+        ruleVersion: row.version_code || "",
+      }),
+      async () => {
+        try {
+          await api.countersignApproval(
+            row.id,
+            target.trim(),
+            undefined,
+            { expected_version: Number(row.version || 0), idempotency_key: newIdempotencyKey() },
+          );
+          setExpandedId("");
+          load();
+        } catch (e) {
+          throw new Error(friendlyError(e, "加签未完成，请稍后重试"));
+        }
+      },
+    );
+  };
+
   useEffect(() => {
     if (focusId) setExpandedId(focusId);
   }, [focusId]);
@@ -734,6 +769,7 @@ export default function Approvals({
                 <button type="button" className="btn primary" onClick={() => decide(a, "approve")}>同意</button>
                 <button type="button" className="btn danger" onClick={() => decide(a, "reject")}>驳回</button>
                 <button type="button" className="btn" data-approval-transfer onClick={() => transfer(a)}>转交</button>
+                <button type="button" className="btn" data-approval-countersign onClick={() => countersign(a)}>加签</button>
                 {onExplainRisk ? (
                   <button
                     type="button"

@@ -1279,6 +1279,11 @@ export type AdminSaveBudgetInput = {
 };
 
 export const api = {
+  get: (path: string) => request<unknown>(path),
+  post: (path: string, body?: unknown) =>
+    request<unknown>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
+  put: (path: string, body?: unknown) =>
+    request<unknown>(path, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
   authStatus: () => request<AuthStatus>("/api/auth/status"),
   setup: (body: { name: string; email: string; password: string }) =>
     request<AuthStatus>("/api/auth/setup", { method: "POST", body: JSON.stringify(body) }),
@@ -1930,6 +1935,20 @@ export const api = {
     request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/withdraw`, {
       method: "POST",
       body: JSON.stringify({ ...(gate || {}) }),
+    }),
+  countersignApproval: (
+    id: string,
+    targetEmployeeId: string,
+    reason?: string,
+    gate?: { expected_version: number; idempotency_key: string },
+  ) =>
+    request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/countersign`, {
+      method: "POST",
+      body: JSON.stringify({
+        target_employee_id: targetEmployeeId,
+        ...(reason ? { reason } : {}),
+        ...(gate || {}),
+      }),
     }),
   skills: () => request<Array<Record<string, unknown>>>("/api/skills"),
   skill: (id: string) => fetch(`/api/skills/${encodeURIComponent(id)}`).then((r) => r.json()),

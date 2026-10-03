@@ -14,6 +14,7 @@ import { audit } from "../db.js";
 import {
   createReceipt,
   createWorkApproval,
+  countersignApproval,
   decide,
   decideReceipt,
   getApproval,
@@ -342,6 +343,38 @@ approvals.post("/approvals/:aid/withdraw", async (c) => {
     });
     audit("gateway", "approval.withdraw", {
       approval_id: c.req.param("aid"),
+      expected_version: expectedVersion,
+    });
+    return c.json(enrich(result));
+  } catch (e) {
+    if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
+    throw new HttpFail(400, String(e instanceof Error ? e.message : e));
+  }
+});
+
+approvals.post("/approvals/:aid/countersign", async (c) => {
+  const body = (await c.req.json()) as {
+    target_employee_id?: unknown;
+    reason?: unknown;
+    expected_version?: unknown;
+    idempotency_key?: unknown;
+  };
+  const approval = getApproval(c.req.param("aid"));
+  if (!approval) throw new HttpFail(404, "Not Found");
+  const expectedVersion = requireExpectedVersion(body.expected_version);
+  const target = String(body.target_employee_id || "").trim();
+  if (!target) throw new HttpFail(400, { code: "countersign_target_required", message: "加签需要指定目标审批人。" });
+  let actor: string | undefined;
+  if (!authDisabled()) {
+    const user = scopedUser();
+    if (!user || !isVisibleToViewer(approval, user)) throw new HttpFail(404, "Not Found");
+    if (!canDecideProjected(approval, user)) {
+      throw new HttpFail(403, { code: "approval_role_required", message: "只有当前审批人可加签。" });
+    }
+    actor = (approval.chain as string[])[Number(approval.current_index)];
+  }
+  try {
+    const result = countersignApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
       expected_version: expectedVersion,
     });
     return c.json(enrich(result));

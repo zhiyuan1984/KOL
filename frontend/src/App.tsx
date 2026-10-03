@@ -11,6 +11,7 @@ const Mail = lazy(() => import("./pages/Mail"));
 const Chat = lazy(() => import("./pages/Chat"));
 const Pipeline = lazy(() => import("./pages/Pipeline"));
 const Approvals = lazy(() => import("./pages/Approvals"));
+const ApprovalTypes = lazy(() => import("./pages/ApprovalTypes"));
 const Cron = lazy(() => import("./pages/Cron"));
 const SkillCatalog = lazy(() =>
   import("./pages/SkillCatalog").then((m) => ({ default: m.SkillCatalog })));
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="/exam" element={<Exam />} />
             <Route path="/approvals/:id" element={<Approvals />} />
             <Route path="/approvals" element={<Approvals />} />
+            <Route path="/admin/approval-types" element={<ApprovalTypes />} />
             <Route path="/settings" element={<AccountSettings />} />
             <Route path="/admin/*" element={<AdminConsole />} />
           </Route>

@@ -428,6 +428,69 @@ export function transferApproval(
 }
 
 /**
+ * 加签：在当前节点后插入一个加签审批人。被加签人默认仅查看（不继承原审批人权限）。
+ * 方案 §3.4：加签需模板开启（此处默认允许），被加签人可再转交。
+ */
+export function countersignApproval(
+  aid: string,
+  targetEmployeeId: string,
+  actorRole?: string,
+  reason?: string,
+  gate?: { expected_version?: number; idempotency_key?: string },
+): Row {
+  const ap = getApproval(aid);
+  if (!ap) throw new KeyError(aid);
+  if (String(ap.status) !== "pending") throw new Error(`approval status ${ap.status}`);
+  if (gate && Number(ap.version || 0) !== gate.expected_version) staleFail();
+  const chain = [...(ap.chain as string[])];
+  const idx = Number(ap.current_index);
+  const expected = chain[idx];
+  if (actorRole && actorRole !== expected) throw new Error(`current level is ${expected}`);
+  const target = String(targetEmployeeId || "").trim();
+  if (!target) throw new Error("countersign_target_required");
+  if (chain.includes(target)) throw new Error("countersign_target_exists");
+  const now = nowIso();
+  const nextVersion = Number(ap.version || 0) + 1;
+  const orgEmp = defaultOrgSnapshot().employees.find((e) => e.id === target);
+  if (!orgEmp) throw new Error("countersign_target_unknown");
+  const toName = orgEmp.name;
+  // 在当前节点后插入加签节点
+  chain.splice(idx + 1, 0, target);
+  const payloadSteps = Array.isArray((ap.payload as Json).steps)
+    ? (ap.payload as { steps: Array<Record<string, unknown>> }).steps
+    : [];
+  const newStep = {
+    sequence: idx + 2,
+    employee_id: target,
+    name: toName,
+    role: `${orgEmp.position}（加签）`,
+    source: "countersign",
+  };
+  const nextSteps = [
+    ...payloadSteps.slice(0, idx + 1),
+    newStep,
+    ...payloadSteps.slice(idx + 1).map((s) => ({ ...s, sequence: Number(s.sequence || 0) + 1 })),
+  ];
+  const nextPayload = {
+    ...(ap.payload as Json),
+    steps: nextSteps,
+    countersigns: [...((ap.payload as { countersigns?: unknown[] }).countersigns || []), {
+      by: expected, by_name: actorOf(expected, ap.payload as Json).name,
+      target, target_name: toName,
+      reason: String(reason || "").trim() || undefined, at: now,
+    }],
+  };
+  tx((c) => {
+    const updated = c.prepare(
+      "UPDATE approvals SET chain = ?, payload = ?, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
+    ).run(JSON.stringify(chain), JSON.stringify(nextPayload), nextVersion, now, aid, Number(ap.version || 0));
+    if (!updated.changes) staleFail();
+  });
+  audit("gateway", "approval.countersign", { approval_id: aid, by: expected, target, version: nextVersion });
+  return getApproval(aid) as Row;
+}
+
+/**
  * 撤回：发起人在终审前撤回。仅 pending 且调用者为发起人时允许。
  */
 export function withdrawApproval(
