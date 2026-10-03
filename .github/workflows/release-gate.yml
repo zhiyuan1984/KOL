@@ -21,7 +21,21 @@ permissions:
 jobs:
   release-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: lingong
+          POSTGRES_PASSWORD: local-dev-only
+          POSTGRES_DB: lingong
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lingong"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,8 +78,19 @@ jobs:
       - name: Backend typecheck
         working-directory: backend
         run: npm run typecheck
+      # 后端测试从 PostgreSQL 模板库克隆独立测试库（tests/support/pg.ts）：
+      # 用空库跑一遍 schema 生成 lingong_template；测试步骤用 TEST_DATABASE_URL 指向管理库。
+      - name: Prepare PostgreSQL test template
+        working-directory: backend
+        env:
+          ADMIN_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
+        run: |
+          node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.ADMIN_URL});await c.connect();const r=await c.query(\"SELECT 1 FROM pg_database WHERE datname='lingong_template'\");if(!r.rowCount)await c.query('CREATE DATABASE lingong_template');await c.end();})().catch((error)=>{console.error(error);process.exit(1)})"
+          DATABASE_URL="postgresql://lingong:local-dev-only@127.0.0.1:5432/lingong_template" npm run db:apply:postgres-schema
       - name: Backend full deterministic tests
         working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
         run: npm test
       - name: Frontend typecheck
         working-directory: frontend
@@ -73,24 +98,29 @@ jobs:
       - name: Frontend build
         working-directory: frontend
         run: npm run build
-      - name: Install Playwright Chromium
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
-      - name: Frontend E2E
-        working-directory: frontend
+      # E2E 在预发服务器上以 stub + PostgreSQL 运行（复用 ~/kol-e2e 与 lingong_e2e 测试库），
+      # 不在 CI 内起 SQLite 实例；spec 集与 npm run test:e2e:release 保持一致。
+      - name: E2E on staging server (PostgreSQL)
         env:
-          E2E_MODE: stub
-          E2E_AUTH_MODE: disabled
-          CODEX_MODE: stub
-          E2E_PORT: "18876"
-          E2E_BASE: http://127.0.0.1:18876
-          E2E_SKIP_BUILD: "1"
-          PW_HEADLESS: "1"
-        # The broad visual-regression suite is retained under `test:e2e` while
-        # its obsolete workbench assertions are migrated. Release gating stays
-        # deterministic and exercises the production entry's KOL follow scope,
-        # the legacy-to-B.active projection, and read failure handling.
-        run: npm run test:e2e:release
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.KOL_PROD_SSH_PRIVATE_KEY }}
+          E2E_REVISION: ${{ github.sha }}
+          E2E_SPECS: >-
+            e2e/home-followed-legacy-projection.spec.ts
+            e2e/home-followed-focus.spec.ts
+            e2e/home-surface-failure.spec.ts
+            e2e/home-followed-rail-layout.spec.ts
+        run: |
+          if [ -z "$DEPLOY_SSH_PRIVATE_KEY" ]; then
+            echo "::warning::Staging E2E skipped: repository secret KOL_PROD_SSH_PRIVATE_KEY is not configured."
+            exit 0
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 47.88.94.205 >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
+            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' $E2E_SPECS"
 
   deploy-production:
     name: Deploy production
