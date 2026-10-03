@@ -27,7 +27,7 @@
 | 空库 baseline 兼容 | 兼容 PostgreSQL 16 执行由 PostgreSQL 18 `pg_dump` 生成的 baseline；原生工单/作业/Cron 读取归一 bigint 与 JSON 文本/JSONB 形态 | 空 PostgreSQL 16 migration + 7 个原生集成文件、14 tests |
 | Cron 授权与风险读取 | `cron/authz.ts`、Cron Worker/handlers 使用 PostgreSQL ticket identity；风险面只查询正式工单 | PG-only HTTP + Cron 集成测试 |
 | 规则草稿、模拟与发布治理 | `rule-governance.ts`、规则模拟/审计/回执表；管理员才可草稿、模拟、发布、停用或从历史版本恢复为新草稿 | PG 规则治理集成测试、前端 typecheck/build |
-| 首批业务事件→规则评估 | `ticket_business_events`、`event-rule-evaluation.ts`；只接收已核验邮件/期限/风险/审批资料缺失事件，评估已发布且显式绑定的人工确认规则 | PG 规则治理集成测试、前端 typecheck/build |
+| 首批业务事件→规则评估 | `ticket_business_events`、`event-rule-evaluation.ts`；只接收已核验邮件/期限/风险/审批资料缺失事件，评估已发布且显式绑定的人工确认规则；授权员工可在关联工单详情/时间线读取安全摘要与证据引用 | PG 规则治理集成测试、前端 typecheck/build |
 
 ## 已安全隔离或停用
 

@@ -213,7 +213,7 @@ tickets.get("/tickets/:id/timeline", async (c) => {
   const after = Math.max(0, Number(c.req.query("after") || 0));
   if (!Number.isFinite(after) || !Number.isInteger(after)) throw new HttpFail(400, "invalid after");
   const timeline = await nativeTicketTimeline(ownerId(), c.req.param("id"), after, parseLimit(c.req.query("limit"), 100));
-  return c.json({ ...timeline, related_business_events: [], ...requestMetadata(), source_refs: [{ type: "postgresql_ticket_timeline", id: timeline.ticket_id }] });
+  return c.json({ ...timeline, ...requestMetadata(), source_refs: [{ type: "postgresql_ticket_timeline", id: timeline.ticket_id }] });
 });
 
 tickets.get("/tickets/:id", async (c) => {

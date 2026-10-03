@@ -457,7 +457,7 @@
 - 已补充 [`docs/POSTGRES_ONLY_OPERATIONS.md`](../../POSTGRES_ONLY_OPERATIONS.md) 运行手册，明确环境校验、schema、HTTP/Outbox/Worker 启动顺序、tick 健康检查、账号绑定以及“绝不自动回退 SQLite”的故障边界；本次未进行任何生产切换。
 - 已完成一次运行时依赖审计，详见 [`docs/POSTGRES_ONLY_RUNTIME_AUDIT.md`](../../POSTGRES_ONLY_RUNTIME_AUDIT.md)：正式工单/执行/Cron 原生子链已可在空 PostgreSQL 库验证，但 HTTP 启动、旧 `/tasks` 与首页等仍含 SQLite-shaped bridge，不能把整个历史应用宣称为 PostgreSQL-only。
 - 已追加 `scheduling_rule_simulations`、`scheduling_rule_audit_events` 和规则命令回执；管理员可在 `/admin/scheduling` 创建仅限人工确认的规则草稿、对当前版本正式工单进行只读模拟、引用该模拟发布或停用版本。历史版本“回滚”只会复制为新的草稿版本，必须重新模拟后才能发布，不能重新激活旧行或复用旧模拟。发布要求版本、幂等键、审计原因和同内容指纹的成功模拟。
-- 已追加独立且不可变的 PostgreSQL `ticket_business_events`：仅接收已核验的首批邮件回复/承诺、报价/合同/样品/内容期限、风险、审批或资料缺失事件。已发布规则必须显式声明 `trigger_event_types` 才会参与评估；评估写入规则版本、范围、事件、工单快照和 `matched/skipped/missing_fields` 回执。管理端可人工登记受控证据事件并查看建议；此链路**不**自动建单、分派、升级或改变工单状态。
+- 已追加独立且不可变的 PostgreSQL `ticket_business_events`：仅接收已核验的首批邮件回复/承诺、报价/合同/样品/内容期限、风险、审批或资料缺失事件。已发布规则必须显式声明 `trigger_event_types` 才会参与评估；评估写入规则版本、范围、事件、工单快照和 `matched/skipped/missing_fields` 回执。管理端可人工登记受控证据事件并查看建议；关联工单的授权员工可在详情和时间线读取安全摘要与证据引用。此链路**不**自动建单、分派、升级或改变工单状态。
 
 ### 当前仍在推进的范围
 

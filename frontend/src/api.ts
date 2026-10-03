@@ -443,6 +443,7 @@ export type TaskDetail = Task & {
   assignments?: Array<Record<string, unknown>>;
   watchers?: Array<Record<string, unknown>>;
   basis_refs?: Array<Record<string, unknown>>;
+  business_events?: Array<Record<string, unknown>>;
   acceptance?: Record<string, unknown> | null;
   acceptance_history?: Array<Record<string, unknown>>;
   audit?: Array<Record<string, unknown>>;
@@ -477,6 +478,7 @@ export type Ticket = Task & {
   assignments?: Array<Record<string, unknown>>;
   watchers?: Array<Record<string, unknown>>;
   basis_refs?: Array<Record<string, unknown>>;
+  business_events?: Array<Record<string, unknown>>;
   acceptance?: Record<string, unknown> | null;
   acceptance_history?: Array<Record<string, unknown>>;
   audit?: Array<Record<string, unknown>>;

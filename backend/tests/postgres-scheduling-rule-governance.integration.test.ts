@@ -109,6 +109,16 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
     const evaluations = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/scheduling/rule-evaluations")));
     expect(evaluations.status).toBe(200);
     expect(await evaluations.json()).toMatchObject({ items: [expect.objectContaining({ rule_id: RULE_ID, outcome: "matched", event: expect.objectContaining({ event_type: "deadline.quote" }) })] });
+    const employeeTicket = await withTicketPrincipal(EMPLOYEE, () => tickets.fetch(new Request("http://test.local/tickets/rule-simulation-ticket")));
+    expect(employeeTicket.status).toBe(200);
+    expect(await employeeTicket.json()).toMatchObject({
+      business_events: [expect.objectContaining({ event_type: "deadline.quote", evidence_ref: "test://quote/deadline/0001" })],
+    });
+    const employeeTimeline = await withTicketPrincipal(EMPLOYEE, () => tickets.fetch(new Request("http://test.local/tickets/rule-simulation-ticket/timeline")));
+    expect(employeeTimeline.status).toBe(200);
+    expect(await employeeTimeline.json()).toMatchObject({
+      related_business_events: [expect.objectContaining({ event_type: "deadline.quote" })],
+    });
 
     const replay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {
       sample_limit: 10, reason: "验证正式工单命中范围",

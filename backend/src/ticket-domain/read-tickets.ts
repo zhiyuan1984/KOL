@@ -212,7 +212,7 @@ export async function nativeTicketById(userId: string, ticketId: string) {
   const found = result.rows[0];
   if (!found) throw new HttpFail(404, { code: "ticket_not_found" });
   const row = normalizedTicketRow(found);
-  const [assignments, watchers, basisRefs, acceptance, acceptanceHistory, runs, audit] = await Promise.all([
+  const [assignments, watchers, basisRefs, acceptance, acceptanceHistory, runs, audit, businessEvents] = await Promise.all([
     pool.query<{ assignee_person_ref: string | null; assignee_user_id: string | null; org_unit_id: string; role: string; status: string; cross_group_reason: string | null; assigned_by_user_id: string | null; assignment_version: number; effective_from: string; effective_to: string | null }>(
       "SELECT assignee_person_ref,assignee_user_id,org_unit_id,role,status,cross_group_reason,assigned_by_user_id,assignment_version,effective_from,effective_to FROM ticket_assignments WHERE ticket_id=$1 ORDER BY assignment_version DESC,created_at DESC", [row.id],
     ),
@@ -234,6 +234,11 @@ export async function nativeTicketById(userId: string, ticketId: string) {
     pool.query<{ id: string; actor_user_id: string; command: string; created_at: string }>(
       "SELECT id,actor_user_id,command,created_at FROM ticket_audit_events WHERE ticket_id=$1 ORDER BY created_at DESC LIMIT 50", [row.id],
     ),
+    pool.query<{ id: string; event_type: string; source_system: string; source_event_id: string; source_version: string; occurred_at: string; summary: string; evidence_ref: string; verified_at: string }>(
+      `SELECT id,event_type,source_system,source_event_id,source_version,occurred_at,summary,evidence_ref,verified_at
+         FROM ticket_business_events WHERE ticket_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 50`,
+      [row.id],
+    ),
   ]);
   return {
     ...row,
@@ -253,6 +258,7 @@ export async function nativeTicketById(userId: string, ticketId: string) {
     acceptance_history: acceptanceHistory.rows.map((item) => ({ ...item, evidence: jsonValue(item.evidence_json) })),
     runs: runs.rows.map((run) => ({ run_id: run.id, ...run })),
     audit: audit.rows,
+    business_events: businessEvents.rows,
   };
 }
 
@@ -275,5 +281,10 @@ export async function nativeTicketTimeline(userId: string, ticketId: string, aft
     occurred_at: event.time,
     safe_summary: event.safe_summary || event.label,
   }));
-  return { ticket_id: ticket.id, items, next_sequence: items.at(-1)?.sequence || after };
+  return {
+    ticket_id: ticket.id,
+    items,
+    related_business_events: ticket.business_events,
+    next_sequence: items.at(-1)?.sequence || after,
+  };
 }
