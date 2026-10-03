@@ -25,6 +25,8 @@ type RegistryPerson = {
   user_ref?: string | null;
   account_username?: string | null;
   starry_open_id?: string | null;
+  email?: string | null;
+  employee_no?: string | null;
   brand_scope?: string[];
   region_scope?: string[];
   source?: string;
@@ -76,6 +78,8 @@ export type OrganizationPersonRow = {
   user_ref: string | null;
   user_id: string | null;
   starry_open_id: string | null;
+  email: string | null;
+  employee_no: string | null;
   status: string;
   source: string | null;
 };
@@ -170,6 +174,8 @@ export function ensureOrganizationTree(): void {
       user_ref TEXT,
       user_id TEXT,
       starry_open_id TEXT,
+      email TEXT,
+      employee_no TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'left')),
       source TEXT,
       created_at TEXT NOT NULL,
@@ -244,8 +250,15 @@ export function ensureOrganizationTree(): void {
     );
   `);
   // 已存在的库补列（PRAGMA table_info 在 Postgres 侧有 information_schema 翻译）。
-  if (!((db.prepare("PRAGMA table_info(organization_people)").all() as { name?: string }[]) || []).some((row) => row.name === "starry_open_id")) {
-    db.exec("ALTER TABLE organization_people ADD COLUMN starry_open_id TEXT");
+  const personColumns = new Set(
+    ((db.prepare("PRAGMA table_info(organization_people)").all() as { name?: string }[]) || []).map((row) => String(row.name)),
+  );
+  for (const [column, ddl] of [
+    ["starry_open_id", "TEXT"],
+    ["email", "TEXT"],
+    ["employee_no", "TEXT"],
+  ] as const) {
+    if (!personColumns.has(column)) db.exec(`ALTER TABLE organization_people ADD COLUMN ${column} ${ddl}`);
   }
   // 先登记再回填：seed → reseed → ensure 的重入必须立刻短路，否则会无限递归。
   initialized.add(db);
@@ -351,6 +364,8 @@ export function reseedOrganizationTreeFromRegistry(): void {
         user_ref: person.user_ref || null,
         user_id: account?.id || null,
         starry_open_id: person.starry_open_id || null,
+        email: person.email || null,
+        employee_no: person.employee_no || null,
         source: person.source || source,
       },
       stamp,

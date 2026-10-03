@@ -235,9 +235,18 @@ describe("person binding and Starry account facts", () => {
     expect(people.find((person) => person.person_ref === "person:yan_chen")).toMatchObject({
       display_name: "鄢棽",
       user_id: "sriphy",
-      starry_open_id: null,
     });
-    expect(people.find((person) => person.person_ref === "person:zhang_gan")?.starry_open_id).toBe("289");
+    expect(people.find((person) => person.person_ref === "person:ye_guanwang")).toMatchObject({
+      starry_open_id: "289",
+      email: "robertson.ye@amperetime.com",
+      employee_no: "1028",
+    });
+    expect(people.find((person) => person.person_ref === "person:yan_chen")).toMatchObject({
+      starry_open_id: "282",
+      email: "sriphy.yan@amperetime.com",
+      employee_no: "0999",
+    });
+    expect(people.find((person) => person.person_ref === "person:zhang_gan")?.starry_open_id).toBeNull();
     expect(people.find((person) => person.person_ref === "person:ye_guanwang")?.user_id).toBeNull();
     bind("person", "person:yan_chen");
     expect(canUseAgent("sriphy", "agent:kol")).toBe(true);

@@ -48,12 +48,14 @@
       "org_unit": "org:ai_product",
       "user_ref": null,
       "account_username": "sriphy",
-      "email": null,
+      "email": "sriphy.yan@amperetime.com",
+      "starry_open_id": "282",
+      "employee_no": "0999",
       "region_scope": [],
       "brand_scope": [],
       "scope_basis": null,
-      "source": "user-confirmed 2026-10-03：当前登录账号，归属研究院/数智中心/AI产品；Starry KOL 邮箱 brandmarketing@litime.com 授权用户（2026-09-13 只读快照）",
-      "pending_fields": ["email", "employee_no", "employment_status", "effective_at", "brand_scope", "region_scope"]
+      "source": "组织归属 user-confirmed 2026-10-03（研究院/数智中心/AI产品）；账号取自 Starry KOL MCP listMailboxOwnerOptions 只读调用 2026-10-03",
+      "pending_fields": ["employment_status", "effective_at", "brand_scope", "region_scope"]
     },
     {
       "person_ref": "person:zhang_huiling",
@@ -104,12 +106,14 @@
       "title": null,
       "org_unit": "org:lt_team",
       "user_ref": null,
-      "email": null,
+      "email": "robertson.ye@amperetime.com",
+      "starry_open_id": "289",
+      "employee_no": "1028",
       "region_scope": ["region:eu", "region:us", "region:ca_au"],
       "brand_scope": ["brand:lt", "brand:pq", "brand:ro", "brand:tb"],
       "scope_basis": "user-confirmed organization chart 2026-10-03（全部品牌与区域标签）",
-      "source": "user-confirmed organization chart 2026-10-03",
-      "pending_fields": ["user_ref", "email", "employee_no", "employment_status", "effective_at"]
+      "source": "组织图 user-confirmed 2026-10-03；账号取自 Starry KOL MCP listMailboxOwnerOptions 只读调用 2026-10-03",
+      "pending_fields": ["user_ref", "employment_status", "effective_at"]
     },
     {
       "person_ref": "person:xi_chucong",
@@ -156,7 +160,6 @@
     {
       "person_ref": "person:zhang_gan",
       "display_name": "张干",
-      "starry_open_id": "289",
       "role": "member",
       "title": null,
       "org_unit": "org:lt_team",
