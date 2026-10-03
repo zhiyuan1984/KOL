@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Task, type TaskDetail, type TaskEvent } from "../api";
+import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
 
 type View = "active" | "history";
 type TaskStatusTab = "all" | "queued" | "running" | "waiting_approval" | "failed" | "completed" | "cancelled";
@@ -134,6 +135,12 @@ export default function Tasks() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const selectedRunId = useMemo(() => {
+    const runs = selected?.runs || [];
+    const latest = [...runs].reverse().find((run) => typeof run.id === "string" || typeof run.run_id === "string");
+    return latest ? String(latest.id || latest.run_id || "") || null : null;
+  }, [selected]);
+  const liveRunEvents = useTaskRunEventStream(selectedRunId);
 
   const load = useCallback((background = false, append = false) => {
     if (requestRef.current) return requestRef.current;
@@ -333,7 +340,7 @@ export default function Tasks() {
         <header><div><p className="eyebrow">任务详情</p><h2>{safeTaskText(selected.title, "未命名任务")}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelected(null)}>×</button></header>
         <dl className="task-detail-meta"><div><dt>状态</dt><dd>{statusOf(selected)}</dd></div><div><dt>任务 ID</dt><dd>{selected.id}</dd></div><div><dt>创建时间</dt><dd>{formatTime(selected.created_at)}</dd></div><div><dt>说明</dt><dd>{taskSummary(selected)}</dd></div></dl>
         <p className="muted">已尝试 {selected.runs?.length || 0} 次{selected.runs?.length ? `；最近一次：${String(selected.runs[selected.runs.length - 1]?.status || "未知")}` : ""}</p>
-        <section><h3>执行事件</h3>{events.length ? <ol className="task-detail-events">{events.map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section>
+        <section><h3>执行事件 {liveRunEvents.connected ? <small className="muted">实时更新中</small> : liveRunEvents.fallback ? <small className="muted">正在以安全补读更新</small> : null}</h3>{(liveRunEvents.events.length ? liveRunEvents.events : events).length ? <ol className="task-detail-events">{(liveRunEvents.events.length ? liveRunEvents.events : events).map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section>
         <div className="task-detail-actions">{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
       </aside></div> : null}
     </main>

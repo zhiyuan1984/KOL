@@ -574,6 +574,29 @@ function taskRunView(run: Row): Json {
   };
 }
 
+function runEventView(event: Row, run: Row, ticket: Row): Json {
+  return {
+    event_id: String(event.id), sequence: Number(event.sequence), occurred_at: event.time, received_at: event.created_at,
+    run_id: String(run.id), ticket_id: String(ticket.id), type: event.event_type, phase: "task_run",
+    event_class: event.event_class || "run_trace", status: event.status, safe_summary: event.safe_summary || null, label: event.label,
+  };
+}
+
+function runEventsAfter(ticketId: string, runId: string, after: number, limit: number): Row[] {
+  return getConn().prepare(
+    "SELECT * FROM task_events WHERE work_item_id=? AND run_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+  ).all(ticketId, runId, after, limit) as Row[];
+}
+
+function streamAfter(c: { req: { query(name: string): string | undefined; header(name: string): string | undefined } }): number {
+  const raw = c.req.query("after") ?? c.req.header("Last-Event-ID") ?? "0";
+  const after = Math.max(0, Number(raw));
+  if (!Number.isFinite(after) || !Number.isInteger(after)) throw new HttpFail(400, "invalid after");
+  return after;
+}
+
+const TERMINAL_RUN_STATUSES = new Set(["succeeded", "completed", "failed", "cancelled", "stopped", "needs_takeover"]);
+
 function ownedTaskRun(runId: string): { run: Row; ticket: Row } {
   const row = getConn().prepare(
     `SELECT tr.*, t.owner_user_id AS ticket_owner_user_id
@@ -739,19 +762,84 @@ tasks.get("/runs/:id/events", (c) => {
   const after = Math.max(0, Number(c.req.query("after") || 0));
   if (!Number.isFinite(after)) throw new HttpFail(400, "invalid after");
   const limit = parseLimit(c.req.query("limit"), 100);
-  const events = getConn().prepare(
-    "SELECT * FROM task_events WHERE work_item_id=? AND run_id=? AND sequence>? ORDER BY sequence LIMIT ?",
-  ).all(ticket.id, run.id, after, limit) as Row[];
+  const events = runEventsAfter(String(ticket.id), String(run.id), after, limit);
   const meta = requestMetadata();
   return c.json({
     run_id: String(run.id), ticket_id: String(ticket.id),
-    items: events.map((event) => ({
-      event_id: String(event.id), sequence: Number(event.sequence), occurred_at: event.time, received_at: event.created_at,
-      run_id: String(run.id), ticket_id: String(ticket.id), type: event.event_type, phase: "task_run",
-      event_class: event.event_class || "run_trace", status: event.status, safe_summary: event.safe_summary || null, label: event.label,
-    })),
+    items: events.map((event) => runEventView(event, run, ticket)),
     next_sequence: events.length ? Number(events.at(-1)?.sequence || after) : after,
     ...meta,
+  });
+});
+
+/**
+ * Durable run-event stream. The database remains the source of truth: an SSE
+ * reconnect supplies `Last-Event-ID` (or `after`) and receives every later
+ * immutable task_event in sequence order. This deliberately avoids in-process
+ * pub/sub, which would lose events on API restarts or across PostgreSQL nodes.
+ */
+tasks.get("/runs/:id/stream", (c) => {
+  const { run, ticket } = ownedTaskRun(c.req.param("id"));
+  let cursor = streamAfter(c);
+  const initial = runEventsAfter(String(ticket.id), String(run.id), cursor, 200);
+  if (initial.length) cursor = Number(initial.at(-1)?.sequence || cursor);
+  const meta = requestMetadata();
+  return new Response(new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      let closed = false;
+      let polling = false;
+      const send = (event: string, payload: unknown, id?: number) => {
+        if (closed) return;
+        const prefix = id == null ? "" : `id: ${id}\n`;
+        controller.enqueue(encoder.encode(`${prefix}event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
+      };
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(poll);
+        try { controller.close(); } catch { /* stream is already closed */ }
+      };
+      const pollOnce = async () => {
+        if (closed || polling) return;
+        polling = true;
+        try {
+          const rows = runEventsAfter(String(ticket.id), String(run.id), cursor, 200);
+          for (const event of rows) {
+            const item = runEventView(event, run, ticket);
+            cursor = Number(item.sequence || cursor);
+            send("task_event", item, cursor);
+          }
+          const current = getConn().prepare("SELECT status,completed_at,error FROM task_runs WHERE id=?").get(run.id) as Row | undefined;
+          if (current && TERMINAL_RUN_STATUSES.has(String(current.status || ""))) {
+            send("terminal", { run_id: String(run.id), status: String(current.status), completed_at: current.completed_at || null, error: current.error || null, next_sequence: cursor });
+            close();
+          }
+        } catch {
+          send("stream_error", { code: "run_stream_unavailable", next_sequence: cursor });
+          close();
+        } finally {
+          polling = false;
+        }
+      };
+      send("snapshot", {
+        run: taskRunView(run), ticket_id: String(ticket.id),
+        items: initial.map((event) => runEventView(event, run, ticket)),
+        next_sequence: cursor, ...meta,
+      });
+      const poll = setInterval(() => { void pollOnce(); }, 1_000);
+      void pollOnce();
+      c.req.raw.signal.addEventListener("abort", close);
+    },
+    cancel() {
+      // The request abort listener clears the timer and closes the stream.
+    },
+  }), {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
   });
 });
 
