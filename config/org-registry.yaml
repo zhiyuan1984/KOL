@@ -18,7 +18,7 @@
     { "id": "org:market_department", "display_name": "市场部", "type": "department", "parent": "org:brand_user_growth_center", "head": null, "head_person_ref": null },
     { "id": "org:promotion_department", "display_name": "推广部", "type": "department", "parent": "org:brand_user_growth_center", "head": "钟建奎", "head_person_ref": "person:zhong_jiankui" },
     { "id": "org:lt_team", "display_name": "LT组", "type": "team", "parent": "org:promotion_department", "head": "叶观旺", "head_person_ref": "person:ye_guanwang", "brand_scope": ["brand:lt"] },
-    { "id": "org:pq_ro_tb_team", "display_name": "PQ-RO-TB组", "type": "team", "parent": "org:promotion_department", "head": null, "head_person_ref": null, "brand_scope": ["brand:pq", "brand:ro", "brand:tb"] },
+    { "id": "org:pq_ro_tb_team", "display_name": "PQ-RO-TB组", "type": "team", "parent": "org:promotion_department", "head": "叶观旺", "head_person_ref": "person:ye_guanwang", "brand_scope": ["brand:pq", "brand:ro", "brand:tb"] },
     { "id": "org:research_institute", "display_name": "研究院", "type": "center", "parent": "company:amperetime", "head": null, "head_person_ref": null },
     { "id": "org:digital_intelligence_center", "display_name": "数智中心", "type": "center", "parent": "org:research_institute", "head": null, "head_person_ref": null },
     { "id": "org:ai_product", "display_name": "AI产品", "type": "team", "parent": "org:digital_intelligence_center", "head": null, "head_person_ref": null }

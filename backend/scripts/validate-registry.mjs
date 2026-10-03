@@ -33,8 +33,8 @@ const OBJECT_LAYERS = new Set(["platform", "kol_business", "org_governance"]);
 const OBJECT_STATUSES = new Set(["built", "partial", "not_built", "unknown"]);
 const PROPERTY_KINDS = new Set(["base", "derived"]);
 const PROPERTY_TYPES = new Set(["text", "enum", "datetime", "amount", "number", "reference", "boolean", "structured"]);
-const EVENT_CATEGORIES = new Set(["human_action", "authorized_auto", "external_fact", "system_job", "derived"]);
-const EVENT_STATUSES = new Set(["built", "partial", "designed"]);
+const EVENT_CATEGORIES = new Set(["human_action", "authorized_auto", "external_fact", "system_job", "derived", "legacy"]);
+const EVENT_STATUSES = new Set(["built", "partial", "designed", "retired"]);
 const TICKET_CHANNEL_FALLBACK = 1;
 
 // 对象 code 全集（见设计契约 §2）

@@ -147,11 +147,19 @@ describe("effective Agent users", () => {
     expect(effective.users.every((user) => user.via !== "ancestor_head")).toBe(true);
   });
 
-  it("绑定人员：本人 + 所属各级上级负责人，不含同事", () => {
+  it("绑定人员：本人 + 所属单元与各级上级负责人，不含同事", () => {
     bind("person", "person:gu_jiarui");
-    const refs = effectiveAgentUsers("agent:kol").person_refs.sort();
-    expect(refs).toEqual(["person:gu_jiarui", "person:yan_chen", "person:zhang_huiling", "person:zhong_jiankui"]);
-    expect(refs).not.toContain("person:li_weiyu");
+    const effective = effectiveAgentUsers("agent:kol");
+    expect(effective.person_refs.sort()).toEqual([
+      "person:gu_jiarui",
+      "person:yan_chen",
+      "person:ye_guanwang",
+      "person:zhang_huiling",
+      "person:zhong_jiankui",
+    ]);
+    const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
+    expect(byRef.get("person:ye_guanwang")).toMatchObject({ via: "unit_head", via_unit_id: "org:lt_team" });
+    expect(effective.person_refs).not.toContain("person:li_weiyu");
   });
 
   it("撤绑后立即不再覆盖；绑定目标必须存在", () => {

@@ -642,9 +642,11 @@ export function effectiveAgentUsers(agentId: string): EffectiveAgentUsers {
     for (const binding of bindings.filter((row) => row.company_id === companyId)) {
       if (binding.target_type === "person") {
         const membership = memberships.find((row) => row.person_ref === binding.target_id);
-        // 绑定人员首先覆盖本人；没有组织关系时不虚构上级负责人，只覆盖本人。
+        // 绑定人员覆盖本人；本人所属单元及其各级上级单元的负责人一并覆盖（CONST-05「各级上级负责人」）。
         add(binding.target_id, "binding_target", membership?.org_unit_id || "", binding.id);
         if (membership) {
+          const own = byId.get(membership.org_unit_id);
+          if (own?.head_person_ref) add(own.head_person_ref, "unit_head", own.id, binding.id);
           for (const unit of ascendants(units, membership.org_unit_id)) {
             if (unit.head_person_ref) add(unit.head_person_ref, "ancestor_head", unit.id, binding.id);
           }
