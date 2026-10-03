@@ -20,7 +20,7 @@
 | Cron 正式工单只读处理器 | `overdue-scan`、`daily-task-snapshot` 直接读取 PostgreSQL formal tickets | PG Cron 处理器集成测试 |
 | 个人授权工单原始计数 | `ticket-domain/reports.ts` | PG 创建/报表集成测试 |
 | 组织授权工单原始计数 | `ticket-domain/reports.ts`；范围仅由绑定组织负责人或已绑定公司管理员派生 | PG 创建/报表路由集成测试、前端 typecheck/build |
-| 组织分类与阶段原始存量 | `ticket-domain/reports.ts`；复用组织负责人/公司管理员范围，只输出分类、阶段与状态当前数量 | PG 创建/报表路由集成测试、前端 typecheck/build |
+| 组织分类与阶段原始存量 | `ticket-domain/reports.ts`；复用组织负责人/公司管理员范围，只输出分类、阶段与状态当前数量；治理页与有范围授权的员工任务中心均可见摘要 | PG 创建/报表路由集成测试、前端 typecheck/build |
 | 员工工单详情时间线 | `Tasks.tsx` 只读取 `/tickets/:id/timeline`，不再订阅 legacy `/runs/*` SSE | 前端 typecheck/build/relevant tests |
 | 正式工单身份与会话 | `ticket_accounts`、`ticket_auth_sessions`、`ticket-domain/auth.ts`；初始管理员 setup、登录、登出、Cookie 会话；员工 `/tasks` 原生身份门禁 | PG 身份集成测试、前端 typecheck/build |
 | 账号—组织人员受控绑定 | 管理员 `GET/POST /admin/work-orders/account-bindings/*`；不可变 `ticket_account_organization_bindings` 审计；治理页只显示明确的可选项 | PG 路由/创建集成测试、前端 typecheck/build |

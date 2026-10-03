@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type OrganizationTicketRawCountReport, type PersonalTicketRawCountReport, type Task, type TaskDetail, type TaskEvent, type Ticket } from "../api";
+import { api, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type PersonalTicketRawCountReport, type Task, type TaskDetail, type TaskEvent, type Ticket } from "../api";
 import TicketCreateDialog from "../home/TicketCreateDialog";
 import TicketEditDialog from "../home/TicketEditDialog";
 import TicketIdentityGate from "../components/TicketIdentityGate";
@@ -141,6 +141,7 @@ function TaskCenter() {
   const [editTarget, setEditTarget] = useState<Task | null>(null);
   const [personalReport, setPersonalReport] = useState<PersonalTicketRawCountReport | null>(null);
   const [organizationReport, setOrganizationReport] = useState<OrganizationTicketRawCountReport | null>(null);
+  const [organizationStageReport, setOrganizationStageReport] = useState<OrganizationTicketStageRawReport | null>(null);
 
   const load = useCallback((background = false, append = false) => {
     if (requestRef.current) return requestRef.current;
@@ -189,7 +190,9 @@ function TaskCenter() {
   }, []);
   useEffect(() => {
     let alive = true;
-    void api.organizationTicketRawCountReport().then((report) => { if (alive) setOrganizationReport(report); }).catch(() => { if (alive) setOrganizationReport(null); });
+    void Promise.all([api.organizationTicketRawCountReport(), api.organizationTicketStageRawReport()])
+      .then(([report, stageReport]) => { if (alive) { setOrganizationReport(report); setOrganizationStageReport(stageReport); } })
+      .catch(() => { if (alive) { setOrganizationReport(null); setOrganizationStageReport(null); } });
     return () => { alive = false; };
   }, []);
   useEffect(() => {
@@ -384,6 +387,7 @@ function TaskCenter() {
       {createdTicketId ? <p className="task-center-created" role="status">正式工单已创建：{createdTicketId}</p> : null}
       {personalReport ? <p className="muted task-center-report" title={personalReport.note}>我的授权工单原始计数：{personalReport.total_authorized}（创建 {personalReport.memberships.created} · 主受理 {personalReport.memberships.assigned_primary} · 关注 {personalReport.memberships.watching}；关系计数可能重叠）</p> : null}
       {organizationReport ? <p className="muted task-center-report" title={organizationReport.note}>组织授权工单原始计数：{organizationReport.total_authorized}（{organizationReport.authorization.mode === "company_admin" ? "公司管理员范围" : "组织负责人范围"} · {Object.entries(organizationReport.by_status).map(([status, count]) => `${status} ${count}`).join(" · ") || "暂无状态数据"}）</p> : null}
+      {organizationStageReport ? <p className="muted task-center-report" title={organizationStageReport.note}>组织分类/阶段当前存量：{organizationStageReport.total_authorized}（{organizationStageReport.by_business_category.map((item) => `${item.business_category} ${item.total}`).join(" · ") || "暂无分类数据"}；仅当前数量，不表示漏斗或绩效）</p> : null}
 
       {loading ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 ? (
         <section className="task-center-empty">
