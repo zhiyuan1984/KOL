@@ -110,10 +110,15 @@ function rewriteJsonExtract(sql: string): string {
 }
 
 function rewriteNoCaseCollation(sql: string): string {
-  // SQLite's built-in NOCASE collation name is not installed in PostgreSQL.
-  // All current uses are expression-level ORDER BY terms, where LOWER preserves
-  // the intended case-insensitive sort without requiring cluster configuration.
-  return sql.replace(/([A-Za-z_][\w.]*)\s+COLLATE\s+NOCASE\b/gi, "LOWER($1)");
+  // SQLite's built-in NOCASE collation is not installed in PostgreSQL.
+  // LIKE … COLLATE NOCASE 的语义是「大小写不敏感匹配」→ 对应 PostgreSQL 的 ILIKE；
+  // 其余表达式级用法（ORDER BY 等）用 LOWER 保持原排序意图。
+  return sql
+    .replace(
+      /([A-Za-z_][\w.]*)\s+LIKE\s+(\?\d*|\$\d+)\s+COLLATE\s+NOCASE\b/gi,
+      "$1 ILIKE $2",
+    )
+    .replace(/([A-Za-z_][\w.]*)\s+COLLATE\s+NOCASE\b/gi, "LOWER($1)");
 }
 
 function rewriteSqliteMaster(sql: string): string {

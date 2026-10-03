@@ -118,7 +118,7 @@ describe("target ticket and run read contracts", () => {
     expect(replayed.status, replayed.text).toBe(200);
     expect(replayed.body).toMatchObject({ ticket_id: ticketId, status: "completed", replayed: true });
     const acceptedEvents = getConn().prepare(
-      "SELECT COUNT(*) AS count,event_class FROM task_events WHERE work_item_id=? AND event_type='task.accepted'",
+      "SELECT COUNT(*) AS count,MAX(event_class) AS event_class FROM task_events WHERE work_item_id=? AND event_type='task.accepted'",
     ).get(ticketId) as { count: number; event_class: string };
     expect(acceptedEvents.count).toBe(1);
     expect(acceptedEvents.event_class).toBe("lifecycle");

@@ -1,5 +1,12 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { Client } from "pg";
+import pg from "pg";
+
+const { Client, types } = pg;
+
+// 与 SQLite 驱动保持数值契约：node-pg 默认把 int8 返回为字符串，会让 API 形状与
+// 断言发生漂移（count/sequence/version/enabled 等）。这些列的实际取值远小于 2^53，
+// 按 number 返回是安全的。
+types.setTypeParser(20, (value) => Number(value));
 
 if (!parentPort) throw new Error("PostgreSQL sync bridge requires a worker parent port");
 
