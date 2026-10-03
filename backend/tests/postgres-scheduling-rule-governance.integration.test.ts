@@ -61,7 +61,7 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
       id: RULE_ID, rule_type: "ticket_assignment", title: "重要任务人工分派建议", scope: { company_id: "company:amperetime" },
       definition: {
         execution_mode: "manual_confirmation", requires_human_confirmation: true, proposed_action: "assignment_suggestion",
-        conditions: { ticket_statuses: ["pending"], priorities: ["important"] },
+        trigger_event_types: ["deadline.quote"], conditions: { ticket_statuses: ["pending"], priorities: ["important"] },
       }, reason: "先创建草稿并进行安全模拟",
     }, "rule-governance-create-0001")));
     expect(created.status).toBe(201);
@@ -87,22 +87,46 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
     expect(published.status).toBe(200);
     expect(await published.json()).toMatchObject({ rule: { status: "published", version: 1 }, execution_effect: "none", manual_confirmation_only: true });
 
+    const evaluated = await withTicketPrincipal(ADMIN, () => tickets.fetch(post("/admin/scheduling/events/evaluate", {
+      source_system: "integration_test", source_event_id: "quote-deadline-rule-eval-0001", source_version: "v1",
+      event_type: "deadline.quote", company_id: "company:amperetime", ticket_id: "rule-simulation-ticket",
+      occurred_at: "2031-01-01T00:00:00.000Z", summary: "报价已到人工复核期限", evidence_ref: "test://quote/deadline/0001",
+      evidence: { source: "integration_test", verified: true }, payload: { deadline_kind: "quote" },
+    }, "rule-event-evaluate-0001")));
+    expect(evaluated.status).toBe(201);
+    expect(await evaluated.json()).toMatchObject({
+      replayed: false, execution_effect: "none", human_confirmation_required: true,
+      evaluations: [expect.objectContaining({ rule_id: RULE_ID, outcome: "matched", ticket_id: "rule-simulation-ticket" })],
+    });
+    const eventReplay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post("/admin/scheduling/events/evaluate", {
+      source_system: "integration_test", source_event_id: "quote-deadline-rule-eval-0001", source_version: "v1",
+      event_type: "deadline.quote", company_id: "company:amperetime", ticket_id: "rule-simulation-ticket",
+      occurred_at: "2031-01-01T00:00:00.000Z", summary: "报价已到人工复核期限", evidence_ref: "test://quote/deadline/0001",
+      evidence: { source: "integration_test", verified: true }, payload: { deadline_kind: "quote" },
+    }, "rule-event-evaluate-0001")));
+    expect(eventReplay.status).toBe(200);
+    expect(await eventReplay.json()).toMatchObject({ replayed: true, execution_effect: "none" });
+    const evaluations = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/scheduling/rule-evaluations")));
+    expect(evaluations.status).toBe(200);
+    expect(await evaluations.json()).toMatchObject({ items: [expect.objectContaining({ rule_id: RULE_ID, outcome: "matched", event: expect.objectContaining({ event_type: "deadline.quote" }) })] });
+
     const replay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {
       sample_limit: 10, reason: "验证正式工单命中范围",
     }, "rule-governance-simulate-0001")));
     expect(replay.status).toBe(200);
     expect(await replay.json()).toMatchObject({ replayed: true });
 
-    const facts = await postgresPool().query<{ status: string; assignments: string; events: string; audits: string; simulations: string }>(
+    const facts = await postgresPool().query<{ status: string; assignments: string; events: string; audits: string; simulations: string; evaluations: string }>(
       `SELECT
         (SELECT status FROM scheduling_rules WHERE id=$1 AND version=1) AS status,
         (SELECT COUNT(*)::text FROM ticket_assignments WHERE ticket_id='rule-simulation-ticket') AS assignments,
         (SELECT COUNT(*)::text FROM task_events WHERE work_item_id='rule-simulation-ticket') AS events,
         (SELECT COUNT(*)::text FROM scheduling_rule_audit_events WHERE rule_id=$1) AS audits,
-        (SELECT COUNT(*)::text FROM scheduling_rule_simulations WHERE rule_id=$1) AS simulations`,
+        (SELECT COUNT(*)::text FROM scheduling_rule_simulations WHERE rule_id=$1) AS simulations,
+        (SELECT COUNT(*)::text FROM ticket_rule_evaluations WHERE rule_id=$1) AS evaluations`,
       [RULE_ID],
     );
-    expect(facts.rows[0]).toEqual({ status: "published", assignments: "0", events: "0", audits: "3", simulations: "1" });
+    expect(facts.rows[0]).toEqual({ status: "published", assignments: "0", events: "0", audits: "3", simulations: "1", evaluations: "1" });
 
     const detail = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request(`http://test.local/admin/scheduling/rules/${RULE_ID}`)));
     expect(detail.status).toBe(200);

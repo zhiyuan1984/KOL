@@ -750,6 +750,43 @@ export type SchedulingRuleDetail = {
   }>;
 };
 
+export type FormalBusinessEventType =
+  | "mail.reply_verified"
+  | "mail.commitment_verified"
+  | "deadline.quote"
+  | "deadline.contract"
+  | "deadline.sample"
+  | "deadline.content"
+  | "risk.detected"
+  | "approval_or_material.missing";
+
+export type SchedulingRuleEvaluation = {
+  id: string;
+  rule_id: string;
+  rule_version: number;
+  rule_title: string;
+  rule_type: string;
+  outcome: "matched" | "skipped" | "missing_fields" | string;
+  ticket_id: string | null;
+  scope: Record<string, unknown>;
+  details: Record<string, unknown>;
+  evaluated_at: string;
+  evaluated_by: string;
+  event: {
+    id: string;
+    event_type: FormalBusinessEventType | string;
+    source_system: string;
+    source_event_id: string;
+    source_version: string;
+    company_id: string;
+    brand_id: string | null;
+    region_id: string | null;
+    occurred_at: string;
+    summary: string;
+    evidence_ref: string;
+  };
+};
+
 export type AdminAuditEvent = {
   id: number;
   ts: string;
@@ -2669,6 +2706,20 @@ export const api = {
       `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/restore-draft`,
       { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
     ),
+  adminSchedulingRuleEvaluations: (limit = 30) =>
+    request<{ items: SchedulingRuleEvaluation[]; policy: { execution_effect: string; requirement: string }; as_of: string }>(
+      `/api/admin/scheduling/rule-evaluations?limit=${Math.min(Math.max(1, Math.floor(limit)), 200)}`,
+    ),
+  recordSchedulingEventEvaluation: (body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{
+      event: Record<string, unknown>;
+      evaluations: SchedulingRuleEvaluation[];
+      replayed: boolean;
+      execution_effect: string;
+      human_confirmation_required: boolean;
+    }>("/api/admin/scheduling/events/evaluate", {
+      method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body),
+    }),
   adminWorkReport: (opts: { date?: string; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, value); });

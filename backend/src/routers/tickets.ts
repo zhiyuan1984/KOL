@@ -11,6 +11,7 @@ import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBinding
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { organizationTicketRawCountReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
+import { listTicketRuleEvaluations, recordVerifiedBusinessEventAndEvaluate } from "../ticket-domain/event-rule-evaluation.js";
 import {
   createSchedulingRuleDraft,
   disableSchedulingRule,
@@ -130,7 +131,8 @@ tickets.post("/admin/work-orders/account-bindings", async (c) => {
 });
 
 /** Rule governance records versioned, manual-confirmation suggestions only.
- * No evaluator is attached to ticket assignment, escalation or creation. */
+ * The evaluator records matched/skipped first-wave event facts but never
+ * assigns, escalates, creates, or transitions a ticket. */
 tickets.get("/admin/scheduling/rules", async (c) => {
   if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
   return c.json({ ...(await listSchedulingRules(parseLimit(c.req.query("limit"), 100))), ...requestMetadata() });
@@ -179,6 +181,19 @@ tickets.post("/admin/scheduling/rules/:id/versions/:version/restore-draft", asyn
   if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const result = await restoreSchedulingRuleDraft(actor.id, c.req.param("id"), parseRuleVersion(c.req.param("version")), ruleBody(body, String(c.req.header("Idempotency-Key") || "").trim()));
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.get("/admin/scheduling/rule-evaluations", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await listTicketRuleEvaluations(parseLimit(c.req.query("limit"), 50))), ...requestMetadata() });
+});
+
+tickets.post("/admin/scheduling/events/evaluate", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await recordVerifiedBusinessEventAndEvaluate(actor.id, ruleBody(body, String(c.req.header("Idempotency-Key") || "").trim()));
   return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
 });
 

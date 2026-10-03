@@ -4,6 +4,7 @@ import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import type { Json, Row } from "../types.js";
+import { FORMAL_BUSINESS_EVENT_TYPE_SET } from "./event-contracts.js";
 
 const RULE_TYPES = ["ticket_assignment", "ticket_escalation", "ticket_candidate"] as const;
 const TICKET_STATUSES = new Set(["pending", "accepted", "in_progress", "waiting", "waiting_approval", "completed", "cancelled", "failed"]);
@@ -30,6 +31,7 @@ type RuleDefinition = {
   execution_mode: "manual_confirmation";
   requires_human_confirmation: true;
   proposed_action: "assignment_suggestion" | "escalation_suggestion" | "candidate_ticket";
+  trigger_event_types?: string[];
   conditions?: {
     ticket_statuses?: string[];
     priorities?: string[];
@@ -119,6 +121,7 @@ function validatedRule(input: Record<string, unknown>): { rule_type: RuleType; t
   if (String(rawDefinition.proposed_action || "") !== expectedAction[ruleType]) {
     throw new HttpFail(422, { code: "rule_action_mismatch", expected: expectedAction[ruleType] });
   }
+  const triggerEventTypes = strings(rawDefinition.trigger_event_types, "trigger_event_types", FORMAL_BUSINESS_EVENT_TYPE_SET);
   const rawConditions = object(rawDefinition.conditions);
   const conditions: NonNullable<RuleDefinition["conditions"]> = {};
   const statuses = strings(rawConditions.ticket_statuses, "conditions.ticket_statuses", TICKET_STATUSES);
@@ -137,6 +140,7 @@ function validatedRule(input: Record<string, unknown>): { rule_type: RuleType; t
       execution_mode: "manual_confirmation",
       requires_human_confirmation: true,
       proposed_action: expectedAction[ruleType],
+      ...(triggerEventTypes?.length ? { trigger_event_types: triggerEventTypes } : {}),
       ...(Object.keys(conditions).length ? { conditions } : {}),
     },
   };
@@ -473,7 +477,7 @@ export async function listSchedulingRules(limit = 100): Promise<Json> {
     policy: {
       automation: "disabled",
       execution_effect: "none",
-      requirement: "发布规则仅登记人工确认建议；未接入派单、升级、建单或状态变更执行器。",
+      requirement: "只有已发布且明确声明首批 trigger_event_types 的人工确认规则会评估已核验事件；未接入派单、升级、建单或状态变更执行器。",
     },
     as_of: new Date().toISOString(),
   };

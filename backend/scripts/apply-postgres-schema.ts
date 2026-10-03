@@ -659,6 +659,47 @@ const migrations: SchemaMigration[] = [
       "CREATE INDEX IF NOT EXISTS scheduling_rule_command_receipts_rule_idx ON scheduling_rule_command_receipts(rule_id,rule_version,created_at DESC)",
     ],
   },
+  {
+    // Formal event intake is deliberately separate from the historical
+    // SQLite-shaped business_events table. A verified event can only produce
+    // auditable, manual-confirmation rule suggestions in this phase.
+    id: "20261003_ticket_business_events_native",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ticket_business_events (
+        id TEXT PRIMARY KEY,
+        source_system TEXT NOT NULL,
+        source_event_id TEXT NOT NULL,
+        source_version TEXT NOT NULL DEFAULT '',
+        event_type TEXT NOT NULL CHECK (event_type IN (
+          'mail.reply_verified','mail.commitment_verified',
+          'deadline.quote','deadline.contract','deadline.sample','deadline.content',
+          'risk.detected','approval_or_material.missing'
+        )),
+        company_id TEXT NOT NULL,
+        brand_id TEXT,
+        region_id TEXT,
+        ticket_id TEXT REFERENCES tickets(id) ON DELETE RESTRICT,
+        occurred_at TIMESTAMPTZ NOT NULL,
+        summary TEXT NOT NULL,
+        evidence_ref TEXT NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        verified_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(source_system,source_event_id,source_version)
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_business_events_scope_idx ON ticket_business_events(company_id,event_type,occurred_at DESC)",
+      "CREATE INDEX IF NOT EXISTS ticket_business_events_ticket_idx ON ticket_business_events(ticket_id,occurred_at DESC) WHERE ticket_id IS NOT NULL",
+      `CREATE OR REPLACE FUNCTION prevent_ticket_business_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'ticket business events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS ticket_business_events_no_mutation ON ticket_business_events",
+      `CREATE TRIGGER ticket_business_events_no_mutation
+       BEFORE UPDATE OR DELETE ON ticket_business_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_ticket_business_event_mutation()`,
+    ],
+  },
 ];
 
 const client = new Client({ connectionString: databaseUrl });
