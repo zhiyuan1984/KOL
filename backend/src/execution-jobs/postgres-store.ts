@@ -284,6 +284,26 @@ export async function pgFailExecutionJob(
   });
 }
 
+/** Quarantines a claimed job whose handler is intentionally unavailable in the
+ * PostgreSQL-only runtime. Unlike ordinary failures it must never retry into a
+ * legacy side-effect path. */
+export async function pgQuarantineExecutionJob(
+  id: string,
+  error: { code: string; summary: string },
+  now = new Date(),
+): Promise<Row | undefined> {
+  const stamp = now.toISOString();
+  const result = await postgresPool().query<Row>(
+    `UPDATE execution_jobs
+     SET status='uncertain',lease_until=NULL,lease_owner=NULL,next_attempt_at=NULL,
+         error_code=$1,error_summary=$2,terminal_at=$3,updated_at=$3
+     WHERE id=$4 AND status='running'
+     RETURNING *`,
+    [error.code, error.summary.slice(0, 1000), stamp, id],
+  );
+  return result.rows[0] ? normalizedJob(result.rows[0] as Row) : undefined;
+}
+
 export async function pgRecoverExpiredExecutionJobs(now = new Date()): Promise<{ requeued: number; uncertain: number }> {
   const stamp = now.toISOString();
   return postgresTransaction(async (client) => {

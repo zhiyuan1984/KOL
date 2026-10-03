@@ -6,6 +6,7 @@ import {
   pgCompleteExecutionJob,
   pgExecutionJobPayload,
   pgFailExecutionJob,
+  pgQuarantineExecutionJob,
   pgRecoverExpiredExecutionJobs,
   pgRenewExecutionJobLease,
 } from "./postgres-store.js";
@@ -48,6 +49,14 @@ export async function runtimeFailExecutionJob(
   options: { retry_at?: string | null; now?: Date } = {},
 ): Promise<Row | undefined> {
   return pgFailExecutionJob(id, error, options);
+}
+
+export async function runtimeQuarantineExecutionJob(
+  id: string,
+  error: { code: string; summary: string },
+  now = new Date(),
+): Promise<Row | undefined> {
+  return pgQuarantineExecutionJob(id, error, now);
 }
 
 export async function runtimeRecoverExpiredExecutionJobs(now = new Date()): Promise<{ requeued: number; uncertain: number }> {

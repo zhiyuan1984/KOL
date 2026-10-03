@@ -7,6 +7,7 @@ import {
   pgFailExecutionJob,
   pgRecoverExpiredExecutionJobs,
 } from "../src/execution-jobs/postgres-store.js";
+import { dispatchClaimedExecutionJob } from "../src/execution-jobs/dispatcher.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
 if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
@@ -144,5 +145,23 @@ describePostgres("native PostgreSQL execution-job repository", () => {
       [queued.job.id],
     );
     expect(Number(outbox.rows[0]?.count || 0)).toBe(2);
+  });
+
+  it("quarantines retired planning job types without loading a legacy handler", async () => {
+    const queued = await pgEnqueueExecutionJob({
+      job_type: "work_plan.run",
+      tenant_ref: "company:test",
+      actor_ref: "system:test",
+      idempotency_key: "native-job-planning-quarantine-0001",
+    });
+    const claimed = await pgClaimExecutionJobById(String(queued.job.id), "worker-native");
+    expect(claimed).not.toBeNull();
+    const dispatched = await dispatchClaimedExecutionJob(claimed!);
+    expect(dispatched).toMatchObject({ job_type: "work_plan.run", handled: false, outcome: "needs_takeover", target_id: null });
+    const state = await postgresPool().query<{ status: string; error_code: string; lease_owner: string | null }>(
+      "SELECT status,error_code,lease_owner FROM execution_jobs WHERE id=$1",
+      [queued.job.id],
+    );
+    expect(state.rows[0]).toEqual({ status: "uncertain", error_code: "needs_takeover", lease_owner: null });
   });
 });

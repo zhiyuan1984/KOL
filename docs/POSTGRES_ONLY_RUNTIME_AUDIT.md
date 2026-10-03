@@ -39,6 +39,7 @@
 | `mail-memory-increment` Cron | **disabled** + 调用时 `needs_takeover` | 仍依赖旧邮件记忆表；需迁移邮件事实/记忆仓储。 |
 | `ai-task` Cron | `needs_takeover` | 不得经由旧任务/会话写入链执行；需明确 PostgreSQL-native run contract 后再发布。 |
 | `discovery-search` Cron | disabled | 没有已发布的实时采集规则；禁止伪造运行或写入候选人。 |
+| `work_plan.run`、`today_analyze.run` 执行作业 | `needs_takeover` + `uncertain` 终态 | PostgreSQL Worker 分发器不再静态导入旧今日计划处理器；收到此类已领取作业会明确隔离且禁止重试，待建立 PostgreSQL-native task-run/artifact contract 后再发布。 |
 
 ## 阻断 PostgreSQL-only 启动的遗留路径
 

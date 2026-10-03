@@ -1,5 +1,4 @@
 import { executeClaimedCronJob } from "../cron/worker.js";
-import { executeClaimedPlanningJob } from "../host/today-plan-run.js";
 import {
   type ClaimedExecutionJob,
 } from "./contracts.js";
@@ -7,6 +6,7 @@ import {
   runtimeClaimExecutionJobById,
   runtimeClaimNextExecutionJob,
   runtimeFailExecutionJob,
+  runtimeQuarantineExecutionJob,
   runtimeRenewExecutionJobLease,
 } from "./runtime-store.js";
 
@@ -14,7 +14,7 @@ export type ExecutionDispatchResult = {
   execution_job_id: string;
   job_type: string;
   handled: boolean;
-  outcome: "processed" | "duplicate" | "failed";
+  outcome: "processed" | "duplicate" | "failed" | "needs_takeover";
   target_id?: string | null;
 };
 
@@ -32,8 +32,11 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: runId };
     }
     if (jobType === "work_plan.run" || jobType === "today_analyze.run") {
-      const workItemId = await executeClaimedPlanningJob(claimed);
-      return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: workItemId };
+      await runtimeQuarantineExecutionJob(id, {
+        code: "needs_takeover",
+        summary: `${jobType} depends on retired planning/task-run storage and is disabled in PostgreSQL-only runtime`,
+      });
+      return { execution_job_id: id, job_type: jobType, handled: false, outcome: "needs_takeover", target_id: String(claimed.ticket_id || "") || null };
     }
     await runtimeFailExecutionJob(id, {
       code: "unsupported_job_type",
