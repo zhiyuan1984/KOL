@@ -57,7 +57,8 @@ describe("Agent manifest runtime bootstrap", () => {
     const current = getAgentSkills("agent:kol").find((row) => row.skill_id === "creator_profile")!;
     setAgentSkill("agent:kol", "creator_profile", false, Number(current.version));
     resetConn();
-    expect(getAgentSkills("agent:kol").find((row) => row.skill_id === "creator_profile"))
-      .toMatchObject({ enabled: 0, version: 2 });
+    const row = getAgentSkills("agent:kol").find((item) => item.skill_id === "creator_profile")!;
+    // PostgreSQL 适配层把数值列以字符串返回（SQLite 路径返回数字），按数值归一后再比较。
+    expect({ enabled: Number(row.enabled), version: Number(row.version) }).toEqual({ enabled: 0, version: 2 });
   });
 });
