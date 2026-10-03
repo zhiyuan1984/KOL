@@ -31,7 +31,15 @@ const baselineSql = fs
   .map((line) => (line.includes("set_config('search_path'") ? "SELECT pg_catalog.set_config('search_path', 'public', false);" : line))
   .join("\n");
 
-const migrations: Array<{ id: string; statements: string[] }> = [
+type SchemaMigration = {
+  id: string;
+  /** 纯 SQL 步骤（幂等）。与 run 二选一。 */
+  statements?: string[];
+  /** 需要 TS 常量或条件逻辑的步骤；同样必须幂等。 */
+  run?: (client: Client) => Promise<void>;
+};
+
+const migrations: SchemaMigration[] = [
   {
     id: "20261002_ticket_acceptances",
     statements: [

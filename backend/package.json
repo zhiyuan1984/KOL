@@ -11,6 +11,7 @@
     "db:migrate:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
     "db:verify:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts --verify-only",
     "db:apply:postgres-schema": "tsx scripts/apply-postgres-schema.ts",
+    "db:seed:reference": "tsx scripts/seed-reference-data.ts",
     "test": "node scripts/test.mjs",
     "validate:kol-data": "node scripts/validate-kol-data.mjs",
     "validate:registry": "node scripts/validate-registry.mjs",
