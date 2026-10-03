@@ -19,6 +19,7 @@ import {
   visibleSkillIdsForUser,
 } from "../src/runtime/organization-tree.js";
 import { ensureRuntimeSchema } from "../src/runtime/store.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 
@@ -28,7 +29,7 @@ function bind(target_type: "organization_unit" | "person", target_id: string, ag
   return createAgentBinding({ agent_id: agent, target_type, target_id, company_id: COMPANY, source: "test" });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-organization-tree-"));
   Object.assign(process.env, {
     LINGONG_DB: path.join(tmp, "db.sqlite"),
@@ -36,6 +37,7 @@ beforeEach(() => {
     AUTH_MODE: "disabled",
     NODE_ENV: "test",
   });
+  await freshTestDatabase();
   resetConn();
   getConn();
 });

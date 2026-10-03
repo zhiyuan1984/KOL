@@ -1,4 +1,11 @@
 import fs from "node:fs";
+import { afterAll } from "vitest";
+import { dropTestDatabases } from "./support/pg.js";
+
+// PostgreSQL 测试库的清理：每个用例从模板库拷出来的新库在本文件结束后统一 DROP。
+afterAll(async () => {
+  await dropTestDatabases();
+});
 
 // Windows keeps SQLite/WAL and worker files open briefly after a test closes a
 // connection. Vitest must not turn that OS-level cleanup race into a product
