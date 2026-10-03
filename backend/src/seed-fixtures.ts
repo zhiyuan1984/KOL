@@ -116,16 +116,17 @@ export function seedWorkbenchFixtures(): void {
       locked: 0,
     },
   ];
+  const collabColumns = [
+    "id", "handle", "display_name", "brand", "platform", "followers", "email", "mailbox_from",
+    "lifecycle_id", "conversation_id", "stage_code", "days_in_stage", "notes", "overdue",
+    "stage_version", "recipient_name", "phone", "address_line", "country", "postal", "sku", "qty", "locked",
+  ];
   const insCol = conn.prepare(`
         INSERT OR REPLACE INTO collaborations
-        (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-         lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-         stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-        VALUES (@id,@handle,@display_name,@brand,@platform,@followers,@email,@mailbox_from,
-                @lifecycle_id,@conversation_id,@stage_code,@days_in_stage,@notes,@overdue,
-                @stage_version,@recipient_name,@phone,@address_line,@country,@postal,@sku,@qty,@locked)
+        (${collabColumns.join(", ")})
+        VALUES (${collabColumns.map(() => "?").join(",")})
   `);
-  for (const c of collabs) insCol.run(c);
+  for (const c of collabs) insCol.run(...collabColumns.map((column) => (c as unknown as Record<string, unknown>)[column]));
 
   conn.prepare(
     `UPDATE collaborations SET owner_name='钟槿年', avg_views_10='1871', engagement_rate='0.037',
@@ -190,12 +191,13 @@ export function seedWorkbenchFixtures(): void {
       payload: JSON.stringify({ niche: "vanlife", brand_fit: "LT", unbound: true, email: "vanlife.kit@example.com" }),
     },
   ];
+  const creatorColumns = ["id", "handle", "name", "platform", "followers", "score", "status", "outreach_script", "payload"];
   const insCr = conn.prepare(`
         INSERT OR REPLACE INTO claw_creators
-        (id, handle, name, platform, followers, score, status, outreach_script, payload)
-        VALUES (@id,@handle,@name,@platform,@followers,@score,@status,@outreach_script,@payload)
+        (${creatorColumns.join(", ")})
+        VALUES (${creatorColumns.map(() => "?").join(",")})
   `);
-  for (const c of creators) insCr.run(c);
+  for (const c of creators) insCr.run(...creatorColumns.map((column) => (c as unknown as Record<string, unknown>)[column]));
 
   const candidates = JSON.stringify([
     { id: "col_xiaomei", handle: "小美妆日记", score: 0.42 },
