@@ -121,11 +121,16 @@ export function seedWorkbenchFixtures(): void {
         (id, handle, display_name, brand, platform, followers, email, mailbox_from,
          lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
          stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-        VALUES (@id,@handle,@display_name,@brand,@platform,@followers,@email,@mailbox_from,
-                @lifecycle_id,@conversation_id,@stage_code,@days_in_stage,@notes,@overdue,
-                @stage_version,@recipient_name,@phone,@address_line,@country,@postal,@sku,@qty,@locked)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `);
-  for (const c of collabs) insCol.run(c);
+  // 位置参数：SQLite 的 @name 绑定在 PostgreSQL 上不被支持（翻译层只转 ?）。
+  for (const c of collabs) {
+    insCol.run(
+      c.id, c.handle, c.display_name, c.brand, c.platform, c.followers, c.email, c.mailbox_from,
+      c.lifecycle_id, c.conversation_id, c.stage_code, c.days_in_stage, c.notes, c.overdue,
+      c.stage_version, c.recipient_name, c.phone, c.address_line, c.country, c.postal, c.sku, c.qty, c.locked,
+    );
+  }
 
   conn.prepare(
     `UPDATE collaborations SET owner_name='钟槿年', avg_views_10='1871', engagement_rate='0.037',

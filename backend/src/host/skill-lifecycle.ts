@@ -360,11 +360,18 @@ export function skillMetrics(id: string, days = 7): Json {
       "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM tickets WHERE skill = ? AND created_at >= ? GROUP BY day ORDER BY day",
     )
     .all(id, since) as { day: string; n: number }[];
-  const durations = conn
+  const durationRows = conn
     .prepare(
-      "SELECT AVG((julianday(r.completed_at) - julianday(r.created_at)) * 86400000) AS avg_ms FROM task_runs r JOIN tickets w ON w.id = r.work_item_id WHERE w.skill = ? AND r.created_at >= ? AND r.completed_at IS NOT NULL",
+      "SELECT r.created_at AS created_at, r.completed_at AS completed_at FROM task_runs r JOIN tickets w ON w.id = r.work_item_id WHERE w.skill = ? AND r.created_at >= ? AND r.completed_at IS NOT NULL",
     )
-    .get(id, since) as { avg_ms: number | null };
+    .all(id, since) as { created_at: string; completed_at: string }[];
+  // 在 TS 侧求平均：SQLite 的 julianday() 在 PostgreSQL 不存在，避免引擎分支。
+  const durationSamples = durationRows
+    .map((row) => Date.parse(row.completed_at) - Date.parse(row.created_at))
+    .filter((ms) => Number.isFinite(ms));
+  const avgDurationMs = durationSamples.length
+    ? durationSamples.reduce((total, ms) => total + ms, 0) / durationSamples.length
+    : null;
   const alerts = conn
     .prepare(
       "SELECT COUNT(*) AS n FROM tickets WHERE skill = ? AND created_at >= ? AND status IN ('failed','error','blocked')",
@@ -374,7 +381,7 @@ export function skillMetrics(id: string, days = 7): Json {
     days,
     calls,
     success_rate: calls ? Math.round((ok / calls) * 1000) / 10 : null,
-    avg_duration_ms: durations.avg_ms ? Math.round(durations.avg_ms) : null,
+    avg_duration_ms: avgDurationMs === null ? null : Math.round(avgDurationMs),
     alerts: alerts.n,
     trend: daily,
   };
