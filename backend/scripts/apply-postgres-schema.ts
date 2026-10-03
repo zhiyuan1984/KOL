@@ -199,18 +199,21 @@ const client = new Client({ connectionString: databaseUrl });
 await client.connect();
 try {
   await client.query("BEGIN");
+  // 空库判定必须在建账本之前：基线（pg_dump）本身就会创建 app_schema_migrations。
+  const empty = Number(
+    (await client.query<{ n: string }>(
+      "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'app_schema_migrations'",
+    )).rows[0]?.n || 0,
+  ) === 0;
+  if (empty) await client.query(baselineSql);
   await client.query(`CREATE TABLE IF NOT EXISTS app_schema_migrations (
     id TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL
   )`);
   const applied = new Set((await client.query<{ id: string }>("SELECT id FROM app_schema_migrations")).rows.map((row) => row.id));
   const completed: string[] = [];
-  // 空库：先灌基线，并在账本里补记基线已包含的增量（否则非幂等的增量会在已有对象上重跑）。
-  const tables = await client.query<{ n: string }>(
-    "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'app_schema_migrations'",
-  );
-  if (Number(tables.rows[0]?.n || 0) === 0) {
-    await client.query(baselineSql);
+  // 基线已包含这些增量的效果，补记账本，否则非幂等增量会在已有对象上重跑。
+  if (empty) {
     const stamp = new Date().toISOString();
     for (const id of [BASELINE_ID, ...BASELINED_IDS]) {
       await client.query("INSERT INTO app_schema_migrations (id,applied_at) VALUES ($1,$2) ON CONFLICT DO NOTHING", [id, stamp]);
