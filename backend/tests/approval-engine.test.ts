@@ -50,7 +50,7 @@ describe("org resolver", () => {
   it("resolves requester by mailbox from the owner list", () => {
     const person = employeeByMailbox(defaultOrgSnapshot(), "Marketing.US@ipowerqueen.com");
     expect(person?.name).toBe("黎玉燕");
-    expect(planOf("", 5000, "CNY", undefined, { mailbox: "ipowerqueenmarketing@gmail.com" }).names).toEqual(["林桐"]);
+    expect(planOf("", 5000, "CNY", undefined, { mailbox: "ipowerqueenmarketing@gmail.com" }).names).toEqual(["林桐", "张总"]);
   });
 
   it("hints requester only when the org snapshot name appears in text", () => {
@@ -176,16 +176,16 @@ describe("published Host FX", () => {
 
 describe("expense approval plan · personnel cases", () => {
   it("1 普通员工 5K → 直属主管", () => {
-    expect(planOf("黎玉燕", 5000)).toMatchObject({ rule: "FIN-EXP-001", names: ["林桐"] });
+    expect(planOf("黎玉燕", 5000)).toMatchObject({ rule: "FIN-EXP-001", names: ["林桐", "张总"] });
   });
 
   it("2 普通员工 10K → 直属主管 + 部门负责人", () => {
-    expect(planOf("黎玉燕", 10000).names).toEqual(["林桐", "王主管"]);
+    expect(planOf("黎玉燕", 10000).names).toEqual(["林桐", "王主管", "张总"]);
   });
 
   it("3 普通员工 50K → 直属主管 + 部门负责人 + 财务", () => {
     const got = planOf("黎玉燕", 50000);
-    expect(got.names).toEqual(["林桐", "王主管", "财务负责人"]);
+    expect(got.names).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
     expect(got.plan.explanation).toContain("FIN-EXP-003");
   });
 
@@ -209,7 +209,7 @@ describe("expense approval plan · personnel cases", () => {
   it("7 审批人休假 → 代理人", () => {
     const org = cloneOrg();
     org.employees.find((row) => row.id === "emp_laiyixun")!.status = "leave";
-    expect(planOf("陈冰冰", 5000, "CNY", org).names).toEqual(["凌嘉余"]);
+    expect(planOf("陈冰冰", 5000, "CNY", org).names).toEqual(["凌嘉余", "张总"]);
   });
 
   it("7b 休假且无代理人 → skip_inactive 向上", () => {
@@ -217,20 +217,20 @@ describe("expense approval plan · personnel cases", () => {
     const lai = org.employees.find((row) => row.id === "emp_laiyixun")!;
     lai.status = "leave";
     lai.delegate_to = null;
-    expect(planOf("陈冰冰", 5000, "CNY", org).names).toEqual(["王主管"]);
+    expect(planOf("陈冰冰", 5000, "CNY", org).names).toEqual(["王主管", "张总"]);
   });
 
   it("7c 代理人也 inactive → 继续向上", () => {
     const org = cloneOrg();
     org.employees.find((row) => row.id === "emp_laiyixun")!.status = "leave";
     org.employees.find((row) => row.id === "emp_lingjiayu")!.status = "inactive";
-    expect(planOf("陈冰冰", 5000, "CNY", org).names).toEqual(["王主管"]);
+    expect(planOf("陈冰冰", 5000, "CNY", org).names).toEqual(["王主管", "张总"]);
   });
 
   it("8 审批人离职 → skip_inactive 向上", () => {
     const org = cloneOrg();
     org.employees.find((row) => row.id === "emp_lintong")!.status = "inactive";
-    expect(planOf("黎玉燕", 5000, "CNY", org).names).toEqual(["王主管"]);
+    expect(planOf("黎玉燕", 5000, "CNY", org).names).toEqual(["王主管", "张总"]);
   });
 
   it("9 组织层级缺失 → 向上回退", () => {
@@ -257,8 +257,8 @@ describe("expense approval plan · personnel cases", () => {
   });
 
   it("13 LT / RO 员工走各自品牌组负责人", () => {
-    expect(planOf("叶观旺", 5000).names).toEqual(["钟槿年"]);
-    expect(planOf("余佳妮", 10000).names).toEqual(["赖逸询", "王主管"]);
+    expect(planOf("叶观旺", 5000).names).toEqual(["钟槿年", "张总"]);
+    expect(planOf("余佳妮", 10000).names).toEqual(["赖逸询", "王主管", "张总"]);
   });
 });
 
@@ -459,7 +459,7 @@ describe("expense approval host path", () => {
     expect((posted.body.worker as { skill?: string } | null)?.skill).toBe("business_approval");
     const plan = posted.body.approval_plan as { rule_id: string; steps: { name: string }[]; explanation: string };
     expect(plan.rule_id).toBe("FIN-EXP-003");
-    expect(plan.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人"]);
+    expect(plan.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
     expect(plan.explanation).toContain("FIN-EXP-003");
     const listed = await request("GET", "/api/approvals");
     const rows = listed.body as unknown as { kind: string; payload?: { rule_id?: string } }[];
@@ -568,7 +568,7 @@ describe("expense approval host path", () => {
     const posted = await ask("黎玉燕要申请5万美国KOL推广预算");
     const approval = posted.body.approval as { id: string; chain: string[]; payload: { steps: { name: string }[] } };
     expect(approval.chain.length).toBe(3);
-    expect(approval.payload.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人"]);
+    expect(approval.payload.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
     const detail = await request("GET", `/api/approvals/${approval.id}`);
     expect((detail.body as { kind: string }).kind).toBe("expense");
   });

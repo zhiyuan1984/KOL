@@ -41,6 +41,40 @@ type SchemaMigration = {
 
 const migrations: SchemaMigration[] = [
   {
+    // 方案3.2：审批角色授权支持有效期，到期自动回收
+    id: "20261003_approval_role_validity",
+    statements: [
+      "ALTER TABLE approval_role_bindings ADD COLUMN IF NOT EXISTS valid_from TEXT",
+      "ALTER TABLE approval_role_bindings ADD COLUMN IF NOT EXISTS valid_to TEXT",
+    ],
+  },
+  {
+    // 已确认决策①：审批角色数据模型区分职位角色/指定自然人
+    id: "20261003_approval_role_kind",
+    statements: [
+      "ALTER TABLE approval_role_bindings ADD COLUMN IF NOT EXISTS role_kind TEXT NOT NULL DEFAULT 'position'",
+      "UPDATE approval_role_bindings SET role_kind='named' WHERE approval_role='zhang' AND role_kind='position'",
+    ],
+  },
+  {
+    // 与 SQLite initSchema 的 knowledge_taxonomy_v1 种子对齐：pg-baseline.sql 是
+    // 纯结构 dump，全新 PG 库没有 knowledge_bases 行，启动时 seedKnowledge 会因
+    // defaultStructuredBaseId() 找不到 active structured 库而抛 knowledge_base_required。
+    id: "20261003_knowledge_taxonomy_seed",
+    statements: [
+      `INSERT INTO knowledge_domains (id,code,name,level,parent_id,sort,status,created_at,updated_at)
+       VALUES ('kdom_uncategorized','uncategorized','未分类','family',NULL,999,'active',NOW()::text,NOW()::text)
+       ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO knowledge_domains (id,code,name,level,parent_id,sort,status,created_at,updated_at)
+       VALUES ('kdom_legacy','legacy','未分类','domain','kdom_uncategorized',999,'active',NOW()::text,NOW()::text)
+       ON CONFLICT (id) DO NOTHING`,
+      `INSERT INTO knowledge_bases (id,code,name,domain_id,kind,description,status,settings,version,created_at,updated_at)
+       VALUES ('kbase_legacy','legacy','历史知识','kdom_legacy','structured','2026-10-01 分层迁移前的历史条目','active','{}',1,NOW()::text,NOW()::text)
+       ON CONFLICT (id) DO NOTHING`,
+      `UPDATE knowledge SET base_id='kbase_legacy' WHERE base_id IS NULL OR base_id=''`,
+    ],
+  },
+  {
     id: "20261002_ticket_acceptances",
     statements: [
       `CREATE TABLE IF NOT EXISTS ticket_acceptances (

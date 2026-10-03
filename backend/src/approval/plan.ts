@@ -20,6 +20,9 @@ export type PlanInput = {
   currency?: string;
   business_type?: string;
   purpose?: string;
+  /** 单据归属品牌/区域：审批人解析时严格过滤，只留本品牌本区域（已确认决策③）。 */
+  brand?: string;
+  region?: string;
 };
 
 function resolveRequester(org: OrgSnapshot, input: PlanInput): Employee | null {
@@ -54,10 +57,11 @@ function managerAt(org: OrgSnapshot, requester: Employee, level: number, policy:
     || null;
 }
 
-function fallbackUp(org: OrgSnapshot, requester: Employee, policy: ApprovalPolicy, used: Set<string>): Employee | null {
+function fallbackUp(org: OrgSnapshot, requester: Employee, policy: ApprovalPolicy, used: Set<string>, input?: PlanInput): Employee | null {
   for (const person of walkFrom(org, requester, policy)) {
     if (policy.skip_self && person.id === requester.id) continue;
     if (used.has(person.id)) continue;
+    if (input && !matchesScope(person, input)) continue;
     return person;
   }
   return null;
@@ -68,14 +72,22 @@ function resolveApprover(
   requester: Employee,
   spec: PolicyApprover,
   policy: ApprovalPolicy,
+  input?: PlanInput,
 ): { person: Employee | null; source: string } {
   if (spec.kind === "manager") {
+    const person = managerAt(org, requester, spec.level, policy);
+    if (person && input && !matchesScope(person, input)) {
+      return { person: null, source: `manager(level=${spec.level})+scope_mismatch` };
+    }
     return {
-      person: managerAt(org, requester, spec.level, policy),
+      person,
       source: `manager(level=${spec.level})`,
     };
   }
   let person = effectivePerson(org, roleHolder(org, spec.role, requester), policy);
+  if (person && input && !matchesScope(person, input)) {
+    person = null;
+  }
   if (person && policy.skip_self && person.id === requester.id) {
     person = spec.role === "finance_owner"
       ? effectivePerson(org, roleHolder(org, "gm", requester), policy)
@@ -83,6 +95,20 @@ function resolveApprover(
     if (person && person.id === requester.id) person = null;
   }
   return { person, source: `role(${spec.role})` };
+}
+
+/**
+ * 已确认决策③：品牌/区域严格过滤。
+ * 只解析本品牌本区域的审批人；无品牌/区域标签者视为全局角色（CEO、财务等），不过滤；
+ * 未指定品牌/区域时不过滤（兼容）。
+ */
+function matchesScope(person: Employee, input: PlanInput): boolean {
+  const brand = String(input.brand || "").trim().toUpperCase();
+  const region = String(input.region || "").trim();
+  if (!brand && !region) return true;
+  if (brand && person.brand && person.brand.toUpperCase() !== brand) return false;
+  if (region && person.region && person.region !== region) return false;
+  return true;
 }
 
 function emptyPlan(
@@ -149,14 +175,14 @@ export function calculateApprovalPlan(
   const steps: ApprovalStep[] = [];
   const used = new Set<string>();
   for (const spec of rule.approvers) {
-    let { person, source } = resolveApprover(org, requester, spec, policy);
+    let { person, source } = resolveApprover(org, requester, spec, policy, input);
     if (person && used.has(person.id)) {
-      person = fallbackUp(org, requester, policy, used);
+      person = fallbackUp(org, requester, policy, used, input);
       source = `${source}+dedupe`;
       if (!person && spec.kind === "role") continue;
     }
     if (!person) {
-      person = fallbackUp(org, requester, policy, used);
+      person = fallbackUp(org, requester, policy, used, input);
       source = `${source}+fallback`;
     }
     if (!person && spec.kind === "manager" && spec.level > 1) continue;
@@ -181,7 +207,24 @@ export function calculateApprovalPlan(
     });
   }
 
-  const names = steps.map((step) => `${step.name}｜${step.role}`).join(" / ");
+  // 已确认决策②：全部审批一律 CEO 终审，不设金额豁免。
+  // 规则链末端若不是 CEO，自动接入 CEO 节点（去重、防自批）。
+  const ceo = effectivePerson(org, roleHolder(org, "gm", requester), policy);
+  const lastStep = steps[steps.length - 1];
+  if (ceo && (!lastStep || lastStep.employee_id !== ceo.id) && !used.has(ceo.id)) {
+    if (!(policy.skip_self && ceo.id === requester.id)) {
+      used.add(ceo.id);
+      steps.push({
+        sequence: steps.length + 1,
+        employee_id: ceo.id,
+        name: ceo.name,
+        role: ceo.position,
+        source: "role(gm)+ceo_terminal",
+      });
+    }
+  }
+
+  const finalNames = steps.map((step) => `${step.name}｜${step.role}`).join(" / ");
   return {
     policy_id: policy.id,
     rule_id: rule.id,
@@ -196,7 +239,7 @@ export function calculateApprovalPlan(
     steps,
     explanation:
       `${policy.name} ${fx.currency} ${input.amount} = ${policy.currency} ${fx.amount_base} @ Host FX ${fx.rate}. `
-      + `Rule ${rule.id}: ${names}.`,
+      + `Rule ${rule.id}: ${finalNames}.`,
     source: "stub_fallback",
   };
 }

@@ -251,6 +251,8 @@ function InitiateExpenseForm({
   const [currency, setCurrency] = useState("CNY");
   const [requester, setRequester] = useState("");
   const [purpose, setPurpose] = useState("");
+  const [brand, setBrand] = useState("");
+  const [region, setRegion] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState("");
@@ -261,6 +263,8 @@ function InitiateExpenseForm({
     currency,
     ...(requester.trim() ? { requester_name: requester.trim() } : {}),
     ...(purpose.trim() ? { purpose: purpose.trim() } : {}),
+    ...(brand ? { brand } : {}),
+    ...(region ? { region } : {}),
   });
 
   const runPreview = async () => {
@@ -363,6 +367,36 @@ function InitiateExpenseForm({
             onChange={(event) => setPurpose(event.target.value)}
             placeholder="可选"
           />
+        </label>
+        <label className="field">
+          品牌
+          <select
+            name="brand"
+            value={brand}
+            onChange={(event) => setBrand(event.target.value)}
+            onBlur={() => void runPreview()}
+          >
+            <option value="">全部品牌</option>
+            <option value="LT">LiTime</option>
+            <option value="PQ">Power Queen</option>
+            <option value="RO">Redodo</option>
+          </select>
+        </label>
+        <label className="field">
+          区域
+          <select
+            name="region"
+            value={region}
+            onChange={(event) => setRegion(event.target.value)}
+            onBlur={() => void runPreview()}
+          >
+            <option value="">全部区域</option>
+            <option value="北美">北美</option>
+            <option value="欧洲">欧洲</option>
+            <option value="日本">日本</option>
+            <option value="澳洲">澳洲</option>
+            <option value="国内">国内</option>
+          </select>
         </label>
       </div>
       {preview && preview.steps.length > 0 && (
@@ -505,6 +539,73 @@ export default function Approvals({
     setPending(null);
   }, [confirmOpen]);
 
+  const transfer = (row: Approval) => {
+    setErr("");
+    if (row.version == null) {
+      setErr("缺少版本，无法转交。请刷新后重试。");
+      return;
+    }
+    const target = window.prompt("转交给谁？请输入员工姓名或工号：", "");
+    if (!target || !target.trim()) return;
+    ask(
+      approvalDecideConfirm({
+        decision: "approve",
+        object: `转交：${moneyLine(row)}`,
+        scope: `当前等待 ${waitingName(row)}`,
+        change: `转给 ${target.trim()}`,
+        consequence: "转交后由目标审批人继续处理，你不再是当前节点。",
+        approvalState: statusCopy(row),
+        ruleVersion: row.version_code || "",
+      }),
+      async () => {
+        try {
+          await api.transferApproval(
+            row.id,
+            target.trim(),
+            undefined,
+            { expected_version: Number(row.version || 0), idempotency_key: newIdempotencyKey() },
+          );
+          setExpandedId("");
+          load();
+        } catch (e) {
+          throw new Error(friendlyError(e, "转交未完成，请稍后重试"));
+        }
+      },
+    );
+  };
+
+  const withdraw = (row: Approval) => {
+    setErr("");
+    if (row.version == null) {
+      setErr("缺少版本，无法撤回。请刷新后重试。");
+      return;
+    }
+    ask(
+      approvalDecideConfirm({
+        decision: "reject",
+        object: `撤回：${moneyLine(row)}`,
+        scope: "我发起的",
+        change: "撤回后单据作废，审批链停止流转",
+        consequence: "撤回后如需继续，需重新发起。",
+        approvalState: statusCopy(row),
+        ruleVersion: row.version_code || "",
+      }),
+      async () => {
+        try {
+          await api.withdrawApproval(row.id, {
+            expected_version: Number(row.version || 0),
+            idempotency_key: newIdempotencyKey(),
+          });
+          setExpandedId("");
+          setQuery({ box: "submitted" });
+          load();
+        } catch (e) {
+          throw new Error(friendlyError(e, "撤回未完成，请稍后重试"));
+        }
+      },
+    );
+  };
+
   useEffect(() => {
     if (focusId) setExpandedId(focusId);
   }, [focusId]);
@@ -632,6 +733,7 @@ export default function Approvals({
               <div className="approval-actions" data-approval-detail>
                 <button type="button" className="btn primary" onClick={() => decide(a, "approve")}>同意</button>
                 <button type="button" className="btn danger" onClick={() => decide(a, "reject")}>驳回</button>
+                <button type="button" className="btn" data-approval-transfer onClick={() => transfer(a)}>转交</button>
                 {onExplainRisk ? (
                   <button
                     type="button"
@@ -658,6 +760,11 @@ export default function Approvals({
             ) : null}
             {a.status === "pending" && a.can_decide === false && (
               <p className="muted">当前等待 {current}。你可以查看进度，但这一步不由你确认。</p>
+            )}
+            {box === "submitted" && a.status === "pending" && expanded && (
+              <div className="approval-actions">
+                <button type="button" className="btn" data-approval-withdraw onClick={() => withdraw(a)}>撤回</button>
+              </div>
             )}
           </article>
         );

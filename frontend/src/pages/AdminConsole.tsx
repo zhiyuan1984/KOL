@@ -196,6 +196,8 @@ function GrantEditor({ kind, label, users, options, onSave }: {
   const { ask, dialog } = useAdminConfirm();
   const [userId, setUserId] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
+  const [validFrom, setValidFrom] = useState("");
+  const [validTo, setValidTo] = useState("");
   const toggle = (id: string) => setPicked((cur) => cur.includes(id) ? cur.filter((item) => item !== id) : [...cur, id]);
   const items = options.length ? options : SKILL_OPTIONS;
   const user = users.find((row) => String(row.id) === userId);
@@ -206,8 +208,17 @@ function GrantEditor({ kind, label, users, options, onSave }: {
       onSubmit={(e) => {
         e.preventDefault();
         if (!userId || !picked.length) return;
+        const body = kind === "approval-roles"
+          ? {
+              grants: picked.map((role) => ({
+                role,
+                ...(validFrom ? { valid_from: validFrom } : {}),
+                ...(validTo ? { valid_to: validTo } : {}),
+              })),
+            }
+          : { [kind]: picked };
         ask(approvalRoleSaveConfirm(rowTitle(user || {}), roleLabels), () =>
-          onSave(`/api/admin/users/${userId}/${kind}`, { [kind === "approval-roles" ? "roles" : kind]: picked }, `${label}授权已保存`),
+          onSave(`/api/admin/users/${userId}/${kind}`, body, `${label}授权已保存`),
         );
       }}
     >
@@ -220,6 +231,18 @@ function GrantEditor({ kind, label, users, options, onSave }: {
           {users.map((u) => <option key={String(u.id)} value={String(u.id)}>{rowTitle(u)}</option>)}
         </select>
       </label>
+      {kind === "approval-roles" && (
+        <div className="field-row">
+          <label className="field">
+            生效日期
+            <input type="date" name="valid_from" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
+          </label>
+          <label className="field">
+            到期日期
+            <input type="date" name="valid_to" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
+          </label>
+        </div>
+      )}
       <fieldset className="field">
         <legend>选择{label}</legend>
         <div className="chip-row">
@@ -227,6 +250,9 @@ function GrantEditor({ kind, label, users, options, onSave }: {
             <label key={item.id} className="check">
               <input type="checkbox" checked={picked.includes(item.id)} onChange={() => toggle(item.id)} />
               {item.label}
+              {"kindLabel" in item && typeof item.kindLabel === "string" && item.kindLabel ? (
+                <span className="chip kind-chip">{item.kindLabel}</span>
+              ) : null}
             </label>
           ))}
         </div>

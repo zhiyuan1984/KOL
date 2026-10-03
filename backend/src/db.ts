@@ -1831,6 +1831,11 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "approvals", "submitted_by", "TEXT");
   add(db, "approvals", "version", "INTEGER NOT NULL DEFAULT 0");
   add(db, "approvals", "updated_at", "TEXT");
+  // 已确认决策①：审批角色区分职位角色/指定自然人
+  add(db, "approval_role_bindings", "role_kind", "TEXT NOT NULL DEFAULT 'position'");
+  // 方案3.2：审批角色授权支持有效期，到期自动回收
+  add(db, "approval_role_bindings", "valid_from", "TEXT");
+  add(db, "approval_role_bindings", "valid_to", "TEXT");
   db.exec(`
         CREATE TABLE IF NOT EXISTS approval_idempotency (
             id TEXT PRIMARY KEY,

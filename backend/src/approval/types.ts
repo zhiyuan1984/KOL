@@ -16,6 +16,7 @@ export type Employee = {
   status: EmployeeStatus;
   cost_center: string;
   brand?: string;
+  region?: string;
   mailboxes: string[];
   delegate_to: string | null;
 };

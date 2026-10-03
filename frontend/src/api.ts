@@ -1912,6 +1912,25 @@ export const api = {
         ...(gate || {}),
       }),
     }),
+  transferApproval: (
+    id: string,
+    targetEmployeeId: string,
+    reason?: string,
+    gate?: { expected_version: number; idempotency_key: string },
+  ) =>
+    request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/transfer`, {
+      method: "POST",
+      body: JSON.stringify({
+        target_employee_id: targetEmployeeId,
+        ...(reason ? { reason } : {}),
+        ...(gate || {}),
+      }),
+    }),
+  withdrawApproval: (id: string, gate?: { expected_version: number; idempotency_key: string }) =>
+    request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/withdraw`, {
+      method: "POST",
+      body: JSON.stringify({ ...(gate || {}) }),
+    }),
   skills: () => request<Array<Record<string, unknown>>>("/api/skills"),
   skill: (id: string) => fetch(`/api/skills/${encodeURIComponent(id)}`).then((r) => r.json()),
   saveSkillSop: async (id: string, body: { summary: string; body: string }) => {

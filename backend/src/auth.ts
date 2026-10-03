@@ -310,7 +310,11 @@ function permissions(user: AppUser): Json {
   );
   const approvalRoles = admin
     ? ["*"]
-    : (db.prepare("SELECT approval_role FROM approval_role_bindings WHERE user_id = ?").all(user.id) as Row[])
+    : (db.prepare(
+        "SELECT approval_role FROM approval_role_bindings WHERE user_id = ? " +
+        "AND (valid_from IS NULL OR valid_from <= datetime('now')) " +
+        "AND (valid_to IS NULL OR valid_to >= datetime('now'))"
+      ).all(user.id) as Row[])
       .map((r) => String(r.approval_role));
   return { admin, skills, connectors, approval_roles: approvalRoles };
 }
@@ -486,7 +490,11 @@ export function approvalRoles(): string[] {
   const user = scopedUser();
   if (!user) return [];
   if (isAdmin(user)) return ["*"];
-  return (getConn().prepare("SELECT approval_role FROM approval_role_bindings WHERE user_id=?").all(user.id) as Row[])
+  return (getConn().prepare(
+    "SELECT approval_role FROM approval_role_bindings WHERE user_id=? " +
+    "AND (valid_from IS NULL OR valid_from <= datetime('now')) " +
+    "AND (valid_to IS NULL OR valid_to >= datetime('now'))"
+  ).all(user.id) as Row[])
     .map((r) => String(r.approval_role));
 }
 
