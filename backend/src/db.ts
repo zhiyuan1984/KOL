@@ -117,6 +117,8 @@ export function connect(): SqliteConn {
       db.close();
       throw new Error("PostgreSQL schema is not initialized; run npm run db:migrate:postgres with SQLITE_SOURCE and DATABASE_URL before starting the application");
     }
+    // INSERT OR REPLACE 的冲突键需要目标表真实主键；在首个业务查询前一次性载入。
+    db.loadPrimaryKeys();
     return db;
   }
   const db = openSqlite(dbPath());
