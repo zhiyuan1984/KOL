@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, type TicketAccountBindingOptions, type TicketOrganizationQualityReport } from "../api";
+import { api, type OrganizationTicketRawCountReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport } from "../api";
 import TicketIdentityGate, { useTicketIdentity } from "../components/TicketIdentityGate";
 
 function time(value: string | null | undefined): string {
@@ -24,6 +24,7 @@ export default function AdminWorkOrders() {
 function AdminWorkOrdersContent() {
   const { account, logout } = useTicketIdentity();
   const [report, setReport] = useState<TicketOrganizationQualityReport | null>(null);
+  const [organizationReport, setOrganizationReport] = useState<OrganizationTicketRawCountReport | null>(null);
   const [options, setOptions] = useState<TicketAccountBindingOptions | null>(null);
   const [loading, setLoading] = useState(true);
   const [bindingBusy, setBindingBusy] = useState(false);
@@ -34,12 +35,14 @@ function AdminWorkOrdersContent() {
     setLoading(true);
     setError("");
     try {
-      const [quality, bindingOptions] = await Promise.all([
+      const [quality, bindingOptions, rawReport] = await Promise.all([
         api.adminTicketOrganizationQuality(),
         api.adminTicketAccountBindingOptions(),
+        api.organizationTicketRawCountReport(),
       ]);
       setReport(quality);
       setOptions(bindingOptions);
+      setOrganizationReport(rawReport);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取工单组织数据质量");
     } finally {
@@ -87,6 +90,7 @@ function AdminWorkOrdersContent() {
       <article className="panel"><h3>有效组织</h3><strong className="admin-metric">{report?.active_unit_count ?? "—"}</strong><p className="muted">中心、部门与三级受理组的权威投影。</p></article>
       <article className="panel"><h3>有效人员</h3><strong className="admin-metric">{report?.active_person_count ?? "—"}</strong><p className="muted">已进入组织投影的人员事实。</p></article>
       <article className="panel"><h3>阻断项</h3><strong className={report?.issue_count ? "admin-metric status-warn" : "admin-metric status-ok"}>{report?.issue_count ?? "—"}</strong><p className="muted">缺少账号、组织或负责人账号时，正式建单会明确阻断。</p></article>
+      <article className="panel"><h3>授权工单存量</h3><strong className="admin-metric">{organizationReport?.total_authorized ?? "—"}</strong><p className="muted">按 {organizationReport?.authorization.mode === "company_admin" ? "公司管理员" : "组织负责人"}授权范围汇总；不包含 SLA 或绩效结论。</p></article>
       <article className="panel" style={{ gridColumn: "1 / -1" }}>
         <div className="split-head"><div><h3>账号—组织人员绑定</h3><p className="muted">仅绑定已创建的 PostgreSQL 工单账号和受控组织人员。每一次变更必须写明原因，并保留不可变审计。</p></div></div>
         <form className="ticket-binding-form" onSubmit={(event) => void bind(event)}>
@@ -105,6 +109,12 @@ function AdminWorkOrdersContent() {
           <label className="field ticket-binding-reason">绑定原因<textarea name="reason" minLength={2} maxLength={500} required placeholder="例如：已核验员工账号与组织人员身份" /></label>
           <div className="ticket-binding-action"><button className="btn work" disabled={bindingBusy || loading || !unboundAccounts.length}>{bindingBusy ? "正在写入审计…" : "确认绑定并记录审计"}</button></div>
         </form>
+      </article>
+      <article className="panel" style={{ gridColumn: "1 / -1" }} data-organization-ticket-report>
+        <div className="split-head"><div><h3>组织工单原始计数</h3><p className="muted">数据时间：{time(organizationReport?.as_of)} · 时区：{organizationReport?.timezone || "—"} · 来源：PostgreSQL 正式工单。只展示受控组织范围内的当前数量。</p></div></div>
+        {!loading && organizationReport?.total_authorized === 0 ? <p className="muted">当前授权范围没有正式工单。</p> : null}
+        <div className="admin-row"><div><strong>状态分布</strong><p className="muted">{Object.entries(organizationReport?.by_status || {}).map(([status, count]) => `${status} ${count}`).join(" · ") || "—"}</p></div><div><strong className="status-ok">{organizationReport?.authorization.mode === "company_admin" ? "公司管理员范围" : "组织负责人范围"}</strong><p className="muted">根组织：{organizationReport?.authorization.root_units.map((unit) => unit.display_name).join("、") || "公司级"}</p></div></div>
+        {organizationReport?.by_assignee_unit.map((unit) => <div className="admin-row" key={unit.org_unit_id}><div><strong>{unit.display_name}</strong><p className="muted">{unit.type} · {unit.org_unit_id}</p></div><div><strong>{unit.total}</strong><p className="muted">{Object.entries(unit.by_status).map(([status, count]) => `${status} ${count}`).join(" · ")}</p></div></div>)}
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }}>
         <div className="split-head"><div><h3>组织数据质量</h3><p className="muted">先修复人员/组织绑定，再创建、分派或自动关注；此处不提供旁路写入。</p></div><div className="row-actions"><Link className="btn ghost" to="/admin/audit">查看审计</Link><Link className="btn ghost" to="/admin/scheduling">查看调度</Link></div></div>

@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createFormalTicketPostgres } from "../src/ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres } from "../src/ticket-domain/edit-ticket.js";
 import { assignFormalTicketPostgres } from "../src/ticket-domain/assign-ticket.js";
-import { personalTicketRawCountReport } from "../src/ticket-domain/reports.js";
+import { organizationTicketRawCountReport, personalTicketRawCountReport } from "../src/ticket-domain/reports.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { bindTicketAccountToOrganizationPerson, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../src/ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById } from "../src/ticket-domain/read-tickets.js";
@@ -185,9 +185,30 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       by_status: { pending: 1 },
       memberships: { created: 1, assigned_primary: 1, watching: 0 },
     });
+    const organizationReport = await organizationTicketRawCountReport("u-supervisor", { is_admin: true });
+    expect(organizationReport).toMatchObject({
+      report_version: "ticket-organization-raw-count.v1",
+      scope: "organization_authorized",
+      authorization: { mode: "company_admin" },
+      source: "postgresql_formal_tickets",
+      total_authorized: 1,
+      by_status: { pending: 1 },
+    });
+    expect(organizationReport.by_assignee_unit).toEqual(expect.arrayContaining([
+      expect.objectContaining({ org_unit_id: "org:lt_team", total: 1, by_status: { pending: 1 } }),
+    ]));
+    const departmentHeadReport = await organizationTicketRawCountReport("u-supervisor", { is_admin: false });
+    expect(departmentHeadReport).toMatchObject({
+      authorization: { mode: "organization_head", root_units: [expect.objectContaining({ id: "org:promotion_department", type: "department" })] },
+      total_authorized: 1,
+      by_status: { pending: 1 },
+    });
     const apiResponse = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request("http://test.local/tickets?view=created")));
     expect(apiResponse.status).toBe(200);
     expect(await apiResponse.json()).toMatchObject({ items: [{ id: first.ticket_id }], page: { limit: 50 } });
+    const organizationApi = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/tickets/reports/organization")));
+    expect(organizationApi.status).toBe(200);
+    expect(await organizationApi.json()).toMatchObject({ scope: "organization_authorized", authorization: { mode: "company_admin" }, total_authorized: 1 });
 
     const edited = await editFormalTicketPostgres(first.ticket_id, "u-creator", {
       expected_version: 1,
