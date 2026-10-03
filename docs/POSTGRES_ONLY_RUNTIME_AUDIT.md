@@ -32,7 +32,7 @@
 |---|---|---|---|
 | P0 | `backend/src/app.ts` 的 `getConn()`、`seedIfEmpty()`、`reconcileTickets()` 等启动调用 | HTTP 应用启动即初始化 SQLite-shaped bridge。 | 建立 PostgreSQL bootstrap：迁移检查、原生 seed、原生运行恢复；再从启动路径移除旧初始化。 |
 | P0 | `backend/src/index.ts` 的 `failStuckPlans()`、`failInterruptedTaskRuns()`、邮件/库同步启动调用 | 直接进入旧任务/同步仓储。 | 改为原生 execution/ticket recovery，或在 PG-only 入口不启动未迁移子系统。 |
-| P0 | `backend/src/routers/tasks.ts` 的 `/tasks`、`/workbench/tasks`、`/runs/*` 与旧任务创建/运行端点 | 同一个 router 仍保留大量 `getConn()` 调用。 | 将 `/tickets` 拆为独立 native router；旧 `/tasks` 仅在兼容部署可见，PG-only 模式必须返回明确弃用响应而非回退。 |
+| P0 | `backend/src/routers/tasks.ts` 的 `/tasks`、`/workbench/tasks`、`/runs/*` 与旧任务创建/运行端点 | 同一个 router 仍保留大量 `getConn()` 调用。 | **正式 `/tickets` 已拆至 `routers/tickets.ts` 并优先挂载**；旧 `/tasks` 仅在兼容部署可见，PG-only 模式必须返回明确弃用响应而非回退。 |
 | P0 | `backend/src/auth.ts`、`exam.ts`、`runtime/organization-tree.ts` | 登录、权限与组织读取仍走 bridge。 | 为正式工单建立原生 PostgreSQL 身份/权限投影；未完成前只允许测试/受控身份模式，不能宣称全应用 PG-only。 |
 | P1 | `routers/work-report.ts` | 管理报表仍读取旧 tickets/event 投影。 | 先只保留个人原始计数；组织报表应在规则、范围、时区与授权口径发布后原生实现。 |
 | P1 | `home-today`、`home-board`、`home-discovery` | 首页任务投影和建议仍使用 legacy task/collaboration 数据。 | 迁移为 PostgreSQL ticket read-model；不能以 SQLite 任务投影支撑正式工单界面。 |

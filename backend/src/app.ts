@@ -27,6 +27,7 @@ import { adminAgentsRouter } from "./routers/admin-agents.js";
 import { costsRouter } from "./routers/costs.js";
 import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
+import { tickets } from "./routers/tickets.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { experts } from "./routers/experts.js";
@@ -112,6 +113,9 @@ export function createApp(): Hono {
   app.route("/api", homeToday);
   app.route("/api", workReport);
   app.route("/api", misc);
+  // Formal ticket endpoints are isolated from the legacy `/tasks` router so
+  // their production request path has no SQLite-shaped repository imports.
+  app.route("/api", tickets);
   app.route("/api", tasks);
   app.route("/api", events);
   app.route("/api", crawlRouter);

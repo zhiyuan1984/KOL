@@ -1,0 +1,138 @@
+import { Hono } from "hono";
+import { authDisabled, isAdmin, scopedUser } from "../auth.js";
+import { DEMO_USER } from "../config.js";
+import { HttpFail } from "../host/errors.js";
+import { nid } from "../ids.js";
+import type { Json } from "../types.js";
+import { transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
+import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
+import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
+import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
+import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
+import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
+import { personalTicketRawCountReport } from "../ticket-domain/reports.js";
+
+/**
+ * PostgreSQL authority router for formal tickets. Do not add imports from
+ * `db.ts`, legacy `/tasks` projections, or the PostgreSQL sync bridge here.
+ */
+export const tickets = new Hono();
+
+function ownerId(): string {
+  const user = scopedUser();
+  if (user) return user.id;
+  if (authDisabled()) return DEMO_USER.id;
+  throw new HttpFail(401, "authentication required");
+}
+
+function requestMetadata(): { request_id: string; as_of: string; schema_version: string } {
+  return { request_id: nid("req"), as_of: new Date().toISOString(), schema_version: "ticket-api.v1" };
+}
+
+function parseLimit(raw: string | undefined, fallback = 50): number {
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) throw new HttpFail(400, "invalid limit");
+  return Math.min(200, Math.floor(n));
+}
+
+function summary(ticket: Awaited<ReturnType<typeof nativeTicketById>>) {
+  return {
+    ticket_id: ticket.id,
+    goal: ticket.goal || ticket.title,
+    progress: ticket.status,
+    risk: "none",
+    conclusion: null,
+    evidence_refs: [],
+    source_fingerprint: `ticket:${ticket.id}:v${ticket.data_version}`,
+    producer: "postgresql_ticket_center",
+    status: "current",
+    stale_reason: null,
+    generated_at: ticket.updated_at,
+  };
+}
+
+// Must precede `/tickets/:id`.
+tickets.get("/tickets", async (c) => {
+  const page = await listNativeTickets(ownerId(), {
+    view: c.req.query("view"), cursor: c.req.query("cursor"), limit: c.req.query("limit"),
+    status: c.req.query("status"), priority: c.req.query("priority"), category: c.req.query("category"),
+    stage: c.req.query("stage"), org_unit: c.req.query("org_unit"), assignee: c.req.query("assignee"),
+    due: c.req.query("due"), q: c.req.query("q"), from: c.req.query("from"), to: c.req.query("to"),
+  });
+  return c.json({ ...page, ...requestMetadata() });
+});
+
+tickets.get("/tickets/reports/personal", async (c) => {
+  return c.json({ ...(await personalTicketRawCountReport(ownerId(), c.req.query("timezone") || "Asia/Shanghai")), ...requestMetadata() });
+});
+
+tickets.get("/tickets/form-bootstrap", async (c) => {
+  return c.json({ ...(await ticketOrgFormBootstrap(ownerId())), ...requestMetadata() });
+});
+
+tickets.get("/admin/work-orders/data-quality", async (c) => {
+  if (!isAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await ticketOrganizationQualityReport()), ...requestMetadata() });
+});
+
+tickets.post("/tickets", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as FormalTicketCreateInput;
+  const headerKey = String(c.req.header("Idempotency-Key") || "").trim();
+  const result = await createFormalTicketPostgres(ownerId(), { ...body, idempotency_key: headerKey || body.idempotency_key });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.get("/tickets/:id/summary", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
+  return c.json({ ...summary(ticket), ...requestMetadata(), source_refs: ticket.source_refs });
+});
+
+tickets.get("/tickets/:id/timeline", async (c) => {
+  const after = Math.max(0, Number(c.req.query("after") || 0));
+  if (!Number.isFinite(after) || !Number.isInteger(after)) throw new HttpFail(400, "invalid after");
+  const timeline = await nativeTicketTimeline(ownerId(), c.req.param("id"), after, parseLimit(c.req.query("limit"), 100));
+  return c.json({ ...timeline, related_business_events: [], ...requestMetadata(), source_refs: [{ type: "postgresql_ticket_timeline", id: timeline.ticket_id }] });
+});
+
+tickets.get("/tickets/:id", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
+  return c.json({ ...ticket, latest_run: null, summary: summary(ticket), ...requestMetadata() });
+});
+
+tickets.patch("/tickets/:id", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
+  if (!ticket.allowed_actions.includes("edit")) throw new HttpFail(409, { code: "ticket_edit_not_allowed" });
+  const body = await c.req.json().catch(() => ({})) as FormalTicketEditInput;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const result = await editFormalTicketPostgres(ticket.id, ownerId(), { ...body, idempotency_key: idempotencyKey });
+  return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
+});
+
+tickets.post("/tickets/:id/commands", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const action = String(body.action || "");
+  if (action !== "assign" && action !== "accept" && action !== "complete" && action !== "cancel" && action !== "reopen") {
+    throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持转办、受理、完成、取消或重开工单命令" });
+  }
+  const requiredAction = action === "complete" ? "complete" : action;
+  if (!ticket.allowed_actions.includes(requiredAction)) {
+    throw new HttpFail(403, { code: "ticket_command_not_authorized", action, required_action: requiredAction });
+  }
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const expectedVersion = Number(body.expected_version);
+  if (action === "assign") {
+    const result = await assignFormalTicketPostgres({
+      ticket_id: ticket.id, actor_user_id: ownerId(), expected_version: expectedVersion, idempotency_key: idempotencyKey,
+      assignee_person_ref: String(body.assignee_person_ref || ""), assignee_unit_id: String(body.assignee_unit_id || ""),
+      cross_group_reason: body.cross_group_reason == null ? null : String(body.cross_group_reason),
+    });
+    return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
+  }
+  const result = await transitionTicketLifecyclePostgres({
+    ticketId: ticket.id, action: action as "accept" | "complete" | "cancel" | "reopen", expectedVersion, idempotencyKey,
+    actorId: ownerId(), acceptanceEvidence: body.acceptance_evidence, reason: body.reason,
+  });
+  return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
+});
