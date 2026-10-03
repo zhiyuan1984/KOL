@@ -479,7 +479,7 @@ describe("mailbox memory P0", () => {
     bindLarry();
     const now = "2026-09-20T03:00:00.000Z";
     const index = getConn()
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='kol_mail_items_thread'")
+      .prepare("SELECT indexname AS name FROM pg_indexes WHERE indexname='kol_mail_items_thread'")
       .get() as { name?: string } | undefined;
     expect(index?.name).toBe("kol_mail_items_thread");
 
