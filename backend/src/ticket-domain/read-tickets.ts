@@ -77,8 +77,8 @@ function allowedActions(row: TicketRow, userId: string): string[] {
   const creator = row.owner_user_id === userId;
   const primary = row.assignee_user_id === userId;
   const result: string[] = [];
-  if (creator && row.status === "pending") result.push("edit", "cancel", "assign");
-  if (creator && ["accepted", "in_progress", "waiting", "waiting_approval"].includes(row.status)) result.push("assign");
+  if (creator && row.status === "pending") result.push("edit", "cancel", "assign", "collaborate");
+  if (creator && ["accepted", "in_progress", "waiting", "waiting_approval"].includes(row.status)) result.push("assign", "collaborate");
   if (primary && row.status === "pending") result.push("accept");
   if (primary && ["accepted", "in_progress", "waiting"].includes(row.status)) result.push("complete", "request_update");
   if (creator && row.status === "completed") result.push("reopen");
@@ -100,10 +100,10 @@ export async function listNativeTickets(userId: string, query: Record<string, st
 
   const relation = {
     created: "t.owner_user_id=$1",
-    assigned: "pa.assignee_user_id=$1",
+    assigned: "(pa.assignee_user_id=$1 OR EXISTS (SELECT 1 FROM ticket_assignments ca WHERE ca.ticket_id=t.id AND ca.role='collaborator' AND ca.status='active' AND ca.assignee_user_id=$1))",
     watching: "EXISTS (SELECT 1 FROM ticket_watchers tw WHERE tw.ticket_id=t.id AND tw.watcher_user_id=$1 AND tw.status='active')",
-    completed: "(pa.assignee_user_id=$1 OR t.owner_user_id=$1 OR EXISTS (SELECT 1 FROM ticket_watchers tw WHERE tw.ticket_id=t.id AND tw.watcher_user_id=$1 AND tw.status='active')) AND ta.ticket_id IS NOT NULL",
-    authorized: "(t.owner_user_id=$1 OR pa.assignee_user_id=$1 OR EXISTS (SELECT 1 FROM ticket_watchers tw WHERE tw.ticket_id=t.id AND tw.watcher_user_id=$1 AND tw.status='active'))",
+    completed: "(pa.assignee_user_id=$1 OR EXISTS (SELECT 1 FROM ticket_assignments ca WHERE ca.ticket_id=t.id AND ca.role='collaborator' AND ca.status='active' AND ca.assignee_user_id=$1) OR t.owner_user_id=$1 OR EXISTS (SELECT 1 FROM ticket_watchers tw WHERE tw.ticket_id=t.id AND tw.watcher_user_id=$1 AND tw.status='active')) AND ta.ticket_id IS NOT NULL",
+    authorized: "(t.owner_user_id=$1 OR pa.assignee_user_id=$1 OR EXISTS (SELECT 1 FROM ticket_assignments ca WHERE ca.ticket_id=t.id AND ca.role='collaborator' AND ca.status='active' AND ca.assignee_user_id=$1) OR EXISTS (SELECT 1 FROM ticket_watchers tw WHERE tw.ticket_id=t.id AND tw.watcher_user_id=$1 AND tw.status='active'))",
   } as const;
   where.push(relation[view]);
 
@@ -186,6 +186,8 @@ export async function nativeTicketById(userId: string, ticketId: string) {
      LEFT JOIN ticket_acceptances ta ON ta.ticket_id=t.id
      WHERE t.id=$1 AND t.task_type='manual_ticket' AND t.profile='ticket-workbench'
        AND (t.owner_user_id=$2 OR pa.assignee_user_id=$2 OR EXISTS (
+         SELECT 1 FROM ticket_assignments ca WHERE ca.ticket_id=t.id AND ca.role='collaborator' AND ca.status='active' AND ca.assignee_user_id=$2
+       ) OR EXISTS (
          SELECT 1 FROM ticket_watchers tw WHERE tw.ticket_id=t.id AND tw.watcher_user_id=$2 AND tw.status='active'
        ))`,
     [ticketId, userId],

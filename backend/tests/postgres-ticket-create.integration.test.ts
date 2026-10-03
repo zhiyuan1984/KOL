@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createFormalTicketPostgres } from "../src/ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres } from "../src/ticket-domain/edit-ticket.js";
 import { assignFormalTicketPostgres } from "../src/ticket-domain/assign-ticket.js";
+import { addTicketCollaboratorPostgres, removeTicketCollaboratorPostgres } from "../src/ticket-domain/collaborate-ticket.js";
 import { organizationTicketRawCountReport, personalTicketRawCountReport } from "../src/ticket-domain/reports.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { bindTicketAccountToOrganizationPerson, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../src/ticket-domain/organization.js";
@@ -19,6 +20,10 @@ const CREATOR: TicketPrincipal = {
 const ADMIN: TicketPrincipal = {
   id: "u-supervisor", username: "zhong_jiankui", name: "钟建奎", email: null,
   roles: ["employee", "admin"], active: true,
+};
+const COLLABORATOR: TicketPrincipal = {
+  id: "u-collaborator", username: "xi_chucong", name: "习楚聪", email: null,
+  roles: ["employee"], active: true,
 };
 
 describePostgres("native PostgreSQL formal ticket creation", () => {
@@ -109,7 +114,8 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     await pool.query(
       `INSERT INTO ticket_accounts (id,username,name,password_hash,roles,active,created_at,updated_at)
        VALUES ('u-creator','ye_guanwang','叶观旺','x','["employee"]'::jsonb,true,$1,$1),
-              ('u-supervisor','zhong_jiankui','钟建奎','x','["employee","admin"]'::jsonb,true,$1,$1)`,
+              ('u-supervisor','zhong_jiankui','钟建奎','x','["employee","admin"]'::jsonb,true,$1,$1),
+              ('u-collaborator','xi_chucong','习楚聪','x','["employee"]'::jsonb,true,$1,$1)`,
       ["2031-01-01T00:00:00.000Z"],
     );
   });
@@ -126,6 +132,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     })));
     expect(creatorBinding.status).toBe(200);
     await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:zhong_jiankui", account_id: "u-supervisor", reason: "test controlled supervisor enrollment" });
+    await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:xi_chucong", account_id: "u-collaborator", reason: "test controlled collaborator enrollment" });
     const bindingOptions = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/work-orders/account-bindings/options")));
     expect(bindingOptions.status).toBe(200);
     const bindingOptionBody = await bindingOptions.json() as { accounts: Array<{ id: string; bound_person_ref: string | null }> };
@@ -166,7 +173,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     expect(facts.rows[0]).toEqual({ scopes: "1", assignments: "1", watchers: "1", events: "1", receipts: "1", audit: "1" });
     const center = await listNativeTickets("u-creator", { view: "created", limit: "10" });
     expect(center.items).toHaveLength(1);
-    expect(center.items[0]).toMatchObject({ ticket_id: first.ticket_id, source: "manual", allowed_actions: ["edit", "cancel", "assign", "accept"] });
+    expect(center.items[0]).toMatchObject({ ticket_id: first.ticket_id, source: "manual", allowed_actions: ["edit", "cancel", "assign", "collaborate", "accept"] });
     const visibleToWatcher = await nativeTicketById("u-supervisor", first.ticket_id);
     expect(visibleToWatcher.allowed_actions).toEqual([]);
     const detail = await nativeTicketById("u-creator", first.ticket_id);
@@ -247,5 +254,41 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       [first.ticket_id],
     );
     expect(assignmentFacts.rows[0]).toEqual({ active: "1", history: "1", event: "1", audit: "1" });
+
+    const collaborator = await addTicketCollaboratorPostgres({
+      ticket_id: first.ticket_id, actor_user_id: "u-creator", expected_version: 3,
+      idempotency_key: "native-ticket-collaborator-add-0001", assignee_person_ref: "person:xi_chucong", assignee_unit_id: "org:lt_team",
+    });
+    expect(collaborator).toMatchObject({ action: "add_collaborator", assignee_user_id: "u-collaborator", version: 4, replayed: false });
+    const collaboratorReplay = await addTicketCollaboratorPostgres({
+      ticket_id: first.ticket_id, actor_user_id: "u-creator", expected_version: 3,
+      idempotency_key: "native-ticket-collaborator-add-0001", assignee_person_ref: "person:xi_chucong", assignee_unit_id: "org:lt_team",
+    });
+    expect(collaboratorReplay).toMatchObject({ version: 4, replayed: true });
+    const collaboratorDetail = await nativeTicketById("u-collaborator", first.ticket_id);
+    expect(collaboratorDetail.assignments).toEqual(expect.arrayContaining([expect.objectContaining({ role: "collaborator", status: "active", assignee_user_id: "u-collaborator" })]));
+    expect(collaboratorDetail.allowed_actions).toEqual([]);
+    const removed = await removeTicketCollaboratorPostgres({
+      ticket_id: first.ticket_id, actor_user_id: "u-creator", expected_version: 4,
+      idempotency_key: "native-ticket-collaborator-remove-0001", assignee_person_ref: "person:xi_chucong",
+    });
+    expect(removed).toMatchObject({ action: "remove_collaborator", version: 5, replayed: false });
+    await expect(nativeTicketById("u-collaborator", first.ticket_id)).rejects.toMatchObject({ status: 404 });
+    const collaboratorFacts = await pool.query<{ active: string; history: string; added: string; removed: string; audit: string }>(
+      `SELECT
+        (SELECT COUNT(*)::text FROM ticket_assignments WHERE ticket_id=$1 AND role='collaborator' AND status='active') AS active,
+        (SELECT COUNT(*)::text FROM ticket_assignments WHERE ticket_id=$1 AND role='collaborator' AND status='superseded') AS history,
+        (SELECT COUNT(*)::text FROM task_events WHERE work_item_id=$1 AND event_type='task.collaborator_added') AS added,
+        (SELECT COUNT(*)::text FROM task_events WHERE work_item_id=$1 AND event_type='task.collaborator_removed') AS removed,
+        (SELECT COUNT(*)::text FROM ticket_audit_events WHERE ticket_id=$1 AND command IN ('ticket.collaborator.add','ticket.collaborator.remove')) AS audit`,
+      [first.ticket_id],
+    );
+    expect(collaboratorFacts.rows[0]).toEqual({ active: "0", history: "1", added: "1", removed: "1", audit: "2" });
+    const collaboratorApi = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request(`http://test.local/tickets/${first.ticket_id}/commands`, {
+      method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": "native-ticket-collaborator-route-0001" },
+      body: JSON.stringify({ action: "add_collaborator", expected_version: 5, assignee_person_ref: "person:xi_chucong", assignee_unit_id: "org:lt_team" }),
+    })));
+    expect(collaboratorApi.status).toBe(200);
+    expect(await collaboratorApi.json()).toMatchObject({ action: "add_collaborator", version: 6, ticket: { allowed_actions: expect.arrayContaining(["collaborate"]), assignments: expect.arrayContaining([expect.objectContaining({ role: "collaborator", status: "active" })]) } });
   });
 });

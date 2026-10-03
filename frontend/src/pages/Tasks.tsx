@@ -262,6 +262,49 @@ function TaskCenter() {
     }
   };
 
+  const manageCollaborator = async (task: Task, action: "add_collaborator" | "remove_collaborator") => {
+    const version = Math.max(1, Number(task.data_version || 1));
+    setActionBusy(`${action}:${task.id}`);
+    try {
+      let personRef = "";
+      let unitId = "";
+      let crossGroupReason: string | undefined;
+      if (action === "add_collaborator") {
+        const bootstrap = await api.ticketFormBootstrap();
+        const candidates = bootstrap.assignee_candidates.filter((candidate) => candidate.assignable && candidate.user_id && candidate.org_unit_id);
+        const options = candidates.slice(0, 30).map((candidate) => `${candidate.person_ref} · ${candidate.display_name} · ${candidate.org_unit_id}`).join("\n");
+        personRef = window.prompt(`输入协同受理人的人员标识（仅可选已绑定账号人员）：\n${options}`)?.trim() || "";
+        const chosen = candidates.find((candidate) => candidate.person_ref === personRef);
+        if (!chosen?.org_unit_id) return;
+        unitId = chosen.org_unit_id;
+        const primaryUnit = Array.isArray(selected?.assignments)
+          ? String(selected.assignments.find((item) => item.status === "active" && item.role === "primary")?.org_unit_id || "")
+          : "";
+        if (primaryUnit && primaryUnit !== unitId) {
+          crossGroupReason = window.prompt("协同受理人跨组，请填写协同原因：")?.trim() || "";
+          if (!crossGroupReason) return;
+        }
+      } else {
+        const collaborators = Array.isArray(selected?.assignments)
+          ? selected.assignments.filter((item) => item.status === "active" && item.role === "collaborator")
+          : [];
+        if (!collaborators.length) return;
+        const options = collaborators.map((item) => `${String(item.assignee_person_ref || "")} · ${String(item.org_unit_id || "")}`).join("\n");
+        personRef = window.prompt(`输入要移除的协同受理人标识：\n${options}`)?.trim() || "";
+        if (!personRef) return;
+      }
+      const result = action === "add_collaborator"
+        ? await api.ticketCommand(task.id, { action, expected_version: version, idempotency_key: `ticket-collaborator-add-${crypto.randomUUID()}`, assignee_person_ref: personRef, assignee_unit_id: unitId, ...(crossGroupReason ? { cross_group_reason: crossGroupReason } : {}) })
+        : await api.ticketCommand(task.id, { action, expected_version: version, idempotency_key: `ticket-collaborator-remove-${crypto.randomUUID()}`, assignee_person_ref: personRef });
+      await load();
+      await openDetail({ ...task, ...(result.ticket || {}), data_version: result.version });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "协同受理变更失败");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
   const visible = useMemo(() => rows.filter((task) => belongsToTab(task, selectedStatus)), [rows, selectedStatus]);
   const counts = useMemo(() => {
     const next = new Map<TaskStatusTab, number>();
@@ -399,12 +442,12 @@ function TaskCenter() {
         <header><div><p className="eyebrow">任务详情</p><h2>{safeTaskText(selected.title, "未命名任务")}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelected(null)}>×</button></header>
         <dl className="task-detail-meta"><div><dt>状态</dt><dd>{statusOf(selected)}</dd></div><div><dt>任务 ID</dt><dd>{selected.id}</dd></div><div><dt>创建时间</dt><dd>{formatTime(selected.created_at)}</dd></div><div><dt>说明</dt><dd>{taskSummary(selected)}</dd></div></dl>
         <p className="muted">已尝试 {selected.runs?.length || 0} 次{selected.runs?.length ? `；最近一次：${String(selected.runs[selected.runs.length - 1]?.status || "未知")}` : ""}</p>
-        {Array.isArray(selected.assignments) && selected.assignments.length ? <section className="task-detail-facts"><h3>责任与关注</h3><dl><div><dt>当前主受理人</dt><dd>{String(selected.assignments.find((item) => item.status === "active" && item.role === "primary")?.assignee_person_ref || "—")}</dd></div><div><dt>关注人</dt><dd>{Array.isArray(selected.watchers) && selected.watchers.length ? selected.watchers.filter((item) => item.status === "active").map((item) => String(item.watcher_person_ref || item.watcher_user_id || "")).filter(Boolean).join("、") || "—" : "—"}</dd></div></dl></section> : null}
+        {Array.isArray(selected.assignments) && selected.assignments.length ? <section className="task-detail-facts"><h3>责任与关注</h3><dl><div><dt>当前主受理人</dt><dd>{String(selected.assignments.find((item) => item.status === "active" && item.role === "primary")?.assignee_person_ref || "—")}</dd></div><div><dt>协同受理人</dt><dd>{selected.assignments.filter((item) => item.status === "active" && item.role === "collaborator").map((item) => String(item.assignee_person_ref || item.assignee_user_id || "")).filter(Boolean).join("、") || "—"}</dd></div><div><dt>关注人</dt><dd>{Array.isArray(selected.watchers) && selected.watchers.length ? selected.watchers.filter((item) => item.status === "active").map((item) => String(item.watcher_person_ref || item.watcher_user_id || "")).filter(Boolean).join("、") || "—" : "—"}</dd></div></dl></section> : null}
         {Array.isArray(selected.basis_refs) && selected.basis_refs.length ? <section className="task-detail-facts"><h3>来源依据</h3><ul>{selected.basis_refs.map((item, index) => <li key={`${String(item.source_type || "basis")}-${String(item.source_id || index)}`}>{String(item.source_type || "来源")} · {String(item.source_id || "—")}{item.occurred_at ? ` · ${formatTime(String(item.occurred_at))}` : ""}</li>)}</ul></section> : null}
         {selected.acceptance ? <section className="task-detail-facts"><h3>验收事实</h3><p>验收人：{String(selected.acceptance.accepted_by_user_id || "—")} · {formatTime(String(selected.acceptance.accepted_at || ""))}</p></section> : null}
         {Array.isArray(selected.acceptance_history) && selected.acceptance_history.length ? <section className="task-detail-facts"><h3>验收历史</h3><ul>{selected.acceptance_history.map((item, index) => <li key={`${String(item.acceptance_version || index)}-${String(item.accepted_at || "")}`}>第 {String(item.acceptance_version || index + 1)} 次 · {String(item.accepted_by_user_id || "—")} · {formatTime(String(item.accepted_at || ""))}</li>)}</ul></section> : null}
         <section><h3>工单时间线</h3>{events.length ? <ol className="task-detail-events">{events.map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "工单事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无工单事件。</p>}</section>
-        <div className="task-detail-actions">{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("accept") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "accept")} disabled={Boolean(actionBusy)}>受理工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("complete") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "complete")} disabled={Boolean(actionBusy)}>提交验收完成</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("reopen") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "reopen")} disabled={Boolean(actionBusy)}>重开工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("edit") ? <button type="button" className="button" onClick={() => setEditTarget(selected)}>编辑业务字段</button> : null}{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
+        <div className="task-detail-actions">{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("accept") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "accept")} disabled={Boolean(actionBusy)}>受理工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("complete") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "complete")} disabled={Boolean(actionBusy)}>提交验收完成</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("collaborate") ? <button type="button" className="button" onClick={() => void manageCollaborator(selected, "add_collaborator")} disabled={Boolean(actionBusy)}>添加协同受理人</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("collaborate") && selected.assignments?.some((item) => item.status === "active" && item.role === "collaborator") ? <button type="button" className="button" onClick={() => void manageCollaborator(selected, "remove_collaborator")} disabled={Boolean(actionBusy)}>移除协同受理人</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("reopen") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "reopen")} disabled={Boolean(actionBusy)}>重开工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("edit") ? <button type="button" className="button" onClick={() => setEditTarget(selected)}>编辑业务字段</button> : null}{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
       </aside></div> : null}
     </main>
   );

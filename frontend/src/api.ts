@@ -485,7 +485,8 @@ export type Ticket = Task & {
 export type TicketCommandInput =
   | { action: "accept" | "cancel" | "reopen"; expected_version: number; idempotency_key: string; reason?: string }
   | { action: "complete"; expected_version: number; idempotency_key: string; acceptance_evidence: Record<string, unknown> }
-  | { action: "assign"; expected_version: number; idempotency_key: string; assignee_person_ref: string; assignee_unit_id: string; cross_group_reason?: string };
+  | { action: "assign" | "add_collaborator"; expected_version: number; idempotency_key: string; assignee_person_ref: string; assignee_unit_id: string; cross_group_reason?: string }
+  | { action: "remove_collaborator"; expected_version: number; idempotency_key: string; assignee_person_ref: string };
 
 export type TicketCommandResult = {
   ticket_id: string;

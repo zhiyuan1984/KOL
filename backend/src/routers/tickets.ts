@@ -4,6 +4,7 @@ import { nid } from "../ids.js";
 import type { Json } from "../types.js";
 import { transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
 import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
+import { addTicketCollaboratorPostgres, removeTicketCollaboratorPostgres } from "../ticket-domain/collaborate-ticket.js";
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
@@ -209,10 +210,10 @@ tickets.post("/tickets/:id/commands", async (c) => {
   const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
   const body = await c.req.json().catch(() => ({})) as Json;
   const action = String(body.action || "");
-  if (action !== "assign" && action !== "accept" && action !== "complete" && action !== "cancel" && action !== "reopen") {
-    throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持转办、受理、完成、取消或重开工单命令" });
+  if (action !== "assign" && action !== "add_collaborator" && action !== "remove_collaborator" && action !== "accept" && action !== "complete" && action !== "cancel" && action !== "reopen") {
+    throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持转办、协同受理、受理、完成、取消或重开工单命令" });
   }
-  const requiredAction = action === "complete" ? "complete" : action;
+  const requiredAction = action === "add_collaborator" || action === "remove_collaborator" ? "collaborate" : action === "complete" ? "complete" : action;
   if (!ticket.allowed_actions.includes(requiredAction)) {
     throw new HttpFail(403, { code: "ticket_command_not_authorized", action, required_action: requiredAction });
   }
@@ -224,6 +225,17 @@ tickets.post("/tickets/:id/commands", async (c) => {
       assignee_person_ref: String(body.assignee_person_ref || ""), assignee_unit_id: String(body.assignee_unit_id || ""),
       cross_group_reason: body.cross_group_reason == null ? null : String(body.cross_group_reason),
     });
+    return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
+  }
+  if (action === "add_collaborator" || action === "remove_collaborator") {
+    const command = {
+      ticket_id: ticket.id, actor_user_id: ownerId(), expected_version: expectedVersion, idempotency_key: idempotencyKey,
+      assignee_person_ref: String(body.assignee_person_ref || ""), assignee_unit_id: body.assignee_unit_id == null ? undefined : String(body.assignee_unit_id),
+      cross_group_reason: body.cross_group_reason == null ? null : String(body.cross_group_reason),
+    };
+    const result = action === "add_collaborator"
+      ? await addTicketCollaboratorPostgres(command)
+      : await removeTicketCollaboratorPostgres(command);
     return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
   }
   const result = await transitionTicketLifecyclePostgres({
