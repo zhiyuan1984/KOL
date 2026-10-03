@@ -1,6 +1,5 @@
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
-import { nowIso } from "../db.js";
 import { postgresTransaction } from "../postgres/pool.js";
 import type { Json, Row } from "../types.js";
 
@@ -72,7 +71,7 @@ export async function editFormalTicketPostgres(ticketId: string, actorId: string
     if (input.no_due_reason !== undefined) updates.push({ column: "no_due_reason", value: input.no_due_reason?.trim() || null });
     if (input.acceptance_criteria !== undefined) updates.push({ column: "acceptance_criteria", value: JSON.stringify(input.acceptance_criteria.map((item) => item.trim())) });
     if (!updates.length) throw new HttpFail(422, { code: "no_editable_fields" });
-    const now = nowIso();
+    const now = new Date().toISOString();
     const params: unknown[] = [];
     const set = updates.map((field) => {
       params.push(field.value);
