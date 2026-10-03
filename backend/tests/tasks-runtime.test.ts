@@ -344,7 +344,8 @@ describe("task CRUD and run flow", () => {
     expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);
     const events = await request("GET", `/api/tasks/${taskId}/events`);
     const rows = events.body as unknown as Json[];
-    expect(rows.map((event) => event.sequence)).toEqual(rows.map((_, index) => index + 1));
+    // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较。
+    expect(rows.map((event) => Number(event.sequence))).toEqual(rows.map((_, index) => index + 1));
     expect(rows.every((event) => event.type && event.title && event.created_at)).toBe(true);
     expect(rows.map((event) => event.event_type)).toContain("run.completed");
     expect((await request("GET", `/api/tasks/${taskId}`)).body.status).toBe("waiting");
@@ -476,7 +477,7 @@ describe("task CRUD and run flow", () => {
       handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
       resolution: { entities: { platform: "youtube", keywords: ["露营"] } },
     });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("keeps YouTube discovery as a first-class workspace platform instead of falling back to xhs", async () => {
@@ -487,7 +488,7 @@ describe("task CRUD and run flow", () => {
       handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
       resolution: { entities: { platform: "youtube", keywords: ["户外电源"] } },
     });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("skips task events when the work item or run is already gone", async () => {

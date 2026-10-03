@@ -119,8 +119,9 @@ describe("target ticket and run read contracts", () => {
     expect(replayed.body).toMatchObject({ ticket_id: ticketId, status: "completed", replayed: true });
     const acceptedEvents = getConn().prepare(
       "SELECT COUNT(*) AS count,MAX(event_class) AS event_class FROM task_events WHERE work_item_id=? AND event_type='task.accepted'",
-    ).get(ticketId) as { count: number; event_class: string };
-    expect(acceptedEvents.count).toBe(1);
+    ).get(ticketId) as { count: unknown; event_class: string };
+    // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较。
+    expect(Number(acceptedEvents.count)).toBe(1);
     expect(acceptedEvents.event_class).toBe("lifecycle");
     expect(() => getConn().prepare("UPDATE task_events SET label='tampered' WHERE work_item_id=? AND event_type='task.accepted'").run(ticketId)).toThrow(/immutable/i);
     expect(() => getConn().prepare("DELETE FROM task_events WHERE work_item_id=? AND event_type='task.accepted'").run(ticketId)).toThrow(/immutable/i);
