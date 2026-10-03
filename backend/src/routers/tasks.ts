@@ -24,6 +24,7 @@ import { appendTaskEvent, appendTaskEventInConn } from "../task-events.js";
 import { ticketAllowedLifecycleActions, transitionTicketLifecycle, transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
+import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
 import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 
@@ -761,18 +762,30 @@ tasks.post("/tickets/:id/commands", async (c) => {
   const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
   const body = await c.req.json().catch(() => ({})) as Json;
   const action = String(body.action || "");
-  if (action !== "complete" && action !== "cancel") {
-    throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持完成或取消工单命令" });
+  if (action !== "assign" && action !== "accept" && action !== "complete" && action !== "cancel") {
+    throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持转办、受理、完成或取消工单命令" });
   }
-  const requiredAction = action === "complete" ? "accept" : "cancel";
+  const requiredAction = action === "complete" ? "complete" : action;
   if (!ticket.allowed_actions.includes(requiredAction)) {
     throw new HttpFail(403, { code: "ticket_command_not_authorized", action, required_action: requiredAction });
   }
   const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
   const expectedVersion = Number(body.expected_version);
+  if (action === "assign") {
+    const result = await assignFormalTicketPostgres({
+      ticket_id: ticket.id,
+      actor_user_id: ownerId(),
+      expected_version: expectedVersion,
+      idempotency_key: idempotencyKey,
+      assignee_person_ref: String(body.assignee_person_ref || ""),
+      assignee_unit_id: String(body.assignee_unit_id || ""),
+      cross_group_reason: body.cross_group_reason == null ? null : String(body.cross_group_reason),
+    });
+    return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
+  }
   const transitionInput = {
     ticketId: ticket.id,
-    action: action as "complete" | "cancel",
+    action: action as "accept" | "complete" | "cancel",
     expectedVersion,
     idempotencyKey,
     actorId: ownerId(),

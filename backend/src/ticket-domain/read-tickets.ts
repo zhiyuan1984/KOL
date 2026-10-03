@@ -67,7 +67,8 @@ function allowedActions(row: TicketRow, userId: string): string[] {
   const creator = row.owner_user_id === userId;
   const primary = row.assignee_user_id === userId;
   const result: string[] = [];
-  if (creator && row.status === "pending") result.push("edit", "cancel");
+  if (creator && row.status === "pending") result.push("edit", "cancel", "assign");
+  if (creator && ["accepted", "in_progress", "waiting", "waiting_approval"].includes(row.status)) result.push("assign");
   if (primary && row.status === "pending") result.push("accept");
   if (primary && ["accepted", "in_progress", "waiting"].includes(row.status)) result.push("complete", "request_update");
   if (creator && row.status === "completed") result.push("reopen");

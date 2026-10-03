@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createFormalTicketPostgres } from "../src/ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres } from "../src/ticket-domain/edit-ticket.js";
+import { assignFormalTicketPostgres } from "../src/ticket-domain/assign-ticket.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../src/ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById } from "../src/ticket-domain/read-tickets.js";
@@ -142,7 +143,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     expect(facts.rows[0]).toEqual({ scopes: "1", assignments: "1", watchers: "1", events: "1", receipts: "1", audit: "1" });
     const center = await listNativeTickets("u-creator", { view: "created", limit: "10" });
     expect(center.items).toHaveLength(1);
-    expect(center.items[0]).toMatchObject({ ticket_id: first.ticket_id, source: "manual", allowed_actions: ["edit", "cancel", "accept"] });
+    expect(center.items[0]).toMatchObject({ ticket_id: first.ticket_id, source: "manual", allowed_actions: ["edit", "cancel", "assign", "accept"] });
     const visibleToWatcher = await nativeTicketById("u-supervisor", first.ticket_id);
     expect(visibleToWatcher.allowed_actions).toEqual([]);
 
@@ -164,5 +165,24 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       [first.ticket_id],
     );
     expect(editFacts.rows[0]).toEqual({ events: "1", audit: "1", receipt: "1" });
+
+    const reassigned = await assignFormalTicketPostgres({
+      ticket_id: first.ticket_id,
+      actor_user_id: "u-creator",
+      expected_version: 2,
+      idempotency_key: "native-ticket-assign-idempotency-0001",
+      assignee_person_ref: "person:ye_guanwang",
+      assignee_unit_id: "org:lt_team",
+    });
+    expect(reassigned).toMatchObject({ action: "assign", version: 3, assignee_user_id: "u-creator" });
+    const assignmentFacts = await pool.query<{ active: string; history: string; event: string; audit: string }>(
+      `SELECT
+        (SELECT COUNT(*) FROM ticket_assignments WHERE ticket_id=$1 AND status='active' AND role='primary')::text AS active,
+        (SELECT COUNT(*) FROM ticket_assignments WHERE ticket_id=$1 AND status='superseded')::text AS history,
+        (SELECT COUNT(*) FROM task_events WHERE work_item_id=$1 AND event_type='task.reassigned')::text AS event,
+        (SELECT COUNT(*) FROM ticket_audit_events WHERE ticket_id=$1 AND command='ticket.assign')::text AS audit`,
+      [first.ticket_id],
+    );
+    expect(assignmentFacts.rows[0]).toEqual({ active: "1", history: "1", event: "1", audit: "1" });
   });
 });

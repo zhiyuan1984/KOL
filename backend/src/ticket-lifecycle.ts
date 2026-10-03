@@ -5,7 +5,7 @@ import { postgresTransaction } from "./postgres/pool.js";
 import { appendTaskEventInConn } from "./task-events.js";
 import type { Json, Row } from "./types.js";
 
-export type TicketLifecycleAction = "complete" | "cancel";
+export type TicketLifecycleAction = "accept" | "complete" | "cancel";
 
 export type TicketTransitionInput = {
   ticketId: string;
@@ -20,7 +20,7 @@ export type TicketTransitionInput = {
 export type TicketTransitionReceipt = {
   ticket_id: string;
   action: TicketLifecycleAction;
-  status: "completed" | "cancelled";
+  status: "accepted" | "completed" | "cancelled";
   version: number;
   event_id: string;
   replayed: boolean;
@@ -40,6 +40,7 @@ export function ticketAllowedLifecycleActions(row: Row): TicketLifecycleAction[]
   if (["completed", "failed", "cancelled"].includes(status)) return [];
   const actions: TicketLifecycleAction[] = [];
   if (["pending", "queued", "waiting", "needs_clarification"].includes(status)) actions.push("cancel");
+  if (status === "pending") actions.push("accept");
   if (["waiting", "waiting_approval", "in_progress"].includes(status)) actions.push("complete");
   return actions;
 }
@@ -100,7 +101,7 @@ export function transitionTicketLifecycleInConn(db: SqliteConn, input: TicketTra
   }
 
   const now = nowIso();
-  const nextStatus = input.action === "complete" ? "completed" : "cancelled";
+  const nextStatus = input.action === "complete" ? "completed" : input.action === "accept" ? "accepted" : "cancelled";
   const changed = db.prepare(
     `UPDATE tickets SET status=?, completed_at=CASE WHEN ?='completed' THEN ? ELSE completed_at END,
      updated_at=?, data_version=data_version+1
@@ -114,11 +115,13 @@ export function transitionTicketLifecycleInConn(db: SqliteConn, input: TicketTra
     db,
     String(ticket.id),
     null,
-    input.action === "complete" ? "task.accepted" : "task.cancelled",
-    input.action === "complete" ? "任务验收完成" : "任务已取消",
+    input.action === "complete" ? "task.accepted" : input.action === "accept" ? "task.claimed" : "task.cancelled",
+    input.action === "complete" ? "任务验收完成" : input.action === "accept" ? "工单已受理" : "任务已取消",
     nextStatus,
     input.action === "complete"
       ? "已记录验收证据；运行成功与工单完成分别保留。"
+      : input.action === "accept"
+        ? "主受理人已明确确认受理；执行与验收仍需单独记录。"
       : String(input.reason || "任务在未开始外部执行前已取消").slice(0, 1000),
   );
   if (!event) throw new HttpFail(500, { code: "lifecycle_event_write_failed", message: "未能记录工单生命周期事件。" });
@@ -200,7 +203,7 @@ export async function transitionTicketLifecyclePostgres(input: TicketTransitionI
     }
 
     const now = nowIso();
-    const nextStatus = input.action === "complete" ? "completed" : "cancelled";
+    const nextStatus = input.action === "complete" ? "completed" : input.action === "accept" ? "accepted" : "cancelled";
     const updatedResult = await client.query<Row>(
       `UPDATE tickets SET status=$1,completed_at=CASE WHEN $1='completed' THEN $2 ELSE completed_at END,
        updated_at=$2,data_version=data_version+1
@@ -225,12 +228,14 @@ export async function transitionTicketLifecyclePostgres(input: TicketTransitionI
       work_item_id: String(ticket.id),
       run_id: null,
       sequence: Number(sequenceResult.rows[0]?.sequence || 0) + 1,
-      event_type: input.action === "complete" ? "task.accepted" : "task.cancelled",
+      event_type: input.action === "complete" ? "task.accepted" : input.action === "accept" ? "task.claimed" : "task.cancelled",
       event_class: "lifecycle",
-      label: input.action === "complete" ? "任务验收完成" : "任务已取消",
+      label: input.action === "complete" ? "任务验收完成" : input.action === "accept" ? "工单已受理" : "任务已取消",
       status: nextStatus,
       safe_summary: input.action === "complete"
         ? "已记录验收证据；运行成功与工单完成分别保留。"
+        : input.action === "accept"
+          ? "主受理人已明确确认受理；执行与验收仍需单独记录。"
         : String(input.reason || "任务在未开始外部执行前已取消").slice(0, 1000),
       time: now,
       created_at: now,

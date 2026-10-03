@@ -115,4 +115,24 @@ describePostgres("native PostgreSQL ticket lifecycle", () => {
     const count = await postgresPool().query<{ count: string }>("SELECT COUNT(*)::text AS count FROM task_events");
     expect(count.rows[0]?.count).toBe("0");
   });
+
+  it("records explicit primary-assignee acceptance without completing the ticket", async () => {
+    await postgresPool().query(
+      `INSERT INTO tickets (id,owner_user_id,task_type,title,status,data_version,created_at,updated_at)
+       VALUES ('t-native-accept','employee:native','manual_ticket','受理测试','pending',1,$1,$1)`,
+      ["2031-01-01T00:00:00.000Z"],
+    );
+    const accepted = await transitionTicketLifecyclePostgres({
+      ticketId: "t-native-accept",
+      action: "accept",
+      expectedVersion: 1,
+      idempotencyKey: "native-ticket-accept-idempotency-0001",
+      actorId: "employee:native",
+    });
+    expect(accepted).toMatchObject({ ticket_id: "t-native-accept", action: "accept", status: "accepted", version: 2 });
+    const event = await postgresPool().query<{ status: string; event_type: string; event_class: string }>(
+      "SELECT status,event_type,event_class FROM task_events WHERE work_item_id='t-native-accept'",
+    );
+    expect(event.rows).toEqual([{ status: "accepted", event_type: "task.claimed", event_class: "lifecycle" }]);
+  });
 });
