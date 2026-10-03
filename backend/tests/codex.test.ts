@@ -8,6 +8,7 @@ import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { authenticatedTestApp, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -15,6 +16,7 @@ let tmp: string;
 let app: Hono;
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-codex-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

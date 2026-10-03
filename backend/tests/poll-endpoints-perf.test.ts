@@ -12,6 +12,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
 import { resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -48,6 +49,7 @@ function seedEventTail(workItemId: string, eventCount: number) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-poll-perf-"));
   process.env.LINGONG_DB = path.join(tmp, "poll.db");
   process.env.LINGONG_DATA = tmp;

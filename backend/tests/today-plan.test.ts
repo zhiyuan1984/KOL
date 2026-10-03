@@ -20,6 +20,7 @@ import { assertRuntimeSkill } from "../src/runtime/execution.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { getAgentSkills } from "../src/runtime/store.js";
 import type { Json, Row } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -104,6 +105,7 @@ function validBrief(overrides: Json = {}): Json {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-today-plan-"));
   process.env.LINGONG_DB = path.join(tmp, "today.db");
   process.env.LINGONG_DATA = tmp;

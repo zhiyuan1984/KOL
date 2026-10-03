@@ -14,6 +14,7 @@ import { resolveTaskIntent } from "../src/tasks/resolver.js";
 import { setTaskClassifier } from "../src/tasks/recognize.js";
 import { effectiveRuntimeSkillBody, effectiveSkillTemplate, saveSkillSop, writeSkillIntoBox } from "../src/host/skill-sop.js";
 import { knowledge } from "../src/routers/knowledge.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, any>;
 let tmp: string;
@@ -27,6 +28,7 @@ async function request(method: string, url: string, body?: unknown) {
   return { status: res.status, body: await res.json() as Json };
 }
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-interaction-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

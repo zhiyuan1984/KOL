@@ -9,6 +9,7 @@ import { setDiscoveryBriefRunner } from "../src/home-discovery.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 /**
  * AI发现 提交的人员资格锚点是 Agent（ADR-2026-10-03、CONST-05）：员工由
@@ -68,6 +69,7 @@ async function createEmployee(username: string): Promise<string> {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-discovery-auth-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

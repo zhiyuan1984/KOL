@@ -29,6 +29,7 @@ import {
   wendellProfile,
   type StarryProfile,
 } from "./fixtures/real-data/load.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let chatApp: Hono;
@@ -167,6 +168,7 @@ function insertUnboundCreator(portrait: Record<string, string>): void {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-real-data-"));
   process.env.LINGONG_DB = path.join(tmp, "real.db");
   process.env.LINGONG_DATA = tmp;

@@ -13,6 +13,7 @@ import {
 } from "../src/kolclaw/service.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -53,6 +54,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kolclaw-"));
   process.env.LINGONG_DB = path.join(tmp, "kolclaw.db");
   process.env.LINGONG_DATA = tmp;

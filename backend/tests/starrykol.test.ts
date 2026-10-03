@@ -20,6 +20,7 @@ import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -182,6 +183,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-emailmcp-"));
   process.env.LINGONG_DB = path.join(tmp, "emailmcp.db");
   process.env.LINGONG_DATA = tmp;

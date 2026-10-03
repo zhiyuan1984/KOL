@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { setConnectorConfig } from "../src/runtime/store.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -64,6 +65,7 @@ async function bindTool(id: string, toolName = "list_records"): Promise<void> {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-gate-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

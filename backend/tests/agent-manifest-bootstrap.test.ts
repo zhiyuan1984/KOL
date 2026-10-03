@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { writeRuntimeSkill } from "../src/host/skill-sop.js";
 import { getAgentSkills, getSkillConnectors, setAgentSkill } from "../src/runtime/store.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let previousEnv: Record<string, string | undefined> = {};
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   previousEnv = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"].map((key) => [key, process.env[key]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-agent-manifest-bootstrap-"));
   Object.assign(process.env, {

@@ -9,6 +9,7 @@ import { HttpFail } from "../src/host/errors.js";
 import { createConnectorOperationsRouter } from "../src/routers/connector-operations.js";
 import type { Json } from "../src/types.js";
 import { publishFixtureSkills } from "./helpers/skill-fixtures.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const CONNECTOR = "starrykol";
 const SKILL = "declared_fixture";
@@ -80,6 +81,7 @@ async function coverageSkill(skillId: string, connectorId?: string): Promise<Rec
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skill-mount-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

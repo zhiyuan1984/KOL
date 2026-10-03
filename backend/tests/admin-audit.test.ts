@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { AUDIT_PAYLOAD_PREVIEW_CHARS, audit, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-admin-audit-"));
   process.env.LINGONG_DB = path.join(tmp, "audit.db");
   process.env.LINGONG_DATA = tmp;

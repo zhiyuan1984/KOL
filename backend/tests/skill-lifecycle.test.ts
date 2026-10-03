@@ -7,6 +7,7 @@ import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { clearTaskRegistryCache } from "../src/tasks/registry.js";
 import { dataDir } from "../src/config.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -40,6 +41,7 @@ const NEW_SKILL = {
 };
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skill-life-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

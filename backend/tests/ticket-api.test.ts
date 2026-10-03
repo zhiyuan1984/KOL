@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -23,6 +24,7 @@ async function request(method: string, url: string, body?: unknown, headers: Rec
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-ticket-api-"));
   process.env.LINGONG_DB = path.join(tmp, "tickets.db");
   process.env.LINGONG_DATA = tmp;

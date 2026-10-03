@@ -8,9 +8,11 @@ import { HttpFail } from "../src/host/errors.js";
 import { runtimeErrorCode } from "../src/runtime/execution.js";
 import { setConnectorConfig } from "../src/runtime/store.js";
 import { createConnectorOperationsRouter } from "../src/routers/connector-operations.js";
+import { freshTestDatabase } from "./support/pg.js";
 let tmp: string;
 let env: Record<string, string | undefined>;
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV", "MEDIACRAWLER_MCP_URL"].map(k => [k, process.env[k]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "connector-probe-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });

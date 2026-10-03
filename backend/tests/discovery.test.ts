@@ -16,6 +16,7 @@ import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "../src/crawl/platforms.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const calls: string[] = [];
 const creatorCallArgs: Json[] = [];
@@ -126,6 +127,7 @@ async function confirmAndComplete(keywords = ["portable power", "camping battery
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-discovery-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

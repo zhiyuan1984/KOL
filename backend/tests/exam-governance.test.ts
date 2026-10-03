@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { resetConn } from "../src/db.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -47,6 +48,7 @@ async function employeeLogin(username = "examinee") {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-exam-gov-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
@@ -152,6 +154,7 @@ describe("exam governance (PROD-PLAT-07 / CONST-02)", () => {
 
 describe("exam demo endpoint ignores persona pass", () => {
   beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-exam-demo-"));
     process.env.LINGONG_DB = path.join(tmp, "test.db");
     process.env.LINGONG_DATA = tmp;

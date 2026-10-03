@@ -14,6 +14,7 @@ import {
 import type { Json } from "../src/types.js";
 import { CodexUnavailable } from "../src/worker/errors.js";
 import { completeTurnItems, hasUsableStarryReadResult, starryReadBlockedByApproval } from "../src/worker/session-items.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const WRITE_TOOLS = ["sendEmailNow", "changeLifecycleStage", "decryptKolContact", "updateKolProfile", "addKolProfile"];
 const calls: Array<{ name: string; args: Json }> = [];
@@ -59,7 +60,8 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
   let tmp = "";
   let previousMode: string | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-read-never-"));
     process.env.LINGONG_DB = path.join(tmp, "read-never.db");
     process.env.LINGONG_DATA = tmp;

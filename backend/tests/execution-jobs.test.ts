@@ -15,10 +15,12 @@ import {
   renewExecutionJobLease,
   retryFailedExecutionJob,
 } from "../src/execution-jobs/store.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-execution-jobs-"));
   process.env.LINGONG_DB = path.join(tmp, "jobs.db");
   process.env.LINGONG_DATA = tmp;

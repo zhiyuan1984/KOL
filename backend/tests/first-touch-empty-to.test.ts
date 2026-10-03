@@ -10,6 +10,7 @@ import { persistDraft } from "../src/host/api.js";
 import { enforceSend } from "../src/host/pep.js";
 import { seedAll } from "../src/seed.js";
 import type { Json, Row } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -82,6 +83,7 @@ function insertQiyou(email = ""): string {
 
 describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", () => {
   beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "qiyou-to-"));
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;

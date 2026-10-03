@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import { connectorIconsRouter } from "../src/routers/connector-icons.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 // Smallest well-formed 1x1 PNG (IHDR/IDAT/IEND with valid CRCs).
 const PNG_1X1 = Buffer.from(
@@ -52,7 +53,8 @@ function errorCode(body: Record<string, unknown>): unknown {
   return detail?.code ?? detail;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-icon-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
   resetConn();

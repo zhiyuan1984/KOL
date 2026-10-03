@@ -8,6 +8,7 @@ import { abortSessionRun, beginSessionAsk, markSessionRunning, publicQueue, rese
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -32,6 +33,7 @@ async function openSession(title = "排队会话") {
 
 describe("session run queue and stop", () => {
   beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-run-queue-"));
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;

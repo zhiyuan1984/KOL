@@ -10,6 +10,7 @@ import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { previewOpenApi } from "../src/runtime/openapi.js";
 import { assertSafeConnectorEndpoint } from "../src/runtime/http.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let server: http.Server | undefined;
@@ -18,7 +19,8 @@ const tool = { name: "list_records", description: "Read permitted records", inpu
   type: "object", properties: { query: { type: "string" }, id: { type: "string" } }, required: ["query"], additionalProperties: false,
 } } as Json;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "configurable-connectors-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "test.db"), LINGONG_DATA: tmp, AUTH_MODE: "enabled", NODE_ENV: "test" });
   resetConn();

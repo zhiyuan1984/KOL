@@ -8,6 +8,7 @@ import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { recognizeTaskIntent, setTaskClassifier } from "../src/tasks/recognize.js";
 import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 let tmp = "";
@@ -28,6 +29,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-recognize-"));
   process.env.LINGONG_DB = path.join(tmp, "recognize.db");
   process.env.LINGONG_DATA = tmp;

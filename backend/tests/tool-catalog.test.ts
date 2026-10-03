@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { getToolPolicy, setConnectorConfig, setToolPolicy } from "../src/runtime/store.js";
 import { deriveToolPolicy, registerDiscoveredToolPolicies } from "../src/runtime/tool-catalog.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let env: Record<string, string | undefined>;
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"].map(k => [k, process.env[k]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "tool-catalog-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });

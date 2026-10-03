@@ -12,6 +12,7 @@ import {
 } from "../src/runtime/skill-coverage.js";
 import { connectorInUseBySkill, ensureRuntimeSchema, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
 import { SKILL_FIXTURES_ROOT, publishFixtureSkills } from "./helpers/skill-fixtures.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const DECLARED: DeclaredTool = {
   connector_id: "starrykol",
@@ -26,7 +27,8 @@ function policy(connectorId: string, toolName: string, enabled: boolean, risk: "
   setToolPolicy(connectorId, toolName, { enabled, risk, access: risk === "L1" ? "read" : "write", schema_hash: HASH }, 0);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"].map((key) => [key, process.env[key]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "skill-coverage-"));
   Object.assign(process.env, {

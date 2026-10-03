@@ -10,6 +10,7 @@ import type { Hono } from "hono";
 import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -36,6 +37,7 @@ async function request(
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-q-"));
   process.env.LINGONG_DB = path.join(tmp, "q.db");
   process.env.LINGONG_DATA = tmp;

@@ -13,6 +13,7 @@ import { listAudit, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { stubResolveTaskIntent } from "../src/tasks/resolver.js";
 import type { OrgSnapshot } from "../src/approval/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 function cloneOrg(): OrgSnapshot {
   return JSON.parse(JSON.stringify(defaultOrgSnapshot())) as OrgSnapshot;
@@ -436,6 +437,7 @@ describe("expense approval host path", () => {
   }
 
   beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-approval-"));
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;

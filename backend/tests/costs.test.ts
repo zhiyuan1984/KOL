@@ -17,11 +17,13 @@ import {
 import { HttpFail } from "../src/host/errors.js";
 import { costsRouter } from "../src/routers/costs.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let env: Record<string, string | undefined>;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"].map((k) => [k, process.env[k]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "costs-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });

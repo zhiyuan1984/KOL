@@ -8,6 +8,7 @@ import { canDecideCurrent, employeeForUser } from "../src/approval/inbox.js";
 import { createWorkApproval } from "../src/gateway/wecom.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -52,6 +53,7 @@ async function login(username: string) {
 
 describe("approval inbox by login name", () => {
   beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-inbox-"));
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;

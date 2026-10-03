@@ -9,6 +9,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { setPersona } from "../src/host/persona.js";
 import { assertUsableKnowledge, resolveForSkill } from "../src/host/knowledge.js";
 import type { Row } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -77,6 +78,7 @@ async function createBase(input: {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kbbase-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

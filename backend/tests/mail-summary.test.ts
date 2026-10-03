@@ -11,12 +11,14 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { codexRecognizeThreadConfig, setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { collectDealMemoryItems } from "../src/worker/session-items.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const fakeCodex = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/fake-codex.mjs");
 
 let tmp: string;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-summary-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

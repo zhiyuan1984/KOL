@@ -20,6 +20,7 @@ import {
 } from "../src/discovery-errors.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const STREAMABLE_404 = "Streamable HTTP error: Error POSTing to endpoint (HTTP 404)";
 const FETCH_FAILED = "fetch failed";
@@ -55,6 +56,7 @@ function mockCrawl(handler: (name: string) => Json | Promise<Json> | never) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-disc-conn-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

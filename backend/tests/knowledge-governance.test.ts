@@ -8,6 +8,7 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { setPersona } from "../src/host/persona.js";
 import { resolveForSkill, resolveMailTemplate } from "../src/host/knowledge.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -55,6 +56,7 @@ async function createPublished(input: Json): Promise<Json> {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kbgov-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

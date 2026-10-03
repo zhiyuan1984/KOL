@@ -20,6 +20,7 @@ import { seedAll } from "../src/seed.js";
 import { clearTaskRegistryCache } from "../src/tasks/registry.js";
 import type { Row, Json } from "../src/types.js";
 import type { WorkerProgress } from "../src/worker/progress.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -130,6 +131,7 @@ function workItemIdOf(run: Json): string {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-home-discovery-trace-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

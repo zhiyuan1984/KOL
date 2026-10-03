@@ -19,6 +19,7 @@ import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { clearTaskRegistryCache, taskDefinition } from "../src/tasks/registry.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const calls: string[] = [];
 const creatorCallArgs: Json[] = [];
@@ -123,6 +124,7 @@ async function completeRun(body: Json = {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-home-discovery-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

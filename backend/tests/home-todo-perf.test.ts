@@ -11,6 +11,7 @@ import { resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
 import { resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -26,6 +27,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-todo-perf-"));
   process.env.LINGONG_DB = path.join(tmp, "todo.db");
   process.env.LINGONG_DATA = tmp;

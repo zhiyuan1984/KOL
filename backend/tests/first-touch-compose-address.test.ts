@@ -17,6 +17,7 @@ import {
 import { extractTaskEntities, resolveTaskIntent, stubResolveTaskIntent } from "../src/tasks/resolver.js";
 import type { Json } from "../src/types.js";
 import { completeTurnItems } from "../src/worker/session-items.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const LARRY = "larry.zhao@amperetime.com";
 const QIYOU = "qiyou1984@gmail.com";
@@ -98,7 +99,8 @@ describe("first-touch Skill required_inputs: 发件 / 收件 / 主题", () => {
 });
 
 describe("compose never asks first-touch for a conversation id", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await freshTestDatabase();
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ft-mail-"));
     process.env.LINGONG_DATA = tmp;
     process.env.LINGONG_DB = path.join(tmp, "t.db");

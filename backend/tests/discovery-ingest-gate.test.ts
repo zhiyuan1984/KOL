@@ -17,6 +17,7 @@ import { DEMO_USER } from "../src/config.js";
 import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json, Row } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const starryCalls: Array<{ name: string; args: Json }> = [];
 let tmp = "";
@@ -122,6 +123,7 @@ async function readyRun(extraCreators?: Json[]): Promise<{ runId: string; candid
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-ingest-gate-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

@@ -8,6 +8,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { ensureStarryHomeLibrary, resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -30,6 +31,7 @@ async function call(method: string, url: string, body?: unknown, useCookie = coo
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-identity-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

@@ -10,6 +10,7 @@ import { getToolPolicy } from "../src/runtime/store.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { skillRuntimeRouter } from "../src/routers/skill-runtime.js";
 import { runtimeDiscoveryRouter } from "../src/routers/runtime-discovery.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -56,6 +57,7 @@ const validConfig = {
 const hash = "a".repeat(64);
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-runtime-governance-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

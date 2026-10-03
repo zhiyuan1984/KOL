@@ -11,6 +11,7 @@ import { nextRunAt, nextScheduledAt } from "../src/cron/schedule.js";
 import { CRON_HANDLERS } from "../src/cron/handlers.js";
 import { releaseFollowOwnershipIfEligible } from "../src/gateway/ownership-release.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 let tmp: string;
@@ -91,6 +92,7 @@ function insertMail(collaborationId: string, lastAt: string) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-cron-"));
   process.env.LINGONG_DB = path.join(tmp, "cron.db");
   process.env.LINGONG_DATA = tmp;

@@ -19,6 +19,7 @@ import { emailCardPayload, persistDraft } from "../src/host/api.js";
 import { emailMcpResultCard } from "../src/starrykol/service.js";
 import { classify } from "../src/host/intent.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -79,6 +80,7 @@ function draftOn(sid: string, extra: Json = {}) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

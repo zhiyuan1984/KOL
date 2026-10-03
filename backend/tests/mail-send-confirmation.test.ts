@@ -14,6 +14,7 @@ import { sendDraft } from "../src/gateway/send.js";
 import { callStarryKolTool, executeStarryKolTask } from "../src/starrykol/service.js";
 import { starry } from "../src/adapters/clients.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -32,6 +33,7 @@ function confirmation() {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-send-confirm-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

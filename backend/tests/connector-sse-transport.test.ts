@@ -10,6 +10,7 @@ import { resetConn } from "../src/db.js";
 import { RemoteMcpClient } from "../src/mcp/remote.js";
 import { connectorOptions, type RuntimeContext } from "../src/runtime/execution.js";
 import { validateConnectorConfig } from "../src/runtime/store.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const fixtureTool = {
   name: "lookup_record",
@@ -93,6 +94,7 @@ const guardedFetch: typeof fetch = async (input, init) => {
 const context: RuntimeContext = { agentId: "agent:connector-sse", skillId: "connector_sse_probe", userId: "usr_sse", runId: "run_sse" };
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-sse-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

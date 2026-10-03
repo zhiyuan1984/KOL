@@ -7,6 +7,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { publishSession, subscribeSession, subscriberCount } from "../src/host/session-events.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -27,6 +28,7 @@ async function request(method: string, url: string, body?: unknown) {
 
 describe("session live events", () => {
   beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-stream-"));
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;

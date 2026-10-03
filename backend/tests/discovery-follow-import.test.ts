@@ -30,6 +30,7 @@ import { getConn, listAudit, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json, Row } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const crawlCalls: string[] = [];
 const starryCalls: Array<{ name: string; args: Json }> = [];
@@ -94,6 +95,7 @@ async function readyCandidate(): Promise<Json> {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-follow-import-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

@@ -9,6 +9,7 @@ import { failInterruptedTaskRuns } from "../src/host/task-run-recovery.js";
 import { markSessionRunning, publicQueue, resetRunControl } from "../src/host/run-control.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -64,6 +65,7 @@ function lastEvent(rows: TaskEventRow[]): TaskEventRow | undefined {
 
 describe("task run lifecycle honesty", () => {
   beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-task-run-"));
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;

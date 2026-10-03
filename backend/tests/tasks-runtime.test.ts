@@ -13,6 +13,7 @@ import { profileFor } from "../src/profiles.js";
 import { seedAll } from "../src/seed.js";
 import { resolveTaskIntent, stubResolveTaskIntent } from "../src/tasks/resolver.js";
 import { ALLOWED_TASK_MCP, taskDefinitions } from "../src/tasks/registry.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 let tmp: string;
@@ -29,6 +30,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-tasks-"));
   process.env.LINGONG_DB = path.join(tmp, "tasks.db");
   process.env.LINGONG_DATA = tmp;

@@ -10,6 +10,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -39,6 +40,7 @@ function bindLarry(): void {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-sync-"));
   process.env.LINGONG_DB = path.join(tmp, "mail.db");
   process.env.LINGONG_DATA = tmp;

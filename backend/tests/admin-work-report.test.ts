@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, nowIso, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -38,6 +39,7 @@ function insertTicket(id: string, owner: string, status: string, title = id) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-admin-work-report-"));
   process.env.LINGONG_DB = path.join(tmp, "report.db");
   process.env.LINGONG_DATA = tmp;

@@ -17,6 +17,7 @@ import { mapUser, withScopedUser, requireConnector, requireStageWrite } from "..
 import { kolAgentScopeContext } from "../src/contract-scope.js";
 import { runCodex } from "../src/worker/runner.js";
 import { isolatedCodexModelConfig } from "../src/worker/auth.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let cleanup: Array<() => Promise<unknown>>;
@@ -28,7 +29,8 @@ const tool = (name = "lookup"): Json => ({ name, description: "Look up a public 
 } });
 const denied = (code: string) => ({ detail: { code } });
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-runtime-execution-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

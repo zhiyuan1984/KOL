@@ -15,6 +15,7 @@ import {
   listPublishedExperts,
   setExpertPublishOverride,
 } from "../src/experts.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -78,6 +79,7 @@ function sessionCount(expertId: string): number {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-experts-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

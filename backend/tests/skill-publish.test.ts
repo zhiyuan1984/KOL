@@ -8,6 +8,7 @@ import { seedAll } from "../src/seed.js";
 import { skillCatalog } from "../src/host/skills-catalog.js";
 import { runtimeSkillsRoot } from "../src/host/skill-sop.js";
 import { clearTaskRegistryCache, taskDefinition } from "../src/tasks/registry.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -42,6 +43,7 @@ const NEW_SKILL = {
 };
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skill-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

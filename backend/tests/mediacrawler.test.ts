@@ -23,6 +23,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { RemoteMcpClient } from "../src/mcp/remote.js";
 import { seedAll } from "../src/seed.js";
 import type { Row } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 let tmp = "";
@@ -117,6 +118,7 @@ async function startMockMcp(): Promise<void> {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mediacrawler-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

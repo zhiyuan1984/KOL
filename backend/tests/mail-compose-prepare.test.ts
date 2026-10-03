@@ -17,6 +17,7 @@ import {
 } from "../src/host/knowledge.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 type Reply = { status: number; body: Json; text: string };
@@ -123,6 +124,7 @@ function detailCode(response: Reply): string {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-compose-prepare-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;

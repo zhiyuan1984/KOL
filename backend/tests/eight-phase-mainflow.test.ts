@@ -10,6 +10,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { eightPhaseWalkItems, sopPhaseByStage, SOP_PHASES } from "../src/sops.js";
 import { approvalKindForStage, FACT_AUTO_MODES, MAIN_STAGES } from "../src/stages.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -128,6 +129,7 @@ async function hopFact(sid: string, target: string, mail: { subject: string; bod
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-eight-phase-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

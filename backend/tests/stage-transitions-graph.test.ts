@@ -13,6 +13,7 @@ import {
   loadStageTransitionGraph,
   resetStageTransitionGraphCache,
 } from "../src/stage-transitions-graph.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 function insertCollab(id: string, handle: string, stageCode: string): void {
   getConn().prepare(
@@ -120,7 +121,8 @@ describe("stage transition graph (ADR-027 Host gate)", () => {
 describe("hostConfirmStage enforces the graph (no LIVE)", () => {
   let tmp: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-graph-"));
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;

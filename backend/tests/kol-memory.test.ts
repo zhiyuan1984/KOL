@@ -28,6 +28,7 @@ import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import * as recognize from "../src/tasks/recognize.js";
 import { taskDefinition, taskDefinitions } from "../src/tasks/registry.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -62,6 +63,7 @@ function seedProfile(kolUid: string, extra: Record<string, string> = {}) {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kol-mem-"));
   process.env.LINGONG_DB = path.join(tmp, "mem.db");
   process.env.LINGONG_DATA = tmp;

@@ -10,6 +10,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { bundledSkillPath } from "../src/host/skill-sop.js";
 import { resolveMailTemplate } from "../src/host/knowledge.js";
 import { DEMO_USER } from "../src/config.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
 
@@ -50,6 +51,7 @@ async function ask(prompt: string, extra: Json = {}, expectStatus = 200): Promis
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kb-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

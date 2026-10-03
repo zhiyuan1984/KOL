@@ -10,6 +10,7 @@ import { loadTodayTaskResults, writeTodayTaskResults } from "../src/host/today-t
 import { parseTaskFieldUpdatesFallback } from "../src/tasks/task-field-updates.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -33,6 +34,7 @@ function localDatePlus(days: number): string {
 }
 
 beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-task-fields-"));
   process.env.LINGONG_DB = path.join(tmp, "tasks.db");
   process.env.LINGONG_DATA = tmp;

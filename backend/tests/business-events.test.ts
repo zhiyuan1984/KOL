@@ -13,6 +13,7 @@ import {
 } from "../src/business-events.js";
 import { getConn, resetConn } from "../src/db.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono | null = null;
@@ -24,7 +25,8 @@ async function request(method: string, url: string) {
   return { status: response.status, body: text ? (JSON.parse(text) as Json) : {} };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-events-"));
   process.env.LINGONG_DB = path.join(tmp, "events.db");
   process.env.LINGONG_DATA = tmp;
