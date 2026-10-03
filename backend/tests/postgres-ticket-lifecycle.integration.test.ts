@@ -49,11 +49,17 @@ describePostgres("native PostgreSQL ticket lifecycle", () => {
         rules_version TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS ticket_acceptance_history (
+        id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        acceptance_event_id TEXT NOT NULL, acceptance_version INTEGER NOT NULL, accepted_at TEXT NOT NULL,
+        owner_user_id_at_acceptance TEXT NOT NULL, accepted_by_user_id TEXT NOT NULL, evidence_json JSONB NOT NULL,
+        rules_version TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(ticket_id,acceptance_version), UNIQUE(acceptance_event_id)
+      );
       CREATE TABLE IF NOT EXISTS ticket_audit_events (
         id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
         actor_user_id TEXT NOT NULL, command TEXT NOT NULL, request_json JSONB NOT NULL, result_json JSONB NOT NULL, created_at TEXT NOT NULL
       );
-      TRUNCATE ticket_audit_events, ticket_acceptances, ticket_command_receipts, task_events, tickets CASCADE;
+      TRUNCATE ticket_audit_events, ticket_acceptance_history, ticket_acceptances, ticket_command_receipts, task_events, tickets CASCADE;
       INSERT INTO tickets (id,owner_user_id,task_type,title,status,data_version,created_at,updated_at)
       VALUES ('t-native-1','employee:native','manual_ticket','原生生命周期测试','waiting',1,'2031-01-01T00:00:00.000Z','2031-01-01T00:00:00.000Z');
     `);
@@ -143,5 +149,20 @@ describePostgres("native PostgreSQL ticket lifecycle", () => {
       acceptanceEvidence: { note: "受理后验收" },
     });
     expect(completed).toMatchObject({ status: "completed", version: 3 });
+    const reopened = await transitionTicketLifecyclePostgres({
+      ticketId: "t-native-accept",
+      action: "reopen",
+      expectedVersion: 3,
+      idempotencyKey: "native-ticket-reopen-idempotency-0001",
+      actorId: "employee:native",
+      reason: "验收后发现仍需补充交付物",
+    });
+    expect(reopened).toMatchObject({ status: "pending", version: 4 });
+    const afterReopen = await postgresPool().query<{ current_count: string; history_count: string; reopen_events: string }>(
+      `SELECT (SELECT COUNT(*) FROM ticket_acceptances WHERE ticket_id='t-native-accept')::text AS current_count,
+              (SELECT COUNT(*) FROM ticket_acceptance_history WHERE ticket_id='t-native-accept')::text AS history_count,
+              (SELECT COUNT(*) FROM task_events WHERE work_item_id='t-native-accept' AND event_type='task.reopened')::text AS reopen_events`,
+    );
+    expect(afterReopen.rows[0]).toEqual({ current_count: "0", history_count: "1", reopen_events: "1" });
   });
 });

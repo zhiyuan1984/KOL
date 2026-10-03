@@ -444,6 +444,7 @@ export type TaskDetail = Task & {
   watchers?: Array<Record<string, unknown>>;
   basis_refs?: Array<Record<string, unknown>>;
   acceptance?: Record<string, unknown> | null;
+  acceptance_history?: Array<Record<string, unknown>>;
   audit?: Array<Record<string, unknown>>;
 };
 
@@ -477,11 +478,12 @@ export type Ticket = Task & {
   watchers?: Array<Record<string, unknown>>;
   basis_refs?: Array<Record<string, unknown>>;
   acceptance?: Record<string, unknown> | null;
+  acceptance_history?: Array<Record<string, unknown>>;
   audit?: Array<Record<string, unknown>>;
 };
 
 export type TicketCommandInput =
-  | { action: "accept" | "cancel"; expected_version: number; idempotency_key: string; reason?: string }
+  | { action: "accept" | "cancel" | "reopen"; expected_version: number; idempotency_key: string; reason?: string }
   | { action: "complete"; expected_version: number; idempotency_key: string; acceptance_evidence: Record<string, unknown> }
   | { action: "assign"; expected_version: number; idempotency_key: string; assignee_person_ref: string; assignee_unit_id: string; cross_group_reason?: string };
 

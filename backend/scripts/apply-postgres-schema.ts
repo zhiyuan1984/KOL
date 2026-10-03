@@ -513,6 +513,37 @@ const migrations: SchemaMigration[] = [
           AND status <> 'disabled'`,
     ],
   },
+  {
+    // `ticket_acceptances` remains a current-state projection. Every formal
+    // acceptance is preserved here so reopening can clear the projection
+    // without deleting the historical acceptance fact.
+    id: "20261003_ticket_acceptance_history",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ticket_acceptance_history (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        acceptance_event_id TEXT NOT NULL,
+        acceptance_version INTEGER NOT NULL CHECK (acceptance_version >= 1),
+        accepted_at TIMESTAMPTZ NOT NULL,
+        owner_user_id_at_acceptance TEXT NOT NULL,
+        accepted_by_user_id TEXT NOT NULL,
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        rules_version TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(ticket_id,acceptance_version),
+        UNIQUE(acceptance_event_id)
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_acceptance_history_ticket_idx ON ticket_acceptance_history(ticket_id,accepted_at DESC)",
+      `INSERT INTO ticket_acceptance_history
+       (id,ticket_id,acceptance_event_id,acceptance_version,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
+       SELECT 'legacy-current:' || ticket_id,ticket_id,COALESCE(acceptance_event_id,'legacy-current:' || ticket_id),1,
+              accepted_at::timestamptz,owner_user_id_at_acceptance,accepted_by_user_id,
+              CASE WHEN jsonb_typeof(evidence_json::jsonb) IS NULL THEN '{}'::jsonb ELSE evidence_json::jsonb END,
+              rules_version,created_at::timestamptz
+         FROM ticket_acceptances
+       ON CONFLICT DO NOTHING`,
+    ],
+  },
 ];
 
 const client = new Client({ connectionString: databaseUrl });

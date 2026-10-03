@@ -762,8 +762,8 @@ tasks.post("/tickets/:id/commands", async (c) => {
   const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
   const body = await c.req.json().catch(() => ({})) as Json;
   const action = String(body.action || "");
-  if (action !== "assign" && action !== "accept" && action !== "complete" && action !== "cancel") {
-    throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持转办、受理、完成或取消工单命令" });
+  if (action !== "assign" && action !== "accept" && action !== "complete" && action !== "cancel" && action !== "reopen") {
+    throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持转办、受理、完成、取消或重开工单命令" });
   }
   const requiredAction = action === "complete" ? "complete" : action;
   if (!ticket.allowed_actions.includes(requiredAction)) {
@@ -785,7 +785,7 @@ tasks.post("/tickets/:id/commands", async (c) => {
   }
   const transitionInput = {
     ticketId: ticket.id,
-    action: action as "accept" | "complete" | "cancel",
+    action: action as "accept" | "complete" | "cancel" | "reopen",
     expectedVersion,
     idempotencyKey,
     actorId: ownerId(),

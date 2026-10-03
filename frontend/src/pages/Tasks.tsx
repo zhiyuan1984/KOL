@@ -229,7 +229,7 @@ export default function Tasks() {
     }
   };
 
-  const submitTicketCommand = async (task: Task, action: "accept" | "complete") => {
+  const submitTicketCommand = async (task: Task, action: "accept" | "complete" | "reopen") => {
     const version = Math.max(1, Number(task.data_version || 1));
     if (action === "accept" && !window.confirm("确认受理该工单？受理不会自动完成工单。")) return;
     let acceptanceEvidence: Record<string, unknown> | undefined;
@@ -239,15 +239,20 @@ export default function Tasks() {
       if (!window.confirm("确认以这条证据完成验收？完成后将形成不可变验收事实。")) return;
       acceptanceEvidence = { note: note.trim(), submitted_from: "ticket_center" };
     }
+    const reopenReason = action === "reopen" ? window.prompt("请填写重开原因：") : undefined;
+    if (action === "reopen" && !reopenReason?.trim()) return;
+    if (action === "reopen" && !window.confirm("确认重开工单？当前验收投影将被撤销，但历史验收事实会保留。")) return;
     setActionBusy(`${action}:${task.id}`);
     try {
       const result = await api.ticketCommand(task.id, action === "complete"
         ? { action, expected_version: version, idempotency_key: `ticket-complete-${crypto.randomUUID()}`, acceptance_evidence: acceptanceEvidence! }
-        : { action, expected_version: version, idempotency_key: `ticket-accept-${crypto.randomUUID()}` });
+        : action === "reopen"
+          ? { action, expected_version: version, idempotency_key: `ticket-reopen-${crypto.randomUUID()}`, reason: reopenReason!.trim() }
+          : { action, expected_version: version, idempotency_key: `ticket-accept-${crypto.randomUUID()}` });
       await load();
       await openDetail({ ...task, ...(result.ticket || {}), data_version: result.version });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : action === "accept" ? "受理失败" : "验收失败");
+      setError(cause instanceof Error ? cause.message : action === "accept" ? "受理失败" : action === "reopen" ? "重开失败" : "验收失败");
     } finally {
       setActionBusy("");
     }
@@ -392,8 +397,9 @@ export default function Tasks() {
         {Array.isArray(selected.assignments) && selected.assignments.length ? <section className="task-detail-facts"><h3>责任与关注</h3><dl><div><dt>当前主受理人</dt><dd>{String(selected.assignments.find((item) => item.status === "active" && item.role === "primary")?.assignee_person_ref || "—")}</dd></div><div><dt>关注人</dt><dd>{Array.isArray(selected.watchers) && selected.watchers.length ? selected.watchers.filter((item) => item.status === "active").map((item) => String(item.watcher_person_ref || item.watcher_user_id || "")).filter(Boolean).join("、") || "—" : "—"}</dd></div></dl></section> : null}
         {Array.isArray(selected.basis_refs) && selected.basis_refs.length ? <section className="task-detail-facts"><h3>来源依据</h3><ul>{selected.basis_refs.map((item, index) => <li key={`${String(item.source_type || "basis")}-${String(item.source_id || index)}`}>{String(item.source_type || "来源")} · {String(item.source_id || "—")}{item.occurred_at ? ` · ${formatTime(String(item.occurred_at))}` : ""}</li>)}</ul></section> : null}
         {selected.acceptance ? <section className="task-detail-facts"><h3>验收事实</h3><p>验收人：{String(selected.acceptance.accepted_by_user_id || "—")} · {formatTime(String(selected.acceptance.accepted_at || ""))}</p></section> : null}
+        {Array.isArray(selected.acceptance_history) && selected.acceptance_history.length ? <section className="task-detail-facts"><h3>验收历史</h3><ul>{selected.acceptance_history.map((item, index) => <li key={`${String(item.acceptance_version || index)}-${String(item.accepted_at || "")}`}>第 {String(item.acceptance_version || index + 1)} 次 · {String(item.accepted_by_user_id || "—")} · {formatTime(String(item.accepted_at || ""))}</li>)}</ul></section> : null}
         <section><h3>执行事件 {liveRunEvents.connected ? <small className="muted">实时更新中</small> : liveRunEvents.fallback ? <small className="muted">正在以安全补读更新</small> : null}</h3>{(liveRunEvents.events.length ? liveRunEvents.events : events).length ? <ol className="task-detail-events">{(liveRunEvents.events.length ? liveRunEvents.events : events).map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section>
-        <div className="task-detail-actions">{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("accept") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "accept")} disabled={Boolean(actionBusy)}>受理工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("complete") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "complete")} disabled={Boolean(actionBusy)}>提交验收完成</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("edit") ? <button type="button" className="button" onClick={() => setEditTarget(selected)}>编辑业务字段</button> : null}{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
+        <div className="task-detail-actions">{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("accept") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "accept")} disabled={Boolean(actionBusy)}>受理工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("complete") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "complete")} disabled={Boolean(actionBusy)}>提交验收完成</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("reopen") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "reopen")} disabled={Boolean(actionBusy)}>重开工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("edit") ? <button type="button" className="button" onClick={() => setEditTarget(selected)}>编辑业务字段</button> : null}{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
       </aside></div> : null}
     </main>
   );
