@@ -15,6 +15,15 @@
   min-height: 0;
 }
 
+.admin-body:has(> .kbv-filter-browser) {
+  padding: 0;
+}
+
+.admin-body:has(> .kbv-filter-browser) > .kbv-filter-browser {
+  width: 100%;
+  max-width: none;
+}
+
 .main > .kbv-page {
   flex: 1 1 auto;
   min-height: 0;
@@ -1098,7 +1107,7 @@
   grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
-  border-top: 1px solid var(--border);
+  border-top: 0;
 }
 
 .kbv-filter-pane {
@@ -1114,7 +1123,7 @@
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 0 var(--space-4) var(--space-2);
+  padding: var(--space-2) var(--space-4);
 }
 
 .kbv-filter-scroll .kbv-search {
@@ -1208,6 +1217,27 @@
   border-style: dashed;
 }
 
+.kbv-filter-browser .kbv-chip {
+  border: 0;
+  box-shadow: none;
+  background: none;
+  padding-inline: var(--space-1);
+}
+
+.kbv-filter-browser .kbv-chip:hover {
+  background: var(--bg-elevated);
+}
+
+.kbv-filter-browser .kbv-chip[aria-pressed="true"] {
+  border: 0;
+  box-shadow: none;
+  background: none;
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: var(--focus-ring-offset);
+}
+
 /* 弹窗里的下划线 tab 行允许换行（新建知识弹窗的类型 / 适用品牌）。 */
 .kbv-dialog .kbv-scope-tabs {
   flex-wrap: wrap;
@@ -1222,17 +1252,34 @@
 .kbv-filter-actions {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: auto auto;
+  justify-content: start;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-1) var(--space-4);
   border-top: 1px solid var(--border);
   background: var(--bg);
 }
 
-.kbv-filter-actions .btn {
-  min-width: 0;
-  justify-content: center;
+.kbv-text-action {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-ui);
+  min-height: var(--chip-h);
+  padding: 0 var(--space-1);
+  cursor: pointer;
   white-space: nowrap;
+}
+
+.kbv-text-action:hover { text-decoration: underline; }
+.kbv-text-action:disabled { color: var(--text-muted); cursor: default; text-decoration: none; }
+.kbv-text-action:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+
+.kbv-filter-actions .kbv-text-action {
+  font-size: var(--ds-font-ui);
 }
 
 .kbv-browser {
@@ -1245,16 +1292,16 @@
 
 .kbv-browser-list {
   flex: 0 0 auto;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-3);
 }
 
 .kbv-browser-list-head {
-  min-height: var(--control-h-lg);
+  min-height: var(--chip-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4) var(--space-2);
+  padding: var(--space-1) var(--space-4);
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
 }
@@ -1266,10 +1313,6 @@
   white-space: nowrap;
 }
 
-.kbv-pagination .btn {
-  min-height: var(--chip-h);
-}
-
 .kbv-browser-records {
   display: grid;
   grid-template-columns: 1fr;
@@ -1278,12 +1321,12 @@
 
 .kbv-browser-record {
   min-width: 0;
-  min-height: var(--control-h-lg);
+  min-height: var(--chip-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-4);
   border: 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
@@ -1298,8 +1341,8 @@
 }
 
 .kbv-browser-record[aria-current="true"] {
-  box-shadow: inset 0 calc(var(--focus-ring-width) * -1) 0 var(--accent);
   background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+  font-weight: 600;
 }
 
 .kbv-browser-record .kbv-record-title {
@@ -1336,6 +1379,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-top: 1px solid var(--border);
+  container-type: inline-size;
 }
 
 .kbv-browser .kbv-rail-head {
@@ -1362,12 +1407,29 @@
 }
 
 .kbv-browser .kbv-rail-body section + section {
-  margin-top: var(--space-4);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
 }
 
 .kbv-browser .kbv-rail-body h3 {
   font-size: var(--ds-font-ui);
   line-height: var(--ds-line-ui);
+}
+
+.kbv-browser .kbv-rail-body section {
+  width: 100%;
+}
+
+.kbv-browser .kbv-properties {
+  grid-template-columns: 1fr;
+  gap: var(--space-2) var(--space-4);
+}
+
+@container (min-width: 720px) {
+  .kbv-browser .kbv-properties {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .kbv-browser .kbv-properties {
