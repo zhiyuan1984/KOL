@@ -29,6 +29,7 @@ export async function runBullMqExecutionWorker(options: { workerId?: string; con
   const redisUrl = required("REDIS_URL", process.env.REDIS_URL);
   const workerId = options.workerId || process.env.EXECUTION_WORKER_ID || `execution-${randomUUID()}`;
   const concurrency = Math.max(1, Math.min(32, Number(options.concurrency || process.env.EXECUTION_WORKER_CONCURRENCY || 4)));
+  const leaseMs = Math.max(5_000, Number(process.env.EXECUTION_LEASE_MS || 60_000));
   const pool = new Pool({ connectionString: databaseUrl, max: 3 });
   const client = await pool.connect();
   const redis = new Redis(redisUrl, { maxRetriesPerRequest: null });
@@ -40,7 +41,7 @@ export async function runBullMqExecutionWorker(options: { workerId?: string; con
     async (bullJob) => {
       const executionJobId = String(bullJob.data.execution_job_id || "");
       if (!executionJobId) throw new Error("BullMQ message is missing execution_job_id");
-      const result = await processExecutionJobById(executionJobId, workerId);
+      const result = await processExecutionJobById(executionJobId, workerId, { lease_ms: leaseMs });
       return result || { execution_job_id: executionJobId, outcome: "duplicate" };
     },
     { connection: redis, concurrency },
@@ -62,7 +63,7 @@ export async function runBullMqExecutionWorker(options: { workerId?: string; con
     }
   }, Math.max(5_000, Number(process.env.EXECUTION_HEARTBEAT_MS || 15_000)));
   tick.unref();
-  console.log(`[execution-worker] started ${workerId} (postgres + BullMQ, concurrency=${concurrency})`);
+  console.log(`[execution-worker] started ${workerId} (postgres + BullMQ, concurrency=${concurrency}, lease_ms=${leaseMs})`);
   try {
     while (!stopping) await new Promise((resolve) => setTimeout(resolve, 200));
   } finally {

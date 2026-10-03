@@ -4,6 +4,7 @@ import {
   claimExecutionJobById,
   claimNextExecutionJob,
   failExecutionJob,
+  renewExecutionJobLease,
   type ClaimedExecutionJob,
 } from "./store.js";
 
@@ -20,7 +21,7 @@ export type ExecutionDispatchResult = {
  * carry an execution_job_id; this dispatcher keeps the database claim and the
  * terminal receipt authoritative across SQLite and BullMQ consumers.
  */
-export async function dispatchClaimedExecutionJob(claimed: ClaimedExecutionJob): Promise<ExecutionDispatchResult> {
+async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): Promise<ExecutionDispatchResult> {
   const id = String(claimed.id);
   const jobType = String(claimed.job_type);
   try {
@@ -45,18 +46,53 @@ export async function dispatchClaimedExecutionJob(claimed: ClaimedExecutionJob):
   }
 }
 
-export async function processNextExecutionJob(workerId = "execution-worker"): Promise<ExecutionDispatchResult | null> {
-  const claimed = claimNextExecutionJob(workerId);
+export type ExecutionDispatchOptions = { lease_ms?: number; renew_ms?: number };
+
+/** Keep a job's database claim alive while an external handler is still
+ * executing. Renewal is ownership-scoped so a stale worker cannot resurrect a
+ * claim later owned by another consumer. */
+export async function dispatchClaimedExecutionJob(
+  claimed: ClaimedExecutionJob,
+  options: ExecutionDispatchOptions = {},
+): Promise<ExecutionDispatchResult> {
+  const leaseMs = Math.max(1_000, Number(options.lease_ms || 60_000));
+  const renewMs = Math.max(500, Math.min(leaseMs - 100, Number(options.renew_ms || Math.floor(leaseMs / 3))));
+  const timer = setInterval(() => {
+    try {
+      if (!renewExecutionJobLease(String(claimed.id), String(claimed.worker_id), { lease_ms: leaseMs })) {
+        console.warn("[execution-dispatcher] lease renewal skipped", { executionJobId: claimed.id, workerId: claimed.worker_id });
+      }
+    } catch (error) {
+      console.error("[execution-dispatcher] lease renewal failed", { executionJobId: claimed.id, workerId: claimed.worker_id, error });
+    }
+  }, renewMs);
+  timer.unref();
+  try {
+    return await dispatchClaimedExecutionJobInner(claimed);
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+export async function processNextExecutionJob(
+  workerId = "execution-worker",
+  options: ExecutionDispatchOptions = {},
+): Promise<ExecutionDispatchResult | null> {
+  const claimed = claimNextExecutionJob(workerId, { lease_ms: options.lease_ms });
   if (!claimed) return null;
-  return dispatchClaimedExecutionJob(claimed);
+  return dispatchClaimedExecutionJob(claimed, options);
 }
 
 /**
  * Broker consumers may redeliver the same message. The authoritative claim
  * transitions queued/retrying -> running, so a second delivery is harmless.
  */
-export async function processExecutionJobById(executionJobId: string, workerId = "execution-worker"): Promise<ExecutionDispatchResult | null> {
-  const claimed = claimExecutionJobById(executionJobId, workerId);
+export async function processExecutionJobById(
+  executionJobId: string,
+  workerId = "execution-worker",
+  options: ExecutionDispatchOptions = {},
+): Promise<ExecutionDispatchResult | null> {
+  const claimed = claimExecutionJobById(executionJobId, workerId, { lease_ms: options.lease_ms });
   if (!claimed) return null;
-  return dispatchClaimedExecutionJob(claimed);
+  return dispatchClaimedExecutionJob(claimed, options);
 }

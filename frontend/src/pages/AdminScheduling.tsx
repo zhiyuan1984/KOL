@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type ExecutionJob, type ExecutionWorker, type SchedulingRule } from "../api";
+import { api, type ExecutionJob, type ExecutionOutboxHealth, type ExecutionWorker, type SchedulingRule } from "../api";
 
 function time(value?: string | null): string {
   if (!value) return "—";
@@ -37,7 +37,7 @@ export default function AdminScheduling() {
   const [status, setStatus] = useState("");
   const [jobs, setJobs] = useState<ExecutionJob[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [outbox, setOutbox] = useState<Record<string, number>>({});
+  const [outbox, setOutbox] = useState<ExecutionOutboxHealth>({});
   const [workers, setWorkers] = useState<ExecutionWorker[]>([]);
   const [rules, setRules] = useState<SchedulingRule[]>([]);
   const [backlog, setBacklog] = useState<{ count: number; oldest_created_at: string | null }>({ count: 0, oldest_created_at: null });
@@ -86,7 +86,10 @@ export default function AdminScheduling() {
     }
   };
 
-  const attention = useMemo(() => Number(counts.failed || 0) + Number(counts.uncertain || 0) + workers.filter((worker) => worker.stale).length, [counts, workers]);
+  const attention = useMemo(
+    () => Number(counts.failed || 0) + Number(counts.uncertain || 0) + Number(outbox.stale_publishing_count || 0) + workers.filter((worker) => worker.stale).length,
+    [counts, outbox, workers],
+  );
   const filters = ["", "queued", "retrying", "running", "failed", "uncertain", "succeeded"];
 
   return (
@@ -115,10 +118,11 @@ export default function AdminScheduling() {
 
       <article className="panel">
         <h3>Outbox 积压</h3>
-        <div className="admin-row"><span>待发布</span><strong>{metric(outbox.pending) + Number(outbox.retrying || 0)}</strong></div>
-        <div className="admin-row"><span>发布中</span><strong>{metric(outbox.publishing)}</strong></div>
+        <div className="admin-row"><span>待发布</span><strong>{metric(Number(outbox.pending || 0)) + Number(outbox.retrying || 0)}</strong></div>
+        <div className="admin-row"><span>发布中</span><strong>{metric(Number(outbox.publishing || 0))}</strong></div>
+        <div className="admin-row"><span>租约超时</span><strong className={Number(outbox.stale_publishing_count || 0) ? "status-warn" : "status-ok"}>{metric(outbox.stale_publishing_count as number | undefined)}</strong></div>
         <div className="admin-row"><span>最早等待</span><strong>{age(backlog.oldest_created_at)}</strong></div>
-        <p className="muted">积压 {backlog.count} 项。发布器故障不会丢失作业，只会保留在 Outbox 等待重试。</p>
+        <p className="muted">积压 {backlog.count} 项。发布器故障不会丢失作业；超时的发布租约可被新的发布器安全抢回。</p>
       </article>
 
       <article className="panel" style={{ gridColumn: "1 / -1" }}>

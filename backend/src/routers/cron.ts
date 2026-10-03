@@ -106,6 +106,9 @@ cron.get("/admin/scheduling/execution-jobs", (c) => {
     "SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status",
   ).all() as Array<{ status: string; count: number }>;
   const asOf = nowIso();
+  const stalePublishing = getConn().prepare(
+    "SELECT COUNT(*) AS count,MIN(updated_at) AS oldest_updated_at FROM execution_outbox WHERE status='publishing' AND publisher_lease_until IS NOT NULL AND publisher_lease_until<=?",
+  ).get(asOf) as { count: number; oldest_updated_at: string | null };
   const staleAfterMs = Math.max(5_000, Number(process.env.EXECUTION_WORKER_STALE_MS || 45_000));
   let workers: Json[] = [];
   try {
@@ -152,7 +155,11 @@ cron.get("/admin/scheduling/execution-jobs", (c) => {
   return c.json({
     items: jobs,
     counts: Object.fromEntries(statusCounts.map((row) => [row.status, Number(row.count)])),
-    outbox: Object.fromEntries(outboxCounts.map((row) => [row.status, Number(row.count)])),
+    outbox: {
+      ...Object.fromEntries(outboxCounts.map((row) => [row.status, Number(row.count)])),
+      stale_publishing_count: Number(stalePublishing.count || 0),
+      oldest_stale_publishing_updated_at: stalePublishing.oldest_updated_at || null,
+    },
     workers,
     backlog: { count: Number(backlog.count || 0), oldest_created_at: backlog.oldest_created_at || null },
     rules,
