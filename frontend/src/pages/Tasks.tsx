@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type PersonalTicketRawCountReport, type Task, type TaskDetail, type TaskEvent, type Ticket } from "../api";
+import { api, type OrganizationTicketRawCountReport, type PersonalTicketRawCountReport, type Task, type TaskDetail, type TaskEvent, type Ticket } from "../api";
 import TicketCreateDialog from "../home/TicketCreateDialog";
 import TicketEditDialog from "../home/TicketEditDialog";
 import TicketIdentityGate from "../components/TicketIdentityGate";
@@ -140,6 +140,7 @@ function TaskCenter() {
   const [createdTicketId, setCreatedTicketId] = useState("");
   const [editTarget, setEditTarget] = useState<Task | null>(null);
   const [personalReport, setPersonalReport] = useState<PersonalTicketRawCountReport | null>(null);
+  const [organizationReport, setOrganizationReport] = useState<OrganizationTicketRawCountReport | null>(null);
 
   const load = useCallback((background = false, append = false) => {
     if (requestRef.current) return requestRef.current;
@@ -184,6 +185,11 @@ function TaskCenter() {
   useEffect(() => {
     let alive = true;
     void api.personalTicketRawCountReport().then((report) => { if (alive) setPersonalReport(report); }).catch(() => { if (alive) setPersonalReport(null); });
+    return () => { alive = false; };
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    void api.organizationTicketRawCountReport().then((report) => { if (alive) setOrganizationReport(report); }).catch(() => { if (alive) setOrganizationReport(null); });
     return () => { alive = false; };
   }, []);
   useEffect(() => {
@@ -377,6 +383,7 @@ function TaskCenter() {
       {error && <p className="surface-error" role="alert">{hidesSignalTimeout(error) ? "任务暂时无法读取，请稍后查看。" : error}</p>}
       {createdTicketId ? <p className="task-center-created" role="status">正式工单已创建：{createdTicketId}</p> : null}
       {personalReport ? <p className="muted task-center-report" title={personalReport.note}>我的授权工单原始计数：{personalReport.total_authorized}（创建 {personalReport.memberships.created} · 主受理 {personalReport.memberships.assigned_primary} · 关注 {personalReport.memberships.watching}；关系计数可能重叠）</p> : null}
+      {organizationReport ? <p className="muted task-center-report" title={organizationReport.note}>组织授权工单原始计数：{organizationReport.total_authorized}（{organizationReport.authorization.mode === "company_admin" ? "公司管理员范围" : "组织负责人范围"} · {Object.entries(organizationReport.by_status).map(([status, count]) => `${status} ${count}`).join(" · ") || "暂无状态数据"}）</p> : null}
 
       {loading ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 ? (
         <section className="task-center-empty">
