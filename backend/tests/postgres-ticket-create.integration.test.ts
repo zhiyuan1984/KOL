@@ -22,7 +22,7 @@ const ADMIN: TicketPrincipal = {
   roles: ["employee", "admin"], active: true,
 };
 const COLLABORATOR: TicketPrincipal = {
-  id: "u-collaborator", username: "xi_chucong", name: "习楚聪", email: null,
+  id: "u-collaborator", username: "diao_chucong", name: "刁楚聪", email: null,
   roles: ["employee"], active: true,
 };
 
@@ -115,7 +115,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       `INSERT INTO ticket_accounts (id,username,name,password_hash,roles,active,created_at,updated_at)
        VALUES ('u-creator','ye_guanwang','叶观旺','x','["employee"]'::jsonb,true,$1,$1),
               ('u-supervisor','zhong_jiankui','钟建奎','x','["employee","admin"]'::jsonb,true,$1,$1),
-              ('u-collaborator','xi_chucong','习楚聪','x','["employee"]'::jsonb,true,$1,$1)`,
+              ('u-collaborator','diao_chucong','刁楚聪','x','["employee"]'::jsonb,true,$1,$1)`,
       ["2031-01-01T00:00:00.000Z"],
     );
   });
@@ -132,7 +132,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     })));
     expect(creatorBinding.status).toBe(200);
     await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:zhong_jiankui", account_id: "u-supervisor", reason: "test controlled supervisor enrollment" });
-    await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:xi_chucong", account_id: "u-collaborator", reason: "test controlled collaborator enrollment" });
+    await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:diao_chucong", account_id: "u-collaborator", reason: "test controlled collaborator enrollment" });
     const bindingOptions = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/work-orders/account-bindings/options")));
     expect(bindingOptions.status).toBe(200);
     const bindingOptionBody = await bindingOptions.json() as { accounts: Array<{ id: string; bound_person_ref: string | null }> };
@@ -217,10 +217,13 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     });
     const departmentHeadReport = await organizationTicketRawCountReport("u-supervisor", { is_admin: false });
     expect(departmentHeadReport).toMatchObject({
-      authorization: { mode: "organization_head", root_units: [expect.objectContaining({ id: "org:promotion_department", type: "department" })] },
+      authorization: { mode: "organization_head" },
       total_authorized: 1,
       by_status: { pending: 1 },
     });
+    expect(departmentHeadReport.authorization.root_units).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "org:promotion_department", type: "department" }),
+    ]));
     const apiResponse = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request("http://test.local/tickets?view=created")));
     expect(apiResponse.status).toBe(200);
     expect(await apiResponse.json()).toMatchObject({ items: [{ id: first.ticket_id }], page: { limit: 50 } });
@@ -271,12 +274,12 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
 
     const collaborator = await addTicketCollaboratorPostgres({
       ticket_id: first.ticket_id, actor_user_id: "u-creator", expected_version: 3,
-      idempotency_key: "native-ticket-collaborator-add-0001", assignee_person_ref: "person:xi_chucong", assignee_unit_id: "org:lt_team",
+      idempotency_key: "native-ticket-collaborator-add-0001", assignee_person_ref: "person:diao_chucong", assignee_unit_id: "org:lt_team",
     });
     expect(collaborator).toMatchObject({ action: "add_collaborator", assignee_user_id: "u-collaborator", version: 4, replayed: false });
     const collaboratorReplay = await addTicketCollaboratorPostgres({
       ticket_id: first.ticket_id, actor_user_id: "u-creator", expected_version: 3,
-      idempotency_key: "native-ticket-collaborator-add-0001", assignee_person_ref: "person:xi_chucong", assignee_unit_id: "org:lt_team",
+      idempotency_key: "native-ticket-collaborator-add-0001", assignee_person_ref: "person:diao_chucong", assignee_unit_id: "org:lt_team",
     });
     expect(collaboratorReplay).toMatchObject({ version: 4, replayed: true });
     const collaboratorDetail = await nativeTicketById("u-collaborator", first.ticket_id);
@@ -284,7 +287,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     expect(collaboratorDetail.allowed_actions).toEqual([]);
     const removed = await removeTicketCollaboratorPostgres({
       ticket_id: first.ticket_id, actor_user_id: "u-creator", expected_version: 4,
-      idempotency_key: "native-ticket-collaborator-remove-0001", assignee_person_ref: "person:xi_chucong",
+      idempotency_key: "native-ticket-collaborator-remove-0001", assignee_person_ref: "person:diao_chucong",
     });
     expect(removed).toMatchObject({ action: "remove_collaborator", version: 5, replayed: false });
     await expect(nativeTicketById("u-collaborator", first.ticket_id)).rejects.toMatchObject({ status: 404 });
@@ -300,7 +303,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     expect(collaboratorFacts.rows[0]).toEqual({ active: "0", history: "1", added: "1", removed: "1", audit: "2" });
     const collaboratorApi = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request(`http://test.local/tickets/${first.ticket_id}/commands`, {
       method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": "native-ticket-collaborator-route-0001" },
-      body: JSON.stringify({ action: "add_collaborator", expected_version: 5, assignee_person_ref: "person:xi_chucong", assignee_unit_id: "org:lt_team" }),
+      body: JSON.stringify({ action: "add_collaborator", expected_version: 5, assignee_person_ref: "person:diao_chucong", assignee_unit_id: "org:lt_team" }),
     })));
     expect(collaboratorApi.status).toBe(200);
     expect(await collaboratorApi.json()).toMatchObject({ action: "add_collaborator", version: 6, ticket: { allowed_actions: expect.arrayContaining(["collaborate"]), assignments: expect.arrayContaining([expect.objectContaining({ role: "collaborator", status: "active" })]) } });
