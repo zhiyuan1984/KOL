@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, type OrganizationTicketRawCountReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport } from "../api";
+import { api, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport } from "../api";
 import TicketIdentityGate, { useTicketIdentity } from "../components/TicketIdentityGate";
 
 function time(value: string | null | undefined): string {
@@ -25,6 +25,7 @@ function AdminWorkOrdersContent() {
   const { account, logout } = useTicketIdentity();
   const [report, setReport] = useState<TicketOrganizationQualityReport | null>(null);
   const [organizationReport, setOrganizationReport] = useState<OrganizationTicketRawCountReport | null>(null);
+  const [stageReport, setStageReport] = useState<OrganizationTicketStageRawReport | null>(null);
   const [options, setOptions] = useState<TicketAccountBindingOptions | null>(null);
   const [loading, setLoading] = useState(true);
   const [bindingBusy, setBindingBusy] = useState(false);
@@ -35,14 +36,16 @@ function AdminWorkOrdersContent() {
     setLoading(true);
     setError("");
     try {
-      const [quality, bindingOptions, rawReport] = await Promise.all([
+      const [quality, bindingOptions, rawReport, stageRawReport] = await Promise.all([
         api.adminTicketOrganizationQuality(),
         api.adminTicketAccountBindingOptions(),
         api.organizationTicketRawCountReport(),
+        api.organizationTicketStageRawReport(),
       ]);
       setReport(quality);
       setOptions(bindingOptions);
       setOrganizationReport(rawReport);
+      setStageReport(stageRawReport);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取工单组织数据质量");
     } finally {
@@ -115,6 +118,12 @@ function AdminWorkOrdersContent() {
         {!loading && organizationReport?.total_authorized === 0 ? <p className="muted">当前授权范围没有正式工单。</p> : null}
         <div className="admin-row"><div><strong>状态分布</strong><p className="muted">{Object.entries(organizationReport?.by_status || {}).map(([status, count]) => `${status} ${count}`).join(" · ") || "—"}</p></div><div><strong className="status-ok">{organizationReport?.authorization.mode === "company_admin" ? "公司管理员范围" : "组织负责人范围"}</strong><p className="muted">根组织：{organizationReport?.authorization.root_units.map((unit) => unit.display_name).join("、") || "公司级"}</p></div></div>
         {organizationReport?.by_assignee_unit.map((unit) => <div className="admin-row" key={unit.org_unit_id}><div><strong>{unit.display_name}</strong><p className="muted">{unit.type} · {unit.org_unit_id}</p></div><div><strong>{unit.total}</strong><p className="muted">{Object.entries(unit.by_status).map(([status, count]) => `${status} ${count}`).join(" · ")}</p></div></div>)}
+      </article>
+      <article className="panel" style={{ gridColumn: "1 / -1" }} data-organization-ticket-stage-report>
+        <div className="split-head"><div><h3>分类与阶段原始存量</h3><p className="muted">数据时间：{time(stageReport?.as_of)} · {stageReport?.note || "仅展示当前原始存量。"}</p></div></div>
+        {!loading && stageReport?.total_authorized === 0 ? <p className="muted">当前授权范围没有可按分类或阶段统计的正式工单。</p> : null}
+        <div className="admin-row"><div><strong>分类分布</strong><p className="muted">{stageReport?.by_business_category.map((item) => `${item.business_category} ${item.total}`).join(" · ") || "—"}</p></div><div><strong>{stageReport?.total_authorized ?? "—"}</strong><p className="muted">仅当前存量；不推导漏斗转化、时效或绩效。</p></div></div>
+        {stageReport?.by_stage.map((item) => <div className="admin-row" key={`${item.business_category}:${item.stage_group}:${item.stage_code}`}><div><strong>{item.business_category} · {item.stage_group} / {item.stage_code}</strong><p className="muted">分类与阶段为工单当前投影</p></div><div><strong>{item.total}</strong><p className="muted">{Object.entries(item.by_status).map(([status, count]) => `${status} ${count}`).join(" · ")}</p></div></div>)}
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }}>
         <div className="split-head"><div><h3>组织数据质量</h3><p className="muted">先修复人员/组织绑定，再创建、分派或自动关注；此处不提供旁路写入。</p></div><div className="row-actions"><Link className="btn ghost" to="/admin/audit">查看审计</Link><Link className="btn ghost" to="/admin/scheduling">查看调度</Link></div></div>

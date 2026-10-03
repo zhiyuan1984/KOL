@@ -9,7 +9,7 @@ import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../tic
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
-import { organizationTicketRawCountReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
+import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
 import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -98,6 +98,14 @@ tickets.get("/tickets/reports/organization", async (c) => {
   const actor = requireTicketPrincipal();
   return c.json({
     ...(await organizationTicketRawCountReport(actor.id, { timezone: c.req.query("timezone") || "Asia/Shanghai", is_admin: ticketIsAdmin(actor) })),
+    ...requestMetadata(),
+  });
+});
+
+tickets.get("/tickets/reports/organization/stages", async (c) => {
+  const actor = requireTicketPrincipal();
+  return c.json({
+    ...(await organizationTicketStageRawReport(actor.id, { timezone: c.req.query("timezone") || "Asia/Shanghai", is_admin: ticketIsAdmin(actor) })),
     ...requestMetadata(),
   });
 });

@@ -566,6 +566,20 @@ export type OrganizationTicketRawCountReport = {
   request_id: string;
 };
 
+export type OrganizationTicketStageRawReport = {
+  report_version: "ticket-organization-stage-raw.v1" | string;
+  as_of: string;
+  timezone: string;
+  scope: "organization_authorized" | string;
+  authorization: OrganizationTicketRawCountReport["authorization"];
+  source: "postgresql_formal_tickets" | string;
+  note: string;
+  total_authorized: number;
+  by_business_category: Array<{ business_category: string; total: number; by_status: Record<string, number> }>;
+  by_stage: Array<{ business_category: string; stage_group: string; stage_code: string; total: number; by_status: Record<string, number> }>;
+  request_id: string;
+};
+
 export type TicketOrganizationUnit = {
   id: string;
   display_name: string;
@@ -1762,6 +1776,7 @@ export const api = {
   },
   personalTicketRawCountReport: (timezone = "Asia/Shanghai") => request<PersonalTicketRawCountReport>(`/api/tickets/reports/personal?timezone=${encodeURIComponent(timezone)}`),
   organizationTicketRawCountReport: (timezone = "Asia/Shanghai") => request<OrganizationTicketRawCountReport>(`/api/tickets/reports/organization?timezone=${encodeURIComponent(timezone)}`),
+  organizationTicketStageRawReport: (timezone = "Asia/Shanghai") => request<OrganizationTicketStageRawReport>(`/api/tickets/reports/organization/stages?timezone=${encodeURIComponent(timezone)}`),
   ticketCommand: (id: string, body: TicketCommandInput) =>
     request<TicketCommandResult>(`/api/tickets/${encodeURIComponent(id)}/commands`, {
       method: "POST",

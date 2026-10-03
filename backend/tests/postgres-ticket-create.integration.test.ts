@@ -3,7 +3,7 @@ import { createFormalTicketPostgres } from "../src/ticket-domain/create-ticket.j
 import { editFormalTicketPostgres } from "../src/ticket-domain/edit-ticket.js";
 import { assignFormalTicketPostgres } from "../src/ticket-domain/assign-ticket.js";
 import { addTicketCollaboratorPostgres, removeTicketCollaboratorPostgres } from "../src/ticket-domain/collaborate-ticket.js";
-import { organizationTicketRawCountReport, personalTicketRawCountReport } from "../src/ticket-domain/reports.js";
+import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../src/ticket-domain/reports.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { bindTicketAccountToOrganizationPerson, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../src/ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById } from "../src/ticket-domain/read-tickets.js";
@@ -148,6 +148,8 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       title: "完成达人合作复盘",
       goal: "完成可核验的本周达人合作复盘",
       business_category: "kol" as const,
+      stage_group: "negotiation",
+      stage_code: "quote",
       priority: "normal" as const,
       due_at: "2031-01-10T12:00:00+08:00",
       acceptance_criteria: ["复盘报告已归档", "关键数据和结论已核验"],
@@ -204,6 +206,15 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     expect(organizationReport.by_assignee_unit).toEqual(expect.arrayContaining([
       expect.objectContaining({ org_unit_id: "org:lt_team", total: 1, by_status: { pending: 1 } }),
     ]));
+    const stageReport = await organizationTicketStageRawReport("u-supervisor", { is_admin: true });
+    expect(stageReport).toMatchObject({
+      report_version: "ticket-organization-stage-raw.v1",
+      scope: "organization_authorized",
+      source: "postgresql_formal_tickets",
+      total_authorized: 1,
+      by_business_category: [expect.objectContaining({ business_category: "kol", total: 1, by_status: { pending: 1 } })],
+      by_stage: [expect.objectContaining({ business_category: "kol", stage_group: "negotiation", stage_code: "quote", total: 1, by_status: { pending: 1 } })],
+    });
     const departmentHeadReport = await organizationTicketRawCountReport("u-supervisor", { is_admin: false });
     expect(departmentHeadReport).toMatchObject({
       authorization: { mode: "organization_head", root_units: [expect.objectContaining({ id: "org:promotion_department", type: "department" })] },
@@ -216,6 +227,9 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     const organizationApi = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/tickets/reports/organization")));
     expect(organizationApi.status).toBe(200);
     expect(await organizationApi.json()).toMatchObject({ scope: "organization_authorized", authorization: { mode: "company_admin" }, total_authorized: 1 });
+    const stageApi = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/tickets/reports/organization/stages")));
+    expect(stageApi.status).toBe(200);
+    expect(await stageApi.json()).toMatchObject({ report_version: "ticket-organization-stage-raw.v1", total_authorized: 1 });
 
     const edited = await editFormalTicketPostgres(first.ticket_id, "u-creator", {
       expected_version: 1,

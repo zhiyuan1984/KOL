@@ -194,3 +194,101 @@ export async function organizationTicketRawCountReport(
     by_assignee_unit: [...units.values()],
   };
 }
+
+export type OrganizationTicketStageRawReport = {
+  report_version: "ticket-organization-stage-raw.v1";
+  as_of: string;
+  timezone: string;
+  scope: "organization_authorized";
+  authorization: OrganizationTicketRawCountReport["authorization"];
+  source: "postgresql_formal_tickets";
+  note: string;
+  total_authorized: number;
+  by_business_category: Array<{ business_category: string; total: number; by_status: Record<string, number> }>;
+  by_stage: Array<{ business_category: string; stage_group: string; stage_code: string; total: number; by_status: Record<string, number> }>;
+};
+
+/**
+ * Current-inventory report only. It deliberately does not infer a funnel,
+ * conversion rate, duration, SLA, completion rate, revenue or performance
+ * metric from a status/stage snapshot.
+ */
+export async function organizationTicketStageRawReport(
+  userId: string,
+  options: { timezone?: string; is_admin?: boolean } = {},
+): Promise<OrganizationTicketStageRawReport> {
+  const timezone = options.timezone || "Asia/Shanghai";
+  if (!TIMEZONE.test(timezone)) throw new HttpFail(400, { code: "invalid_timezone" });
+  const authorization = await organizationReportScope(userId, Boolean(options.is_admin));
+  const pool = postgresPool();
+  const rootIds = authorization.rootUnits.map((unit) => unit.id);
+  const where = authorization.mode === "company_admin"
+    ? "os.company_id = ANY($1::text[])"
+    : "os.assignee_unit_id IN (SELECT id FROM permitted_units)";
+  const cte = authorization.mode === "company_admin"
+    ? "WITH"
+    : `WITH RECURSIVE permitted_units(id) AS (
+         SELECT unnest($1::text[])
+         UNION
+         SELECT child.id FROM organization_units child JOIN permitted_units parent ON child.parent_id=parent.id
+          WHERE child.status='active'
+       ),`;
+  const params = authorization.mode === "company_admin" ? [authorization.companies] : [rootIds];
+  const [categoryRows, stageRows] = await Promise.all([
+    pool.query<{ business_category: string; status: string; count: string }>(
+      `${cte} scoped AS (
+         SELECT COALESCE(NULLIF(t.business_category,''),'unclassified') AS business_category,t.status
+           FROM tickets t JOIN ticket_org_scopes os ON os.ticket_id=t.id
+          WHERE t.task_type='manual_ticket' AND t.profile='ticket-workbench' AND ${where}
+       ) SELECT business_category,status,COUNT(*)::text AS count FROM scoped GROUP BY business_category,status ORDER BY business_category,status`,
+      params,
+    ),
+    pool.query<{ business_category: string; stage_group: string; stage_code: string; status: string; count: string }>(
+      `${cte} scoped AS (
+         SELECT COALESCE(NULLIF(t.business_category,''),'unclassified') AS business_category,
+                COALESCE(NULLIF(t.stage_group,''),'unclassified') AS stage_group,
+                COALESCE(NULLIF(t.stage_code,''),'unclassified') AS stage_code,t.status
+           FROM tickets t JOIN ticket_org_scopes os ON os.ticket_id=t.id
+          WHERE t.task_type='manual_ticket' AND t.profile='ticket-workbench' AND ${where}
+       ) SELECT business_category,stage_group,stage_code,status,COUNT(*)::text AS count
+           FROM scoped GROUP BY business_category,stage_group,stage_code,status
+          ORDER BY business_category,stage_group,stage_code,status`,
+      params,
+    ),
+  ]);
+  const categories = new Map<string, OrganizationTicketStageRawReport["by_business_category"][number]>();
+  for (const row of categoryRows.rows) {
+    const item = categories.get(row.business_category) || { business_category: row.business_category, total: 0, by_status: {} };
+    const value = Number(row.count);
+    item.by_status[row.status] = value;
+    item.total += value;
+    categories.set(row.business_category, item);
+  }
+  const stages = new Map<string, OrganizationTicketStageRawReport["by_stage"][number]>();
+  for (const row of stageRows.rows) {
+    const key = `${row.business_category}\u001f${row.stage_group}\u001f${row.stage_code}`;
+    const item = stages.get(key) || {
+      business_category: row.business_category, stage_group: row.stage_group, stage_code: row.stage_code, total: 0, by_status: {},
+    };
+    const value = Number(row.count);
+    item.by_status[row.status] = value;
+    item.total += value;
+    stages.set(key, item);
+  }
+  return {
+    report_version: "ticket-organization-stage-raw.v1",
+    as_of: new Date().toISOString(),
+    timezone,
+    scope: "organization_authorized",
+    authorization: {
+      mode: authorization.mode,
+      companies: authorization.companies,
+      root_units: authorization.rootUnits,
+    },
+    source: "postgresql_formal_tickets",
+    note: "仅展示授权组织范围内 PostgreSQL 正式工单的当前分类/阶段原始存量；不推导漏斗转化、时效、SLA、绩效、成交或收入结论。",
+    total_authorized: [...categories.values()].reduce((total, item) => total + item.total, 0),
+    by_business_category: [...categories.values()],
+    by_stage: [...stages.values()],
+  };
+}
