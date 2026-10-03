@@ -2664,6 +2664,11 @@ export const api = {
       `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/disable`,
       { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
     ),
+  restoreSchedulingRuleDraft: (id: string, version: number, body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ rule: SchedulingRule; replayed: boolean; execution_effect: string; restored_from_version: number }>(
+      `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/restore-draft`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
   adminWorkReport: (opts: { date?: string; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, value); });

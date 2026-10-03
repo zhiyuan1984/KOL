@@ -194,6 +194,24 @@ export default function AdminScheduling() {
     }
   };
 
+  const restoreRule = async (rule: SchedulingRule) => {
+    const key = `${rule.id}:${rule.version}`;
+    if (!window.confirm(`确认将规则 v${rule.version} 恢复为新的草稿吗？恢复后必须重新模拟，才可再次发布。`)) return;
+    setRuleBusy(`restore:${key}`);
+    setError("");
+    try {
+      const result = await api.restoreSchedulingRuleDraft(rule.id, rule.version, {
+        reason: ruleForm.reason || `从规则 v${rule.version} 恢复为新的人工确认草稿`,
+      }, operationKey("rule-restore"));
+      setRuleNotice(`已从 v${result.restored_from_version} 建立新草稿 v${result.rule.version}；请重新模拟后发布。`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "无法恢复规则草稿");
+    } finally {
+      setRuleBusy(null);
+    }
+  };
+
   const attention = useMemo(
     () => Number(counts.failed || 0) + Number(counts.uncertain || 0) + Number(outbox.stale_publishing_count || 0) + workers.filter((worker) => worker.stale).length,
     [counts, outbox, workers],
@@ -289,6 +307,7 @@ export default function AdminScheduling() {
                 <button type="button" className="btn ghost" onClick={() => void disableRule(rule)} disabled={ruleBusy === `disable:${rule.id}:${rule.version}`}>停用</button>
               </div>}
               {rule.status === "published" && <div className="row-actions"><button type="button" className="btn ghost" onClick={() => void disableRule(rule)} disabled={ruleBusy === `disable:${rule.id}:${rule.version}`}>停用</button></div>}
+              {rule.status !== "draft" && <div className="row-actions"><button type="button" className="btn ghost" onClick={() => void restoreRule(rule)} disabled={ruleBusy === `restore:${rule.id}:${rule.version}`}>{ruleBusy === `restore:${rule.id}:${rule.version}` ? "恢复中…" : "恢复为新草稿"}</button></div>}
             </div>
           </div>
         ))}

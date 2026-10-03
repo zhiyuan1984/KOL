@@ -16,6 +16,7 @@ import {
   disableSchedulingRule,
   listSchedulingRules,
   publishSchedulingRule,
+  restoreSchedulingRuleDraft,
   schedulingRuleDetail,
   simulateSchedulingRule,
 } from "../ticket-domain/rule-governance.js";
@@ -171,6 +172,14 @@ tickets.post("/admin/scheduling/rules/:id/versions/:version/disable", async (c) 
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const result = await disableSchedulingRule(actor.id, c.req.param("id"), parseRuleVersion(c.req.param("version")), ruleBody(body, String(c.req.header("Idempotency-Key") || "").trim()));
   return c.json({ ...result, ...requestMetadata() });
+});
+
+tickets.post("/admin/scheduling/rules/:id/versions/:version/restore-draft", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await restoreSchedulingRuleDraft(actor.id, c.req.param("id"), parseRuleVersion(c.req.param("version")), ruleBody(body, String(c.req.header("Idempotency-Key") || "").trim()));
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
 });
 
 tickets.post("/tickets", async (c) => {

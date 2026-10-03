@@ -25,7 +25,7 @@
 | 账号—组织人员受控绑定 | 管理员 `GET/POST /admin/work-orders/account-bindings/*`；不可变 `ticket_account_organization_bindings` 审计；治理页只显示明确的可选项 | PG 路由/创建集成测试、前端 typecheck/build |
 | PostgreSQL-only HTTP 启动 | `KOL_RUNTIME_MODE=postgres-only` 动态装配 `postgres-only-app.ts`；只挂载 ticket auth、tickets、Cron，旧 `/tasks` 等路由明确 404 | PG-only HTTP 应用集成测试 |
 | Cron 授权与风险读取 | `cron/authz.ts`、Cron Worker/handlers 使用 PostgreSQL ticket identity；风险面只查询正式工单 | PG-only HTTP + Cron 集成测试 |
-| 规则草稿、模拟与发布治理 | `rule-governance.ts`、规则模拟/审计/回执表；管理员才可草稿、模拟、发布、停用 | PG 规则治理集成测试、前端 typecheck/build |
+| 规则草稿、模拟与发布治理 | `rule-governance.ts`、规则模拟/审计/回执表；管理员才可草稿、模拟、发布、停用或从历史版本恢复为新草稿 | PG 规则治理集成测试、前端 typecheck/build |
 
 ## 已安全隔离或停用
 

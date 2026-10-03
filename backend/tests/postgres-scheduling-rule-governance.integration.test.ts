@@ -107,5 +107,15 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
     const detail = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request(`http://test.local/admin/scheduling/rules/${RULE_ID}`)));
     expect(detail.status).toBe(200);
     expect(await detail.json()).toMatchObject({ rule: { id: RULE_ID, status: "published" }, simulations: [expect.objectContaining({ id: simulation.simulation_id })] });
+
+    const restored = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/restore-draft`, {
+      reason: "恢复已审阅的历史版本，重新验证后再发布",
+    }, "rule-governance-restore-0001")));
+    expect(restored.status).toBe(201);
+    expect(await restored.json()).toMatchObject({ rule: { id: RULE_ID, version: 2, status: "draft" }, restored_from_version: 1, execution_effect: "none" });
+    const restoredPublish = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/2/publish`, {
+      expected_version: 2, simulation_id: simulation.simulation_id, reason: "不能复用旧版本模拟",
+    }, "rule-governance-restore-publish-0001")));
+    expect(restoredPublish.status).toBe(409);
   });
 });

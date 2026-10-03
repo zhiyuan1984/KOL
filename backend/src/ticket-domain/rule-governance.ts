@@ -209,7 +209,9 @@ export async function createSchedulingRuleDraft(actorId: string, input: Record<s
   const spec = validatedRule(input);
   const requestedId = input.id == null || String(input.id).trim() === "" ? nid("sgr") : requiredText(input.id, "id", 160);
   const baseVersion = input.base_version == null ? null : Number(input.base_version);
+  const restoredFromVersion = input.restored_from_version == null ? null : Number(input.restored_from_version);
   if (baseVersion != null && (!Number.isInteger(baseVersion) || baseVersion < 1)) throw new HttpFail(400, { code: "invalid_base_version" });
+  if (restoredFromVersion != null && (!Number.isInteger(restoredFromVersion) || restoredFromVersion < 1)) throw new HttpFail(400, { code: "invalid_restored_from_version" });
   const why = reason(input.reason);
   return postgresTransaction(async (client) => {
     const replay = await receipt(client, key, "create_draft");
@@ -238,14 +240,42 @@ export async function createSchedulingRuleDraft(actorId: string, input: Record<s
       [requestedId, version, spec.rule_type, spec.title, JSON.stringify(spec.scope), JSON.stringify(spec.definition), actorId, now],
     );
     const rule = ruleFrom(inserted.rows[0]);
-    const result: Json = { rule, replayed: false, execution_effect: "none", human_confirmation_required: true };
+    const result: Json = { rule, replayed: false, execution_effect: "none", human_confirmation_required: true, ...(restoredFromVersion == null ? {} : { restored_from_version: restoredFromVersion }) };
     await recordAudit(client, {
       rule_id: requestedId, rule_version: version, action: "draft_created", actor_account_id: actorId, reason: why,
-      request: { rule_type: spec.rule_type, title: spec.title, scope: spec.scope, definition: spec.definition, base_version: baseVersion }, result,
+      request: { rule_type: spec.rule_type, title: spec.title, scope: spec.scope, definition: spec.definition, base_version: baseVersion, restored_from_version: restoredFromVersion }, result,
     });
     await recordReceipt(client, { key, rule_id: requestedId, rule_version: version, action: "create_draft", actor: actorId, result });
     return result;
   }, { isolation: "SERIALIZABLE" });
+}
+
+/**
+ * Rollback never reactivates an old published row. It copies the requested
+ * immutable version into the next draft, where it must be simulated and
+ * published again under the current governance gate.
+ */
+export async function restoreSchedulingRuleDraft(actorId: string, ruleId: string, sourceVersion: number, input: Record<string, unknown>): Promise<Json> {
+  const key = idempotencyKey(input.idempotency_key);
+  const reasonText = reason(input.reason);
+  if (!Number.isInteger(sourceVersion) || sourceVersion < 1) throw new HttpFail(400, { code: "invalid_rule_version" });
+  const sourceResult = await postgresPool().query<RuleRow>("SELECT * FROM scheduling_rules WHERE id=$1 AND version=$2", [ruleId, sourceVersion]);
+  const source = sourceResult.rows[0];
+  if (!source) throw new HttpFail(404, "scheduling rule not found");
+  if (source.status === "draft") throw new HttpFail(409, { code: "draft_restore_not_needed" });
+  const current = await postgresPool().query<{ version: number }>("SELECT MAX(version)::int AS version FROM scheduling_rules WHERE id=$1", [ruleId]);
+  const publicSource = ruleFrom(source);
+  return createSchedulingRuleDraft(actorId, {
+    id: ruleId,
+    base_version: Number(current.rows[0]?.version || 0),
+    rule_type: publicSource.rule_type,
+    title: publicSource.title,
+    scope: publicSource.scope,
+    definition: publicSource.definition,
+    reason: reasonText,
+    idempotency_key: key,
+    restored_from_version: sourceVersion,
+  });
 }
 
 function simulationLimit(value: unknown): number {
