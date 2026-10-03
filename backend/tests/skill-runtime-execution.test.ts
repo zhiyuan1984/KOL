@@ -18,6 +18,7 @@ import { kolAgentScopeContext } from "../src/contract-scope.js";
 import { runCodex } from "../src/worker/runner.js";
 import { isolatedCodexModelConfig } from "../src/worker/auth.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 
 let tmp: string;
 let cleanup: Array<() => Promise<unknown>>;
@@ -44,6 +45,8 @@ beforeEach(async () => {
       VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, id, id, "not-for-login", JSON.stringify(id.startsWith("admin") ? ["admin"] : ["employee"]), "[]", "", 1, "now", "now");
   }
   setAgentSkill(context.agentId, context.skillId, true, 0);
+  // 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）；未发布的 Agent 不产生资格。
+  seedPublishedAgent(context.agentId, "运行时测试 Agent");
   // 人员资格锚点是「人 → Agent」绑定（CONST-05 / ADR-2026-10-03）：把测试账号挂到
   // 组织人员上，并把被测 Agent 绑定到该人员所在的三级组。
   runtimeBindingId = createAgentBinding({

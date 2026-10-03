@@ -113,8 +113,9 @@ describe("production account and enterprise controls", () => {
     // 资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号在提交时就被拒绝。
     expect(denied.response.status).toBe(400);
     expect(denied.json.detail).toBe("未授权该技能");
-    // 保留的逐人技能授权表仍可写，但不再让技能可见或可执行。
-    await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
+    // 逐人技能授权已退役（410），直接授权不再让技能可见或可执行。
+    const retiredGrant = await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
+    expect(retiredGrant.response.status).toBe(410);
     expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.id), "person:ye_guanwang");
     createAgentBinding({
@@ -217,9 +218,10 @@ describe("production account and enterprise controls", () => {
         "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
       ).run(id, label, 1, "configured", null, now);
     }
-    await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose", "creator_discovery"] });
-    // 保留的逐人技能授权表仍可由管理端写入，供历史数据与过渡期核对；
-    // 人员资格已改由 Agent 绑定决定（ADR-2026-10-03），该表不再放行任何调用。
+    const retired = await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose", "creator_discovery"] });
+    // 逐人技能授权退役（ADR-2026-10-03）：直接授权端点 410，不再写入 user_skill_grants；
+    // 人员资格改由 Agent 绑定决定，历史授权行只作核对、不再放行。
+    expect(retired.response.status).toBe(410);
     for (const [id, access] of [["starrykol", "read"], ["claw", "read"], ["enterprise_mail", "write"], ["wecom", "read"]]) {
       getConn().prepare(
         "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
@@ -228,7 +230,7 @@ describe("production account and enterprise controls", () => {
     await call("PUT", `/api/admin/users/${employee.id}/approval-roles`, { roles: ["lead"] });
     const detail = await call("GET", `/api/admin/users/${employee.id}`);
     expect(detail.json).toMatchObject({
-      skill_grants: expect.arrayContaining(["email_compose", "creator_discovery"]),
+      skill_grants: [],
       approval_roles: ["lead"],
     });
     expect(detail.json).not.toHaveProperty("connector_grants");
@@ -284,7 +286,8 @@ describe("production account and enterprise controls", () => {
     await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose"] });
     const after = await call("GET", `/api/admin/users/${employee.id}/tools`);
     const grantedTool = (after.json.tools as unknown as Array<Record<string, unknown>>).find((tool) => tool.id === "email_compose");
-    expect(grantedTool).toMatchObject({ granted: true, assignable: expect.any(Boolean) });
+    // 逐人技能授权已退役：工具目录仍可读，但不再因直接授权而 granted。
+    expect(grantedTool).toMatchObject({ granted: false, assignable: expect.any(Boolean) });
   });
 
   it("updates profile and password, invalidating old sessions", async () => {

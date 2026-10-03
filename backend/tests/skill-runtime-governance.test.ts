@@ -11,6 +11,7 @@ import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { skillRuntimeRouter } from "../src/routers/skill-runtime.js";
 import { runtimeDiscoveryRouter } from "../src/routers/runtime-discovery.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 
 let tmp = "";
 let app: Hono;
@@ -96,6 +97,8 @@ beforeEach(async () => {
   getConn().prepare(
     "INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
   ).run("runtime_mcp", "Runtime MCP", 1, "configured", null, now);
+  // 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）。
+  seedPublishedAgent("agent:creator", "Creator 测试 Agent");
 
   const login = await request("POST", "/api/auth/login", {
     username: "runtime-employee",

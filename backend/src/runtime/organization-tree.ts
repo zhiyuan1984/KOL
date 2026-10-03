@@ -11,6 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { getConn, nowIso, type SqliteConn } from "../db.js";
+import { agentIsPublished } from "./managed-agents.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const SEED_KEY = "org_registry_v1";
@@ -558,6 +559,15 @@ export function createAgentBinding(input: {
   const existing = db.prepare("SELECT * FROM agent_bindings WHERE id = ? AND status = 'active'").get(id) as AgentBindingRow | undefined;
   if (existing) return existing;
   const stamp = nowIso();
+  const revoked = db.prepare("SELECT id FROM agent_bindings WHERE id = ? AND status = 'revoked'").get(id);
+  if (revoked) {
+    db.prepare(`UPDATE agent_bindings SET status='active',binding_version=binding_version+1,org_version=?,
+      created_by=?,reason=?,effective_from=?,effective_to=NULL,source=?,updated_at=? WHERE id=?`).run(
+      currentOrgVersion(input.company_id), input.created_by || null, input.reason || null,
+      input.effective_from || stamp, input.source || "admin", stamp, id,
+    );
+    return db.prepare("SELECT * FROM agent_bindings WHERE id = ?").get(id) as AgentBindingRow;
+  }
   db.prepare(
     `INSERT INTO agent_bindings
        (id, agent_id, target_type, target_id, company_id, status, binding_version, org_version, created_by, reason, effective_from, effective_to, source, created_at, updated_at)
@@ -584,8 +594,9 @@ export function revokeAgentBinding(bindingId: string, input?: { reason?: string 
   const db = getConn();
   const row = db.prepare("SELECT 1 FROM agent_bindings WHERE id = ? AND status = 'active'").get(bindingId);
   if (!row) return false;
-  db.prepare("UPDATE agent_bindings SET status = 'revoked', reason = ?, updated_at = ? WHERE id = ?").run(
+  db.prepare("UPDATE agent_bindings SET status = 'revoked', binding_version=binding_version+1, reason = ?, effective_to=?, updated_at = ? WHERE id = ?").run(
     input?.reason || "revoked",
+    nowIso(),
     nowIso(),
     bindingId,
   );
@@ -618,12 +629,30 @@ export function bumpOrgVersion(companyId: string, note: string, source?: string)
 }
 
 /**
- * 服务端唯一的覆盖计算（CONST-05）：绑定组织单元 → 该单元负责人、该单元及其全部下级成员、逐级上级负责人；
- * 绑定人员 → 本人及其所属各级上级负责人。跨公司、旁支与无证据关系一律不放行。
+ * 已发布 Agent 的有效人员集合入口（CONST-05）；计算内核见 computeEffectiveAgentUsers。
+ * 绑定目标为组织单元（任意层级）或人员；覆盖与继承规则由内核实现，跨公司、旁支一律不放行。
  */
 export function effectiveAgentUsers(agentId: string): EffectiveAgentUsers {
+  return computeEffectiveAgentUsers(agentId, listAgentBindings(agentId));
+}
+
+export type SimulatedPerson = {
+  person: OrganizationPersonRow;
+  membership: OrganizationMembershipRow | null;
+};
+
+/**
+ * 覆盖计算内核（CONST-05）：绑定组织单元 → 该单元负责人、该单元及其全部下级成员、逐级上级负责人；
+ * 绑定人员 → 本人及其所属各级上级负责人。
+ * `simulatePerson` 仅供预览路径（previewAgentBinding）：person 尚未同步组织关系时按 users.site 模拟，不写库。
+ */
+function computeEffectiveAgentUsers(
+  agentId: string,
+  bindings: AgentBindingRow[],
+  simulatePerson?: (personRef: string, companyId: string) => SimulatedPerson | null,
+): EffectiveAgentUsers {
   ensureOrganizationTree();
-  const bindings = listAgentBindings(agentId);
+  // 绑定列表由调用方给出：实时集合来自 listAgentBindings；预览传入含虚拟绑定的列表。
   const byRef = new Map<string, EffectiveUser>();
   const rank: Record<EffectiveUser["via"], number> = { binding_target: 0, unit_head: 1, unit_member: 2, ancestor_head: 3 };
   let orgVersion = 0;
@@ -657,7 +686,13 @@ export function effectiveAgentUsers(agentId: string): EffectiveAgentUsers {
 
     for (const binding of bindings.filter((row) => row.company_id === companyId)) {
       if (binding.target_type === "person") {
-        const membership = memberships.find((row) => row.person_ref === binding.target_id);
+        // 预览模拟：该 person 尚无权威成员关系时，按 users.site 等价 syncUserOrganization 的规则参与计算。
+        const simulated = memberships.some((row) => row.person_ref === binding.target_id)
+          ? null
+          : simulatePerson?.(binding.target_id, companyId) || null;
+        if (simulated && !people.has(simulated.person.person_ref)) people.set(simulated.person.person_ref, simulated.person);
+        const membership = memberships.find((row) => row.person_ref === binding.target_id)
+          || (simulated?.membership && simulated.membership.company_id === companyId ? simulated.membership : undefined);
         // 绑定人员覆盖本人；本人所属单元及其各级上级单元的负责人一并覆盖（CONST-05「各级上级负责人」）。
         add(binding.target_id, "binding_target", membership?.org_unit_id || "", binding.id);
         if (membership) {
@@ -697,9 +732,178 @@ export function effectiveAgentUsers(agentId: string): EffectiveAgentUsers {
   };
 }
 
+export type AgentBindingPreview = {
+  agent_id: string;
+  org_version: number;
+  before: { person_refs: string[]; user_ids: string[] };
+  after: { person_refs: string[]; user_ids: string[] };
+  added: EffectiveUser[];
+  removed: EffectiveUser[];
+};
+
+export type AgentBindingChange =
+  | { add: { target_type: "organization_unit" | "person"; target_id: string; company_id: string } }
+  | { remove: string };
+
+const USER_PERSON_PREFIX = "person:user:";
+
+/** 账号外部引用：已同步的 person_ref，否则按 syncUserOrganization 的约定由 user_id 推导；不写库。 */
+export function personRefForUser(userId: string): string | null {
+  const db = getConn();
+  const row = db.prepare("SELECT person_ref FROM organization_people WHERE user_id=?").get(userId) as
+    { person_ref: string } | undefined;
+  if (row?.person_ref) return row.person_ref;
+  return db.prepare("SELECT 1 FROM users WHERE id=?").get(userId) ? `${USER_PERSON_PREFIX}${userId}` : null;
+}
+
+/**
+ * 预览模拟（等价 syncUserOrganization 的规则，不写库）：person 尚无权威成员关系时按 users.site
+ * 映射到同公司 active 单元；site 为空或不属该公司则仅覆盖本人，不虚构上级负责人。
+ */
+function simulatePersonFromSite(personRef: string, companyId: string): SimulatedPerson | null {
+  const db = getConn();
+  const row = db.prepare("SELECT * FROM organization_people WHERE person_ref=?").get(personRef) as OrganizationPersonRow | undefined;
+  const userId = row?.user_id || (personRef.startsWith(USER_PERSON_PREFIX) ? personRef.slice(USER_PERSON_PREFIX.length) : "");
+  if (!userId) return null;
+  const user = db.prepare("SELECT id,name,site,active FROM users WHERE id=?").get(userId) as
+    { id: string; name: string; site: string | null; active: number } | undefined;
+  if (!user) return null;
+  const person: OrganizationPersonRow = row ? { ...row, user_id: userId } : {
+    person_ref: personRef,
+    display_name: user.name,
+    user_ref: userId,
+    user_id: userId,
+    starry_open_id: null,
+    email: null,
+    employee_no: null,
+    status: Number(user.active) === 1 ? "active" : "left",
+    source: "preview",
+  };
+  const site = String(user.site || "").trim();
+  const unit = site
+    ? db.prepare("SELECT * FROM organization_units WHERE id=? AND status='active'").get(site) as OrganizationUnitRow | undefined
+    : undefined;
+  if (!unit || unit.company_id !== companyId) return { person, membership: null };
+  return {
+    person,
+    membership: {
+      id: `preview:${personRef}:${unit.id}`,
+      person_ref: personRef,
+      company_id: unit.company_id,
+      org_unit_id: unit.id,
+      relation: "primary",
+      position: null,
+      status: "active",
+      effective_from: null,
+      effective_to: null,
+      source: "preview",
+    },
+  };
+}
+
+/** 变更影响预览（CONST-05）：add 以虚拟绑定、remove 剔除现有绑定，走同一覆盖内核；不落库、不写 users/site。 */
+export function previewAgentBinding(agentId: string, change: AgentBindingChange): AgentBindingPreview {
+  ensureOrganizationTree();
+  const db = getConn();
+  const current = listAgentBindings(agentId);
+  const before = computeEffectiveAgentUsers(agentId, current);
+  let bindings = current;
+  let simulatePerson: ((personRef: string, companyId: string) => SimulatedPerson | null) | undefined;
+  if ("remove" in change) {
+    if (!current.some((row) => row.id === change.remove)) throw new Error(`unknown binding: ${change.remove}`);
+    bindings = current.filter((row) => row.id !== change.remove);
+  } else {
+    const target = change.add;
+    if (target.target_type === "organization_unit") {
+      const unit = db.prepare("SELECT id,company_id,status FROM organization_units WHERE id=?").get(target.target_id) as
+        { id: string; company_id: string; status: string } | undefined;
+      if (!unit || unit.status !== "active") throw new Error(`unknown organization unit: ${target.target_id}`);
+      if (unit.company_id !== target.company_id) throw new Error("binding target is outside the company");
+    } else {
+      const known = db.prepare("SELECT 1 FROM organization_people WHERE person_ref=?").get(target.target_id)
+        || (target.target_id.startsWith(USER_PERSON_PREFIX)
+          ? db.prepare("SELECT 1 FROM users WHERE id=?").get(target.target_id.slice(USER_PERSON_PREFIX.length))
+          : undefined);
+      if (!known) throw new Error(`unknown person: ${target.target_id}`);
+    }
+    const duplicate = current.some((row) => row.target_type === target.target_type && row.target_id === target.target_id);
+    if (!duplicate) {
+      // 虚拟绑定只参与本次计算，不落库。
+      bindings = [...current, {
+        id: "preview",
+        agent_id: agentId,
+        target_type: target.target_type,
+        target_id: target.target_id,
+        company_id: target.company_id,
+        status: "active",
+        binding_version: 0,
+        org_version: currentOrgVersion(target.company_id),
+        created_by: null,
+        reason: null,
+        effective_from: null,
+        effective_to: null,
+        source: "preview",
+      }];
+      if (target.target_type === "person") simulatePerson = simulatePersonFromSite;
+    }
+  }
+  const after = computeEffectiveAgentUsers(agentId, bindings, simulatePerson);
+  const beforeRefs = new Set(before.person_refs);
+  const afterRefs = new Set(after.person_refs);
+  return {
+    agent_id: agentId,
+    org_version: after.org_version,
+    before: { person_refs: before.person_refs, user_ids: before.user_ids },
+    after: { person_refs: after.person_refs, user_ids: after.user_ids },
+    added: after.users.filter((user) => !beforeRefs.has(user.person_ref)),
+    removed: before.users.filter((user) => !afterRefs.has(user.person_ref)),
+  };
+}
+
 export function canUseAgent(userId: string | null | undefined, agentId: string): boolean {
   if (!userId) return false;
+  if (!agentIsPublished(agentId)) return false;
+  const account = getConn().prepare("SELECT active FROM users WHERE id=?").get(userId) as { active?: number } | undefined;
+  if (!account || Number(account.active) !== 1) return false;
   return effectiveAgentUsers(agentId).user_ids.includes(userId);
+}
+
+/** 管理员维护账号的组织归属时同步权威成员关系；不按姓名推断身份。 */
+export function syncUserOrganization(userId: string, unitId: string | null | undefined): string {
+  ensureOrganizationTree();
+  const db = getConn();
+  const user = db.prepare("SELECT id,name,username FROM users WHERE id=?").get(userId) as { id: string; name: string; username: string } | undefined;
+  if (!user) throw new Error("unknown user");
+  const target = unitId ? db.prepare("SELECT id,company_id,status FROM organization_units WHERE id=?").get(unitId) as
+    { id: string; company_id: string; status: string } | undefined : undefined;
+  if (unitId && (!target || target.status !== "active")) throw new Error("unknown active organization unit");
+  const personRef = personRefForUser(userId) ?? `${USER_PERSON_PREFIX}${userId}`;
+  const stamp = nowIso();
+  db.prepare(`INSERT INTO organization_people
+    (person_ref,display_name,user_ref,user_id,email,status,source,created_at,updated_at)
+    VALUES (?,?,?,?,?,'active','admin',?,?)
+    ON CONFLICT (person_ref) DO UPDATE SET display_name=excluded.display_name,user_id=excluded.user_id,
+      email=excluded.email,status='active',updated_at=excluded.updated_at`).run(
+      personRef, user.name, userId, userId, user.username, stamp, stamp,
+    );
+  const old = db.prepare("SELECT id,company_id,org_unit_id FROM organization_memberships WHERE person_ref=? AND relation='primary' AND status='active'")
+    .all(personRef) as Array<{ id: string; company_id: string; org_unit_id: string }>;
+  for (const row of old) {
+    if (row.org_unit_id === unitId) continue;
+    db.prepare("UPDATE organization_memberships SET status='ended',effective_to=?,updated_at=? WHERE id=?")
+      .run(stamp, stamp, row.id);
+    bumpOrgVersion(row.company_id, `员工 ${userId} 离开 ${row.org_unit_id}`, "admin");
+  }
+  if (target && !old.some((row) => row.org_unit_id === target.id)) {
+    const id = `member:${personRef}:${target.id}:primary`;
+    db.prepare(`INSERT INTO organization_memberships
+      (id,person_ref,company_id,org_unit_id,relation,status,effective_from,effective_to,source,created_at,updated_at)
+      VALUES (?,?,?,?,'primary','active',?,NULL,'admin',?,?)
+      ON CONFLICT (id) DO UPDATE SET status='active',effective_from=excluded.effective_from,
+        effective_to=NULL,updated_at=excluded.updated_at`).run(id, personRef, target.company_id, target.id, stamp, stamp, stamp);
+    bumpOrgVersion(target.company_id, `员工 ${userId} 加入 ${target.id}`, "admin");
+  }
+  return personRef;
 }
 
 /** 人员可见技能：属于某个本人有资格使用的 Agent 且已启用的技能。 */

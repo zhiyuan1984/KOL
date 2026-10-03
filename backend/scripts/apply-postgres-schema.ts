@@ -41,6 +41,20 @@ type SchemaMigration = {
 
 const migrations: SchemaMigration[] = [
   {
+    id: "20261003_managed_agents",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS managed_agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL CHECK (status IN ('draft','published','disabled')),
+        version INTEGER NOT NULL CHECK (version >= 1),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+    ],
+  },
+  {
     id: "20261002_ticket_acceptances",
     statements: [
       `CREATE TABLE IF NOT EXISTS ticket_acceptances (

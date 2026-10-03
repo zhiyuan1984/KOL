@@ -29,6 +29,12 @@ function bind(target_type: "organization_unit" | "person", target_id: string, ag
   return createAgentBinding({ agent_id: agent, target_type, target_id, company_id: COMPANY, source: "test" });
 }
 
+function insertUser(id: string, name: string, active = 1) {
+  getConn().prepare(
+    "INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+  ).run(id, id, name, "x", JSON.stringify(["employee"]), "[]", active, "now", "now");
+}
+
 beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-organization-tree-"));
   Object.assign(process.env, {
@@ -190,6 +196,7 @@ describe("effective Agent users", () => {
 describe("Agent use authorization", () => {
   it("只有挂到组织人员上的账号才获得资格", () => {
     bind("organization_unit", "org:lt_team");
+    insertUser("usr_ye", "叶观旺");
     expect(canUseAgent("usr_ye", "agent:kol")).toBe(false);
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_ye", "person:ye_guanwang");
     const effective = effectiveAgentUsers("agent:kol");
@@ -200,9 +207,19 @@ describe("Agent use authorization", () => {
     expect(canUseAgent("usr_ye", "agent:other")).toBe(false);
   });
 
+  it("账号停用后立即失去资格（不削弱已发布 + 在职闸门）", () => {
+    bind("organization_unit", "org:lt_team");
+    insertUser("usr_ye", "叶观旺");
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_ye", "person:ye_guanwang");
+    expect(canUseAgent("usr_ye", "agent:kol")).toBe(true);
+    getConn().prepare("UPDATE users SET active = 0 WHERE id = ?").run("usr_ye");
+    expect(canUseAgent("usr_ye", "agent:kol")).toBe(false);
+  });
+
   it("技能资格经 Agent 装配派生，不回到按人授权", () => {
     ensureRuntimeSchema();
     bind("organization_unit", "org:lt_team");
+    insertUser("usr_gu", "顾嘉瑞");
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_gu", "person:gu_jiarui");
     const db = getConn();
     db.prepare("DELETE FROM runtime_agent_skills WHERE agent_id = ? AND skill_id = ?").run("agent:kol", "creator_discovery");

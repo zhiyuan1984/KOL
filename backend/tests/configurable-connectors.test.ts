@@ -11,6 +11,7 @@ import { previewOpenApi } from "../src/runtime/openapi.js";
 import { assertSafeConnectorEndpoint } from "../src/runtime/http.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 
 let tmp = "";
 let server: http.Server | undefined;
@@ -27,8 +28,9 @@ beforeEach(async () => {
   const db = getConn();
   for (const [id, role] of [["user-a", "employee"], ["admin-a", "admin"]]) db.prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, id, id, "hash", JSON.stringify([role]), "[]", "", 1, "now", "now");
-  // 人员资格锚点是「人 → Agent」绑定（CONST-05 / ADR-2026-10-03）：账号挂到
-  // 组织人员上，并把被测 Agent 绑定到该人员所在的三级组。
+  // 人员资格锚点是「人 → Agent」绑定（CONST-05 / ADR-2026-10-03）：Agent 先发布，
+  // 账号挂到组织人员上，再把被测 Agent 绑定到该人员所在的三级组。
+  seedPublishedAgent(context.agentId, "运行时测试 Agent");
   createAgentBinding({
     agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team",
     company_id: "company:amperetime", source: "test",

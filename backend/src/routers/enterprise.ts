@@ -22,6 +22,7 @@ import { hasBundledIcon } from "./connector-icons.js";
 import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
 import { getConnectorConfig } from "../runtime/store.js";
 import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
+import { listOrganizationUnits, syncUserOrganization } from "../runtime/organization-tree.js";
 
 export const enterprise = new Hono();
 
@@ -220,14 +221,19 @@ enterprise.post("/admin/users", async (c) => {
   const body = (await c.req.json()) as Json;
   const username = String(body.username || "").trim().toLowerCase();
   if (!/^[a-z0-9._@-]{3,100}$/.test(username)) throw new HttpFail(400, "invalid username");
+  const unitId = String(body.site || "").trim();
+  if (unitId && !listOrganizationUnits().some((unit) => unit.id === unitId && unit.status === "active")) {
+    throw new HttpFail(400, "请选择有效组织单元");
+  }
   const id = nid("usr");
   const now = nowIso();
   getConn().prepare(
     `INSERT INTO users (id,username,name,password_hash,roles,brands,site,position,manager_user_id,active,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(id, username, String(body.name || username), await hashPassword(String(body.password || "")),
-    JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), String(body.site || ""), String(body.position || ""),
+    JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), unitId, String(body.position || ""),
     body.manager_user_id || null, body.active === false ? 0 : 1, now, now);
+  syncUserOrganization(id, unitId);
   audit(admin.id, "admin.user.create", { user_id: id });
   return c.json(safeUser(userById(id)), 201);
 });
@@ -252,6 +258,10 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   const uid = c.req.param("uid");
   userById(uid);
   const body = (await c.req.json()) as Json;
+  if (body.site !== undefined && String(body.site || "") &&
+      !listOrganizationUnits().some((unit) => unit.id === String(body.site) && unit.status === "active")) {
+    throw new HttpFail(400, "请选择有效组织单元");
+  }
   const sets: string[] = [];
   const values: unknown[] = [];
   for (const field of ["name", "site", "position", "manager_user_id"] as const) {
@@ -264,6 +274,11 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   if (!sets.length) return c.json(safeUser(userById(uid)));
   sets.push("updated_at=?"); values.push(nowIso(), uid);
   getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values);
+  if (body.site !== undefined || body.name !== undefined) {
+    const updated = userById(uid);
+    const site = String(updated.site || "");
+    if (!site || listOrganizationUnits().some((unit) => unit.id === site)) syncUserOrganization(uid, site);
+  }
   audit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) });
   return c.json(safeUser(userById(uid)));
 });
@@ -282,43 +297,18 @@ enterprise.delete("/admin/users/:uid", (c) => {
 });
 
 enterprise.put("/admin/users/:uid/skills/:skill", (c) => {
-  const admin = requireAdmin();
-  const uid = c.req.param("uid");
-  const skill = c.req.param("skill");
-  userById(uid);
-  if (!SKILL_CATALOG.some((entry) => entry.id === skill)) throw new HttpFail(404, "skill not found");
-  getConn().prepare("INSERT OR IGNORE INTO user_skill_grants (user_id,skill_id,created_at) VALUES (?,?,?)")
-    .run(uid, skill, nowIso());
-  audit(admin.id, "admin.skill.grant", { user_id: uid, skill_id: skill });
-  return c.json({ ok: true, user_id: uid, skill_id: skill });
+  requireAdmin();
+  throw new HttpFail(410, "逐人技能授权已退役；请在 Agent 页绑定人员并装配技能");
 });
+
 
 enterprise.delete("/admin/users/:uid/skills/:skill", (c) => {
-  const admin = requireAdmin();
-  getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=? AND skill_id=?")
-    .run(c.req.param("uid"), c.req.param("skill"));
-  audit(admin.id, "admin.skill.revoke", { user_id: c.req.param("uid"), skill_id: c.req.param("skill") });
-  return c.json({ ok: true });
+  requireAdmin();
+  throw new HttpFail(410, "逐人技能授权已退役；请在 Agent 页管理绑定");
 });
-
-enterprise.put("/admin/users/:uid/skills", async (c) => {
-  const admin = requireAdmin();
-  const uid = c.req.param("uid");
-  userById(uid);
-  const body = (await c.req.json()) as Json;
-  const skills = Array.isArray(body.skills) ? body.skills.map(String) : [];
-  if (skills.some((skill) => !SKILL_CATALOG.some((entry) => entry.id === skill))) {
-    throw new HttpFail(400, "unknown skill");
-  }
-  tx((db) => {
-    db.prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(uid);
-    for (const skill of skills) {
-      db.prepare("INSERT INTO user_skill_grants (user_id,skill_id,created_at) VALUES (?,?,?)")
-        .run(uid, skill, nowIso());
-    }
-  });
-  audit(admin.id, "admin.skill.replace", { user_id: uid, skills });
-  return c.json({ ok: true, user_id: uid, skills });
+enterprise.put("/admin/users/:uid/skills", (c) => {
+  requireAdmin();
+  throw new HttpFail(410, "逐人技能授权已退役；请在 Agent 页管理绑定");
 });
 
 enterprise.get("/admin/connectors", (c) => {

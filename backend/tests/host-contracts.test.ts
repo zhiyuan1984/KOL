@@ -942,9 +942,9 @@ describe("host contracts", () => {
       expect(listed.status, await listed.text()).toBe(200);
       const pack = await listed.json();
       expect(((pack.directory as Json).orgs as Json[]).some((o) => o.id === "org_litime")).toBe(true);
-      // 保留的逐人技能授权表仍可写，但不再决定员工可见/可执行的技能。
+      // 逐人/按组织技能授权已退役（ADR-2026-10-03）：直接授权端点 410，不再决定员工可见/可执行的技能。
       const put = await request("PUT", "/api/admin/skills/creator_discovery/grants", { org: [], team: [], user: [] }, adminCookie);
-      expect(put.status, await put.text()).toBe(200);
+      expect(put.status, await put.text()).toBe(410);
       const mine = (await (await request("GET", "/api/skills", undefined, employeeCookie)).json()) as unknown as Json[];
       expect(mine.find((s) => s.id === "creator_discovery")).toBeFalsy();
       const ses = await (await request("POST", "/api/sessions", { title: "no-discovery" }, employeeCookie)).json();

@@ -1,6 +1,6 @@
 /**
  * Admin-published skills: write SKILL.md into the data-dir pack, refresh catalog,
- * copy into the Codex extraRoots runtime, then grant so the next turn can load it.
+ * copy into the Codex extraRoots runtime. People gain access only through an Agent.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -25,7 +25,6 @@ import {
   type TaskSupports,
 } from "../tasks/registry.js";
 import { HttpFail } from "./errors.js";
-import { setSkillGrants } from "./grants.js";
 import { currentUser } from "./persona.js";
 import { clearSkillCatalogCache, skillFunnelId, type FunnelId, type SkillEntry } from "./skills-catalog.js";
 import {
@@ -63,7 +62,7 @@ export type CreateSkillInput = {
   aliases?: string[] | string;
   in_market?: boolean;
   body?: string;
-  grant_org?: boolean;
+  grant_org?: boolean; // accepted for older callers; no longer creates personnel grants
 };
 
 export type UpdateSkillInput = Omit<CreateSkillInput, "id" | "grant_org">;
@@ -267,12 +266,6 @@ function setMarketFlag(id: string, inMarket: boolean): void {
     .run(id, inMarket ? 1 : 0, nowIso());
 }
 
-function grantDefaultOrg(id: string): void {
-  const org = getConn().prepare("SELECT id FROM orgs WHERE id = ?").get("org_litime") as { id: string } | undefined;
-  if (!org) return;
-  setSkillGrants(id, { org: ["org_litime"], team: [], user: [] });
-}
-
 export function activateSkillForHarness(id: string): string {
   clearTaskRegistryCache();
   if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
@@ -292,7 +285,6 @@ export function createPublishedSkill(input: CreateSkillInput): SkillEntry {
     .run(nid("ssh"), spec.id, null, "draft", currentUser().handle, "created", nowIso());
   setMarketFlag(spec.id, spec.in_market);
   const runtimePath = activateSkillForHarness(spec.id);
-  if (input.grant_org !== false) grantDefaultOrg(spec.id);
   audit(currentUser().handle, "skill.create", {
     skill: spec.id,
     in_market: spec.in_market,

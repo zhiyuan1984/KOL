@@ -14,6 +14,7 @@ import { currentUser, setPersona } from "../host/persona.js";
 import { personaAccess } from "../host/persona-key.js";
 import { login, logout, requirePm, isProductManager } from "../host/auth.js";
 import { directory, grantsForSkill, setSkillGrants, visibleSkillIds } from "../host/grants.js";
+import { visibleSkillIdsForUser } from "../runtime/organization-tree.js";
 import { FUNNEL_STAGES, SOP_POLICY, skillCatalog, skillEmployeeDoc } from "../host/skills-catalog.js";
 import {
   effectiveSkillTemplate,
@@ -427,9 +428,7 @@ misc.delete("/admin/skills/:id", (c) => {
 });
 misc.put("/admin/skills/:id/grants", async (c) => {
   requirePm();
-  const id = c.req.param("id");
-  const body = (await c.req.json()) as { org?: string[]; team?: string[]; user?: string[] };
-  return c.json({ id, grants: setSkillGrants(id, body) });
+  throw new HttpFail(410, "直接技能授权已退役；请在 Agent 页绑定组织或人员");
 });
 misc.post("/admin/skills/:id/stage", async (c) => {
   requirePm();
@@ -926,10 +925,7 @@ misc.get("/home", (c) => {
   const catalog = skillCatalog();
   const granted = authDisabled() || (user && isAdmin(user))
     ? new Set(catalog.map((skill) => skill.id))
-    : new Set(
-        (getConn().prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(user?.id || "") as Row[])
-          .map((row) => String(row.skill_id)),
-      );
+    : new Set(visibleSkillIdsForUser(user?.id));
   return c.json({
     brand: "灵工 工作",
     h1: "今天有什么工作要处理？",

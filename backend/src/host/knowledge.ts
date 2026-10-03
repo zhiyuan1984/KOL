@@ -1829,10 +1829,11 @@ export function rollbackKnowledge(id: string, version: number, actor = knowledge
   return publicKnowledge(knowledgeRow(id), actor);
 }
 
-export const BINDING_SELECTOR_KEYS = ["ids", "kinds", "tags", "stage_codes", "brand", "lang"] as const;
+export const BINDING_SELECTOR_KEYS = ["ids", "base_ids", "kinds", "tags", "stage_codes", "brand", "lang"] as const;
 
 export type KnowledgeBindingSelector = {
   ids?: string[];
+  base_ids?: string[];
   kinds?: string[];
   tags?: string[];
   stage_codes?: string[];
@@ -1873,6 +1874,8 @@ function normalizeSelector(value: unknown): KnowledgeBindingSelector {
   const selector: KnowledgeBindingSelector = {};
   const ids = stringList(input.ids);
   if (ids.length) selector.ids = ids;
+  const baseIds = stringList(input.base_ids);
+  if (baseIds.length) selector.base_ids = baseIds;
   if (kinds.length) selector.kinds = kinds;
   const tags = stringList(input.tags);
   if (tags.length) selector.tags = tags;
@@ -1974,6 +1977,8 @@ export function deleteBinding(id: string, actor = knowledgeActorId()): Json {
 export function bindingMatchesRow(selector: KnowledgeBindingSelector, row: Row): boolean {
   const ids = selector.ids || [];
   if (ids.length && !ids.includes(String(row.id || ""))) return false;
+  const baseIds = selector.base_ids || [];
+  if (baseIds.length && !baseIds.includes(String(row.base_id || ""))) return false;
   const kinds = selector.kinds || [];
   if (kinds.length && !kinds.includes(String(row.kind || ""))) return false;
   const tags = selector.tags || [];

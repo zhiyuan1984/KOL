@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
+import { createManagedAgent, updateManagedAgent } from "../src/runtime/managed-agents.js";
 import { setAgentSkill } from "../src/runtime/store.js";
 import { createAgentBinding, revokeAgentBinding } from "../src/runtime/organization-tree.js";
 import { clearTaskRegistryCache, requireTaskDefinition, taskDefinitions } from "../src/tasks/registry.js";
@@ -126,12 +127,14 @@ describe("one Skill / one knowledge interaction template", () => {
     // 旧的逐人技能授权表不再放行：写入后该技能依然不可见。
     getConn().prepare("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES(?,?,?)").run(user.id, skillId, now);
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
-    // 资格来自「人 → Agent → 技能」装配（ADR-2026-10-03）：把技能装到 Agent 上，
-    // 再把 Agent 绑定到该人员所在的三级组。
-    setAgentSkill("agent:template-test", skillId, true, 0);
+    // 资格来自「人 → Agent → 技能」装配（ADR-2026-10-03）：Agent 必须先发布，
+    // 技能装在 Agent 上，再把 Agent 绑定到该人员所在的三级组。
+    const agent = createManagedAgent({ name: "模板测试 Agent" });
+    updateManagedAgent(agent.id, { status: "published", expected_version: 1 });
+    setAgentSkill(agent.id, skillId, true, 0);
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(user.id, "person:ye_guanwang");
     const binding = createAgentBinding({
-      agent_id: "agent:template-test", target_type: "organization_unit", target_id: "org:lt_team",
+      agent_id: agent.id, target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
     });
     expect((await (await scoped("/knowledge/skill-templates")).json() as Json[]).map((item) => item.skill_id)).toEqual([skillId]);

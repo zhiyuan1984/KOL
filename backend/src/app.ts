@@ -22,6 +22,7 @@ import { connectorCredentialsRouter } from "./routers/connector-credentials.js";
 import { connectorIconsRouter } from "./routers/connector-icons.js";
 import { connectorImportRouter } from "./routers/connector-import.js";
 import { organizationUnitsRouter } from "./routers/organization-units.js";
+import { adminAgentsRouter } from "./routers/admin-agents.js";
 import { costsRouter } from "./routers/costs.js";
 import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
@@ -95,6 +96,7 @@ export function createApp(): Hono {
   app.route("/api", connectorIconsRouter);
   app.route("/api", connectorImportRouter);
   app.route("/api", organizationUnitsRouter);
+  app.route("/api", adminAgentsRouter);
   app.route("/api", host);
   app.route("/api", pipeline);
   app.route("/api", approvals);

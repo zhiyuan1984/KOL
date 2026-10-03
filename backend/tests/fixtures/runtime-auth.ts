@@ -2,7 +2,18 @@ import { Hono } from "hono";
 import { tokenDigest } from "../../src/auth.js";
 import { kolAgentScopeContext } from "../../src/contract-scope.js";
 import { getConn, nowIso } from "../../src/db.js";
+import { ensureManagedAgents } from "../../src/runtime/managed-agents.js";
 import { getAgentSkills, setAgentSkill } from "../../src/runtime/store.js";
+
+/**
+ * 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）；测试夹具按固定 id 落一条
+ * published 的 managed_agents 行，幂等。
+ */
+export function seedPublishedAgent(id: string, name = "测试 Agent"): void {
+  ensureManagedAgents();
+  getConn().prepare(`INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
+    VALUES(?,?,'','published',1,?,?) ON CONFLICT (id) DO NOTHING`).run(id, name, nowIso(), nowIso());
+}
 
 /** Authenticated local test session; never enables a runtime permission bypass. */
 export function seedRuntimeTestActor(skills: string[]): string {
