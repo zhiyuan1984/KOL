@@ -50,13 +50,16 @@ describe("organization tree persistence", () => {
   it("回填三级组织单元、人员外部引用、成员关系与来源", () => {
     const units = listOrganizationUnits(COMPANY);
     const byName = new Map(units.map((unit) => [unit.display_name, unit]));
-    expect(units).toHaveLength(6);
+    expect(units).toHaveLength(9);
     expect(byName.get("品牌与用户增长中心")).toMatchObject({ level: 1, type: "center", parent_id: null, head_person_ref: "person:zhang_huiling" });
     expect(byName.get("推广部")).toMatchObject({ level: 2, parent_id: "org:brand_user_growth_center", head_person_ref: "person:zhong_jiankui" });
-    expect(byName.get("LT组")).toMatchObject({ level: 3, parent_id: "org:promotion_department", head_person_ref: null });
+    expect(byName.get("LT组")).toMatchObject({ level: 3, parent_id: "org:promotion_department", head_person_ref: "person:ye_guanwang" });
     expect(byName.get("PQ-RO-TB组")).toMatchObject({ level: 3, parent_id: "org:promotion_department" });
     expect(byName.get("品牌项目组")).toMatchObject({ level: 2 });
     expect(byName.get("市场部")).toMatchObject({ level: 2 });
+    expect(byName.get("研究院")).toMatchObject({ level: 1, parent_id: null });
+    expect(byName.get("数智中心")).toMatchObject({ level: 2, parent_id: "org:research_institute" });
+    expect(byName.get("AI产品")).toMatchObject({ level: 3, parent_id: "org:digital_intelligence_center" });
     expect(units.every((unit) => unit.source && unit.company_id === COMPANY)).toBe(true);
   });
 
@@ -68,7 +71,7 @@ describe("organization tree persistence", () => {
     expect(people.find((person) => person.person_ref === "person:liu_min")?.user_ref).toBe("user:liu_min");
 
     const memberships = listOrganizationMemberships(COMPANY);
-    expect(memberships).toHaveLength(13);
+    expect(memberships).toHaveLength(14);
     const zhong = memberships.find((row) => row.person_ref === "person:zhong_jiankui");
     expect(zhong).toMatchObject({ org_unit_id: "org:promotion_department", position: "推广部主管", relation: "primary", status: "active" });
     expect(zhong?.effective_from).toBeNull();
@@ -107,13 +110,19 @@ describe("effective Agent users", () => {
     const effective = effectiveAgentUsers("agent:kol");
     expect(effective.users).toHaveLength(9);
     const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
-    expect(byRef.get("person:ye_guanwang")).toMatchObject({ via: "unit_member", via_unit_id: "org:lt_team", display_name: "叶观旺" });
+    expect(byRef.get("person:ye_guanwang")).toMatchObject({ via: "unit_head", via_unit_id: "org:lt_team", display_name: "叶观旺" });
     expect(byRef.get("person:gu_jiarui")?.via).toBe("unit_member");
     expect(byRef.get("person:zhong_jiankui")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:promotion_department" });
     expect(byRef.get("person:zhang_huiling")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:brand_user_growth_center" });
     expect(byRef.get("person:yan_chen")).toMatchObject({ via: "binding_target", display_name: "鄢棽" });
     expect(byRef.has("person:chen_bingbing")).toBe(false);
     expect(effective.org_version).toBe(1);
+  });
+
+  it("today_plan 归属：绑定 LT组组长后，本人与各级上级负责人可用", () => {
+    const effective = effectiveAgentUsers("agent:workspace-planner");
+    expect(effective.person_refs.sort()).toEqual(["person:ye_guanwang", "person:zhang_huiling", "person:zhong_jiankui"]);
+    expect(effective.user_ids).toEqual([]);
   });
 
   it("绑定二级部门：本部门负责人、本部门与三级组成员、一级负责人", () => {
@@ -203,6 +212,7 @@ describe("Agent use authorization", () => {
 describe("person binding and Starry account facts", () => {
   it("绑定人员即使没有组织关系也覆盖本人，且不虚构上级负责人", () => {
     bind("person", "person:yan_chen");
+    getConn().prepare("UPDATE organization_memberships SET status = 'ended' WHERE person_ref = ?").run("person:yan_chen");
     const effective = effectiveAgentUsers("agent:kol");
     expect(effective.person_refs).toEqual(["person:yan_chen"]);
     expect(effective.users[0]).toMatchObject({ via: "binding_target", display_name: "鄢棽", via_unit_id: "" });

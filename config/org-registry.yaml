@@ -17,8 +17,11 @@
     { "id": "org:brand_project_group", "display_name": "品牌项目组", "type": "project_group", "parent": "org:brand_user_growth_center", "head": null, "head_person_ref": null },
     { "id": "org:market_department", "display_name": "市场部", "type": "department", "parent": "org:brand_user_growth_center", "head": null, "head_person_ref": null },
     { "id": "org:promotion_department", "display_name": "推广部", "type": "department", "parent": "org:brand_user_growth_center", "head": "钟建奎", "head_person_ref": "person:zhong_jiankui" },
-    { "id": "org:lt_team", "display_name": "LT组", "type": "team", "parent": "org:promotion_department", "head": null, "head_person_ref": null, "brand_scope": ["brand:lt"] },
-    { "id": "org:pq_ro_tb_team", "display_name": "PQ-RO-TB组", "type": "team", "parent": "org:promotion_department", "head": null, "head_person_ref": null, "brand_scope": ["brand:pq", "brand:ro", "brand:tb"] }
+    { "id": "org:lt_team", "display_name": "LT组", "type": "team", "parent": "org:promotion_department", "head": "叶观旺", "head_person_ref": "person:ye_guanwang", "brand_scope": ["brand:lt"] },
+    { "id": "org:pq_ro_tb_team", "display_name": "PQ-RO-TB组", "type": "team", "parent": "org:promotion_department", "head": null, "head_person_ref": null, "brand_scope": ["brand:pq", "brand:ro", "brand:tb"] },
+    { "id": "org:research_institute", "display_name": "研究院", "type": "center", "parent": "company:amperetime", "head": null, "head_person_ref": null },
+    { "id": "org:digital_intelligence_center", "display_name": "数智中心", "type": "center", "parent": "org:research_institute", "head": null, "head_person_ref": null },
+    { "id": "org:ai_product", "display_name": "AI产品", "type": "team", "parent": "org:digital_intelligence_center", "head": null, "head_person_ref": null }
   ],
   "agent_bindings": [
     {
@@ -27,6 +30,13 @@
       "target_id": "person:yan_chen",
       "reason": "用户 2026-10-03：当前登录账号鄢棽使用 kol agent（试点绑定）",
       "source": "user-confirmed 2026-10-03"
+    },
+    {
+      "agent_id": "agent:workspace-planner",
+      "target_type": "person",
+      "target_id": "person:ye_guanwang",
+      "reason": "用户 2026-10-03：today_plan/todo_plan/today_analyze 是推广组组长的技能，绑定 LT组组长叶观旺（人员绑定）",
+      "source": "user-confirmed 2026-10-03"
     }
   ],
   "confirmed_people": [
@@ -34,16 +44,16 @@
       "person_ref": "person:yan_chen",
       "display_name": "鄢棽",
       "role": "member",
-      "title": null,
-      "org_unit": null,
+      "title": "AI产品经理",
+      "org_unit": "org:ai_product",
       "user_ref": null,
       "account_username": "sriphy",
       "email": null,
       "region_scope": [],
       "brand_scope": [],
       "scope_basis": null,
-      "source": "user-confirmed 2026-10-03：当前登录账号；Starry KOL 邮箱 brandmarketing@litime.com 授权用户（2026-09-13 只读快照）",
-      "pending_fields": ["email", "employee_no", "employment_status", "effective_at", "org_unit", "brand_scope", "region_scope"]
+      "source": "user-confirmed 2026-10-03：当前登录账号，归属研究院/数智中心/AI产品；Starry KOL 邮箱 brandmarketing@litime.com 授权用户（2026-09-13 只读快照）",
+      "pending_fields": ["email", "employee_no", "employment_status", "effective_at", "brand_scope", "region_scope"]
     },
     {
       "person_ref": "person:zhang_huiling",

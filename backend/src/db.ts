@@ -1179,8 +1179,8 @@ function initSchema(db: SqliteConn): void {
         );
         CREATE INDEX IF NOT EXISTS execution_outbox_ready
             ON execution_outbox(status, available_at, created_at);
-        CREATE INDEX IF NOT EXISTS execution_outbox_publishing_lease
-            ON execution_outbox(status, publisher_lease_until);
+        -- execution_outbox_publishing_lease 建在 migrateSchema 的加列之后：
+        -- 已存在的库缺 publisher_lease_until，在 initSchema 建索引会让打开失败。
 
         -- M4 rule registry: records published policy and draft preview only.
         -- No scheduler reads this table to make an automated assignment/SLA
