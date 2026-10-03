@@ -124,7 +124,11 @@ if (fresh || !counts.rows[0]?.n) {
   console.log("dev-pg: 开发库已有数据，跳过迁移（需要重建用 --fresh）");
 }
 
-// 后端测试从模板库克隆测试库（tests/support/pg.ts）：确保 lingong_template 存在且 schema 就绪（幂等）。
+// 新环境的第三步：参考数据（连接器目录、默认知识分类）——PG 侧唯一来源，幂等。
+console.log("dev-pg: 写入参考数据（幂等）…");
+run(process.execPath, [tsx, "scripts/seed-reference-data.ts"], { cwd: backendDir, env });
+
+// 后端测试从模板库克隆测试库（tests/support/pg.ts）：确保 lingong_template 存在且「schema + 参考数据」就绪。
 const templateUrl = new URL(databaseUrl);
 templateUrl.pathname = "/lingong_template";
 const tplAdmin = await connectWithRetry(adminUrl.toString());
@@ -135,7 +139,8 @@ if (!tplExists.rowCount) {
 }
 await tplAdmin.end();
 run(process.execPath, [tsx, "scripts/apply-postgres-schema.ts"], { cwd: backendDir, env: { ...env, DATABASE_URL: templateUrl.toString() } });
-console.log("dev-pg: 模板库 schema 已对齐（供后端测试克隆）");
+run(process.execPath, [tsx, "scripts/seed-reference-data.ts"], { cwd: backendDir, env: { ...env, DATABASE_URL: templateUrl.toString() } });
+console.log("dev-pg: 模板库 schema + 参考数据已对齐（供后端测试克隆）");
 
 console.log(`\ndev-pg: 数据库就绪 → ${dbName}`);
 console.log(`  后端：cd backend && DATABASE_URL=<url> npm run dev   （默认 8765）`);

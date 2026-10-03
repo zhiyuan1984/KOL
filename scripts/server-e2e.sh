@@ -25,7 +25,9 @@ git reset --hard "$REV"
 echo "E2E revision: $(git log --oneline -1)"
 if [ "$NOSCHEMA" = "0" ]; then
   ./scripts/apply-postgres-schema.sh >/dev/null
-  echo "PostgreSQL schema 已对齐"
+  DB_URL="$(sed -n 's/^DATABASE_URL=//p' "$ROOT/.env" | head -1 | sed 's/^"//; s/"$//')"
+  (cd backend && DATABASE_URL="$DB_URL" npm run db:seed:reference >/dev/null)
+  echo "PostgreSQL schema + 参考数据已对齐"
 fi
 if [ frontend/package-lock.json -nt frontend/node_modules ] 2>/dev/null; then (cd frontend && npm ci --no-audit --no-fund); fi
 if [ backend/package-lock.json -nt backend/node_modules ] 2>/dev/null; then (cd backend && npm ci --no-audit --no-fund); fi
