@@ -349,6 +349,42 @@ describe("task CRUD and run flow", () => {
     expect(completed.body.status).toBe("completed");
   });
 
+  it("keeps employee task-center list reads bounded when historical payloads are oversized", async () => {
+    const created = await request("POST", "/api/tasks", {
+      task_type: "risk_scan",
+      title: "有界任务中心投影",
+    });
+    const taskId = String(created.body.id);
+    const oversized = "x".repeat(256_000);
+    getConn().prepare("UPDATE tickets SET input=?, entities=?, content=? WHERE id=?").run(
+      JSON.stringify({ payload: oversized }),
+      JSON.stringify({ payload: oversized }),
+      oversized,
+      taskId,
+    );
+    const now = new Date().toISOString();
+    // Bypass the write-side safe-summary guard: this models a legacy oversized
+    // record already present in production and tests the read projection alone.
+    getConn().prepare(
+      `INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run("evt_task_center_oversized", taskId, null, 999, "run.completed", "超大回执", "completed", oversized, now, now);
+
+    const listed = await request("GET", "/api/tasks?view=history");
+    expect(listed.status).toBe(200);
+    const row = (listed.body as unknown as Json[]).find((task) => String(task.id) === taskId)!;
+    expect(row.input_truncated).toBe(true);
+    expect(row.entities_truncated).toBe(true);
+    expect(row.content_truncated).toBe(true);
+    expect(String(row.content)).toHaveLength(4096);
+    expect(Number(row.input_size)).toBeGreaterThan(256_000);
+    expect(Number(row.entities_size)).toBeGreaterThan(256_000);
+    const history = row.history as Json[];
+    expect(history.length).toBeGreaterThan(0);
+    expect(String(history.at(-1)?.summary)).toHaveLength(4096);
+    expect(JSON.stringify(listed.body).length).toBeLessThan(32_000);
+  });
+
   it("does not create a task from ambiguous text", async () => {
     const response = await request("POST", "/api/tasks/from-text", { text: "帮我处理一下" });
     expect(response.status).toBe(200);

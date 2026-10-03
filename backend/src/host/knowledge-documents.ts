@@ -170,7 +170,7 @@ export function documentView(row: Row, opts: { latestJob?: Row | null } = {}): J
 
 function latestJobOf(documentId: string): Row | null {
   return (getConn().prepare(
-    "SELECT * FROM knowledge_document_jobs WHERE document_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    "SELECT * FROM knowledge_document_jobs WHERE document_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
   ).get(documentId) as Row | undefined) || null;
 }
 
@@ -210,7 +210,7 @@ export function getDocumentDetail(id: string): Json {
       WHERE b.id=?`,
   ).get(String(doc.base_id)) as Row | undefined;
   const jobs = getConn()
-    .prepare("SELECT * FROM knowledge_document_jobs WHERE document_id=? ORDER BY created_at DESC, rowid DESC")
+    .prepare("SELECT * FROM knowledge_document_jobs WHERE document_id=? ORDER BY created_at DESC, id DESC")
     .all(id) as Row[];
   const preview = textPreviewOf(doc);
   return {
@@ -380,7 +380,7 @@ async function runStage(documentId: string, kind: "normalize" | "index"): Promis
   const actor = String(doc.created_by || "system");
   // 复用入队时已建的 queued 作业行（上传时预建）；重试/对账路径没有预建行，则现建。
   const queued = conn.prepare(
-    "SELECT * FROM knowledge_document_jobs WHERE document_id=? AND kind=? AND status='queued' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+    "SELECT * FROM knowledge_document_jobs WHERE document_id=? AND kind=? AND status='queued' ORDER BY created_at DESC, id DESC LIMIT 1",
   ).get(documentId, kind) as Row | undefined;
   const job = queued ? { ...queued } : insertQueuedJob(conn, documentId, kind, actor);
   const controller = new AbortController();

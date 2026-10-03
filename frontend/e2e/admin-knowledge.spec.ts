@@ -1,16 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * 知识治理管理端六子视图（阶段 2/3）的 e2e 契约。
+ * 知识治理管理端（IA v2，2026-10-02）的 e2e 契约。
  *
- * 断言只依赖页面自己的 DOM 契约（data-admin-kb-*）与既有对话框钩子：
- *   路由 → data-admin-kb-view="review|catalog|base|entry|ingest|bindings"（规格 §5.2）
- *   子导航 → data-admin-kb-tab 同枚举，共 6 个
- *   一页一问 → 每个视口最多 1 个实底主 CTA（--primary 实底），待处置为 0。
+ * 断言只依赖页面自己的 DOM 契约与既有对话框钩子：
+ *   新主页（默认路由）→ data-admin-kb-v2="home"：中栏筛选 / 右栏五条浏览 / 下方详情
+ *   旧子视图过渡保留：data-admin-kb-tab 共 5 个（catalog|base|entry|ingest|bindings）＋ data-admin-kb-home-link 回链
+ *   一页一问 → 每个视口最多 1 个实底主 CTA（--primary 实底）。
  *
  * stub 环境用 data-e2e 的种子知识（kb_mail_kol =「首封建联」，已发布、sriphy 已启用），
  * 以及迁移生成的默认分类：族「未分类」→ 域「未分类」→ 库「历史知识」（kbase_legacy，结构化）。
- * 该数据库跨运行保留，故：引用视图会在用例末尾删掉自建绑定；反馈用例先清掉上一次的隐藏记录。
+ * 该数据库跨运行保留，故：引用视图会在用例末尾删掉自建绑定。
  */
 
 /** 统计某个视图根节点内的实底主 CTA（背景 = --primary，与 skills-catalog.spec 同法）。 */
@@ -38,34 +38,71 @@ async function openView(page: Page, path: string, view: string) {
 }
 
 test.describe("知识治理管理端（/admin/knowledge）", () => {
-  test("六个子视图深链可达，默认进待处置，子导航是链接式 tab", async ({ page }) => {
-    await openView(page, "/admin/knowledge", "review");
+  test("新主页默认可达；子视图直达且可回链", async ({ page }) => {
+    await page.goto("/admin/knowledge");
+    const home = page.locator('[data-admin-kb-v2="home"]');
+    await expect(home).toBeVisible();
     await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
-    await expect(page.locator(".kb-step-n, .kb-hero-admin")).toHaveCount(0);
-    await expect(page.locator("[data-admin-knowledge-review]")).toBeVisible();
-    await expect(page.locator("[data-admin-kb-expiry]")).toBeVisible();
+    await expect(page.locator("[data-kbv-view]")).toHaveCount(5);
+    await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
+    await expect(page.locator("[data-admin-kb-tab]")).toHaveCount(0);
+    // 三级分类联动 tab（业务域 → 业务主题 → 知识库）与筛选标签。
+    await expect(page.locator("[data-kb-scope-family]").first()).toBeVisible();
+    await expect(page.locator("[data-kb-scope-domain]").first()).toBeVisible();
+    await expect(page.locator("[data-kb-scope-base]").first()).toBeVisible();
+    await expect(page.locator("[data-kb-filter='brand']")).toBeVisible();
 
-    const tabs = page.locator("[data-admin-kb-tab]");
-    await expect(tabs).toHaveCount(6);
-    await expect(page.locator("[data-admin-kb-tab='review']")).toHaveAttribute("aria-current", "page");
-
-    for (const [tab, view] of [
-      ["catalog", "catalog"],
-      ["base", "base"],
-      ["entry", "entry"],
-      ["ingest", "ingest"],
-      ["bindings", "bindings"],
-      ["review", "review"],
-    ] as const) {
-      await page.locator(`[data-admin-kb-tab='${tab}']`).click();
-      await expect(page.locator(`[data-admin-kb-view='${view}']`)).toBeVisible();
-    }
-
-    // 上下文视图深链直达：base = bases/:id，entry = entries/:id，子导航高亮对应 tab。
+    // 子视图直达可达：仅保留返回回链（旧版导航已撤）。
+    await openView(page, "/admin/knowledge/catalog", "catalog");
+    await expect(page.locator("[data-admin-kb-home-link]")).toBeVisible();
+    await openView(page, "/admin/knowledge/bases", "base");
+    await expect(page.locator("[data-admin-kb-context-hint]")).toBeVisible();
     await openView(page, "/admin/knowledge/bases/kbase_legacy", "base");
-    await expect(page.locator("[data-admin-kb-tab='base']")).toHaveAttribute("aria-current", "page");
     await openView(page, "/admin/knowledge/entries/kb_mail_kol", "entry");
-    await expect(page.locator("[data-admin-kb-tab='entry']")).toHaveAttribute("aria-current", "page");
+    await page.locator("[data-admin-kb-home-link]").click();
+    await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
+  });
+
+  test("新主页骨架：中栏筛选、右栏详情与阶段标注", async ({ page }) => {
+    await page.goto("/admin/knowledge");
+    await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
+    await expect(page.locator("[data-kbv-top]")).toHaveCount(0);
+    await expect(page.locator("[data-kbv-filter-pane]")).toBeVisible();
+    await expect(page.locator("[data-kbv-count]")).toHaveText(/\d+ 条知识/);
+    await expect(page.locator("[data-kbv-record]")).toHaveCount(5);
+
+    await page.locator("[data-kbv-record]").first().click();
+    await expect(page.locator("[data-kbv-detail]")).toContainText("正文");
+    await expect(page.locator("[data-kbv-detail]")).toContainText("属性与范围");
+    await expect(page.locator("[data-kbv-detail]")).toContainText("来源与版本");
+
+    // 上传弹窗：音视频格式在列；归档目标＝三级 tab；阶段标签可增可删；提交在服务接入前禁用。
+    await page.locator("[data-kbv-upload]").click();
+    const upload = page.locator("[data-kbv-upload-dialog]");
+    await expect(upload).toBeVisible();
+    await expect(upload).toContainText("音视频将先转写");
+    await expect(upload.locator("[data-kb-scope-picker]")).toBeVisible();
+    const baseTabs = upload.locator("[data-kb-scope-base]");
+    await expect(baseTabs.first()).toBeVisible();
+    await baseTabs.nth(1).click();
+    await expect(baseTabs.nth(1)).toHaveAttribute("aria-pressed", "true");
+
+    const stageRow = upload.locator("[data-kb-stage-tags]");
+    await expect(stageRow).not.toContainText("全部");
+    await stageRow.locator("[data-kb-stage-add]").selectOption("INITIAL_CONTACT");
+    await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toBeVisible();
+    await stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]').click();
+    await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toHaveCount(0);
+
+    await expect(upload).not.toContainText("上传服务暂不可用");
+    await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
+    await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
+    await page.keyboard.press("Escape");
+    await expect(upload).toBeHidden();
+
+    // 新建知识 → 进入目录（真实的创建入口）。
+    await page.locator("[data-kbv-new]").click();
+    await expect(page.locator('[data-admin-kb-view="catalog"]')).toBeVisible();
   });
 
   test("目录列出族 / 域 / 库，库详情列出条目，条目详情可展开版本全文", async ({ page }) => {
@@ -152,9 +189,11 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await expect(page.locator("[data-admin-receipt]")).toContainText("绑定已删除");
   });
 
-  test("一页一问：每个视口最多 1 个实底主 CTA，待处置为 0", async ({ page }) => {
-    await openView(page, "/admin/knowledge", "review");
-    expect(await filledCtaCount(page, "[data-admin-kb-view='review']"), "待处置不应有实底主 CTA").toBe(0);
+  test("一页一问：每个视口最多 1 个实底主 CTA", async ({ page }) => {
+    await page.goto("/admin/knowledge");
+    await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
+    const homeFilled = await filledCtaCount(page, '[data-admin-kb-v2="home"]');
+    expect(homeFilled, `新主页实底主 CTA 应为 0–1 个，实测 ${homeFilled} 个`).toBeLessThanOrEqual(1);
 
     for (const [path, view] of [
       ["/admin/knowledge/catalog", "catalog"],
@@ -169,26 +208,14 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     }
   });
 
-  test("待处置视图：员工反馈行可展开处置并忽略留档", async ({ page }) => {
+  // 员工反馈处置的 UI 随旧「待处置」视图一并退役（P2 接回新主页的详情/待办）；数据与 API 不变。
+  test.skip("待处置视图：员工反馈行可展开处置并忽略留档", async ({ page }) => {
     await page.request.delete("/api/knowledge/kb_mail_kol/deprecate");
     const posted = await page.request.post("/api/knowledge/kb_mail_kol/deprecate", { data: { reason: "过时" } });
     expect(posted.ok(), `写入隐藏记录失败：${posted.status()}`).toBeTruthy();
 
-    await openView(page, "/admin/knowledge", "review");
+    await page.goto("/admin/knowledge");
     const row = page.locator("[data-admin-kb-feedback-row*='kb_mail_kol']").first();
     await expect(row).toBeVisible();
-    await expect(row).toContainText("首封建联");
-    await expect(page.locator("[data-admin-kb-reason='outdated']")).toContainText("内容过时");
-
-    await page.locator("[data-admin-kb-feedback-form*='kb_mail_kol'] summary").click();
-    await page.locator("[data-admin-kb-feedback-note*='kb_mail_kol']").fill("E2E：过时已登记，先忽略");
-    await page.locator("[data-admin-kb-feedback-ignore*='kb_mail_kol']").click();
-
-    await expect(page.locator("[data-admin-receipt]")).toContainText("已忽略");
-    const handled = page.locator("[data-admin-kb-handled*='kb_mail_kol']").first();
-    await expect(handled).toBeVisible();
-    await expect(handled).toContainText("已忽略");
-    await expect(page.locator("[data-admin-kb-feedback-row*='kb_mail_kol']").first())
-      .toHaveAttribute("data-admin-kb-feedback-handled", "1");
   });
 });

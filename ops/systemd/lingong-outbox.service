@@ -13,6 +13,9 @@ Restart=always
 RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=30
+# 内存护栏：运行失控时只终止本单元，不再危及整机。
+MemoryMax=512M
+MemorySwapMax=256M
 
 [Install]
 WantedBy=multi-user.target

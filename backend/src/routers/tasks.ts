@@ -27,6 +27,34 @@ const STATUSES = new Set(["needs_clarification", "pending", "running", "waiting"
 const EDITABLE_STATUSES = new Set([...STATUSES, "in_progress", "queued", "starting"]);
 const PRIORITIES = new Set(["important_urgent", "important", "urgent", "normal", "low", "high", "medium"]);
 
+/**
+ * `GET /api/tasks` backs the employee task centre and the sidebar poller.
+ * It must never pull an unbounded external receipt through the synchronous
+ * PostgreSQL bridge: a historical 33 MB task payload made the whole employee
+ * surface fail before the response could be projected. Full task payloads
+ * remain available only through the explicit single-task detail route.
+ */
+export const MAX_TASK_LIST_TEXT_CHARS = 4_096;
+export const MAX_TASK_LIST_ROWS = 200;
+
+const TASK_LIST_TICKET_COLUMNS = `
+  id, owner_user_id, task_type, title, source, status, priority, skill, profile,
+  project_id, collaboration_id, session_id, due_at, last_acted_at, acknowledged_at,
+  promoted_at, dismissed_at, started_at, completed_at, data_version, created_at,
+  updated_at, kind, channel, requester_type, requester_id, object_type, object_id,
+  kind_version, start_date, risk_level,
+  substr(content, 1, ?) AS content, length(content) AS content_size,
+  substr(input, 1, ?) AS input, length(input) AS input_size,
+  substr(entities, 1, ?) AS entities, length(entities) AS entities_size
+`;
+
+const TASK_LIST_EVENT_COLUMNS = `
+  id, work_item_id, run_id, sequence, event_type,
+  substr(label, 1, ?) AS label, length(label) AS label_size,
+  status, substr(safe_summary, 1, ?) AS safe_summary,
+  length(safe_summary) AS safe_summary_size, time, created_at
+`;
+
 const TASK_FIELD_LABELS: Record<string, string> = {
   title: "标题",
   content: "内容",
@@ -115,6 +143,9 @@ function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinit
     ticket_kind: row.kind ? String(row.kind) : null,
     ticket_channel: row.channel ? String(row.channel) : null,
     ticket_status: ticketStatusFromWorkItem(String(row.status)),
+    input_truncated: Number(row.input_size || 0) > String(row.input || "").length,
+    entities_truncated: Number(row.entities_size || 0) > String(row.entities || "").length,
+    content_truncated: Number(row.content_size || 0) > String(row.content || "").length,
   };
 }
 
@@ -123,13 +154,14 @@ function lastEventsByWorkItem(ids: string[]): Map<string, Row> {
   if (!ids.length) return map;
   const placeholders = ids.map(() => "?").join(",");
   const rows = getConn().prepare(
-    `SELECT te.* FROM task_events te
-     INNER JOIN (
-       SELECT work_item_id, MAX(sequence) AS sequence
+    `SELECT ${TASK_LIST_EVENT_COLUMNS.replaceAll("\n", " ")}
+     FROM task_events
+     WHERE (work_item_id, sequence) IN (
+       SELECT work_item_id, MAX(sequence)
        FROM task_events WHERE work_item_id IN (${placeholders})
        GROUP BY work_item_id
-     ) last ON last.work_item_id = te.work_item_id AND last.sequence = te.sequence`,
-  ).all(...ids) as Row[];
+     )`,
+  ).all(MAX_TASK_LIST_TEXT_CHARS, MAX_TASK_LIST_TEXT_CHARS, ...ids) as Row[];
   for (const row of rows) map.set(String(row.work_item_id), row);
   return map;
 }
@@ -149,10 +181,11 @@ function eventsByWorkItem(ids: string[], max = MAX_LIST_HISTORY_EVENTS): Map<str
   const map = new Map<string, Row[]>();
   if (!ids.length) return map;
   const stmt = getConn().prepare(
-    "SELECT * FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT ?",
+    `SELECT ${TASK_LIST_EVENT_COLUMNS.replaceAll("\n", " ")}
+     FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT ?`,
   );
   for (const id of ids) {
-    const rows = (stmt.all(id, max) as Row[]).reverse();
+    const rows = (stmt.all(MAX_TASK_LIST_TEXT_CHARS, MAX_TASK_LIST_TEXT_CHARS, id, max) as Row[]).reverse();
     if (rows.length) map.set(id, rows);
   }
   return map;
@@ -162,7 +195,12 @@ function collabsByIds(ids: string[]): Map<string, Row> {
   const map = new Map<string, Row>();
   if (!ids.length) return map;
   const placeholders = ids.map(() => "?").join(",");
-  const rows = getConn().prepare(`SELECT * FROM collaborations WHERE id IN (${placeholders})`).all(...ids) as Row[];
+  const rows = getConn().prepare(
+    `SELECT id, handle, display_name, brand, owner_name, sku, qty,
+            group_brand_overlap, substr(notes, 1, ?) AS notes,
+            stage_code, days_in_stage
+     FROM collaborations WHERE id IN (${placeholders})`,
+  ).all(MAX_TASK_LIST_TEXT_CHARS, ...ids) as Row[];
   for (const row of rows) map.set(String(row.id), row);
   return map;
 }
@@ -353,7 +391,12 @@ function taskEventCount(db: SqliteConn, workItemId: string): number {
   return Number(row?.n || 0);
 }
 
-function appendTaskEventInConn(
+/**
+ * Append an immutable task event into a caller-owned transaction. Durable
+ * command producers use this so acceptance, queueing, and the audit fact
+ * become one database commit rather than a best-effort follow-up write.
+ */
+export function appendTaskEventInConn(
   db: SqliteConn,
   workItemId: string,
   runId: string | null,
@@ -536,9 +579,16 @@ function createWorkItem(body: Json, source: string): Json {
       JSON.stringify(input), JSON.stringify(resolution.entities), 1, now, now,
     );
     ensureTicketForWorkItem(id, { conn: db });
+    appendTaskEventInConn(
+      db,
+      id,
+      null,
+      "task.created",
+      definition.title,
+      status,
+      resolution.missing_fields.length ? `缺少：${formatMissingFields(resolution.missing_fields)}` : "任务已创建",
+    );
   });
-  appendTaskEvent(id, null, "task.created", definition.title, status,
-    resolution.missing_fields.length ? `缺少：${formatMissingFields(resolution.missing_fields)}` : "任务已创建");
   audit(owner, "task.created", { work_item_id: id, task_type: definition.id, source });
   return {
     ...publicWorkItem(ownedWorkItem(id)),
@@ -580,19 +630,20 @@ tasks.get("/agent-manifest", (c) => {
 });
 
 /**
- * Cheap "did anything the list reads change" fingerprint. MAX(rowid) is O(1)
- * on the implicit rowid index; MAX(updated_at) rides the new
- * tickets(owner_user_id, updated_at) index. Any write that moves it drops
- * the cached projection immediately instead of waiting out the TTL.
+ * Cheap "did anything the list reads change" fingerprint. Keep it portable
+ * across SQLite and PostgreSQL: task event count catches every append and the
+ * latest creation time provides a readable companion value. Any write that
+ * moves it drops the cached projection immediately instead of waiting out TTL.
  */
 function tasksEpoch(): string {
   const row = getConn().prepare(
-    `SELECT (SELECT MAX(rowid) FROM task_events) AS events,
+    `SELECT (SELECT COUNT(*) FROM task_events) AS event_count,
+            (SELECT MAX(created_at) FROM task_events) AS event_updated_at,
             (SELECT MAX(updated_at) FROM tickets) AS work_items,
             (SELECT COUNT(*) FROM tickets) AS work_item_count,
             (SELECT COUNT(*) FROM collaborations) AS collaborations`,
-  ).get() as { events: number | null; work_items: string | null; work_item_count: number; collaborations: number };
-  return pollEpoch([row.events, row.work_items, row.work_item_count, row.collaborations]);
+  ).get() as { event_count: number; event_updated_at: string | null; work_items: string | null; work_item_count: number; collaborations: number };
+  return pollEpoch([row.event_count, row.event_updated_at, row.work_items, row.work_item_count, row.collaborations]);
 }
 
 /** Canonical employee task projection. Today is deliberately a subset of todo. */
@@ -880,6 +931,28 @@ tasks.post("/tickets/:id/commands", async (c) => {
       nextStatus,
       action === "complete" ? "已记录验收证据；运行成功与工单完成分别保留。" : String(body.reason || "任务在未开始外部执行前已取消").slice(0, 1000),
     );
+    if (action === "complete") {
+      // Event history exhaustion must not leave a completed ticket without its
+      // required immutable acceptance event. Throwing inside tx rolls back the
+      // state projection, evidence snapshot, and command receipt together.
+      if (!event) throw new HttpFail(409, { code: "acceptance_event_unavailable", message: "无法记录验收事件，请先处理工单事件历史。" });
+      // 归因必须锁定在验收事实发生时：不能在日报里用现任负责人反算历史交付，
+      // 也不能把运行成功误作验收。证据正文只在管理员工单下钻中按权限读取。
+      db.prepare(
+        `INSERT INTO ticket_acceptances
+         (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+      ).run(
+        ticket.id,
+        event?.id || null,
+        now,
+        String(ticket.owner_user_id),
+        ownerId(),
+        JSON.stringify(acceptanceEvidence),
+        "ticket-acceptance.v1",
+        now,
+      );
+    }
     const response = {
       ticket_id: String(ticket.id),
       action,
@@ -958,7 +1031,10 @@ tasks.get("/tasks", (c) => {
   };
   if (!order[sort]) throw new HttpFail(400, "invalid sort");
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const limit = openView ? parseLimit(c.req.query("limit")) : 0;
+  // A list projection is not an export endpoint. Keeping it bounded protects
+  // every employee poller from one pathological historical row and keeps the
+  // response below the PostgreSQL synchronous-bridge transport budget.
+  const limit = parseLimit(c.req.query("limit"), openView ? 50 : MAX_TASK_LIST_ROWS);
   // This endpoint is polled every few seconds by every open tab, so an
   // unchanged data window is served from the 4s in-process cache.
   const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${c.req.query("status") || ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
@@ -968,10 +1044,15 @@ tasks.get("/tasks", (c) => {
       ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM tickets ${where}`).get(...values) as { c: number }).c || 0)
       : 0;
     const rows = getConn().prepare(
-      openView
-        ? `SELECT * FROM tickets ${where} ORDER BY ${order[sort]} LIMIT ?`
-        : `SELECT * FROM tickets ${where} ORDER BY ${order[sort]}`,
-    ).all(...(openView ? [...values, limit] : values)) as Row[];
+      `SELECT ${TASK_LIST_TICKET_COLUMNS.replaceAll("\n", " ")}
+       FROM tickets ${where} ORDER BY ${order[sort]} LIMIT ?`,
+    ).all(
+      MAX_TASK_LIST_TEXT_CHARS,
+      MAX_TASK_LIST_TEXT_CHARS,
+      MAX_TASK_LIST_TEXT_CHARS,
+      ...values,
+      limit,
+    ) as Row[];
     const ids = rows.map((row) => String(row.id));
     const lastByTask = openView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
     const eventsByTask = openView ? new Map<string, Row[]>() : eventsByWorkItem(ids);

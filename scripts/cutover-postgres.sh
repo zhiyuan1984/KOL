@@ -161,9 +161,12 @@ sqlite3 "$BACKUP_DIR/lingong.sqlite3" 'PRAGMA integrity_check;' | grep -qx 'ok' 
 SOURCE_SHA256="$(sha256sum "$BACKUP_DIR/lingong.sqlite3" | awk '{print $1}')"
 
 say "migrating all SQLite tables and verifying PostgreSQL fingerprints"
+# DATABASE_URL was checked absent before the write stop. Any existing target
+# tables are therefore an abandoned target from an earlier failed cutover, not
+# the active authority; replace them so the rollback path is retryable.
 (
   cd "$ROOT/backend"
-  DATABASE_URL="$DATABASE_URL" npx tsx scripts/migrate-sqlite-to-postgres.ts --source "$BACKUP_DIR/lingong.sqlite3"
+  DATABASE_URL="$DATABASE_URL" npx tsx scripts/migrate-sqlite-to-postgres.ts --replace --source "$BACKUP_DIR/lingong.sqlite3"
 ) > "$BACKUP_DIR/migration-report.json"
 (
   cd "$ROOT/backend"
@@ -182,6 +185,10 @@ upsert_env REDIS_URL "redis://127.0.0.1:6379"
 upsert_env LINGONG_POSTGRES_DB "$POSTGRES_DB"
 upsert_env LINGONG_POSTGRES_USER "$POSTGRES_USER"
 upsert_env LINGONG_POSTGRES_PASSWORD "$PG_PASSWORD"
+EXPECTED_VERSION="$(git rev-parse --short HEAD)"
+# The health contract must identify the exact authority revision even when the
+# service is started from a detached SHA by the cutover workflow.
+upsert_env LINGONG_VERSION "$EXPECTED_VERSION"
 chmod 600 "$ROOT/.env"
 
 sudo install -m 644 "$ROOT/ops/systemd/lingong.service" /etc/systemd/system/lingong.service
@@ -189,23 +196,65 @@ sudo install -m 644 "$ROOT/ops/systemd/lingong-outbox.service" /etc/systemd/syst
 sudo install -m 644 "$ROOT/ops/systemd/lingong-execution-worker@.service" /etc/systemd/system/lingong-execution-worker@.service
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE" "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"
-sudo systemctl restart "$SERVICE"
-sudo systemctl restart "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"
-workers_started=true
 
-EXPECTED_VERSION="$(git rev-parse --short HEAD)"
+# Bring up the API alone first. Starting two BullMQ consumers at the same time
+# as the sync-bridge API creates an avoidable boot-time memory and connection
+# burst on the production VM, and it obscures whether the authority itself is
+# healthy. Workers start only after the API reports the expected revision.
+sudo systemctl restart "$SERVICE"
+last_actual="unavailable"
 for attempt in $(seq 1 48); do
   response="$(curl --fail --silent --show-error --connect-timeout 3 --max-time 8 http://127.0.0.1:8765/api/version || true)"
   actual="$(printf '%s' "$response" | node -e 'let b=""; process.stdin.on("data",x=>b+=x).on("end",()=>{try { console.log(JSON.parse(b).version || ""); } catch { console.log(""); }})')"
+  last_actual="${actual:-unavailable}"
   if [ "$actual" = "$EXPECTED_VERSION" ]; then break; fi
-  [ "$attempt" -eq 48 ] && die "API did not report expected revision $EXPECTED_VERSION"
+  if [ "$attempt" -eq 48 ]; then
+    say "API version probe expected $EXPECTED_VERSION but observed $last_actual"
+    sudo systemctl --no-pager --full status "$SERVICE" || true
+    sudo journalctl --no-pager -u "$SERVICE" -n 120 || true
+    die "API did not report expected revision $EXPECTED_VERSION"
+  fi
   sleep 5
 done
 sudo systemctl is-active --quiet "$SERVICE"
-sudo systemctl is-active --quiet "$OUTBOX_SERVICE"
-sudo systemctl is-active --quiet "$WORKER_A"
-sudo systemctl is-active --quiet "$WORKER_B"
-PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "SELECT count(*) FROM execution_worker_heartbeats WHERE status='running'" | awk '$1 >= 2 {ok=1} END {exit ok ? 0 : 1}'
+
+say "API is healthy; starting Outbox publisher and execution workers"
+# Nothing can be running as a worker here: the previous authority was stopped
+# above. Clear runtime presence rows so a stale "running" heartbeat from an
+# earlier attempt can never satisfy the check below.
+if ! delete_error="$(PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "DELETE FROM execution_worker_heartbeats" 2>&1 >/dev/null)"; then
+  say "WARNING: could not clear execution_worker_heartbeats: ${delete_error:-unknown error}"
+fi
+for unit in "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"; do
+  unit_state="$(systemctl is-active "$unit" 2>/dev/null || true)"
+  say "pre-restart ${unit}: ${unit_state:-unknown}"
+done
+restart_rc=0
+sudo systemctl restart "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B" || restart_rc=$?
+say "worker restart returned ${restart_rc}"
+workers_started=true
+for unit in "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B"; do
+  state_rc=0
+  unit_state="$(systemctl is-active "$unit" 2>/dev/null)" || state_rc=$?
+  say "unit ${unit}: state=${unit_state:-unknown} (is-active rc=${state_rc})"
+  [ "$unit_state" = "active" ] || die "unit ${unit} is not active after restart"
+done
+# Workers register their heartbeat several seconds after start (and create the
+# table on first use), so poll for two running heartbeats instead of asserting
+# the instant after restart.
+running=0
+for attempt in $(seq 1 24); do
+  running="$(PGPASSWORD="$PG_PASSWORD" psql "$DATABASE_URL" -Atc "SELECT count(*) FROM execution_worker_heartbeats WHERE status='running'" 2>/dev/null || echo 0)"
+  case "$running" in ''|*[!0-9]*) running=0 ;; esac
+  say "heartbeat poll ${attempt}: running=${running}"
+  if [ "$running" -ge 2 ]; then break; fi
+  if [ "$attempt" -eq 24 ]; then
+    sudo systemctl --no-pager --full status "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B" || true
+    sudo journalctl --no-pager -u "$OUTBOX_SERVICE" -u "$WORKER_A" -u "$WORKER_B" -n 120 || true
+    die "execution workers did not report running heartbeats within 120s"
+  fi
+  sleep 5
+done
 PGPASSWORD="$PG_PASSWORD" pg_dump --format=custom --file="$BACKUP_DIR/lingong.postgres.dump" "$DATABASE_URL"
 chmod 600 "$BACKUP_DIR/lingong.postgres.dump"
 

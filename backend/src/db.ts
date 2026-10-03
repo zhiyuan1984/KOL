@@ -928,6 +928,20 @@ function initSchema(db: SqliteConn): void {
             FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
         );
 
+        -- 验收事实与运行事实分别保存。负责人、验收人及证据为验收瞬间快照，
+        -- 后续转办或用户目录变更不得改写历史日报归因。
+        CREATE TABLE IF NOT EXISTS ticket_acceptances (
+            ticket_id TEXT PRIMARY KEY,
+            acceptance_event_id TEXT,
+            accepted_at TEXT NOT NULL,
+            owner_user_id_at_acceptance TEXT NOT NULL,
+            accepted_by_user_id TEXT NOT NULL,
+            evidence_json TEXT NOT NULL DEFAULT '{}',
+            rules_version TEXT NOT NULL DEFAULT 'ticket-acceptance.v1',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+        );
+
         -- tickets 的索引统一由 mergeWorkItemsIntoTickets() 在库形状确定后创建：
         -- 旧库可能仍带镜像版 tickets 或缺票型列，直接在 initSchema 建索引会让打开失败。
         CREATE INDEX IF NOT EXISTS task_runs_work_item
@@ -936,6 +950,10 @@ function initSchema(db: SqliteConn): void {
             ON task_events(work_item_id, sequence);
         CREATE INDEX IF NOT EXISTS ticket_command_receipts_ticket
             ON ticket_command_receipts(ticket_id, created_at);
+        CREATE INDEX IF NOT EXISTS ticket_acceptances_accepted_at
+            ON ticket_acceptances(accepted_at DESC, ticket_id);
+        CREATE INDEX IF NOT EXISTS ticket_acceptances_owner_accepted_at
+            ON ticket_acceptances(owner_user_id_at_acceptance, accepted_at DESC);
         CREATE TABLE IF NOT EXISTS employee_today_briefs (
             owner_user_id TEXT PRIMARY KEY,
             artifact_id TEXT NOT NULL,
@@ -1096,9 +1114,8 @@ function initSchema(db: SqliteConn): void {
         CREATE INDEX IF NOT EXISTS cron_runs_status
             ON cron_runs(status, scheduled_for);
 
-        -- M2 过渡执行脊柱：SQLite 单 Worker 的持久 job/outbox 契约。
-        -- 生产多 Worker 目标仍是 PostgreSQL + Outbox publisher + Redis/BullMQ；
-        -- 此处不把 SQLite 伪装成该目标，只保证进程退出不丢失已接受的作业。
+        -- 执行脊柱：PostgreSQL 是生产权威持久层，Outbox publisher 与
+        -- Redis/BullMQ 只负责派发；测试夹具也使用同一数据契约。
         CREATE TABLE IF NOT EXISTS execution_jobs (
             id TEXT PRIMARY KEY,
             job_type TEXT NOT NULL,
@@ -1156,6 +1173,27 @@ function initSchema(db: SqliteConn): void {
         );
         CREATE INDEX IF NOT EXISTS execution_outbox_ready
             ON execution_outbox(status, available_at, created_at);
+
+        -- M4 rule registry: records published policy and draft preview only.
+        -- No scheduler reads this table to make an automated assignment/SLA
+        -- decision until the business owner publishes the corresponding policy.
+        CREATE TABLE IF NOT EXISTS scheduling_rules (
+            id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            rule_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('draft','published','disabled','superseded')),
+            scope_json TEXT NOT NULL DEFAULT '{}',
+            definition_json TEXT NOT NULL DEFAULT '{}',
+            created_by TEXT NOT NULL,
+            published_by TEXT,
+            created_at TEXT NOT NULL,
+            published_at TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(id, version)
+        );
+        CREATE INDEX IF NOT EXISTS scheduling_rules_status
+            ON scheduling_rules(status, rule_type, updated_at);
 
         CREATE TABLE IF NOT EXISTS user_uploads (
             id TEXT PRIMARY KEY,
@@ -2433,13 +2471,39 @@ export function audit(actor: string, eventType: string, payload: Json): void {
     .run(nowIso(), actor === "usr_sriphy" ? "sriphy" : actor, eventType, JSON.stringify(payload));
 }
 
-export function listAudit(eventType?: string | null): Row[] {
+export const AUDIT_PAYLOAD_PREVIEW_CHARS = 8_192;
+
+/**
+ * Parses an audit payload already truncated by SQL. Full audit JSON can include
+ * a large external receipt; administrative list screens must never pull that
+ * receipt into the synchronous PostgreSQL bridge.
+ */
+export function auditPayloadPreview(raw: string, payloadSize: number): Json {
+  const truncated = payloadSize > raw.length;
+  if (!truncated) {
+    try { return JSON.parse(raw || "{}") as Json; } catch { /* use preview below */ }
+  }
+  return {
+    preview: raw,
+    truncated: true,
+    payload_size: payloadSize,
+  };
+}
+
+export function listAudit(eventType?: string | null, options: { limit?: number } = {}): Row[] {
   const db = getConn();
+  const limit = Math.min(Math.max(1, Number(options.limit || 200)), 500);
   const rows = eventType
-    ? db.prepare("SELECT * FROM audit_events WHERE event_type = ? ORDER BY id").all(eventType)
-    : db.prepare("SELECT * FROM audit_events ORDER BY id").all();
+    ? db.prepare(
+      `SELECT id,ts,actor,event_type,substr(payload,1,?) AS payload_preview,length(payload) AS payload_size
+         FROM (SELECT * FROM audit_events WHERE event_type=? ORDER BY id DESC LIMIT ?) recent ORDER BY id`,
+    ).all(AUDIT_PAYLOAD_PREVIEW_CHARS, eventType, limit)
+    : db.prepare(
+      `SELECT id,ts,actor,event_type,substr(payload,1,?) AS payload_preview,length(payload) AS payload_size
+         FROM (SELECT * FROM audit_events ORDER BY id DESC LIMIT ?) recent ORDER BY id`,
+    ).all(AUDIT_PAYLOAD_PREVIEW_CHARS, limit);
   return (rows as Row[]).map((r) => ({
     ...r,
-    payload: JSON.parse(String(r.payload || "{}")),
+    payload: auditPayloadPreview(String(r.payload_preview || ""), Number(r.payload_size || 0)),
   }));
 }

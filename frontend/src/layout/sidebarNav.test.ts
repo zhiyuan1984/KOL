@@ -12,7 +12,7 @@ const WORKBENCH = fs.readFileSync(
 
 function todayNavOrder(source: string): string[] {
   const start = source.indexOf('aria-label="今日"');
-  const end = source.indexOf('aria-label="agent"');
+  const end = source.indexOf('aria-label="Agent"');
   const cluster = start >= 0 && end > start ? source.slice(start, end) : "";
   return [...cluster.matchAll(/data-nav="([^"]+)"/g)].map((match) => match[1]);
 }
@@ -25,6 +25,12 @@ describe("今日 sidebar IA", () => {
       "cron",
       "mail",
     ]);
+  });
+
+  it("uses the product-cased Agent label in the employee navigation", () => {
+    expect(WORKBENCH).toContain('aria-label="Agent"');
+    expect(WORKBENCH).toContain('title="Agent"');
+    expect(WORKBENCH).toContain('>Agent</span>');
   });
 
   it("keeps AI发现 / 公海 / 我跟进的红人 off the sidebar", () => {
@@ -46,9 +52,10 @@ describe("今日 sidebar IA", () => {
 });
 
 describe("admin sidebar parity", () => {
-  it("keeps the ten governance entries in one contract", () => {
+  it("keeps the scheduling operations entry in the governance navigation contract", () => {
     expect(ADMIN_SECTIONS).toEqual([
       "employees",
+      "overview",
       "connectors",
       "knowledge",
       "approvals",
@@ -57,11 +64,14 @@ describe("admin sidebar parity", () => {
       "agents",
       "data",
       "cost",
+      "scheduling",
+      "audit",
       "kol",
     ]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([1, 3, 1, 2, 3]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 3, 1, 2, 5]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
+      "工作战报",
       "连接",
       "知识",
       "审批",
@@ -70,6 +80,8 @@ describe("admin sidebar parity", () => {
       "治理",
       "数据",
       "成本",
+      "调度监控",
+      "审计中心",
       "配置",
     ]);
     for (const group of ADMIN_NAV_GROUPS) {
@@ -80,6 +92,8 @@ describe("admin sidebar parity", () => {
       }
     }
     expect(adminTabOf("/admin")).toBe("employees");
+    expect(adminTabOf("/admin/overview")).toBe("overview");
+    expect(adminTabOf("/admin/audit")).toBe("audit");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
     expect(adminTabOf("/admin/unknown")).toBe("employees");
   });

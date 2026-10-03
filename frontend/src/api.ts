@@ -426,6 +426,91 @@ export type ExecutionJob = {
   [key: string]: unknown;
 };
 
+export type ExecutionWorker = {
+  worker_id: string;
+  worker_kind: string;
+  status: string;
+  details?: Record<string, unknown>;
+  started_at: string;
+  heartbeat_at: string;
+  stopped_at?: string | null;
+  stale: boolean;
+};
+
+export type SchedulingRule = {
+  id: string;
+  version: number;
+  rule_type: string;
+  title: string;
+  status: "draft" | "published" | "disabled" | "superseded" | string;
+  scope: Record<string, unknown>;
+  definition: Record<string, unknown>;
+  created_by: string;
+  published_by?: string | null;
+  created_at: string;
+  published_at?: string | null;
+  updated_at: string;
+};
+
+export type AdminAuditEvent = {
+  id: number;
+  ts: string;
+  actor: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+};
+
+export type WorkReportView = "accepted" | "processing" | "waiting" | "exception";
+
+export type AdminWorkReportTicket = {
+  ticket_id: string;
+  title: string;
+  status: string;
+  kind: string;
+  owner_user_id: string;
+  owner_name?: string | null;
+  due_at?: string | null;
+  updated_at?: string | null;
+  accepted_at?: string | null;
+  attribution_status?: "accepted_owner_snapshot" | "legacy_unattributed" | string;
+  accepted_owner_user_id?: string | null;
+  accepted_owner_name?: string | null;
+  accepted_by_user_id?: string | null;
+  accepted_by_name?: string | null;
+};
+
+export type AdminWorkReport = {
+  report_version: string;
+  as_of: string;
+  data_cutoff_at: string;
+  period: { date: string; timezone: string; start: string; end: string };
+  filters: { owner: string | null; kind: string | null; team: string | null };
+  filter_options: {
+    owners: Array<{ id: string; name: string; username: string }>;
+    kinds: Array<{ id: string; count: number }>;
+    teams: Array<{ id: string; name: string }>;
+  };
+  summary: { accepted: number; accepted_attributed: number; accepted_unattributed: number; processing: number; waiting: number; exception: number };
+  employees: Array<{ user_id: string; name: string; username: string | null; site: string | null; responsible: number; processing: number; waiting: number; earliest_waiting_at: string | null; accepted: number; last_accepted_at: string | null }>;
+  process: {
+    blockers: Array<{ kind: "blocker"; ticket_id: string; title: string; status: string; owner_user_id: string; owner_name: string | null; due_at: string | null; occurred_at: string; ticket_kind: string }>;
+    activity: Array<{ kind: "event"; event_id: string; ticket_id: string; title: string; event_type: string; label: string; status: string; safe_summary: string | null; occurred_at: string; owner_user_id: string; owner_name: string | null; ticket_kind: string }>;
+  };
+  attribution: { accepted_owner: string; accepted_actor: string; legacy_accepted: number; legacy_note: string | null; team_scope_note: string | null };
+  contribution_note: string;
+  source_refs: Array<Record<string, unknown>>;
+};
+
+export type AdminWorkReportDetail = {
+  ticket: { ticket_id: string; title: string; goal: string; status: string; kind: string; source: string; owner_user_id: string; owner_name: string | null; owner_username: string | null; due_at: string | null; created_at: string; updated_at: string };
+  acceptance: { accepted_at: string; acceptance_event_id: string | null; owner_user_id_at_acceptance: string | null; owner_name_at_acceptance: string | null; accepted_by_user_id: string | null; accepted_by_name: string | null; evidence: Record<string, unknown> | null; attribution_status: string; rules_version: string | null } | null;
+  timeline: Array<{ event_id: string; sequence: number; type: string; label: string; status: string; safe_summary: string | null; occurred_at: string; run_id: string | null }>;
+  runs: Array<Record<string, unknown>>;
+  artifacts: Array<Record<string, unknown>>;
+  as_of: string;
+  source_refs: Array<Record<string, unknown>>;
+};
+
 export type TodayBriefPrimary = {
   verb?: string;
   label?: string;
@@ -460,6 +545,12 @@ export type TodayBrief = {
 };
 
 export type TodayBriefResponse = {
+  plan_id?: string | null;
+  status?: "ready" | "running" | "stale" | "empty" | string;
+  producer?: "deterministic_organize" | "agent_plan" | string;
+  source_revision?: string | null;
+  generated_at?: string | null;
+  stale_reason?: string | null;
   planning?: boolean;
   brief?: TodayBrief | null;
   events?: TaskEvent[];
@@ -480,7 +571,13 @@ export type TodayPlanResult = {
   work_item_id?: string;
   session_id?: string;
   run_id?: string;
+  execution_job_id?: string;
+  job_id?: string;
+  status?: "queued" | "running" | string;
+  producer?: "deterministic_organize" | "agent_plan" | string;
+  mode?: "deterministic_organize" | "agent_plan" | string;
   creates_session?: boolean;
+  calls_model?: boolean;
 };
 
 export type RecommendedTask = {
@@ -1717,10 +1814,10 @@ export const api = {
     }),
   pipeline: (exception = 0) => fetch(`/api/pipeline?exception=${exception}`).then((r) => r.json()),
   approvals: (box?: "inbox" | "submitted" | "done") =>
-    fetch(box ? `/api/approvals?box=${encodeURIComponent(box)}` : "/api/approvals").then((r) => r.json()),
+    request<Record<string, unknown>[]>(box ? `/api/approvals?box=${encodeURIComponent(box)}` : "/api/approvals"),
   approvalBadge: () => request<{ count: number }>("/api/approvals/badge"),
   approval: (id: string) => request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}`),
-  wecomCards: () => fetch("/api/wecom/cards").then((r) => r.json()),
+  wecomCards: () => request<Array<{ approval_id: string; body: string; status: string; assignee: string }>>("/api/wecom/cards"),
   previewApproval: (body: {
     kind: "expense";
     amount: number;
@@ -2121,11 +2218,31 @@ export const api = {
       items: ExecutionJob[];
       counts: Record<string, number>;
       outbox: Record<string, number>;
+      workers: ExecutionWorker[];
+      backlog: { count: number; oldest_created_at: string | null };
+      rules: SchedulingRule[];
       as_of: string;
       execution_mode: string;
       source_refs: Array<Record<string, unknown>>;
     }>(`/api/admin/scheduling/execution-jobs${query.size ? `?${query}` : ""}`);
   },
+  adminRetryExecutionJob: (id: string) =>
+    request<ExecutionJob & { retried: boolean }>(`/api/admin/scheduling/execution-jobs/${encodeURIComponent(id)}/retry`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  adminWorkReport: (opts: { date?: string; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, value); });
+    return request<AdminWorkReport>(`/api/admin/work-report${query.size ? `?${query}` : ""}`);
+  },
+  adminWorkReportTickets: (view: WorkReportView, opts: { date?: string; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
+    const query = new URLSearchParams({ view });
+    Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, value); });
+    return request<{ view: WorkReportView; items: AdminWorkReportTicket[]; as_of: string; source_refs: Array<Record<string, unknown>> }>(`/api/admin/work-report/tickets?${query}`);
+  },
+  adminWorkReportTicket: (id: string) =>
+    request<AdminWorkReportDetail>(`/api/admin/work-report/tickets/${encodeURIComponent(id)}`),
   createCronJob: (body: Record<string, unknown>) =>
     request<CronJob>("/api/cron/jobs", { method: "POST", body: JSON.stringify(body) }),
   cronJob: (id: string) =>
@@ -2306,7 +2423,17 @@ export const api = {
   adminExamScores: () => request<Record<string, unknown>[]>("/api/admin/exam-scores"),
   adminAssignments: () => request<Record<string, unknown>[]>("/api/admin/exam-assignments"),
   adminDataPolicy: () => request<Record<string, unknown>>("/api/admin/retention-policy"),
-  adminAudit: () => request<Record<string, unknown>[]>("/api/audit"),
+  adminAudit: () => request<Record<string, unknown>[]>("/api/audit?limit=200"),
+  adminAuditEvents: (opts: { limit?: number; cursor?: number; event_type?: string; actor?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.limit) query.set("limit", String(opts.limit));
+    if (opts.cursor) query.set("cursor", String(opts.cursor));
+    if (opts.event_type) query.set("event_type", opts.event_type);
+    if (opts.actor) query.set("actor", opts.actor);
+    return request<{ items: AdminAuditEvent[]; next_cursor: number | null; as_of: string; source_refs: Array<Record<string, unknown>> }>(
+      `/api/admin/audit/events${query.size ? `?${query}` : ""}`,
+    );
+  },
   /** 成本与预算：只读汇总 + 最近事件 + 预算写入（乐观锁版本冲突 → 409）。 */
   adminCostsSummary: (month?: string) =>
     request<AdminCostsSummary>(`/api/admin/costs/summary${month ? `?month=${encodeURIComponent(month)}` : ""}`),

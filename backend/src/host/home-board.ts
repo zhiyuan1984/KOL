@@ -36,6 +36,13 @@ export const MAX_WORKBENCH_TASKS = 50;
 /** Board task rows, newest first (tickets are read ORDER BY updated_at DESC). */
 export const MAX_BOARD_TASKS = 50;
 
+/** Planner runs store full input snapshots; the home board only needs their metadata. */
+const HOME_BOARD_TICKET_COLUMNS = [
+  "id", "owner_user_id", "task_type", "title", "source", "status", "priority", "skill", "profile",
+  "project_id", "collaboration_id", "session_id", "due_at", "started_at", "promoted_at", "dismissed_at",
+  "content", "start_date", "risk_level", "entities",
+].join(",");
+
 /**
  * Collaboration columns no frontend file *reads* (grepped frontend/src and
  * frontend/e2e). A field stays when any module dereferences it — e.g.
@@ -874,9 +881,12 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
   const creators = conn.prepare("SELECT * FROM claw_creators ORDER BY name").all() as Row[];
   const creatorByHandle = new Map(creators.map((row) => [String(row.handle || row.name || ""), row]));
 
+  const planningTypePlaceholders = PLANNING_TASK_TYPES.map(() => "?").join(",");
   const taskRows = conn.prepare(
-    "SELECT * FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC",
-  ).all(owner) as Row[];
+    `SELECT ${HOME_BOARD_TICKET_COLUMNS},
+            CASE WHEN task_type IN (${planningTypePlaceholders}) THEN '{}' ELSE input END AS input
+       FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC`,
+  ).all(...PLANNING_TASK_TYPES, owner) as Row[];
   const taskIds = taskRows.map((row) => String(row.id));
   const lastEventByTask = new Map<string, Row>();
   if (taskIds.length) {

@@ -2,9 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { Client, Pool } from "pg";
-import { getConn } from "../db.js";
-import { processCronExecutionJobById } from "../cron/worker.js";
-import { executionJobById, recoverExpiredExecutionJobs } from "../execution-jobs/store.js";
+import { processExecutionJobById } from "../execution-jobs/dispatcher.js";
+import { recoverExpiredExecutionJobs } from "../execution-jobs/store.js";
 import { EXECUTION_QUEUE, ensureExecutionInfrastructure } from "./outbox-publisher.js";
 
 function required(name: string, value: string | undefined): string {
@@ -41,13 +40,8 @@ export async function runBullMqExecutionWorker(options: { workerId?: string; con
     async (bullJob) => {
       const executionJobId = String(bullJob.data.execution_job_id || "");
       if (!executionJobId) throw new Error("BullMQ message is missing execution_job_id");
-      const executionJob = executionJobById(executionJobId);
-      if (!executionJob) return { status: "missing" };
-      if (String(executionJob.job_type) === "cron.run") {
-        const runId = await processCronExecutionJobById(executionJobId, workerId);
-        return { status: runId ? "processed" : "duplicate", cron_run_id: runId };
-      }
-      throw new Error(`No BullMQ handler registered for ${String(executionJob.job_type)}`);
+      const result = await processExecutionJobById(executionJobId, workerId);
+      return result || { execution_job_id: executionJobId, outcome: "duplicate" };
     },
     { connection: redis, concurrency },
   );

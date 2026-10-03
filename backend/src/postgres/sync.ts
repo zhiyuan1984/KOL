@@ -91,7 +91,21 @@ function rewriteInsertOrReplace(sql: string): string {
 }
 
 function rewriteJsonExtract(sql: string): string {
-  return sql.replace(/json_extract\(\s*([A-Za-z_][\w.]*)\s*,\s*'\$\.([A-Za-z_][\w]*)'\s*\)/gi, "$1::jsonb ->> '$2'");
+  return sql.replace(
+    /json_extract\(\s*([A-Za-z_][\w.]*)\s*,\s*'\$\.([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)'\s*\)/gi,
+    (_match, column: string, jsonPath: string) => {
+      const segments = jsonPath.split(".");
+      if (segments.length === 1) return `${column}::jsonb ->> '${segments[0]}'`;
+      return `${column}::jsonb #>> '{${segments.join(",")}}'`;
+    },
+  );
+}
+
+function rewriteNoCaseCollation(sql: string): string {
+  // SQLite's built-in NOCASE collation name is not installed in PostgreSQL.
+  // All current uses are expression-level ORDER BY terms, where LOWER preserves
+  // the intended case-insensitive sort without requiring cluster configuration.
+  return sql.replace(/([A-Za-z_][\w.]*)\s+COLLATE\s+NOCASE\b/gi, "LOWER($1)");
 }
 
 function rewriteSqliteMaster(sql: string): string {
@@ -115,6 +129,7 @@ export function translateSqliteSql(sql: string): string {
   let output = source;
   output = rewriteSqliteMaster(output);
   output = output.replace(/\bIFNULL\s*\(/gi, "COALESCE(");
+  output = rewriteNoCaseCollation(output);
   output = output.replace(/([A-Za-z_][\w.]*)\s+NOT\s+GLOB\s+'\*\[\^([^\]]+)\]\*'/gi, "$1 !~ '[^$2]'");
   output = rewriteJsonExtract(output);
   output = output.replace(/\bINSERT\s+OR\s+IGNORE\b/gi, "INSERT");
@@ -142,6 +157,11 @@ function pragmaSql(src: string): string | null {
 export class PostgresSyncConn implements SqliteConn {
   private readonly worker: Worker;
   private stopped = false;
+  // Requests are serialized by the Atomics.wait below, so one response buffer
+  // serves the whole connection. Allocating a fresh buffer per query left
+  // large shared allocations unreclaimed under sustained load.
+  private shared: SharedArrayBuffer | null = null;
+  private sharedBytes = 0;
 
   constructor(connectionString: string) {
     this.worker = new Worker(new URL("./sync-worker.mjs", import.meta.url), {
@@ -150,15 +170,32 @@ export class PostgresSyncConn implements SqliteConn {
     this.worker.unref();
   }
 
+  private dropBuffer(shared: SharedArrayBuffer): void {
+    // A timed-out worker call can still write into this buffer later; never
+    // let that late response be read as the next request's answer.
+    if (this.shared === shared) this.shared = null;
+  }
+
   private request(sql: string, params: unknown[] = []): QueryResponse {
     if (this.stopped) throw new Error("PostgreSQL connection is not open");
-    const shared = new SharedArrayBuffer(HEADER_BYTES + bufferBytes());
+    if (!this.shared) {
+      this.sharedBytes = bufferBytes();
+      this.shared = new SharedArrayBuffer(HEADER_BYTES + this.sharedBytes);
+    }
+    const shared = this.shared;
     const header = new Int32Array(shared, 0, 4);
+    Atomics.store(header, STATUS, 0);
     this.worker.postMessage({ sql: translateSqliteSql(sql), params, shared });
     const wait = Atomics.wait(header, STATUS, 0, timeoutMs());
-    if (wait === "timed-out") throw new Error(`PostgreSQL query timed out after ${timeoutMs()}ms`);
+    if (wait === "timed-out") {
+      this.dropBuffer(shared);
+      throw new Error(`PostgreSQL query timed out after ${timeoutMs()}ms`);
+    }
     const length = Atomics.load(header, LENGTH);
-    if (length < 0 || length > bufferBytes()) throw new Error("PostgreSQL bridge returned an invalid response length");
+    if (length < 0 || length > this.sharedBytes) {
+      this.dropBuffer(shared);
+      throw new Error("PostgreSQL bridge returned an invalid response length");
+    }
     const bytes = new Uint8Array(shared, HEADER_BYTES, length);
     const response = JSON.parse(new TextDecoder().decode(bytes)) as QueryResponse;
     if (!response.ok) {

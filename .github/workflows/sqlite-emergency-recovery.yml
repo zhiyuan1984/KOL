@@ -1,0 +1,81 @@
+name: lingong-sqlite-emergency-recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type RESTORE_SQLITE_AFTER_POSTGRES_FAILURE to restore the last SQLite authority backup"
+        required: true
+        type: string
+
+concurrency:
+  group: lingong-postgres-cutover
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    if: inputs.confirmation == 'RESTORE_SQLITE_AFTER_POSTGRES_FAILURE'
+    name: Restore SQLite after failed PostgreSQL cutover
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DEPLOY_HOST: 47.88.94.205
+      DEPLOY_USER: ecs-user
+    steps:
+      - name: Configure confirmed production SSH identity
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.KOL_PROD_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$DEPLOY_SSH_PRIVATE_KEY" || { echo "KOL_PROD_SSH_PRIVATE_KEY is required" >&2; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' '47.88.94.205 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGL0KFP8lQnrrAR81Q4aztoswNy3rBu6OTJaSthx5z6w' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Wait briefly for SSH then restore the latest SQLite authority backup
+        run: |
+          set -euo pipefail
+          common=( -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 )
+          for attempt in $(seq 1 60); do
+            if ssh "${common[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" 'printf ready'; then
+              echo "SSH recovered on attempt ${attempt}; restoring SQLite authority."
+              ssh "${common[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          ROOT="$HOME/kol"
+          SERVICE="lingong"
+          OUTBOX_SERVICE="lingong-outbox"
+          WORKER_A="lingong-execution-worker@1"
+          WORKER_B="lingong-execution-worker@2"
+          cd "$ROOT"
+          backup="$(find "$ROOT" -type f -path '*/backups/postgres-cutover-*/.env.before' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)"
+          [ -n "$backup" ] && [ -f "$backup" ] || { echo 'No PostgreSQL cutover SQLite environment backup found' >&2; exit 1; }
+          echo "Restoring latest SQLite authority environment backup: $backup"
+          sudo -n systemctl stop "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B" || true
+          cp -p "$backup" "$ROOT/.env"
+          chmod 600 "$ROOT/.env"
+          sudo -n systemctl reset-failed "$SERVICE" "$OUTBOX_SERVICE" "$WORKER_A" "$WORKER_B" || true
+          sudo -n systemctl restart "$SERVICE"
+          for check in $(seq 1 24); do
+            response="$(curl --fail --silent --show-error --connect-timeout 3 --max-time 8 http://127.0.0.1:8765/api/health || true)"
+            if printf '%s' "$response" | grep -q '"ok":true'; then
+              echo 'SQLite API health restored.'
+              sudo -n systemctl --no-pager --full status "$SERVICE" || true
+              exit 0
+            fi
+            sleep 5
+          done
+          sudo -n systemctl --no-pager --full status "$SERVICE" || true
+          sudo -n journalctl --no-pager -u "$SERVICE" -n 120 || true
+          echo 'SQLite API failed to become healthy after backup restore' >&2
+          exit 1
+          REMOTE
+              exit 0
+            fi
+            echo "SSH unavailable (attempt ${attempt}/60); retrying in 10 seconds."
+            sleep 10
+          done
+          echo 'SSH did not recover within 10 minutes; no production files were changed.' >&2
+          exit 1

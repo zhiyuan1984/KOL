@@ -91,9 +91,9 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
   const doc = await waitDocumentStatus(request, baseId, title, "pending_review");
   const docId = String(doc.id);
 
-  // 3) 待处置：发布（L3 确认 + 持久回执）
-  await openView(page, "/admin/knowledge", "review");
-  const row = page.locator(`[data-admin-kb-pending-doc='${docId}']`);
+  // 3) 入库视图：待审资料发布（L3 确认 + 持久回执；新主页的待办承接在 P2）
+  await openView(page, "/admin/knowledge/ingest", "ingest");
+  const row = page.locator(`[data-admin-kb-doc='${docId}']`);
   await expect(row).toContainText(title);
   await row.locator(`[data-admin-kb-doc-publish='${docId}']`).click();
   await expect(page.locator("[data-admin-confirm='knowledge-document-publish']")).toBeVisible();

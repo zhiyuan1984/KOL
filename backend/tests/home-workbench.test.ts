@@ -65,6 +65,22 @@ describe("home workbench", () => {
     expect(isInsightWorkItem({ source: "discovery", status: "pending" })).toBe(false);
   });
 
+  it("does not load full planner input snapshots into the home board", () => {
+    getConn().prepare(
+      `INSERT INTO tickets
+       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "tsk_large_planner_input", DEMO_USER.id, "today_plan", "今日规划", "planning", "completed", "normal",
+      "today_plan", "platform:workspace-planner", JSON.stringify({ snapshot: "x".repeat(1_000_000) }), "{}", 1,
+      "2099-01-01T00:00:00.000Z", "2099-01-01T00:00:00.000Z",
+    );
+
+    const board = buildHomeBoard() as Json;
+    const tasks = board.tasks as Json[];
+    expect(tasks.find((row) => row.id === "tsk_large_planner_input")?.input).toEqual({});
+  });
+
   it("surfaces numbered icon recommendations beyond 3 and pads from the catalog", () => {
     const board = buildHomeBoard() as Json;
     const recs = ((board.workbench as Json).recommendations as Json[]) || [];

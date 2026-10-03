@@ -159,7 +159,7 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
             <h2>{base.name}</h2>
             <p className="muted">
               <span className="chip" data-admin-kb-base-kind={base.kind}>{kbBaseKindLabel(base.kind)}</span>
-              {" "}{base.status === "archived" ? "已归档" : "启用中"}
+              {" "}{base.status === "archived" ? "已停用" : "启用中"}
               {unstructured ? "" : ` · ${Number(base.entries || rows.length)} 条条目`}
               {" · "}{base.code}
             </p>

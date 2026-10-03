@@ -7,6 +7,9 @@ import AdminKnowledge from "./AdminKnowledge";
 import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
 import AdminCosts from "./AdminCosts";
+import AdminScheduling from "./AdminScheduling";
+import AdminWorkReport from "./AdminWorkReport";
+import AdminAudit from "./AdminAudit";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
 import { EmployeeDirectory, type DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
@@ -47,19 +50,21 @@ export default function AdminConsole() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const tab = adminTabOf(location.pathname);
 
   const load = useCallback(() => {
     setLoading(true);
+    const needsLegacyAudit = tab === "data" || tab === "connectors";
     void Promise.all([
       api.adminUsers().then(setUsers),
       api.adminConnectors().then(setConnectors),
       api.adminExams().then(setExams),
       api.adminAssignments().then(setAssignments),
       api.adminDataPolicy().then(setPolicy),
-      api.adminAudit().then(setAuditRows),
+      needsLegacyAudit ? api.adminAudit().then(setAuditRows) : Promise.resolve().then(() => setAuditRows([])),
     ]).catch((e) => setError(e instanceof Error ? e.message : "无法加载管理数据"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [tab]);
 
   useEffect(load, [load]);
 
@@ -75,8 +80,6 @@ export default function AdminConsole() {
   };
   if (!account?.available_modes?.includes("admin")) return <Navigate to="/" replace />;
   if (section === "starry") return <Navigate to="/settings?tab=starry" replace />;
-
-  const tab = adminTabOf(location.pathname);
 
   return (
     <div className="admin-shell" data-admin-ia="governance">
@@ -100,6 +103,9 @@ export default function AdminConsole() {
         {tab === "exams" && <AdminExams exams={exams} assignments={assignments} users={users} onReload={load} />}
         {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
         {tab === "cost" && <AdminCosts />}
+        {tab === "overview" && <AdminWorkReport />}
+        {tab === "scheduling" && <AdminScheduling />}
+        {tab === "audit" && <AdminAudit />}
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "kol" && <LegacyAdmin />}
       </div>

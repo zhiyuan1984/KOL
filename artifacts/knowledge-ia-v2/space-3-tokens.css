@@ -1,0 +1,371 @@
+/* Token snapshot from frontend/src/styles.css; visual authority: docs/DESIGN.md. No app styles. */
+:root {
+  /* MASTER Product tokens + OpenAI-quiet mood — --color-* then wired into workbench tokens */
+  --color-obsidian: #000000; /* hairline source only; not filled CTA */
+  --color-ink: #1a1a1a; /* compact shell body; not pure #000 */
+  --color-graphite: #6b6b6b; /* 基础灰：--ds-text-dim 挂在它上面，别在这里回指 token（会成环） */
+  --color-smoke: #8a8a8a;
+  --color-paper: #ffffff;
+  --color-ash: #f1f1f1;
+  --color-hairline: #eeeeee;
+  --color-whisper: #0000000a;
+  --color-primary: #DB1860;
+  --color-primary-hover: #B81451;
+  --color-success-vivid: #10B981;
+  --color-warning-vivid: #F59E0B;
+  --color-warning-tint: #FEF3C7;
+  --color-text-dim: #6B7280;
+  --color-page-bg: #FFFFFF;
+  --font-openai-sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
+
+  --bg: var(--color-paper);
+  --bg-elevated: var(--color-ash);
+  --border: #eee;
+  --border-strong: #f0f0f0;
+  --control-border: var(--color-smoke);
+  --control-border-hover: var(--color-graphite);
+  --control-border-invalid: #c43c3c;
+  --focus-ring: var(--color-obsidian);
+  --text: var(--color-ink);
+  --text-muted: var(--color-graphite);
+
+  --primary: #DB1860;
+  /* 实底上的字用画布色：浅色 = #FFFFFF（4.87:1 ✓），深色自动跟随 --bg = #17191d（4.77:1 ✓）。
+     此前深色写死 #FFFFFF，实测白字压在深色主色 #E0508C 上只有 **3.69:1**，不达 13px 文字的 4.5:1。 */
+  --primary-fg: var(--bg);
+  --primary-hover: #B81451;
+  /* 主行动色当文字 / 图标时必须用它（docs/DESIGN.md §颜色 + WCAG AA）：#DB1860 在白底只有 4.87:1、
+     在 --ds-surface 上 4.58:1，都低于正文的 4.5 余量要求；本值 = color-mix(--primary 84%, #000)，
+     实测 #B81451 白底 6.45:1 / --ds-surface 6.06:1。派生而非硬写色值 —— --primary 迁移时自动跟随。 */
+  --primary-text: color-mix(in srgb, var(--primary) 84%, #000000);
+  /* 辅助色（蓝）：选中态、图标砖、分段选中、可点强调、信息性标记。
+     主行动仍只走 --primary（品牌粉）——见 docs/DESIGN.md §颜色。
+     色值取自所有者给的参考图：#4184ff（对白 3.52:1，够图形不够文字），
+     故文字/图标档单独派生：--accent-text = 72% accent + 28% 黑 = #2f5fb8，
+     对白 6.09:1 / 压在 8% 淡蓝砖上 5.57:1 ✓。 */
+  --accent: #4184ff;
+  --accent-hover: #3974e0;
+  /* 深蓝档：需要 4.5:1 的地方（文字、图标字形），也用于把小徽标做成实底；
+     实底上的字用 --accent-fg。四件套与 --primary/--primary-hover/--primary-text/--primary-fg 一一对应。 */
+  --accent-text: color-mix(in srgb, var(--accent) 72%, #000000);
+  --accent-fg: var(--bg);
+
+  /* 类别色（图标砖按类别分色）：第 4 职责，职责与约束见 docs/DESIGN.md §颜色。
+     只用于「按类别分组的目录面」的图标砖淡底 / 描边与砖内字形；不承担交互（--accent）
+     与状态（--warning / --danger / --success）。每类四件套：基色（图形档）、字形档、
+     砖底、描边。色相刻意与 --accent（亮蓝）拉开：靛蓝 / 紫 / 青 / 中性石墨。
+     实测（node 计算）：字形档对砖底 6.96–7.83:1（浅）/ 6.18–7.64:1（深）；基色对画布 ≥4.67:1。 */
+  --cat-library: #4f5bd5;
+  --cat-assistant: #8f4fd5;
+  --cat-crawl: #0f7f96;
+  --cat-builtin: var(--text-muted);
+  --cat-library-text: color-mix(in srgb, var(--cat-library) 72%, #000000);
+  --cat-assistant-text: color-mix(in srgb, var(--cat-assistant) 72%, #000000);
+  --cat-crawl-text: color-mix(in srgb, var(--cat-crawl) 72%, #000000);
+  --cat-builtin-text: color-mix(in srgb, var(--cat-builtin) 72%, #000000);
+  --cat-library-tile: color-mix(in srgb, var(--cat-library) 8%, var(--bg));
+  --cat-assistant-tile: color-mix(in srgb, var(--cat-assistant) 8%, var(--bg));
+  --cat-crawl-tile: color-mix(in srgb, var(--cat-crawl) 8%, var(--bg));
+  --cat-builtin-tile: color-mix(in srgb, var(--cat-builtin) 8%, var(--bg));
+  --cat-library-line: color-mix(in srgb, var(--cat-library) 18%, var(--border));
+  --cat-assistant-line: color-mix(in srgb, var(--cat-assistant) 18%, var(--border));
+  --cat-crawl-line: color-mix(in srgb, var(--cat-crawl) 18%, var(--border));
+  --cat-builtin-line: color-mix(in srgb, var(--cat-builtin) 18%, var(--border));
+
+  --danger: #c43c3c;
+  --success: #2f7d73;
+  --warning: #ea5504;
+
+  --radius-sm: var(--ds-radius-input);
+  --radius-md: var(--ds-radius-section);
+  --control-bg: #efeff2;
+  --control-pill-height: 36px;
+  /* 控件尺寸、行高与命中区下限（纯新增数值，不改动上方既有 token）。口径见
+     docs/DESIGN.md 员工端实施细则 §控件尺寸。注意 §8 的迁移清单
+     （--primary 数值、--radius-cards 等）不在此处，需单独一轮。 */
+  --hit-min: 24px;
+  --control-h-sm: 24px;
+  --control-h: 28px;
+  --control-h-lg: 32px;
+  --chip-h: 26px;
+  /* 图标只有两档（docs/ui-ux-rules.md 规则 17）：控件内 14、标识砖内 18。
+     技能目录页此前把这两档定义在页面级，工作台右栏等其它表面取不到值，
+     故在此登记为全局 token；页面级重复定义同样合法。 */
+  --icon-sm: 14px;
+  --icon-md: 18px;
+  --icon-btn: 24px;
+  /* 跟进红人卡片的头像图标砖边宽（docs/DESIGN.md §控件尺寸）。 */
+  --kol-avatar-size: 28px;
+  /* 首页工作台控件收敛为紧凑规格；触摸模态由下方规则单独扩至 44px 命中区。 */
+  --home-chip-w: 88px;
+  --home-chip-h: 28px;
+  --home-chip-gap: 4px;
+  --home-mode-tab-gap: 2px;
+  /* 优先级列要放得下「重要紧急」（12px×4 + padding 20 + 边框 2 = 70），
+     动作列放单行两个按钮（最长「查看邮件任务」+「编辑」≈ 144）。 */
+  --workspace-task-priority-col: 72px;
+  --workspace-task-actions-col: 156px;
+  --workspace-task-action-h: 20px;
+  /* 中栏「查看最新」与提问框发送箭头共享同一视觉尺寸。 */
+  --workspace-arrow-button-size: 32px;
+  /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
+  --workspace-result-rail-min: 360px;
+  --workspace-result-rail-ideal: 54%;
+  --workspace-result-rail-max: 820px;
+  --workspace-result-rail-collapsed: 56px;
+  --badge-h: 20px;
+  --lh-control: 20px;
+  --lh-control-sm: 16px;
+  /* 按用途命名的圆角、表面三档。组件规范来源 = shadcn/ui：--radius-card 取
+     `--radius: 0.5rem`（rounded-lg），--radius-control 取 `calc(0.5rem - 2px)`（rounded-md）。
+     数值口径见 docs/DESIGN.md 员工端实施细则 §控件尺寸（唯一数值来源）。 */
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --surface-hover: color-mix(in srgb, var(--text) 10%, var(--bg));
+  /* 焦点环：shadcn 的 focus-visible 契约。环色沿用既有的 --focus-ring（单一来源），
+     此处只补环宽与偏移两个 token。 */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --prose-measure: 38em;
+  --shadow-quiet: rgba(0, 0, 0, 0.02) 0 4px 6px 0, rgba(0, 0, 0, 0.05) 0 0 2px 0;
+  --duration-instant: 100ms;
+  --duration-control: 140ms;
+  --duration-enter: 220ms;
+  --duration-exit: 180ms;
+
+  /* Type scale — Codex Regular: 15/24 body, 16–18 page titles / 500. Ban 700.
+     全部指向文末的 --ds-* 阶梯（Design System v1）：老页面继续用 --font-*，
+     但取值只有一处来源，改 token 就等于全站改。 */
+  --font-xs: var(--ds-font-sm);
+  --font-sm: var(--ds-font-sm);
+  --font-body: var(--ds-font-ui);
+  --font-nav: var(--ds-font-body);
+  --font-section: var(--ds-font-section);
+  --font-title: var(--ds-font-block-title);
+  --font-page-title: var(--ds-font-block-title);
+  --leading-body: var(--ds-line-ui);
+  --leading-tight: 1.35;
+  --font-product: var(--ds-font-helper);
+  --font-tag: var(--ds-font-tag);
+
+  /* Legacy aliases — old names map into the scale above */
+  --font-hero: var(--font-page-title);
+  --font-ui: var(--ds-font-ui);
+  --font-table: var(--font-sm);
+  --font-meta: var(--ds-font-sm);
+  --leading-hero: var(--leading-tight);
+  --leading-ui: var(--ds-line-ui);
+
+  /* Migration aliases — existing classes keep working */
+  --canvas: var(--bg);
+  --chrome: var(--bg-elevated);
+  --line: var(--border);
+  --muted: var(--text-muted);
+  --star: var(--primary);
+  --orange: var(--warning);
+  --ok: var(--success);
+  --red: var(--danger);
+
+  --chrome-2: #eceef0;
+  --sidebar-thumb: #d0d0d0;
+  --left-width: 260px;
+  --page-gutter: clamp(16px, 2.2vw, 28px);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
+
+  /* MASTER Quick Start aliases — parallel names, existing --font-* / --space-* stay canonical */
+  --text-caption: var(--font-xs);
+  --leading-caption: 1.51;
+  --tracking-caption: -0.13px;
+  --text-input: var(--font-ui);
+  --leading-input: 1.5;
+  --tracking-input: -0.16px;
+  --text-body-lg: var(--font-section);
+  --leading-body-lg: 1.32;
+  --tracking-body-lg: -0.18px;
+  --text-subheading: var(--font-page-title);
+  --leading-subheading: 1.26;
+  --tracking-subheading: -0.22px;
+  --text-heading: var(--font-page-title);
+  --leading-heading: 1.21;
+  --tracking-heading: 0.31px;
+  --text-display: 48px;
+  --leading-display: 1.16;
+  --tracking-display: -1.44px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --spacing-unit: 4px;
+  --spacing-4: var(--space-1);
+  --spacing-8: var(--space-2);
+  --spacing-12: var(--space-3);
+  --spacing-16: var(--space-4);
+  --spacing-20: 20px;
+  --spacing-24: var(--space-5);
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-52: 52px;
+  --spacing-64: 64px;
+  --spacing-80: 80px;
+  --spacing-120: 120px;
+  --radius-full: 9999px;
+  --radius-tags: 9999px;
+  --radius-cards: 14px;
+  --radius-links: 4px;
+
+  /* 连接器控制台对话框规格 —— 数值来自参考图逐像素测量，唯一来源见 docs/DESIGN.md §连接器控制台。
+     推导规则：以「字段标签 14px」为基准，其余 = 参考图实测值 × 0.7（保留参考图比例）。
+     参考图为高分屏截图，实测 px 不能直接当 CSS px 用；改数值先改 DESIGN.md。 */
+  --dialog-w-form: 560px;      /* 弹窗宽度（实测 800 × 0.7） */
+  --dialog-pad-x: 20px;        /* 卡片左右内边距（28 × 0.7） */
+  --dialog-pad-t: 20px;        /* 卡片上内边距（30 × 0.7） */
+  --dialog-pad-b: 26px;        /* 卡片下内边距（40 × 0.7） */
+  --radius-dialog: 14px;       /* 卡片圆角（20 × 0.7） */
+  --control-h-form: 34px;      /* 输入框 / 按钮高度（48 × 0.7） */
+  --radius-field-form: 6px;    /* 输入框 / 下拉圆角（8 × 0.7） */
+  --radius-btn-form: 7px;      /* 按钮圆角（10 × 0.7） */
+  --radius-icon-box: 7px;      /* 图标虚线框圆角（10 × 0.7） */
+  --note-h-form: 95px;         /* 备注文本域高度（136 × 0.7） */
+  --dialog-head-gap: 16px;     /* 标题块到第一个字段（22 × 0.7） */
+  --dialog-foot-pad-t: 12px;   /* 页脚上内边距 */
+  --line-dialog-title: 24px;   /* 弹窗标题行高 */
+  --field-gap: 11px;           /* 字段标签到控件（16 × 0.7） */
+  --block-gap: 18px;           /* 字段块之间（26 × 0.7） */
+  --grid-gap: 18px;            /* 两列字段之间（26 × 0.7） */
+  --row-gap: 8px;              /* headers 行之间（12 × 0.7） */
+  --icon-box: 56px;            /* 图标位 56×56（80 × 0.7） */
+  --font-dialog-title: 17px;   /* 弹窗标题（墨高 21.6 × 0.7 ≈ 15） */
+  --font-field: 14px;          /* 字段标签与输入文本（基准） */
+  --font-hint: 13px;           /* 说明文字（墨高 16.2 × 0.7 ≈ 11.3 → 13） */
+  --fill-control: #ececeb;     /* 控件填充（参考图取样） */
+  --fill-card: #f8f8f7;        /* 弹窗卡片底色 */
+  --border-quiet: #dadad9;     /* 描边按钮边框 */
+  --border-dashed: #e5e5e4;    /* 图标虚线框 */
+  --hint-text: #737373;        /* 说明文字颜色 */
+  --placeholder-text: #a6a6a6; /* 占位文字颜色 */
+  --danger-soft: #ee5b5e;      /* 删除图标红 */
+  --action-strong: #1a1a19;    /* 弹窗主按钮实底 */
+  --action-strong-fg: #ffffff;
+  /* 「添加自定义 API」创建弹窗（2026-09-27 复刻）—— 参考图 780×1011 逐像素测量 × 0.7（规则同上），
+     唯一来源 docs/DESIGN.md §连接器控制台「添加自定义 API 创建弹窗」。 */
+  --secret-card-pad: 16px;     /* 密钥卡片内边距（实测 22 × 0.7 ≈ 15.4） */
+  --secret-value-h: 74px;      /* 密钥「值」文本域高度（实测 106 × 0.7 ≈ 74） */
+  --secret-row-gap: 13px;      /* 密钥卡内两个字段之间（实测 18 × 0.7 ≈ 12.6） */
+  --help-icon: 14px;           /* 「?」帮助图标直径（实测 20 × 0.7 = 14） */
+  /* 连接器浏览弹窗（目录弹窗）—— 参考图 1034×888 逐像素测量 × 0.7（规则同上），
+     唯一来源 docs/DESIGN.md §连接器控制台「浏览弹窗」。 */
+  --dialog-w-browse: 736px;    /* 弹窗宽度（内容 1002 × 0.7 + 2 × 17） */
+  --browse-line: #e9e9e8;      /* 卡片 / 选中页签 / ＋ 描边（取样 233,233,232） */
+  --browse-fill: #f0f0ef;      /* 搜索框填充（取样 240,240,239） */
+  --browse-tile: #ffffff;      /* 图标砖底色（取样白砖） */
+  --font-browse-title: 16px;   /* 弹窗标题（墨高 22 × 0.7 ≈ 15.4 → 16） */
+  --font-browse-desc: 11px;    /* 卡片描述（墨高 14.5 × 0.7 ≈ 10.2 → 11） */
+  --lh-browse-desc: 15px;      /* 描述行距（21 × 0.7 = 14.7 → 15） */
+  /* 连接器设置向导（弹窗内四步）—— 元素尺寸由既有 token 推导（控件高 34 × 0.76 ≈ 26），
+     唯一来源 docs/DESIGN.md §连接器控制台「设置向导」。 */
+  --wizard-step-h: 26px;       /* 步骤条项高度（控件高 × 0.76，便于 900 高视口不滚动） */
+  --wizard-step-gap: 6px;      /* 步骤条项之间 */
+  --wizard-gap: 12px;          /* 步骤条 / 状态行 / 内容之间的纵向间距（收口 --block-gap 18） */
+  --wizard-status-gap: 4px;    /* 步骤条到状态行 */
+  --wizard-gate-gap: 6px;      /* 门禁与回执块内条目间距 */
+  --dialog-h-wizard: min(94dvh, 900px);  /* 向导弹窗高度上限（88dvh 会把步骤条挤出 900 高视口） */
+
+  /* Primary tone scale for cards and panels (used by home-workbench review cards). */
+  --radius-inputs: 22px;
+  --radius-buttons: 9999px;
+  --radius-nav: 8px;
+  --composer-radius: 22px;
+  --shadow-sm: var(--shadow-quiet);
+  --surface-paper: var(--color-paper);
+  --surface-ash: var(--color-ash);
+  --surface-whisper: var(--color-whisper);
+
+  font-family: var(--sans);
+  font-size: var(--ds-font-section); /* match ChatGPT root; :root beats html, so this must not stay --font-body 15px */
+  line-height: var(--leading-body);
+  letter-spacing: 0;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+}
+:root {
+  --left-width: 260px; /* ChatGPT desktop rail (--sidebar-width / w-[260px]); mobile drawers keep their own width */
+  --page-gutter: clamp(16px, 2.4vw, 40px);
+  --content-max: 1200px;
+  --conversation-measure: 900px;
+  --scrollbar-size: 6px;
+  --layer-popover: 40;
+  --layer-drawer: 60;
+  --layer-modal: 80;
+}
+:root {
+  /* 成功色只给 AI发现 状态卡用；暗色下换亮一档，别改全局 --success。 */
+  --discovery-success: var(--color-success-vivid);
+}
+:root {
+  /* 间距：8px 网格 */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+  --ds-space-12: 48px;
+
+  /* 页面与分区 */
+  --ds-page-pad-x: 48px;
+  --ds-section-gap: var(--ds-space-8);
+  --ds-row-gap: var(--ds-space-5);
+
+  /* 圆角层级：容器略大、输入与普通状态标签统一紧凑；身份头像可单独使用满圆角。 */
+  --ds-radius-page: 20px;
+  --ds-radius-section: 8px;
+  --ds-radius-input: 6px;
+  --ds-radius-chip: 6px;
+  --ds-radius-tag: 6px;
+
+  /* 控件尺寸 */
+  --ds-control-h: 44px;
+  --ds-control-w: 180px;
+  --ds-label-w: 120px;
+  --ds-chip-h: 40px;
+  --ds-chip-gap: var(--ds-space-2);
+
+  /* 中性色：品牌色仍然只引用既有 --color-primary */
+  --ds-border: #e5e7eb;
+  --ds-surface: #f7f8f8;
+  --ds-surface-hover: #f1f2f3;
+  /* 选中态三档权重：底色 10% / 描边 35% / 文字 100%。
+     按 docs/DESIGN.md §颜色：选中属「辅助」→ 由 --accent（蓝）派生，不再用品牌粉
+     （粉只留给唯一的主行动 CTA）。 */
+  --ds-selected-bg: color-mix(in srgb, var(--accent) 10%, #fff);
+  --ds-selected-border: color-mix(in srgb, var(--accent) 35%, transparent);
+
+  /* 文字四档：从「最重」到「最弱」，页面里所有文字颜色都从这里取。
+     strong 标题/强调 · text 正文 · dim 次要说明 · muted 最弱（计数、占位、次要元信息）。
+     dim 直接挂在既有的 --text-muted 上，暗色自动跟随，不再各页写一套灰。 */
+  --ds-text-strong: var(--text);
+  --ds-text: var(--text);
+  --ds-text-dim: var(--text-muted);
+  --ds-text-muted: #9ca3af;
+  /* 旧名保留一个版本，避免遗漏的引用断掉 */
+  --ds-text-secondary: var(--ds-text-dim);
+
+  /* 字号阶梯：页面 → 块标题 → 分区 → 正文界面 → 正文字段 → 小字 → 辅助 → 标签。
+     13px 是全站最常见的界面字号（表格、chip、元信息），15px 是正文界面字号，
+     14px 留给表单控件，12.5/11.5/10.5 这类半像素值一律归到最近的档。 */
+  --ds-font-title: 28px;       --ds-line-title: 36px;       --ds-weight-title: 700;
+  --ds-font-block-title: 20px; --ds-line-block-title: 28px; --ds-weight-block-title: 600;
+  --ds-font-desc: 15px;        --ds-line-desc: 24px;
+  --ds-font-section: 16px;     --ds-line-section: 24px;     --ds-weight-section: 600;
+  --ds-font-ui: 15px;          --ds-line-ui: 24px;
+  --ds-font-body: 14px;        --ds-line-body: 20px;
+  --ds-font-label: 14px;       --ds-line-label: 20px;       --ds-weight-label: 500;
+  --ds-font-sm: 13px;          --ds-line-sm: 20px;
+  --ds-font-helper: 12px;      --ds-line-helper: 18px;
+  --ds-font-tag: 11px;         --ds-line-tag: 16px;
+}

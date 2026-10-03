@@ -31,6 +31,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: "M12 3a5 5 0 0 1 0 10 5 5 0 0 1 0-10 M20 21a8 8 0 0 0-16 0",
         end: true,
       },
+      {
+        id: "overview",
+        label: "工作战报",
+        href: "/admin/overview",
+        icon: "M4 19V9 M10 19V5 M16 19v-7 M22 19V3",
+      },
     ],
   },
   {
@@ -98,6 +104,18 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         label: "成本",
         href: "/admin/cost",
         icon: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M8.5 15.5l7-7 M9.5 9h.01 M14.5 15h.01",
+      },
+      {
+        id: "scheduling",
+        label: "调度监控",
+        href: "/admin/scheduling",
+        icon: "M12 8v4l2.5 1.5 M7 3v3 M17 3v3 M5 7h14v12H5z",
+      },
+      {
+        id: "audit",
+        label: "审计中心",
+        href: "/admin/audit",
+        icon: "M6 3h12v18H6z M9 7h6 M9 11h6 M9 15h4",
       },
       {
         id: "kol",

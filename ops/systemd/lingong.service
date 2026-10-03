@@ -16,6 +16,10 @@ Restart=always
 RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=20
+# 内存护栏：运行失控时只终止本单元（Restart=always 约 5 秒内拉起），不再把整机拖入 OOM。
+MemoryHigh=1G
+MemoryMax=1536M
+MemorySwapMax=1G
 
 [Install]
 WantedBy=multi-user.target

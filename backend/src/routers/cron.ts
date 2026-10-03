@@ -19,11 +19,11 @@ import {
   runById,
 } from "../cron/store.js";
 import { runCronJobNow, tickCronDue } from "../cron/worker.js";
-import { databaseEngine, getConn, nowIso } from "../db.js";
-import { executionJobPublic, listExecutionJobs } from "../execution-jobs/store.js";
+import { audit, databaseEngine, getConn, nowIso } from "../db.js";
+import { executionJobPublic, listExecutionJobs, retryFailedExecutionJob } from "../execution-jobs/store.js";
 import { HttpFail } from "../host/errors.js";
 import { label } from "../stages.js";
-import type { Json } from "../types.js";
+import type { Json, Row } from "../types.js";
 import { taskDefinition } from "../tasks/registry.js";
 
 export const cron = new Hono();
@@ -105,14 +105,77 @@ cron.get("/admin/scheduling/execution-jobs", (c) => {
   const outboxCounts = getConn().prepare(
     "SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status",
   ).all() as Array<{ status: string; count: number }>;
+  const asOf = nowIso();
+  const staleAfterMs = Math.max(5_000, Number(process.env.EXECUTION_WORKER_STALE_MS || 45_000));
+  let workers: Json[] = [];
+  try {
+    const rows = getConn().prepare(
+      "SELECT worker_id,worker_kind,status,details_json,started_at,heartbeat_at,stopped_at FROM execution_worker_heartbeats ORDER BY heartbeat_at DESC LIMIT 100",
+    ).all() as Array<{ worker_id: string; worker_kind: string; status: string; details_json: string; started_at: string; heartbeat_at: string; stopped_at: string | null }>;
+    workers = rows.map((row) => {
+      let details: Json = {};
+      try {
+        const parsed = JSON.parse(row.details_json || "{}");
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) details = parsed as Json;
+      } catch {
+        // Worker liveness remains readable even if a legacy details payload is malformed.
+      }
+      const heartbeatAt = Date.parse(row.heartbeat_at);
+      return {
+        worker_id: row.worker_id,
+        worker_kind: row.worker_kind,
+        status: row.status,
+        details,
+        started_at: row.started_at,
+        heartbeat_at: row.heartbeat_at,
+        stopped_at: row.stopped_at,
+        stale: row.status === "running" && (!Number.isFinite(heartbeatAt) || Date.now() - heartbeatAt > staleAfterMs),
+      } as Json;
+    });
+  } catch {
+    // The heartbeat table is created by the PostgreSQL Outbox/Worker bootstrap.
+    // Empty means no observed consumer, never a synthesized healthy worker.
+    workers = [];
+  }
+  const backlog = getConn().prepare(
+    "SELECT MIN(created_at) AS oldest_created_at,COUNT(*) AS count FROM execution_jobs WHERE status IN ('queued','retrying')",
+  ).get() as { oldest_created_at: string | null; count: number };
+  const rules = (getConn().prepare(
+    "SELECT id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at FROM scheduling_rules ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,updated_at DESC LIMIT 100",
+  ).all() as Row[]).map((row) => ({
+    id: String(row.id), version: Number(row.version), rule_type: String(row.rule_type), title: String(row.title), status: String(row.status),
+    scope: (() => { try { return JSON.parse(String(row.scope_json || "{}")); } catch { return {}; } })(),
+    definition: (() => { try { return JSON.parse(String(row.definition_json || "{}")); } catch { return {}; } })(),
+    created_by: String(row.created_by), published_by: row.published_by || null,
+    created_at: String(row.created_at), published_at: row.published_at || null, updated_at: String(row.updated_at),
+  }));
   return c.json({
     items: jobs,
     counts: Object.fromEntries(statusCounts.map((row) => [row.status, Number(row.count)])),
     outbox: Object.fromEntries(outboxCounts.map((row) => [row.status, Number(row.count)])),
-    as_of: nowIso(),
-    execution_mode: databaseEngine() === "postgres" ? "postgres_redis_bullmq_multi_worker" : "sqlite_single_worker_transition",
-    source_refs: [{ type: "execution_jobs" }, { type: "execution_outbox" }],
+    workers,
+    backlog: { count: Number(backlog.count || 0), oldest_created_at: backlog.oldest_created_at || null },
+    rules,
+    as_of: asOf,
+    execution_mode: databaseEngine() === "postgres" ? "postgres_redis_bullmq_multi_worker" : "sqlite_test_fixture_only",
+    source_refs: [{ type: "execution_jobs" }, { type: "execution_outbox" }, { type: "execution_worker_heartbeats" }, { type: "scheduling_rules" }],
   });
+});
+
+/** Explicit operator recovery: only failed low-risk jobs may be re-published. */
+cron.post("/admin/scheduling/execution-jobs/:id/retry", (c) => {
+  requireAdmin();
+  const actor = scopedUser()?.id || DEMO_USER.id;
+  const result = retryFailedExecutionJob(c.req.param("id"), { actor_ref: actor });
+  if (result.reason === "not_found") throw new HttpFail(404, "execution job not found");
+  if (result.reason === "risk_requires_takeover") {
+    throw new HttpFail(409, { code: "takeover_required", message: "中高风险或不确定作业必须先人工核验，不能直接重试。" });
+  }
+  if (!result.retried || !result.job) throw new HttpFail(409, { code: "job_not_retryable", message: "仅失败的低风险作业可以重新投递。" });
+  audit(actor, "execution_job.retry_requested", {
+    execution_job_id: String(result.job.id), job_type: String(result.job.job_type), attempt: Number(result.job.attempts || 0),
+  });
+  return c.json({ ...executionJobPublic(result.job), retried: true }, 202);
 });
 
 cron.post("/cron/jobs", async (c) => {

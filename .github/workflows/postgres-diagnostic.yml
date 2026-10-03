@@ -1,0 +1,60 @@
+name: lingong-postgres-diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      lines:
+        description: "Maximum recent journal lines per service"
+        required: false
+        default: "160"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Read PostgreSQL cutover service diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: 47.88.94.205
+      DEPLOY_USER: ecs-user
+      LINES: ${{ inputs.lines }}
+    steps:
+      - name: Configure confirmed production SSH identity
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.KOL_PROD_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$DEPLOY_SSH_PRIVATE_KEY" || { echo "KOL_PROD_SSH_PRIVATE_KEY is required" >&2; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Operator-confirmed host identity; never substitute a fresh keyscan.
+          printf '%s\n' '47.88.94.205 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGL0KFP8lQnrrAR81Q4aztoswNy3rBu6OTJaSthx5z6w' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Read API and worker status without changing production state
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "LINES='${LINES}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          lines="${LINES:-160}"
+          case "$lines" in
+            *[!0-9]*|'') lines=160 ;;
+          esac
+          lines=$(( lines > 400 ? 400 : lines ))
+          echo '--- active units ---'
+          systemctl is-active lingong lingong-outbox lingong-execution-worker@1 lingong-execution-worker@2 postgresql redis-server || true
+          echo '--- API status ---'
+          sudo -n systemctl --no-pager --full status lingong || true
+          echo '--- API journal ---'
+          sudo -n journalctl --no-pager -u lingong -n "$lines" || true
+          echo '--- outbox status ---'
+          sudo -n systemctl --no-pager --full status lingong-outbox || true
+          echo '--- outbox journal ---'
+          sudo -n journalctl --no-pager -u lingong-outbox -n "$lines" || true
+          echo '--- worker status ---'
+          sudo -n systemctl --no-pager --full status lingong-execution-worker@1 lingong-execution-worker@2 || true
+          echo '--- worker journal ---'
+          sudo -n journalctl --no-pager -u lingong-execution-worker@1 -u lingong-execution-worker@2 -n "$lines" || true
+          REMOTE

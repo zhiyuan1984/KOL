@@ -7,7 +7,7 @@ import { authDisabled, isAdmin, requireAdmin, requireSkill, scopedUser } from ".
 import { examDemoStatus, examTodoCount } from "../exam.js";
 import { starry } from "../adapters/clients.js";
 import { BRAND_MAILBOXES, DEMO_USER, clawMode, kolClawConfigured, starryKolMcpBearer, starryKolMcpConfigured } from "../config.js";
-import { getConn, listAudit, nowIso } from "../db.js";
+import { AUDIT_PAYLOAD_PREVIEW_CHARS, auditPayloadPreview, getConn, listAudit, nowIso } from "../db.js";
 import { uploadsDir } from "../host/attachments.js";
 import { HttpFail } from "../host/errors.js";
 import { currentUser, setPersona } from "../host/persona.js";
@@ -225,14 +225,15 @@ function listedSkills(market: boolean): Json[] {
 const VERSION_CACHE: { version: string; started_at: string } = { version: "", started_at: nowIso() };
 misc.get("/version", (c) => {
   if (!VERSION_CACHE.version) {
-    let commit = String(process.env.LINGONG_VERSION || "").trim();
+    // Deployment `.env` can outlive a `git reset` and thus contain a stale
+    // LINGONG_VERSION. Prefer the actual checked-out repository revision so
+    // health checks prove what process is serving traffic; containers without
+    // a Git worktree retain the explicit environment fallback.
+    let commit = String(process.env.DEPLOY_REVISION || "").trim();
     if (!commit) {
-      try {
-        commit = execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
-      } catch {
-        commit = "unknown";
-      }
+      try { commit = execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch { /* fallback below */ }
     }
+    if (!commit) commit = String(process.env.LINGONG_VERSION || "").trim();
     VERSION_CACHE.version = commit || "unknown";
   }
   return c.json(VERSION_CACHE);
@@ -788,7 +789,47 @@ misc.get("/admin", (c) => {
 
 misc.get("/audit", (c) => {
   if (!authDisabled()) requireAdmin();
-  return c.json(listAudit(c.req.query("event_type")));
+  const limit = Math.min(Math.max(1, Number(c.req.query("limit") || 200)), 500);
+  return c.json(listAudit(c.req.query("event_type"), { limit }));
+});
+
+/** Bounded admin audit reader; raw `/audit` remains only for existing screens. */
+misc.get("/admin/audit/events", (c) => {
+  requireAdmin();
+  const limit = Math.min(Math.max(1, Number(c.req.query("limit") || 50)), 200);
+  const cursor = Number(c.req.query("cursor") || 0);
+  if (!Number.isInteger(cursor) || cursor < 0) throw new HttpFail(400, "invalid audit cursor");
+  const eventType = String(c.req.query("event_type") || "").trim();
+  const actor = String(c.req.query("actor") || "").trim();
+  const clauses: string[] = [];
+  const values: unknown[] = [];
+  if (cursor) {
+    clauses.push("id<?");
+    values.push(cursor);
+  }
+  if (eventType) {
+    clauses.push("event_type=?");
+    values.push(eventType);
+  }
+  if (actor) {
+    clauses.push("actor=?");
+    values.push(actor);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const rows = getConn().prepare(
+    `SELECT id,ts,actor,event_type,substr(payload,1,?) AS payload_preview,length(payload) AS payload_size
+       FROM audit_events ${where} ORDER BY id DESC LIMIT ?`,
+  ).all(AUDIT_PAYLOAD_PREVIEW_CHARS, ...values, limit + 1) as Row[];
+  const page = rows.slice(0, limit).map((row) => ({
+    id: Number(row.id), ts: row.ts, actor: row.actor, event_type: row.event_type,
+    payload: auditPayloadPreview(String(row.payload_preview || ""), Number(row.payload_size || 0)),
+  }));
+  return c.json({
+    items: page,
+    next_cursor: rows.length > limit && page.length ? page.at(-1)?.id || null : null,
+    as_of: nowIso(),
+    source_refs: [{ type: "audit_events", scope: "admin" }],
+  });
 });
 
 misc.get("/workers", (c) => {

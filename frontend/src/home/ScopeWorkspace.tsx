@@ -8,6 +8,7 @@ import { whyLine } from "./homeModel";
 import {
   SCOPE_CONFIG,
   TODAY_PLAN_REFRESH_EVENT,
+  type PlanSnapshotInfo,
   type PlanScope,
   type TodayPlanPhase,
 } from "./todayPlan";
@@ -43,6 +44,7 @@ export default function ScopeWorkspace({
   events,
   previousBrief,
   previousEvents,
+  snapshot,
   memoryPending = false,
   centerHeader,
   centerSupplement,
@@ -61,6 +63,7 @@ export default function ScopeWorkspace({
   events?: TaskEvent[] | null;
   previousBrief?: TodayBrief | null;
   previousEvents?: TaskEvent[] | null;
+  snapshot?: PlanSnapshotInfo;
   /** Entering the pane reads memory without planning, so the empty state must not lie. */
   memoryPending?: boolean;
   centerHeader?: ReactNode;
@@ -90,8 +93,8 @@ export default function ScopeWorkspace({
         resultType: cfg.resultType,
         status: phase === "failed" ? "failed" : phase === "planning" || phase === "loading-memory"
           ? "running" : hasStream ? "completed" : stamped.length ? "ready" : "idle",
-        updatedAt: undefined,
-        freshness: brief ? "current" : "unknown",
+        updatedAt: snapshot?.generated_at || undefined,
+        freshness: snapshot?.stale_reason ? "stale" : brief ? "current" : "unknown",
       }}
       scrollAnchorEvent={TODAY_PLAN_REFRESH_EVENT}
       centerHeader={(
@@ -135,7 +138,7 @@ export default function ScopeWorkspace({
           onOpen={onOpen}
           onEdit={onEdit}
           planPhase={phase === "idle" && hasStream ? "refreshed" : phase}
-          summary={<PlanSummary brief={brief} label={cfg.planSummaryLabel} />}
+          summary={<PlanSummary brief={brief} label={cfg.planSummaryLabel} snapshot={snapshot} />}
         />
       )}
     />
