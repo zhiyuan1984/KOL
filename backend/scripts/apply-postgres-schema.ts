@@ -1,7 +1,32 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL schema migration");
+
+/**
+ * 空库基线：`pg_dump -s --no-owner --no-privileges` 导出的完整 PostgreSQL 结构。
+ * 删除 SQLite 后，基线是「凭空新建一个库」的唯一入口（SQLite 的 initSchema 不再承担这个职责）。
+ * 已存在的库不走基线（基线是非幂等的 CREATE TABLE），只走下面的增量清单。
+ */
+const BASELINE_ID = "20261003_pg_baseline";
+/** 基线的导出时点已包含这些增量迁移的效果，必须在账本里补记，否则非幂等增量会重跑。 */
+const BASELINED_IDS = [
+  "20261002_scheduling_rules",
+  "20261002_ticket_acceptances",
+  "20261003_execution_delivery_leases",
+  "20261003_organization_agent_bindings",
+  "20261003_task_event_lifecycle_integrity",
+];
+
+const baselineSql = fs
+  .readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "pg-baseline.sql"), "utf8")
+  // 去掉 psql 专有元命令（\restrict / \unrestrict）：node-pg 无法执行它们。
+  .split(/\r?\n/)
+  .filter((line) => line.charCodeAt(0) !== 92)
+  .join("\n");
 
 const migrations: Array<{ id: string; statements: string[] }> = [
   {
@@ -180,6 +205,19 @@ try {
   )`);
   const applied = new Set((await client.query<{ id: string }>("SELECT id FROM app_schema_migrations")).rows.map((row) => row.id));
   const completed: string[] = [];
+  // 空库：先灌基线，并在账本里补记基线已包含的增量（否则非幂等的增量会在已有对象上重跑）。
+  const tables = await client.query<{ n: string }>(
+    "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'app_schema_migrations'",
+  );
+  if (Number(tables.rows[0]?.n || 0) === 0) {
+    await client.query(baselineSql);
+    const stamp = new Date().toISOString();
+    for (const id of [BASELINE_ID, ...BASELINED_IDS]) {
+      await client.query("INSERT INTO app_schema_migrations (id,applied_at) VALUES ($1,$2) ON CONFLICT DO NOTHING", [id, stamp]);
+      applied.add(id);
+    }
+    completed.push(BASELINE_ID);
+  }
   for (const migration of migrations) {
     // DDL is idempotent even if a prior deploy created the table before this
     // ledger existed. Recording it prevents future release restarts from
