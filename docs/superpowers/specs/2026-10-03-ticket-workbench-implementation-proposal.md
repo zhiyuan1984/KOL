@@ -443,6 +443,7 @@
 - 正式完成/取消命令采用 PostgreSQL 行锁、版本冲突、幂等回执、验收快照与审计事实；PostgreSQL 生命周期模块已与历史 SQLite-shaped 实现拆分，正式模式不导入兼容实现；运行成功仍不等于完成工单。
 - Worker/Outbox 的 PostgreSQL 原生作业仓储、租约和终态写入已接入调度执行链路；执行作业共享契约已从旧仓储拆出，正式 Worker 直接校验 PostgreSQL `DATABASE_URL`，不再经由 SQLite-shaped 配置判定运行模式；迁移后的 PostgreSQL 集成测试覆盖建单、编辑、生命周期、回执重放及组织质量读取。
 - PostgreSQL Worker 分发器已停止静态导入旧今日计划处理器。遗留 `work_plan.run` / `today_analyze.run` 若被领取，会被明确写为 `needs_takeover` 的 `uncertain` 终态且不重试，绝不回落到 SQLite-shaped task-run/artifact 写入链。
+- PostgreSQL-only 前端运行模式下，根路径 `/` 已直接进入正式 `/tasks` 工单中心；旧 Home 仍仅属兼容应用，不能以历史任务/协作投影成为正式工单的静默读取回退。
 - Cron 运行时的 `cron_jobs`、`cron_runs`、`execution_worker_heartbeats` 已纳入 PostgreSQL 增量迁移；系统作业种子、人工/到期运行入队、过期接管、运行状态、执行作业与 Outbox 手递均在原生 PostgreSQL 事务中完成。
 - 调度管理 API（作业/运行读取、创建、修改、手工运行、内部 tick、执行作业管理读模型与低风险失败重投）已改为 PostgreSQL 原生查询；管理读模型固定声明 `postgres_redis_bullmq_multi_worker`，不再提供 SQLite 运行模式。
 - 已以全新 PostgreSQL 库验证完整迁移链，并新增原生 Cron 集成测试，覆盖系统种子、到期/人工入队幂等、Outbox 手递、调度管理读模型和人工低风险重投。

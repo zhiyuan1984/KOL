@@ -50,7 +50,7 @@
 | P0（兼容模式） | `backend/src/routers/tasks.ts` 的 `/tasks`、`/workbench/tasks`、`/runs/*` 与旧任务创建/运行端点 | 同一个 legacy router 仍保留大量 `getConn()` 调用。 | PG-only 模式不装配该 router，旧 `/tasks`/`/workbench/tasks`/`/runs/*` 返回 404；正式入口只使用 `/tickets`。 |
 | P0 | `backend/src/auth.ts`、`exam.ts`、`runtime/organization-tree.ts` | 历史应用的登录、权限与组织读取仍走 bridge。 | **正式 `/tickets` 已改用独立 PostgreSQL 身份/会话与受控人员绑定**；仍需将全应用登录与组织读取迁走，未完成前不能宣称全应用 PG-only。 |
 | P1 | `routers/work-report.ts` | 管理报表仍读取旧 tickets/event 投影。 | 先只保留个人原始计数；组织报表应在规则、范围、时区与授权口径发布后原生实现。 |
-| P1 | `home-today`、`home-board`、`home-discovery` | 首页任务投影和建议仍使用 legacy task/collaboration 数据。 | 迁移为 PostgreSQL ticket read-model；不能以 SQLite 任务投影支撑正式工单界面。 |
+| P1 | `home-today`、`home-board`、`home-discovery` | 首页任务投影和建议仍使用 legacy task/collaboration 数据。 | PostgreSQL-only 前端已将 `/` 入口重定向到正式 `/tasks`，不再加载旧首页作为隐式回退；后续可按独立 PostgreSQL read-model 重建首页。 |
 | P1 | 协作、邮件、发现、知识、运行时连接器等领域 | 广泛直接使用 `getConn()`。 | 每个领域先定义权威 PostgreSQL schema/repository，再按对外契约迁移；禁止桥接作为长期生产路径。 |
 
 ## 迁移边界与强制规则
