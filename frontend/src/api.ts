@@ -789,6 +789,29 @@ export type SchedulingRuleEvaluation = {
   };
 };
 
+export type SchedulingRuleEffectivenessRawReport = {
+  report_version: string;
+  as_of: string;
+  source: string;
+  timezone: string;
+  totals: { rules: number; evaluations: number; distinct_events: number; matched: number; skipped: number; missing_fields: number; failed: number };
+  note: string;
+  rules: Array<{
+    rule_id: string;
+    rule_version: number;
+    title: string;
+    rule_type: string;
+    rule_status: string;
+    published_at: string | null;
+    evaluations: number;
+    distinct_events: number;
+    linked_tickets: number;
+    by_outcome: { matched: number; skipped: number; missing_fields: number; failed: number };
+    manual_confirmation: { matched_pending: number; confirmations_recorded: null; coverage_status: string };
+    execution_effect: string;
+  }>;
+};
+
 export type AdminAuditEvent = {
   id: number;
   ts: string;
@@ -2711,6 +2734,10 @@ export const api = {
   adminSchedulingRuleEvaluations: (limit = 30) =>
     request<{ items: SchedulingRuleEvaluation[]; policy: { execution_effect: string; requirement: string }; as_of: string }>(
       `/api/admin/scheduling/rule-evaluations?limit=${Math.min(Math.max(1, Math.floor(limit)), 200)}`,
+    ),
+  adminSchedulingRuleEffectiveness: (limit = 100) =>
+    request<SchedulingRuleEffectivenessRawReport>(
+      `/api/admin/scheduling/rule-effectiveness?limit=${Math.min(Math.max(1, Math.floor(limit)), 200)}`,
     ),
   recordSchedulingEventEvaluation: (body: Record<string, unknown>, idempotencyKey: string) =>
     request<{

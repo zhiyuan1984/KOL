@@ -10,6 +10,7 @@ import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { organizationTicketRawCountReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
+import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
 import { listTicketRuleEvaluations, recordVerifiedBusinessEventAndEvaluate } from "../ticket-domain/event-rule-evaluation.js";
 import {
@@ -187,6 +188,11 @@ tickets.post("/admin/scheduling/rules/:id/versions/:version/restore-draft", asyn
 tickets.get("/admin/scheduling/rule-evaluations", async (c) => {
   if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
   return c.json({ ...(await listTicketRuleEvaluations(parseLimit(c.req.query("limit"), 50))), ...requestMetadata() });
+});
+
+tickets.get("/admin/scheduling/rule-effectiveness", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await schedulingRuleEffectivenessRawReport(parseLimit(c.req.query("limit"), 100))), ...requestMetadata() });
 });
 
 tickets.post("/admin/scheduling/events/evaluate", async (c) => {

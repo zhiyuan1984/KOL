@@ -109,6 +109,18 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
     const evaluations = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/scheduling/rule-evaluations")));
     expect(evaluations.status).toBe(200);
     expect(await evaluations.json()).toMatchObject({ items: [expect.objectContaining({ rule_id: RULE_ID, outcome: "matched", event: expect.objectContaining({ event_type: "deadline.quote" }) })] });
+    const effectiveness = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/scheduling/rule-effectiveness")));
+    expect(effectiveness.status).toBe(200);
+    expect(await effectiveness.json()).toMatchObject({
+      report_version: "scheduling-rule-effectiveness-raw.v1",
+      source: "postgresql_ticket_rule_evaluations",
+      rules: [expect.objectContaining({
+        rule_id: RULE_ID, evaluations: 1, distinct_events: 1, linked_tickets: 1,
+        by_outcome: { matched: 1, skipped: 0, missing_fields: 0, failed: 0 },
+        manual_confirmation: { matched_pending: 1, confirmations_recorded: null, coverage_status: "not_recorded" },
+        execution_effect: "none",
+      })],
+    });
     const employeeTicket = await withTicketPrincipal(EMPLOYEE, () => tickets.fetch(new Request("http://test.local/tickets/rule-simulation-ticket")));
     expect(employeeTicket.status).toBe(200);
     expect(await employeeTicket.json()).toMatchObject({

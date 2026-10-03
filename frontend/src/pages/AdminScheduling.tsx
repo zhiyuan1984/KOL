@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { api, type ExecutionJob, type ExecutionOutboxHealth, type ExecutionWorker, type SchedulingRule, type SchedulingRuleEvaluation } from "../api";
+import { api, type ExecutionJob, type ExecutionOutboxHealth, type ExecutionWorker, type SchedulingRule, type SchedulingRuleEffectivenessRawReport, type SchedulingRuleEvaluation } from "../api";
 
 function time(value?: string | null): string {
   if (!value) return "—";
@@ -41,6 +41,7 @@ export default function AdminScheduling() {
   const [workers, setWorkers] = useState<ExecutionWorker[]>([]);
   const [rules, setRules] = useState<SchedulingRule[]>([]);
   const [evaluations, setEvaluations] = useState<SchedulingRuleEvaluation[]>([]);
+  const [ruleEffectiveness, setRuleEffectiveness] = useState<SchedulingRuleEffectivenessRawReport | null>(null);
   const [backlog, setBacklog] = useState<{ count: number; oldest_created_at: string | null }>({ count: 0, oldest_created_at: null });
   const [mode, setMode] = useState("");
   const [asOf, setAsOf] = useState<string | null>(null);
@@ -72,9 +73,10 @@ export default function AdminScheduling() {
     setLoading(true);
     setError("");
     try {
-      const [data, evaluationData] = await Promise.all([
+      const [data, evaluationData, effectivenessData] = await Promise.all([
         api.adminExecutionJobs({ status: status || undefined, limit: 100 }),
         api.adminSchedulingRuleEvaluations(30),
+        api.adminSchedulingRuleEffectiveness(100),
       ]);
       setJobs(data.items || []);
       setCounts(data.counts || {});
@@ -82,6 +84,7 @@ export default function AdminScheduling() {
       setWorkers(data.workers || []);
       setRules(data.rules || []);
       setEvaluations(evaluationData.items || []);
+      setRuleEffectiveness(effectivenessData);
       setBacklog(data.backlog || { count: 0, oldest_created_at: null });
       setMode(data.execution_mode || "");
       setAsOf(data.as_of || null);
@@ -390,6 +393,14 @@ export default function AdminScheduling() {
             <div><strong className={evaluation.outcome === "matched" ? "status-warn" : "status-ok"}>{evaluation.outcome === "matched" ? "待人工确认" : label(evaluation.outcome)}</strong><p className="muted">工单 {evaluation.ticket_id || "—"} · {String(evaluation.details.proposed_action || "—")}</p></div>
           </div>
         ))}
+        {ruleEffectiveness ? <section className="task-detail-facts" data-rule-effectiveness>
+          <h3>规则成效原始计数</h3>
+          <p className="muted">评估 {ruleEffectiveness.totals.evaluations} 次 · 事件 {ruleEffectiveness.totals.distinct_events} 条 · 待人工确认 {ruleEffectiveness.totals.matched} 条。{ruleEffectiveness.note}</p>
+          {ruleEffectiveness.rules.map((rule) => <div className="admin-row" key={`${rule.rule_id}:${rule.rule_version}`}>
+            <div><strong>{rule.title}</strong><p className="muted">v{rule.rule_version} · {label(rule.rule_status)} · 关联事件 {rule.distinct_events} · 关联工单 {rule.linked_tickets}</p></div>
+            <div><strong>{rule.evaluations} 次评估</strong><p className="muted">命中 {rule.by_outcome.matched} · 跳过 {rule.by_outcome.skipped} · 缺字段 {rule.by_outcome.missing_fields}</p><p className="muted">人工确认：{rule.manual_confirmation.coverage_status === "not_recorded" ? "尚未记录确认决定" : rule.manual_confirmation.coverage_status}</p></div>
+          </div>)}
+        </section> : null}
       </article>
 
       <article className="panel" style={{ gridColumn: "1 / -1" }}>
