@@ -91,7 +91,14 @@ function rewriteInsertOrReplace(sql: string): string {
 }
 
 function rewriteJsonExtract(sql: string): string {
-  return sql.replace(/json_extract\(\s*([A-Za-z_][\w.]*)\s*,\s*'\$\.([A-Za-z_][\w]*)'\s*\)/gi, "$1::jsonb ->> '$2'");
+  return sql.replace(
+    /json_extract\(\s*([A-Za-z_][\w.]*)\s*,\s*'\$\.([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)'\s*\)/gi,
+    (_match, column: string, jsonPath: string) => {
+      const segments = jsonPath.split(".");
+      if (segments.length === 1) return `${column}::jsonb ->> '${segments[0]}'`;
+      return `${column}::jsonb #>> '{${segments.join(",")}}'`;
+    },
+  );
 }
 
 function rewriteNoCaseCollation(sql: string): string {

@@ -17,6 +17,8 @@ describe("PostgreSQL synchronous repository bridge", () => {
   it("maps transactional and scalar compatibility forms", () => {
     expect(translateSqliteSql("BEGIN IMMEDIATE")).toBe("BEGIN ISOLATION LEVEL SERIALIZABLE");
     expect(translateSqliteSql("SELECT IFNULL(json_extract(payload,'$.kind'),'')")).toBe("SELECT COALESCE(payload::jsonb ->> 'kind','')");
+    expect(translateSqliteSql("SELECT json_extract(condition_json,'$.schedule.interval_minutes')"))
+      .toBe("SELECT condition_json::jsonb #>> '{schedule,interval_minutes}'");
     expect(translateSqliteSql("schema_hash NOT GLOB '*[^0123456789abcdef]*'"))
       .toBe("schema_hash !~ '[^0123456789abcdef]'");
   });

@@ -1814,10 +1814,10 @@ export const api = {
     }),
   pipeline: (exception = 0) => fetch(`/api/pipeline?exception=${exception}`).then((r) => r.json()),
   approvals: (box?: "inbox" | "submitted" | "done") =>
-    fetch(box ? `/api/approvals?box=${encodeURIComponent(box)}` : "/api/approvals").then((r) => r.json()),
+    request<Record<string, unknown>[]>(box ? `/api/approvals?box=${encodeURIComponent(box)}` : "/api/approvals"),
   approvalBadge: () => request<{ count: number }>("/api/approvals/badge"),
   approval: (id: string) => request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}`),
-  wecomCards: () => fetch("/api/wecom/cards").then((r) => r.json()),
+  wecomCards: () => request<Array<{ approval_id: string; body: string; status: string; assignee: string }>>("/api/wecom/cards"),
   previewApproval: (body: {
     kind: "expense";
     amount: number;

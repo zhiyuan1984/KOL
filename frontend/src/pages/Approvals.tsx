@@ -79,6 +79,13 @@ type SessionReceipt = {
   tone: "ok" | "danger" | "info";
 };
 
+type WecomCard = {
+  approval_id: string;
+  body: string;
+  status: string;
+  assignee: string;
+};
+
 const CURRENCIES = [
   ["CNY", "人民币"],
   ["USD", "美元"],
@@ -399,7 +406,7 @@ export default function Approvals({
   const focusId = params.id || searchParams.get("id") || "";
   const [rows, setRows] = useState<Approval[]>([]);
   const [focused, setFocused] = useState<Approval | null>(null);
-  const [cards, setCards] = useState<{ approval_id: string; body: string; status: string; assignee: string }[]>([]);
+  const [cards, setCards] = useState<WecomCard[]>([]);
   const [err, setErr] = useState("");
   const [expandedId, setExpandedId] = useState("");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
@@ -416,8 +423,16 @@ export default function Approvals({
   };
 
   const load = () => {
-    api.approvals(box).then((r) => setRows(Array.isArray(r) ? r as Approval[] : []));
-    api.wecomCards().then((r) => setCards(r as never)).catch(() => setCards([]));
+    setErr("");
+    api.approvals(box)
+      .then((r) => setRows(Array.isArray(r) ? r as Approval[] : []))
+      .catch((error) => {
+        setRows([]);
+        setErr(friendlyError(error, "无法加载审批，请稍后重试"));
+      });
+    api.wecomCards()
+      .then((r) => setCards(Array.isArray(r) ? r as WecomCard[] : []))
+      .catch(() => setCards([]));
   };
   useEffect(load, [box, reloadTick]);
 
