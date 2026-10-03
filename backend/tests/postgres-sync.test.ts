@@ -26,6 +26,7 @@ describe("PostgreSQL synchronous repository bridge", () => {
   it("maps SQLite NOCASE sorting without requiring a PostgreSQL collation", () => {
     expect(translateSqliteSql("SELECT id,label FROM connectors ORDER BY label COLLATE NOCASE, id"))
       .toBe("SELECT id,label FROM connectors ORDER BY LOWER(label), id");
+    expect(translateSqliteSql("title LIKE ? COLLATE NOCASE")).toBe("title ILIKE $1");
   });
 });
 

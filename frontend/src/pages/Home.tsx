@@ -656,7 +656,8 @@ export default function Home() {
   const lastComposer = useRef<ComposerSubmit | null>(null);
   const taskCatalogRef = useRef<Task[]>([]);
   const [taskCatalog, setTaskCatalog] = useState<Task[]>([]);
-  const boardRequestedRef = useRef(false);
+  /** 进行中的 board 读：后到者共享同一 promise，不把「在途」当成「已就绪」。 */
+  const boardRequestRef = useRef<Promise<boolean> | null>(null);
   const missingAlertRef = useRef<HTMLElement | null>(null);
   const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
   const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
@@ -792,16 +793,17 @@ export default function Home() {
   const fetchHomeTasks = () => api.tasks().then(unwrapTaskList).then(applyTaskCatalog);
 
   const loadBoard = (surface: HomeSurface, force = false): Promise<boolean> => {
-    if (!force && boardRequestedRef.current) return Promise.resolve(true);
-    boardRequestedRef.current = true;
-    return api.homeBoard({ refresh: force }).then((board) => {
+    if (!force && boardRequestRef.current) return boardRequestRef.current;
+    const request = api.homeBoard({ refresh: force }).then((board) => {
       applyBoard(board, surface);
       return true;
     }).catch((error) => {
-      if (!force) boardRequestedRef.current = false;
+      if (boardRequestRef.current === request) boardRequestRef.current = null;
       setSurfaceError(surface, error instanceof Error ? error.message : "工作台读取失败");
       return false;
     });
+    boardRequestRef.current = request;
+    return request;
   };
 
   const poolWorkspace = usePoolWorkspace({

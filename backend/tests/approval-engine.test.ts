@@ -602,7 +602,7 @@ describe("expense approval host path", () => {
       expect(String(row.wecom_card?.body || "")).not.toMatch(/approval_id|chain_id|appr_/);
       if (index < approval.chain.length - 1) {
         expect(row.status).toBe("pending");
-        expect(row.current_index).toBe(index + 1);
+        expect(Number(row.current_index)).toBe(index + 1);
         expect(row.chain_detail?.[row.current_index]?.name).toBe(approval.payload.steps[index + 1].name);
         expect(String(row.wecom_card?.body || "")).toContain(`${approval.payload.steps[index].name} 已同意`);
         expect(String(row.wecom_card?.body || "")).toContain(`请 ${approval.payload.steps[index + 1].name} 确认`);

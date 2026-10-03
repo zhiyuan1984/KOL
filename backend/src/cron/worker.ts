@@ -29,8 +29,11 @@ function nextFor(job: Row, from: Date): string | null {
 }
 
 function isUniqueError(error: unknown): boolean {
+  const code = error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : "";
   const message = error instanceof Error ? error.message : String(error || "");
-  return /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE/i.test(message);
+  return code === "23505" || /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE/i.test(message);
 }
 
 function parseTakeover(job: Row): number {

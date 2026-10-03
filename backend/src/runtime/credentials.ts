@@ -292,7 +292,10 @@ export function createCredential(input: {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (/UNIQUE constraint failed/i.test(message)) fail("runtime_credential_already_exists", 409);
+    const code = error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code || "")
+      : "";
+    if (code === "23505" || /UNIQUE constraint failed/i.test(message)) fail("runtime_credential_already_exists", 409);
     throw error;
   }
   return getCredentialMetadata(id);

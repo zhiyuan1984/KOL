@@ -263,7 +263,7 @@ describe("followed KOL unread mail sync", () => {
     await expect.poll(() => Number((
       getConn().prepare(
         "SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE collaboration_id='col_xiaomei'",
-      ).get() as { n: number }
+      ).get() as { n: unknown }
     ).n)).toBe(0);
   });
 

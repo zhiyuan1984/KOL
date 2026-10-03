@@ -208,8 +208,8 @@ describe("creator ingestion and scoring", () => {
     }] } });
     expect(first).toMatchObject({ accepted: 1, inserted: 1, updated: 0, rejected: 0 });
     expect(second).toMatchObject({ accepted: 1, inserted: 0, updated: 1, rejected: 0 });
-    expect((getConn().prepare("SELECT COUNT(*) AS n FROM claw_creators WHERE platform_creator_id='same'").get() as { n: number }).n).toBe(1);
-    expect((getConn().prepare("SELECT COUNT(*) AS n FROM creator_snapshots WHERE platform_creator_id='same'").get() as { n: number }).n).toBe(2);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM claw_creators WHERE platform_creator_id='same'").get() as { n: unknown }).n)).toBe(1);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_snapshots WHERE platform_creator_id='same'").get() as { n: unknown }).n)).toBe(2);
     expect(calculateCreatorScore(1000, [100, 300])).toMatchObject({
       sample_size: 2, view_median: 200, view_mean: 200, view_follower_ratio: 0.2, sample_confidence: 0.2,
     });
@@ -295,7 +295,7 @@ describe("crawl lifecycle", () => {
     expect(await response.json()).toMatchObject({
       detail: { code: "mediacrawler_not_configured", message: "远程采集服务未配置。" },
     });
-    expect((getConn().prepare("SELECT COUNT(*) AS count FROM crawl_jobs").get() as { count: number }).count).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS count FROM crawl_jobs").get() as { count: unknown }).count)).toBe(0);
   });
 
   it("routes creator-discovery text to the dedicated discovery workspace", async () => {

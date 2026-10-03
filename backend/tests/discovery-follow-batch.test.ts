@@ -245,7 +245,7 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     expect(imported.some((name) => FORBIDDEN.has(name))).toBe(false);
     expect(JSON.stringify(followed.body)).not.toMatch(/MediaCrawler|MCP|Codex|disc_/);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'").get()).toEqual({ n: 3 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'").get() as { n: unknown }).n)).toBe(3);
     const audits = listAudit("discovery.candidates.follow_batch");
     expect(audits.length).toBe(1);
     expect((audits[0].payload as Json).sent).toBe(false);
@@ -280,8 +280,8 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     expect(getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(by.BetaCamp.id)).toEqual({
       status: "suggested",
     });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'").get()).toEqual({ n: 2 });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get()).toEqual({ n: 2 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'").get() as { n: unknown }).n)).toBe(2);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(2);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 
@@ -450,7 +450,7 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id='col_starry_shared'").get()).toEqual({
       kol_uid: "KOLSTARRYSHARED",
     });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get()).toEqual({ n: 2 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(2);
   });
 
   it("requires confirm and refuses LIVE-off writes without following anyone", async () => {

@@ -46,7 +46,7 @@ describe("SQLite transition execution jobs", () => {
     expect(first.created).toBe(true);
     expect(replay.created).toBe(false);
     expect(replay.job.id).toBe(first.job.id);
-    expect((getConn().prepare("SELECT COUNT(*) AS count FROM execution_jobs").get() as { count: number }).count).toBe(1);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS count FROM execution_jobs").get() as { count: unknown }).count)).toBe(1);
     const outbox = getConn().prepare("SELECT * FROM execution_outbox WHERE job_id=?").get(first.job.id) as { status: string; event_type: string };
     expect(outbox).toMatchObject({ status: "pending", event_type: "execution_job.queued" });
   });
@@ -127,7 +127,7 @@ describe("SQLite transition execution jobs", () => {
       now: new Date("2030-10-02T00:00:00.000Z"),
     });
     expect(executionJobById(String(job.job.id))).toMatchObject({ status: "retrying", lease_owner: null });
-    expect((getConn().prepare("SELECT COUNT(*) AS count FROM execution_outbox WHERE job_id=?").get(job.job.id) as { count: number }).count).toBe(2);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS count FROM execution_outbox WHERE job_id=?").get(job.job.id) as { count: unknown }).count)).toBe(2);
   });
 
   it("re-publishes only an explicitly requested failed low-risk job", () => {
@@ -140,7 +140,7 @@ describe("SQLite transition execution jobs", () => {
     const retried = retryFailedExecutionJob(String(low.job.id), { actor_ref: "admin:test" });
     expect(retried.retried).toBe(true);
     expect(retried.job).toMatchObject({ status: "queued", error_code: null, max_attempts: 2 });
-    expect((getConn().prepare("SELECT COUNT(*) AS count FROM execution_outbox WHERE job_id=?").get(low.job.id) as { count: number }).count).toBe(2);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS count FROM execution_outbox WHERE job_id=?").get(low.job.id) as { count: unknown }).count)).toBe(2);
 
     const high = enqueueExecutionJob({
       job_type: "write.operation", tenant_ref: "company:amperetime", actor_ref: "employee:test",

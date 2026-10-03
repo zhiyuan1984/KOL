@@ -273,9 +273,9 @@ describe("skill coverage over declared MCP tools", () => {
     const malformed = await mount({ skill_ids: "declared_fixture" });
     expect(malformed.status).toBe(400);
 
-    expect(getConn().prepare(
+    expect(Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE skill_id=?",
-    ).get(SKILL)).toMatchObject({ n: 0 });
+    ).get(SKILL) as { n: unknown }).n)).toBe(0);
   });
 
   it("skips every declared tool when the connector is absent from the catalog", async () => {
@@ -293,8 +293,8 @@ describe("skill coverage over declared MCP tools", () => {
         skipped: [UNKNOWN_CONNECTOR],
       }],
     });
-    expect(getConn().prepare(
+    expect(Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id='starry'",
-    ).get()).toMatchObject({ n: 0 });
+    ).get() as { n: unknown }).n)).toBe(0);
   });
 });
