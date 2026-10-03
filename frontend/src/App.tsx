@@ -38,14 +38,6 @@ function HomeEntry() {
   return postgresOnly ? <Navigate to="/tasks" replace /> : <Home />;
 }
 
-/** Formal ticket views are not available in the compatibility runtime. Keep the
- * established workbench session and task surface intact instead of exposing an
- * independent ticket-identity form. */
-function TasksEntry() {
-  const { postgresOnly } = useAccount();
-  return postgresOnly ? <Tasks /> : <Navigate to="/?tab=today" replace />;
-}
-
 export default function App() {
   return (
     <RouteErrorBoundary label="app">
@@ -57,7 +49,7 @@ export default function App() {
             <Route path="/" element={<HomeEntry />} />
             <Route path="/work" element={<Navigate to="/" replace />} />
             <Route path="/s/:id" element={<Chat />} />
-            <Route path="/tasks" element={<TasksEntry />} />
+            <Route path="/tasks" element={<Tasks />} />
             <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/cron" element={<Cron />} />
             <Route path="/cron/:jobId" element={<Cron />} />
