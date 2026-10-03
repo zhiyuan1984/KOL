@@ -1,6 +1,6 @@
 {
   "id": "agent:kol",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "status": "production",
   "publish_gate": {
     "state": "published",
@@ -12,7 +12,8 @@
   "organization_scope": ["org:lt_team", "org:pq_ro_tb_team"],
   "brand_scope": ["brand:lt", "brand:pq", "brand:ro", "brand:tb"],
   "region_scope": ["region:eu", "region:us", "region:ca_au"],
-  "skills": ["stage_sop", "creator_discovery", "discovery_plan", "discovery_brief", "creator_profile", "creator_scoring", "creator_outreach", "email_conversation_read", "email_compose", "reply_analysis", "confirm_stage", "deal_memory", "risk_scan", "business_approval", "creator_contact_decrypt", "creator_filter_options", "creator_library_all", "creator_library_query", "creator_library_sync", "creator_lifecycle_kanban", "creator_owner_update", "creator_risk_conversations", "creator_status_update", "email_app_conversation_list", "email_conversation_list", "email_mailbox_list", "kol_analyze", "mail_translate"],
+  "skills": ["stage_sop", "creator_discovery", "discovery_plan", "discovery_brief", "creator_profile", "creator_scoring", "creator_outreach", "email_conversation_read", "email_compose", "reply_analysis", "confirm_stage", "deal_memory", "risk_scan", "business_approval", "creator_contact_decrypt", "creator_filter_options", "creator_library_all", "creator_library_query", "creator_library_sync", "creator_lifecycle_kanban", "creator_owner_update", "creator_risk_conversations", "creator_status_update", "email_app_conversation_list", "email_conversation_list", "email_mailbox_list", "kol_analyze", "mail_translate", "creator_budget_report", "creator_daily_tasks", "mail_summary"],
+  "_deprecated_skills": "15 个分阶段 sop_* 技能（sop_initial_contact…sop_settling）已由 stage_sop 取代并废止：不装配、不建 lifecycle、不进员工面。依据 CONST-09 保留记录，见 docs/implementation-registry.md。",
   "workflows": ["creator_to_outreach", "email_follow_up", "campaign_delivery"],
   "policies": ["send_email", "change_stage", "import_creator"],
   "mcp_servers": ["starrykol", "mediacrawler"],
