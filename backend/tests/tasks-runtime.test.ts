@@ -387,6 +387,31 @@ describe("task CRUD and run flow", () => {
     expect(JSON.stringify(listed.body).length).toBeLessThan(32_000);
   });
 
+  it("pages employee task-center rows without silently dropping historical tasks", async () => {
+    const ids: string[] = [];
+    for (const title of ["分页任务一", "分页任务二", "分页任务三"]) {
+      const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title });
+      ids.push(String(created.body.id));
+    }
+    const first = await request("GET", "/api/tasks?view=history&limit=1&q=%E5%88%86%E9%A1%B5%E4%BB%BB%E5%8A%A1");
+    expect(first.status).toBe(200);
+    const firstItems = first.body.items as Json[];
+    expect(firstItems).toHaveLength(1);
+    expect(first.body.page).toMatchObject({ limit: 1, total: 3, next_cursor: expect.any(String) });
+
+    const received = new Set<string>();
+    let page = first.body;
+    while (true) {
+      for (const item of page.items as Json[]) received.add(String(item.id));
+      const cursor = (page.page as Json).next_cursor;
+      if (!cursor) break;
+      const next = await request("GET", `/api/tasks?view=history&limit=1&q=%E5%88%86%E9%A1%B5%E4%BB%BB%E5%8A%A1&cursor=${encodeURIComponent(String(cursor))}`);
+      expect(next.status).toBe(200);
+      page = next.body;
+    }
+    expect(received).toEqual(new Set(ids));
+  });
+
   it("does not create a task from ambiguous text", async () => {
     const response = await request("POST", "/api/tasks/from-text", { text: "帮我处理一下" });
     expect(response.status).toBe(200);

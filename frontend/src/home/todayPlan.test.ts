@@ -64,8 +64,8 @@ describe("today plan wiring", () => {
     const workspace = fs.readFileSync(path.resolve(here, "./ScopeWorkspace.tsx"), "utf8");
     const progress = fs.readFileSync(path.resolve(here, "./TodayPlanProgress.tsx"), "utf8");
     const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
-    expect(home).toContain('api.workbenchTasks("today")');
-    expect(home).toContain('api.workbenchTasks("todo")');
+    expect(home).toContain('loadAllWorkbenchTasks("today")');
+    expect(home).toContain('loadAllWorkbenchTasks("todo")');
     expect(home).toContain("api.workbenchPlan()");
     expect(home).toContain("api.startWorkbenchPlan()");
     expect(home).toContain("fetchTodayTasks");

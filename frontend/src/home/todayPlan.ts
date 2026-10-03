@@ -2,7 +2,7 @@
  * Home Today planning chain — memory first, then think, never skip for freshness.
  *
  * Entering Home (Today or My Todo share this chain):
- * 1. memory: GET /api/tasks?view=open (task/raw) + GET /api/home/today-brief (summary/display)
+ * 1. memory: paged GET /api/workbench/tasks (task/raw) + GET /api/home/today-brief (summary/display)
  *    + GET /api/home/today-tasks (task/display). Today list eats display, not raw open tasks.
  * 2. think:  POST /api/home/{scope}-brief/plan (both routes attach one canonical today_plan)
  * 3. poll GET today-brief until planning=false; then reload today-tasks

@@ -26,10 +26,6 @@ function isStatusTab(value: string | null): value is TaskStatusTab {
   return STATUS_TABS.some((tab) => tab.value === value);
 }
 
-function unwrap(value: Task[] | { tasks?: Task[] }): Task[] {
-  return Array.isArray(value) ? value : value.tasks || [];
-}
-
 function normalizedStatus(task: Task) {
   return String(task.status || task.display_status || "pending").toLowerCase();
 }
@@ -88,6 +84,11 @@ function sameTaskRows(current: Task[], next: Task[]) {
   return next.every((task) => currentById.has(task.id) && taskSignature(currentById.get(task.id)!) === taskSignature(task));
 }
 
+function mergeTaskRows(head: Task[], tail: Task[]): Task[] {
+  const seen = new Set(head.map((task) => task.id));
+  return [...head, ...tail.filter((task) => !seen.has(task.id))];
+}
+
 function canSelect(task: Task) {
   return QUEUED.has(normalizedStatus(task)) || normalizedStatus(task) === "needs_clarification";
 }
@@ -129,23 +130,43 @@ export default function Tasks() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const requestRef = useRef<Promise<void> | null>(null);
   const rowsRef = useRef<Task[]>([]);
+  const nextCursorRef = useRef<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const load = useCallback((background = false) => {
+  const load = useCallback((background = false, append = false) => {
     if (requestRef.current) return requestRef.current;
+    if (append && !nextCursorRef.current) return Promise.resolve();
     const request = (async () => {
-      if (!background) setLoading(true);
+      if (!background && !append) setLoading(true);
+      if (append) setLoadingMore(true);
       setError("");
       try {
-        const response = await api.tasks({ view: "history", q: query, from, to });
-        const nextRows = unwrap(response);
-        if (!sameTaskRows(rowsRef.current, nextRows)) {
-          rowsRef.current = nextRows;
-          setRows(nextRows);
+        const response = await api.taskPage({
+          view: "history", q: query, from, to, limit: 100,
+          cursor: append ? nextCursorRef.current || undefined : undefined,
+        });
+        const nextRows = response.items || [];
+        const merged = append
+          ? mergeTaskRows(rowsRef.current, nextRows)
+          : background
+            ? mergeTaskRows(nextRows, rowsRef.current)
+            : nextRows;
+        if (!sameTaskRows(rowsRef.current, merged)) {
+          rowsRef.current = merged;
+          setRows(merged);
+        }
+        setTotal(Number(response.page?.total || 0));
+        if (!background || append || rowsRef.current.length <= 100) {
+          nextCursorRef.current = response.page?.next_cursor || null;
+          setNextCursor(nextCursorRef.current);
         }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "任务列表加载失败");
       } finally {
-        if (!background) setLoading(false);
+        if (!background && !append) setLoading(false);
+        if (append) setLoadingMore(false);
         requestRef.current = null;
       }
     })();
@@ -226,6 +247,8 @@ export default function Tasks() {
     }
   };
 
+  const loadMore = () => { void load(false, true); };
+
   return (
     <main className="tasks-page" data-task-center>
       <nav className="tasks-tabs" aria-label="任务状态">
@@ -300,6 +323,11 @@ export default function Tasks() {
           </table>
         </div>
       )}
+
+      {!loading && rows.length > 0 ? <div className="row-actions task-center-pagination" aria-live="polite">
+        <span className="muted">已载入 {rows.length} / {total || rows.length} 个任务</span>
+        {nextCursor ? <button type="button" className="btn ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "加载中…" : "加载更多任务"}</button> : <span className="muted">已显示全部匹配任务</span>}
+      </div> : null}
 
       {selected ? <div className="task-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><aside className="task-detail-drawer" role="dialog" aria-modal="true" aria-label="任务详情">
         <header><div><p className="eyebrow">任务详情</p><h2>{safeTaskText(selected.title, "未命名任务")}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelected(null)}>×</button></header>

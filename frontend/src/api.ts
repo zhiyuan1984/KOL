@@ -356,6 +356,14 @@ export type TaskDetail = Task & {
   artifacts?: Array<Record<string, unknown>>;
 };
 
+export type TaskListPage = {
+  items: Task[];
+  page: { limit: number; next_cursor: string | null; total: number };
+  as_of: string;
+  request_id?: string;
+  source_refs?: Array<Record<string, unknown>>;
+};
+
 export type WorkbenchTaskPage = {
   items: Task[];
   page: { limit: number; next_cursor: string | null; total_estimate: number };
@@ -1319,6 +1327,11 @@ export const api = {
       if (value) query.set(key, value);
     });
     return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`);
+  },
+  taskPage: (opts: { cursor?: string; limit?: number; view?: string; q?: string; from?: string; to?: string } = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
+    return request<TaskListPage>(`/api/tasks?${query}`);
   },
   workbenchTasks: (view: "today" | "todo", opts?: { cursor?: string; limit?: number }) => {
     const query = new URLSearchParams({ view });
