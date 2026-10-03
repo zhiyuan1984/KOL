@@ -261,7 +261,7 @@ export function AdminAgents() {
         <div className="governance-filter-group"><strong>绑定类型</strong><div className="governance-filter-options">{([["all", "全部"], ["organization_unit", "组织单元"], ["person", "人员"], ["unbound", "未绑定"]] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={bindingType === id} onClick={() => setBindingType(id)}>{label}</button>)}</div></div>
         <h2 className="governance-subheading">Agent 列表</h2>
         <div className="governance-list">{visible.map((agent) => <button type="button" className={`governance-list-row governance-agent-row${selectedId === agent.id ? " is-selected" : ""}`} key={agent.id} onClick={() => { setSelectedId(agent.id); setTargetId(""); setBindPreview(null); setKnowledgeSkillId(""); setKnowledgeBaseId(""); }}>
-          <strong>{agent.name}</strong><span>{statusName(agent.status)}</span><span>{agent.skills.filter((skill) => skill.enabled).length} 项技能</span><span>{agent.coverage.user_ids.length} 人可用</span><span aria-hidden>›</span>
+          <strong>{agent.name}</strong><span>{statusName(agent.status)}</span><span>{agent.skills.filter((skill) => skill.enabled).length} 项技能</span><span>{agent.coverage.user_ids.length} 人可用</span>
         </button>)}{!visible.length && <p className="governance-empty">没有符合条件的 Agent。</p>}</div>
       </div>
       <div className="governance-rail-footer"><button className="btn work" type="button" onClick={openCreate}>新增 Agent</button></div>

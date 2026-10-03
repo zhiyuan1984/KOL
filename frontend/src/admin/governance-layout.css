@@ -29,7 +29,8 @@
 .governance-employee-row { grid-template-columns: minmax(96px, .9fr) minmax(0, 1.5fr) minmax(84px, .8fr) minmax(60px, .6fr) minmax(52px, .55fr) minmax(0, 1.1fr) max-content; }
 .governance-employee-row > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .governance-employee-row > :last-child { overflow: visible; text-overflow: clip; }
-.governance-agent-row { grid-template-columns: minmax(120px, 1fr) minmax(90px, .6fr) minmax(100px, .7fr) minmax(110px, 1fr) auto; }
+.governance-agent-row { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+.governance-agent-row > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .governance-inline-actions { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
 .governance-inline-actions button, .governance-minor { border: 1px solid var(--border); border-radius: var(--radius-control); background: transparent; color: var(--text); padding: var(--space-1) var(--space-2); font: inherit; cursor: pointer; }
 .governance-inline-actions button:hover, .governance-minor:hover { border-color: var(--accent); color: var(--accent-text); }
