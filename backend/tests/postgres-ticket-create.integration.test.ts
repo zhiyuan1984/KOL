@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createFormalTicketPostgres } from "../src/ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres } from "../src/ticket-domain/edit-ticket.js";
 import { assignFormalTicketPostgres } from "../src/ticket-domain/assign-ticket.js";
+import { personalTicketRawCountReport } from "../src/ticket-domain/reports.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../src/ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById } from "../src/ticket-domain/read-tickets.js";
@@ -153,6 +154,15 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     expect(detail.acceptance).toBeNull();
     expect(detail.runs).toEqual([]);
     expect(detail.audit.some((item: { command: string }) => item.command === "ticket.create")).toBe(true);
+    const personalReport = await personalTicketRawCountReport("u-creator");
+    expect(personalReport).toMatchObject({
+      report_version: "ticket-personal-raw-count.v1",
+      scope: "personal_authorized",
+      source: "postgresql_formal_tickets",
+      total_authorized: 1,
+      by_status: { pending: 1 },
+      memberships: { created: 1, assigned_primary: 1, watching: 0 },
+    });
 
     const edited = await editFormalTicketPostgres(first.ticket_id, "u-creator", {
       expected_version: 1,

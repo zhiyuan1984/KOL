@@ -25,6 +25,7 @@ import { ticketAllowedLifecycleActions, transitionTicketLifecycle, transitionTic
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
 import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
+import { personalTicketRawCountReport } from "../ticket-domain/reports.js";
 import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 
@@ -661,6 +662,12 @@ tasks.get("/tickets", async (c) => {
     to: c.req.query("to"),
   });
   return c.json({ ...page, ...requestMetadata() });
+});
+
+/** Personal scope only: raw persisted ticket counts, never an SLA or employee
+ * performance score. This route must precede `/tickets/:id`. */
+tasks.get("/tickets/reports/personal", async (c) => {
+  return c.json({ ...(await personalTicketRawCountReport(ownerId(), c.req.query("timezone") || "Asia/Shanghai")), ...requestMetadata() });
 });
 
 /**
