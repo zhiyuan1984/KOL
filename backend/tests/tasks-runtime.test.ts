@@ -351,6 +351,30 @@ describe("task CRUD and run flow", () => {
     expect(retired.body).toMatchObject({ detail: { code: "legacy_write_endpoint_retired" } });
   });
 
+  it("streams durable run events from the supplied sequence cursor", async () => {
+    const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "SSE 运行事件" });
+    const queued = await request("POST", `/api/tasks/${created.body.id}/run`, { text: "风险扫描" });
+    const runId = String(queued.body.run_id);
+    const controller = new AbortController();
+    const response = await app.request(`/api/runs/${runId}/stream?after=0`, { signal: controller.signal });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const reader = response.body!.getReader();
+    const first = await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SSE snapshot timed out")), 1_000)),
+    ]);
+    const payload = new TextDecoder().decode(first.value);
+    expect(payload).toContain("event: snapshot");
+    expect(payload).toContain("run.pending");
+    controller.abort();
+    await reader.cancel();
+
+    const replay = await request("GET", `/api/runs/${runId}/events?after=1`);
+    expect(replay.status).toBe(200);
+    expect((replay.body.items as Json[]).every((event) => Number(event.sequence) > 1)).toBe(true);
+  });
+
   it("keeps employee task-center list reads bounded when historical payloads are oversized", async () => {
     const created = await request("POST", "/api/tasks", {
       task_type: "risk_scan",

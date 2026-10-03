@@ -1365,6 +1365,8 @@ export const api = {
     if (opts.limit != null) query.set("limit", String(opts.limit));
     return request<TicketTimelinePage>(`/api/runs/${encodeURIComponent(id)}/events${query.size ? `?${query}` : ""}`);
   },
+  ticketRunStreamUrl: (id: string, after = 0) =>
+    `/api/runs/${encodeURIComponent(id)}/stream?after=${Math.max(0, Math.floor(after))}`,
   version: () =>
     request<{ version: string; started_at: string }>("/api/version"),
   taskDefinitions: () =>
