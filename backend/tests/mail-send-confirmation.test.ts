@@ -65,7 +65,7 @@ describe("human-confirmed mail send boundary", () => {
     expect(view.action, JSON.stringify(view.action)).toMatchObject({ risk_level: "L3", confirmation_required: true, enabled: true });
     expect(view.snapshot.body).toContain("discuss a collaboration");
     expect(getConn().prepare("SELECT email FROM collaborations WHERE id='col_xiaomei'").get()).toMatchObject({ email: "" });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get()).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("rejects a direct send without any human-confirmed version", async () => {
@@ -73,7 +73,7 @@ describe("human-confirmed mail send boundary", () => {
     await expect(sendDraft(draftId)).rejects.toThrow(/确认/);
     const response = await request("POST", `/api/drafts/${draftId}/send`, {});
     expect(response.status).toBe(409);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get()).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("invalidates the old confirmation on a same-length edit", () => {
@@ -95,7 +95,7 @@ describe("human-confirmed mail send boundary", () => {
     expect(result.stage_changed).toBe(false);
     expect(claimMailSend(draftId, input).replay).toEqual(result);
     expect(() => claimMailSend(draftId, { ...input, request_id: randomUUID() })).toThrow(/重复/);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get()).toMatchObject({ n: 1 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(1);
     expect(getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get()).toMatchObject({ stage_code: "INITIAL_CONTACT" });
     expect(() => assertDraftEditable(getDraft(draftId))).toThrow(/不能修改/);
   });

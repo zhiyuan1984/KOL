@@ -2156,7 +2156,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
         expected_version: Number(row.stage_version || 0),
         reason: String(item.reason || ""),
         evidence: item.evidence && typeof item.evidence === "object" ? item.evidence : {},
-        locked: Boolean(row.locked) || LOCKED_PROMISE.has(current),
+        locked: Number(row.locked || 0) !== 0 || LOCKED_PROMISE.has(current),
         requires_human_confirmation: true,
         persistent: true,
       });
@@ -2984,7 +2984,7 @@ export function hostConfirmStage(
       new_version: Number(col.stage_version || 0),
     };
   }
-  if (LOCKED_PROMISE.has(current) || col.locked) {
+  if (LOCKED_PROMISE.has(current) || Number(col.locked || 0) !== 0) {
     throw new HttpFail(403, { code: "locked_promise", message: "承诺锁定期，禁止改阶段" });
   }
   const autoWrite = String(metadata.recommender || "") === "fact_advance";

@@ -30,7 +30,7 @@ export function ModalShell({ kind, title, subtitle, onClose, children, footer, w
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
-  /** Form dialogs use the measured connector-console spec (docs/DESIGN.md). */
+  /** Form dialogs use the shared density and control tokens in docs/DESIGN.md. */
   form?: boolean;
   headerExtra?: ReactNode;
 }) {

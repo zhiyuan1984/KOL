@@ -13,6 +13,7 @@ import "./employee-directory.css";
 export type DirectoryEmployee = Record<string, unknown> & {
   id: string;
   name?: string;
+  avatar_url?: string | null;
   username?: string;
   email?: string;
   site?: string;

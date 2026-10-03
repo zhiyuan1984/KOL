@@ -48,6 +48,15 @@ export type AdminEmployeeContext = {
   kols: AdminEmployeeKol[];
 };
 
+export type AdminOrganizationPerson = {
+  person_ref: string;
+  display_name: string;
+  avatar_url: string | null;
+  title: string | null;
+  org_unit_id: string | null;
+  user_id: string | null;
+};
+
 export type AdminEmployeeTool = {
   id: string;
   label: string;
@@ -1047,6 +1056,7 @@ export type StarryBinding = {
 
 export type Account = {
   id?: string;
+  avatar_url?: string | null;
   name: string;
   handle?: string;
   email?: string;
@@ -1356,6 +1366,11 @@ export type AdminSaveBudgetInput = {
 };
 
 export const api = {
+  get: (path: string) => request<unknown>(path),
+  post: (path: string, body?: unknown) =>
+    request<unknown>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
+  put: (path: string, body?: unknown) =>
+    request<unknown>(path, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
   authStatus: () => request<AuthStatus>("/api/auth/status"),
   setup: (body: { name: string; email: string; password: string }) =>
     request<AuthStatus>("/api/auth/setup", { method: "POST", body: JSON.stringify(body) }),
@@ -1989,6 +2004,39 @@ export const api = {
         ...(gate || {}),
       }),
     }),
+  transferApproval: (
+    id: string,
+    targetEmployeeId: string,
+    reason?: string,
+    gate?: { expected_version: number; idempotency_key: string },
+  ) =>
+    request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/transfer`, {
+      method: "POST",
+      body: JSON.stringify({
+        target_employee_id: targetEmployeeId,
+        ...(reason ? { reason } : {}),
+        ...(gate || {}),
+      }),
+    }),
+  withdrawApproval: (id: string, gate?: { expected_version: number; idempotency_key: string }) =>
+    request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/withdraw`, {
+      method: "POST",
+      body: JSON.stringify({ ...(gate || {}) }),
+    }),
+  countersignApproval: (
+    id: string,
+    targetEmployeeId: string,
+    reason?: string,
+    gate?: { expected_version: number; idempotency_key: string },
+  ) =>
+    request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/countersign`, {
+      method: "POST",
+      body: JSON.stringify({
+        target_employee_id: targetEmployeeId,
+        ...(reason ? { reason } : {}),
+        ...(gate || {}),
+      }),
+    }),
   skills: () => request<Array<Record<string, unknown>>>("/api/skills"),
   skill: (id: string) => fetch(`/api/skills/${encodeURIComponent(id)}`).then((r) => r.json()),
   saveSkillSop: async (id: string, body: { summary: string; body: string }) => {
@@ -2416,6 +2464,7 @@ export const api = {
   adminEmployeeTools: (userId: string) =>
     request<{ tools: AdminEmployeeTool[] }>(`/api/admin/users/${encodeURIComponent(userId)}/tools`),
   adminOrganizationUnits: () => request<OrganizationUnitsResponse>("/api/admin/organization-units"),
+  adminOrganizationPeople: () => request<{ people: AdminOrganizationPerson[] }>("/api/admin/organization-people"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
   runtimeConnectorConfig: (connectorId: string) =>
     request<{ config: RuntimeConnectorConfig; version: number; probe_mode?: "directory" | "mediacrawler_start" }>(

@@ -85,7 +85,7 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
     expect(sent.body).toMatchObject({ needs_confirmation: true, sent: false });
     expect(JSON.stringify(rows)).toContain("请在右栏草稿");
     expect(JSON.stringify(card?.payload?.starrykol_data || {})).not.toMatch(/"sent":true/);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get()).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
     const another = await request("POST", `/api/sessions/${created.body.id}/messages`, {
       text: "加一封",
       act: "ask",

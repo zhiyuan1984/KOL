@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import {
+  avatarUrlForUser,
   bumpOrgVersion,
   canUseAgent,
   canUseSkill,
@@ -15,6 +16,7 @@ import {
   listOrganizationPeople,
   listOrganizationUnits,
   listScopeMemberships,
+  reseedOrganizationTreeFromRegistry,
   revokeAgentBinding,
   visibleSkillIdsForUser,
 } from "../src/runtime/organization-tree.js";
@@ -58,30 +60,37 @@ describe("organization tree persistence", () => {
   it("回填三级组织单元、人员外部引用、成员关系与来源", () => {
     const units = listOrganizationUnits(COMPANY);
     const byName = new Map(units.map((unit) => [unit.display_name, unit]));
-    expect(units).toHaveLength(9);
+    expect(units).toHaveLength(13);
     expect(byName.get("品牌与用户增长中心")).toMatchObject({ level: 1, type: "center", parent_id: null, head_person_ref: "person:zhang_huiling" });
     expect(byName.get("推广部")).toMatchObject({ level: 2, parent_id: "org:brand_user_growth_center", head_person_ref: "person:zhong_jiankui" });
+    expect(byName.get("广告投放部")).toMatchObject({ level: 2, parent_id: "org:brand_user_growth_center", head_person_ref: "person:zhong_jiankui" });
     expect(byName.get("LT组")).toMatchObject({ level: 3, parent_id: "org:promotion_department", head_person_ref: "person:ye_guanwang" });
-    expect(byName.get("PQ-RO-TB组")).toMatchObject({ level: 3, parent_id: "org:promotion_department" });
+    expect(byName.get("PQ-RO-TB组")).toMatchObject({ level: 3, parent_id: "org:promotion_department", head_person_ref: "person:zhong_jiankui" });
     expect(byName.get("品牌项目组")).toMatchObject({ level: 2 });
     expect(byName.get("市场部")).toMatchObject({ level: 2 });
-    expect(byName.get("研究院")).toMatchObject({ level: 1, parent_id: null });
-    expect(byName.get("数智中心")).toMatchObject({ level: 2, parent_id: "org:research_institute" });
-    expect(byName.get("AI产品")).toMatchObject({ level: 3, parent_id: "org:digital_intelligence_center" });
+    expect(byName.get("研究院")).toMatchObject({ level: 1, parent_id: null, head_person_ref: "person:lu_haijun" });
+    expect(byName.get("数字智能中心")).toMatchObject({ level: 2, parent_id: "org:research_institute", head_person_ref: "person:huang_qiyou" });
+    expect(byName.get("产品部")).toMatchObject({ level: 3, parent_id: "org:digital_intelligence_center" });
+    expect(byName.get("AI产品组")).toMatchObject({ level: 4, parent_id: "org:product_department" });
+    expect(byName.get("后端组")).toMatchObject({ level: 3, parent_id: "org:digital_intelligence_center" });
+    expect(byName.get("测试组")).toMatchObject({ level: 3, parent_id: "org:digital_intelligence_center", head_person_ref: "person:wei_yinping" });
     expect(units.every((unit) => unit.source && unit.company_id === COMPANY)).toBe(true);
   });
 
   it("人员、成员关系与范围关系按组织图落库，未提供的字段保持为空", () => {
     const people = listOrganizationPeople();
-    expect(people).toHaveLength(14);
+    expect(people).toHaveLength(19);
     const zhang = people.find((person) => person.person_ref === "person:zhang_huiling");
     expect(zhang).toMatchObject({ display_name: "张慧玲", user_id: null, user_ref: null });
     expect(people.find((person) => person.person_ref === "person:liu_min")?.user_ref).toBe("user:liu_min");
+    expect(people.find((person) => person.person_ref === "person:ye_guanwang")?.avatar_url).toBe("/avatars/employees/ye_guanwang.png");
+    expect(people.find((person) => person.person_ref === "person:liu_min")?.avatar_url).toBeNull();
+    expect(people.filter((person) => person.avatar_url)).toHaveLength(18);
 
     const memberships = listOrganizationMemberships(COMPANY);
-    expect(memberships).toHaveLength(14);
+    expect(memberships).toHaveLength(19);
     const zhong = memberships.find((row) => row.person_ref === "person:zhong_jiankui");
-    expect(zhong).toMatchObject({ org_unit_id: "org:promotion_department", position: "推广部主管", relation: "primary", status: "active" });
+    expect(zhong).toMatchObject({ org_unit_id: "org:promotion_department", position: "广告投放主管", relation: "primary", status: "active" });
     expect(zhong?.effective_from).toBeNull();
     expect(memberships.find((row) => row.person_ref === "person:zhang_huiling")?.position).toBe("高级副总裁");
 
@@ -110,19 +119,43 @@ describe("organization tree persistence", () => {
     const after = listOrganizationUnits(COMPANY).length + listOrganizationMemberships(COMPANY).length + listScopeMemberships().length;
     expect(after).toBe(before);
   });
+
+  it("账号关联后按 user_id 解析个人头像 URL；未关联账号或该人员无人像时为 null", () => {
+    expect(avatarUrlForUser("usr_ye")).toBeNull();
+    expect(avatarUrlForUser(null)).toBeNull();
+    expect(avatarUrlForUser(undefined)).toBeNull();
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_ye", "person:ye_guanwang");
+    expect(avatarUrlForUser("usr_ye")).toBe("/avatars/employees/ye_guanwang.png");
+    expect(avatarUrlForUser("usr_missing")).toBeNull();
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_liu", "person:liu_min");
+    expect(avatarUrlForUser("usr_liu")).toBeNull();
+  });
+
+  it("重放回填时按 account_username 认领账号，头像随登录账号可达", () => {
+    const db = getConn();
+    expect(avatarUrlForUser("usr_sriphy")).toBeNull();
+    db.prepare(
+      "INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    ).run("usr_sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee"]), "[]", 1, "now", "now");
+    reseedOrganizationTreeFromRegistry();
+    expect(listOrganizationPeople().find((person) => person.person_ref === "person:yan_chen")?.user_id).toBe("usr_sriphy");
+    expect(avatarUrlForUser("usr_sriphy")).toBe("/avatars/employees/yan_chen.png");
+  });
 });
 
 describe("effective Agent users", () => {
   it("绑定三级组：成员 + 逐级上级负责人（含 registry 声明的试点绑定）", () => {
     bind("organization_unit", "org:lt_team");
     const effective = effectiveAgentUsers("agent:kol");
-    expect(effective.users).toHaveLength(9);
+    expect(effective.users).toHaveLength(11);
     const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
     expect(byRef.get("person:ye_guanwang")).toMatchObject({ via: "unit_head", via_unit_id: "org:lt_team", display_name: "叶观旺" });
     expect(byRef.get("person:gu_jiarui")?.via).toBe("unit_member");
     expect(byRef.get("person:zhong_jiankui")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:promotion_department" });
     expect(byRef.get("person:zhang_huiling")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:brand_user_growth_center" });
     expect(byRef.get("person:yan_chen")).toMatchObject({ via: "binding_target", display_name: "鄢棽" });
+    expect(byRef.get("person:huang_qiyou")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:digital_intelligence_center" });
+    expect(byRef.get("person:lu_haijun")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:research_institute" });
     expect(byRef.has("person:chen_bingbing")).toBe(false);
     expect(effective.org_version).toBe(1);
   });
@@ -136,7 +169,7 @@ describe("effective Agent users", () => {
   it("绑定二级部门：本部门负责人、本部门与三级组成员、一级负责人", () => {
     bind("organization_unit", "org:promotion_department");
     const effective = effectiveAgentUsers("agent:kol");
-    expect(effective.users).toHaveLength(14);
+    expect(effective.users).toHaveLength(16);
     const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
     expect(byRef.get("person:zhong_jiankui")?.via).toBe("unit_head");
     expect(byRef.get("person:liu_min")?.via).toBe("unit_member");
@@ -147,12 +180,14 @@ describe("effective Agent users", () => {
   it("绑定一级部门：本部门负责人与全部下级成员，无更上级负责人", () => {
     bind("organization_unit", "org:brand_user_growth_center");
     const effective = effectiveAgentUsers("agent:kol");
-    expect(effective.users).toHaveLength(14);
+    expect(effective.users).toHaveLength(16);
     const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
     expect(byRef.get("person:zhang_huiling")?.via).toBe("unit_head");
     expect(byRef.get("person:liu_min")).toMatchObject({ via: "unit_member", via_unit_id: "org:promotion_department" });
     expect(byRef.get("person:ye_guanwang")?.via_unit_id).toBe("org:lt_team");
-    expect(effective.users.every((user) => user.via !== "ancestor_head")).toBe(true);
+    // 本绑定不产生 ancestor_head；仅 registry 的人员试点绑定（yan_chen）沿研究院链路带上两位负责人。
+    const ancestorHeads = effective.users.filter((user) => user.via === "ancestor_head").map((user) => user.person_ref).sort();
+    expect(ancestorHeads).toEqual(["person:huang_qiyou", "person:lu_haijun"]);
   });
 
   it("绑定人员：本人 + 所属单元与各级上级负责人，不含同事", () => {
@@ -160,6 +195,8 @@ describe("effective Agent users", () => {
     const effective = effectiveAgentUsers("agent:kol");
     expect(effective.person_refs.sort()).toEqual([
       "person:gu_jiarui",
+      "person:huang_qiyou",
+      "person:lu_haijun",
       "person:yan_chen",
       "person:ye_guanwang",
       "person:zhang_huiling",
@@ -172,9 +209,9 @@ describe("effective Agent users", () => {
 
   it("撤绑后立即不再覆盖；绑定目标必须存在", () => {
     const binding = bind("organization_unit", "org:lt_team");
-    expect(effectiveAgentUsers("agent:kol").users).toHaveLength(9);
+    expect(effectiveAgentUsers("agent:kol").users).toHaveLength(11);
     expect(revokeAgentBinding(binding.id)).toBe(true);
-    expect(effectiveAgentUsers("agent:kol").person_refs).toEqual(["person:yan_chen"]);
+    expect(effectiveAgentUsers("agent:kol").person_refs).toEqual(["person:yan_chen", "person:huang_qiyou", "person:lu_haijun"]);
     expect(listAgentBindings("agent:kol")).toHaveLength(1);
     expect(() => bind("organization_unit", "org:not_exists")).toThrow(/unknown organization unit/);
     expect(() => bind("person", "person:not_exists")).toThrow(/unknown person/);

@@ -861,6 +861,7 @@ misc.get("/stage-transitions", (c) => {
 });
 
 misc.post("/demo/reset", async (c) => {
+  if (!authDisabled()) throw new HttpFail(404, "not found");
   const body = (await c.req.json().catch(() => ({}))) as { workbench?: boolean };
   seedAll();
   resetDemoRuntimeState();

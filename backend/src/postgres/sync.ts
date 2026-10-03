@@ -66,24 +66,32 @@ function replaceQuestionMarks(sql: string): string {
   return result;
 }
 
-function rewriteInsertOrReplace(sql: string): string {
+function rewriteInsertOrReplace(
+  sql: string,
+  resolveKeys?: (table: string, columns: string[]) => string[] | null,
+): string {
   const match = sql.match(/^\s*INSERT\s+OR\s+REPLACE\s+INTO\s+([A-Za-z_][\w.]*)\s*\(([^)]+)\)/i);
   if (!match) return sql.replace(/INSERT\s+OR\s+REPLACE/gi, "INSERT");
+  const table = match[1];
   const columns = match[2]
     .split(",")
     .map((column) => column.trim())
     .filter((column) => /^[A-Za-z_][\w]*$/.test(column));
   const assignments = columns.map((column) => `${column}=EXCLUDED.${column}`).join(",");
-  const keys = [
-    ["id"],
-    ["key"],
-    ["user_id", "connector_id"],
-    ["user_id", "skill_id"],
-    ["user_id", "mailbox_email"],
-    ["owner_user_id"],
-    ["scope", "scope_ref"],
-    ["skill_id", "version"],
-  ].find((candidate) => candidate.every((column) => columns.includes(column))) || [columns[0]];
+  // 冲突键优先取目标表的真实主键；解析不到时退回旧的候选表启发式。
+  const resolved = resolveKeys?.(table, columns);
+  const keys = resolved && resolved.length && resolved.every((column) => columns.includes(column))
+    ? resolved
+    : [
+      ["id"],
+      ["key"],
+      ["user_id", "connector_id"],
+      ["user_id", "skill_id"],
+      ["user_id", "mailbox_email"],
+      ["owner_user_id"],
+      ["scope", "scope_ref"],
+      ["skill_id", "version"],
+    ].find((candidate) => candidate.every((column) => columns.includes(column))) || [columns[0]];
   return appendConflict(
     sql.replace(/INSERT\s+OR\s+REPLACE/gi, "INSERT"),
     `ON CONFLICT (${keys.join(",")}) DO UPDATE SET ${assignments}`,
@@ -102,19 +110,31 @@ function rewriteJsonExtract(sql: string): string {
 }
 
 function rewriteNoCaseCollation(sql: string): string {
-  // SQLite's built-in NOCASE collation name is not installed in PostgreSQL.
-  // All current uses are expression-level ORDER BY terms, where LOWER preserves
-  // the intended case-insensitive sort without requiring cluster configuration.
-  return sql.replace(/([A-Za-z_][\w.]*)\s+COLLATE\s+NOCASE\b/gi, "LOWER($1)");
+  // SQLite's built-in NOCASE collation is not installed in PostgreSQL.
+  // LIKE … COLLATE NOCASE 的语义是「大小写不敏感匹配」→ 对应 PostgreSQL 的 ILIKE；
+  // 其余表达式级用法（ORDER BY 等）用 LOWER 保持原排序意图。
+  return sql
+    .replace(
+      /([A-Za-z_][\w.]*)\s+LIKE\s+(\?\d*|\$\d+)\s+COLLATE\s+NOCASE\b/gi,
+      "$1 ILIKE $2",
+    )
+    .replace(/([A-Za-z_][\w.]*)\s+COLLATE\s+NOCASE\b/gi, "LOWER($1)");
 }
 
 function rewriteSqliteMaster(sql: string): string {
   if (!/sqlite_master/i.test(sql)) return sql;
+  // 覆盖现有代码实际使用的存在性/列举探针形状；键支持 ?/$n/字面量（原实现只匹配 $ 导致 name=? 死分支）。
+  const column = (name: string) => (name === "1" ? "1" : "table_name AS name");
+  const base = "FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE'";
   return sql
-    .replace(/SELECT\s+name\s+FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*'table'\s+AND\s+name\s*=\s*\$/i,
-      "SELECT table_name AS name FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=$")
-    .replace(/SELECT\s+name\s+FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*'table'/i,
-      "SELECT table_name AS name FROM information_schema.tables WHERE table_schema=current_schema()");
+    .replace(
+      /SELECT\s+(name|1)\s+FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*'table'\s+AND\s+name\s*=\s*(\?|\$\d+|'[^']*')/gi,
+      (_match, col: string, key: string) => `SELECT ${column(col)} ${base} AND table_name=${key}`,
+    )
+    .replace(
+      /SELECT\s+(name|1)\s+FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*'table'/gi,
+      (_match, col: string) => `SELECT ${column(col)} ${base}`,
+    );
 }
 
 /**
@@ -122,7 +142,10 @@ function rewriteSqliteMaster(sql: string): string {
  * It deliberately fails closed for unsupported PRAGMA schema mutations instead of
  * silently yielding a second persistence truth.
  */
-export function translateSqliteSql(sql: string): string {
+export function translateSqliteSql(
+  sql: string,
+  resolveKeys?: (table: string, columns: string[]) => string[] | null,
+): string {
   const source = sql.trim();
   if (!source) return source;
   if (/^PRAGMA\s+foreign_keys/i.test(source) || /^PRAGMA\s+journal_mode/i.test(source)) return "SELECT 1";
@@ -134,7 +157,7 @@ export function translateSqliteSql(sql: string): string {
   output = rewriteJsonExtract(output);
   output = output.replace(/\bINSERT\s+OR\s+IGNORE\b/gi, "INSERT");
   if (/^\s*INSERT\s+OR\s+IGNORE\b/i.test(source)) output = appendConflict(output, "ON CONFLICT DO NOTHING");
-  if (/^\s*INSERT\s+OR\s+REPLACE\b/i.test(source)) output = rewriteInsertOrReplace(output);
+  if (/^\s*INSERT\s+OR\s+REPLACE\b/i.test(source)) output = rewriteInsertOrReplace(output, resolveKeys);
   output = output.replace(/\bUPDATE\s+OR\s+IGNORE\b/gi, "UPDATE");
   output = output.replace(/\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b/gi, "BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY");
   output = output.replace(/\bAUTOINCREMENT\b/gi, "");
@@ -162,6 +185,7 @@ export class PostgresSyncConn implements SqliteConn {
   // large shared allocations unreclaimed under sustained load.
   private shared: SharedArrayBuffer | null = null;
   private sharedBytes = 0;
+  private readonly primaryKeys = new Map<string, string[]>();
 
   constructor(connectionString: string) {
     this.worker = new Worker(new URL("./sync-worker.mjs", import.meta.url), {
@@ -176,6 +200,35 @@ export class PostgresSyncConn implements SqliteConn {
     if (this.shared === shared) this.shared = null;
   }
 
+  /**
+   * 载入各表主键，供 INSERT OR REPLACE 生成 ON CONFLICT；失败则退回候选表启发式。
+   * 由 connect() 在 schema 检查后显式调用——不在构造函数里发查询：测试会直接构造本类。
+   */
+  loadPrimaryKeys(): void {
+    try {
+      const rows = this.request(
+        `SELECT c.relname AS table_name, a.attname AS column_name
+           FROM pg_index i
+           JOIN pg_class c ON c.oid = i.indrelid AND c.relkind = 'r' AND pg_table_is_visible(c.oid)
+           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+          WHERE i.indisprimary
+          ORDER BY c.relname, array_position(i.indkey, a.attnum)`,
+      ).rows as { table_name: string; column_name: string }[];
+      for (const row of rows) {
+        const table = String(row.table_name);
+        const existing = this.primaryKeys.get(table) || [];
+        existing.push(String(row.column_name));
+        this.primaryKeys.set(table, existing);
+      }
+    } catch {
+      /* 保持空表：走候选表启发式 */
+    }
+  }
+
+  private conflictKeys(table: string): string[] | null {
+    return this.primaryKeys.get(table) || null;
+  }
+
   private request(sql: string, params: unknown[] = []): QueryResponse {
     if (this.stopped) throw new Error("PostgreSQL connection is not open");
     if (!this.shared) {
@@ -185,7 +238,7 @@ export class PostgresSyncConn implements SqliteConn {
     const shared = this.shared;
     const header = new Int32Array(shared, 0, 4);
     Atomics.store(header, STATUS, 0);
-    this.worker.postMessage({ sql: translateSqliteSql(sql), params, shared });
+    this.worker.postMessage({ sql: translateSqliteSql(sql, (table) => this.conflictKeys(table)), params, shared });
     const wait = Atomics.wait(header, STATUS, 0, timeoutMs());
     if (wait === "timed-out") {
       this.dropBuffer(shared);

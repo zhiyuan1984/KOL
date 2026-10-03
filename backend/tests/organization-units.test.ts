@@ -61,7 +61,7 @@ describe("admin organization unit directory", () => {
     });
     expect(units.get("品牌项目组")).toMatchObject({ parent: "org:brand_user_growth_center", level: 2 });
     expect(units.get("市场部")).toMatchObject({ parent: "org:brand_user_growth_center", level: 2 });
-    expect(units.get("推广部")).toMatchObject({ parent: "org:brand_user_growth_center", level: 2, head: "刘敏" });
+    expect(units.get("推广部")).toMatchObject({ parent: "org:brand_user_growth_center", level: 2, head: "钟剑奎" });
     expect(units.get("LT组")).toMatchObject({ parent: "org:promotion_department", level: 3, type: "team" });
     expect(units.get("PQ-RO-TB组")).toMatchObject({ parent: "org:promotion_department", level: 3, type: "team" });
   });
@@ -77,7 +77,7 @@ describe("admin organization unit directory", () => {
     });
     expect(people.get("刘敏")).toEqual({
       display_name: "刘敏",
-      role: "department_head",
+      role: null,
       org_unit: "org:promotion_department",
       user_ref: "user:liu_min",
     });

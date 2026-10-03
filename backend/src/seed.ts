@@ -50,43 +50,70 @@ function deleteCollaborationTree(conn: ReturnType<typeof getConn>, id: string): 
 /** E2E / demo reset only. Wipe leftover official writes and tasks from prior runs. */
 export function resetDemoRuntimeState(): void {
   const conn = getConn();
+  const sqlite = databaseEngine() === "sqlite";
   conn.prepare("DELETE FROM starry_stage_writes").run();
-  conn.prepare("DELETE FROM task_events").run();
+  if (sqlite) {
+    conn.prepare("DELETE FROM task_events").run();
+  } else {
+    // PostgreSQL 的不可变触发器先临时禁用；sqlite 的 DROP TRIGGER（不带表名）PG 不接受。
+    conn.exec("ALTER TABLE task_events DISABLE TRIGGER USER");
+    try {
+      conn.prepare("DELETE FROM task_events").run();
+    } finally {
+      conn.exec("ALTER TABLE task_events ENABLE TRIGGER USER");
+    }
+  }
   conn.prepare("DELETE FROM tickets").run();
   // 工单表（tickets）是任务运行与工单的统一记录，重置演示数据时一并清空。
   // 业务事件是事实账本：重置演示数据时临时移除不可变触发器再重建（仿 stage_transitions）。
-  conn.exec("DROP TRIGGER IF EXISTS business_events_no_update");
-  conn.exec("DROP TRIGGER IF EXISTS business_events_no_delete");
+  if (sqlite) {
+    conn.exec("DROP TRIGGER IF EXISTS business_events_no_update");
+    conn.exec("DROP TRIGGER IF EXISTS business_events_no_delete");
+  } else {
+    conn.exec("ALTER TABLE business_events DISABLE TRIGGER USER");
+  }
   try {
     conn.prepare("DELETE FROM business_events").run();
   } finally {
-    conn.exec(`
-      CREATE TRIGGER IF NOT EXISTS business_events_no_update
-      BEFORE UPDATE ON business_events
-      BEGIN
-        SELECT RAISE(ABORT, 'business_events are immutable');
-      END;
-      CREATE TRIGGER IF NOT EXISTS business_events_no_delete
-      BEFORE DELETE ON business_events
-      BEGIN
-        SELECT RAISE(ABORT, 'business_events are immutable');
-      END;
-    `);
+    if (sqlite) {
+      conn.exec(`
+        CREATE TRIGGER IF NOT EXISTS business_events_no_update
+        BEFORE UPDATE ON business_events
+        BEGIN
+          SELECT RAISE(ABORT, 'business_events are immutable');
+        END;
+        CREATE TRIGGER IF NOT EXISTS business_events_no_delete
+        BEFORE DELETE ON business_events
+        BEGIN
+          SELECT RAISE(ABORT, 'business_events are immutable');
+        END;
+      `);
+    } else {
+      conn.exec("ALTER TABLE business_events ENABLE TRIGGER USER");
+    }
   }
   // Library sync keeps operator tags when Starry sends []. A workbench reset
   // must still drop them, or the next E2E case toggles 犹豫谨慎 off.
   conn.prepare("UPDATE collaborations SET follow_style_tags=NULL").run();
-  conn.exec("DROP TRIGGER IF EXISTS stage_transitions_no_delete");
+  if (sqlite) {
+    conn.exec("DROP TRIGGER IF EXISTS stage_transitions_no_delete");
+  } else {
+    conn.exec("ALTER TABLE stage_transitions DISABLE TRIGGER USER");
+  }
   try {
     conn.prepare("DELETE FROM stage_transitions").run();
   } finally {
-    conn.exec(`
-      CREATE TRIGGER IF NOT EXISTS stage_transitions_no_delete
-      BEFORE DELETE ON stage_transitions
-      BEGIN
-        SELECT RAISE(ABORT, 'stage_transitions are immutable');
-      END;
-    `);
+    if (sqlite) {
+      conn.exec(`
+        CREATE TRIGGER IF NOT EXISTS stage_transitions_no_delete
+        BEFORE DELETE ON stage_transitions
+        BEGIN
+          SELECT RAISE(ABORT, 'stage_transitions are immutable');
+        END;
+      `);
+    } else {
+      conn.exec("ALTER TABLE stage_transitions ENABLE TRIGGER USER");
+    }
   }
   // Persistent data-e2e can keep Starry rows from a prior real-mode sync or
   // qq-01 detail lookup. Home followed-KOL is "current library", so drop

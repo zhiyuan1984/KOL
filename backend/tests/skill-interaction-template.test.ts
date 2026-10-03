@@ -224,7 +224,7 @@ describe("template and runtime version binding", () => {
     const res = await request("POST", "/api/tasks", { task_type: skillId, input: { skill_template_version: "old" } });
     expect(res.status).toBe(409);
     expect(JSON.stringify(res.body)).toContain("skill_template_version_conflict");
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(skillId)).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(skillId) as { n: unknown }).n)).toBe(0);
   });
 
   it("retains the task snapshot after SOP changes and blocks execution of a different pair", async () => {

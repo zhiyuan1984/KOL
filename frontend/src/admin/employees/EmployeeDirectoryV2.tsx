@@ -229,7 +229,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
         {loadError && <p className="error" role="alert">{loadError}</p>}
         <div className="governance-list">
           {visible.map((user) => <div className="governance-list-row governance-employee-row" key={user.id} data-employee-row={user.id}>
-            <strong>{label(user)}</strong><span className="muted">{email(user)}</span>
+            <strong>{user.avatar_url ? <img className="employee-row-avatar" data-employee-avatar src={String(user.avatar_url)} alt="" aria-hidden /> : null}{label(user)}</strong><span className="muted">{email(user)}</span>
             <span>{units.find((unit) => unit.id === user.site)?.display_name || user.site || "未分配"}</span>
             <span>{names(user).join("、") || "—"}</span>
             <span>{user.position || "—"}</span>

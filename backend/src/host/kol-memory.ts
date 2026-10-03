@@ -116,12 +116,12 @@ export function publicProfileFields(row: Row | Json): Json {
     pool_status: row.pool_status || "open",
     source_batch: row.source_batch || "",
     platform_creator_id: row.platform_creator_id || "",
-    potential_score: row.potential_score ?? null,
+    potential_score: numericOrNull(row.potential_score),
     potential_probabilities: row.potential_probabilities || null,
-    potential_confidence: row.potential_confidence ?? null,
-    risk_score: row.risk_score ?? null,
+    potential_confidence: numericOrNull(row.potential_confidence),
+    risk_score: numericOrNull(row.risk_score),
     risk_probabilities: row.risk_probabilities || null,
-    risk_confidence: row.risk_confidence ?? null,
+    risk_confidence: numericOrNull(row.risk_confidence),
     assessment_model: row.assessment_model || "",
     assessment_version: row.assessment_version || "",
     assessed_at: row.assessed_at || null,
@@ -139,6 +139,13 @@ function assessmentStateOf(row: Row): "scored" | "unscored" | "low_confidence" |
   if (text(row.assessment_error)) return "failed";
   if (text(row.assessed_at)) return "low_confidence";
   return "unscored";
+}
+
+/** PostgreSQL 桥接把 bigint 列以字符串返回（同 34bd84a 口径）：出参前按数值归一。 */
+function numericOrNull(value: unknown): number | null {
+  if (value == null || String(value).trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function trimPrivate<T extends Record<string, unknown>>(row: T): T {

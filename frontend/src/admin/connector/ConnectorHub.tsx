@@ -229,8 +229,7 @@ export function ConnectorHub({ connectors, loading, onSave, reload }: {
   );
 }
 
-/** 目录弹窗：按参考图逐像素实测量值（docs/DESIGN.md §连接器控制台「浏览弹窗」）；
-    搜索 + 分类 Tab（应用 / 自定义 API / 自定义 MCP）+ 两列卡片；已加入 ✓，未加入的内置项 ＋。 */
+/** 目录弹窗：搜索、分类与单列条目；已加入 ✓，未加入的内置项 ＋。 */
 function ConnectorBrowseModal({ cards, loading, adding, onAddBuiltin, onCreate, onClose }: {
   cards: ConnectorCardView[];
   loading: boolean;

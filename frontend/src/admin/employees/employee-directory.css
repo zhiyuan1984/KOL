@@ -49,6 +49,7 @@
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
 }
+.employee-row-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; margin-right: var(--space-2); vertical-align: -5px; }
 .employee-person p { margin: 2px 0 0; }
 .employee-directory-table tr[data-state="inactive"] { color: var(--text-muted); }
 .employee-directory-table tr[data-state="inactive"] .employee-person > span { opacity: .58; }

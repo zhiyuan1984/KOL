@@ -9,6 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
 const employee = {
   id: "usr_directory", name: "目录员工", username: "directory@amperetime.com", email: "directory@amperetime.com",
   site: "org:promotion_department", position: "KOL 经理", brands: ["LT", "PQ"], roles: ["employee"], active: true,
+  avatar_url: "/avatars/employees/ye_guanwang.png",
 };
 const units = [{ id: "org:promotion_department", display_name: "推广部", company_id: "company:amperetime", parent_id: null, level: 1, status: "active" }];
 
@@ -93,6 +94,8 @@ test("员工页单选筛选与单行品牌列；管理绑定先试算覆盖再�
   await page.goto("/admin");
   const directory = page.locator("[data-admin-employees]");
   await expect(directory).toBeVisible();
+  await expect(directory.locator("[data-employee-row='usr_directory'] [data-employee-avatar]"))
+    .toHaveAttribute("src", "/avatars/employees/ye_guanwang.png");
 
   // 筛选计数 + 单行 + 品牌列：姓名 / 邮箱 / 组织 / 品牌 / 岗位 / Agent / 操作，无独立状态列。
   await expect(directory.locator(".governance-rail .governance-count")).toHaveText("1 / 1 名员工");

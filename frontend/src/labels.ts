@@ -374,9 +374,9 @@ export function auditEventLabel(eventType?: string | null): string {
 }
 
 export const APPROVAL_ROLE_OPTIONS = [
-  { id: "lead", label: "线索负责人" },
-  { id: "manager", label: "经理" },
-  { id: "zhang", label: "张总" },
+  { id: "lead", label: "线索负责人", kind: "position" as const, kindLabel: "职位角色" },
+  { id: "manager", label: "经理", kind: "position" as const, kindLabel: "职位角色" },
+  { id: "zhang", label: "张总", kind: "named" as const, kindLabel: "指定人" },
 ] as const;
 
 export function approvalStatusLabel(status?: string | null): string {

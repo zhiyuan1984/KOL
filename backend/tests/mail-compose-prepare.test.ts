@@ -430,7 +430,7 @@ describe("mail compose edge invariants", () => {
     addPublishedTemplate({ id: "mail_source" });
     const reply = await submitEditedDraft({ knowledgeId: "mail_source", knowledgeVersion: 1, sourceDraftId: "does-not-exist" });
     expect(reply.status).toBe(404);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get()).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("keeps the legacy knowledge picker on the approved snapshot too", async () => {

@@ -35,7 +35,7 @@ export function defaultOrgSnapshot(): OrgSnapshot {
       },
       {
         id: "emp_liyuanyan", name: "黎玉燕", department_id: "org_pq", position: "PQ-US 建联",
-        manager_id: "emp_lintong", status: "active", cost_center: "PQ", brand: "PQ",
+        manager_id: "emp_lintong", status: "active", cost_center: "PQ", region: "北美", brand: "PQ",
         mailboxes: ["ipowerqueenmarketing@gmail.com", "affiliate@ipowerqueen.com", "marketing.us@ipowerqueen.com"],
         delegate_to: null,
       },
@@ -57,7 +57,7 @@ export function defaultOrgSnapshot(): OrgSnapshot {
       },
       {
         id: "emp_lingjiayu", name: "凌嘉余", department_id: "org_ro", position: "RO ES/FR 建联",
-        manager_id: "emp_laiyixun", status: "active", cost_center: "RO", brand: "RO",
+        manager_id: "emp_laiyixun", status: "active", cost_center: "RO", region: "欧洲", brand: "RO",
         mailboxes: ["marketing.es@redodopower.com", "marketing.fr@redodopower.com"],
         delegate_to: null,
       },
@@ -69,22 +69,22 @@ export function defaultOrgSnapshot(): OrgSnapshot {
       },
       {
         id: "emp_yeguanwang", name: "叶观旺", department_id: "org_lt", position: "LT-US BD",
-        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", brand: "LT",
+        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", region: "北美", brand: "LT",
         mailboxes: ["marketing-bd.us@litime.com"], delegate_to: null,
       },
       {
         id: "emp_liweiyu", name: "李伟瑜", department_id: "org_lt", position: "LT 欧洲",
-        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", brand: "LT",
+        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", region: "欧洲", brand: "LT",
         mailboxes: ["marketing.de@litime.com"], delegate_to: null,
       },
       {
         id: "emp_gujiarui", name: "古佳睿", department_id: "org_lt", position: "LT 欧洲",
-        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", brand: "LT",
+        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", region: "欧洲", brand: "LT",
         mailboxes: ["amperetimemarketing.de@gmail.com"], delegate_to: null,
       },
       {
         id: "emp_zhanggan", name: "张干", department_id: "org_lt", position: "LT-US/AU/CA",
-        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", brand: "LT",
+        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", region: "北美", brand: "LT",
         mailboxes: ["brandmarketing@litime.com", "marketing.ca@litime.com", "marketing.team@litime.com"],
         delegate_to: null,
       },
@@ -95,7 +95,7 @@ export function defaultOrgSnapshot(): OrgSnapshot {
       },
       {
         id: "emp_liuxiaoli", name: "刘小丽", department_id: "org_lt", position: "LT-JP",
-        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", brand: "LT",
+        manager_id: "emp_zhongjinnian", status: "active", cost_center: "LT", region: "日本", brand: "LT",
         mailboxes: ["marketing.jp@amperetime.com", "litime.jp@gmail.com"],
         delegate_to: null,
       },

@@ -11,6 +11,7 @@ import { getConn } from "./db.js";
 import { host } from "./host/api.js";
 import { HostReject, HttpFail } from "./host/errors.js";
 import { approvals } from "./routers/approvals.js";
+import { approvalTypes } from "./routers/approval-types.js";
 import { misc } from "./routers/misc.js";
 import { pipeline } from "./routers/pipeline.js";
 import { examRouter } from "./exam.js";
@@ -100,6 +101,7 @@ export function createApp(): Hono {
   app.route("/api", host);
   app.route("/api", pipeline);
   app.route("/api", approvals);
+  app.route("/api", approvalTypes);
   app.route("/api", knowledge);
   app.route("/api", experts);
   app.route("/api", discovery);

@@ -93,7 +93,7 @@ async function waitStatus(id: string, statuses: string[], timeoutMs = 8000): Pro
 }
 
 async function auditCount(eventType: string): Promise<number> {
-  const row = getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type=?").get(eventType) as { n: number };
+  const row = getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type=?").get(eventType) as { n: unknown };
   return Number(row.n || 0);
 }
 

@@ -290,6 +290,32 @@ describe("production account and enterprise controls", () => {
     expect(grantedTool).toMatchObject({ granted: false, assignable: expect.any(Boolean) });
   });
 
+  it("returns the organization person directory without raw registry fields", async () => {
+    const directory = await call("GET", "/api/admin/organization-people");
+    expect(directory.response.status).toBe(200);
+    const people = directory.json.people as Array<Record<string, unknown>>;
+    expect(people).toHaveLength(19);
+    const names = people.map((row) => String(row.display_name));
+    expect(names).toEqual([...names].sort());
+    expect(people.find((row) => row.person_ref === "person:ye_guanwang")).toMatchObject({
+      display_name: "叶观旺",
+      avatar_url: "/avatars/employees/ye_guanwang.png",
+      title: "联盟营销组长",
+      org_unit_id: "org:lt_team",
+      user_id: null,
+    });
+    expect(people.find((row) => row.person_ref === "person:liu_min")).toMatchObject({ display_name: "刘敏", avatar_url: null });
+    expect(people.every((row) => Object.keys(row).sort().join(",") === "avatar_url,display_name,org_unit_id,person_ref,title,user_id")).toBe(true);
+    const raw = JSON.stringify(directory.json);
+    for (const leaked of ["pending_fields", "source", "user_ref", "email", "employee_no"]) {
+      expect(raw).not.toContain(leaked);
+    }
+
+    await createEmployee("org-directory");
+    const cookie = await employeeLogin("org-directory");
+    expect((await call("GET", "/api/admin/organization-people", undefined, cookie)).response.status).toBe(403);
+  });
+
   it("updates profile and password, invalidating old sessions", async () => {
     const profile = await call("PATCH", "/api/me", { name: "Renamed Admin", email: "admin@example.com" });
     expect(profile.json).toMatchObject({ name: "Renamed Admin", email: "admin@example.com" });

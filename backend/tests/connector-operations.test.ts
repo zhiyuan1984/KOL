@@ -40,8 +40,8 @@ describe("connector operations (isolated inspector, no external service)", () =>
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ probe_kind: "mediacrawler_start", tool_count: 0, live_verified: true });
     expect(starts).toBe(1);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=?").get("probe_fixture"))
-      .toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=?").get("probe_fixture") as { n: unknown }).n))
+      .toBe(0);
     const activity = await (await a.request(root + "/activity")).json();
     expect(activity.probes[0].probe_kind).toBe("mediacrawler_start");
   });
@@ -76,12 +76,12 @@ describe("connector operations (isolated inspector, no external service)", () =>
       { risk?: unknown; access?: unknown; enabled?: unknown; schema_hash?: unknown } | undefined;
     expect(policy).toMatchObject({ risk: "L2", access: "write", enabled: 1 });
     expect(String(policy?.schema_hash)).toMatch(/^[0-9a-f]{64}$/);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='runtime.tool_catalog.registered'").get()).toMatchObject({ n: 1 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='runtime.tool_catalog.registered'").get() as { n: unknown }).n)).toBe(1);
   });
   it("does not register tools when the probe fails", async () => {
     const a = app(async () => { throw new Error("down"); });
     expect((await a.request(root + "/probe", { method: "POST" })).status).toBe(502);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='runtime.tool_catalog.registered'").get()).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='runtime.tool_catalog.registered'").get() as { n: unknown }).n)).toBe(0);
   });
   it("never returns or audits raw upstream failures", async () => {
     const secret = "Bearer private-sensitive-probe-token";

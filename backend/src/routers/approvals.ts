@@ -3,6 +3,7 @@ import { employeeForUser } from "../approval/inbox.js";
 import { calculateApprovalPlan, planContentVersion, type PlanInput } from "../approval/plan.js";
 import {
   inApprovalBox,
+  isSubmitter,
   isVisibleToViewer,
   parseApprovalBox,
   projectApproval,
@@ -13,6 +14,7 @@ import { audit } from "../db.js";
 import {
   createReceipt,
   createWorkApproval,
+  countersignApproval,
   decide,
   decideReceipt,
   getApproval,
@@ -20,6 +22,8 @@ import {
   listApprovals,
   listWecomCards,
   saveCreateReceipt,
+  transferApproval,
+  withdrawApproval,
 } from "../gateway/wecom.js";
 import { HttpFail } from "../host/errors.js";
 import { currentUser } from "../host/persona.js";
@@ -36,6 +40,8 @@ type ExpenseCreateBody = {
   requester_name?: unknown;
   purpose?: unknown;
   business_type?: unknown;
+  brand?: unknown;
+  region?: unknown;
   expected_version?: unknown;
   idempotency_key?: unknown;
 };
@@ -91,6 +97,8 @@ function expensePlanInput(body: ExpenseCreateBody): PlanInput {
     requester_name: requester_name || fallback.requester_name,
     purpose: String(body.purpose || "").trim() || undefined,
     business_type: String(body.business_type || "").trim() || "marketing_expense",
+    brand: String(body.brand || "").trim() || undefined,
+    region: String(body.region || "").trim() || undefined,
   };
 }
 
@@ -279,6 +287,101 @@ approvals.post("/approvals/:aid/decide", async (c) => {
 
 approvals.get("/wecom/cards", (c) => {
   return c.json(listWecomCards());
+});
+
+approvals.post("/approvals/:aid/transfer", async (c) => {
+  const body = (await c.req.json()) as {
+    target_employee_id?: unknown;
+    reason?: unknown;
+    expected_version?: unknown;
+    idempotency_key?: unknown;
+  };
+  const approval = getApproval(c.req.param("aid"));
+  if (!approval) throw new HttpFail(404, "Not Found");
+  const expectedVersion = requireExpectedVersion(body.expected_version);
+  const target = String(body.target_employee_id || "").trim();
+  if (!target) throw new HttpFail(400, { code: "transfer_target_required", message: "转交需要指定目标审批人。" });
+  let actor: string | undefined;
+  if (!authDisabled()) {
+    const user = scopedUser();
+    if (!user || !isVisibleToViewer(approval, user)) throw new HttpFail(404, "Not Found");
+    if (!canDecideProjected(approval, user)) {
+      throw new HttpFail(403, { code: "approval_role_required", message: "只有当前审批人可转交。" });
+    }
+    actor = (approval.chain as string[])[Number(approval.current_index)];
+  }
+  try {
+    const result = transferApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
+      expected_version: expectedVersion,
+    });
+    audit("gateway", "approval.transfer", {
+      approval_id: c.req.param("aid"),
+      target,
+      expected_version: expectedVersion,
+    });
+    return c.json(enrich(result));
+  } catch (e) {
+    if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
+    throw new HttpFail(400, String(e instanceof Error ? e.message : e));
+  }
+});
+
+approvals.post("/approvals/:aid/withdraw", async (c) => {
+  const body = (await c.req.json()) as { expected_version?: unknown; idempotency_key?: unknown };
+  const approval = getApproval(c.req.param("aid"));
+  if (!approval) throw new HttpFail(404, "Not Found");
+  const expectedVersion = requireExpectedVersion(body.expected_version);
+  if (!authDisabled()) {
+    const user = scopedUser();
+    if (!isSubmitter(approval, user)) {
+      throw new HttpFail(403, { code: "only_submitter_can_withdraw", message: "只有发起人可撤回。" });
+    }
+  }
+  try {
+    const result = withdrawApproval(c.req.param("aid"), viewer()?.handle, {
+      expected_version: expectedVersion,
+    });
+    audit("gateway", "approval.withdraw", {
+      approval_id: c.req.param("aid"),
+      expected_version: expectedVersion,
+    });
+    return c.json(enrich(result));
+  } catch (e) {
+    if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
+    throw new HttpFail(400, String(e instanceof Error ? e.message : e));
+  }
+});
+
+approvals.post("/approvals/:aid/countersign", async (c) => {
+  const body = (await c.req.json()) as {
+    target_employee_id?: unknown;
+    reason?: unknown;
+    expected_version?: unknown;
+    idempotency_key?: unknown;
+  };
+  const approval = getApproval(c.req.param("aid"));
+  if (!approval) throw new HttpFail(404, "Not Found");
+  const expectedVersion = requireExpectedVersion(body.expected_version);
+  const target = String(body.target_employee_id || "").trim();
+  if (!target) throw new HttpFail(400, { code: "countersign_target_required", message: "加签需要指定目标审批人。" });
+  let actor: string | undefined;
+  if (!authDisabled()) {
+    const user = scopedUser();
+    if (!user || !isVisibleToViewer(approval, user)) throw new HttpFail(404, "Not Found");
+    if (!canDecideProjected(approval, user)) {
+      throw new HttpFail(403, { code: "approval_role_required", message: "只有当前审批人可加签。" });
+    }
+    actor = (approval.chain as string[])[Number(approval.current_index)];
+  }
+  try {
+    const result = countersignApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
+      expected_version: expectedVersion,
+    });
+    return c.json(enrich(result));
+  } catch (e) {
+    if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
+    throw new HttpFail(400, String(e instanceof Error ? e.message : e));
+  }
 });
 
 function canDecideProjected(approval: Row, user: ReturnType<typeof scopedUser>) {

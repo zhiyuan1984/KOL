@@ -42,14 +42,20 @@ describe("tool risk derivation (07-mcp-data-contract)", () => {
 });
 
 describe("registerDiscoveredToolPolicies", () => {
+  // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），比较前按数值归一。
+  const numericPolicy = (row: Record<string, unknown> | null | undefined) => ({
+    ...(row || {}),
+    enabled: Number(row?.enabled ?? 0),
+    version: Number(row?.version ?? 0),
+  });
   it("creates derived policies on first discovery and disables L3 rows", () => {
     const result = registerDiscoveredToolPolicies("catalog_fixture", [
       { name: "pageKolProfiles", schema_hash: hash("a"), inputSchema: { type: "object" } },
       { name: "sendEmailNow", schema_hash: hash("b"), inputSchema: { type: "object" } },
     ]);
     expect(result).toMatchObject({ total: 2, created: 2, refreshed: 0, skipped: 0 });
-    expect(getToolPolicy("catalog_fixture", "pageKolProfiles")).toMatchObject({ risk: "L1", access: "read", enabled: 1 });
-    expect(getToolPolicy("catalog_fixture", "sendEmailNow")).toMatchObject({ risk: "L3", enabled: 0 });
+    expect(numericPolicy(getToolPolicy("catalog_fixture", "pageKolProfiles"))).toMatchObject({ risk: "L1", access: "read", enabled: 1 });
+    expect(numericPolicy(getToolPolicy("catalog_fixture", "sendEmailNow"))).toMatchObject({ risk: "L3", enabled: 0 });
   });
   it("derives a missing fingerprint instead of skipping the tool", () => {
     const result = registerDiscoveredToolPolicies("catalog_fixture", [{ name: "listAllKolProfiles", inputSchema: { type: "object" } }]);
@@ -60,10 +66,10 @@ describe("registerDiscoveredToolPolicies", () => {
   it("keeps administrator overrides and only refreshes a changed fingerprint", () => {
     setToolPolicy("catalog_fixture", "pageKolProfiles", { enabled: true, risk: "L2", access: "write", schema_hash: hash("a") }, 0);
     registerDiscoveredToolPolicies("catalog_fixture", [{ name: "pageKolProfiles", schema_hash: hash("a") }]);
-    expect(getToolPolicy("catalog_fixture", "pageKolProfiles")).toMatchObject({ risk: "L2", version: 1 });
+    expect(numericPolicy(getToolPolicy("catalog_fixture", "pageKolProfiles"))).toMatchObject({ risk: "L2", version: 1 });
     const refreshed = registerDiscoveredToolPolicies("catalog_fixture", [{ name: "pageKolProfiles", schema_hash: hash("c") }]);
     expect(refreshed).toMatchObject({ refreshed: 1 });
-    expect(getToolPolicy("catalog_fixture", "pageKolProfiles")).toMatchObject({ risk: "L2", access: "write", schema_hash: hash("c"), version: 2 });
+    expect(numericPolicy(getToolPolicy("catalog_fixture", "pageKolProfiles"))).toMatchObject({ risk: "L2", access: "write", schema_hash: hash("c"), version: 2 });
   });
   it("skips tools without a usable name", () => {
     const result = registerDiscoveredToolPolicies("catalog_fixture", [{ description: "no name" }]);

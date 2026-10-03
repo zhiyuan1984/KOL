@@ -392,11 +392,12 @@ describe("host contracts", () => {
       recommender: "Opportunity",
       approver: "sriphy",
       occurred_at: "2026-08-31T16:00:00.000Z",
-      data_version_before: 0,
-      data_version_after: 1,
       capability_profile: "Opportunity",
       advancement_mode: "AI 建议 + 人确认",
     });
+    // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较。
+    expect(Number(rows[0].data_version_before)).toBe(0);
+    expect(Number(rows[0].data_version_after)).toBe(1);
     expect(() =>
       getConn().prepare("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = ?").run(rows[0].id),
     ).toThrow(/immutable/);

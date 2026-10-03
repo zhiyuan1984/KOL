@@ -190,10 +190,11 @@ describe("knowledge governance", () => {
     expect(rolled.current_version).toBe(3);
 
     const versions = await rows(`/api/knowledge/${created.id}/versions`);
-    expect(versions.map((row) => row.version)).toEqual([1, 2, 3]);
-    expect(versions.find((row) => row.version === 1)?.body).toBe("first body");
-    expect(versions.find((row) => row.version === 2)?.body).toBe("second body");
-    expect(String(versions.find((row) => row.version === 3)?.note || "")).toContain("rollback from v1");
+    // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较/查找。
+    expect(versions.map((row) => Number(row.version))).toEqual([1, 2, 3]);
+    expect(versions.find((row) => Number(row.version) === 1)?.body).toBe("first body");
+    expect(versions.find((row) => Number(row.version) === 2)?.body).toBe("second body");
+    expect(String(versions.find((row) => Number(row.version) === 3)?.note || "")).toContain("rollback from v1");
 
     const detail = await (await request("GET", `/api/admin/knowledge/${created.id}/versions/1`)).json();
     expect(detail.body).toBe("first body");

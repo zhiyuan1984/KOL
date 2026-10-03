@@ -117,6 +117,8 @@ export function connect(): SqliteConn {
       db.close();
       throw new Error("PostgreSQL schema is not initialized; run npm run db:migrate:postgres with SQLITE_SOURCE and DATABASE_URL before starting the application");
     }
+    // INSERT OR REPLACE 的冲突键需要目标表真实主键；在首个业务查询前一次性载入。
+    db.loadPrimaryKeys();
     return db;
   }
   const db = openSqlite(dbPath());
@@ -1831,6 +1833,28 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "approvals", "submitted_by", "TEXT");
   add(db, "approvals", "version", "INTEGER NOT NULL DEFAULT 0");
   add(db, "approvals", "updated_at", "TEXT");
+  // 已确认决策①：审批角色区分职位角色/指定自然人
+  add(db, "approval_role_bindings", "role_kind", "TEXT NOT NULL DEFAULT 'position'");
+  // 方案3.2：审批角色授权支持有效期，到期自动回收
+  add(db, "approval_role_bindings", "valid_from", "TEXT");
+  add(db, "approval_role_bindings", "valid_to", "TEXT");
+  // Phase 2：审批类型（四件套：基本信息/表单/流程/版本）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS approval_types (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      grp TEXT NOT NULL DEFAULT '',
+      owner TEXT NOT NULL DEFAULT '',
+      visibility TEXT NOT NULL DEFAULT 'all',
+      form_schema TEXT NOT NULL DEFAULT '[]',
+      flow TEXT NOT NULL DEFAULT '{}',
+      version INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
   db.exec(`
         CREATE TABLE IF NOT EXISTS approval_idempotency (
             id TEXT PRIMARY KEY,

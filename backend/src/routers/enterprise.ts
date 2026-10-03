@@ -20,6 +20,7 @@ import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
 import { hasBundledIcon } from "./connector-icons.js";
 import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
+import { avatarUrlForUser, listOrganizationMemberships, listOrganizationPeople } from "../runtime/organization-tree.js";
 import { getConnectorConfig } from "../runtime/store.js";
 import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
 import { listOrganizationUnits, syncUserOrganization } from "../runtime/organization-tree.js";
@@ -66,6 +67,7 @@ function safeUser(row: Row): Json {
     .get(row.id) as Row;
   return {
     ...rest,
+    avatar_url: avatarUrlForUser(String(row.id)),
     email: row.username,
     status: row.active ? "active" : "disabled",
     roles: parseJson(row.roles, []),
@@ -73,8 +75,13 @@ function safeUser(row: Row): Json {
     active: Boolean(row.active),
     skill_grants: (db.prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(row.id) as Row[])
       .map((grant) => String(grant.skill_id)),
-    approval_roles: (db.prepare("SELECT approval_role FROM approval_role_bindings WHERE user_id=?").all(row.id) as Row[])
-      .map((grant) => String(grant.approval_role)),
+    approval_roles: (db.prepare("SELECT approval_role,role_kind,valid_from,valid_to FROM approval_role_bindings WHERE user_id=?").all(row.id) as Row[])
+      .map((grant) => ({
+        role: String(grant.approval_role),
+        kind: String(grant.role_kind || APPROVAL_ROLE_KINDS[String(grant.approval_role)] || "position"),
+        valid_from: grant.valid_from ? String(grant.valid_from) : null,
+        valid_to: grant.valid_to ? String(grant.valid_to) : null,
+      })),
     mailbox_count: Number(mailboxCount?.n || 0),
     kol_count: Number(kolCount?.n || 0),
   };
@@ -123,7 +130,7 @@ function employeeContext(row: Row): Json {
     mailbox_email: kol.mailbox_email ? String(kol.mailbox_email) : null,
     claimed_at: kol.claimed_at ? String(kol.claimed_at) : null,
   }));
-  return { user: safeUser(row), mailboxes, kols };
+  return { user: safeUser(row), avatar_url: avatarUrlForUser(String(row.id)), mailboxes, kols };
 }
 
 /** Direct employee capability grants are backed by the same PEP table used at runtime. */
@@ -210,6 +217,29 @@ function roles(value: unknown): string[] {
   if (!values.length || values.some((role) => !allowed.has(role))) throw new HttpFail(400, "roles must contain employee/admin");
   return [...new Set(values)];
 }
+
+enterprise.get("/admin/organization-people", (c) => {
+  requireAdmin();
+  const memberships = new Map(
+    listOrganizationMemberships()
+      .filter((row) => row.relation === "primary" && row.status === "active")
+      .map((row) => [row.person_ref, row]),
+  );
+  const people = listOrganizationPeople()
+    .map((person) => {
+      const membership = memberships.get(person.person_ref);
+      return {
+        person_ref: person.person_ref,
+        display_name: person.display_name,
+        avatar_url: person.avatar_url,
+        title: membership?.position || null,
+        org_unit_id: membership?.org_unit_id || null,
+        user_id: person.user_id,
+      };
+    })
+    .sort((a, b) => (a.display_name < b.display_name ? -1 : a.display_name > b.display_name ? 1 : 0));
+  return c.json({ people });
+});
 
 enterprise.get("/admin/users", () => {
   requireAdmin();
@@ -406,12 +436,21 @@ enterprise.delete("/admin/connectors/:id", (c) => {
   return c.json({ ok: true });
 });
 
+/** 已确认决策①：审批角色分职位角色/指定自然人，数据模型区分、界面统一展示。 */
+export const APPROVAL_ROLE_KINDS: Record<string, "position" | "named"> = {
+  lead: "position",
+  manager: "position",
+  zhang: "named",
+};
+
 enterprise.put("/admin/users/:uid/approval-roles/:role", (c) => {
   const admin = requireAdmin();
   userById(c.req.param("uid"));
-  getConn().prepare("INSERT OR IGNORE INTO approval_role_bindings (user_id,approval_role,created_at) VALUES (?,?,?)")
-    .run(c.req.param("uid"), c.req.param("role"), nowIso());
-  audit(admin.id, "admin.approval_role.bind", { user_id: c.req.param("uid"), role: c.req.param("role") });
+  const role = c.req.param("role");
+  const kind = APPROVAL_ROLE_KINDS[role] || "position";
+  getConn().prepare("INSERT OR IGNORE INTO approval_role_bindings (user_id,approval_role,role_kind,created_at) VALUES (?,?,?,?)")
+    .run(c.req.param("uid"), role, kind, nowIso());
+  audit(admin.id, "admin.approval_role.bind", { user_id: c.req.param("uid"), role, role_kind: kind });
   return c.json({ ok: true });
 });
 
@@ -431,11 +470,25 @@ enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
   const values = Array.isArray(body.roles) ? body.roles.map(String) : [];
   const allowed = new Set(["lead", "manager", "zhang"]);
   if (values.some((role) => !allowed.has(role))) throw new HttpFail(400, "invalid approval role");
+  const grants: Array<{ role: string; valid_from?: string; valid_to?: string }> = Array.isArray(body.grants)
+    ? (body.grants as Array<{ role?: unknown; valid_from?: unknown; valid_to?: unknown }>)
+        .map((g) => ({
+          role: String(g.role || ""),
+          ...(g.valid_from ? { valid_from: String(g.valid_from) } : {}),
+          ...(g.valid_to ? { valid_to: String(g.valid_to) } : {}),
+        }))
+    : values.map((role) => ({ role }));
+  for (const g of grants) {
+    if (!allowed.has(g.role)) throw new HttpFail(400, "invalid approval role");
+  }
   tx((db) => {
     db.prepare("DELETE FROM approval_role_bindings WHERE user_id=?").run(uid);
-    for (const role of values) {
-      db.prepare("INSERT INTO approval_role_bindings (user_id,approval_role,created_at) VALUES (?,?,?)")
-        .run(uid, role, nowIso());
+    for (const g of grants) {
+      db.prepare("INSERT INTO approval_role_bindings (user_id,approval_role,role_kind,valid_from,valid_to,created_at) VALUES (?,?,?,?,?,?)")
+        .run(uid, g.role, APPROVAL_ROLE_KINDS[g.role] || "position",
+          g.valid_from || null,
+          g.valid_to || null,
+          nowIso());
     }
   });
   audit(admin.id, "admin.approval_roles.replace", { user_id: uid, roles: values });

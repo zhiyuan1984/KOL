@@ -354,8 +354,8 @@ describe("follow and dismiss", () => {
 
   it("does not auto-create Collaboration when crawl completes", async () => {
     await confirmAndComplete();
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get()).toEqual({ n: 0 });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='suggested'").get()).toEqual({ n: 1 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='suggested'").get() as { n: unknown }).n)).toBe(1);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 });

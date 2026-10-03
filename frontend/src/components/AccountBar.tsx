@@ -46,7 +46,9 @@ export default function AccountBar({ account: accountProp }: { account?: Account
         data-account-pedestal
         data-exam={me?.exam_passed === false ? "blocked" : "ok"}
       >
-        <span className="account-avatar" aria-hidden>{accountInitial(me)}</span>
+        <span className="account-avatar" aria-hidden>
+          {me?.avatar_url ? <img data-account-avatar src={me.avatar_url} alt="" aria-hidden /> : accountInitial(me)}
+        </span>
         <span className="account-copy sidebar-label">
           <span className="account-name" data-account-name>{name}</span>
         </span>

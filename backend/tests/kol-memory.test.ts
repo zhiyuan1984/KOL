@@ -440,10 +440,13 @@ describe("kol follow/pool memory P0", () => {
       expect(state).not.toMatch(/email|quote|contract|notes/i);
       const row = getConn().prepare(
         "SELECT potential_score, potential_confidence, risk_score, risk_confidence, assessment_model FROM kol_profile_index WHERE kol_uid=?",
-      ).get("KOL_JEV") as { potential_score: number; potential_confidence: number; risk_score: number; risk_confidence: number; assessment_model: string };
-      expect(row).toMatchObject({ potential_score: 85, risk_score: 85, assessment_model: "jev-1.13" });
-      expect(row.potential_confidence).toBeCloseTo(0.91);
-      expect(row.risk_confidence).toBeCloseTo(0.83);
+      ).get("KOL_JEV") as { potential_score: unknown; potential_confidence: unknown; risk_score: unknown; risk_confidence: unknown; assessment_model: string };
+      // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较。
+      expect(Number(row.potential_score)).toBe(85);
+      expect(Number(row.risk_score)).toBe(85);
+      expect(row.assessment_model).toBe("jev-1.13");
+      expect(Number(row.potential_confidence)).toBeCloseTo(0.91);
+      expect(Number(row.risk_confidence)).toBeCloseTo(0.83);
     } finally {
       if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = priorKey;
@@ -500,8 +503,8 @@ ${body.state?.target_criteria || ""}`;
       expect(seen).toContain("全球英文".length ? "global_en" : "");
       const row = getConn().prepare(
         "SELECT assessment_criteria, potential_score FROM kol_profile_index WHERE kol_uid=?",
-      ).get("KOL_CRIT") as { assessment_criteria: string; potential_score: number };
-      expect(row.potential_score).toBe(85);
+      ).get("KOL_CRIT") as { assessment_criteria: string; potential_score: unknown };
+      expect(Number(row.potential_score)).toBe(85);
       expect(row.assessment_criteria).toContain("平台 youtube");
     } finally {
       if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
@@ -628,7 +631,7 @@ ${body.state?.target_criteria || ""}`;
     });
     expect(before.renewed).toBe(false);
     expect(before.reason).toBe("no_active_follow");
-    expect((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid='KOL_MAIL' AND status='active'").get() as { n: number }).n).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid='KOL_MAIL' AND status='active'").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("following projects local history and refreshes it incrementally without a session", async () => {
@@ -654,7 +657,7 @@ ${body.state?.target_criteria || ""}`;
       sourceVersion: "test:one",
     });
     expect(first).toMatchObject({ recorded: true, effective: true, follow_id: followId });
-    expect((getConn().prepare("SELECT COUNT(*) AS n FROM kol_thread_summary WHERE follow_id=?").get(followId) as { n: number }).n).toBe(1);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_thread_summary WHERE follow_id=?").get(followId) as { n: unknown }).n)).toBe(1);
 
     const firstRead = await request("GET", "/api/home/following");
     expect(firstRead.status).toBe(200);

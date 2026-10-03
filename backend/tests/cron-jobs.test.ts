@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { databaseEngine, getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { ensureSystemCronJobs, jobByKey } from "../src/cron/store.js";
 import { enqueueManualRun, tickCronDue } from "../src/cron/worker.js";
@@ -182,8 +182,8 @@ describe("cron jobs P0/P1", () => {
     expect(second.duplicate).toBe(true);
     expect(second.run_id).toBe(first.run_id);
     const n = (getConn().prepare("SELECT COUNT(*) AS n FROM cron_runs WHERE job_id=? AND scheduled_for=?")
-      .get(job?.id, slot) as { n: number }).n;
-    expect(n).toBe(1);
+      .get(job?.id, slot) as { n: unknown }).n;
+    expect(Number(n)).toBe(1);
   });
 
   it("exposes persisted execution and outbox facts to the admin read model", async () => {
@@ -198,7 +198,9 @@ describe("cron jobs P0/P1", () => {
     );
     const response = await request("GET", "/api/admin/scheduling/execution-jobs");
     expect(response.status, response.text).toBe(200);
-    expect(response.body).toMatchObject({ execution_mode: "sqlite_test_fixture_only" });
+    expect(response.body).toMatchObject({
+      execution_mode: databaseEngine() === "postgres" ? "postgres_redis_bullmq_multi_worker" : "sqlite_test_fixture_only",
+    });
     expect((response.body.items as Json[]).some((item) => item.job_type === "cron.run" && item.status === "queued")).toBe(true);
     expect(Number((response.body.outbox as Json).pending || 0)).toBeGreaterThan(0);
     expect(response.body.outbox).toMatchObject({ stale_publishing_count: 0, oldest_stale_publishing_updated_at: null });
@@ -295,7 +297,7 @@ describe("cron jobs P0/P1", () => {
     const run = await request("POST", "/api/cron/jobs/discovery-search/run");
     expect(run.status).toBe(409);
     expect((run.body.detail as Json)?.code || run.body.code).toBeTruthy();
-    expect((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates").get() as { n: number }).n).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("pause/resume and frequency change bump published_rev on in-scope jobs", async () => {
@@ -394,6 +396,6 @@ describe("cron jobs P0/P1", () => {
     const recorded = await request("GET", `/api/cron/runs/${run.body.run_id}`);
     const sessionId = String((recorded.body.run as Json).session_id || "");
     expect(sessionId).toBeTruthy();
-    expect((getConn().prepare("SELECT COUNT(*) AS n FROM task_runs WHERE session_id=?").get(sessionId) as { n: number }).n).toBe(1);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM task_runs WHERE session_id=?").get(sessionId) as { n: unknown }).n)).toBe(1);
   });
 });

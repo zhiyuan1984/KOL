@@ -190,6 +190,10 @@ test("读取没回来之前不许说「还没有跟进中的红人」，也不�
 });
 
 test("本地索引为空时，在历史协作投影合并前不下暂无结论", async ({ page }) => {
+  // board 桩挂起直到「对账中」断言完成：壳级预热（SHELL_READ_DELAY_MS=350ms）可能先于
+  // 点击发出这次读，用固定时延会随机器快慢漂移，这里用显式闸门消除时序依赖。
+  let finishBoard!: () => void;
+  const boardGate = new Promise<void>((resolve) => { finishBoard = resolve; });
   const scope = {
     required: true,
     bound: true,
@@ -204,7 +208,7 @@ test("本地索引为空时，在历史协作投影合并前不下暂无结论",
     json: { ...followingEnvelope([]), follow_scope: scope },
   }));
   await page.route("**/api/home/board*", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await boardGate;
     await route.fulfill({ json: { kols: [row(1)], follow_scope: scope, workbench: {} } });
   });
 
@@ -218,6 +222,7 @@ test("本地索引为空时，在历史协作投影合并前不下暂无结论",
   await expect(center.locator("[data-followed-overview-count]")).toHaveCount(0);
   await expect(page.locator("[data-followed-lifecycle-grid]")).toHaveCount(0);
 
+  finishBoard();
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
   await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
   await expect(center.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 1 位");

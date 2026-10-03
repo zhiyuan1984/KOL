@@ -526,7 +526,7 @@ describe("KOL persistent session and fact-advance", () => {
     expect(await sent.json()).toMatchObject({ needs_confirmation: true, sent: false });
     const afterSend = await messages(sid);
     expect(JSON.stringify(afterSend)).toContain("请在右栏草稿");
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get()).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
     expect(stageOf("col_qiyou")).toBe("INITIAL_CONTACT");
   });
 
