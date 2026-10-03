@@ -249,9 +249,10 @@ export function ensureOrganizationTree(): void {
       PRIMARY KEY (company_id, version)
     );
   `);
-  // 已存在的库补列（PRAGMA table_info 在 Postgres 侧有 information_schema 翻译）。
+  // 已存在的库补列。必须用 conn.pragma()：Postgres 侧把它翻译成 information_schema，
+  // 而 prepare().all() 在 PG 上不翻译 PRAGMA（PG 引擎不跑 initSchema/migrateSchema）。
   const personColumns = new Set(
-    ((db.prepare("PRAGMA table_info(organization_people)").all() as { name?: string }[]) || []).map((row) => String(row.name)),
+    ((db.pragma("table_info(organization_people)") as { name?: string }[]) || []).map((row) => String(row.name)),
   );
   for (const [column, ddl] of [
     ["starry_open_id", "TEXT"],
