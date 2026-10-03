@@ -448,6 +448,7 @@
 - 员工端任务中心已显示 PostgreSQL 详情中的当前责任/关注、来源依据与验收事实，并接入明确“受理工单”和“提交验收完成”入口；受理后仍需单独提交验收证据，不能把运行或受理本身视为完成。
 - 创建人可通过明确原因重开已完成工单；重开会移除 `ticket_acceptances` 的当前投影，但会将每次验收永久写入 `ticket_acceptance_history`，再次验收使用新版本，历史事实不被更新或删除。
 - 已提供 PostgreSQL 原生的个人授权工单原始计数报表；响应显式标识 `as_of`、时区、个人授权范围和来源，不包含 SLA、绩效、排名或生产率推断。
+- 已完成一次运行时依赖审计，详见 [`docs/POSTGRES_ONLY_RUNTIME_AUDIT.md`](../../POSTGRES_ONLY_RUNTIME_AUDIT.md)：正式工单/执行/Cron 原生子链已可在空 PostgreSQL 库验证，但 HTTP 启动、身份、旧 `/tasks` 与首页等仍含 SQLite-shaped bridge，不能把整个历史应用宣称为 PostgreSQL-only。
 
 ### 当前仍在推进的范围
 
