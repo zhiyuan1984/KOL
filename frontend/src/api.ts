@@ -437,6 +437,11 @@ export type ExecutionWorker = {
   stale: boolean;
 };
 
+export type ExecutionOutboxHealth = Record<string, number | string | null | undefined> & {
+  stale_publishing_count?: number;
+  oldest_stale_publishing_updated_at?: string | null;
+};
+
 export type SchedulingRule = {
   id: string;
   version: number;
@@ -2233,7 +2238,7 @@ export const api = {
     return request<{
       items: ExecutionJob[];
       counts: Record<string, number>;
-      outbox: Record<string, number>;
+      outbox: ExecutionOutboxHealth;
       workers: ExecutionWorker[];
       backlog: { count: number; oldest_created_at: string | null };
       rules: SchedulingRule[];

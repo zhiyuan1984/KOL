@@ -158,6 +158,16 @@ const migrations: Array<{ id: string; statements: string[] }> = [
        FOR EACH ROW EXECUTE FUNCTION prevent_lifecycle_task_event_mutation()`,
     ],
   },
+  {
+    id: "20261003_execution_delivery_leases",
+    statements: [
+      "ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS lease_owner TEXT",
+      "CREATE INDEX IF NOT EXISTS execution_jobs_running_lease ON execution_jobs(status, lease_until)",
+      "ALTER TABLE execution_outbox ADD COLUMN IF NOT EXISTS publisher_id TEXT",
+      "ALTER TABLE execution_outbox ADD COLUMN IF NOT EXISTS publisher_lease_until TEXT",
+      "CREATE INDEX IF NOT EXISTS execution_outbox_publishing_lease ON execution_outbox(status, publisher_lease_until)",
+    ],
+  },
 ];
 
 const client = new Client({ connectionString: databaseUrl });

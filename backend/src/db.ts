@@ -1136,6 +1136,7 @@ function initSchema(db: SqliteConn): void {
             attempts INTEGER NOT NULL DEFAULT 0,
             max_attempts INTEGER NOT NULL DEFAULT 1,
             lease_until TEXT,
+            lease_owner TEXT,
             next_attempt_at TEXT,
             payload_json TEXT NOT NULL DEFAULT '{}',
             receipt_json TEXT,
@@ -1150,6 +1151,8 @@ function initSchema(db: SqliteConn): void {
         );
         CREATE INDEX IF NOT EXISTS execution_jobs_ready
             ON execution_jobs(status, next_attempt_at, created_at);
+        CREATE INDEX IF NOT EXISTS execution_jobs_running_lease
+            ON execution_jobs(status, lease_until);
         CREATE INDEX IF NOT EXISTS execution_jobs_ticket
             ON execution_jobs(ticket_id, created_at);
         CREATE INDEX IF NOT EXISTS execution_jobs_run
@@ -1167,6 +1170,8 @@ function initSchema(db: SqliteConn): void {
             attempts INTEGER NOT NULL DEFAULT 0,
             available_at TEXT NOT NULL,
             published_at TEXT,
+            publisher_id TEXT,
+            publisher_lease_until TEXT,
             last_error TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -1174,6 +1179,8 @@ function initSchema(db: SqliteConn): void {
         );
         CREATE INDEX IF NOT EXISTS execution_outbox_ready
             ON execution_outbox(status, available_at, created_at);
+        CREATE INDEX IF NOT EXISTS execution_outbox_publishing_lease
+            ON execution_outbox(status, publisher_lease_until);
 
         -- M4 rule registry: records published policy and draft preview only.
         -- No scheduler reads this table to make an automated assignment/SLA
@@ -2027,6 +2034,16 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "task_events", "item_key", "TEXT");
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS task_events_item_key
     ON task_events(work_item_id, item_key) WHERE item_key IS NOT NULL`);
+  // Durable execution recovery: consumers own a renewable lease and publishers
+  // own a short-lived Outbox handoff lease. Both fields are nullable for rows
+  // written before the rollout and are safe to backfill lazily on next claim.
+  add(db, "execution_jobs", "lease_owner", "TEXT");
+  add(db, "execution_outbox", "publisher_id", "TEXT");
+  add(db, "execution_outbox", "publisher_lease_until", "TEXT");
+  db.exec(`CREATE INDEX IF NOT EXISTS execution_jobs_running_lease
+    ON execution_jobs(status, lease_until)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS execution_outbox_publishing_lease
+    ON execution_outbox(status, publisher_lease_until)`);
   add(db, "memory_entries", "title", "TEXT NOT NULL DEFAULT '记忆'");
   add(db, "crawl_jobs", "last_checked_at", "TEXT");
   add(db, "knowledge", "kind", "TEXT NOT NULL DEFAULT 'policy'");

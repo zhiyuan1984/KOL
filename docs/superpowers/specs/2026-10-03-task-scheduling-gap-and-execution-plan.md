@@ -144,10 +144,10 @@
 ## 6. 当前执行状态
 
 - [x] 差距审计与分期计划
-- [~] 阶段 0：生命周期防绕过（进行中；已收敛正式 complete/cancel 命令、停用无保护 complete、任务事件区分 lifecycle/run_trace/legacy，并加入 SQLite/PostgreSQL 不可变约束迁移；仍待完整回归与发布验证）
+- [x] 阶段 0：生命周期防绕过（已收敛正式 complete/cancel 命令、停用无保护 complete、任务事件区分 lifecycle/run_trace/legacy，并完成 SQLite/PostgreSQL 不可变约束、事务回归与发布验证）
 - [ ] 阶段 1：范围安全与 Worker 复核
 - [ ] 阶段 2：正式 Ticket 领域模型
-- [ ] 阶段 3：可靠执行内核
+- [~] 阶段 3：可靠执行内核（已实现 Worker 归属租约续约、低风险失败/租约到期的原子重新派发、PostgreSQL Outbox 发布租约抢回，以及调度监控；仍待长运行 handler 全面迁入、按类型限流和 DLQ）
 - [ ] 阶段 4：实时读模型与员工端
 - [ ] 阶段 5：摘要与目录
 - [ ] 阶段 6：调查/恢复/案件
