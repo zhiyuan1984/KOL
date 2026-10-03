@@ -291,6 +291,40 @@ export async function pgRecoverExpiredExecutionJobs(now = new Date()): Promise<{
   });
 }
 
+/** Explicit operator recovery for a failed low-risk job, with durable re-dispatch. */
+export async function pgRetryFailedExecutionJob(
+  id: string,
+  options: { actor_ref?: string; now?: Date } = {},
+): Promise<{ job: Row | undefined; retried: boolean; reason?: "not_found" | "not_failed" | "risk_requires_takeover" }> {
+  const now = options.now || new Date();
+  const stamp = now.toISOString();
+  return postgresTransaction(async (client) => {
+    const current = await jobByIdIn(client, id, true);
+    if (!current) return { job: undefined, retried: false, reason: "not_found" as const };
+    if (String(current.status) !== "failed") return { job: current, retried: false, reason: "not_failed" as const };
+    if (String(current.risk_level) !== "low") return { job: current, retried: false, reason: "risk_requires_takeover" as const };
+    const updated = await client.query<Row>(
+      `UPDATE execution_jobs
+          SET status='queued',lease_until=NULL,lease_owner=NULL,next_attempt_at=$1,error_code=NULL,error_summary=NULL,
+              terminal_at=NULL,max_attempts=CASE WHEN max_attempts<=attempts THEN attempts+1 ELSE max_attempts END,
+              updated_at=$1
+        WHERE id=$2 AND status='failed' AND risk_level='low'
+        RETURNING *`,
+      [stamp, id],
+    );
+    const job = updated.rows[0] as Row | undefined;
+    if (!job) return { job: current, retried: false, reason: "not_failed" as const };
+    await insertDispatchOutbox(client, job, {
+      eventType: "execution_job.retry_requested",
+      idempotencyKey: `execution-job:${id}:manual-retry:${Number(job.attempts || 0)}`,
+      payload: { actor_ref: options.actor_ref || null, attempt: Number(job.attempts || 0), risk_level: String(job.risk_level) },
+      availableAt: stamp,
+      now: stamp,
+    });
+    return { job, retried: true };
+  });
+}
+
 export function pgExecutionJobPayload(job: Row): Json {
   return parseJson(job.payload_json);
 }

@@ -443,6 +443,63 @@ const migrations: SchemaMigration[] = [
       "CREATE INDEX IF NOT EXISTS ticket_command_receipts_ticket_idx ON ticket_command_receipts(ticket_id,created_at DESC)",
     ],
   },
+  {
+    id: "20261003_cron_native_scheduler",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS cron_jobs (
+        id TEXT PRIMARY KEY,
+        job_key TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        owner_account_id TEXT,
+        execute_as TEXT NOT NULL,
+        capability_expert_id TEXT NOT NULL,
+        handler_key TEXT NOT NULL,
+        scope_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        condition_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        cron_expr TEXT NOT NULL,
+        timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+        status TEXT NOT NULL CHECK (status IN ('draft','published','paused','disabled')),
+        retry_policy_json JSONB NOT NULL DEFAULT '{"max_attempts":1,"backoff_sec":0}'::jsonb,
+        takeover_policy_json JSONB NOT NULL DEFAULT '{"after_minutes":30,"action":"needs_takeover"}'::jsonb,
+        published_rev INTEGER NOT NULL DEFAULT 1 CHECK (published_rev >= 1),
+        next_run_at TIMESTAMPTZ,
+        last_run_at TIMESTAMPTZ,
+        last_terminal_status TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS cron_jobs_due_idx ON cron_jobs(status,next_run_at) WHERE next_run_at IS NOT NULL",
+      "CREATE INDEX IF NOT EXISTS cron_jobs_owner_idx ON cron_jobs(owner_account_id,updated_at DESC)",
+      `CREATE TABLE IF NOT EXISTS cron_runs (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES cron_jobs(id) ON DELETE CASCADE,
+        trigger TEXT NOT NULL CHECK (trigger IN ('schedule','manual','retry','recovery')),
+        status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed','skipped','needs_takeover')),
+        scheduled_for TEXT NOT NULL,
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        error_code TEXT,
+        error_summary TEXT,
+        receipt_json JSONB,
+        artifact_refs JSONB,
+        session_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(job_id,scheduled_for)
+      )`,
+      "CREATE INDEX IF NOT EXISTS cron_runs_job_created_idx ON cron_runs(job_id,created_at DESC)",
+      "CREATE INDEX IF NOT EXISTS cron_runs_status_created_idx ON cron_runs(status,created_at)",
+      `CREATE TABLE IF NOT EXISTS execution_worker_heartbeats (
+        worker_id TEXT PRIMARY KEY,
+        worker_kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        stopped_at TIMESTAMPTZ
+      )`,
+      "CREATE INDEX IF NOT EXISTS execution_worker_heartbeats_recent_idx ON execution_worker_heartbeats(heartbeat_at DESC)",
+    ],
+  },
 ];
 
 const client = new Client({ connectionString: databaseUrl });

@@ -33,7 +33,7 @@
 - 所有新字段和关系以 PostgreSQL migration 管理，使用 `uuid`、`timestamptz`、`jsonb`、外键、`check`、部分唯一索引和必要的 `btree/gin` 索引；不再新增 SQLite 方言、触发器或兼容改写。
 - 并发写入使用 PostgreSQL 事务、行级锁/乐观版本号和 `FOR UPDATE SKIP LOCKED` 等原生语义；Outbox 与 Worker 继续以 PostgreSQL 事务提交、Redis/BullMQ 投递与回执更新组成可靠执行链。
 - 本地开发与 CI 提供临时 PostgreSQL 实例或容器；前后端集成测试、故障注入和迁移回归均对 PostgreSQL 执行，不再把 SQLite 通过视为数据库验收。
-- 若历史存在 SQLite 数据文件，只允许作为一次性、离线、可审计的**迁移输入或只读取证归档**；切换完成后不被应用进程读取，也不作为故障回退目标。
+- 已确认**不保留 SQLite 数据**：历史 SQLite 文件不得作为迁移输入、归档、测试夹具、运行时读取来源或故障回退目标；新系统只以 PostgreSQL 创建并管理数据。
 
 ---
 
@@ -441,11 +441,15 @@
 - `PATCH /api/tickets/:id` 已仅允许待受理工单编辑业务字段，并在同一 PostgreSQL 事务写入版本、不可变 `task.updated` 事件、审计事实和幂等回执；Home 不再调用旧任务编辑写入。
 - 正式完成/取消命令采用 PostgreSQL 行锁、版本冲突、幂等回执、验收快照与审计事实；运行成功仍不等于完成工单。
 - Worker/Outbox 的 PostgreSQL 原生作业仓储、租约和终态写入已接入调度执行链路；迁移后的 PostgreSQL 集成测试覆盖建单、编辑、生命周期、回执重放及组织质量读取。
+- Cron 运行时的 `cron_jobs`、`cron_runs`、`execution_worker_heartbeats` 已纳入 PostgreSQL 增量迁移；系统作业种子、人工/到期运行入队、过期接管、运行状态、执行作业与 Outbox 手递均在原生 PostgreSQL 事务中完成。
+- 调度管理 API（作业/运行读取、创建、修改、手工运行、内部 tick、执行作业管理读模型与低风险失败重投）已改为 PostgreSQL 原生查询；管理读模型固定声明 `postgres_redis_bullmq_multi_worker`，不再提供 SQLite 运行模式。
+- 已以全新 PostgreSQL 库验证完整迁移链，并新增原生 Cron 集成测试，覆盖系统种子、到期/人工入队幂等、Outbox 手递、调度管理读模型和人工低风险重投。
 
 ### 当前仍在推进的范围
 
 - **全局 PostgreSQL-only 收敛：** 旧任务、发现、邮件、会话及部分管理读模型仍有 SQLite 形状的兼容实现，必须继续迁移或正式退役，不能作为生产回退路径。
 - **工单中心完善：** 详情抽屉尚需补齐来源依据、责任/关注组织版本、运行/产物、审计跳转及报表入口；当前时间线已提供 PostgreSQL 生命周期事实。
+- **Cron 业务处理器收敛：** Cron 状态与调度仓储已原生化，但 `overdue-scan`、`daily-task-snapshot`、`ownership-release`、邮件记忆与 AI 处理器自身仍须逐项迁移其遗留业务读写依赖；在完成前不得把这些处理器的兼容实现当作 PostgreSQL-only 验收。
 - **P3/P4 治理：** 事件到工单的已发布规则、模拟/发布/回滚、受理/转办/重开命令，以及个人/组织/阶段报表尚未上线。
 
 > 本记录不将历史 SQLite 兼容层标记为验收通过。生产发布前，所有进入正式工单与调度路径的服务必须仅以同一 `DATABASE_URL` 运行为前提。
