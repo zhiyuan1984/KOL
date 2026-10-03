@@ -21,7 +21,10 @@ permissions:
 jobs:
   release-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 后端全量测试已按「PostgreSQL 模板库克隆」运行，且 vitest 配置为串行
+    # （fileParallelism: false，见 backend/vitest.config.ts）：45 分钟不够，
+    # 预发实测需要 1–2 小时，这里留足预算再触发 deploy-production。
+    timeout-minutes: 150
     services:
       postgres:
         image: postgres:18-alpine
