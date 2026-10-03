@@ -3,7 +3,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
-import { authMiddleware, authRouter, ensureDemoAdmin } from "./auth.js";
+import { authMiddleware, authRouter, ensureDemoAdmin, scopedUser } from "./auth.js";
 import { clawRouter, starryRouter } from "./adapters/httpMount.js";
 import { clawMode, codexMode, frontendDist } from "./config.js";
 import { codexBinOk, isTestRuntime } from "./codex-runtime.js";
@@ -28,7 +28,7 @@ import { costsRouter } from "./routers/costs.js";
 import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
 import { tickets } from "./routers/tickets.js";
-import { ticketAuthMiddleware, ticketAuthRouter } from "./ticket-domain/auth.js";
+import { ticketAuthMiddleware, ticketAuthRouter, ticketPrincipalFromWorkbenchUser, withTicketPrincipal } from "./ticket-domain/auth.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { experts } from "./routers/experts.js";
@@ -69,14 +69,23 @@ export function createApp(): Hono {
   app.use("/api/*", compress());
   app.use("/api/*", async (c, next) => {
     const pathname = new URL(c.req.url).pathname;
+    const workbenchCronPath = pathname.startsWith("/api/cron/")
+      || pathname.startsWith("/api/admin/scheduling/");
     const formalTicketPath = pathname.startsWith("/api/tickets")
       || pathname.startsWith("/api/ticket-auth")
-      || pathname.startsWith("/api/admin/work-orders/")
-      || pathname.startsWith("/api/admin/scheduling/")
-      || pathname.startsWith("/api/cron/");
+      || pathname.startsWith("/api/admin/work-orders/");
     // Scheduler tick can authenticate with a dedicated secret and therefore
     // intentionally bypasses browser ticket-session middleware.
     if (pathname === "/api/cron/internal/tick") return next();
+    // Compatibility mode retains the existing workbench session. Cron and its
+    // scheduling console must never introduce a second ticket login domain.
+    if (workbenchCronPath) {
+      return authMiddleware(c, () => {
+        const user = scopedUser();
+        if (!user) return next();
+        return withTicketPrincipal(ticketPrincipalFromWorkbenchUser(user), next);
+      });
+    }
     return formalTicketPath ? ticketAuthMiddleware(c, next) : authMiddleware(c, next);
   });
 

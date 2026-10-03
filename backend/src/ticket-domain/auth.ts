@@ -29,6 +29,29 @@ export type TicketPrincipal = {
   active: boolean;
 };
 
+/**
+ * Compatibility runtime adapter: a logged-in workbench user is the same human
+ * actor for Cron authorization. It intentionally maps only in-memory request
+ * claims and never creates a second account, password, or session.
+ */
+export function ticketPrincipalFromWorkbenchUser(user: {
+  id: string;
+  username: string;
+  name: string;
+  email?: string;
+  roles: string[];
+  active: boolean;
+}): TicketPrincipal {
+  return {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    email: user.email || null,
+    roles: [...user.roles],
+    active: user.active,
+  };
+}
+
 function roles(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String);
   if (typeof value === "string") {
