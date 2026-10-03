@@ -28,14 +28,6 @@ function nextFor(job: Row, from: Date): string | null {
   return nextScheduledAt(String(job.cron_expr), String(job.timezone || "Asia/Shanghai"), condition.schedule || {}, from)?.toISOString() || null;
 }
 
-function isUniqueError(error: unknown): boolean {
-  const code = error && typeof error === "object" && "code" in error
-    ? String((error as { code?: unknown }).code || "")
-    : "";
-  const message = error instanceof Error ? error.message : String(error || "");
-  return code === "23505" || /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE/i.test(message);
-}
-
 function parseTakeover(job: Row): number {
   try {
     const policy = JSON.parse(String(job.takeover_policy_json || "{}")) as { after_minutes?: number };
@@ -82,19 +74,15 @@ function enqueueDueJobs(db: SqliteConn, now: Date): string[] {
     const scheduledFor = String(job.next_run_at);
     const runId = newRunId();
     const created = nowIso();
-    try {
-      db.prepare(
-        `INSERT INTO cron_runs
+    const inserted = db.prepare(
+        `INSERT OR IGNORE INTO cron_runs
          (id,job_id,trigger,status,scheduled_for,started_at,finished_at,error_code,error_summary,receipt_json,artifact_refs,session_id,created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(runId, job.id, "schedule", "queued", scheduledFor, null, null, null, null, null, null, null, created);
-    } catch (error) {
-      if (isUniqueError(error)) {
-        const next = nextFor(job, new Date(scheduledFor));
-        db.prepare("UPDATE cron_jobs SET next_run_at=?, updated_at=? WHERE id=?").run(next, created, job.id);
-        continue;
-      }
-      throw error;
+    if (!inserted.changes) {
+      const next = nextFor(job, new Date(scheduledFor));
+      db.prepare("UPDATE cron_jobs SET next_run_at=?, updated_at=? WHERE id=?").run(next, created, job.id);
+      continue;
     }
     enqueueExecutionJob({
       job_type: "cron.run",
@@ -293,20 +281,16 @@ export function enqueueManualRun(jobId: string, scheduledFor?: string): { run_id
   return txImmediate((db) => {
     const runId = newRunId();
     const slot = scheduledFor || `${nowIso()}#${runId}`;
-    try {
-      db.prepare(
-        `INSERT INTO cron_runs
+    const inserted = db.prepare(
+        `INSERT OR IGNORE INTO cron_runs
          (id,job_id,trigger,status,scheduled_for,started_at,finished_at,error_code,error_summary,receipt_json,artifact_refs,session_id,created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(runId, job.id, "manual", "queued", slot, null, null, null, null, null, null, null, nowIso());
-    } catch (error) {
-      if (isUniqueError(error)) {
-        const existing = db.prepare(
-          "SELECT id FROM cron_runs WHERE job_id=? AND scheduled_for=?",
-        ).get(job.id, slot) as { id: string } | undefined;
-        return { run_id: existing?.id || runId, duplicate: true };
-      }
-      throw error;
+    if (!inserted.changes) {
+      const existing = db.prepare(
+        "SELECT id FROM cron_runs WHERE job_id=? AND scheduled_for=?",
+      ).get(job.id, slot) as { id: string } | undefined;
+      return { run_id: existing?.id || runId, duplicate: true };
     }
     enqueueExecutionJob({
       job_type: "cron.run",

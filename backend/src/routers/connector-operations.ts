@@ -124,7 +124,7 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     if (!Number.isInteger(n) || n < 1 || n > 100) throw new HttpFail(400, { code: "invalid_limit" });
     const probes = getConn().prepare("SELECT * FROM runtime_connector_probes WHERE connector_id=? ORDER BY id DESC LIMIT ?").all(id, n);
     const events = (getConn().prepare(`SELECT id,ts,actor,event_type,payload FROM audit_events
-      WHERE event_type LIKE 'runtime.%' AND json_valid(payload) AND json_extract(payload,'$.connector_id')=?
+      WHERE event_type LIKE 'runtime.%' AND json_extract(payload,'$.connector_id')=?
       ORDER BY id DESC LIMIT ?`).all(id, n) as Row[]).map((row) => ({ id: row.id, ts: row.ts, actor: row.actor,
         event_type: row.event_type, payload: tracePayload(row.payload) }));
     return c.json({ probes, events });
