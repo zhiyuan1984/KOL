@@ -10,7 +10,7 @@
 
 | 能力 | PostgreSQL 原生实现 | 验证 |
 |---|---|---|
-| 正式工单创建、编辑、授权列表/详情/时间线 | `ticket-domain/create-ticket.ts`、`edit-ticket.ts`、`read-tickets.ts` | 空库迁移 + PG 集成测试 |
+| 正式工单创建、编辑、授权列表/详情/时间线 | `ticket-domain/create-ticket.ts`、`edit-ticket.ts`、`read-tickets.ts`、独立 `routers/tickets.ts` | 空库迁移 + PG 集成请求测试 |
 | 生命周期与责任 | `ticket-lifecycle.ts`、`assign-ticket.ts`；受理、转办、验收、重开、不可变验收历史 | PG 生命周期集成测试 |
 | 执行作业、Outbox、租约、重试 | `execution-jobs/postgres-store.ts`、Worker、Outbox publisher | PG execution-jobs 集成测试 |
 | Cron 调度状态与调度运维读模型 | `cron/postgres-store.ts`、`cron/worker.ts`、`routers/cron.ts` | PG Cron 集成测试 |

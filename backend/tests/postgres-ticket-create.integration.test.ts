@@ -6,10 +6,17 @@ import { personalTicketRawCountReport } from "../src/ticket-domain/reports.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../src/ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById } from "../src/ticket-domain/read-tickets.js";
+import { withScopedUser, type AppUser } from "../src/auth.js";
+import { tickets } from "../src/routers/tickets.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
 if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
 const describePostgres = configured ? describe : describe.skip;
+const CREATOR: AppUser = {
+  id: "u-creator", username: "ye_guanwang", handle: "ye_guanwang", name: "叶观旺", email: "", phone: "",
+  roles: ["employee"], role: "employee", brands: [], site: "", manager_user_id: null, active: true,
+  exam_passed: true, exam_todo_count: 0, exam_module: "test",
+};
 
 describePostgres("native PostgreSQL formal ticket creation", () => {
   beforeEach(async () => {
@@ -163,6 +170,9 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       by_status: { pending: 1 },
       memberships: { created: 1, assigned_primary: 1, watching: 0 },
     });
+    const apiResponse = await withScopedUser(CREATOR, () => tickets.fetch(new Request("http://test.local/tickets?view=created")));
+    expect(apiResponse.status).toBe(200);
+    expect(await apiResponse.json()).toMatchObject({ items: [{ id: first.ticket_id }], page: { limit: 50 } });
 
     const edited = await editFormalTicketPostgres(first.ticket_id, "u-creator", {
       expected_version: 1,
