@@ -73,6 +73,22 @@ function jsonValue(value: unknown): Record<string, unknown> {
   }
 }
 
+/** pg returns int8 as text by default. The shared baseline uses bigint for
+ * version counters, while incremental test schemas may use integer. Keep the
+ * read-model contract numeric across both authority-compatible shapes. */
+function count(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizedTicketRow(row: TicketRow): TicketRow {
+  return {
+    ...row,
+    data_version: count(row.data_version),
+    org_version: row.org_version == null ? null : count(row.org_version),
+  };
+}
+
 function allowedActions(row: TicketRow, userId: string): string[] {
   const creator = row.owner_user_id === userId;
   const primary = row.assignee_user_id === userId;
@@ -147,8 +163,9 @@ export async function listNativeTickets(userId: string, query: Record<string, st
      ORDER BY t.updated_at DESC,t.id DESC LIMIT $${params.length}`,
     params,
   );
-  const hasMore = result.rows.length > limit;
-  const page = result.rows.slice(0, limit);
+  const nativeRows = result.rows.map(normalizedTicketRow);
+  const hasMore = nativeRows.length > limit;
+  const page = nativeRows.slice(0, limit);
   return {
     items: page.map((row) => ({
       ...row,
@@ -192,8 +209,9 @@ export async function nativeTicketById(userId: string, ticketId: string) {
        ))`,
     [ticketId, userId],
   );
-  const row = result.rows[0];
-  if (!row) throw new HttpFail(404, { code: "ticket_not_found" });
+  const found = result.rows[0];
+  if (!found) throw new HttpFail(404, { code: "ticket_not_found" });
+  const row = normalizedTicketRow(found);
   const [assignments, watchers, basisRefs, acceptance, acceptanceHistory, runs, audit] = await Promise.all([
     pool.query<{ assignee_person_ref: string | null; assignee_user_id: string | null; org_unit_id: string; role: string; status: string; cross_group_reason: string | null; assigned_by_user_id: string | null; assignment_version: number; effective_from: string; effective_to: string | null }>(
       "SELECT assignee_person_ref,assignee_user_id,org_unit_id,role,status,cross_group_reason,assigned_by_user_id,assignment_version,effective_from,effective_to FROM ticket_assignments WHERE ticket_id=$1 ORDER BY assignment_version DESC,created_at DESC", [row.id],

@@ -27,6 +27,9 @@ const baselineSql = fs
   // 去掉 psql 专有元命令（\restrict / \unrestrict）：node-pg 无法执行它们。
   .split(/\r?\n/)
   .filter((line) => line.charCodeAt(0) !== 92)
+  // PostgreSQL 17+ 才有 transaction_timeout；基线可由更新版本 pg_dump
+  // 生成，但正式运行环境仍支持 PostgreSQL 16。
+  .filter((line) => !/^\s*SET\s+transaction_timeout\s*=/i.test(line))
   // pg_dump 会把 search_path 清空（psql 能容忍，node-pg 下未限定的语句会报 3F000
   // "no schema has been selected to create in"）；固定到 public。
   .map((line) => (line.includes("set_config('search_path'") ? "SELECT pg_catalog.set_config('search_path', 'public', false);" : line))

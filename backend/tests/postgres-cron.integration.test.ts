@@ -133,8 +133,8 @@ describePostgres("native PostgreSQL Cron scheduler", () => {
     const pool = postgresPool();
     await pgEnsureSystemCronJobs(new Date("2031-01-01T00:00:00.000Z"));
     await pool.query(
-      `INSERT INTO tickets (id,owner_user_id,task_type,profile,title,status,priority,due_at,business_category,stage_code,created_at,updated_at)
-       VALUES ('ticket-overdue','u-cron','manual_ticket','ticket-workbench','逾期报价跟进','pending','urgent','2020-12-31T00:00:00.000Z','kol','QUOTE_PENDING','2031-01-01T00:00:00.000Z','2031-01-01T00:00:00.000Z')`,
+      `INSERT INTO tickets (id,owner_user_id,task_type,skill,profile,title,status,priority,due_at,business_category,stage_code,created_at,updated_at)
+       VALUES ('ticket-overdue','u-cron','manual_ticket','ticket_form','ticket-workbench','逾期报价跟进','pending','urgent','2020-12-31T00:00:00.000Z','kol','QUOTE_PENDING','2031-01-01T00:00:00.000Z','2031-01-01T00:00:00.000Z')`,
     );
     await pool.query("INSERT INTO ticket_assignments (ticket_id,assignee_user_id,assignee_person_ref,org_unit_id,role,status,assignment_version) VALUES ('ticket-overdue','u-cron','person:cron','org:cron','primary','active',1)");
     const overdue = await pgCronJobById("overdue-scan");

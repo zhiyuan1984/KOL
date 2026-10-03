@@ -27,6 +27,14 @@ function json(value: unknown, fallback: Json = {}): Json {
   }
 }
 
+function normalizedRun(run: Row): Row {
+  return {
+    ...run,
+    receipt_json: run.receipt_json == null ? null : json(run.receipt_json),
+    artifact_refs: run.artifact_refs == null ? null : json(run.artifact_refs),
+  };
+}
+
 function stamp(now = new Date()): string {
   return now.toISOString();
 }
@@ -133,12 +141,12 @@ export async function pgListCronRuns(jobId: string, limit = 50): Promise<Row[]> 
     "SELECT * FROM cron_runs WHERE job_id=$1 ORDER BY created_at DESC LIMIT $2",
     [jobId, bounded],
   );
-  return result.rows as Row[];
+  return result.rows.map((row) => normalizedRun(row as Row));
 }
 
 export async function pgCronRunById(id: string): Promise<Row | undefined> {
   const result = await postgresPool().query<Row>("SELECT * FROM cron_runs WHERE id=$1", [id]);
-  return result.rows[0] as Row | undefined;
+  return result.rows[0] ? normalizedRun(result.rows[0] as Row) : undefined;
 }
 
 export async function pgCreateCronJob(input: {
@@ -279,7 +287,7 @@ export async function pgStartCronRun(runId: string, now = new Date()): Promise<{
       WHERE id=$2 AND status='queued' RETURNING *`,
     [stamp(now), runId],
   );
-  if (result.rows[0]) return { run: result.rows[0] as Row, started: true };
+  if (result.rows[0]) return { run: normalizedRun(result.rows[0] as Row), started: true };
   return { run: await pgCronRunById(runId), started: false };
 }
 
@@ -301,7 +309,8 @@ export async function pgFinishCronRun(input: {
       [input.status, now, input.error_code || null, input.error_summary || null, JSON.stringify(input.receipt || {}),
         input.artifact_refs ? JSON.stringify(input.artifact_refs) : null, input.session_id || null, input.run_id],
     );
-    const run = runResult.rows[0] as Row | undefined;
+    const rawRun = runResult.rows[0] as Row | undefined;
+    const run = rawRun ? normalizedRun(rawRun) : undefined;
     if (!run) return undefined;
     await client.query(
       "UPDATE cron_jobs SET last_run_at=$1,last_terminal_status=$2,updated_at=$1 WHERE id=$3",

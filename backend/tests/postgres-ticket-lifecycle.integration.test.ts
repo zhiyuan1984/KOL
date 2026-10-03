@@ -60,8 +60,8 @@ describePostgres("native PostgreSQL ticket lifecycle", () => {
         actor_user_id TEXT NOT NULL, command TEXT NOT NULL, request_json JSONB NOT NULL, result_json JSONB NOT NULL, created_at TEXT NOT NULL
       );
       TRUNCATE ticket_audit_events, ticket_acceptance_history, ticket_acceptances, ticket_command_receipts, task_events, tickets CASCADE;
-      INSERT INTO tickets (id,owner_user_id,task_type,title,status,data_version,created_at,updated_at)
-      VALUES ('t-native-1','employee:native','manual_ticket','原生生命周期测试','waiting',1,'2031-01-01T00:00:00.000Z','2031-01-01T00:00:00.000Z');
+      INSERT INTO tickets (id,owner_user_id,task_type,skill,profile,title,status,data_version,created_at,updated_at)
+      VALUES ('t-native-1','employee:native','manual_ticket','ticket_form','ticket-workbench','原生生命周期测试','waiting',1,'2031-01-01T00:00:00.000Z','2031-01-01T00:00:00.000Z');
     `);
   });
 
@@ -91,7 +91,7 @@ describePostgres("native PostgreSQL ticket lifecycle", () => {
       accepted_by: string;
       audit_command: string;
     }>(`
-      SELECT t.status AS ticket_status,t.data_version,e.event_type,e.event_class,a.accepted_by_user_id AS accepted_by,
+      SELECT t.status AS ticket_status,t.data_version::int AS data_version,e.event_type,e.event_class,a.accepted_by_user_id AS accepted_by,
              ae.command AS audit_command
       FROM tickets t
       JOIN task_events e ON e.work_item_id=t.id
@@ -124,8 +124,8 @@ describePostgres("native PostgreSQL ticket lifecycle", () => {
 
   it("records explicit primary-assignee acceptance without completing the ticket", async () => {
     await postgresPool().query(
-      `INSERT INTO tickets (id,owner_user_id,task_type,title,status,data_version,created_at,updated_at)
-       VALUES ('t-native-accept','employee:native','manual_ticket','受理测试','pending',1,$1,$1)`,
+      `INSERT INTO tickets (id,owner_user_id,task_type,skill,profile,title,status,data_version,created_at,updated_at)
+       VALUES ('t-native-accept','employee:native','manual_ticket','ticket_form','ticket-workbench','受理测试','pending',1,$1,$1)`,
       ["2031-01-01T00:00:00.000Z"],
     );
     const accepted = await transitionTicketLifecyclePostgres({

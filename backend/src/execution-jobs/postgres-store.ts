@@ -26,10 +26,18 @@ function normalizedLeaseMs(value: unknown): number {
   return Math.max(1_000, Math.min(10 * 60_000, Number(value || 60_000)));
 }
 
+function normalizedJob(row: Row): Row {
+  return {
+    ...row,
+    attempts: Number(row.attempts || 0),
+    max_attempts: Number(row.max_attempts || 1),
+  };
+}
+
 async function jobByIdIn(client: PoolClient, id: string, lock = false): Promise<Row | undefined> {
   const suffix = lock ? " FOR UPDATE" : "";
   const result = await client.query<Row>(`SELECT * FROM execution_jobs WHERE id=$1${suffix}`, [id]);
-  return result.rows[0] as Row | undefined;
+  return result.rows[0] ? normalizedJob(result.rows[0] as Row) : undefined;
 }
 
 async function insertDispatchOutbox(
@@ -48,7 +56,7 @@ async function insertDispatchOutbox(
 
 export async function pgExecutionJobById(id: string): Promise<Row | undefined> {
   const result = await postgresPool().query<Row>("SELECT * FROM execution_jobs WHERE id=$1", [id]);
-  return result.rows[0] as Row | undefined;
+  return result.rows[0] ? normalizedJob(result.rows[0] as Row) : undefined;
 }
 
 export async function pgListExecutionJobs(filters: { status?: string; limit?: number } = {}): Promise<Row[]> {
@@ -57,12 +65,12 @@ export async function pgListExecutionJobs(filters: { status?: string; limit?: nu
     return (await postgresPool().query<Row>(
       "SELECT * FROM execution_jobs WHERE status=$1 ORDER BY created_at DESC,id DESC LIMIT $2",
       [filters.status, limit],
-    )).rows as Row[];
+    )).rows.map((row) => normalizedJob(row as Row));
   }
   return (await postgresPool().query<Row>(
     "SELECT * FROM execution_jobs ORDER BY created_at DESC,id DESC LIMIT $1",
     [limit],
-  )).rows as Row[];
+  )).rows.map((row) => normalizedJob(row as Row));
 }
 
 /** Public projection belongs with the PostgreSQL repository so scheduling
@@ -125,9 +133,9 @@ export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: {
     if (!inserted.rows[0]) {
       const replay = await client.query<Row>("SELECT * FROM execution_jobs WHERE idempotency_key=$1", [input.idempotency_key]);
       if (!replay.rows[0]) throw new Error("execution job idempotency replay could not be loaded");
-      return { job: replay.rows[0] as Row, created: false };
+      return { job: normalizedJob(replay.rows[0] as Row), created: false };
     }
-    const job = inserted.rows[0] as Row;
+    const job = normalizedJob(inserted.rows[0] as Row);
     const outbox = input.outbox || {
       event_type: "execution_job.queued",
       aggregate_type: "execution_job",
@@ -150,7 +158,7 @@ export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: {
 
 function claimed(row: Row): ClaimedExecutionJob {
   return {
-    ...row,
+    ...normalizedJob(row),
     lease_until: String(row.lease_until),
     worker_id: String(row.lease_owner),
   };

@@ -436,6 +436,7 @@
 ### 已完成的 PostgreSQL 原生链路
 
 - 追加 PostgreSQL-only 核心引导迁移；全新空库可依次建立 `tickets`、`task_events`、`execution_jobs`、`execution_outbox`、组织投影与正式工单领域表，不依赖 SQLite 快照建表。
+- 已将隔离分支变基至 2026-10-03 的最新 `origin/main` PostgreSQL baseline。迁移运行器会过滤仅 PostgreSQL 17+ 支持的 dump 会话参数以兼容 PostgreSQL 16；正式工单、执行作业与 Cron 仓储统一归一 baseline 的 `bigint` 与 JSON 文本/JSONB 返回形态，并在全新 PostgreSQL 16 库验证通过。
 - `POST /api/tickets` 已在单一 PostgreSQL 事务内创建工单、三级组织范围、主受理人、直属上级关注、来源引用、不可变 `task.created` 事件、审计事实和幂等回执。
 - `GET /api/tickets`、`GET /api/tickets/:id`、摘要与时间线已使用 PostgreSQL 原生授权读取；员工端 `/tasks` 已切换为“我受理 / 我创建 / 我关注 / 我已完成 / 全部授权”服务端视图和游标分页。
 - `PATCH /api/tickets/:id` 已仅允许待受理工单编辑业务字段，并在同一 PostgreSQL 事务写入版本、不可变 `task.updated` 事件、审计事实和幂等回执；Home 不再调用旧任务编辑写入。
