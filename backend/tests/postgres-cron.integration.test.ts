@@ -9,6 +9,7 @@ import {
   pgTickCronDue,
 } from "../src/cron/postgres-store.js";
 import { pgClaimExecutionJobById, pgEnqueueExecutionJob, pgFailExecutionJob, pgRetryFailedExecutionJob } from "../src/execution-jobs/postgres-store.js";
+import { executeCronRun } from "../src/cron/worker.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
 if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
@@ -56,7 +57,20 @@ describePostgres("native PostgreSQL Cron scheduler", () => {
         created_by TEXT NOT NULL, published_by TEXT, created_at TEXT NOT NULL, published_at TEXT, updated_at TEXT NOT NULL,
         PRIMARY KEY(id,version)
       );
+      CREATE TABLE IF NOT EXISTS tickets (
+        id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, task_type TEXT NOT NULL, profile TEXT NOT NULL,
+        title TEXT NOT NULL, status TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal', due_at TEXT,
+        business_category TEXT, stage_code TEXT, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS ticket_assignments (
+        ticket_id TEXT NOT NULL, assignee_user_id TEXT, assignee_person_ref TEXT, role TEXT NOT NULL,
+        status TEXT NOT NULL, assignment_version INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS ticket_watchers (
+        ticket_id TEXT NOT NULL, watcher_user_id TEXT, status TEXT NOT NULL
+      );
       TRUNCATE cron_runs, cron_jobs, execution_worker_heartbeats, scheduling_rules, execution_outbox, execution_jobs CASCADE;
+      TRUNCATE ticket_watchers, ticket_assignments, tickets CASCADE;
     `);
   });
 
@@ -113,5 +127,27 @@ describePostgres("native PostgreSQL Cron scheduler", () => {
     expect(retried).toMatchObject({ retried: true, job: { status: "queued" } });
     const outbox = await postgresPool().query<{ count: string }>("SELECT COUNT(*)::text AS count FROM execution_outbox WHERE job_id=$1", [queued.job.id]);
     expect(outbox.rows[0]).toEqual({ count: "2" });
+  });
+
+  it("executes read-only scans against PostgreSQL formal tickets and quarantines unmigrated business writers", async () => {
+    const pool = postgresPool();
+    await pgEnsureSystemCronJobs(new Date("2031-01-01T00:00:00.000Z"));
+    await pool.query(
+      `INSERT INTO tickets (id,owner_user_id,task_type,profile,title,status,priority,due_at,business_category,stage_code,created_at,updated_at)
+       VALUES ('ticket-overdue','u-cron','manual_ticket','ticket-workbench','逾期报价跟进','pending','urgent','2020-12-31T00:00:00.000Z','kol','QUOTE_PENDING','2031-01-01T00:00:00.000Z','2031-01-01T00:00:00.000Z')`,
+    );
+    await pool.query("INSERT INTO ticket_assignments (ticket_id,assignee_user_id,assignee_person_ref,org_unit_id,role,status,assignment_version) VALUES ('ticket-overdue','u-cron','person:cron','org:cron','primary','active',1)");
+    const overdue = await pgCronJobById("overdue-scan");
+    const overdueRun = await pgEnqueueManualCronRun(String(overdue?.id), "2031-01-01T08:00:00.000Z");
+    await pool.query("UPDATE cron_runs SET status='running',started_at=$1 WHERE id=$2", ["2031-01-01T08:00:01.000Z", overdueRun.run_id]);
+    const finished = await executeCronRun(overdueRun.run_id, undefined, Date.parse("2031-01-01T08:00:02.000Z"));
+    expect(finished.status).toBe("succeeded");
+    expect((finished.receipt_json as { source?: string; count?: number })).toMatchObject({ source: "postgresql_formal_tickets", count: 1 });
+
+    const release = await pgCronJobById("ownership-release");
+    const releaseRun = await pgEnqueueManualCronRun(String(release?.id), "2031-01-01T03:00:00.000Z");
+    await pool.query("UPDATE cron_runs SET status='running',started_at=$1 WHERE id=$2", ["2031-01-01T03:00:01.000Z", releaseRun.run_id]);
+    const quarantined = await executeCronRun(releaseRun.run_id, undefined, Date.parse("2031-01-01T03:00:02.000Z"));
+    expect(quarantined).toMatchObject({ status: "needs_takeover", error_code: "postgres_handler_dependency_not_migrated" });
   });
 });

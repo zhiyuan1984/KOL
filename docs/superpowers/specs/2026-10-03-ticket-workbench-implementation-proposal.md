@@ -450,7 +450,7 @@
 
 - **全局 PostgreSQL-only 收敛：** 旧任务、发现、邮件、会话及部分管理读模型仍有 SQLite 形状的兼容实现，必须继续迁移或正式退役，不能作为生产回退路径。
 - **工单中心完善：** PostgreSQL 详情读取已提供来源依据、受理历史、关注关系、验收证据、运行摘要和审计索引；员工端详情抽屉仍需完整呈现这些分区并补充产物链接与报表入口。
-- **Cron 业务处理器收敛：** Cron 状态与调度仓储已原生化，但 `overdue-scan`、`daily-task-snapshot`、`ownership-release`、邮件记忆与 AI 处理器自身仍须逐项迁移其遗留业务读写依赖；在完成前不得把这些处理器的兼容实现当作 PostgreSQL-only 验收。
+- **Cron 业务处理器收敛：** `overdue-scan` 与 `daily-task-snapshot` 已改为只读取 PostgreSQL 正式工单投影；Cron PostgreSQL 仓储不再导入旧 Cron store。`ownership-release`、邮件记忆与 AI 处理器因其业务仓储尚未原生化，已改为显式 `needs_takeover`，其中两个已发布系统写入作业会通过 migration 停用，防止其隐式触达 SQLite。后续需按领域完成原生仓储后重新走规则发布，而不是直接恢复旧处理器。
 - **P3/P4 治理：** 事件到工单的已发布规则、模拟/发布/回滚、重开命令，以及个人/组织/阶段报表尚未上线；受理/转办已上线，但仍需补协同受理人与管理授权策略。
 
 > 本记录不将历史 SQLite 兼容层标记为验收通过。生产发布前，所有进入正式工单与调度路径的服务必须仅以同一 `DATABASE_URL` 运行为前提。

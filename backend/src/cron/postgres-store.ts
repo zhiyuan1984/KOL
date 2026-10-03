@@ -8,11 +8,11 @@ import {
   DEFAULT_EXPERT,
   SYSTEM_EXECUTE_AS,
   SYSTEM_JOBS,
-  isSystemJob,
-  publicJob,
-  publicJobSummary,
-  publicRun,
-} from "./store.js";
+  cronPublicJob,
+  cronPublicJobSummary,
+  cronPublicRun,
+  cronSystemJob,
+} from "./contracts.js";
 import { nextRunAt, nextScheduledAt, type ScheduleWindow } from "./schedule.js";
 
 const DEFAULT_RETRY = { max_attempts: 1, backoff_sec: 0 };
@@ -355,8 +355,8 @@ export async function pgSchedulingAdminReadModel(limit: number, status?: string)
   } as Json;
 }
 
-export function pgCronPublicJob(job: Row): Json { return publicJob(job); }
-export function pgCronPublicJobSummary(job: Row): Json { return publicJobSummary(job); }
-export function pgCronPublicRun(run: Row): Json { return publicRun(run); }
-export function pgCronSystemJob(job: Row): boolean { return isSystemJob(job); }
+export function pgCronPublicJob(job: Row): Json { return cronPublicJob(job); }
+export function pgCronPublicJobSummary(job: Row): Json { return cronPublicJobSummary(job); }
+export function pgCronPublicRun(run: Row): Json { return cronPublicRun(run); }
+export function pgCronSystemJob(job: Row): boolean { return cronSystemJob(job); }
 export function pgCronSchedule(job: Row): Json { return scheduleOf(job); }

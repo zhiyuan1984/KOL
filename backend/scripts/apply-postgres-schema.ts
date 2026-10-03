@@ -500,6 +500,19 @@ const migrations: SchemaMigration[] = [
       "CREATE INDEX IF NOT EXISTS execution_worker_heartbeats_recent_idx ON execution_worker_heartbeats(heartbeat_at DESC)",
     ],
   },
+  {
+    // These writers still require domain repositories that have not yet been
+    // migrated from the historical compatibility layer. Disable them rather
+    // than allowing a PostgreSQL Cron worker to invoke SQLite-shaped effects.
+    id: "20261003_disable_unmigrated_cron_writers",
+    statements: [
+      `UPDATE cron_jobs
+          SET status='disabled', next_run_at=NULL, updated_at=now()
+        WHERE owner_account_id IS NULL
+          AND handler_key IN ('ownership-release','mail-memory-increment')
+          AND status <> 'disabled'`,
+    ],
+  },
 ];
 
 const client = new Client({ connectionString: databaseUrl });
