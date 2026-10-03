@@ -63,6 +63,16 @@ function encodeCursor(row: TicketRow): string {
   return Buffer.from(JSON.stringify({ updated_at: row.updated_at, id: row.id })).toString("base64url");
 }
 
+function jsonValue(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
 function allowedActions(row: TicketRow, userId: string): string[] {
   const creator = row.owner_user_id === userId;
   const primary = row.assignee_user_id === userId;
@@ -161,7 +171,8 @@ export async function listNativeTickets(userId: string, query: Record<string, st
 /** Authorizes a single formal ticket through the same creator/assignee/watcher
  * relationship used by the list endpoint. */
 export async function nativeTicketById(userId: string, ticketId: string) {
-  const result = await postgresPool().query<TicketRow>(
+  const pool = postgresPool();
+  const result = await pool.query<TicketRow>(
     `SELECT t.id,t.title,t.goal,t.status,t.priority,t.business_category,t.stage_group,t.stage_code,t.due_at,t.no_due_reason,
             t.data_version,t.created_at,t.updated_at,t.owner_user_id,
             pa.assignee_person_ref,pa.assignee_user_id,pa.org_unit_id AS assignee_org_unit_id,
@@ -181,6 +192,26 @@ export async function nativeTicketById(userId: string, ticketId: string) {
   );
   const row = result.rows[0];
   if (!row) throw new HttpFail(404, { code: "ticket_not_found" });
+  const [assignments, watchers, basisRefs, acceptance, runs, audit] = await Promise.all([
+    pool.query<{ assignee_person_ref: string | null; assignee_user_id: string | null; org_unit_id: string; role: string; status: string; cross_group_reason: string | null; assigned_by_user_id: string | null; assignment_version: number; effective_from: string; effective_to: string | null }>(
+      "SELECT assignee_person_ref,assignee_user_id,org_unit_id,role,status,cross_group_reason,assigned_by_user_id,assignment_version,effective_from,effective_to FROM ticket_assignments WHERE ticket_id=$1 ORDER BY assignment_version DESC,created_at DESC", [row.id],
+    ),
+    pool.query<{ watcher_person_ref: string | null; watcher_user_id: string | null; reason: string; automatic: boolean; org_version: number; status: string; created_at: string; removed_at: string | null }>(
+      "SELECT watcher_person_ref,watcher_user_id,reason,automatic,org_version,status,created_at,removed_at FROM ticket_watchers WHERE ticket_id=$1 ORDER BY created_at", [row.id],
+    ),
+    pool.query<{ source_type: string; source_id: string; source_version: string | null; occurred_at: string | null; summary_json: unknown; created_at: string }>(
+      "SELECT source_type,source_id,source_version,occurred_at,summary_json,created_at FROM ticket_basis_refs WHERE ticket_id=$1 ORDER BY created_at", [row.id],
+    ),
+    pool.query<{ accepted_at: string; owner_user_id_at_acceptance: string; accepted_by_user_id: string; evidence_json: unknown; rules_version: string }>(
+      "SELECT accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version FROM ticket_acceptances WHERE ticket_id=$1", [row.id],
+    ),
+    pool.query<{ id: string; status: string; session_id: string | null; worker_id: string | null; created_at: string; started_at: string | null; completed_at: string | null }>(
+      "SELECT id,status,session_id,worker_id,created_at,started_at,completed_at FROM task_runs WHERE work_item_id=$1 ORDER BY created_at DESC LIMIT 50", [row.id],
+    ),
+    pool.query<{ id: string; actor_user_id: string; command: string; created_at: string }>(
+      "SELECT id,actor_user_id,command,created_at FROM ticket_audit_events WHERE ticket_id=$1 ORDER BY created_at DESC LIMIT 50", [row.id],
+    ),
+  ]);
   return {
     ...row,
     ticket_id: row.id,
@@ -192,6 +223,12 @@ export async function nativeTicketById(userId: string, ticketId: string) {
     missing_fields: [],
     source_refs: [{ type: "postgresql_ticket", id: row.id, org_version: row.org_version }],
     allowed_actions: allowedActions(row, userId),
+    assignments: assignments.rows,
+    watchers: watchers.rows,
+    basis_refs: basisRefs.rows.map((item) => ({ ...item, summary: jsonValue(item.summary_json) })),
+    acceptance: acceptance.rows[0] ? { ...acceptance.rows[0], evidence: jsonValue(acceptance.rows[0].evidence_json) } : null,
+    runs: runs.rows.map((run) => ({ run_id: run.id, ...run })),
+    audit: audit.rows,
   };
 }
 

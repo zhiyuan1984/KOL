@@ -146,6 +146,13 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     expect(center.items[0]).toMatchObject({ ticket_id: first.ticket_id, source: "manual", allowed_actions: ["edit", "cancel", "assign", "accept"] });
     const visibleToWatcher = await nativeTicketById("u-supervisor", first.ticket_id);
     expect(visibleToWatcher.allowed_actions).toEqual([]);
+    const detail = await nativeTicketById("u-creator", first.ticket_id);
+    expect(detail.assignments).toHaveLength(1);
+    expect(detail.watchers).toHaveLength(1);
+    expect(detail.basis_refs).toEqual([]);
+    expect(detail.acceptance).toBeNull();
+    expect(detail.runs).toEqual([]);
+    expect(detail.audit.some((item: { command: string }) => item.command === "ticket.create")).toBe(true);
 
     const edited = await editFormalTicketPostgres(first.ticket_id, "u-creator", {
       expected_version: 1,
