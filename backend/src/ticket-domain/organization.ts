@@ -389,6 +389,38 @@ export async function bindTicketAccountToOrganizationPerson(
   }, { isolation: "SERIALIZABLE" });
 }
 
+/** Management-only selection data for explicit account enrollment. It contains
+ * stable IDs and current bindings, not inferred matching recommendations. */
+export async function ticketAccountOrganizationBindingOptions() {
+  await ensurePostgresOrganizationSeed();
+  const [accounts, people] = await Promise.all([
+    postgresPool().query<{ id: string; username: string; name: string; roles: unknown; bound_person_ref: string | null }>(
+      `SELECT a.id,a.username,a.name,a.roles,p.person_ref AS bound_person_ref
+         FROM ticket_accounts a
+         LEFT JOIN organization_people p ON p.user_id=a.id AND p.status='active'
+        WHERE a.active=true
+        ORDER BY a.name,a.username,a.id`,
+    ),
+    postgresPool().query<{ person_ref: string; display_name: string; org_unit_id: string | null; user_id: string | null }>(
+      `SELECT p.person_ref,p.display_name,m.org_unit_id,p.user_id
+         FROM organization_people p
+         LEFT JOIN organization_memberships m ON m.person_ref=p.person_ref AND m.status='active' AND m.relation='primary'
+        WHERE p.status='active'
+        ORDER BY p.display_name,p.person_ref`,
+    ),
+  ]);
+  return {
+    accounts: accounts.rows.map((row) => ({
+      id: row.id,
+      username: row.username,
+      name: row.name,
+      roles: Array.isArray(row.roles) ? row.roles.map(String) : [],
+      bound_person_ref: row.bound_person_ref,
+    })),
+    people: people.rows,
+  };
+}
+
 /**
  * Management-only evidence for the formal-ticket preflight. This deliberately
  * reports missing authority data instead of inventing a default assignee or a

@@ -126,6 +126,10 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     })));
     expect(creatorBinding.status).toBe(200);
     await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:zhong_jiankui", account_id: "u-supervisor", reason: "test controlled supervisor enrollment" });
+    const bindingOptions = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/work-orders/account-bindings/options")));
+    expect(bindingOptions.status).toBe(200);
+    const bindingOptionBody = await bindingOptions.json() as { accounts: Array<{ id: string; bound_person_ref: string | null }> };
+    expect(bindingOptionBody.accounts).toEqual(expect.arrayContaining([expect.objectContaining({ id: "u-creator", bound_person_ref: "person:ye_guanwang" })]));
     const pool = postgresPool();
     const bootstrap = await ticketOrgFormBootstrap("u-creator");
     expect(bootstrap.formal_submission_enabled).toBe(true);

@@ -17,8 +17,8 @@
 | Cron 正式工单只读处理器 | `overdue-scan`、`daily-task-snapshot` 直接读取 PostgreSQL formal tickets | PG Cron 处理器集成测试 |
 | 个人授权工单原始计数 | `ticket-domain/reports.ts` | PG 创建/报表集成测试 |
 | 员工工单详情时间线 | `Tasks.tsx` 只读取 `/tickets/:id/timeline`，不再订阅 legacy `/runs/*` SSE | 前端 typecheck/build/relevant tests |
-| 正式工单身份与会话 | `ticket_accounts`、`ticket_auth_sessions`、`ticket-domain/auth.ts`；初始管理员 setup、登录、登出、Cookie 会话 | PG 身份集成测试 |
-| 账号—组织人员受控绑定 | 管理员 `POST /admin/work-orders/account-bindings`；不可变 `ticket_account_organization_bindings` 审计 | PG 路由/创建集成测试 |
+| 正式工单身份与会话 | `ticket_accounts`、`ticket_auth_sessions`、`ticket-domain/auth.ts`；初始管理员 setup、登录、登出、Cookie 会话；员工 `/tasks` 原生身份门禁 | PG 身份集成测试、前端 typecheck/build |
+| 账号—组织人员受控绑定 | 管理员 `GET/POST /admin/work-orders/account-bindings/*`；不可变 `ticket_account_organization_bindings` 审计；治理页只显示明确的可选项 | PG 路由/创建集成测试、前端 typecheck/build |
 
 ## 已安全隔离或停用
 
@@ -53,6 +53,6 @@
 ## 下一批可执行工作
 
 1. 将正式 `/tickets` 提取为不导入 legacy task router 的原生 Hono router，并为它提供独立 PG bootstrap 测试。
-2. 为原生账号 setup、登录和账号—人员绑定补齐员工/管理端界面，并在兼容界面与 PostgreSQL-only 登录域之间完成明确切换。
+2. 在兼容界面与 PostgreSQL-only 登录域之间完成全应用的明确切换；其余历史页面不能暗中复用两套会话。
 3. 迁移个人任务/首页 read-model；旧 `/tasks`/`/workbench/tasks` 在 PG-only 部署模式下显式 retired。
 4. 在正式工单与正式协作状态均已原生化后，重建 `ownership-release` 和邮件记忆作业，走规则 draft/simulate/publish 闸门。

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, type PersonalTicketRawCountReport, type Task, type TaskDetail, type TaskEvent, type Ticket } from "../api";
 import TicketCreateDialog from "../home/TicketCreateDialog";
 import TicketEditDialog from "../home/TicketEditDialog";
+import TicketIdentityGate from "../components/TicketIdentityGate";
 
 type View = "active" | "history";
 type TaskStatusTab = "authorized" | "assigned" | "created" | "watching" | "completed";
@@ -112,6 +113,10 @@ function belongsToTab(task: Task, tab: TaskStatusTab) {
 }
 
 export default function Tasks() {
+  return <TicketIdentityGate><TaskCenter /></TicketIdentityGate>;
+}
+
+function TaskCenter() {
   const [params, setParams] = useSearchParams();
   const selectedStatus: TaskStatusTab = isStatusTab(params.get("view")) ? params.get("view") as TaskStatusTab : "assigned";
   const view: View = selectedStatus === "completed" ? "history" : "active";

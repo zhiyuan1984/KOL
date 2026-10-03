@@ -9234,6 +9234,11 @@ body {
 
 .auth-page { min-height: 100%; display: grid; place-items: center; padding: 24px; overflow: auto; background: var(--chrome); }
 .auth-card { width: min(420px, 100%); display: grid; gap: 16px; padding: 28px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-quiet); }
+.ticket-identity-page { min-height: 100%; display: grid; place-items: center; padding: var(--space-5); overflow: auto; background: var(--canvas); }
+.ticket-identity-card { width: min(480px, 100%); display: grid; gap: var(--space-3); padding: clamp(var(--space-4), 4vw, var(--space-6)); background: var(--bg); border: 1px solid var(--border); border-radius: var(--ds-radius-section); box-shadow: var(--shadow-quiet); }
+.ticket-identity-card h1, .ticket-identity-card p { margin: 0; }
+.ticket-identity-card .error-summary { border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border)); background: color-mix(in srgb, var(--danger) 8%, var(--bg-elevated)); border-radius: var(--ds-radius-input); padding: var(--space-2) var(--space-3); color: var(--danger); }
+.ticket-identity-card .error-summary strong { display: block; margin-bottom: var(--space-1); }
 .auth-card h1, .settings-page h1, .admin-header h1, .shared-page h1 { margin: 0; }
 .auth-card .error-summary {
   border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
@@ -9288,6 +9293,10 @@ body {
 .settings-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; padding: 9px 12px; cursor: pointer; color: var(--muted); font: inherit; font-size: var(--font-ui); white-space: nowrap; min-height: 36px; }
 .settings-tabs button.active { color: var(--accent-text); border-color: var(--accent); font-weight: 500; }
 .settings-form { display: grid; gap: 14px; max-width: 780px; }
+.ticket-binding-form { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(14rem, 1fr); gap: var(--space-3); align-items: end; margin-top: var(--space-3); max-width: 980px; }
+.ticket-binding-reason, .ticket-binding-action { grid-column: 1 / -1; }
+.ticket-binding-reason textarea { min-height: 5.5rem; resize: vertical; }
+.ticket-binding-action { display: flex; justify-content: flex-end; }
 .settings-form h2, .admin-shell h2 { font-size: var(--font-section); margin: 0; }
 .form-grid, .admin-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
 .check { display: flex; align-items: center; gap: 7px; font-size: var(--font-ui); }
@@ -15462,4 +15471,11 @@ button.today-brief-primary-btn:disabled {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.5;
+}
+
+@media (max-width: 680px) {
+  .ticket-binding-form { grid-template-columns: 1fr; }
+  .ticket-binding-reason, .ticket-binding-action { grid-column: auto; }
+  .ticket-binding-action { justify-content: stretch; }
+  .ticket-binding-action .btn { width: 100%; }
 }

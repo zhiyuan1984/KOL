@@ -449,13 +449,14 @@
 - 创建人可通过明确原因重开已完成工单；重开会移除 `ticket_acceptances` 的当前投影，但会将每次验收永久写入 `ticket_acceptance_history`，再次验收使用新版本，历史事实不被更新或删除。
 - 已提供 PostgreSQL 原生的个人授权工单原始计数报表；响应显式标识 `as_of`、时区、个人授权范围和来源，不包含 SLA、绩效、排名或生产率推断。
 - 正式工单现使用独立的 PostgreSQL `ticket_accounts` 与 `ticket_auth_sessions`，支持首个管理员 setup、登录、登出、Cookie 会话；账号与受控组织人员的绑定只能由管理员以原因发起，并写入不可变 `ticket_account_organization_bindings` 审计，绝不从显示名或历史 SQLite 用户猜测映射。
+- 员工 `/tasks` 已先通过明确的“正式工单 PostgreSQL 身份”门禁再读取工单；管理端“工单治理”已使用同一管理员会话，展示未绑定账号和受控人员，并通过有原因的确认绑定表单调用审计命令。该页面不复用历史工作台会话作为工单授权。
 - 已完成一次运行时依赖审计，详见 [`docs/POSTGRES_ONLY_RUNTIME_AUDIT.md`](../../POSTGRES_ONLY_RUNTIME_AUDIT.md)：正式工单/执行/Cron 原生子链已可在空 PostgreSQL 库验证，但 HTTP 启动、旧 `/tasks` 与首页等仍含 SQLite-shaped bridge，不能把整个历史应用宣称为 PostgreSQL-only。
 
 ### 当前仍在推进的范围
 
 - **全局 PostgreSQL-only 收敛：** 旧任务、发现、邮件、会话及部分管理读模型仍有 SQLite 形状的兼容实现，必须继续迁移或正式退役，不能作为生产回退路径。
 - **工单中心完善：** PostgreSQL 详情读取已提供来源依据、受理历史、关注关系、验收证据、运行摘要和审计索引；员工端详情抽屉仍需完整呈现这些分区并补充产物链接与报表入口。
-- **原生身份界面：** 后端已具备 PostgreSQL 工单账号 setup、登录与管理员账号—人员绑定契约；员工/管理端仍需提供对应界面，并与历史应用登录域作显式切换，不能混用两套会话。
+- **全应用身份切换：** 员工工单中心与工单治理页已具备原生身份入口；其余历史工作台仍由旧登录域保护。后续需将可保留的页面迁到原生身份或在 PostgreSQL-only 部署模式下明确退役，不能混用两套会话。
 - **Cron 业务处理器收敛：** `overdue-scan` 与 `daily-task-snapshot` 已改为只读取 PostgreSQL 正式工单投影；Cron PostgreSQL 仓储不再导入旧 Cron store。`ownership-release`、邮件记忆与 AI 处理器因其业务仓储尚未原生化，已改为显式 `needs_takeover`，其中两个已发布系统写入作业会通过 migration 停用，防止其隐式触达 SQLite。后续需按领域完成原生仓储后重新走规则发布，而不是直接恢复旧处理器。
 - **P3/P4 治理：** 事件到工单的已发布规则、模拟/发布/回滚，以及组织/阶段报表尚未上线；个人原始计数报表已上线，受理/转办/重开已上线，但仍需补协同受理人与管理授权策略。
 

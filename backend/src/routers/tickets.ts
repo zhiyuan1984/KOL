@@ -6,7 +6,7 @@ import { transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
 import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
-import { bindTicketAccountToOrganizationPerson, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
+import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { personalTicketRawCountReport } from "../ticket-domain/reports.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -70,6 +70,11 @@ tickets.get("/tickets/form-bootstrap", async (c) => {
 tickets.get("/admin/work-orders/data-quality", async (c) => {
   if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
   return c.json({ ...(await ticketOrganizationQualityReport()), ...requestMetadata() });
+});
+
+tickets.get("/admin/work-orders/account-bindings/options", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await ticketAccountOrganizationBindingOptions()), ...requestMetadata() });
 });
 
 /** Explicit, audited enrollment; this never infers a person from display name
