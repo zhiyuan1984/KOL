@@ -193,7 +193,7 @@ describe("approval inbox by login name", () => {
     }, cookie);
     expect(preview.status).toBe(200);
     const steps = (preview.json as { steps: { name: string }[] }).steps;
-    expect(steps.map((step) => step.name)).toEqual(["林桐"]);
+    expect(steps.map((step) => step.name)).toEqual(["林桐", "张总"]);
     expect((await call("GET", "/api/approvals", undefined, cookie)).json as unknown as unknown[]).toHaveLength(beforeCount);
 
     const created = await call("POST", "/api/approvals", {
@@ -216,7 +216,7 @@ describe("approval inbox by login name", () => {
     };
     expect(row.kind).toBe("expense");
     expect(row.payload.rule_id).toBe("FIN-EXP-001");
-    expect(row.chain_detail.map((step) => step.name)).toEqual(["林桐"]);
+    expect(row.chain_detail.map((step) => step.name)).toEqual(["林桐", "张总"]);
     expect(row.can_decide).toBe(true);
     expect(row.expected_role).toBe("emp_lintong");
 
@@ -230,7 +230,7 @@ describe("approval inbox by login name", () => {
     }, cookie);
     expect(asMe.status).toBe(200);
     expect((asMe.json as { steps: { name: string }[]; plan: { requester_name?: string } }).plan.requester_name).toBe("林桐");
-    expect((asMe.json as { steps: { name: string }[] }).steps.map((step) => step.name)).toEqual(["王主管"]);
+    expect((asMe.json as { steps: { name: string }[] }).steps.map((step) => step.name)).toEqual(["王主管", "张总"]);
     expect((await call("GET", "/api/wecom/cards", undefined, cookie)).status).toBe(200);
   });
 

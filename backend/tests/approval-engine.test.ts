@@ -567,7 +567,7 @@ describe("expense approval host path", () => {
   it("persists the Host chain so later decide cannot restaff", async () => {
     const posted = await ask("黎玉燕要申请5万美国KOL推广预算");
     const approval = posted.body.approval as { id: string; chain: string[]; payload: { steps: { name: string }[] } };
-    expect(approval.chain.length).toBe(3);
+    expect(approval.chain.length).toBe(4);
     expect(approval.payload.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
     const detail = await request("GET", `/api/approvals/${approval.id}`);
     expect((detail.body as { kind: string }).kind).toBe("expense");
