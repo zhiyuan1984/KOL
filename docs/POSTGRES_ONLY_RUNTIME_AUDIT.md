@@ -23,6 +23,7 @@
 | 账号—组织人员受控绑定 | 管理员 `GET/POST /admin/work-orders/account-bindings/*`；不可变 `ticket_account_organization_bindings` 审计；治理页只显示明确的可选项 | PG 路由/创建集成测试、前端 typecheck/build |
 | PostgreSQL-only HTTP 启动 | `KOL_RUNTIME_MODE=postgres-only` 动态装配 `postgres-only-app.ts`；只挂载 ticket auth、tickets、Cron，旧 `/tasks` 等路由明确 404 | PG-only HTTP 应用集成测试 |
 | Cron 授权与风险读取 | `cron/authz.ts`、Cron Worker/handlers 使用 PostgreSQL ticket identity；风险面只查询正式工单 | PG-only HTTP + Cron 集成测试 |
+| 规则草稿、模拟与发布治理 | `rule-governance.ts`、规则模拟/审计/回执表；管理员才可草稿、模拟、发布、停用 | PG 规则治理集成测试、前端 typecheck/build |
 
 ## 已安全隔离或停用
 
@@ -56,7 +57,7 @@
 
 ## 下一批可执行工作
 
-1. 为 PostgreSQL-only 模式补充发布运行手册、环境变量校验与部署前健康检查；不执行生产切换，待明确批准。
-2. 在兼容界面与 PostgreSQL-only 登录域之间完成全应用的明确切换；其余历史页面不能暗中复用两套会话。
-3. 迁移个人任务/首页 read-model；旧 `/tasks`/`/workbench/tasks` 在 PG-only 部署模式下已 retired。
-4. 在正式工单与正式协作状态均已原生化后，重建 `ownership-release` 和邮件记忆作业，走规则 draft/simulate/publish 闸门。
+1. 在兼容界面与 PostgreSQL-only 登录域之间完成全应用的明确切换；其余历史页面不能暗中复用两套会话。
+2. 迁移个人任务/首页 read-model；旧 `/tasks`/`/workbench/tasks` 在 PG-only 部署模式下已 retired。
+3. 在正式工单与正式协作状态均已原生化后，重建 `ownership-release` 和邮件记忆作业，走已实现的规则 draft/simulate/publish 闸门。
+4. 待业务专家发布首批事件条件、组织范围与人工确认职责后，才把已发布规则接入 Event→Ticket 执行器；当前发布只登记人工确认建议，自动业务动作保持关闭。

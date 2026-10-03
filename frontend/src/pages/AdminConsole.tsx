@@ -55,7 +55,7 @@ export default function AdminConsole() {
   const tab = adminTabOf(location.pathname);
 
   const load = useCallback(() => {
-    if (tab === "work-orders") {
+    if (tab === "work-orders" || tab === "scheduling") {
       setError("");
       setLoading(false);
       return;
@@ -87,6 +87,9 @@ export default function AdminConsole() {
   };
   if (tab === "work-orders") {
     return <div className="admin-shell" data-admin-ia="governance"><div className="admin-body"><AdminWorkOrders /></div></div>;
+  }
+  if (tab === "scheduling") {
+    return <div className="admin-shell" data-admin-ia="governance"><div className="admin-body"><AdminScheduling /></div></div>;
   }
   if (!account?.available_modes?.includes("admin")) return <Navigate to="/" replace />;
   if (section === "starry") return <Navigate to="/settings?tab=starry" replace />;

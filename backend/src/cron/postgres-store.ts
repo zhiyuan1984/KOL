@@ -2,8 +2,7 @@ import type { PoolClient } from "pg";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import type { Json, Row } from "../types.js";
-import { pgListExecutionJobs } from "../execution-jobs/postgres-store.js";
-import { executionJobPublic } from "../execution-jobs/store.js";
+import { pgExecutionJobPublic, pgListExecutionJobs } from "../execution-jobs/postgres-store.js";
 import {
   DEFAULT_EXPERT,
   SYSTEM_EXECUTE_AS,
@@ -335,7 +334,7 @@ export async function pgSchedulingAdminReadModel(limit: number, status?: string)
     };
   });
   return {
-    items: jobs.map(executionJobPublic),
+    items: jobs.map(pgExecutionJobPublic),
     counts: Object.fromEntries(statusCounts.rows.map((row) => [row.status, Number(row.count)])),
     outbox: {
       ...Object.fromEntries(outboxCounts.rows.map((row) => [row.status, Number(row.count)])),

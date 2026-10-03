@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, type ExecutionJob, type ExecutionOutboxHealth, type ExecutionWorker, type SchedulingRule } from "../api";
 
 function time(value?: string | null): string {
@@ -46,6 +46,17 @@ export default function AdminScheduling() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [ruleBusy, setRuleBusy] = useState<string | null>(null);
+  const [ruleNotice, setRuleNotice] = useState("");
+  const [ruleSimulationIds, setRuleSimulationIds] = useState<Record<string, string>>({});
+  const [ruleForm, setRuleForm] = useState({
+    rule_type: "ticket_assignment",
+    title: "",
+    company_id: "company:amperetime",
+    status: "pending",
+    priority: "",
+    reason: "",
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,6 +94,103 @@ export default function AdminScheduling() {
       setError(cause instanceof Error ? cause.message : "重新投递失败");
     } finally {
       setRetrying(null);
+    }
+  };
+
+  const operationKey = (prefix: string) => `${prefix}-${typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+  const proposedAction = ruleForm.rule_type === "ticket_escalation"
+    ? "escalation_suggestion"
+    : ruleForm.rule_type === "ticket_candidate" ? "candidate_ticket" : "assignment_suggestion";
+
+  const createRuleDraft = async (event: FormEvent) => {
+    event.preventDefault();
+    setRuleBusy("create");
+    setError("");
+    setRuleNotice("");
+    try {
+      const conditions: Record<string, unknown> = {};
+      if (ruleForm.status) conditions.ticket_statuses = [ruleForm.status];
+      if (ruleForm.priority) conditions.priorities = [ruleForm.priority];
+      const result = await api.createSchedulingRuleDraft({
+        rule_type: ruleForm.rule_type,
+        title: ruleForm.title,
+        scope: { company_id: ruleForm.company_id },
+        definition: {
+          execution_mode: "manual_confirmation",
+          requires_human_confirmation: true,
+          proposed_action: proposedAction,
+          ...(Object.keys(conditions).length ? { conditions } : {}),
+        },
+        reason: ruleForm.reason,
+      }, operationKey("rule-draft"));
+      setRuleNotice(`已创建 ${result.rule.id} v${result.rule.version} 草稿；请先模拟，且不会自动改变任何工单。`);
+      setRuleForm((current) => ({ ...current, title: "", reason: "" }));
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "无法创建规则草稿");
+    } finally {
+      setRuleBusy(null);
+    }
+  };
+
+  const simulateRule = async (rule: SchedulingRule) => {
+    const key = `${rule.id}:${rule.version}`;
+    setRuleBusy(`simulate:${key}`);
+    setError("");
+    setRuleNotice("");
+    try {
+      const result = await api.simulateSchedulingRule(rule.id, rule.version, {
+        sample_limit: 25,
+        reason: ruleForm.reason || "管理端人工审阅规则模拟",
+      }, operationKey("rule-simulate"));
+      setRuleSimulationIds((current) => ({ ...current, [key]: result.simulation_id }));
+      setRuleNotice(`模拟完成：命中 ${result.matched_count} 条正式工单；结果仅供人工确认，不产生写入。`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "规则模拟失败");
+    } finally {
+      setRuleBusy(null);
+    }
+  };
+
+  const publishRule = async (rule: SchedulingRule) => {
+    const key = `${rule.id}:${rule.version}`;
+    const simulationId = ruleSimulationIds[key];
+    if (!simulationId) {
+      setError("请先在当前浏览器会话完成该版本模拟，再执行发布。");
+      return;
+    }
+    setRuleBusy(`publish:${key}`);
+    setError("");
+    try {
+      await api.publishSchedulingRule(rule.id, rule.version, {
+        expected_version: rule.version,
+        simulation_id: simulationId,
+        reason: ruleForm.reason || "已审阅当前版本模拟，发布为人工确认建议",
+      }, operationKey("rule-publish"));
+      setRuleNotice("规则已发布为人工确认建议；自动派单、升级、建单及状态变更仍保持关闭。");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "规则发布失败");
+    } finally {
+      setRuleBusy(null);
+    }
+  };
+
+  const disableRule = async (rule: SchedulingRule) => {
+    const key = `${rule.id}:${rule.version}`;
+    setRuleBusy(`disable:${key}`);
+    setError("");
+    try {
+      await api.disableSchedulingRule(rule.id, rule.version, {
+        expected_version: rule.version,
+        reason: ruleForm.reason || "管理员停用规则版本",
+      }, operationKey("rule-disable"));
+      setRuleNotice("规则版本已停用；历史模拟与审计仍保留。" );
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "规则停用失败");
+    } finally {
+      setRuleBusy(null);
     }
   };
 
@@ -138,12 +246,50 @@ export default function AdminScheduling() {
 
       <article className="panel" style={{ gridColumn: "1 / -1" }}>
         <h3>派单与 SLA 规则</h3>
-        <p className="muted">只读显示已发布版本与草案预览。规则未由业务负责人发布前，调度器不会据此自动派单、升级或改变工单状态。</p>
+        <p className="muted">规则只产生待人工确认的建议。即使发布，也不会自动派单、升级、建单或改变工单状态。</p>
+        <form className="settings-form" onSubmit={createRuleDraft} data-scheduling-rule-governance>
+          <label>规则类型
+            <select value={ruleForm.rule_type} onChange={(event) => setRuleForm((current) => ({ ...current, rule_type: event.target.value }))}>
+              <option value="ticket_assignment">人工分派建议</option>
+              <option value="ticket_escalation">人工升级建议</option>
+              <option value="ticket_candidate">人工候选建单建议</option>
+            </select>
+          </label>
+          <label>规则名称
+            <input required value={ruleForm.title} placeholder="例如：重要待办人工分派建议" onChange={(event) => setRuleForm((current) => ({ ...current, title: event.target.value }))} />
+          </label>
+          <label>公司范围
+            <input required value={ruleForm.company_id} onChange={(event) => setRuleForm((current) => ({ ...current, company_id: event.target.value }))} />
+          </label>
+          <label>工单状态条件
+            <select value={ruleForm.status} onChange={(event) => setRuleForm((current) => ({ ...current, status: event.target.value }))}>
+              <option value="">不限</option><option value="pending">待受理</option><option value="accepted">已受理</option><option value="in_progress">进行中</option><option value="waiting">等待中</option>
+            </select>
+          </label>
+          <label>优先级条件
+            <select value={ruleForm.priority} onChange={(event) => setRuleForm((current) => ({ ...current, priority: event.target.value }))}>
+              <option value="">不限</option><option value="low">低</option><option value="normal">普通</option><option value="important">重要</option><option value="urgent">紧急</option>
+            </select>
+          </label>
+          <label>审计原因
+            <input required value={ruleForm.reason} placeholder="说明草稿或治理目的" onChange={(event) => setRuleForm((current) => ({ ...current, reason: event.target.value }))} />
+          </label>
+          <div className="row-actions"><button type="submit" className="btn primary" disabled={ruleBusy === "create"}>{ruleBusy === "create" ? "创建中…" : "创建人工确认草稿"}</button></div>
+        </form>
+        {ruleNotice && <p className="status-ok" role="status">{ruleNotice}</p>}
         {!rules.length && <p className="muted">暂无已登记规则；自动派单与 SLA 升级保持关闭。</p>}
         {rules.map((rule) => (
           <div className="admin-row" key={`${rule.id}:${rule.version}`} data-scheduling-rule={rule.id}>
             <div><strong>{rule.title}</strong><p className="muted">{rule.rule_type} · v{rule.version} · {rule.created_by}</p></div>
-            <div><strong className={rule.status === "published" ? "status-ok" : "status-warn"}>{label(rule.status)}</strong><p className="muted">{rule.published_at ? `发布于 ${time(rule.published_at)}` : "未发布，不参与自动决策"}</p></div>
+            <div>
+              <strong className={rule.status === "published" ? "status-ok" : "status-warn"}>{label(rule.status)}</strong><p className="muted">{rule.published_at ? `发布于 ${time(rule.published_at)} · 仅人工确认建议` : "未发布，不参与自动决策"}</p>
+              {rule.status === "draft" && <div className="row-actions">
+                <button type="button" className="btn ghost" onClick={() => void simulateRule(rule)} disabled={ruleBusy === `simulate:${rule.id}:${rule.version}`}>{ruleBusy === `simulate:${rule.id}:${rule.version}` ? "模拟中…" : "模拟"}</button>
+                <button type="button" className="btn primary" onClick={() => void publishRule(rule)} disabled={!ruleSimulationIds[`${rule.id}:${rule.version}`] || ruleBusy === `publish:${rule.id}:${rule.version}`}>{ruleBusy === `publish:${rule.id}:${rule.version}` ? "发布中…" : "发布人工确认建议"}</button>
+                <button type="button" className="btn ghost" onClick={() => void disableRule(rule)} disabled={ruleBusy === `disable:${rule.id}:${rule.version}`}>停用</button>
+              </div>}
+              {rule.status === "published" && <div className="row-actions"><button type="button" className="btn ghost" onClick={() => void disableRule(rule)} disabled={ruleBusy === `disable:${rule.id}:${rule.version}`}>停用</button></div>}
+            </div>
           </div>
         ))}
       </article>

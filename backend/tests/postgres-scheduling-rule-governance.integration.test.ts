@@ -1,0 +1,111 @@
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
+import { withTicketPrincipal, type TicketPrincipal } from "../src/ticket-domain/auth.js";
+import { tickets } from "../src/routers/tickets.js";
+
+const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
+if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
+const describePostgres = configured ? describe : describe.skip;
+
+const ADMIN: TicketPrincipal = {
+  id: "rule-admin", username: "rule_admin", name: "规则管理员", email: null, roles: ["employee", "admin"], active: true,
+};
+const EMPLOYEE: TicketPrincipal = {
+  id: "rule-employee", username: "rule_employee", name: "普通员工", email: null, roles: ["employee"], active: true,
+};
+const RULE_ID = "sgr-native-governance-test";
+
+function post(path: string, body: Record<string, unknown>, key: string): Request {
+  return new Request(`http://test.local${path}`, {
+    method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": key }, body: JSON.stringify(body),
+  });
+}
+
+describePostgres("native PostgreSQL scheduling rule governance", () => {
+  beforeEach(async () => {
+    const pool = postgresPool();
+    await pool.query("DELETE FROM scheduling_rule_command_receipts WHERE rule_id=$1", [RULE_ID]);
+    await pool.query("DELETE FROM scheduling_rule_audit_events WHERE rule_id=$1", [RULE_ID]);
+    await pool.query("DELETE FROM scheduling_rule_simulations WHERE rule_id=$1", [RULE_ID]);
+    await pool.query("DELETE FROM scheduling_rules WHERE id=$1", [RULE_ID]);
+    await pool.query("DELETE FROM ticket_org_scopes WHERE ticket_id='rule-simulation-ticket'");
+    await pool.query("DELETE FROM tickets WHERE id='rule-simulation-ticket'");
+    await pool.query(
+      `INSERT INTO ticket_accounts (id,username,name,password_hash,roles,active,created_at,updated_at)
+       VALUES ('rule-admin','rule_admin','规则管理员','x','["employee","admin"]'::jsonb,true,now(),now()),
+              ('rule-employee','rule_employee','普通员工','x','["employee"]'::jsonb,true,now(),now())
+       ON CONFLICT (id) DO UPDATE SET roles=EXCLUDED.roles,active=true,updated_at=now()`,
+    );
+    await pool.query(
+      `INSERT INTO tickets
+       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,due_at,input,entities,data_version,created_at,updated_at,kind,channel,requester_type)
+       VALUES ('rule-simulation-ticket','rule-employee','manual_ticket','需要人工确认的规则候选','manual','pending','important','', 'ticket-workbench',
+               '2030-01-01T00:00:00.000Z','{}'::jsonb,'{}'::jsonb,1,now()::text,now()::text,'general','human','human')`,
+    );
+    await pool.query(
+      `INSERT INTO ticket_org_scopes (ticket_id,company_id,assignee_unit_id,org_version,created_at,updated_at)
+       VALUES ('rule-simulation-ticket','company:amperetime','org:rules',1,now(),now())`,
+    );
+  });
+
+  afterAll(async () => { await closePostgresPool(); });
+
+  it("requires an audited simulation before publishing and never mutates the matched ticket", async () => {
+    const denied = await withTicketPrincipal(EMPLOYEE, () => tickets.fetch(post("/admin/scheduling/rules/drafts", {
+      id: RULE_ID, rule_type: "ticket_assignment", title: "人工分派建议", scope: { company_id: "company:amperetime" },
+      definition: { execution_mode: "manual_confirmation", requires_human_confirmation: true, proposed_action: "assignment_suggestion" }, reason: "测试",
+    }, "rule-governance-denied-0001")));
+    expect(denied.status).toBe(403);
+
+    const created = await withTicketPrincipal(ADMIN, () => tickets.fetch(post("/admin/scheduling/rules/drafts", {
+      id: RULE_ID, rule_type: "ticket_assignment", title: "重要任务人工分派建议", scope: { company_id: "company:amperetime" },
+      definition: {
+        execution_mode: "manual_confirmation", requires_human_confirmation: true, proposed_action: "assignment_suggestion",
+        conditions: { ticket_statuses: ["pending"], priorities: ["important"] },
+      }, reason: "先创建草稿并进行安全模拟",
+    }, "rule-governance-create-0001")));
+    expect(created.status).toBe(201);
+    const draft = await created.json() as { rule: { id: string; version: number; status: string } };
+    expect(draft.rule).toMatchObject({ id: RULE_ID, version: 1, status: "draft" });
+
+    const publishWithoutSimulation = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/publish`, {
+      expected_version: 1, simulation_id: "missing", reason: "不应发布",
+    }, "rule-governance-publish-missing-0001")));
+    expect(publishWithoutSimulation.status).toBe(409);
+
+    const simulated = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {
+      sample_limit: 10, reason: "验证正式工单命中范围",
+    }, "rule-governance-simulate-0001")));
+    expect(simulated.status).toBe(201);
+    const simulation = await simulated.json() as { simulation_id: string; execution_effect: string; human_confirmation_required: boolean; tickets: Array<{ ticket_id: string }> };
+    expect(simulation).toMatchObject({ execution_effect: "none", human_confirmation_required: true });
+    expect(simulation.tickets).toEqual(expect.arrayContaining([expect.objectContaining({ ticket_id: "rule-simulation-ticket" })]));
+
+    const published = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/publish`, {
+      expected_version: 1, simulation_id: simulation.simulation_id, reason: "模拟已审阅，仅发布人工确认建议",
+    }, "rule-governance-publish-0001")));
+    expect(published.status).toBe(200);
+    expect(await published.json()).toMatchObject({ rule: { status: "published", version: 1 }, execution_effect: "none", manual_confirmation_only: true });
+
+    const replay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {
+      sample_limit: 10, reason: "验证正式工单命中范围",
+    }, "rule-governance-simulate-0001")));
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ replayed: true });
+
+    const facts = await postgresPool().query<{ status: string; assignments: string; events: string; audits: string; simulations: string }>(
+      `SELECT
+        (SELECT status FROM scheduling_rules WHERE id=$1 AND version=1) AS status,
+        (SELECT COUNT(*)::text FROM ticket_assignments WHERE ticket_id='rule-simulation-ticket') AS assignments,
+        (SELECT COUNT(*)::text FROM task_events WHERE work_item_id='rule-simulation-ticket') AS events,
+        (SELECT COUNT(*)::text FROM scheduling_rule_audit_events WHERE rule_id=$1) AS audits,
+        (SELECT COUNT(*)::text FROM scheduling_rule_simulations WHERE rule_id=$1) AS simulations`,
+      [RULE_ID],
+    );
+    expect(facts.rows[0]).toEqual({ status: "published", assignments: "0", events: "0", audits: "3", simulations: "1" });
+
+    const detail = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request(`http://test.local/admin/scheduling/rules/${RULE_ID}`)));
+    expect(detail.status).toBe(200);
+    expect(await detail.json()).toMatchObject({ rule: { id: RULE_ID, status: "published" }, simulations: [expect.objectContaining({ id: simulation.simulation_id })] });
+  });
+});

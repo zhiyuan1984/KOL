@@ -10,12 +10,28 @@ import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBinding
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { personalTicketRawCountReport } from "../ticket-domain/reports.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
+import {
+  createSchedulingRuleDraft,
+  disableSchedulingRule,
+  listSchedulingRules,
+  publishSchedulingRule,
+  schedulingRuleDetail,
+  simulateSchedulingRule,
+} from "../ticket-domain/rule-governance.js";
 
 /**
  * PostgreSQL authority router for formal tickets. Do not add imports from
  * `db.ts`, legacy `/tasks` projections, or the PostgreSQL sync bridge here.
  */
 export const tickets = new Hono();
+
+tickets.onError((error, c) => {
+  if (error instanceof HttpFail) {
+    return c.json({ detail: error.detail }, error.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503);
+  }
+  console.error(error);
+  return c.json({ detail: error instanceof Error ? error.message : "internal error" }, 500);
+});
 
 function ownerId(): string {
   return requireTicketPrincipal().id;
@@ -30,6 +46,16 @@ function parseLimit(raw: string | undefined, fallback = 50): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 1) throw new HttpFail(400, "invalid limit");
   return Math.min(200, Math.floor(n));
+}
+
+function parseRuleVersion(raw: string | undefined): number {
+  const version = Number(raw);
+  if (!Number.isInteger(version) || version < 1) throw new HttpFail(400, "invalid rule version");
+  return version;
+}
+
+function ruleBody(body: Record<string, unknown>, idempotencyKey: string): Record<string, unknown> {
+  return { ...body, idempotency_key: idempotencyKey || body.idempotency_key };
 }
 
 function summary(ticket: Awaited<ReturnType<typeof nativeTicketById>>) {
@@ -91,6 +117,51 @@ tickets.post("/admin/work-orders/account-bindings", async (c) => {
     })),
     ...requestMetadata(),
   });
+});
+
+/** Rule governance records versioned, manual-confirmation suggestions only.
+ * No evaluator is attached to ticket assignment, escalation or creation. */
+tickets.get("/admin/scheduling/rules", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await listSchedulingRules(parseLimit(c.req.query("limit"), 100))), ...requestMetadata() });
+});
+
+tickets.get("/admin/scheduling/rules/:id", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  const rawVersion = c.req.query("version");
+  return c.json({ ...(await schedulingRuleDetail(c.req.param("id"), rawVersion == null ? undefined : parseRuleVersion(rawVersion))), ...requestMetadata() });
+});
+
+tickets.post("/admin/scheduling/rules/drafts", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await createSchedulingRuleDraft(actor.id, ruleBody(body, String(c.req.header("Idempotency-Key") || "").trim()));
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.post("/admin/scheduling/rules/:id/versions/:version/simulate", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await simulateSchedulingRule(actor.id, c.req.param("id"), parseRuleVersion(c.req.param("version")), ruleBody(body, String(c.req.header("Idempotency-Key") || "").trim()));
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.post("/admin/scheduling/rules/:id/versions/:version/publish", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await publishSchedulingRule(actor.id, c.req.param("id"), parseRuleVersion(c.req.param("version")), ruleBody(body, String(c.req.header("Idempotency-Key") || "").trim()));
+  return c.json({ ...result, ...requestMetadata() });
+});
+
+tickets.post("/admin/scheduling/rules/:id/versions/:version/disable", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await disableSchedulingRule(actor.id, c.req.param("id"), parseRuleVersion(c.req.param("version")), ruleBody(body, String(c.req.header("Idempotency-Key") || "").trim()));
+  return c.json({ ...result, ...requestMetadata() });
 });
 
 tickets.post("/tickets", async (c) => {

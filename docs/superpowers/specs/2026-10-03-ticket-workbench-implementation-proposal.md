@@ -453,6 +453,7 @@
 - 新增 `KOL_RUNTIME_MODE=postgres-only` 正式启动模式：入口动态加载仅含 PostgreSQL 的 HTTP 应用，启动前校验正式 schema 并播种已发布的系统 Cron 作业；只挂载工单身份、`/tickets`、Cron 与调度运维端点，历史 `/tasks`、首页、邮件等路由不装配并返回 404。Cron 的可见性、修改权限、人工执行和风险读取也已切至正式工单身份与 PostgreSQL 工单投影。
 - 已补充 [`docs/POSTGRES_ONLY_OPERATIONS.md`](../../POSTGRES_ONLY_OPERATIONS.md) 运行手册，明确环境校验、schema、HTTP/Outbox/Worker 启动顺序、tick 健康检查、账号绑定以及“绝不自动回退 SQLite”的故障边界；本次未进行任何生产切换。
 - 已完成一次运行时依赖审计，详见 [`docs/POSTGRES_ONLY_RUNTIME_AUDIT.md`](../../POSTGRES_ONLY_RUNTIME_AUDIT.md)：正式工单/执行/Cron 原生子链已可在空 PostgreSQL 库验证，但 HTTP 启动、旧 `/tasks` 与首页等仍含 SQLite-shaped bridge，不能把整个历史应用宣称为 PostgreSQL-only。
+- 已追加 `scheduling_rule_simulations`、`scheduling_rule_audit_events` 和规则命令回执；管理员可在 `/admin/scheduling` 创建仅限人工确认的规则草稿、对当前版本正式工单进行只读模拟、引用该模拟发布或停用版本。发布要求版本、幂等键、审计原因和同内容指纹的成功模拟；当前没有任何执行器消费该规则去自动分派、升级、建单或改变工单状态。
 
 ### 当前仍在推进的范围
 
@@ -460,6 +461,6 @@
 - **工单中心完善：** PostgreSQL 详情读取已提供来源依据、受理历史、关注关系、验收证据、运行摘要和审计索引；员工端详情抽屉仍需完整呈现这些分区并补充产物链接与报表入口。
 - **全应用身份切换：** 员工工单中心与工单治理页已具备原生身份入口；其余历史工作台仍由旧登录域保护。后续需将可保留的页面迁到原生身份或在 PostgreSQL-only 部署模式下明确退役，不能混用两套会话。
 - **Cron 业务处理器收敛：** `overdue-scan` 与 `daily-task-snapshot` 已改为只读取 PostgreSQL 正式工单投影；Cron PostgreSQL 仓储不再导入旧 Cron store。`ownership-release`、邮件记忆与 AI 处理器因其业务仓储尚未原生化，已改为显式 `needs_takeover`，其中两个已发布系统写入作业会通过 migration 停用，防止其隐式触达 SQLite。后续需按领域完成原生仓储后重新走规则发布，而不是直接恢复旧处理器。
-- **P3/P4 治理：** 事件到工单的已发布规则、模拟/发布/回滚，以及组织/阶段报表尚未上线；个人原始计数报表已上线，受理/转办/重开已上线，但仍需补协同受理人与管理授权策略。
+- **P3/P4 治理：** 已交付规则草稿、模拟、发布与停用的技术闸门，但 Event→Ticket 自动执行器、回滚版本选择、规则成效/人工覆盖报表以及组织/阶段报表仍未上线；个人原始计数报表已上线，受理/转办/重开已上线，但仍需补协同受理人与管理授权策略。
 
 > 本记录不将历史 SQLite 兼容层标记为验收通过。生产发布前，所有进入正式工单与调度路径的服务必须仅以同一 `DATABASE_URL` 运行为前提。

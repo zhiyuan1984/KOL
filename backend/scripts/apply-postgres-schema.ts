@@ -605,7 +605,55 @@ const migrations: SchemaMigration[] = [
       "DROP TRIGGER IF EXISTS ticket_account_organization_bindings_no_mutation ON ticket_account_organization_bindings",
       `CREATE TRIGGER ticket_account_organization_bindings_no_mutation
        BEFORE UPDATE OR DELETE ON ticket_account_organization_bindings
-       FOR EACH ROW EXECUTE FUNCTION prevent_ticket_account_binding_mutation()`,
+      FOR EACH ROW EXECUTE FUNCTION prevent_ticket_account_binding_mutation()`,
+    ],
+  },
+  {
+    // Rule versions may be published only after a recorded, no-side-effect
+    // simulation. These audit/receipt tables are additive because the original
+    // scheduling_rules migration can already exist in deployed databases.
+    id: "20261003_scheduling_rule_governance",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS scheduling_rule_simulations (
+        id TEXT PRIMARY KEY,
+        rule_id TEXT NOT NULL,
+        rule_version INTEGER NOT NULL CHECK (rule_version >= 1),
+        rule_fingerprint TEXT NOT NULL,
+        input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        sample_count INTEGER NOT NULL DEFAULT 0 CHECK (sample_count >= 0),
+        matched_count INTEGER NOT NULL DEFAULT 0 CHECK (matched_count >= 0),
+        data_as_of TIMESTAMPTZ NOT NULL,
+        evaluated_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (rule_id,rule_version) REFERENCES scheduling_rules(id,version) ON DELETE RESTRICT
+      )`,
+      "CREATE INDEX IF NOT EXISTS scheduling_rule_simulations_rule_idx ON scheduling_rule_simulations(rule_id,rule_version,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS scheduling_rule_audit_events (
+        id TEXT PRIMARY KEY,
+        rule_id TEXT NOT NULL,
+        rule_version INTEGER NOT NULL CHECK (rule_version >= 1),
+        action TEXT NOT NULL CHECK (action IN ('draft_created','draft_superseded','published_superseded','simulated','published','disabled')),
+        actor_account_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        reason TEXT,
+        request_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (rule_id,rule_version) REFERENCES scheduling_rules(id,version) ON DELETE RESTRICT
+      )`,
+      "CREATE INDEX IF NOT EXISTS scheduling_rule_audit_events_rule_idx ON scheduling_rule_audit_events(rule_id,rule_version,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS scheduling_rule_command_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        rule_id TEXT NOT NULL,
+        rule_version INTEGER NOT NULL CHECK (rule_version >= 1),
+        action TEXT NOT NULL CHECK (action IN ('create_draft','simulate','publish','disable')),
+        actor_account_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (rule_id,rule_version) REFERENCES scheduling_rules(id,version) ON DELETE RESTRICT
+      )`,
+      "CREATE INDEX IF NOT EXISTS scheduling_rule_command_receipts_rule_idx ON scheduling_rule_command_receipts(rule_id,rule_version,created_at DESC)",
     ],
   },
 ];

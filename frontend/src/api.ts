@@ -698,6 +698,39 @@ export type SchedulingRule = {
   updated_at: string;
 };
 
+export type SchedulingRuleSimulation = {
+  id: string;
+  rule_id: string;
+  rule_version: number;
+  rule_fingerprint: string;
+  result: Record<string, unknown>;
+  sample_count: number;
+  matched_count: number;
+  data_as_of: string;
+  evaluated_by: string;
+  created_at: string;
+};
+
+export type SchedulingRuleGovernance = {
+  rules: Array<SchedulingRule & { fingerprint?: string }>;
+  policy: { automation: string; execution_effect: string; requirement: string };
+  as_of: string;
+};
+
+export type SchedulingRuleDetail = {
+  rule: SchedulingRule & { fingerprint?: string };
+  simulations: SchedulingRuleSimulation[];
+  audit_events: Array<{
+    id: string;
+    action: string;
+    actor_account_id: string;
+    reason: string | null;
+    request: Record<string, unknown>;
+    result: Record<string, unknown>;
+    created_at: string;
+  }>;
+};
+
 export type AdminAuditEvent = {
   id: number;
   ts: string;
@@ -2589,6 +2622,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  adminSchedulingRules: () => request<SchedulingRuleGovernance>("/api/admin/scheduling/rules"),
+  adminSchedulingRule: (id: string, version?: number) =>
+    request<SchedulingRuleDetail>(`/api/admin/scheduling/rules/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`),
+  createSchedulingRuleDraft: (body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ rule: SchedulingRule & { fingerprint?: string }; replayed: boolean }>("/api/admin/scheduling/rules/drafts", {
+      method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body),
+    }),
+  simulateSchedulingRule: (id: string, version: number, body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ simulation_id: string; replayed: boolean; matched_count: number; tickets: Array<Record<string, unknown>>; execution_effect: string }>(
+      `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/simulate`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
+  publishSchedulingRule: (id: string, version: number, body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ rule: SchedulingRule; replayed: boolean; execution_effect: string; manual_confirmation_only: boolean }>(
+      `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/publish`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
+  disableSchedulingRule: (id: string, version: number, body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ rule: SchedulingRule; replayed: boolean; execution_effect: string }>(
+      `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/disable`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
   adminWorkReport: (opts: { date?: string; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, value); });
