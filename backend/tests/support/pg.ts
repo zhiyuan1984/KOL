@@ -6,6 +6,7 @@
  * 管理连接只用 TEST_DATABASE_URL（缺省回落到 DATABASE_URL），仅用于 CREATE/DROP 测试库。
  */
 import { Client } from "pg";
+import { resetConn } from "../../src/db.js";
 
 const ADMIN_URL = String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || "").trim();
 const TEMPLATE = String(process.env.TEST_DB_TEMPLATE || "lingong_template").trim();
@@ -44,11 +45,23 @@ export async function freshTestDatabase(): Promise<string> {
 /** 删掉本 worker 建过的所有测试库（由 tests/setup.ts 的 afterAll 调用）。 */
 export async function dropTestDatabases(): Promise<void> {
   if (!ADMIN_URL || !created.length) return;
+  // 先把应用侧连接从测试库上摘下来：resetConn() 会立即重连，所以先把 DATABASE_URL 指回管理库，
+  // 否则 DROP 会踢掉在线连接并抛 57P01（admin_shutdown）噪声错误。
+  process.env.DATABASE_URL = ADMIN_URL;
+  try {
+    resetConn();
+  } catch {
+    /* 连接已关闭等情形忽略 */
+  }
   const admin = new Client({ connectionString: ADMIN_URL });
   await admin.connect();
   try {
     for (const name of created.splice(0, created.length)) {
-      await admin.query(`DROP DATABASE IF EXISTS ${ident(name)} WITH (FORCE)`);
+      try {
+        await admin.query(`DROP DATABASE IF EXISTS ${ident(name)}`);
+      } catch {
+        await admin.query(`DROP DATABASE IF EXISTS ${ident(name)} WITH (FORCE)`);
+      }
     }
   } finally {
     await admin.end();
