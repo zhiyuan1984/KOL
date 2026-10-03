@@ -1,5 +1,5 @@
 import type { Json, Row } from "../types.js";
-import type { ClaimedExecutionJob } from "./store.js";
+import type { ClaimedExecutionJob } from "./contracts.js";
 import {
   pgClaimExecutionJobById,
   pgClaimNextExecutionJob,

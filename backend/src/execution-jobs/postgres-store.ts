@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import type { Json, Row } from "../types.js";
-import type { ClaimedExecutionJob, ExecutionJobInput, ExecutionJobStatus } from "./store.js";
+import type { ClaimedExecutionJob, ExecutionJobInput, ExecutionJobStatus } from "./contracts.js";
 
 function parseJson(value: unknown, fallback: Json = {}): Json {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Json;

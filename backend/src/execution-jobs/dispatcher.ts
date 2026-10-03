@@ -2,7 +2,7 @@ import { executeClaimedCronJob } from "../cron/worker.js";
 import { executeClaimedPlanningJob } from "../host/today-plan-run.js";
 import {
   type ClaimedExecutionJob,
-} from "./store.js";
+} from "./contracts.js";
 import {
   runtimeClaimExecutionJobById,
   runtimeClaimNextExecutionJob,

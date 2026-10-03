@@ -15,7 +15,7 @@
 | 正式工单创建、编辑、授权列表/详情/时间线 | `ticket-domain/create-ticket.ts`、`edit-ticket.ts`、`read-tickets.ts`、独立 `routers/tickets.ts`；员工详情展示责任、依据、事件、组织/工单版本、验收、运行回执与审计索引 | 空库迁移 + PG 集成请求测试、前端 typecheck/build |
 | 生命周期与责任 | PostgreSQL `ticket-lifecycle.ts`、`assign-ticket.ts`；受理、转办、验收、重开、不可变验收历史。SQLite-shaped 实现已拆至 `ticket-lifecycle-legacy.ts`，不被 PostgreSQL-only HTTP 导入 | PG 生命周期集成测试、原生静态导入审计 |
 | 协同受理 | `collaborate-ticket.ts`；一个主受理人加多名协同受理人，协同人取得授权可见性但不取得受理/验收权 | PG 创建/命令路由集成测试、前端 typecheck/build |
-| 执行作业、Outbox、租约、重试 | `execution-jobs/postgres-store.ts`、Worker、Outbox publisher | PG execution-jobs 集成测试 |
+| 执行作业、Outbox、租约、重试 | `execution-jobs/contracts.ts`、`postgres-store.ts`、Worker、Outbox publisher；正式 Worker 直接要求 PostgreSQL `DATABASE_URL`，原生模块不再导入 SQLite-shaped 仓储或配置 | PG execution-jobs 集成测试、原生静态导入审计 |
 | Cron 调度状态与调度运维读模型 | `cron/postgres-store.ts`、`cron/worker.ts`、`routers/cron.ts` | PG Cron 集成测试 |
 | Cron 正式工单只读处理器 | `overdue-scan`、`daily-task-snapshot` 直接读取 PostgreSQL formal tickets | PG Cron 处理器集成测试 |
 | 个人授权工单原始计数 | `ticket-domain/reports.ts` | PG 创建/报表集成测试 |
