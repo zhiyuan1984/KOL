@@ -39,7 +39,7 @@
   --primary-text: color-mix(in srgb, var(--primary) 84%, #000000);
   /* 辅助色（蓝）：选中态、图标砖、分段选中、可点强调、信息性标记。
      主行动仍只走 --primary（品牌粉）——见 docs/DESIGN.md §颜色。
-     色值取自所有者给的参考图：#4184ff（对白 3.52:1，够图形不够文字），
+     辅助色 #4184ff 对白 3.52:1，可用于图形，不用于文字，
      故文字/图标档单独派生：--accent-text = 72% accent + 28% 黑 = #2f5fb8，
      对白 6.09:1 / 压在 8% 淡蓝砖上 5.57:1 ✓。 */
   --accent: #4184ff;
@@ -217,61 +217,59 @@
   --radius-cards: 14px;
   --radius-links: 4px;
 
-  /* 连接器控制台对话框规格 —— 数值来自参考图逐像素测量，唯一来源见 docs/DESIGN.md §连接器控制台。
-     推导规则：以「字段标签 14px」为基准，其余 = 参考图实测值 × 0.7（保留参考图比例）。
-     参考图为高分屏截图，实测 px 不能直接当 CSS px 用；改数值先改 DESIGN.md。 */
-  --dialog-w-form: 560px;      /* 弹窗宽度（实测 800 × 0.7） */
-  --dialog-pad-x: 20px;        /* 卡片左右内边距（28 × 0.7） */
-  --dialog-pad-t: 20px;        /* 卡片上内边距（30 × 0.7） */
-  --dialog-pad-b: 26px;        /* 卡片下内边距（40 × 0.7） */
-  --radius-dialog: 14px;       /* 卡片圆角（20 × 0.7） */
-  --control-h-form: 34px;      /* 输入框 / 按钮高度（48 × 0.7） */
-  --radius-field-form: 6px;    /* 输入框 / 下拉圆角（8 × 0.7） */
-  --radius-btn-form: 7px;      /* 按钮圆角（10 × 0.7） */
-  --radius-icon-box: 7px;      /* 图标虚线框圆角（10 × 0.7） */
-  --note-h-form: 95px;         /* 备注文本域高度（136 × 0.7） */
-  --dialog-head-gap: 16px;     /* 标题块到第一个字段（22 × 0.7） */
-  --dialog-foot-pad-t: 12px;   /* 页脚上内边距 */
-  --line-dialog-title: 24px;   /* 弹窗标题行高 */
-  --field-gap: 11px;           /* 字段标签到控件（16 × 0.7） */
-  --block-gap: 18px;           /* 字段块之间（26 × 0.7） */
-  --grid-gap: 18px;            /* 两列字段之间（26 × 0.7） */
-  --row-gap: 8px;              /* headers 行之间（12 × 0.7） */
-  --icon-box: 56px;            /* 图标位 56×56（80 × 0.7） */
-  --font-dialog-title: 17px;   /* 弹窗标题（墨高 21.6 × 0.7 ≈ 15） */
-  --font-field: 14px;          /* 字段标签与输入文本（基准） */
-  --font-hint: 13px;           /* 说明文字（墨高 16.2 × 0.7 ≈ 11.3 → 13） */
-  --fill-control: #ececeb;     /* 控件填充（参考图取样） */
+  /* 弹窗密度与字阶按 docs/DESIGN.md §4/§5/§7；旧名称仅供现有组件迁移。 */
+  --dialog-w-sm: 440px;
+  --dialog-w-md: 560px;
+  --dialog-w-lg: 720px;
+  --dialog-w-form: var(--dialog-w-md);
+  --dialog-w-browse: var(--dialog-w-lg);
+  --dialog-pad-x: 20px;
+  --dialog-pad-t: 20px;
+  --dialog-pad-b: 26px;
+  --dialog-pad-compact-x: 12px;
+  --dialog-pad-compact-y: 16px;
+  --radius-dialog: 8px;
+  --control-h-form: 32px;
+  --radius-field-form: var(--radius-control);
+  --radius-btn-form: var(--radius-control);
+  --radius-icon-box: var(--radius-control);
+  --note-h-form: auto;
+  --dialog-head-gap: var(--space-4);
+  --dialog-foot-pad-t: var(--space-3);
+  --line-dialog-title: var(--ds-line-section);
+  --field-gap: var(--space-2);
+  --block-gap: var(--space-4);
+  --grid-gap: var(--space-4);
+  --row-gap: var(--space-2);
+  --icon-box: 44px;
+  --font-dialog-title: var(--ds-font-section);
+  --font-field: var(--ds-font-sm);
+  --font-hint: var(--ds-font-helper);
+  --fill-control: var(--control-bg);
   --fill-card: #f8f8f7;        /* 弹窗卡片底色 */
   --border-quiet: #dadad9;     /* 描边按钮边框 */
   --border-dashed: #e5e5e4;    /* 图标虚线框 */
   --hint-text: #737373;        /* 说明文字颜色 */
   --placeholder-text: #a6a6a6; /* 占位文字颜色 */
   --danger-soft: #ee5b5e;      /* 删除图标红 */
-  --action-strong: #1a1a19;    /* 弹窗主按钮实底 */
-  --action-strong-fg: #ffffff;
-  /* 「添加自定义 API」创建弹窗（2026-09-27 复刻）—— 参考图 780×1011 逐像素测量 × 0.7（规则同上），
-     唯一来源 docs/DESIGN.md §连接器控制台「添加自定义 API 创建弹窗」。 */
-  --secret-card-pad: 16px;     /* 密钥卡片内边距（实测 22 × 0.7 ≈ 15.4） */
-  --secret-value-h: 74px;      /* 密钥「值」文本域高度（实测 106 × 0.7 ≈ 74） */
-  --secret-row-gap: 13px;      /* 密钥卡内两个字段之间（实测 18 × 0.7 ≈ 12.6） */
-  --help-icon: 14px;           /* 「?」帮助图标直径（实测 20 × 0.7 = 14） */
-  /* 连接器浏览弹窗（目录弹窗）—— 参考图 1034×888 逐像素测量 × 0.7（规则同上），
-     唯一来源 docs/DESIGN.md §连接器控制台「浏览弹窗」。 */
-  --dialog-w-browse: 736px;    /* 弹窗宽度（内容 1002 × 0.7 + 2 × 17） */
+  --action-strong: var(--primary);
+  --action-strong-fg: var(--primary-fg);
+  --secret-card-pad: var(--space-4);
+  --secret-value-h: auto;
+  --secret-row-gap: var(--space-3);
+  --help-icon: var(--icon-sm);
   --browse-line: #e9e9e8;      /* 卡片 / 选中页签 / ＋ 描边（取样 233,233,232） */
   --browse-fill: #f0f0ef;      /* 搜索框填充（取样 240,240,239） */
   --browse-tile: #ffffff;      /* 图标砖底色（取样白砖） */
-  --font-browse-title: 16px;   /* 弹窗标题（墨高 22 × 0.7 ≈ 15.4 → 16） */
-  --font-browse-desc: 11px;    /* 卡片描述（墨高 14.5 × 0.7 ≈ 10.2 → 11） */
-  --lh-browse-desc: 15px;      /* 描述行距（21 × 0.7 = 14.7 → 15） */
-  /* 连接器设置向导（弹窗内四步）—— 元素尺寸由既有 token 推导（控件高 34 × 0.76 ≈ 26），
-     唯一来源 docs/DESIGN.md §连接器控制台「设置向导」。 */
-  --wizard-step-h: 26px;       /* 步骤条项高度（控件高 × 0.76，便于 900 高视口不滚动） */
-  --wizard-step-gap: 6px;      /* 步骤条项之间 */
+  --font-browse-title: var(--ds-font-section);
+  --font-browse-desc: var(--ds-font-helper);
+  --lh-browse-desc: var(--ds-line-helper);
+  /* 连接器设置向导（弹窗内四步）。 */
+  --wizard-step-h: var(--control-h-form);
+  --wizard-step-gap: var(--space-1);
   --wizard-gap: 12px;          /* 步骤条 / 状态行 / 内容之间的纵向间距（收口 --block-gap 18） */
   --wizard-status-gap: 4px;    /* 步骤条到状态行 */
-  --wizard-gate-gap: 6px;      /* 门禁与回执块内条目间距 */
+  --wizard-gate-gap: var(--space-1);
   --dialog-h-wizard: min(94dvh, 900px);  /* 向导弹窗高度上限（88dvh 会把步骤条挤出 900 高视口） */
 
   /* Primary tone scale for cards and panels (used by home-workbench review cards). */
@@ -300,7 +298,7 @@
   --control-border-hover: #a2a8b2;
   --control-border-invalid: #ef7777;
   --control-bg: #23262c;
-  /* 连接器控制台对话框：深色下等比替换；主按钮回落品牌主色以保证对比度（浅色为参考图的近黑 #1a1a19）。 */
+  /* 连接器弹窗在深色下沿用同一职责 token。 */
   --fill-control: #23262c;
   --fill-card: #17191d;
   --border-quiet: #3a3f47;
@@ -308,8 +306,8 @@
   --hint-text: #a2a8b2;
   --placeholder-text: #7b828c;
   --danger-soft: #ef7777;
-  --action-strong: #e0508c;
-  --action-strong-fg: var(--bg);
+  --action-strong: var(--primary);
+  --action-strong-fg: var(--primary-fg);
   /* 浏览弹窗三色在深色下回落既有深色档（对照 --border / --fill-control）。 */
   --browse-line: #30343b;
   --browse-fill: #23262c;

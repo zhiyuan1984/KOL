@@ -1151,17 +1151,11 @@
   border-radius: var(--radius-cards);
 }
 
-/* ── 连接器控制台：表单弹窗与字段规格 ──────────────────────────────────────
-   数值来自参考图逐像素测量（图像 px ÷ 1.25 = CSS px），唯一来源 docs/DESIGN.md
-   §「连接器控制台」。改这里的任何数值前先改 DESIGN.md。 */
+/* 连接器表单弹窗：尺寸、字阶与密度遵循 docs/DESIGN.md §4/§5/§7。 */
 .connector-panel.is-form {
   width: min(var(--dialog-w-form), calc(100vw - 32px));
   background: var(--fill-card);
   border-radius: var(--radius-dialog);
-  /* 本节实测值在该作用域内接管通用圆角 token：控件 8px、按钮与虚线框 10px。 */
-  --radius-control: var(--radius-field-form);
-  --radius-card: var(--radius-btn-form);
-  --radius-cards: var(--radius-icon-box);
 }
 
 .connector-panel.is-form .connector-panel-head {
@@ -1218,6 +1212,7 @@
 .connector-panel.is-form .connector-form-grid,
 .connector-detail-card .connector-form-grid {
   gap: var(--grid-gap);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .connector-panel.is-form .field input:not([type="checkbox"]),
@@ -1261,7 +1256,7 @@
   border-color: var(--control-border-hover);
 }
 
-/* 图标位：64px 虚线框 + 13px 说明 */
+/* 图标位与说明沿用表单 token。 */
 .connector-panel.is-form .connector-icon-field.is-bare,
 .connector-detail-card .connector-icon-field.is-bare {
   gap: var(--space-3);
@@ -1282,7 +1277,7 @@
   color: var(--hint-text);
 }
 
-/* headers：两列等宽 + 10px 行距 */
+/* headers：宽内容区两列，窄内容区单列。 */
 .connector-panel.is-form .connector-header-rows,
 .connector-detail-card .connector-header-rows {
   gap: var(--row-gap);
@@ -1315,7 +1310,7 @@
   color: var(--danger-soft);
 }
 
-/* 按钮：38px 高、16px 字、8px 圆角；主行动取参考图的近黑实底 */
+/* 按钮与同排控件等高；主行动使用品牌主色。 */
 .connector-panel.is-form .btn,
 .connector-detail-card .btn {
   min-height: var(--control-h-form);
@@ -1361,9 +1356,7 @@
   font-size: var(--font-field);
 }
 
-/* ── 连接器浏览弹窗（目录弹窗）──────────────────────────────────────────────
-   参考图 1034×888 逐像素测量，数值 = 实测 × 0.7（与 §连接器控制台 同基准）；
-   唯一来源 docs/DESIGN.md §连接器控制台「浏览弹窗」。改这里的任何数值前先改 DESIGN.md。 */
+/* 连接器浏览弹窗：目录按 docs/DESIGN.md §7.3 使用列表行。 */
 
 .connector-panel-layer[data-connector-panel="browse"] .connector-panel {
   width: min(var(--dialog-w-browse), calc(100vw - 32px));
@@ -1373,7 +1366,7 @@
 
 .connector-panel-layer[data-connector-panel="browse"] .connector-panel-head {
   align-items: center;
-  padding: 10px 17px 0;
+  padding: var(--dialog-pad-t) var(--dialog-pad-x) 0;
 }
 
 .connector-panel-layer[data-connector-panel="browse"] .connector-panel-head h2 {
@@ -1387,8 +1380,7 @@
   color: var(--hint-text);
 }
 
-/* 关闭 X：参考图墨高 15 图像 px（× 0.7 ≈ 11）；按钮 24px 使 X 中心距顶 ≈ 22（实测 21.7）。
-   视图留白较大，按 22px 回算墨高。 */
+/* 关闭按钮保留可见焦点和触摸命中区。 */
 .connector-panel-layer[data-connector-panel="browse"] .connector-panel-head .icon-btn {
   min-width: 24px;
   min-height: 24px;
@@ -1405,15 +1397,15 @@
 }
 
 .connector-panel-layer[data-connector-panel="browse"] .connector-panel-body {
-  padding: 0 17px 17px;
+  padding: 0 var(--dialog-pad-x) var(--dialog-pad-t);
 }
 
-/* 搜索框：填充无描边、34px 高；图标 13px、左内边距 10px、图标到文字 13px。 */
+/* 搜索框与弹窗表单控件等高。 */
 .connector-browse .connector-search {
-  margin-top: 20px;
+  margin-top: var(--space-4);
   height: var(--control-h-form);
-  padding: 0 10px;
-  gap: 13px;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
   border-color: transparent;
   border-radius: var(--radius-field-form);
   background: var(--browse-fill);
@@ -1443,15 +1435,15 @@
 
 .connector-browse .connector-hub-tabs {
   margin: 0;
-  gap: 2px;
+  gap: var(--space-1);
   flex-wrap: nowrap;
 }
 
 .connector-browse .hub-chip {
   display: inline-flex;
   align-items: center;
-  height: 30px;
-  padding: 0 12px;
+  height: var(--control-h-form);
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-field-form);
   background: none;
@@ -1471,9 +1463,8 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 30px;
-  /* 参考图 85×42 图像 px：边框 2 + 内边距 5 / 文字 26 / 间隙 4 / 雪佛龙 18 ≈ 60 CSS。 */
-  padding: 0 5px;
+  min-height: var(--control-h-form);
+  padding: 0 var(--space-2);
   font-size: var(--font-hint);
   border-color: var(--border-quiet);
   border-radius: var(--radius-field-form);
@@ -1489,33 +1480,32 @@
   stroke-width: 1.1;
 }
 
-/* 卡片网格：两列 12px 间距；卡片 71px 最小高、17/12 内边距、8px 圆角、无底色（与弹窗底同色）。 */
+/* 目录条目使用单列列表行。 */
 .connector-browse .connector-grid {
-  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
 }
 
 .connector-browse .connector-card {
-  min-height: 71px;
-  /* 上下 16（按卡片总高 101 图像 px 反推：2×0.7 + 2×16.3 + 37.1 ≈ 71），左右 12。 */
-  padding: 16px 12px;
-  gap: 13px;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
   align-items: center;
   border-color: var(--browse-line);
   border-radius: var(--radius-card);
   background: transparent;
 }
 
-/* 图标砖：37px 白砖、7px 圆角、无描边（参考图白砖资产归一到同一砖位）。 */
+/* 列表行图标砖。 */
 .connector-browse .connector-card > .connector-mark {
-  width: 37px;
-  height: 37px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: var(--radius-icon-box);
   background: var(--browse-tile);
 }
 
-/* 行高 20px：标题行盒（含匿名 strut）与描述行合计 35px，卡片即由 37px 图标砖定高。
-   只改 strong 会被容器行高等内联 strut 顶回 24px，所以行高落在容器上。 */
+/* 标题与单行描述保持可扫描。 */
 .connector-browse .connector-card-title {
   line-height: 20px;
 }
@@ -1530,9 +1520,12 @@
   font-size: var(--font-browse-desc);
   line-height: var(--lh-browse-desc);
   color: var(--hint-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 右侧动作位：26px 槽；✓ 12px 视觉（视图回算 19px）、＋ 26×26 描边方块。 */
+/* 行尾动作与状态保留独立可读的标记。 */
 .connector-browse .connector-card-side {
   width: 26px;
   min-width: 26px;
@@ -1594,22 +1587,18 @@
   }
 }
 
-/* ── 「添加自定义 API」创建弹窗（2026-09-27 复刻）────────────────────────────
-   参考图 780×1011 逐像素测量，数值 = 实测 × 0.7（与 §连接器控制台 同基准）；
-   唯一来源 docs/DESIGN.md §连接器控制台「添加自定义 API 创建弹窗」。改数值前先改 DESIGN.md。 */
-
-/* 页脚底内边距与标题上内边距按参考图收口（实测 17/14 图像 px × 0.7 ≈ 12/10；取 16/14 兼顾呼吸
-   与 900 高视口不滚动），字段标签行盒收口到 20px（参考图实测；含半行距）。 */
+/* 自定义 API 创建弹窗：字段较少，采用 DESIGN.md §7.1 紧凑内边距。 */
 .connector-panel-layer[data-connector-panel="api-config"] .connector-panel {
-  --dialog-pad-t: 14px;
-  --dialog-pad-b: 16px;
+  --dialog-pad-t: var(--dialog-pad-compact-y);
+  --dialog-pad-b: var(--dialog-pad-compact-y);
+  --dialog-pad-x: var(--dialog-pad-compact-x);
 }
 
 .connector-panel-layer[data-connector-panel="api-config"] .field {
   line-height: 20px;
 }
 
-/* 副标题：13px 说明色，紧贴标题（弹窗标题块的第二行）。 */
+/* 副标题使用元信息字阶。 */
 .connector-panel.is-form .connector-panel-head p {
   margin: 2px 0 0;
   font-size: var(--font-hint);
@@ -1617,7 +1606,7 @@
   color: var(--hint-text);
 }
 
-/* 图标空态：图片字形（参考图占位图形）。 */
+/* 图标空态。 */
 .connector-icon-placeholder {
   width: 24px;
   height: 24px;
@@ -1642,11 +1631,11 @@
   vertical-align: middle;
 }
 
-/* 密钥编辑器：一张描边卡片 = 一行密钥；卡片与弹窗同底，只靠描边成型（参考图取样）。 */
+/* 密钥编辑器：一张描边卡片对应一行密钥。 */
 .connector-secret-keys {
   display: flex;
   flex-direction: column;
-  gap: 15px;                    /* 卡片之间 / 卡片与「＋ 添加密钥」：实测 21 图像 px × 0.7 ≈ 15 */
+  gap: var(--space-4);
 }
 
 .connector-secret-card {
@@ -1674,7 +1663,7 @@
   align-self: flex-start;
 }
 
-/* 名称未填时保存按钮为禁用灰态（参考图初始态）。 */
+/* 名称未填时保存按钮显示禁用态。 */
 .connector-panel.is-form .btn.work:disabled {
   background: var(--fill-control);
   border-color: var(--fill-control);
