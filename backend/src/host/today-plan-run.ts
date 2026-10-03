@@ -1,13 +1,14 @@
 import { audit, getConn, nowIso, tx, type SqliteConn } from "../db.js";
 import {
   claimExecutionJobById,
-  completeExecutionJob,
   enqueueExecutionJob,
-  executionJobPayload,
-  failExecutionJob,
-  publishExecutionOutboxForJob,
   type ClaimedExecutionJob,
 } from "../execution-jobs/store.js";
+import {
+  runtimeCompleteExecutionJob,
+  runtimeExecutionJobPayload,
+  runtimeFailExecutionJob,
+} from "../execution-jobs/runtime-store.js";
 import { nid } from "../ids.js";
 import { ensureTicketForWorkItem } from "../tickets.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
@@ -566,12 +567,12 @@ async function executeTodayAnalyzeRun(input: {
 export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): Promise<string> {
   const executionJobId = String(claimed.id);
   const jobType = String(claimed.job_type);
-  const payload = executionJobPayload(claimed);
+  const payload = runtimeExecutionJobPayload(claimed);
   const workItemId = String(payload.work_item_id || claimed.ticket_id || "");
   const runId = String(payload.run_id || claimed.run_id || "");
   const owner = String(payload.owner || claimed.actor_ref || "");
   if (!workItemId || !runId || !owner) {
-    failExecutionJob(executionJobId, { code: "invalid_payload", summary: `${jobType} requires owner, work_item_id, and run_id` });
+    await runtimeFailExecutionJob(executionJobId, { code: "invalid_payload", summary: `${jobType} requires owner, work_item_id, and run_id` });
     throw new HttpFail(500, "invalid planning execution job payload");
   }
   const db = getConn();
@@ -581,11 +582,11 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
       WHERE t.id=? AND r.id=?`,
   ).get(workItemId, runId) as { ticket_status?: string; run_status?: string; session_id?: string | null } | undefined;
   if (!current) {
-    failExecutionJob(executionJobId, { code: "task_run_missing", summary: `Task run missing: ${runId}` });
+    await runtimeFailExecutionJob(executionJobId, { code: "task_run_missing", summary: `Task run missing: ${runId}` });
     throw new HttpFail(404, "planning task run not found");
   }
   if (terminalPlanningStatus(current.run_status) || terminalPlanningStatus(current.ticket_status)) {
-    completeExecutionJob(executionJobId, { work_item_id: workItemId, run_id: runId, duplicate: true, status: current.run_status || current.ticket_status });
+    await runtimeCompleteExecutionJob(executionJobId, { work_item_id: workItemId, run_id: runId, duplicate: true, status: current.run_status || current.ticket_status });
     return workItemId;
   }
   tx((transaction) => {
@@ -606,7 +607,6 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
       "持久执行器已领取作业",
     );
   });
-  publishExecutionOutboxForJob(executionJobId, claimed.worker_id);
 
   const sessionId = String(payload.session_id || current.session_id || "");
   let result: { ok: true; receipt: Json } | { ok: false; reason: string };
@@ -615,7 +615,7 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
     if (!pack || typeof pack !== "object" || Array.isArray(pack) || !sessionId) {
       const reason = "work_plan.run payload is missing plan context or session";
       markTodayPlanFailed(workItemId, runId, reason);
-      failExecutionJob(executionJobId, { code: "invalid_payload", summary: reason });
+      await runtimeFailExecutionJob(executionJobId, { code: "invalid_payload", summary: reason });
       return workItemId;
     }
     result = await executeTodayPlanRun({
@@ -640,13 +640,13 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
   } else {
     const reason = `Unsupported planning job type: ${jobType}`;
     markTodayPlanFailed(workItemId, runId, reason);
-    failExecutionJob(executionJobId, { code: "unsupported_job_type", summary: reason });
+    await runtimeFailExecutionJob(executionJobId, { code: "unsupported_job_type", summary: reason });
     return workItemId;
   }
   if (result.ok) {
-    completeExecutionJob(executionJobId, { work_item_id: workItemId, run_id: runId, ...result.receipt });
+    await runtimeCompleteExecutionJob(executionJobId, { work_item_id: workItemId, run_id: runId, ...result.receipt });
   } else {
-    failExecutionJob(executionJobId, { code: "planning_failed", summary: result.reason });
+    await runtimeFailExecutionJob(executionJobId, { code: "planning_failed", summary: result.reason });
   }
   return workItemId;
 }

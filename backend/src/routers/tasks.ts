@@ -21,7 +21,11 @@ import { parseTaskFieldUpdatesFallback } from "../tasks/task-field-updates.js";
 import { parseTaskRecommendationCandidate } from "../host/task-recommendations.js";
 import { ensureTicketForWorkItem, ticketStatusFromWorkItem } from "../tickets.js";
 import { appendTaskEvent, appendTaskEventInConn } from "../task-events.js";
-import { ticketAllowedLifecycleActions, transitionTicketLifecycle } from "../ticket-lifecycle.js";
+import { ticketAllowedLifecycleActions, transitionTicketLifecycle, transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
+import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
+import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
+import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
+import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 
 export const tasks = new Hono();
 
@@ -635,126 +639,148 @@ function ticketSummaryView(ticket: Row): Json {
   };
 }
 
-/** Target v1 list: formal tickets only, authorized before query, stable cursor. */
-tasks.get("/tickets", (c) => {
-  const limit = parseLimit(c.req.query("limit"));
-  const cursor = decodeProjectionCursor(c.req.query("cursor"));
-  const clauses = ["owner_user_id=?"];
-  const values: unknown[] = [ownerId()];
-  const status = c.req.query("status");
-  if (status) {
-    const statuses = status.split(",").map((value) => value.trim()).filter(Boolean);
-    if (!statuses.length) throw new HttpFail(400, "invalid status");
-    clauses.push(`status IN (${statuses.map(() => "?").join(",")})`);
-    values.push(...statuses);
-  }
-  const kind = c.req.query("kind");
-  if (kind) {
-    clauses.push("kind=?");
-    values.push(kind);
-  }
-  const objectRef = ticketObjectRef(c.req.query("object_ref"));
-  if (objectRef) {
-    clauses.push("object_type=? AND object_id=?");
-    values.push(objectRef.type, objectRef.id);
-  }
-  if (cursor) {
-    clauses.push("(updated_at < ? OR (updated_at = ? AND id < ?))");
-    values.push(cursor.updated_at, cursor.updated_at, cursor.id);
-  }
-  const where = clauses.join(" AND ");
-  const rows = getConn().prepare(
-    `SELECT * FROM tickets WHERE ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`,
-  ).all(...values, limit + 1) as Row[];
-  const page = rows.slice(0, limit);
-  const collabs = collabsByIds(page.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean));
-  const definitions = taskDefinitionIndex();
+/**
+ * The employee ticket centre reads only the PostgreSQL formal-ticket model.
+ * This intentionally does not fall back to legacy work-item projections.
+ */
+tasks.get("/tickets", async (c) => {
+  const page = await listNativeTickets(ownerId(), {
+    view: c.req.query("view"),
+    cursor: c.req.query("cursor"),
+    limit: c.req.query("limit"),
+    status: c.req.query("status"),
+    priority: c.req.query("priority"),
+    category: c.req.query("category"),
+    stage: c.req.query("stage"),
+    org_unit: c.req.query("org_unit"),
+    assignee: c.req.query("assignee"),
+    due: c.req.query("due"),
+    q: c.req.query("q"),
+    from: c.req.query("from"),
+    to: c.req.query("to"),
+  });
+  return c.json({ ...page, ...requestMetadata() });
+});
+
+/**
+ * Native PostgreSQL form contract for employee-created formal tickets. It
+ * deliberately exposes organization data-quality failures instead of silently
+ * guessing a creator, assignee, or supervisory watcher.
+ */
+tasks.get("/tickets/form-bootstrap", async (c) => {
   const meta = requestMetadata();
   return c.json({
-    items: page.map((row) => ticketView(row, definitions, collabs.get(String(row.collaboration_id || row.project_id || "")) || null)),
-    page: { limit, next_cursor: rows.length > limit && page.length ? encodeProjectionCursor(page.at(-1)!) : null },
+    ...(await ticketOrgFormBootstrap(ownerId())),
     ...meta,
-    source_refs: [{ type: "tickets", scope: "current_user" }],
   });
 });
 
-tasks.get("/tickets/:id/summary", (c) => {
-  const ticket = ownedWorkItem(c.req.param("id"));
-  const meta = requestMetadata();
-  return c.json({ ...ticketSummaryView(ticket), ...meta, source_refs: ticketSourceRefs(ticket) });
+/** Missing organization facts are management data-quality work, never an
+ * employee-side fallback that fabricates responsibility or supervision. */
+tasks.get("/admin/work-orders/data-quality", async (c) => {
+  if (!isAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await ticketOrganizationQualityReport()), ...requestMetadata() });
 });
 
-tasks.get("/tickets/:id/timeline", (c) => {
-  const ticket = ownedWorkItem(c.req.param("id"));
+/**
+ * Formal employee ticket creation. This path is PostgreSQL-native and writes
+ * the ticket, immutable lifecycle fact, assignment, watcher, organization
+ * scope, basis references and idempotent receipt atomically.
+ */
+tasks.post("/tickets", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as FormalTicketCreateInput;
+  const headerKey = String(c.req.header("Idempotency-Key") || "").trim();
+  const result = await createFormalTicketPostgres(ownerId(), {
+    ...body,
+    idempotency_key: headerKey || body.idempotency_key,
+  });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tasks.get("/tickets/:id/summary", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
+  return c.json({
+    ticket_id: ticket.id,
+    goal: ticket.goal || ticket.title,
+    progress: ticket.status,
+    risk: "none",
+    conclusion: null,
+    evidence_refs: [],
+    source_fingerprint: `ticket:${ticket.id}:v${ticket.data_version}`,
+    producer: "postgresql_ticket_center",
+    status: "current",
+    stale_reason: null,
+    generated_at: ticket.updated_at,
+    ...requestMetadata(),
+    source_refs: ticket.source_refs,
+  });
+});
+
+tasks.get("/tickets/:id/timeline", async (c) => {
   const after = Math.max(0, Number(c.req.query("after") || 0));
-  if (!Number.isFinite(after)) throw new HttpFail(400, "invalid after");
+  if (!Number.isFinite(after) || !Number.isInteger(after)) throw new HttpFail(400, "invalid after");
   const limit = parseLimit(c.req.query("limit"), 100);
-  const events = getConn().prepare(
-    "SELECT * FROM task_events WHERE work_item_id=? AND sequence>? ORDER BY sequence LIMIT ?",
-  ).all(ticket.id, after, limit) as Row[];
-  // Existing business facts retain their own immutable IDs and clock; they are
-  // references here, never relabelled as task-run progress.
-  const relatedBusinessEvents = ticket.collaboration_id
-    ? getConn().prepare(
-      "SELECT id,event_type,object_type,object_id,occurred_at,received_at,source,source_version FROM business_events WHERE object_type='collaboration' AND object_id=? ORDER BY occurred_at DESC,id DESC LIMIT 20",
-    ).all(ticket.collaboration_id) as Row[]
-    : [];
-  const meta = requestMetadata();
+  const timeline = await nativeTicketTimeline(ownerId(), c.req.param("id"), after, limit);
+  return c.json({ ...timeline, related_business_events: [], ...requestMetadata(), source_refs: [{ type: "postgresql_ticket_timeline", id: timeline.ticket_id }] });
+});
+
+tasks.get("/tickets/:id", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
   return c.json({
-    ticket_id: String(ticket.id),
-    items: events.map((event) => ({
-      event_id: String(event.id), sequence: Number(event.sequence), occurred_at: event.time, received_at: event.created_at,
-      run_id: event.run_id || null, type: event.event_type, event_class: event.event_class || "run_trace", phase: "task_run", status: event.status,
-      safe_summary: event.safe_summary || null, label: event.label,
-      source_ref: { type: "task_event", id: String(event.id) },
-    })),
-    related_business_events: relatedBusinessEvents.map((event) => ({
-      event_id: String(event.id), type: event.event_type, object_ref: { type: event.object_type, id: event.object_id },
-      occurred_at: event.occurred_at, received_at: event.received_at, source: event.source, source_version: event.source_version || null,
-    })),
-    next_sequence: events.length ? Number(events.at(-1)?.sequence || after) : after,
-    ...meta,
-    source_refs: ticketSourceRefs(ticket),
+    ...ticket,
+    latest_run: null,
+    summary: {
+      ticket_id: ticket.id,
+      goal: ticket.goal || ticket.title,
+      progress: ticket.status,
+      risk: "none",
+      conclusion: null,
+      evidence_refs: [],
+      source_fingerprint: `ticket:${ticket.id}:v${ticket.data_version}`,
+      producer: "postgresql_ticket_center",
+      status: "current",
+      stale_reason: null,
+      generated_at: ticket.updated_at,
+    },
+    ...requestMetadata(),
   });
 });
 
-tasks.get("/tickets/:id", (c) => {
-  const ticket = ownedWorkItem(c.req.param("id"));
-  const latest = getConn().prepare("SELECT * FROM task_runs WHERE work_item_id=? ORDER BY created_at DESC LIMIT 1").get(ticket.id) as Row | undefined;
-  const meta = requestMetadata();
-  return c.json({
-    ...ticketView(ticket, taskDefinitionIndex()),
-    latest_run: latest ? taskRunView(latest) : null,
-    summary: ticketSummaryView(ticket),
-    ...meta,
-  });
+/** Pending-ticket business edits are PostgreSQL-native, versioned and auditable.
+ * Status, acceptance and assignment deliberately remain separate commands. */
+tasks.patch("/tickets/:id", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
+  if (!ticket.allowed_actions.includes("edit")) throw new HttpFail(409, { code: "ticket_edit_not_allowed" });
+  const body = await c.req.json().catch(() => ({})) as FormalTicketEditInput;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const result = await editFormalTicketPostgres(ticket.id, ownerId(), { ...body, idempotency_key: idempotencyKey });
+  return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
 });
 
 tasks.post("/tickets/:id/commands", async (c) => {
-  const ticket = ownedWorkItem(c.req.param("id"));
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
   const body = await c.req.json().catch(() => ({})) as Json;
   const action = String(body.action || "");
   if (action !== "complete" && action !== "cancel") {
     throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持完成或取消工单命令" });
   }
+  const requiredAction = action === "complete" ? "accept" : "cancel";
+  if (!ticket.allowed_actions.includes(requiredAction)) {
+    throw new HttpFail(403, { code: "ticket_command_not_authorized", action, required_action: requiredAction });
+  }
   const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
   const expectedVersion = Number(body.expected_version);
-  const result = transitionTicketLifecycle({
-    ticketId: String(ticket.id),
+  const transitionInput = {
+    ticketId: ticket.id,
     action: action as "complete" | "cancel",
     expectedVersion,
     idempotencyKey,
     actorId: ownerId(),
     acceptanceEvidence: body.acceptance_evidence,
     reason: body.reason,
-  });
-  audit(ownerId(), `ticket.${action}`, {
-    ticket_id: ticket.id,
-    expected_version: expectedVersion,
-    idempotency_key: idempotencyKey,
-    ...(action === "complete" ? { acceptance_evidence_recorded: true } : {}),
-  });
-  return c.json({ ...result, ticket: ticketView(ownedWorkItem(String(ticket.id)), taskDefinitionIndex()) });
+  };
+  const result = await transitionTicketLifecyclePostgres(transitionInput);
+  return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
 });
 
 tasks.get("/runs/:id/events", (c) => {
@@ -1454,30 +1480,13 @@ tasks.post("/tasks/:id/dismiss", async (c) => {
   return c.json(publicWorkItem(ownedWorkItem(String(item.id))));
 });
 
-/**
- * Compatibility route only. It deliberately accepts the same optimistic-lock
- * and idempotency protocol as the canonical ticket command; no browser or
- * worker can use this path to bypass lifecycle evidence.
- */
-tasks.post("/tasks/:id/cancel", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
-  const body = await c.req.json().catch(() => ({})) as Json;
-  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
-  const result = transitionTicketLifecycle({
-    ticketId: String(item.id),
-    action: "cancel",
-    expectedVersion: Number(body.expected_version),
-    idempotencyKey,
-    actorId: ownerId(),
-    reason: body.reason,
+/** The PostgreSQL ticket command is the only lifecycle write path. */
+tasks.post("/tasks/:id/cancel", (c) => {
+  throw new HttpFail(410, {
+    code: "legacy_write_endpoint_retired",
+    message: "旧任务取消端点已停用；请使用 POST /api/tickets/:id/commands。",
+    migrate_to: "/api/tickets/:id/commands",
   });
-  audit(ownerId(), "ticket.cancel", {
-    ticket_id: item.id,
-    expected_version: Number(body.expected_version),
-    idempotency_key: idempotencyKey,
-    legacy_proxy: true,
-  });
-  return c.json({ ...publicWorkItem(ownedWorkItem(String(item.id))), cancelled: true, command: result });
 });
 
 tasks.post("/tasks/:id/actions", async (c) => {

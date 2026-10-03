@@ -506,6 +506,114 @@ export type TicketSummary = {
   [key: string]: unknown;
 };
 
+export type TicketOrganizationUnit = {
+  id: string;
+  display_name: string;
+  type: string;
+  parent_id: string | null;
+  level: number;
+  head_person_ref: string | null;
+  head_display_name: string | null;
+};
+
+export type TicketAssigneeCandidate = {
+  person_ref: string;
+  display_name: string;
+  user_id: string | null;
+  org_unit_id: string | null;
+  position: string | null;
+  assignable: boolean;
+  quality_issue: string | null;
+};
+
+export type TicketFormBootstrap = {
+  creator: {
+    person_ref: string | null;
+    org_unit_id: string | null;
+    company_id: string | null;
+    org_version: number | null;
+    supervisor_person_ref: string | null;
+    supervisor_user_id: string | null;
+    quality_issues: string[];
+  };
+  organization_units: TicketOrganizationUnit[];
+  assignee_candidates: TicketAssigneeCandidate[];
+  formal_submission_enabled: boolean;
+  quality_warnings: string[];
+  request_id: string;
+  as_of: string;
+};
+
+export type CreateFormalTicketInput = {
+  title: string;
+  goal: string;
+  business_category: "kol" | "marketing" | "operations" | "data" | "general";
+  stage_group?: string;
+  stage_code?: string;
+  priority: "important_urgent" | "important" | "urgent" | "normal" | "low";
+  due_at?: string;
+  no_due_reason?: string;
+  timezone: string;
+  acceptance_criteria: string[];
+  assignee_person_ref: string;
+  assignee_unit_id: string;
+  cross_group_reason?: string;
+  basis_refs?: Array<{ source_type: string; source_id: string; source_version?: string; occurred_at?: string; summary?: Record<string, unknown> }>;
+  idempotency_key: string;
+};
+
+export type CreateFormalTicketResult = {
+  ticket_id: string;
+  status: "pending";
+  data_version: number;
+  replayed: boolean;
+  org_version: number;
+  created_at: string;
+  request_id: string;
+  as_of: string;
+};
+
+export type EditFormalTicketInput = {
+  expected_version: number;
+  idempotency_key: string;
+  title?: string;
+  goal?: string | null;
+  priority?: "important_urgent" | "important" | "urgent" | "normal" | "low";
+  due_at?: string | null;
+  no_due_reason?: string | null;
+  acceptance_criteria?: string[];
+};
+
+export type EditFormalTicketResult = {
+  ticket_id: string;
+  action: "edit";
+  version: number;
+  event_id: string;
+  replayed: boolean;
+  ticket: Ticket;
+  request_id: string;
+  as_of: string;
+};
+
+export type TicketOrganizationQualityIssue = {
+  type: "person_without_account" | "person_without_org" | "unit_head_without_account";
+  subject_ref: string;
+  display_name: string;
+  org_unit_id: string | null;
+  message: string;
+};
+
+export type TicketOrganizationQualityReport = {
+  registry_revision: string | null;
+  seeded_at: string | null;
+  active_unit_count: number;
+  active_person_count: number;
+  issue_count: number;
+  issues: TicketOrganizationQualityIssue[];
+  request_id: string;
+  as_of: string;
+};
+
 export type ExecutionJob = {
   id: string;
   job_type: string;
@@ -1431,11 +1539,26 @@ export const api = {
     if (opts?.limit) query.set("limit", String(opts.limit));
     return request<WorkbenchTaskPage>(`/api/workbench/tasks?${query}`);
   },
-  tickets: (opts: { cursor?: string; limit?: number; status?: string; kind?: string; object_ref?: string } = {}) => {
+  tickets: (opts: {
+    cursor?: string; limit?: number; view?: "authorized" | "created" | "assigned" | "watching" | "completed";
+    status?: string; priority?: string; category?: string; stage?: string; org_unit?: string; assignee?: string; due?: "all" | "overdue" | "none"; q?: string; from?: string; to?: string;
+  } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
-    return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
+    return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
   },
+  ticketFormBootstrap: () => request<TicketFormBootstrap>("/api/tickets/form-bootstrap"),
+  adminTicketOrganizationQuality: () => request<TicketOrganizationQualityReport>("/api/admin/work-orders/data-quality"),
+  createFormalTicket: (body: CreateFormalTicketInput) => request<CreateFormalTicketResult>("/api/tickets", {
+    method: "POST",
+    headers: { "Idempotency-Key": body.idempotency_key },
+    body: JSON.stringify(body),
+  }),
+  editFormalTicket: (id: string, body: EditFormalTicketInput) => request<EditFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Idempotency-Key": body.idempotency_key },
+    body: JSON.stringify(body),
+  }),
   ticket: (id: string) => request<Ticket & { latest_run: TicketRun | null; summary: TicketSummary; request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}`),
   ticketSummary: (id: string) => request<TicketSummary & { request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}/summary`),
   ticketTimeline: (id: string, opts: { after?: number; limit?: number } = {}) => {

@@ -13,6 +13,16 @@
 - **生效版本**：宪法 v2.3（2026-10-03）；法条先行，现有代码仍按旧授权实现，不得把本次文档修订报告为生产能力完成。
 - **审宪记录**：需求「Agent 为权限锚点、三级绑定与负责人继承、技能与知识库装配」→ 主责 用户（修宪）、平台产品经理、KOL 业务专家、架构师/后端、UI/UX → CONST-02/05（本次由用户修订）、CONST-03/04/08/09/10（确定规则由程序执行、按角色修法并保留证据）→ 基本法 PROD-PLAT-04/05、BIZ-03、TECH-FE-01/BE-01/BE-07/TEST-02 → **符合**：用户直接决定新上位规则，原技能级人员授权口径明确废止；数据范围及 L1/L2/L3 闸门保留 → 下一步：契约、迁移、服务端授权校验、三页实现与权限验收。
 
+## ADR-2026-10-03：PostgreSQL-only 数据层与工单执行基座
+
+- **状态**：已接受；用户明确裁决「不再使用 SQLite，而是采用 PostgreSQL 建设」，并确认不保留 SQLite 数据。
+- **背景**：现有实现以 SQLite 风格同步接口为主要仓储抽象，PostgreSQL 通过 SQL 方言转换桥接入；这造成 SQLite 与 PostgreSQL 双路径、运行语义漂移及大响应桥接缓冲故障。任务与调度子系统需要可靠的事务、并发领取、Outbox、审计和报表能力，不能继续以 SQLite 兼容作为建设前提。
+- **决定**：PostgreSQL 是生产、开发、CI、测试、迁移、工单、规则、审计、报表、Outbox 与 Worker 的唯一运行时和唯一权威数据库。数据访问改为原生 PostgreSQL 驱动、参数化 SQL、显式事务、行级锁/乐观版本与版本化 migration；Redis/BullMQ 仅为传输和执行层，不保存业务权威状态。SQLite 文件、SQLite 回退、SQLite SQL 方言转换、SQLite 测试替身、SQLite 数据迁移窗口和归档副本均不保留。
+- **理由**：单一数据库语义消除双写与兼容桥风险；PostgreSQL 原生事务、锁、JSONB 与索引能力满足持续事件、多人协作、自动派单、规则回放、可靠队列与报表的并发/可追溯需求；用户明确不保留 SQLite 历史数据，避免新系统长期背负旧库兼容成本。
+- **影响资产**：`TECHNOLOGY.md` TECH-ARCH-01、数据库连接层、所有 SQLite 类型/SQL 方言调用、PostgreSQL migrations、Docker/环境模板、测试夹具、发布门禁、任务/调度 Repository、Outbox/Worker 与运行手册；`docs/superpowers/specs/2026-10-03-ticket-workbench-implementation-proposal.md` 作为工单域实施规划。
+- **生效边界**：本 ADR 立即约束所有新模块；现有 SQLite 代码只能在隔离改造分支中作为待迁移遗留，不能进入 PostgreSQL-only 发布版本。系统在所有运行路径、CI 和迁移均完成 PostgreSQL 原生验证前，不得宣称已完成切换。
+- **审宪记录**：需求「任务与调度子系统采用 PostgreSQL，不再使用 SQLite」→ 主责 用户（产品方向）、架构师/后端专家（数据库与一致性）、测试经理（迁移与回归证据）→ CONST-02（平台与业务分离：数据库不定义业务事实）、CONST-04（架构/后端职责）、CONST-08/09/10 → TECH-ARCH-01、TECH-BE-03/04、TECH-TEST-01~04 → **符合**：只替换实现载体，不改变 KOL 事实源、权限、审批或 L1/L2/L3 边界；通过原生 PostgreSQL 事务和测试提高可验证性 → 下一步：建立原生 PostgreSQL 迁移基座，迁移任务/调度 Repository，移除 SQLite 路径并完成 PostgreSQL 集成验收。
+
 ## ADR-2026-10-03 （之二）：组织单元三级化与 Agent 绑定持久化
 
 - **状态**：已接受；用户 2026-10-03 追加裁决（三级组可绑定；推广部负责人由钟建奎接任；品牌/区域只落关系、字典仍以 registry 为权威；组织与绑定落新表）。

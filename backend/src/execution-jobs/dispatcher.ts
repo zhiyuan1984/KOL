@@ -1,12 +1,14 @@
 import { executeClaimedCronJob } from "../cron/worker.js";
 import { executeClaimedPlanningJob } from "../host/today-plan-run.js";
 import {
-  claimExecutionJobById,
-  claimNextExecutionJob,
-  failExecutionJob,
-  renewExecutionJobLease,
   type ClaimedExecutionJob,
 } from "./store.js";
+import {
+  runtimeClaimExecutionJobById,
+  runtimeClaimNextExecutionJob,
+  runtimeFailExecutionJob,
+  runtimeRenewExecutionJobLease,
+} from "./runtime-store.js";
 
 export type ExecutionDispatchResult = {
   execution_job_id: string;
@@ -18,8 +20,8 @@ export type ExecutionDispatchResult = {
 
 /**
  * One handler registry for every durable execution job. Queue transports only
- * carry an execution_job_id; this dispatcher keeps the database claim and the
- * terminal receipt authoritative across SQLite and BullMQ consumers.
+ * carry an execution_job_id; this dispatcher keeps the PostgreSQL-native
+ * claim and terminal receipt authoritative across BullMQ consumers.
  */
 async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): Promise<ExecutionDispatchResult> {
   const id = String(claimed.id);
@@ -33,14 +35,14 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
       const workItemId = await executeClaimedPlanningJob(claimed);
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: workItemId };
     }
-    failExecutionJob(id, {
+    await runtimeFailExecutionJob(id, {
       code: "unsupported_job_type",
       summary: `No durable execution handler registered for ${jobType}`,
     });
     return { execution_job_id: id, job_type: jobType, handled: false, outcome: "failed", target_id: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "execution handler failed");
-    failExecutionJob(id, { code: "execution_handler_error", summary: message });
+    await runtimeFailExecutionJob(id, { code: "execution_handler_error", summary: message });
     console.error("[execution-dispatcher] handler failed", { executionJobId: id, jobType, error });
     return { execution_job_id: id, job_type: jobType, handled: true, outcome: "failed", target_id: null };
   }
@@ -58,13 +60,15 @@ export async function dispatchClaimedExecutionJob(
   const leaseMs = Math.max(1_000, Number(options.lease_ms || 60_000));
   const renewMs = Math.max(500, Math.min(leaseMs - 100, Number(options.renew_ms || Math.floor(leaseMs / 3))));
   const timer = setInterval(() => {
-    try {
-      if (!renewExecutionJobLease(String(claimed.id), String(claimed.worker_id), { lease_ms: leaseMs })) {
+    void runtimeRenewExecutionJobLease(String(claimed.id), String(claimed.worker_id), { lease_ms: leaseMs })
+      .then((renewed) => {
+        if (!renewed) {
         console.warn("[execution-dispatcher] lease renewal skipped", { executionJobId: claimed.id, workerId: claimed.worker_id });
-      }
-    } catch (error) {
-      console.error("[execution-dispatcher] lease renewal failed", { executionJobId: claimed.id, workerId: claimed.worker_id, error });
-    }
+        }
+      })
+      .catch((error) => {
+        console.error("[execution-dispatcher] lease renewal failed", { executionJobId: claimed.id, workerId: claimed.worker_id, error });
+      });
   }, renewMs);
   timer.unref();
   try {
@@ -78,7 +82,7 @@ export async function processNextExecutionJob(
   workerId = "execution-worker",
   options: ExecutionDispatchOptions = {},
 ): Promise<ExecutionDispatchResult | null> {
-  const claimed = claimNextExecutionJob(workerId, { lease_ms: options.lease_ms });
+  const claimed = await runtimeClaimNextExecutionJob(workerId, { lease_ms: options.lease_ms });
   if (!claimed) return null;
   return dispatchClaimedExecutionJob(claimed, options);
 }
@@ -92,7 +96,7 @@ export async function processExecutionJobById(
   workerId = "execution-worker",
   options: ExecutionDispatchOptions = {},
 ): Promise<ExecutionDispatchResult | null> {
-  const claimed = claimExecutionJobById(executionJobId, workerId, { lease_ms: options.lease_ms });
+  const claimed = await runtimeClaimExecutionJobById(executionJobId, workerId, { lease_ms: options.lease_ms });
   if (!claimed) return null;
   return dispatchClaimedExecutionJob(claimed, options);
 }

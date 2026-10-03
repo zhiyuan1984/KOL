@@ -2,11 +2,13 @@
 
 上位法：[CONSTITUTION.md](CONSTITUTION.md)。ARCH 由架构师制定，FE 由前端专家制定，BE 由后端专家制定，TEST 由测试经理制定。业务语义、事实来源和业务审批权由 [BUSINESS.md](BUSINESS.md) 决定。
 
+**修订记录（2026-10-03）：** 用户确认后端数据层不再使用 SQLite，采用 PostgreSQL 作为唯一运行时与唯一权威数据库。SQLite 存储、SQLite 回退、SQLite 方言桥、以 SQLite 代替 PostgreSQL 的测试路径及 SQLite 历史数据保留均废止；现有代码仅可作为迁移改造对象，不能报告为新架构能力。依据 `docs/DECISIONS.md` ADR-2026-10-03「PostgreSQL-only 数据层与工单执行基座」。
+
 ## 组件与调用关系
 
 ### TECH-ARCH-01 组件选择
 
-以当前 React/TypeScript 前端、Hono/TypeScript 后端、SQLite 存储和 Codex app-server 为迁移起点，不因重写法规更换技术栈。架构师决定组件选择与模块边界；新增数据库、队列、搜索或服务拆分必须说明实际需求、替代方案和迁移影响。
+以当前 React/TypeScript 前端、Hono/TypeScript 后端、**PostgreSQL** 存储、Redis/BullMQ 可靠执行链和 Codex app-server 为架构基座，不因重写法规更换无关技术栈。PostgreSQL 使用原生驱动、版本化 migration、参数化 SQL 和事务；不得保留 SQLite 文件、方言桥或运行时回退。架构师决定组件选择与模块边界；新增数据库、队列、搜索或服务拆分必须说明实际需求、替代方案和迁移影响。
 
 记忆快查可先使用结构化索引和全文检索；需要语义召回时再补充相应能力。采用何种数据库不改变业务专家对权威来源的决定权。
 

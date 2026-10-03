@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { Client } from "pg";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
@@ -106,6 +107,55 @@ const migrations: SchemaMigration[] = [
        VALUES ('kbase_legacy','legacy','历史知识','kdom_legacy','structured','2026-10-01 分层迁移前的历史条目','active','{}',1,NOW()::text,NOW()::text)
        ON CONFLICT (id) DO NOTHING`,
       `UPDATE knowledge SET base_id='kbase_legacy' WHERE base_id IS NULL OR base_id=''`,
+    ],
+  },
+  {
+    // A fresh PostgreSQL authority must not depend on a historical SQLite
+    // snapshot merely to create the formal ticket and execution backbone.
+    id: "20261001_postgres_ticket_execution_bootstrap",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tickets (
+        id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, task_type TEXT NOT NULL, title TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual', status TEXT NOT NULL DEFAULT 'pending', priority TEXT NOT NULL DEFAULT 'normal',
+        skill TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '', project_id TEXT, collaboration_id TEXT, session_id TEXT,
+        due_at TEXT, last_acted_at TEXT, acknowledged_at TEXT, promoted_at TEXT, dismissed_at TEXT, started_at TEXT, completed_at TEXT,
+        input JSONB NOT NULL DEFAULT '{}'::jsonb, entities JSONB NOT NULL DEFAULT '{}'::jsonb, data_version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'general', channel TEXT NOT NULL DEFAULT 'human',
+        requester_type TEXT NOT NULL DEFAULT 'human', requester_id TEXT, object_type TEXT, object_id TEXT, kind_version INTEGER NOT NULL DEFAULT 1
+      )`,
+      "CREATE INDEX IF NOT EXISTS tickets_owner_updated_idx ON tickets(owner_user_id,updated_at DESC)",
+      "CREATE INDEX IF NOT EXISTS tickets_status_updated_idx ON tickets(status,updated_at DESC)",
+      `CREATE TABLE IF NOT EXISTS task_runs (
+        id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE, session_id TEXT, thread_id TEXT, turn_id TEXT,
+        worker_id TEXT, status TEXT NOT NULL DEFAULT 'pending', input JSONB NOT NULL DEFAULT '{}'::jsonb, entities JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error JSONB, created_at TEXT NOT NULL, started_at TEXT, completed_at TEXT
+      )`,
+      "CREATE INDEX IF NOT EXISTS task_runs_ticket_created_idx ON task_runs(work_item_id,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS task_events (
+        id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE, run_id TEXT REFERENCES task_runs(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL, event_type TEXT NOT NULL, event_class TEXT NOT NULL DEFAULT 'run_trace', label TEXT NOT NULL, status TEXT NOT NULL,
+        safe_summary TEXT, time TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(work_item_id,sequence)
+      )`,
+      "CREATE INDEX IF NOT EXISTS task_events_ticket_sequence_idx ON task_events(work_item_id,sequence)",
+      `CREATE TABLE IF NOT EXISTS execution_jobs (
+        id TEXT PRIMARY KEY, job_type TEXT NOT NULL, tenant_ref TEXT NOT NULL, actor_ref TEXT NOT NULL,
+        object_ref_json JSONB NOT NULL DEFAULT '{}'::jsonb, ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+        run_id TEXT REFERENCES task_runs(id) ON DELETE SET NULL, trigger_event_id TEXT, rule_id TEXT, rule_version TEXT,
+        risk_level TEXT NOT NULL DEFAULT 'low', idempotency_key TEXT NOT NULL UNIQUE, scope_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        priority_class TEXT NOT NULL DEFAULT 'normal', status TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 1, lease_until TEXT, lease_owner TEXT, next_attempt_at TEXT,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb, receipt_json JSONB, error_code TEXT, error_summary TEXT,
+        created_at TEXT NOT NULL, started_at TEXT, terminal_at TEXT, updated_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS execution_jobs_ready ON execution_jobs(status,next_attempt_at,created_at)",
+      `CREATE TABLE IF NOT EXISTS execution_outbox (
+        id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES execution_jobs(id) ON DELETE CASCADE, event_type TEXT NOT NULL,
+        aggregate_type TEXT NOT NULL, aggregate_id TEXT NOT NULL, payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        idempotency_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+        available_at TEXT NOT NULL, published_at TEXT, publisher_id TEXT, publisher_lease_until TEXT, last_error TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS execution_outbox_ready ON execution_outbox(status,available_at,created_at)",
     ],
   },
   {
@@ -272,6 +322,127 @@ const migrations: SchemaMigration[] = [
       "CREATE INDEX IF NOT EXISTS execution_outbox_publishing_lease ON execution_outbox(status, publisher_lease_until)",
     ],
   },
+  {
+    id: "20261003_ticket_domain_core",
+    statements: [
+      "CREATE EXTENSION IF NOT EXISTS pgcrypto",
+      "ALTER TABLE organization_people ADD COLUMN IF NOT EXISTS starry_open_id TEXT",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS goal TEXT",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS next_action TEXT",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS business_category TEXT",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS stage_group TEXT",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS stage_code TEXT",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ticket_timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai'",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS no_due_reason TEXT",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS acceptance_criteria JSONB NOT NULL DEFAULT '[]'::jsonb",
+      "CREATE INDEX IF NOT EXISTS tickets_business_stage_open_idx ON tickets(business_category,stage_code,updated_at DESC) WHERE status NOT IN ('completed','cancelled')",
+      `CREATE TABLE IF NOT EXISTS ticket_org_scopes (
+        ticket_id TEXT PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,
+        company_id TEXT NOT NULL,
+        center_unit_id TEXT,
+        department_unit_id TEXT,
+        assignee_unit_id TEXT NOT NULL,
+        org_version INTEGER NOT NULL CHECK (org_version >= 1),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_org_scopes_assignee_unit_idx ON ticket_org_scopes(company_id,assignee_unit_id)",
+      `CREATE TABLE IF NOT EXISTS ticket_assignments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        assignee_person_ref TEXT,
+        assignee_user_id TEXT,
+        org_unit_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('primary','collaborator')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','superseded','ended')),
+        cross_group_reason TEXT,
+        assigned_by_user_id TEXT,
+        assignment_version INTEGER NOT NULL DEFAULT 1 CHECK (assignment_version >= 1),
+        effective_from TIMESTAMPTZ NOT NULL DEFAULT now(),
+        effective_to TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS ticket_assignments_one_active_primary ON ticket_assignments(ticket_id) WHERE status='active' AND role='primary'",
+      "CREATE INDEX IF NOT EXISTS ticket_assignments_active_assignee_idx ON ticket_assignments(assignee_user_id,status,effective_from DESC)",
+      `CREATE TABLE IF NOT EXISTS ticket_watchers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        watcher_person_ref TEXT,
+        watcher_user_id TEXT,
+        reason TEXT NOT NULL CHECK (reason IN ('creator_supervisor','explicit','rule_escalation')),
+        automatic BOOLEAN NOT NULL DEFAULT true,
+        org_version INTEGER NOT NULL CHECK (org_version >= 1),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','removed')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        removed_at TIMESTAMPTZ
+      )`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS ticket_watchers_active_uniq ON ticket_watchers(ticket_id,watcher_person_ref,reason) WHERE status='active'",
+      "CREATE INDEX IF NOT EXISTS ticket_watchers_visible_idx ON ticket_watchers(watcher_user_id,status,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS ticket_basis_refs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        source_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_version TEXT,
+        occurred_at TIMESTAMPTZ,
+        summary_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(ticket_id,source_type,source_id,source_version)
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_basis_refs_source_idx ON ticket_basis_refs(source_type,source_id,occurred_at DESC)",
+      `CREATE TABLE IF NOT EXISTS ticket_rule_evaluations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        source_event_id TEXT NOT NULL,
+        rule_id TEXT NOT NULL,
+        rule_version INTEGER NOT NULL CHECK (rule_version >= 1),
+        business_scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+        outcome TEXT NOT NULL CHECK (outcome IN ('matched','created','updated','skipped','missing_fields','failed','simulated')),
+        ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+        details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        evaluated_by TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_rule_evaluations_rule_idx ON ticket_rule_evaluations(rule_id,rule_version,evaluated_at DESC)",
+      "CREATE INDEX IF NOT EXISTS ticket_rule_evaluations_event_idx ON ticket_rule_evaluations(source_event_id,evaluated_at DESC)",
+      `CREATE TABLE IF NOT EXISTS ticket_create_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        requester_user_id TEXT NOT NULL,
+        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        response_json JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      `CREATE TABLE IF NOT EXISTS ticket_audit_events (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        actor_user_id TEXT NOT NULL,
+        command TEXT NOT NULL,
+        request_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_audit_events_ticket_created_idx ON ticket_audit_events(ticket_id,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS ticket_org_seed_state (
+        seed_key TEXT PRIMARY KEY,
+        registry_revision TEXT NOT NULL,
+        seeded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        seeded_by TEXT NOT NULL DEFAULT 'system'
+      )`,
+    ],
+  },
+  {
+    id: "20261003_ticket_command_receipts_native",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ticket_command_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        result_json JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_command_receipts_ticket_idx ON ticket_command_receipts(ticket_id,created_at DESC)",
+    ],
+  },
 ];
 
 const client = new Client({ connectionString: databaseUrl });
@@ -289,6 +460,12 @@ try {
     id TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL
   )`);
+  await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    id TEXT PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    applied_by TEXT NOT NULL DEFAULT 'schema-runner'
+  )`);
   const applied = new Set((await client.query<{ id: string }>("SELECT id FROM app_schema_migrations")).rows.map((row) => row.id));
   const completed: string[] = [];
   // 基线已包含这些增量的效果，补记账本，否则非幂等增量会在已有对象上重跑。
@@ -304,9 +481,21 @@ try {
     // DDL is idempotent even if a prior deploy created the table before this
     // ledger existed. Recording it prevents future release restarts from
     // executing non-idempotent migrations accidentally.
-    if (applied.has(migration.id)) continue;
+    const checksum = createHash("sha256").update(migration.statements.join("\n-- statement --\n")).digest("hex");
+    const recorded = await client.query<{ checksum: string }>("SELECT checksum FROM schema_migrations WHERE id=$1", [migration.id]);
+    if (recorded.rows[0] && recorded.rows[0].checksum !== checksum) {
+      throw new Error(`schema migration checksum mismatch: ${migration.id}`);
+    }
+    if (applied.has(migration.id)) {
+      if (!recorded.rows[0]) {
+        await client.query("INSERT INTO schema_migrations (id,checksum,applied_by) VALUES ($1,$2,'legacy-ledger-backfill')", [migration.id, checksum]);
+      }
+      continue;
+    }
     for (const statement of migration.statements) await client.query(statement);
-    await client.query("INSERT INTO app_schema_migrations (id,applied_at) VALUES ($1,$2)", [migration.id, new Date().toISOString()]);
+    const appliedAt = new Date().toISOString();
+    await client.query("INSERT INTO app_schema_migrations (id,applied_at) VALUES ($1,$2)", [migration.id, appliedAt]);
+    await client.query("INSERT INTO schema_migrations (id,checksum,applied_at) VALUES ($1,$2,$3)", [migration.id, checksum, appliedAt]);
     completed.push(migration.id);
   }
   await client.query("COMMIT");

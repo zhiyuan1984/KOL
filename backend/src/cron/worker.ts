@@ -5,15 +5,16 @@ import type { AppUser } from "../auth.js";
 import { cronHandler } from "./handlers.js";
 import { nextScheduledAt, type ScheduleWindow } from "./schedule.js";
 import {
-  claimExecutionJobById,
-  claimNextExecutionJob,
-  completeExecutionJob,
   enqueueExecutionJob,
-  executionJobPayload,
-  failExecutionJob,
-  publishExecutionOutboxForJob,
   type ClaimedExecutionJob,
 } from "../execution-jobs/store.js";
+import {
+  runtimeClaimExecutionJobById,
+  runtimeClaimNextExecutionJob,
+  runtimeCompleteExecutionJob,
+  runtimeExecutionJobPayload,
+  runtimeFailExecutionJob,
+} from "../execution-jobs/runtime-store.js";
 import {
   ensureSystemCronJobs,
   jobById,
@@ -225,19 +226,18 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
 
 /** Execute a durable Cron job already claimed by the common execution dispatcher. */
 export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
-  const payload = executionJobPayload(claimed);
+  const payload = runtimeExecutionJobPayload(claimed);
   const runId = String(payload.cron_run_id || "");
   if (!runId) {
-    failExecutionJob(String(claimed.id), { code: "invalid_payload", summary: "cron.run missing cron_run_id" });
+    await runtimeFailExecutionJob(String(claimed.id), { code: "invalid_payload", summary: "cron.run missing cron_run_id" });
     throw new HttpFail(500, "invalid cron execution job payload");
   }
   const db = getConn();
   const existing = runById(runId, db);
   if (!existing) {
-    failExecutionJob(String(claimed.id), { code: "cron_run_missing", summary: `cron run missing: ${runId}` });
+    await runtimeFailExecutionJob(String(claimed.id), { code: "cron_run_missing", summary: `cron run missing: ${runId}` });
     throw new HttpFail(404, "cron run not found");
   }
-  publishExecutionOutboxForJob(String(claimed.id), claimed.worker_id, new Date(nowMs));
   const started = new Date(nowMs).toISOString();
   const changed = db.prepare(
     "UPDATE cron_runs SET status='running',started_at=COALESCE(started_at,?) WHERE id=? AND status='queued'",
@@ -245,21 +245,21 @@ export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer
   if (!changed.changes) {
     const current = runById(runId, db) as Row;
     if (["succeeded", "failed", "skipped", "needs_takeover"].includes(String(current.status))) {
-      completeExecutionJob(String(claimed.id), { cron_run_id: runId, cron_status: current.status, duplicate: true }, new Date(nowMs));
+      await runtimeCompleteExecutionJob(String(claimed.id), { cron_run_id: runId, cron_status: current.status, duplicate: true }, new Date(nowMs));
       return runId;
     }
-    failExecutionJob(String(claimed.id), { code: "cron_run_not_queued", summary: `cron run is ${current.status}` });
+    await runtimeFailExecutionJob(String(claimed.id), { code: "cron_run_not_queued", summary: `cron run is ${current.status}` });
     return runId;
   }
   const terminal = await executeCronRun(runId, viewer, nowMs);
   const status = String(terminal.status);
   if (status === "failed") {
-    failExecutionJob(String(claimed.id), {
+    await runtimeFailExecutionJob(String(claimed.id), {
       code: String(terminal.error_code || "cron_handler_failed"),
       summary: String(terminal.error_summary || "cron handler failed"),
     }, { now: new Date(nowMs) });
   } else {
-    completeExecutionJob(String(claimed.id), {
+    await runtimeCompleteExecutionJob(String(claimed.id), {
       cron_run_id: runId,
       cron_status: status,
       receipt: terminal.receipt_json ? JSON.parse(String(terminal.receipt_json)) : {},
@@ -270,7 +270,7 @@ export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer
 
 /** Processes one queued Cron job. This is the entry used by the standalone transition worker. */
 export async function processNextCronExecutionJob(workerId = "cron-worker", viewer?: AppUser, nowMs = Date.now()): Promise<string | null> {
-  const claimed = claimNextExecutionJob(workerId, { job_types: ["cron.run"], now: new Date(nowMs) });
+  const claimed = await runtimeClaimNextExecutionJob(workerId, { job_types: ["cron.run"], now: new Date(nowMs) });
   if (!claimed) return null;
   return executeClaimedCronJob(claimed, viewer, nowMs);
 }
@@ -281,7 +281,7 @@ export async function processNextCronExecutionJob(workerId = "cron-worker", view
  * BullMQ deliveries cannot execute the same run twice.
  */
 export async function processCronExecutionJobById(executionJobId: string, workerId = "cron-worker", viewer?: AppUser, nowMs = Date.now()): Promise<string | null> {
-  const claimed = claimExecutionJobById(executionJobId, workerId, { now: new Date(nowMs) });
+  const claimed = await runtimeClaimExecutionJobById(executionJobId, workerId, { now: new Date(nowMs) });
   if (!claimed) return null;
   return executeClaimedCronJob(claimed, viewer, nowMs);
 }

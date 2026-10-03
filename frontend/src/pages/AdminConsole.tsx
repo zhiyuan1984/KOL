@@ -8,6 +8,7 @@ import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
 import AdminCosts from "./AdminCosts";
 import AdminScheduling from "./AdminScheduling";
+import AdminWorkOrders from "./AdminWorkOrders";
 import AdminWorkReport from "./AdminWorkReport";
 import AdminAudit from "./AdminAudit";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
@@ -106,6 +107,7 @@ export default function AdminConsole() {
         {tab === "cost" && <AdminCosts />}
         {tab === "overview" && <AdminWorkReport />}
         {tab === "scheduling" && <AdminScheduling />}
+        {tab === "work-orders" && <AdminWorkOrders />}
         {tab === "audit" && <AdminAudit />}
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "kol" && <LegacyAdmin />}
