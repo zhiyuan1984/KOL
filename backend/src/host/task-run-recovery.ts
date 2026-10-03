@@ -1,5 +1,5 @@
 import { audit, getConn, nowIso, tx } from "../db.js";
-import { appendTaskEvent } from "../routers/tasks.js";
+import { appendTaskEvent } from "../task-events.js";
 
 /**
  * Boot-time reconciliation for task runs. Nothing can still be executing in a

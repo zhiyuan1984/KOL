@@ -47,6 +47,26 @@ function isoAfter(now: Date, durationMs: number): string {
   return new Date(now.getTime() + durationMs).toISOString();
 }
 
+function retryDelayMs(attempt: number): number {
+  return Math.min(60_000, 1_000 * 2 ** Math.min(6, Math.max(0, attempt - 1)));
+}
+
+function insertDispatchOutbox(
+  db: SqliteConn,
+  job: Row,
+  input: { eventType: string; idempotencyKey: string; payload: Json; availableAt: string; now: string },
+): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO execution_outbox
+     (id,job_id,event_type,aggregate_type,aggregate_id,payload_json,idempotency_key,status,attempts,available_at,published_at,last_error,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    nid("obx"), String(job.id), input.eventType, "execution_job", String(job.id),
+    JSON.stringify(input.payload), input.idempotencyKey,
+    "pending", 0, input.availableAt, null, null, input.now, input.now,
+  );
+}
+
 function uniqueError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
   return /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE/i.test(message);
@@ -153,9 +173,9 @@ function claimRow(row: Row, workerId: string, leaseMs: number, now: Date, db: Sq
   const leaseUntil = isoAfter(now, leaseMs);
   const changed = db.prepare(
     `UPDATE execution_jobs
-        SET status='running', attempts=attempts+1, lease_until=?, started_at=COALESCE(started_at,?), updated_at=?
+        SET status='running', attempts=attempts+1, lease_until=?, lease_owner=?, started_at=COALESCE(started_at,?), updated_at=?
       WHERE id=? AND status IN ('queued','retrying') AND (next_attempt_at IS NULL OR next_attempt_at<=?)`,
-  ).run(leaseUntil, now.toISOString(), now.toISOString(), row.id, now.toISOString());
+  ).run(leaseUntil, workerId, now.toISOString(), now.toISOString(), row.id, now.toISOString());
   if (!changed.changes) return null;
   const claimed = executionJobById(String(row.id), db);
   return claimed ? { ...claimed, lease_until: leaseUntil, worker_id: workerId } : null;
@@ -189,6 +209,21 @@ export function claimNextExecutionJob(workerId: string, options: { job_types?: s
   });
 }
 
+/** Renew only the lease held by this worker. A stale or replaced worker must
+ * never extend another consumer's claim. */
+export function renewExecutionJobLease(
+  id: string,
+  workerId: string,
+  options: { lease_ms?: number; now?: Date } = {},
+): boolean {
+  const now = options.now || new Date();
+  const leaseUntil = isoAfter(now, Math.max(1_000, Number(options.lease_ms || 60_000)));
+  return txImmediate((db) => db.prepare(
+    `UPDATE execution_jobs SET lease_until=?,updated_at=?
+      WHERE id=? AND status='running' AND lease_owner=?`,
+  ).run(leaseUntil, now.toISOString(), id, workerId).changes > 0);
+}
+
 /** Mark the local worker handoff as published; the target is explicitly local in this SQLite transition. */
 export function publishExecutionOutboxForJob(jobId: string, _publisher: string, now = new Date()): number {
   const stamp = now.toISOString();
@@ -202,7 +237,7 @@ export function completeExecutionJob(id: string, receipt: Json = {}, now = new D
   const stamp = now.toISOString();
   txImmediate((db) => {
     db.prepare(
-      `UPDATE execution_jobs SET status='succeeded',lease_until=NULL,receipt_json=?,error_code=NULL,error_summary=NULL,
+      `UPDATE execution_jobs SET status='succeeded',lease_until=NULL,lease_owner=NULL,receipt_json=?,error_code=NULL,error_summary=NULL,
        terminal_at=?,updated_at=? WHERE id=? AND status='running'`,
     ).run(JSON.stringify(receipt), stamp, stamp, id);
   });
@@ -216,12 +251,24 @@ export function failExecutionJob(id: string, error: { code: string; summary: str
     const current = executionJobById(id, db);
     if (!current || String(current.status) !== "running") return;
     const highRisk = ["high", "critical"].includes(String(current.risk_level));
-    const canRetry = !highRisk && Number(current.attempts || 0) < Number(current.max_attempts || 1) && options.retry_at;
+    const canRetry = !highRisk && Number(current.attempts || 0) < Number(current.max_attempts || 1);
+    const retryAt = canRetry
+      ? (options.retry_at || isoAfter(now, retryDelayMs(Number(current.attempts || 0))))
+      : null;
     const status: ExecutionJobStatus = highRisk ? "uncertain" : canRetry ? "retrying" : "failed";
     db.prepare(
-      `UPDATE execution_jobs SET status=?,lease_until=NULL,next_attempt_at=?,error_code=?,error_summary=?,
+      `UPDATE execution_jobs SET status=?,lease_until=NULL,lease_owner=NULL,next_attempt_at=?,error_code=?,error_summary=?,
        terminal_at=CASE WHEN ? IN ('failed','uncertain') THEN ? ELSE terminal_at END,updated_at=? WHERE id=?`,
-    ).run(status, canRetry ? options.retry_at : null, error.code, error.summary.slice(0, 1000), status, stamp, stamp, id);
+    ).run(status, retryAt, error.code, error.summary.slice(0, 1000), status, stamp, stamp, id);
+    if (canRetry && retryAt) {
+      insertDispatchOutbox(db, current, {
+        eventType: "execution_job.retry_scheduled",
+        idempotencyKey: `execution-job:${id}:retry:${Number(current.attempts || 0)}`,
+        payload: { reason: error.code, attempt: Number(current.attempts || 0), retry_at: retryAt },
+        availableAt: retryAt,
+        now: stamp,
+      });
+    }
   });
   return executionJobById(id);
 }
@@ -246,7 +293,7 @@ export function retryFailedExecutionJob(id: string, options: { actor_ref?: strin
     if (String(current.risk_level) !== "low") return { job: current, retried: false, reason: "risk_requires_takeover" as const };
     const changed = db.prepare(
       `UPDATE execution_jobs
-          SET status='queued',lease_until=NULL,next_attempt_at=?,error_code=NULL,error_summary=NULL,
+          SET status='queued',lease_until=NULL,lease_owner=NULL,next_attempt_at=?,error_code=NULL,error_summary=NULL,
               terminal_at=NULL,max_attempts=CASE WHEN max_attempts<=attempts THEN attempts+1 ELSE max_attempts END,
               updated_at=?
         WHERE id=? AND status='failed' AND risk_level='low'`,
@@ -254,16 +301,13 @@ export function retryFailedExecutionJob(id: string, options: { actor_ref?: strin
     const job = executionJobById(id, db);
     if (!changed.changes || !job) return { job, retried: false, reason: "not_failed" as const };
     const attempt = Number(job.attempts || 0);
-    db.prepare(
-      `INSERT OR IGNORE INTO execution_outbox
-       (id,job_id,event_type,aggregate_type,aggregate_id,payload_json,idempotency_key,status,attempts,available_at,published_at,last_error,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      nid("obx"), id, "execution_job.retry_requested", "execution_job", id,
-      JSON.stringify({ actor_ref: options.actor_ref, attempt, risk_level: job.risk_level }),
-      `execution-job:${id}:manual-retry:${attempt}`,
-      "pending", 0, stamp, null, null, stamp, stamp,
-    );
+    insertDispatchOutbox(db, job, {
+      eventType: "execution_job.retry_requested",
+      idempotencyKey: `execution-job:${id}:manual-retry:${attempt}`,
+      payload: { actor_ref: options.actor_ref, attempt, risk_level: job.risk_level },
+      availableAt: stamp,
+      now: stamp,
+    });
     return { job, retried: true };
   });
 }
@@ -281,13 +325,20 @@ export function recoverExpiredExecutionJobs(now = new Date()): { requeued: numbe
       const retriable = !highRisk && Number(row.attempts || 0) < Number(row.max_attempts || 1);
       if (retriable) {
         db.prepare(
-          `UPDATE execution_jobs SET status='retrying',lease_until=NULL,next_attempt_at=?,error_code='lease_expired',
+          `UPDATE execution_jobs SET status='retrying',lease_until=NULL,lease_owner=NULL,next_attempt_at=?,error_code='lease_expired',
            error_summary='Worker lease expired before a terminal receipt',updated_at=? WHERE id=? AND status='running'`,
         ).run(stamp, stamp, row.id);
+        insertDispatchOutbox(db, row, {
+          eventType: "execution_job.lease_recovered",
+          idempotencyKey: `execution-job:${row.id}:lease-recovery:${Number(row.attempts || 0)}`,
+          payload: { reason: "lease_expired", attempt: Number(row.attempts || 0) },
+          availableAt: stamp,
+          now: stamp,
+        });
         requeued += 1;
       } else {
         db.prepare(
-          `UPDATE execution_jobs SET status='uncertain',lease_until=NULL,error_code='lease_expired',
+          `UPDATE execution_jobs SET status='uncertain',lease_until=NULL,lease_owner=NULL,error_code='lease_expired',
            error_summary='Worker lease expired; manual outcome confirmation required',terminal_at=?,updated_at=? WHERE id=? AND status='running'`,
         ).run(stamp, stamp, row.id);
         uncertain += 1;
@@ -321,6 +372,7 @@ export function executionJobPublic(job: Row): Json {
     attempts: Number(job.attempts || 0),
     max_attempts: Number(job.max_attempts || 1),
     lease_until: job.lease_until || null,
+    lease_owner: job.lease_owner || null,
     next_attempt_at: job.next_attempt_at || null,
     receipt: job.receipt_json ? parseJson(job.receipt_json) : null,
     error_code: job.error_code || null,

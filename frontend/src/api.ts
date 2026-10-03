@@ -437,6 +437,11 @@ export type ExecutionWorker = {
   stale: boolean;
 };
 
+export type ExecutionOutboxHealth = Record<string, number | string | null | undefined> & {
+  stale_publishing_count?: number;
+  oldest_stale_publishing_updated_at?: string | null;
+};
+
 export type SchedulingRule = {
   id: string;
   version: number;
@@ -1375,10 +1380,18 @@ export const api = {
     request<Task | { task: Task }>(`/api/tasks/by-session/${encodeURIComponent(sessionId)}`),
   taskEvents: (id: string) =>
     request<TaskEvent[] | { events: TaskEvent[] }>(`/api/tasks/${encodeURIComponent(id)}/events`),
-  cancelTask: (id: string) =>
-    request<Task | { task: Task; cancelled?: boolean }>(`/api/tasks/${encodeURIComponent(id)}/cancel`, {
-      method: "POST", body: JSON.stringify({}),
-    }),
+  cancelTask: (task: { id: string; data_version?: number | null }) =>
+    request<{ ticket_id: string; action: string; status: string; version: number; replayed: boolean; ticket?: Ticket }>(
+      `/api/tickets/${encodeURIComponent(task.id)}/commands`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": `ticket-cancel-${crypto.randomUUID()}` },
+        body: JSON.stringify({
+          action: "cancel",
+          expected_version: Math.max(1, Number(task.data_version || 1)),
+        }),
+      },
+    ),
   startCrawl: (id: string, body: StartCrawlInput) =>
     request<CrawlJob | { crawl_job: CrawlJob; job?: CrawlJob }>(
       `/api/tasks/${encodeURIComponent(id)}/actions/start-crawl`,
@@ -1407,11 +1420,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     }),
-  completeTask: (id: string) =>
-    request<Task | { task: Task; message?: string }>(`/api/tasks/${encodeURIComponent(id)}/complete`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    }),
+  completeTask: (task: { id: string; data_version?: number | null }, acceptanceEvidence: Record<string, unknown>) =>
+    request<{ ticket_id: string; action: string; status: string; version: number; replayed: boolean; ticket?: Ticket }>(
+      `/api/tickets/${encodeURIComponent(task.id)}/commands`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": `ticket-complete-${crypto.randomUUID()}` },
+        body: JSON.stringify({
+          action: "complete",
+          expected_version: Math.max(1, Number(task.data_version || 1)),
+          acceptance_evidence: acceptanceEvidence,
+        }),
+      },
+    ),
   promoteTask: (id: string) =>
     request<Task>(`/api/tasks/${encodeURIComponent(id)}/promote`, {
       method: "POST",
@@ -2217,7 +2238,7 @@ export const api = {
     return request<{
       items: ExecutionJob[];
       counts: Record<string, number>;
-      outbox: Record<string, number>;
+      outbox: ExecutionOutboxHealth;
       workers: ExecutionWorker[];
       backlog: { count: number; oldest_created_at: string | null };
       rules: SchedulingRule[];

@@ -199,6 +199,7 @@ describe("cron jobs P0/P1", () => {
     expect(response.body).toMatchObject({ execution_mode: "sqlite_test_fixture_only" });
     expect((response.body.items as Json[]).some((item) => item.job_type === "cron.run" && item.status === "queued")).toBe(true);
     expect(Number((response.body.outbox as Json).pending || 0)).toBeGreaterThan(0);
+    expect(response.body.outbox).toMatchObject({ stale_publishing_count: 0, oldest_stale_publishing_updated_at: null });
     expect(response.body.backlog).toMatchObject({ count: expect.any(Number) });
     expect(response.body.workers).toEqual([]);
     expect(response.body.rules).toEqual([expect.objectContaining({ id: "rule_sla_preview", status: "draft", rule_type: "sla" })]);

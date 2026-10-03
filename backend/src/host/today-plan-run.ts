@@ -12,7 +12,7 @@ import { nid } from "../ids.js";
 import { ensureTicketForWorkItem } from "../tickets.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
-import { appendTaskEvent, appendTaskEventInConn } from "../routers/tasks.js";
+import { appendTaskEvent, appendTaskEventInConn } from "../task-events.js";
 import { runWorker } from "../worker/runner.js";
 import { HttpFail } from "./errors.js";
 import { createRunTraceSink } from "./run-trace.js";

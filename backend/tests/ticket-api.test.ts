@@ -116,8 +116,37 @@ describe("target ticket and run read contracts", () => {
     expect(replayed.status, replayed.text).toBe(200);
     expect(replayed.body).toMatchObject({ ticket_id: ticketId, status: "completed", replayed: true });
     const acceptedEvents = getConn().prepare(
-      "SELECT COUNT(*) AS count FROM task_events WHERE work_item_id=? AND event_type='task.accepted'",
-    ).get(ticketId) as { count: number };
+      "SELECT COUNT(*) AS count,event_class FROM task_events WHERE work_item_id=? AND event_type='task.accepted'",
+    ).get(ticketId) as { count: number; event_class: string };
     expect(acceptedEvents.count).toBe(1);
+    expect(acceptedEvents.event_class).toBe("lifecycle");
+    expect(() => getConn().prepare("UPDATE task_events SET label='tampered' WHERE work_item_id=? AND event_type='task.accepted'").run(ticketId)).toThrow(/immutable/i);
+    expect(() => getConn().prepare("DELETE FROM task_events WHERE work_item_id=? AND event_type='task.accepted'").run(ticketId)).toThrow(/immutable/i);
+  });
+
+  it("retires unprotected completion and makes the legacy cancel route enforce the command protocol", async () => {
+    const ticketId = await createTask("遗留终态防绕过");
+    const unprotectedComplete = await request("POST", `/api/tasks/${ticketId}/complete`, {});
+    expect(unprotectedComplete.status).toBe(410);
+    expect(unprotectedComplete.body).toMatchObject({ detail: { code: "legacy_write_endpoint_retired" } });
+    expect(String((getConn().prepare("SELECT status FROM tickets WHERE id=?").get(ticketId) as { status: string }).status)).toBe("pending");
+
+    const missingProtocol = await request("POST", `/api/tasks/${ticketId}/cancel`, {});
+    expect(missingProtocol.status).toBe(400);
+    const cancelled = await request(
+      "POST",
+      `/api/tasks/${ticketId}/cancel`,
+      { expected_version: 1, idempotency_key: "ticket-cancel-legacy-0001", reason: "无需继续" },
+      { "Idempotency-Key": "ticket-cancel-legacy-0001" },
+    );
+    expect(cancelled.status, cancelled.text).toBe(200);
+    expect(cancelled.body).toMatchObject({ cancelled: true, command: { status: "cancelled", replayed: false } });
+    const conflict = await request(
+      "POST",
+      `/api/tickets/${ticketId}/commands`,
+      { action: "cancel", expected_version: 1, idempotency_key: "ticket-cancel-other-0002" },
+      { "Idempotency-Key": "ticket-cancel-other-0002" },
+    );
+    expect(conflict.status).toBe(409);
   });
 });

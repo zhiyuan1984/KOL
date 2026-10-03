@@ -3,7 +3,7 @@
  * AI发现 discovery run so both render the same 处理过程 /「Codex 推理」 block.
  * Only reasoning *summaries* reach safe_summary; raw reasoning_text never does.
  */
-import { upsertTaskEvent } from "../routers/tasks.js";
+import { upsertTaskEvent } from "../task-events.js";
 import {
   applyProgress,
   finishProcessItems,

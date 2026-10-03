@@ -7,7 +7,7 @@ import { mcpServerSpecs, writeBoxCodexConfig } from "../mcp/codex-config.js";
 import { filterTools } from "../mcp/stdio.js";
 import { STARRY_TOOLS } from "../mcp/tools.js";
 import { getConn, resetConn } from "../src/db.js";
-import { appendTaskEvent } from "../src/routers/tasks.js";
+import { appendTaskEvent } from "../src/task-events.js";
 import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
 import { profileFor } from "../src/profiles.js";
 import { seedAll } from "../src/seed.js";
@@ -345,8 +345,10 @@ describe("task CRUD and run flow", () => {
     expect(rows.map((event) => event.sequence)).toEqual(rows.map((_, index) => index + 1));
     expect(rows.every((event) => event.type && event.title && event.created_at)).toBe(true);
     expect(rows.map((event) => event.event_type)).toContain("run.completed");
-    const completed = await request("POST", `/api/tasks/${taskId}/complete`, {});
-    expect(completed.body.status).toBe("completed");
+    expect((await request("GET", `/api/tasks/${taskId}`)).body.status).toBe("waiting");
+    const retired = await request("POST", `/api/tasks/${taskId}/complete`, {});
+    expect(retired.status).toBe(410);
+    expect(retired.body).toMatchObject({ detail: { code: "legacy_write_endpoint_retired" } });
   });
 
   it("keeps employee task-center list reads bounded when historical payloads are oversized", async () => {
@@ -448,9 +450,11 @@ describe("task CRUD and run flow", () => {
       run_id: runId,
       event_type: "run.progress",
     });
-    getConn().prepare("DELETE FROM task_events WHERE work_item_id=?").run(task.id);
+    // The original task.created fact is deliberately append-only. Remove only
+    // mutable run trace, then simulate a missing run and a separate missing
+    // ticket without deleting retained lifecycle evidence.
+    getConn().prepare("DELETE FROM task_events WHERE work_item_id=? AND event_class='run_trace'").run(task.id);
     getConn().prepare("DELETE FROM task_runs WHERE work_item_id=?").run(task.id);
-    getConn().prepare("DELETE FROM tickets WHERE id=?").run(task.id);
     expect(appendTaskEvent(String(task.id), runId, "crawl.start_failed", "远程采集启动失败", "failed")).toBeNull();
     expect(appendTaskEvent("wi_missing", null, "task.created", "gone", "pending")).toBeNull();
   });

@@ -12,6 +12,7 @@ import {
   failExecutionJob,
   publishExecutionOutboxForJob,
   recoverExpiredExecutionJobs,
+  renewExecutionJobLease,
   retryFailedExecutionJob,
 } from "../src/execution-jobs/store.js";
 
@@ -72,6 +73,59 @@ describe("SQLite transition execution jobs", () => {
     const recovered = recoverExpiredExecutionJobs(new Date("2030-10-02T00:01:00.000Z"));
     expect(recovered).toEqual({ requeued: 0, uncertain: 1 });
     expect(executionJobById(String(high.job.id))).toMatchObject({ status: "uncertain", error_code: "lease_expired" });
+  });
+
+  it("renews only the lease owned by the active worker", () => {
+    const job = enqueueExecutionJob({
+      job_type: "work_plan.run", tenant_ref: "company:amperetime", actor_ref: "employee:test",
+      idempotency_key: "plan:lease-owner-001", max_attempts: 2,
+    });
+    const claimed = claimExecutionJobById(String(job.job.id), "worker-a", {
+      lease_ms: 10_000, now: new Date("2030-10-02T00:00:00.000Z"),
+    });
+    expect(claimed).toMatchObject({ lease_owner: "worker-a" });
+    expect(renewExecutionJobLease(String(job.job.id), "worker-b", {
+      lease_ms: 60_000, now: new Date("2030-10-02T00:00:05.000Z"),
+    })).toBe(false);
+    expect(renewExecutionJobLease(String(job.job.id), "worker-a", {
+      lease_ms: 60_000, now: new Date("2030-10-02T00:00:05.000Z"),
+    })).toBe(true);
+    expect(executionJobById(String(job.job.id))).toMatchObject({
+      lease_owner: "worker-a",
+      lease_until: "2030-10-02T00:01:05.000Z",
+    });
+  });
+
+  it("writes a fresh dispatch fact when a low-risk worker lease expires", () => {
+    const job = enqueueExecutionJob({
+      job_type: "work_plan.run", tenant_ref: "company:amperetime", actor_ref: "employee:test",
+      idempotency_key: "plan:lease-recovery-001", max_attempts: 2,
+    });
+    expect(claimExecutionJobById(String(job.job.id), "worker-a", {
+      lease_ms: 1_000, now: new Date("2030-10-02T00:00:00.000Z"),
+    })).toBeTruthy();
+    expect(recoverExpiredExecutionJobs(new Date("2030-10-02T00:01:00.000Z"))).toEqual({ requeued: 1, uncertain: 0 });
+    expect(executionJobById(String(job.job.id))).toMatchObject({ status: "retrying", lease_owner: null, error_code: "lease_expired" });
+    const outbox = getConn().prepare(
+      "SELECT event_type,status FROM execution_outbox WHERE job_id=? ORDER BY created_at,id",
+    ).all(job.job.id) as Array<{ event_type: string; status: string }>;
+    expect(outbox).toEqual([
+      { event_type: "execution_job.queued", status: "pending" },
+      { event_type: "execution_job.lease_recovered", status: "pending" },
+    ]);
+  });
+
+  it("creates a retry dispatch fact when a low-risk handler failure is retryable", () => {
+    const job = enqueueExecutionJob({
+      job_type: "work_plan.run", tenant_ref: "company:amperetime", actor_ref: "employee:test",
+      idempotency_key: "plan:failure-retry-001", max_attempts: 2,
+    });
+    expect(claimExecutionJobById(String(job.job.id), "worker-a")).toBeTruthy();
+    failExecutionJob(String(job.job.id), { code: "model_timeout", summary: "model timeout" }, {
+      now: new Date("2030-10-02T00:00:00.000Z"),
+    });
+    expect(executionJobById(String(job.job.id))).toMatchObject({ status: "retrying", lease_owner: null });
+    expect((getConn().prepare("SELECT COUNT(*) AS count FROM execution_outbox WHERE job_id=?").get(job.job.id) as { count: number }).count).toBe(2);
   });
 
   it("re-publishes only an explicitly requested failed low-risk job", () => {
