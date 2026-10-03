@@ -928,6 +928,20 @@ function initSchema(db: SqliteConn): void {
             FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
         );
 
+        -- 验收事实与运行事实分别保存。负责人、验收人及证据为验收瞬间快照，
+        -- 后续转办或用户目录变更不得改写历史日报归因。
+        CREATE TABLE IF NOT EXISTS ticket_acceptances (
+            ticket_id TEXT PRIMARY KEY,
+            acceptance_event_id TEXT,
+            accepted_at TEXT NOT NULL,
+            owner_user_id_at_acceptance TEXT NOT NULL,
+            accepted_by_user_id TEXT NOT NULL,
+            evidence_json TEXT NOT NULL DEFAULT '{}',
+            rules_version TEXT NOT NULL DEFAULT 'ticket-acceptance.v1',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+        );
+
         -- tickets 的索引统一由 mergeWorkItemsIntoTickets() 在库形状确定后创建：
         -- 旧库可能仍带镜像版 tickets 或缺票型列，直接在 initSchema 建索引会让打开失败。
         CREATE INDEX IF NOT EXISTS task_runs_work_item
@@ -936,6 +950,10 @@ function initSchema(db: SqliteConn): void {
             ON task_events(work_item_id, sequence);
         CREATE INDEX IF NOT EXISTS ticket_command_receipts_ticket
             ON ticket_command_receipts(ticket_id, created_at);
+        CREATE INDEX IF NOT EXISTS ticket_acceptances_accepted_at
+            ON ticket_acceptances(accepted_at DESC, ticket_id);
+        CREATE INDEX IF NOT EXISTS ticket_acceptances_owner_accepted_at
+            ON ticket_acceptances(owner_user_id_at_acceptance, accepted_at DESC);
         CREATE TABLE IF NOT EXISTS employee_today_briefs (
             owner_user_id TEXT PRIMARY KEY,
             artifact_id TEXT NOT NULL,

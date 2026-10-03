@@ -5,6 +5,23 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL schem
 
 const migrations: Array<{ id: string; statements: string[] }> = [
   {
+    id: "20261002_ticket_acceptances",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ticket_acceptances (
+        ticket_id TEXT PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,
+        acceptance_event_id TEXT,
+        accepted_at TEXT NOT NULL,
+        owner_user_id_at_acceptance TEXT NOT NULL,
+        accepted_by_user_id TEXT NOT NULL,
+        evidence_json TEXT NOT NULL DEFAULT '{}',
+        rules_version TEXT NOT NULL DEFAULT 'ticket-acceptance.v1',
+        created_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_acceptances_accepted_at ON ticket_acceptances(accepted_at DESC, ticket_id)",
+      "CREATE INDEX IF NOT EXISTS ticket_acceptances_owner_accepted_at ON ticket_acceptances(owner_user_id_at_acceptance, accepted_at DESC)",
+    ],
+  },
+  {
     id: "20261002_scheduling_rules",
     statements: [
       `CREATE TABLE IF NOT EXISTS scheduling_rules (

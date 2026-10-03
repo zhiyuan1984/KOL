@@ -71,7 +71,7 @@ describe("admin sidebar parity", () => {
     expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 3, 1, 2, 5]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
-      "概览",
+      "工作战报",
       "连接",
       "知识",
       "审批",

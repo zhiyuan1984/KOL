@@ -931,6 +931,28 @@ tasks.post("/tickets/:id/commands", async (c) => {
       nextStatus,
       action === "complete" ? "已记录验收证据；运行成功与工单完成分别保留。" : String(body.reason || "任务在未开始外部执行前已取消").slice(0, 1000),
     );
+    if (action === "complete") {
+      // Event history exhaustion must not leave a completed ticket without its
+      // required immutable acceptance event. Throwing inside tx rolls back the
+      // state projection, evidence snapshot, and command receipt together.
+      if (!event) throw new HttpFail(409, { code: "acceptance_event_unavailable", message: "无法记录验收事件，请先处理工单事件历史。" });
+      // 归因必须锁定在验收事实发生时：不能在日报里用现任负责人反算历史交付，
+      // 也不能把运行成功误作验收。证据正文只在管理员工单下钻中按权限读取。
+      db.prepare(
+        `INSERT INTO ticket_acceptances
+         (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+      ).run(
+        ticket.id,
+        event?.id || null,
+        now,
+        String(ticket.owner_user_id),
+        ownerId(),
+        JSON.stringify(acceptanceEvidence),
+        "ticket-acceptance.v1",
+        now,
+      );
+    }
     const response = {
       ticket_id: String(ticket.id),
       action,

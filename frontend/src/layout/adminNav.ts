@@ -33,7 +33,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       },
       {
         id: "overview",
-        label: "概览",
+        label: "工作战报",
         href: "/admin/overview",
         icon: "M4 19V9 M10 19V5 M16 19v-7 M22 19V3",
       },
