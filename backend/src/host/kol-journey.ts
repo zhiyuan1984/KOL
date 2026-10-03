@@ -374,7 +374,7 @@ function upsertConfirmStageCard(
     expected_version: Number(col.stage_version || 0),
     reason,
     evidence,
-    locked: Boolean(col.locked) || LOCKED_PROMISE.has(current),
+    locked: Number(col.locked || 0) !== 0 || LOCKED_PROMISE.has(current),
     requires_human_confirmation: true,
     persistent: true,
     source: "reply_ingest",
