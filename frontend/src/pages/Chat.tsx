@@ -872,12 +872,17 @@ export default function Chat() {
 
   const complete = async () => {
     if (!task || completing) return;
+    const evidence = window.prompt("请填写验收依据。任务运行成功不等于工单已完成；此内容将作为本次验收记录。");
+    if (!evidence?.trim()) {
+      setCompletion("未提交验收：需要填写验收依据后才能完成工单。");
+      return;
+    }
     setCompleting(true);
     setCompletion("");
     try {
-      const result = await api.completeTask(task.id);
-      setTask(unwrapTask(result));
-      setCompletion("任务已标记完成");
+      const result = await api.completeTask(task, { note: evidence.trim(), source: "employee_confirmation" });
+      setTask(unwrapTask(result.ticket || await api.task(task.id)));
+      setCompletion("任务已完成验收");
       rememberJourney({ kind: "complete", skillId: String(task.skill_id || task.skill || ""), skillLabel: task.title });
     } catch (error) {
       setCompletion(error instanceof Error ? error.message : String(error));

@@ -42,7 +42,7 @@ import { normalizeBrandCode } from "./host/pep.js";
 import { persistValidatedSkillResult, skillResultMemoryStatus } from "./host/skill-result-memory.js";
 import { createRunTraceSink } from "./host/run-trace.js";
 import { nid } from "./ids.js";
-import { appendTaskEvent } from "./routers/tasks.js";
+import { appendTaskEvent } from "./task-events.js";
 import type { Json, Row, WorkerResult } from "./types.js";
 import type { WorkerProgress } from "./worker/progress.js";
 import { runWorker } from "./worker/runner.js";

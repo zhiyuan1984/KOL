@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireSkill, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
-import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx, type SqliteConn } from "../db.js";
+import { audit, getConn, nowIso, tx } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
@@ -20,6 +20,8 @@ import { extractTaskFieldUpdates, type TaskFieldUpdates } from "../tasks/openai-
 import { parseTaskFieldUpdatesFallback } from "../tasks/task-field-updates.js";
 import { parseTaskRecommendationCandidate } from "../host/task-recommendations.js";
 import { ensureTicketForWorkItem, ticketStatusFromWorkItem } from "../tickets.js";
+import { appendTaskEvent, appendTaskEventInConn } from "../task-events.js";
+import { ticketAllowedLifecycleActions, transitionTicketLifecycle } from "../ticket-lifecycle.js";
 
 export const tasks = new Hono();
 
@@ -209,6 +211,7 @@ function eventView(event: Row): Json {
   return {
     id: event.id,
     type: event.event_type,
+    event_class: event.event_class || "run_trace",
     label: event.label,
     status: event.status,
     summary: event.safe_summary,
@@ -257,12 +260,7 @@ function ticketMissingFields(row: Row): string[] {
 }
 
 function ticketAllowedActions(row: Row): string[] {
-  const status = String(row.status || "");
-  if (["completed", "failed", "cancelled"].includes(status)) return [];
-  const actions: string[] = [];
-  if (["pending", "queued", "waiting", "needs_clarification"].includes(status)) actions.push("cancel");
-  if (["waiting", "waiting_approval", "in_progress"].includes(status)) actions.push("complete");
-  return actions;
+  return ticketAllowedLifecycleActions(row);
 }
 
 function ticketSourceRefs(row: Row): Json[] {
@@ -358,169 +356,6 @@ function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; a
   );
   audit(ownerId(), "task.updated", { work_item_id: item.id, fields: applied });
   return { task: publicWorkItem(ownedWorkItem(String(item.id))), applied };
-}
-
-/** Shared guard: the work item (and run, when given) must still exist. */
-function taskEventTarget(db: SqliteConn, workItemId: string, runId: string | null): boolean {
-  const item = db.prepare("SELECT id FROM tickets WHERE id=?").get(workItemId) as
-    | { id: string }
-    | undefined;
-  if (!item) return false;
-  if (!runId) return true;
-  const run = db.prepare("SELECT id FROM task_runs WHERE id=? AND work_item_id=?").get(runId, workItemId) as
-    | { id: string }
-    | undefined;
-  return Boolean(run);
-}
-
-/**
- * Hard ceiling on one work item's event history. A crawl monitor that never
- * reached a terminal state appended 415k rows over four days, and those rows
- * then made every discovery run payload 128 MB. Below the cap the stream is
- * untouched; past it new rows are dropped instead of evicting older ones.
- */
-function taskEventLimit(): number {
-  const n = Number(process.env.TASK_EVENT_MAX_PER_WORK_ITEM || "5000");
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5000;
-}
-
-function taskEventCount(db: SqliteConn, workItemId: string): number {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=?").get(workItemId) as
-    | { n: number }
-    | undefined;
-  return Number(row?.n || 0);
-}
-
-/**
- * Append an immutable task event into a caller-owned transaction. Durable
- * command producers use this so acceptance, queueing, and the audit fact
- * become one database commit rather than a best-effort follow-up write.
- */
-export function appendTaskEventInConn(
-  db: SqliteConn,
-  workItemId: string,
-  runId: string | null,
-  eventType: string,
-  label: string,
-  status: string,
-  safeSummary?: string,
-): Row | null {
-  if (!taskEventTarget(db, workItemId, runId)) return null;
-  if (taskEventCount(db, workItemId) >= taskEventLimit()) return null;
-  const current = db.prepare(
-    "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
-  ).get(workItemId) as { sequence: number };
-  const row = {
-    id: nid("tev"),
-    work_item_id: workItemId,
-    run_id: runId,
-    sequence: Number(current.sequence) + 1,
-    event_type: eventType,
-    label: label.slice(0, 160),
-    status,
-    safe_summary: safeSummary?.slice(0, 1000) || null,
-    time: nowIso(),
-    created_at: nowIso(),
-  };
-  db.prepare(
-    `INSERT INTO task_events
-     (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.label, row.status,
-    row.safe_summary, row.time, row.created_at);
-  return row;
-}
-
-export function appendTaskEvent(
-  workItemId: string,
-  runId: string | null,
-  eventType: string,
-  label: string,
-  status: string,
-  safeSummary?: string,
-): Row | null {
-  try {
-    return tx((db) => appendTaskEventInConn(db, workItemId, runId, eventType, label, status, safeSummary));
-  } catch (error) {
-    // Fire-and-forget crawl/worker follow-up can land after a test reset or
-    // after the parent work item was already removed. Never surface that as
-    // an unhandled SQLITE_CONSTRAINT_FOREIGNKEY.
-    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
-    throw error;
-  }
-}
-
-/**
- * Live process row for the harness trace. The same `item_key` updates in place
- * (label / status / summary) so a streaming reasoning item stays one row instead
- * of appending one row per delta. `time` is the first write, i.e. when the step
- * started — a growing step keeps its start clock.
- */
-export function upsertTaskEvent(
-  workItemId: string,
-  runId: string | null,
-  itemKey: string,
-  eventType: string,
-  label: string,
-  status: string,
-  safeSummary?: string,
-): Row | null {
-  const key = String(itemKey || "").trim().slice(0, 120);
-  if (!key) return null;
-  try {
-    return tx((db) => {
-      if (!taskEventTarget(db, workItemId, runId)) return null;
-      const summary = safeSummary?.slice(0, 1000) || null;
-      const existing = db.prepare(
-        "SELECT id, sequence, time, created_at FROM task_events WHERE work_item_id=? AND item_key=?",
-      ).get(workItemId, key) as { id: string; sequence: number; time: string; created_at: string } | undefined;
-      if (existing) {
-        db.prepare(
-          "UPDATE task_events SET event_type=?, label=?, status=?, safe_summary=?, run_id=COALESCE(run_id,?) WHERE id=?",
-        ).run(eventType, label.slice(0, 160), status, summary, runId, existing.id);
-        return {
-          id: existing.id,
-          work_item_id: workItemId,
-          run_id: runId,
-          sequence: existing.sequence,
-          event_type: eventType,
-          label: label.slice(0, 160),
-          status,
-          safe_summary: summary,
-          item_key: key,
-          time: existing.time,
-          created_at: existing.created_at,
-        };
-      }
-      const current = db.prepare(
-        "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
-      ).get(workItemId) as { sequence: number };
-      if (taskEventCount(db, workItemId) >= taskEventLimit()) return null;
-      const row = {
-        id: nid("tev"),
-        work_item_id: workItemId,
-        run_id: runId,
-        sequence: Number(current.sequence) + 1,
-        event_type: eventType,
-        label: label.slice(0, 160),
-        status,
-        safe_summary: summary,
-        item_key: key,
-        time: nowIso(),
-        created_at: nowIso(),
-      };
-      db.prepare(
-        `INSERT INTO task_events
-         (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,item_key,time,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.label, row.status,
-        row.safe_summary, row.item_key, row.time, row.created_at);
-      return row;
-    });
-  } catch (error) {
-    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
-    throw error;
-  }
 }
 
 function createWorkItem(body: Json, source: string): Json {
@@ -846,7 +681,7 @@ tasks.get("/tickets/:id/timeline", (c) => {
     ticket_id: String(ticket.id),
     items: events.map((event) => ({
       event_id: String(event.id), sequence: Number(event.sequence), occurred_at: event.time, received_at: event.created_at,
-      run_id: event.run_id || null, type: event.event_type, phase: "task_run", status: event.status,
+      run_id: event.run_id || null, type: event.event_type, event_class: event.event_class || "run_trace", phase: "task_run", status: event.status,
       safe_summary: event.safe_summary || null, label: event.label,
       source_ref: { type: "task_event", id: String(event.id) },
     })),
@@ -880,69 +715,14 @@ tasks.post("/tickets/:id/commands", async (c) => {
     throw new HttpFail(409, { code: "action_not_enabled", message: "当前仅支持完成或取消工单命令" });
   }
   const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
-  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
-    throw new HttpFail(400, "Idempotency-Key is required");
-  }
   const expectedVersion = Number(body.expected_version);
-  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
-    throw new HttpFail(400, "expected_version is required");
-  }
-  const replay = getConn().prepare(
-    "SELECT ticket_id,action,result_json FROM ticket_command_receipts WHERE idempotency_key=?",
-  ).get(idempotencyKey) as Row | undefined;
-  if (replay) {
-    if (String(replay.ticket_id) !== String(ticket.id) || String(replay.action) !== action) {
-      throw new HttpFail(409, { code: "idempotency_key_reused", message: "幂等键已用于另一条工单命令" });
-    }
-    return c.json({ ...(parseJson(replay.result_json) as Json), replayed: true });
-  }
-  if (Number(ticket.data_version || 1) !== expectedVersion) {
-    throw new HttpFail(409, {
-      code: "version_conflict",
-      message: "工单已更新，请刷新后确认。",
-      expected_version: expectedVersion,
-      current_version: Number(ticket.data_version || 1),
-      refresh: `/api/tickets/${ticket.id}`,
-    });
-  }
-  if (!ticketAllowedActions(ticket).includes(action)) {
-    throw new HttpFail(409, { code: "action_not_allowed", message: "当前工单状态不能执行此动作" });
-  }
-  const acceptanceEvidence = body.acceptance_evidence;
-  if (action === "complete" && (!acceptanceEvidence || typeof acceptanceEvidence !== "object" || Array.isArray(acceptanceEvidence))) {
-    throw new HttpFail(422, { code: "acceptance_evidence_required", missing_fields: ["acceptance_evidence"] });
-  }
-  const now = nowIso();
-  const result = tx((db) => {
-    const nextStatus = action === "complete" ? "completed" : "cancelled";
-    const changed = db.prepare(
-      `UPDATE tickets SET status=?, completed_at=CASE WHEN ?='completed' THEN ? ELSE completed_at END,
-       updated_at=?, data_version=data_version+1 WHERE id=? AND data_version=?`,
-    ).run(nextStatus, nextStatus, now, now, ticket.id, expectedVersion);
-    if (!changed.changes) {
-      throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。", refresh: `/api/tickets/${ticket.id}` });
-    }
-    const event = appendTaskEventInConn(
-      db,
-      String(ticket.id),
-      null,
-      action === "complete" ? "task.accepted" : "task.cancelled",
-      action === "complete" ? "任务验收完成" : "任务已取消",
-      nextStatus,
-      action === "complete" ? "已记录验收证据；运行成功与工单完成分别保留。" : String(body.reason || "任务在未开始外部执行前已取消").slice(0, 1000),
-    );
-    const response = {
-      ticket_id: String(ticket.id),
-      action,
-      status: nextStatus,
-      version: expectedVersion + 1,
-      event_id: event?.id || null,
-      replayed: false,
-    };
-    db.prepare(
-      "INSERT INTO ticket_command_receipts (idempotency_key,ticket_id,action,result_json,created_at) VALUES (?,?,?,?,?)",
-    ).run(idempotencyKey, ticket.id, action, JSON.stringify(response), now);
-    return response;
+  const result = transitionTicketLifecycle({
+    ticketId: String(ticket.id),
+    action: action as "complete" | "cancel",
+    expectedVersion,
+    idempotencyKey,
+    acceptanceEvidence: body.acceptance_evidence,
+    reason: body.reason,
   });
   audit(ownerId(), `ticket.${action}`, {
     ticket_id: ticket.id,
@@ -967,7 +747,7 @@ tasks.get("/runs/:id/events", (c) => {
     items: events.map((event) => ({
       event_id: String(event.id), sequence: Number(event.sequence), occurred_at: event.time, received_at: event.created_at,
       run_id: String(run.id), ticket_id: String(ticket.id), type: event.event_type, phase: "task_run",
-      status: event.status, safe_summary: event.safe_summary || null, label: event.label,
+      event_class: event.event_class || "run_trace", status: event.status, safe_summary: event.safe_summary || null, label: event.label,
     })),
     next_sequence: events.length ? Number(events.at(-1)?.sequence || after) : after,
     ...meta,
@@ -1542,21 +1322,29 @@ tasks.post("/tasks/:id/dismiss", async (c) => {
   return c.json(publicWorkItem(ownedWorkItem(String(item.id))));
 });
 
-/** Cancel work that has not entered an external/agent execution step. */
+/**
+ * Compatibility route only. It deliberately accepts the same optimistic-lock
+ * and idempotency protocol as the canonical ticket command; no browser or
+ * worker can use this path to bypass lifecycle evidence.
+ */
 tasks.post("/tasks/:id/cancel", async (c) => {
   const item = ownedWorkItem(c.req.param("id"));
-  const status = String(item.status || "");
-  if (!["pending", "queued", "waiting", "needs_clarification"].includes(status)) {
-    throw new HttpFail(409, status === "running" ? "任务已开始执行，暂不支持安全取消" : `task cannot cancel from ${status}`);
-  }
-  const now = nowIso();
-  tx((db) => {
-    db.prepare("UPDATE tickets SET status='cancelled',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=?").run(now, now, item.id);
-    db.prepare("UPDATE task_runs SET status='cancelled',completed_at=? WHERE work_item_id=? AND status IN ('pending','queued','running')").run(now, item.id);
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const result = transitionTicketLifecycle({
+    ticketId: String(item.id),
+    action: "cancel",
+    expectedVersion: Number(body.expected_version),
+    idempotencyKey,
+    reason: body.reason,
   });
-  appendTaskEvent(String(item.id), null, "task.cancelled", "任务已取消", "cancelled", "任务尚未开始执行，已从队列移除");
-  audit(ownerId(), "task.cancelled", { work_item_id: item.id });
-  return c.json({ ...publicWorkItem(ownedWorkItem(String(item.id))), cancelled: true });
+  audit(ownerId(), "ticket.cancel", {
+    ticket_id: item.id,
+    expected_version: Number(body.expected_version),
+    idempotency_key: idempotencyKey,
+    legacy_proxy: true,
+  });
+  return c.json({ ...publicWorkItem(ownedWorkItem(String(item.id))), cancelled: true, command: result });
 });
 
 tasks.post("/tasks/:id/actions", async (c) => {
@@ -1584,22 +1372,10 @@ tasks.post("/tasks/:id/actions", async (c) => {
 });
 
 tasks.post("/tasks/:id/complete", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
-  const body = await c.req.json().catch(() => ({})) as Json;
-  const status = String(body.status || "completed");
-  if (!["completed", "failed", "cancelled"].includes(status)) throw new HttpFail(400, "invalid terminal status");
-  const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      "UPDATE tickets SET status=?,completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=?",
-    ).run(status, now, now, item.id);
-    if (body.run_id) {
-      db.prepare("UPDATE task_runs SET status=?,error=?,completed_at=? WHERE id=? AND work_item_id=?")
-        .run(status, body.error ? JSON.stringify(body.error) : null, now, body.run_id, item.id);
-    }
+  ownedWorkItem(c.req.param("id"));
+  throw new HttpFail(410, {
+    code: "legacy_write_endpoint_retired",
+    message: "旧任务完成端点已停用；请使用带验收证据、版本和幂等键的 /api/tickets/:id/commands。",
+    migrate_to: "/api/tickets/:id/commands",
   });
-  appendTaskEvent(String(item.id), body.run_id ? String(body.run_id) : null, `task.${status}`, status, status,
-    String(body.safe_summary || status));
-  audit(ownerId(), `task.${status}`, { work_item_id: item.id, run_id: body.run_id || null });
-  return c.json(publicWorkItem(ownedWorkItem(String(item.id))));
 });

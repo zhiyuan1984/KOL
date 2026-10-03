@@ -893,6 +893,7 @@ function initSchema(db: SqliteConn): void {
             run_id TEXT,
             sequence INTEGER NOT NULL,
             event_type TEXT NOT NULL,
+            event_class TEXT NOT NULL DEFAULT 'run_trace' CHECK (event_class IN ('lifecycle','run_trace','legacy')),
             label TEXT NOT NULL,
             status TEXT NOT NULL,
             safe_summary TEXT,
@@ -1979,6 +1980,30 @@ function migrateSchema(db: SqliteConn): void {
     ON claw_creators(platform, platform_creator_id) WHERE platform_creator_id IS NOT NULL`);
   add(db, "task_events", "time", "TEXT");
   db.prepare("UPDATE task_events SET time=created_at WHERE time IS NULL").run();
+  // Lifecycle evidence and mutable harness trace have different durability
+  // contracts. Old unprotected `task.completed` / `task.failed` rows remain
+  // readable as legacy evidence and cannot be mistaken for modern acceptance.
+  add(db, "task_events", "event_class", "TEXT NOT NULL DEFAULT 'run_trace'");
+  db.prepare(
+    `UPDATE task_events SET event_class=CASE
+      WHEN event_type IN ('task.completed','task.failed') THEN 'legacy'
+      WHEN event_type LIKE 'task.%' THEN 'lifecycle'
+      ELSE 'run_trace'
+    END
+    WHERE event_class IS NULL OR event_class != CASE
+      WHEN event_type IN ('task.completed','task.failed') THEN 'legacy'
+      WHEN event_type LIKE 'task.%' THEN 'lifecycle'
+      ELSE 'run_trace'
+    END`,
+  ).run();
+  db.exec(`CREATE TRIGGER IF NOT EXISTS task_events_lifecycle_no_update
+    BEFORE UPDATE ON task_events
+    WHEN OLD.event_class='lifecycle'
+    BEGIN SELECT RAISE(ABORT, 'lifecycle task event is immutable'); END`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS task_events_lifecycle_no_delete
+    BEFORE DELETE ON task_events
+    WHEN OLD.event_class='lifecycle'
+    BEGIN SELECT RAISE(ABORT, 'lifecycle task event is immutable'); END`);
   // Live process rows (harness trace) are keyed so a growing item is updated in
   // place instead of appending one row per delta.
   add(db, "task_events", "item_key", "TEXT");

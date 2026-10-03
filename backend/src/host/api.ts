@@ -107,7 +107,7 @@ import { collaborationBrand, composeSenderFor } from "./compose-sender.js";
 import { currentUser } from "./persona.js";
 import { boundMailboxEmail } from "./starry-bind.js";
 import { assertSessionAccess } from "../routers/enterprise.js";
-import { appendTaskEvent } from "../routers/tasks.js";
+import { appendTaskEvent } from "../task-events.js";
 import {
   assertKolAnalyzeVerbsSafe,
   failKolAnalyzeIllegalVerb,
@@ -705,12 +705,12 @@ function cancelBoundTask(bound: BoundTask | null, summary: string): void {
       "UPDATE task_runs SET status='cancelled',error=NULL,completed_at=? WHERE id=? AND work_item_id=? AND status IN ('pending','queued','running')",
     ).run(now, bound.runId, bound.workItemId);
     db.prepare(
-      "UPDATE tickets SET status='cancelled',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
-    ).run(now, now, bound.workItemId);
+      "UPDATE tickets SET status='waiting',completed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled')",
+    ).run(now, bound.workItemId);
     return Number(run.changes) > 0;
   });
   if (!changed) return;
-  appendTaskEvent(bound.workItemId, bound.runId, "task.cancelled", "已取消", "cancelled", summary);
+  appendTaskEvent(bound.workItemId, bound.runId, "run.cancelled", "运行已取消", "cancelled", summary);
   audit(scopedUser()?.id || "demo", "task.run.cancelled", { work_item_id: bound.workItemId, run_id: bound.runId });
 }
 
@@ -723,8 +723,8 @@ function stoppedBoundTask(bound: BoundTask | null): void {
       "UPDATE task_runs SET status='cancelled',error=?,completed_at=? WHERE id=? AND work_item_id=? AND status='running'",
     ).run(JSON.stringify({ code: "worker_stopped", message: "已停止生成" }), now, bound.runId, bound.workItemId);
     db.prepare(
-      "UPDATE tickets SET status='stopped',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status IN ('running','in_progress','starting')",
-    ).run(now, now, bound.workItemId);
+      "UPDATE tickets SET status='waiting',completed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=? AND status IN ('running','in_progress','starting')",
+    ).run(now, bound.workItemId);
     return Number(run.changes) > 0;
   });
   if (!changed) return;

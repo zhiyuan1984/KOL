@@ -251,8 +251,8 @@ export function markTodayPlanCompleted(workItemId: string, runId: string | null)
   const now = nowIso();
   tx((db) => {
     db.prepare(
-      "UPDATE tickets SET status='completed', completed_at=?, updated_at=?, data_version=data_version+1 WHERE id=?",
-    ).run(now, now, workItemId);
+      "UPDATE tickets SET status='waiting', completed_at=NULL, updated_at=?, data_version=data_version+1 WHERE id=?",
+    ).run(now, workItemId);
     if (runId) {
       db.prepare(
         "UPDATE task_runs SET status='completed', completed_at=? WHERE id=?",

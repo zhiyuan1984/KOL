@@ -184,7 +184,7 @@ export default function Tasks() {
     if (!window.confirm("确认取消这个尚未开始执行的任务？")) return;
     setActionBusy(`cancel:${task.id}`);
     try {
-      await api.cancelTask(task.id);
+      await api.cancelTask(task);
       await load();
       if (selected?.id === task.id) setSelected(null);
     } catch (cause) {
@@ -215,7 +215,8 @@ export default function Tasks() {
     if (!selectedIds.size || !window.confirm(`确认取消 ${selectedIds.size} 个排队任务？`)) return;
     setActionBusy("bulk-cancel");
     try {
-      await Promise.all([...selectedIds].map((id) => api.cancelTask(id)));
+      const selectedTasks = rows.filter((task) => selectedIds.has(task.id));
+      await Promise.all(selectedTasks.map((task) => api.cancelTask(task)));
       setSelectedIds(new Set());
       await load();
     } catch (cause) {
