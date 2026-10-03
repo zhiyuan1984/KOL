@@ -10,7 +10,7 @@ import {
   scopedUser,
   tokenDigest,
 } from "../auth.js";
-import { audit, getConn, nowIso, tx } from "../db.js";
+import { audit, databaseEngine, getConn, nowIso, tx } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { uploadsDir } from "../host/attachments.js";
 import { SKILL_CATALOG } from "../host/skills-catalog.js";
@@ -772,7 +772,9 @@ enterprise.get("/me/data-summary", (c) => {
     archived_sessions: count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=? AND archived_at IS NOT NULL AND deleted_at IS NULL"),
     memories: count("SELECT COUNT(*) AS n FROM memory_entries WHERE owner_user_id=?"),
     exam_attempts: count("SELECT COUNT(*) AS n FROM exam_attempts WHERE user_id=?"),
-    database_bytes: pathBytes(String(process.env.LINGONG_DB || path.join(process.env.LINGONG_DATA || path.dirname(uploadsDir()), "lingong.db"))),
+    database_bytes: databaseEngine() === "postgres"
+      ? Number((db.prepare("SELECT pg_database_size(current_database()) AS n").get() as { n: number }).n)
+      : pathBytes(String(process.env.LINGONG_DB || path.join(process.env.LINGONG_DATA || path.dirname(uploadsDir()), "lingong.db"))),
     uploads_bytes: pathBytes(uploadsDir()),
     worker_boxes_bytes: pathBytes(boxDir()),
     retention_policy: db.prepare("SELECT session_days,audit_days FROM retention_policy WHERE id=1").get(),

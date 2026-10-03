@@ -229,7 +229,7 @@ describe("production account and enterprise controls", () => {
     const detail = await call("GET", `/api/admin/users/${employee.id}`);
     expect(detail.json).toMatchObject({
       skill_grants: expect.arrayContaining(["email_compose", "creator_discovery"]),
-      approval_roles: ["lead"],
+      approval_roles: [{ role: "lead", kind: "position", valid_from: null, valid_to: null }],
     });
     expect(detail.json).not.toHaveProperty("connector_grants");
 
@@ -244,6 +244,24 @@ describe("production account and enterprise controls", () => {
       expect(row).not.toHaveProperty("credential_status");
       expect(row).not.toHaveProperty("status");
     }
+  });
+
+  it("honours approval role validity windows instead of trusting every binding", async () => {
+    const employee = await createEmployee("windowed");
+    const day = 86400_000;
+    const db = getConn();
+    const bind = (role: string, from: string | null, to: string | null): void => {
+      db.prepare(
+        "INSERT INTO approval_role_bindings (user_id, approval_role, role_kind, valid_from, valid_to, created_at) VALUES (?,?,?,?,?,?)",
+      ).run(employee.id, role, "position", from, to, new Date().toISOString());
+    };
+    bind("lead", new Date(Date.now() - day).toISOString(), new Date(Date.now() + day).toISOString());
+    bind("manager", null, new Date(Date.now() - day).toISOString());
+    bind("zhang", new Date(Date.now() + day).toISOString(), null);
+
+    const status = await call("GET", "/api/auth/status", undefined, await employeeLogin("windowed"));
+    expect(status.json).toMatchObject({ authenticated: true });
+    expect((status.json.permissions as { approval_roles: string[] }).approval_roles).toEqual(["lead"]);
   });
 
   it("returns employee binding detail and the runtime-backed tool list for admin governance", async () => {
