@@ -20,6 +20,7 @@ import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
 import { hasBundledIcon } from "./connector-icons.js";
 import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
+import { avatarUrlForUser, listOrganizationMemberships, listOrganizationPeople } from "../runtime/organization-tree.js";
 import { getConnectorConfig } from "../runtime/store.js";
 import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
 
@@ -65,6 +66,7 @@ function safeUser(row: Row): Json {
     .get(row.id) as Row;
   return {
     ...rest,
+    avatar_url: avatarUrlForUser(String(row.id)),
     email: row.username,
     status: row.active ? "active" : "disabled",
     roles: parseJson(row.roles, []),
@@ -127,7 +129,7 @@ function employeeContext(row: Row): Json {
     mailbox_email: kol.mailbox_email ? String(kol.mailbox_email) : null,
     claimed_at: kol.claimed_at ? String(kol.claimed_at) : null,
   }));
-  return { user: safeUser(row), mailboxes, kols };
+  return { user: safeUser(row), avatar_url: avatarUrlForUser(String(row.id)), mailboxes, kols };
 }
 
 /** Direct employee capability grants are backed by the same PEP table used at runtime. */
@@ -214,6 +216,29 @@ function roles(value: unknown): string[] {
   if (!values.length || values.some((role) => !allowed.has(role))) throw new HttpFail(400, "roles must contain employee/admin");
   return [...new Set(values)];
 }
+
+enterprise.get("/admin/organization-people", (c) => {
+  requireAdmin();
+  const memberships = new Map(
+    listOrganizationMemberships()
+      .filter((row) => row.relation === "primary" && row.status === "active")
+      .map((row) => [row.person_ref, row]),
+  );
+  const people = listOrganizationPeople()
+    .map((person) => {
+      const membership = memberships.get(person.person_ref);
+      return {
+        person_ref: person.person_ref,
+        display_name: person.display_name,
+        avatar_url: person.avatar_url,
+        title: membership?.position || null,
+        org_unit_id: membership?.org_unit_id || null,
+        user_id: person.user_id,
+      };
+    })
+    .sort((a, b) => (a.display_name < b.display_name ? -1 : a.display_name > b.display_name ? 1 : 0));
+  return c.json({ people });
+});
 
 enterprise.get("/admin/users", () => {
   requireAdmin();

@@ -24,6 +24,7 @@ type RegistryPerson = {
   org_unit?: string | null;
   user_ref?: string | null;
   account_username?: string | null;
+  avatar?: string | null;
   starry_open_id?: string | null;
   email?: string | null;
   employee_no?: string | null;
@@ -80,6 +81,7 @@ export type OrganizationPersonRow = {
   starry_open_id: string | null;
   email: string | null;
   employee_no: string | null;
+  avatar_url: string | null;
   status: string;
   source: string | null;
 };
@@ -176,6 +178,7 @@ export function ensureOrganizationTree(): void {
       starry_open_id TEXT,
       email TEXT,
       employee_no TEXT,
+      avatar_url TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'left')),
       source TEXT,
       created_at TEXT NOT NULL,
@@ -258,6 +261,7 @@ export function ensureOrganizationTree(): void {
     ["starry_open_id", "TEXT"],
     ["email", "TEXT"],
     ["employee_no", "TEXT"],
+    ["avatar_url", "TEXT"],
   ] as const) {
     if (!personColumns.has(column)) db.exec(`ALTER TABLE organization_people ADD COLUMN ${column} ${ddl}`);
   }
@@ -367,6 +371,7 @@ export function reseedOrganizationTreeFromRegistry(): void {
         starry_open_id: person.starry_open_id || null,
         email: person.email || null,
         employee_no: person.employee_no || null,
+        avatar_url: person.avatar ? `/avatars/${person.avatar}` : null,
         source: person.source || source,
       },
       stamp,
@@ -504,6 +509,16 @@ export function listOrganizationUnits(companyId?: string): OrganizationUnitRow[]
 export function listOrganizationPeople(): OrganizationPersonRow[] {
   ensureOrganizationTree();
   return getConn().prepare("SELECT * FROM organization_people ORDER BY display_name").all() as unknown as OrganizationPersonRow[];
+}
+
+/** 个人头像公开 URL；未关联账号或该人员没有头像时返回 null。 */
+export function avatarUrlForUser(userId: string | null | undefined): string | null {
+  if (!userId) return null;
+  ensureOrganizationTree();
+  const row = getConn().prepare("SELECT avatar_url FROM organization_people WHERE user_id = ?").get(userId) as
+    | { avatar_url?: string | null }
+    | undefined;
+  return row?.avatar_url || null;
 }
 
 export function listOrganizationMemberships(companyId?: string): OrganizationMembershipRow[] {
