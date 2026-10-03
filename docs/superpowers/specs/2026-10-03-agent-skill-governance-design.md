@@ -1,6 +1,6 @@
 # 管理侧 Agent、技能与员工绑定设计
 
-状态：目标设计，未实施 · 2026-10-03  
+状态：已实施（2026-10-03 收尾；员工 / Agent / 技能三页与绑定管理 API 已接入，证据见实施登记表 AGENT-AUTH-2026-10-03）  
 依据：[CONSTITUTION.md](../../CONSTITUTION.md) CONST-02/05、[PRODUCT.md](../../PRODUCT.md) PROD-PLAT-04/05、[BUSINESS.md](../../BUSINESS.md) BIZ-03、[TECHNOLOGY.md](../../TECHNOLOGY.md) TECH-FE-01/BE-01/BE-07、[DESIGN.md](../../DESIGN.md)。
 
 ## 设计哲学
@@ -57,6 +57,8 @@ Agent 页中的「人员范围」展示绑定点、直接成员、负责人继�
 
 下一步 → 用户确认截图与交互后，按权威组织树和服务端权限契约实施正式页面及回执。
 
-## 实施差距
+## 实施状态与剩余差距（2026-10-03 收尾）
 
-当前 `frontend/src/admin/employees/EmployeeDirectory.tsx` 展示 `skill_grants`，`frontend/src/pages/AdminAgents.tsx` 主要为只读治理，`backend/src/auth.ts` 与 `backend/src/runtime/execution.ts` 仍校验 `user_skill_grants`。本文件和法条不代表这些链路已经完成迁移。实施需先定义 Agent 绑定及组织版本契约、数据迁移/回滚和权限集成用例，再改页面；旧技能授权不能静默继续作为生产放行依据。
+管理侧员工 / Agent / 技能三页与绑定管理 API 已接入：员工页绑定与来源（直接绑定 / 部门负责人 / 部门成员 / 上级负责人）、Agent 页技能与知识库装配、绑定点（任意层级含三级组）、发布闸门与变更影响预览、审计与版本；技能页不再有按人授权入口。运行时放行早前已换锚（`backend/src/runtime/execution.ts`、`backend/src/auth.ts` 按 Agent 使用资格）。证据与测试口径见实施登记表 AGENT-AUTH-2026-10-03。
+
+剩余差距：`user_skill_grants` 等旧授权表仍在库内，物理退役随去 SQLite 化批次执行；其余人员账号（`organization_people.user_id`）接入未完成；`today_plan` 等平台技能归属待裁决；知识库依赖当前为技能级共享（同一技能被多个 Agent 装配时共享同一依赖），若需 Agent 级私有依赖属规则空白，先裁后改。
