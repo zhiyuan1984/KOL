@@ -1,14 +1,11 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   api,
   type AdminEmployeeContext,
-  type AdminEmployeeTool,
   type AdminEmployeeMailbox,
   type AdminEmployeeKol,
 } from "../../api";
-import { employeeToolGrantsConfirm, userDeactivateConfirm } from "../../adminConfirm";
-import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { useFocusLock } from "../../hooks/useFocusLock";
 import type { OrganizationUnit } from "../../runtimeConnectorUi";
 import "./employee-directory.css";
@@ -23,7 +20,6 @@ export type DirectoryEmployee = Record<string, unknown> & {
   manager_user_id?: string;
   brands?: string[];
   roles?: string[];
-  skill_grants?: string[];
   active?: boolean;
   updated_at?: string;
   mailbox_count?: number;
@@ -32,7 +28,7 @@ export type DirectoryEmployee = Record<string, unknown> & {
 
 type Employee = DirectoryEmployee;
 
-type EmployeeDialogKind = "edit" | "create" | "tools";
+type EmployeeDialogKind = "edit" | "create" | "tools" | "bind";
 
 function text(value: unknown): string {
   return String(value ?? "").trim();
@@ -147,7 +143,7 @@ function KolBinding({ kol }: { kol: AdminEmployeeKol }) {
   );
 }
 
-function EmployeeEditDialog({
+export function EmployeeEditDialog({
   employee,
   allEmployees,
   units,
@@ -252,9 +248,9 @@ function EmployeeEditDialog({
     <EmployeeModal
       kind={existing ? "edit" : "create"}
       title={existing ? "编辑员工" : "新增员工"}
-      subtitle={existing ? "更新组织资料，并查看该员工当前绑定的邮箱和 KOL。" : "新建的员工默认作为普通员工；工具权限可在创建后单独配置。"}
+      subtitle={existing ? "更新组织资料，并查看该员工当前绑定的邮箱和 KOL。" : "新建的员工默认作为普通员工；创建后可绑定 Agent。"}
       onClose={onClose}
-      footer={<><p className="employee-dialog-note">{existing ? "保存后立即更新员工资料；工具权限不会随本次编辑改变。" : "创建后可继续在授权面板配置工具权限。"}</p><button type="button" className="btn work" data-employee-edit-save disabled={saving || loading} onClick={() => void save()}>{saving ? "保存中…" : existing ? "保存资料" : "创建员工"}</button></>}
+      footer={<><p className="employee-dialog-note">{existing ? "保存后立即更新员工资料；Agent 绑定单独管理。" : "创建后可继续绑定 Agent。"}</p><button type="button" className="btn work" data-employee-edit-save disabled={saving || loading} onClick={() => void save()}>{saving ? "保存中…" : existing ? "保存资料" : "创建员工"}</button></>}
     >
       {loading ? <p className="muted">正在读取员工资料…</p> : <>
         {error ? <p className="error" role="alert">{error}</p> : null}
@@ -283,180 +279,4 @@ function EmployeeEditDialog({
       </>}
     </EmployeeModal>
   );
-}
-
-function EmployeeToolDialog({ employee, onClose, onSaved }: { employee: Employee; onClose: () => void; onSaved: () => void }) {
-  const { ask, dialog } = useAdminConfirm();
-  const [tools, setTools] = useState<AdminEmployeeTool[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "enabled" | "disabled">("all");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let live = true;
-    api.adminEmployeeTools(employee.id).then((result) => {
-      if (!live) return;
-      setTools(result.tools);
-      setSelected(new Set(result.tools.filter((tool) => tool.granted).map((tool) => tool.id)));
-      setLoading(false);
-    }).catch((cause) => {
-      if (!live) return;
-      setError(errorText(cause, "无法读取工具列表"));
-      setLoading(false);
-    });
-    return () => { live = false; };
-  }, [employee.id]);
-
-  const initial = useMemo(() => new Set(tools.filter((tool) => tool.granted).map((tool) => tool.id)), [tools]);
-  const shown = useMemo(() => tools.filter((tool) => {
-    const needle = query.trim().toLowerCase();
-    if (needle && !`${tool.label} ${tool.category} ${tool.summary}`.toLowerCase().includes(needle)) return false;
-    if (filter === "enabled") return selected.has(tool.id);
-    if (filter === "disabled") return !selected.has(tool.id);
-    return true;
-  }), [filter, query, selected, tools]);
-  const added = tools.filter((tool) => selected.has(tool.id) && !initial.has(tool.id));
-  const revoked = tools.filter((tool) => !selected.has(tool.id) && initial.has(tool.id));
-
-  const toggle = (tool: AdminEmployeeTool) => {
-    if (!tool.assignable && !tool.granted) return;
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(tool.id)) next.delete(tool.id);
-      else next.add(tool.id);
-      return next;
-    });
-  };
-
-  const save = () => {
-    setError("");
-    ask(employeeToolGrantsConfirm({
-      name: employeeLabel(employee),
-      email: userEmail(employee),
-      added: added.map((tool) => tool.label),
-      revoked: revoked.map((tool) => tool.label),
-    }), async () => {
-      setSaving(true);
-      try {
-        await api.adminSave(`/api/admin/users/${encodeURIComponent(employee.id)}/skills`, { skills: [...selected] }, "PUT");
-        onSaved();
-        onClose();
-      } catch (cause) {
-        setError(errorText(cause, "保存工具授权失败"));
-      } finally {
-        setSaving(false);
-      }
-    });
-  };
-
-  return <>
-    <EmployeeModal
-      kind="tools"
-      title="授权工具"
-      subtitle={`${employeeLabel(employee)} · 仅显示可在员工端使用的已发布工具。`}
-      onClose={onClose}
-      footer={<><p className="employee-dialog-note">新增 {added.length} 项 · 停用 {revoked.length} 项</p><button type="button" className="btn work" data-employee-tools-save disabled={loading || saving} onClick={save}>{saving ? "保存中…" : "保存授权"}</button></>}
-    >
-      {error ? <p className="error" role="alert">{error}</p> : null}
-      <div className="employee-tools-toolbar">
-        <input data-employee-tool-search value={query} placeholder="搜索工具名称或分类" aria-label="搜索工具" onChange={(event) => setQuery(event.target.value)} />
-        <select data-employee-tool-filter value={filter} onChange={(event) => setFilter(event.target.value as "all" | "enabled" | "disabled")}><option value="all">全部状态</option><option value="enabled">已授权</option><option value="disabled">未授权</option></select>
-      </div>
-      {loading ? <p className="muted">正在读取已发布工具…</p> : <ul className="employee-tool-list" data-employee-tool-list>
-        {shown.map((tool) => {
-          const checked = selected.has(tool.id);
-          const unavailable = !tool.assignable && !tool.granted;
-          return <li key={tool.id} data-employee-tool={tool.id} data-state={checked ? "enabled" : "disabled"}>
-            <label><input type="checkbox" checked={checked} disabled={unavailable} onChange={() => toggle(tool)} /><span><strong>{tool.label}</strong><small>{tool.category || "未分类"} · {tool.summary || "未填写说明"}</small></span></label>
-            <span className={`admin-status is-${checked ? "configured" : "unattached"}`}>{checked ? "已授权" : unavailable ? "未发布" : "未授权"}</span>
-          </li>;
-        })}
-        {!shown.length ? <li className="employee-tool-empty">没有符合条件的工具。</li> : null}
-      </ul>}
-    </EmployeeModal>
-    {dialog}
-  </>;
-}
-
-export function EmployeeDirectory({ users, onReload }: { users: Employee[]; onReload: () => void }) {
-  const { ask, dialog } = useAdminConfirm();
-  const [units, setUnits] = useState<OrganizationUnit[]>([]);
-  const [query, setQuery] = useState("");
-  const [org, setOrg] = useState("");
-  const [brand, setBrand] = useState("");
-  const [editing, setEditing] = useState<Employee | null | undefined>(undefined);
-  const [toolEmployee, setToolEmployee] = useState<Employee | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    api.adminOrganizationUnits().then((data) => { if (live) setUnits(data.units || []); }).catch(() => { if (live) setUnits([]); });
-    return () => { live = false; };
-  }, []);
-
-  const brands = useMemo(() => [...new Set(users.flatMap((user) => asList(user.brands)))].sort(), [users]);
-  const organizations = useMemo(() => {
-    const byId = new Map(units.map((unit) => [unit.id, unit]));
-    for (const user of users) {
-      const value = text(user.site);
-      if (value && !byId.has(value)) byId.set(value, { id: value, display_name: value, type: "", parent: null, level: 1 });
-    }
-    return [...byId.values()].sort((a, b) => a.display_name.localeCompare(b.display_name, "zh-CN"));
-  }, [units, users]);
-  const filtered = useMemo(() => users.filter((user) => {
-    const needle = query.trim().toLowerCase();
-    const haystack = `${employeeLabel(user)} ${userEmail(user)} ${text(user.position)} ${orgLabel(user.site, units)} ${asList(user.brands).join(" ")}`.toLowerCase();
-    if (needle && !haystack.includes(needle)) return false;
-    if (org && text(user.site) !== org) return false;
-    if (brand && !asList(user.brands).includes(brand)) return false;
-    return true;
-  }), [brand, org, query, units, users]);
-
-  const deactivate = (user: Employee) => {
-    ask(userDeactivateConfirm(employeeLabel(user), userEmail(user)), async () => {
-      await api.adminSave(`/api/admin/users/${encodeURIComponent(user.id)}`, { active: false }, "PATCH");
-      onReload();
-    });
-  };
-
-  const activate = async (user: Employee) => {
-    await api.adminSave(`/api/admin/users/${encodeURIComponent(user.id)}`, { active: true }, "PATCH");
-    onReload();
-  };
-
-  return <section className="employee-directory" data-admin-employees>
-    <header className="employee-directory-head">
-      <div><p className="page-kicker">组织治理</p><h1>员工目录</h1><p className="muted">维护组织归属、业务绑定与个人工具权限。</p></div>
-      <button type="button" className="btn work" data-employee-create onClick={() => setEditing(null)}>新增员工</button>
-    </header>
-    <div className="employee-directory-toolbar">
-      <label className="employee-search"><span className="sr-only">搜索员工</span><input data-employee-search value={query} placeholder="搜索姓名、邮箱或岗位" onChange={(event) => setQuery(event.target.value)} /></label>
-      <select data-employee-filter="organization" value={org} onChange={(event) => setOrg(event.target.value)}><option value="">全部组织</option>{organizations.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select>
-      <select data-employee-filter="brand" value={brand} onChange={(event) => setBrand(event.target.value)}><option value="">全部品牌</option>{brands.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-      <p className="employee-result-count">{filtered.length} / {users.length} 名员工</p>
-    </div>
-    <div className="admin-table-wrap employee-directory-table-wrap">
-      <table className="admin-table employee-directory-table">
-        <thead><tr><th>员工</th><th>组织 / 品牌</th><th>业务绑定</th><th>工具权限</th><th className="employee-updated-cell">最近变更</th><th>操作</th></tr></thead>
-        <tbody>{filtered.map((user) => {
-          const inactive = user.active === false;
-          const skills = asList(user.skill_grants);
-          return <tr key={user.id} data-employee-row={user.id} data-state={inactive ? "inactive" : "active"}>
-            <td><div className="employee-person"><span aria-hidden>{employeeLabel(user).slice(0, 1)}</span><div><strong>{employeeLabel(user)}</strong><p className="muted">{userEmail(user)}{text(user.position) ? ` · ${text(user.position)}` : ""}</p></div></div></td>
-            <td><strong>{orgLabel(user.site, units)}</strong><p className="muted">{compactList(asList(user.brands))}</p></td>
-            <td><p>{Number(user.mailbox_count || 0)} 个邮箱 · {Number(user.kol_count || 0)} 个 KOL</p><p className="muted">{inactive ? "账号已停用" : "账号正常"}</p></td>
-            <td><strong>{skills.length} 项已授权</strong><p className="muted">{compactList(skills.slice(0, 2), "暂未授权")}{skills.length > 2 ? " …" : ""}</p></td>
-            <td className="employee-updated-cell">{formatTime(user.updated_at)}</td>
-            <td><div className="admin-inline-actions"><button type="button" className="btn sm" data-employee-action="edit" onClick={() => setEditing(user)}>编辑</button><button type="button" className="btn sm" data-employee-action="tools" onClick={() => setToolEmployee(user)}>授权</button><button type="button" className="btn sm danger" data-employee-action={inactive ? "activate" : "deactivate"} data-admin-user-action={inactive ? "activate" : "deactivate"} onClick={() => inactive ? void activate(user) : deactivate(user)}>{inactive ? "启用" : "停用"}</button></div></td>
-          </tr>;
-        })}</tbody>
-      </table>
-      {!filtered.length ? <p className="employee-empty">没有符合当前筛选条件的员工。</p> : null}
-    </div>
-    {editing !== undefined ? <EmployeeEditDialog key={editing?.id || "new"} employee={editing} allEmployees={users} units={organizations} brands={brands} onClose={() => setEditing(undefined)} onSaved={onReload} /> : null}
-    {toolEmployee ? <EmployeeToolDialog employee={toolEmployee} onClose={() => setToolEmployee(null)} onSaved={onReload} /> : null}
-    {dialog}
-  </section>;
 }

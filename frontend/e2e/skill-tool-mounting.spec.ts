@@ -11,9 +11,9 @@ async function stubGovernanceReads(page: Page) {
   await page.route("**/api/admin/runtime/connectors/*/policies", (route) => route.fulfill({ json: [] }));
 }
 
-/** 工具挂载在技能详情的「工具与知识」页：列表页不再直接渲染它。 */
+/** 工具挂载在技能详情的「工具与知识」页：SkillLifecycleV2 列表行不再直接渲染它。 */
 async function openFirstSkillDependencies(page: Page) {
-  await page.locator(".skill-governance-row").first().click();
+  await page.locator(".skill-v2-row").first().click();
   await page.getByRole("button", { name: "工具与知识" }).click();
   return page.locator("[data-skill-tool-bindings]").first();
 }

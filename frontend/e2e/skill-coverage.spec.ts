@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // 治理读数在无鉴权 stub 模式下按设计返回 403（与 connector-admin.spec.ts 同一约定）；
 // 这里把扫描结果固定为确定性桩，只验证呈现、筛选与「按定义挂载」的入口。
@@ -37,38 +37,55 @@ const COVERAGE = {
   ],
 };
 
-test("技能页呈现实现度与工具依赖，并按实现状态筛选", async ({ page }) => {
+/** SkillLifecycleV2 的列表行不显示 id：用列表搜索定位技能，再点行选中并进入「工具与知识」。 */
+async function openSkillDependencies(page: Page, skillId: string) {
+  await page.getByLabel("搜索技能").fill(skillId);
+  const row = page.locator(".skill-v2-row").first();
+  await expect(row).toBeVisible();
+  await row.click();
+  await page.getByRole("button", { name: "工具与知识" }).click();
+  return page.locator(`[data-skill-declared-dependencies='${skillId}']`);
+}
+
+test("技能页呈现实现度读数与工具依赖，并按阶段筛选", async ({ page }) => {
   await page.route("**/api/admin/runtime/skills/coverage*", (route) => route.fulfill({ json: COVERAGE }));
   await page.goto("/admin/skills");
+  const root = page.locator("[data-admin-page='skills']");
+  await expect(root).toBeVisible();
 
-  const summary = page.locator("[data-skill-coverage-summary]");
-  await expect(summary).toBeVisible();
-  await expect(summary).toContainText("已上线 1");
-  await expect(summary).toContainText("工具依赖 已挂载 1/3（待挂载 2）");
+  await page.getByLabel("搜索技能").fill("creator_profile");
+  await expect(page.locator(".governance-count")).toHaveText(/^1 \/ \d+ 项技能$/);
+  const row = page.locator(".skill-v2-row", { hasText: "达人画像" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("发布上线");
 
-  const liveRow = page.locator(".skill-governance-row", { hasText: "creator_profile" });
-  await expect(liveRow.locator("[data-skill-implementation='live']")).toHaveText("已上线");
-  await expect(liveRow.locator("[data-skill-tool-coverage='1/2']")).toHaveText("工具 1/2");
+  // 实现度读数（声明 / 已挂载 / 待挂载）在详情「工具与知识」内呈现。
+  await row.click();
+  await page.getByRole("button", { name: "工具与知识" }).click();
+  const declared = page.locator("[data-skill-declared-dependencies='creator_profile']");
+  await expect(declared).toBeVisible();
+  await expect(declared).toContainText("声明 2 个 · 已挂载 1 个 · 待挂载 1 个");
 
-  const definedRow = page.locator(".skill-governance-row", { hasText: "creator_library_query" });
-  await expect(definedRow.locator("[data-skill-implementation='defined']")).toHaveText("待上线");
-
-  await page.getByLabel("实现状态").selectOption("live");
-  await expect(page.locator(".skill-governance-row", { hasText: "creator_profile" })).toBeVisible();
-  await expect(page.locator(".skill-governance-row", { hasText: "creator_library_query" })).toHaveCount(0);
-
-  await page.getByLabel("实现状态").selectOption("pending_tools");
-  await expect(page.locator(".skill-governance-row", { hasText: "creator_profile" })).toBeVisible();
-  await expect(page.locator(".skill-governance-row", { hasText: "creator_library_query" })).toBeVisible();
+  // 阶段筛选是单选：点已选中项不取消，切到草稿后列表收窄，再切回已发布恢复。
+  const stageGroup = page.locator(".governance-filter-group").filter({ hasText: "阶段" });
+  await expect(stageGroup.locator("[aria-pressed=true]")).toHaveCount(1);
+  await stageGroup.getByRole("button", { name: "已发布", exact: true }).click();
+  await expect(stageGroup.getByRole("button", { name: "已发布", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(row).toBeVisible();
+  await stageGroup.getByRole("button", { name: "草稿", exact: true }).click();
+  await expect(stageGroup.locator("[aria-pressed=true]")).toHaveCount(1);
+  await expect(page.locator(".skill-v2-row")).toHaveCount(0);
+  await stageGroup.getByRole("button", { name: "草稿", exact: true }).click();
+  await expect(page.locator(".skill-v2-row")).toHaveCount(0);
+  await stageGroup.getByRole("button", { name: "已发布", exact: true }).click();
+  await expect(row).toBeVisible();
 });
 
 test("技能详情按 SKILL.md 声明列出工具依赖，并给出按定义挂载入口", async ({ page }) => {
   await page.route("**/api/admin/runtime/skills/coverage*", (route) => route.fulfill({ json: COVERAGE }));
   await page.goto("/admin/skills");
-  await page.locator(".skill-governance-row", { hasText: "creator_profile" }).click();
-  await page.getByRole("button", { name: "工具与知识" }).click();
 
-  const declared = page.locator("[data-skill-declared-dependencies='creator_profile']");
+  const declared = await openSkillDependencies(page, "creator_profile");
   await expect(declared).toBeVisible();
   await expect(declared).toContainText("声明 2 个 · 已挂载 1 个 · 待挂载 1 个");
   await expect(declared.locator("[data-skill-declared-agents]")).toContainText("已挂到数字员工：agent:kol");
@@ -96,21 +113,27 @@ test("技能声明了目录里没有的连接器时如实说明，不提供挂�
     },
   }));
   await page.goto("/admin/skills");
-  await page.locator(".skill-governance-row", { hasText: "creator_profile" }).click();
-  await page.getByRole("button", { name: "工具与知识" }).click();
 
-  const declared = page.locator("[data-skill-declared-dependencies='creator_profile']");
+  const declared = await openSkillDependencies(page, "creator_profile");
   await expect(declared).toContainText("目录里没有对应连接器");
   await expect(declared.locator("[data-skill-declared-tool='get_collaboration']")).toContainText("无对应连接器");
   await expect(declared.locator("[data-skill-declared-mount='unknown']")).toBeDisabled();
 });
 
-test("扫描读不到时只有这一块降级，技能列表照常可用", async ({ page }) => {
+test("扫描读不到时只有工具依赖降级，技能列表照常可用", async ({ page }) => {
   await page.route("**/api/admin/runtime/skills/coverage*", (route) => route.fulfill({
     status: 403, json: { detail: { code: "runtime_auth_required" } },
   }));
   await page.goto("/admin/skills");
-  await expect(page.locator("[data-skill-coverage-error]")).toContainText("技能实现与工具依赖未读取");
-  await expect(page.locator(".skill-governance-row", { hasText: "creator_profile" })).toBeVisible();
-  await expect(page.locator("[data-skill-coverage-summary]")).toHaveCount(0);
+  await expect(page.locator("[data-admin-page='skills']")).toBeVisible();
+
+  await page.getByLabel("搜索技能").fill("creator_profile");
+  const row = page.locator(".skill-v2-row", { hasText: "达人画像" });
+  await expect(row).toBeVisible();
+  await row.click();
+  await page.getByRole("button", { name: "工具与知识" }).click();
+  const degraded = page.locator("[data-skill-declared-dependencies='unavailable']");
+  await expect(degraded).toBeVisible();
+  await expect(degraded).toContainText("这次没有读到扫描结果");
+  await expect(page.locator("[data-skill-declared-dependencies='creator_profile']")).toHaveCount(0);
 });

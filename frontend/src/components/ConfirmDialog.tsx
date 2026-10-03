@@ -35,6 +35,7 @@ export function ConfirmDialog({
   cancelLabel = ADMIN_CANCEL_LABEL,
   cancelHint,
   requireReason = false,
+  reasonOptional = false,
   reasonLabel = "原因",
   reasonPlaceholder = "填写原因",
   reason = "",
@@ -53,6 +54,7 @@ export function ConfirmDialog({
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const approval = isApprovalKind(kind);
+  const showReason = requireReason || reasonOptional;
   const focus: AdminConfirmFocus = initialFocus || (requireReason ? "reason" : "cancel");
   const initialRef = focus === "confirm" ? confirmRef : focus === "reason" ? reasonRef : cancelRef;
   const tone: AdminConfirmTone = confirmTone;
@@ -124,7 +126,7 @@ export function ConfirmDialog({
             <pre className="mail-body-text" data-mail-confirm-body style={{ maxHeight: "min(34vh, 24rem)", overflowY: "auto" }}>{mailBody}</pre>
           </section>
         ) : null}
-        {requireReason ? (
+        {showReason ? (
           <label className="admin-confirm-reason field">
             {reasonLabel}
             <textarea
@@ -133,7 +135,7 @@ export function ConfirmDialog({
               data-admin-confirm-reason
               value={reason}
               placeholder={reasonPlaceholder}
-              rows={3}
+              rows={reasonOptional && !requireReason ? 2 : 3}
               disabled={busy}
               onChange={(event) => onReasonChange?.(event.target.value)}
             />
@@ -204,6 +206,7 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode; op
       cancelLabel={pending?.cancelLabel}
       cancelHint={pending?.cancelHint}
       requireReason={pending?.requireReason}
+      reasonOptional={pending?.reasonOptional}
       reasonLabel={pending?.reasonLabel}
       reasonPlaceholder={pending?.reasonPlaceholder}
       confirmTone={pending?.confirmTone}

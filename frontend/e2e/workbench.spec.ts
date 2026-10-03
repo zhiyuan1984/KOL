@@ -2773,6 +2773,10 @@ test("composer sends the selected model tier", async ({ page }) => {
 });
 
 test("admin skill page exposes create form after product manager login", async ({ page }) => {
+  // 技能列表与写入走产品经理闸门（requirePm）；beforeEach 的 /api/demo/reset 会清空登录态。
+  // 旧版页面自带 PM 登录表单，新版不再有，直接在请求层补上同一次登录。
+  const pmLogin = await page.request.post("/api/login", { data: { username: "鄢棽", password: "123456789" } });
+  expect(pmLogin.ok()).toBeTruthy();
   await page.goto("/admin/skills");
   await expect(page.locator(".sidebar [data-account-name]")).not.toHaveText("");
   await expect(page.locator("[data-admin-nav='skills']")).toHaveClass(/active/);
@@ -2782,58 +2786,44 @@ test("admin skill page exposes create form after product manager login", async (
     await page.locator("[data-login-password]").fill("123456789");
     await page.locator("[data-login-submit]").click();
   }
-  await expect(page.locator("[data-skill-create]")).toBeVisible();
-  await expect(page.locator("[data-skill-create-save]")).toContainText("发布并写入 Codex");
-  await expect(page.locator("[data-skill-admin]")).toHaveAttribute("data-skill-admin", "embedded");
-  await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
-  await expect(page.locator("[data-admin-skills-table]")).toBeVisible();
-  await page.locator("[data-skill-create-id]").fill("daily_brief_ui");
-  await page.locator("[data-skill-create-title]").fill("每日简报");
-  await page.locator("[data-skill-create-summary]").fill("整理今天要跟进的达人");
-  await page.locator("[data-skill-create-body]").fill("# 每日简报\n\n整理今天要处理的达人跟进。\n\n## 禁止事项\n\n- 禁止发送消息。\n- 禁止修改阶段。\n");
-  await page.locator("[data-skill-create-save]").click();
-  const publishDialog = page.locator("[data-admin-confirm='skill-publish']");
-  await expect(publishDialog).toBeVisible();
-  await expect(publishDialog.locator("[data-admin-confirm-object]")).toContainText("daily_brief_ui");
-  await expect(publishDialog.locator("[data-admin-confirm-scope]")).toContainText("运行时目录");
-  await expect(publishDialog.locator("[data-admin-confirm-consequence]")).toContainText("员工技能目录");
-  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
+  const admin = page.locator("[data-admin-page='skills']");
+  await expect(admin).toBeVisible();
+  await expect(admin.getByRole("button", { name: "新增技能" })).toBeVisible();
+
+  // 上次失败运行可能留下同前缀草稿：先清掉，再创建本次草稿，保持 e2e 数据可重跑。
+  const existing = await (await page.request.get("/api/admin/skills")).json() as { skills?: Array<{ id?: string }> };
+  for (const row of existing.skills || []) {
+    if (String(row.id || "").startsWith("daily_brief_")) {
+      await page.request.delete(`/api/admin/skills/${encodeURIComponent(String(row.id))}`);
+    }
+  }
+
+  // 新增入口常显在中栏底部；创建走居中模态弹窗，创建后先成为草稿，不会直接进入员工技能目录。
+  const skillId = `daily_brief_${Date.now().toString(36)}`;
+  await admin.getByRole("button", { name: "新增技能" }).click();
+  const createDialog = page.getByRole("dialog", { name: "新增技能" });
+  await expect(createDialog).toBeVisible();
+  await createDialog.getByLabel("技能 Key（snake_case）").fill(skillId);
+  await createDialog.getByLabel("名称", { exact: true }).fill("每日简报");
+  await createDialog.getByLabel("说明（Markdown）").fill("# 每日简报\n\n整理今天要处理的达人跟进。\n\n## 禁止事项\n\n- 禁止发送消息。\n- 禁止修改阶段。\n");
+  await createDialog.getByRole("button", { name: "创建技能" }).click();
+  await expect(createDialog).toHaveCount(0);
+  await expect(admin.locator("p.governance-notice[role='status']")).toContainText("技能草稿已创建");
+  await expect(admin.locator(".skill-v2-row", { hasText: "每日简报" })).toHaveCount(1);
+  await expect(admin.locator(".skill-v2-row", { hasText: "每日简报" })).toBeVisible();
+
+  // 阶段推进已弹窗化：草稿 → 编辑配置走确认弹窗，不用原生 confirm。
+  await admin.locator(".skill-action-menu summary").click();
+  await admin.getByRole("button", { name: "进入编辑配置" }).click();
+  const stageDialog = page.locator("[data-admin-confirm='skill-stage']");
+  await expect(stageDialog).toBeVisible();
+  await expect(stageDialog.locator("[data-admin-confirm-scope]")).toContainText("新建草稿 → 编辑");
   await page.locator("[data-admin-confirm-ok]").click();
-  await expect(page.locator('[data-skill="daily_brief_ui"]')).toBeVisible();
-  await expect(page.locator('[data-skill="daily_brief_ui"]')).toHaveAttribute("data-skill-source", "published");
-  await expect(page.locator("[data-admin-skill-danger] [data-skill-delete='daily_brief_ui']")).toBeVisible();
-  await page.locator("[data-skill-grant='daily_brief_ui']").click();
-  await expect(page.locator("[data-grant-editor='daily_brief_ui']")).toBeVisible();
-  await page.locator("[data-grant-save]").click();
-  const grantSkillDialog = page.locator("[data-admin-confirm='skill-grant']");
-  await expect(grantSkillDialog).toBeVisible();
-  await expect(grantSkillDialog.locator("[data-admin-confirm-scope]")).toContainText("组织");
-  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(grantSkillDialog).toHaveCount(0);
-  await page.locator("[data-skill-market='daily_brief_ui']").click();
-  const unpublishDialog = page.locator("[data-admin-confirm='skill-unpublish']");
-  await expect(unpublishDialog).toBeVisible();
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(unpublishDialog).toHaveCount(0);
-  await page.goto("/skills");
-  await expect(page.locator('[data-skill="daily_brief_ui"]')).toBeVisible();
-  await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
-  await page.goto("/market/skills");
-  await expect(page.locator("[data-hub-new]")).toHaveCount(0);
-  await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
-  await page.goto("/admin/skills");
-  await expect(page.locator("[data-admin-skills-table]")).toBeVisible();
-  await page.locator("[data-skill-market='daily_brief_ui']").click();
-  await page.locator("[data-admin-confirm-ok]").click();
-  await expect(page.locator("[data-skill-market='daily_brief_ui']")).toHaveText("上架");
-  await page.locator("[data-skill-market='daily_brief_ui']").click();
-  const listDialog = page.locator("[data-admin-confirm='skill-list']");
-  await expect(listDialog).toBeVisible();
-  await expect(listDialog.locator("[data-admin-confirm-scope]")).toContainText("员工技能目录可见性");
-  await expect(listDialog.locator("[data-admin-confirm-consequence]")).toContainText("将出现");
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(listDialog).toHaveCount(0);
+  await expect(admin.locator("p.governance-notice[role='status']")).toContainText("技能阶段已更新为 编辑。");
+
+  // 清理本次创建的草稿，保持 e2e 数据可重跑。
+  const cleanup = await page.request.delete(`/api/admin/skills/${skillId}`);
+  expect(cleanup.ok()).toBeTruthy();
 });
 
 test("employee persona hides admin chrome and connector config", async ({ page, request }) => {

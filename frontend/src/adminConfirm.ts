@@ -17,6 +17,8 @@ export type AdminConfirmCopy = {
   cancelLabel?: string;
   cancelHint?: string;
   requireReason?: boolean;
+  /** 可选输入：展示原因/说明输入框，但不强制填写。 */
+  reasonOptional?: boolean;
   reasonLabel?: string;
   reasonPlaceholder?: string;
   confirmTone?: AdminConfirmTone;
@@ -57,7 +59,13 @@ export type AdminConfirmKind =
   | "starry-unbind"
   | "knowledge-rollback"
   | "knowledge-binding-delete"
-  | "skill-declared-mount";
+  | "skill-declared-mount"
+  | "skill-stage"
+  | "skill-rollback"
+  | "agent-publish"
+  | "agent-disable"
+  | "agent-binding-revoke"
+  | "agent-knowledge-unbind";
 
 /** Admin-opened confirms: Cancel abandons the write. It is not Host-proposal 拒绝. */
 export const ADMIN_CANCEL_LABEL = "取消，不执行";
@@ -507,5 +515,139 @@ export function knowledgeBindingDeleteConfirm(skillLabel: string, selectorSummar
     scope: "技能与知识的绑定关系",
     consequence: "删除后该技能不再解析到这些知识。",
     confirmLabel: "确认删除",
+  };
+}
+
+/** Agent 发布前清单：技能数/绑定数/覆盖人数均为服务端当前值。 */
+export function agentPublishConfirm(input: {
+  name: string;
+  id?: string;
+  enabledSkills: number;
+  bindings: number;
+  users: number;
+  orgVersion: number;
+}): AdminConfirmCopy {
+  return {
+    kind: "agent-publish",
+    title: "发布 Agent",
+    object: named(input.name, input.id || ""),
+    scope: "草稿 → 已发布 · 员工按绑定范围可用",
+    change: `启用技能 ${input.enabledSkills} 项 · 绑定点 ${input.bindings} 个 · 覆盖 ${input.users} 人（组织版本 ${input.orgVersion}）`,
+    consequence: "发布后绑定范围内的员工立即可通过此 Agent 使用已启用技能。发布不扩大绑定范围；解绑与停用是独立动作。",
+    confirmLabel: "确认发布",
+    confirmTone: "primary",
+  };
+}
+
+export function agentDisableConfirm(name: string, id = ""): AdminConfirmCopy {
+  return {
+    kind: "agent-disable",
+    title: "停用 Agent",
+    object: named(name, id),
+    scope: "已发布 → 停用 · 不解除绑定",
+    consequence: "停用后员工不能再通过此 Agent 使用技能；绑定与覆盖名单保留，可再次发布。",
+    confirmLabel: "确认停用",
+  };
+}
+
+/** 撤销绑定前先跑 revoke-preview，把将移除的人写进「变更」再确认。 */
+export function agentBindingRevokeConfirm(input: {
+  agentName: string;
+  agentId?: string;
+  targetLabel: string;
+  removed: string[];
+}): AdminConfirmCopy {
+  const removed = input.removed.filter(Boolean);
+  return {
+    kind: "agent-binding-revoke",
+    title: "撤销 Agent 绑定",
+    object: `${named(input.agentName, input.agentId || "")} × ${input.targetLabel}`,
+    scope: "绑定解绑 · 覆盖名单按组织树重算",
+    change: removed.length ? `将移除 ${removed.length} 人：${removed.join("、")}` : "本次撤销不移除任何已覆盖人员",
+    consequence: "这些人若不再被其他绑定覆盖，将立即失去该 Agent 的使用资格。撤销必须填写原因并写入审计。",
+    confirmLabel: "确认撤销",
+    requireReason: true,
+    reasonLabel: "撤销原因",
+    reasonPlaceholder: "说明为什么撤销该绑定",
+    initialFocus: "reason",
+  };
+}
+
+export function agentKnowledgeUnbindConfirm(input: {
+  agentName: string;
+  agentId?: string;
+  skillLabel: string;
+  baseLabel: string;
+}): AdminConfirmCopy {
+  return {
+    kind: "agent-knowledge-unbind",
+    title: "移除知识库依赖",
+    object: `${input.skillLabel} × ${input.baseLabel}`,
+    scope: `${named(input.agentName, input.agentId || "")} · 技能知识依赖`,
+    consequence: "该技能的其他 Agent 共享此依赖：移除后所有装配该技能的 Agent 都不再解析这个知识库。可重新绑定。",
+    confirmLabel: "确认移除",
+  };
+}
+
+export function skillStageConfirm(input: {
+  title: string;
+  id?: string;
+  from: string;
+  to: string;
+  needReason?: boolean;
+}): AdminConfirmCopy {
+  return {
+    kind: "skill-stage",
+    title: input.needReason ? "停用技能" : "推进技能阶段",
+    object: named(input.title, input.id || ""),
+    scope: `${input.from} → ${input.to}`,
+    consequence: input.needReason
+      ? "停用后员工不能再通过 Agent 使用此技能；版本与历史保留，可重新启用。必须填写原因并写入审计。"
+      : "阶段推进立即写入技能生命周期；员工当前使用的已发布版本不会自动改变。",
+    confirmLabel: input.needReason ? "确认停用" : "确认推进",
+    confirmTone: input.needReason ? "danger" : "primary",
+    requireReason: input.needReason,
+    reasonLabel: "操作原因",
+    reasonPlaceholder: "说明本次操作原因",
+    initialFocus: input.needReason ? "reason" : "cancel",
+  };
+}
+
+export function skillLifecyclePublishConfirm(title: string, id = ""): AdminConfirmCopy {
+  return {
+    kind: "skill-publish",
+    title: "发布技能",
+    object: named(title, id),
+    scope: "测试验证 → 发布上线",
+    consequence: "发布应用待发布草稿并生成版本快照，员工通过 Agent 使用新版本。发布不会自动授予任何人员权限。",
+    confirmLabel: "确认发布",
+    confirmTone: "primary",
+  };
+}
+
+export function skillVersionPublishConfirm(title: string, id = ""): AdminConfirmCopy {
+  return {
+    kind: "skill-publish",
+    title: "发布草稿并生成版本",
+    object: named(title, id),
+    scope: "未发布草稿 → 版本快照",
+    consequence: "发布会应用待发布草稿并生成版本快照；员工通过 Agent 使用新版本。",
+    confirmLabel: "确认发布",
+    confirmTone: "primary",
+    reasonOptional: true,
+    reasonLabel: "版本说明（可选）",
+    reasonPlaceholder: "填写本次版本说明",
+    initialFocus: "confirm",
+  };
+}
+
+export function skillVersionRollbackConfirm(title: string, version: number): AdminConfirmCopy {
+  return {
+    kind: "skill-rollback",
+    title: "回滚技能版本",
+    object: named(title, `→ v${version}`),
+    scope: "历史版本快照覆盖当前技能包",
+    consequence: `员工使用的版本回滚为 v${version}；当前未发布草稿会被历史快照覆盖，操作不可撤销。`,
+    confirmLabel: "确认回滚",
   };
 }

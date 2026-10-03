@@ -14,7 +14,6 @@ const Approvals = lazy(() => import("./pages/Approvals"));
 const Cron = lazy(() => import("./pages/Cron"));
 const SkillCatalog = lazy(() =>
   import("./pages/SkillCatalog").then((m) => ({ default: m.SkillCatalog })));
-const SkillLifecycle = lazy(() => import("./pages/SkillLifecycle"));
 const Exam = lazy(() => import("./pages/Exam"));
 const Knowledge = lazy(() => import("./pages/Knowledge"));
 const AccountSettings = lazy(() => import("./pages/AccountSettings"));

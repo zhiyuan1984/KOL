@@ -4,10 +4,18 @@ import { api } from "../api";
 import type { SkillTemplate } from "../api";
 import { SkillConnectorBindings } from "../components/SkillConnectorBindings";
 import { SkillDeclaredDependencies } from "../components/SkillDeclaredDependencies";
+import { AdminTextDialog } from "../components/AdminTextDialog";
+import { useAdminConfirm } from "../components/ConfirmDialog";
+import {
+  skillLifecyclePublishConfirm,
+  skillStageConfirm,
+  skillVersionPublishConfirm,
+  skillVersionRollbackConfirm,
+} from "../adminConfirm";
 import { errorMessage, implementationLabel, type SkillCoverage, type SkillCoverageRow } from "../runtimeConnectorUi";
 import "./skill-governance.css";
 
-type SkillRow = {
+export type SkillRow = {
   id: string;
   label: string;
   title: string;
@@ -23,7 +31,6 @@ type SkillRow = {
   memory_policy?: Record<string, unknown> | null;
   supports?: Record<string, boolean> | null;
   updated_at?: string | null;
-  grants?: GrantSet;
   lifecycle?: {
     stage: string;
     stage_label: string;
@@ -35,17 +42,6 @@ type SkillRow = {
     test_summary: { total: number; pass_rate: number | null; failing: number; last_run_at: string | null };
   };
 };
-
-type Directory = {
-  orgs: { id: string; name: string }[];
-  teams: { id: string; org_id: string; name: string }[];
-  users: { id: string; handle: string; name: string; role: string }[];
-};
-type GrantSet = { org: string[]; team: string[]; user: string[] };
-type GrantScope = keyof GrantSet;
-
-const EMPTY_DIRECTORY: Directory = { orgs: [], teams: [], users: [] };
-const EMPTY_GRANTS: GrantSet = { org: [], team: [], user: [] };
 
 const STAGES = [
   { id: "draft", label: "新建草稿", hint: "填写基础信息" },
@@ -90,8 +86,6 @@ function skillContract(skill: SkillRow): Record<string, unknown> {
 
 export default function SkillLifecycle() {
   const [skills, setSkills] = useState<SkillRow[]>([]);
-  const [directory, setDirectory] = useState<Directory>(EMPTY_DIRECTORY);
-  const [grants, setGrants] = useState<Record<string, GrantSet>>({});
   const [selected, setSelected] = useState<string>("");
   const [keyword, setKeyword] = useState("");
   const [error, setError] = useState("");
@@ -104,17 +98,14 @@ export default function SkillLifecycle() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const detailDialogRef = useRef<HTMLElement | null>(null);
+  const { ask, dialog } = useAdminConfirm();
 
   const load = useCallback(async () => {
     // 实现度与工具依赖是独立的读模型：读不到也不能让整个技能页失效。
     const [skillsResult, coverageResult] = await Promise.allSettled([api.adminSkills(), api.runtimeSkillCoverage()]);
     if (skillsResult.status === "fulfilled") {
-      const data = skillsResult.value as { skills?: SkillRow[]; directory?: Directory };
+      const data = skillsResult.value as { skills?: SkillRow[] };
       setSkills(data.skills || []);
-      setDirectory(data.directory || EMPTY_DIRECTORY);
-      const grantsMap: Record<string, GrantSet> = {};
-      for (const s of data.skills || []) if (s.grants) grantsMap[s.id] = s.grants;
-      setGrants(grantsMap);
       setSelected((current) => data.skills?.some((skill) => skill.id === current) ? current : "");
     } else {
       setError(String(skillsResult.reason instanceof Error ? skillsResult.reason.message : skillsResult.reason));
@@ -133,45 +124,6 @@ export default function SkillLifecycle() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!selected) return;
-    const dialog = detailDialogRef.current;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    (dialog?.querySelector<HTMLElement>('button[aria-label="关闭技能详情"]') || dialog)?.focus();
-    const containFocus = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setSelected("");
-        return;
-      }
-      if (event.key !== "Tab" || !dialog) return;
-      const focusable = [...dialog.querySelectorAll<HTMLElement>(
-        'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
-      )].filter((node) => node.getAttribute("aria-hidden") !== "true" && node.getClientRects().length > 0);
-      if (!focusable.length) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", containFocus);
-    return () => {
-      window.removeEventListener("keydown", containFocus);
-      requestAnimationFrame(() => {
-        if (previousFocus?.isConnected) previousFocus.focus();
-        else searchRef.current?.focus();
-      });
-    };
-  }, [selected]);
 
   const current = useMemo(() => skills.find((s) => s.id === selected) || null, [skills, selected]);
   const coverageById = useMemo(
@@ -204,26 +156,24 @@ export default function SkillLifecycle() {
     [skills, keyword, sourceFilter, stageFilter, implementationFilter, coverageById],
   );
 
-  async function moveStage(stage: string, needReason?: boolean) {
+  function moveStage(stage: string, needReason?: boolean) {
     if (!current) return;
-    if (stage === "published" && !window.confirm("确认发布？发布会应用待发布草稿、生成版本快照，并让员工使用新版本。")) return;
-    let reason: string | undefined;
-    if (needReason) {
-      const text = window.prompt("请填写操作原因（必填）");
-      if (!text || !text.trim()) return;
-      reason = text;
-      if (!reason || !reason.trim()) return;
-    }
-    try {
-      await api.skillLifecycleStage(current.id, stage, reason);
-      await load();
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
-    }
+    const from = current.lifecycle?.stage_label || current.lifecycle?.stage || "草稿";
+    const to = stage === "published" ? "发布上线" : STAGES.find((item) => item.id === stage)?.label || stage;
+    ask(
+      stage === "published"
+        ? skillLifecyclePublishConfirm(current.label, current.id)
+        : skillStageConfirm({ title: current.label, id: current.id, from, to, needReason }),
+      async (reason) => {
+        await api.skillLifecycleStage(current.id, stage, reason || undefined);
+        await load();
+      },
+    );
   }
 
   return (
     <div className="skill-governance-page">
+      {dialog}
       <header className="skill-governance-header">
         <div>
           <h1>技能管理</h1>
@@ -312,7 +262,7 @@ export default function SkillLifecycle() {
       {current && (
         <div className="skill-governance-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(""); }}>
           <section ref={detailDialogRef} tabIndex={-1} className="skill-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-detail-title">
-            <DetailPanel key={current.id} skill={current} coverageRow={coverageById.get(current.id) || null} directory={directory} grants={grants} onGrants={(m) => setGrants((prev) => ({ ...prev, ...m }))} onStage={moveStage} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelected("")} />
+            <DetailPanel key={current.id} skill={current} coverageRow={coverageById.get(current.id) || null} onStage={moveStage} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelected("")} />
           </section>
         </div>
       )}
@@ -413,26 +363,32 @@ function SkillUploadDialog({ onClose, onImported }: { onClose: () => void; onImp
   );
 }
 
-function DetailPanel(props: {
+export function DetailPanel(props: {
   skill: SkillRow;
   /** 服务端扫描出的该技能声明与挂载情况；缺省表示这次没读到。 */
   coverageRow: SkillCoverageRow | null;
-  directory: Directory;
-  grants: Record<string, GrantSet>;
-  onGrants: (m: Record<string, GrantSet>) => void;
   onStage: (stage: string, needReason?: boolean) => void;
   onChanged: () => Promise<void>;
   metricsDays: number;
   onMetricsDays: (d: number) => void;
   onClose: () => void;
 }) {
-  const { skill, directory, onStage, onChanged } = props;
+  const { skill, onStage, onChanged } = props;
   const lc = skill.lifecycle;
+  const { ask, dialog } = useAdminConfirm();
   const [versions, setVersions] = useState<Array<Record<string, unknown>>>([]);
   const [tests, setTests] = useState<Array<Record<string, unknown>>>([]);
   const [metrics, setMetrics] = useState<{ calls: number; success_rate: number | null; avg_duration_ms: number | null; alerts: number; trend: { day: string; n: number }[] } | null>(null);
   const [newTest, setNewTest] = useState("");
   const [tagInput, setTagInput] = useState("");
+  const [failTestId, setFailTestId] = useState("");
+  const [failReason, setFailReason] = useState("");
+  const [failBusy, setFailBusy] = useState(false);
+  const [failError, setFailError] = useState("");
+  const [ownerOpen, setOwnerOpen] = useState(false);
+  const [ownerValue, setOwnerValue] = useState("");
+  const [ownerBusy, setOwnerBusy] = useState(false);
+  const [ownerError, setOwnerError] = useState("");
   const [titleText, setTitleText] = useState(skill.title || skill.label);
   const [summaryText, setSummaryText] = useState(skill.description || "");
   const [bodyText, setBodyText] = useState("");
@@ -477,12 +433,11 @@ function DetailPanel(props: {
     void reloadAll();
   }, [reloadAll]);
 
-  async function publishVersion() {
-    if (!window.confirm("发布会应用待发布草稿并生成版本快照。员工将使用新版本，是否继续？")) return;
-    const description = window.prompt("版本说明");
-    if (description === null) return;
-    await api.publishSkillVersion(skill.id, description || undefined);
-    await Promise.all([reloadAll(), onChanged()]);
+  function publishVersion() {
+    ask(skillVersionPublishConfirm(skill.label, skill.id), async (description) => {
+      await api.publishSkillVersion(skill.id, description || undefined);
+      await Promise.all([reloadAll(), onChanged()]);
+    });
   }
 
   async function saveContract() {
@@ -515,10 +470,11 @@ function DetailPanel(props: {
     }
   }
 
-  async function rollback(version: number) {
-    if (!window.confirm(`确认回滚到 v${version}？当前包将被历史快照覆盖。`)) return;
-    await api.rollbackSkillVersion(skill.id, version);
-    await Promise.all([reloadAll(), onChanged()]);
+  function rollback(version: number) {
+    ask(skillVersionRollbackConfirm(skill.label, version), async () => {
+      await api.rollbackSkillVersion(skill.id, version);
+      await Promise.all([reloadAll(), onChanged()]);
+    });
   }
 
   async function addTest() {
@@ -529,39 +485,45 @@ function DetailPanel(props: {
   }
 
   async function recordResult(testId: string, passed: boolean) {
-    let fail_reason: string | undefined;
     if (!passed) {
-      fail_reason = window.prompt("失败原因") || "未通过";
+      setFailReason("");
+      setFailError("");
+      setFailTestId(testId);
+      return;
     }
-    await api.runSkillTests(skill.id, [{ test_id: testId, passed, fail_reason }]);
+    await api.runSkillTests(skill.id, [{ test_id: testId, passed: true }]);
     await Promise.all([reloadAll(), onChanged()]);
   }
 
-  const grantsForSkill = props.grants[skill.id];
+  const submitFail = async () => {
+    setFailBusy(true);
+    setFailError("");
+    try {
+      await api.runSkillTests(skill.id, [{ test_id: failTestId, passed: false, fail_reason: failReason.trim() || "未通过" }]);
+      setFailTestId("");
+      await Promise.all([reloadAll(), onChanged()]);
+    } catch (cause) {
+      setFailError(cause instanceof Error ? cause.message : "记录失败原因失败");
+    } finally {
+      setFailBusy(false);
+    }
+  };
+
+  const submitOwner = async () => {
+    setOwnerBusy(true);
+    setOwnerError("");
+    try {
+      await api.skillLifecycleMetaSave(skill.id, { owner: ownerValue.trim() || undefined });
+      setOwnerOpen(false);
+      await onChanged();
+    } catch (cause) {
+      setOwnerError(cause instanceof Error ? cause.message : "设置负责人失败");
+    } finally {
+      setOwnerBusy(false);
+    }
+  };
 
   const [activeTab, setActiveTab] = useState<"overview" | "dependencies" | "access" | "release">("overview");
-  const [grantBusy, setGrantBusy] = useState(false);
-  const [grantNotice, setGrantNotice] = useState("");
-
-  async function toggleGrant(scope: GrantScope, scopeId: string, granted: boolean) {
-    const current = grantsForSkill || EMPTY_GRANTS;
-    const values = new Set(current[scope]);
-    if (granted) values.add(scopeId);
-    else values.delete(scopeId);
-    const next = { ...current, [scope]: [...values] };
-    setGrantBusy(true);
-    setGrantNotice("");
-    try {
-      const response = await api.saveSkillGrants(skill.id, next);
-      const saved = (response.grants || next) as GrantSet;
-      props.onGrants({ [skill.id]: saved });
-      setGrantNotice("技能授权已保存；运行时将按当前组织、团队和个人范围校验。");
-    } catch (error) {
-      setGrantNotice(error instanceof Error ? error.message : "授权保存失败");
-    } finally {
-      setGrantBusy(false);
-    }
-  }
 
   async function saveSkillContent() {
     setContentBusy(true);
@@ -609,7 +571,7 @@ function DetailPanel(props: {
         {([
           ["overview", "概览与配置"],
           ["dependencies", "工具与知识"],
-          ["access", "授权范围"],
+          ["access", "Agent 引用"],
           ["release", "测试与版本"],
         ] as const).map(([id, label]) => <button type="button" key={id} aria-current={activeTab === id ? "page" : undefined} onClick={() => setActiveTab(id)}>{label}</button>)}
       </nav>
@@ -645,11 +607,10 @@ function DetailPanel(props: {
                   await onChanged();
                 }
               }} />
-              <button type="button" className="skill-governance-secondary" onClick={async () => {
-                const owner = window.prompt("设置负责人", lc?.owner || "");
-                if (owner === null) return;
-                await api.skillLifecycleMetaSave(skill.id, { owner: owner || undefined });
-                await onChanged();
+              <button type="button" className="skill-governance-secondary" onClick={() => {
+                setOwnerValue(lc?.owner || "");
+                setOwnerError("");
+                setOwnerOpen(true);
               }}>设置负责人</button>
             </div>
           </section>
@@ -671,17 +632,7 @@ function DetailPanel(props: {
           <PublishedAgentUsage skillId={skill.id} />
         </div>}
 
-        {activeTab === "access" && <section className="skill-detail-card">
-          <div className="skill-section-head"><div><h3>直接技能授权</h3><p>授权以技能为对象；Agent / 团队授权继承尚未接入，此处只配置组织、团队、个人的直接技能范围。</p></div></div>
-          {!grantsForSkill && <p className="muted">正在读取授权…</p>}
-          <div className="skill-access-grid">
-            <GrantGroup title="组织" rows={directory.orgs} selected={(grantsForSkill || EMPTY_GRANTS).org} scope="org" disabled={grantBusy} onToggle={toggleGrant} />
-            <GrantGroup title="团队" rows={directory.teams} selected={(grantsForSkill || EMPTY_GRANTS).team} scope="team" disabled={grantBusy} onToggle={toggleGrant} />
-            <GrantGroup title="个人" rows={directory.users.map((user) => ({ id: user.handle, name: user.name }))} selected={(grantsForSkill || EMPTY_GRANTS).user} scope="user" disabled={grantBusy} onToggle={toggleGrant} />
-          </div>
-          <p className="skill-grant-note" role="status">{grantNotice || "保存后立即按组织、团队、个人范围校验；勾选表示直接授予此技能。"}</p>
-          <p className="skill-grant-note">该目录当前没有 Agent / 团队访问授权来源接口；因此此页只呈现已保存的直接技能授权与下方可见的 Agent 技能依赖，不将依赖关系冒充继承授权。</p>
-        </section>}
+        {activeTab === "access" && <PublishedAgentUsage skillId={skill.id} />}
 
         {activeTab === "release" && <div className="skill-detail-stack">
           <p className="skill-governance-notice" role="note">当前发布接口由产品经理直接确认；审批单与审批状态接口尚未接入，此页不会展示“审批通过”。</p>
@@ -702,19 +653,38 @@ function DetailPanel(props: {
           </section>
         </div>}
       </div>
+      {dialog}
+      <AdminTextDialog
+        open={Boolean(failTestId)}
+        title="记录未通过原因"
+        description="原因写入测试记录；留空按「未通过」记录。"
+        label="失败原因"
+        value={failReason}
+        placeholder="未通过"
+        multiline
+        confirmLabel="记录未通过"
+        busy={failBusy}
+        error={failError}
+        onChange={setFailReason}
+        onConfirm={() => void submitFail()}
+        onCancel={() => { setFailTestId(""); setFailError(""); }}
+      />
+      <AdminTextDialog
+        open={ownerOpen}
+        title="设置负责人"
+        description="负责人用于技能治理联系，不授予人员使用权限。"
+        label="负责人"
+        value={ownerValue}
+        placeholder="姓名或账号"
+        confirmLabel="保存负责人"
+        busy={ownerBusy}
+        error={ownerError}
+        onChange={setOwnerValue}
+        onConfirm={() => void submitOwner()}
+        onCancel={() => { setOwnerOpen(false); setOwnerError(""); }}
+      />
     </>
   );
-}
-
-function GrantGroup({ title, rows, selected, scope, disabled, onToggle }: {
-  title: string;
-  rows: { id: string; name: string }[];
-  selected: string[];
-  scope: GrantScope;
-  disabled: boolean;
-  onToggle: (scope: GrantScope, scopeId: string, granted: boolean) => void;
-}) {
-  return <fieldset className="skill-grant-group"><legend>{title}</legend>{rows.map((row) => <label key={row.id}><input type="checkbox" checked={selected.includes(row.id)} disabled={disabled} onChange={(event) => onToggle(scope, row.id, event.target.checked)} /><span>{row.name}</span></label>)}{!rows.length && <span className="muted">暂无{title}</span>}</fieldset>;
 }
 
 function SkillKnowledgeBindings({ skillId }: { skillId: string }) {
@@ -812,19 +782,18 @@ function SkillTemplatePreview({ skillId }: { skillId: string }) {
 }
 
 function PublishedAgentUsage({ skillId }: { skillId: string }) {
-  const [agents, setAgents] = useState<Array<{ id: string; display_name: string; skill_ids: string[] }>>([]);
+  const [agents, setAgents] = useState<Array<{ id: string; name: string; status: string }>>([]);
   const [error, setError] = useState("");
   useEffect(() => {
-    void api.experts().then((response) => {
-      const rows = Array.isArray(response) ? response : response.experts || [];
-      setAgents(rows.filter((agent) => (agent.skill_ids || []).includes(skillId)) as Array<{ id: string; display_name: string; skill_ids: string[] }>);
-    }).catch((cause) => setError(cause instanceof Error ? cause.message : "无法读取已发布数字员工"));
+    void api.adminAgents().then((response) => {
+      setAgents(response.agents.filter((agent) => agent.skills.some((skill) => skill.skill_id === skillId && skill.enabled)));
+    }).catch((cause) => setError(cause instanceof Error ? cause.message : "无法读取 Agent 引用"));
   }, [skillId]);
   return <section className="skill-detail-card">
-    <div className="skill-section-head"><div><h3>被数字员工引用</h3><p>只读显示已发布专家清单中声明的技能依赖。</p></div></div>
+    <div className="skill-section-head"><div><h3>被 Agent 引用</h3><p>Agent 是人员使用此技能的唯一权限入口。</p></div></div>
     {error && <p className="skill-governance-error" role="alert">{error}</p>}
-    {!error && !agents.length && <p className="muted">暂无已发布数字员工引用该技能。</p>}
-    {agents.map((agent) => <div className="skill-agent-reference" key={agent.id}><strong>{agent.display_name}</strong><code>{agent.id}</code><span>包含此技能</span></div>)}
+    {!error && !agents.length && <p className="muted">暂无 Agent 装配该技能。</p>}
+    {agents.map((agent) => <div className="skill-agent-reference" key={agent.id}><strong>{agent.name}</strong><code>{agent.id}</code><span>{agent.status === "published" ? "已发布" : "尚未发布"}</span></div>)}
   </section>;
 }
 

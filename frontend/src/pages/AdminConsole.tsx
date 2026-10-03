@@ -12,7 +12,8 @@ import AdminWorkReport from "./AdminWorkReport";
 import AdminAudit from "./AdminAudit";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
-import { EmployeeDirectory, type DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
+import type { DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
+import { EmployeeDirectoryV2 } from "../admin/employees/EmployeeDirectoryV2";
 import {
   isBindAudit,
   isConnectorAudit,
@@ -27,7 +28,7 @@ import {
 import { SKILL_OPTIONS } from "../knowledgeCopy";
 import { approvalRoleSaveConfirm, retentionPolicyConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
-import SkillLifecycle from "./SkillLifecycle";
+import SkillLifecycle from "./SkillLifecycleV2";
 import { adminSectionOf, adminTabOf } from "../layout/adminNav";
 
 /** 分节归一化与侧栏条目同一份（`/admin` → employees，未知段回落 employees），详情 id 仍取自路径。 */
@@ -87,9 +88,9 @@ export default function AdminConsole() {
         {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
         {error && <p className="error" role="alert">{error}</p>}
 
-        {tab === "employees" && <EmployeeDirectory users={users as DirectoryEmployee[]} onReload={load} />}
+        {tab === "employees" && <EmployeeDirectoryV2 users={users as DirectoryEmployee[]} onReload={load} />}
         {tab === "agents" && (
-          <AdminAgents exams={exams} assignments={assignments} />
+          <AdminAgents />
         )}
         {tab === "connectors" && (
           detailId

@@ -1,0 +1,10 @@
+.skill-v2-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+.skill-v2-detail { min-width: 0; }
+.skill-v2-detail .skill-detail-header { padding: 0 0 var(--space-3); }
+.skill-v2-detail .skill-detail-heading h2 { font-size: var(--ds-font-section); }
+.skill-v2-detail .skill-detail-description { padding-inline: 0; }
+.skill-v2-detail .skill-detail-tabs { padding-inline: 0; }
+.skill-v2-detail .skill-detail-content { overflow: visible; padding: var(--space-4) 0; }
+.skill-v2-detail .skill-detail-card { border: 1px solid var(--border); box-shadow: none; }
+.skill-governance-v2 .governance-filter-options button { box-shadow: none !important; }
+.skill-governance-v2 .skill-v2-detail .skill-governance-primary { border-color: var(--border); background: var(--bg); color: var(--text); }

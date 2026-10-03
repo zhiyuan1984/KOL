@@ -58,6 +58,83 @@ export type AdminEmployeeTool = {
   assignable: boolean;
 };
 
+export type AdminAgentBinding = {
+  id: string;
+  agent_id: string;
+  target_type: "organization_unit" | "person";
+  target_id: string;
+  company_id: string;
+  status?: string;
+  binding_version: number;
+  org_version: number;
+  reason?: string | null;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AdminAgentAccess = {
+  person_ref: string;
+  user_id: string | null;
+  display_name: string | null;
+  via: "binding_target" | "unit_head" | "unit_member" | "ancestor_head";
+  via_unit_id: string;
+  via_unit_display_name: string | null;
+  binding_id: string;
+};
+
+export type AdminAgentCoverage = {
+  agent_id?: string;
+  org_version: number;
+  users: AdminAgentAccess[];
+  person_refs?: string[];
+  user_ids: string[];
+};
+
+export type AdminAgentRow = {
+  id: string;
+  name: string;
+  description: string;
+  status: "draft" | "published" | "disabled";
+  version: number;
+  created_at?: string;
+  updated_at?: string;
+  skills: Array<{ agent_id: string; skill_id: string; enabled: number; version: number }>;
+  bindings: AdminAgentBinding[];
+  coverage: AdminAgentCoverage;
+  knowledge: Array<{ id: string; skill_id: string; selector: string; enabled: number; note: string }>;
+};
+
+/** 员工维度的可用 Agent：via 说明资格来源，只有 binding_target 可直接撤销。 */
+export type AdminEmployeeAgent = AdminAgentAccess & {
+  id: string;
+  name: string;
+  status: AdminAgentRow["status"];
+};
+
+/** 绑定预览（无副作用）：before/after 为覆盖集合，added/removed 为差集明细。 */
+export type AdminBindingPreview = {
+  agent_id: string;
+  org_version: number;
+  before: { person_refs: string[]; user_ids: string[] };
+  after: { person_refs: string[]; user_ids: string[] };
+  added: AdminAgentAccess[];
+  removed: AdminAgentAccess[];
+};
+
+export type AdminAgentAuditResponse = {
+  items: AdminAuditEvent[];
+  next_cursor: number | string | null;
+};
+
+export type AdminAgentsResponse = {
+  agents: AdminAgentRow[];
+  units: Array<{ id: string; display_name: string; company_id: string; parent_id: string | null; level: number; status: string }>;
+  people: Array<{ person_ref: string; display_name: string; user_id: string | null; status: string }>;
+  skills: Array<{ id: string; label: string; category: string; summary: string }>;
+  bases: KnowledgeBaseRow[];
+};
+
 export type ExpertKind = "business" | "collector" | "governance";
 export type ExpertPrimaryEntry = "think" | "job_console" | "approval_queue";
 export type ExpertSummonNextAction = "open_job_console" | "open_approval_queue" | "use_primary_entry";
@@ -2026,6 +2103,7 @@ export const api = {
     }),
   deleteAdminSkill: (id: string) =>
     request<{ ok?: boolean; id: string }>(`/api/admin/skills/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** @deprecated 旧「直接技能授权」入口（仅旧页 Admin.tsx 引用，已不可达）；人员授权现以 Agent 绑定为唯一入口。 */
   saveSkillGrants: async (id: string, body: { org: string[]; team: string[]; user: string[] }): Promise<{
     id: string;
     grants: { org: string[]; team: string[]; user: string[] };
@@ -2301,6 +2379,38 @@ export const api = {
   exam: () => fetch("/api/exam").then((r) => r.json()),
   admin: () => fetch("/api/admin").then((r) => r.json()),
   adminUsers: () => request<Record<string, unknown>[]>("/api/admin/users"),
+  adminAgents: () => request<AdminAgentsResponse>("/api/admin/agents"),
+  adminAgentCreate: (body: { name: string; description: string }) =>
+    request<AdminAgentRow>("/api/admin/agents", { method: "POST", body: JSON.stringify(body) }),
+  adminAgentUpdate: (id: string, body: { name?: string; description?: string; status?: AdminAgentRow["status"]; expected_version: number }) =>
+    request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  adminAgentSkill: (id: string, skillId: string, body: { enabled: boolean; expected_version: number }) =>
+    request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(skillId)}`,
+      { method: "PUT", body: JSON.stringify(body) }),
+  adminAgentKnowledge: (id: string, skillId: string, baseId: string) =>
+    request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/knowledge`,
+      { method: "POST", body: JSON.stringify({ skill_id: skillId, base_id: baseId }) }),
+  adminAgentBind: (id: string, body: { target_type: "organization_unit" | "person"; target_id?: string; user_id?: string; reason?: string }) =>
+    request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/bindings`,
+      { method: "POST", body: JSON.stringify(body) }),
+  adminAgentUnbind: (id: string, bindingId: string, reason: string) =>
+    request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/${encodeURIComponent(bindingId)}`,
+      { method: "DELETE", body: JSON.stringify({ reason }) }),
+  /** 绑定/撤销预览均为无副作用试算：返回 before/after 覆盖与 added/removed 明细。 */
+  adminAgentBindingsPreview: (id: string, body: { target_type: "organization_unit" | "person"; target_id?: string; user_id?: string }) =>
+    request<AdminBindingPreview>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/preview`,
+      { method: "POST", body: JSON.stringify(body) }),
+  adminAgentRevokePreview: (id: string, bindingId: string) =>
+    request<AdminBindingPreview>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/${encodeURIComponent(bindingId)}/revoke-preview`,
+      { method: "POST", body: JSON.stringify({}) }),
+  adminAgentKnowledgeDelete: (id: string, bindingId: string) =>
+    request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/knowledge/${encodeURIComponent(bindingId)}`,
+      { method: "DELETE" }),
+  adminAgentAudit: (id: string, limit = 50) =>
+    request<AdminAgentAuditResponse>(`/api/admin/agents/${encodeURIComponent(id)}/audit?limit=${limit}`),
+  adminEmployeeAgents: (userId: string) =>
+    request<{ agents: AdminEmployeeAgent[] }>(
+      `/api/admin/users/${encodeURIComponent(userId)}/agents`),
   adminEmployeeContext: (userId: string) =>
     request<AdminEmployeeContext>(`/api/admin/users/${encodeURIComponent(userId)}/context`),
   adminEmployeeTools: (userId: string) =>

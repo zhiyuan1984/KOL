@@ -1,0 +1,70 @@
+.admin-body:has(.governance-workspace) { padding: 0; overflow: hidden; }
+.admin-body > .governance-workspace { width: 100%; max-width: none; margin: 0; }
+.governance-workspace { display: grid; grid-template-columns: minmax(300px, 36%) minmax(0, 1fr); height: 100%; min-height: 0; background: var(--bg); color: var(--text); font-size: var(--ds-font-body); }
+.governance-rail, .governance-main { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.governance-rail { border-right: 1px solid var(--border); }
+.governance-scroll { overflow-y: auto; min-height: 0; flex: 1; scrollbar-gutter: stable; }
+.governance-rail .governance-scroll { padding: var(--space-4); }
+.governance-main .governance-scroll { padding: var(--space-4); }
+.governance-rail-footer { border-top: 1px solid var(--border); padding: var(--space-3) var(--space-4); background: var(--bg); }
+.governance-rail-footer > button { width: 100%; }
+.governance-heading { margin: 0 0 var(--space-3); font-size: var(--ds-font-section); font-weight: 600; }
+.governance-subheading { margin: var(--space-4) 0 var(--space-2); font-size: var(--ds-font-ui); font-weight: 600; }
+.governance-count { color: var(--text-muted); font-size: var(--ds-font-helper); margin: 0 0 var(--space-3); }
+.governance-search { width: 100%; height: var(--control-h-lg); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--fill-control); color: var(--text); padding: 0 var(--space-2); font: inherit; }
+.governance-filter-group { border-top: 1px solid var(--border); padding: var(--space-3) 0; }
+.governance-filter-group strong { display: block; font-size: var(--ds-font-ui); font-weight: 600; margin-bottom: var(--space-2); }
+.governance-filter-options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.governance-filter-options button { min-height: var(--chip-h); padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-control); background: transparent; color: var(--text-muted); font: inherit; font-size: var(--ds-font-sm); box-shadow: none !important; cursor: pointer; }
+.governance-filter-options button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent-text); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); font-weight: 600; }
+.governance-filter-options button:focus-visible, .governance-list-row:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.governance-main-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+.governance-main-head h2 { margin: 0; font-size: var(--ds-font-section); font-weight: 600; }
+.governance-list { border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
+.governance-list-row { display: grid; align-items: center; gap: var(--space-3); width: 100%; min-width: 0; padding: var(--space-3); border: 0; border-bottom: 1px solid var(--border); background: var(--bg); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.governance-list-row:last-child { border-bottom: 0; }
+.governance-list-row:hover, .governance-list-row.is-selected { background: var(--surface-hover); }
+.governance-list-row strong, .governance-list-row span { min-width: 0; overflow-wrap: anywhere; }
+.governance-list-row .muted { color: var(--text-muted); }
+.governance-employee-row { grid-template-columns: minmax(96px, .9fr) minmax(0, 1.5fr) minmax(84px, .8fr) minmax(60px, .6fr) minmax(52px, .55fr) minmax(0, 1.1fr) max-content; }
+.governance-employee-row > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.governance-employee-row > :last-child { overflow: visible; text-overflow: clip; }
+.governance-agent-row { grid-template-columns: minmax(120px, 1fr) minmax(90px, .6fr) minmax(100px, .7fr) minmax(110px, 1fr) auto; }
+.governance-inline-actions { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.governance-inline-actions button, .governance-minor { border: 1px solid var(--border); border-radius: var(--radius-control); background: transparent; color: var(--text); padding: var(--space-1) var(--space-2); font: inherit; cursor: pointer; }
+.governance-inline-actions button:hover, .governance-minor:hover { border-color: var(--accent); color: var(--accent-text); }
+.governance-card { border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-4); margin-bottom: var(--space-4); }
+.governance-card h3 { margin: 0 0 var(--space-3); font-size: var(--ds-font-ui); }
+.governance-card p { margin: 0 0 var(--space-2); }
+.governance-card label { display: block; margin: var(--space-2) 0; }
+.governance-card input[type='text'], .governance-card textarea, .governance-card select { width: 100%; min-height: var(--control-h-form); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-2); background: var(--fill-control); color: var(--text); font: inherit; }
+.governance-card textarea { min-height: 80px; }
+.governance-checkbox-list { display: grid; gap: var(--space-2); }
+.governance-checkbox-list label { display: flex; align-items: center; gap: var(--space-2); margin: 0; }
+.governance-notice { border: 1px solid var(--border); padding: var(--space-3); border-radius: var(--radius-card); margin-bottom: var(--space-3); }
+.governance-empty { padding: var(--space-4); color: var(--text-muted); }
+@media (max-width: 1100px) { .governance-workspace { grid-template-columns: 1fr; grid-template-rows: minmax(260px, 40%) minmax(0, 1fr); } .governance-rail { border-right: 0; border-bottom: 1px solid var(--border); } .governance-employee-row { grid-template-columns: minmax(90px, .9fr) minmax(0, 1.4fr) minmax(84px, .8fr) minmax(60px, .6fr) max-content; } .governance-employee-row > :nth-child(5), .governance-employee-row > :nth-child(6) { display: none; } }
+.governance-row-split { grid-template-columns: minmax(0, 1fr) auto; cursor: default; }
+.governance-audit-row { grid-template-columns: minmax(120px, .9fr) minmax(80px, .6fr) minmax(130px, 1fr) minmax(0, 1.6fr); cursor: default; }
+.governance-meta-row { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); color: var(--text-muted); font-size: var(--ds-font-helper); }
+.governance-via-group { margin-top: var(--space-3); }
+.governance-via-group h4 { margin: 0 0 var(--space-1); font-size: var(--ds-font-sm); font-weight: 600; }
+.governance-via-group ul { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.governance-via-group li { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); font-size: var(--ds-font-sm); }
+.governance-via-group li span { color: var(--text-muted); }
+.governance-text-dialog .governance-text-input { width: 100%; min-height: var(--control-h-form); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-2) var(--space-3); background: var(--fill-control); color: var(--text); font: inherit; }
+.governance-summary-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; font-size: var(--ds-font-sm); }
+.governance-summary-list li { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); }
+.governance-summary-list .muted { color: var(--text-muted); }
+/* 居中表单模态：与 employee-dialog / skill-upload-dialog 同一模式（scrim + 居中面板 + 焦点锁）。 */
+.governance-modal-layer { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: var(--space-4); }
+.governance-modal-backdrop { position: absolute; inset: 0; background: color-mix(in srgb, var(--text) 28%, transparent); }
+.governance-modal { position: relative; width: min(560px, calc(100vw - 32px)); max-height: min(88dvh, 720px); display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg); box-shadow: var(--shadow-quiet); }
+.governance-modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); padding: var(--space-4) var(--space-4) var(--space-2); }
+.governance-modal-head h2 { margin: 0; font-size: var(--ds-font-ui); }
+.governance-modal-head .muted { margin: var(--space-1) 0 0; font-size: var(--ds-font-helper); }
+.governance-modal-body { min-height: 0; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-2) var(--space-4) var(--space-4); }
+.governance-modal-body label { display: grid; gap: var(--space-1); margin: 0; font-size: var(--ds-font-helper); color: var(--text-muted); }
+.governance-modal-body input[type='text'], .governance-modal-body textarea { width: 100%; min-height: var(--control-h-form); border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--space-2) var(--space-3); background: var(--fill-control); color: var(--text); font: inherit; }
+.governance-modal-body textarea { min-height: 96px; resize: vertical; }
+.governance-modal-foot { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); }
