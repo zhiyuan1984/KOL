@@ -789,20 +789,52 @@ tasks.get("/tasks", (c) => {
     priority_desc: "CASE priority WHEN 'important_urgent' THEN 5 WHEN 'important' THEN 4 WHEN 'high' THEN 4 WHEN 'urgent' THEN 3 WHEN 'normal' THEN 2 WHEN 'medium' THEN 2 ELSE 1 END DESC, updated_at DESC",
   };
   if (!order[sort]) throw new HttpFail(400, "invalid sort");
+  const cursor = decodeProjectionCursor(c.req.query("cursor"));
+  if (cursor && openView) {
+    throw new HttpFail(400, "cursor pagination is available from the task center history view");
+  }
+  if (cursor && sort !== "updated_desc") {
+    throw new HttpFail(400, "cursor pagination currently requires updated_desc sort");
+  }
+  const queryText = String(c.req.query("q") || "").trim().slice(0, 200);
+  if (queryText) {
+    clauses.push("(title LIKE ? COLLATE NOCASE OR content LIKE ? COLLATE NOCASE)");
+    const like = `%${queryText.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+    values.push(like, like);
+  }
+  const from = String(c.req.query("from") || "").trim();
+  if (from) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new HttpFail(400, "invalid from date");
+    clauses.push("created_at>=?");
+    values.push(`${from}T00:00:00.000Z`);
+  }
+  const to = String(c.req.query("to") || "").trim();
+  if (to) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) throw new HttpFail(400, "invalid to date");
+    clauses.push("created_at<?");
+    values.push(`${to}T23:59:59.999Z`);
+  }
+  const countWhere = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const countValues = [...values];
+  if (cursor) {
+    clauses.push("(updated_at < ? OR (updated_at = ? AND id < ?))");
+    values.push(cursor.updated_at, cursor.updated_at, cursor.id);
+  }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   // A list projection is not an export endpoint. Keeping it bounded protects
   // every employee poller from one pathological historical row and keeps the
   // response below the PostgreSQL synchronous-bridge transport budget.
   const limit = parseLimit(c.req.query("limit"), openView ? 50 : MAX_TASK_LIST_ROWS);
+  const paged = !openView && (c.req.query("cursor") !== undefined || c.req.query("limit") !== undefined);
   // This endpoint is polled every few seconds by every open tab, so an
   // unchanged data window is served from the 4s in-process cache.
-  const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${c.req.query("status") || ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
+  const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${c.req.query("status") || ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
   const payload = cachedPoll(cacheKey, tasksEpoch(), () => {
     const definitions = taskDefinitionIndex();
-    const total = openView
-      ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM tickets ${where}`).get(...values) as { c: number }).c || 0)
+    const total = paged || openView
+      ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM tickets ${countWhere}`).get(...countValues) as { c: number }).c || 0)
       : 0;
-    const rows = getConn().prepare(
+    const fetched = getConn().prepare(
       `SELECT ${TASK_LIST_TICKET_COLUMNS.replaceAll("\n", " ")}
        FROM tickets ${where} ORDER BY ${order[sort]} LIMIT ?`,
     ).all(
@@ -810,8 +842,10 @@ tasks.get("/tasks", (c) => {
       MAX_TASK_LIST_TEXT_CHARS,
       MAX_TASK_LIST_TEXT_CHARS,
       ...values,
-      limit,
+      paged ? limit + 1 : limit,
     ) as Row[];
+    const hasMore = paged && fetched.length > limit;
+    const rows = paged ? fetched.slice(0, limit) : fetched;
     const ids = rows.map((row) => String(row.id));
     const lastByTask = openView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
     const eventsByTask = openView ? new Map<string, Row[]>() : eventsByWorkItem(ids);
@@ -828,6 +862,15 @@ tasks.get("/tasks", (c) => {
         history_summary: historySummary(events),
       }, collab);
     });
+    if (paged) {
+      const meta = requestMetadata();
+      return {
+        items: list,
+        page: { limit, next_cursor: hasMore && rows.length ? encodeProjectionCursor(rows.at(-1)!) : null, total },
+        ...meta,
+        source_refs: [{ type: "ticket_projection", version: "task-list.v1" }],
+      };
+    }
     if (!openView) return list;
     return {
       view: view === "todo" ? "todo" : view === "active" ? "active" : "open",

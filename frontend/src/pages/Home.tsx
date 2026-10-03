@@ -133,6 +133,7 @@ import {
 } from "../home/todayPlan";
 import { usePlanScope } from "../home/usePlanScope";
 import { fetchTodayTasks, fetchTodoTasks } from "../home/todayTasksApi";
+import { loadAllWorkbenchTasks } from "../home/workbenchPagination";
 import { findDuplicateTodo } from "../home/todoDedupe";
 import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
 import {
@@ -691,13 +692,13 @@ export default function Home() {
   const mode = parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {
-    listOpenTasks: () => api.workbenchTasks("today").then((page) => page.items),
+    listOpenTasks: () => loadAllWorkbenchTasks("today"),
     getBrief: () => api.workbenchPlan(),
     startPlan: () => api.startWorkbenchPlan(),
     getDisplayTasks: () => fetchTodayTasks(),
   }, { enabled: mode === "today" });
   const todoPlan = usePlanScope("todo", {
-    listOpenTasks: () => api.workbenchTasks("todo").then((page) => page.items),
+    listOpenTasks: () => loadAllWorkbenchTasks("todo"),
     getBrief: () => api.workbenchPlan(),
     startPlan: () => api.startWorkbenchPlan(),
     getDisplayTasks: () => fetchTodoTasks(),
@@ -1711,7 +1712,7 @@ export default function Home() {
   );
 
 
-  // 计划记忆（GET /api/tasks?view=open）是今日/待办列表的唯一来源：读到之前列表为空，
+  // 计划记忆（分页 GET /api/workbench/tasks）是今日/待办列表的唯一来源：读到之前列表为空，
   // 不用任务目录冒充，否则「今日」会在记忆未到时先出一批目录行与行内推荐动作。
   const planMemoryTasks = mode === "today" ? todayPlan.memoryTasks : mode === "todo" ? todoPlan.memoryTasks : null;
   const homeMemoryTasks = mode === "today" || mode === "todo"

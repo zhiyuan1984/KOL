@@ -98,8 +98,8 @@ describe("pane parity", () => {
       expect(tasksApi).toContain(`fetchScopeTasks("${scope}")`);
       expect(home).not.toContain(`/api/home/${scope}-`);
     }
-    expect(home).toContain('api.workbenchTasks("today")');
-    expect(home).toContain('api.workbenchTasks("todo")');
+    expect(home).toContain('loadAllWorkbenchTasks("today")');
+    expect(home).toContain('loadAllWorkbenchTasks("todo")');
   });
 
   it("forbids scope branches outside SCOPE_CONFIG and scopeRows", () => {
