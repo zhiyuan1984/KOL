@@ -26,6 +26,9 @@ const baselineSql = fs
   // 去掉 psql 专有元命令（\restrict / \unrestrict）：node-pg 无法执行它们。
   .split(/\r?\n/)
   .filter((line) => line.charCodeAt(0) !== 92)
+  // pg_dump 会把 search_path 清空（psql 能容忍，node-pg 下未限定的语句会报 3F000
+  // "no schema has been selected to create in"）；固定到 public。
+  .map((line) => (line.includes("set_config('search_path'") ? "SELECT pg_catalog.set_config('search_path', 'public', false);" : line))
   .join("\n");
 
 const migrations: Array<{ id: string; statements: string[] }> = [
