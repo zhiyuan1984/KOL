@@ -29,17 +29,6 @@ async function call(method: string, url: string, body?: unknown, cookie = adminC
   };
 }
 
-/**
- * Per-person connector grants lost their administration endpoint
- * (DECISIONS.md ADR-2026-09-27); the retained table is seeded directly so the
- * legacy `requireConnector` gate keeps its regression coverage.
- */
-function seedConnectorGrant(userId: string, connectorId: string, access: "read" | "write"): void {
-  getConn().prepare(
-    "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
-  ).run(userId, connectorId, access, new Date().toISOString());
-}
-
 async function createApprover(username: string, name: string) {
   const created = await call("POST", "/api/admin/users", {
     username,
@@ -49,9 +38,7 @@ async function createApprover(username: string, name: string) {
     brands: ["LT", "PQ"],
   });
   expect(created.status).toBe(201);
-  const id = String(created.json.id);
-  seedConnectorGrant(id, "wecom", "write");
-  return id;
+  return String(created.json.id);
 }
 
 async function login(username: string) {
@@ -72,9 +59,6 @@ describe("approval inbox by login name", () => {
     process.env.AUTH_MODE = "enabled";
     resetConn();
     seedAll();
-    getConn().prepare(
-      "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
-    ).run("wecom", "WeCom", 1, "configured", null, new Date().toISOString());
     const { createApp } = await import("../src/app.js");
     app = createApp();
     const setup = await call("POST", "/api/auth/setup", {
@@ -191,10 +175,12 @@ describe("approval inbox by login name", () => {
     )).toBe(true);
   });
 
-  it("lets a wecom write employee preview and create an expense without inventing a second engine", async () => {
+  it("lets a signed-in employee preview and create an expense without a retired connector", async () => {
     await createApprover("lintong", "林桐");
     const cookie = await login("lintong");
+    expect(getConn().prepare("SELECT id FROM connectors WHERE id='wecom'").get()).toBeUndefined();
     const before = await call("GET", "/api/approvals", undefined, cookie);
+    expect(before.status).toBe(200);
     const beforeCount = (before.json as unknown as unknown[]).length;
 
     const preview = await call("POST", "/api/approvals/preview", {
@@ -243,9 +229,10 @@ describe("approval inbox by login name", () => {
     expect(asMe.status).toBe(200);
     expect((asMe.json as { steps: { name: string }[]; plan: { requester_name?: string } }).plan.requester_name).toBe("林桐");
     expect((asMe.json as { steps: { name: string }[] }).steps.map((step) => step.name)).toEqual(["王主管"]);
+    expect((await call("GET", "/api/wecom/cards", undefined, cookie)).status).toBe(200);
   });
 
-  it("requires wecom write to create, but read is enough to preview", async () => {
+  it("does not treat local approval queue access as a retired connector grant", async () => {
     const reader = await call("POST", "/api/admin/users", {
       username: "reader",
       name: "只读员工",
@@ -254,7 +241,6 @@ describe("approval inbox by login name", () => {
       brands: ["LT"],
     });
     expect(reader.status).toBe(201);
-    seedConnectorGrant(String(reader.json.id), "wecom", "read");
     const noGrant = await call("POST", "/api/admin/users", {
       username: "nogrant",
       name: "无连接器",
@@ -275,12 +261,9 @@ describe("approval inbox by login name", () => {
 
     const preview = await call("POST", "/api/approvals/preview", body, readCookie);
     expect(preview.status).toBe(200);
-    const deniedCreate = await call("POST", "/api/approvals", body, readCookie);
-    expect(deniedCreate.status).toBe(403);
-    expect((deniedCreate.json.detail as { code?: string }).code).toBe("connector_not_granted");
-
-    const deniedPreview = await call("POST", "/api/approvals/preview", body, noneCookie);
-    expect(deniedPreview.status).toBe(403);
+    expect((await call("GET", "/api/approvals", undefined, readCookie)).status).toBe(200);
+    const noGrantPreview = await call("POST", "/api/approvals/preview", body, noneCookie);
+    expect(noGrantPreview.status).toBe(200);
   });
 
   it("returns blocked codes when the employee form cannot compute a chain", async () => {

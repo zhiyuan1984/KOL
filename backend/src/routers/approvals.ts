@@ -8,7 +8,7 @@ import {
   projectApproval,
   type ApprovalBox,
 } from "../approval/queue.js";
-import { authDisabled, requireConnector, scopedUser } from "../auth.js";
+import { authDisabled, scopedUser } from "../auth.js";
 import { audit } from "../db.js";
 import {
   createReceipt,
@@ -182,14 +182,12 @@ function visibleRows(box?: ApprovalBox) {
 }
 
 approvals.get("/approvals/badge", (c) => {
-  requireConnector("wecom", "read");
   const user = viewer();
   const count = listApprovals().filter((approval) => inApprovalBox(approval, "inbox", user)).length;
   return c.json({ count });
 });
 
 approvals.get("/approvals", (c) => {
-  requireConnector("wecom", "read");
   let box: ApprovalBox | undefined;
   try {
     box = parseApprovalBox(c.req.query("box"));
@@ -200,13 +198,11 @@ approvals.get("/approvals", (c) => {
 });
 
 approvals.post("/approvals", async (c) => {
-  requireConnector("wecom", "write");
   const body = (await c.req.json()) as ExpenseCreateBody;
   return c.json(createExpenseApproval(body));
 });
 
 approvals.post("/approvals/preview", async (c) => {
-  requireConnector("wecom", "read");
   const body = (await c.req.json()) as ExpenseCreateBody;
   const plan = planOrThrow(body);
   return c.json({
@@ -218,7 +214,6 @@ approvals.post("/approvals/preview", async (c) => {
 });
 
 approvals.get("/approvals/:aid", (c) => {
-  requireConnector("wecom", "read");
   const row = getApproval(c.req.param("aid"));
   if (!row) throw new HttpFail(404, "Not Found");
   requireVisible(row);
@@ -239,15 +234,11 @@ approvals.post("/approvals/:aid/decide", async (c) => {
   const idempotencyKey = requireIdempotencyKey(body.idempotency_key);
   const replayed = decideReceipt(c.req.param("aid"), idempotencyKey);
   if (replayed) {
-    if (!authDisabled()) {
-      requireConnector("wecom", "read");
-      requireVisible(approval);
-    }
+    if (!authDisabled()) requireVisible(approval);
     return c.json(enrich({ ...getApproval(c.req.param("aid")), ...replayed, replayed: true } as Row));
   }
   let actor = body.actor;
   if (!authDisabled()) {
-    requireConnector("wecom", "write");
     const user = scopedUser();
     const chain = approval.chain as string[];
     const index = Number(approval.current_index);
@@ -287,7 +278,6 @@ approvals.post("/approvals/:aid/decide", async (c) => {
 });
 
 approvals.get("/wecom/cards", (c) => {
-  requireConnector("wecom", "read");
   return c.json(listWecomCards());
 });
 
