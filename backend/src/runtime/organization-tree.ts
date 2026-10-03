@@ -23,6 +23,8 @@ type RegistryPerson = {
   title?: string | null;
   org_unit?: string | null;
   user_ref?: string | null;
+  account_username?: string | null;
+  starry_open_id?: string | null;
   brand_scope?: string[];
   region_scope?: string[];
   source?: string;
@@ -38,11 +40,20 @@ type RegistryUnit = {
   brand_scope?: string[];
 };
 
+type RegistryBinding = {
+  agent_id?: string;
+  target_type?: "organization_unit" | "person";
+  target_id?: string;
+  reason?: string | null;
+  source?: string | null;
+};
+
 type OrgRegistry = {
   revision?: string;
   companies?: { id?: string; display_name?: string }[];
   organization_units?: RegistryUnit[];
   confirmed_people?: RegistryPerson[];
+  agent_bindings?: RegistryBinding[];
 };
 
 export type OrganizationUnitRow = {
@@ -64,6 +75,7 @@ export type OrganizationPersonRow = {
   display_name: string;
   user_ref: string | null;
   user_id: string | null;
+  starry_open_id: string | null;
   status: string;
   source: string | null;
 };
@@ -157,6 +169,7 @@ export function ensureOrganizationTree(): void {
       display_name TEXT NOT NULL,
       user_ref TEXT,
       user_id TEXT,
+      starry_open_id TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'left')),
       source TEXT,
       created_at TEXT NOT NULL,
@@ -230,6 +243,10 @@ export function ensureOrganizationTree(): void {
       PRIMARY KEY (company_id, version)
     );
   `);
+  // 已存在的库补列（PRAGMA table_info 在 Postgres 侧有 information_schema 翻译）。
+  if (!((db.prepare("PRAGMA table_info(organization_people)").all() as { name?: string }[]) || []).some((row) => row.name === "starry_open_id")) {
+    db.exec("ALTER TABLE organization_people ADD COLUMN starry_open_id TEXT");
+  }
   // 先登记再回填：seed → reseed → ensure 的重入必须立刻短路，否则会无限递归。
   initialized.add(db);
   seedOnce(db);
@@ -321,6 +338,9 @@ export function reseedOrganizationTreeFromRegistry(): void {
   for (const person of registry.confirmed_people || []) {
     const personRef = person.person_ref;
     if (!personRef) throw new Error(`confirmed person without person_ref: ${person.display_name || "unknown"}`);
+    const account = person.account_username
+      ? (db.prepare("SELECT id FROM users WHERE username = ?").get(person.account_username) as { id?: string } | undefined)
+      : undefined;
     upsert(
       db,
       "organization_people",
@@ -329,7 +349,8 @@ export function reseedOrganizationTreeFromRegistry(): void {
       {
         display_name: person.display_name || personRef,
         user_ref: person.user_ref || null,
-        user_id: null,
+        user_id: account?.id || null,
+        starry_open_id: person.starry_open_id || null,
         source: person.source || source,
       },
       stamp,
@@ -383,6 +404,19 @@ export function reseedOrganizationTreeFromRegistry(): void {
       source,
       stamp,
     );
+  }
+
+  // 组织版本就位后再落声明式绑定点，绑定行才能带上有效的 org_version。
+  for (const declared of registry.agent_bindings || []) {
+    if (!declared?.agent_id || !declared.target_type || !declared.target_id) continue;
+    createAgentBinding({
+      agent_id: String(declared.agent_id),
+      target_type: declared.target_type,
+      target_id: String(declared.target_id),
+      company_id: company,
+      reason: declared.reason || null,
+      source: declared.source || source,
+    });
   }
 }
 
@@ -608,10 +642,12 @@ export function effectiveAgentUsers(agentId: string): EffectiveAgentUsers {
     for (const binding of bindings.filter((row) => row.company_id === companyId)) {
       if (binding.target_type === "person") {
         const membership = memberships.find((row) => row.person_ref === binding.target_id);
-        if (!membership) continue;
-        add(binding.target_id, "binding_target", membership.org_unit_id, binding.id);
-        for (const unit of ascendants(units, membership.org_unit_id)) {
-          if (unit.head_person_ref) add(unit.head_person_ref, "ancestor_head", unit.id, binding.id);
+        // 绑定人员首先覆盖本人；没有组织关系时不虚构上级负责人，只覆盖本人。
+        add(binding.target_id, "binding_target", membership?.org_unit_id || "", binding.id);
+        if (membership) {
+          for (const unit of ascendants(units, membership.org_unit_id)) {
+            if (unit.head_person_ref) add(unit.head_person_ref, "ancestor_head", unit.id, binding.id);
+          }
         }
         continue;
       }

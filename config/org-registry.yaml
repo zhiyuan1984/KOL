@@ -20,7 +20,31 @@
     { "id": "org:lt_team", "display_name": "LT组", "type": "team", "parent": "org:promotion_department", "head": null, "head_person_ref": null, "brand_scope": ["brand:lt"] },
     { "id": "org:pq_ro_tb_team", "display_name": "PQ-RO-TB组", "type": "team", "parent": "org:promotion_department", "head": null, "head_person_ref": null, "brand_scope": ["brand:pq", "brand:ro", "brand:tb"] }
   ],
+  "agent_bindings": [
+    {
+      "agent_id": "agent:kol",
+      "target_type": "person",
+      "target_id": "person:yan_chen",
+      "reason": "用户 2026-10-03：当前登录账号鄢棽使用 kol agent（试点绑定）",
+      "source": "user-confirmed 2026-10-03"
+    }
+  ],
   "confirmed_people": [
+    {
+      "person_ref": "person:yan_chen",
+      "display_name": "鄢棽",
+      "role": "member",
+      "title": null,
+      "org_unit": null,
+      "user_ref": null,
+      "account_username": "sriphy",
+      "email": null,
+      "region_scope": [],
+      "brand_scope": [],
+      "scope_basis": null,
+      "source": "user-confirmed 2026-10-03：当前登录账号；Starry KOL 邮箱 brandmarketing@litime.com 授权用户（2026-09-13 只读快照）",
+      "pending_fields": ["email", "employee_no", "employment_status", "effective_at", "org_unit", "brand_scope", "region_scope"]
+    },
     {
       "person_ref": "person:zhang_huiling",
       "display_name": "张慧玲",
@@ -122,6 +146,7 @@
     {
       "person_ref": "person:zhang_gan",
       "display_name": "张干",
+      "starry_open_id": "289",
       "role": "member",
       "title": null,
       "org_unit": "org:lt_team",
