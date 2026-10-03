@@ -326,10 +326,14 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(poolAfter).toBe(0);
     const events = (run.events as Json[]).map((row) => row.type);
     expect(events).toEqual(expect.arrayContaining([
+      "discovery.conditions_confirmed",
       "discovery.queued",
       "crawl_started",
+      "discovery.filtered",
       "crawl_idle",
     ]));
+    const filterEvent = (run.events as Json[]).find((row) => row.type === "discovery.filtered");
+    expect(String(filterEvent?.summary)).toMatch(/原始 \d+ 条，入围 \d+ 位/);
     const ingest = await request("POST", `/api/home/discovery/runs/${run.id}/ingest`);
     expect(ingest.status).toBe(501);
     expect(ingest.body.executed).toBe(false);
