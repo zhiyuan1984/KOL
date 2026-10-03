@@ -1,6 +1,4 @@
 import { Hono } from "hono";
-import { authDisabled, isAdmin, scopedUser } from "../auth.js";
-import { DEMO_USER } from "../config.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import type { Json } from "../types.js";
@@ -8,9 +6,10 @@ import { transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
 import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
-import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
+import { bindTicketAccountToOrganizationPerson, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { personalTicketRawCountReport } from "../ticket-domain/reports.js";
+import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
 
 /**
  * PostgreSQL authority router for formal tickets. Do not add imports from
@@ -19,10 +18,7 @@ import { personalTicketRawCountReport } from "../ticket-domain/reports.js";
 export const tickets = new Hono();
 
 function ownerId(): string {
-  const user = scopedUser();
-  if (user) return user.id;
-  if (authDisabled()) return DEMO_USER.id;
-  throw new HttpFail(401, "authentication required");
+  return requireTicketPrincipal().id;
 }
 
 function requestMetadata(): { request_id: string; as_of: string; schema_version: string } {
@@ -72,8 +68,24 @@ tickets.get("/tickets/form-bootstrap", async (c) => {
 });
 
 tickets.get("/admin/work-orders/data-quality", async (c) => {
-  if (!isAdmin()) throw new HttpFail(403, "admin required");
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
   return c.json({ ...(await ticketOrganizationQualityReport()), ...requestMetadata() });
+});
+
+/** Explicit, audited enrollment; this never infers a person from display name
+ * or silently falls back to a default assignee/supervisor. */
+tickets.post("/admin/work-orders/account-bindings", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  return c.json({
+    ...(await bindTicketAccountToOrganizationPerson(actor.id, {
+      person_ref: String(body.person_ref || ""),
+      account_id: String(body.account_id || ""),
+      reason: String(body.reason || ""),
+    })),
+    ...requestMetadata(),
+  });
 });
 
 tickets.post("/tickets", async (c) => {

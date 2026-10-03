@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
+import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -97,7 +98,7 @@ function unitLevels(units: RegistryUnit[]): Map<string, number> {
 
 async function accountId(client: PoolClient, username: string | null | undefined): Promise<string | null> {
   if (!username) return null;
-  const result = await client.query<{ id: string }>("SELECT id FROM users WHERE username=$1 AND active=1", [username]);
+  const result = await client.query<{ id: string }>("SELECT id FROM ticket_accounts WHERE lower(username)=lower($1) AND active=true", [username]);
   return result.rows[0]?.id || null;
 }
 
@@ -117,37 +118,41 @@ export async function ensurePostgresOrganizationSeed(): Promise<void> {
       "SELECT registry_revision FROM ticket_org_seed_state WHERE seed_key=$1 FOR UPDATE",
       [ORG_SEED_KEY],
     );
-    if (seeded.rows[0]?.registry_revision === revision) return;
 
     const units = (registry.organization_units || []).filter((unit): unit is RegistryUnit & { id: string } => Boolean(unit?.id));
     const levels = unitLevels(units);
     const now = new Date().toISOString();
-    for (const unit of units) {
-      const id = String(unit.id);
-      const parent = unit.parent && unit.parent !== companyId ? String(unit.parent) : null;
-      await client.query(
-        `INSERT INTO organization_units
-         (id,company_id,display_name,type,parent_id,level,head_person_ref,head_display_name,status,org_version,source,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'active',1,$9,$10,$10)
-         ON CONFLICT (id) DO UPDATE SET
-           company_id=EXCLUDED.company_id,display_name=EXCLUDED.display_name,type=EXCLUDED.type,parent_id=EXCLUDED.parent_id,
-           level=EXCLUDED.level,head_person_ref=EXCLUDED.head_person_ref,head_display_name=EXCLUDED.head_display_name,
-           source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
-        [id, companyId, String(unit.display_name || id), String(unit.type || "department"), parent, levels.get(id) || 1,
-          unit.head_person_ref || null, unit.head || null, revision, now],
-      );
-      for (const brandId of (unit.brand_scope || []).map(String)) {
-        const scopeId = `scope:org_unit:${id}:brand:${brandId}:region:*`;
+    if (seeded.rows[0]?.registry_revision !== revision) {
+      for (const unit of units) {
+        const id = String(unit.id);
+        const parent = unit.parent && unit.parent !== companyId ? String(unit.parent) : null;
         await client.query(
-          `INSERT INTO scope_memberships
-           (id,subject_type,subject_id,company_id,brand_id,region_id,status,source,created_at,updated_at)
-           VALUES ($1,'organization_unit',$2,$3,$4,NULL,'active',$5,$6,$6)
-           ON CONFLICT (id) DO UPDATE SET status='active',source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
-          [scopeId, id, companyId, brandId, revision, now],
+          `INSERT INTO organization_units
+           (id,company_id,display_name,type,parent_id,level,head_person_ref,head_display_name,status,org_version,source,created_at,updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'active',1,$9,$10,$10)
+           ON CONFLICT (id) DO UPDATE SET
+             company_id=EXCLUDED.company_id,display_name=EXCLUDED.display_name,type=EXCLUDED.type,parent_id=EXCLUDED.parent_id,
+             level=EXCLUDED.level,head_person_ref=EXCLUDED.head_person_ref,head_display_name=EXCLUDED.head_display_name,
+             source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
+          [id, companyId, String(unit.display_name || id), String(unit.type || "department"), parent, levels.get(id) || 1,
+            unit.head_person_ref || null, unit.head || null, revision, now],
         );
+        for (const brandId of (unit.brand_scope || []).map(String)) {
+          const scopeId = `scope:org_unit:${id}:brand:${brandId}:region:*`;
+          await client.query(
+            `INSERT INTO scope_memberships
+             (id,subject_type,subject_id,company_id,brand_id,region_id,status,source,created_at,updated_at)
+             VALUES ($1,'organization_unit',$2,$3,$4,NULL,'active',$5,$6,$6)
+             ON CONFLICT (id) DO UPDATE SET status='active',source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
+            [scopeId, id, companyId, brandId, revision, now],
+          );
+        }
       }
     }
 
+    // Account bindings are intentionally refreshed on every access. Creating
+    // a new PostgreSQL account must make the controlled organization registry
+    // usable without changing the registry revision or inventing a person.
     for (const person of registry.confirmed_people || []) {
       const personRef = String(person.person_ref || "");
       if (!personRef) continue;
@@ -157,7 +162,8 @@ export async function ensurePostgresOrganizationSeed(): Promise<void> {
          (person_ref,display_name,user_ref,user_id,starry_open_id,status,source,created_at,updated_at)
          VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$7)
          ON CONFLICT (person_ref) DO UPDATE SET
-           display_name=EXCLUDED.display_name,user_ref=EXCLUDED.user_ref,user_id=EXCLUDED.user_id,
+           display_name=EXCLUDED.display_name,user_ref=EXCLUDED.user_ref,
+           user_id=CASE WHEN EXCLUDED.user_id IS NULL THEN organization_people.user_id ELSE EXCLUDED.user_id END,
            starry_open_id=EXCLUDED.starry_open_id,status='active',source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
         [personRef, String(person.display_name || personRef), person.user_ref || null, userId, person.starry_open_id || null, person.source || revision, now],
       );
@@ -243,8 +249,8 @@ export type CreatorOrgContext = {
   quality_issues: string[];
 };
 
-export async function postgresCreatorOrgContext(userId: string): Promise<CreatorOrgContext> {
-  await ensurePostgresOrganizationSeed();
+export async function postgresCreatorOrgContext(userId: string, options: { ensureSeed?: boolean } = {}): Promise<CreatorOrgContext> {
+  if (options.ensureSeed !== false) await ensurePostgresOrganizationSeed();
   const pool = postgresPool();
   const person = await pool.query<{ person_ref: string }>(
     "SELECT person_ref FROM organization_people WHERE user_id=$1 AND status='active' ORDER BY person_ref LIMIT 1",
@@ -326,6 +332,62 @@ export type TicketOrganizationQualityIssue = {
   org_unit_id: string | null;
   message: string;
 };
+
+export type TicketAccountOrganizationBindingInput = {
+  person_ref: string;
+  account_id: string;
+  reason: string;
+};
+
+/**
+ * A deliberate administration command, not a seed fallback: it binds a
+ * PostgreSQL ticket account to one confirmed registry person. The immutable
+ * audit row records the prior mapping so responsibility can be explained even
+ * after a later reassignment.
+ */
+export async function bindTicketAccountToOrganizationPerson(
+  actorAccountId: string,
+  raw: TicketAccountOrganizationBindingInput,
+) {
+  const personRef = String(raw.person_ref || "").trim();
+  const accountId = String(raw.account_id || "").trim();
+  const reason = String(raw.reason || "").trim();
+  if (!personRef || !accountId) throw new HttpFail(422, { code: "binding_identity_required" });
+  if (reason.length < 2 || reason.length > 500) throw new HttpFail(422, { code: "binding_reason_required" });
+  await ensurePostgresOrganizationSeed();
+  return postgresTransaction(async (client) => {
+    const account = await client.query<{ id: string; username: string }>(
+      "SELECT id,username FROM ticket_accounts WHERE id=$1 AND active=true FOR UPDATE",
+      [accountId],
+    );
+    if (!account.rows[0]) throw new HttpFail(422, { code: "ticket_account_not_active" });
+    const person = await client.query<{ person_ref: string; user_id: string | null }>(
+      "SELECT person_ref,user_id FROM organization_people WHERE person_ref=$1 AND status='active' FOR UPDATE",
+      [personRef],
+    );
+    if (!person.rows[0]) throw new HttpFail(422, { code: "organization_person_not_active" });
+    const alreadyElsewhere = await client.query<{ person_ref: string }>(
+      "SELECT person_ref FROM organization_people WHERE user_id=$1 AND person_ref<>$2 AND status='active' FOR UPDATE",
+      [accountId, personRef],
+    );
+    if (alreadyElsewhere.rows[0]) {
+      throw new HttpFail(409, { code: "ticket_account_already_bound", person_ref: alreadyElsewhere.rows[0].person_ref });
+    }
+    const previous = person.rows[0].user_id;
+    if (previous === accountId) {
+      return { person_ref: personRef, account_id: accountId, username: account.rows[0].username, changed: false, prior_account_id: previous };
+    }
+    const now = new Date().toISOString();
+    await client.query("UPDATE organization_people SET user_id=$1,updated_at=$2 WHERE person_ref=$3", [accountId, now, personRef]);
+    await client.query(
+      `INSERT INTO ticket_account_organization_bindings
+       (id,person_ref,account_id,prior_account_id,actor_account_id,reason,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [nid("toab"), personRef, accountId, previous, actorAccountId, reason, now],
+    );
+    return { person_ref: personRef, account_id: accountId, username: account.rows[0].username, changed: true, prior_account_id: previous };
+  }, { isolation: "SERIALIZABLE" });
+}
 
 /**
  * Management-only evidence for the formal-ticket preflight. This deliberately

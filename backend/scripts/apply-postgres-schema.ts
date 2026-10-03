@@ -544,6 +544,70 @@ const migrations: SchemaMigration[] = [
        ON CONFLICT DO NOTHING`,
     ],
   },
+  {
+    // Formal ticket identity is intentionally separate from the historical
+    // application `users` table. PostgreSQL-only deployments start from new,
+    // explicit accounts and never import a SQLite login or session.
+    id: "20261003_ticket_identity_native",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ticket_accounts (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        email TEXT,
+        roles JSONB NOT NULL DEFAULT '["employee"]'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS ticket_accounts_username_ci_uniq ON ticket_accounts(lower(username))",
+      "CREATE INDEX IF NOT EXISTS ticket_accounts_active_idx ON ticket_accounts(active,updated_at DESC)",
+      `CREATE TABLE IF NOT EXISTS ticket_auth_sessions (
+        token_digest TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE CASCADE,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at TIMESTAMPTZ
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_auth_sessions_account_idx ON ticket_auth_sessions(account_id,expires_at DESC)",
+    ],
+  },
+  {
+    // A one-row lock serializes first-account setup without attempting to lock
+    // an aggregate result (which PostgreSQL deliberately rejects).
+    id: "20261003_ticket_identity_setup_lock",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ticket_identity_setup_lock (
+        lock_key TEXT PRIMARY KEY,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    ],
+  },
+  {
+    // Explicit enrollment is the only way an account without a controlled
+    // registry username becomes a formal-ticket creator, assignee or watcher.
+    id: "20261003_ticket_account_organization_bindings",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ticket_account_organization_bindings (
+        id TEXT PRIMARY KEY,
+        person_ref TEXT NOT NULL REFERENCES organization_people(person_ref) ON DELETE RESTRICT,
+        account_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        prior_account_id TEXT,
+        actor_account_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        reason TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_account_organization_bindings_person_idx ON ticket_account_organization_bindings(person_ref,created_at DESC)",
+      "CREATE INDEX IF NOT EXISTS ticket_account_organization_bindings_account_idx ON ticket_account_organization_bindings(account_id,created_at DESC)",
+      `CREATE OR REPLACE FUNCTION prevent_ticket_account_binding_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'ticket account organization bindings are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS ticket_account_organization_bindings_no_mutation ON ticket_account_organization_bindings",
+      `CREATE TRIGGER ticket_account_organization_bindings_no_mutation
+       BEFORE UPDATE OR DELETE ON ticket_account_organization_bindings
+       FOR EACH ROW EXECUTE FUNCTION prevent_ticket_account_binding_mutation()`,
+    ],
+  },
 ];
 
 const client = new Client({ connectionString: databaseUrl });

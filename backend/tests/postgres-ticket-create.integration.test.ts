@@ -4,28 +4,35 @@ import { editFormalTicketPostgres } from "../src/ticket-domain/edit-ticket.js";
 import { assignFormalTicketPostgres } from "../src/ticket-domain/assign-ticket.js";
 import { personalTicketRawCountReport } from "../src/ticket-domain/reports.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
-import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../src/ticket-domain/organization.js";
+import { bindTicketAccountToOrganizationPerson, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../src/ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById } from "../src/ticket-domain/read-tickets.js";
-import { withScopedUser, type AppUser } from "../src/auth.js";
+import { withTicketPrincipal, type TicketPrincipal } from "../src/ticket-domain/auth.js";
 import { tickets } from "../src/routers/tickets.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
 if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
 const describePostgres = configured ? describe : describe.skip;
-const CREATOR: AppUser = {
-  id: "u-creator", username: "ye_guanwang", handle: "ye_guanwang", name: "叶观旺", email: "", phone: "",
-  roles: ["employee"], role: "employee", brands: [], site: "", manager_user_id: null, active: true,
-  exam_passed: true, exam_todo_count: 0, exam_module: "test",
+const CREATOR: TicketPrincipal = {
+  id: "u-creator", username: "ye_guanwang", name: "叶观旺", email: null,
+  roles: ["employee"], active: true,
+};
+const ADMIN: TicketPrincipal = {
+  id: "u-supervisor", username: "zhong_jiankui", name: "钟建奎", email: null,
+  roles: ["employee", "admin"], active: true,
 };
 
 describePostgres("native PostgreSQL formal ticket creation", () => {
   beforeEach(async () => {
     const pool = postgresPool();
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
+      CREATE TABLE IF NOT EXISTS ticket_accounts (
         id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password_hash TEXT NOT NULL,
-        roles TEXT NOT NULL DEFAULT '[]', brands TEXT NOT NULL DEFAULT '[]', active BIGINT NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        email TEXT, roles JSONB NOT NULL DEFAULT '["employee"]'::jsonb, active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS ticket_auth_sessions (
+        token_digest TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE CASCADE,
+        expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), last_seen_at TIMESTAMPTZ
       );
       CREATE TABLE IF NOT EXISTS organization_units (
         id TEXT PRIMARY KEY, company_id TEXT NOT NULL, display_name TEXT NOT NULL, type TEXT NOT NULL,
@@ -97,12 +104,12 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       );
       TRUNCATE ticket_acceptances, ticket_command_receipts, ticket_audit_events, ticket_create_receipts, task_events, ticket_basis_refs, ticket_watchers, ticket_assignments, ticket_org_scopes,
         tickets, ticket_org_seed_state, org_versions, scope_memberships, organization_memberships, organization_people,
-        organization_units, users CASCADE;
+        organization_units, ticket_account_organization_bindings, ticket_auth_sessions, ticket_accounts CASCADE;
     `);
     await pool.query(
-      `INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at)
-       VALUES ('u-creator','ye_guanwang','叶观旺','x','["employee"]','[]',1,$1,$1),
-              ('u-supervisor','zhong_jiankui','钟建奎','x','["employee"]','[]',1,$1,$1)`,
+      `INSERT INTO ticket_accounts (id,username,name,password_hash,roles,active,created_at,updated_at)
+       VALUES ('u-creator','ye_guanwang','叶观旺','x','["employee"]'::jsonb,true,$1,$1),
+              ('u-supervisor','zhong_jiankui','钟建奎','x','["employee","admin"]'::jsonb,true,$1,$1)`,
       ["2031-01-01T00:00:00.000Z"],
     );
   });
@@ -113,9 +120,13 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     // The registry provenance is seeded first, then the test makes the two
     // account bindings explicit exactly as production data-quality operations do.
     await ticketOrgFormBootstrap("u-creator");
+    const creatorBinding = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/work-orders/account-bindings", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ person_ref: "person:ye_guanwang", account_id: "u-creator", reason: "test controlled account enrollment" }),
+    })));
+    expect(creatorBinding.status).toBe(200);
+    await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:zhong_jiankui", account_id: "u-supervisor", reason: "test controlled supervisor enrollment" });
     const pool = postgresPool();
-    await pool.query("UPDATE organization_people SET user_id='u-creator' WHERE person_ref='person:ye_guanwang'");
-    await pool.query("UPDATE organization_people SET user_id='u-supervisor' WHERE person_ref='person:zhong_jiankui'");
     const bootstrap = await ticketOrgFormBootstrap("u-creator");
     expect(bootstrap.formal_submission_enabled).toBe(true);
     const quality = await ticketOrganizationQualityReport();
@@ -170,7 +181,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       by_status: { pending: 1 },
       memberships: { created: 1, assigned_primary: 1, watching: 0 },
     });
-    const apiResponse = await withScopedUser(CREATOR, () => tickets.fetch(new Request("http://test.local/tickets?view=created")));
+    const apiResponse = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request("http://test.local/tickets?view=created")));
     expect(apiResponse.status).toBe(200);
     expect(await apiResponse.json()).toMatchObject({ items: [{ id: first.ticket_id }], page: { limit: 50 } });
 

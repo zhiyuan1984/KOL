@@ -151,7 +151,9 @@ export async function createFormalTicketPostgres(actorUserId: string, raw: Forma
       return { ...replay.rows[0].response_json, replayed: true };
     }
 
-    const creator = await postgresCreatorOrgContext(actorUserId);
+    // The registry projection was seeded before the SERIALIZABLE command
+    // transaction. Do not run a second writer transaction from inside it.
+    const creator = await postgresCreatorOrgContext(actorUserId, { ensureSeed: false });
     if (!creator.person_ref || !creator.org_unit_id || !creator.company_id || !creator.org_version || creator.quality_issues.length) {
       throw new HttpFail(422, { code: "organization_resolution_required", missing_fields: ["creator_organization", "creator_supervisor"], details: creator.quality_issues });
     }

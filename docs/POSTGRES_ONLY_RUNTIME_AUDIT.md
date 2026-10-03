@@ -17,6 +17,8 @@
 | Cron 正式工单只读处理器 | `overdue-scan`、`daily-task-snapshot` 直接读取 PostgreSQL formal tickets | PG Cron 处理器集成测试 |
 | 个人授权工单原始计数 | `ticket-domain/reports.ts` | PG 创建/报表集成测试 |
 | 员工工单详情时间线 | `Tasks.tsx` 只读取 `/tickets/:id/timeline`，不再订阅 legacy `/runs/*` SSE | 前端 typecheck/build/relevant tests |
+| 正式工单身份与会话 | `ticket_accounts`、`ticket_auth_sessions`、`ticket-domain/auth.ts`；初始管理员 setup、登录、登出、Cookie 会话 | PG 身份集成测试 |
+| 账号—组织人员受控绑定 | 管理员 `POST /admin/work-orders/account-bindings`；不可变 `ticket_account_organization_bindings` 审计 | PG 路由/创建集成测试 |
 
 ## 已安全隔离或停用
 
@@ -34,7 +36,7 @@
 | P0 | `backend/src/app.ts` 的 `getConn()`、`seedIfEmpty()`、`reconcileTickets()` 等启动调用 | HTTP 应用启动即初始化 SQLite-shaped bridge。 | 建立 PostgreSQL bootstrap：迁移检查、原生 seed、原生运行恢复；再从启动路径移除旧初始化。 |
 | P0 | `backend/src/index.ts` 的 `failStuckPlans()`、`failInterruptedTaskRuns()`、邮件/库同步启动调用 | 直接进入旧任务/同步仓储。 | 改为原生 execution/ticket recovery，或在 PG-only 入口不启动未迁移子系统。 |
 | P0 | `backend/src/routers/tasks.ts` 的 `/tasks`、`/workbench/tasks`、`/runs/*` 与旧任务创建/运行端点 | 同一个 router 仍保留大量 `getConn()` 调用。 | **正式 `/tickets` 已拆至 `routers/tickets.ts` 并优先挂载**；旧 `/tasks` 仅在兼容部署可见，PG-only 模式必须返回明确弃用响应而非回退。 |
-| P0 | `backend/src/auth.ts`、`exam.ts`、`runtime/organization-tree.ts` | 登录、权限与组织读取仍走 bridge。 | 为正式工单建立原生 PostgreSQL 身份/权限投影；未完成前只允许测试/受控身份模式，不能宣称全应用 PG-only。 |
+| P0 | `backend/src/auth.ts`、`exam.ts`、`runtime/organization-tree.ts` | 历史应用的登录、权限与组织读取仍走 bridge。 | **正式 `/tickets` 已改用独立 PostgreSQL 身份/会话与受控人员绑定**；仍需将全应用登录与组织读取迁走，未完成前不能宣称全应用 PG-only。 |
 | P1 | `routers/work-report.ts` | 管理报表仍读取旧 tickets/event 投影。 | 先只保留个人原始计数；组织报表应在规则、范围、时区与授权口径发布后原生实现。 |
 | P1 | `home-today`、`home-board`、`home-discovery` | 首页任务投影和建议仍使用 legacy task/collaboration 数据。 | 迁移为 PostgreSQL ticket read-model；不能以 SQLite 任务投影支撑正式工单界面。 |
 | P1 | 协作、邮件、发现、知识、运行时连接器等领域 | 广泛直接使用 `getConn()`。 | 每个领域先定义权威 PostgreSQL schema/repository，再按对外契约迁移；禁止桥接作为长期生产路径。 |
@@ -51,6 +53,6 @@
 ## 下一批可执行工作
 
 1. 将正式 `/tickets` 提取为不导入 legacy task router 的原生 Hono router，并为它提供独立 PG bootstrap 测试。
-2. 建立 PostgreSQL-native 身份/会话最小投影，替换正式工单端点的身份读取与组织 seed 中的 `users` 依赖。
+2. 为原生账号 setup、登录和账号—人员绑定补齐员工/管理端界面，并在兼容界面与 PostgreSQL-only 登录域之间完成明确切换。
 3. 迁移个人任务/首页 read-model；旧 `/tasks`/`/workbench/tasks` 在 PG-only 部署模式下显式 retired。
 4. 在正式工单与正式协作状态均已原生化后，重建 `ownership-release` 和邮件记忆作业，走规则 draft/simulate/publish 闸门。

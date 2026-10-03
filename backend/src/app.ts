@@ -28,6 +28,7 @@ import { costsRouter } from "./routers/costs.js";
 import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
 import { tickets } from "./routers/tickets.js";
+import { ticketAuthMiddleware, ticketAuthRouter } from "./ticket-domain/auth.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { experts } from "./routers/experts.js";
@@ -66,7 +67,13 @@ export function createApp(): Hono {
   // The mailbox list is ~200KB of CJK text and the server uplink is slow;
   // gzip cuts it by roughly 5-8x. SSE keeps its own encoding.
   app.use("/api/*", compress());
-  app.use("/api/*", authMiddleware);
+  app.use("/api/*", async (c, next) => {
+    const pathname = new URL(c.req.url).pathname;
+    const formalTicketPath = pathname.startsWith("/api/tickets")
+      || pathname.startsWith("/api/ticket-auth")
+      || pathname === "/api/admin/work-orders/data-quality";
+    return formalTicketPath ? ticketAuthMiddleware(c, next) : authMiddleware(c, next);
+  });
 
   app.onError((err, c) => {
     if (err instanceof HostReject) {
@@ -114,7 +121,8 @@ export function createApp(): Hono {
   app.route("/api", workReport);
   app.route("/api", misc);
   // Formal ticket endpoints are isolated from the legacy `/tasks` router so
-  // their production request path has no SQLite-shaped repository imports.
+  // their production request path has no SQLite-shaped repository or identity imports.
+  app.route("/api", ticketAuthRouter);
   app.route("/api", tickets);
   app.route("/api", tasks);
   app.route("/api", events);
