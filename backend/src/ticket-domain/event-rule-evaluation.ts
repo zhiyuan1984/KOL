@@ -197,9 +197,13 @@ async function eventEvaluations(client: PoolClient, eventId: string): Promise<Js
   const rows = await client.query<Row>(
     `SELECT evaluation.id,evaluation.rule_id,evaluation.rule_version,evaluation.outcome,evaluation.ticket_id,
             evaluation.business_scope,evaluation.details_json,evaluation.evaluated_at,evaluation.evaluated_by,
-            rule.title,rule.rule_type
+            rule.title,rule.rule_type,
+            confirmation.id AS confirmation_id,confirmation.decision AS confirmation_decision,
+            confirmation.reason AS confirmation_reason,confirmation.decided_by AS confirmation_decided_by,
+            confirmation.decided_at AS confirmation_decided_at
        FROM ticket_rule_evaluations evaluation
        JOIN scheduling_rules rule ON rule.id=evaluation.rule_id AND rule.version=evaluation.rule_version
+       LEFT JOIN ticket_rule_confirmation_decisions confirmation ON confirmation.evaluation_id=evaluation.id
       WHERE evaluation.source_event_id=$1
       ORDER BY evaluation.evaluated_at,evaluation.id`,
     [eventId],
@@ -209,6 +213,10 @@ async function eventEvaluations(client: PoolClient, eventId: string): Promise<Js
     rule_type: row.rule_type, outcome: row.outcome, ticket_id: row.ticket_id || null,
     scope: object(row.business_scope), details: object(row.details_json), evaluated_at: row.evaluated_at,
     evaluated_by: row.evaluated_by,
+    confirmation: row.confirmation_id ? {
+      id: row.confirmation_id, decision: row.confirmation_decision, reason: row.confirmation_reason,
+      decided_by: row.confirmation_decided_by, decided_at: row.confirmation_decided_at,
+    } : null,
   }));
 }
 
@@ -306,10 +314,14 @@ export async function listTicketRuleEvaluations(limit = 50): Promise<Json> {
     `SELECT evaluation.id,evaluation.rule_id,evaluation.rule_version,evaluation.outcome,evaluation.ticket_id,
             evaluation.business_scope,evaluation.details_json,evaluation.evaluated_at,evaluation.evaluated_by,
             rule.title AS rule_title,rule.rule_type,
+            confirmation.id AS confirmation_id,confirmation.decision AS confirmation_decision,
+            confirmation.reason AS confirmation_reason,confirmation.decided_by AS confirmation_decided_by,
+            confirmation.decided_at AS confirmation_decided_at,
             event.id AS event_id,event.event_type,event.source_system,event.source_event_id,event.source_version,
             event.company_id,event.brand_id,event.region_id,event.occurred_at,event.summary,event.evidence_ref
        FROM ticket_rule_evaluations evaluation
        JOIN scheduling_rules rule ON rule.id=evaluation.rule_id AND rule.version=evaluation.rule_version
+       LEFT JOIN ticket_rule_confirmation_decisions confirmation ON confirmation.evaluation_id=evaluation.id
        JOIN ticket_business_events event ON event.id=evaluation.source_event_id
       ORDER BY evaluation.evaluated_at DESC,evaluation.id DESC LIMIT $1`,
     [bounded],
@@ -320,6 +332,10 @@ export async function listTicketRuleEvaluations(limit = 50): Promise<Json> {
       rule_type: row.rule_type, outcome: row.outcome, ticket_id: row.ticket_id || null,
       scope: object(row.business_scope), details: object(row.details_json), evaluated_at: row.evaluated_at,
       evaluated_by: row.evaluated_by,
+      confirmation: row.confirmation_id ? {
+        id: row.confirmation_id, decision: row.confirmation_decision, reason: row.confirmation_reason,
+        decided_by: row.confirmation_decided_by, decided_at: row.confirmation_decided_at,
+      } : null,
       event: {
         id: row.event_id, event_type: row.event_type, source_system: row.source_system, source_event_id: row.source_event_id,
         source_version: row.source_version || "", company_id: row.company_id, brand_id: row.brand_id || null,

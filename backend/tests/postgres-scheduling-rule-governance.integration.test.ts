@@ -94,10 +94,13 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
       evidence: { source: "integration_test", verified: true }, payload: { deadline_kind: "quote" },
     }, "rule-event-evaluate-0001")));
     expect(evaluated.status).toBe(201);
-    expect(await evaluated.json()).toMatchObject({
+    const evaluatedPayload = await evaluated.json() as { evaluations: Array<{ id: string }> };
+    expect(evaluatedPayload).toMatchObject({
       replayed: false, execution_effect: "none", human_confirmation_required: true,
       evaluations: [expect.objectContaining({ rule_id: RULE_ID, outcome: "matched", ticket_id: "rule-simulation-ticket" })],
     });
+    const evaluationId = evaluatedPayload.evaluations[0]?.id;
+    expect(evaluationId).toBeTruthy();
     const eventReplay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post("/admin/scheduling/events/evaluate", {
       source_system: "integration_test", source_event_id: "quote-deadline-rule-eval-0001", source_version: "v1",
       event_type: "deadline.quote", company_id: "company:amperetime", ticket_id: "rule-simulation-ticket",
@@ -117,7 +120,7 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
       rules: [expect.objectContaining({
         rule_id: RULE_ID, evaluations: 1, distinct_events: 1, linked_tickets: 1,
         by_outcome: { matched: 1, skipped: 0, missing_fields: 0, failed: 0 },
-        manual_confirmation: { matched_pending: 1, confirmations_recorded: null, coverage_status: "not_recorded" },
+        manual_confirmation: { matched_pending: 1, confirmed: 0, dismissed: 0, confirmations_recorded: 0, coverage_status: "not_recorded" },
         execution_effect: "none",
       })],
     });
@@ -130,6 +133,27 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
     expect(employeeTimeline.status).toBe(200);
     expect(await employeeTimeline.json()).toMatchObject({
       related_business_events: [expect.objectContaining({ event_type: "deadline.quote" })],
+    });
+    const confirmed = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rule-evaluations/${evaluationId}/confirmation`, {
+      decision: "confirmed", reason: "管理员已审阅证据并同意后续由人工处理",
+    }, "rule-evaluation-confirm-0001")));
+    expect(confirmed.status).toBe(201);
+    expect(await confirmed.json()).toMatchObject({
+      replayed: false, confirmation: { evaluation_id: evaluationId, decision: "confirmed", execution_effect: "none", automatic_action: "disabled" },
+    });
+    const confirmationReplay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rule-evaluations/${evaluationId}/confirmation`, {
+      decision: "confirmed", reason: "管理员已审阅证据并同意后续由人工处理",
+    }, "rule-evaluation-confirm-0001")));
+    expect(confirmationReplay.status).toBe(200);
+    expect(await confirmationReplay.json()).toMatchObject({ replayed: true, confirmation: { decision: "confirmed", execution_effect: "none" } });
+    const decidedEffectiveness = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/scheduling/rule-effectiveness")));
+    expect(decidedEffectiveness.status).toBe(200);
+    expect(await decidedEffectiveness.json()).toMatchObject({
+      rules: [expect.objectContaining({
+        rule_id: RULE_ID,
+        manual_confirmation: { matched_pending: 0, confirmed: 1, dismissed: 0, confirmations_recorded: 1, coverage_status: "recorded" },
+        execution_effect: "none",
+      })],
     });
 
     const replay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {

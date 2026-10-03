@@ -774,6 +774,13 @@ export type SchedulingRuleEvaluation = {
   details: Record<string, unknown>;
   evaluated_at: string;
   evaluated_by: string;
+  confirmation: {
+    id: string;
+    decision: "confirmed" | "dismissed" | string;
+    reason: string;
+    decided_by: string;
+    decided_at: string;
+  } | null;
   event: {
     id: string;
     event_type: FormalBusinessEventType | string;
@@ -794,7 +801,7 @@ export type SchedulingRuleEffectivenessRawReport = {
   as_of: string;
   source: string;
   timezone: string;
-  totals: { rules: number; evaluations: number; distinct_events: number; matched: number; skipped: number; missing_fields: number; failed: number };
+  totals: { rules: number; evaluations: number; distinct_events: number; matched: number; skipped: number; missing_fields: number; failed: number; confirmations_recorded: number; confirmed: number; dismissed: number; matched_pending: number };
   note: string;
   rules: Array<{
     rule_id: string;
@@ -807,7 +814,7 @@ export type SchedulingRuleEffectivenessRawReport = {
     distinct_events: number;
     linked_tickets: number;
     by_outcome: { matched: number; skipped: number; missing_fields: number; failed: number };
-    manual_confirmation: { matched_pending: number; confirmations_recorded: null; coverage_status: string };
+    manual_confirmation: { matched_pending: number; confirmed: number; dismissed: number; confirmations_recorded: number; coverage_status: string };
     execution_effect: string;
   }>;
 };
@@ -2738,6 +2745,11 @@ export const api = {
   adminSchedulingRuleEffectiveness: (limit = 100) =>
     request<SchedulingRuleEffectivenessRawReport>(
       `/api/admin/scheduling/rule-effectiveness?limit=${Math.min(Math.max(1, Math.floor(limit)), 200)}`,
+    ),
+  confirmSchedulingRuleEvaluation: (id: string, body: { decision: "confirmed" | "dismissed"; reason: string }, idempotencyKey: string) =>
+    request<{ confirmation: { evaluation_id: string; decision: string; execution_effect: string; automatic_action: string }; replayed: boolean }>(
+      `/api/admin/scheduling/rule-evaluations/${encodeURIComponent(id)}/confirmation`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
     ),
   recordSchedulingEventEvaluation: (body: Record<string, unknown>, idempotencyKey: string) =>
     request<{

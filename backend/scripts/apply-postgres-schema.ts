@@ -697,7 +697,31 @@ const migrations: SchemaMigration[] = [
       "DROP TRIGGER IF EXISTS ticket_business_events_no_mutation ON ticket_business_events",
       `CREATE TRIGGER ticket_business_events_no_mutation
        BEFORE UPDATE OR DELETE ON ticket_business_events
-       FOR EACH ROW EXECUTE FUNCTION prevent_ticket_business_event_mutation()`,
+      FOR EACH ROW EXECUTE FUNCTION prevent_ticket_business_event_mutation()`,
+    ],
+  },
+  {
+    // A human decision closes review of one matched suggestion. It is
+    // immutable and intentionally does not invoke an execution side effect.
+    id: "20261003_ticket_rule_confirmation_decisions",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ticket_rule_confirmation_decisions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        evaluation_id UUID NOT NULL UNIQUE REFERENCES ticket_rule_evaluations(id) ON DELETE RESTRICT,
+        decision TEXT NOT NULL CHECK (decision IN ('confirmed','dismissed')),
+        reason TEXT NOT NULL,
+        decided_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        decided_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS ticket_rule_confirmation_decisions_actor_idx ON ticket_rule_confirmation_decisions(decided_by,decided_at DESC)",
+      `CREATE OR REPLACE FUNCTION prevent_ticket_rule_confirmation_decision_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'ticket rule confirmation decisions are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS ticket_rule_confirmation_decisions_no_mutation ON ticket_rule_confirmation_decisions",
+      `CREATE TRIGGER ticket_rule_confirmation_decisions_no_mutation
+       BEFORE UPDATE OR DELETE ON ticket_rule_confirmation_decisions
+       FOR EACH ROW EXECUTE FUNCTION prevent_ticket_rule_confirmation_decision_mutation()`,
     ],
   },
 ];

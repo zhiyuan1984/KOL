@@ -260,6 +260,24 @@ export default function AdminScheduling() {
     }
   };
 
+  const decideEvaluation = async (evaluation: SchedulingRuleEvaluation, decision: "confirmed" | "dismissed") => {
+    const verb = decision === "confirmed" ? "确认" : "驳回";
+    const reason = window.prompt(`请填写${verb}该建议的审阅原因：`);
+    if (!reason?.trim()) return;
+    setRuleBusy(`decision:${evaluation.id}`);
+    setError("");
+    setRuleNotice("");
+    try {
+      await api.confirmSchedulingRuleEvaluation(evaluation.id, { decision, reason: reason.trim() }, operationKey(`rule-${decision}`));
+      setRuleNotice(`建议已${verb}并形成不可变人工确认事实；不会自动执行任何业务动作。`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `无法${verb}该建议`);
+    } finally {
+      setRuleBusy(null);
+    }
+  };
+
   const attention = useMemo(
     () => Number(counts.failed || 0) + Number(counts.uncertain || 0) + Number(outbox.stale_publishing_count || 0) + workers.filter((worker) => worker.stale).length,
     [counts, outbox, workers],
@@ -390,7 +408,7 @@ export default function AdminScheduling() {
         {evaluations.map((evaluation) => (
           <div className="admin-row" key={evaluation.id} data-rule-evaluation={evaluation.id}>
             <div><strong>{evaluation.rule_title}</strong><p className="muted">{evaluation.event.event_type} · {evaluation.event.summary} · {time(evaluation.evaluated_at)}</p></div>
-            <div><strong className={evaluation.outcome === "matched" ? "status-warn" : "status-ok"}>{evaluation.outcome === "matched" ? "待人工确认" : label(evaluation.outcome)}</strong><p className="muted">工单 {evaluation.ticket_id || "—"} · {String(evaluation.details.proposed_action || "—")}</p></div>
+            <div><strong className={evaluation.confirmation?.decision === "dismissed" ? "status-warn" : evaluation.outcome === "matched" ? "status-warn" : "status-ok"}>{evaluation.confirmation?.decision === "confirmed" ? "已人工确认" : evaluation.confirmation?.decision === "dismissed" ? "已人工驳回" : evaluation.outcome === "matched" ? "待人工确认" : label(evaluation.outcome)}</strong><p className="muted">工单 {evaluation.ticket_id || "—"} · {String(evaluation.details.proposed_action || "—")}</p>{evaluation.confirmation ? <p className="muted">{time(evaluation.confirmation.decided_at)} · {evaluation.confirmation.reason}</p> : evaluation.outcome === "matched" ? <div className="row-actions"><button type="button" className="btn primary" onClick={() => void decideEvaluation(evaluation, "confirmed")} disabled={ruleBusy === `decision:${evaluation.id}`}>确认建议（不执行）</button><button type="button" className="btn ghost" onClick={() => void decideEvaluation(evaluation, "dismissed")} disabled={ruleBusy === `decision:${evaluation.id}`}>驳回</button></div> : null}</div>
           </div>
         ))}
         {ruleEffectiveness ? <section className="task-detail-facts" data-rule-effectiveness>
@@ -398,7 +416,7 @@ export default function AdminScheduling() {
           <p className="muted">评估 {ruleEffectiveness.totals.evaluations} 次 · 事件 {ruleEffectiveness.totals.distinct_events} 条 · 待人工确认 {ruleEffectiveness.totals.matched} 条。{ruleEffectiveness.note}</p>
           {ruleEffectiveness.rules.map((rule) => <div className="admin-row" key={`${rule.rule_id}:${rule.rule_version}`}>
             <div><strong>{rule.title}</strong><p className="muted">v{rule.rule_version} · {label(rule.rule_status)} · 关联事件 {rule.distinct_events} · 关联工单 {rule.linked_tickets}</p></div>
-            <div><strong>{rule.evaluations} 次评估</strong><p className="muted">命中 {rule.by_outcome.matched} · 跳过 {rule.by_outcome.skipped} · 缺字段 {rule.by_outcome.missing_fields}</p><p className="muted">人工确认：{rule.manual_confirmation.coverage_status === "not_recorded" ? "尚未记录确认决定" : rule.manual_confirmation.coverage_status}</p></div>
+            <div><strong>{rule.evaluations} 次评估</strong><p className="muted">命中 {rule.by_outcome.matched} · 跳过 {rule.by_outcome.skipped} · 缺字段 {rule.by_outcome.missing_fields}</p><p className="muted">人工确认：待审 {rule.manual_confirmation.matched_pending} · 确认 {rule.manual_confirmation.confirmed} · 驳回 {rule.manual_confirmation.dismissed}</p></div>
           </div>)}
         </section> : null}
       </article>

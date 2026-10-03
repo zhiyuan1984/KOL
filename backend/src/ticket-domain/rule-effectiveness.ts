@@ -15,6 +15,8 @@ type RuleEffectivenessRow = {
   skipped: number | string;
   missing_fields: number | string;
   failed: number | string;
+  confirmed: number | string;
+  dismissed: number | string;
 };
 
 function bounded(value: number | undefined): number {
@@ -29,8 +31,8 @@ function count(value: unknown): number {
 /**
  * Raw governance counts only. A matched evaluation is a pending human
  * suggestion, never evidence of a completed assignment/escalation/ticket.
- * Confirmation decisions are intentionally reported as not recorded until an
- * explicit human-decision contract exists.
+ * Confirmation decisions are reported only when the immutable review command
+ * has recorded them; they never imply an automatic business side effect.
  */
 export async function schedulingRuleEffectivenessRawReport(limit?: number): Promise<Json> {
   const rows = await postgresPool().query<RuleEffectivenessRow>(
@@ -42,10 +44,13 @@ export async function schedulingRuleEffectivenessRawReport(limit?: number): Prom
             COUNT(*) FILTER (WHERE evaluation.outcome='matched')::int AS matched,
             COUNT(*) FILTER (WHERE evaluation.outcome='skipped')::int AS skipped,
             COUNT(*) FILTER (WHERE evaluation.outcome='missing_fields')::int AS missing_fields,
-            COUNT(*) FILTER (WHERE evaluation.outcome='failed')::int AS failed
+            COUNT(*) FILTER (WHERE evaluation.outcome='failed')::int AS failed,
+            COUNT(*) FILTER (WHERE evaluation.outcome='matched' AND confirmation.decision='confirmed')::int AS confirmed,
+            COUNT(*) FILTER (WHERE evaluation.outcome='matched' AND confirmation.decision='dismissed')::int AS dismissed
        FROM scheduling_rules rule
        LEFT JOIN ticket_rule_evaluations evaluation
          ON evaluation.rule_id=rule.id AND evaluation.rule_version=rule.version
+       LEFT JOIN ticket_rule_confirmation_decisions confirmation ON confirmation.evaluation_id=evaluation.id
       GROUP BY rule.id,rule.version,rule.title,rule.rule_type,rule.status,rule.published_at
       ORDER BY CASE rule.status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 WHEN 'disabled' THEN 2 ELSE 3 END,
                rule.published_at DESC NULLS LAST,rule.id,rule.version DESC
@@ -54,6 +59,9 @@ export async function schedulingRuleEffectivenessRawReport(limit?: number): Prom
   );
   const rules = rows.rows.map((row) => {
     const matched = count(row.matched);
+    const confirmed = count(row.confirmed);
+    const dismissed = count(row.dismissed);
+    const confirmations = confirmed + dismissed;
     return {
       rule_id: row.rule_id,
       rule_version: count(row.rule_version),
@@ -71,9 +79,11 @@ export async function schedulingRuleEffectivenessRawReport(limit?: number): Prom
         failed: count(row.failed),
       },
       manual_confirmation: {
-        matched_pending: matched,
-        confirmations_recorded: null,
-        coverage_status: "not_recorded",
+        matched_pending: Math.max(0, matched - confirmations),
+        confirmed,
+        dismissed,
+        confirmations_recorded: confirmations,
+        coverage_status: matched === 0 ? "not_applicable" : confirmations === 0 ? "not_recorded" : confirmations < matched ? "partially_recorded" : "recorded",
       },
       execution_effect: "none",
     };
@@ -86,7 +96,11 @@ export async function schedulingRuleEffectivenessRawReport(limit?: number): Prom
     skipped: accumulator.skipped + rule.by_outcome.skipped,
     missing_fields: accumulator.missing_fields + rule.by_outcome.missing_fields,
     failed: accumulator.failed + rule.by_outcome.failed,
-  }), { rules: 0, evaluations: 0, distinct_events: 0, matched: 0, skipped: 0, missing_fields: 0, failed: 0 });
+    confirmations_recorded: accumulator.confirmations_recorded + rule.manual_confirmation.confirmations_recorded,
+    confirmed: accumulator.confirmed + rule.manual_confirmation.confirmed,
+    dismissed: accumulator.dismissed + rule.manual_confirmation.dismissed,
+    matched_pending: accumulator.matched_pending + rule.manual_confirmation.matched_pending,
+  }), { rules: 0, evaluations: 0, distinct_events: 0, matched: 0, skipped: 0, missing_fields: 0, failed: 0, confirmations_recorded: 0, confirmed: 0, dismissed: 0, matched_pending: 0 });
   return {
     report_version: "scheduling-rule-effectiveness-raw.v1",
     as_of: new Date().toISOString(),
@@ -94,6 +108,6 @@ export async function schedulingRuleEffectivenessRawReport(limit?: number): Prom
     timezone: "UTC",
     rules,
     totals,
-    note: "仅统计已持久化的规则评估原始计数。matched 表示待人工确认建议；当前未记录人工确认决定，不推导自动执行、SLA、绩效、命中率或完成率。",
+    note: "仅统计已持久化的规则评估与人工确认事实。确认或驳回不会自动执行建议，不推导 SLA、绩效、命中率或完成率。",
   };
 }
