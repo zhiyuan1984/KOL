@@ -16,6 +16,7 @@
 | Cron 调度状态与调度运维读模型 | `cron/postgres-store.ts`、`cron/worker.ts`、`routers/cron.ts` | PG Cron 集成测试 |
 | Cron 正式工单只读处理器 | `overdue-scan`、`daily-task-snapshot` 直接读取 PostgreSQL formal tickets | PG Cron 处理器集成测试 |
 | 个人授权工单原始计数 | `ticket-domain/reports.ts` | PG 创建/报表集成测试 |
+| 员工工单详情时间线 | `Tasks.tsx` 只读取 `/tickets/:id/timeline`，不再订阅 legacy `/runs/*` SSE | 前端 typecheck/build/relevant tests |
 
 ## 已安全隔离或停用
 

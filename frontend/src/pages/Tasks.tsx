@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type PersonalTicketRawCountReport, type Task, type TaskDetail, type TaskEvent, type Ticket } from "../api";
-import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
 import TicketCreateDialog from "../home/TicketCreateDialog";
 import TicketEditDialog from "../home/TicketEditDialog";
 
@@ -136,12 +135,6 @@ export default function Tasks() {
   const [createdTicketId, setCreatedTicketId] = useState("");
   const [editTarget, setEditTarget] = useState<Task | null>(null);
   const [personalReport, setPersonalReport] = useState<PersonalTicketRawCountReport | null>(null);
-  const selectedRunId = useMemo(() => {
-    const runs = selected?.runs || [];
-    const latest = [...runs].reverse().find((run) => typeof run.id === "string" || typeof run.run_id === "string");
-    return latest ? String(latest.id || latest.run_id || "") || null : null;
-  }, [selected]);
-  const liveRunEvents = useTaskRunEventStream(selectedRunId);
 
   const load = useCallback((background = false, append = false) => {
     if (requestRef.current) return requestRef.current;
@@ -405,7 +398,7 @@ export default function Tasks() {
         {Array.isArray(selected.basis_refs) && selected.basis_refs.length ? <section className="task-detail-facts"><h3>来源依据</h3><ul>{selected.basis_refs.map((item, index) => <li key={`${String(item.source_type || "basis")}-${String(item.source_id || index)}`}>{String(item.source_type || "来源")} · {String(item.source_id || "—")}{item.occurred_at ? ` · ${formatTime(String(item.occurred_at))}` : ""}</li>)}</ul></section> : null}
         {selected.acceptance ? <section className="task-detail-facts"><h3>验收事实</h3><p>验收人：{String(selected.acceptance.accepted_by_user_id || "—")} · {formatTime(String(selected.acceptance.accepted_at || ""))}</p></section> : null}
         {Array.isArray(selected.acceptance_history) && selected.acceptance_history.length ? <section className="task-detail-facts"><h3>验收历史</h3><ul>{selected.acceptance_history.map((item, index) => <li key={`${String(item.acceptance_version || index)}-${String(item.accepted_at || "")}`}>第 {String(item.acceptance_version || index + 1)} 次 · {String(item.accepted_by_user_id || "—")} · {formatTime(String(item.accepted_at || ""))}</li>)}</ul></section> : null}
-        <section><h3>执行事件 {liveRunEvents.connected ? <small className="muted">实时更新中</small> : liveRunEvents.fallback ? <small className="muted">正在以安全补读更新</small> : null}</h3>{(liveRunEvents.events.length ? liveRunEvents.events : events).length ? <ol className="task-detail-events">{(liveRunEvents.events.length ? liveRunEvents.events : events).map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section>
+        <section><h3>工单时间线</h3>{events.length ? <ol className="task-detail-events">{events.map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "工单事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无工单事件。</p>}</section>
         <div className="task-detail-actions">{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("accept") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "accept")} disabled={Boolean(actionBusy)}>受理工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("complete") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "complete")} disabled={Boolean(actionBusy)}>提交验收完成</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("reopen") ? <button type="button" className="button" onClick={() => void submitTicketCommand(selected, "reopen")} disabled={Boolean(actionBusy)}>重开工单</button> : null}{Array.isArray(selected.allowed_actions) && selected.allowed_actions.includes("edit") ? <button type="button" className="button" onClick={() => setEditTarget(selected)}>编辑业务字段</button> : null}{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
       </aside></div> : null}
     </main>
