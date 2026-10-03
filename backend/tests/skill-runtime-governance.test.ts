@@ -338,8 +338,8 @@ describe("skill runtime governance", () => {
     expect(linked.status).toBe(200);
 
     getConn().prepare("DELETE FROM connectors WHERE id=?").run("runtime_mcp");
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id=?").get("runtime_mcp")).toMatchObject({ n: 0 });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM runtime_connector_config WHERE connector_id=?").get("runtime_mcp")).toMatchObject({ n: 0 });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=?").get("runtime_mcp")).toMatchObject({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id=?").get("runtime_mcp") as { n: unknown }).n)).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM runtime_connector_config WHERE connector_id=?").get("runtime_mcp") as { n: unknown }).n)).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=?").get("runtime_mcp") as { n: unknown }).n)).toBe(0);
   });
 });

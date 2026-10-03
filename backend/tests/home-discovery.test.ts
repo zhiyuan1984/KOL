@@ -498,8 +498,8 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     const run = await completeRun();
     const stored = getConn().prepare(
       "SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=?",
-    ).get(run.id) as { n: number };
-    expect(stored.n).toBe(1);
+    ).get(run.id) as { n: unknown };
+    expect(Number(stored.n)).toBe(1);
     const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
     expect(candidates.body.candidates).toHaveLength(1);
     expect((candidates.body.candidates as Json[])[0]).toMatchObject({

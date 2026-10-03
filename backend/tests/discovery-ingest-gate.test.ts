@@ -394,9 +394,9 @@ describe("POST /api/home/discovery/ingest", () => {
       kol_uid: "KOLFOUNDBYURL",
     });
     // 回执 + 公海照旧。
-    expect(getConn().prepare(
+    expect(Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE kol_uid='KOLFOUNDBYURL'",
-    ).get()).toEqual({ n: 1 });
+    ).get() as { n: unknown }).n)).toBe(1);
     expect(getConn().prepare("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYURL'").get())
       .toEqual({ pool_status: "open" });
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
@@ -448,8 +448,8 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(item.already_imported).toBe(false);
     expect(starryTools(["addKolProfile"])).toEqual([]);
     // 孤儿不能被当成成功：没有回执、没进公海。
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get()).toEqual({ n: 0 });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get()).toEqual({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("5. a candidate without a contact email fails honestly and never calls Starry", async () => {
@@ -476,8 +476,8 @@ describe("POST /api/home/discovery/ingest", () => {
     });
     expect(item.kol_uid).toBe(null);
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get()).toEqual({ n: 0 });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get()).toEqual({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: unknown }).n)).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
     expect(ingested.body.counts).toMatchObject({ imported: 0, failed: 1 });
   });
 
@@ -495,7 +495,7 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(item.status).toBe("failed");
     expect(item.error).toMatchObject({ code: "import_creator_no_owner_open_id" });
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get()).toEqual({ n: 0 });
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("5. partial failure keeps successful kolUids", async () => {
@@ -555,10 +555,10 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(failed).toBeTruthy();
     // 失败的条目不得标成已在库：没有 receipt，也没进公海。
     expect(failed?.already_imported).toBe(false);
-    expect(getConn().prepare(
+    expect(Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE candidate_id=?",
-    ).get(failed?.candidate_id)).toEqual({ n: 0 });
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index WHERE kol_uid='KOLPARTIALOK'").get()).toEqual({ n: 1 });
+    ).get(failed?.candidate_id) as { n: unknown }).n)).toBe(0);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index WHERE kol_uid='KOLPARTIALOK'").get() as { n: unknown }).n)).toBe(1);
     expect(sideEffects().follows).toBe(0);
   });
 

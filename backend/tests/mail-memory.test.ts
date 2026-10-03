@@ -404,10 +404,10 @@ describe("mailbox memory P0", () => {
     expect((read.body.conversation as Json).unread_count).toBe(0);
     const afterRead = await request("GET", `/api/mail/conversations/${thread?.id}`);
     expect((afterRead.body.messages as Json[]).every((row) => row.unread === false)).toBe(true);
-    const remaining = getConn().prepare(
+    const remaining = Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM kol_mail_items WHERE thread_id=? AND unread=1",
-    ).get(String(thread?.id)) as { n: number };
-    expect(remaining.n).toBe(0);
+    ).get(String(thread?.id)) as { n: unknown }).n);
+    expect(remaining).toBe(0);
 
     const missing = await request("POST", "/api/mail/conversations/conv_missing/read");
     expect(missing.status).toBe(404);
