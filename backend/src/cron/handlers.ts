@@ -4,9 +4,9 @@
  * compatibility layer: work whose business repository is not migrated is
  * represented as a governed `needs_takeover` result instead.
  */
-import type { AppUser } from "../auth.js";
 import { postgresPool } from "../postgres/pool.js";
 import { label } from "../stages.js";
+import type { TicketPrincipal } from "../ticket-domain/auth.js";
 import type { Json, Row } from "../types.js";
 
 export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment" | "ai-task";
@@ -24,7 +24,7 @@ export type CronHandlerContext = {
   job: Row;
   run: Row;
   actor: string;
-  viewer?: AppUser;
+  viewer?: TicketPrincipal;
   nowMs?: number;
 };
 
@@ -37,7 +37,7 @@ const TASK_BUCKETS: Record<string, string[]> = {
   negotiate: ["NEGOTIATING"],
 };
 
-function formalTicketScope(viewer?: AppUser): { where: string; values: string[] } {
+function formalTicketScope(viewer?: TicketPrincipal): { where: string; values: string[] } {
   const base = "t.task_type='manual_ticket' AND t.profile='ticket-workbench'";
   if (!viewer?.id) return { where: base, values: [] };
   return {

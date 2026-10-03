@@ -1,11 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import { authDisabled, isAdmin, requireAdmin, scopedUser } from "../auth.js";
-import { DEMO_USER } from "../config.js";
+import { nid } from "../ids.js";
+import { requireTicketPrincipal, ticketIsAdmin, ticketPrincipal } from "../ticket-domain/auth.js";
 import { assertHandlerGates, assertCanMutateJob, assertCanSeeJob, assertJobRunnable, canSeeJob } from "../cron/authz.js";
 import { handlerContract, isCronHandlerKey } from "../cron/handlers.js";
 import { nextScheduledAt, type ScheduleWindow } from "../cron/schedule.js";
-import { DEFAULT_EXPERT, newJobId } from "../cron/store.js";
+import { DEFAULT_EXPERT } from "../cron/contracts.js";
 import {
   pgCreateCronJob,
   pgCronJobById,
@@ -21,8 +21,7 @@ import {
   pgUpdateCronJob,
 } from "../cron/postgres-store.js";
 import { runCronJobNow, tickCronDue } from "../cron/worker.js";
-import { pgRetryFailedExecutionJob } from "../execution-jobs/postgres-store.js";
-import { executionJobPublic } from "../execution-jobs/store.js";
+import { pgExecutionJobPublic, pgRetryFailedExecutionJob } from "../execution-jobs/postgres-store.js";
 import { postgresPool } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { label } from "../stages.js";
@@ -76,12 +75,8 @@ function secretOk(provided: string | undefined, expected: string): boolean {
 function authorizeTick(c: { req: { header: (name: string) => string | undefined } }): void {
   const secret = String(process.env.CRON_TICK_SECRET || "").trim();
   if (secret && secretOk(c.req.header("x-cron-tick-secret"), secret)) return;
-  if (authDisabled()) return;
-  const user = scopedUser();
-  if (user && isAdmin(user)) {
-    requireAdmin();
-    return;
-  }
+  const user = requireTicketPrincipal();
+  if (ticketIsAdmin(user)) return;
   throw new HttpFail(403, { code: "tick_forbidden", message: "需要管理员或 CRON_TICK_SECRET" });
 }
 
@@ -103,25 +98,25 @@ cron.get("/cron/jobs", async (c) => {
 });
 
 cron.get("/admin/scheduling/execution-jobs", async (c) => {
-  requireAdmin();
+  if (!ticketIsAdmin(requireTicketPrincipal())) throw new HttpFail(403, "admin required");
   const limit = Math.min(Math.max(1, Number(c.req.query("limit") || 50)), 200);
   return c.json(await pgSchedulingAdminReadModel(limit, c.req.query("status") || undefined));
 });
 
 cron.post("/admin/scheduling/execution-jobs/:id/retry", async (c) => {
-  requireAdmin();
-  const result = await pgRetryFailedExecutionJob(c.req.param("id"), { actor_ref: scopedUser()?.id || DEMO_USER.id });
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const result = await pgRetryFailedExecutionJob(c.req.param("id"), { actor_ref: actor.id });
   if (result.reason === "not_found") throw new HttpFail(404, "execution job not found");
   if (result.reason === "risk_requires_takeover") {
     throw new HttpFail(409, { code: "takeover_required", message: "中高风险或不确定作业必须先人工核验，不能直接重试。" });
   }
   if (!result.retried || !result.job) throw new HttpFail(409, { code: "job_not_retryable", message: "仅失败的低风险作业可以重新投递。" });
-  return c.json({ ...executionJobPublic(result.job), retried: true }, 202);
+  return c.json({ ...pgExecutionJobPublic(result.job), retried: true }, 202);
 });
 
 cron.post("/cron/jobs", async (c) => {
-  const user = scopedUser();
-  if (!authDisabled() && !user) throw new HttpFail(401, "authentication required");
+  const user = requireTicketPrincipal();
   const body = parseBody(await c.req.json().catch(() => ({})));
   const handlerKey = String(body.handler_key || "");
   if (!isCronHandlerKey(handlerKey)) throw new HttpFail(400, { code: "unknown_handler", message: "只能使用已登记的 handler" });
@@ -132,11 +127,11 @@ cron.post("/cron/jobs", async (c) => {
   const condition = validateCondition(handlerKey, body.condition);
   const next = nextFor(cronExpr, timezone, condition);
   if (handlerKey === "ai-task" && !next) throw new HttpFail(400, "生效区间内没有未来执行时间");
-  const owner = user?.id || (authDisabled() ? DEMO_USER.id : null);
-  const id = newJobId();
+  const owner = user.id;
+  const id = nid("cjob");
   const job = await pgCreateCronJob({
     id, job_key: String(body.job_key || id), title: String(body.title || handlerContract(handlerKey).title || handlerKey),
-    owner_account_id: owner, execute_as: owner || "employee", capability_expert_id: String(body.capability_expert_id || DEFAULT_EXPERT),
+    owner_account_id: owner, execute_as: owner, capability_expert_id: String(body.capability_expert_id || DEFAULT_EXPERT),
     handler_key: handlerKey, scope: body.scope && typeof body.scope === "object" ? body.scope as Json : { applies: "self" },
     condition, cron_expr: cronExpr, timezone, status: String(body.status || "published"),
     retry_policy: body.retry_policy && typeof body.retry_policy === "object" ? body.retry_policy as Json : { max_attempts: 1 },
@@ -199,7 +194,7 @@ cron.post("/cron/jobs/:id/run", async (c) => {
   assertCanSeeJob(job);
   assertJobRunnable(job);
   assertHandlerGates(String(job.handler_key));
-  const result = await runCronJobNow(String(job.id), scopedUser());
+  const result = await runCronJobNow(String(job.id), ticketPrincipal());
   if (String(job.handler_key) !== "ai-task") return c.json({ run_id: result.run_id });
   const run = await pgCronRunById(result.run_id);
   return c.json({ run_id: result.run_id, session_id: run?.session_id || undefined, run: run ? pgCronPublicRun(run) : undefined,
@@ -231,10 +226,25 @@ cron.post("/cron/internal/tick", async (c) => {
 });
 
 async function nativeRiskItems(): Promise<Json[]> {
-  const exists = await postgresPool().query<{ exists: boolean }>("SELECT to_regclass('public.collaborations') IS NOT NULL AS exists");
-  if (!exists.rows[0]?.exists) return [];
-  const rows = await postgresPool().query<Row>("SELECT id,handle,display_name,brand,stage_code,days_in_stage,overdue FROM collaborations WHERE overdue=1");
-  return rows.rows.map((row) => ({ ...row, stage_label: label(String(row.stage_code || "")) }));
+  const rows = await postgresPool().query<Row>(
+    `SELECT t.id AS ticket_id,t.title,t.status,t.priority,t.due_at,t.business_category,t.stage_code,t.owner_user_id,
+            pa.assignee_user_id,pa.assignee_person_ref
+       FROM tickets t
+       LEFT JOIN LATERAL (
+         SELECT assignee_user_id,assignee_person_ref FROM ticket_assignments
+          WHERE ticket_id=t.id AND role='primary' AND status='active' ORDER BY assignment_version DESC LIMIT 1
+       ) pa ON true
+      WHERE t.task_type='manual_ticket' AND t.profile='ticket-workbench'
+        AND NULLIF(t.due_at,'')::timestamptz < now()
+        AND t.status NOT IN ('completed','cancelled','failed')
+      ORDER BY NULLIF(t.due_at,'')::timestamptz ASC,t.id
+      LIMIT 200`,
+  );
+  return rows.rows.map((row) => ({
+    ...row,
+    source: "postgresql_formal_tickets",
+    stage_label: label(String(row.stage_code || "")),
+  }));
 }
 
 cron.get("/cron/risks", async (c) => {
@@ -250,6 +260,6 @@ cron.post("/cron/risk-scan", async (c) => {
   assertCanSeeJob(job);
   assertJobRunnable(job);
   assertHandlerGates("overdue-scan");
-  const result = await runCronJobNow(String(job.id), scopedUser());
+  const result = await runCronJobNow(String(job.id), ticketPrincipal());
   return c.json({ run_id: result.run_id });
 });

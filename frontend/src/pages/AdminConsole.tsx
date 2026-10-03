@@ -55,6 +55,11 @@ export default function AdminConsole() {
   const tab = adminTabOf(location.pathname);
 
   const load = useCallback(() => {
+    if (tab === "work-orders") {
+      setError("");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const needsLegacyAudit = tab === "data" || tab === "connectors";
     void Promise.all([
@@ -80,6 +85,9 @@ export default function AdminConsole() {
       setError(e instanceof Error ? e.message : "保存失败");
     }
   };
+  if (tab === "work-orders") {
+    return <div className="admin-shell" data-admin-ia="governance"><div className="admin-body"><AdminWorkOrders /></div></div>;
+  }
   if (!account?.available_modes?.includes("admin")) return <Navigate to="/" replace />;
   if (section === "starry") return <Navigate to="/settings?tab=starry" replace />;
 

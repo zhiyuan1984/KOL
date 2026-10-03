@@ -65,6 +65,40 @@ export async function pgListExecutionJobs(filters: { status?: string; limit?: nu
   )).rows as Row[];
 }
 
+/** Public projection belongs with the PostgreSQL repository so scheduling
+ * operations never import the retired SQLite-shaped execution store. */
+export function pgExecutionJobPublic(job: Row): Json {
+  return {
+    id: job.id,
+    job_type: job.job_type,
+    tenant_ref: job.tenant_ref,
+    actor_ref: job.actor_ref,
+    object_ref: parseJson(job.object_ref_json),
+    ticket_id: job.ticket_id || null,
+    run_id: job.run_id || null,
+    trigger_event_id: job.trigger_event_id || null,
+    rule_id: job.rule_id || null,
+    rule_version: job.rule_version || null,
+    risk_level: job.risk_level,
+    idempotency_key: job.idempotency_key,
+    scope_snapshot: parseJson(job.scope_snapshot_json),
+    priority_class: job.priority_class,
+    status: job.status,
+    attempts: Number(job.attempts || 0),
+    max_attempts: Number(job.max_attempts || 1),
+    lease_until: job.lease_until || null,
+    lease_owner: job.lease_owner || null,
+    next_attempt_at: job.next_attempt_at || null,
+    receipt: job.receipt_json ? parseJson(job.receipt_json) : null,
+    error_code: job.error_code || null,
+    error_summary: job.error_summary || null,
+    created_at: job.created_at,
+    started_at: job.started_at || null,
+    terminal_at: job.terminal_at || null,
+    updated_at: job.updated_at,
+  };
+}
+
 /** Persist the authority job and its Outbox dispatch in the same PostgreSQL transaction. */
 export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: { now?: Date } = {}): Promise<{ job: Row; created: boolean }> {
   const now = options.now || new Date();

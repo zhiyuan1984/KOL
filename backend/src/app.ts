@@ -71,7 +71,12 @@ export function createApp(): Hono {
     const pathname = new URL(c.req.url).pathname;
     const formalTicketPath = pathname.startsWith("/api/tickets")
       || pathname.startsWith("/api/ticket-auth")
-      || pathname === "/api/admin/work-orders/data-quality";
+      || pathname.startsWith("/api/admin/work-orders/")
+      || pathname.startsWith("/api/admin/scheduling/")
+      || pathname.startsWith("/api/cron/");
+    // Scheduler tick can authenticate with a dedicated secret and therefore
+    // intentionally bypasses browser ticket-session middleware.
+    if (pathname === "/api/cron/internal/tick") return next();
     return formalTicketPath ? ticketAuthMiddleware(c, next) : authMiddleware(c, next);
   });
 

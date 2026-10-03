@@ -1,5 +1,5 @@
 import { HttpFail } from "../host/errors.js";
-import type { AppUser } from "../auth.js";
+import type { TicketPrincipal } from "../ticket-domain/auth.js";
 import type { Row } from "../types.js";
 import { cronHandler } from "./handlers.js";
 import {
@@ -18,7 +18,8 @@ import {
   runtimeExecutionJobPayload,
   runtimeFailExecutionJob,
 } from "../execution-jobs/runtime-store.js";
-import type { ClaimedExecutionJob } from "../execution-jobs/store.js";
+
+type ClaimedExecutionJob = Row & { lease_until: string; worker_id: string };
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "needs_takeover"]);
 
@@ -37,7 +38,7 @@ function receipt(value: unknown): Record<string, unknown> {
  * PostgreSQL native; individual legacy business handlers are migrated in a
  * separate bounded pass so no handler silently changes its business effects.
  */
-export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Date.now()): Promise<Row> {
+export async function executeCronRun(runId: string, viewer?: TicketPrincipal, nowMs = Date.now()): Promise<Row> {
   const run = await pgCronRunById(runId);
   if (!run) throw new HttpFail(404, "cron run not found");
   const job = await pgCronJobById(String(run.job_id));
@@ -87,7 +88,7 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
 }
 
 /** Execute a durable Cron job already claimed by the common execution dispatcher. */
-export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer?: AppUser, nowMs = Date.now()): Promise<string> {
+export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer?: TicketPrincipal, nowMs = Date.now()): Promise<string> {
   const payload = runtimeExecutionJobPayload(claimed);
   const runId = String(payload.cron_run_id || "");
   if (!runId) {
@@ -126,14 +127,14 @@ export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer
 }
 
 /** Processes one queued Cron job. This is the entry used by the standalone transition worker. */
-export async function processNextCronExecutionJob(workerId = "cron-worker", viewer?: AppUser, nowMs = Date.now()): Promise<string | null> {
+export async function processNextCronExecutionJob(workerId = "cron-worker", viewer?: TicketPrincipal, nowMs = Date.now()): Promise<string | null> {
   const claimed = await runtimeClaimNextExecutionJob(workerId, { job_types: ["cron.run"], now: new Date(nowMs) });
   if (!claimed) return null;
   return executeClaimedCronJob(claimed, viewer, nowMs);
 }
 
 /** Broker consumers receive a durable execution-job ID, never a local queue payload. */
-export async function processCronExecutionJobById(executionJobId: string, workerId = "cron-worker", viewer?: AppUser, nowMs = Date.now()): Promise<string | null> {
+export async function processCronExecutionJobById(executionJobId: string, workerId = "cron-worker", viewer?: TicketPrincipal, nowMs = Date.now()): Promise<string | null> {
   const claimed = await runtimeClaimExecutionJobById(executionJobId, workerId, { now: new Date(nowMs) });
   if (!claimed) return null;
   return executeClaimedCronJob(claimed, viewer, nowMs);
@@ -150,11 +151,11 @@ export async function enqueueManualRun(jobId: string, scheduledFor?: string): Pr
 }
 
 /** Enqueue due runs durably. Only a separate BullMQ worker may execute them. */
-export async function tickCronDue(now = new Date(), _viewer?: AppUser): Promise<{ claimed: string[]; stale: boolean }> {
+export async function tickCronDue(now = new Date(), _viewer?: TicketPrincipal): Promise<{ claimed: string[]; stale: boolean }> {
   return pgTickCronDue(now);
 }
 
-export async function runCronJobNow(jobId: string, _viewer?: AppUser, scheduledFor?: string): Promise<{ run_id: string }> {
+export async function runCronJobNow(jobId: string, _viewer?: TicketPrincipal, scheduledFor?: string): Promise<{ run_id: string }> {
   const enqueued = await enqueueManualRun(jobId, scheduledFor);
   return { run_id: enqueued.run_id };
 }
