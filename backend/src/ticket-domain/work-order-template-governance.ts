@@ -1,6 +1,7 @@
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
+import { stagePolicyPublicationError } from "./work-order-stage-policy.js";
 
 const AUTOMATION_LEVELS = ["A0", "A1", "A2", "A3", "L3"] as const;
 type AutomationLevel = (typeof AUTOMATION_LEVELS)[number];
@@ -149,9 +150,8 @@ function validatePublication(row: TemplateRow): void {
     throw new HttpFail(422, { code: "template_routing_policy_required" });
   }
   if (row.automation_level === "A3") {
-    const stages = row.stage_policy_json && typeof row.stage_policy_json === "object" && !Array.isArray(row.stage_policy_json)
-      ? (row.stage_policy_json as Record<string, unknown>).allowed_next_stages : null;
-    if (!Array.isArray(stages) || stages.length === 0) throw new HttpFail(422, { code: "template_stage_policy_required" });
+    const policyError = stagePolicyPublicationError(row.stage_policy_json, row.trigger_event_types);
+    if (policyError) throw new HttpFail(422, { code: policyError });
   }
 }
 

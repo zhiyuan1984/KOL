@@ -22,13 +22,14 @@ export async function enqueueWorkOrderDecisionExecution(
   );
   const row = decision.rows[0];
   if (!row) throw new HttpFail(404, { code: "work_order_decision_not_found" });
+  const stageAdvance = row.outcome === "advance_stage";
   const queued = await pgEnqueueExecutionJob({
-    job_type: "work_order.materialize",
+    job_type: stageAdvance ? "work_order.advance_stage" : "work_order.materialize",
     tenant_ref: "company:amperetime",
     actor_ref: actorId,
     ticket_id: row.task_id,
     trigger_event_id: row.source_event_id,
-    risk_level: "low",
+    risk_level: stageAdvance ? "medium" : "low",
     priority_class: "normal",
     max_attempts: 3,
     idempotency_key: `work-order-decision:${row.id}:materialize`,
@@ -36,11 +37,11 @@ export async function enqueueWorkOrderDecisionExecution(
     scope_snapshot: { decision_mode: "jev_bounded", decision_outcome: row.outcome, decision_status: row.status },
     payload: { decision_id: row.id, task_id: row.task_id, source_event_id: row.source_event_id, requested_by: actorId },
     outbox: {
-      event_type: "work_order.materialization.queued",
+      event_type: stageAdvance ? "work_order.stage_advance.queued" : "work_order.materialization.queued",
       aggregate_type: "work_order_decision",
       aggregate_id: row.id,
       payload: { decision_id: row.id, task_id: row.task_id },
-      idempotency_key: `work-order-decision:${row.id}:materialization-queued`,
+      idempotency_key: `work-order-decision:${row.id}:${stageAdvance ? "stage-advance" : "materialization"}-queued`,
     },
   });
   return { execution_job: pgExecutionJobPublic(queued.job), created: queued.created };

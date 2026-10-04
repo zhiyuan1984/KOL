@@ -2,6 +2,7 @@ import { HttpFail } from "../host/errors.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { taskWorkOrderAggregate, workOrderDecisionInputHash } from "./task-work-orders.js";
 import { JevWorkOrderUnavailable, judgeWorkOrderWithJev, type JevWorkOrderTemplateChoice, type JevWorkOrderVerdict } from "./work-order-jev.js";
+import { parseWorkOrderStagePolicy } from "./work-order-stage-policy.js";
 
 type SourceEvent = { id: string; type: string; summary: string; occurred_at: string | null };
 type TemplateRow = {
@@ -9,7 +10,7 @@ type TemplateRow = {
   routing_policy_code: string | null; stage_policy_json: unknown;
 };
 type DecisionRow = {
-  id: string; task_id: string; template_code: string | null; template_version: number | null; routing_policy_code: string | null;
+  id: string; task_id: string; work_order_id: string | null; template_code: string | null; template_version: number | null; routing_policy_code: string | null;
   decision_mode: string; outcome: string; status: string; input_hash: string; input_json: unknown; judgment_json: unknown;
   gate_results_json: unknown; jev_model: string | null; prompt_version: string | null; confidence: number | string | null; reason: string | null;
   actor_ref: string; created_at: Date | string;
@@ -17,7 +18,15 @@ type DecisionRow = {
 
 export type WorkOrderShadowInput = {
   source_event?: unknown;
+  /** An existing child work order may be named as the sole A3 candidate. The
+   * decision snapshots it; execution will still lock and revalidate it. */
+  work_order_id?: unknown;
   idempotency_key?: unknown;
+};
+
+type TargetWorkOrder = {
+  id: string; task_id: string; template_id: string; template_code: string; template_version: number | string;
+  status: string; stage_code: string | null; data_version: number | string; stage_policy_json: unknown;
 };
 
 function required(value: unknown, field: string, max: number): string {
@@ -51,6 +60,7 @@ function publicDecision(row: DecisionRow, replayed: boolean) {
   return {
     id: row.id,
     task_id: row.task_id,
+    work_order_id: row.work_order_id,
     template_code: row.template_code,
     template_version: row.template_version == null ? null : Number(row.template_version),
     routing_policy_code: row.routing_policy_code,
@@ -94,24 +104,41 @@ export async function recordWorkOrderShadowDecision(
   const idempotencyKey = required(raw.idempotency_key, "idempotency_key", 240);
   if (idempotencyKey.length < 8) throw new HttpFail(422, { code: "idempotency_key_invalid" });
   const task = await taskWorkOrderAggregate(actorId, required(taskId, "task_id", 120), Boolean(options.isAdmin));
-  const templateRows = await postgresPool().query<TemplateRow>(
+  const targetId = String(raw.work_order_id || "").trim() || null;
+  const targetResult = targetId
+    ? await postgresPool().query<TargetWorkOrder>(
+      `SELECT wo.id,wo.task_id,wo.template_id,wo.template_code,wo.template_version,wo.status,wo.stage_code,wo.data_version,t.stage_policy_json
+         FROM work_orders wo JOIN work_order_templates t ON t.id=wo.template_id
+        WHERE wo.id=$1 AND wo.task_id=$2`,
+      [targetId, task.task.task_id],
+    )
+    : { rows: [] as TargetWorkOrder[] };
+  const target = targetResult.rows[0] || null;
+  if (targetId && !target) throw new HttpFail(404, { code: "work_order_target_not_found" });
+  if (target && ["completed", "cancelled"].includes(target.status)) throw new HttpFail(409, { code: "work_order_target_not_open", status: target.status });
+  const publishedRows = await postgresPool().query<TemplateRow>(
     `SELECT id,template_code,version,title,description,automation_level,routing_policy_code,stage_policy_json
        FROM work_order_templates
       WHERE status='published'
       ORDER BY template_code,version DESC
       LIMIT 24`,
   );
-  const templates = templateRows.rows.map<JevWorkOrderTemplateChoice>((row) => ({
+  const templateRows = target ? publishedRows.rows.filter((row) => row.id === target.template_id) : publishedRows.rows;
+  const templates = templateRows.map<JevWorkOrderTemplateChoice>((row) => ({
     template_code: row.template_code, version: Number(row.version), title: row.title, description: row.description, automation_level: row.automation_level,
   }));
-  const routingPolicyCodes = [...new Set(templateRows.rows.map((row) => row.routing_policy_code).filter((value): value is string => Boolean(value)))];
-  const allowedNextStages = [...new Set(templateRows.rows.flatMap((row) => stageCodes(row.stage_policy_json)))];
+  const routingPolicyCodes = [...new Set(templateRows.map((row) => row.routing_policy_code).filter((value): value is string => Boolean(value)))];
+  const allowedStageTargets = [...new Set(templateRows.flatMap((row) => parseWorkOrderStagePolicy(row.stage_policy_json).allowed_target_stages || stageCodes(row.stage_policy_json)))];
   const input = {
     task: task.task,
+    work_order: target ? {
+      id: target.id, status: target.status, stage_code: target.stage_code, data_version: Number(target.data_version),
+      template_code: target.template_code, template_version: Number(target.template_version),
+    } : null,
     source_event: event,
     templates: templates.map((template) => ({ code: template.template_code, version: template.version })),
     routing_policy_codes: routingPolicyCodes,
-    allowed_next_stages: allowedNextStages,
+    allowed_stage_targets: allowedStageTargets,
     mode: "shadow",
     policy: "no_create_no_assign_no_stage_write",
   };
@@ -119,17 +146,22 @@ export async function recordWorkOrderShadowDecision(
   const verdict = !templates.length
     ? disabledVerdict("没有已发布工单模板；已记录为需要人工配置，未执行任何动作。")
     : await judgeWorkOrderWithJev({
-      task: { id: task.task.task_id, title: task.task.title, goal: task.task.goal, status: task.task.status },
-      source_event: event, templates, routing_policy_codes: routingPolicyCodes, allowed_next_stages: allowedNextStages,
+      task: { id: task.task.task_id, title: task.task.title, goal: task.task.goal, status: task.task.status, stage_code: target?.stage_code },
+      source_event: event, templates, routing_policy_codes: routingPolicyCodes, allowed_stage_targets: allowedStageTargets,
     })
       .catch((error) => error instanceof JevWorkOrderUnavailable ? disabledVerdict(error.message) : Promise.reject(error));
   const selected = verdict.template_code
-    ? templateRows.rows.find((row) => row.template_code === verdict.template_code && Number(row.version) === verdict.template_version) || null
+    ? templateRows.find((row) => row.template_code === verdict.template_code && Number(row.version) === verdict.template_version) || null
     : null;
-  const normalizedOutcome = verdict.action === "create" && !selected ? "needs_review" : verdict.action;
+  const selectedTargetPolicy = selected && target ? parseWorkOrderStagePolicy(selected.stage_policy_json).targets[String(verdict.stage_action || "")] : null;
+  const normalizedOutcome = verdict.action === "create" && !selected
+    ? "needs_review"
+    : verdict.action === "advance_stage" && (!target || !selected || !selectedTargetPolicy || !verdict.stage_action)
+      ? "needs_review"
+      : verdict.action;
   return postgresTransaction(async (client) => {
     const replay = await client.query<DecisionRow>(
-      `SELECT id,task_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,judgment_json,
+      `SELECT id,task_id,work_order_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,judgment_json,
               gate_results_json,jev_model,prompt_version,confidence,reason,actor_ref,created_at
          FROM work_order_decisions WHERE idempotency_key=$1 FOR UPDATE`,
       [idempotencyKey],
@@ -151,14 +183,18 @@ export async function recordWorkOrderShadowDecision(
     };
     const inserted = await client.query<DecisionRow>(
       `INSERT INTO work_order_decisions
-       (task_id,source_event_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,judgment_json,
+       (task_id,work_order_id,source_event_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,judgment_json,
         gate_results_json,jev_model,prompt_version,confidence,reason,actor_ref,idempotency_key)
-       VALUES ($1,$2,$3,$4,$5,'shadow',$6,'recorded',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-       RETURNING id,task_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,judgment_json,
+       VALUES ($1,$2,$3,$4,$5,$6,'shadow',$7,'recorded',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       RETURNING id,task_id,work_order_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,judgment_json,
                  gate_results_json,jev_model,prompt_version,confidence,reason,actor_ref,created_at`,
       [
-        task.task.task_id, event.id, selected?.template_code || null, selected ? Number(selected.version) : null, verdict.routing_policy_code,
-        normalizedOutcome, inputHash, JSON.stringify(input), JSON.stringify({ ...verdict, action: normalizedOutcome }), JSON.stringify(gates),
+        task.task.task_id, normalizedOutcome === "advance_stage" ? target?.id || null : null, event.id, selected?.template_code || null, selected ? Number(selected.version) : null, verdict.routing_policy_code,
+        normalizedOutcome, inputHash, JSON.stringify(input), JSON.stringify({ ...verdict, action: normalizedOutcome }), JSON.stringify({
+          ...gates,
+          a3_target_work_order_bound: normalizedOutcome === "advance_stage" && Boolean(target),
+          a3_target_stage_policy_bound: normalizedOutcome === "advance_stage" && Boolean(selectedTargetPolicy),
+        }),
         verdict.model, verdict.prompt_version, verdict.confidence, verdict.reason, actorId, idempotencyKey,
       ],
     );

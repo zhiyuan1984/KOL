@@ -1047,6 +1047,17 @@ const migrations: SchemaMigration[] = [
        FOR EACH ROW EXECUTE FUNCTION prevent_work_order_verified_event_mutation()`,
     ],
   },
+  {
+    // A3 与 A1/A2 一样必须经过模板版本级的显式 release；A3 仅用于
+    // 已发布策略指定、证据可复核的阶段写入，绝不放宽 L3 的人工边界。
+    id: "20261004_work_order_a3_stage_releases",
+    statements: [
+      "ALTER TABLE work_order_automation_releases DROP CONSTRAINT IF EXISTS work_order_automation_releases_automation_level_check",
+      `ALTER TABLE work_order_automation_releases
+       ADD CONSTRAINT work_order_automation_releases_automation_level_check
+       CHECK (automation_level IN ('A1','A2','A3'))`,
+    ],
+  },
 ];
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);

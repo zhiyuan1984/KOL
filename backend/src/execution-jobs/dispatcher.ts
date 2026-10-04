@@ -4,6 +4,7 @@ import "../runtime/action-worker.js";
 import "../crawl/runtime-gates.js";
 import { pgExecutionJobById } from "./postgres-store.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
+import { advanceWorkOrderStageForDecision } from "../ticket-domain/work-order-stage-executor.js";
 import {
   type ClaimedExecutionJob,
 } from "./contracts.js";
@@ -73,6 +74,25 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
       }
       const result = await executeWorkOrderDecision(String(claimed.actor_ref), decisionId, {
         idempotency_key: `execution-job:${id}:work-order-materialize`,
+        mode: "automatic",
+      });
+      await runtimeCompleteExecutionJob(id, {
+        decision_id: decisionId,
+        attempt: result.attempt,
+        work_order: result.work_order,
+        replayed: result.replayed,
+      });
+      return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: result.work_order?.id || decisionId };
+    }
+    if (jobType === "work_order.advance_stage") {
+      const payload = runtimeExecutionJobPayload(claimed);
+      const decisionId = String((payload as Record<string, unknown>).decision_id || "").trim();
+      if (!decisionId) {
+        await runtimeFailExecutionJob(id, { code: "work_order_decision_id_missing", summary: "AI work-order stage job has no decision_id" });
+        return { execution_job_id: id, job_type: jobType, handled: false, outcome: "failed", target_id: null };
+      }
+      const result = await advanceWorkOrderStageForDecision(String(claimed.actor_ref), decisionId, {
+        idempotency_key: `execution-job:${id}:work-order-advance-stage`,
         mode: "automatic",
       });
       await runtimeCompleteExecutionJob(id, {

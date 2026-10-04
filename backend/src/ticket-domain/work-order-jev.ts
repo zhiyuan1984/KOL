@@ -24,6 +24,10 @@ export type JevWorkOrderInput = {
   source_event: { id: string; type: string; summary: string; occurred_at?: string | null } | null;
   templates: JevWorkOrderTemplateChoice[];
   routing_policy_codes?: string[];
+  /** Template-authorized stage targets. They may be non-adjacent only when the
+   * host later proves every required intervening fact. */
+  allowed_stage_targets?: string[];
+  /** @deprecated Pre-A3 alias retained for shadow-decision compatibility. */
   allowed_next_stages?: string[];
 };
 
@@ -37,7 +41,7 @@ export type JevWorkOrderVerdict = {
   confidence: number;
   probabilities: Record<string, Record<string, number>>;
   model: string;
-  prompt_version: "work-order-jev.v1";
+  prompt_version: "work-order-jev.v1" | "work-order-jev.v2";
   reason: string;
 };
 
@@ -122,7 +126,7 @@ export async function judgeWorkOrderWithJev(input: JevWorkOrderInput): Promise<J
   })).filter((template) => template.template_code);
   const codes = templates.map((template) => template.template_code);
   const routes = unique(input.routing_policy_codes, MAX_ROUTES);
-  const stages = unique(input.allowed_next_stages, MAX_STAGES);
+  const stages = unique(input.allowed_stage_targets ?? input.allowed_next_stages, MAX_STAGES);
   const client = new TypeSafeClient({
     apiKey: key, baseURL: OPENROUTER_BASE_URL, defaultModel: workOrderJevModel(), timeout: timeoutMs(), retry: { maxRetries: 0 }, logLevel: "off",
     ...(fetchOverride ? { fetch: fetchOverride } : {}),
@@ -135,7 +139,7 @@ export async function judgeWorkOrderWithJev(input: JevWorkOrderInput): Promise<J
         source_event: input.source_event ? { id: clean(input.source_event.id, 160), type: clean(input.source_event.type, 120), summary: clean(input.source_event.summary, 800), occurred_at: input.source_event.occurred_at || null } : null,
         candidates: templates.map((template) => ({ code: template.template_code, version: template.version, title: template.title, automation_level: template.automation_level, description: template.description })),
         routing_policy_codes: routes,
-        allowed_next_stages: stages,
+        allowed_stage_targets: stages,
       },
       questions: {
         template_code: {
@@ -151,7 +155,7 @@ export async function judgeWorkOrderWithJev(input: JevWorkOrderInput): Promise<J
             create: "可由已发布标准模板产生一个新的子工单建议。",
             merge_open_order: "应该合并到已有同模板开放工单；本影子阶段只记录建议。",
             update_next_step: "只建议更新一张既有工单的下一步；本影子阶段不写入。",
-            advance_stage: "只建议一个受限的相邻阶段；仍须宿主证据校验。",
+            advance_stage: "只建议一个候选模板显式授权的目标阶段；该目标可能跨越中间阶段，但仍须宿主逐项核验证据、发布开关和状态版本。",
             [NEEDS_REVIEW]: "需要人工复核、选择模板/路由或补充事实。",
           },
         },
@@ -162,8 +166,8 @@ export async function judgeWorkOrderWithJev(input: JevWorkOrderInput): Promise<J
         },
         stage_action: {
           type: "choice",
-          instructions: "只可保持当前阶段、选择提供的相邻后继阶段或 needs_review；不得跳档、取消、验收、合同、费用或外发。",
-          criteria: Object.fromEntries([["keep_current", "保持现有阶段。"], ...stages.map((stage) => [stage, `允许的相邻阶段 ${stage}`]), [NEEDS_REVIEW, "证据不足、存在冲突或建议越过人工边界。"]]),
+          instructions: "只可保持当前阶段、选择提供的受控目标阶段或 needs_review。不要假设目标可写入；不得选择取消、验收、合同、费用或外发。宿主会验证目标是否允许自动化、事件证据是否一致，以及跨阶段所需的每一项中间事实。",
+          criteria: Object.fromEntries([["keep_current", "保持现有阶段。"], ...stages.map((stage) => [stage, `候选模板显式授权的目标阶段 ${stage}`]), [NEEDS_REVIEW, "证据不足、存在冲突或建议越过人工边界。"]]),
         },
       },
     });
@@ -183,7 +187,7 @@ export async function judgeWorkOrderWithJev(input: JevWorkOrderInput): Promise<J
       confidence: Math.min(action.confidence, template.confidence || 1, route.confidence || 1, stage.confidence || 1),
       probabilities: { template_code: template.probabilities, action: action.probabilities, routing_policy_code: route.probabilities, stage_action: stage.probabilities },
       model: workOrderJevModel(),
-      prompt_version: "work-order-jev.v1",
+      prompt_version: "work-order-jev.v2",
       reason: resolvedAction === NEEDS_REVIEW ? "Jev 输出无有效受控模板或需要人工复核。" : "Jev 受限枚举判断；尚未执行任何工单写入。",
     };
   } catch (error) {

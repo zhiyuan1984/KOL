@@ -2,9 +2,10 @@ import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
+import { stagePolicyPublicationError } from "./work-order-stage-policy.js";
 
-type TemplateRow = { id: string; template_code: string; version: number | string; status: string; automation_level: string; routing_policy_code: string | null };
-type ReleaseRow = { template_id: string; automation_level: "A1" | "A2"; status: "enabled" | "disabled"; minimum_confidence: number | string; routing_policy_code: string | null; enabled_by: string | null; enabled_at: Date | string | null; disabled_by: string | null; disabled_at: Date | string | null; reason: string; created_at: Date | string; updated_at: Date | string };
+type TemplateRow = { id: string; template_code: string; version: number | string; status: string; automation_level: string; routing_policy_code: string | null; trigger_event_types: unknown; stage_policy_json: unknown };
+type ReleaseRow = { template_id: string; automation_level: "A1" | "A2" | "A3"; status: "enabled" | "disabled"; minimum_confidence: number | string; routing_policy_code: string | null; enabled_by: string | null; enabled_at: Date | string | null; disabled_by: string | null; disabled_at: Date | string | null; reason: string; created_at: Date | string; updated_at: Date | string };
 
 export type WorkOrderAutomationReleaseInput = {
   action?: unknown;
@@ -47,7 +48,8 @@ async function receipt(client: PoolClient, key: string) {
 
 /** Enables/disables a specific published template version. Template publication
  * merely makes it eligible for shadow selection; this release is the second
- * explicit control required before the A1/A2 executor can materialize work. */
+ * explicit control required before the A1/A2 materializer or A3 stage executor
+ * can perform a write. */
 export async function setWorkOrderAutomationRelease(actorId: string, templateId: string, raw: WorkOrderAutomationReleaseInput) {
   const action = required(raw.action, "action", 20);
   if (action !== "enabled" && action !== "disabled") throw new HttpFail(422, { code: "automation_release_action_invalid" });
@@ -63,14 +65,18 @@ export async function setWorkOrderAutomationRelease(actorId: string, templateId:
       if (priorReceipt.rows[0].template_id !== templateId || priorReceipt.rows[0].actor_ref !== actorId || priorReceipt.rows[0].command !== `automation.release.${action}`) throw new HttpFail(409, { code: "idempotency_key_reused" });
       return { release: priorReceipt.rows[0].response_json, replayed: true };
     }
-    const templateResult = await client.query<TemplateRow>("SELECT id,template_code,version,status,automation_level,routing_policy_code FROM work_order_templates WHERE id=$1 FOR UPDATE", [templateId]);
+    const templateResult = await client.query<TemplateRow>("SELECT id,template_code,version,status,automation_level,routing_policy_code,trigger_event_types,stage_policy_json FROM work_order_templates WHERE id=$1 FOR UPDATE", [templateId]);
     const template = templateResult.rows[0];
     if (!template) throw new HttpFail(404, { code: "work_order_template_not_found" });
     if (template.status !== "published") throw new HttpFail(409, { code: "automation_release_requires_published_template", status: template.status });
-    if (template.automation_level !== "A1" && template.automation_level !== "A2") throw new HttpFail(422, { code: "automation_release_level_not_supported", automation_level: template.automation_level });
+    if (template.automation_level !== "A1" && template.automation_level !== "A2" && template.automation_level !== "A3") throw new HttpFail(422, { code: "automation_release_level_not_supported", automation_level: template.automation_level });
     const effectiveRouting = routingPolicyCode || template.routing_policy_code;
-    if (template.automation_level === "A2" && effectiveRouting !== "task_owner") {
+    if ((template.automation_level === "A2" || template.automation_level === "A3") && effectiveRouting !== "task_owner") {
       throw new HttpFail(422, { code: "automation_release_routing_not_supported", supported: ["task_owner"] });
+    }
+    if (template.automation_level === "A3") {
+      const policyError = stagePolicyPublicationError(template.stage_policy_json, template.trigger_event_types);
+      if (policyError) throw new HttpFail(422, { code: policyError });
     }
     const priorRelease = await client.query<ReleaseRow>("SELECT * FROM work_order_automation_releases WHERE template_id=$1 FOR UPDATE", [templateId]);
     const now = new Date();

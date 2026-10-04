@@ -536,7 +536,7 @@ export type WorkOrderTemplateDraftInput = {
 
 export type WorkOrderAutomationRelease = {
   template_id: string;
-  automation_level: "A1" | "A2" | string;
+  automation_level: "A1" | "A2" | "A3" | string;
   status: "enabled" | "disabled" | string;
   minimum_confidence: number;
   routing_policy_code: string | null;
@@ -1850,7 +1850,7 @@ export const api = {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),
   aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
-  recordAiTaskVerifiedEvent: (taskId: string, body: { source_system: string; source_event_id: string; source_version?: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; evidence: Record<string, unknown>; payload?: Record<string, unknown>; idempotency_key: string }) => request<{ event: { id: string; replayed: boolean }; decision: { id: string; outcome: string; status: string; confidence: number | null }; execution_job: { id: string; status: string; job_type: string }; execution_mode: string; request_id: string }>(`/api/task-work-orders/tasks/${encodeURIComponent(taskId)}/verified-events`, {
+  recordAiTaskVerifiedEvent: (taskId: string, body: { source_system: string; source_event_id: string; source_version?: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; evidence: Record<string, unknown>; payload?: Record<string, unknown>; work_order_id?: string; idempotency_key: string }) => request<{ event: { id: string; replayed: boolean }; decision: { id: string; outcome: string; status: string; confidence: number | null }; execution_job: { id: string; status: string; job_type: string }; execution_mode: string; request_id: string }>(`/api/task-work-orders/tasks/${encodeURIComponent(taskId)}/verified-events`, {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),
   ticketFormBootstrap: () => request<TicketFormBootstrap>("/api/tickets/form-bootstrap"),

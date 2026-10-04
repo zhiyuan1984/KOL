@@ -98,6 +98,19 @@ function AdminWorkOrdersContent() {
     const title = String(data.get("title") || "").trim();
     const automation_level = String(data.get("automation_level") || "A1") as "A0" | "A1" | "A2" | "A3" | "L3";
     if (!template_code || !title) return;
+    const stageTargets = split("stage_target_stages");
+    const stageEventTypes = split("stage_event_types");
+    const stageEvidenceKeys = split("stage_evidence_keys");
+    const stagePolicy = automation_level === "A3"
+      ? {
+        allowed_target_stages: stageTargets,
+        targets: Object.fromEntries(stageTargets.map((stage) => [stage, {
+          required_event_types: stageEventTypes,
+          required_evidence_keys: stageEvidenceKeys,
+          allow_cross_stage: data.get("stage_allow_cross") === "on",
+        }])),
+      }
+      : {};
     setTemplateBusy(true); setError(""); setNotice("");
     try {
       const result = await api.createWorkOrderTemplateDraft({
@@ -105,7 +118,7 @@ function AdminWorkOrdersContent() {
         business_category: String(data.get("business_category") || "").trim() || undefined,
         trigger_event_types: split("trigger_event_types"), acceptance_criteria: split("acceptance_criteria"),
         routing_policy_code: String(data.get("routing_policy_code") || "").trim() || undefined,
-        input_schema: {}, fill_policy: {}, stage_policy: {}, idempotency_key: idempotency(),
+        input_schema: {}, fill_policy: {}, stage_policy: stagePolicy, idempotency_key: idempotency(),
       });
       setNotice(`已创建模板草稿 ${result.template.template_code}.v${result.template.version}；发布前仍不会进入 AI 自动化。`);
       event.currentTarget.reset();
@@ -188,21 +201,25 @@ function AdminWorkOrdersContent() {
         </form>
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }} data-work-order-template-governance>
-        <div className="split-head"><div><h3>AI 工单模板治理</h3><p className="muted">模板先保存为草稿，再由管理员发布。A1/A2 必须再单独启用执行开关，并同时通过 Jev 置信度、确定性路由和去重校验；A3 与 L3 仍不自动执行。</p></div><span className={automationReleases.some((release) => release.status === "enabled") ? "status-ok" : "status-warn"}>自动物化：{automationReleases.some((release) => release.status === "enabled") ? "部分已启用" : "未启用"}</span></div>
+          <div className="split-head"><div><h3>AI 工单模板治理</h3><p className="muted">模板先保存为草稿，再由管理员发布。A1/A2 必须再单独启用执行开关；A3 还必须配置可自动写入的事实阶段、事件和证据键。跨阶段不是禁用项，但必须在模板中显式允许并由同一核验事件证明每个中间阶段。</p></div><span className={automationReleases.some((release) => release.status === "enabled") ? "status-ok" : "status-warn"}>自动化发布：{automationReleases.some((release) => release.status === "enabled") ? "部分已启用" : "未启用"}</span></div>
         <form className="ticket-binding-form" onSubmit={(event) => void createTemplate(event)}>
           <label className="field">模板编码<input name="template_code" required pattern="[a-z][a-z0-9_]{2,119}" placeholder="quote_deadline_followup" /></label>
           <label className="field">模板名称<input name="title" required maxLength={200} placeholder="报价期限跟进" /></label>
-          <label className="field">自动化等级<select name="automation_level" defaultValue="A1"><option value="A0">A0 · 仅观察</option><option value="A1">A1 · 自动生成草稿</option><option value="A2">A2 · 自动建单与分派（尚未启用）</option><option value="A3">A3 · 自动阶段（尚未启用）</option><option value="L3">L3 · 始终人工确认</option></select></label>
+          <label className="field">自动化等级<select name="automation_level" defaultValue="A1"><option value="A0">A0 · 仅观察</option><option value="A1">A1 · 自动生成草稿</option><option value="A2">A2 · 自动建单与分派（尚未启用）</option><option value="A3">A3 · 证据闸门后的自动阶段</option><option value="L3">L3 · 始终人工确认</option></select></label>
           <label className="field">路由策略编码<input name="routing_policy_code" placeholder="task_owner（A2/A3 发布必填）" /></label>
           <label className="field ticket-binding-reason">触发事件<textarea name="trigger_event_types" placeholder={"deadline.quote\nmail.reply_verified"} /></label>
           <label className="field ticket-binding-reason">验收条件<textarea name="acceptance_criteria" required placeholder={"报价期限已核验\n下一步商务动作已记录"} /></label>
           <label className="field ticket-binding-reason">模板说明<textarea name="description" maxLength={2000} placeholder="仅描述标准动作，不填写未经核验的业务事实。" /></label>
+          <label className="field ticket-binding-reason">A3 目标阶段（每行一个）<textarea name="stage_target_stages" placeholder={"SHIPPED\nTESTING\nPUBLISHED"} /><small className="muted">仅接受事实可自动写入的正式阶段；合同、审核、结算和终态不能配置。</small></label>
+          <label className="field ticket-binding-reason">A3 阶段事件（每行一个）<textarea name="stage_event_types" placeholder="mail.reply_verified" /><small className="muted">必须同时列在上方“触发事件”中。</small></label>
+          <label className="field ticket-binding-reason">A3 必需证据键（每行一个）<textarea name="stage_evidence_keys" placeholder={"receipt_verified\ncompleted_stages"} /><small className="muted">登记事件时必须具备这些经过核验的事实键。</small></label>
+          <label className="field"><span>A3 允许跨阶段</span><input type="checkbox" name="stage_allow_cross" /><small className="muted">仍需证明每一个被跳过的中间阶段；不是无条件跳档。</small></label>
           <div className="ticket-binding-action"><button className="btn work" disabled={loading || templateBusy}>{templateBusy ? "正在写入治理记录…" : "创建模板草稿"}</button></div>
         </form>
         {!loading && templates.length === 0 ? <p className="muted">尚无 AI 工单模板。创建并发布低风险模板后，才可进行 Jev 影子判断。</p> : null}
         {templates.map((template) => <div className="admin-row" key={template.id} data-work-order-template={template.template_code}>
           <div><strong>{template.title}</strong><p className="muted">{template.template_code}.v{template.version} · {template.automation_level} · {template.status} · 事件：{template.trigger_event_types.join("、") || "—"}</p></div>
-          <div className="row-actions"><span className={template.status === "published" ? "status-ok" : template.status === "draft" ? "status-warn" : "muted"}>{template.status}</span>{template.status === "draft" ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void publishTemplate(template)}>发布</button> : null}{template.status === "published" && ["A1", "A2"].includes(template.automation_level) ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void toggleAutomationRelease(template)}>{automationReleases.find((release) => release.template_id === template.id)?.status === "enabled" ? "停止自动物化" : "启用自动物化"}</button> : null}{template.status === "published" ? <button className="btn ghost danger" type="button" disabled={templateBusy} onClick={() => void disableTemplate(template)}>停用</button> : null}</div>
+          <div className="row-actions"><span className={template.status === "published" ? "status-ok" : template.status === "draft" ? "status-warn" : "muted"}>{template.status}</span>{template.status === "draft" ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void publishTemplate(template)}>发布</button> : null}{template.status === "published" && ["A1", "A2", "A3"].includes(template.automation_level) ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void toggleAutomationRelease(template)}>{automationReleases.find((release) => release.template_id === template.id)?.status === "enabled" ? template.automation_level === "A3" ? "停止自动阶段" : "停止自动物化" : template.automation_level === "A3" ? "启用阶段闸门" : "启用自动物化"}</button> : null}{template.status === "published" ? <button className="btn ghost danger" type="button" disabled={templateBusy} onClick={() => void disableTemplate(template)}>停用</button> : null}</div>
         </div>)}
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }} data-ai-work-order-work-report>

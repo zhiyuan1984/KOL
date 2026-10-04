@@ -15,6 +15,7 @@ import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shado
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
+import { advanceWorkOrderStageForDecision } from "../ticket-domain/work-order-stage-executor.js";
 import { enqueueWorkOrderDecisionExecution } from "../ticket-domain/work-order-automation-pipeline.js";
 import { recordVerifiedWorkOrderEvent } from "../ticket-domain/work-order-verified-event.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
@@ -126,6 +127,7 @@ tickets.post("/task-work-orders/tasks/:taskId/verified-events", async (c) => {
   const event = await recordVerifiedWorkOrderEvent(actor.id, c.req.param("taskId"), { ...body, idempotency_key: idempotencyKey }, { isAdmin: ticketIsAdmin(actor) });
   const decision = await recordWorkOrderShadowDecision(actor.id, c.req.param("taskId"), {
     source_event: { id: event.event.id, type: event.event.event_type, summary: event.event.summary, occurred_at: event.event.occurred_at },
+    work_order_id: body.work_order_id,
     idempotency_key: `work-order-verified-event:${event.event.id}:jev`,
   }, { isAdmin: ticketIsAdmin(actor) });
   const execution = await enqueueWorkOrderDecisionExecution(actor.id, decision.decision.id);
@@ -198,6 +200,20 @@ tickets.post("/admin/work-orders/decisions/:id/execute", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const result = await executeWorkOrderDecision(actor.id, c.req.param("id"), {
     ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+/** Operator replay cannot bypass the A3 evidence, version, release or
+ * confidence gates used by the durable Worker. */
+tickets.post("/admin/work-orders/decisions/:id/execute-stage", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await advanceWorkOrderStageForDecision(actor.id, c.req.param("id"), {
+    ...body,
+    mode: "operator_replay",
+    idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
   });
   return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
 });

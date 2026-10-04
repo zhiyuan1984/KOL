@@ -304,4 +304,72 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
       else process.env.JEV_WORK_ORDER_ENABLED = previousEnabled;
     }
   });
+
+  it("permits a non-adjacent A3 stage only with an explicit target policy, complete verified facts, high-confidence Jev, and an enabled release", async () => {
+    const previousKey = process.env.OPENROUTER_API_KEY;
+    const previousEnabled = process.env.JEV_WORK_ORDER_ENABLED;
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    process.env.JEV_WORK_ORDER_ENABLED = "1";
+    const actor = await syncWorkbenchTicketPrincipal({
+      id: "u-a3-stage-admin", username: "a3_stage_admin", name: "A3 Stage Admin", email: "a3@example.test", roles: ["admin"], active: true,
+    });
+    const task = await createTaskRootPostgres(actor.id, { title: "推进样品测试", goal: "以签收事实进入测试", idempotency_key: "task-a3-stage-1" });
+    const draft = await createWorkOrderTemplateDraft(actor.id, {
+      template_code: "sample_testing_stage", title: "样品签收测试阶段", description: "只用核验签收事实推进测试阶段", automation_level: "A3",
+      trigger_event_types: ["mail.reply_verified"], acceptance_criteria: ["签收事实可追溯"], routing_policy_code: "task_owner",
+      stage_policy: {
+        allowed_target_stages: ["TESTING"],
+        targets: {
+          TESTING: {
+            required_event_types: ["mail.reply_verified"], required_evidence_keys: ["receipt_verified", "completed_stages"], allow_cross_stage: true,
+          },
+        },
+      },
+      idempotency_key: "a3-template-draft-1",
+    });
+    await publishWorkOrderTemplate(actor.id, draft.template.id, { expected_version: 1, idempotency_key: "a3-template-publish-1" });
+    await setWorkOrderAutomationRelease(actor.id, draft.template.id, {
+      action: "enabled", minimum_confidence: 0.93, routing_policy_code: "task_owner", reason: "核验样品签收可自动推进测试阶段", idempotency_key: "a3-release-1",
+    });
+    await postgresPool().query(
+      `INSERT INTO work_orders
+       (id,task_id,template_id,template_code,template_version,status,priority,stage_code,title,objective,automation_level,created_by,created_at,updated_at)
+       VALUES ('wo-a3-sample',$1,$2,'sample_testing_stage',1,'assigned','normal','SAMPLE_PENDING','样品签收测试','等待样品事实','A3',$3,now(),now())`,
+      [task.task_id, draft.template.id, actor.id],
+    );
+    setWorkOrderJevFetch(async () => new Response(JSON.stringify({
+      model: "typesafe/jev-1.13",
+      answers: {
+        template_code: { type: "choice", choice: "sample_testing_stage", confidence: 0.98 },
+        action: { type: "choice", choice: "advance_stage", confidence: 0.98 },
+        routing_policy_code: { type: "choice", choice: "task_owner", confidence: 0.98 },
+        stage_action: { type: "choice", choice: "TESTING", confidence: 0.98 },
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      const response = await withTicketPrincipal(actor, () => tickets.fetch(new Request(`http://test.local/task-work-orders/tasks/${task.task_id}/verified-events`, {
+        method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": "a3-verified-event-1" },
+        body: JSON.stringify({
+          source_system: "mail-verifier", source_event_id: "mail-sample-arrival-1", source_version: "v1", event_type: "mail.reply_verified",
+          occurred_at: "2031-06-01T09:00:00.000Z", summary: "Sample has arrived and is testing.", evidence_ref: "mail:verified:sample-arrival-1",
+          evidence: { receipt_verified: true, completed_stages: ["SHIPPED", "TESTING"] }, payload: {}, work_order_id: "wo-a3-sample",
+        }),
+      })));
+      expect(response.status).toBe(202);
+      const body = await response.json() as { decision: { id: string; outcome: string; work_order_id: string }; execution_job: { job_type: string; id: string } };
+      expect(body).toMatchObject({ decision: { outcome: "advance_stage", work_order_id: "wo-a3-sample" }, execution_job: { job_type: "work_order.advance_stage" } });
+      const dispatched = await processNextExecutionJob("a3-stage-worker");
+      expect(dispatched).toMatchObject({ job_type: "work_order.advance_stage", outcome: "processed", target_id: "wo-a3-sample" });
+      expect((await postgresPool().query("SELECT stage_code,data_version FROM work_orders WHERE id='wo-a3-sample'"))).toMatchObject({ rows: [{ stage_code: "TESTING", data_version: 2 }] });
+      expect((await postgresPool().query("SELECT from_stage_code,to_stage_code,reason FROM work_order_stage_events WHERE work_order_id='wo-a3-sample'"))).toMatchObject({ rows: [{ from_stage_code: "SAMPLE_PENDING", to_stage_code: "TESTING", reason: "a3_verified_evidence_stage_advance" }] });
+      expect((await postgresPool().query("SELECT status FROM tickets WHERE id=$1", [task.task_id])).rows[0]?.status).toBe("open");
+      expect(await pgExecutionJobById(body.execution_job.id)).toMatchObject({ status: "succeeded" });
+    } finally {
+      setWorkOrderJevFetch();
+      if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previousKey;
+      if (previousEnabled === undefined) delete process.env.JEV_WORK_ORDER_ENABLED;
+      else process.env.JEV_WORK_ORDER_ENABLED = previousEnabled;
+    }
+  });
 });

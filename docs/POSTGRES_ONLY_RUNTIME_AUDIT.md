@@ -34,8 +34,9 @@
 | Jev AI 工单影子判断 | `work-order-jev.ts`、`work-order-shadow.ts`；仅对已发布模板做 TypeSafe System One 有界选择，写不可变 `work_order_decisions(decision_mode=shadow)` 与输入哈希/模型/概率/gate，端点仅管理员可触发 | PG 集成测试验证高置信命中、重放与零建单/分派/阶段/完成副作用 |
 | AI 工单模板发布治理 | `work-order-template-governance.ts`、`/admin/work-orders/templates/*`；草稿、发布、发布版本退役、停用和命令回执都在 PostgreSQL，A1/A2/A3 发布校验事件/验收/路由/阶段边界；管理端明确显示自动执行未启用 | PG 模板治理集成测试、前端 typecheck/build |
 | A1/A2 受控物化与发布开关 | `work-order-automation-release.ts`、`work-order-executor.ts`；模板发布之外仍需可审计 release，阈值、`task_owner` 唯一路由、幂等与 Task 状态共同闸门通过后，才在一个事务写子工单、主受理、阶段事实、物化尝试和 `work_order.materialized` Outbox；任务不会被完成 | PG 集成测试覆盖无 release 跳过、启用后创建、重放去重、分派、Outbox 与 Task 状态不变；前端 typecheck/build |
-| AI 决策持久异步执行 | `work-order-automation-pipeline.ts` 将不可变 Jev decision 以 `work_order.materialize` execution job + `execution_outbox` 排队；`execution-jobs/dispatcher.ts` 由 PostgreSQL claim/BullMQ Worker 调用确定性物化器并写终态回执 | PG 集成测试覆盖 job/outbox 去重、Worker 物化、任务状态不变；生产邮件/期限事件生产者尚未接入 |
-| 已核验事件→AI 工单触发入口 | `work-order-verified-event.ts`、`POST /task-work-orders/tasks/:taskId/verified-events`；首批事件白名单、来源版本、证据、验证人与幂等均先写不可变 PostgreSQL 事件，再触发有界 Jev decision 与持久队列 | PG 集成测试覆盖事件重放、证据投影、Jev/Outbox/Worker 自动建单与任务状态不变；外部邮件/期限生产者待对接 |
+| A3 受控阶段推进与跨阶段事实闸门 | `work-order-stage-policy.ts`、`work-order-stage-executor.ts`；仅模板显式目标阶段可候选，目标事件/必需证据键/跨阶段许可随模板发布并在 Worker 行锁下复核。Jev 目标、`stage-judgment` 高直接证据置信度、连续中间事实、release、Task/Work Order 版本与来源事件必须全部一致，才写 `work_order_stage_events`、依据、执行回执和 `work_order.stage_advanced` Outbox；L3/终态/合同/审批/验收动作无法进入此路径 | PG 集成测试覆盖非相邻 `SAMPLE_PENDING → TESTING`：必须显式 A3 目标策略、完整事件事实、Jev 高置信、确定性证据一致和 enabled release；父 Task 状态不变 |
+| AI 决策持久异步执行 | `work-order-automation-pipeline.ts` 将不可变 Jev decision 按结果以 `work_order.materialize` 或 `work_order.advance_stage` execution job + `execution_outbox` 排队；`execution-jobs/dispatcher.ts` 由 PostgreSQL claim/BullMQ Worker 调用确定性物化或 A3 阶段执行器并写终态回执 | PG 集成测试覆盖 job/outbox 去重、Worker 物化、A3 阶段闸门和父 Task 状态不变；生产邮件/期限事件生产者尚未接入 |
+| 已核验事件→AI 工单触发入口 | `work-order-verified-event.ts`、`POST /task-work-orders/tasks/:taskId/verified-events`；首批事件白名单、来源版本、证据、验证人与幂等均先写不可变 PostgreSQL 事件，再触发有界 Jev decision 与持久队列。可选 `work_order_id` 仅把事件绑定到当前 Task 的既有子工单，A3 仍由 Worker 重新授权和复核 | PG 集成测试覆盖事件重放、证据投影、Jev/Outbox/Worker 自动建单与跨阶段条件写入；外部邮件/期限生产者待对接 |
 | 管理端工作战报 | `AdminWorkReport.tsx` 复用授权 AI Task 根列表，显示 Task 根、开放/阻塞子工单及当前阻塞项；保留原日度战报口径 | 前端构建与导航/首页回归通过；AI 工单摘要明确不纳入验收、完成或个人绩效指标 |
 | AI 业务任务入口 | `POST /api/task-work-orders/tasks` 仅使用已登录工作台主体创建 PostgreSQL Task 根；任务中心提供标题、业务目标、优先级和截止日期表单 | PG 集成测试覆盖 HTTP 路由、共享会话主体和幂等回执；创建根任务不自动生成工单，仍需已核验事件与已发布自动化规则 |
 | 已核验事件工作台入口 | 任务详情登记首批白名单事实、证据引用和发生时间，调用 `POST /api/task-work-orders/tasks/:taskId/verified-events` | 前端构建回归通过；服务端仍以不可变事件→Jev→Outbox→Worker 执行，页面不绕过证据、发布开关或人工验收边界 |
@@ -76,6 +77,6 @@
 
 1. 将**现有工作台**认证与组织读取统一迁移到 PostgreSQL 身份提供方，保持同一登录 UI、会话名和账号语义；不得再新建工单账号域。
 2. 将并列的 PostgreSQL Task → Work Order 投影进一步收敛到今日任务、我的待办和原生管理战报，保持 Task 顶层语义；不得把历史 `/workbench/tasks` 的 SQLite-shaped 投影与新 Task 根混为一谈。
-3. 将已实现的模板 release 与 A1/A2 确定性物化器接到已核验业务事件 → Jev decision → execution job 的异步管道；当前只允许管理员受控 materialization，不宣称生产事件会自动建单。
+3. 将现有邮件、期限等权威事实生产者接入已核验业务事件入口，并按模板逐项启用 A1/A2/A3 release；当前工作台事件入口与 PostgreSQL Worker 已实现，但不宣称尚未接入的外部生产者会自动建单或推进。
 4. 在正式工单与正式协作状态均已原生化后，重建 `ownership-release` 和邮件记忆作业，走已实现的规则 draft/simulate/publish 闸门。
 5. 仅在事件、组织、置信度、路由和人工边界闸门全部满足后，按公司/规则/模板 feature flag 渐进启用 AI 工单自动化。
