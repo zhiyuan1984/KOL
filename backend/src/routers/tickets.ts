@@ -10,7 +10,7 @@ import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
-import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
+import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, taskWorkOrderDashboard, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shadow.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
@@ -111,6 +111,21 @@ tickets.post("/task-work-orders/tasks", async (c) => {
 tickets.get("/task-work-orders", async (c) => {
   const actor = requireTicketPrincipal();
   return c.json({ ...(await listTaskWorkOrderAggregates(actor.id, ticketIsAdmin(actor), parseLimit(c.req.query("limit"), 50))), ...requestMetadata() });
+});
+
+/** Report-first employee task-center read model. The PostgreSQL query shares
+ * one authorization scope for KPI, template counters and task rows; it does
+ * not derive any metric by accumulating browser-side detail responses. */
+tickets.get("/task-work-orders/dashboard", async (c) => {
+  const actor = requireTicketPrincipal();
+  return c.json({
+    ...(await taskWorkOrderDashboard(actor.id, ticketIsAdmin(actor), {
+      limit: parseLimit(c.req.query("limit"), 50),
+      cursor: c.req.query("cursor"),
+      timezone: c.req.query("timezone") || "Asia/Shanghai",
+    })),
+    ...requestMetadata(),
+  });
 });
 
 tickets.get("/task-work-orders/:taskId", async (c) => {

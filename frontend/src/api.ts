@@ -573,17 +573,39 @@ export type AiWorkOrderSummary = {
   objective: string;
   due_at: string | null;
   automation_level: string;
+  automatic_created: boolean;
+  automatic_assigned: boolean;
+  creation_mode: "automatic" | "manual";
+  assignment_origin: "automatic" | "manual_or_unverified" | "unassigned";
+  routing_policy_code: string | null;
   created_at: string;
   updated_at: string;
   primary_assignee: { principal_id: string; person_ref: string | null; org_unit_id: string | null } | null;
   latest_decision: { id: string; decision_mode: string; outcome: string; status: string; confidence: number | null; created_at: string } | null;
 };
 
+export type AiTaskWorkOrderCounts = {
+  total: number;
+  open: number;
+  blocked: number;
+  waiting_review: number;
+  completed: number;
+  automatic_created: number;
+  automatic_assigned: number;
+};
+
+export type AiTaskWorkOrderCompact = Pick<AiWorkOrderSummary,
+  "work_order_id" | "template_code" | "template_version" | "template_title" |
+  "status" | "stage_code" | "title" | "automation_level" |
+  "automatic_created" | "automatic_assigned" | "creation_mode" |
+  "assignment_origin" | "routing_policy_code" | "primary_assignee"
+>;
+
 export type AiTaskWorkOrderAggregate = {
   task: AiTaskRoot;
   work_orders: AiWorkOrderSummary[];
   verified_events: Array<{ id: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; verified_by: string; verified_at: string }>;
-  counts: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
+  counts: AiTaskWorkOrderCounts;
   current_blocking_work_order: AiWorkOrderSummary | null;
   as_of: string;
   source: "postgresql_task_work_orders" | string;
@@ -593,6 +615,41 @@ export type AiTaskWorkOrderList = {
   items: Array<Pick<AiTaskWorkOrderAggregate, "task" | "counts" | "current_blocking_work_order">>;
   as_of: string;
   source: "postgresql_task_work_orders" | string;
+  request_id: string;
+};
+
+export type AiTaskWorkOrderDashboard = {
+  report_version: "task-work-order-dashboard.v1" | string;
+  as_of: string;
+  timezone: string;
+  scope: "personal_authorized" | "organization_authorized" | string;
+  source: "postgresql_task_work_orders" | string;
+  summary: {
+    tasks: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
+    work_orders: AiTaskWorkOrderCounts;
+  };
+  by_template: Array<{
+    template_code: string;
+    template_version: number;
+    template_title: string;
+    automation_level: string;
+    total: number;
+    automatic_created: number;
+    automatic_assigned: number;
+    open: number;
+    blocked: number;
+    waiting_review: number;
+    completed: number;
+  }>;
+  tasks: {
+    items: Array<{
+      task: AiTaskRoot;
+      counts: AiTaskWorkOrderCounts;
+      current_blocking_work_order: AiTaskWorkOrderCompact | null;
+      next_work_order: AiTaskWorkOrderCompact | null;
+    }>;
+    page: { limit: number; next_cursor: string | null; total: number };
+  };
   request_id: string;
 };
 
@@ -1844,6 +1901,13 @@ export const api = {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
+  },
+  aiTaskWorkOrderDashboard: (opts: { limit?: number; cursor?: string; timezone?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.limit != null) query.set("limit", String(Math.max(1, Math.min(100, Math.floor(opts.limit)))));
+    if (opts.cursor) query.set("cursor", opts.cursor);
+    query.set("timezone", opts.timezone || "Asia/Shanghai");
+    return request<AiTaskWorkOrderDashboard>(`/api/task-work-orders/dashboard?${query}`);
   },
   aiTaskWorkOrders: (limit = 50) => request<AiTaskWorkOrderList>(`/api/task-work-orders?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`),
   createAiTaskWorkOrderRoot: (body: { title: string; goal?: string; priority?: "important_urgent" | "important" | "urgent" | "normal" | "low"; due_at?: string; idempotency_key: string }) => request<{ task: AiTaskRoot; request_id: string; as_of: string; schema_version: string }>("/api/task-work-orders/tasks", {
