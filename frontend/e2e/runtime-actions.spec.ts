@@ -1,5 +1,60 @@
 import { expect, test } from "@playwright/test";
 
+test("confirmation replaces stale discovery results and restores a busy rejection", async ({ page, request }) => {
+  const response = await request.post("/api/home/discovery/workspace", { data: {
+    request_id: `confirmation-progress-${Date.now()}`, text: "发现露营候选", brief: {
+      platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"],
+      min_followers: 10000, max_followers: 2000000, min_avg_plays_10: 5000, expect_count: 30,
+    },
+  } });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const saved = await response.json();
+  const stale = { type: "task_result", title: "等待确认", summary: "已生成平台确认卡，远端尚未执行。请核对后在平台确认。", sections: [], metrics: [], recommended_actions: [] };
+  await page.route(new RegExp(`/api/tasks/(?:by-session/${saved.session_id}|${saved.task_id})$`), async route => {
+    const data = await (await route.fetch()).json();
+    const task = data.task || data;
+    Object.assign(task, { worker_id: "confirmation-worker", status: "waiting", context: stale.summary, task_result: stale });
+    await route.fulfill({ json: data });
+  });
+  await page.route(`**/api/sessions/${saved.session_id}`, async route => {
+    const data = await (await route.fetch()).json();
+    data.messages = [...(data.messages || []), { id: "stale-result", session_id: saved.session_id,
+      role: "assistant", kind: "task_result_card", payload: stale, created_at: new Date().toISOString() }];
+    await route.fulfill({ json: data });
+  });
+  let stage = "pending";
+  let confirmations = 0;
+  await page.route("**/api/queries/runtime.actions?*", route => {
+    const label = stage === "pending" ? "待确认" : stage === "queued" ? "已确认，等待执行" : "采集未启动 · 已有任务占用";
+    const summary = stage === "queued" ? "确认已收到，正在等待后台执行。无需重复确认。" : "此前采集仍占用采集服务，本次启动未执行。";
+    return route.fulfill({ json: { actions: [{ id: "confirmation-action", run_id: "confirmation-worker",
+      skill_id: "crawler_collect", operation: "start_crawl", arguments: { keywords: "camping" },
+      state: stage === "rejected" ? "rejected" : "pending", risk: "L3", confirmation_version: "snapshot",
+      execution: stage === "pending" ? null : { id: "confirmation-job", status: stage === "queued" ? "queued" : "uncertain" },
+      can_retry: stage === "rejected", error_code: stage === "rejected" ? "runtime_probe_crawl_busy" : null,
+      progress: { label, summary, state: stage, replace_result: stage !== "pending", result: { ...stale, title: label, summary } },
+    }] } });
+  });
+  await page.route("**/api/actions/runtime.confirm", async route => {
+    confirmations += 1;
+    stage = "queued";
+    await route.fulfill({ status: 202, json: { job: { id: "confirmation-job" } } });
+  });
+  await page.goto(`/s/${saved.session_id}`);
+  const actions = page.locator("[data-runtime-actions]");
+  await actions.getByRole("button", { name: "确认执行以上内容" }).click();
+  await expect(page.locator(".side-workbench")).toContainText("已确认，等待执行");
+  await expect(page.locator(".side-workbench")).not.toContainText(stale.summary);
+  await expect(actions.getByRole("button", { name: "确认执行以上内容" })).toHaveCount(0);
+  stage = "rejected";
+  await page.reload();
+  await expect(page.locator(".side-workbench")).toContainText("采集未启动 · 已有任务占用");
+  await expect(page.locator(".side-workbench")).not.toContainText(stale.summary);
+  await expect(actions.getByRole("button", { name: "重新核对并重试" })).toBeVisible();
+  expect(confirmations).toBe(1);
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 test("uses saved candidates for analysis and distinguishes sampled views from latest ten", async ({ page, request }, testInfo) => {
   const response = await request.post("/api/home/discovery/workspace", { data: {
     request_id: `candidate-context-${Date.now()}`, text: "发现北美露营候选", brief: {

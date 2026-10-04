@@ -187,9 +187,13 @@ export function trimAdded(items: SourceItem[], cap = PLANNING_MAX_ADDED): Source
     .slice(0, cap);
 }
 
+const PLAN_TICKET_COLUMNS = "id,task_type,title,source,status,priority,collaboration_id,updated_at,due_at,start_date,risk_level,promoted_at,dismissed_at";
 function collectFormalTasks(owner: string): SourceItem[] {
+  // Never hydrate task input/results into the plan pack. Production history can
+  // hold multi-MB artifacts; this read needs only fields used for membership,
+  // priority and display. A narrow projection keeps freshness checks reliable.
   const rows = getConn().prepare(
-    "SELECT * FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC",
+    `SELECT ${PLAN_TICKET_COLUMNS} FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC`,
   ).all(owner) as Row[];
   return rows.filter((row) => {
     if (isPlanningWorkItem(row)) return false;
@@ -220,7 +224,8 @@ function collectFormalTasks(owner: string): SourceItem[] {
 function collectFailedRuns(owner: string): SourceItem[] {
   const planningPlaceholders = PLANNING_TASK_TYPES.map(() => "?").join(",");
   const rows = getConn().prepare(
-    `SELECT r.*, w.title AS work_title, w.collaboration_id, w.task_type
+    `SELECT r.id,r.work_item_id,r.status,r.completed_at,r.created_at,
+            w.title AS work_title,w.collaboration_id,w.task_type
        FROM task_runs r
        JOIN tickets w ON w.id = r.work_item_id
       WHERE w.owner_user_id=? AND r.status='failed'
@@ -244,14 +249,14 @@ function collectFailedRuns(owner: string): SourceItem[] {
 
 function collectDiscoveryAnomalies(owner: string): SourceItem[] {
   const requests = getConn().prepare(
-    "SELECT * FROM discovery_requests WHERE owner_user_id=? ORDER BY updated_at DESC",
+    "SELECT id,latest_run_id,status,keywords,platforms,updated_at FROM discovery_requests WHERE owner_user_id=? ORDER BY updated_at DESC",
   ).all(owner) as Row[];
   const out: SourceItem[] = [];
   for (const request of requests) {
     const latest = request.latest_run_id
-      ? getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(request.latest_run_id) as Row | undefined
+      ? getConn().prepare("SELECT id,status,candidate_count,platform,updated_at FROM discovery_runs WHERE id=?").get(request.latest_run_id) as Row | undefined
       : getConn().prepare(
-          "SELECT * FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
+          "SELECT id,status,candidate_count,platform,updated_at FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
         ).get(request.id) as Row | undefined;
     if (!latest) continue;
     const status = String(latest.status || request.status || "");
@@ -281,7 +286,7 @@ function collectDiscoveryAnomalies(owner: string): SourceItem[] {
 
 function collectCorrespondence(owner: string): SourceItem[] {
   const rows = getConn().prepare(
-    `SELECT * FROM tickets
+    `SELECT ${PLAN_TICKET_COLUMNS} FROM tickets
       WHERE owner_user_id=? AND task_type IN ('email_compose','reply_analysis','email_conversation_read')
       ORDER BY updated_at DESC`,
   ).all(owner) as Row[];
@@ -301,7 +306,7 @@ function collectCorrespondence(owner: string): SourceItem[] {
 
 function collectFollowPlans(owner: string): SourceItem[] {
   const rows = getConn().prepare(
-    `SELECT * FROM tickets
+    `SELECT ${PLAN_TICKET_COLUMNS} FROM tickets
       WHERE owner_user_id=? AND (
         task_type IN ('creator_outreach','email_compose')
         OR title LIKE '%跟进%'
@@ -481,6 +486,14 @@ export function packTodayPlanContext(owner = ownerId(), scope: PlanScope = "toda
   const previousCursor = sourceCursorFromBrief(latest.brief);
   const catalog = collectSourceCatalog(owner, scope);
   const diff = diffCatalog(catalog, previousCursor);
+  const stageCounts = collectStageCounts();
+  // Collaboration stages do not appear as catalog items. Fold the compact
+  // count fingerprint into the revision so a changed stage distribution makes
+  // an existing brief stale instead of presenting it as source-verified.
+  const sourceCursor = {
+    ...diff.cursor,
+    cursor_to: `${diff.cursor.cursor_to}|stages:${stageCounts.greet},${stageCounts.follow},${stageCounts.quote},${stageCounts.negotiate}`,
+  };
   const unfinished = catalog.filter((item) => item.kind === "formal_task");
   const discovery = catalog.filter((item) => item.kind === "discovery_batch");
   const failed = catalog.filter((item) => item.kind === "failed_run");
@@ -504,8 +517,8 @@ export function packTodayPlanContext(owner = ownerId(), scope: PlanScope = "toda
       follow_timers: catalog.filter((item) => item.kind === "follow_timer").length,
       anomalies: catalog.filter((item) => item.kind === "anomaly").length,
     },
-    stage_counts: collectStageCounts(),
-    source_cursor: diff.cursor,
+    stage_counts: stageCounts,
+    source_cursor: sourceCursor,
     catalog,
   };
 }

@@ -6,7 +6,7 @@ import BrandLockup from "../components/BrandLockup";
 import PanelToggleIcon from "../components/PanelToggleIcon";
 import RouteErrorBoundary, { RouteLoadingFallback } from "../components/RouteErrorBoundary";
 import AccountBar from "../components/AccountBar";
-import { SHELL_READ_DELAY_MS } from "../home/firstPaint";
+import { scheduleShellRead } from "../home/firstPaint";
 import { ANALYZE_WORK_EVENT, kolAnalyzeInFlight, unwrapTaskRows, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
@@ -61,10 +61,10 @@ export default function Workbench() {
   }, [pendingNav]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    const cancel = scheduleShellRead(() => {
       void api.version().then((row) => setAppVersion(String(row?.version || ""))).catch(() => undefined);
-    }, SHELL_READ_DELAY_MS);
-    return () => window.clearTimeout(timer);
+    });
+    return cancel;
   }, []);
 
   useEffect(() => {
@@ -104,7 +104,7 @@ export default function Workbench() {
       });
     };
     // 让位首屏：侧栏会话/在飞分析延后到首帧之后再发。
-    const kickoff = window.setTimeout(refresh, SHELL_READ_DELAY_MS);
+    const cancelKickoff = scheduleShellRead(refresh);
     const onAnalyze = (event: Event) => {
       const item = (event as CustomEvent<AnalyzeWorkItem>).detail;
       if (!item?.id) return;
@@ -122,7 +122,7 @@ export default function Workbench() {
     return () => {
       window.removeEventListener(ANALYZE_WORK_EVENT, onAnalyze);
       window.removeEventListener("lingong:sessions-refresh", refresh);
-      window.clearTimeout(kickoff);
+      cancelKickoff();
       window.clearInterval(timer);
       pollInFlight.current = false;
     };
@@ -130,7 +130,7 @@ export default function Workbench() {
 
   useEffect(() => {
     // 首屏让位：这些 badge 与首屏内容无关，延后到首帧之后再发。
-    const timer = window.setTimeout(() => {
+    const cancel = scheduleShellRead(() => {
       api.me().then(setMe).catch(() => setMe(null));
       api.approvalBadge()
         .then((row) => setApprovalCount(Number(row.count) || 0))
@@ -144,8 +144,8 @@ export default function Workbench() {
       api.mailBox()
         .then((row) => setMailUnread(Number(row.unread || 0) || 0))
         .catch(() => setMailUnread(0));
-    }, SHELL_READ_DELAY_MS);
-    return () => window.clearTimeout(timer);
+    });
+    return cancel;
   }, []);
 
   useEffect(() => {

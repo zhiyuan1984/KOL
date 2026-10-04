@@ -13,6 +13,8 @@
 import { authDisabled, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
 import { audit, getConn, nowIso, txImmediate, type SqliteConn } from "../db.js";
+import { publicProfileFields } from "./public-profile.js";
+export { publicProfileFields } from "./public-profile.js";
 import { nid } from "../ids.js";
 import { codeFromLabel, label as stageLabel } from "../stages.js";
 import type { Json, Row } from "../types.js";
@@ -90,62 +92,6 @@ export function resolveScopeBrand(requested?: string, employee = currentMemoryEm
 
 function text(value: unknown): string {
   return String(value ?? "").trim();
-}
-
-export function publicProfileFields(row: Row | Json): Json {
-  return {
-    id: row.id,
-    company_id: row.company_id,
-    kol_uid: row.kol_uid,
-    handle: row.handle || "",
-    display_name: row.display_name || row.handle || "",
-    platform: row.platform || "",
-    homepage_url: row.homepage_url || "",
-    avatar_url: row.avatar_url || "",
-    followers: row.followers || "",
-    avg_plays: row.avg_plays || "",
-    engagement: row.engagement || "",
-    engagement_source: row.engagement_source || "",
-    direction: row.direction || "",
-    region: row.region || "",
-    style: row.style || "",
-    ingest_source: row.ingest_source || "",
-    ingested_at: row.ingested_at || null,
-    idle: Boolean(Number(row.idle || 0)),
-    public_stage: row.public_stage || "",
-    pool_status: row.pool_status || "open",
-    source_batch: row.source_batch || "",
-    platform_creator_id: row.platform_creator_id || "",
-    potential_score: numericOrNull(row.potential_score),
-    potential_probabilities: row.potential_probabilities || null,
-    potential_confidence: numericOrNull(row.potential_confidence),
-    risk_score: numericOrNull(row.risk_score),
-    risk_probabilities: row.risk_probabilities || null,
-    risk_confidence: numericOrNull(row.risk_confidence),
-    assessment_model: row.assessment_model || "",
-    assessment_version: row.assessment_version || "",
-    assessed_at: row.assessed_at || null,
-    // 员工端只据此说清「为什么没分」，不回显内部错误原文：
-    // scored 有分 / low_confidence 评过但置信度不足 / failed 调用失败 / unscored 从未评过。
-    assessment_state: assessmentStateOf(row),
-    // 评分口径（员工声明的 AI 发现条件摘要）：空串表示按公开资料通用口径。
-    assessment_criteria: row.assessment_criteria || "",
-  };
-}
-
-function assessmentStateOf(row: Row): "scored" | "unscored" | "low_confidence" | "failed" {
-  const score = row.potential_score;
-  if (score != null && String(score).trim() !== "" && Number.isFinite(Number(score))) return "scored";
-  if (text(row.assessment_error)) return "failed";
-  if (text(row.assessed_at)) return "low_confidence";
-  return "unscored";
-}
-
-/** PostgreSQL 桥接把 bigint 列以字符串返回（同 34bd84a 口径）：出参前按数值归一。 */
-function numericOrNull(value: unknown): number | null {
-  if (value == null || String(value).trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function trimPrivate<T extends Record<string, unknown>>(row: T): T {

@@ -5,6 +5,7 @@
  * POST kol-analyze/enqueue = command: writes queued work_item only (no session, no model)
  */
 import { Hono } from "hono";
+import { parsePoolPageOptions, readPublicPoolPage } from "../postgres/public-pool.js";
 import { requireSkill } from "../auth.js";
 import { agentSubmissionAllowed } from "../contract-scope.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
@@ -19,6 +20,7 @@ import {
   KOL_ANALYZE_TASK_TYPE,
   listEmployeeFollowing,
   listOpenPool,
+  memoryCompanyId,
   parseAnalyzePeople,
   previewProfilesWithoutHomepage,
   releaseFollow,
@@ -204,21 +206,12 @@ kolMemory.post("/home/discovery/ingest", async (c) => {
   return c.json(result, status as 200 | 422);
 });
 
-kolMemory.get("/home/pool", (c) => {
+kolMemory.get("/home/pool", async (c) => {
   c.header("Cache-Control", "no-store");
-  const items = listOpenPool();
-  return c.json({
-    entry: "memory",
-    kind: "memory",
-    creates_session: false,
-    calls_model: false,
-    index: "公海",
-    // 空态要区分「库还没同步」与「公海确实为空」；把同一份 app_state 事实随这次读返回，
-    // 公海页因此不必为一句文案再去拉整个 /home/board。
-    library: starryLibraryStatus(),
-    items,
-    kols: items,
-  });
+  const started = performance.now();
+  const result = await readPublicPoolPage(parsePoolPageOptions(c.req.query()), memoryCompanyId());
+  c.header("Server-Timing", `pool_read;dur=${(performance.now() - started).toFixed(1)}`);
+  return c.json(result);
 });
 
 /**

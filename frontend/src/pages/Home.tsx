@@ -47,7 +47,6 @@ import PoolInteraction, {
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
-import { isPoolNew } from "../home/poolView";
 import SkillParamCard, { type SkillParamField } from "../home/workspace/SkillParamCard";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import { defaultTemplateValues, nonEmptyTemplateEntities, templateInputFields } from "../skillTemplate";
@@ -618,7 +617,8 @@ export default function Home() {
       if (result.pending) storePending(result.session_id, result.pending);
       refreshWorkbenchSessions();
       clearDiscoveryLock();
-      nav(`/s/${result.session_id}`);
+      await import("./Chat").catch(() => undefined);
+      nav(`/s/${result.session_id}`, { state: { discoverySession: result.session_id } });
     } catch (error) {
       setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {
@@ -718,16 +718,16 @@ export default function Home() {
   const mode = parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {
-    listOpenTasks: () => loadAllWorkbenchTasks("today"),
-    getBrief: () => api.workbenchPlan(),
+    listOpenTasks: (signal) => loadAllWorkbenchTasks("today", undefined, signal),
+    getBrief: (signal) => api.workbenchPlan(signal),
     startPlan: () => api.startWorkbenchPlan(),
-    getDisplayTasks: () => fetchTodayTasks(),
+    getDisplayTasks: (signal) => fetchTodayTasks(signal),
   }, { enabled: mode === "today" });
   const todoPlan = usePlanScope("todo", {
-    listOpenTasks: () => loadAllWorkbenchTasks("todo"),
-    getBrief: () => api.workbenchPlan(),
+    listOpenTasks: (signal) => loadAllWorkbenchTasks("todo", undefined, signal),
+    getBrief: (signal) => api.workbenchPlan(signal),
     startPlan: () => api.startWorkbenchPlan(),
-    getDisplayTasks: () => fetchTodoTasks(),
+    getDisplayTasks: (signal) => fetchTodoTasks(signal),
   }, { enabled: mode === "todo" });
   const nav = useNavigate();
 
@@ -832,6 +832,8 @@ export default function Home() {
   };
 
   const poolWorkspace = usePoolWorkspace({
+    active: mode === "pool",
+    selectedIds: selectedKolIds,
     loadBoard,
     boardKols: () => boardKolsRef.current,
     onClaimed: async (kolUid) => {
@@ -863,9 +865,9 @@ export default function Home() {
   const retrySurface = async (surface: HomeSurface) => {
     setRetryingSurface(surface);
     try {
-      const boardReady = await loadBoard(surface, true);
+      const boardReady = surface === "pool" ? true : await loadBoard(surface, true);
       if (surface === "following" && boardReady) await followedWorkspaceRef.current.loadSurface();
-      else if (surface === "pool") await poolWorkspace.loadSurface();
+      else if (surface === "pool") await poolWorkspace.loadSurface(true);
     } finally {
       setRetryingSurface(null);
     }
@@ -1119,7 +1121,7 @@ export default function Home() {
 
   const applyPoolSelection = (nextIds: string[]) => {
     setSelectedKolIds(nextIds);
-    const selected = poolWorkspace.cards.filter((card) => nextIds.includes(card.kol_uid));
+    const selected = poolWorkspace.analysisCards.filter((card) => nextIds.includes(card.kol_uid));
     if (selected.length) {
       prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
       return;
@@ -1154,7 +1156,7 @@ export default function Home() {
       setPoolTemplateNotice(QUESTION_TEMPLATE_MISSING_COPY);
       return false;
     }
-    const cards = poolWorkspace.cards.filter((card) => targets.includes(card.kol_uid));
+    const cards = poolWorkspace.analysisCards.filter((card) => targets.includes(card.kol_uid));
     setPoolTemplateNotice("");
     setAnalyzeSurface("pool");
     setAnalyzeUids(targets);
@@ -1166,7 +1168,7 @@ export default function Home() {
   };
 
   const startPoolAnalysis = (kind: PoolAnalysisKind) => {
-    const selected = selectedKolIds.filter((id) => poolWorkspace.cards.some((card) => card.kol_uid === id));
+    const selected = selectedKolIds.filter((id) => poolWorkspace.analysisCards.some((card) => card.kol_uid === id));
     if (kind !== "score" && !selected.length) return;
     if (!prefillPoolQuestion(kind, selected)) return;
     if (kind === "score") setScoreConfirm({ busy: false, count: selected.length, error: null });
@@ -1350,10 +1352,8 @@ export default function Home() {
   }, [mode]);
 
   useEffect(() => {
-    if (mode !== "pool") return;
-    void poolWorkspace.ensureLoaded();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+    poolWorkspace.cancelClaim();
+  }, [poolWorkspace.query, poolWorkspace.filter, poolWorkspace.sort, poolWorkspace.offset]);
 
   useEffect(() => {
     let alive = true;
@@ -1770,7 +1770,7 @@ export default function Home() {
   };
   onReleasedRef.current = async (kolId) => {
     setSelectedKolIds((current) => current.filter((id) => id !== kolId));
-    await poolWorkspace.loadSurface();
+    await poolWorkspace.loadSurface(true);
   };
 
   followedWorkspaceRef.current = followedWorkspace;
@@ -1807,15 +1807,20 @@ export default function Home() {
   );
 
   useEffect(() => {
-    if (!hasActiveRuns) return;
+    if (!hasActiveRuns || mode === "pool") return;
+    const controller = new AbortController();
+    let inFlight = false;
     const tick = () => {
-      if (document.visibilityState !== "visible") return;
-      void fetchHomeTasks().catch(() => undefined);
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      void api.tasks(undefined, controller.signal).then(unwrapTaskList).then((catalog) => {
+        if (!controller.signal.aborted) applyTaskCatalog(catalog);
+      }).catch(() => undefined).finally(() => { inFlight = false; });
     };
-    tick();
+    const kickoff = window.setTimeout(tick, SHELL_READ_DELAY_MS);
     const timer = window.setInterval(tick, HOME_TASK_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [hasActiveRuns]);
+    return () => { controller.abort(); window.clearTimeout(kickoff); window.clearInterval(timer); };
+  }, [hasActiveRuns, mode]);
 
 
   useEffect(() => {
@@ -2324,7 +2329,7 @@ export default function Home() {
                   selectedCount={selectedKolIds.length}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
-                  publicPoolNewCount={poolWorkspace.poolLoaded ? poolWorkspace.cards.filter(isPoolNew).length : null}
+                  publicPoolNewCount={poolWorkspace.poolLoaded ? poolWorkspace.newCount : null}
                   onOpenPublicPoolNew={() => {
                     poolWorkspace.setQuery("");
                     poolWorkspace.setSort("default");
@@ -2387,13 +2392,13 @@ export default function Home() {
               title="公海"
               description="从当前可见的公开对象中选择分析范围；领取跟进仍是右栏里的独立确认动作。"
               selectedCount={selectedKolIds.length}
-              resultCount={poolWorkspace.visibleCards.length}
+              resultCount={poolWorkspace.matchedCount}
               railLabel="公海结果"
               railToggleLabel="公海"
               railStorageKey="ui:home-pool-rail-collapsed-v2"
               centerContent={(
                 <PoolInteraction
-                  totalCount={poolWorkspace.cards.length}
+                  totalCount={poolWorkspace.totalCount}
                   selectedCount={selectedKolIds.length}
                   maintenanceBusy={poolWorkspace.maintenanceBusy}
                   maintenanceNotice={poolWorkspace.maintenanceNotice}
@@ -2414,7 +2419,9 @@ export default function Home() {
               rail={(
                 <PoolPane
                   cards={poolWorkspace.visibleCards}
-                  totalCount={poolWorkspace.cards.length}
+                  totalCount={poolWorkspace.totalCount}
+                  page={poolWorkspace.page}
+                  onPage={poolWorkspace.setOffset}
                   isFiltered={Boolean(poolWorkspace.query.trim()) || poolWorkspace.filter !== "all"}
                   selectedIds={selectedKolIds}
                   query={poolWorkspace.query}

@@ -1089,7 +1089,7 @@ function stripEngineCopy(text: string) {
   return String(text || "")
     .replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "")
     .replace(/\b(?:MCP|Codex|Thread|Skill)\b/gi, "")
-    .replace(/\s{2,}/g, " ")
+    .replace(/[ \t]+$/gm, "")
     .trim();
 }
 
@@ -1181,7 +1181,7 @@ function employeeMessageBody(text: string, debug = false, onRefresh?: () => void
   }
   const cleaned = stripEngineCopy(humanizeMaybeJson(text));
   if (!debug && /[{[]/.test(cleaned)) return <p>正在整理结果</p>;
-  return <Markdown>{cleaned}</Markdown>;
+  return <Markdown foldInternalReview={!debug}>{cleaned}</Markdown>;
 }
 
 export { humanizeTraceLabel };

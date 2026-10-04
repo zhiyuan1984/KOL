@@ -342,6 +342,8 @@ export default function SideWorkbench({
   collaborationId = "",
   handle = "",
   resultExtra,
+  resultOverride,
+  statusOverride,
 }: {
   sessionId: string;
   messages: Message[];
@@ -364,6 +366,8 @@ export default function SideWorkbench({
   collaborationId?: string;
   handle?: string;
   resultExtra?: import("react").ReactNode;
+  resultOverride?: TaskResultCard;
+  statusOverride?: string;
 }) {
   const { debug } = useViewMode();
   const round = afterLastUser(messages);
@@ -378,9 +382,9 @@ export default function SideWorkbench({
   );
   const taskResult = task && ((task.task_result || task.crawl_result) as TaskResultCard | undefined);
   const parsedResult = parsedResultFromMessages(messages);
-  const result = resultMsg
+  const result = resultOverride || (resultMsg
     ? (embeddedMessageResult || messageResult) as TaskResultCard
-    : (!draft && !stageMsg ? (taskResult || parsedResult || null) : null);
+    : (!draft && !stageMsg ? (taskResult || parsedResult || null) : null));
   const candidates = crawlCandidates(crawlJob, result, messageResult, task);
   const hasCrawlArtifact = candidates.length > 0 && !draft && !stageMsg;
   const inboundMsg = lastOf(round, "inbound_card");
@@ -493,7 +497,7 @@ export default function SideWorkbench({
         <div className="side-status">
           <i className={"status-dot " + status} />
           <span data-agent-status={status}>
-            {taskRunView(task, status).label}
+            {statusOverride || taskRunView(task, status).label}
           </span>
         </div>
       </div>

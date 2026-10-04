@@ -30,6 +30,12 @@ import { taskDefinition, taskDefinitions } from "../src/tasks/registry.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
 
+const avatarDns = vi.hoisted(() => vi.fn());
+vi.mock("node:dns/promises", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:dns/promises")>(),
+  lookup: avatarDns,
+}));
+
 let tmp: string;
 let app: Hono;
 
@@ -63,6 +69,9 @@ function seedProfile(kolUid: string, extra: Record<string, string> = {}) {
 }
 
 beforeEach(async () => {
+  // Public-page fetches are fixtures; DNS must be equally deterministic.
+  avatarDns.mockReset();
+  avatarDns.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kol-mem-"));
   process.env.LINGONG_DB = path.join(tmp, "mem.db");
@@ -393,6 +402,18 @@ describe("kol follow/pool memory P0", () => {
     expect(getConn().prepare("SELECT avatar_url FROM kol_profile_index WHERE kol_uid=?").get("KOL_AVATAR_LATE")).toMatchObject({
       avatar_url: "https://example.com/late-avatar.jpg",
     });
+  });
+
+  it("rejects a public-looking avatar homepage that resolves to a private address before fetching", async () => {
+    seedProfile("KOL_AVATAR_PRIVATE", { homepage_url: "https://example.com/private" });
+    avatarDns.mockResolvedValue([{ address: "10.0.0.8", family: 4 }]);
+    const fetcher = vi.fn();
+    setAvatarCrawlerFetch(fetcher);
+    const result = await enrichMissingPublicAvatars({ limit: 1 });
+    expect(result).toMatchObject({ checked: 1, updated: 0, failed: 1 });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(getConn().prepare("SELECT avatar_url, avatar_error FROM kol_profile_index WHERE kol_uid=?").get("KOL_AVATAR_PRIVATE"))
+      .toMatchObject({ avatar_url: "", avatar_error: "主页地址未解析为公开网络" });
   });
 
   it("keeps active follows out of local missing-homepage cleanup and locks the preview count", () => {

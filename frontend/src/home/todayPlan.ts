@@ -199,10 +199,10 @@ export function clearPlanCaches(): void {
 export { PLANNING_TASK_TYPES, PLANNING_TASK_TYPES_SET } from "./planningTypes.js";
 
 export type TodayPlanClient = {
-  listOpenTasks: () => Promise<Task[]>;
-  getBrief: () => Promise<TodayBriefResponse>;
+  listOpenTasks: (signal?: AbortSignal) => Promise<Task[]>;
+  getBrief: (signal?: AbortSignal) => Promise<TodayBriefResponse>;
   startPlan: () => Promise<TodayPlanResult>;
-  getDisplayTasks?: () => Promise<DisplayTaskRow[]>;
+  getDisplayTasks?: (signal?: AbortSignal) => Promise<DisplayTaskRow[]>;
 };
 
 export type TodayPlanStep = {
@@ -336,10 +336,10 @@ function aborted(signal?: AbortSignal): boolean {
   return Boolean(signal?.aborted);
 }
 
-async function loadDisplayTasks(client: TodayPlanClient): Promise<DisplayTaskRow[] | undefined> {
+async function loadDisplayTasks(client: TodayPlanClient, signal?: AbortSignal): Promise<DisplayTaskRow[] | undefined> {
   if (!client.getDisplayTasks) return undefined;
   try {
-    const rows = await client.getDisplayTasks();
+    const rows = await client.getDisplayTasks(signal);
     return Array.isArray(rows) ? rows : [];
   } catch {
     return undefined;
@@ -383,7 +383,7 @@ export async function runTodayPlanRefresh(
     if (Array.isArray(row.previous_events)) previousEvents = row.previous_events;
   };
 
-  const tasksPromise = client.listOpenTasks().then((rows) => {
+  const tasksPromise = client.listOpenTasks(signal).then((rows) => {
     tasks = memoryTasksOf(rows);
     if (!aborted(signal)) {
       const step: TodayPlanStep = { phase: memoryPhase, tasks, displayTasks };
@@ -399,7 +399,7 @@ export async function runTodayPlanRefresh(
     }
     return tasks;
   });
-  const briefPromise = client.getBrief().then((row) => {
+  const briefPromise = client.getBrief(signal).then((row) => {
     memory = row;
     snapshot = snapshotOf(row);
     if (row.brief !== undefined) brief = row.brief ?? null;
@@ -421,7 +421,7 @@ export async function runTodayPlanRefresh(
     }
     return row;
   });
-  const displayPromise = loadDisplayTasks(client).then((rows) => {
+  const displayPromise = loadDisplayTasks(client, signal).then((rows) => {
     if (rows) displayTasks = rows;
     if (!aborted(signal) && rows) {
       onStep({
@@ -489,7 +489,7 @@ export async function runTodayPlanRefresh(
   let errors = 0;
   while (!aborted(signal)) {
     try {
-      const row = await client.getBrief();
+      const row = await client.getBrief(signal);
       if (aborted(signal)) return { phase: "idle" };
       errors = 0;
       snapshot = snapshotOf(row);
@@ -525,7 +525,7 @@ export async function runTodayPlanRefresh(
         onStep(failed);
         return failed;
       }
-      const nextDisplay = await loadDisplayTasks(client);
+      const nextDisplay = await loadDisplayTasks(client, signal);
       if (nextDisplay) displayTasks = nextDisplay;
       const refreshed: TodayPlanStep = { phase: "refreshed", tasks, displayTasks, brief, events, previousBrief, previousEvents, snapshot };
       onStep(refreshed);

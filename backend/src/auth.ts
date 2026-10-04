@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { audit, getConn, nowIso, tx } from "./db.js";
+import { postgresQuery } from "./postgres/pool.js";
 import { examPassed, examTodoCount } from "./exam.js";
 import { HttpFail } from "./host/errors.js";
 import { avatarUrlForUser, canUseSkill, visibleSkillIdsForUser } from "./runtime/organization-tree.js";
@@ -241,13 +242,14 @@ function setSessionCookie(c: Context, token: string, maxAge: number): void {
   );
 }
 
-function sessionUser(c: Context): AppUser | undefined {
+async function sessionUser(c: Context): Promise<AppUser | undefined> {
   const token = cookies(c)[COOKIE];
   if (!token) return undefined;
-  const row = getConn().prepare(
+  const [row] = await postgresQuery<Row>(
     `SELECT u.* FROM auth_sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.id_hash = ? AND s.expires_at > ? AND u.active = 1`,
-  ).get(hashToken(token), nowIso()) as Row | undefined;
+      WHERE s.id_hash = $1 AND s.expires_at > $2 AND u.active = 1`,
+    [hashToken(token), nowIso()],
+  );
   return row ? mapUser(row) : undefined;
 }
 
@@ -274,7 +276,7 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     const requestOrigin = new URL(c.req.url).origin;
     if (origin !== (expectedOrigin || requestOrigin)) throw new HttpFail(403, "cross-origin mutation rejected");
   }
-  const user = sessionUser(c);
+  const user = await sessionUser(c);
   if (!user && !publicPath(new URL(c.req.url).pathname)) throw new HttpFail(401, "authentication required");
   return user ? requestUser.run(user, next) : next();
 };
@@ -331,7 +333,7 @@ function createSession(c: Context, userId: string): void {
 
 export const authRouter = new Hono();
 
-authRouter.get("/auth/status", (c) => {
+authRouter.get("/auth/status", async (c) => {
   if (authDisabled()) {
     const access = personaAccess();
     const persona = PERSONAS[getPersonaKey()] || PERSONAS.sriphy;
@@ -353,7 +355,7 @@ authRouter.get("/auth/status", (c) => {
     });
   }
   const count = getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
-  const user = sessionUser(c);
+  const user = await sessionUser(c);
   return c.json({
     setup_required: Number(count.n) === 0,
     authenticated: Boolean(user),

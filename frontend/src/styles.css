@@ -15048,6 +15048,15 @@ button.today-brief-primary-btn:disabled {
   line-height: var(--ds-line-helper);
 }
 .pool-score-feedback.is-error { color: var(--danger); }
+.pool-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-2);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
 .scope-task-rail .pool-compact-pane {
   padding-top: 0;
 }
@@ -15570,6 +15579,67 @@ button.today-brief-primary-btn:disabled {
 .task-center-system-toggle strong, .task-center-system-toggle small { display: block; }
 .task-center-system-toggle small { margin-top: 2px; color: var(--text-muted); font-size: var(--ds-font-helper, 12px); }
 .task-center-system-toggle > span:last-child { color: var(--accent-text); font-size: var(--ds-font-sm, 13px); white-space: nowrap; }
+
+/* User-directed compact typography: one text size across workbench surfaces.
+   Icons retain their geometry; technical logs retain the documented mono face. */
+#root .workbench, #root .workbench :where(:not(svg):not(svg *)) {
+  font-size: var(--ds-font-sm) !important;
+  font-family: var(--sans) !important;
+}
+#root .workbench :is(pre, code, .mono) {
+  font-family: var(--mono) !important;
+}
+.workbench :is(h1, h2, h3, h4, h5, h6) {
+  line-height: var(--ds-line-body);
+  font-weight: 600;
+}
+.session-center { position: relative; }
+.session-stream.conversation {
+  flex: 1 1 0;
+  overflow-anchor: auto;
+  padding-bottom: calc(var(--workspace-arrow-button-size) + var(--space-4));
+}
+/* A flex feed must not shrink its messages into its viewport: that truncates
+   scroll geometry and can make the final action unreachable. */
+.session-stream.conversation > * { flex-shrink: 0; }
+.session-composer { flex-shrink: 0; }
+.session-scroll-control {
+  position: relative;
+  height: 0;
+  flex-shrink: 0;
+  z-index: 2;
+}
+.session-scroll-control button {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-3);
+  display: grid;
+  place-items: center;
+  width: var(--workspace-arrow-button-size);
+  height: var(--workspace-arrow-button-size);
+  padding: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  box-shadow: var(--shadow-quiet);
+}
+.session-scroll-control svg { width: var(--icon-md); height: var(--icon-md); }
+.runtime-action-card { padding: var(--space-3); margin-block: var(--space-2); }
+.runtime-action-summary { display: grid; gap: var(--space-2); margin-block: var(--space-3); }
+.runtime-action-summary > div { display: grid; gap: var(--space-1); }
+.runtime-action-summary dt { color: var(--text-muted); }
+.runtime-action-summary dd { margin: 0; overflow-wrap: anywhere; }
+.runtime-action-card pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-internal-review { color: var(--text-muted); margin-block: var(--space-2); }
+.agent-internal-review summary { cursor: pointer; }
+.home-pane[data-home-workspace] .scope-workspace-center-scroll {
+  padding-bottom: calc(var(--workspace-arrow-button-size) + var(--space-4));
+}
+.home-pane[data-home-workspace] .scope-workspace-center-scroll-content { overflow-anchor: auto; }
+.scope-scroll-jump { border-radius: var(--radius-control); }
+@media (pointer: coarse) {
+  .session-scroll-control button { width: var(--touch-hit-min); height: var(--touch-hit-min); }
+  .session-stream.conversation { padding-bottom: calc(var(--touch-hit-min) + var(--space-4)); }
+}
 .task-center-system-body { margin-top: var(--space-4, 16px); }
 /* DESIGN §4/11: enlarge touch hit areas independently from visual controls.
    Reserve space between chips so the transparent targets cannot overlap. */

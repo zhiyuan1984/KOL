@@ -19,10 +19,10 @@ import { canonicalPlanCacheKey, memoryTasksOf, planStartEvent, restorePlanCache,
 import type { PlanScope, PlanSnapshotInfo, TodayPlanPhase } from "./todayPlan";
 
 export interface PlanScopeClient {
-  getBrief: () => Promise<TodayBriefResponse>;
+  getBrief: (signal?: AbortSignal) => Promise<TodayBriefResponse>;
   startPlan: () => Promise<TodayPlanResult>;
-  listOpenTasks: () => Promise<Task[]>;
-  getDisplayTasks?: () => Promise<DisplayTaskRow[]>;
+  listOpenTasks: (signal?: AbortSignal) => Promise<Task[]>;
+  getDisplayTasks?: (signal?: AbortSignal) => Promise<DisplayTaskRow[]>;
 }
 
 export interface UsePlanScopeResult {

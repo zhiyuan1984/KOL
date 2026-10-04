@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { postgresPool } from "../src/postgres/pool.js";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { DEMO_USER } from "../src/config.js";
@@ -66,6 +67,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   resetDemoRuntimeState();
   resetPollCache();
   resetStarryHomeLibrarySync();
@@ -77,7 +79,9 @@ afterEach(() => {
 describe("GET /api/tasks list payloads", () => {
   it("caps each work item's history tail while keeping the aggregate result correct", async () => {
     const last = seedEventTail("tsk_home_laozhang_quote", 400);
+    const queries = vi.spyOn(postgresPool(), "query");
     const listed = await request("GET", "/api/tasks");
+    expect(queries.mock.calls.filter(([sql]) => String(sql).includes("unnest($1::text[])"))).toHaveLength(1);
     expect(listed.status).toBe(200);
     const rows = listed.body as unknown as Json[];
     const row = rows.find((item) => item.id === "tsk_home_laozhang_quote") as Json;
