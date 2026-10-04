@@ -243,7 +243,7 @@ function hostFastBrief(pack: TodayPlanPack): Json {
   return {
     lead: first ? `先处理 ${first.title || "最高优先级任务"}` : "当前没有需要优先处理的开放任务",
     sections: [{
-      title: "合作阶段任务",
+      title: "Starry 合作库阶段快照",
       body: `待打招呼 ${pack.stage_counts.greet} · 待跟进 ${pack.stage_counts.follow} · 待报价 ${pack.stage_counts.quote} · 谈判中 ${pack.stage_counts.negotiate}`,
       items: [
         `今日视图 ${formal.filter((item) => isTodayWorkItem(item)).length} 项`,
@@ -269,6 +269,7 @@ function hostFastBrief(pack: TodayPlanPack): Json {
       today_tasks: formal.filter((item) => isTodayWorkItem(item)).length,
       todo_tasks: formal.filter((item) => !isTodayWorkItem(item)).length,
       stage_counts: pack.stage_counts,
+      stage_counts_source: "starry_local_mirror",
     },
     source_cursor: pack.source_cursor,
     increment_summary: `已生成 ${formal.length} 项任务的统一工作计划`,
@@ -670,17 +671,21 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
   const snapshot = brief && typeof brief === "object" && !Array.isArray(brief) ? brief : {} as Json;
   const storedRevision = String(snapshot.source_revision || ((snapshot.source_cursor as Json | undefined)?.cursor_to || ""));
   let currentRevision = "";
+  let sourceLookupFailed = false;
   if (brief) {
     try {
       currentRevision = String(packTodayPlanContext(owner, scope).source_cursor?.cursor_to || "");
     } catch {
-      // A source lookup failure never erases the last good plan snapshot.
-      currentRevision = "";
+      // Keep the last successful snapshot, but never represent an unverified
+      // source read as fresh.
+      sourceLookupFailed = true;
     }
   }
-  const staleReason = brief && storedRevision && currentRevision && storedRevision !== currentRevision
-    ? "source_revision_changed"
-    : null;
+  const staleReason = brief && storedRevision && sourceLookupFailed
+    ? "source_lookup_failed"
+    : brief && storedRevision && currentRevision && storedRevision !== currentRevision
+      ? "source_revision_changed"
+      : null;
   // The 思考过程 card must show the trace of the newest attempt, including a
   // failed one; the brief pointer only exists after a success, so it is the
   // last resort rather than the default.
