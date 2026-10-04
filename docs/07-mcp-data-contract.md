@@ -18,7 +18,7 @@ Starry KOL 只读取管理侧保存的地址及保险柜引用，不再读取 MC
 
 `start_crawl` 只接受海外平台码 `youtube` / `instagram` / `facebook`；`xhs` / `dy` / `ks` / `bili` / `wb` / `tieba` / `zhihu` 为历史遗留码，仅供旧计划与既有快照。自动化采集测试必须只用海外码，不得把历史码当作被测场景。
 
-内置 `claw` 连接器及与其管理端 URL 相同的 MCP 连接器按 **Host-only MediaCrawler** 接入，不再用环境 URL 识别。测试使用 AI 发现相同的 `tools/call(start_crawl)`，以 YouTube 一次性测试词启动，并在获得 `task_id` 后立即 `tools/call(stop_crawl)`。测试真实创建远端任务，不能在已有采集任务运行时重复点击；若启动响应丢失任务 ID，无法保证停止，必须检查远端任务。成功只证明该 Host 业务调用链可用，不代表 `tools/list` 或通用技能工具清单可用；不登记虚构的工具 schema，启用需同配置版本的成功测试。异步作业使用已启用的管理配置及组织保险柜凭据，个人凭据不充当后台身份。其他 MCP 连接器仍使用 `tools/list` 完成工具登记和技能挂载。
+内置 `claw` 与其他 MCP 一样，通过管理端 `tools/list` 登记真实工具与 schema；不按环境变量或 URL 相等判断 Host 专用连接。读写工具均可挂载，L3 及风险下限目录中的工具调用只能提出待确认动作；实际执行复核当前身份、Agent→技能→连接器→工具绑定、参数快照、配置/schema 版本、业务范围和适用审批。默认连接测试只读目录，不启动采集。真实采集通过 `crawler_collect` 技能独立确认、持久执行与监控；结果读取和停止必须绑定任务 ID。未知远端结果保留不确定状态，禁止盲重试。采集和 Starry 导入是两个独立动作。凭据继续只从管理配置的保险柜引用解析。
 
 入库回调使用独立的 `MEDIACRAWLER_INGEST_SECRET_REF`（组织保险柜引用），兼容显式配置的 `MEDIACRAWLER_INGEST_TOKEN`；不再回退到旧 MCP 环境令牌。回调认证与出站连接配置是独立用途。
 

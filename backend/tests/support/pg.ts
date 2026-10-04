@@ -40,6 +40,9 @@ export async function freshTestDatabase(): Promise<string> {
   }
   created.push(name);
   process.env.DATABASE_URL = urlWithDatabase(name);
+  const { postgresPool } = await import("../../src/postgres/pool.js");
+  const { runtimeActionSchema } = await import("../../src/runtime/action-schema.js");
+  await postgresPool().query(runtimeActionSchema);
   return name;
 }
 

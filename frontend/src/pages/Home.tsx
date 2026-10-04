@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { bindExpertSession, fetchExpert, CRAWLER_EXPERT_ID } from "../experts";
 import {
   api,
   type FromTextResult,
@@ -70,7 +71,6 @@ import {
   isMissingEndpoint,
   loadDiscoveryTemplate,
   refreshWorkbenchSessions,
-  runHomeDiscovery,
 } from "../home/discoveryHome";
 import {
   HOME_MODES,
@@ -604,17 +604,16 @@ export default function Home() {
     // 只有确实是发现模板正文时才清空，避免连带丢掉无关输入。
     if (text.startsWith(DISCOVERY_BODY_PREFIX)) setText("");
     try {
-      const result = await runHomeDiscovery({
-        brief,
-        body,
-      });
+      const expert = await fetchExpert(CRAWLER_EXPERT_ID);
+      if (!expert) throw new Error("线索智能体暂不可用，请稍后重试。");
+      const result = await api.summonExpert(CRAWLER_EXPERT_ID);
       // ▪ 只中止客户端后续动作：不调用后端取消，也不改任何服务端状态。
       if (intakeCancelled.current) return;
-      setDiscoveryTaskId(result.work_item_id || null);
-      setDiscoveryRunId(result.run_id || null);
+      bindExpertSession(result.session_id, expert, result);
+      storePending(result.session_id, { text: body, intent: "crawler_collect" });
       refreshWorkbenchSessions();
       clearDiscoveryLock();
-      if (mode !== "discovery") setMode("discovery");
+      nav(`/s/${result.session_id}`);
     } catch (error) {
       setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {

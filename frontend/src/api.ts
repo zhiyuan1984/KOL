@@ -1,3 +1,10 @@
+export type RuntimeActionView = {
+  id: string; skill_id: string; operation: string; arguments: Record<string, unknown>;
+  state: string; risk: "L3"; confirmation_version: string; blocked_reason: string | null;
+  receipt: Record<string, unknown> | null; error_code: string | null;
+  crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null } | null;
+  execution?: { id: string; status: string; error_code: string | null } | null;
+};
 export type OperationJob = {
   id: string;
   status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled" | "uncertain";
@@ -1678,6 +1685,11 @@ export type AdminSaveBudgetInput = {
 };
 
 export const api = {
+  runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
+  confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),
+  cancelRuntimeAction: (id: string) => request("/api/actions/runtime.cancel", { method: "POST", body: JSON.stringify({ action_id: id }) }),
+  proposeCrawlStop: (id: string) => request("/api/actions/runtime.crawl.stop", { method: "POST", body: JSON.stringify({ action_id: id }) }),
+  proposeCrawlRetry: (id: string) => request("/api/actions/runtime.crawl.retry", { method: "POST", body: JSON.stringify({ action_id: id }) }),
   get: (path: string) => request<unknown>(path),
   post: (path: string, body?: unknown) =>
     request<unknown>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),

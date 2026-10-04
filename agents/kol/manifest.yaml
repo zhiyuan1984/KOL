@@ -1,6 +1,6 @@
 {
   "id": "agent:kol",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "status": "production",
   "publish_gate": {
     "state": "published",
@@ -12,7 +12,7 @@
   "organization_scope": ["org:lt_team", "org:pq_ro_tb_team"],
   "brand_scope": ["brand:lt", "brand:pq", "brand:ro", "brand:tb"],
   "region_scope": ["region:eu", "region:us", "region:ca_au"],
-  "skills": ["stage_sop", "creator_discovery", "discovery_plan", "discovery_brief", "creator_profile", "creator_scoring", "creator_outreach", "email_conversation_read", "email_compose", "reply_analysis", "confirm_stage", "deal_memory", "risk_scan", "business_approval", "creator_contact_decrypt", "creator_filter_options", "creator_library_all", "creator_library_query", "creator_library_sync", "creator_lifecycle_kanban", "creator_owner_update", "creator_risk_conversations", "creator_status_update", "email_app_conversation_list", "email_conversation_list", "email_mailbox_list", "kol_analyze", "mail_translate", "creator_budget_report", "creator_daily_tasks", "mail_summary"],
+  "skills": ["crawler_collect", "stage_sop", "creator_discovery", "discovery_plan", "discovery_brief", "creator_profile", "creator_scoring", "creator_outreach", "email_conversation_read", "email_compose", "reply_analysis", "confirm_stage", "deal_memory", "risk_scan", "business_approval", "creator_contact_decrypt", "creator_filter_options", "creator_library_all", "creator_library_query", "creator_library_sync", "creator_lifecycle_kanban", "creator_owner_update", "creator_risk_conversations", "creator_status_update", "email_app_conversation_list", "email_conversation_list", "email_mailbox_list", "kol_analyze", "mail_translate", "creator_budget_report", "creator_daily_tasks", "mail_summary"],
   "_deprecated_skills": "15 个分阶段 sop_* 技能（sop_initial_contact…sop_settling）已由 stage_sop 取代并废止：不装配、不建 lifecycle、不进员工面。依据 CONST-09 保留记录，见 docs/implementation-registry.md。",
   "workflows": ["creator_to_outreach", "email_follow_up", "campaign_delivery"],
   "policies": ["send_email", "change_stage", "import_creator"],
@@ -24,7 +24,7 @@
     "entries": [
       { "id": "kol", "title": "KOL 智能体", "summary": "分析合作、展示适用 SOP、准备草稿和跟进建议。发信与正式阶段写入必须受控。", "skillId": "stage_sop", "prompt": "阶段SOP", "profileIds": ["lead", "opportunity", "negotiation", "execution"] },
       { "id": "approval", "title": "审批智能体", "summary": "补齐费用申请、匹配制度、催办和解释结果。AI 不代替审批人同意。", "skillId": "business_approval", "prompt": "费用审批", "profileIds": ["commander", "settlement-growth"] },
-      { "id": "crawler", "title": "爬虫智能体", "summary": "把找人目标变成采集计划、跟踪和转交。不自动发信或创建合作承诺。", "skillId": "creator_discovery", "prompt": "发现达人", "profileIds": ["lead"] }
+      { "id": "crawler", "title": "爬虫智能体", "summary": "把找人目标变成采集计划、跟踪和转交。不自动发信或创建合作承诺。", "skillId": "crawler_collect", "prompt": "采集线索", "profileIds": ["lead"] }
     ],
     "teams": [
       { "id": "reach-squad", "title": "建联小队", "summary": "发现达人 → 补画像 → 写合作邮件。发送不等于改阶段。", "profileIds": ["lead"], "steps": [

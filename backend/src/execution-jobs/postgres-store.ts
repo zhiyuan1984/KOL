@@ -155,11 +155,11 @@ export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: {
     await client.query(
       `INSERT INTO execution_outbox
        (id,job_id,event_type,aggregate_type,aggregate_id,payload_json,idempotency_key,status,attempts,available_at,published_at,last_error,created_at,updated_at,publisher_id,publisher_lease_until)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',0,$8,NULL,NULL,$8,$8,NULL,NULL)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',0,$8,NULL,NULL,$9,$9,NULL,NULL)
        ON CONFLICT (idempotency_key) DO NOTHING`,
       [
         nid("obx"), id, outbox.event_type, outbox.aggregate_type, outbox.aggregate_id,
-        JSON.stringify(outbox.payload || {}), outbox.idempotency_key || `execution-job:${input.idempotency_key}:queued`, stamp,
+        JSON.stringify(outbox.payload || {}), outbox.idempotency_key || `execution-job:${input.idempotency_key}:queued`, input.next_attempt_at || stamp, stamp,
       ],
     );
     return { job, created: true };

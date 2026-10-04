@@ -1,4 +1,7 @@
 import { executeClaimedCronJob } from "../cron/worker.js";
+import { executionHandler } from "./handlers.js";
+import "../runtime/action-worker.js";
+import "../crawl/runtime-gates.js";
 import { pgExecutionJobById } from "./postgres-store.js";
 import {
   type ClaimedExecutionJob,
@@ -29,6 +32,17 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
   const id = String(claimed.id);
   const jobType = String(claimed.job_type);
   try {
+    const registered = executionHandler(jobType);
+    if (registered) {
+      const checkpoint = async () => {
+        const current = await pgExecutionJobById(id);
+        if (current?.status !== "running" || current.lease_owner !== claimed.worker_id) throw new Error("execution_job_claim_lost_or_cancelled");
+      };
+      const receipt = await registered(claimed, checkpoint);
+      await checkpoint();
+      const completed = await runtimeCompleteExecutionJob(id, receipt, new Date(), claimed.worker_id);
+      return { execution_job_id: id, job_type: jobType, handled: true, outcome: completed ? "processed" : "duplicate" };
+    }
     if (jobType === "mail.sync") {
       if (process.env.KOL_RUNTIME_MODE === "postgres-only") {
         await runtimeQuarantineExecutionJob(id, { code: "needs_takeover", summary: "Mail index adapter is not available in PostgreSQL-only mode" });

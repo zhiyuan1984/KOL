@@ -14,6 +14,8 @@ import { appendTaskEvent } from "../task-events.js";
 import type { Json, Row } from "../types.js";
 import { CRAWL_PLATFORM_SET } from "./platforms.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
+import { withCrawlerInstanceLock, assertNoRuntimeCrawl } from "./runtime-gates.js";
+import { getConnectorConfig } from "../runtime/store.js";
 
 const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
@@ -180,7 +182,19 @@ async function remoteCall(name: string, args: Json, jobId?: string): Promise<Jso
   }
 }
 
-export async function startCrawl(input: {
+export async function startCrawl(input: Parameters<typeof startLegacyCrawl>[0]): Promise<Json> {
+  if (getConn().prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id='runtime.crawler-skill.v1'").get()) {
+    throw new HttpFail(410, { code: "crawler_skill_entry_required", message: "采集已迁移到线索智能体，请在采集线索技能中核对并确认。", next_action: "open_crawler_agent" });
+  }
+  const url = getConnectorConfig("claw")?.config.url;
+  if (!url) return startLegacyCrawl(input);
+  return withCrawlerInstanceLock(url, async () => {
+    await assertNoRuntimeCrawl(url);
+    return startLegacyCrawl(input);
+  });
+}
+
+async function startLegacyCrawl(input: {
   ownerUserId: string;
   workItemId: string;
   sessionId?: string | null;

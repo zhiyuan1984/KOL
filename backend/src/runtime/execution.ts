@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { audit, getConn } from "../db.js";
-import { runtimeHostOnlyTool } from "../gateway/runtime-policy.js";
+import { runtimeRequiresGate } from "../gateway/runtime-policy.js";
 import { HttpFail } from "../host/errors.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../mcp/remote.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
@@ -11,7 +11,9 @@ import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js"
 import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
 import { canUseAgent, canUseSkill } from "./organization-tree.js";
-import { isMediaCrawlerHostConfig } from "./mediacrawler-config.js";
+import { proposeRuntimeAction, runtimeAction, claimRuntimeAction, finishRuntimeAction } from "./action-store.js";
+import { runtimeActionGate, validateRuntimeToolScope } from "./action-gates.js";
+import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
 export type RuntimeRemote = Pick<RemoteMcpClient, "listTools" | "callToolRaw" | "close">;
@@ -105,8 +107,8 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
  * Runtime authorization for one connector. The only per-person unit is Agent
  * use qualification (CONST-05 / ADR-2026-10-03): being allowed to use the
  * Agent that assembles this Skill, an enabled Skill→Connector binding, an
- * enabled connector and the unchanged internal gates (tool policy, host-only,
- * L3 via Host Gateway). Connectors and tools are never granted per person.
+ * enabled connector and the internal gates (tool policy and controlled-action
+ * submission). Connectors and tools are never granted per person.
  */
 export function authorizeConnector(context: RuntimeContext, connectorId: string) {
   const skill = assertRuntimeSkill(context);
@@ -119,7 +121,6 @@ export function authorizeConnector(context: RuntimeContext, connectorId: string)
   if (!connector?.enabled) reject("runtime_connector_disabled");
   const configuration = getConnectorConfig(connectorId);
   if (!configuration) reject("runtime_connector_not_configured", 409);
-  if (isMediaCrawlerHostConfig(configuration.config, connectorId)) reject("runtime_host_only_connector", 403);
   return { ...skill, resourceBinding: binding, connector, configuration };
 }
 function authorizationStamp(auth: ReturnType<typeof authorizeConnector>, policy?: Row, toolBinding?: Row): string {
@@ -217,7 +218,7 @@ function validTool(tool: Json): boolean {
   return walk(schema, 0);
 }
 function isPolicyAllowed(policy: Row | undefined, tool: Json): boolean {
-  return Boolean(!runtimeHostOnlyTool(String(tool.name)) && policy?.enabled && ["L1", "L2"].includes(String(policy.risk))
+  return Boolean(policy?.enabled && ["L1", "L2", "L3"].includes(String(policy.risk))
     && ["read", "write"].includes(String(policy.access)) && policy.schema_hash === toolSchemaHash(tool));
 }
 
@@ -229,8 +230,10 @@ export class SkillExecution {
   private handles = new Map<string, DiscoveredTool>();
   private clients = new Set<RuntimeRemote>();
   private closed = false;
+  private confirmedActionId?: string;
   constructor(readonly context: RuntimeContext,
-    private readonly clientFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options)) {}
+    private readonly clientFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options),
+    private readonly checkpoint: () => Promise<void> = async () => {}) {}
 
   close(): void {
     this.closed = true;
@@ -284,10 +287,12 @@ export class SkillExecution {
           // upstream contradictions. Never present L2 writes as read-only.
           const annotations = remote.annotations && typeof remote.annotations === "object"
             ? remote.annotations as Json : {};
-          const readOnly = policy?.risk === "L1" && policy.access === "read"
+          const readOnly = !runtimeRequiresGate(name) && policy?.risk === "L1" && policy.access === "read"
             && annotations.readOnlyHint !== false && annotations.destructiveHint !== true;
           const exposed: Json = { ...remote, name: alias,
-            annotations: { ...annotations, readOnlyHint: readOnly } };
+            annotations: { ...annotations, readOnlyHint: readOnly },
+            _meta: { risk: runtimeRequiresGate(name) ? "L3" : policy?.risk,
+              confirmation_required: runtimeRequiresGate(name) || policy?.risk === "L3" } };
           tools.push({ connectorId, remoteName: name, exposed, schemaHash: toolSchemaHash(remote),
             stamp: authorizationStamp(current, policy, toolBinding), toolBindingVersion: Number(toolBinding.version) });
           authorized += 1;
@@ -311,6 +316,7 @@ export class SkillExecution {
       tool: handle?.remoteName ?? null, schema_hash: handle?.schemaHash ?? null, input: summary(args) };
     let client: RuntimeRemote | undefined;
     let dispatched = false;
+    let claimedHere = false;
     const started = Date.now();
     try {
       this.active();
@@ -321,7 +327,7 @@ export class SkillExecution {
         if (!policy?.enabled) reject("runtime_tool_not_granted");
         const toolBinding = getSkillTool(this.context.skillId, handle.connectorId, handle.remoteName);
         if (!toolBinding?.enabled) reject("runtime_tool_unbound");
-        if (runtimeHostOnlyTool(handle.remoteName) || !["L1", "L2"].includes(String(policy.risk))) reject("runtime_gateway_required");
+        if (!["L1", "L2", "L3"].includes(String(policy.risk))) reject("runtime_gateway_required");
         const current = authorizeConnector(this.context, handle.connectorId);
         if (handle.toolBindingVersion !== Number(toolBinding.version) || handle.schemaHash !== policy.schema_hash
           || handle.stamp !== authorizationStamp(current, policy, toolBinding)) {
@@ -347,7 +353,8 @@ export class SkillExecution {
       const config = authorized.configuration.config;
       // Guard the actual HTTP dispatch for both drivers; the MCP SDK may
       // initialize/reconnect between discovery and tools/call.
-      const guardedOptions: RemoteMcpOptions = { ...options, fetch: (input, init) => {
+      const guardedOptions: RemoteMcpOptions = { ...options, fetch: async (input, init) => {
+        await this.checkpoint();
         guardedCheck();
         return transportFetch(input, init);
       } };
@@ -368,25 +375,75 @@ export class SkillExecution {
       if (!valid) reject("runtime_tool_arguments_invalid", 422);
       if (Buffer.byteLength(JSON.stringify(args)) > 1_000_000) reject("runtime_tool_arguments_too_large", 413);
       authorized = guardedCheck();
+      await validateRuntimeToolScope(handle.connectorId, this.context, handle.remoteName, args);
+      authorized = guardedCheck();
+      const controlled = runtimeRequiresGate(handle.remoteName) || authorized.policy.risk === "L3";
+      const snapshot = runtimeHash({ context: this.context, alias, args, stamp: handle.stamp, credentialStamp });
+      if (controlled) {
+        rejectDiscoveryHarnessTool(handle.remoteName);
+        assertNoCredentialEcho(args, options.headers);
+        if (!this.confirmedActionId) {
+          const action = await proposeRuntimeAction({ context: this.context, connectorId: handle.connectorId,
+            tool: handle.remoteName, args, snapshot, proposalKey: snapshot });
+          guardedCheck();
+          return { content: [{ type: "text", text: "操作尚未执行。请用户在待确认动作中核对范围并确认；模型不能代替用户确认。" }],
+            structuredContent: { action_id: action.id, status: action.state, confirmation_required: true } };
+        }
+        const action = await runtimeAction(this.confirmedActionId, this.context.userId);
+        if (action.snapshot !== snapshot) reject("runtime_action_snapshot_stale", 409);
+        const gate = runtimeActionGate(handle.connectorId, handle.remoteName);
+        await gate.validate(this.context, args);
+        guardedCheck();
+        if (!await claimRuntimeAction(action.id, this.context.userId, snapshot)) reject("runtime_action_already_claimed", 409);
+        claimedHere = true;
+      }
       Object.assign(trace, { agent_binding_version: authorized.binding.version,
         resource_binding_version: authorized.resourceBinding.version, connector_version: authorized.configuration.version,
         policy_version: authorized.policy.version, skill_version: authorized.skillVersion });
       audit(this.context.userId, "runtime.tool.started", trace);
       // No await between final authorization and submission.
-      const pending = client.callToolRaw(handle.remoteName, args);
-      dispatched = true;
-      const result = await pending;
+      const dispatch = async () => {
+        await this.checkpoint();
+        guardedCheck();
+        dispatched = true;
+        const result = await client!.callToolRaw(handle.remoteName, args);
+        assertNoCredentialEcho(result, options.headers);
+        return result;
+      };
+      const result = controlled
+        ? await runtimeActionGate(handle.connectorId, handle.remoteName).execute(this.context, args, this.confirmedActionId!, dispatch)
+        : await dispatch();
       audit(this.context.userId, "runtime.tool.received", { ...trace, output: summary(result), is_error: result.isError === true });
       guardedCheck(); // Suppress data received after revocation; do not claim the remote action was rolled back.
       assertNoCredentialEcho(result, options.headers);
+      if (controlled) await finishRuntimeAction(this.confirmedActionId!, result.isError ? "uncertain" : "succeeded", result);
       audit(this.context.userId, "runtime.tool.completed", { ...trace, output: summary(result), is_error: result.isError === true,
         duration_ms: Date.now() - started });
       return result;
     } catch (error) {
       const code = runtimeErrorCode(error);
+      if (claimedHere) await finishRuntimeAction(this.confirmedActionId!, dispatched ? "uncertain" : "rejected", null, code);
       audit(this.context.userId, "runtime.tool.denied_or_failed", { ...trace, code, dispatched, duration_ms: Date.now() - started });
       throw new HttpFail(error instanceof HttpFail ? error.status : 502, { code });
     } finally { if (client) this.clients.delete(client); await client?.close().catch(() => undefined); }
+  }
+  /** Only the authenticated confirmation route calls this; it is never exposed as an MCP tool. */
+  async confirm(actionId: string, expectedSnapshot: string): Promise<Json> {
+    const action = await runtimeAction(actionId, this.context.userId);
+    if (action.snapshot !== expectedSnapshot || runtimeHash(action.context_json) !== runtimeHash(this.context)) {
+      reject("runtime_action_snapshot_stale", 409);
+    }
+    const catalog = await this.discover();
+    const handle = catalog.tools.find((tool) => tool.connectorId === action.connector_id && tool.remoteName === action.tool_name);
+    if (!handle) reject("runtime_tool_not_granted");
+    if (action.state === "succeeded") {
+      await validateRuntimeToolScope(action.connector_id, this.context, action.tool_name, action.args_json);
+      return action.receipt_json!;
+    }
+    if (action.state !== "pending") reject("runtime_action_already_claimed", 409);
+    this.confirmedActionId = action.id;
+    try { return await this.invoke(String(handle.exposed.name), action.args_json); }
+    finally { this.confirmedActionId = undefined; }
   }
   private trace(): Json {
     return { run_id: this.context.runId, agent_id: this.context.agentId, skill_id: this.context.skillId,
@@ -400,7 +457,6 @@ export async function inspectConnectorTools(context: RuntimeContext, connectorId
   const connector = getConn().prepare("SELECT id FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector) reject("runtime_connector_not_found", 404);
   if (!configuration) reject("runtime_connector_not_configured", 409);
-  if (isMediaCrawlerHostConfig(configuration.config, connectorId)) return [];
   const options = connectorOptions(context, configuration.config);
   const client = createConfiguredClient(context, configuration.config);
   try {

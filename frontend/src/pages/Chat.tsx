@@ -14,6 +14,7 @@ import {
   type SkillTemplate,
 } from "../api";
 import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
+import { RuntimeActions } from "../components/RuntimeActions";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
@@ -1234,11 +1235,11 @@ export default function Chat() {
           </div>
         )}
         {id && (
-          <ChatThread
+          <><RuntimeActions sessionId={id} /><ChatThread
             messages={timelineWithCrawl}
             officialStage={String(journey?.stage_code || "")}
             onRefresh={reload}
-          />
+          /></>
         )}
         </div>
         <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>

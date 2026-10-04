@@ -36,7 +36,7 @@ export type Expert = {
 
 const KOL_MISSION_COPY = "作为 KOL推广岗位身份，帮你看清阶段、准备沟通、给出跟进建议。不发信、不改正式阶段。";
 const KOL_CAN_HELP = ["理解往来邮件和跟进节奏", "给出下一步跟进建议", "起草建联和沟通内容"];
-const CRAWLER_MISSION_COPY = "把海外平台的发现目标变成可查进度、可取消、可重试的采集作业；完成后只形成候选人，由员工确认后才导入。不通过思考会话召唤，请使用任务控制台。";
+const CRAWLER_MISSION_COPY = "把海外平台的发现目标变成可查进度、可取消、可重试的采集作业；完成后只形成候选人，由员工确认后才导入。通过线索智能体提出采集计划，用户确认后执行，等待期间保留任务与进度。";
 const CRAWLER_CAN_HELP = ["提交 YouTube / Instagram 采集作业", "查看采集进度和失败原因", "确认候选后再跟进或导入"];
 const APPROVER_MISSION_COPY = "处理待人决定的审批队列：展示申请人、金额、用途和证据。模型不得扩大授权、代人审批或把建议当作决定。不通过思考会话召唤，请使用审批队列。";
 const APPROVER_CAN_HELP = ["查看待我处理的审批", "同意或驳回并留下回执", "需要时让合作专员说明风险"];
@@ -150,10 +150,10 @@ const CRAWLER_MANIFEST: ExpertManifestView = {
     "按关键词发现海外候选人",
     "采集完成后只保留候选人",
   ],
-  entry_skill: "creator_discovery",
-  kind: "collector",
-  primary_entry: "job_console",
-  skill_ids: ["creator_discovery"],
+  entry_skill: "crawler_collect",
+  kind: "business",
+  primary_entry: "think",
+  skill_ids: ["discovery_plan", "crawler_collect", "discovery_brief"],
   tool_ids: ["mediacrawler"],
 };
 
@@ -215,7 +215,7 @@ export function defaultPrimaryEntry(kind: ExpertKind): ExpertPrimaryEntry {
   return "think";
 }
 
-/** Only think-entry roles may POST /summon. Crawler/approver never summon. */
+/** Only published think-entry roles may POST /summon. */
 export function expertCanSummon(expert: Pick<Expert, "primary_entry" | "kind">): boolean {
   return expert.primary_entry === "think" && expert.kind !== "collector" && expert.kind !== "governance";
 }
@@ -438,7 +438,7 @@ function summonRefusalFromExpert(expert: Pick<Expert, "name" | "primary_entry" |
   const next = entry === "job_console" ? "open_job_console" : entry === "approval_queue" ? "open_approval_queue" : "use_primary_entry";
   return new ExpertSummonRefusedError({
     message: entry === "job_console"
-      ? "该数字员工不通过思考会话召唤，请使用任务控制台。"
+      ? "该数字员工通过线索智能体提出采集计划，用户确认后执行，等待期间保留任务与进度。"
       : entry === "approval_queue"
         ? "该数字员工不通过思考会话召唤，请使用审批队列。模型不得代人批准。"
         : `${expert.name} 不走思考入口，不能召唤进会话`,
@@ -473,7 +473,7 @@ function isConflict(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { status?: number }).status === 409);
 }
 
-/** Only think-entry roles may POST /summon. Never create a plain session for crawler/approver. */
+/** Only think-entry roles may POST /summon; server failures cannot create a fallback session. */
 export async function summonExpert(expert: Expert): Promise<ExpertSummonResult> {
   if (!expertCanSummon(expert)) {
     throw summonRefusalFromExpert(expert);

@@ -121,6 +121,18 @@ describePostgres("native PostgreSQL execution-job repository", () => {
     expect(done).toMatchObject({ status: "succeeded", lease_owner: null });
   });
 
+  it("publishes a delayed monitor only when its authority job is claimable", async () => {
+    const due = "2031-01-01T00:00:05.000Z";
+    const queued = await pgEnqueueExecutionJob({
+      job_type: "runtime.crawl.monitor", tenant_ref: "company:test", actor_ref: "user:test",
+      idempotency_key: "native-delayed-monitor", next_attempt_at: due,
+    });
+    const outbox = await postgresPool().query("SELECT available_at FROM execution_outbox WHERE job_id=$1", [queued.job.id]);
+    expect(outbox.rows[0].available_at).toBe(due);
+    expect(await pgClaimExecutionJobById(String(queued.job.id), "worker-monitor", { now: new Date("2031-01-01T00:00:04.000Z") })).toBeNull();
+    expect(await pgClaimExecutionJobById(String(queued.job.id), "worker-monitor", { now: new Date(due) })).toMatchObject({ status: "running" });
+  });
+
   it("requeues an expired low-risk lease with a fresh Outbox handoff", async () => {
     const queued = await pgEnqueueExecutionJob({
       job_type: "cron.run",

@@ -375,7 +375,7 @@ export function coverageToolStateLabel(state: SkillCoverageToolState): string {
 }
 
 const MOUNT_SKIP_REASON: Record<string, string> = {
-  policy_disabled: "该工具的策略未启用（L3 默认不启用），需先在连接器页逐项决定",
+  policy_disabled: "该工具的策略未启用，需先在连接器页逐项决定；L3 执行前仍需门禁",
   policy_unregistered: "连接器还没有登记这个工具，先在连接器详情完成一次通过的测试",
   unknown_connector: "技能声明了当前目录里不存在的连接器",
 };

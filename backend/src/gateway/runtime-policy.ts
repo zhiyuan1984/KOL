@@ -25,7 +25,7 @@ function policyTools(): Set<string> {
   return cached;
 }
 
-export function runtimeHostOnlyTool(name: string): boolean {
+export function runtimeRequiresGate(name: string): boolean {
   const bare = name.split(/[.:/]/).at(-1) || name;
   return policyTools().has(bare.replace(/[^a-z0-9]/gi, "").toLowerCase());
 }

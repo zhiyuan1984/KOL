@@ -24,6 +24,19 @@ import { freshTestDatabase } from "./support/pg.js";
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import { createCredential } from "../src/runtime/credentials.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
+import { postgresPool } from "../src/postgres/pool.js";
+import { runtimeActionSchema } from "../src/runtime/action-schema.js";
+import { runtimeAction } from "../src/runtime/action-store.js";
+import { registerRuntimeActionGate } from "../src/runtime/action-gates.js";
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
+import { monitorRuntimeCrawl } from "../src/crawl/runtime-gates.js";
+import type { ClaimedExecutionJob } from "../src/execution-jobs/contracts.js";
+import { Hono } from "hono";
+import { operationRouter } from "../src/runtime/operations.js";
+import { runtimeActionOperations } from "../src/runtime/action-operations.js";
+import { HttpFail } from "../src/host/errors.js";
+
+registerRuntimeActionGate("catalog_a", "lookup", { validate() {}, execute: (_context, _args, _id, dispatch) => dispatch() });
 
 let tmp: string;
 let cleanup: Array<() => Promise<unknown>>;
@@ -37,6 +50,7 @@ const denied = (code: string) => ({ detail: { code } });
 
 beforeEach(async () => {
   await freshTestDatabase();
+  await postgresPool().query(runtimeActionSchema);
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-runtime-execution-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
@@ -105,6 +119,72 @@ async function one(hooks: Parameters<typeof fake>[1] = {}) {
 }
 
 describe("governed Skill Runtime", () => {
+  it("only the owning authenticated user can enqueue the immutable confirmation once", async () => {
+    const { runtime, calls } = await one();
+    approve("catalog_a", tool(), "L3", "write");
+    const catalog = await runtime.discover();
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
+    const app = new Hono();
+    app.onError((error, c) => c.json({ code: error instanceof HttpFail ? error.detail : "failed" }, error instanceof HttpFail ? error.status as 400 : 500));
+    app.route("/api", operationRouter(runtimeActionOperations));
+    const confirm = () => app.request("/api/actions/runtime.confirm", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action_id: action.id, confirmation_version: action.snapshot, args: { query: "cannot-override" } }) });
+    expect((await confirm()).status).toBe(401);
+    const other = mapUser(getConn().prepare("SELECT * FROM users WHERE id='user-b'").get() as Json);
+    expect((await withScopedUser(other, confirm)).status).toBe(404);
+    const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
+    expect((await withScopedUser(owner, confirm)).status).toBe(202);
+    expect((await withScopedUser(owner, confirm)).status).toBe(202);
+    const jobs = (await postgresPool().query("SELECT payload_json FROM execution_jobs WHERE job_type='runtime.confirm'")).rows;
+    expect(jobs).toHaveLength(1);
+    expect(JSON.stringify(jobs)).not.toContain("cannot-override");
+    expect(calls).toHaveLength(0);
+  });
+  it.each([null, "remote process failed"])("mounts MediaCrawler writes, persists one remote job, enforces task scope, and resumes monitoring (%s)", async (remoteError) => {
+    configureCrawlerFixture("http://crawler.example.test/mcp");
+    const crawlContext = { ...context, skillId: "crawler_collect" };
+    setAgentSkill(context.agentId, "crawler_collect", true, 0);
+    setSkillConnector("crawler_collect", "claw", true, 0);
+    const start = { name: "start_crawl", inputSchema: { type: "object", properties: { platforms: { type: "array" }, crawler_type: { type: "string" }, keywords: { type: "string" } } } };
+    const status = { name: "get_crawl_status", inputSchema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] } };
+    for (const descriptor of [start, status]) {
+      approve("claw", descriptor, descriptor === start ? "L3" : "L1", descriptor === start ? "write" : "read");
+      setSkillTool("crawler_collect", "claw", descriptor.name, true, 0);
+    }
+    let remoteCalls = 0;
+    const factory = (): RuntimeRemote => ({
+      listTools: async () => [start, status], close: async () => {},
+      callToolRaw: async (name, args) => { remoteCalls += 1; return { structuredContent: name === "start_crawl"
+        ? { ok: true, task_id: "remote-one", status: "running" }
+        : { task_id: args?.task_id, status: "idle", error_message: remoteError } }; },
+    });
+    const runtime = new SkillExecution(crawlContext, factory);
+    const catalog = await runtime.discover();
+    expect(catalog.tools).toHaveLength(2);
+    const startAlias = String(catalog.tools.find((item) => item.remoteName === "start_crawl")!.exposed.name);
+    const args = { platforms: ["youtube"], crawler_type: "search", keywords: "camping" };
+    const proposed = await runtime.invoke(startAlias, args);
+    expect(remoteCalls).toBe(0);
+    const action = await runtimeAction(String((proposed.structuredContent as Json).action_id), context.userId);
+    await new SkillExecution(crawlContext, factory).confirm(action.id, action.snapshot);
+    expect(remoteCalls).toBe(1);
+    const second = await runtime.invoke(startAlias, { ...args, keywords: "outdoor" });
+    const secondAction = await runtimeAction(String((second.structuredContent as Json).action_id), context.userId);
+    await expect(new SkillExecution(crawlContext, factory).confirm(secondAction.id, secondAction.snapshot))
+      .rejects.toMatchObject(denied("runtime_probe_crawl_busy"));
+    expect(remoteCalls).toBe(1);
+    const statusAlias = String(catalog.tools.find((item) => item.remoteName === "get_crawl_status")!.exposed.name);
+    await expect(runtime.invoke(statusAlias, { task_id: "someone-elses-task" })).rejects.toMatchObject(denied("runtime_crawl_scope_denied"));
+    const monitor = (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='crawler.monitor'")).rows[0];
+    expect(monitor).toBeTruthy();
+    const delivery = (await postgresPool().query("SELECT available_at FROM execution_outbox WHERE job_id=$1", [monitor.id])).rows[0];
+    expect(new Date(delivery.available_at).getTime()).toBe(new Date(monitor.next_attempt_at).getTime());
+    expect((await postgresPool().query("SELECT count(*)::int AS n FROM execution_outbox WHERE job_id=$1", [monitor.id])).rows[0].n).toBe(1);
+    const receipt = await monitorRuntimeCrawl({ ...monitor, worker_id: "test" } as ClaimedExecutionJob, async () => {}, (ctx) => new SkillExecution(ctx, factory));
+    expect(receipt).toMatchObject({ state: remoteError ? "failed" : "succeeded" });
+    expect((await postgresPool().query("SELECT state FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].state).toBe(remoteError ? "failed" : "succeeded");
+  });
   it.each([
     ["missing annotations", undefined, "L1", "read", true],
     ["explicit write", { readOnlyHint: false }, "L1", "read", false],
@@ -250,8 +330,11 @@ describe("governed Skill Runtime", () => {
   it("L3 registration cannot make a tool directly callable, even by admin", async () => {
     const { runtime, alias, calls } = await one();
     approve("catalog_a", tool(), "L3", "write");
-    await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_gateway_required"));
-    expect((await runtime.discover()).tools).toHaveLength(0);
+    await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_binding_changed"));
+    const catalog = await runtime.discover();
+    expect(catalog.tools).toHaveLength(1);
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    expect(result.structuredContent).toMatchObject({ status: "pending", confirmation_required: true });
     expect(calls).toHaveLength(0);
   });
 
@@ -269,8 +352,52 @@ describe("governed Skill Runtime", () => {
     connector("catalog_a", [dangerous]);
     const fixture = fake({ "http://catalog_a.example.test/mcp": [dangerous] });
     const runtime = new SkillExecution({ ...context, userId: "admin-a" }, fixture.factory);
-    expect((await runtime.discover()).tools).toHaveLength(0);
+    const catalog = await runtime.discover();
+    expect(catalog.tools).toHaveLength(1);
+    expect(catalog.tools[0].exposed.annotations).toMatchObject({ readOnlyHint: false });
+    expect((await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" })).structuredContent)
+      .toMatchObject({ status: "pending" });
     expect(fixture.calls).toHaveLength(0);
+  });
+
+  it("persists a proposal and confirms exactly once across fresh runtimes and simultaneous requests", async () => {
+    const { runtime, calls, factory } = await one();
+    approve("catalog_a", tool(), "L3", "write");
+    const catalog = await runtime.discover();
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
+    expect(calls).toHaveLength(0);
+    const confirmed = await Promise.allSettled([1, 2].map(() => new SkillExecution(context, factory).confirm(action.id, action.snapshot)));
+    expect(confirmed.some((item) => item.status === "fulfilled")).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect((await runtimeAction(action.id, context.userId)).state).toBe("succeeded");
+    await new SkillExecution(context, factory).confirm(action.id, action.snapshot);
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each(["parameters", "policy", "identity"])("invalidates confirmation after %s changes", async (change) => {
+    const { runtime, calls, factory } = await one();
+    approve("catalog_a", tool(), "L3", "write");
+    const catalog = await runtime.discover();
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
+    if (change === "parameters") await postgresPool().query("UPDATE runtime_actions SET args_json=$2 WHERE id=$1", [action.id, JSON.stringify({ query: "other" })]);
+    if (change === "policy") approve("catalog_a", tool(), "L3", "write");
+    if (change === "identity") getConn().prepare("UPDATE users SET active=0 WHERE id=?").run(context.userId);
+    await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("retains an uncertain receipt after a dispatched timeout and forbids replay", async () => {
+    const { runtime, calls, factory } = await one({ call: () => { throw new Error("timeout"); } });
+    approve("catalog_a", tool(), "L3", "write");
+    const catalog = await runtime.discover();
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
+    await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
+    expect((await runtimeAction(action.id, context.userId)).state).toBe("uncertain");
+    await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
+    expect(calls).toHaveLength(1);
   });
 
   it("pins schema and description changes and rejects invalid arguments", async () => {

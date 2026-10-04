@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { Client } from "pg";
+import { runtimeActionSchema } from "../src/runtime/action-schema.js";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL schema migration");
@@ -44,6 +45,7 @@ type SchemaMigration = {
 };
 
 const migrations: SchemaMigration[] = [
+  { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
   {
     id: "20261003_managed_agents",
     statements: [
@@ -726,6 +728,8 @@ const migrations: SchemaMigration[] = [
   },
 ];
 
+const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
+if (onlyMigration && !migrations.some((migration) => migration.id === onlyMigration)) throw new Error("Unknown migration selection");
 const client = new Client({ connectionString: databaseUrl });
 await client.connect();
 try {
@@ -736,6 +740,7 @@ try {
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'app_schema_migrations'",
     )).rows[0]?.n || 0,
   ) === 0;
+  if (empty && onlyMigration) throw new Error("Selective migration requires an initialized database");
   if (empty) await client.query(baselineSql);
   await client.query(`CREATE TABLE IF NOT EXISTS app_schema_migrations (
     id TEXT PRIMARY KEY,
@@ -759,6 +764,7 @@ try {
     completed.push(BASELINE_ID);
   }
   for (const migration of migrations) {
+    if (onlyMigration && migration.id !== onlyMigration) continue;
     // DDL is idempotent even if a prior deploy created the table before this
     // ledger existed. Recording it prevents future release restarts from
     // executing non-idempotent migrations accidentally.
