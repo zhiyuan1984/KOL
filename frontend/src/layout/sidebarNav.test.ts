@@ -59,6 +59,7 @@ describe("admin sidebar parity", () => {
       "connectors",
       "knowledge",
       "approvals",
+      "approval-types",
       "skills",
       "exams",
       "agents",
@@ -68,13 +69,14 @@ describe("admin sidebar parity", () => {
       "audit",
       "kol",
     ]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 3, 1, 2, 5]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 4, 1, 2, 5]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
       "工作战报",
       "连接",
       "知识",
       "审批",
+      "评审流程",
       "技能",
       "考试",
       "治理",
@@ -94,6 +96,7 @@ describe("admin sidebar parity", () => {
     expect(adminTabOf("/admin")).toBe("employees");
     expect(adminTabOf("/admin/overview")).toBe("overview");
     expect(adminTabOf("/admin/audit")).toBe("audit");
+    expect(adminTabOf("/admin/approval-types")).toBe("approval-types");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
     expect(adminTabOf("/admin/unknown")).toBe("employees");
   });

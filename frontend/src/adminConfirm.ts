@@ -26,6 +26,7 @@ export type AdminConfirmCopy = {
 };
 
 export type AdminConfirmKind =
+  | "review-command"
   | "user-deactivate"
   | "employee-tool-grants"
   | "connector-disable"

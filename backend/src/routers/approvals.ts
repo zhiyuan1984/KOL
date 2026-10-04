@@ -286,7 +286,9 @@ approvals.post("/approvals/:aid/decide", async (c) => {
 });
 
 approvals.get("/wecom/cards", (c) => {
-  return c.json(listWecomCards());
+  if (authDisabled()) return c.json(listWecomCards());
+  const visible = new Set(visibleRows().map(row => String(row.id)));
+  return c.json(listWecomCards().filter(card => visible.has(String(card.approval_id || ""))));
 });
 
 approvals.post("/approvals/:aid/transfer", async (c) => {

@@ -236,15 +236,16 @@ export function publishExecutionOutboxForJob(jobId: string, _publisher: string, 
   ).run(stamp, stamp, jobId, stamp).changes);
 }
 
-export function completeExecutionJob(id: string, receipt: Json = {}, now = new Date()): Row | undefined {
+export function completeExecutionJob(id: string, receipt: Json = {}, now = new Date(), transactionDb?: SqliteConn): Row | undefined {
   const stamp = now.toISOString();
-  txImmediate((db) => {
+  const finish = (db: SqliteConn) => {
     db.prepare(
       `UPDATE execution_jobs SET status='succeeded',lease_until=NULL,lease_owner=NULL,receipt_json=?,error_code=NULL,error_summary=NULL,
        terminal_at=?,updated_at=? WHERE id=? AND status='running'`,
     ).run(JSON.stringify(receipt), stamp, stamp, id);
-  });
-  return executionJobById(id);
+  };
+  if(transactionDb)finish(transactionDb);else txImmediate(finish);
+  return executionJobById(id, transactionDb);
 }
 
 export function failExecutionJob(id: string, error: { code: string; summary: string }, options: { retry_at?: string | null; now?: Date } = {}): Row | undefined {

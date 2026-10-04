@@ -1,4 +1,5 @@
 import { executeClaimedCronJob } from "../cron/worker.js";
+import { executeReviewTimeout } from "../approval/review-worker.js";
 import { executeClaimedPlanningJob } from "../host/today-plan-run.js";
 import {
   claimExecutionJobById,
@@ -25,6 +26,10 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
   const id = String(claimed.id);
   const jobType = String(claimed.job_type);
   try {
+    if (jobType === "review.timeout") {
+      const instanceId=executeReviewTimeout(claimed);
+      return {execution_job_id:id,job_type:jobType,handled:true,outcome:"processed",target_id:instanceId};
+    }
     if (jobType === "cron.run") {
       const runId = await executeClaimedCronJob(claimed);
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: runId };

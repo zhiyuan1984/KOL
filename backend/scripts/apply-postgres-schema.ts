@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
+import { reviewSchema } from "../src/approval/review-schema.js";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL schema migration");
@@ -40,6 +41,10 @@ type SchemaMigration = {
 };
 
 const migrations: SchemaMigration[] = [
+  { id: "20261004_generic_reviews", statements: reviewSchema },
+  { id: "20261004_review_operations", statements: reviewSchema },
+  { id: "20261004_review_lifecycle", statements: reviewSchema },
+  { id: "20261004_review_attachments", statements: reviewSchema },
   {
     id: "20261003_managed_agents",
     statements: [
