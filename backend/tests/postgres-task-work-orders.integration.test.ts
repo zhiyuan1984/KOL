@@ -6,6 +6,8 @@ import { createTaskRootPostgres, taskWorkOrderAggregate } from "../src/ticket-do
 import { recordWorkOrderShadowDecision } from "../src/ticket-domain/work-order-shadow.js";
 import { setWorkOrderJevFetch } from "../src/ticket-domain/work-order-jev.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate } from "../src/ticket-domain/work-order-template-governance.js";
+import { setWorkOrderAutomationRelease } from "../src/ticket-domain/work-order-automation-release.js";
+import { executeWorkOrderDecision } from "../src/ticket-domain/work-order-executor.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
 if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
@@ -14,8 +16,8 @@ const describePostgres = configured ? describe : describe.skip;
 describePostgres("PostgreSQL task to AI work-order model", () => {
   beforeEach(async () => {
     await postgresPool().query(`
-      TRUNCATE task_root_command_receipts,work_order_command_receipts,work_order_template_command_receipts,work_order_stage_events,work_order_decisions,work_order_basis_refs,
-        work_order_assignments,work_orders,work_order_templates,workbench_principal_binding_events,
+      TRUNCATE task_root_command_receipts,work_order_command_receipts,work_order_template_command_receipts,work_order_automation_release_events,work_order_execution_attempts,work_order_outbox,
+        work_order_stage_events,work_order_decisions,work_order_basis_refs,work_order_assignments,work_order_automation_releases,work_orders,work_order_templates,workbench_principal_binding_events,
         workbench_principal_bindings,ticket_auth_sessions,ticket_accounts,tickets CASCADE
     `);
   });
@@ -155,5 +157,39 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     const disabled = await disableWorkOrderTemplate(actor.id, v2.template.id, { reason: "暂停报价活动", idempotency_key: "template-disable-2" });
     expect(disabled.template).toMatchObject({ status: "disabled", disable_reason: "暂停报价活动" });
     expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_order_template_command_receipts")).rows[0]?.count).toBe(5);
+  });
+
+  it("materializes an A2 work order only after an explicit release and deterministic task-owner route", async () => {
+    const actor = await syncWorkbenchTicketPrincipal({
+      id: "u-execution-admin", username: "execution_admin", name: "Execution Admin", email: "execution@example.test", roles: ["admin"], active: true,
+    });
+    const task = await createTaskRootPostgres(actor.id, { title: "跟进报价期限", goal: "在报价截止前推进商务动作", due_at: "2031-04-01T10:00:00.000Z", idempotency_key: "task-executor-1" });
+    const draft = await createWorkOrderTemplateDraft(actor.id, {
+      template_code: "quote_due_execute", title: "报价期限跟进", description: "核验报价与下一步", automation_level: "A2", trigger_event_types: ["deadline.quote"],
+      acceptance_criteria: ["报价期限已核验"], routing_policy_code: "task_owner", idempotency_key: "executor-template-draft-1",
+    });
+    await publishWorkOrderTemplate(actor.id, draft.template.id, { expected_version: 1, idempotency_key: "executor-template-publish-1" });
+    const decision = await postgresPool().query<{ id: string }>(
+      `INSERT INTO work_order_decisions
+       (task_id,source_event_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,judgment_json,gate_results_json,actor_ref,idempotency_key,confidence)
+       VALUES ($1,'evt-quote-1','quote_due_execute',1,'task_owner','shadow','create','recorded','decision-hash-1',$2,'{}','{}',$3,'executor-decision-1',0.95)
+       RETURNING id`,
+      [task.task_id, JSON.stringify({ source_event: { id: "evt-quote-1", type: "deadline.quote", summary: "已核验报价期限", occurred_at: "2031-03-29T10:00:00.000Z" } }), actor.id],
+    );
+    const decisionId = decision.rows[0]!.id;
+    const disabled = await executeWorkOrderDecision(actor.id, decisionId, { idempotency_key: "executor-before-release" });
+    expect(disabled.attempt).toMatchObject({ status: "skipped", reason_code: "automation_release_disabled" });
+    expect(disabled.work_order).toBeNull();
+
+    const release = await setWorkOrderAutomationRelease(actor.id, draft.template.id, { action: "enabled", minimum_confidence: 0.92, routing_policy_code: "task_owner", reason: "通过低风险报价期限自动化验证", idempotency_key: "executor-release-enable" });
+    expect(release.release).toMatchObject({ status: "enabled", automation_level: "A2", routing_policy_code: "task_owner" });
+    const executed = await executeWorkOrderDecision(actor.id, decisionId, { idempotency_key: "executor-after-release" });
+    expect(executed.attempt).toMatchObject({ status: "created", execution_mode: "automatic", receipt: { assignment_created: true, outbox_event: "work_order.materialized" } });
+    expect(executed.work_order).toMatchObject({ status: "assigned", data_version: 1 });
+    expect((await executeWorkOrderDecision(actor.id, decisionId, { idempotency_key: "executor-after-release" })).replayed).toBe(true);
+    expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_orders")).rows[0]?.count).toBe(1);
+    expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_order_assignments WHERE role='primary' AND status='active'")).rows[0]?.count).toBe(1);
+    expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_order_outbox WHERE event_type='work_order.materialized'")).rows[0]?.count).toBe(1);
+    expect((await postgresPool().query("SELECT status FROM tickets WHERE id=$1", [task.task_id])).rows[0]?.status).toBe("open");
   });
 });

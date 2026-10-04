@@ -13,6 +13,8 @@ import { organizationTicketRawCountReport, organizationTicketStageRawReport, per
 import { createTaskRootPostgres, taskWorkOrderAggregate, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shadow.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
+import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
+import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
 import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -147,6 +149,33 @@ tickets.post("/admin/work-orders/templates/:id/disable", async (c) => {
   if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
   const result = await disableWorkOrderTemplate(actor.id, c.req.param("id"), { ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim() });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.get("/admin/work-orders/automation-releases", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await listWorkOrderAutomationReleases()), ...requestMetadata() });
+});
+
+tickets.post("/admin/work-orders/templates/:id/automation-release", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await setWorkOrderAutomationRelease(actor.id, c.req.param("id"), {
+    ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+/** A governed materialization endpoint for the initial A1/A2 executor. It
+ * accepts an immutable decision only; worker/event wiring is added separately. */
+tickets.post("/admin/work-orders/decisions/:id/execute", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await executeWorkOrderDecision(actor.id, c.req.param("id"), {
+    ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  });
   return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
 });
 

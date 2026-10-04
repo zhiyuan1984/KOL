@@ -534,6 +534,21 @@ export type WorkOrderTemplateDraftInput = {
   idempotency_key: string;
 };
 
+export type WorkOrderAutomationRelease = {
+  template_id: string;
+  automation_level: "A1" | "A2" | string;
+  status: "enabled" | "disabled" | string;
+  minimum_confidence: number;
+  routing_policy_code: string | null;
+  enabled_by: string | null;
+  enabled_at: string | null;
+  disabled_by: string | null;
+  disabled_at: string | null;
+  reason: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type TicketCommandInput =
   | { action: "accept" | "cancel" | "reopen"; expected_version: number; idempotency_key: string; reason?: string }
   | { action: "complete"; expected_version: number; idempotency_key: string; acceptance_evidence: Record<string, unknown> }
@@ -1794,6 +1809,10 @@ export const api = {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),
   disableWorkOrderTemplate: (id: string, body: { reason: string; idempotency_key: string }) => request<{ template: WorkOrderTemplate & { disable_reason?: string }; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/disable`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  adminWorkOrderAutomationReleases: () => request<{ releases: WorkOrderAutomationRelease[]; request_id: string; as_of: string }>("/api/admin/work-orders/automation-releases"),
+  setWorkOrderAutomationRelease: (id: string, body: { action: "enabled" | "disabled"; minimum_confidence?: number; routing_policy_code?: string; reason: string; idempotency_key: string }) => request<{ release: WorkOrderAutomationRelease; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/automation-release`, {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),
   bindTicketAccountToOrganizationPerson: (body: { person_ref: string; account_id: string; reason: string }) =>

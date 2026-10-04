@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport, type WorkOrderTemplate } from "../api";
+import { api, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport, type WorkOrderAutomationRelease, type WorkOrderTemplate } from "../api";
 import { useAccount } from "../components/AuthGate";
 
 function time(value: string | null | undefined): string {
@@ -28,6 +28,7 @@ function AdminWorkOrdersContent() {
   const [stageReport, setStageReport] = useState<OrganizationTicketStageRawReport | null>(null);
   const [options, setOptions] = useState<TicketAccountBindingOptions | null>(null);
   const [templates, setTemplates] = useState<WorkOrderTemplate[]>([]);
+  const [automationReleases, setAutomationReleases] = useState<WorkOrderAutomationRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [bindingBusy, setBindingBusy] = useState(false);
   const [templateBusy, setTemplateBusy] = useState(false);
@@ -38,18 +39,20 @@ function AdminWorkOrdersContent() {
     setLoading(true);
     setError("");
     try {
-      const [quality, bindingOptions, rawReport, stageRawReport, templateRows] = await Promise.all([
+      const [quality, bindingOptions, rawReport, stageRawReport, templateRows, releaseRows] = await Promise.all([
         api.adminTicketOrganizationQuality(),
         api.adminTicketAccountBindingOptions(),
         api.organizationTicketRawCountReport(),
         api.organizationTicketStageRawReport(),
         api.adminWorkOrderTemplates(),
+        api.adminWorkOrderAutomationReleases(),
       ]);
       setReport(quality);
       setOptions(bindingOptions);
       setOrganizationReport(rawReport);
       setStageReport(stageRawReport);
       setTemplates(templateRows.templates);
+      setAutomationReleases(releaseRows.releases);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取工单组织数据质量");
     } finally {
@@ -129,6 +132,24 @@ function AdminWorkOrdersContent() {
     finally { setTemplateBusy(false); }
   };
 
+  const toggleAutomationRelease = async (template: WorkOrderTemplate) => {
+    const current = automationReleases.find((release) => release.template_id === template.id);
+    const action = current?.status === "enabled" ? "disabled" as const : "enabled" as const;
+    setTemplateBusy(true); setError(""); setNotice("");
+    try {
+      const result = await api.setWorkOrderAutomationRelease(template.id, {
+        action, minimum_confidence: 0.92, routing_policy_code: template.routing_policy_code || undefined,
+        reason: action === "enabled" ? "管理员从工单治理界面启用经模板和路由约束的自动物化" : "管理员从工单治理界面停止该模板的自动物化",
+        idempotency_key: idempotency(),
+      });
+      setNotice(action === "enabled"
+        ? `已启用 ${template.template_code}.v${template.version} 的 ${result.release.automation_level} 执行开关（最低置信度 ${result.release.minimum_confidence}）。`
+        : `已停用 ${template.template_code}.v${template.version} 的自动物化开关。`);
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "更新自动化发布开关失败"); }
+    finally { setTemplateBusy(false); }
+  };
+
   return (
     <section className="admin-grid" data-admin-work-orders>
       <header className="panel" style={{ gridColumn: "1 / -1" }}>
@@ -164,7 +185,7 @@ function AdminWorkOrdersContent() {
         </form>
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }} data-work-order-template-governance>
-        <div className="split-head"><div><h3>AI 工单模板治理</h3><p className="muted">模板先保存为草稿，再由管理员发布。已发布模板只能被 Jev 影子判断选择；当前版本不自动建单、分派、推进阶段或完成任务。</p></div><span className="status-warn">自动执行：未启用</span></div>
+        <div className="split-head"><div><h3>AI 工单模板治理</h3><p className="muted">模板先保存为草稿，再由管理员发布。A1/A2 必须再单独启用执行开关，并同时通过 Jev 置信度、确定性路由和去重校验；A3 与 L3 仍不自动执行。</p></div><span className={automationReleases.some((release) => release.status === "enabled") ? "status-ok" : "status-warn"}>自动物化：{automationReleases.some((release) => release.status === "enabled") ? "部分已启用" : "未启用"}</span></div>
         <form className="ticket-binding-form" onSubmit={(event) => void createTemplate(event)}>
           <label className="field">模板编码<input name="template_code" required pattern="[a-z][a-z0-9_]{2,119}" placeholder="quote_deadline_followup" /></label>
           <label className="field">模板名称<input name="title" required maxLength={200} placeholder="报价期限跟进" /></label>
@@ -178,7 +199,7 @@ function AdminWorkOrdersContent() {
         {!loading && templates.length === 0 ? <p className="muted">尚无 AI 工单模板。创建并发布低风险模板后，才可进行 Jev 影子判断。</p> : null}
         {templates.map((template) => <div className="admin-row" key={template.id} data-work-order-template={template.template_code}>
           <div><strong>{template.title}</strong><p className="muted">{template.template_code}.v{template.version} · {template.automation_level} · {template.status} · 事件：{template.trigger_event_types.join("、") || "—"}</p></div>
-          <div className="row-actions"><span className={template.status === "published" ? "status-ok" : template.status === "draft" ? "status-warn" : "muted"}>{template.status}</span>{template.status === "draft" ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void publishTemplate(template)}>发布</button> : null}{template.status === "published" ? <button className="btn ghost danger" type="button" disabled={templateBusy} onClick={() => void disableTemplate(template)}>停用</button> : null}</div>
+          <div className="row-actions"><span className={template.status === "published" ? "status-ok" : template.status === "draft" ? "status-warn" : "muted"}>{template.status}</span>{template.status === "draft" ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void publishTemplate(template)}>发布</button> : null}{template.status === "published" && ["A1", "A2"].includes(template.automation_level) ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void toggleAutomationRelease(template)}>{automationReleases.find((release) => release.template_id === template.id)?.status === "enabled" ? "停止自动物化" : "启用自动物化"}</button> : null}{template.status === "published" ? <button className="btn ghost danger" type="button" disabled={templateBusy} onClick={() => void disableTemplate(template)}>停用</button> : null}</div>
         </div>)}
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }} data-organization-ticket-report>

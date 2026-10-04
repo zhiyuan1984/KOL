@@ -945,6 +945,78 @@ const migrations: SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    // 发布模板本身不足以产生副作用。每个模板版本还需要独立的 A1/A2
+    // execution release，且所有执行尝试、创建结果和后续通知 outbox 都
+    // 保留在 PostgreSQL 的同一事务内。
+    id: "20261004_work_order_execution_releases",
+    statements: [
+      `ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS decision_id UUID REFERENCES work_order_decisions(id) ON DELETE RESTRICT`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS work_orders_decision_unique_idx ON work_orders(decision_id) WHERE decision_id IS NOT NULL",
+      `CREATE TABLE IF NOT EXISTS work_order_automation_releases (
+        template_id TEXT PRIMARY KEY REFERENCES work_order_templates(id) ON DELETE RESTRICT,
+        automation_level TEXT NOT NULL CHECK (automation_level IN ('A1','A2')),
+        status TEXT NOT NULL CHECK (status IN ('enabled','disabled')),
+        minimum_confidence NUMERIC(5,4) NOT NULL DEFAULT 0.9000 CHECK (minimum_confidence >= 0 AND minimum_confidence <= 1),
+        routing_policy_code TEXT,
+        enabled_by TEXT REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        enabled_at TIMESTAMPTZ,
+        disabled_by TEXT REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        disabled_at TIMESTAMPTZ,
+        reason TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      `CREATE TABLE IF NOT EXISTS work_order_execution_attempts (
+        id TEXT PRIMARY KEY,
+        decision_id UUID NOT NULL REFERENCES work_order_decisions(id) ON DELETE RESTRICT,
+        work_order_id TEXT REFERENCES work_orders(id) ON DELETE RESTRICT,
+        actor_ref TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        execution_mode TEXT NOT NULL CHECK (execution_mode IN ('automatic','operator_replay')),
+        status TEXT NOT NULL CHECK (status IN ('created','skipped','failed')),
+        reason_code TEXT,
+        receipt_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_execution_attempts_decision_idx ON work_order_execution_attempts(decision_id,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS work_order_outbox (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE RESTRICT,
+        decision_id UUID NOT NULL REFERENCES work_order_decisions(id) ON DELETE RESTRICT,
+        event_type TEXT NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','published','failed')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        published_at TIMESTAMPTZ,
+        last_error TEXT
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_outbox_ready_idx ON work_order_outbox(status,created_at)",
+    ],
+  },
+  {
+    id: "20261004_work_order_automation_release_events",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS work_order_automation_release_events (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES work_order_templates(id) ON DELETE RESTRICT,
+        action TEXT NOT NULL CHECK (action IN ('enabled','disabled')),
+        prior_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        current_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        actor_ref TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        reason TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      `CREATE OR REPLACE FUNCTION prevent_work_order_release_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'work order automation release events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS work_order_release_events_no_mutation ON work_order_automation_release_events",
+      `CREATE TRIGGER work_order_release_events_no_mutation
+       BEFORE UPDATE OR DELETE ON work_order_automation_release_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_work_order_release_event_mutation()`,
+    ],
+  },
 ];
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
