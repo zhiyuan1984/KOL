@@ -52,6 +52,7 @@ test("confirmation replaces stale discovery results and restores a busy rejectio
   await expect(page.locator(".side-workbench")).not.toContainText(stale.summary);
   await expect(actions.getByRole("button", { name: "重新核对并重试" })).toBeVisible();
   expect(confirmations).toBe(1);
+  await page.unrouteAll({ behavior: "wait" });
 });
 
 test("uses saved candidates for analysis and distinguishes sampled views from latest ten", async ({ page, request }, testInfo) => {
