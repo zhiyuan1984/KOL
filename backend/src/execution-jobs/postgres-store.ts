@@ -108,10 +108,10 @@ export function pgExecutionJobPublic(job: Row): Json {
 }
 
 /** Persist the authority job and its Outbox dispatch in the same PostgreSQL transaction. */
-export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: { now?: Date; deduplicate_active?: boolean } = {}): Promise<{ job: Row; created: boolean }> {
+export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: { now?: Date; deduplicate_active?: boolean; client?: PoolClient } = {}): Promise<{ job: Row; created: boolean }> {
   const now = options.now || new Date();
   const stamp = now.toISOString();
-  return postgresTransaction(async (client) => {
+  const enqueue = async (client: PoolClient) => {
     if (options.deduplicate_active) {
       const object = JSON.stringify(input.object_ref || {});
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [JSON.stringify([input.tenant_ref, input.actor_ref, input.job_type, object])]);
@@ -163,7 +163,9 @@ export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: {
       ],
     );
     return { job, created: true };
-  }, { isolation: options.deduplicate_active ? "READ COMMITTED" : "SERIALIZABLE" });
+  };
+  return options.client ? enqueue(options.client)
+    : postgresTransaction(enqueue, { isolation: options.deduplicate_active ? "READ COMMITTED" : "SERIALIZABLE" });
 }
 
 function claimed(row: Row): ClaimedExecutionJob {

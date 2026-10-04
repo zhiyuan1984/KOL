@@ -126,6 +126,8 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
             "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' $E2E_SPECS"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
+            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' --no-build --no-schema --config=playwright.runtime.config.ts"
 
   deploy-production:
     name: Deploy production

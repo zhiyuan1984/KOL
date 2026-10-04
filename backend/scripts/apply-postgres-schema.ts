@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { Client } from "pg";
 import { reviewSchema } from "../src/approval/review-schema.js";
 import { runtimeActionSchema } from "../src/runtime/action-schema.js";
+import { crawlResultSchema } from "../src/crawl/result-schema.js";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL schema migration");
@@ -51,6 +52,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261004_review_lifecycle", statements: reviewSchema },
   { id: "20261004_review_attachments", statements: reviewSchema },
   { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
+  { id: "20261004_discovery_results", statements: [crawlResultSchema] },
   {
     id: "20261003_managed_agents",
     statements: [

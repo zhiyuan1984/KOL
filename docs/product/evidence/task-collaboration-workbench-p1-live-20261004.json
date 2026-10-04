@@ -1,0 +1,176 @@
+{
+  "date": "2026-10-04",
+  "timezone": "Asia/Shanghai",
+  "environment": "isolated code/database; existing authorized MediaCrawler; no production release",
+  "authorization": "User approved one YouTube camping search, max_notes_count=5, comments/subcomments=false; no import/email/production deployment",
+  "task_id": "20261004205542_10922516",
+  "scope": {
+    "keywords": "camping",
+    "platforms": [
+      "youtube"
+    ],
+    "crawler_type": "search",
+    "enable_comments": false,
+    "max_notes_count": 5,
+    "enable_sub_comments": false
+  },
+  "collection_state": "succeeded",
+  "result_state": "ready",
+  "result": {
+    "total": 3,
+    "schema": "crawl_candidates/v1",
+    "task_id": "20261004205542_10922516",
+    "complete": true,
+    "platform": "youtube",
+    "candidates": [
+      {
+        "id": "UCOtCKIoHcQvBl1GzRo7Z2SA",
+        "name": "Go4x4",
+        "region": "Australia",
+        "platform": "youtube",
+        "followers": 4,
+        "source_url": "https://www.youtube.com/channel/UCOtCKIoHcQvBl1GzRo7Z2SA",
+        "avg_views_10": null,
+        "sampled_views_avg": 54695,
+        "sampled_views_count": 1
+      },
+      {
+        "id": "UCT6fVez_0DmaZ_WDaRhUw2A",
+        "name": "Baum Outdoors",
+        "region": "United States",
+        "platform": "youtube",
+        "followers": 281000,
+        "source_url": "https://www.youtube.com/channel/UCT6fVez_0DmaZ_WDaRhUw2A",
+        "avg_views_10": null,
+        "sampled_views_avg": 20108,
+        "sampled_views_count": 1
+      },
+      {
+        "id": "UC_jCmGbKJhY4X7iF8ayBNCA",
+        "name": "Abel & Victoria",
+        "region": "New Zealand",
+        "platform": "youtube",
+        "followers": 225000,
+        "source_url": "https://www.youtube.com/channel/UC_jCmGbKJhY4X7iF8ayBNCA",
+        "avg_views_10": null,
+        "sampled_views_avg": 55506,
+        "sampled_views_count": 1
+      }
+    ],
+    "captured_at": "2026-10-04T12:56:48.397Z",
+    "collection_state": "succeeded"
+  },
+  "actions": [
+    {
+      "tool_name": "start_crawl",
+      "state": "succeeded",
+      "count": 1
+    }
+  ],
+  "jobs": [
+    {
+      "job_type": "runtime.confirm",
+      "status": "succeeded",
+      "count": 1
+    },
+    {
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "count": 9
+    },
+    {
+      "job_type": "crawler.results",
+      "status": "succeeded",
+      "count": 1
+    }
+  ],
+  "connector_version": "14",
+  "real_harness": {
+    "proposal": "done",
+    "analysis": "done",
+    "proposal_thread": "01a106fb-849a-7822-8a56-d58d2e8b1d1b",
+    "analysis_thread": "01a106fd-da56-7952-befb-4d813ef29dba",
+    "model": [
+      {
+        "method": "profile/select",
+        "params": {
+          "id": "lead",
+          "name": "Lead",
+          "harness": "codex-app-server"
+        }
+      },
+      {
+        "method": "model/tier",
+        "params": {
+          "tier": "balanced",
+          "effort": "medium"
+        }
+      }
+    ],
+    "final_brief": {
+      "type": "task_result",
+      "title": "任务 20261004205542_10922516 中文候选简报",
+      "summary": "快照于 2026-10-04 12:56:48Z 保存，结果完整且未截断，共3名候选，少于期望5名。仅 Baum Outdoors 按快照字段满足平台、北美地区及粉丝条件；所有候选的方向与最近10条均播均无法核验。",
+      "sections": [
+        {
+          "title": "发现条件",
+          "body": "平台：YouTube；地区：北美；检索关键词：camping；方向：未指定；粉丝：100–2,000,000；最近10条均播最低100；期望5人。",
+          "items": []
+        },
+        {
+          "title": "候选明细",
+          "body": "",
+          "items": [
+            "Go4x4｜来源：https://www.youtube.com/channel/UCOtCKIoHcQvBl1GzRo7Z2SA｜快照地区：Australia，非北美条件；地区真实性未独立核验｜粉丝4，低于下限96｜采集样本仅1条，播放54,695；不能视为最近10条均播｜方向无法核验。",
+            "Baum Outdoors｜来源：https://www.youtube.com/channel/UCT6fVez_0DmaZ_WDaRhUw2A｜快照地区：United States，符合北美条件，但地区真实性未独立核验｜粉丝281,000，符合范围｜采集样本仅1条，播放20,108；不能视为最近10条均播｜方向无法核验。",
+            "Abel & Victoria｜来源：https://www.youtube.com/channel/UC_jCmGbKJhY4X7iF8ayBNCA｜快照地区：New Zealand，非北美条件；地区真实性未独立核验｜粉丝225,000，符合范围｜采集样本仅1条，播放55,506；不能视为最近10条均播｜方向无法核验。"
+          ]
+        },
+        {
+          "title": "证据缺口",
+          "body": "三名候选的 avg_views_10 均为空。单条采集样本虽都高于100播放，但不能证明最近10条均播达标。发现条件未指定具体方向，快照也没有内容分类证据；关键词 camping 仅代表检索来源，不能据此确认方向匹配。地区字段仅为快照记录，未独立核验。",
+          "items": []
+        }
+      ],
+      "metrics": [
+        {
+          "label": "快照候选",
+          "value": "3",
+          "detail": "结果完整，context_truncated=false"
+        },
+        {
+          "label": "期望人数差距",
+          "value": "缺2名",
+          "detail": "期望5名"
+        },
+        {
+          "label": "粉丝条件",
+          "value": "2通过、1未通过",
+          "detail": "Go4x4仅4粉丝"
+        },
+        {
+          "label": "最近10条均播",
+          "value": "0名可核验",
+          "detail": "所有候选仅有1条采集样本"
+        }
+      ],
+      "recommended_actions": []
+    }
+  },
+  "quality_review": {
+    "passed": [
+      "Exact approved proposal; one start",
+      "Own task scoped results",
+      "Three real candidates persisted",
+      "Analysis of existing snapshot with no new actions",
+      "Sample views distinguished from latest ten",
+      "Region/direction limitations stated"
+    ],
+    "unresolved": [
+      "Go4x4 followers=4 is suspicious; raw subscriber text was not preserved",
+      "General parse_count matches first number in mixed account/subscriber text; offline reproduction confirms defect class but not exact origin of this row"
+    ],
+    "phase_complete": false
+  },
+  "evidence_limit": "Native PostgreSQL dispatcher used directly in isolation; not production BullMQ transport or production browser acceptance; no real restart/cancel/empty-run test in this authorized sample"
+}

@@ -1,20 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type RuntimeActionView } from "../api";
 
 const states: Record<string, string> = { pending: "待确认", dispatching: "正在提交；若长时间无回执，请核对远端结果，不要重复提交",
   queued: "已确认，等待执行", running: "正在采集", starting: "正在启动", stopping: "正在停止", failed: "执行失败",
   succeeded: "已取得回执", rejected: "未执行", uncertain: "结果待核实，不能重复提交", cancelled: "已取消" };
 
-export function RuntimeActions({ sessionId }: { sessionId: string }) {
+export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onChange?: (actions: RuntimeActionView[]) => void }) {
   const [actions, setActions] = useState<RuntimeActionView[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const changeRef = useRef(onChange);
+  changeRef.current = onChange;
   useEffect(() => {
     let active = true;
     const reload = () => void api.runtimeActions(sessionId).then((data) => {
-      if (active) { setActions(data.actions); setError(""); }
-    }).catch(() => { if (active) setError("待确认动作暂时无法读取，请稍后刷新。"); });
-    setActions([]); reload();
+      if (active) { setActions(data.actions); changeRef.current?.(data.actions); setError(""); }
+    }).catch(() => { if (active) { setActions([]); changeRef.current?.([]); setError("动作读取失败，暂时隐藏旧数据；请刷新核对当前权限和状态。"); } });
+    setActions([]); changeRef.current?.([]); reload();
     const timer = window.setInterval(reload, 5000);
     return () => { active = false; window.clearInterval(timer); };
   }, [sessionId]);
@@ -40,9 +42,10 @@ export function RuntimeActions({ sessionId }: { sessionId: string }) {
     {error ? <p role="status">{error}</p> : null}
     {actions.map((action) => <article className="artifact risk-l3" key={action.id}>
       <strong>L3 · {states[action.execution && action.state === "pending" ? action.execution.status : action.state] || action.state}</strong>
-      <p>{action.skill_id} · {action.operation}</p>
+      <p>{action.operation === "start_crawl" ? "采集线索" : action.operation === "stop_crawl" ? "停止采集" : "业务操作"}</p>
       <details open={action.state === "pending"}><summary>核对操作内容与范围</summary>
         <pre>{JSON.stringify(action.arguments, null, 2)}</pre>
+        {action.operation === "start_crawl" ? <p>仅以上参数提交给采集服务。数量参数限制单次检索/模式，不代表任务总量或候选人数；多关键词和频道补充可能增加内容。未列出的限制未显式指定。地区、粉丝和均播门槛用于后续核对。</p> : null}
       </details>
       {action.blocked_reason ? <p>{action.blocked_reason}</p> : null}
       {action.state === "pending" && !action.execution ? <div>

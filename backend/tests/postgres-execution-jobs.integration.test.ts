@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
+import { closePostgresPool, postgresPool, postgresTransaction } from "../src/postgres/pool.js";
 import {
   pgClaimExecutionJobById,
   pgCompleteExecutionJob,
@@ -92,6 +92,16 @@ describePostgres("native PostgreSQL execution-job repository", () => {
       "SELECT (SELECT COUNT(*) FROM execution_jobs)::text AS jobs,(SELECT COUNT(*) FROM execution_outbox)::text AS outbox",
     );
     expect(counts.rows[0]).toEqual({ jobs: "1", outbox: "1" });
+  });
+
+  it("rolls back the job and dispatch with the caller's failed transaction", async () => {
+    await expect(postgresTransaction(async client => {
+      await pgEnqueueExecutionJob({ job_type: "crawler.monitor", tenant_ref: "test", actor_ref: "test",
+        idempotency_key: "rollback-monitor", payload: { crawl_id: "rolled-back" } }, { client });
+      throw new Error("reservation aborted");
+    })).rejects.toThrow("reservation aborted");
+    const counts = await postgresPool().query("SELECT (SELECT COUNT(*) FROM execution_jobs)::int AS jobs,(SELECT COUNT(*) FROM execution_outbox)::int AS outbox");
+    expect(counts.rows[0]).toEqual({ jobs: 0, outbox: 0 });
   });
 
   it("claims once, renews ownership, schedules a low-risk retry and completes it", async () => {

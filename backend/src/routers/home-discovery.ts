@@ -15,8 +15,19 @@ import {
   startHomeDiscoveryRun,
 } from "../home-discovery.js";
 import type { Json } from "../types.js";
+import { createDiscoveryWorkspace, pendingDiscoveryWorkspace } from "../crawl/discovery-workspace.js";
 
 export const homeDiscovery = new Hono();
+
+homeDiscovery.post("/home/discovery/workspace", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  return c.json(await createDiscoveryWorkspace(body), 201);
+});
+
+homeDiscovery.get("/home/discovery/workspace/:id/pending", async (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json(await pendingDiscoveryWorkspace(c.req.param("id")));
+});
 
 homeDiscovery.get("/home/discovery/template", (c) => {
   c.header("Cache-Control", "no-store");

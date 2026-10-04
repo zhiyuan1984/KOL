@@ -9,6 +9,15 @@ export type RuntimeActionGate = {
 };
 const gates = new Map<string, RuntimeActionGate>();
 const scopes = new Map<string, (context: RuntimeContext, tool: string, args: Json) => void | Promise<void>>();
+const presentations = new Map<string, (tool: Json) => Json | null>();
+/** Domains may narrow the model-visible contract; the reviewed remote schema and execution gate still apply. */
+export function registerRuntimeToolPresentation(connector: string, project: (tool: Json) => Json | null): void {
+  presentations.set(connector, project);
+}
+export function runtimeToolPresentation(connector: string, tool: Json): Json | null {
+  const project = presentations.get(connector);
+  return project ? project(tool) : tool;
+}
 export function registerRuntimeToolScope(connector: string, check: (context: RuntimeContext, tool: string, args: Json) => void | Promise<void>): void {
   scopes.set(connector, check);
 }

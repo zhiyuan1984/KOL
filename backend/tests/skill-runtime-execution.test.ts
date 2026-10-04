@@ -35,6 +35,10 @@ import { Hono } from "hono";
 import { operationRouter } from "../src/runtime/operations.js";
 import { runtimeActionOperations } from "../src/runtime/action-operations.js";
 import { HttpFail } from "../src/host/errors.js";
+import { createDiscoveryWorkspace, pendingDiscoveryWorkspace } from "../src/crawl/discovery-workspace.js";
+import { collectCrawlResults } from "../src/crawl/results.js";
+import { discoveryResultContext } from "../src/crawl/context.js";
+import { runtimeHash } from "../src/runtime/execution.js";
 
 registerRuntimeActionGate("catalog_a", "lookup", { validate() {}, execute: (_context, _args, _id, dispatch) => dispatch() });
 
@@ -96,6 +100,83 @@ function approve(id: string, descriptor: Json, risk: "L1" | "L2" | "L3" = "L1", 
   const current = getToolPolicy(id, String(descriptor.name));
   setToolPolicy(id, String(descriptor.name), { enabled: true, risk, access, schema_hash: toolSchemaHash(descriptor) }, Number(current?.version || 0));
 }
+
+describe("discovery workspace persistence and result isolation", () => {
+  it("atomically prepares one task/run/session and rejects request-key reuse with different criteria", async () => {
+    setAgentSkill(context.agentId, "crawler_collect", true, 0);
+    const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as never);
+    const brief = { platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"], min_followers: 100,
+      max_followers: 20000, min_avg_plays_10: 100, expect_count: 10 };
+    const body = { request_id: "discovery-test-request-001", brief, text: "发现北美露营红人" };
+    const [first, replay] = await Promise.all([
+      withScopedUser(owner, () => createDiscoveryWorkspace(body)),
+      withScopedUser(owner, () => createDiscoveryWorkspace(body)),
+    ]);
+    expect(replay).toMatchObject({ task_id: first.task_id, session_id: first.session_id });
+    expect([first.duplicate, replay.duplicate].sort()).toEqual([false, true]);
+    const row = (await postgresPool().query("SELECT input FROM tickets WHERE id=$1", [first.task_id])).rows[0];
+    expect(JSON.parse(row.input).discovery_workspace).toMatchObject({ brief, agent_id: context.agentId, profile: "lead" });
+    expect((await postgresPool().query("SELECT count(*)::int AS n FROM task_runs WHERE work_item_id=$1", [first.task_id])).rows[0].n).toBe(1);
+    expect(await withScopedUser(owner, () => pendingDiscoveryWorkspace(String(first.task_id)))).toMatchObject({ pending: first.pending });
+    await expect(withScopedUser({ ...owner, id: "another-owner" }, () => pendingDiscoveryWorkspace(String(first.task_id))))
+      .rejects.toMatchObject(denied("discovery_task_not_found"));
+    await postgresPool().query("UPDATE task_runs SET status='running' WHERE work_item_id=$1", [first.task_id]);
+    expect(await withScopedUser(owner, () => pendingDiscoveryWorkspace(String(first.task_id)))).toEqual({ pending: null });
+    await expect(withScopedUser(owner, () => createDiscoveryWorkspace(null))).rejects.toMatchObject(denied("discovery_brief_invalid"));
+    await expect(withScopedUser(owner, () => createDiscoveryWorkspace({ ...body, brief: { ...brief, region: "eu" } })))
+      .rejects.toMatchObject(denied("discovery_request_conflict"));
+    await expect(withScopedUser(owner, () => createDiscoveryWorkspace({ ...body, brief: { ...brief, platforms: ["youtube", "instagram"] } })))
+      .rejects.toMatchObject(denied("discovery_brief_invalid"));
+  });
+
+  it.each(["ready", "empty", "wrong-task", "unsupported", "partial"])("persists only verifiable task results: %s", async mode => {
+    configureCrawlerFixture("http://crawler.example.test/mcp");
+    setAgentSkill(context.agentId, "crawler_collect", true, 0);
+    setSkillConnector("crawler_collect", "claw", true, 0);
+    const descriptor = { name: "get_creators", inputSchema: { type: "object", properties: {
+      ...(mode === "unsupported" ? {} : { task_id: { type: "string" } }), offset: { type: "integer" }, limit: { type: "integer" },
+    }, additionalProperties: false } };
+    approve("claw", descriptor); setSkillTool("crawler_collect", "claw", descriptor.name, true, 0);
+    const ctx = { ...context, skillId: "crawler_collect", sessionId: "result-session" };
+    await postgresPool().query(`INSERT INTO runtime_crawl_jobs(id,instance_key,actor_id,context_json,config_version,args_json,remote_task_id,state)
+      VALUES('result-job',$1,$2,$3,1,$4,'remote-result','succeeded')`, [runtimeHash("http://crawler.example.test/mcp"), context.userId,
+      JSON.stringify(ctx), JSON.stringify({ platforms: ["youtube"], crawler_type: "search", keywords: "camping" })]);
+    let calls = 0;
+    const factory = (): RuntimeRemote => ({ listTools: async () => [descriptor], close: async () => {}, callToolRaw: async (_name, args) => {
+      calls++; expect(args?.task_id).toBe("remote-result");
+      if (mode === "partial") {
+        const offset = Number(args?.offset);
+        return { structuredContent: { task_id: "remote-result", total: 2001, offset,
+          creators: Array.from({ length: Math.min(100, 2001 - offset) }, (_, index) => ({ id: `candidate-${offset + index}`, platform: "youtube" })) } };
+      }
+      return { structuredContent: { task_id: mode === "wrong-task" ? "another-task" : "remote-result",
+        creators: mode === "empty" ? [] : [{ id: "candidate", name: "Public creator", platform: "youtube", followers: null }], total: mode === "empty" ? 0 : 1 } };
+    } });
+    const job = { payload_json: JSON.stringify({ crawl_id: "result-job" }), worker_id: "result-test", lease_until: new Date(Date.now() + 60000).toISOString() } as ClaimedExecutionJob;
+    const read = () => collectCrawlResults(job, async () => {}, c => new SkillExecution(c, factory));
+    if (["ready", "empty"].includes(mode)) {
+      await expect(read()).resolves.toMatchObject({ state: "ready", count: mode === "empty" ? 0 : 1 });
+      await read(); expect(calls).toBe(1);
+      await postgresPool().query(`INSERT INTO runtime_actions(id,actor_id,session_id,context_json,connector_id,tool_name,args_json,snapshot,proposal_key,state)
+        VALUES('result-job',$1,$2,$3,'claw','start_crawl','{}','test','context-test','succeeded')`, [ctx.userId, ctx.sessionId, JSON.stringify(ctx)]);
+      const snapshots = await discoveryResultContext(ctx);
+      expect(snapshots[0]).toMatchObject({ task_id: "remote-result", result_complete: true, included_count: mode === "empty" ? 0 : 1 });
+      expect(await discoveryResultContext({ ...ctx, sessionId: "other-session" })).toEqual([]);
+      const binding = getSkillConnectors("crawler_collect").find(row => row.connector_id === "claw")!;
+      setSkillConnector("crawler_collect", "claw", false, Number(binding.version));
+      await expect(discoveryResultContext(ctx)).rejects.toThrow();
+    } else if (mode === "partial") {
+      await expect(read()).resolves.toMatchObject({ state: "partial", count: 2000 });
+      await expect(read()).resolves.toMatchObject({ state: "ready", count: 2001 });
+      expect(calls).toBe(21);
+    } else {
+      await expect(read()).rejects.toMatchObject(denied(mode === "unsupported" ? "crawl_result_scope_unsupported" : "crawl_result_task_mismatch"));
+      expect((await postgresPool().query("SELECT result_json,result_state FROM runtime_crawl_jobs WHERE id='result-job'")).rows[0])
+        .toMatchObject({ result_json: null, result_state: "failed" });
+      expect(calls).toBe(mode === "unsupported" ? 0 : 1);
+    }
+  });
+});
 function fake(catalogs: Record<string, Json[]>, hooks: { list?: (url: string) => void | Promise<void>; call?: () => void | Promise<void>; result?: Json } = {}) {
   const calls: Array<{ url: string; name: string; args: Json }> = [];
   const factory = (options: RemoteMcpOptions): RuntimeRemote => ({
