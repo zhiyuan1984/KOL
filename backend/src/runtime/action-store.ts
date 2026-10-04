@@ -35,7 +35,8 @@ export async function claimRuntimeAction(id: string, actor: string, snapshot: st
   return result.rowCount === 1;
 }
 
-export async function finishRuntimeAction(id: string, state: "succeeded" | "rejected" | "uncertain", receipt: Json | null, code?: string): Promise<void> {
-  await postgresPool().query(`UPDATE runtime_actions SET state=$2,receipt_json=$3,error_code=$4,updated_at=now()
+export async function finishRuntimeAction(id: string, state: "succeeded" | "rejected" | "uncertain", receipt: Json | null, code?: string): Promise<boolean> {
+  const result = await postgresPool().query(`UPDATE runtime_actions SET state=$2,receipt_json=$3,error_code=$4,updated_at=now()
     WHERE id=$1 AND state='dispatching'`, [id, state, receipt ? JSON.stringify(receipt) : null, code || null]);
+  return result.rowCount === 1;
 }

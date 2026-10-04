@@ -263,7 +263,7 @@ export async function pgCompleteExecutionJob(id: string, receipt: Json = {}, now
 export async function pgFailExecutionJob(
   id: string,
   error: { code: string; summary: string },
-  options: { retry_at?: string | null; now?: Date; expected_worker?: string } = {},
+  options: { retry_at?: string | null; now?: Date; expected_worker?: string; not_dispatched?: boolean } = {},
 ): Promise<Row | undefined> {
   const now = options.now || new Date();
   const stamp = now.toISOString();
@@ -272,9 +272,11 @@ export async function pgFailExecutionJob(
     if (!current || String(current.status) !== "running") return current;
     if (options.expected_worker && current.lease_owner !== options.expected_worker) return current;
     const highRisk = ["high", "critical"].includes(String(current.risk_level));
-    const canRetry = !highRisk && Number(current.attempts || 0) < Number(current.max_attempts || 1);
+    // A proven pre-dispatch rejection is terminal, even with attempts left.
+    // An ordinary high-risk failure remains uncertain and cannot auto-replay.
+    const canRetry = !options.not_dispatched && !highRisk && Number(current.attempts || 0) < Number(current.max_attempts || 1);
     const retryAt = canRetry ? (options.retry_at || isoAfter(now, retryDelayMs(Number(current.attempts || 0)))) : null;
-    const status: ExecutionJobStatus = highRisk ? "uncertain" : canRetry ? "retrying" : "failed";
+    const status: ExecutionJobStatus = options.not_dispatched ? "failed" : highRisk ? "uncertain" : canRetry ? "retrying" : "failed";
     const updated = await client.query<Row>(
       `UPDATE execution_jobs
        SET status=$1,lease_until=NULL,lease_owner=NULL,next_attempt_at=$2,error_code=$3,error_summary=$4,

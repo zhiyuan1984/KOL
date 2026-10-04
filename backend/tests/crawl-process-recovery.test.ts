@@ -16,7 +16,7 @@ import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { getToolPolicy, setAgentSkill, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
 import { SkillExecution, runtimeHash, toolSchemaHash } from "../src/runtime/execution.js";
 import { runtimeAction } from "../src/runtime/action-store.js";
-import { pgEnqueueExecutionJob, pgExecutionJobById, pgRecoverExpiredExecutionJobs } from "../src/execution-jobs/postgres-store.js";
+import { pgEnqueueExecutionJob, pgExecutionJobById, pgRecoverExpiredExecutionJobs, pgClaimExecutionJobById, pgFailExecutionJob } from "../src/execution-jobs/postgres-store.js";
 import { assertNoRuntimeCrawl } from "../src/crawl/runtime-gates.js";
 import type { Json } from "../src/types.js";
 
@@ -33,6 +33,7 @@ let calls: Array<{ name: string; args: Json }>;
 let children: Array<{ process: ChildProcess; exited: Promise<unknown[]> }>;
 let url: string;
 let heldTool: string;
+let remoteReject: boolean;
 let previous: Record<string, string | undefined>;
 
 function worker(id: string) {
@@ -67,7 +68,7 @@ beforeEach(async () => {
   previous = Object.fromEntries(["AUTH_MODE", "RUNTIME_CREDENTIAL_MASTER_KEY"].map(key => [key, process.env[key]]));
   process.env.AUTH_MODE = "enabled";
   await freshTestDatabase(); resetConn();
-  children = []; calls = []; heldTool = "get_creators";
+  children = []; calls = []; heldTool = "get_creators"; remoteReject = false;
   let signalCall: () => void;
   firstCall = new Promise(resolve => { signalCall = resolve; });
   const hold = new Promise<void>(resolve => { releaseResponse = resolve; });
@@ -79,6 +80,9 @@ beforeEach(async () => {
     mcp.setRequestHandler(CallToolRequestSchema, async request => {
       calls.push({ name: request.params.name, args: request.params.arguments || {} });
       if (request.params.name === heldTool && calls.filter(call => call.name === heldTool).length === 1) { signalCall!(); await hold; }
+      if (remoteReject && request.params.name === "start_crawl") {
+        return { isError: true, content: [{ type: "text", text: "runtime_probe_crawl_busy" }] };
+      }
       const result = request.params.name === "start_crawl" ? { ok: true, task_id: "fixture-remote", status: "running" }
         : request.params.name === "get_crawl_status" ? { task_id: "fixture-remote", status: "idle" }
         : { task_id: "fixture-remote", total: 1, offset: 0, creators: [{ id: "fixture-candidate", platform: "youtube", name: "Isolated candidate" }] };
@@ -104,6 +108,51 @@ beforeEach(async () => {
       access: tool.name === "start_crawl" ? "write" : "read", schema_hash: toolSchemaHash(tool as unknown as Json) }, Number(getToolPolicy("claw", tool.name)?.version || 0));
     setSkillTool(context.skillId, "claw", tool.name, true, 0);
   }
+});
+
+async function queueStart() {
+  const runtime = new SkillExecution(context);
+  try {
+    const tool = (await runtime.discover()).tools.find(tool => tool.remoteName === "start_crawl")!;
+    const proposed = await runtime.invoke(String(tool.exposed.name), { platforms: ["youtube"], crawler_type: "search", keywords: "fixture-only" });
+    const action = await runtimeAction(String((proposed.structuredContent as Json).action_id), context.userId);
+    const queued = await pgEnqueueExecutionJob({ job_type: "runtime.confirm", actor_ref: context.userId, tenant_ref: "fixture",
+      idempotency_key: `runtime-confirm:${action.id}`, risk_level: "high", max_attempts: 3,
+      payload: { action_id: action.id, confirmation_version: action.snapshot } });
+    return { action, id: String(queued.job.id) };
+  } finally { runtime.close(); }
+}
+
+it.each(["starting", "running", "uncertain"])("persists a pre-dispatch busy rejection as a terminal failed job when the existing crawl is %s", async state => {
+  const { action, id } = await queueStart();
+  await postgresPool().query(`INSERT INTO runtime_crawl_jobs(id,instance_key,actor_id,context_json,config_version,args_json,remote_task_id,state)
+    VALUES('existing-crawl',$1,$2,$3,1,$4,'fixture-existing',$5)`, [runtimeHash(url), context.userId, JSON.stringify(context), JSON.stringify({ platforms: ["youtube"] }), state]);
+  expect(await completedWorker(id)).toMatchObject({ result: { outcome: "failed" } });
+  expect(await runtimeAction(action.id, context.userId)).toMatchObject({ state: "rejected", error_code: "runtime_probe_crawl_busy" });
+  expect(await pgExecutionJobById(id)).toMatchObject({ status: "failed", error_code: "runtime_probe_crawl_busy", attempts: 1, next_attempt_at: null, lease_owner: null });
+  expect(await completedWorker(id)).toEqual({ result: null });
+  expect(calls).toEqual([]);
+  expect((await postgresPool().query("SELECT id,state FROM runtime_crawl_jobs")).rows).toEqual([{ id: "existing-crawl", state }]);
+  expect((await postgresPool().query("SELECT count(*)::int AS n FROM execution_outbox WHERE event_type='execution_job.retry_scheduled'")).rows[0].n).toBe(0);
+});
+
+it("keeps an error response uncertain even when its text looks like a local busy rejection", async () => {
+  heldTool = ""; remoteReject = true;
+  const { action, id } = await queueStart();
+  expect(await completedWorker(id)).toMatchObject({ result: { outcome: "failed" } });
+  expect(await runtimeAction(action.id, context.userId)).toMatchObject({ state: "uncertain", error_code: "runtime_crawl_start_uncertain" });
+  expect(await pgExecutionJobById(id)).toMatchObject({ status: "uncertain", next_attempt_at: null, attempts: 1 });
+  expect(await completedWorker(id)).toEqual({ result: null });
+  expect(calls.map(call => call.name)).toEqual(["start_crawl"]);
+});
+
+it("refuses a stale worker's pre-dispatch failure after lease ownership changes", async () => {
+  const queued = await pgEnqueueExecutionJob({ job_type: "runtime.confirm", actor_ref: context.userId, tenant_ref: "fixture",
+    idempotency_key: "stale-rejection", risk_level: "high", max_attempts: 3 });
+  const id = String(queued.job.id);
+  await pgClaimExecutionJobById(id, "worker-new");
+  await pgFailExecutionJob(id, { code: "runtime_probe_crawl_busy", summary: "runtime_probe_crawl_busy" }, { expected_worker: "worker-old", not_dispatched: true });
+  expect(await pgExecutionJobById(id)).toMatchObject({ status: "running", lease_owner: "worker-new", error_code: null });
 });
 afterEach(async () => {
   releaseResponse?.();
