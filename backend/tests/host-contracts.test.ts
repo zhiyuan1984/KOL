@@ -20,6 +20,7 @@ import { emailMcpResultCard } from "../src/starrykol/service.js";
 import { classify } from "../src/host/intent.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { withTicketPrincipal } from "../src/ticket-domain/auth.js";
 
 type Json = Record<string, unknown>;
 
@@ -818,7 +819,10 @@ describe("host contracts", () => {
         "starrykol.summarizeRiskConversations",
       ]);
     }
-    const cron = await request("POST", "/api/cron/risk-scan");
+    const cron = await withTicketPrincipal({
+      id: "test-admin", username: "test-admin", name: "Test Admin", email: null,
+      roles: ["admin"], active: true,
+    }, () => request("POST", "/api/cron/risk-scan"));
     expect(cron.status, await cron.text()).toBe(200);
     const cronBody = await cron.json() as Json;
     expect(cronBody.run_id).toBeTruthy();
