@@ -67,8 +67,8 @@ function publicDecision(row: DecisionRow, replayed: boolean) {
     actor_ref: row.actor_ref,
     created_at: new Date(row.created_at).toISOString(),
     replayed,
-    execution_effect: "none",
-    automatic_action: "disabled",
+    execution_effect: "decision_only",
+    automatic_action: "requires_durable_queue_handoff",
   };
 }
 

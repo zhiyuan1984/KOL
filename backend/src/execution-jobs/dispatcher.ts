@@ -3,6 +3,7 @@ import { executionHandler } from "./handlers.js";
 import "../runtime/action-worker.js";
 import "../crawl/runtime-gates.js";
 import { pgExecutionJobById } from "./postgres-store.js";
+import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
 import {
   type ClaimedExecutionJob,
 } from "./contracts.js";
@@ -11,6 +12,7 @@ import {
   runtimeClaimNextExecutionJob,
   runtimeCompleteExecutionJob,
   runtimeFailExecutionJob,
+  runtimeExecutionJobPayload,
   runtimeQuarantineExecutionJob,
   runtimeRenewExecutionJobLease,
 } from "./runtime-store.js";
@@ -61,6 +63,25 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
     if (jobType === "cron.run") {
       const runId = await executeClaimedCronJob(claimed);
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: runId };
+    }
+    if (jobType === "work_order.materialize") {
+      const payload = runtimeExecutionJobPayload(claimed);
+      const decisionId = String((payload as Record<string, unknown>).decision_id || "").trim();
+      if (!decisionId) {
+        await runtimeFailExecutionJob(id, { code: "work_order_decision_id_missing", summary: "AI work-order materialization job has no decision_id" });
+        return { execution_job_id: id, job_type: jobType, handled: false, outcome: "failed", target_id: null };
+      }
+      const result = await executeWorkOrderDecision(String(claimed.actor_ref), decisionId, {
+        idempotency_key: `execution-job:${id}:work-order-materialize`,
+        mode: "automatic",
+      });
+      await runtimeCompleteExecutionJob(id, {
+        decision_id: decisionId,
+        attempt: result.attempt,
+        work_order: result.work_order,
+        replayed: result.replayed,
+      });
+      return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: result.work_order?.id || decisionId };
     }
     if (jobType === "work_plan.run" || jobType === "today_analyze.run") {
       await runtimeQuarantineExecutionJob(id, {

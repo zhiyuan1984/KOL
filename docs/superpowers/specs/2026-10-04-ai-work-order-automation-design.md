@@ -292,7 +292,7 @@ PostgreSQL 事务：写主受理人、协同受理人、路由版本、解析链
 
 1. **已完成模板治理：** 管理端可新建模板草稿、发布、退役旧发布版本和停用；发布时强制校验 A1/A2/A3 所需触发事件、验收条件、路由与阶段策略。已发布模板才可被 Jev 影子判断选择，且界面明确标识“自动执行未启用”。
 2. **已完成受控物化器：** 已发布 A1/A2 模板仍需独立的自动化 release（状态、理由、最低置信度、路由策略和不可变启停审计）。物化器只消费不可变 decision；在同一 PostgreSQL 事务写 Work Order、依据、`task_owner` 主受理、阶段事实、物化尝试和 `work_order.materialized` Outbox。重复 decision / idempotency 不会重复建单；无 release、低置信、无效 Task 或不支持/非唯一的路由只写可审计的 `skipped`。
-3. **尚未连接生产事件入口：** 当前提供管理员受控的 decision materialization API 与模板 release 管理界面；下一步才将已核验业务事件 → Jev decision → execution job 的异步管道接通。未接通前，不宣称生产事件会自动建单。
+3. **已完成 decision → Worker 异步管道：** Jev 决策写入后以 `work_order.materialize` execution job + PostgreSQL Outbox 交给 BullMQ Worker；Worker 仅调用既有确定性物化器，返回 `skipped` 也保留终态回执。重放决策复用同一 job/outbox，不能重复建单。当前事件入口仍是管理员受控的 Jev 评估 API，尚未接入邮件/期限等生产事件生产者，因此不宣称任意生产事件已自动建单。
 4. **已完成基础投影：** 工作台任务中心与工单治理页显示 Task 根、子工单数量、阻塞与责任/决策事实；当前治理页仅输出原始负荷，不将工单量或工单终态误报为任务完成或绩效。工单接管、修订、关闭和事件触发来源仍待后续命令与异步管道。
 
 ### 阶段 E：受控自动阶段推进

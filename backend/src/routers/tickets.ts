@@ -15,6 +15,7 @@ import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shado
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
+import { enqueueWorkOrderDecisionExecution } from "../ticket-domain/work-order-automation-pipeline.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
 import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -125,7 +126,8 @@ tickets.post("/admin/work-orders/tasks/:taskId/jev-shadow", async (c) => {
     ...body,
     idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
   }, { isAdmin: true });
-  return c.json({ ...result, ...requestMetadata() }, result.decision.replayed ? 200 : 201);
+  const execution = await enqueueWorkOrderDecisionExecution(actor.id, result.decision.id);
+  return c.json({ ...result, ...execution, ...requestMetadata() }, result.decision.replayed ? 200 : 202);
 });
 
 tickets.get("/admin/work-orders/templates", async (c) => {

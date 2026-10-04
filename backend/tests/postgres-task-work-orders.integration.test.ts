@@ -8,6 +8,9 @@ import { setWorkOrderJevFetch } from "../src/ticket-domain/work-order-jev.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate } from "../src/ticket-domain/work-order-template-governance.js";
 import { setWorkOrderAutomationRelease } from "../src/ticket-domain/work-order-automation-release.js";
 import { executeWorkOrderDecision } from "../src/ticket-domain/work-order-executor.js";
+import { enqueueWorkOrderDecisionExecution } from "../src/ticket-domain/work-order-automation-pipeline.js";
+import { processNextExecutionJob } from "../src/execution-jobs/dispatcher.js";
+import { pgExecutionJobById } from "../src/execution-jobs/postgres-store.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
 if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
@@ -117,7 +120,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
       };
       const result = await recordWorkOrderShadowDecision(actor.id, task.task_id, input, { isAdmin: true });
       expect(result.decision).toMatchObject({
-        decision_mode: "shadow", outcome: "create", status: "recorded", template_code: "sample_receipt_verify", execution_effect: "none", automatic_action: "disabled",
+        decision_mode: "shadow", outcome: "create", status: "recorded", template_code: "sample_receipt_verify", execution_effect: "decision_only", automatic_action: "requires_durable_queue_handoff",
         gates: { execution_mode: "shadow_only", no_assignment_written: true, no_stage_written: true, no_task_completion_written: true },
       });
       expect((requestBody.state as Record<string, unknown>).task).toMatchObject({ id: task.task_id, title: "推进样品签收" });
@@ -195,6 +198,36 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_orders")).rows[0]?.count).toBe(1);
     expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_order_assignments WHERE role='primary' AND status='active'")).rows[0]?.count).toBe(1);
     expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_order_outbox WHERE event_type='work_order.materialized'")).rows[0]?.count).toBe(1);
+    expect((await postgresPool().query("SELECT status FROM tickets WHERE id=$1", [task.task_id])).rows[0]?.status).toBe("open");
+  });
+
+  it("hands a released Jev decision to the PostgreSQL Outbox worker without completing its parent task", async () => {
+    const actor = await syncWorkbenchTicketPrincipal({
+      id: "u-pipeline-admin", username: "pipeline_admin", name: "Pipeline Admin", email: "pipeline@example.test", roles: ["admin"], active: true,
+    });
+    const task = await createTaskRootPostgres(actor.id, { title: "推进报价自动工单", goal: "基于核验期限生成标准跟进动作", idempotency_key: "task-pipeline-1" });
+    const draft = await createWorkOrderTemplateDraft(actor.id, {
+      template_code: "pipeline_quote_followup", title: "报价期限跟进", description: "核验报价与下一步", automation_level: "A2",
+      trigger_event_types: ["deadline.quote"], acceptance_criteria: ["报价期限已核验"], routing_policy_code: "task_owner", idempotency_key: "pipeline-template-draft-1",
+    });
+    await publishWorkOrderTemplate(actor.id, draft.template.id, { expected_version: 1, idempotency_key: "pipeline-template-publish-1" });
+    await setWorkOrderAutomationRelease(actor.id, draft.template.id, { action: "enabled", minimum_confidence: 0.9, routing_policy_code: "task_owner", reason: "低风险事件自动化验证", idempotency_key: "pipeline-release-1" });
+    const decision = await postgresPool().query<{ id: string }>(
+      `INSERT INTO work_order_decisions
+       (task_id,source_event_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,judgment_json,gate_results_json,actor_ref,idempotency_key,confidence)
+       VALUES ($1,'evt-pipeline-1','pipeline_quote_followup',1,'task_owner','shadow','create','recorded','pipeline-hash',$2,'{}','{}',$3,'pipeline-decision-1',0.95)
+       RETURNING id`,
+      [task.task_id, JSON.stringify({ source_event: { id: "evt-pipeline-1", type: "deadline.quote", summary: "已核验报价期限", occurred_at: "2031-04-01T10:00:00.000Z" } }), actor.id],
+    );
+    const queued = await enqueueWorkOrderDecisionExecution(actor.id, decision.rows[0]!.id);
+    expect(queued).toMatchObject({ created: true, execution_job: { job_type: "work_order.materialize", status: "queued" } });
+    expect((await enqueueWorkOrderDecisionExecution(actor.id, decision.rows[0]!.id)).created).toBe(false);
+
+    const dispatched = await processNextExecutionJob("pipeline-worker");
+    expect(dispatched).toMatchObject({ job_type: "work_order.materialize", outcome: "processed" });
+    const job = await pgExecutionJobById(String((queued.execution_job as Record<string, unknown>).id));
+    expect(job).toMatchObject({ status: "succeeded" });
+    expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_orders")).rows[0]?.count).toBe(1);
     expect((await postgresPool().query("SELECT status FROM tickets WHERE id=$1", [task.task_id])).rows[0]?.status).toBe("open");
   });
 });
