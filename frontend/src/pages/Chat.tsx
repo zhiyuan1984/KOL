@@ -431,6 +431,7 @@ export default function Chat() {
   const [pending, setPending] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
   const discoveryWorkspace = discoveryWorkspaceOf(task);
+  const discoveryEntry = discoveryWorkspace !== null || (location.state as { discoverySession?: string } | null)?.discoverySession === id;
   const [runtimeActions, setRuntimeActions] = useState<RuntimeActionView[]>([]);
   const discoveryProgress = runtimeActions.find(action => action.operation === "start_crawl" && action.skill_id === "crawler_collect"
     && (!task?.worker_id || action.run_id === task.worker_id))?.progress;
@@ -455,6 +456,7 @@ export default function Chat() {
   const streamRef = useRef<HTMLDivElement>(null);
   // 中栏只有这一条滚动轴：用户上翻读思考时，新内容不得把他拽回底部。
   const streamStickBottomRef = useRef(true);
+  const [streamPosition, setStreamPosition] = useState({ scrollable: false, atBottom: true });
   const stopRequestedRef = useRef(false);
   const paramTemplateKey = useRef<string | null>(null);
   const focusThread = String((location.state as { focusThread?: string } | null)?.focusThread || "");
@@ -760,12 +762,26 @@ export default function Chat() {
         ...safeCrawlEventMessages(task.id, crawlEvents, crawlJob),
       ]
     : timeline;
-  const streamAtBottom = (pane: HTMLDivElement) => pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 24;
+  const streamAtBottom = (pane: HTMLDivElement) => pane.scrollHeight - pane.scrollTop - pane.clientHeight <=
+    (parseFloat(getComputedStyle(pane).getPropertyValue("--feed-follow-threshold")) || 48);
   const onStreamScroll = () => {
     const pane = streamRef.current;
     if (!pane) return;
     streamStickBottomRef.current = streamAtBottom(pane);
+    setStreamPosition({ scrollable: pane.scrollHeight > pane.clientHeight + 1, atBottom: streamAtBottom(pane) });
   };
+  useEffect(() => {
+    const pane = streamRef.current;
+    if (!pane) return;
+    const resize = new ResizeObserver(() => {
+      if (streamStickBottomRef.current) pane.scrollTop = pane.scrollHeight;
+      onStreamScroll();
+    });
+    resize.observe(pane);
+    for (const child of pane.children) resize.observe(child);
+    onStreamScroll();
+    return () => resize.disconnect();
+  }, [id, task, runtimeActions, sessionLoaded]);
   useEffect(() => {
     const pane = streamRef.current;
     if (!pane) return;
@@ -774,6 +790,7 @@ export default function Chat() {
       pane.scrollTop = pane.scrollHeight;
       streamStickBottomRef.current = true;
     }
+    onStreamScroll();
   }, [timelineWithCrawl, crawlJob, err, submitErr]);
   useEffect(() => {
     if (!pendingRuntimeActionId) {
@@ -794,7 +811,7 @@ export default function Chat() {
   }, [pendingRuntimeActionId]);
   const lastComposeGap = lastUnsentComposeGap(messages);
   const composerHint = String(lastComposeGap?.placeholder || journey?.composer_placeholder || "");
-  const boundExpert = !discoveryWorkspace && id ? readBoundExpert(id) : null;
+  const boundExpert = !discoveryEntry && id ? readBoundExpert(id) : null;
   const recommendedActions = (() => {
     const expertTasks = (boundExpert?.recommended_tasks || []).map((task) => ({
       label: task.title,
@@ -1073,14 +1090,12 @@ export default function Chat() {
               to={discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
               className="task-back"
               data-session-back-link
-            >{discoveryWorkspace ? "← 返回AI发现" : "← 返回任务列表"}</Link>
-            {discoveryWorkspace ? <span className="muted">{status === "running" ? "正在分析发现需求" : "发现协作 · 执行状态见下方"}</span>
+            >{discoveryEntry ? "← 返回AI发现" : "← 返回任务列表"}</Link>
+            {discoveryEntry ? <span className="muted">{status === "running" ? "正在分析发现需求" : "AI发现"}</span>
               : <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
           </div>
           {discoveryWorkspace ? (
             <div data-discovery-workspace data-agent-identity={discoveryWorkspace.agent_id} data-agent-profile="lead">
-              <strong>线索智能体 · AI发现</strong>
-              <p className="muted">围绕本次发现条件核对采集范围、跟踪进度并整理候选。采集需要确认，结果保留在当前任务。</p>
               {task?.status === "pending" && status !== "running" ? <button className="btn ghost" onClick={async () => {
                 if (!id || pending) return;
                 setPending(true); setSubmitErr("");
@@ -1095,12 +1110,11 @@ export default function Chat() {
                 } catch { setSubmitErr("尚未恢复分析，请核对网络和当前权限后重试。原任务条件仍保留。"); }
                 finally { setPending(false); }
               }}>继续分析发现需求</button> : null}
-              <details data-discovery-condition-snapshot open>
+              <details data-discovery-condition-snapshot>
                 <summary>本次发现条件</summary>
                 <p>{renderDiscoveryBody(discoveryWorkspace.brief)}</p>
                 <p className="muted">地区、粉丝和均播门槛用于结果核对；期望人数不代表远端采集数量上限。缺失数据会标注为无法核验。</p>
               </details>
-              <SkillTemplateContext template={discoveryWorkspace.template} />
             </div>
           ) : null}
           {boundExpert ? (
@@ -1164,7 +1178,7 @@ export default function Chat() {
               ) : null}
             </div>
           ) : null}
-          {task && (
+          {task && !discoveryEntry && (
             <>
             <div className="task-detail-title">
               <div>
@@ -1190,7 +1204,7 @@ export default function Chat() {
             </>
           )}
         </header>
-        {activeSkillTemplate && !discoveryWorkspace ? (
+        {activeSkillTemplate && !discoveryEntry ? (
           <div className="session-skill-template" data-session-skill-template>
             <SkillTemplateContext
               template={activeSkillTemplate}
@@ -1221,7 +1235,7 @@ export default function Chat() {
             <button type="button" className="digest-retry" onClick={() => reload(true, true)}>刷新收取</button>
           </section>
         ) : null}
-        {task && !discoveryWorkspace && (
+        {task && !discoveryEntry && (
           <section className="task-analysis-summary" data-task-analysis-summary>
             <strong>分析摘要</strong>
             <p>{taskAnalysisSummary(task)}</p>
@@ -1292,6 +1306,20 @@ export default function Chat() {
           /><RuntimeActions sessionId={id} onChange={setRuntimeActions} /></>
         )}
         </div>
+        {streamPosition.scrollable ? <div className="session-scroll-control">
+          <button type="button" className="btn ghost" data-session-scroll-jump
+            aria-label={streamPosition.atBottom ? "滚到顶部" : "滚到底部"}
+            title={streamPosition.atBottom ? "滚到顶部" : "滚到底部"}
+            onClick={() => {
+              const pane = streamRef.current;
+              if (!pane) return;
+              streamStickBottomRef.current = !streamPosition.atBottom;
+              pane.scrollTo({ top: streamPosition.atBottom ? 0 : pane.scrollHeight,
+                behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+            }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d={streamPosition.atBottom ? "M5 14l7-7 7 7M12 7v13" : "M5 10l7 7 7-7M12 17V4"} />
+            </svg></button>
+        </div> : null}
         <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>
           {kolSession || messages.some((message) => message.kind === "email_card") ? (
             <p className="session-send-hint" data-session-send-hint>

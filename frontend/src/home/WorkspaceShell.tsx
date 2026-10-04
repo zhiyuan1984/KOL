@@ -57,10 +57,13 @@ export default function WorkspaceShell({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickBottom = useRef(true);
   const [scrollJump, setScrollJump] = useState(false);
+  const [atBottom, setAtBottom] = useState(false);
+  const followThreshold = (el: HTMLElement) => parseFloat(getComputedStyle(el).getPropertyValue("--feed-follow-threshold")) || 48;
   useEffect(() => {
     if (!scrollAnchorEvent) return;
     const onRefresh = () => {
-      anchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scrollRef.current?.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
     };
     window.addEventListener(scrollAnchorEvent, onRefresh);
     return () => window.removeEventListener(scrollAnchorEvent, onRefresh);
@@ -70,7 +73,8 @@ export default function WorkspaceShell({
     const el = scrollRef.current;
     if (el) el.scrollTop = 0;
     stickBottom.current = true;
-    setScrollJump(false);
+    setScrollJump(Boolean(el && el.scrollHeight > el.clientHeight + 1));
+    setAtBottom(Boolean(el && el.scrollHeight - el.scrollTop - el.clientHeight <= followThreshold(el)));
   }, [pane]);
   // 只跟随「正在流式产出」的内容：打开历史任务从顶部看，不抢着跳到底。
   // 开始产出时把视口贴到尾部，之后由 MutationObserver 逐段跟随。
@@ -90,13 +94,13 @@ export default function WorkspaceShell({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const overflows = () => el.scrollHeight > el.clientHeight + 24;
+    const overflows = () => el.scrollHeight > el.clientHeight + 1;
     const stickToBottom = () => {
       if (streamStickRef.current && stickBottom.current) {
         el.scrollTop = el.scrollHeight;
-      } else {
-        setScrollJump(overflows());
       }
+      setScrollJump(overflows());
+      setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= followThreshold(el));
     };
     const observer = new MutationObserver(() => {
       stickToBottom();
@@ -107,6 +111,8 @@ export default function WorkspaceShell({
       ? null
       : new ResizeObserver(stickToBottom);
     if (resizeObserver && content) resizeObserver.observe(content);
+    if (resizeObserver) resizeObserver.observe(el);
+    stickToBottom();
     return () => {
       observer.disconnect();
       resizeObserver?.disconnect();
@@ -115,16 +121,17 @@ export default function WorkspaceShell({
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
-    stickBottom.current = atBottom;
-    setScrollJump(!atBottom && el.scrollHeight > el.clientHeight + 24);
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= followThreshold(el);
+    stickBottom.current = isAtBottom;
+    setAtBottom(isAtBottom);
+    setScrollJump(el.scrollHeight > el.clientHeight + 1);
   };
   const jumpToBottom = () => {
     const el = scrollRef.current;
     if (!el) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
-    stickBottom.current = true;
+    el.scrollTo({ top: atBottom ? 0 : el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+    stickBottom.current = !atBottom;
   };
   const toggleRail = () => {
     setRailCollapsed((current) => {
@@ -160,13 +167,12 @@ export default function WorkspaceShell({
                 type="button"
                 className="scope-scroll-jump"
                 data-scope-scroll-jump
-                data-tooltip="查看最新"
-                aria-label="查看最新"
+                data-tooltip={atBottom ? "滚到顶部" : "滚到底部"}
+                aria-label={atBottom ? "滚到顶部" : "滚到底部"}
                 onClick={jumpToBottom}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d="M12 4v15" />
-                  <path d="m5.5 12.5 6.5 6.5 6.5-6.5" />
+                  <path d={atBottom ? "M12 20V5m-7 7 7-7 7 7" : "M12 4v15m-7-7 7 7 7-7"} />
                 </svg>
               </button>
             ) : null}

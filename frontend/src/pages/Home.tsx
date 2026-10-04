@@ -618,7 +618,8 @@ export default function Home() {
       if (result.pending) storePending(result.session_id, result.pending);
       refreshWorkbenchSessions();
       clearDiscoveryLock();
-      nav(`/s/${result.session_id}`);
+      await import("./Chat").catch(() => undefined);
+      nav(`/s/${result.session_id}`, { state: { discoverySession: result.session_id } });
     } catch (error) {
       setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {
