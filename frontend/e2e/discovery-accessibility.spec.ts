@@ -5,8 +5,11 @@ async function fullyVisible(control: Locator) {
   await expect.poll(() => control.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-    return rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth && !!hit && element.contains(hit);
-  })).toBe(true);
+    return { fullyVisible: rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth && !!hit && element.contains(hit),
+      rect: rect.toJSON(), viewport: { width: innerWidth, height: innerHeight },
+      hit: hit ? { tag: hit.tagName, className: hit.className } : null,
+      focused: document.activeElement === element };
+  })).toMatchObject({ fullyVisible: true });
 }
 async function touchHitArea(control: Locator) {
   await control.scrollIntoViewIfNeeded();
