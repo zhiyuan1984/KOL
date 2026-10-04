@@ -531,7 +531,7 @@ describe("MCP minimization", () => {
     expect(specs.starry.args.join(" ")).toContain("get_collaboration");
   });
 
-  it("wires remote starrykol and kolclaw servers from Skill mcp names", () => {
+  it("never exposes Starry process credentials and retains KOL Claw configuration", () => {
     const previous = {
       url: process.env.STARRY_KOL_MCP_URL,
       key: process.env.STARRY_KOL_MCP_API_KEY,
@@ -549,17 +549,7 @@ describe("MCP minimization", () => {
       expect(compose.mcp).toContain("starrykol.previewEmailDraft");
       expect(compose.mcp.some((tool) => /send|ingest/.test(tool))).toBe(false);
       const specs = mcpServerSpecs(compose.mcp) as Record<string, Json>;
-      expect(specs.starrykol).toMatchObject({
-        url: "https://starrykol.example/mcp",
-        http_headers: {
-          "X-MCP-API-KEY": "sk-test-key",
-          Authorization: "Bearer starry-bearer",
-        },
-      });
-      expect(specs.starrykol).not.toHaveProperty("bearer_token");
-      expect(specs.starrykol).not.toHaveProperty("extra_headers");
-      expect((specs.starrykol.enabled_tools as string[])).toContain("previewEmailDraft");
-      expect(specs.starrykol).not.toHaveProperty("command");
+      expect(specs).not.toHaveProperty("starrykol");
       const scoring = taskDefinitions().find((item) => item.id === "creator_scoring")!;
       const claw = mcpServerSpecs(scoring.mcp) as Record<string, Json>;
       expect(claw.kolclaw).toMatchObject({
@@ -571,9 +561,9 @@ describe("MCP minimization", () => {
       writeBoxCodexConfig(box, compose.mcp);
       const toml = fs.readFileSync(path.join(box, ".codex", "config.toml"), "utf8");
       expect(toml).not.toMatch(/^bearer_token\s*=/m);
-      expect(toml).toContain("[mcp_servers.starrykol.http_headers]");
-      expect(toml).toContain('"Authorization" = "Bearer starry-bearer"');
-      expect(toml).toContain('"X-MCP-API-KEY" = "sk-test-key"');
+      expect(toml).not.toContain("starrykol");
+      expect(toml).not.toContain("starry-bearer");
+      expect(toml).not.toContain("sk-test-key");
       fs.rmSync(box, { recursive: true, force: true });
     } finally {
       restoreEnv("STARRY_KOL_MCP_URL", previous.url);

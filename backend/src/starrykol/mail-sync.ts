@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
 import { appendBusinessEvent } from "../business-events.js";
 import { mailPreview } from "../host/mail-preview.js";
@@ -20,7 +22,6 @@ import { markPendingMailMemory, triggerMailMemoryIncrement } from "../host/mail-
 import { recordEffectiveCorrespondence, recordFollowedMailMemory } from "../host/kol-memory.js";
 import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
 import { inboundIdentity, mailAlreadySeen } from "../host/inbound-identity.js";
-import { starryKolMcpConfigured } from "../config.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import {
@@ -69,6 +70,8 @@ const MAIL_STATE_KEY = "starry_followed_mail_sync";
 const CACHE_MS = 8_000;
 const inflight = new Map<string, Promise<FollowedMailSync>>();
 const lastStarted = new Map<string, number>();
+const durableSync = new AsyncLocalStorage<{ checkpoint: () => Promise<void> }>();
+async function syncCheckpoint(): Promise<void> { await durableSync.getStore()?.checkpoint(); }
 let backgroundSyncTask: Promise<void> | null = null;
 
 onConnReset(() => {
@@ -423,14 +426,17 @@ function refreshThreadDigest(threadId: string, conversationId: string, mailbox: 
 
 export async function readConversation(conversationId: string): Promise<{ messages: Json[]; subject: string; occurredAt: string }> {
   try {
+    await syncCheckpoint();
     const { data } = await executeStarryKolTask("email_conversation_read", { conversationId }, "host");
+    await syncCheckpoint();
     const messages = listOf(data);
     return {
       messages,
       subject: conversationSubject(data, ...messages),
       occurredAt: messageOccurredAt(messages[messages.length - 1] || data) || messageOccurredAt(data),
     };
-  } catch {
+  } catch (error) {
+    if (durableSync.getStore()) throw error;
     return { messages: [], subject: "", occurredAt: "" };
   }
 }
@@ -539,11 +545,12 @@ export async function hydrateMailThread(thread: Row): Promise<number> {
     });
   }
   refreshThreadDigest(String(thread.id), conversationId, mailbox);
-  await ensureThreadItemTranslations(String(thread.id));
+  if (!durableSync.getStore()) await ensureThreadItemTranslations(String(thread.id));
   return inserted;
 }
 
 async function hydrateConversationById(conv: Json, mailbox: string, collabs: Row[]): Promise<number> {
+  await syncCheckpoint();
   const conversationId = conversationIdOf(conv);
   if (!conversationId) return 0;
   let thread = getConn().prepare(
@@ -575,6 +582,7 @@ async function hydrateConversationById(conv: Json, mailbox: string, collabs: Row
 }
 
 async function fetchConversationPage(pageNo: number, pageSize: number, mailbox: string): Promise<{ pageNo: number; pageSize: number; total: number; rawCount: number; conversations: Json[] }> {
+  await syncCheckpoint();
   const listed = await executeStarryKolTask("email_conversation_list", {
     pageNo,
     pageSize,
@@ -660,6 +668,8 @@ async function syncRemainingConversations(
     pagesProcessed += 1;
   }
 
+  if (durableSync.getStore() && pagesProcessed >= MAX_BACKGROUND_PAGES) throw new Error("mail_sync_page_limit: 请重试以继续剩余分页");
+  await syncCheckpoint();
   updateBindingSyncCursor({ userId, mailbox, syncedAt, pageNo: 1, tool: "pageEmailConversations" });
 }
 
@@ -772,7 +782,12 @@ export function lastSyncReceipt(): SyncReceipt {
   return toSyncReceipt(followedMailStatus());
 }
 
-export async function syncFollowedKolMail(mailboxOverride = ""): Promise<FollowedMailSync> {
+export async function syncFollowedKolMail(mailboxOverride = "", options?: { checkpoint: () => Promise<void> }): Promise<FollowedMailSync> {
+  return options ? durableSync.run(options, () => syncFollowedKolMailInner(mailboxOverride)) : syncFollowedKolMailInner(mailboxOverride);
+}
+
+async function syncFollowedKolMailInner(mailboxOverride: string): Promise<FollowedMailSync> {
+  await syncCheckpoint();
   const syncedAt = nowIso();
   const scope = currentFollowScope();
   const mailbox = mailboxOverride || boundMailboxEmail() || scope.mailbox_email || "";
@@ -823,6 +838,7 @@ export async function syncFollowedKolMail(mailboxOverride = ""): Promise<Followe
     }));
     const details = new Map(detailRows.map((row) => [row.conversationId, row.detail]));
     for (const conv of conversations) {
+      await syncCheckpoint();
       const conversationId = conversationIdOf(conv);
       if (!conversationId) continue;
       const col = matchCollaboration(conv, collabs, mailbox);
@@ -964,8 +980,13 @@ export async function syncFollowedKolMail(mailboxOverride = ""): Promise<Followe
     });
     audit("host", "starrykol.followed_mail_sync", result);
     markPendingMailMemory(mailbox);
-    triggerMailMemoryIncrement(mailbox);
-    scheduleBackgroundSync(remainingCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
+    if (!durableSync.getStore()) triggerMailMemoryIncrement(mailbox);
+    if (durableSync.getStore()) {
+      await syncRemainingConversations(remainingCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
+      await syncCheckpoint();
+    } else {
+      scheduleBackgroundSync(remainingCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
+    }
     return result;
   } catch (error) {
     const result: FollowedMailSync = {

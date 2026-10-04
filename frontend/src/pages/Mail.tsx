@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api } from "../api";
+import { api, type OperationJob } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
 import { applyComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import type { ComposerDraftStash } from "../composer/types";
 import { isMissingEndpoint } from "../home/discoveryHome";
-import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, normalizeBox, syncMailboxMail } from "../mail/client";
+import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, syncMailboxMail } from "../mail/client";
 import { CorrespondentRow } from "../mail/components/CorrespondentRow";
 import { ConversationItem } from "../mail/components/ConversationItem";
 import { MailContent } from "../mail/components/MailContent";
@@ -170,6 +170,7 @@ export default function Mail() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [syncJob, setSyncJob] = useState<OperationJob | null>(null);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<MailTab>("inbox");
   const [unboundOnly, setUnboundOnly] = useState(false);
@@ -189,7 +190,7 @@ export default function Mail() {
   const [busy, setBusy] = useState(false);
   const [folds, setFolds] = useState<Record<MailFoldKey, boolean>>(readMailFolds);
   const syncPollRef = useRef<number | null>(null);
-  const baseSyncedAtRef = useRef<string>("");
+  const syncPollGeneration = useRef(0);
   const startedRef = useRef<Set<string>>(new Set());
   const timersRef = useRef<Record<string, number>>({});
   /** 每次清空会话缓存就 +1：在飞的响应回来后若代次不符就丢弃，不污染新邮箱的缓存。 */
@@ -275,6 +276,10 @@ export default function Mail() {
 
   useEffect(() => {
     load();
+    setSyncJob(null);
+    setSyncing(false);
+    const savedJob = sessionStorage.getItem(`mail-sync-job:${boxParam}`);
+    if (savedJob) pollForSync(savedJob);
     return stopSyncPoll;
     // Reload list + thread for the mailbox selected via ?box= (card click).
   }, [boxParam]);
@@ -452,53 +457,71 @@ export default function Mail() {
   };
 
   const stopSyncPoll = () => {
-    if (syncPollRef.current != null) {
-      window.clearInterval(syncPollRef.current);
-      syncPollRef.current = null;
-    }
+    syncPollGeneration.current += 1;
+    if (syncPollRef.current !== null) window.clearTimeout(syncPollRef.current);
+    syncPollRef.current = null;
   };
 
-  // The sync endpoint returns immediately; the mailbox is filled in behind.
-  // Watch box.synced_at and refresh the list once the background run lands.
-  const pollForSync = () => {
+  const pollForSync = (id: string) => {
     stopSyncPoll();
-    let ticks = 0;
-    syncPollRef.current = window.setInterval(() => {
-      ticks += 1;
-      if (ticks > 60) {
-        stopSyncPoll();
+    const generation = syncPollGeneration.current;
+    sessionStorage.setItem(`mail-sync-job:${boxParam}`, id);
+    const poll = async () => {
+      try {
+        const { job } = await api.operationJob(id);
+        if (generation !== syncPollGeneration.current) return;
+        setSyncJob(job);
+        const running = ["queued", "running", "retrying"].includes(job.status);
+        setSyncing(running);
+        if (running) {
+          setNotice(job.status === "queued" ? "正在排队，等待同步执行器。" : job.status === "retrying" ? "同步失败，执行器正在重试。" : "正在同步邮件索引。关闭页面后任务继续执行。");
+          syncPollRef.current = window.setTimeout(() => void poll(), 2000);
+          return;
+        }
+        sessionStorage.removeItem(`mail-sync-job:${boxParam}`);
+        if (job.status === "succeeded") {
+          setNotice("邮件索引同步完成。");
+          setPersonDigest(null);
+          dropThreadCache();
+          load({ keepNotice: true });
+        } else {
+          setNotice("");
+          setError(job.error_summary || (job.status === "cancelled" ? "已取消后续同步，已读取的数据保留。" : "同步未完成，请重试。"));
+        }
+      } catch (e) {
+        if (generation !== syncPollGeneration.current) return;
         setSyncing(false);
-        return;
+        setNotice("");
+        setError(httpCopy(e, "无法读取同步状态，可刷新状态后继续查看。"));
+        setSyncJob((previous) => previous || { id, status: "queued" });
       }
-      void api.mailBox(boxParam || undefined)
-        .then((raw) => {
-          const next = normalizeBox(raw as Record<string, unknown>);
-          const syncedAt = next?.synced_at || "";
-          if (syncedAt && syncedAt !== baseSyncedAtRef.current) {
-            baseSyncedAtRef.current = syncedAt;
-            stopSyncPoll();
-            setSyncing(false);
-            setPersonDigest(null);
-            dropThreadCache();
-            load({ keepNotice: true });
-          }
-        })
-        .catch(() => undefined);
-    }, 2_000);
+    };
+    void poll();
   };
 
   const sync = async () => {
     setSyncing(true);
     setError("");
-    setNotice("已在后台开始收取，完成后自动刷新。");
+    setNotice("正在提交同步任务…");
     try {
-      await syncMailboxMail(boxParam || undefined);
-      baseSyncedAtRef.current = workspace?.box?.synced_at || "";
-      pollForSync();
+      const receipt = await syncMailboxMail(boxParam || undefined);
+      if (!receipt.job_id) throw new Error("同步接口未返回作业 ID");
+      pollForSync(receipt.job_id);
     } catch (e) {
+      setNotice("");
       setError(httpCopy(e, MAIL_SYNC_MISSING_COPY));
       setSyncing(false);
     }
+  };
+
+  const controlSync = async (action: "cancel" | "retry") => {
+    if (!syncJob) return;
+    try {
+      const { job } = action === "cancel" ? await api.cancelOperationJob(syncJob.id) : await api.retryOperationJob(syncJob.id);
+      setError("");
+      setSyncJob(job);
+      pollForSync(job.id);
+    } catch (e) { setError(httpCopy(e, "同步操作失败，请刷新状态后重试。")); }
   };
 
   const generateMailMemory = async (kind: "summary" | "translation") => {
@@ -1001,6 +1024,11 @@ export default function Mail() {
                 >
                   {syncing ? "正在收取…" : "收取"}
                 </button>
+                {syncJob && ["queued", "running", "retrying"].includes(syncJob.status) && <>
+                  <button type="button" className="mail-list-sync" onClick={() => void controlSync("cancel")}>取消同步</button>
+                  {!syncing && <button type="button" className="mail-list-sync" onClick={() => pollForSync(syncJob.id)}>刷新状态</button>}
+                </>}
+                {syncJob?.status === "failed" && <button type="button" className="mail-list-sync" onClick={() => void controlSync("retry")}>重试同步</button>}
               </div>
             </div>
             <div className="mail-interact-dock">

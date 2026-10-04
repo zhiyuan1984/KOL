@@ -1,3 +1,6 @@
+import { createManagedClient } from "../src/runtime/managed-client.js";
+import { saveStarryBinding, boundStarryCredentialId } from "../src/host/starry-bind.js";
+import { deleteCredential } from "../src/runtime/credentials.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +22,21 @@ import { runCodex } from "../src/worker/runner.js";
 import { isolatedCodexModelConfig } from "../src/worker/auth.js";
 import { freshTestDatabase } from "./support/pg.js";
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { createCredential } from "../src/runtime/credentials.js";
+import { setStarryKolClientFactory } from "../src/starrykol/service.js";
+import { postgresPool } from "../src/postgres/pool.js";
+import { runtimeActionSchema } from "../src/runtime/action-schema.js";
+import { runtimeAction } from "../src/runtime/action-store.js";
+import { registerRuntimeActionGate } from "../src/runtime/action-gates.js";
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
+import { monitorRuntimeCrawl } from "../src/crawl/runtime-gates.js";
+import type { ClaimedExecutionJob } from "../src/execution-jobs/contracts.js";
+import { Hono } from "hono";
+import { operationRouter } from "../src/runtime/operations.js";
+import { runtimeActionOperations } from "../src/runtime/action-operations.js";
+import { HttpFail } from "../src/host/errors.js";
+
+registerRuntimeActionGate("catalog_a", "lookup", { validate() {}, execute: (_context, _args, _id, dispatch) => dispatch() });
 
 let tmp: string;
 let cleanup: Array<() => Promise<unknown>>;
@@ -32,6 +50,7 @@ const denied = (code: string) => ({ detail: { code } });
 
 beforeEach(async () => {
   await freshTestDatabase();
+  await postgresPool().query(runtimeActionSchema);
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-runtime-execution-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
@@ -100,6 +119,91 @@ async function one(hooks: Parameters<typeof fake>[1] = {}) {
 }
 
 describe("governed Skill Runtime", () => {
+  it("only the owning authenticated user can enqueue the immutable confirmation once", async () => {
+    const { runtime, calls } = await one();
+    approve("catalog_a", tool(), "L3", "write");
+    const catalog = await runtime.discover();
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
+    const app = new Hono();
+    app.onError((error, c) => c.json({ code: error instanceof HttpFail ? error.detail : "failed" }, error instanceof HttpFail ? error.status as 400 : 500));
+    app.route("/api", operationRouter(runtimeActionOperations));
+    const confirm = () => app.request("/api/actions/runtime.confirm", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action_id: action.id, confirmation_version: action.snapshot, args: { query: "cannot-override" } }) });
+    expect((await confirm()).status).toBe(401);
+    const other = mapUser(getConn().prepare("SELECT * FROM users WHERE id='user-b'").get() as Json);
+    expect((await withScopedUser(other, confirm)).status).toBe(404);
+    const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
+    expect((await withScopedUser(owner, confirm)).status).toBe(202);
+    expect((await withScopedUser(owner, confirm)).status).toBe(202);
+    const jobs = (await postgresPool().query("SELECT payload_json FROM execution_jobs WHERE job_type='runtime.confirm'")).rows;
+    expect(jobs).toHaveLength(1);
+    expect(JSON.stringify(jobs)).not.toContain("cannot-override");
+    expect(calls).toHaveLength(0);
+  });
+  it.each([null, "remote process failed"])("mounts MediaCrawler writes, persists one remote job, enforces task scope, and resumes monitoring (%s)", async (remoteError) => {
+    configureCrawlerFixture("http://crawler.example.test/mcp");
+    const crawlContext = { ...context, skillId: "crawler_collect" };
+    setAgentSkill(context.agentId, "crawler_collect", true, 0);
+    setSkillConnector("crawler_collect", "claw", true, 0);
+    const start = { name: "start_crawl", inputSchema: { type: "object", properties: { platforms: { type: "array" }, crawler_type: { type: "string" }, keywords: { type: "string" } } } };
+    const status = { name: "get_crawl_status", inputSchema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] } };
+    for (const descriptor of [start, status]) {
+      approve("claw", descriptor, descriptor === start ? "L3" : "L1", descriptor === start ? "write" : "read");
+      setSkillTool("crawler_collect", "claw", descriptor.name, true, 0);
+    }
+    let remoteCalls = 0;
+    const factory = (): RuntimeRemote => ({
+      listTools: async () => [start, status], close: async () => {},
+      callToolRaw: async (name, args) => { remoteCalls += 1; return { structuredContent: name === "start_crawl"
+        ? { ok: true, task_id: "remote-one", status: "running" }
+        : { task_id: args?.task_id, status: "idle", error_message: remoteError } }; },
+    });
+    const runtime = new SkillExecution(crawlContext, factory);
+    const catalog = await runtime.discover();
+    expect(catalog.tools).toHaveLength(2);
+    const startAlias = String(catalog.tools.find((item) => item.remoteName === "start_crawl")!.exposed.name);
+    const args = { platforms: ["youtube"], crawler_type: "search", keywords: "camping" };
+    const proposed = await runtime.invoke(startAlias, args);
+    expect(remoteCalls).toBe(0);
+    const action = await runtimeAction(String((proposed.structuredContent as Json).action_id), context.userId);
+    await new SkillExecution(crawlContext, factory).confirm(action.id, action.snapshot);
+    expect(remoteCalls).toBe(1);
+    const second = await runtime.invoke(startAlias, { ...args, keywords: "outdoor" });
+    const secondAction = await runtimeAction(String((second.structuredContent as Json).action_id), context.userId);
+    await expect(new SkillExecution(crawlContext, factory).confirm(secondAction.id, secondAction.snapshot))
+      .rejects.toMatchObject(denied("runtime_probe_crawl_busy"));
+    expect(remoteCalls).toBe(1);
+    const statusAlias = String(catalog.tools.find((item) => item.remoteName === "get_crawl_status")!.exposed.name);
+    await expect(runtime.invoke(statusAlias, { task_id: "someone-elses-task" })).rejects.toMatchObject(denied("runtime_crawl_scope_denied"));
+    const monitor = (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='crawler.monitor'")).rows[0];
+    expect(monitor).toBeTruthy();
+    const delivery = (await postgresPool().query("SELECT available_at FROM execution_outbox WHERE job_id=$1", [monitor.id])).rows[0];
+    expect(new Date(delivery.available_at).getTime()).toBe(new Date(monitor.next_attempt_at).getTime());
+    expect((await postgresPool().query("SELECT count(*)::int AS n FROM execution_outbox WHERE job_id=$1", [monitor.id])).rows[0].n).toBe(1);
+    const receipt = await monitorRuntimeCrawl({ ...monitor, worker_id: "test" } as ClaimedExecutionJob, async () => {}, (ctx) => new SkillExecution(ctx, factory));
+    expect(receipt).toMatchObject({ state: remoteError ? "failed" : "succeeded" });
+    expect((await postgresPool().query("SELECT state FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].state).toBe(remoteError ? "failed" : "succeeded");
+  });
+  it.each([
+    ["missing annotations", undefined, "L1", "read", true],
+    ["explicit write", { readOnlyHint: false }, "L1", "read", false],
+    ["destructive contradiction", { destructiveHint: true }, "L1", "read", false],
+    ["L2 cannot claim read-only", { readOnlyHint: true }, "L2", "write", false],
+  ] as const)("publishes governed read-only hints: %s", async (_label, annotations, risk, access, expected) => {
+    const descriptor: Json = { ...tool(), ...(annotations ? { annotations } : {}) };
+    connector("hints", [descriptor]);
+    approve("hints", descriptor, risk, access);
+    const fixture = fake({ "http://hints.example.test/mcp": [descriptor] });
+    const catalog = await new SkillExecution(context, fixture.factory).discover();
+    expect(catalog.tools).toHaveLength(1);
+    expect(catalog.tools[0].exposed.annotations).toMatchObject({ readOnlyHint: expected });
+    expect(catalog.tools[0].schemaHash).toBe(toolSchemaHash(descriptor));
+    if (annotations && "destructiveHint" in annotations) {
+      expect(catalog.tools[0].exposed.annotations).toMatchObject({ destructiveHint: true });
+    }
+  });
+
   it("preserves model provider config without inheriting tools, plugins or trust", () => {
     const safe = isolatedCodexModelConfig(`model="chosen-model"\nmodel_provider="custom"\nprofile="fast"\n
 [model_providers.custom]\nname="Custom"\nbase_url="https://model.example/v1"\nenv_key="MODEL_KEY"\nwire_api="responses"\n
@@ -226,8 +330,11 @@ describe("governed Skill Runtime", () => {
   it("L3 registration cannot make a tool directly callable, even by admin", async () => {
     const { runtime, alias, calls } = await one();
     approve("catalog_a", tool(), "L3", "write");
-    await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_gateway_required"));
-    expect((await runtime.discover()).tools).toHaveLength(0);
+    await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_binding_changed"));
+    const catalog = await runtime.discover();
+    expect(catalog.tools).toHaveLength(1);
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    expect(result.structuredContent).toMatchObject({ status: "pending", confirmation_required: true });
     expect(calls).toHaveLength(0);
   });
 
@@ -245,8 +352,52 @@ describe("governed Skill Runtime", () => {
     connector("catalog_a", [dangerous]);
     const fixture = fake({ "http://catalog_a.example.test/mcp": [dangerous] });
     const runtime = new SkillExecution({ ...context, userId: "admin-a" }, fixture.factory);
-    expect((await runtime.discover()).tools).toHaveLength(0);
+    const catalog = await runtime.discover();
+    expect(catalog.tools).toHaveLength(1);
+    expect(catalog.tools[0].exposed.annotations).toMatchObject({ readOnlyHint: false });
+    expect((await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" })).structuredContent)
+      .toMatchObject({ status: "pending" });
     expect(fixture.calls).toHaveLength(0);
+  });
+
+  it("persists a proposal and confirms exactly once across fresh runtimes and simultaneous requests", async () => {
+    const { runtime, calls, factory } = await one();
+    approve("catalog_a", tool(), "L3", "write");
+    const catalog = await runtime.discover();
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
+    expect(calls).toHaveLength(0);
+    const confirmed = await Promise.allSettled([1, 2].map(() => new SkillExecution(context, factory).confirm(action.id, action.snapshot)));
+    expect(confirmed.some((item) => item.status === "fulfilled")).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect((await runtimeAction(action.id, context.userId)).state).toBe("succeeded");
+    await new SkillExecution(context, factory).confirm(action.id, action.snapshot);
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each(["parameters", "policy", "identity"])("invalidates confirmation after %s changes", async (change) => {
+    const { runtime, calls, factory } = await one();
+    approve("catalog_a", tool(), "L3", "write");
+    const catalog = await runtime.discover();
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
+    if (change === "parameters") await postgresPool().query("UPDATE runtime_actions SET args_json=$2 WHERE id=$1", [action.id, JSON.stringify({ query: "other" })]);
+    if (change === "policy") approve("catalog_a", tool(), "L3", "write");
+    if (change === "identity") getConn().prepare("UPDATE users SET active=0 WHERE id=?").run(context.userId);
+    await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("retains an uncertain receipt after a dispatched timeout and forbids replay", async () => {
+    const { runtime, calls, factory } = await one({ call: () => { throw new Error("timeout"); } });
+    approve("catalog_a", tool(), "L3", "write");
+    const catalog = await runtime.discover();
+    const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
+    await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
+    expect((await runtimeAction(action.id, context.userId)).state).toBe("uncertain");
+    await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
+    expect(calls).toHaveLength(1);
   });
 
   it("pins schema and description changes and rejects invalid arguments", async () => {
@@ -300,17 +451,20 @@ describe("governed Skill Runtime", () => {
   });
 });
 
-async function localRemote() {
+async function localRemote(descriptor = tool(), requiredHeaders: Record<string, string> = {}, result: Json = { creator: "creator-local-42" }) {
   const calls: string[] = [];
   const server = http.createServer(async (req, res) => {
+    if (Object.entries(requiredHeaders).some(([name, value]) => req.headers[name.toLowerCase()] !== value)) {
+      res.writeHead(401).end(); return;
+    }
     if (req.method !== "POST") { res.writeHead(405).end(); return; }
     const chunks: Buffer[] = [];
     for await (const part of req) chunks.push(Buffer.from(part));
     const mcp = new Server({ name: "local-real-protocol-fixture", version: "1" }, { capabilities: { tools: {} } });
-    mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [tool() as Tool] }));
+    mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [descriptor as Tool] }));
     mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
       calls.push(request.params.name);
-      return { content: [{ type: "text", text: "creator-local-42" }], structuredContent: { creator: "creator-local-42" } };
+      return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
     });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     try { await mcp.connect(transport); await transport.handleRequest(req, res, JSON.parse(Buffer.concat(chunks).toString())); }
@@ -326,6 +480,91 @@ function proxyClient(proxy: RuntimeProxy) {
 }
 
 describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)", () => {
+  it("routes Starry business calls through vault, rejects legacy config and never retries another identity", async () => {
+    const previous = process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+    process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "29".repeat(32);
+    try {
+      const remote = await localRemote(tool(), { "X-MCP-API-KEY": "vault-key", Authorization: "Bearer personal-vault-token" });
+      const key = createCredential({ type: "organization_secret", secret: "vault-key" }, "admin-a");
+      getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='starrykol'").run();
+      expect(() => setConnectorConfig("starrykol", { url: remote.url, headers_env: { "X-Key": "OLD_KEY" } }, 0))
+        .toThrow();
+      expect(() => setConnectorConfig("starrykol", { url: remote.url, allow_unauthenticated: true }, 0)).toThrow();
+      setConnectorConfig("starrykol", { url: remote.url, headers_secret_refs: { "X-MCP-API-KEY": key.id } }, 0);
+      saveStarryBinding(context.userId, { mailbox_email: "person@example.test", bearer: "personal-vault-token" });
+      const reference = boundStarryCredentialId(context.userId);
+      expect(reference).toMatch(/^cred_/);
+      expect(JSON.stringify(getConn().prepare("SELECT * FROM user_starry_bindings").all())).not.toContain("personal-vault-token");
+      expect(() => deleteCredential(reference, 1)).toThrow();
+      const client = createManagedClient("starrykol", context.userId, reference);
+      try { expect(await client.callTool("lookup", { query: "fixture" })).toEqual({ creator: "creator-local-42" }); }
+      finally { await client.close(); }
+      expect(remote.calls).toEqual(["lookup"]);
+      expect(() => createManagedClient("starrykol", "user-b", reference)).toThrow();
+      getConn().prepare("UPDATE runtime_credentials SET status='disabled' WHERE id=?").run(reference);
+      expect(() => createManagedClient("starrykol", context.userId, reference)).toThrow();
+      expect(remote.calls).toHaveLength(1);
+      getConn().prepare("UPDATE user_starry_bindings SET bearer_token='legacy-plaintext' WHERE user_id=?").run(context.userId);
+      expect(() => boundStarryCredentialId(context.userId)).toThrow();
+      getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='starrykol'").run();
+      expect(() => createManagedClient("starrykol", context.userId)).toThrow();
+    } finally {
+      if (previous === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+      else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previous;
+    }
+  });
+
+  it("queries all KOL profiles using vaulted config with legacy Host disabled and only an Agent user binding", async () => {
+    const ctx = { ...context, skillId: "creator_library_all" };
+    const descriptor: Json = { name: "listAllKolProfiles", description: "List all visible KOL profiles",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false } };
+    const expected = { data: [{ kolUid: "fixture-kol-1", kolName: "Protocol fixture only" }] };
+    const remote = await localRemote(descriptor,
+      { "X-MCP-API-KEY": "fixture-vault-key", Authorization: "Bearer fixture-vault-account" }, expected);
+    let legacyCalls = 0;
+    setStarryKolClientFactory(() => { legacyCalls++; throw new Error("legacy Host deliberately disabled"); });
+    const savedKey = process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+    const legacyEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+      /^(STARRY_|EMAIL_MCP_)/.test(key)));
+    for (const key of Object.keys(legacyEnv)) delete process.env[key];
+    process.env.RUNTIME_CREDENTIAL_MASTER_KEY = Buffer.alloc(32, 19).toString("base64");
+    try {
+      const apiKey = createCredential({ type: "organization_secret", secret: "fixture-vault-key" }, "admin-a");
+      const bearer = createCredential({ type: "user_account", owner_user_id: ctx.userId,
+        secret: "fixture-vault-account" }, "admin-a");
+      connector("vaulted_starry", [descriptor], remote.url);
+      setConnectorConfig("vaulted_starry", { url: remote.url,
+        headers_secret_refs: { "X-MCP-API-KEY": apiKey.id },
+        credential_provider: "user-account", credential_account_id: bearer.id }, 1);
+      setAgentSkill(ctx.agentId, ctx.skillId, true, 0);
+      setSkillConnector(ctx.skillId, "vaulted_starry", true, 0);
+      setSkillTool(ctx.skillId, "vaulted_starry", "listAllKolProfiles", true, 0);
+      // Explicitly remove obsolete per-person resource grants. Assembly is not a user grant.
+      getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(ctx.userId);
+      getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(ctx.userId);
+      const runtime = new SkillExecution(ctx);
+      const proxy = await startRuntimeProxy(runtime); cleanup.push(proxy.close);
+      const client = proxyClient(proxy); cleanup.push(() => client.close());
+      const tools = await client.listTools();
+      expect(tools).toHaveLength(1);
+      const result = await client.callToolRaw(String(tools[0].name), {});
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual(expected);
+      expect(remote.calls).toEqual(["listAllKolProfiles"]);
+      expect(legacyCalls).toBe(0);
+      revokeAgentBinding(runtimeBindingId);
+      const deniedResult = await client.callToolRaw(String(tools[0].name), {});
+      expect(deniedResult.isError).toBe(true);
+      expect(remote.calls).toHaveLength(1);
+      expect(legacyCalls).toBe(0);
+    } finally {
+      setStarryKolClientFactory();
+      Object.assign(process.env, legacyEnv);
+      if (savedKey === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+      else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = savedKey;
+    }
+  });
+
   it("wires the actual Worker through an isolated fake-Codex protocol process and the runtime proxy", async () => {
     const remote = await localRemote();
     connector("local_provider", [tool()], remote.url);

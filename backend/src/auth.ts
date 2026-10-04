@@ -304,6 +304,7 @@ function userPublic(user: AppUser): Json {
 function permissions(user: AppUser): Json {
   const db = getConn();
   const admin = isAdmin(user);
+  const now = nowIso();
   const skills = admin ? ["*"] : visibleSkillIdsForUser(user.id);
   const connectors = Object.fromEntries(
     (db.prepare("SELECT connector_id, access FROM user_connector_grants WHERE user_id = ?").all(user.id) as Row[])
@@ -313,9 +314,9 @@ function permissions(user: AppUser): Json {
     ? ["*"]
     : (db.prepare(
         "SELECT approval_role FROM approval_role_bindings WHERE user_id = ? " +
-        "AND (valid_from IS NULL OR valid_from <= datetime('now')) " +
-        "AND (valid_to IS NULL OR valid_to >= datetime('now'))"
-      ).all(user.id) as Row[])
+        "AND (valid_from IS NULL OR valid_from <= ?) " +
+        "AND (valid_to IS NULL OR valid_to >= ?)"
+      ).all(user.id, now, now) as Row[])
       .map((r) => String(r.approval_role));
   return { admin, skills, connectors, approval_roles: approvalRoles };
 }
@@ -491,11 +492,12 @@ export function approvalRoles(): string[] {
   const user = scopedUser();
   if (!user) return [];
   if (isAdmin(user)) return ["*"];
+  const now = nowIso();
   return (getConn().prepare(
     "SELECT approval_role FROM approval_role_bindings WHERE user_id=? " +
-    "AND (valid_from IS NULL OR valid_from <= datetime('now')) " +
-    "AND (valid_to IS NULL OR valid_to >= datetime('now'))"
-  ).all(user.id) as Row[])
+    "AND (valid_from IS NULL OR valid_from <= ?) " +
+    "AND (valid_to IS NULL OR valid_to >= ?)"
+  ).all(user.id, now, now) as Row[])
     .map((r) => String(r.approval_role));
 }
 

@@ -5,7 +5,7 @@ import { codeFromLabel, mergeRemoteLibraryStage, normalizeStage, preferLaterMain
 import type { Json, Row } from "../types.js";
 import { avgPlaysOf, engagementOf, followersOf, geoOf } from "./remote-metrics.js";
 import { normalizeRiskTag, parseNicheTags } from "./remote-contract.js";
-import { executeStarryKolTask, remoteLifecycleIdFrom, withStarryCallScope } from "./service.js";
+import { executeStarryKolTask, remoteLifecycleIdFrom } from "./service.js";
 
 export type StarryLibrarySync = {
   ok: boolean;
@@ -222,7 +222,7 @@ function persistStatus(result: StarryLibrarySync): void {
 export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
   const syncedAt = nowIso();
   try {
-    const { data } = await withStarryCallScope({ ignoreUser: true }, () => executeStarryKolTask("creator_library_all", {}, "host"));
+    const { data } = await executeStarryKolTask("creator_library_all", {}, "host");
     const profiles = listOf(data).filter((row) => kolUidOf(row) && firstString(row.kolName, row.nickname, row.name));
     const seen = new Set<string>();
     tx((db) => {

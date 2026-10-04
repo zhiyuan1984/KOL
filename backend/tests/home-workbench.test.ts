@@ -4,11 +4,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { DEMO_USER } from "../src/config.js";
-import { getConn, resetConn } from "../src/db.js";
+import { databaseEngine, getConn, resetConn } from "../src/db.js";
 import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isOpenWorkItem, isTodayWorkItem, isTodoWorkItem, todayDateStr } from "../src/host/home-board.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -24,6 +25,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
+  if (process.env.TEST_DATABASE_URL) await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-home-wb-"));
   process.env.LINGONG_DB = path.join(tmp, "home.db");
   process.env.LINGONG_DATA = tmp;
@@ -139,9 +141,14 @@ describe("home workbench", () => {
   });
 
   it("seedAll does not plant demo KOL work items", () => {
+    const count = (table: "tickets" | "collaborations", prefix: string) => Number((getConn()
+      .prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE id LIKE ?`).get(prefix) as { c: number }).c);
+    const ticketsBefore = count("tickets", "tsk_home_%");
+    const collaborationsBefore = count("collaborations", "col_%");
     seedAll();
-    expect(getConn().prepare("SELECT COUNT(*) AS c FROM tickets WHERE id LIKE 'tsk_home_%'").get() as { c: number }).toEqual({ c: 0 });
-    expect(getConn().prepare("SELECT COUNT(*) AS c FROM collaborations WHERE id LIKE 'col_%'").get() as { c: number }).toEqual({ c: 0 });
+    // PostgreSQL preserves already inserted fixture facts; SQLite demo cleanup removes them.
+    expect(count("tickets", "tsk_home_%")).toBe(databaseEngine() === "postgres" ? ticketsBefore : 0);
+    expect(count("collaborations", "col_%")).toBe(databaseEngine() === "postgres" ? collaborationsBefore : 0);
   });
 
   it("demo reset drops leftover Starry library rows before stub listAll re-syncs", async () => {
@@ -371,7 +378,7 @@ describe("home workbench", () => {
   });
 
   it("persists promote columns on tickets", () => {
-    const cols = getConn().prepare("PRAGMA table_info(tickets)").all() as { name: string }[];
+    const cols = getConn().pragma("table_info(tickets)") as { name: string }[];
     expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining([
       "promoted_at",
       "dismissed_at",

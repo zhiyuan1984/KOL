@@ -1,4 +1,4 @@
-import { runtimeHostOnlyTool } from "../gateway/runtime-policy.js";
+import { runtimeRequiresGate } from "../gateway/runtime-policy.js";
 import { toolSchemaHash } from "./execution.js";
 import { getToolPolicy, setToolPolicy } from "./store.js";
 import type { Json } from "../types.js";
@@ -17,7 +17,7 @@ export type DerivedToolPolicy = { risk: "L1" | "L2" | "L3"; access: "read" | "wr
  */
 export function deriveToolPolicy(name: string): DerivedToolPolicy {
   const bare = String(name || "").split(/[.:/]/).at(-1) || "";
-  if (runtimeHostOnlyTool(bare)) return { risk: "L3", access: "write" };
+  if (runtimeRequiresGate(bare)) return { risk: "L3", access: "write" };
   if (SENSITIVE_FAMILY.test(bare)) return { risk: "L3", access: "write" };
   if (READ_FAMILY.test(bare)) return { risk: "L1", access: "read" };
   return { risk: "L2", access: "write" };
@@ -36,7 +36,7 @@ export type ToolCatalogRegistration = { total: number; created: number; refreshe
 /**
  * 测试（probe）成功后登记发现的工具目录。发现不是授权：挂载仍在技能侧逐项进行，
  * 管理员也可继续用既有策略接口覆盖。既有行保留风险档与启用状态（覆盖不被回写），
- * 只在远端指纹变化时刷新指纹。L3 行自动登记为 enabled=0，不进技能面。
+ * 只在远端指纹变化时刷新指纹。L3 可挂载；执行由统一提交门禁控制。
  */
 export function registerDiscoveredToolPolicies(connectorId: string, tools: Json[]): ToolCatalogRegistration {
   const result: ToolCatalogRegistration = { total: tools.length, created: 0, refreshed: 0, skipped: 0 };
@@ -51,7 +51,7 @@ export function registerDiscoveredToolPolicies(connectorId: string, tools: Json[
     if (!existing) {
       const derived = deriveToolPolicy(name);
       setToolPolicy(connectorId, name, {
-        enabled: derived.risk !== "L3",
+        enabled: true,
         risk: derived.risk,
         access: derived.access,
         schema_hash: schemaHash,

@@ -2,11 +2,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { audit, getConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { assertMailSendAuthority } from "../gateway/mail-authority.js";
-import { RemoteMcpClient } from "../mcp/remote.js";
+import { createManagedClient } from "../runtime/managed-client.js";
+import { createCredential, deleteCredential } from "../runtime/credentials.js";
+import { starryKolMcpConfigured } from "./connection.js";
 import { scopedUser } from "../auth.js";
 import { normalizeEmail } from "../host/identity.js";
-import { boundStarryBearer, matchesFollowedMailbox, publicStarryBinding, starryBindingRow } from "../host/starry-bind.js";
-import { codexMode, starryKolMcpBearer, starryKolMcpConfigured, starryKolMcpHeaders, starryKolMcpUrl } from "../config.js";
+import { boundStarryCredentialId, matchesFollowedMailbox, publicStarryBinding, starryBindingRow } from "../host/starry-bind.js";
+import { codexMode } from "../config.js";
 import {
   dictionaryOptionsFor,
   enrichListProfile,
@@ -72,7 +74,7 @@ export const STARRY_KOL_WRITE_TASKS = [
 
 export type StarryKolWriteTask = (typeof STARRY_KOL_WRITE_TASKS)[number];
 
-/** L1 reads. Host may invoke these MCP tools when Codex `approvalPolicy: never` rejects them. */
+/** L1 reads. Runtime supplies reviewed read-only annotations; rejected model calls are not retried by Host. */
 export const STARRY_KOL_READ_TASKS = STARRY_KOL_TASKS.filter(
   (task) => !(STARRY_KOL_WRITE_TASKS as readonly string[]).includes(task),
 ) as readonly Exclude<StarryKolTask, StarryKolWriteTask>[];
@@ -90,25 +92,16 @@ export function isStarryKolReadTask(value: string | null | undefined): boolean {
   return isStarryKolTask(value) && !isStarryKolWriteTask(value);
 }
 
-type StarryKolClient = Pick<RemoteMcpClient, "callTool" | "close">;
+type StarryKolClient = Pick<ReturnType<typeof createManagedClient>, "callTool" | "close">;
 let clientFactory: (() => StarryKolClient) | null = null;
-const callScope = new AsyncLocalStorage<{ bearer?: string; ignoreUser?: boolean }>();
+const callScope = new AsyncLocalStorage<{ credentialAccountId?: string }>();
 
-export function withStarryCallScope<T>(scope: { bearer?: string; ignoreUser?: boolean }, fn: () => Promise<T>): Promise<T> {
-  return callScope.run(scope, fn);
-}
-
-function resolveStarryBearer(): string {
-  const scope = callScope.getStore();
-  if (scope?.bearer) return scope.bearer;
-  if (!scope?.ignoreUser) {
-    const bound = boundStarryBearer(scopedUser()?.id);
-    if (bound) return bound;
-  }
-  return starryKolMcpBearer();
+export function withStarryCredential<T>(credentialAccountId: string, action: () => T): T {
+  return callScope.run({ credentialAccountId }, action);
 }
 
 export function setStarryKolClientFactory(factory?: () => StarryKolClient): void {
+  if (factory && process.env.NODE_ENV !== "test") throw new Error("Starry client fixtures are test-only");
   clientFactory = factory || null;
 }
 export const setEmailMcpClientFactory = setStarryKolClientFactory;
@@ -662,15 +655,13 @@ async function call(name: string, args: Json = {}): Promise<Json> {
     throw new HttpFail(503, {
       code: "starrykol_not_configured",
       message: "Starry KOL MCP 未配置。",
-      next_action: "请配置 STARRY_KOL_MCP_URL、STARRY_KOL_MCP_API_KEY，以及网关所需的 STARRY_KOL_MCP_BEARER 后重启。",
+      next_action: "请在管理侧保存 Starry KOL 连接配置，绑定保险柜凭据并启用连接器。",
     });
   }
   const client = clientFactory
     ? clientFactory()
-    : new RemoteMcpClient({
-      url: starryKolMcpUrl(),
-      headers: starryKolMcpHeaders(resolveStarryBearer()),
-    });
+    : createManagedClient("starrykol", scopedUser()?.id || "",
+      callScope.getStore()?.credentialAccountId || boundStarryCredentialId(scopedUser()?.id));
   try {
     return normalizeStarryKolResult(await client.callTool(name, args));
   } catch (error) {
@@ -687,7 +678,7 @@ async function call(name: string, args: Json = {}): Promise<Json> {
       throw new HttpFail(401, {
         code: "starrykol_api_key_required",
         message: "Starry MCP 拒绝了请求：缺少有效的 X-MCP-API-KEY。",
-        next_action: "检查 STARRY_KOL_MCP_API_KEY，不要把用户 JWT 填进 API Key。",
+        next_action: "检查管理侧连接配置所引用的保险柜 API Key。",
       });
     }
     if (/Unexpected token|is not valid JSON|<html/i.test(message)) {
@@ -1078,11 +1069,14 @@ function title(task: StarryKolTask): string {
 }
 
 export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<Json[]> {
-  const data = await withStarryCallScope(
-    { bearer: opts?.bearer, ignoreUser: Boolean(opts?.bearer) },
-    () => call("pageMailboxes", { pageNo: 1, pageSize: 50 }),
-  );
-  return rows(data);
+  const userId = scopedUser()?.id || "";
+  const credential = opts?.bearer ? createCredential({ type: "user_account", owner_user_id: userId,
+    label: "Starry connection probe", purpose: "Temporary mailbox probe",
+    secret: opts.bearer.replace(/^Bearer\s+/i, "") }, userId) : undefined;
+  try {
+    return rows(await callScope.run({ credentialAccountId: credential?.id },
+      () => call("pageMailboxes", { pageNo: 1, pageSize: 50 })));
+  } finally { if (credential) deleteCredential(credential.id, credential.version); }
 }
 
 function rows(data: Json): Json[] {
@@ -1433,10 +1427,10 @@ async function findProfileByContact(
   email: string,
   invokeOptional: (tool: string, args?: Json) => Promise<Json>,
   fromAddr?: string,
-): Promise<{ profile: Json; via: "user" | "host" } | undefined> {
+): Promise<{ profile: Json; via: "user" } | undefined> {
   if (!email) return undefined;
   const local = localFollowedProfile(email, fromAddr);
-  const withLocal = (hit: Json | undefined, via: "user" | "host"): { profile: Json; via: "user" | "host" } | undefined => {
+  const withLocal = (hit: Json | undefined, via: "user"): { profile: Json; via: "user" } | undefined => {
     if (!hit) return undefined;
     if (local && kolUidOf(local) && kolUidOf(hit) && kolUidOf(local) === kolUidOf(hit)) {
       return { profile: { ...local, ...hit }, via };
@@ -1445,34 +1439,34 @@ async function findProfileByContact(
   };
   const localPart = emailParts(email).local;
   const keywords = [email, localPart.length >= 5 && localPart !== email ? localPart : ""].filter(Boolean);
-  const fromPage = async (scoped?: { ignoreUser: boolean }) => {
+  const fromPage = async () => {
     for (const keyword of keywords) {
       const run = () => invokeOptional("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword }));
-      const payload = scoped ? await withStarryCallScope(scoped, run) : await run();
+      const payload = await run();
       const hit = pickContactProfile(rows(payload), email, { allowSingle: true, fromAddr });
       if (hit) return hit;
     }
     return undefined;
   };
-  const fromAll = async (scoped?: { ignoreUser: boolean }) => {
+  const fromAll = async () => {
     const run = () => invokeOptional("listAllKolProfiles", {});
-    const payload = scoped ? await withStarryCallScope(scoped, run) : await run();
+    const payload = await run();
     return pickContactProfile(rows(payload), email, { allowSingle: false, fromAddr });
   };
-  const fromConversations = async (scoped?: { ignoreUser: boolean }) => {
+  const fromConversations = async () => {
     const run = () => invokeOptional("pageEmailConversations", {
       pageNo: 1,
       pageSize: 20,
       keyword: email,
       ...(fromAddr ? { mailboxEmail: fromAddr } : {}),
     });
-    const payload = scoped ? await withStarryCallScope(scoped, run) : await run();
+    const payload = await run();
     const hits = rows(payload).map((row) => conversationProfile(row, email)).filter(Boolean) as Json[];
     if (!hits.length) return undefined;
     const uids = new Set(hits.map((row) => kolUidOf(row)));
     return uids.size === 1 ? hits[0] : undefined;
   };
-  const fromFollowedDetails = async (scoped?: { ignoreUser: boolean }) => {
+  const fromFollowedDetails = async () => {
     const seen = new Set<string>();
     const candidates: Json[] = [];
     const push = (row: Json) => {
@@ -1482,12 +1476,10 @@ async function findProfileByContact(
       seen.add(uid);
       candidates.push(row);
     };
-    if (!scoped) {
-      for (const row of localFollowedCandidates(fromAddr)) push(row);
-    }
+    for (const row of localFollowedCandidates(fromAddr)) push(row);
     const listed = async (tool: "pageKolProfiles" | "listAllKolProfiles", body: Json) => {
       const run = () => invokeOptional(tool, tool === "pageKolProfiles" ? requestJson(body) : body);
-      const payload = scoped ? await withStarryCallScope(scoped, run) : await run();
+      const payload = await run();
       for (const row of rows(payload)) push(row);
     };
     const ownerName = profileFollowScope(fromAddr).owner_name;
@@ -1500,7 +1492,7 @@ async function findProfileByContact(
     const matches: Json[] = [];
     for (const row of candidates.slice(0, 20)) {
       const run = () => invokeOptional("getKolProfileDetail", { kolUid: kolUidOf(row) });
-      const detail = scoped ? await withStarryCallScope(scoped, run) : await run();
+      const detail = await run();
       const merged = { ...row, ...json(detail) };
       if (pickContactProfile([merged], email, { allowSingle: false, fromAddr })) matches.push(merged);
     }
@@ -1515,14 +1507,6 @@ async function findProfileByContact(
   const userDetail = withLocal(await fromFollowedDetails(), "user");
   if (userDetail) return userDetail;
   if (local) return { profile: local, via: "user" };
-  const hostPage = await fromPage({ ignoreUser: true });
-  if (hostPage) return { profile: hostPage, via: "host" };
-  const hostConv = await fromConversations({ ignoreUser: true });
-  if (hostConv) return { profile: hostConv, via: "host" };
-  const hostAll = await fromAll({ ignoreUser: true });
-  if (hostAll) return { profile: hostAll, via: "host" };
-  const hostDetail = await fromFollowedDetails({ ignoreUser: true });
-  if (hostDetail) return { profile: hostDetail, via: "host" };
   return undefined;
 }
 
@@ -1534,13 +1518,13 @@ export function describeStarryActor(): Json {
     : "未登录（演示会话）";
   const starry = bind.has_token
     ? `个人设置绑定的 Starry 用户 JWT${bind.mailbox_email ? `，发件箱 ${bind.mailbox_email}` : ""}${bind.owner_name ? `，负责人 ${bind.owner_name}` : ""}`
-    : starryKolMcpBearer()
-      ? "进程级 STARRY_KOL_MCP_BEARER（网关身份，不是个人设置里绑定的用户）"
+    : starryKolMcpConfigured()
+      ? "管理侧配置的保险柜身份"
       : "未连接 Starry";
   return {
     workbench,
     starry,
-    via: bind.has_token ? "bound_jwt" : (starryKolMcpBearer() ? "process_bearer" : "none"),
+    via: bind.has_token ? "bound_vault" : (starryKolMcpConfigured() ? "configured_vault" : "none"),
     bound_mailbox: bind.mailbox_email,
     bound_owner: bind.owner_name,
     label: `灵工登录是 ${workbench}。Starry 身份是 ${starry}。`,
@@ -2589,7 +2573,6 @@ export async function executeStarryKolTask(
       let activeId = conversationId;
       let kolUid = String(entities.kolUid || entities.kol_uid || "").trim();
       let fromAddr = mailboxEmail;
-      let useHostStarry = false;
       let profileOwner = "";
       let mailboxAuthorized = false;
       const actor = describeStarryActor();
@@ -2618,7 +2601,7 @@ export async function executeStarryKolTask(
             conversationMissingProfile(result)
             || isEmailTakenByOtherKol(resultError(result))
             || !number(result.conversationId || result.id);
-          const createOnce = async (uid: string, host = useHostStarry, kolId = 0) => {
+          const createOnce = async (uid: string, kolId = 0) => {
             const run = () => invoke("createEmailConversation", {
               requestJson: JSON.stringify(conversationCreateBody({
                 mailboxEmail: fromAddr,
@@ -2628,7 +2611,7 @@ export async function executeStarryKolTask(
               })),
             });
             try {
-              return host ? await withStarryCallScope({ ignoreUser: true }, run) : await run();
+              return await run();
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               if (isMissingKolProfile(message) || isEmailTakenByOtherKol(message)) {
@@ -2637,14 +2620,7 @@ export async function executeStarryKolTask(
               throw error;
             }
           };
-          const tryCreate = async (uid: string, kolId = 0) => {
-            let next = await createOnce(uid, useHostStarry, kolId);
-            if (createFailed(next) && !useHostStarry) {
-              useHostStarry = true;
-              next = await createOnce(uid, true, kolId);
-            }
-            return next;
-          };
+          const tryCreate = createOnce;
           const bindFollowedContact = async (uid: string) => {
             if (!uid || !to[0]) return;
             await invokeOptional("updateKolProfile", {
@@ -2667,17 +2643,15 @@ export async function executeStarryKolTask(
             }
             return undefined;
           };
-          const createFromHit = async (hit: { profile: Json; via: "user" | "host" }) => {
+          const createFromHit = async (hit: { profile: Json; via: "user" }) => {
             kolUid = kolUidOf(hit.profile);
             const kolId = kolIdOf(hit.profile);
             profileOwner = firstString(hit.profile.ownerUserName, hit.profile.ownerName, hit.profile.owner);
-            useHostStarry = hit.via === "host";
             const existing = await reuseExisting(hit.profile);
             if (existing) return existing;
             let next = await tryCreate(kolUid, kolId);
             if (createFailed(next) && (kolUid || kolId)) {
               await bindFollowedContact(kolUid);
-              useHostStarry = hit.via === "host";
               next = await tryCreate(kolUid, kolId);
             }
             return next;
@@ -2702,7 +2676,7 @@ export async function executeStarryKolTask(
                 const found = await findProfileByContact(to[0], invokeOptional, fromAddr);
                 if (found) return createFromHit(found);
               }
-              const next = await createOnce(kolUid, useHostStarry, kolIdOf(added));
+              const next = await createOnce(kolUid, kolIdOf(added));
               if (conversationMissingProfile(next)) {
                 throw new Error(resultError(next) || "红人画像不存在");
               }
@@ -2820,7 +2794,7 @@ export async function executeStarryKolTask(
             ...(body ? { body, bodyText: body } : {}),
           };
         };
-        data = useHostStarry ? await withStarryCallScope({ ignoreUser: true }, finish) : await finish();
+        data = await finish();
       }
     }
   }

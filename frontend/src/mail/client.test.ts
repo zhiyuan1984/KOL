@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { hydratePollDelayMs, normalizeBox, normalizeConversation, normalizeThread } from "./client";
 
 describe("mail client vs PR #177 shapes", () => {
-  it("normalizes GET /api/mail/box MailBoxStatus", () => {
+  it("normalizes GET /api/queries/mail.box MailBoxStatus", () => {
     const box = normalizeBox({
       entry: "memory",
       creates_session: false,
@@ -79,7 +79,7 @@ describe("mail client vs PR #177 shapes", () => {
     });
   });
 
-  it("reads GET /api/mail/conversations/:id conversation + top-level digest", () => {
+  it("reads GET /api/queries/mail.conversation?id=:id conversation + top-level digest", () => {
     const thread = normalizeThread({
       entry: "memory",
       creates_session: false,
@@ -302,7 +302,7 @@ describe("mail workspace load never pulls the heavy board payload", () => {
       handle: "小美妆日记",
     });
     expect(workspace?.conversations[1]?.conversation_id).toBe("268");
-    // /api/mail/conversations already carries kol_uid/handle, so the list must not
+    // /api/queries/mail.conversations already carries kol_uid/handle, so the list must not
     // hold first paint hostage to a 2MB board request.
     expect(homeBoard).not.toHaveBeenCalled();
   }, 10000);

@@ -4,12 +4,14 @@ import { clearPlanCaches } from "../home/todayPlan";
 
 type AuthContextValue = {
   account: Account | null;
+  postgresOnly: boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue>({
   account: null,
+  postgresOnly: false,
   refresh: async () => undefined,
   logout: async () => undefined,
 });
@@ -28,9 +30,26 @@ function adminLoginIdent(raw: string): { email: string; username: string } {
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<"loading" | "setup" | "login" | "ready">("loading");
   const [account, setAccount] = useState<Account | null>(null);
+  const [postgresOnly, setPostgresOnly] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = async () => {
+    // PostgreSQL-only runtime intentionally does not mount the historical
+    // `/api/auth/*` domain. It must be connected to the established workbench
+    // identity provider before being exposed; it never shows a second ticket
+    // account/password form.
+    try {
+      const health = await fetch("/api/health", { credentials: "same-origin", cache: "no-store" }).then((response) => response.ok ? response.json() : null) as { runtime_mode?: string } | null;
+      if (health?.runtime_mode === "postgres-only") {
+        setAccount(null);
+        setPostgresOnly(true);
+        setState("ready");
+        return;
+      }
+      setPostgresOnly(false);
+    } catch {
+      // Preserve the established auth-status compatibility fallback below.
+    }
     try {
       const status = await api.authStatus();
       if (status.setup_required) {
@@ -105,7 +124,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  return <AuthContext.Provider value={{ account, refresh, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ account, postgresOnly, refresh, logout }}>{children}</AuthContext.Provider>;
 }
 
 function AuthForm({

@@ -119,7 +119,7 @@ test("draft send opens L3 confirm with object/scope/consequence; cancel does not
   await expect(page.locator("[data-workbench] [data-kind='email-card']")).toBeVisible({ timeout: 20000 });
   const sendPosts: string[] = [];
   page.on("request", (req) => {
-    if (req.method() === "POST" && /\/api\/drafts\/[^/]+\/send$/.test(new URL(req.url()).pathname)) {
+    if (req.method() === "POST" && /\/api\/actions\/mail\.send$/.test(new URL(req.url()).pathname)) {
       sendPosts.push(req.url());
     }
   });
@@ -166,7 +166,7 @@ test("result draft 确认发送 also requires L3 confirm before SMTP", async ({ 
       }],
     },
   }));
-  await page.route("**/api/drafts/draft_json/send", async (route) => {
+  await page.route("**/api/actions/mail.send", async (route) => {
     sent = true;
     await route.fulfill({ json: { ok: true } });
   });

@@ -1,3 +1,16 @@
+export type RuntimeActionView = {
+  id: string; skill_id: string; operation: string; arguments: Record<string, unknown>;
+  state: string; risk: "L3"; confirmation_version: string; blocked_reason: string | null;
+  receipt: Record<string, unknown> | null; error_code: string | null;
+  crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null } | null;
+  execution?: { id: string; status: string; error_code: string | null } | null;
+};
+export type OperationJob = {
+  id: string;
+  status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled" | "uncertain";
+  error_summary?: string | null;
+  receipt?: Record<string, unknown> | null;
+};
 import type {
   DeclaredMountResult,
   McpImportPreview,
@@ -440,6 +453,13 @@ export type Task = {
 export type TaskDetail = Task & {
   runs?: Array<Record<string, unknown>>;
   artifacts?: Array<Record<string, unknown>>;
+  assignments?: Array<Record<string, unknown>>;
+  watchers?: Array<Record<string, unknown>>;
+  basis_refs?: Array<Record<string, unknown>>;
+  business_events?: Array<Record<string, unknown>>;
+  acceptance?: Record<string, unknown> | null;
+  acceptance_history?: Array<Record<string, unknown>>;
+  audit?: Array<Record<string, unknown>>;
 };
 
 export type TaskListPage = {
@@ -468,6 +488,127 @@ export type Ticket = Task & {
   missing_fields: string[];
   allowed_actions: string[];
   source_refs: Array<Record<string, unknown>>;
+  assignments?: Array<Record<string, unknown>>;
+  watchers?: Array<Record<string, unknown>>;
+  basis_refs?: Array<Record<string, unknown>>;
+  business_events?: Array<Record<string, unknown>>;
+  acceptance?: Record<string, unknown> | null;
+  acceptance_history?: Array<Record<string, unknown>>;
+  audit?: Array<Record<string, unknown>>;
+};
+
+export type WorkOrderTemplate = {
+  id: string;
+  template_code: string;
+  version: number;
+  title: string;
+  description: string;
+  status: "draft" | "published" | "disabled" | "retired" | string;
+  automation_level: "A0" | "A1" | "A2" | "A3" | "L3" | string;
+  business_category: string | null;
+  trigger_event_types: string[];
+  input_schema: Record<string, unknown>;
+  fill_policy: Record<string, unknown>;
+  acceptance_criteria: string[];
+  routing_policy_code: string | null;
+  stage_policy: Record<string, unknown>;
+  created_by: string;
+  published_by: string | null;
+  created_at: string;
+  published_at: string | null;
+  updated_at: string;
+};
+
+export type WorkOrderTemplateDraftInput = {
+  template_code: string;
+  title: string;
+  description?: string;
+  automation_level: "A0" | "A1" | "A2" | "A3" | "L3";
+  business_category?: string;
+  trigger_event_types: string[];
+  acceptance_criteria: string[];
+  routing_policy_code?: string;
+  input_schema?: Record<string, unknown>;
+  fill_policy?: Record<string, unknown>;
+  stage_policy?: Record<string, unknown>;
+  idempotency_key: string;
+};
+
+export type WorkOrderAutomationRelease = {
+  template_id: string;
+  automation_level: "A1" | "A2" | "A3" | string;
+  status: "enabled" | "disabled" | string;
+  minimum_confidence: number;
+  routing_policy_code: string | null;
+  enabled_by: string | null;
+  enabled_at: string | null;
+  disabled_by: string | null;
+  disabled_at: string | null;
+  reason: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiTaskRoot = {
+  task_id: string;
+  title: string;
+  goal: string;
+  status: string;
+  priority: string;
+  due_at: string | null;
+  data_version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiWorkOrderSummary = {
+  work_order_id: string;
+  template_code: string;
+  template_version: number;
+  template_title: string;
+  status: string;
+  priority: string;
+  stage_code: string | null;
+  title: string;
+  objective: string;
+  due_at: string | null;
+  automation_level: string;
+  created_at: string;
+  updated_at: string;
+  primary_assignee: { principal_id: string; person_ref: string | null; org_unit_id: string | null } | null;
+  latest_decision: { id: string; decision_mode: string; outcome: string; status: string; confidence: number | null; created_at: string } | null;
+};
+
+export type AiTaskWorkOrderAggregate = {
+  task: AiTaskRoot;
+  work_orders: AiWorkOrderSummary[];
+  verified_events: Array<{ id: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; verified_by: string; verified_at: string }>;
+  counts: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
+  current_blocking_work_order: AiWorkOrderSummary | null;
+  as_of: string;
+  source: "postgresql_task_work_orders" | string;
+};
+
+export type AiTaskWorkOrderList = {
+  items: Array<Pick<AiTaskWorkOrderAggregate, "task" | "counts" | "current_blocking_work_order">>;
+  as_of: string;
+  source: "postgresql_task_work_orders" | string;
+  request_id: string;
+};
+
+export type TicketCommandInput =
+  | { action: "accept" | "cancel" | "reopen"; expected_version: number; idempotency_key: string; reason?: string }
+  | { action: "complete"; expected_version: number; idempotency_key: string; acceptance_evidence: Record<string, unknown> }
+  | { action: "assign" | "add_collaborator"; expected_version: number; idempotency_key: string; assignee_person_ref: string; assignee_unit_id: string; cross_group_reason?: string }
+  | { action: "remove_collaborator"; expected_version: number; idempotency_key: string; assignee_person_ref: string };
+
+export type TicketCommandResult = {
+  ticket_id: string;
+  action: string;
+  status?: string;
+  version: number;
+  replayed: boolean;
+  ticket?: Ticket;
 };
 
 export type TicketRun = {
@@ -504,6 +645,159 @@ export type TicketSummary = {
   status: "current" | "stale" | string;
   stale_reason?: string | null;
   [key: string]: unknown;
+};
+
+export type PersonalTicketRawCountReport = {
+  report_version: "ticket-personal-raw-count.v1" | string;
+  as_of: string;
+  timezone: string;
+  scope: "personal_authorized" | string;
+  source: "postgresql_formal_tickets" | string;
+  note: string;
+  total_authorized: number;
+  by_status: Record<string, number>;
+  memberships: { created: number; assigned_primary: number; watching: number };
+  request_id: string;
+};
+
+export type OrganizationTicketRawCountReport = {
+  report_version: "ticket-organization-raw-count.v1" | string;
+  as_of: string;
+  timezone: string;
+  scope: "organization_authorized" | string;
+  authorization: {
+    mode: "company_admin" | "organization_head" | string;
+    companies: string[];
+    root_units: Array<{ id: string; display_name: string; type: string }>;
+  };
+  source: "postgresql_formal_tickets" | string;
+  note: string;
+  total_authorized: number;
+  by_status: Record<string, number>;
+  by_assignee_unit: Array<{ org_unit_id: string; display_name: string; type: string; total: number; by_status: Record<string, number> }>;
+  request_id: string;
+};
+
+export type OrganizationTicketStageRawReport = {
+  report_version: "ticket-organization-stage-raw.v1" | string;
+  as_of: string;
+  timezone: string;
+  scope: "organization_authorized" | string;
+  authorization: OrganizationTicketRawCountReport["authorization"];
+  source: "postgresql_formal_tickets" | string;
+  note: string;
+  total_authorized: number;
+  by_business_category: Array<{ business_category: string; total: number; by_status: Record<string, number> }>;
+  by_stage: Array<{ business_category: string; stage_group: string; stage_code: string; total: number; by_status: Record<string, number> }>;
+  request_id: string;
+};
+
+export type TicketOrganizationUnit = {
+  id: string;
+  display_name: string;
+  type: string;
+  parent_id: string | null;
+  level: number;
+  head_person_ref: string | null;
+  head_display_name: string | null;
+};
+
+export type TicketAssigneeCandidate = {
+  person_ref: string;
+  display_name: string;
+  user_id: string | null;
+  org_unit_id: string | null;
+  position: string | null;
+  assignable: boolean;
+  quality_issue: string | null;
+};
+
+export type TicketFormBootstrap = {
+  creator: {
+    person_ref: string | null;
+    org_unit_id: string | null;
+    company_id: string | null;
+    org_version: number | null;
+    supervisor_person_ref: string | null;
+    supervisor_user_id: string | null;
+    quality_issues: string[];
+  };
+  organization_units: TicketOrganizationUnit[];
+  assignee_candidates: TicketAssigneeCandidate[];
+  formal_submission_enabled: boolean;
+  quality_warnings: string[];
+  request_id: string;
+  as_of: string;
+};
+
+export type CreateFormalTicketInput = {
+  title: string;
+  goal: string;
+  business_category: "kol" | "marketing" | "operations" | "data" | "general";
+  stage_group?: string;
+  stage_code?: string;
+  priority: "important_urgent" | "important" | "urgent" | "normal" | "low";
+  due_at?: string;
+  no_due_reason?: string;
+  timezone: string;
+  acceptance_criteria: string[];
+  assignee_person_ref: string;
+  assignee_unit_id: string;
+  cross_group_reason?: string;
+  basis_refs?: Array<{ source_type: string; source_id: string; source_version?: string; occurred_at?: string; summary?: Record<string, unknown> }>;
+  idempotency_key: string;
+};
+
+export type CreateFormalTicketResult = {
+  ticket_id: string;
+  status: "pending";
+  data_version: number;
+  replayed: boolean;
+  org_version: number;
+  created_at: string;
+  request_id: string;
+  as_of: string;
+};
+
+export type EditFormalTicketInput = {
+  expected_version: number;
+  idempotency_key: string;
+  title?: string;
+  goal?: string | null;
+  priority?: "important_urgent" | "important" | "urgent" | "normal" | "low";
+  due_at?: string | null;
+  no_due_reason?: string | null;
+  acceptance_criteria?: string[];
+};
+
+export type EditFormalTicketResult = {
+  ticket_id: string;
+  action: "edit";
+  version: number;
+  event_id: string;
+  replayed: boolean;
+  ticket: Ticket;
+  request_id: string;
+  as_of: string;
+};
+
+export type TicketOrganizationQualityIssue = {
+  type: "person_without_account" | "person_without_org" | "unit_head_without_account";
+  subject_ref: string;
+  display_name: string;
+  org_unit_id: string | null;
+  message: string;
+};
+
+export type TicketOrganizationQualityReport = {
+  registry_revision: string | null;
+  seeded_at: string | null;
+  active_unit_count: number;
+  active_person_count: number;
+  issue_count: number;
+  issues: TicketOrganizationQualityIssue[];
+  request_id: string;
+  as_of: string;
 };
 
 export type ExecutionJob = {
@@ -549,6 +843,106 @@ export type SchedulingRule = {
   created_at: string;
   published_at?: string | null;
   updated_at: string;
+};
+
+export type SchedulingRuleSimulation = {
+  id: string;
+  rule_id: string;
+  rule_version: number;
+  rule_fingerprint: string;
+  result: Record<string, unknown>;
+  sample_count: number;
+  matched_count: number;
+  data_as_of: string;
+  evaluated_by: string;
+  created_at: string;
+};
+
+export type SchedulingRuleGovernance = {
+  rules: Array<SchedulingRule & { fingerprint?: string }>;
+  policy: { automation: string; execution_effect: string; requirement: string };
+  as_of: string;
+};
+
+export type SchedulingRuleDetail = {
+  rule: SchedulingRule & { fingerprint?: string };
+  simulations: SchedulingRuleSimulation[];
+  audit_events: Array<{
+    id: string;
+    action: string;
+    actor_account_id: string;
+    reason: string | null;
+    request: Record<string, unknown>;
+    result: Record<string, unknown>;
+    created_at: string;
+  }>;
+};
+
+export type FormalBusinessEventType =
+  | "mail.reply_verified"
+  | "mail.commitment_verified"
+  | "deadline.quote"
+  | "deadline.contract"
+  | "deadline.sample"
+  | "deadline.content"
+  | "risk.detected"
+  | "approval_or_material.missing";
+
+export type SchedulingRuleEvaluation = {
+  id: string;
+  rule_id: string;
+  rule_version: number;
+  rule_title: string;
+  rule_type: string;
+  outcome: "matched" | "skipped" | "missing_fields" | string;
+  ticket_id: string | null;
+  scope: Record<string, unknown>;
+  details: Record<string, unknown>;
+  evaluated_at: string;
+  evaluated_by: string;
+  confirmation: {
+    id: string;
+    decision: "confirmed" | "dismissed" | string;
+    reason: string;
+    decided_by: string;
+    decided_at: string;
+  } | null;
+  event: {
+    id: string;
+    event_type: FormalBusinessEventType | string;
+    source_system: string;
+    source_event_id: string;
+    source_version: string;
+    company_id: string;
+    brand_id: string | null;
+    region_id: string | null;
+    occurred_at: string;
+    summary: string;
+    evidence_ref: string;
+  };
+};
+
+export type SchedulingRuleEffectivenessRawReport = {
+  report_version: string;
+  as_of: string;
+  source: string;
+  timezone: string;
+  totals: { rules: number; evaluations: number; distinct_events: number; matched: number; skipped: number; missing_fields: number; failed: number; confirmations_recorded: number; confirmed: number; dismissed: number; matched_pending: number };
+  note: string;
+  rules: Array<{
+    rule_id: string;
+    rule_version: number;
+    title: string;
+    rule_type: string;
+    rule_status: string;
+    published_at: string | null;
+    evaluations: number;
+    distinct_events: number;
+    linked_tickets: number;
+    by_outcome: { matched: number; skipped: number; missing_fields: number; failed: number };
+    manual_confirmation: { matched_pending: number; confirmed: number; dismissed: number; confirmations_recorded: number; coverage_status: string };
+    execution_effect: string;
+  }>;
 };
 
 export type AdminAuditEvent = {
@@ -1080,6 +1474,13 @@ export type AuthStatus = {
   available_modes?: ("employee" | "admin")[];
 };
 
+export type TicketAccountBindingOptions = {
+  accounts: Array<{ id: string; username: string; name: string; roles: string[]; bound_person_ref: string | null }>;
+  people: Array<{ person_ref: string; display_name: string; org_unit_id: string | null; user_id: string | null }>;
+  request_id: string;
+  as_of: string;
+};
+
 type RequestOptions = RequestInit & { optional?: boolean };
 
 function httpError(status: number, payload?: unknown, fallback?: string): Error & { status?: number; payload?: unknown } {
@@ -1366,6 +1767,11 @@ export type AdminSaveBudgetInput = {
 };
 
 export const api = {
+  runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
+  confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),
+  cancelRuntimeAction: (id: string) => request("/api/actions/runtime.cancel", { method: "POST", body: JSON.stringify({ action_id: id }) }),
+  proposeCrawlStop: (id: string) => request("/api/actions/runtime.crawl.stop", { method: "POST", body: JSON.stringify({ action_id: id }) }),
+  proposeCrawlRetry: (id: string) => request("/api/actions/runtime.crawl.retry", { method: "POST", body: JSON.stringify({ action_id: id }) }),
   get: (path: string) => request<unknown>(path),
   post: (path: string, body?: unknown) =>
     request<unknown>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
@@ -1431,11 +1837,51 @@ export const api = {
     if (opts?.limit) query.set("limit", String(opts.limit));
     return request<WorkbenchTaskPage>(`/api/workbench/tasks?${query}`);
   },
-  tickets: (opts: { cursor?: string; limit?: number; status?: string; kind?: string; object_ref?: string } = {}) => {
+  tickets: (opts: {
+    cursor?: string; limit?: number; view?: "authorized" | "created" | "assigned" | "watching" | "completed";
+    status?: string; priority?: string; category?: string; stage?: string; org_unit?: string; assignee?: string; due?: "all" | "overdue" | "none"; q?: string; from?: string; to?: string;
+  } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
-    return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
+    return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
   },
+  aiTaskWorkOrders: (limit = 50) => request<AiTaskWorkOrderList>(`/api/task-work-orders?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`),
+  createAiTaskWorkOrderRoot: (body: { title: string; goal?: string; priority?: "important_urgent" | "important" | "urgent" | "normal" | "low"; due_at?: string; idempotency_key: string }) => request<{ task: AiTaskRoot; request_id: string; as_of: string; schema_version: string }>("/api/task-work-orders/tasks", {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
+  recordAiTaskVerifiedEvent: (taskId: string, body: { source_system: string; source_event_id: string; source_version?: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; evidence: Record<string, unknown>; payload?: Record<string, unknown>; work_order_id?: string; idempotency_key: string }) => request<{ event: { id: string; replayed: boolean }; decision: { id: string; outcome: string; status: string; confidence: number | null }; execution_job: { id: string; status: string; job_type: string }; execution_mode: string; request_id: string }>(`/api/task-work-orders/tasks/${encodeURIComponent(taskId)}/verified-events`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  ticketFormBootstrap: () => request<TicketFormBootstrap>("/api/tickets/form-bootstrap"),
+  adminTicketOrganizationQuality: () => request<TicketOrganizationQualityReport>("/api/admin/work-orders/data-quality"),
+  adminTicketAccountBindingOptions: () => request<TicketAccountBindingOptions>("/api/admin/work-orders/account-bindings/options"),
+  adminWorkOrderTemplates: (status?: string) => request<{ templates: WorkOrderTemplate[]; request_id: string; as_of: string }>(`/api/admin/work-orders/templates${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  createWorkOrderTemplateDraft: (body: WorkOrderTemplateDraftInput) => request<{ template: WorkOrderTemplate; replayed: boolean; request_id: string }>("/api/admin/work-orders/templates/drafts", {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  publishWorkOrderTemplate: (id: string, body: { expected_version: number; idempotency_key: string }) => request<{ template: WorkOrderTemplate; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/publish`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  disableWorkOrderTemplate: (id: string, body: { reason: string; idempotency_key: string }) => request<{ template: WorkOrderTemplate & { disable_reason?: string }; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/disable`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  adminWorkOrderAutomationReleases: () => request<{ releases: WorkOrderAutomationRelease[]; request_id: string; as_of: string }>("/api/admin/work-orders/automation-releases"),
+  setWorkOrderAutomationRelease: (id: string, body: { action: "enabled" | "disabled"; minimum_confidence?: number; routing_policy_code?: string; reason: string; idempotency_key: string }) => request<{ release: WorkOrderAutomationRelease; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/automation-release`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  bindTicketAccountToOrganizationPerson: (body: { person_ref: string; account_id: string; reason: string }) =>
+    request<{ person_ref: string; account_id: string; username: string; changed: boolean; prior_account_id: string | null; request_id: string }>("/api/admin/work-orders/account-bindings", { method: "POST", body: JSON.stringify(body) }),
+  createFormalTicket: (body: CreateFormalTicketInput) => request<CreateFormalTicketResult>("/api/tickets", {
+    method: "POST",
+    headers: { "Idempotency-Key": body.idempotency_key },
+    body: JSON.stringify(body),
+  }),
+  editFormalTicket: (id: string, body: EditFormalTicketInput) => request<EditFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Idempotency-Key": body.idempotency_key },
+    body: JSON.stringify(body),
+  }),
   ticket: (id: string) => request<Ticket & { latest_run: TicketRun | null; summary: TicketSummary; request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}`),
   ticketSummary: (id: string) => request<TicketSummary & { request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}/summary`),
   ticketTimeline: (id: string, opts: { after?: number; limit?: number } = {}) => {
@@ -1444,8 +1890,11 @@ export const api = {
     if (opts.limit != null) query.set("limit", String(opts.limit));
     return request<TicketTimelinePage>(`/api/tickets/${encodeURIComponent(id)}/timeline${query.size ? `?${query}` : ""}`);
   },
-  ticketCommand: (id: string, body: { action: "complete" | "cancel"; expected_version: number; idempotency_key: string; acceptance_evidence?: Record<string, unknown>; reason?: string }) =>
-    request<{ ticket_id: string; action: string; status: string; version: number; replayed: boolean; ticket?: Ticket }>(`/api/tickets/${encodeURIComponent(id)}/commands`, {
+  personalTicketRawCountReport: (timezone = "Asia/Shanghai") => request<PersonalTicketRawCountReport>(`/api/tickets/reports/personal?timezone=${encodeURIComponent(timezone)}`),
+  organizationTicketRawCountReport: (timezone = "Asia/Shanghai") => request<OrganizationTicketRawCountReport>(`/api/tickets/reports/organization?timezone=${encodeURIComponent(timezone)}`),
+  organizationTicketStageRawReport: (timezone = "Asia/Shanghai") => request<OrganizationTicketStageRawReport>(`/api/tickets/reports/organization/stages?timezone=${encodeURIComponent(timezone)}`),
+  ticketCommand: (id: string, body: TicketCommandInput) =>
+    request<TicketCommandResult>(`/api/tickets/${encodeURIComponent(id)}/commands`, {
       method: "POST",
       headers: { "Idempotency-Key": body.idempotency_key },
       body: JSON.stringify(body),
@@ -1836,7 +2285,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   prepareEmailCompose: (body: EmailComposePrepareRequest, signal?: AbortSignal) =>
-    request<EmailComposePrepareResponse>("/api/email-compose/prepare", {
+    request<EmailComposePrepareResponse>("/api/actions/mail.prepare", {
       method: "POST",
       body: JSON.stringify(body),
       signal,
@@ -1895,12 +2344,12 @@ export const api = {
       { method: "DELETE" },
     ),
   draftActions: (id: string) =>
-    request<DraftActionsResponse>(`/api/drafts/${encodeURIComponent(id)}/actions`),
+    request<DraftActionsResponse>(`/api/queries/mail.draft-actions?draft_id=${encodeURIComponent(id)}`),
   sendDraft: async (id: string, extra?: { confirmation_version?: string; request_id?: string }) => {
-    const r = await fetch(`/api/drafts/${id}/send`, {
+    const r = await fetch("/api/actions/mail.send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(extra || {}),
+      body: JSON.stringify({ ...extra, draft_id: id }),
     });
     const b = (await parse(r)) as { ok?: boolean; detail?: { message?: string; status?: string; toast_success?: boolean } };
     if (!r.ok) {
@@ -1923,7 +2372,7 @@ export const api = {
       return b;
     }),
   translate: async (id: string) => {
-    const r = await fetch(`/api/drafts/${id}/translate`, { method: "POST" });
+    const r = await fetch("/api/actions/mail.translate-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draft_id: id }) });
     const b = (await parse(r)) as { zh?: string; detail?: { message?: string } | string };
     if (!r.ok) {
       const detail = b.detail;
@@ -2393,6 +2842,56 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  adminSchedulingRules: () => request<SchedulingRuleGovernance>("/api/admin/scheduling/rules"),
+  adminSchedulingRule: (id: string, version?: number) =>
+    request<SchedulingRuleDetail>(`/api/admin/scheduling/rules/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`),
+  createSchedulingRuleDraft: (body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ rule: SchedulingRule & { fingerprint?: string }; replayed: boolean }>("/api/admin/scheduling/rules/drafts", {
+      method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body),
+    }),
+  simulateSchedulingRule: (id: string, version: number, body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ simulation_id: string; replayed: boolean; matched_count: number; tickets: Array<Record<string, unknown>>; execution_effect: string }>(
+      `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/simulate`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
+  publishSchedulingRule: (id: string, version: number, body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ rule: SchedulingRule; replayed: boolean; execution_effect: string; manual_confirmation_only: boolean }>(
+      `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/publish`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
+  disableSchedulingRule: (id: string, version: number, body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ rule: SchedulingRule; replayed: boolean; execution_effect: string }>(
+      `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/disable`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
+  restoreSchedulingRuleDraft: (id: string, version: number, body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{ rule: SchedulingRule; replayed: boolean; execution_effect: string; restored_from_version: number }>(
+      `/api/admin/scheduling/rules/${encodeURIComponent(id)}/versions/${version}/restore-draft`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
+  adminSchedulingRuleEvaluations: (limit = 30) =>
+    request<{ items: SchedulingRuleEvaluation[]; policy: { execution_effect: string; requirement: string }; as_of: string }>(
+      `/api/admin/scheduling/rule-evaluations?limit=${Math.min(Math.max(1, Math.floor(limit)), 200)}`,
+    ),
+  adminSchedulingRuleEffectiveness: (limit = 100) =>
+    request<SchedulingRuleEffectivenessRawReport>(
+      `/api/admin/scheduling/rule-effectiveness?limit=${Math.min(Math.max(1, Math.floor(limit)), 200)}`,
+    ),
+  confirmSchedulingRuleEvaluation: (id: string, body: { decision: "confirmed" | "dismissed"; reason: string }, idempotencyKey: string) =>
+    request<{ confirmation: { evaluation_id: string; decision: string; execution_effect: string; automatic_action: string }; replayed: boolean }>(
+      `/api/admin/scheduling/rule-evaluations/${encodeURIComponent(id)}/confirmation`,
+      { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) },
+    ),
+  recordSchedulingEventEvaluation: (body: Record<string, unknown>, idempotencyKey: string) =>
+    request<{
+      event: Record<string, unknown>;
+      evaluations: SchedulingRuleEvaluation[];
+      replayed: boolean;
+      execution_effect: string;
+      human_confirmation_required: boolean;
+    }>("/api/admin/scheduling/events/evaluate", {
+      method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body),
+    }),
   adminWorkReport: (opts: { date?: string; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, value); });
@@ -2769,16 +3268,16 @@ export const api = {
       body: JSON.stringify(body),
     }),
   mailBox: (box?: string) =>
-    request<Record<string, unknown>>(box ? `/api/mail/box?box=${encodeURIComponent(box)}` : "/api/mail/box"),
+    request<Record<string, unknown>>(box ? `/api/queries/mail.box?box=${encodeURIComponent(box)}` : "/api/queries/mail.box"),
   mailConversations: (box?: string) =>
     request<{
       entry?: string;
       creates_session?: boolean;
       mailbox?: string;
       conversations?: Array<Record<string, unknown>>;
-    }>(box ? `/api/mail/conversations?box=${encodeURIComponent(box)}` : "/api/mail/conversations"),
+    }>(box ? `/api/queries/mail.conversations?box=${encodeURIComponent(box)}` : "/api/queries/mail.conversations"),
   mailConversation: (id: string) =>
-    request<Record<string, unknown>>(`/api/mail/conversations/${encodeURIComponent(id)}`),
+    request<Record<string, unknown>>(`/api/queries/mail.conversation?id=${encodeURIComponent(id)}`),
   /** Read-only stage letter catalog (email_compose contract). Never creates a session. */
   mailComposeCatalog: () =>
     request<{
@@ -2787,11 +3286,11 @@ export const api = {
       creates_turn?: boolean;
       calls_model?: boolean;
       letters?: MailComposeLetter[];
-    }>("/api/mail/compose-catalog"),
+    }>("/api/queries/mail.compose-catalog"),
   mailPerson: (box: string, p: string) =>
-    request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
+    request<Record<string, unknown>>(`/api/queries/mail.person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
   runMailSkill: (skillId: "mail_summary" | "mail_translate", body: { box?: string; conversation_id?: string; message_id?: string }) =>
-    request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/mail/skills/${encodeURIComponent(skillId)}/run`, {
+    request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/skills/${encodeURIComponent(skillId)}/execute`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -2808,19 +3307,23 @@ export const api = {
       synced_at?: string;
       cursor_at?: string;
       error?: string;
-    }>("/api/mail/sync", { method: "POST", body: JSON.stringify(body) }),
+      job: OperationJob;
+    }>("/api/jobs/mail.sync/start", { method: "POST", body: JSON.stringify(body) }),
+  operationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}`),
+  cancelOperationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
+  retryOperationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: "POST", body: "{}" }),
   /** Optional endpoint: resolves null on 404/405 so callers can ignore silently. */
   markMailConversationRead: (id: string) =>
-    request<{ ok?: boolean } | null>(`/api/mail/conversations/${encodeURIComponent(id)}/read`, {
+    request<{ ok?: boolean } | null>("/api/actions/mail.read", {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ id }),
       optional: true,
     }).catch(() => null),
   /** Optional endpoint: resolves null on 404/405; callers fall back to local state. */
   updateMailConversation: (id: string, fields: { starred?: boolean }) =>
-    request<Record<string, unknown> | null>(`/api/mail/conversations/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(fields),
+    request<Record<string, unknown> | null>("/api/actions/mail.star", {
+      method: "POST",
+      body: JSON.stringify({ ...fields, id }),
       optional: true,
     }).catch(() => null),
 };

@@ -10,8 +10,19 @@ import "./employee-directory.css";
 
 type Employee = DirectoryEmployee;
 const label = (employee: Employee) => String(employee.name || employee.email || employee.username || employee.id);
-const email = (employee: Employee) => String(employee.email || employee.username || "");
+const email = (employee: Employee) => String(employee.email || (String(employee.username || "").includes("@") ? employee.username : "") || "未登记邮箱");
 const names = (employee: Employee) => Array.isArray(employee.brands) ? employee.brands : [];
+/** 管理目录的组织筛选包含该组织的全部下级；这里只决定列表呈现，不计算使用授权。 */
+function belongsToOrganization(site: string | undefined, selectedId: string, parents: Map<string, string | null>): boolean {
+  let current = site || "";
+  const visited = new Set<string>();
+  while (current && !visited.has(current)) {
+    if (current === selectedId) return true;
+    visited.add(current);
+    current = parents.get(current) || "";
+  }
+  return false;
+}
 const VIA_LABEL: Record<AdminEmployeeAgent["via"], string> = {
   binding_target: "直接绑定",
   unit_head: "部门负责人",
@@ -186,17 +197,18 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   }, []);
   useEffect(() => { void reload(); }, [reload]);
   const units = useMemo(() => data?.units || [], [data]);
+  const unitParents = useMemo(() => new Map(units.map((unit) => [unit.id, unit.parent_id])), [units]);
   const brands = useMemo(() => [...new Set(users.flatMap(names))].sort(), [users]);
-  const orgs = useMemo(() => units.filter((unit) => users.some((user) => user.site === unit.id)), [units, users]);
+  const orgs = useMemo(() => units.filter((unit) => users.some((user) => belongsToOrganization(user.site, unit.id, unitParents))), [units, users, unitParents]);
   const visible = useMemo(() => users.filter((user) => {
     const search = query.trim().toLowerCase();
-    if (search && ![label(user), email(user), String(user.position || "")].join(" ").toLowerCase().includes(search)) return false;
-    if (org && user.site !== org) return false;
+    if (search && ![label(user), email(user), String(user.position || ""), String(user.employee_no || "")].join(" ").toLowerCase().includes(search)) return false;
+    if (org && !belongsToOrganization(user.site, org, unitParents)) return false;
     if (brand && !names(user).includes(brand)) return false;
     if (account === "active" && user.active === false) return false;
     if (account === "disabled" && user.active !== false) return false;
     return true;
-  }), [users, query, org, brand, account]);
+  }), [users, query, org, brand, account, unitParents]);
   const agentNames = (user: Employee) => (data?.agents || [])
     .filter((agent) => agent.coverage.user_ids.includes(user.id))
     .map((agent) => `${agent.name}${agent.status === "published" ? "" : agent.status === "draft" ? "（草稿）" : "（停用）"}`);
@@ -214,7 +226,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   return <section className="governance-workspace" data-admin-employees>
     <aside className="governance-rail">
       <div className="governance-scroll">
-        <input className="governance-search" aria-label="搜索员工" data-employee-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、邮箱、岗位" />
+        <input className="governance-search" aria-label="搜索员工" data-employee-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、邮箱、岗位、工号" />
         <p className="governance-count">{visible.length} / {users.length} 名员工</p>
         <div className="governance-filter-group"><strong>品牌</strong><div className="governance-filter-options"><button type="button" aria-pressed={!brand} onClick={() => setBrand("")}>全部</button>{brands.map((item) => <button type="button" key={item} aria-pressed={brand === item} onClick={() => setBrand(item)}>{item}</button>)}</div></div>
         <div className="governance-filter-group"><strong>账号</strong><div className="governance-filter-options">{([["all", "全部"], ["active", "启用"], ["disabled", "停用"]] as const).map(([id, name]) => <button type="button" key={id} aria-pressed={account === id} onClick={() => setAccount(id)}>{name}</button>)}</div></div>
@@ -229,7 +241,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
         {loadError && <p className="error" role="alert">{loadError}</p>}
         <div className="governance-list">
           {visible.map((user) => <div className="governance-list-row governance-employee-row" key={user.id} data-employee-row={user.id}>
-            <strong>{user.avatar_url ? <img className="employee-row-avatar" data-employee-avatar src={String(user.avatar_url)} alt="" aria-hidden /> : null}{label(user)}</strong><span className="muted">{email(user)}</span>
+            <strong title={user.employee_no ? `${label(user)} · 工号 ${user.employee_no}` : label(user)}>{user.avatar_url ? <img className="employee-row-avatar" data-employee-avatar src={String(user.avatar_url)} alt="" aria-hidden /> : null}{label(user)}{user.employee_no ? <small className="governance-employee-number"> · {user.employee_no}</small> : null}</strong><span className="muted">{email(user)}</span>
             <span>{units.find((unit) => unit.id === user.site)?.display_name || user.site || "未分配"}</span>
             <span>{names(user).join("、") || "—"}</span>
             <span>{user.position || "—"}</span>

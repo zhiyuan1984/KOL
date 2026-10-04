@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Workbench from "./layout/Workbench";
-import AuthGate from "./components/AuthGate";
+import AuthGate, { useAccount } from "./components/AuthGate";
 import { ViewModeProvider } from "./viewMode";
 
 /** Route-level code splitting: the shell stays small; each surface loads on demand. */
@@ -32,6 +32,14 @@ function RouteFallback() {
   return <p className="muted" style={{ padding: 24 }} data-route-loading>加载中…</p>;
 }
 
+/** The historical Home reads legacy task/collaboration projections. In the
+ * PostgreSQL-only deployment it must not become a broken implicit fallback;
+ * employees enter the audited formal ticket center instead. */
+function HomeEntry() {
+  const { postgresOnly } = useAccount();
+  return postgresOnly ? <Navigate to="/tasks" replace /> : <Home />;
+}
+
 export default function App() {
   return (
     <RouteErrorBoundary label="app">
@@ -40,7 +48,7 @@ export default function App() {
           <Route path="/share/:token" element={<SharedSession />} />
           <Route path="*" element={<AuthGate><ViewModeProvider><Suspense fallback={<RouteFallback />}><Routes>
           <Route element={<Workbench />}>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<HomeEntry />} />
             <Route path="/work" element={<Navigate to="/" replace />} />
             <Route path="/s/:id" element={<Chat />} />
             <Route path="/tasks" element={<Tasks />} />

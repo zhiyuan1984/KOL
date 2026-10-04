@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { parseStarryKolMcpConfig as parseEmailMcpConfig, starryKolMcpHeaders } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
 import {
   STARRY_KOL_TASKS as EMAIL_MCP_TASKS,
@@ -218,100 +217,6 @@ describe("Starry KOL MCP connector", () => {
     expect(adminRows.map((row) => row.id)).toContain("starrykol");
     expect(adminRows.find((row) => row.id === "starrykol")?.label).toBe("Starry KOL MCP");
     expect(adminRows.map((row) => row.id)).not.toContain("emailmcp");
-  });
-});
-
-describe("Email MCP config", () => {
-  it("parses Cursor mcpServers JSON with X-MCP-API-KEY", () => {
-    expect(parseEmailMcpConfig(`{
-      "mcpServers": {
-        "starry-kol-mcp": {
-          "type": "streamableHttp",
-          "url": "http://47.251.65.112:9091/mcp",
-          "headers": { "X-MCP-API-KEY": "email-agent-mcp-dev" }
-        }
-      }
-    }`)).toEqual({
-      url: "http://47.251.65.112:9091/mcp",
-      apiKey: "email-agent-mcp-dev",
-      token: "email-agent-mcp-dev",
-    });
-  });
-
-  it("falls back to the legacy email-mcp server name", () => {
-    expect(parseEmailMcpConfig(`{
-      "mcpServers": {
-        "email-mcp": {
-          "type": "streamableHttp",
-          "url": "http://47.251.65.112:9091/mcp",
-          "headers": { "X-MCP-API-KEY": "email-agent-mcp-dev" }
-        }
-      }
-    }`)).toEqual({
-      url: "http://47.251.65.112:9091/mcp",
-      apiKey: "email-agent-mcp-dev",
-      token: "email-agent-mcp-dev",
-    });
-  });
-
-  it("keeps X-MCP-API-KEY and Authorization Bearer as separate fields", () => {
-    expect(parseEmailMcpConfig(`{
-      "mcpServers": {
-        "email-mcp": {
-          "type": "streamableHttp",
-          "url": "https://dev-api.askstarry.com/starry/email-agent/mcp",
-          "headers": {
-            "X-MCP-API-KEY": "email-agent-mcp-dev",
-            "Authorization": "Bearer user-jwt-290"
-          }
-        }
-      }
-    }`)).toEqual({
-      url: "https://dev-api.askstarry.com/starry/email-agent/mcp",
-      apiKey: "email-agent-mcp-dev",
-      token: "email-agent-mcp-dev",
-      bearer: "user-jwt-290",
-    });
-  });
-
-  it("does not treat the user JWT as the MCP API key", () => {
-    expect(parseEmailMcpConfig(`{
-      "mcpServers": {
-        "email-mcp": {
-          "url": "https://dev-api.askstarry.com/starry/email-agent/mcp",
-          "headers": { "Authorization": "Bearer user-jwt-290" }
-        }
-      }
-    }`)).toEqual({
-      url: "https://dev-api.askstarry.com/starry/email-agent/mcp",
-      bearer: "user-jwt-290",
-    });
-  });
-
-  it("sends both MCP API key and user JWT headers", () => {
-    const prevKey = process.env.STARRY_KOL_MCP_API_KEY;
-    const prevBearer = process.env.STARRY_KOL_MCP_BEARER;
-    process.env.STARRY_KOL_MCP_API_KEY = "email-agent-mcp-dev";
-    process.env.STARRY_KOL_MCP_BEARER = "user-jwt-290";
-    expect(starryKolMcpHeaders()).toEqual({
-      "X-MCP-API-KEY": "email-agent-mcp-dev",
-      Authorization: "Bearer user-jwt-290",
-    });
-    if (prevKey === undefined) delete process.env.STARRY_KOL_MCP_API_KEY;
-    else process.env.STARRY_KOL_MCP_API_KEY = prevKey;
-    if (prevBearer === undefined) delete process.env.STARRY_KOL_MCP_BEARER;
-    else process.env.STARRY_KOL_MCP_BEARER = prevBearer;
-  });
-
-  it("ignores placeholder keys in markdown docs", () => {
-    expect(parseEmailMcpConfig(`
-      \`\`\`json
-      { "mcpServers": { "email-agent": {
-        "url": "http://47.251.65.112:9091/mcp",
-        "headers": { "X-MCP-API-KEY": "<EMAIL_AGENT_MCP_API_KEY>" }
-      } } }
-      \`\`\`
-    `)).toEqual({ url: "http://47.251.65.112:9091/mcp" });
   });
 });
 
@@ -795,7 +700,7 @@ describe("Email MCP task run path", () => {
       const detail = await request("GET", `/api/tasks/${task.id}`);
       expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);
     }
-  });
+  }, 120_000); // Exercises every catalog task through multiple PostgreSQL-backed HTTP requests.
 
   it("blocks real employee submission when the publish gate is stubbed unpublished", async () => {
     const previous = process.env.CODEX_MODE;

@@ -3,7 +3,7 @@
  * 「已配置」= credentials present AND a live probe succeeded.
  * Never logs tokens or employee-facing URLs.
  */
-import { mediaCrawlerConfigured } from "../config.js";
+import { createMediaCrawlerClient, mediaCrawlerConfig, mediaCrawlerConfigured } from "./managed-connection.js";
 import { nowIso } from "../db.js";
 import {
   COLLECTOR_CONNECT_MESSAGE,
@@ -41,14 +41,12 @@ const STATUS_MESSAGE: Record<CollectorStatus, string> = {
 
 type ProbeClient = Pick<RemoteMcpClient, "listTools" | "close">;
 
-let clientFactory: () => ProbeClient = () => new RemoteMcpClient({
-  timeoutMs: probeTimeoutMs(),
-});
+let clientFactory: () => ProbeClient = () => createMediaCrawlerClient();
 let fetchImpl: typeof fetch = fetch;
 let lastProbe: CollectorConnection | null = null;
 
 export function setCollectorProbeClientFactory(factory?: () => ProbeClient): void {
-  clientFactory = factory || (() => new RemoteMcpClient({ timeoutMs: probeTimeoutMs() }));
+  clientFactory = factory || (() => createMediaCrawlerClient());
 }
 
 export function setCollectorProbeFetch(fn?: typeof fetch): void {
@@ -113,7 +111,7 @@ export function getCollectorConnectionSnapshot(): CollectorConnection {
 }
 
 function mediaCrawlerUrl(): string {
-  return String(process.env.MEDIACRAWLER_MCP_URL || "").trim();
+  return mediaCrawlerConfig().url!;
 }
 
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {

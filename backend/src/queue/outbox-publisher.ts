@@ -27,19 +27,15 @@ export function postgresExecutionConfigured(): boolean {
 }
 
 export async function ensureExecutionInfrastructure(client: Client): Promise<void> {
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS execution_worker_heartbeats (
-      worker_id TEXT PRIMARY KEY,
-      worker_kind TEXT NOT NULL,
-      status TEXT NOT NULL,
-      details_json TEXT NOT NULL DEFAULT '{}',
-      started_at TEXT NOT NULL,
-      heartbeat_at TEXT NOT NULL,
-      stopped_at TEXT
-    );
-    CREATE INDEX IF NOT EXISTS execution_worker_heartbeats_status
-      ON execution_worker_heartbeats(status, heartbeat_at DESC);
-  `);
+  const result = await client.query<{ execution_jobs: string | null; execution_outbox: string | null; worker_heartbeats: string | null }>(
+    `SELECT to_regclass('public.execution_jobs') AS execution_jobs,
+            to_regclass('public.execution_outbox') AS execution_outbox,
+            to_regclass('public.execution_worker_heartbeats') AS worker_heartbeats`,
+  );
+  const row = result.rows[0];
+  if (!row?.execution_jobs || !row.execution_outbox || !row.worker_heartbeats) {
+    throw new Error("PostgreSQL execution schema is missing; run npm run db:apply:postgres-schema before starting workers");
+  }
 }
 
 /**

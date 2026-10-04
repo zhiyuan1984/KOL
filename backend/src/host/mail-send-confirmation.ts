@@ -1,5 +1,6 @@
+import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { requireConnector, requireSkill } from "../auth.js";
-import { codexMode, liveRemoteSideEffectsEnabled, liveTestKolAllowed, liveTestRecipientAllowed, starryKolMcpConfigured } from "../config.js";
+import { codexMode, liveRemoteSideEffectsEnabled, liveTestKolAllowed, liveTestRecipientAllowed } from "../config.js";
 import { audit, getConn, nowIso, txImmediate } from "../db.js";
 import type { Json, Row } from "../types.js";
 import { HttpFail } from "./errors.js";

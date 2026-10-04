@@ -1435,7 +1435,7 @@ test("home followed-KOL object toolbar matches card width", async ({ page }) => 
 
 test("home followed-KOL 查看互动 opens /mail without creating a session", async ({ page }) => {
   const sessionPosts: string[] = [];
-  await page.route("**/api/mail/**", (route) => route.fulfill({ status: 404, json: { detail: "not found" } }));
+  await page.route(/\/api\/(?:queries\/mail\.|actions\/mail\.|skills\/mail_|jobs\/mail\.sync\/start)/, (route) => route.fulfill({ status: 404, json: { detail: "not found" } }));
   await page.route("**/api/me/starry-binding", (route) => route.fulfill({
     json: { bound: true, mailbox_email: "larry.zhao@amperetime.com", owner_name: "钟槿年", status: "connected" },
   }));

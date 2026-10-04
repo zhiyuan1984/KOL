@@ -1,3 +1,4 @@
+import { starryKolMcpConfigured } from "../starrykol/connection.js";
 /**
  * Gateway：import_creator（ADR-022 / policies/import_creator.yaml）。
  * 人确认后由 Host 调 starrykol.importKolProfilesFromCrawler。
@@ -6,7 +7,6 @@
 import {
   codexMode,
   liveRemoteSideEffectsEnabled,
-  starryKolMcpConfigured,
 } from "../config.js";
 import { audit } from "../db.js";
 import {

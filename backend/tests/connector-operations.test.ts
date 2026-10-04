@@ -1,3 +1,4 @@
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,18 +33,20 @@ function app(inspect = async () => [{ name: "lookup", inputSchema: { type: "obje
 }
 const root = "/api/admin/runtime/connectors/probe_fixture";
 describe("connector operations (isolated inspector, no external service)", () => {
-  it("uses the actual start/stop probe for a matching MediaCrawler URL, without registering phantom tools", async () => {
+  it("uses read-only discovery even for MediaCrawler URLs and never starts a crawl", async () => {
     process.env.MEDIACRAWLER_MCP_URL = "https://fixture.example/mcp";
+    configureCrawlerFixture("https://fixture.example/mcp");
     let starts = 0;
-    const a = app(async () => { throw new Error("tools/list must not be called"); }, async () => { starts += 1; });
+    const a = app(async () => [{ name: "start_crawl", inputSchema: { type: "object" } }], async () => { starts += 1; });
     const response = await a.request(root + "/probe", { method: "POST" });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ probe_kind: "mediacrawler_start", tool_count: 0, live_verified: true });
-    expect(starts).toBe(1);
+    expect(await response.json()).toMatchObject({ probe_kind: "mcp_tools_list", tool_count: 1, live_verified: true });
+    expect(starts).toBe(0);
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=?").get("probe_fixture") as { n: unknown }).n))
-      .toBe(0);
+      .toBe(1);
+    expect(getConn().prepare("SELECT enabled,risk FROM runtime_tool_policies WHERE connector_id='probe_fixture' AND tool_name='start_crawl'").get()).toMatchObject({ enabled: 1, risk: "L3" });
     const activity = await (await a.request(root + "/activity")).json();
-    expect(activity.probes[0].probe_kind).toBe("mediacrawler_start");
+    expect(activity.probes[0].probe_kind).toBe("mcp_tools_list");
   });
 
   it("records a time-, actor- and config-scoped directory probe without invoking business tools", async () => {

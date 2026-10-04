@@ -233,8 +233,8 @@ export default function KnowledgeFilters({
       </div>
 
       <footer className="kbv-filter-actions">
-        <button type="button" className="btn" data-kbv-upload onClick={onUpload}>上传文件</button>
-        <button type="button" className="btn work" data-kbv-new onClick={onCreate}>新建知识</button>
+        <button type="button" className="kbv-text-action" data-kbv-upload onClick={onUpload}>上传文件</button>
+        <button type="button" className="kbv-text-action" data-kbv-new onClick={onCreate}>新建知识</button>
       </footer>
     </aside>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { bindExpertSession, fetchExpert, CRAWLER_EXPERT_ID } from "../experts";
 import {
   api,
   type FromTextResult,
@@ -70,7 +71,6 @@ import {
   isMissingEndpoint,
   loadDiscoveryTemplate,
   refreshWorkbenchSessions,
-  runHomeDiscovery,
 } from "../home/discoveryHome";
 import {
   HOME_MODES,
@@ -123,10 +123,8 @@ import {
   withHomeCommandTemplates,
 } from "../home/homeModel";
 import { isTodayScheduled } from "../home/schedule";
-import EditTaskDialog from "../home/EditTaskDialog";
 import {
   SCOPE_CONFIG,
-  TODAY_PLAN_REFRESH_EVENT,
   TODAY_PLAN_START_EVENT,
   TODO_PLAN_START_EVENT,
   type PlanScope,
@@ -606,17 +604,16 @@ export default function Home() {
     // 只有确实是发现模板正文时才清空，避免连带丢掉无关输入。
     if (text.startsWith(DISCOVERY_BODY_PREFIX)) setText("");
     try {
-      const result = await runHomeDiscovery({
-        brief,
-        body,
-      });
+      const expert = await fetchExpert(CRAWLER_EXPERT_ID);
+      if (!expert) throw new Error("线索智能体暂不可用，请稍后重试。");
+      const result = await api.summonExpert(CRAWLER_EXPERT_ID);
       // ▪ 只中止客户端后续动作：不调用后端取消，也不改任何服务端状态。
       if (intakeCancelled.current) return;
-      setDiscoveryTaskId(result.work_item_id || null);
-      setDiscoveryRunId(result.run_id || null);
+      bindExpertSession(result.session_id, expert, result);
+      storePending(result.session_id, { text: body, intent: "crawler_collect" });
       refreshWorkbenchSessions();
       clearDiscoveryLock();
-      if (mode !== "discovery") setMode("discovery");
+      nav(`/s/${result.session_id}`);
     } catch (error) {
       setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {
@@ -689,7 +686,6 @@ export default function Home() {
   const [discoverySubmitFailed, setDiscoverySubmitFailed] = useState(false);
   /** 失败原因的可读文案：只在中栏 AI发现 面渲染，切页签不得跟着出现。 */
   const [discoverySubmitError, setDiscoverySubmitError] = useState("");
-  const [editTaskTarget, setEditTaskTarget] = useState<Task | null>(null);
   const mode = parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {
@@ -1185,13 +1181,6 @@ export default function Home() {
     });
   };
 
-  const handleTaskEdited = (updated: Task) => {
-    setEditTaskTarget(null);
-    mergeCatalogTask(updated);
-    void fetchHomeTasks().catch(() => undefined);
-    window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT));
-  };
-
   /** Discovery history belongs to the task system; opening one task restores only that run's result page. */
   const openDiscoveryTaskResult = (task: Task): boolean => {
     const runId = String(task.discovery_run_id || "").trim();
@@ -1205,7 +1194,7 @@ export default function Home() {
   const actOnMemoryTask = async (task: Task) => {
     if (openDiscoveryTaskResult(task)) return;
     if (String(task.display_verb || "") === "edit") {
-      setEditTaskTarget(task);
+      nav("/tasks?view=created");
       return;
     }
     rememberJourney({
@@ -2237,7 +2226,7 @@ export default function Home() {
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
               onOpen={(task) => void openTask(task)}
-              onEdit={setEditTaskTarget}
+              onEdit={() => nav("/tasks?view=created")}
               notice={paneScope === "todo" ? dedupeNotice : ""}
               brief={activePlan.brief}
               phase={activePlan.phase}
@@ -2505,11 +2494,6 @@ export default function Home() {
         busy={Boolean(followedWorkspace.batchPending?.[0] && followedWorkspace.confirmStageBusyId === followedWorkspace.batchPending[0].id)}
         onConfirm={followedWorkspace.confirmBatch}
         onCancel={followedWorkspace.cancelBatch}
-      />
-      <EditTaskDialog
-        task={editTaskTarget}
-        onClose={() => setEditTaskTarget(null)}
-        onSaved={handleTaskEdited}
       />
       <ReleaseFollowConfirm
         handle={followedWorkspace.releaseTarget?.handle}

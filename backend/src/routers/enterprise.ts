@@ -10,7 +10,7 @@ import {
   scopedUser,
   tokenDigest,
 } from "../auth.js";
-import { audit, getConn, nowIso, tx } from "../db.js";
+import { audit, databaseEngine, getConn, nowIso, tx } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { uploadsDir } from "../host/attachments.js";
 import { SKILL_CATALOG } from "../host/skills-catalog.js";
@@ -22,16 +22,15 @@ import { hasBundledIcon } from "./connector-icons.js";
 import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
 import { avatarUrlForUser, listOrganizationMemberships, listOrganizationPeople } from "../runtime/organization-tree.js";
 import { getConnectorConfig } from "../runtime/store.js";
-import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
 import { listOrganizationUnits, syncUserOrganization } from "../runtime/organization-tree.js";
 
 export const enterprise = new Hono();
 
-function mediaCrawlerProbeVerified(id: string, version: number): boolean {
+function connectorProbeVerified(id: string, version: number): boolean {
   try {
     const probe = getConn().prepare(`SELECT status, probe_kind, config_version FROM runtime_connector_probes
       WHERE connector_id=? ORDER BY id DESC LIMIT 1`).get(id) as Row | undefined;
-    return probe?.status === "succeeded" && probe.probe_kind === "mediacrawler_start"
+    return probe?.status === "succeeded" && ["mcp_tools_list", "http_definition"].includes(String(probe.probe_kind))
       && Number(probe.config_version) === version;
   } catch {
     // Legacy databases without a probe table cannot infer a successful test.
@@ -61,14 +60,19 @@ function pathBytes(target: string): number {
 function safeUser(row: Row): Json {
   const { password_hash: _password, ...rest } = row;
   const db = getConn();
+  const avatarUrl = avatarUrlForUser(String(row.id));
+  const person = db.prepare("SELECT person_ref,email,employee_no FROM organization_people WHERE user_id=?")
+    .get(row.id) as { person_ref?: string; email?: string | null; employee_no?: string | null } | undefined;
   const mailboxCount = db.prepare("SELECT COUNT(*) AS n FROM user_starry_bindings WHERE user_id=?")
     .get(row.id) as Row;
   const kolCount = db.prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE employee_id=? AND status='active'")
     .get(row.id) as Row;
   return {
     ...rest,
-    avatar_url: avatarUrlForUser(String(row.id)),
-    email: row.username,
+    avatar_url: avatarUrl,
+    email: String(row.email || person?.email || (String(row.username).includes("@") ? row.username : "")),
+    person_ref: person?.person_ref || null,
+    employee_no: person?.employee_no || null,
     status: row.active ? "active" : "disabled",
     roles: parseJson(row.roles, []),
     brands: parseJson(row.brands, []),
@@ -294,6 +298,13 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   }
   const sets: string[] = [];
   const values: unknown[] = [];
+  if (body.email !== undefined) {
+    const email = String(body.email || "").trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpFail(400, "invalid email");
+    const owner = email ? getConn().prepare("SELECT id FROM users WHERE lower(email)=? OR lower(username)=?").get(email, email) as { id: string } | undefined : undefined;
+    if (owner && owner.id !== uid) throw new HttpFail(409, "email already used");
+    sets.push("email=?"); values.push(email);
+  }
   for (const field of ["name", "site", "position", "manager_user_id"] as const) {
     if (body[field] !== undefined) { sets.push(`${field}=?`); values.push(body[field] || null); }
   }
@@ -304,7 +315,8 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   if (!sets.length) return c.json(safeUser(userById(uid)));
   sets.push("updated_at=?"); values.push(nowIso(), uid);
   getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values);
-  if (body.site !== undefined || body.name !== undefined) {
+  if (body.password !== undefined) getConn().prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid);
+  if (body.site !== undefined || body.name !== undefined || body.email !== undefined) {
     const updated = userById(uid);
     const site = String(updated.site || "");
     if (!site || listOrganizationUnits().some((unit) => unit.id === site)) syncUserOrganization(uid, site);
@@ -408,11 +420,10 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
       const config = getConnectorConfig(id);
-      const hostOnly = Boolean(config && isMediaCrawlerHostConfig(config.config));
-      if (hostOnly && !mediaCrawlerProbeVerified(id, config!.version)) {
+      if (!config || !connectorProbeVerified(id, config.version)) {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
-      if (!hostOnly && !connectorInUseBySkill(id)) {
+      if (!connectorInUseBySkill(id)) {
         throw new HttpFail(409, { code: "connector_skill_binding_required", connector_id: id });
       }
     }
@@ -762,7 +773,9 @@ enterprise.get("/me/data-summary", (c) => {
     archived_sessions: count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=? AND archived_at IS NOT NULL AND deleted_at IS NULL"),
     memories: count("SELECT COUNT(*) AS n FROM memory_entries WHERE owner_user_id=?"),
     exam_attempts: count("SELECT COUNT(*) AS n FROM exam_attempts WHERE user_id=?"),
-    database_bytes: pathBytes(String(process.env.LINGONG_DB || path.join(process.env.LINGONG_DATA || path.dirname(uploadsDir()), "lingong.db"))),
+    database_bytes: databaseEngine() === "postgres"
+      ? Number((db.prepare("SELECT pg_database_size(current_database()) AS bytes").get() as { bytes: number }).bytes)
+      : pathBytes(String(process.env.LINGONG_DB || path.join(process.env.LINGONG_DATA || path.dirname(uploadsDir()), "lingong.db"))),
     uploads_bytes: pathBytes(uploadsDir()),
     worker_boxes_bytes: pathBytes(boxDir()),
     retention_policy: db.prepare("SELECT session_days,audit_days FROM retention_policy WHERE id=1").get(),

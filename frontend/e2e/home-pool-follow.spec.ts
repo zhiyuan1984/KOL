@@ -444,7 +444,7 @@ test("pool first paint reads only what the pool needs", async ({ page }) => {
   const poolAt = pool?.t ?? 0;
   const before = reads.filter((row) => row.t < poolAt + 80).map((row) => row.path);
   // board 是壳级预热（我的红人对账 / 今日待办推荐的共享来源）：允许发生，但必须让位首屏。
-  for (const shell of ["/api/home/board", "/api/tasks", "/api/task-definitions", "/api/sessions", "/api/mail/box", "/api/cron/jobs", "/api/approvals/badge", "/api/version"]) {
+  for (const shell of ["/api/home/board", "/api/tasks", "/api/task-definitions", "/api/sessions", "/api/queries/mail.box", "/api/cron/jobs", "/api/approvals/badge", "/api/version"]) {
     expect(before.includes(shell), `${shell} 应让位首屏`).toBe(false);
   }
 });

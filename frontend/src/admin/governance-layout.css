@@ -28,6 +28,7 @@
 .governance-list-row .muted { color: var(--text-muted); }
 .governance-employee-row { grid-template-columns: minmax(96px, .9fr) minmax(0, 1.5fr) minmax(84px, .8fr) minmax(60px, .6fr) minmax(52px, .55fr) minmax(0, 1.1fr) max-content; }
 .governance-employee-row > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.governance-employee-number { color: var(--text-muted); font-size: var(--ds-font-helper); font-weight: 400; }
 .governance-employee-row > :last-child { overflow: visible; text-overflow: clip; }
 .governance-agent-row { grid-template-columns: minmax(0, 1fr) auto auto auto; }
 .governance-agent-row > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

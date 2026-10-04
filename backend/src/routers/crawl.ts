@@ -1,3 +1,4 @@
+import { resolveSecretReference } from "../runtime/credentials.js";
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireConnector, scopedUser } from "../auth.js";
 import { ingestMediacrawler } from "../adapters/claw.js";
@@ -98,7 +99,9 @@ crawlRouter.post("/admin/crawl-history/clear", async (c) => {
 
 function requireCrawlIngest(c: { req: { header: (name: string) => string | undefined } }): void {
   if (authDisabled()) return;
-  const secret = String(process.env.MEDIACRAWLER_INGEST_TOKEN || process.env.MEDIACRAWLER_MCP_TOKEN || "").trim();
+  const secret = (process.env.MEDIACRAWLER_INGEST_SECRET_REF
+    ? resolveSecretReference(process.env.MEDIACRAWLER_INGEST_SECRET_REF)
+    : String(process.env.MEDIACRAWLER_INGEST_TOKEN || "")).trim();
   const presented = String(c.req.header("x-mediacrawler-token") || c.req.header("authorization") || "")
     .replace(/^Bearer\s+/i, "")
     .trim();

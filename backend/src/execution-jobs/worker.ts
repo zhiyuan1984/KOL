@@ -1,4 +1,3 @@
-import { databaseEngine } from "../db.js";
 import { runBullMqExecutionWorker } from "../queue/execution-worker.js";
 
 /**
@@ -7,6 +6,7 @@ import { runBullMqExecutionWorker } from "../queue/execution-worker.js";
  * unit fixtures and is never a supported worker runtime.
  */
 export async function runExecutionWorker(options: { worker_id?: string; poll_ms?: number } = {}): Promise<void> {
-  if (databaseEngine() !== "postgres") throw new Error("worker:execution requires DATABASE_URL and PostgreSQL");
+  const databaseUrl = process.env.DATABASE_URL?.trim() || "";
+  if (!/^postgres(?:ql)?:\/\//i.test(databaseUrl)) throw new Error("worker:execution requires a PostgreSQL DATABASE_URL");
   await runBullMqExecutionWorker({ workerId: options.worker_id });
 }

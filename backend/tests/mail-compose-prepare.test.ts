@@ -79,7 +79,7 @@ function addPublishedTemplate(input: {
 }
 
 async function prepare(input: Json = {}): Promise<Reply> {
-  return request("POST", "/api/email-compose/prepare", {
+  return request("POST", "/api/actions/mail.prepare", {
     skill_id: "email_compose",
     collaboration_id: "col_xiaomei",
     ...input,
@@ -143,7 +143,7 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe("POST /api/email-compose/prepare", () => {
+describe("POST /api/actions/mail.prepare", () => {
   it("is read-only and returns exactly one authoritative published template", async () => {
     addPublishedTemplate({ id: "mail_one" });
     const conn = getConn();
@@ -187,7 +187,7 @@ describe("POST /api/email-compose/prepare", () => {
     const sid = await newSession();
     getConn().prepare("UPDATE sessions SET collaboration_id=? WHERE id=?").run("col_xiaomei", sid);
 
-    const response = await request("POST", "/api/email-compose/prepare", {
+    const response = await request("POST", "/api/actions/mail.prepare", {
       skill_id: "email_compose",
       session_id: sid,
       collaboration_id: "col_laozhang",
@@ -198,7 +198,7 @@ describe("POST /api/email-compose/prepare", () => {
 
   it("requires a single scoped collaboration rather than guessing across object refs", async () => {
     addPublishedTemplate({ id: "mail_one" });
-    const response = await request("POST", "/api/email-compose/prepare", {
+    const response = await request("POST", "/api/actions/mail.prepare", {
       skill_id: "email_compose",
       object_refs: [
         { kind: "collaboration", id: "col_xiaomei" },

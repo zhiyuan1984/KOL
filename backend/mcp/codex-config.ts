@@ -6,16 +6,11 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   BACKEND_ROOT,
-  clawMode,
   codexMode,
   dbPath,
   kolClawConfigured,
   kolClawMcpUrl,
   mcpDir,
-  mediaCrawlerMcpUrl,
-  starryKolMcpConfigured,
-  starryKolMcpHeaders,
-  starryKolMcpUrl,
 } from "../src/config.js";
 import type { Json } from "../src/types.js";
 import { ALLOWED_TASK_MCP } from "../src/tasks/registry.js";
@@ -30,7 +25,6 @@ export function mcpServerSpecs(allowlist: readonly string[] = [...ALLOWED_TASK_M
   const db = dbPath();
   const starry = path.join(mcpDir(), "starry-server.ts");
   const grouped = {
-    starrykol: toolsForServer(allowlist, "starrykol"),
     kolclaw: toolsForServer(allowlist, "kolclaw"),
     starry: toolsForServer(allowlist, "starry"),
     claw: toolsForServer(allowlist, "claw"),
@@ -42,16 +36,6 @@ export function mcpServerSpecs(allowlist: readonly string[] = [...ALLOWED_TASK_M
     cwd: BACKEND_ROOT,
     enabled: true,
   };
-  if (grouped.starrykol.length && starryKolMcpConfigured()) {
-    specs.starrykol = {
-      url: starryKolMcpUrl(),
-      http_headers: starryKolMcpHeaders(),
-      enabled_tools: grouped.starrykol,
-      enabled: true,
-      startup_timeout_sec: 15,
-      tool_timeout_sec: 30,
-    };
-  }
   if (grouped.kolclaw.length && kolClawConfigured()) {
     specs.kolclaw = {
       url: kolClawMcpUrl(),
@@ -63,24 +47,14 @@ export function mcpServerSpecs(allowlist: readonly string[] = [...ALLOWED_TASK_M
     };
   }
   if (grouped.claw.length) {
-    const localFallback = codexMode() === "stub" || clawMode() === "mock" ||
-      process.env.MEDIACRAWLER_MCP_TEST_LOCAL === "1";
-    specs.claw = localFallback
-      ? {
-          command: process.execPath,
-          args: [tsxCli, path.join(mcpDir(), "claw-server.ts"), "--db", db, "--allow", grouped.claw.join(",")],
-          cwd: BACKEND_ROOT,
-          enabled: true,
-          enabled_tools: grouped.claw,
-        }
-      : {
-          url: mediaCrawlerMcpUrl(),
-          bearer_token_env_var: "MEDIACRAWLER_MCP_TOKEN",
-          enabled: true,
-          enabled_tools: grouped.claw,
-          startup_timeout_sec: 15,
-          tool_timeout_sec: 60,
-        };
+    const localFallback = codexMode() === "stub";
+    // Production collection stays behind the asynchronous job gateway. Never
+    // inject the collector endpoint or its organization secret into a Codex box.
+    if (localFallback) specs.claw = {
+      command: process.execPath,
+      args: [tsxCli, path.join(mcpDir(), "claw-server.ts"), "--db", db, "--allow", grouped.claw.join(",")],
+      cwd: BACKEND_ROOT, enabled: true, enabled_tools: grouped.claw,
+    };
   }
   return specs;
 }

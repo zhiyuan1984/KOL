@@ -20,6 +20,7 @@ import { emailMcpResultCard } from "../src/starrykol/service.js";
 import { classify } from "../src/host/intent.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { withTicketPrincipal } from "../src/ticket-domain/auth.js";
 
 type Json = Record<string, unknown>;
 
@@ -144,7 +145,7 @@ describe("host contracts", () => {
   it("send does not call stage", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const draft = draftOn(sid);
-    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {});
+    const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status, await sent.text()).toBe(200);
     const sj = await sent.json();
     expect(sj.stage_changed).toBe(false);
@@ -551,7 +552,7 @@ describe("host contracts", () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const did = draftOn(sid).id;
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
-    const r = await confirmAndSendDraft(request, `/api/drafts/${did}/send`, {});
+    const r = await confirmAndSendDraft(request, String(did), {});
     expect(r.status).toBe(403);
     const d1 = (await r.json()).detail as Json;
     expect(d1.status).toBe("blocked_exam");
@@ -560,13 +561,13 @@ describe("host contracts", () => {
     expect((ses.messages as Json[]).some((m) => m.kind === "error_card")).toBe(true);
 
     await request("POST", "/api/me/persona", { persona: "permission_blocked" });
-    const r2 = await confirmAndSendDraft(request, `/api/drafts/${did}/send`, {});
+    const r2 = await confirmAndSendDraft(request, String(did), {});
     expect(r2.status).toBe(403);
     expect(((await r2.json()).detail as Json).status).toBe("blocked_permission");
 
     await request("POST", "/api/me/persona", { persona: "sriphy" });
     await request("PATCH", `/api/drafts/${did}`, { template_id: "wrong.template" });
-    const r3 = await confirmAndSendDraft(request, `/api/drafts/${did}/send`, {});
+    const r3 = await confirmAndSendDraft(request, String(did), {});
     expect(r3.status).toBe(400);
     expect(((await r3.json()).detail as Json).status).toBe("blocked_template");
   });
@@ -595,7 +596,7 @@ describe("host contracts", () => {
   it("one-click translation returns the model-produced internal Chinese draft", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const did = String(draftOn(sid).id);
-    const translated = await request("POST", `/api/drafts/${did}/translate`);
+    const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: did });
     expect(translated.status).toBe(200);
     const body = await translated.json();
     const english = String(draftOn(sid).body_en || "");
@@ -624,12 +625,12 @@ describe("host contracts", () => {
     expect(card.from).toBe("larry.zhao@amperetime.com");
     expect(card.send_from).toBe(BRAND_MAILBOXES.RO);
     expect(opts.some((row) => row.email === card.send_from)).toBe(true);
-    const translated = await request("POST", `/api/drafts/${draft.id}/translate`);
+    const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: draft.id });
     expect(translated.status).toBe(200);
     const zh = String((await translated.json()).zh);
     expect(zh).toMatch(/[\u4e00-\u9fff]/);
     expect(zh).not.toContain("We would love to collaborate");
-    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {
+    const sent = await confirmAndSendDraft(request, String(draft.id), {
       from_addr: "larry.zhao@amperetime.com",
       to_addr: "xiaomei.beauty@example.com",
     });
@@ -651,7 +652,7 @@ describe("host contracts", () => {
       collaboration_id: "col_xiaomei",
     });
     getConn().prepare("UPDATE drafts SET body_zh_internal='' WHERE id=?").run(String(draft.id));
-    const translated = await request("POST", `/api/drafts/${draft.id}/translate`);
+    const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: draft.id });
     expect(translated.status).toBe(200);
     const body = await translated.json();
     expect(String(body.zh)).toMatch(/[\u4e00-\u9fff]/);
@@ -818,7 +819,10 @@ describe("host contracts", () => {
         "starrykol.summarizeRiskConversations",
       ]);
     }
-    const cron = await request("POST", "/api/cron/risk-scan");
+    const cron = await withTicketPrincipal({
+      id: "test-admin", username: "test-admin", name: "Test Admin", email: null,
+      roles: ["admin"], active: true,
+    }, () => request("POST", "/api/cron/risk-scan"));
     expect(cron.status, await cron.text()).toBe(200);
     const cronBody = await cron.json() as Json;
     expect(cronBody.run_id).toBeTruthy();

@@ -16,6 +16,8 @@ export type DirectoryEmployee = Record<string, unknown> & {
   avatar_url?: string | null;
   username?: string;
   email?: string;
+  employee_no?: string | null;
+  person_ref?: string | null;
   site?: string;
   position?: string;
   manager_user_id?: string;
@@ -44,7 +46,7 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 function userEmail(user: Employee): string {
-  return text(user.email || user.username);
+  return text(user.email || (text(user.username).includes("@") ? user.username : ""));
 }
 
 function formatTime(value: unknown): string {
@@ -202,24 +204,30 @@ export function EmployeeEditDialog({
 
   const save = async () => {
     setError("");
-    if (!name || !email) {
-      setError("请填写员工姓名和登录邮箱。");
+    if (!name || (!employee && !email)) {
+      setError(employee ? "请填写员工姓名。" : "请填写员工姓名和登录邮箱。");
       return;
     }
     setSaving(true);
     try {
       if (employee) {
+        if (password && password.length < 9) {
+          setError("新密码至少需要 9 个字符。");
+          return;
+        }
         await api.adminSave(`/api/admin/users/${encodeURIComponent(employee.id)}`, {
           name,
+          email,
           site,
           position,
           manager_user_id: managerId || null,
           brands: selectedBrands,
           active,
+          ...(password ? { password } : {}),
         }, "PATCH");
       } else {
-        if (password.length < 8) {
-          setError("初始密码至少需要 8 个字符。");
+        if (password.length < 9) {
+          setError("初始密码至少需要 9 个字符。");
           return;
         }
         await api.adminSave("/api/admin/users", {
@@ -259,8 +267,9 @@ export function EmployeeEditDialog({
           <h3>账号与组织</h3>
           <div className="employee-form-grid">
             <label className="field">员工姓名<input data-employee-field="name" value={name} onChange={(event) => setName(event.target.value)} /></label>
-            <label className="field">登录邮箱<input data-employee-field="email" value={email} readOnly={existing} onChange={(event) => setEmail(event.target.value)} /></label>
-            {!existing ? <label className="field">初始密码<input data-employee-field="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label> : null}
+            <label className="field">登录邮箱<input data-employee-field="email" type="email" value={email} placeholder={existing ? "未登记" : ""} onChange={(event) => setEmail(event.target.value)} /></label>
+            <label className="field">{existing ? "设置新密码（留空则不变）" : "初始密码"}<input data-employee-field="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            {existing && loadedUser?.employee_no ? <label className="field">工号<input value={loadedUser.employee_no} readOnly /></label> : null}
             <label className="field">所属组织<select data-employee-field="organization" value={site} onChange={(event) => setSite(event.target.value)}><option value="">未分配</option>{units.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select></label>
             <label className="field">岗位<input data-employee-field="position" value={position} placeholder="例如：商务拓展" onChange={(event) => setPosition(event.target.value)} /></label>
             <label className="field">直属上级<select data-employee-field="manager" value={managerId} onChange={(event) => setManagerId(event.target.value)}><option value="">未设置</option>{allEmployees.filter((candidate) => candidate.id !== employee?.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{employeeLabel(candidate)}</option>)}</select></label>

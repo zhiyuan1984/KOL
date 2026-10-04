@@ -235,7 +235,7 @@ describe("pane parity", () => {
       creates_session: false,
       creates_turn: false,
       calls_model: false,
-      route: "GET /api/mail/compose-catalog",
+      route: "GET /api/queries/mail.compose-catalog",
     });
   });
 });

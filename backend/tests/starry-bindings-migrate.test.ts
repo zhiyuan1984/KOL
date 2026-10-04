@@ -45,8 +45,11 @@ const OLD_DDL = `
 `;
 
 let tmp = "";
+let databaseUrl: string | undefined;
 
 beforeEach(() => {
+  databaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL; // This suite exercises SQLite file migrations.
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-bind-migrate-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
@@ -55,6 +58,8 @@ beforeEach(() => {
 afterEach(() => {
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
+  if (databaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = databaseUrl;
 });
 
 function pkColumns(): string[] {

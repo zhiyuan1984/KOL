@@ -5,6 +5,10 @@ export type EvidenceSource = "body" | "attachment" | "fulfillment" | "subject";
 export type StageJudgment = {
   suggested_stage: string | null;
   confidence: "high" | "medium" | "low";
+  /** Direct evidence confidence before legacy next-stage conservatism lowers
+   * `confidence` for a skipped stage. PostgreSQL A3 uses this only together
+   * with an explicit, published cross-stage evidence policy. */
+  evidence_confidence: "high" | "medium" | "low";
   reason: string;
   evidence: { source: EvidenceSource; snippet: string }[];
   flags: string[];
@@ -167,6 +171,7 @@ export function judgeCollaborationStage(input: StageJudgmentInput): StageJudgmen
     return {
       suggested_stage: null,
       confidence: "high",
+      evidence_confidence: "high",
       reason: blocked.flag === "thank_you_only"
         ? "仅回复感谢或已读，不能识别为有兴趣。"
         : "延期/私人突发应进入关怀型处理，不直接判定违约。",
@@ -180,6 +185,7 @@ export function judgeCollaborationStage(input: StageJudgmentInput): StageJudgmen
     return {
       suggested_stage: null,
       confidence: "low",
+      evidence_confidence: "low",
       reason: subjectOnly
         ? "不要只根据邮件主题判断。正文明确动作优先于主题。"
         : "证据不足，请人选阶段。",
@@ -200,6 +206,7 @@ export function judgeCollaborationStage(input: StageJudgmentInput): StageJudgmen
   return {
     suggested_stage: known ? suggested : null,
     confidence: skipAhead ? "medium" : confidence,
+    evidence_confidence: confidence,
     reason: skipAhead
       ? `正文支持 ${suggested}，但相对当前阶段跳档，需人工确认。`
       : `按权重（正文 > 附件和链接 > 履约字段 > 主题）识别为 ${suggested}。`,

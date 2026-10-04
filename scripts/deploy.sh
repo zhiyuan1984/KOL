@@ -69,11 +69,20 @@ echo "重启 lingong.service"
 sudo -n systemctl restart lingong
 
 for _ in $(seq 1 60); do
-  body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/version" 2>/dev/null || true)"
-  if [ -n "$body" ]; then
-    echo "服务已恢复：$body"
+  version_body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/version" 2>/dev/null || true)"
+  if [ -n "$version_body" ]; then
+    echo "服务已恢复：$version_body"
+    exit 0
+  fi
+  # The PostgreSQL-only surface intentionally retires /api/version together
+  # with legacy routes. Its explicit authority health contract is the release
+  # proof in that mode; do not report a healthy formal service as a timeout.
+  health_body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null || true)"
+  if printf '%s' "$health_body" | grep -q '"runtime_mode":"postgres-only"' \
+    && printf '%s' "$health_body" | grep -q '"authority_store":"postgresql"'; then
+    echo "PostgreSQL-only 服务已恢复：$health_body"
     exit 0
   fi
   sleep 1
 done
-die "重启后 60 秒内 http://127.0.0.1:${PORT}/api/version 仍未就绪，查看：sudo journalctl -u lingong -n 50"
+die "重启后 60 秒内服务健康探测未就绪，查看：sudo journalctl -u lingong -n 50"

@@ -20,7 +20,6 @@ import { previewOpenApi } from "../runtime/openapi.js";
 import { skillCoverage, type ToolMountState } from "../runtime/skill-coverage.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { requireManagedConnector } from "../connectors/catalog.js";
-import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
 
 export const skillRuntimeRouter = new Hono();
 
@@ -274,7 +273,7 @@ skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", (c) => {
   requireManagedRuntimeConnector(c.req.param("connectorId"));
   const result = getConnectorConfig(c.req.param("connectorId"));
   if (!result) throw new HttpFail(404, "runtime connector config not found");
-  return c.json({ ...result, ...(isMediaCrawlerHostConfig(result.config) ? { probe_mode: "mediacrawler_start" } : {}) });
+  return c.json(result);
 });
 
 skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c) => {
@@ -312,8 +311,7 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
     version: row.version,
   });
   // Return only the validated, reference-only DTO; never expose config_json.
-  return c.json({ config, version: row.version,
-    ...(isMediaCrawlerHostConfig(config) ? { probe_mode: "mediacrawler_start" } : {}) });
+  return c.json({ config, version: row.version });
 });
 
 skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/import-openapi", async (c) => {
@@ -355,8 +353,7 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/tools/:toolName",
     access: body.access,
     schema_hash: body.schema_hash,
   }, version);
-  // L3 policy registration is intentionally metadata only. The Host Gateway,
-  // not this router, remains the sole formal-action execution path.
+  // L3 is mountable. Registration cannot confer confirmation or business approval.
   audit(admin.id, "runtime.tool_policy.updated", {
     action: row.enabled ? "enabled" : "disabled",
     connector_id: row.connector_id,

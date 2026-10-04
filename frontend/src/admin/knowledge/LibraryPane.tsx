@@ -24,9 +24,9 @@ export default function LibraryPane({
       <header className="kbv-browser-list-head">
         <span data-kbv-count>{totalCount} 条知识</span>
         <nav className="kbv-pagination" aria-label="知识分页">
-          <button type="button" className="btn ghost" data-kbv-prev disabled={page <= 1} onClick={onPrevious}>上一页</button>
+          <button type="button" className="kbv-text-action" data-kbv-prev disabled={page <= 1} onClick={onPrevious}>上一页</button>
           <span data-kbv-page>第 {page} / {pageCount} 页</span>
-          <button type="button" className="btn ghost" data-kbv-next disabled={page >= pageCount} onClick={onNext}>下一页</button>
+          <button type="button" className="kbv-text-action" data-kbv-next disabled={page >= pageCount} onClick={onNext}>下一页</button>
         </nav>
       </header>
 

@@ -1,5 +1,5 @@
 import { ingestMediacrawler } from "../adapters/claw.js";
-import { mediaCrawlerConfigured } from "../config.js";
+import { createMediaCrawlerClient, mediaCrawlerConfigured } from "./managed-connection.js";
 import { getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, onConnReset, tx } from "../db.js";
 import {
   CRAWL_ACTIVE_MESSAGE,
@@ -14,13 +14,15 @@ import { appendTaskEvent } from "../task-events.js";
 import type { Json, Row } from "../types.js";
 import { CRAWL_PLATFORM_SET } from "./platforms.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
+import { withCrawlerInstanceLock, assertNoRuntimeCrawl } from "./runtime-gates.js";
+import { getConnectorConfig } from "../runtime/store.js";
 
 const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const monitors = new Map<string, ReturnType<typeof setTimeout>>();
 /** Poll count per job, for the monitor backoff. Reset when a job settles. */
 const monitorAttempts = new Map<string, number>();
-let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => new RemoteMcpClient();
+let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => createMediaCrawlerClient();
 /** Discovery (and other hosts) subscribe to crawl settle without importing crawl internals. */
 export function onCrawlJobSettled(handler: (job: Row) => void): void {
   const bucket = settleBucket();
@@ -56,7 +58,7 @@ onConnReset(clearMonitors);
 export function setCrawlMcpClientFactory(
   factory?: () => Pick<RemoteMcpClient, "callTool" | "close">,
 ): void {
-  clientFactory = factory || (() => new RemoteMcpClient());
+  clientFactory = factory || (() => createMediaCrawlerClient());
 }
 
 function json(value: unknown): Json {
@@ -180,7 +182,19 @@ async function remoteCall(name: string, args: Json, jobId?: string): Promise<Jso
   }
 }
 
-export async function startCrawl(input: {
+export async function startCrawl(input: Parameters<typeof startLegacyCrawl>[0]): Promise<Json> {
+  if (getConn().prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id='runtime.crawler-skill.v1'").get()) {
+    throw new HttpFail(410, { code: "crawler_skill_entry_required", message: "采集已迁移到线索智能体，请在采集线索技能中核对并确认。", next_action: "open_crawler_agent" });
+  }
+  const url = getConnectorConfig("claw")?.config.url;
+  if (!url) return startLegacyCrawl(input);
+  return withCrawlerInstanceLock(url, async () => {
+    await assertNoRuntimeCrawl(url);
+    return startLegacyCrawl(input);
+  });
+}
+
+async function startLegacyCrawl(input: {
   ownerUserId: string;
   workItemId: string;
   sessionId?: string | null;
@@ -197,7 +211,7 @@ export async function startCrawl(input: {
     throw new HttpFail(503, {
       code: "mediacrawler_not_configured",
       message: "远程采集服务未配置。",
-      next_action: "请在根目录 .env 配置 MEDIACRAWLER_MCP_URL 和 MEDIACRAWLER_MCP_TOKEN 后重启服务。",
+      next_action: "请在管理端配置并启用 MediaCrawler 连接器及保险柜凭据。",
     });
   }
   const workItem = getConn().prepare("SELECT id FROM tickets WHERE id=?").get(input.workItemId) as
