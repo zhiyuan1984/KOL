@@ -15688,3 +15688,5 @@ button.today-brief-primary-btn:disabled {
 .trace-list li span { white-space: normal; overflow-wrap: anywhere; }
 .trace-list time, .trace-time-missing, .message-time { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .message-time { align-self: flex-end; }
+.runtime-action-card, .session-center .message.risk-l1 { line-height: var(--ds-line-sm); }
+.runtime-action-summary { gap: var(--space-1); margin-block: var(--space-2); }

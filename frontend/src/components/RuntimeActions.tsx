@@ -3,7 +3,7 @@ import { api, type RuntimeActionView } from "../api";
 
 const states: Record<string, string> = { pending: "待确认", dispatching: "正在提交；若长时间无回执，请核对远端结果，不要重复提交",
   queued: "已确认，等待执行", running: "正在采集", starting: "正在启动", stopping: "正在停止", failed: "执行失败",
-  succeeded: "已取得回执", rejected: "未执行", uncertain: "结果待核实，不能重复提交", cancelled: "已取消" };
+  succeeded: "已执行", rejected: "未执行", uncertain: "结果待核实，不能重复提交", cancelled: "已取消" };
 
 const argumentLabels: Record<string, string> = {
   keywords: "关键词", platforms: "平台", platform: "平台", crawler_type: "采集方式",
@@ -83,7 +83,7 @@ export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onC
         <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void submit(action, false)}>取消</button>
       </div> : null}
       {action.crawl ? <div role="status">
-        <p>采集：{states[action.crawl.state] || action.crawl.state} · 任务 {action.crawl.remote_task_id || "等待远端回执"}</p>
+        <p>采集：{action.crawl.state === "succeeded" ? "已结束" : states[action.crawl.state] || action.crawl.state} · 任务 {action.crawl.remote_task_id || "等待远端回执"}</p>
         {action.crawl.status_json ? <details><summary>采集进度</summary><pre>{JSON.stringify(action.crawl.status_json, null, 2)}</pre></details> : null}
         {action.crawl.state === "running" ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, true)}>申请停止采集</button> : null}
         {!action.can_retry && !action.progress && ["failed", "cancelled"].includes(action.crawl.state) ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, false)}>重新核对并重试</button> : null}

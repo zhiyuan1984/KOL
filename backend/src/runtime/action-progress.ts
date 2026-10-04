@@ -9,7 +9,7 @@ export function runtimeActionProgress(action: { state: string; error_code: strin
   const busy = action.state === "rejected" && action.error_code === "runtime_probe_crawl_busy";
   const timeout = crawl?.error_code === "runtime_crawl_timeout";
   const labels: Record<string, string> = { pending: "待确认", queued: "已确认，等待执行", retrying: "已确认，等待执行",
-    running: "执行中", starting: "正在启动", stopping: "正在停止", succeeded: "已取得回执",
+    running: "执行中", starting: "正在启动", stopping: "正在停止", succeeded: crawl ? "采集已结束" : "操作已执行",
     failed: "执行失败", rejected: "未执行", uncertain: "结果待核实", cancelled: "已取消" };
   const label = busy ? "采集未启动 · 已有任务占用" : timeout ? "采集超时" : labels[state] || "状态待核实";
   const summaries: Record<string, string> = {

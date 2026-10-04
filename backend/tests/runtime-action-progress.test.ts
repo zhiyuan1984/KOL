@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { canRetryRuntimeCrawl, runtimeActionProgress } from "../src/runtime/action-progress.js";
 
 describe("durable confirmation progress", () => {
+  it("distinguishes executed request from ended collection in employee copy", () => {
+    const action = { state: "succeeded", error_code: null };
+    expect(runtimeActionProgress(action, null, null).label).toBe("操作已执行");
+    expect(runtimeActionProgress(action, { state: "running" }, null).label).toBe("执行中");
+    expect(runtimeActionProgress(action, { state: "succeeded" }, null).label).toBe("采集已结束");
+  });
   it("replaces a waiting prediction as soon as confirmation is queued", () => {
     const progress = runtimeActionProgress({ state: "pending", error_code: null }, null, { status: "queued" });
     expect(progress).toMatchObject({ state: "queued", label: "已确认，等待执行", replace_result: true });
