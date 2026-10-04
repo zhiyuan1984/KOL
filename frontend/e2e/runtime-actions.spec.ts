@@ -135,12 +135,17 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await page.locator('[data-skill-param="region"] [data-discovery-chip="na"]').click();
   const workspaceSaved = page.waitForResponse(response => response.request().method() === "POST"
     && new URL(response.url()).pathname === "/api/home/discovery/workspace");
+  const initialTask = page.waitForResponse(response => response.request().method() === "GET"
+    && /^\/api\/tasks\/(?:by-session\/)?(?:wi|ses)_discovery_/.test(new URL(response.url()).pathname));
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
   const savedResponse = await workspaceSaved;
   expect(savedResponse.ok(), await savedResponse.text()).toBeTruthy();
   const savedWorkspace = await savedResponse.json();
   const readsWorkspaceTask = (response: import("@playwright/test").Response) => response.request().method() === "GET"
     && [`/api/tasks/${savedWorkspace.task_id}`, `/api/tasks/by-session/${savedWorkspace.session_id}`].includes(new URL(response.url()).pathname);
+  const initialTaskResponse = await initialTask;
+  expect(readsWorkspaceTask(initialTaskResponse)).toBe(true);
+  expect(initialTaskResponse.ok()).toBeTruthy();
   await expect(page).toHaveURL(/\/s\/[^/]+$/);
   const sessionUrl = page.url();
   await expect(page.locator('[data-agent-profile="lead"]')).toContainText("线索智能体");
