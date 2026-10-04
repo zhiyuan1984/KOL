@@ -1,4 +1,4 @@
-import { api, type Task } from "../api";
+import { api, type Task, type HomePoolPage, type HomePoolOptions } from "../api";
 import {
   ANALYZE_QUEUED_COPY,
   KOL_ANALYZE_TASK_TYPE,
@@ -21,6 +21,7 @@ export type PoolLoad = {
   creates_session: false;
   /** 公海读自带的红人库状态；404 回退（board-adapter）时为 null，由 board 兜底。 */
   libraryCount: number | null;
+  page?: HomePoolPage;
   down?: boolean;
   error?: string;
 };
@@ -120,16 +121,17 @@ function unownedFirst(rows: PoolKol[]): PoolKol[] {
   return [...rows].sort((a, b) => Number(Boolean(b.unowned)) - Number(Boolean(a.unowned)));
 }
 
-export async function loadHomePool(board?: { kols?: Array<Record<string, unknown>>; creators?: Array<Record<string, unknown>> }): Promise<PoolLoad> {
+export async function loadHomePool(board?: { kols?: Array<Record<string, unknown>>; creators?: Array<Record<string, unknown>> }, options: HomePoolOptions = {}): Promise<PoolLoad> {
   try {
-    const payload = await api.homePool();
+    const payload = await api.homePool(options);
     const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
     const library = payload.library;
     return {
-      items: unownedFirst(items),
+      items: payload.page ? items : unownedFirst(items),
       source: "pool",
       creates_session: false,
       libraryCount: typeof library?.count === "number" ? library.count : null,
+      page: payload.page,
     };
   } catch (error) {
     if (!isMissingEndpoint(error)) {

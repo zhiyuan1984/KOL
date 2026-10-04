@@ -19,7 +19,7 @@ export async function stubHomeFollowing(page: Page, kols: Array<Record<string, u
 }
 
 export async function stubHomePool(page: Page, items: Array<Record<string, unknown>> = []) {
-  await page.route("**/api/home/pool", async (route) => {
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
       json: {

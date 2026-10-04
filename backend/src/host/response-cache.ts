@@ -112,6 +112,16 @@ export function cachedPoll<T>(key: string, epoch: string, produce: () => T): T {
   return value;
 }
 
+/** Cache the resolved projection, never a Promise or a rejected read. */
+export async function cachedPollAsync<T>(key: string, epoch: string, produce: () => Promise<T>): Promise<T> {
+  const found = store.get(key);
+  if (found && found.epoch === epoch && Date.now() - found.at < pollCacheTtlMs()) {
+    return cachedPoll(key, epoch, () => found.value as T);
+  }
+  const value = await produce();
+  return cachedPoll(key, epoch, () => value);
+}
+
 /** Drop every entry whose key starts with `prefix` (all of them when omitted). */
 export function invalidatePollCache(prefix?: string): void {
   for (const key of [...store.keys()]) {

@@ -95,11 +95,11 @@ describe("pane parity", () => {
     expect(tasksApi.match(/fetch\(/g)?.length).toBe(1);
     for (const scope of ["today", "todo"]) {
       expect(home).toContain(`usePlanScope("${scope}"`);
-      expect(tasksApi).toContain(`fetchScopeTasks("${scope}")`);
+      expect(tasksApi).toContain(`fetchScopeTasks("${scope}", signal)`);
       expect(home).not.toContain(`/api/home/${scope}-`);
     }
-    expect(home).toContain('loadAllWorkbenchTasks("today")');
-    expect(home).toContain('loadAllWorkbenchTasks("todo")');
+    expect(home).toContain('loadAllWorkbenchTasks("today", undefined, signal)');
+    expect(home).toContain('loadAllWorkbenchTasks("todo", undefined, signal)');
   });
 
   it("forbids scope branches outside SCOPE_CONFIG and scopeRows", () => {

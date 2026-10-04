@@ -1,3 +1,6 @@
+export type HomePoolPage = { offset: number; limit: number; total: number; matched: number; new_count: number; next_offset: number | null };
+export type HomePoolOptions = { query?: string; filter?: string; sort?: string; offset?: number; limit?: number };
+
 export type RuntimeActionView = {
   id: string; skill_id: string; operation: string; arguments: Record<string, unknown>;
   state: string; risk: "L3"; confirmation_version: string; blocked_reason: string | null;
@@ -1895,23 +1898,23 @@ export const api = {
   saveStarryBinding: (body: { mailbox_email: string; bearer?: string; mailbox_id?: string; owner_name?: string }) =>
     request<StarryBinding>("/api/me/starry-binding", { method: "POST", body: JSON.stringify(body) }),
   clearStarryBinding: () => request<StarryBinding>("/api/me/starry-binding", { method: "DELETE" }),
-  tasks: (params?: { status?: string; source?: string; priority?: string; view?: string; q?: string; skill?: string; from?: string; to?: string }) => {
+  tasks: (params?: { status?: string; source?: string; priority?: string; view?: string; q?: string; skill?: string; from?: string; to?: string }, signal?: AbortSignal) => {
     const query = new URLSearchParams();
     Object.entries(params || {}).forEach(([key, value]) => {
       if (value) query.set(key, value);
     });
-    return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`);
+    return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`, { signal });
   },
   taskPage: (opts: { cursor?: string; limit?: number; view?: string; q?: string; from?: string; to?: string } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<TaskListPage>(`/api/tasks?${query}`);
   },
-  workbenchTasks: (view: "today" | "todo", opts?: { cursor?: string; limit?: number }) => {
+  workbenchTasks: (view: "today" | "todo", opts?: { cursor?: string; limit?: number; signal?: AbortSignal }) => {
     const query = new URLSearchParams({ view });
     if (opts?.cursor) query.set("cursor", opts.cursor);
     if (opts?.limit) query.set("limit", String(opts.limit));
-    return request<WorkbenchTaskPage>(`/api/workbench/tasks?${query}`);
+    return request<WorkbenchTaskPage>(`/api/workbench/tasks?${query}`, { signal: opts?.signal });
   },
   tickets: (opts: {
     cursor?: string; limit?: number; view?: "authorized" | "created" | "assigned" | "watching" | "completed";
@@ -2126,7 +2129,7 @@ export const api = {
       kols?: Array<Record<string, unknown>>;
       follow_scope?: StarryBinding;
     }>("/api/home/following", { signal: AbortSignal.timeout(15_000) }),
-  homePool: () =>
+  homePool: (options: HomePoolOptions = {}) =>
     request<{
       entry?: string;
       creates_session?: boolean;
@@ -2137,7 +2140,8 @@ export const api = {
       library?: { ok?: boolean; count?: number; synced_at?: string };
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
-    }>("/api/home/pool"),
+      page?: HomePoolPage;
+    }>("/api/home/pool" + (Object.keys(options).length ? `?${new URLSearchParams(Object.entries(options).map(([key, value]) => [key, String(value)]))}` : ""), { priority: "high" }),
   syncHomePool: () =>
     request<{
       entry?: string;
@@ -2286,7 +2290,7 @@ export const api = {
   planToday: () => planScope("today"),
   todoBrief: () => scopeBrief("todo"),
   planTodo: () => planScope("todo"),
-  workbenchPlan: () => request<TodayBriefResponse>("/api/workbench/plan"),
+  workbenchPlan: (signal?: AbortSignal) => request<TodayBriefResponse>("/api/workbench/plan", { signal }),
   startWorkbenchPlan: () => request<TodayPlanResult>("/api/workbench/plan-runs", {
     method: "POST", body: JSON.stringify({ mode: "deterministic_organize" }),
   }),
@@ -2725,7 +2729,7 @@ export const api = {
   },
   kbMarket: () => request<KnowledgeRow[]>("/api/knowledge/market"),
   /** Authorized, read-only projection of published SKILL.md interaction contracts. */
-  skillTemplates: () => request<SkillTemplate[]>("/api/knowledge/skill-templates"),
+  skillTemplates: (signal?: AbortSignal) => request<SkillTemplate[]>("/api/knowledge/skill-templates", { signal }),
   skillTemplate: (skillId: string) =>
     request<SkillTemplate>(`/api/knowledge/skill-templates/${encodeURIComponent(skillId)}`),
   /** 零会话、零模型：只读已发布的问题模板，供公海四个入口预填提问框。 */

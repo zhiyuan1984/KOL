@@ -50,7 +50,7 @@ async function stubPool(page: Page) {
     contentType: "image/svg+xml",
     body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><rect width="56" height="56" fill="#dbeafe"/></svg>',
   }));
-  await page.route("**/api/home/pool", async (route) => {
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
       json: {
