@@ -148,6 +148,15 @@ export type AdminBindingPreview = {
   removed: AdminAgentAccess[];
 };
 
+export type AdminSkillRecommendation = {
+  agent_id: string;
+  agent_version: number;
+  status: "completed";
+  model: string;
+  assessment_version: string;
+  items: Array<{ id: string; label: string; summary: string; category?: string; rank: number; score: number; reason: string }>;
+};
+
 export type AdminAgentAuditResponse = {
   items: AdminAuditEvent[];
   next_cursor: number | string | null;
@@ -156,7 +165,7 @@ export type AdminAgentAuditResponse = {
 export type AdminAgentsResponse = {
   agents: AdminAgentRow[];
   units: Array<{ id: string; display_name: string; company_id: string; parent_id: string | null; level: number; status: string }>;
-  people: Array<{ person_ref: string; display_name: string; user_id: string | null; status: string }>;
+  people: Array<{ person_ref: string; display_name: string; user_id: string | null; status: string; company_id?: string | null; unit_ids?: string[] }>;
   skills: Array<{ id: string; label: string; category: string; summary: string; document_query?: boolean }>;
   bases: KnowledgeBaseRow[];
 };
@@ -3007,6 +3016,12 @@ export const api = {
   adminAgentSkill: (id: string, skillId: string, body: { enabled: boolean; expected_version: number }) =>
     request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(skillId)}`,
       { method: "PUT", body: JSON.stringify(body) }),
+  adminAgentSkillsSave: (id: string, skills: Array<{ skill_id: string; enabled: boolean; expected_version: number }>) =>
+    request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/skills`, { method: "PUT", body: JSON.stringify({ skills }) }),
+  adminAgentSkillRecommendations: (id: string, candidate_skill_ids: string[]) =>
+    request<AdminSkillRecommendation>(`/api/admin/agents/${encodeURIComponent(id)}/skill-recommendations`, {
+      method: "POST", body: JSON.stringify({ candidate_skill_ids }),
+    }),
   adminAgentKnowledge: (id: string, skillId: string, baseId: string) =>
     request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/knowledge`,
       { method: "POST", body: JSON.stringify({ skill_id: skillId, base_id: baseId }) }),
@@ -3020,6 +3035,12 @@ export const api = {
   adminAgentBindingsPreview: (id: string, body: { target_type: "organization_unit" | "person"; target_id?: string; user_id?: string }) =>
     request<AdminBindingPreview>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/preview`,
       { method: "POST", body: JSON.stringify(body) }),
+  adminAgentBindingsBulkPreview: (id: string, targets: Array<{ target_type: "organization_unit" | "person"; target_id?: string; user_id?: string }>) =>
+    request<AdminBindingPreview>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/bulk-preview`, { method: "POST", body: JSON.stringify({ targets }) }),
+  adminAgentBindingsBulkSave: (id: string, targets: Array<{ target_type: "organization_unit" | "person"; target_id?: string; user_id?: string }>, org_version: number, reason: string) =>
+    request<{ agent: AdminAgentRow; preview: AdminBindingPreview }>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/bulk`, {
+      method: "POST", body: JSON.stringify({ targets, org_version, reason }),
+    }),
   adminAgentRevokePreview: (id: string, bindingId: string) =>
     request<AdminBindingPreview>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/${encodeURIComponent(bindingId)}/revoke-preview`,
       { method: "POST", body: JSON.stringify({}) }),

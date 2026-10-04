@@ -1,18 +1,19 @@
 import { Hono } from "hono";
 import { requireAdmin } from "../auth.js";
-import { AUDIT_PAYLOAD_PREVIEW_CHARS, audit, auditPayloadPreview, getConn } from "../db.js";
+import { AUDIT_PAYLOAD_PREVIEW_CHARS, audit, auditPayloadPreview, getConn, txImmediate } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { deleteBinding, listBases, saveBinding } from "../host/knowledge.js";
 import { skillCatalog } from "../host/skills-catalog.js";
 import { hasDocumentTool } from "../runtime/document-knowledge.js";
+import { recommendAgentSkills } from "../host/agent-skill-recommendations.js";
 import {
   createManagedAgent, listManagedAgents, managedAgent, updateManagedAgent,
 } from "../runtime/managed-agents.js";
 import {
   createAgentBinding, effectiveAgentUsers, listAgentBindings, listOrganizationPeople,
-  listOrganizationUnits, personRefForUser, previewAgentBinding, revokeAgentBinding, syncUserOrganization,
+  listOrganizationUnits, listOrganizationMemberships, personRefForUser, previewAgentBinding, revokeAgentBinding, syncUserOrganization,
 } from "../runtime/organization-tree.js";
-import { getAgentSkills, setAgentSkill } from "../runtime/store.js";
+import { getAgentSkills, setAgentSkill, setAgentSkills } from "../runtime/store.js";
 
 export const adminAgentsRouter = new Hono();
 
@@ -79,10 +80,14 @@ function resolveBindingTarget(body: BindingBody, opts: { syncPerson: boolean }):
 
 adminAgentsRouter.get("/admin/agents", (c) => {
   requireAdmin();
+  const memberships = listOrganizationMemberships().filter((membership) => membership.status === "active");
   return c.json({
     agents: listManagedAgents().map((row) => agentView(row.id)),
     units: listOrganizationUnits().filter((unit) => unit.status === "active"),
-    people: listOrganizationPeople().filter((person) => person.status === "active"),
+    people: listOrganizationPeople().filter((person) => person.status === "active").map((person) => {
+      const personMemberships = memberships.filter((membership) => membership.person_ref === person.person_ref);
+      return { ...person, company_id: personMemberships[0]?.company_id || null, unit_ids: personMemberships.map((membership) => membership.org_unit_id) };
+    }),
     skills: skillCatalog().map((skill) => ({ id: skill.id, label: skill.label, category: skill.category, summary: skill.summary, document_query: hasDocumentTool(skill.id) })),
     bases: listBases(),
   });
@@ -111,6 +116,53 @@ adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
   const updated = updateManagedAgent(id, body);
   audit(admin.id, "admin.agent.update", { agent_id: id, status: updated.status, version: updated.version });
   return c.json(agentView(id));
+});
+
+adminAgentsRouter.put("/admin/agents/:id/skills", async (c) => {
+  const admin = requireAdmin();
+  const id = c.req.param("id");
+  managedAgent(id);
+  const body = await c.req.json() as { skills?: Array<{ skill_id?: string; enabled?: boolean; expected_version?: number }> };
+  if (!Array.isArray(body.skills) || body.skills.length > 200) throw new HttpFail(400, "skills 必须是最多 200 项的数组");
+  const skills = body.skills.map((row) => ({
+    skill_id: String(row.skill_id || ""),
+    enabled: row.enabled as boolean,
+    expected_version: Number(row.expected_version),
+  }));
+  const updated = setAgentSkills(id, skills);
+  audit(admin.id, "admin.agent.skills", {
+    agent_id: id,
+    changed: skills.map((row) => ({ skill_id: row.skill_id, enabled: row.enabled })),
+  });
+  return c.json(agentView(id));
+});
+
+adminAgentsRouter.post("/admin/agents/:id/skill-recommendations", async (c) => {
+  const admin = requireAdmin();
+  const id = c.req.param("id");
+  const agent = managedAgent(id);
+  const body = await c.req.json() as { candidate_skill_ids?: unknown };
+  if (!Array.isArray(body.candidate_skill_ids) || body.candidate_skill_ids.length > 80
+    || body.candidate_skill_ids.some((value) => typeof value !== "string")) {
+    throw new HttpFail(400, "candidate_skill_ids 必须是最多 80 个技能 ID 的数组");
+  }
+  const catalog = skillCatalog();
+  const ids = [...new Set(body.candidate_skill_ids as string[])];
+  const candidates = ids.map((candidateId) => {
+    const skill = catalog.find((row) => row.id === candidateId);
+    if (!skill) throw new HttpFail(400, `技能不存在：${candidateId}`);
+    return { id: skill.id, label: skill.label, summary: skill.summary, category: skill.category };
+  });
+  try {
+    const result = await recommendAgentSkills({ agentName: agent.name, agentDescription: agent.description, candidates });
+    audit(admin.id, "admin.agent.skill_recommendation", {
+      agent_id: id, model: result.model, assessment_version: result.assessment_version, candidate_count: candidates.length,
+    });
+    return c.json({ ...result, agent_id: id, agent_version: agent.version, status: "completed" });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : "JEV 技能推荐暂不可用";
+    throw new HttpFail(503, message);
+  }
 });
 
 adminAgentsRouter.put("/admin/agents/:id/skills/:skillId", async (c) => {
@@ -186,6 +238,49 @@ adminAgentsRouter.post("/admin/agents/:id/bindings/preview", async (c) => {
   return c.json(previewAgentBinding(id, {
     add: { target_type: target.targetType, target_id: target.targetId, company_id: target.companyId },
   }));
+});
+
+type BulkBindingTarget = { target_type?: "organization_unit" | "person"; target_id?: string; user_id?: string };
+function resolveBulkTargets(rows: BulkBindingTarget[], syncPerson: boolean) {
+  if (!rows.length || rows.length > 200) throw new HttpFail(400, "请选择 1 至 200 个绑定目标");
+  const targets = rows.map((row) => {
+    const resolved = resolveBindingTarget(row, { syncPerson });
+    return { target_type: resolved.targetType, target_id: resolved.targetId, company_id: resolved.companyId } as const;
+  });
+  const unique = [...new Map(targets.map((target) => [`${target.target_type}:${target.target_id}`, target])).values()];
+  return unique;
+}
+
+adminAgentsRouter.post("/admin/agents/:id/bindings/bulk-preview", async (c) => {
+  requireAdmin();
+  const id = c.req.param("id");
+  managedAgent(id);
+  const body = await c.req.json() as { targets?: BulkBindingTarget[] };
+  if (!Array.isArray(body.targets)) throw new HttpFail(400, "targets 必须是数组");
+  const targets = resolveBulkTargets(body.targets, false);
+  return c.json(previewAgentBinding(id, { add_many: targets }));
+});
+
+adminAgentsRouter.post("/admin/agents/:id/bindings/bulk", async (c) => {
+  const admin = requireAdmin();
+  const id = c.req.param("id");
+  managedAgent(id);
+  const body = await c.req.json() as { targets?: BulkBindingTarget[]; org_version?: number; reason?: string };
+  if (!Array.isArray(body.targets) || !Number.isInteger(body.org_version)) throw new HttpFail(400, "targets 和 org_version 必填");
+  const targets = resolveBulkTargets(body.targets, true);
+  const preview = previewAgentBinding(id, { add_many: targets });
+  if (preview.org_version !== body.org_version) throw new HttpFail(409, "组织版本已变化，请重新预览绑定影响");
+  txImmediate(() => {
+    for (const target of targets) createAgentBinding({
+      agent_id: id, target_type: target.target_type, target_id: target.target_id,
+      company_id: target.company_id, created_by: admin.id, reason: body.reason || "管理侧批量绑定", source: "admin",
+    });
+  });
+  audit(admin.id, "admin.agent.bind.bulk", {
+    agent_id: id, org_version: preview.org_version, count: targets.length,
+    targets: targets.map(({ target_type, target_id }) => ({ target_type, target_id })), reason: body.reason || null,
+  });
+  return c.json({ agent: agentView(id), preview });
 });
 
 adminAgentsRouter.post("/admin/agents/:id/bindings/:bindingId/revoke-preview", (c) => {

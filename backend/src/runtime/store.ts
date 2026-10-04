@@ -618,6 +618,40 @@ export function setAgentSkill(agentId: string, skillId: string, enabled: boolean
     ["agent_id", "skill_id", "enabled", "version", "updated_at"], [agent, skill, active ? 1 : 0, 1, now], ["enabled=?"], expectedVersion);
 }
 
+export function setAgentSkills(agentId: string, selections: Array<{ skill_id: string; enabled: boolean; expected_version: number }>): Row[] {
+  const agent = assertIdentifier(agentId, "agent_id");
+  const normalized = selections.map((selection) => {
+    const skill = assertIdentifier(selection.skill_id, "skill_id");
+    assertTaskDefinition(skill);
+    if (typeof selection.enabled !== "boolean" || !Number.isInteger(selection.expected_version) || selection.expected_version < 0) {
+      throw new HttpFail(400, "每项技能都必须包含 enabled 和有效的 expected_version");
+    }
+    return { skill, enabled: selection.enabled ? 1 : 0, expectedVersion: selection.expected_version };
+  });
+  if (new Set(normalized.map((item) => item.skill)).size !== normalized.length) throw new HttpFail(400, "技能列表不能包含重复项");
+  // Initialize/validate the table before entering the all-or-nothing transaction.
+  getAgentSkills(agent);
+  const now = nowIso();
+  txImmediate((db) => {
+    for (const item of normalized) {
+      const existing = db.prepare("SELECT version FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?").get(agent, item.skill) as { version?: number } | undefined;
+      const actual = Number(existing?.version || 0);
+      if (actual !== item.expectedVersion) throw new HttpFail(409, "技能配置版本已变化，请刷新后重试");
+    }
+    for (const item of normalized) {
+      if (item.expectedVersion === 0) {
+        db.prepare("INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at) VALUES (?,?,?,?,?)")
+          .run(agent, item.skill, item.enabled, 1, now);
+      } else {
+        const result = db.prepare("UPDATE runtime_agent_skills SET enabled=?,version=version+1,updated_at=? WHERE agent_id=? AND skill_id=? AND version=?")
+          .run(item.enabled, now, agent, item.skill, item.expectedVersion);
+        if (!result.changes) throw new HttpFail(409, "技能配置版本已变化，请刷新后重试");
+      }
+    }
+  });
+  return getAgentSkills(agent);
+}
+
 export function setSkillConnector(skillId: string, connectorId: string, enabled: boolean, expectedVersion: number): Row {
   const skill = assertIdentifier(skillId, "skill_id");
   const connector = assertIdentifier(connectorId, "connector_id");

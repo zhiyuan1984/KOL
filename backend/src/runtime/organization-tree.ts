@@ -763,6 +763,7 @@ export type AgentBindingPreview = {
 
 export type AgentBindingChange =
   | { add: { target_type: "organization_unit" | "person"; target_id: string; company_id: string } }
+  | { add_many: Array<{ target_type: "organization_unit" | "person"; target_id: string; company_id: string }> }
   | { remove: string };
 
 const USER_PERSON_PREFIX = "person:user:";
@@ -834,39 +835,35 @@ export function previewAgentBinding(agentId: string, change: AgentBindingChange)
     if (!current.some((row) => row.id === change.remove)) throw new Error(`unknown binding: ${change.remove}`);
     bindings = current.filter((row) => row.id !== change.remove);
   } else {
-    const target = change.add;
-    if (target.target_type === "organization_unit") {
-      const unit = db.prepare("SELECT id,company_id,status FROM organization_units WHERE id=?").get(target.target_id) as
-        { id: string; company_id: string; status: string } | undefined;
-      if (!unit || unit.status !== "active") throw new Error(`unknown organization unit: ${target.target_id}`);
-      if (unit.company_id !== target.company_id) throw new Error("binding target is outside the company");
-    } else {
-      const known = db.prepare("SELECT 1 FROM organization_people WHERE person_ref=?").get(target.target_id)
-        || (target.target_id.startsWith(USER_PERSON_PREFIX)
-          ? db.prepare("SELECT 1 FROM users WHERE id=?").get(target.target_id.slice(USER_PERSON_PREFIX.length))
-          : undefined);
-      if (!known) throw new Error(`unknown person: ${target.target_id}`);
-    }
-    const duplicate = current.some((row) => row.target_type === target.target_type && row.target_id === target.target_id);
-    if (!duplicate) {
-      // 虚拟绑定只参与本次计算，不落库。
-      bindings = [...current, {
-        id: "preview",
-        agent_id: agentId,
-        target_type: target.target_type,
-        target_id: target.target_id,
-        company_id: target.company_id,
-        status: "active",
-        binding_version: 0,
-        org_version: currentOrgVersion(target.company_id),
-        created_by: null,
-        reason: null,
-        effective_from: null,
-        effective_to: null,
-        source: "preview",
-      }];
+    const targets = "add_many" in change ? change.add_many : [change.add];
+    const seen = new Set<string>();
+    const virtual: AgentBindingRow[] = [];
+    for (const target of targets) {
+      const key = `${target.target_type}:${target.target_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (target.target_type === "organization_unit") {
+        const unit = db.prepare("SELECT id,company_id,status FROM organization_units WHERE id=?").get(target.target_id) as
+          { id: string; company_id: string; status: string } | undefined;
+        if (!unit || unit.status !== "active") throw new Error(`unknown organization unit: ${target.target_id}`);
+        if (unit.company_id !== target.company_id) throw new Error("binding target is outside the company");
+      } else {
+        const known = db.prepare("SELECT 1 FROM organization_people WHERE person_ref=?").get(target.target_id)
+          || (target.target_id.startsWith(USER_PERSON_PREFIX)
+            ? db.prepare("SELECT 1 FROM users WHERE id=?").get(target.target_id.slice(USER_PERSON_PREFIX.length))
+            : undefined);
+        if (!known) throw new Error(`unknown person: ${target.target_id}`);
+      }
+      const duplicate = current.some((row) => row.target_type === target.target_type && row.target_id === target.target_id);
+      if (!duplicate) virtual.push({
+        id: `preview:${key}`, agent_id: agentId, target_type: target.target_type, target_id: target.target_id,
+        company_id: target.company_id, status: "active", binding_version: 0,
+        org_version: currentOrgVersion(target.company_id), created_by: null, reason: null,
+        effective_from: null, effective_to: null, source: "preview",
+      });
       if (target.target_type === "person") simulatePerson = simulatePersonFromSite;
     }
+    bindings = [...current, ...virtual];
   }
   const after = computeEffectiveAgentUsers(agentId, bindings, simulatePerson);
   const beforeRefs = new Set(before.person_refs);
