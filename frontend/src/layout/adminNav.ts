@@ -60,6 +60,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         href: "/admin/approvals",
         icon: "M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 4v3h6V4",
       },
+      {
+        id: "approval-types",
+        label: "评审流程",
+        href: "/admin/approval-types",
+        icon: "M5 4h14v5H5z M12 9v5 M5 14h14v6H5z",
+      },
     ],
   },
   {

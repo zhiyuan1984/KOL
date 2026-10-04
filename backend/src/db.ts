@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { boxDir, dataDir, dbPath } from "./config.js";
 import { BUILTIN_CONNECTORS } from "./connectors/catalog.js";
 import { PostgresSyncConn } from "./postgres/sync.js";
+import { reviewSchema } from "./approval/review-schema.js";
 import type { Json, Row } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -202,6 +203,7 @@ export function asRows(rows: unknown[]): Row[] {
 }
 
 function initSchema(db: SqliteConn): void {
+  for (const statement of reviewSchema) db.exec(statement);
   db.exec(`
         CREATE TABLE IF NOT EXISTS collaborations (
             id TEXT PRIMARY KEY,

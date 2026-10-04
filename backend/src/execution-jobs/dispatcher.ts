@@ -1,4 +1,5 @@
 import { executeClaimedCronJob } from "../cron/worker.js";
+import { executeReviewTimeout } from "../approval/review-worker.js";
 import { executionHandler } from "./handlers.js";
 import "../runtime/action-worker.js";
 import "../crawl/runtime-gates.js";
@@ -35,6 +36,10 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
   const id = String(claimed.id);
   const jobType = String(claimed.job_type);
   try {
+    if (jobType === "review.timeout") {
+      const instanceId=executeReviewTimeout(claimed);
+      return {execution_job_id:id,job_type:jobType,handled:true,outcome:"processed",target_id:instanceId};
+    }
     const registered = executionHandler(jobType);
     if (registered) {
       const checkpoint = async () => {

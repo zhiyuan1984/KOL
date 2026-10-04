@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { Client } from "pg";
+import { reviewSchema } from "../src/approval/review-schema.js";
 import { runtimeActionSchema } from "../src/runtime/action-schema.js";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
@@ -45,6 +46,10 @@ type SchemaMigration = {
 };
 
 const migrations: SchemaMigration[] = [
+  { id: "20261004_generic_reviews", statements: reviewSchema },
+  { id: "20261004_review_operations", statements: reviewSchema },
+  { id: "20261004_review_lifecycle", statements: reviewSchema },
+  { id: "20261004_review_attachments", statements: reviewSchema },
   { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
   {
     id: "20261003_managed_agents",

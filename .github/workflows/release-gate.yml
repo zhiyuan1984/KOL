@@ -113,6 +113,7 @@ jobs:
             e2e/home-followed-focus.spec.ts
             e2e/home-surface-failure.spec.ts
             e2e/home-followed-rail-layout.spec.ts
+            e2e/review-workflow.spec.ts
         run: |
           if [ -z "$DEPLOY_SSH_PRIVATE_KEY" ]; then
             echo "::warning::Staging E2E skipped: repository secret KOL_PROD_SSH_PRIVATE_KEY is not configured."
