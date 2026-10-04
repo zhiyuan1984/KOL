@@ -1375,23 +1375,6 @@ export type AuthStatus = {
   available_modes?: ("employee" | "admin")[];
 };
 
-export type TicketIdentityAccount = {
-  id: string;
-  username: string;
-  name: string;
-  email?: string;
-  roles: string[];
-  role: "employee" | "admin" | string;
-  active: boolean;
-};
-
-export type TicketIdentityStatus = {
-  authentication_domain: "postgresql_ticket_identity.v1" | string;
-  authenticated: boolean;
-  setup_required: boolean;
-  account: TicketIdentityAccount | null;
-};
-
 export type TicketAccountBindingOptions = {
   accounts: Array<{ id: string; username: string; name: string; roles: string[]; bound_person_ref: string | null }>;
   people: Array<{ person_ref: string; display_name: string; org_unit_id: string | null; user_id: string | null }>;
@@ -1696,12 +1679,6 @@ export const api = {
   put: (path: string, body?: unknown) =>
     request<unknown>(path, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
   authStatus: () => request<AuthStatus>("/api/auth/status"),
-  ticketAuthStatus: () => request<TicketIdentityStatus>("/api/ticket-auth/status"),
-  ticketAuthSetup: (body: { username: string; name?: string; password: string }) =>
-    request<{ ok: boolean; account: TicketIdentityAccount }>("/api/ticket-auth/setup", { method: "POST", body: JSON.stringify(body) }),
-  ticketAuthLogin: (body: { username: string; password: string }) =>
-    request<{ ok: boolean; account: TicketIdentityAccount }>("/api/ticket-auth/login", { method: "POST", body: JSON.stringify(body) }),
-  ticketAuthLogout: () => request<{ ok: boolean }>("/api/ticket-auth/logout", { method: "POST" }),
   setup: (body: { name: string; email: string; password: string }) =>
     request<AuthStatus>("/api/auth/setup", { method: "POST", body: JSON.stringify(body) }),
   login: async (body: { email?: string; username?: string; password: string } | string, password?: string) => {

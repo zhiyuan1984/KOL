@@ -35,8 +35,9 @@ export default function AuthGate({ children }: { children: ReactNode }) {
 
   const refresh = async () => {
     // PostgreSQL-only runtime intentionally does not mount the historical
-    // `/api/auth/*` domain. Formal pages provide their own ticket identity
-    // gate, so the shell must not redirect users into a retired login form.
+    // `/api/auth/*` domain. It must be connected to the established workbench
+    // identity provider before being exposed; it never shows a second ticket
+    // account/password form.
     try {
       const health = await fetch("/api/health", { credentials: "same-origin", cache: "no-store" }).then((response) => response.ok ? response.json() : null) as { runtime_mode?: string } | null;
       if (health?.runtime_mode === "postgres-only") {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport } from "../api";
-import TicketIdentityGate, { useTicketIdentity } from "../components/TicketIdentityGate";
+import { useAccount } from "../components/AuthGate";
 
 function time(value: string | null | undefined): string {
   if (!value) return "—";
@@ -18,11 +18,11 @@ const issueLabel: Record<string, string> = {
 
 /** Governance-only surface: quality evidence and links, not a second employee task list. */
 export default function AdminWorkOrders() {
-  return <TicketIdentityGate requireAdmin><AdminWorkOrdersContent /></TicketIdentityGate>;
+  return <AdminWorkOrdersContent />;
 }
 
 function AdminWorkOrdersContent() {
-  const { account, logout } = useTicketIdentity();
+  const { account } = useAccount();
   const [report, setReport] = useState<TicketOrganizationQualityReport | null>(null);
   const [organizationReport, setOrganizationReport] = useState<OrganizationTicketRawCountReport | null>(null);
   const [stageReport, setStageReport] = useState<OrganizationTicketStageRawReport | null>(null);
@@ -83,8 +83,8 @@ function AdminWorkOrdersContent() {
     <section className="admin-grid" data-admin-work-orders>
       <header className="panel" style={{ gridColumn: "1 / -1" }}>
         <div className="split-head">
-          <div><h2>工单治理</h2><p className="muted">正式工单只使用 PostgreSQL 的身份、组织、人员、受理和关注事实。缺失信息会阻止建单，不做猜测性兜底。</p></div>
-          <div className="row-actions"><span className="muted">工单管理员：{account?.name || account?.username}</span><button type="button" className="btn ghost" onClick={() => void logout()}>切换工单账号</button><button type="button" className="btn ghost" disabled={loading} onClick={() => void load()}>{loading ? "读取中…" : "刷新"}</button></div>
+          <div><h2>工单治理</h2><p className="muted">复用当前工作台登录。PostgreSQL 保存正式工单、组织、人员、受理和关注事实；缺失信息会阻止建单，不做猜测性兜底。</p></div>
+          <div className="row-actions"><span className="muted">当前工作台用户：{account?.name || account?.handle || account?.email || "—"}</span><button type="button" className="btn ghost" disabled={loading} onClick={() => void load()}>{loading ? "读取中…" : "刷新"}</button></div>
         </div>
         <p className="muted">组织来源版本：{report?.registry_revision || "—"} · 最近同步：{time(report?.seeded_at)} · 数据时间：{time(report?.as_of)}</p>
       </header>
@@ -95,11 +95,11 @@ function AdminWorkOrdersContent() {
       <article className="panel"><h3>阻断项</h3><strong className={report?.issue_count ? "admin-metric status-warn" : "admin-metric status-ok"}>{report?.issue_count ?? "—"}</strong><p className="muted">缺少账号、组织或负责人账号时，正式建单会明确阻断。</p></article>
       <article className="panel"><h3>授权工单存量</h3><strong className="admin-metric">{organizationReport?.total_authorized ?? "—"}</strong><p className="muted">按 {organizationReport?.authorization.mode === "company_admin" ? "公司管理员" : "组织负责人"}授权范围汇总；不包含 SLA 或绩效结论。</p></article>
       <article className="panel" style={{ gridColumn: "1 / -1" }}>
-        <div className="split-head"><div><h3>账号—组织人员绑定</h3><p className="muted">仅绑定已创建的 PostgreSQL 工单账号和受控组织人员。每一次变更必须写明原因，并保留不可变审计。</p></div></div>
+        <div className="split-head"><div><h3>工作台主体—组织人员绑定</h3><p className="muted">仅绑定已进入工作台并同步到 PostgreSQL 的主体与受控组织人员。每一次变更必须写明原因，并保留不可变审计。</p></div></div>
         <form className="ticket-binding-form" onSubmit={(event) => void bind(event)}>
-          <label className="field">工单账号
+          <label className="field">工作台主体
             <select name="account_id" required defaultValue="" disabled={loading || !unboundAccounts.length}>
-              <option value="">{unboundAccounts.length ? "选择未绑定账号" : "没有待绑定账号"}</option>
+              <option value="">{unboundAccounts.length ? "选择未绑定工作台主体" : "没有待绑定工作台主体"}</option>
               {unboundAccounts.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.username} · {item.id}</option>)}
             </select>
           </label>
@@ -127,7 +127,7 @@ function AdminWorkOrdersContent() {
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }}>
         <div className="split-head"><div><h3>组织数据质量</h3><p className="muted">先修复人员/组织绑定，再创建、分派或自动关注；此处不提供旁路写入。</p></div><div className="row-actions"><Link className="btn ghost" to="/admin/audit">查看审计</Link><Link className="btn ghost" to="/admin/scheduling">查看调度</Link></div></div>
-        {loading && !report ? <p className="muted">正在读取 PostgreSQL 权威组织投影…</p> : null}
+        {loading && !report ? <p className="muted">正在读取正式工单组织数据…</p> : null}
         {!loading && report?.issues.length === 0 ? <p className="status-ok">当前组织、账号与负责人绑定没有已知阻断项。</p> : null}
         {report?.issues.map((issue, index) => <div className="admin-row" key={`${issue.type}:${issue.subject_ref}:${index}`} data-ticket-org-quality={issue.type}><div><strong>{issue.display_name}</strong><p className="muted">{issue.subject_ref} · 组织 {issue.org_unit_id || "未绑定"}</p></div><div><strong className="status-warn">{issueLabel[issue.type] || issue.type}</strong><p className="muted">{issue.message}</p></div></div>)}
       </article>

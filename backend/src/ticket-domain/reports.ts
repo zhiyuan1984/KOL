@@ -100,7 +100,7 @@ async function organizationReportScope(userId: string, isAdmin: boolean): Promis
   );
   const companies = [...new Set(memberships.rows.map((row) => String(row.company_id)))];
   if (!companies.length) {
-    throw new HttpFail(403, { code: "organization_report_scope_missing", message: "当前工单账号没有受控组织人员与公司范围，不能读取组织工单报表。" });
+    throw new HttpFail(403, { code: "organization_report_scope_missing", message: "当前工作台主体没有受控组织人员与公司范围，不能读取组织工单报表。" });
   }
   if (isAdmin) return { mode: "company_admin", companies, rootUnits: [] };
   const heads = await pool.query<{ id: string; display_name: string; type: string; company_id: string }>(

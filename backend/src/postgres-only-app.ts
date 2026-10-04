@@ -9,13 +9,12 @@ import { postgresPool, requiredPostgresUrl } from "./postgres/pool.js";
 import { cron } from "./routers/cron.js";
 import { tickets } from "./routers/tickets.js";
 import { pgEnsureSystemCronJobs } from "./cron/postgres-store.js";
-import { ticketAuthMiddleware, ticketAuthRouter } from "./ticket-domain/auth.js";
 
 /**
- * The only HTTP surface permitted under `KOL_RUNTIME_MODE=postgres-only`.
- * It deliberately does not import `app.ts`, `db.ts`, old auth, or any legacy
- * router; unsupported historical endpoints return 404 rather than falling
- * through to a SQLite-shaped compatibility layer.
+ * The PostgreSQL-only HTTP surface has no browser identity of its own. Formal
+ * routes are deliberately unavailable until the established workbench identity
+ * provider is migrated behind a single shared authentication boundary. This is
+ * safer than recreating a ticket username/password page or trusting a header.
  */
 export async function bootstrapPostgresOnlyRuntime(): Promise<void> {
   requiredPostgresUrl();
@@ -23,6 +22,7 @@ export async function bootstrapPostgresOnlyRuntime(): Promise<void> {
     `SELECT unnest(ARRAY[
       to_regclass('public.tickets')::text,
       to_regclass('public.ticket_accounts')::text,
+      to_regclass('public.workbench_principal_bindings')::text,
       to_regclass('public.cron_jobs')::text,
       to_regclass('public.execution_jobs')::text,
       to_regclass('public.execution_outbox')::text
@@ -46,7 +46,10 @@ export function createPostgresOnlyApp(): Hono {
   app.use("/api/*", async (c, next) => {
     const pathname = new URL(c.req.url).pathname;
     if (pathname === "/api/health" || pathname === "/api/cron/internal/tick") return next();
-    return ticketAuthMiddleware(c, next);
+    throw new HttpFail(503, {
+      code: "workbench_identity_provider_required",
+      message: "纯 PostgreSQL 运行模式尚未接入现有工作台登录；请使用兼容运行模式，不会提供独立工单登录",
+    });
   });
   app.onError((error, c) => {
     if (error instanceof HttpFail) {
@@ -61,8 +64,8 @@ export function createPostgresOnlyApp(): Hono {
     runtime_mode: "postgres-only",
     authority_store: "postgresql",
     legacy_routes: "retired",
+    identity_mode: "workbench_provider_required",
   }));
-  app.route("/api", ticketAuthRouter);
   app.route("/api", tickets);
   app.route("/api", cron);
 

@@ -726,6 +726,47 @@ const migrations: SchemaMigration[] = [
        FOR EACH ROW EXECUTE FUNCTION prevent_ticket_rule_confirmation_decision_mutation()`,
     ],
   },
+  {
+    // 正式工单不再建立第二套账号或密码。现有工作台会话是唯一认证入口；
+    // PostgreSQL 仅保存该已认证主体的可审计授权映射和快照，供工单、规则与
+    // 调度事实引用。历史 ticket-auth 账号保留为审计历史，但不会再用于登录。
+    id: "20261004_workbench_principal_bindings",
+    statements: [
+      "ALTER TABLE ticket_accounts ADD COLUMN IF NOT EXISTS identity_provider TEXT NOT NULL DEFAULT 'retired_ticket_login'",
+      "ALTER TABLE ticket_accounts DROP CONSTRAINT IF EXISTS ticket_accounts_identity_provider_check",
+      "ALTER TABLE ticket_accounts ADD CONSTRAINT ticket_accounts_identity_provider_check CHECK (identity_provider IN ('workbench_session','retired_ticket_login'))",
+      "CREATE INDEX IF NOT EXISTS ticket_accounts_identity_provider_idx ON ticket_accounts(identity_provider,active,updated_at DESC)",
+      `CREATE TABLE IF NOT EXISTS workbench_principal_bindings (
+        workbench_user_id TEXT PRIMARY KEY,
+        principal_id TEXT NOT NULL UNIQUE REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        username_snapshot TEXT NOT NULL,
+        name_snapshot TEXT NOT NULL,
+        email_snapshot TEXT,
+        roles_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT true,
+        source TEXT NOT NULL DEFAULT 'workbench_session',
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS workbench_principal_bindings_active_idx ON workbench_principal_bindings(active,last_seen_at DESC)",
+      `CREATE TABLE IF NOT EXISTS workbench_principal_binding_events (
+        id TEXT PRIMARY KEY,
+        workbench_user_id TEXT NOT NULL REFERENCES workbench_principal_bindings(workbench_user_id) ON DELETE RESTRICT,
+        principal_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        event_type TEXT NOT NULL CHECK (event_type IN ('bound','claims_refreshed','deactivated')),
+        claims_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS workbench_principal_binding_events_principal_idx ON workbench_principal_binding_events(principal_id,occurred_at DESC)",
+      `CREATE OR REPLACE FUNCTION prevent_workbench_principal_binding_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'workbench principal binding events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS workbench_principal_binding_events_no_mutation ON workbench_principal_binding_events",
+      `CREATE TRIGGER workbench_principal_binding_events_no_mutation
+       BEFORE UPDATE OR DELETE ON workbench_principal_binding_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_workbench_principal_binding_event_mutation()`,
+    ],
+  },
 ];
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);

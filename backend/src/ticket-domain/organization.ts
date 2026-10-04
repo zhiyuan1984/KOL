@@ -98,7 +98,10 @@ function unitLevels(units: RegistryUnit[]): Map<string, number> {
 
 async function accountId(client: PoolClient, username: string | null | undefined): Promise<string | null> {
   if (!username) return null;
-  const result = await client.query<{ id: string }>("SELECT id FROM ticket_accounts WHERE lower(username)=lower($1) AND active=true", [username]);
+  const result = await client.query<{ id: string }>(
+    "SELECT id FROM ticket_accounts WHERE lower(username)=lower($1) AND active=true AND identity_provider='workbench_session'",
+    [username],
+  );
   return result.rows[0]?.id || null;
 }
 
@@ -151,7 +154,7 @@ export async function ensurePostgresOrganizationSeed(): Promise<void> {
     }
 
     // Account bindings are intentionally refreshed on every access. Creating
-    // a new PostgreSQL account must make the controlled organization registry
+    // a newly authenticated workbench principal must make the controlled organization registry
     // usable without changing the registry revision or inventing a person.
     for (const person of registry.confirmed_people || []) {
       const personRef = String(person.person_ref || "");
@@ -341,7 +344,7 @@ export type TicketAccountOrganizationBindingInput = {
 
 /**
  * A deliberate administration command, not a seed fallback: it binds a
- * PostgreSQL ticket account to one confirmed registry person. The immutable
+ * PostgreSQL workbench principal to one confirmed registry person. The immutable
  * audit row records the prior mapping so responsibility can be explained even
  * after a later reassignment.
  */
@@ -357,10 +360,10 @@ export async function bindTicketAccountToOrganizationPerson(
   await ensurePostgresOrganizationSeed();
   return postgresTransaction(async (client) => {
     const account = await client.query<{ id: string; username: string }>(
-      "SELECT id,username FROM ticket_accounts WHERE id=$1 AND active=true FOR UPDATE",
+      "SELECT id,username FROM ticket_accounts WHERE id=$1 AND active=true AND identity_provider='workbench_session' FOR UPDATE",
       [accountId],
     );
-    if (!account.rows[0]) throw new HttpFail(422, { code: "ticket_account_not_active" });
+    if (!account.rows[0]) throw new HttpFail(422, { code: "workbench_principal_not_active" });
     const person = await client.query<{ person_ref: string; user_id: string | null }>(
       "SELECT person_ref,user_id FROM organization_people WHERE person_ref=$1 AND status='active' FOR UPDATE",
       [personRef],
@@ -389,7 +392,7 @@ export async function bindTicketAccountToOrganizationPerson(
   }, { isolation: "SERIALIZABLE" });
 }
 
-/** Management-only selection data for explicit account enrollment. It contains
+/** Management-only selection data for explicit workbench principal enrollment. It contains
  * stable IDs and current bindings, not inferred matching recommendations. */
 export async function ticketAccountOrganizationBindingOptions() {
   await ensurePostgresOrganizationSeed();
@@ -398,7 +401,7 @@ export async function ticketAccountOrganizationBindingOptions() {
       `SELECT a.id,a.username,a.name,a.roles,p.person_ref AS bound_person_ref
          FROM ticket_accounts a
          LEFT JOIN organization_people p ON p.user_id=a.id AND p.status='active'
-        WHERE a.active=true
+        WHERE a.active=true AND a.identity_provider='workbench_session'
         ORDER BY a.name,a.username,a.id`,
     ),
     postgresPool().query<{ person_ref: string; display_name: string; org_unit_id: string | null; user_id: string | null }>(
@@ -450,7 +453,7 @@ export async function ticketOrganizationQualityReport() {
   for (const person of people.rows) {
     if (!person.user_id) issues.push({
       type: "person_without_account", subject_ref: person.person_ref, display_name: person.display_name, org_unit_id: person.org_unit_id,
-      message: "员工未绑定登录账号，不能成为正式工单创建人、受理人或自动关注人",
+      message: "员工未绑定工作台主体，不能成为正式工单创建人、受理人或自动关注人",
     });
     if (!person.org_unit_id) issues.push({
       type: "person_without_org", subject_ref: person.person_ref, display_name: person.display_name, org_unit_id: null,
@@ -460,7 +463,7 @@ export async function ticketOrganizationQualityReport() {
   for (const unit of headRows.rows) {
     if (!unit.user_id) issues.push({
       type: "unit_head_without_account", subject_ref: unit.head_person_ref, display_name: `${unit.display_name}负责人`, org_unit_id: unit.id,
-      message: "组织负责人未绑定登录账号，相关创建人无法生成自动关注关系",
+      message: "组织负责人未绑定工作台主体，相关创建人无法生成自动关注关系",
     });
   }
   return {
