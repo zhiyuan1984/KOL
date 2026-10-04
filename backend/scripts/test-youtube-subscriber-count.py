@@ -23,11 +23,14 @@ class SubscriberExtraction(unittest.TestCase):
 
     def test_labels_and_dedicated_numeric_field(self):
         for value, expected in [("281K subscribers", "281K"), ("0 subscribers", "0"),
-                                ({"simpleText": "1.8M"}, "1.8M"), ("12.3万位订阅者", "12.3万")]:
+                                ("1,800 subscribers", "1,800"), ("12.3万位订阅者", "12.3万")]:
             self.assertEqual(self.parse(value), expected)
+        self.assertEqual(self.parse({"simpleText": "1.8M"}, dedicated=True), "1.8M")
+        self.assertIsNone(self.parse("1.8M"))
 
     def test_unknown_and_other_counters_stay_unknown(self):
-        for value in ["@Go4x4", "Go4x4 subscribers", "99 videos", "hidden subscribers", "Go4x4 1.8M"]:
+        for value in ["@Go4x4", "Go4x4 subscribers", "99 videos", "hidden subscribers", "Go4x4 1.8M",
+                      "1.2.3M subscribers", "1,8M subscribers", "-4 subscribers", "1K subscribers 2K subscribers"]:
             self.assertIsNone(self.parse(value))
 
     def test_patch_scope_idempotency_and_source_drift(self):

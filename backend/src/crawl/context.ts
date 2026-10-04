@@ -1,6 +1,7 @@
 import { postgresPool } from "../postgres/pool.js";
 import { authorizeConnector, type RuntimeContext } from "../runtime/execution.js";
 import type { Json } from "../types.js";
+import { candidateAnalysisView } from "./candidate-evidence.js";
 
 /** Permission-checked snapshots from this conversation, bounded before model input. */
 export async function discoveryResultContext(context: RuntimeContext): Promise<Json[]> {
@@ -18,9 +19,10 @@ export async function discoveryResultContext(context: RuntimeContext): Promise<J
     const candidates: Json[] = [];
     const all = Array.isArray(snapshot?.candidates) ? snapshot.candidates : [];
     for (const candidate of all) {
-      const text = JSON.stringify(candidate);
+      const safeCandidate = candidateAnalysisView(candidate);
+      const text = JSON.stringify(safeCandidate);
       if (candidates.length >= 80 || text.length > budget) break;
-      budget -= text.length; candidates.push(candidate);
+      budget -= text.length; candidates.push(safeCandidate);
     }
     result.push({ task_id: row.remote_task_id, collection_state: row.state, result_state: row.result_state,
       result_error: row.result_error, captured_at: snapshot?.captured_at || null,

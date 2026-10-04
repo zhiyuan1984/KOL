@@ -81,6 +81,9 @@ jobs:
       - name: Backend typecheck
         working-directory: backend
         run: npm run typecheck
+      - name: YouTube subscriber parser offline regression
+        working-directory: backend
+        run: python3 scripts/test-youtube-subscriber-count.py
       # 后端测试从 PostgreSQL 模板库克隆独立测试库（tests/support/pg.ts）：
       # 用空库跑一遍 schema 生成 lingong_template；测试步骤用 TEST_DATABASE_URL 指向管理库。
       - name: Prepare PostgreSQL test template

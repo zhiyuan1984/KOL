@@ -42,7 +42,11 @@ export default function DiscoveryRuntimeResults({ actions, brief, onAnalyze, ana
           {result.candidates.slice(0, visible).map(row => <div className="artifact" key={row.id}>
             <strong>{row.name}</strong><p>{row.platform} · {row.id}</p>
             {row.source_url && /^https?:\/\//i.test(row.source_url) ? <a href={row.source_url} target="_blank" rel="noreferrer">查看原始主页</a> : <span className="muted">未提供主页链接</span>}
-            <p>粉丝：{row.followers === null ? "无法核验" : row.followers.toLocaleString()}{row.followers !== null && (row.followers < brief.min_followers || row.followers > brief.max_followers) ? " · 不符合当前门槛" : ""}</p>
+            <p>粉丝：{row.followers === null ? "无法核验" : row.followers.toLocaleString()}{row.followers_evidence?.state === "source_recorded"
+              ? row.followers !== null && (row.followers < brief.min_followers || row.followers > brief.max_followers) ? " · 采集值不符合当前门槛" : ""
+              : " · 缺少可核验来源，暂不判定门槛"}</p>
+            {row.followers_evidence?.raw_text ? <p className="muted">订阅数原文：{row.followers_evidence.raw_text}
+              {row.followers_evidence.captured_at ? ` · ${new Date(row.followers_evidence.captured_at).toLocaleString()}` : ""}</p> : null}
             <p>近10条均播：{row.avg_views_10 === null ? "数据不足，无法核验" : Math.round(row.avg_views_10).toLocaleString()}{row.avg_views_10 !== null && row.avg_views_10 < brief.min_avg_plays_10 ? " · 低于当前门槛" : ""}</p>
             {row.sampled_views_count ? <p>本次采集样本 {row.sampled_views_count} 条 · 样本均播：{row.sampled_views_avg == null ? "无法核验" : Math.round(row.sampled_views_avg).toLocaleString()}（未证明覆盖最近10条）</p> : null}
             <p>地区：{row.region || "未提供"} · 待核验</p>

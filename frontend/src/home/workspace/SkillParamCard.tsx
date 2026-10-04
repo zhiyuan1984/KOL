@@ -121,7 +121,7 @@ export default function SkillParamCard({
     if (field.kind === "single" || field.kind === "multiple") {
       if (!options.length) return <span className="skill-param-error" role="status">{field.options_source ? "选项暂不可用，请稍后重试。" : "该字段尚未配置可用选项。"}</span>;
       const selected = field.kind === "multiple" ? (Array.isArray(value) ? value.map(String) : []) : [String(value || "")];
-      return <div className="ai-discovery-chips" role={field.kind === "multiple" ? "group" : "radiogroup"} aria-label={field.label}>
+      return <div className="ai-discovery-chips" role="group" aria-label={field.label}>
         {options.map((option) => {
           const pressed = selected.includes(option.code);
           const maxed = field.max != null && selected.length >= field.max;
