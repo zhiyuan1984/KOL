@@ -8,6 +8,7 @@ import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
 import AdminCosts from "./AdminCosts";
 import AdminScheduling from "./AdminScheduling";
+import AdminWorkOrders from "./AdminWorkOrders";
 import AdminWorkReport from "./AdminWorkReport";
 import AdminAudit from "./AdminAudit";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
@@ -54,6 +55,11 @@ export default function AdminConsole() {
   const tab = adminTabOf(location.pathname);
 
   const load = useCallback(() => {
+    if (tab === "work-orders" || tab === "scheduling") {
+      setError("");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const needsLegacyAudit = tab === "data" || tab === "connectors";
     void Promise.all([
@@ -79,6 +85,12 @@ export default function AdminConsole() {
       setError(e instanceof Error ? e.message : "保存失败");
     }
   };
+  if (tab === "work-orders") {
+    return <div className="admin-shell" data-admin-ia="governance"><div className="admin-body"><AdminWorkOrders /></div></div>;
+  }
+  if (tab === "scheduling") {
+    return <div className="admin-shell" data-admin-ia="governance"><div className="admin-body"><AdminScheduling /></div></div>;
+  }
   if (!account?.available_modes?.includes("admin")) return <Navigate to="/" replace />;
   if (section === "starry") return <Navigate to="/settings?tab=starry" replace />;
 
@@ -106,6 +118,7 @@ export default function AdminConsole() {
         {tab === "cost" && <AdminCosts />}
         {tab === "overview" && <AdminWorkReport />}
         {tab === "scheduling" && <AdminScheduling />}
+        {tab === "work-orders" && <AdminWorkOrders />}
         {tab === "audit" && <AdminAudit />}
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "kol" && <LegacyAdmin />}

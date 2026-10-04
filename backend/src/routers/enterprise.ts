@@ -61,14 +61,19 @@ function pathBytes(target: string): number {
 function safeUser(row: Row): Json {
   const { password_hash: _password, ...rest } = row;
   const db = getConn();
+  const avatarUrl = avatarUrlForUser(String(row.id));
+  const person = db.prepare("SELECT person_ref,email,employee_no FROM organization_people WHERE user_id=?")
+    .get(row.id) as { person_ref?: string; email?: string | null; employee_no?: string | null } | undefined;
   const mailboxCount = db.prepare("SELECT COUNT(*) AS n FROM user_starry_bindings WHERE user_id=?")
     .get(row.id) as Row;
   const kolCount = db.prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE employee_id=? AND status='active'")
     .get(row.id) as Row;
   return {
     ...rest,
-    avatar_url: avatarUrlForUser(String(row.id)),
-    email: row.username,
+    avatar_url: avatarUrl,
+    email: String(row.email || person?.email || (String(row.username).includes("@") ? row.username : "")),
+    person_ref: person?.person_ref || null,
+    employee_no: person?.employee_no || null,
     status: row.active ? "active" : "disabled",
     roles: parseJson(row.roles, []),
     brands: parseJson(row.brands, []),
@@ -294,6 +299,13 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   }
   const sets: string[] = [];
   const values: unknown[] = [];
+  if (body.email !== undefined) {
+    const email = String(body.email || "").trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpFail(400, "invalid email");
+    const owner = email ? getConn().prepare("SELECT id FROM users WHERE lower(email)=? OR lower(username)=?").get(email, email) as { id: string } | undefined : undefined;
+    if (owner && owner.id !== uid) throw new HttpFail(409, "email already used");
+    sets.push("email=?"); values.push(email);
+  }
   for (const field of ["name", "site", "position", "manager_user_id"] as const) {
     if (body[field] !== undefined) { sets.push(`${field}=?`); values.push(body[field] || null); }
   }
@@ -304,7 +316,8 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   if (!sets.length) return c.json(safeUser(userById(uid)));
   sets.push("updated_at=?"); values.push(nowIso(), uid);
   getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values);
-  if (body.site !== undefined || body.name !== undefined) {
+  if (body.password !== undefined) getConn().prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid);
+  if (body.site !== undefined || body.name !== undefined || body.email !== undefined) {
     const updated = userById(uid);
     const site = String(updated.site || "");
     if (!site || listOrganizationUnits().some((unit) => unit.id === site)) syncUserOrganization(uid, site);

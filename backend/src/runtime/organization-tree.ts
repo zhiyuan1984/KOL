@@ -360,6 +360,11 @@ export function reseedOrganizationTreeFromRegistry(): void {
     const account = person.account_username
       ? (db.prepare("SELECT id FROM users WHERE username = ?").get(person.account_username) as { id?: string } | undefined)
       : undefined;
+    const linked = db.prepare("SELECT user_id,email FROM organization_people WHERE person_ref = ?")
+      .get(personRef) as { user_id?: string | null; email?: string | null } | undefined;
+    const linkedUser = linked?.user_id
+      ? db.prepare("SELECT id FROM users WHERE id = ?").get(linked.user_id) as { id?: string } | undefined
+      : undefined;
     upsert(
       db,
       "organization_people",
@@ -368,9 +373,9 @@ export function reseedOrganizationTreeFromRegistry(): void {
       {
         display_name: person.display_name || personRef,
         user_ref: person.user_ref || null,
-        user_id: account?.id || null,
+        user_id: account?.id || linkedUser?.id || null,
         starry_open_id: person.starry_open_id || null,
-        email: person.email || null,
+        email: person.email || linked?.email || null,
         employee_no: person.employee_no || null,
         avatar_url: person.avatar ? `/avatars/${person.avatar}` : null,
         source: person.source || source,
@@ -888,7 +893,7 @@ export function canUseAgent(userId: string | null | undefined, agentId: string):
 export function syncUserOrganization(userId: string, unitId: string | null | undefined): string {
   ensureOrganizationTree();
   const db = getConn();
-  const user = db.prepare("SELECT id,name,username FROM users WHERE id=?").get(userId) as { id: string; name: string; username: string } | undefined;
+  const user = db.prepare("SELECT id,name,username,email FROM users WHERE id=?").get(userId) as { id: string; name: string; username: string; email: string | null } | undefined;
   if (!user) throw new Error("unknown user");
   const target = unitId ? db.prepare("SELECT id,company_id,status FROM organization_units WHERE id=?").get(unitId) as
     { id: string; company_id: string; status: string } | undefined : undefined;
@@ -900,7 +905,7 @@ export function syncUserOrganization(userId: string, unitId: string | null | und
     VALUES (?,?,?,?,?,'active','admin',?,?)
     ON CONFLICT (person_ref) DO UPDATE SET display_name=excluded.display_name,user_id=excluded.user_id,
       email=excluded.email,status='active',updated_at=excluded.updated_at`).run(
-      personRef, user.name, userId, userId, user.username, stamp, stamp,
+      personRef, user.name, userId, userId, user.email || (user.username.includes("@") ? user.username : ""), stamp, stamp,
     );
   const old = db.prepare("SELECT id,company_id,org_unit_id FROM organization_memberships WHERE person_ref=? AND relation='primary' AND status='active'")
     .all(personRef) as Array<{ id: string; company_id: string; org_unit_id: string }>;

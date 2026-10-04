@@ -65,10 +65,11 @@ describe("admin sidebar parity", () => {
       "data",
       "cost",
       "scheduling",
+      "work-orders",
       "audit",
       "kol",
     ]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 3, 1, 2, 5]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 3, 1, 2, 6]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
       "工作战报",
@@ -81,6 +82,7 @@ describe("admin sidebar parity", () => {
       "数据",
       "成本",
       "调度监控",
+      "工单治理",
       "审计中心",
       "配置",
     ]);

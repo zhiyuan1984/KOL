@@ -123,10 +123,8 @@ import {
   withHomeCommandTemplates,
 } from "../home/homeModel";
 import { isTodayScheduled } from "../home/schedule";
-import EditTaskDialog from "../home/EditTaskDialog";
 import {
   SCOPE_CONFIG,
-  TODAY_PLAN_REFRESH_EVENT,
   TODAY_PLAN_START_EVENT,
   TODO_PLAN_START_EVENT,
   type PlanScope,
@@ -689,7 +687,6 @@ export default function Home() {
   const [discoverySubmitFailed, setDiscoverySubmitFailed] = useState(false);
   /** 失败原因的可读文案：只在中栏 AI发现 面渲染，切页签不得跟着出现。 */
   const [discoverySubmitError, setDiscoverySubmitError] = useState("");
-  const [editTaskTarget, setEditTaskTarget] = useState<Task | null>(null);
   const mode = parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {
@@ -1185,13 +1182,6 @@ export default function Home() {
     });
   };
 
-  const handleTaskEdited = (updated: Task) => {
-    setEditTaskTarget(null);
-    mergeCatalogTask(updated);
-    void fetchHomeTasks().catch(() => undefined);
-    window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT));
-  };
-
   /** Discovery history belongs to the task system; opening one task restores only that run's result page. */
   const openDiscoveryTaskResult = (task: Task): boolean => {
     const runId = String(task.discovery_run_id || "").trim();
@@ -1205,7 +1195,7 @@ export default function Home() {
   const actOnMemoryTask = async (task: Task) => {
     if (openDiscoveryTaskResult(task)) return;
     if (String(task.display_verb || "") === "edit") {
-      setEditTaskTarget(task);
+      nav("/tasks?view=created");
       return;
     }
     rememberJourney({
@@ -2237,7 +2227,7 @@ export default function Home() {
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
               onOpen={(task) => void openTask(task)}
-              onEdit={setEditTaskTarget}
+              onEdit={() => nav("/tasks?view=created")}
               notice={paneScope === "todo" ? dedupeNotice : ""}
               brief={activePlan.brief}
               phase={activePlan.phase}
@@ -2505,11 +2495,6 @@ export default function Home() {
         busy={Boolean(followedWorkspace.batchPending?.[0] && followedWorkspace.confirmStageBusyId === followedWorkspace.batchPending[0].id)}
         onConfirm={followedWorkspace.confirmBatch}
         onCancel={followedWorkspace.cancelBatch}
-      />
-      <EditTaskDialog
-        task={editTaskTarget}
-        onClose={() => setEditTaskTarget(null)}
-        onSaved={handleTaskEdited}
       />
       <ReleaseFollowConfirm
         handle={followedWorkspace.releaseTarget?.handle}

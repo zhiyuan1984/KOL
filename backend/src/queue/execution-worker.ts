@@ -3,7 +3,7 @@ import { Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { Client, Pool } from "pg";
 import { processExecutionJobById } from "../execution-jobs/dispatcher.js";
-import { recoverExpiredExecutionJobs } from "../execution-jobs/store.js";
+import { runtimeRecoverExpiredExecutionJobs } from "../execution-jobs/runtime-store.js";
 import { EXECUTION_QUEUE, ensureExecutionInfrastructure } from "./outbox-publisher.js";
 
 function required(name: string, value: string | undefined): string {
@@ -55,12 +55,11 @@ export async function runBullMqExecutionWorker(options: { workerId?: string; con
     void heartbeat(client, { id: workerId, status: "running", details: { concurrency, queue: EXECUTION_QUEUE } }).catch((error) => {
       console.error("[execution-worker] heartbeat failed", error);
     });
-    try {
-      const recovered = recoverExpiredExecutionJobs();
+    void runtimeRecoverExpiredExecutionJobs().then((recovered) => {
       if (recovered.requeued || recovered.uncertain) console.warn(`[execution-worker] recovered requeued=${recovered.requeued} uncertain=${recovered.uncertain}`);
-    } catch (error) {
+    }).catch((error) => {
       console.error("[execution-worker] lease recovery failed", error);
-    }
+    });
   }, Math.max(5_000, Number(process.env.EXECUTION_HEARTBEAT_MS || 15_000)));
   tick.unref();
   console.log(`[execution-worker] started ${workerId} (postgres + BullMQ, concurrency=${concurrency}, lease_ms=${leaseMs})`);

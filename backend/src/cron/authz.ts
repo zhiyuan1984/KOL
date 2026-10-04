@@ -1,56 +1,37 @@
-import { authDisabled, isAdmin, requireConnector, requireSkill, scopedUser, type AppUser } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
+import { requireTicketPrincipal, ticketIsAdmin, ticketPrincipal, type TicketPrincipal } from "../ticket-domain/auth.js";
 import type { Row } from "../types.js";
-import { isSystemJob } from "./store.js";
+import { cronSystemJob } from "./contracts.js";
 
-export function requireStarryRead(): void {
-  if (authDisabled()) return;
-  const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  if (isAdmin(user)) return;
-  try {
-    requireConnector("starrykol", "read");
-    return;
-  } catch {
-    requireConnector("starry", "read");
-  }
+/** Cron access is evaluated only against the formal PostgreSQL ticket identity.
+ * Legacy connector/skill grants are not a fallback authority for scheduling. */
+export function canSeeJob(job: Row, viewer = ticketPrincipal()): boolean {
+  if (!viewer) return false;
+  if (ticketIsAdmin(viewer) || cronSystemJob(job)) return true;
+  return String(job.owner_account_id || "") === viewer.id || String(job.execute_as || "") === viewer.id;
 }
 
-export function canSeeJob(job: Row, user = scopedUser()): boolean {
-  if (authDisabled() || !user || isAdmin(user)) return true;
-  if (isSystemJob(job)) return true;
-  return String(job.owner_account_id || "") === user.id || String(job.execute_as || "") === user.id;
+export function assertCanSeeJob(job: Row, viewer = ticketPrincipal()): TicketPrincipal {
+  const actor = viewer || requireTicketPrincipal();
+  if (!canSeeJob(job, actor)) throw new HttpFail(404, "cron job not found");
+  return actor;
 }
 
-export function assertCanSeeJob(job: Row, user = scopedUser()): void {
-  if (!canSeeJob(job, user)) throw new HttpFail(404, "cron job not found");
-}
-
-export function assertCanMutateJob(job: Row, user = scopedUser()): AppUser | undefined {
-  if (authDisabled()) return user;
-  if (!user) throw new HttpFail(401, "authentication required");
-  if (isSystemJob(job) && !isAdmin(user)) throw new HttpFail(403, "system job requires admin");
-  if (isAdmin(user) || canSeeJob(job, user)) return user;
+export function assertCanMutateJob(job: Row, viewer = ticketPrincipal()): TicketPrincipal {
+  const actor = viewer || requireTicketPrincipal();
+  if (cronSystemJob(job) && !ticketIsAdmin(actor)) throw new HttpFail(403, "system job requires admin");
+  if (ticketIsAdmin(actor) || canSeeJob(job, actor)) return actor;
   throw new HttpFail(404, "cron job not found");
 }
 
+/** Only handlers whose side-effect contract is published may run. The two
+ * current formal-ticket scanners are native read-only projections. */
 export function assertHandlerGates(handlerKey: string): void {
-  if (handlerKey === "overdue-scan") {
-    requireSkill("risk_scan");
-    requireStarryRead();
-    return;
-  }
-  if (handlerKey === "daily-task-snapshot") {
-    requireSkill("creator_daily_tasks");
-    requireStarryRead();
-    return;
-  }
-  if (handlerKey === "ownership-release") {
-    return;
-  }
   if (handlerKey === "discovery-search") {
     throw new HttpFail(409, { code: "not_enabled", message: "发现搜索未启用" });
   }
+  // ownership-release/mail-memory-increment/ai-task are quarantined by their
+  // handler contracts and return needs_takeover; no legacy privilege is used.
 }
 
 export function assertJobRunnable(job: Row): void {

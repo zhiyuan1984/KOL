@@ -112,6 +112,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: "M12 8v4l2.5 1.5 M7 3v3 M17 3v3 M5 7h14v12H5z",
       },
       {
+        id: "work-orders",
+        label: "工单治理",
+        href: "/admin/work-orders",
+        icon: "M6 4h12v16H6z M9 8h6 M9 12h6 M9 16h3",
+      },
+      {
         id: "audit",
         label: "审计中心",
         href: "/admin/audit",

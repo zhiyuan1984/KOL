@@ -196,3 +196,31 @@ test("员工页单选筛选与单行品牌列；管理绑定先试算覆盖再�
   await expect(dialog.locator("p.governance-notice[role='status']")).toContainText("直接绑定已撤销");
   expect(nativeDialogs).toEqual([]);
 });
+
+test("选择上级组织时包含下级组员工，不包含旁支员工", async ({ page }) => {
+  const people = [
+    { ...employee, id: "sriphy", name: "鄢棽", site: "org:ai_product" },
+    { ...employee, id: "usr_promotion", name: "推广员工", site: "org:promotion_department" },
+  ];
+  const organizationUnits = [
+    { id: "org:research_institute", display_name: "研究院", parent_id: null },
+    { id: "org:digital_intelligence_center", display_name: "数字智能中心", parent_id: "org:research_institute" },
+    { id: "org:product_department", display_name: "产品部", parent_id: "org:digital_intelligence_center" },
+    { id: "org:ai_product", display_name: "AI产品组", parent_id: "org:product_department" },
+    { id: "org:promotion_department", display_name: "推广部", parent_id: null },
+  ].map((unit, index) => ({ ...unit, company_id: "company:amperetime", level: index + 1, status: "active" }));
+  await page.route("**/api/admin/users", (route) => route.fulfill({ json: people }));
+  await page.route("**/api/admin/agents", (route) => route.fulfill({ json: { agents: [], units: organizationUnits, people: [], skills: [], bases: [] } }));
+
+  await page.goto("/admin");
+  const directory = page.locator("[data-admin-employees]");
+  const orgGroup = directory.locator(".governance-filter-group").nth(2);
+  for (const name of ["AI产品组", "产品部", "数字智能中心", "研究院"]) {
+    await orgGroup.getByRole("button", { name, exact: true }).click();
+    await expect(directory.locator("[data-employee-row='sriphy']")).toBeVisible();
+    await expect(directory.locator("[data-employee-row='usr_promotion']")).toHaveCount(0);
+  }
+  await orgGroup.getByRole("button", { name: "推广部", exact: true }).click();
+  await expect(directory.locator("[data-employee-row='sriphy']")).toHaveCount(0);
+  await expect(directory.locator("[data-employee-row='usr_promotion']")).toBeVisible();
+});
