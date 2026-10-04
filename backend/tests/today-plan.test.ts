@@ -26,7 +26,7 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp: string;
 let app: Hono;
 
-// Test the retained adapter explicitly; production dispatch quarantines these retired jobs.
+// Test the retained adapter explicitly; the compatibility worker dispatches it.
 async function executeRetiredPlanningAdapter(id: string, workerId: string) {
   const claimed = await runtimeClaimExecutionJobById(id, workerId);
   expect(claimed).toBeTruthy();
@@ -475,13 +475,13 @@ describe("today_plan harness", () => {
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions + 1);
   });
 
-  it("production dispatch marks retired planning jobs for takeover without calling the model", async () => {
+  it("compatibility dispatch executes queued planning jobs", async () => {
     const run = vi.spyOn(runner, "runWorker");
     const queued = await request("POST", "/api/home/today-brief/enqueue", { objects: [] });
     expect(queued.status).toBe(202);
     const result = await processExecutionJobById(String(queued.body.execution_job_id), "test-production-worker");
-    expect(result).toMatchObject({ handled: false, outcome: "needs_takeover" });
-    expect(run).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ handled: true, outcome: "processed", target_id: queued.body.work_item_id });
+    expect(run).toHaveBeenCalled();
   });
 
   describe.each(["today", "todo"] as const)("mid events and open-todo listing (%s)", (scope) => {
