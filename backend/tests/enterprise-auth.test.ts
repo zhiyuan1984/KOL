@@ -78,6 +78,20 @@ afterEach(() => {
 });
 
 describe("production account and enterprise controls", () => {
+  it("rejects expired sessions, disabled users and logged-out cookie replay on pool reads", async () => {
+    const employee = await createEmployee("pool-reader");
+    const cookie = await employeeLogin("pool-reader");
+    expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(200);
+    getConn().prepare("UPDATE users SET active=0 WHERE id=?").run(employee.id);
+    expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(401);
+    getConn().prepare("UPDATE users SET active=1 WHERE id=?").run(employee.id);
+    getConn().prepare("UPDATE auth_sessions SET expires_at=? WHERE user_id=?").run("2000-01-01T00:00:00.000Z", employee.id);
+    expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(401);
+    const renewed = await employeeLogin("pool-reader");
+    await call("POST", "/api/auth/logout", {}, renewed);
+    expect((await call("GET", "/api/home/pool", undefined, renewed)).response.status).toBe(401);
+  });
+
   it("requires first-run setup, logs in, reports status, and logs out", async () => {
     const status = await call("GET", "/api/auth/status", undefined, "");
     expect(status.json).toMatchObject({ setup_required: false, authenticated: false });
@@ -213,7 +227,7 @@ describe("production account and enterprise controls", () => {
     const employee = await createEmployee("grantee");
     const now = new Date().toISOString();
     getConn().prepare("UPDATE connectors SET enabled=1, status='configured' WHERE id IN ('starrykol','claw')").run();
-    for (const [id, label] of [["enterprise_mail", "Enterprise Mail"], ["wecom", "WeCom"]]) {
+    for (const [id, label] of [["starrykol", "Starry KOL"], ["claw", "Claw"], ["enterprise_mail", "Enterprise Mail"], ["wecom", "WeCom"]]) {
       getConn().prepare(
         "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
       ).run(id, label, 1, "configured", null, now);
