@@ -192,7 +192,7 @@ export default function EntryView({ id, notify, fail }: KbFeed & { id: string })
         body: String(body.get("body") || ""),
         tags: String(body.get("tags") || ""),
         stage_codes: splitList(String(body.get("stage_codes") || "")),
-        ...structuredPayload(body, kind),
+        structured: structuredPayload(body, kind),
       })
       .then(() => {
         setEditing(false);
@@ -233,6 +233,17 @@ export default function EntryView({ id, notify, fail }: KbFeed & { id: string })
             <p className="muted">{row.id} · {kindLabel(row.kind)} · {statusLabel(row.status)} · 第 {rowVersion} 版</p>
           </div>
           <div className="kbadmin-primary-slot" data-admin-kb-primary={needsApproval ? "approve" : "edit"}>
+            {needsApproval ? (
+              <button
+                className="btn ghost"
+                type="button"
+                data-admin-kb-edit
+                aria-expanded={editing}
+                onClick={() => setEditing((value) => !value)}
+              >
+                {editing ? "收起编辑" : "编辑草稿"}
+              </button>
+            ) : null}
             {needsApproval ? (
               <button
                 className={editing ? "btn ghost" : "btn work"}

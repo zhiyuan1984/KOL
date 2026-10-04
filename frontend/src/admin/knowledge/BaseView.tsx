@@ -123,7 +123,7 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
         stage_codes: stageCodes,
         tags: String(body.get("tags") || ""),
         status: "draft",
-        ...structuredPayload(body, String(body.get("kind") || "policy")),
+        structured: structuredPayload(body, String(body.get("kind") || "policy")),
       })
       .then(() => {
         notify("草稿已创建，尚未发布；审批后才对员工生效。");
