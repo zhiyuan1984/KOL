@@ -15048,6 +15048,15 @@ button.today-brief-primary-btn:disabled {
   line-height: var(--ds-line-helper);
 }
 .pool-score-feedback.is-error { color: var(--danger); }
+.pool-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-2);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
 .scope-task-rail .pool-compact-pane {
   padding-top: 0;
 }

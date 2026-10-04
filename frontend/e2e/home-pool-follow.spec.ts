@@ -106,7 +106,8 @@ async function stubKol172(page: Page) {
       body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><rect width="56" height="56" fill="#dbeafe"/></svg>',
     });
   });
-  await page.route("**/api/home/pool", async (route) => {
+  let poolClaimed = false;
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
       json: {
@@ -115,8 +116,8 @@ async function stubKol172(page: Page) {
         creates_session: false,
         calls_model: false,
         index: "公海",
-        items: [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
-        kols: [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
+        items: poolClaimed ? [POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM] : [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
+        kols: poolClaimed ? [POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM] : [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
       },
     });
   });
@@ -167,6 +168,7 @@ async function stubKol172(page: Page) {
       });
       return;
     }
+    poolClaimed = true;
     await route.fulfill({
       status: 201,
       json: {
@@ -183,6 +185,7 @@ async function stubKol172(page: Page) {
   });
   await page.route("**/api/follows/*/release", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
+    poolClaimed = false;
     await route.fulfill({
       json: {
         entry: "command",
@@ -250,7 +253,7 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
 });
 
 test("public pool keeps the most complete public row when legacy identities overlap", async ({ page }) => {
-  await page.route("**/api/home/pool", async (route) => {
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
       json: {
@@ -356,7 +359,7 @@ test("pool cards say why a KOL is unscored", async ({ page }) => {
     homepage_url: `https://www.youtube.com/@${uid}`,
     ...extra,
   });
-  await page.route("**/api/home/pool", async (route) => {
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
       json: {
@@ -417,7 +420,7 @@ test("pool first paint reads only what the pool needs", async ({ page }) => {
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
   await page.waitForTimeout(700);
 
-  const pool = reads.find((row) => row.path === "/api/home/pool");
+  const pool = reads.find((row) => row.path.startsWith("/api/home/pool?"));
   expect(pool, "公海面必须自己发公海读").toBeTruthy();
   expect(reads.some((row) => row.path === "/api/knowledge/question-templates"), "四个入口的模板可用性要读").toBe(true);
 
@@ -450,12 +453,14 @@ test("pool first paint reads only what the pool needs", async ({ page }) => {
 });
 test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {
   const syncPosts: string[] = [];
-  await page.route("**/api/home/pool", async (route) => {
+  let synced = false;
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
-    await route.fulfill({ json: { entry: "memory", kind: "memory", items: [], kols: [], library: { ok: false, count: 0 } } });
+    await route.fulfill({ json: { entry: "memory", kind: "memory", items: synced ? [POOL_ITEM] : [], library: { ok: synced, count: synced ? 1 : 0 } } });
   });
   await page.route("**/api/home/pool/sync", async (route) => {
     if (route.request().method() === "GET") {
+      synced = true;
       await route.fulfill({
         json: {
           entry: "command",
@@ -500,7 +505,7 @@ test("empty pool sync sends an explicit command and renders the refreshed public
 
 test("pool reading state does not claim the library is unsynced before the reads return", async ({ page }) => {
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  await page.route("**/api/home/pool", async (route) => {
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await delay(1500);
     await route.fulfill({ json: { entry: "memory", kind: "memory", items: [], kols: [], library: { ok: false, count: 0 } } });
@@ -523,7 +528,7 @@ test("pool rows render without waiting for the board read", async ({ page }) => 
     await delay(4000);
     await route.fulfill({ json: { kols: [], tasks: [], library: { count: 9 }, mail: {}, entries: [] } });
   });
-  await page.route("**/api/home/pool", async (route) => {
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({ json: { entry: "memory", kind: "memory", items: [POOL_ITEM], kols: [POOL_ITEM] } });
   });
@@ -537,6 +542,9 @@ test("pool KOL scoring uses the existing Jev endpoint and refreshes public signa
   const posts: Array<{ path: string; body?: Record<string, unknown> }> = [];
   const enriched = { ...POOL_ITEM, avatar_url: "https://yt3.ggpht.com/enriched-avatar.jpg" };
   const assessed = { ...enriched, potential_score: 85, potential_confidence: 0.91, risk_score: 85, risk_confidence: 0.83, assessment_model: "jev-1.13" };
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: posts.some((post) => post.path === "/api/home/pool/jev-assess") ? [assessed] : [POOL_ITEM] } });
+  });
   await page.route("**/api/home/pool/avatar-enrich", async (route) => {
     if (route.request().method() === "POST") {
       posts.push({ path: new URL(route.request().url()).pathname });
@@ -573,7 +581,7 @@ test("pool KOL scoring uses the existing Jev endpoint and refreshes public signa
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-potential]")).toHaveText("高潜 85");
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-risk]")).toHaveText("高风险 85");
   // 评分显示落在「主页 + 外链图标」之后，而不是只在名称旁。
-  await expect(page.locator("[data-pool-kol='uid_outdoor'] .pool-profile-link + [data-pool-score='potential']")).toHaveText("评分 85");
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] .pool-profile-link + [data-pool-score='potential']")).toHaveText("评分 85 · 置信度 91%");
   await expect(page.locator("[data-home-pane='pool']")).not.toContainText("补头像");
   await expect(page.locator("[data-home-pane='pool']")).not.toContainText("清理无主页");
 });

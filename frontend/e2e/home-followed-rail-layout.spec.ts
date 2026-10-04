@@ -323,7 +323,7 @@ test("全选覆盖当前筛选结果，不截断前 8 位", async ({ page }) => 
 test("我的红人右栏与今日任务、公海共用 DESIGN 记录的工作台几何", async ({ page }) => {
   await stubBoard(page);
   await page.route("**/api/home/following", (route) => route.fulfill({ json: followingEnvelope([row(1)]) }));
-  await page.route("**/api/home/pool", (route) => route.fulfill({
+  await page.route(/\/api\/home\/pool(?:\?.*)?$/, (route) => route.fulfill({
     json: { entry: "memory", kind: "memory", creates_session: false, calls_model: false, index: "公海", items: [], kols: [] },
   }));
 

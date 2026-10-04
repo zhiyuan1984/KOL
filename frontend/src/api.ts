@@ -1,3 +1,6 @@
+export type HomePoolPage = { offset: number; limit: number; total: number; matched: number; new_count: number; next_offset: number | null };
+export type HomePoolOptions = { query?: string; filter?: string; sort?: string; offset?: number; limit?: number };
+
 export type RuntimeActionView = {
   id: string; skill_id: string; operation: string; arguments: Record<string, unknown>;
   state: string; risk: "L3"; confirmation_version: string; blocked_reason: string | null;
@@ -2126,7 +2129,7 @@ export const api = {
       kols?: Array<Record<string, unknown>>;
       follow_scope?: StarryBinding;
     }>("/api/home/following", { signal: AbortSignal.timeout(15_000) }),
-  homePool: () =>
+  homePool: (options: HomePoolOptions = {}) =>
     request<{
       entry?: string;
       creates_session?: boolean;
@@ -2137,7 +2140,8 @@ export const api = {
       library?: { ok?: boolean; count?: number; synced_at?: string };
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
-    }>("/api/home/pool"),
+      page?: HomePoolPage;
+    }>("/api/home/pool" + (Object.keys(options).length ? `?${new URLSearchParams(Object.entries(options).map(([key, value]) => [key, String(value)]))}` : "")),
   syncHomePool: () =>
     request<{
       entry?: string;
