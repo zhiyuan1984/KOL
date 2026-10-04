@@ -126,6 +126,8 @@ export default function Tasks() {
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [aiTaskRoots, setAiTaskRoots] = useState<AiTaskWorkOrderList["items"]>([]);
   const [selectedAiTask, setSelectedAiTask] = useState<AiTaskWorkOrderAggregate | null>(null);
+  const [showAiTaskCreate, setShowAiTaskCreate] = useState(false);
+  const [aiTaskDraft, setAiTaskDraft] = useState({ title: "", goal: "", due_at: "", priority: "normal" });
   const [actionBusy, setActionBusy] = useState("");
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
@@ -184,16 +186,16 @@ export default function Tasks() {
   }, [view, query, from, to]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    let active = true;
-    api.aiTaskWorkOrders().then((response) => {
-      if (active) setAiTaskRoots(response.items || []);
-    }).catch(() => {
+  const loadAiTaskRoots = useCallback(async () => {
+    try {
+      const response = await api.aiTaskWorkOrders();
+      setAiTaskRoots(response.items || []);
+    } catch {
       // The legacy task center remains usable while PostgreSQL AI task roots are unavailable.
-      if (active) setAiTaskRoots([]);
-    });
-    return () => { active = false; };
+      setAiTaskRoots([]);
+    }
   }, []);
+  useEffect(() => { void loadAiTaskRoots(); }, [loadAiTaskRoots]);
   useEffect(() => {
     if (view !== "active") return;
     const refresh = () => {
@@ -240,6 +242,32 @@ export default function Tasks() {
       setSelectedAiTask(await api.aiTaskWorkOrder(taskId));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "AI 工单任务详情加载失败");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
+  const createAiTask = async () => {
+    if (!aiTaskDraft.title.trim()) {
+      setError("请填写业务任务标题。");
+      return;
+    }
+    setActionBusy("ai-task:create");
+    setError("");
+    try {
+      const created = await api.createAiTaskWorkOrderRoot({
+        title: aiTaskDraft.title.trim(),
+        goal: aiTaskDraft.goal.trim() || undefined,
+        due_at: aiTaskDraft.due_at ? new Date(`${aiTaskDraft.due_at}T23:59:59`).toISOString() : undefined,
+        priority: aiTaskDraft.priority as "important_urgent" | "important" | "urgent" | "normal" | "low",
+        idempotency_key: `ai-task-root-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      });
+      setAiTaskDraft({ title: "", goal: "", due_at: "", priority: "normal" });
+      setShowAiTaskCreate(false);
+      await loadAiTaskRoots();
+      setSelectedAiTask(await api.aiTaskWorkOrder(created.task.task_id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "AI 业务任务创建失败");
     } finally {
       setActionBusy("");
     }
@@ -307,13 +335,20 @@ export default function Tasks() {
         </div>
       </div>
 
-      {aiTaskRoots.length ? <section className="panel task-work-order-summary" aria-label="AI 标准工单任务">
-        <div className="split-head"><div><h2>AI 标准工单任务</h2><p className="muted">这是业务目标的 PostgreSQL 任务根；下方工作台运行任务和今日/待办投影保持原有语义。子工单只表达标准化执行，不会自动完成任务根。</p></div><span className="status-ok">{aiTaskRoots.length} 个任务根</span></div>
-        {aiTaskRoots.map((item) => <div className="admin-row" key={item.task.task_id}>
+      <section className="panel task-work-order-summary" aria-label="AI 标准工单任务">
+        <div className="split-head"><div><h2>AI 标准工单任务</h2><p className="muted">先建立业务目标，再由已核验事件、已发布模板和受控 Jev 判断生成标准执行工单。下方工作台运行任务和今日/待办投影保持原有语义；子工单不会自动完成任务根。</p></div><div className="row-actions"><span className="status-ok">{aiTaskRoots.length} 个任务根</span><button className="btn ghost" type="button" onClick={() => setShowAiTaskCreate((current) => !current)}>{showAiTaskCreate ? "收起" : "新建业务任务"}</button></div></div>
+        {showAiTaskCreate && <form className="task-work-order-create" onSubmit={(event) => { event.preventDefault(); void createAiTask(); }}>
+          <label>任务标题<input value={aiTaskDraft.title} maxLength={200} placeholder="例如：推进 KOL 报价确认" onChange={(event) => setAiTaskDraft((current) => ({ ...current, title: event.target.value }))} /></label>
+          <label>业务目标<textarea value={aiTaskDraft.goal} maxLength={4000} placeholder="说明要达成的业务结果；工单将围绕该目标生成。" onChange={(event) => setAiTaskDraft((current) => ({ ...current, goal: event.target.value }))} /></label>
+          <label>优先级<select value={aiTaskDraft.priority} onChange={(event) => setAiTaskDraft((current) => ({ ...current, priority: event.target.value }))}><option value="important_urgent">重要且紧急</option><option value="important">重要</option><option value="urgent">紧急</option><option value="normal">普通</option><option value="low">低</option></select></label>
+          <label>截止日期<input type="date" value={aiTaskDraft.due_at} onChange={(event) => setAiTaskDraft((current) => ({ ...current, due_at: event.target.value }))} /></label>
+          <div className="row-actions"><button className="btn primary" type="submit" disabled={actionBusy === "ai-task:create"}>{actionBusy === "ai-task:create" ? "创建中…" : "创建业务任务"}</button></div>
+        </form>}
+        {aiTaskRoots.length ? aiTaskRoots.map((item) => <div className="admin-row" key={item.task.task_id}>
           <div><strong>{item.task.title}</strong><p className="muted">开放工单 {item.counts.open}/{item.counts.total} · 阻塞 {item.counts.blocked} · 待复核 {item.counts.waiting_review}{item.current_blocking_work_order ? ` · 当前阻塞：${item.current_blocking_work_order.title}` : ""}</p></div>
           <div className="row-actions"><span className="muted">任务：{item.task.status}</span><button className="btn ghost" type="button" disabled={actionBusy === `ai-task:${item.task.task_id}`} onClick={() => void openAiTask(item.task.task_id)}>查看工单</button></div>
-        </div>)}
-      </section> : null}
+        </div>) : <p className="muted">尚未建立 AI 业务任务。创建任务后，只有已核验事件和已发布的自动化规则才能生成或分派标准工单。</p>}
+      </section>
 
       {error && <p className="surface-error" role="alert">{hidesSignalTimeout(error) ? "任务暂时无法读取，请稍后查看。" : error}</p>}
 

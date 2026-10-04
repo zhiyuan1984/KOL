@@ -279,7 +279,7 @@ PostgreSQL 事务：写主受理人、协同受理人、路由版本、解析链
 
 1. **已完成：** 追加 PostgreSQL migration：模板、工单、工单责任、依据、决策、阶段轨迹、回执、任务根回执、索引和不可变 decision / stage event trigger。
 2. **已完成：** 用 `tickets(task_type=business_task, profile=task-root)` 承载新 Task 根；新 `task-work-orders.ts` 只通过原生仓储读取 Task / Work Order，避免与历史 `/tasks` 投影混用。
-3. **已完成：** `GET /api/task-work-orders` 及 `/:taskId` 返回授权 Task 根、子工单摘要、当前阻塞工单和聚合原始计数；工作台任务中心以并列的“AI 标准工单任务”摘要/详情接入，保留原有任务列表、今日/待办和运行任务 UI。
+3. **已完成：** `POST /api/task-work-orders/tasks` 以工作台会话创建带幂等回执的 PostgreSQL Task 根；`GET /api/task-work-orders` 及 `/:taskId` 返回授权 Task 根、子工单摘要、当前阻塞工单和聚合原始计数。工作台任务中心以并列的“AI 标准工单任务”提供业务目标创建、摘要和详情，保留原有任务列表、今日/待办和运行任务 UI。
 
 ### 阶段 C：Jev 影子判断与规则模拟
 

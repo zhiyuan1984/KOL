@@ -15479,3 +15479,54 @@ button.today-brief-primary-btn:disabled {
   .ticket-binding-action { justify-content: stretch; }
   .ticket-binding-action .btn { width: 100%; }
 }
+
+.task-work-order-create {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1.2fr) minmax(18rem, 2fr) minmax(9rem, .7fr) minmax(10rem, .8fr) auto;
+  gap: .75rem;
+  align-items: end;
+  margin: .85rem 0;
+  padding: .9rem;
+  border: 1px solid var(--line, #e6e8eb);
+  border-radius: .75rem;
+  background: var(--surface-subtle, #fafbfd);
+}
+
+.task-work-order-create label {
+  display: grid;
+  gap: .35rem;
+  min-width: 0;
+  color: var(--muted, #64748b);
+  font-size: .82rem;
+  font-weight: 600;
+}
+
+.task-work-order-create input,
+.task-work-order-create textarea,
+.task-work-order-create select {
+  width: 100%;
+  min-height: 2.35rem;
+  box-sizing: border-box;
+  border: 1px solid var(--line, #d9dde4);
+  border-radius: .45rem;
+  padding: .48rem .6rem;
+  color: inherit;
+  background: var(--surface, #fff);
+  font: inherit;
+}
+
+.task-work-order-create textarea {
+  min-height: 4.7rem;
+  resize: vertical;
+}
+
+.task-work-order-create .row-actions { padding-bottom: .02rem; white-space: nowrap; }
+
+@media (max-width: 920px) {
+  .task-work-order-create { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .task-work-order-create { grid-template-columns: 1fr; }
+  .task-work-order-create .row-actions { padding: 0; }
+}

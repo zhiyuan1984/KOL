@@ -1846,6 +1846,9 @@ export const api = {
     return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
   },
   aiTaskWorkOrders: (limit = 50) => request<AiTaskWorkOrderList>(`/api/task-work-orders?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`),
+  createAiTaskWorkOrderRoot: (body: { title: string; goal?: string; priority?: "important_urgent" | "important" | "urgent" | "normal" | "low"; due_at?: string; idempotency_key: string }) => request<{ task: AiTaskRoot; request_id: string; as_of: string; schema_version: string }>("/api/task-work-orders/tasks", {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
   aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
   ticketFormBootstrap: () => request<TicketFormBootstrap>("/api/tickets/form-bootstrap"),
   adminTicketOrganizationQuality: () => request<TicketOrganizationQualityReport>("/api/admin/work-orders/data-quality"),

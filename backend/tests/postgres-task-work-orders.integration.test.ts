@@ -27,6 +27,24 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
 
   afterAll(async () => { await closePostgresPool(); });
 
+  it("creates a PostgreSQL AI business-task root through the shared-workbench route", async () => {
+    const actor = await syncWorkbenchTicketPrincipal({
+      id: "u-task-route", username: "task_route", name: "Task Route", email: "route@example.test", roles: ["employee"], active: true,
+    });
+    const request = () => new Request("http://test.local/task-work-orders/tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": "task-root-route-create-1" },
+      body: JSON.stringify({ title: "推进 KOL 资料核验", goal: "建立资料核验的业务目标", priority: "important", due_at: "2031-01-20T09:00:00.000Z" }),
+    });
+    const first = await withTicketPrincipal(actor, () => tickets.fetch(request()));
+    expect(first.status).toBe(201);
+    const body = await first.json() as { task: { task_id: string; title: string; goal: string; status: string } };
+    expect(body.task).toMatchObject({ title: "推进 KOL 资料核验", goal: "建立资料核验的业务目标", status: "open" });
+    const replay = await withTicketPrincipal(actor, () => tickets.fetch(request()));
+    expect(replay.status).toBe(201);
+    expect((await replay.json() as { task: { task_id: string } }).task.task_id).toBe(body.task.task_id);
+  });
+
   it("keeps one task root while projecting standard child work orders and their blocking fact", async () => {
     const actor = await syncWorkbenchTicketPrincipal({
       id: "u-task-owner", username: "task_owner", name: "Task Owner", email: "owner@example.test", roles: ["employee"], active: true,
