@@ -34,7 +34,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const portraits = table(read("红人画像信息表.md"), "红人画像信息表.md");
+// Optional offline mailbox/SOP source validation. Runtime KOL portraits are
+// not a dependency of this checker or the task collaboration release.
 const mailboxes = table(read("邮箱-负责人绑定清单.md"), "邮箱-负责人绑定清单.md");
 const mainFlow = table(read("邮件模板与关键字段清单-一-KOL合作主流程识别表.md"), "主流程表");
 const longTerm = table(read("邮件模板与关键字段清单-二-长期合作与异常阶段识别表.md"), "长期合作表");
@@ -46,8 +47,6 @@ const expectedStages = [
   "待发布", "已发布", "结算中/已付款",
 ];
 
-assert(portraits.length === 5, `portrait rows: expected 5, got ${portraits.length}`);
-assert(new Set(portraits.map((item) => item["名称"])).size === portraits.length, "portrait names must be unique");
 assert(mailboxes.length === 22, `mailbox rows: expected 22, got ${mailboxes.length}`);
 assert(mainFlow.length === 15, `main flow rows: expected 15, got ${mainFlow.length}`);
 assert(longTerm.length === 10, `long-term/exception rows: expected 10, got ${longTerm.length}`);
@@ -59,7 +58,6 @@ assert(rules.includes("正文明确动作 > 附件和链接 > 履约字段 > 邮
 
 console.log(JSON.stringify({
   source: path.relative(path.resolve(root, "..", ".."), root),
-  portraits: portraits.length,
   mailboxBindings: mailboxes.length,
   mainFlowStages: mainFlow.length,
   longTermAndExceptionRules: longTerm.length,

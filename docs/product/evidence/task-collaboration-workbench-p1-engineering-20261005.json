@@ -48,10 +48,14 @@
     { "revision": "e27b34d", "passed": 3, "failed": 2, "reason": "focused control top 881, bottom 913, viewport height 589, hit null" }
   ],
   "remaining_release_dependencies": [
-    "Real canonical source data/kol/红人画像信息表.md or explicit authoritative migration decision",
     "Full backend release gate for the final branch",
     "Main integration and production verification"
   ],
+  "portrait_markdown_dependency": {
+    "required": false,
+    "user_decision": "2026-10-05: 根本就不需要这个表，继续吧",
+    "change": "Removed obsolete portrait row-count/name checks; remaining offline mailbox/SOP validation is conditional on source directory presence, matching CI/deployment."
+  },
   "pull_request": { "created": false, "connector_error": "403 Resource not accessible by integration" },
   "cleanup": { "local_temporary_postgres": "stopped", "isolated_e2e_servers": "exited with test runners" }
 }

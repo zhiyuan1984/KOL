@@ -54,16 +54,15 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      # Canonical KOL source files are intentionally ignored by Git because
-      # they contain operational master data. The deployment host keeps that
-      # source and performs the mandatory validation immediately before restart.
-      - name: Validate canonical KOL data when source is present
+      # Optional offline mailbox/SOP source files contain operational data and
+      # are ignored by Git. Portrait Markdown is not a release dependency.
+      - name: Validate offline mailbox and SOP source when present
         working-directory: backend
         run: |
           if [ -d ../data/kol ]; then
             npm run validate:kol-data
           else
-            echo "::notice::Canonical KOL source is not stored in this repository; validation runs on the deployment host."
+            echo "::notice::Optional offline mailbox/SOP source is absent; skipping this source-file check."
           fi
       - name: Compile pilot contracts
         working-directory: backend
@@ -175,7 +174,7 @@ jobs:
           if [ -d data/kol ]; then
             node backend/scripts/validate-kol-data.mjs
           else
-            echo "Canonical KOL source is not present on this deployment host; skipping optional validation."
+            echo "Optional offline mailbox/SOP source is absent on this deployment host; skipping this source-file check."
           fi
           # The PostgreSQL authority is long-lived, so new tables/indexes must
           # be applied explicitly before the API starts querying them.
