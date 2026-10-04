@@ -264,10 +264,9 @@ export default function ComposerDock({
   }, [objectChipSignature]);
 
   // 技能 / 知识 / 项目 / 最近文件候选只在真正用到提问框时才读：＋ 菜单、技能选择器、
-  // 已聚焦、已有输入或已锁定意图。首屏不再替一个可能永远不打开的菜单预读 8 条目录。
+  // 已有输入或已锁定意图；仅聚焦空提问框不读取目录。
   const catalogsNeeded = plusOpen
     || picker
-    || focused
     || value.trim().length > 0
     || Boolean(lockedIntent)
     || Boolean(lockedKnowledgeId);
@@ -279,10 +278,11 @@ export default function ComposerDock({
   useEffect(() => {
     if (!catalogsEngaged) return;
     let cancelled = false;
+    const controller = new AbortController();
     const load = async () => {
       const [mine, market] = await Promise.all([
-        fetch("/api/skills").then((r) => r.json() as Promise<SkillOption[]>),
-        fetch("/api/skills/market")
+        fetch("/api/skills", { signal: controller.signal }).then((r) => r.json() as Promise<SkillOption[]>),
+        fetch("/api/skills/market", { signal: controller.signal })
           .then((r) => r.json() as Promise<SkillOption[]>)
           .catch(() => [] as SkillOption[]),
       ]);
@@ -313,7 +313,16 @@ export default function ComposerDock({
     }).catch(() => {
       if (!cancelled) setSkillTemplates([]);
     });
-    fetch("/api/knowledge/composer")
+    return () => { cancelled = true; controller.abort(); };
+  }, [catalogsEngaged]);
+
+  const mailTemplatesNeeded = plusOpen || Boolean(lockedKnowledgeId)
+    || lockedLabel === "写合作邮件" || value.includes("写合作邮件");
+  useEffect(() => {
+    if (!mailTemplatesNeeded) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    fetch("/api/knowledge/composer", { signal: controller.signal })
       .then((r) => r.ok ? r.json() as Promise<KnowledgeRow[]> : [])
       .then((rows) => {
         if (!cancelled && Array.isArray(rows)) setTemplates(rows);
@@ -321,9 +330,16 @@ export default function ComposerDock({
       .catch(() => {
         if (!cancelled) setTemplates([]);
       });
+    return () => { cancelled = true; controller.abort(); };
+  }, [mailTemplatesNeeded]);
+
+  useEffect(() => {
+    if (!plusOpen) return;
+    let cancelled = false;
+    const controller = new AbortController();
     Promise.all([
-      fetch("/api/knowledge").then((r) => r.ok ? r.json() : []),
-      fetch("/api/knowledge/market").then((r) => r.ok ? r.json() : []).catch(() => []),
+      fetch("/api/knowledge", { signal: controller.signal }).then((r) => r.ok ? r.json() : []),
+      fetch("/api/knowledge/market", { signal: controller.signal }).then((r) => r.ok ? r.json() : []).catch(() => []),
     ]).then(([mine, market]) => {
       if (cancelled) return;
       const rows = [...(Array.isArray(mine) ? mine : []), ...(Array.isArray(market) ? market : [])] as KnowledgeRow[];
@@ -345,8 +361,9 @@ export default function ComposerDock({
     });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [catalogsEngaged]);
+  }, [plusOpen]);
 
   useEffect(() => {
     if (!selectedSkillId) return;
@@ -379,15 +396,17 @@ export default function ComposerDock({
   }, [lockedKnowledgeId, lockedLabel, templates, stageCode, value]);
 
   useEffect(() => {
-    if (!catalogsEngaged) return;
+    if (!plusOpen) return;
+    const controller = new AbortController();
     void Promise.all([
-      fetch("/api/projects").then((r) => r.ok ? r.json() : []),
-      fetch("/api/files/recent?limit=12").then((r) => r.ok ? r.json() : []),
+      fetch("/api/projects", { signal: controller.signal }).then((r) => r.ok ? r.json() : []),
+      fetch("/api/files/recent?limit=12", { signal: controller.signal }).then((r) => r.ok ? r.json() : []),
     ]).then(([projectRows, fileRows]) => {
       if (Array.isArray(projectRows)) setProjects(projectRows);
       if (Array.isArray(fileRows)) setRecentFiles(fileRows);
     }).catch(() => undefined);
-  }, [catalogsEngaged]);
+    return () => controller.abort();
+  }, [plusOpen]);
 
   useEffect(() => {
     if (!plusOpen) return;

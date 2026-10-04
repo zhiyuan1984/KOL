@@ -451,6 +451,22 @@ test("pool first paint reads only what the pool needs", async ({ page }) => {
     expect(before.includes(shell), `${shell} 应让位首屏`).toBe(false);
   }
 });
+test("switching to pool does not fetch unopened attachment directories", async ({ page }) => {
+  const paths = new Set<string>();
+  const directories = ["/api/knowledge/composer", "/api/knowledge", "/api/knowledge/market", "/api/projects", "/api/files/recent"];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (directories.includes(path)) paths.add(path);
+  });
+  await page.goto("/");
+  await page.locator("[data-home] [data-composer-input]").fill("分析公开资料");
+  await page.locator("[data-home-mode='pool']").click();
+  await expect(page.locator("[data-pool-card]").first()).toBeVisible();
+  expect([...paths]).toEqual([]);
+  await page.locator("[data-home] [data-attach]").click();
+  await expect.poll(() => directories.every((path) => paths.has(path))).toBe(true);
+});
+
 test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {
   const syncPosts: string[] = [];
   let synced = false;

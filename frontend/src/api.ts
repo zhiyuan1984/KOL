@@ -2141,7 +2141,7 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
       page?: HomePoolPage;
-    }>("/api/home/pool" + (Object.keys(options).length ? `?${new URLSearchParams(Object.entries(options).map(([key, value]) => [key, String(value)]))}` : "")),
+    }>("/api/home/pool" + (Object.keys(options).length ? `?${new URLSearchParams(Object.entries(options).map(([key, value]) => [key, String(value)]))}` : ""), { priority: "high" }),
   syncHomePool: () =>
     request<{
       entry?: string;
