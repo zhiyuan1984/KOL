@@ -10,6 +10,8 @@ import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
+import { createTaskRootPostgres, taskWorkOrderAggregate, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
+import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shadow.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
 import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -88,6 +90,34 @@ tickets.get("/tickets", async (c) => {
     due: c.req.query("due"), q: c.req.query("q"), from: c.req.query("from"), to: c.req.query("to"),
   });
   return c.json({ ...page, ...requestMetadata() });
+});
+
+/** Task is the business-goal root; child work orders are standard execution
+ * units. This remains separate from legacy `/tasks` until the workbench task
+ * projection itself is migrated to PostgreSQL. */
+tickets.post("/task-work-orders/tasks", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as TaskRootInput;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const task = await createTaskRootPostgres(ownerId(), { ...body, idempotency_key: idempotencyKey });
+  return c.json({ task, ...requestMetadata() }, 201);
+});
+
+tickets.get("/task-work-orders/:taskId", async (c) => {
+  const actor = requireTicketPrincipal();
+  return c.json({ ...(await taskWorkOrderAggregate(actor.id, c.req.param("taskId"), ticketIsAdmin(actor))), ...requestMetadata() });
+});
+
+/** Initial AI-work-order integration: administrator-triggered, immutable Jev
+ * shadow decision only. It never creates, assigns, advances or completes. */
+tickets.post("/admin/work-orders/tasks/:taskId/jev-shadow", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await recordWorkOrderShadowDecision(actor.id, c.req.param("taskId"), {
+    ...body,
+    idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  }, { isAdmin: true });
+  return c.json({ ...result, ...requestMetadata() }, result.decision.replayed ? 200 : 201);
 });
 
 tickets.get("/tickets/reports/personal", async (c) => {

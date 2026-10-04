@@ -767,6 +767,169 @@ const migrations: SchemaMigration[] = [
        FOR EACH ROW EXECUTE FUNCTION prevent_workbench_principal_binding_event_mutation()`,
     ],
   },
+  {
+    // 任务是业务目标根；AI 工单是其标准化、可分派且可验收的子动作。新
+    // work_orders 绝不复制任务，也不把一次执行或模型判断等同为任务完成。
+    id: "20261004_task_work_order_native_model",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS work_order_templates (
+        id TEXT PRIMARY KEY,
+        template_code TEXT NOT NULL,
+        version INTEGER NOT NULL CHECK (version > 0),
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL CHECK (status IN ('draft','published','disabled','retired')),
+        automation_level TEXT NOT NULL CHECK (automation_level IN ('A0','A1','A2','A3','L3')),
+        business_category TEXT,
+        trigger_event_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+        input_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        fill_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        acceptance_criteria_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        routing_policy_code TEXT,
+        stage_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        published_by TEXT REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        published_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(template_code,version)
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_templates_lookup_idx ON work_order_templates(status,template_code,version DESC)",
+      `CREATE TABLE IF NOT EXISTS work_orders (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        template_id TEXT NOT NULL REFERENCES work_order_templates(id) ON DELETE RESTRICT,
+        template_code TEXT NOT NULL,
+        template_version INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('proposed','pending_assignment','assigned','accepted','in_progress','waiting_external','waiting_approval','ready_for_acceptance','completed','cancelled','needs_review')),
+        priority TEXT NOT NULL DEFAULT 'normal',
+        stage_code TEXT,
+        title TEXT NOT NULL,
+        objective TEXT NOT NULL DEFAULT '',
+        due_at TIMESTAMPTZ,
+        no_due_reason TEXT,
+        automation_level TEXT NOT NULL CHECK (automation_level IN ('A0','A1','A2','A3','L3')),
+        automation_ref JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        latest_decision_id UUID,
+        data_version INTEGER NOT NULL DEFAULT 1 CHECK (data_version > 0),
+        created_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        completed_at TIMESTAMPTZ,
+        UNIQUE(task_id,template_code,template_version,id)
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_orders_task_status_idx ON work_orders(task_id,status,updated_at DESC)",
+      "CREATE INDEX IF NOT EXISTS work_orders_template_idx ON work_orders(template_code,template_version,status)",
+      `CREATE TABLE IF NOT EXISTS work_order_assignments (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE RESTRICT,
+        principal_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        person_ref TEXT,
+        org_unit_id TEXT,
+        role TEXT NOT NULL CHECK (role IN ('primary','collaborator','watcher')),
+        status TEXT NOT NULL CHECK (status IN ('active','superseded','removed')),
+        routing_policy_code TEXT,
+        routing_trace_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        assigned_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        effective_from TIMESTAMPTZ NOT NULL DEFAULT now(),
+        effective_to TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS work_order_assignments_one_primary_idx ON work_order_assignments(work_order_id) WHERE role='primary' AND status='active'",
+      "CREATE UNIQUE INDEX IF NOT EXISTS work_order_assignments_active_principal_idx ON work_order_assignments(work_order_id,principal_id,role) WHERE status='active'",
+      "CREATE INDEX IF NOT EXISTS work_order_assignments_principal_idx ON work_order_assignments(principal_id,status,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS work_order_basis_refs (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE RESTRICT,
+        source_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_version TEXT,
+        source_hash TEXT,
+        occurred_at TIMESTAMPTZ,
+        summary_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(work_order_id,source_type,source_id,source_version)
+      )`,
+      `CREATE TABLE IF NOT EXISTS work_order_decisions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        work_order_id TEXT REFERENCES work_orders(id) ON DELETE RESTRICT,
+        source_event_id TEXT,
+        rule_id TEXT,
+        rule_version INTEGER,
+        template_code TEXT,
+        template_version INTEGER,
+        routing_policy_code TEXT,
+        decision_mode TEXT NOT NULL CHECK (decision_mode IN ('shadow','manual','automatic')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('no_action','needs_review','create','merge_open_order','update_next_step','advance_stage','rejected')),
+        status TEXT NOT NULL CHECK (status IN ('recorded','executed','superseded','failed')),
+        input_hash TEXT NOT NULL,
+        input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        judgment_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        gate_results_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        jev_model TEXT,
+        prompt_version TEXT,
+        confidence NUMERIC(5,4),
+        reason TEXT,
+        actor_ref TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_decisions_task_idx ON work_order_decisions(task_id,created_at DESC)",
+      "CREATE INDEX IF NOT EXISTS work_order_decisions_event_idx ON work_order_decisions(source_event_id,rule_id,rule_version)",
+      `CREATE TABLE IF NOT EXISTS work_order_stage_events (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE RESTRICT,
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        from_stage_code TEXT,
+        to_stage_code TEXT,
+        actor_ref TEXT NOT NULL,
+        decision_id UUID REFERENCES work_order_decisions(id) ON DELETE RESTRICT,
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(work_order_id,sequence)
+      )`,
+      `CREATE TABLE IF NOT EXISTS work_order_command_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        work_order_id TEXT REFERENCES work_orders(id) ON DELETE RESTRICT,
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        actor_ref TEXT NOT NULL,
+        command TEXT NOT NULL,
+        response_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      `CREATE OR REPLACE FUNCTION prevent_work_order_decision_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'work order decisions are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS work_order_decisions_no_mutation ON work_order_decisions",
+      `CREATE TRIGGER work_order_decisions_no_mutation
+       BEFORE UPDATE OR DELETE ON work_order_decisions
+       FOR EACH ROW EXECUTE FUNCTION prevent_work_order_decision_mutation()`,
+      `CREATE OR REPLACE FUNCTION prevent_work_order_stage_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'work order stage events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS work_order_stage_events_no_mutation ON work_order_stage_events",
+      `CREATE TRIGGER work_order_stage_events_no_mutation
+       BEFORE UPDATE OR DELETE ON work_order_stage_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_work_order_stage_event_mutation()`,
+    ],
+  },
+  {
+    // Task 根创建也必须抗重放；不能依赖历史 tickets.input 的 TEXT/JSONB
+    // 物理表示来查找幂等键。
+    id: "20261004_task_root_command_receipts",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS task_root_command_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        requester_user_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        response_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    ],
+  },
 ];
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);

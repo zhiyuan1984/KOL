@@ -1,7 +1,7 @@
 # AI 工单自动化设计：任务为目标，工单为标准化执行单元
 
 **日期：** 2026-10-04  
-**状态：** 阶段 A（单一工作台身份边界）已实现并通过 PostgreSQL 集成验证；尚未启用任何自动建单、自动分派或自动阶段推进  
+**状态：** 阶段 A（单一工作台身份）、阶段 B（Task → Work Order 原生模型）和阶段 C 的 Jev **影子判断**已实现并通过 PostgreSQL 集成验证；尚未启用任何自动建单、自动分派或自动阶段推进
 **适用范围：** KOL 工作台、PostgreSQL 工单/调度子系统、Jev 判断、今日任务、我的待办、管理端工作战报  
 
 > 本设计纠正此前“将正式工单直接当作任务中心的替代品”的错误分层：**工作台账号和登录继续是唯一入口；PostgreSQL 只承载新的业务事实、工单和自动化，不再出现第二套工单登录。**
@@ -277,16 +277,16 @@ PostgreSQL 事务：写主受理人、协同受理人、路由版本、解析链
 
 ### 阶段 B：建立 Task → Work Order 原生模型
 
-1. 追加 PostgreSQL migration：模板、工单、工单责任、依据、决策、阶段轨迹、回执和索引。
-2. 明确当前 `tickets` 是 Task 根记录的兼容边界；新代码只通过 Task / Work Order repository 访问，禁止再混用为同一个概念。
-3. 先建立只读聚合 API：任务详情返回子工单摘要和当前阻塞动作；不改现有工作台菜单。
+1. **已完成：** 追加 PostgreSQL migration：模板、工单、工单责任、依据、决策、阶段轨迹、回执、任务根回执、索引和不可变 decision / stage event trigger。
+2. **已完成：** 用 `tickets(task_type=business_task, profile=task-root)` 承载新 Task 根；新 `task-work-orders.ts` 只通过原生仓储读取 Task / Work Order，避免与历史 `/tasks` 投影混用。
+3. **已完成：** `GET /api/task-work-orders/:taskId` 返回 Task、子工单摘要、当前阻塞工单和聚合原始计数；当前仍不替换工作台菜单或旧任务中心。
 
 ### 阶段 C：Jev 影子判断与规则模拟
 
-1. 抽出通用 `JevChoiceClient`，复用已有 TypeSafe System One 的超时、无重试、置信度和测试注入约束。
-2. 新建 `JevWorkOrderJudge`；输入固定为事件/对象/任务/候选规则，输出只允许发布模板、路由、动作和相邻阶段 choice。
-3. 先以 shadow 模式写 `work_order_decisions` 与管理端模拟，不创建工单、不分派、不推进阶段。
-4. 使用真实 PostgreSQL 夹具覆盖：高置信命中、低置信、事件重复、缺字段、无有效人员、跨组织、阶段跳档和模型不可用。
+1. **已完成：** `work-order-jev.ts` 直接复用 TypeSafe System One 的超时（上限 10 秒）、零重试、test fetch 注入与受限 choice 协议，不引入模型写库权限。
+2. **已完成：** `JevWorkOrderJudge` 输入仅含有界 Task / 已核验事件摘要 / 已发布模板 / 已发布路由 / 相邻阶段；输出只允许候选模板、路由、动作和相邻阶段 choice。
+3. **已完成：** `POST /api/admin/work-orders/tasks/:taskId/jev-shadow` 仅写不可变 `work_order_decisions(decision_mode=shadow)`；其 gate 明确声明不建单、不分派、不推进、不完成。模型不可用、无模板或无效 choice 同样记录 `needs_review`，不会静默降级。
+4. **已完成基础覆盖：** PostgreSQL 集成测试覆盖 Task 根幂等、Task→Work Order 聚合、Jev 高置信影子命中、重放、以及“零 work_order / assignment / stage / task completion 副作用”。低置信、组织变动、跨组织和阶段跳档将随阶段 D / E 的确定性执行闸门加入。
 
 ### 阶段 D：受控自动建单、填充与分派
 
