@@ -2,7 +2,7 @@ import { expect, test, type Locator } from "@playwright/test";
 
 async function fullyVisible(control: Locator) {
   await expect(control).toBeVisible();
-  expect(await control.evaluate(element => {
+  await expect.poll(() => control.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
     return rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth && !!hit && element.contains(hit);
@@ -11,7 +11,7 @@ async function fullyVisible(control: Locator) {
 async function touchHitArea(control: Locator) {
   await control.scrollIntoViewIfNeeded();
   // Measure actual hit testing, including transparent target extensions.
-  expect(await control.evaluate(element => {
+  await expect.poll(() => control.evaluate(element => {
     const rect = element.getBoundingClientRect();
     return [-21.5, 0, 21.5].every(x => [-21.5, 0, 21.5].every(y => {
       const hit = document.elementFromPoint(rect.x + rect.width / 2 + x, rect.y + rect.height / 2 + y);
