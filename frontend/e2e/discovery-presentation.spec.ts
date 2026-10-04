@@ -94,6 +94,40 @@ test("Home uses one directional jump control without covering the composer", asy
   expect(errors).toEqual([]);
 });
 
+test("short discovery reveals focused input after context growth and respects manual reading", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 589 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const errors = await intercept(page);
+  await page.goto("/?tab=discovery");
+  await page.getByRole("button", { name: "编辑完整请求" }).click();
+  await page.locator("[data-home] [data-composer-input]").fill("保留尺寸变化时的草稿");
+  const submit = page.locator("[data-home] [data-ai-prompt-submit]");
+  await submit.focus();
+  const grow = () => page.locator(".scope-workspace-center-scroll-content").evaluate(el => {
+    for (let i = 0; i < 40; i++) {
+      const p = document.createElement("p");
+      p.textContent = `异步上下文 ${i}`;
+      el.append(p);
+    }
+  });
+  await grow();
+  await expect.poll(() => submit.evaluate(el => {
+    const r = el.getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= innerHeight && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+  })).toBe(true);
+  await expect(submit).toBeFocused();
+  const stage = page.locator(".home-stage");
+  await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await stage.hover();
+  await page.mouse.wheel(0, -10000);
+  await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);
+  await grow();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue("保留尺寸变化时的草稿");
+  expect(errors).toEqual([]);
+});
+
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589 }, { width: 390, height: 700 }]) {
   test(`confirmation and scrolling remain reachable at ${viewport.width}×${viewport.height}`, async ({ page }, info) => {
     await page.setViewportSize(viewport);
