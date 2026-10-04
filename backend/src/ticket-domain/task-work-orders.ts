@@ -48,9 +48,20 @@ export type WorkOrderSummary = {
   latest_decision: { id: string; decision_mode: string; outcome: string; status: string; confidence: number | null; created_at: string } | null;
 };
 
+export type WorkOrderVerifiedEventSummary = {
+  id: string;
+  event_type: string;
+  occurred_at: string;
+  summary: string;
+  evidence_ref: string;
+  verified_by: string;
+  verified_at: string;
+};
+
 export type TaskWorkOrderAggregate = {
   task: TaskRoot;
   work_orders: WorkOrderSummary[];
+  verified_events: WorkOrderVerifiedEventSummary[];
   counts: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
   current_blocking_work_order: WorkOrderSummary | null;
   as_of: string;
@@ -211,10 +222,25 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
       confidence: row.decision_confidence == null ? null : Number(row.decision_confidence), created_at: new Date(String(row.decision_created_at)).toISOString(),
     } : null,
   }));
+  const verified = await postgresPool().query<{
+    id: string; event_type: string; occurred_at: Date | string; summary: string; evidence_ref: string; verified_by: string; verified_at: Date | string;
+  }>(
+    `SELECT id,event_type,occurred_at,summary,evidence_ref,verified_by,verified_at
+       FROM work_order_verified_events
+      WHERE task_id=$1
+      ORDER BY occurred_at DESC,id DESC
+      LIMIT 50`,
+    [task.task_id],
+  );
+  const verifiedEvents = verified.rows.map<WorkOrderVerifiedEventSummary>((row) => ({
+    id: row.id, event_type: row.event_type, occurred_at: new Date(row.occurred_at).toISOString(), summary: row.summary,
+    evidence_ref: row.evidence_ref, verified_by: row.verified_by, verified_at: new Date(row.verified_at).toISOString(),
+  }));
   const blocked = workOrders.filter((order) => ["needs_review", "pending_assignment", "waiting_external", "waiting_approval"].includes(order.status));
   return {
     task,
     work_orders: workOrders,
+    verified_events: verifiedEvents,
     counts: {
       total: workOrders.length,
       open: workOrders.filter((order) => OPEN_WORK_ORDER_STATUSES.has(order.status)).length,

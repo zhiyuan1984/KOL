@@ -16,6 +16,7 @@ import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTe
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
 import { enqueueWorkOrderDecisionExecution } from "../ticket-domain/work-order-automation-pipeline.js";
+import { recordVerifiedWorkOrderEvent } from "../ticket-domain/work-order-verified-event.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
 import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -114,6 +115,21 @@ tickets.get("/task-work-orders", async (c) => {
 tickets.get("/task-work-orders/:taskId", async (c) => {
   const actor = requireTicketPrincipal();
   return c.json({ ...(await taskWorkOrderAggregate(actor.id, c.req.param("taskId"), ticketIsAdmin(actor))), ...requestMetadata() });
+});
+
+/** The event is immutable evidence first. Only after it is stored does the
+ * bounded Jev decision run and hand off a durable job to the Worker. */
+tickets.post("/task-work-orders/tasks/:taskId/verified-events", async (c) => {
+  const actor = requireTicketPrincipal();
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const event = await recordVerifiedWorkOrderEvent(actor.id, c.req.param("taskId"), { ...body, idempotency_key: idempotencyKey }, { isAdmin: ticketIsAdmin(actor) });
+  const decision = await recordWorkOrderShadowDecision(actor.id, c.req.param("taskId"), {
+    source_event: { id: event.event.id, type: event.event.event_type, summary: event.event.summary, occurred_at: event.event.occurred_at },
+    idempotency_key: `work-order-verified-event:${event.event.id}:jev`,
+  }, { isAdmin: ticketIsAdmin(actor) });
+  const execution = await enqueueWorkOrderDecisionExecution(actor.id, decision.decision.id);
+  return c.json({ ...event, ...decision, ...execution, execution_mode: "verified_event_to_jev_to_outbox", ...requestMetadata() }, event.event.replayed ? 200 : 202);
 });
 
 /** Initial AI-work-order integration: administrator-triggered, immutable Jev

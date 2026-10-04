@@ -1017,6 +1017,36 @@ const migrations: SchemaMigration[] = [
        FOR EACH ROW EXECUTE FUNCTION prevent_work_order_release_event_mutation()`,
     ],
   },
+  {
+    id: "20261004_work_order_verified_events",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS work_order_verified_events (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        source_system TEXT NOT NULL,
+        source_event_id TEXT NOT NULL,
+        source_version TEXT NOT NULL DEFAULT '',
+        event_type TEXT NOT NULL,
+        occurred_at TIMESTAMPTZ NOT NULL,
+        summary TEXT NOT NULL,
+        evidence_ref TEXT NOT NULL,
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        verified_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        verified_at TIMESTAMPTZ NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(task_id,source_system,source_event_id,source_version)
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_verified_events_task_idx ON work_order_verified_events(task_id,occurred_at DESC,id DESC)",
+      `CREATE OR REPLACE FUNCTION prevent_work_order_verified_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'work order verified events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS work_order_verified_events_no_mutation ON work_order_verified_events",
+      `CREATE TRIGGER work_order_verified_events_no_mutation
+       BEFORE UPDATE OR DELETE ON work_order_verified_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_work_order_verified_event_mutation()`,
+    ],
+  },
 ];
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);

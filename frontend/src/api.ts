@@ -582,6 +582,7 @@ export type AiWorkOrderSummary = {
 export type AiTaskWorkOrderAggregate = {
   task: AiTaskRoot;
   work_orders: AiWorkOrderSummary[];
+  verified_events: Array<{ id: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; verified_by: string; verified_at: string }>;
   counts: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
   current_blocking_work_order: AiWorkOrderSummary | null;
   as_of: string;

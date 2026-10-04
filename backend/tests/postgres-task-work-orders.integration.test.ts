@@ -230,4 +230,60 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_orders")).rows[0]?.count).toBe(1);
     expect((await postgresPool().query("SELECT status FROM tickets WHERE id=$1", [task.task_id])).rows[0]?.status).toBe("open");
   });
+
+  it("records a verified event before automatically queuing bounded Jev materialization", async () => {
+    const previousKey = process.env.OPENROUTER_API_KEY;
+    const previousEnabled = process.env.JEV_WORK_ORDER_ENABLED;
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    process.env.JEV_WORK_ORDER_ENABLED = "1";
+    const actor = await syncWorkbenchTicketPrincipal({
+      id: "u-event-pipeline", username: "event_pipeline", name: "Event Pipeline", email: "event-pipeline@example.test", roles: ["admin"], active: true,
+    });
+    const task = await createTaskRootPostgres(actor.id, { title: "推进报价核验", goal: "以已核验报价期限推进下一步", idempotency_key: "task-verified-event-1" });
+    const draft = await createWorkOrderTemplateDraft(actor.id, {
+      template_code: "verified_quote_followup", title: "报价期限跟进", description: "按期限完成标准商务动作", automation_level: "A2",
+      trigger_event_types: ["deadline.quote"], acceptance_criteria: ["期限证据已核验"], routing_policy_code: "task_owner", idempotency_key: "verified-template-draft-1",
+    });
+    await publishWorkOrderTemplate(actor.id, draft.template.id, { expected_version: 1, idempotency_key: "verified-template-publish-1" });
+    await setWorkOrderAutomationRelease(actor.id, draft.template.id, { action: "enabled", minimum_confidence: 0.9, routing_policy_code: "task_owner", reason: "经审核启用报价期限自动化", idempotency_key: "verified-release-1" });
+    setWorkOrderJevFetch(async () => new Response(JSON.stringify({
+      model: "typesafe/jev-1.13",
+      answers: {
+        template_code: { type: "choice", choice: "verified_quote_followup", confidence: 0.96 },
+        action: { type: "choice", choice: "create", confidence: 0.96 },
+        routing_policy_code: { type: "choice", choice: "task_owner", confidence: 0.96 },
+        stage_action: { type: "choice", choice: "keep_current", confidence: 0.96 },
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      const request = () => new Request(`http://test.local/task-work-orders/tasks/${task.task_id}/verified-events`, {
+        method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": "verified-event-request-1" },
+        body: JSON.stringify({
+          source_system: "mail-verifier", source_event_id: "mail-quote-1", source_version: "v1", event_type: "deadline.quote",
+          occurred_at: "2031-05-01T09:00:00.000Z", summary: "报价期限已由邮件证据核验", evidence_ref: "mail:verified:quote-1",
+          evidence: { verifier: "mail-verifier", message_id: "msg-1" }, payload: { deadline: "2031-05-03" },
+        }),
+      });
+      const response = await withTicketPrincipal(actor, () => tickets.fetch(request()));
+      expect(response.status).toBe(202);
+      const body = await response.json() as { event: { id: string; replayed: boolean }; decision: { id: string }; execution_job: { id: string; status: string } };
+      expect(body).toMatchObject({ event: { replayed: false }, decision: { task_id: task.task_id, outcome: "create" }, execution_job: { job_type: "work_order.materialize", status: "queued" } });
+      expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_order_verified_events")).rows[0]?.count).toBe(1);
+      expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_orders")).rows[0]?.count).toBe(0);
+      await processNextExecutionJob("verified-event-worker");
+      expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_orders")).rows[0]?.count).toBe(1);
+      expect(await taskWorkOrderAggregate(actor.id, task.task_id, true)).toMatchObject({
+        verified_events: [{ id: body.event.id, event_type: "deadline.quote", evidence_ref: "mail:verified:quote-1" }],
+      });
+      const replay = await withTicketPrincipal(actor, () => tickets.fetch(request()));
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toMatchObject({ event: { id: body.event.id, replayed: true }, decision: { id: body.decision.id }, execution_job: { id: body.execution_job.id } });
+    } finally {
+      setWorkOrderJevFetch();
+      if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previousKey;
+      if (previousEnabled === undefined) delete process.env.JEV_WORK_ORDER_ENABLED;
+      else process.env.JEV_WORK_ORDER_ENABLED = previousEnabled;
+    }
+  });
 });
