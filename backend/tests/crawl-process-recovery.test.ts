@@ -2,6 +2,7 @@ import http from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import { beforeEach, afterEach, expect, it } from "vitest";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -55,8 +56,11 @@ async function completedWorker(id: string) {
 async function expireKilledLease(id: string) {
   const job = await pgExecutionJobById(id);
   expect(job?.status).toBe("running");
-  // Advance only the repository recovery clock after the actual owner died.
-  return pgRecoverExpiredExecutionJobs(new Date(new Date(String(job!.lease_until)).getTime() + 1));
+  // Wait for the real lease after the owner died. A simulated future recovery
+  // clock would also schedule next_attempt_at in the future; a fast replacement
+  // on Linux could then correctly refuse to claim that job.
+  await delay(Math.max(0, new Date(String(job!.lease_until)).getTime() - Date.now() + 5));
+  return pgRecoverExpiredExecutionJobs();
 }
 
 beforeEach(async () => {
