@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { tickets } from "../src/routers/tickets.js";
 import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "../src/ticket-domain/auth.js";
-import { createTaskRootPostgres, taskWorkOrderAggregate } from "../src/ticket-domain/task-work-orders.js";
+import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate } from "../src/ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../src/ticket-domain/work-order-shadow.js";
 import { setWorkOrderJevFetch } from "../src/ticket-domain/work-order-jev.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate } from "../src/ticket-domain/work-order-template-governance.js";
@@ -73,6 +73,11 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     const response = await withTicketPrincipal(actor, () => tickets.fetch(new Request(`http://test.local/task-work-orders/${task.task_id}`)));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ task: { task_id: task.task_id }, counts: { total: 2, blocked: 1 }, source: "postgresql_task_work_orders" });
+
+    expect(await listTaskWorkOrderAggregates(actor.id)).toMatchObject({ items: [{ task: { task_id: task.task_id }, counts: { total: 2, blocked: 1 } }] });
+    const listResponse = await withTicketPrincipal(actor, () => tickets.fetch(new Request("http://test.local/task-work-orders?limit=20")));
+    expect(listResponse.status).toBe(200);
+    expect(await listResponse.json()).toMatchObject({ items: [{ task: { task_id: task.task_id }, current_blocking_work_order: { work_order_id: "wo-review" } }] });
   });
 
   it("records a bounded Jev shadow recommendation without creating, assigning, staging, or completing anything", async () => {

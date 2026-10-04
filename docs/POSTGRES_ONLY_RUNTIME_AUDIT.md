@@ -34,6 +34,7 @@
 | Jev AI 工单影子判断 | `work-order-jev.ts`、`work-order-shadow.ts`；仅对已发布模板做 TypeSafe System One 有界选择，写不可变 `work_order_decisions(decision_mode=shadow)` 与输入哈希/模型/概率/gate，端点仅管理员可触发 | PG 集成测试验证高置信命中、重放与零建单/分派/阶段/完成副作用 |
 | AI 工单模板发布治理 | `work-order-template-governance.ts`、`/admin/work-orders/templates/*`；草稿、发布、发布版本退役、停用和命令回执都在 PostgreSQL，A1/A2/A3 发布校验事件/验收/路由/阶段边界；管理端明确显示自动执行未启用 | PG 模板治理集成测试、前端 typecheck/build |
 | A1/A2 受控物化与发布开关 | `work-order-automation-release.ts`、`work-order-executor.ts`；模板发布之外仍需可审计 release，阈值、`task_owner` 唯一路由、幂等与 Task 状态共同闸门通过后，才在一个事务写子工单、主受理、阶段事实、物化尝试和 `work_order.materialized` Outbox；任务不会被完成 | PG 集成测试覆盖无 release 跳过、启用后创建、重放去重、分派、Outbox 与 Task 状态不变；前端 typecheck/build |
+| AI Task / Work Order 工作台与治理投影 | `/task-work-orders`、`task-work-orders.ts` 以工作台主体/主受理授权返回 Task 根、子工单计数与当前阻塞；`Tasks.tsx` 以并列摘要/详情呈现，`AdminWorkOrders.tsx` 输出管理原始负荷 | PG 集成路由测试、前端 typecheck/build；不替换历史任务列表/Today/Todo，也不把工单终态写成任务完成 |
 
 ## 已安全隔离或停用
 
@@ -69,7 +70,7 @@
 ## 下一批可执行工作
 
 1. 将**现有工作台**认证与组织读取统一迁移到 PostgreSQL 身份提供方，保持同一登录 UI、会话名和账号语义；不得再新建工单账号域。
-2. 将已完成的 PostgreSQL Task → Work Order 只读聚合投影到今日任务、我的待办、任务中心和工作战报，保持 Task 顶层语义。
+2. 将并列的 PostgreSQL Task → Work Order 投影进一步收敛到今日任务、我的待办和原生管理战报，保持 Task 顶层语义；不得把历史 `/workbench/tasks` 的 SQLite-shaped 投影与新 Task 根混为一谈。
 3. 将已实现的模板 release 与 A1/A2 确定性物化器接到已核验业务事件 → Jev decision → execution job 的异步管道；当前只允许管理员受控 materialization，不宣称生产事件会自动建单。
 4. 在正式工单与正式协作状态均已原生化后，重建 `ownership-release` 和邮件记忆作业，走已实现的规则 draft/simulate/publish 闸门。
 5. 仅在事件、组织、置信度、路由和人工边界闸门全部满足后，按公司/规则/模板 feature flag 渐进启用 AI 工单自动化。

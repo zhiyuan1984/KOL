@@ -549,6 +549,52 @@ export type WorkOrderAutomationRelease = {
   updated_at: string;
 };
 
+export type AiTaskRoot = {
+  task_id: string;
+  title: string;
+  goal: string;
+  status: string;
+  priority: string;
+  due_at: string | null;
+  data_version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiWorkOrderSummary = {
+  work_order_id: string;
+  template_code: string;
+  template_version: number;
+  template_title: string;
+  status: string;
+  priority: string;
+  stage_code: string | null;
+  title: string;
+  objective: string;
+  due_at: string | null;
+  automation_level: string;
+  created_at: string;
+  updated_at: string;
+  primary_assignee: { principal_id: string; person_ref: string | null; org_unit_id: string | null } | null;
+  latest_decision: { id: string; decision_mode: string; outcome: string; status: string; confidence: number | null; created_at: string } | null;
+};
+
+export type AiTaskWorkOrderAggregate = {
+  task: AiTaskRoot;
+  work_orders: AiWorkOrderSummary[];
+  counts: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
+  current_blocking_work_order: AiWorkOrderSummary | null;
+  as_of: string;
+  source: "postgresql_task_work_orders" | string;
+};
+
+export type AiTaskWorkOrderList = {
+  items: Array<Pick<AiTaskWorkOrderAggregate, "task" | "counts" | "current_blocking_work_order">>;
+  as_of: string;
+  source: "postgresql_task_work_orders" | string;
+  request_id: string;
+};
+
 export type TicketCommandInput =
   | { action: "accept" | "cancel" | "reopen"; expected_version: number; idempotency_key: string; reason?: string }
   | { action: "complete"; expected_version: number; idempotency_key: string; acceptance_evidence: Record<string, unknown> }
@@ -1798,6 +1844,8 @@ export const api = {
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
   },
+  aiTaskWorkOrders: (limit = 50) => request<AiTaskWorkOrderList>(`/api/task-work-orders?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`),
+  aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
   ticketFormBootstrap: () => request<TicketFormBootstrap>("/api/tickets/form-bootstrap"),
   adminTicketOrganizationQuality: () => request<TicketOrganizationQualityReport>("/api/admin/work-orders/data-quality"),
   adminTicketAccountBindingOptions: () => request<TicketAccountBindingOptions>("/api/admin/work-orders/account-bindings/options"),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Task, type TaskDetail, type TaskEvent } from "../api";
+import { api, type AiTaskWorkOrderAggregate, type AiTaskWorkOrderList, type Task, type TaskDetail, type TaskEvent } from "../api";
 import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
 
 type View = "active" | "history";
@@ -124,6 +124,8 @@ export default function Tasks() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<TaskDetail | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [aiTaskRoots, setAiTaskRoots] = useState<AiTaskWorkOrderList["items"]>([]);
+  const [selectedAiTask, setSelectedAiTask] = useState<AiTaskWorkOrderAggregate | null>(null);
   const [actionBusy, setActionBusy] = useState("");
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
@@ -183,6 +185,16 @@ export default function Tasks() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
+    let active = true;
+    api.aiTaskWorkOrders().then((response) => {
+      if (active) setAiTaskRoots(response.items || []);
+    }).catch(() => {
+      // The legacy task center remains usable while PostgreSQL AI task roots are unavailable.
+      if (active) setAiTaskRoots([]);
+    });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
     if (view !== "active") return;
     const refresh = () => {
       if (document.visibilityState === "visible") void load(true);
@@ -217,6 +229,17 @@ export default function Tasks() {
       if (selected?.id === task.id) setSelected(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "取消失败");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
+  const openAiTask = async (taskId: string) => {
+    setActionBusy(`ai-task:${taskId}`);
+    try {
+      setSelectedAiTask(await api.aiTaskWorkOrder(taskId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "AI 工单任务详情加载失败");
     } finally {
       setActionBusy("");
     }
@@ -284,6 +307,14 @@ export default function Tasks() {
         </div>
       </div>
 
+      {aiTaskRoots.length ? <section className="panel task-work-order-summary" aria-label="AI 标准工单任务">
+        <div className="split-head"><div><h2>AI 标准工单任务</h2><p className="muted">这是业务目标的 PostgreSQL 任务根；下方工作台运行任务和今日/待办投影保持原有语义。子工单只表达标准化执行，不会自动完成任务根。</p></div><span className="status-ok">{aiTaskRoots.length} 个任务根</span></div>
+        {aiTaskRoots.map((item) => <div className="admin-row" key={item.task.task_id}>
+          <div><strong>{item.task.title}</strong><p className="muted">开放工单 {item.counts.open}/{item.counts.total} · 阻塞 {item.counts.blocked} · 待复核 {item.counts.waiting_review}{item.current_blocking_work_order ? ` · 当前阻塞：${item.current_blocking_work_order.title}` : ""}</p></div>
+          <div className="row-actions"><span className="muted">任务：{item.task.status}</span><button className="btn ghost" type="button" disabled={actionBusy === `ai-task:${item.task.task_id}`} onClick={() => void openAiTask(item.task.task_id)}>查看工单</button></div>
+        </div>)}
+      </section> : null}
+
       {error && <p className="surface-error" role="alert">{hidesSignalTimeout(error) ? "任务暂时无法读取，请稍后查看。" : error}</p>}
 
       {loading ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 ? (
@@ -342,6 +373,12 @@ export default function Tasks() {
         <p className="muted">已尝试 {selected.runs?.length || 0} 次{selected.runs?.length ? `；最近一次：${String(selected.runs[selected.runs.length - 1]?.status || "未知")}` : ""}</p>
         <section><h3>执行事件 {liveRunEvents.connected ? <small className="muted">实时更新中</small> : liveRunEvents.fallback ? <small className="muted">正在以安全补读更新</small> : null}</h3>{(liveRunEvents.events.length ? liveRunEvents.events : events).length ? <ol className="task-detail-events">{(liveRunEvents.events.length ? liveRunEvents.events : events).map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section>
         <div className="task-detail-actions">{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
+      </aside></div> : null}
+      {selectedAiTask ? <div className="task-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedAiTask(null); }}><aside className="task-detail-drawer" role="dialog" aria-modal="true" aria-label="AI 标准工单任务详情">
+        <header><div><p className="eyebrow">业务任务 · AI 标准工单</p><h2>{selectedAiTask.task.title}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelectedAiTask(null)}>×</button></header>
+        <dl className="task-detail-meta"><div><dt>任务状态</dt><dd>{selectedAiTask.task.status}</dd></div><div><dt>业务目标</dt><dd>{selectedAiTask.task.goal}</dd></div><div><dt>任务截止</dt><dd>{formatTime(selectedAiTask.task.due_at)}</dd></div><div><dt>子工单</dt><dd>{selectedAiTask.counts.open} 开放 / {selectedAiTask.counts.total} 总计 / {selectedAiTask.counts.blocked} 阻塞</dd></div></dl>
+        <section><h3>标准执行工单</h3>{selectedAiTask.work_orders.length ? <ol className="task-detail-events">{selectedAiTask.work_orders.map((order) => <li key={order.work_order_id}><strong>{order.title}</strong><small>{order.template_code}.v{order.template_version} · {order.automation_level} · {order.status}</small><p>{order.objective}</p><p className="muted">主受理：{order.primary_assignee?.person_ref || order.primary_assignee?.principal_id || "尚未分派"} · 决策：{order.latest_decision ? `${order.latest_decision.outcome}（${order.latest_decision.confidence ?? "—"}）` : "—"}</p></li>)}</ol> : <p className="muted">该业务任务尚未物化标准执行工单。</p>}</section>
+        <p className="muted">数据来源：PostgreSQL 任务—工单关系；子工单终态不会直接改变任务根状态。</p>
       </aside></div> : null}
     </main>
   );

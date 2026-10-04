@@ -10,7 +10,7 @@ import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
-import { createTaskRootPostgres, taskWorkOrderAggregate, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
+import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shadow.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
@@ -103,6 +103,11 @@ tickets.post("/task-work-orders/tasks", async (c) => {
   const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
   const task = await createTaskRootPostgres(ownerId(), { ...body, idempotency_key: idempotencyKey });
   return c.json({ task, ...requestMetadata() }, 201);
+});
+
+tickets.get("/task-work-orders", async (c) => {
+  const actor = requireTicketPrincipal();
+  return c.json({ ...(await listTaskWorkOrderAggregates(actor.id, ticketIsAdmin(actor), parseLimit(c.req.query("limit"), 50))), ...requestMetadata() });
 });
 
 tickets.get("/task-work-orders/:taskId", async (c) => {

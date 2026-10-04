@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport, type WorkOrderAutomationRelease, type WorkOrderTemplate } from "../api";
+import { api, type AiTaskWorkOrderList, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport, type WorkOrderAutomationRelease, type WorkOrderTemplate } from "../api";
 import { useAccount } from "../components/AuthGate";
 
 function time(value: string | null | undefined): string {
@@ -29,6 +29,7 @@ function AdminWorkOrdersContent() {
   const [options, setOptions] = useState<TicketAccountBindingOptions | null>(null);
   const [templates, setTemplates] = useState<WorkOrderTemplate[]>([]);
   const [automationReleases, setAutomationReleases] = useState<WorkOrderAutomationRelease[]>([]);
+  const [aiTaskRoots, setAiTaskRoots] = useState<AiTaskWorkOrderList["items"]>([]);
   const [loading, setLoading] = useState(true);
   const [bindingBusy, setBindingBusy] = useState(false);
   const [templateBusy, setTemplateBusy] = useState(false);
@@ -39,13 +40,14 @@ function AdminWorkOrdersContent() {
     setLoading(true);
     setError("");
     try {
-      const [quality, bindingOptions, rawReport, stageRawReport, templateRows, releaseRows] = await Promise.all([
+      const [quality, bindingOptions, rawReport, stageRawReport, templateRows, releaseRows, aiTaskRows] = await Promise.all([
         api.adminTicketOrganizationQuality(),
         api.adminTicketAccountBindingOptions(),
         api.organizationTicketRawCountReport(),
         api.organizationTicketStageRawReport(),
         api.adminWorkOrderTemplates(),
         api.adminWorkOrderAutomationReleases(),
+        api.aiTaskWorkOrders(),
       ]);
       setReport(quality);
       setOptions(bindingOptions);
@@ -53,6 +55,7 @@ function AdminWorkOrdersContent() {
       setStageReport(stageRawReport);
       setTemplates(templateRows.templates);
       setAutomationReleases(releaseRows.releases);
+      setAiTaskRoots(aiTaskRows.items);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取工单组织数据质量");
     } finally {
@@ -201,6 +204,11 @@ function AdminWorkOrdersContent() {
           <div><strong>{template.title}</strong><p className="muted">{template.template_code}.v{template.version} · {template.automation_level} · {template.status} · 事件：{template.trigger_event_types.join("、") || "—"}</p></div>
           <div className="row-actions"><span className={template.status === "published" ? "status-ok" : template.status === "draft" ? "status-warn" : "muted"}>{template.status}</span>{template.status === "draft" ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void publishTemplate(template)}>发布</button> : null}{template.status === "published" && ["A1", "A2"].includes(template.automation_level) ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void toggleAutomationRelease(template)}>{automationReleases.find((release) => release.template_id === template.id)?.status === "enabled" ? "停止自动物化" : "启用自动物化"}</button> : null}{template.status === "published" ? <button className="btn ghost danger" type="button" disabled={templateBusy} onClick={() => void disableTemplate(template)}>停用</button> : null}</div>
         </div>)}
+      </article>
+      <article className="panel" style={{ gridColumn: "1 / -1" }} data-ai-work-order-work-report>
+        <div className="split-head"><div><h3>AI 工单任务工作战报</h3><p className="muted">任务是业务目标根，AI 标准工单是其执行单元；这里只显示当前任务根、子工单存量和阻塞，不把子工单完成误报为任务完成或个人绩效。</p></div><span className="status-ok">任务根 {aiTaskRoots.length}</span></div>
+        {!loading && aiTaskRoots.length === 0 ? <p className="muted">当前没有已授权的 PostgreSQL AI 工单任务根。</p> : null}
+        {aiTaskRoots.map((item) => <div className="admin-row" key={item.task.task_id}><div><strong>{item.task.title}</strong><p className="muted">任务状态：{item.task.status} · 目标：{item.task.goal}</p></div><div><strong>{item.counts.open}/{item.counts.total} 开放/总工单</strong><p className={item.counts.blocked ? "status-warn" : "muted"}>阻塞 {item.counts.blocked} · 待复核 {item.counts.waiting_review}{item.current_blocking_work_order ? ` · 当前：${item.current_blocking_work_order.title}` : ""}</p></div></div>)}
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }} data-organization-ticket-report>
         <div className="split-head"><div><h3>组织工单原始计数</h3><p className="muted">数据时间：{time(organizationReport?.as_of)} · 时区：{organizationReport?.timezone || "—"} · 来源：PostgreSQL 正式工单。只展示受控组织范围内的当前数量。</p></div></div>

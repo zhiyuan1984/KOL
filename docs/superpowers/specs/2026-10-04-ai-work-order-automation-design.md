@@ -1,7 +1,7 @@
 # AI 工单自动化设计：任务为目标，工单为标准化执行单元
 
 **日期：** 2026-10-04  
-**状态：** 阶段 A（单一工作台身份）、阶段 B（Task → Work Order 原生模型）和阶段 C 的 Jev **影子判断**已实现并通过 PostgreSQL 集成验证；尚未启用任何自动建单、自动分派或自动阶段推进
+**状态：** 阶段 A（单一工作台身份）、阶段 B（Task → Work Order 原生模型）、阶段 C 的 Jev **影子判断**、A1/A2 的受控物化器及工作台/治理端只读投影已实现并通过 PostgreSQL 集成验证；生产业务事件尚未接入异步自动建单管道，A3 自动阶段推进未启用
 **适用范围：** KOL 工作台、PostgreSQL 工单/调度子系统、Jev 判断、今日任务、我的待办、管理端工作战报  
 
 > 本设计纠正此前“将正式工单直接当作任务中心的替代品”的错误分层：**工作台账号和登录继续是唯一入口；PostgreSQL 只承载新的业务事实、工单和自动化，不再出现第二套工单登录。**
@@ -279,7 +279,7 @@ PostgreSQL 事务：写主受理人、协同受理人、路由版本、解析链
 
 1. **已完成：** 追加 PostgreSQL migration：模板、工单、工单责任、依据、决策、阶段轨迹、回执、任务根回执、索引和不可变 decision / stage event trigger。
 2. **已完成：** 用 `tickets(task_type=business_task, profile=task-root)` 承载新 Task 根；新 `task-work-orders.ts` 只通过原生仓储读取 Task / Work Order，避免与历史 `/tasks` 投影混用。
-3. **已完成：** `GET /api/task-work-orders/:taskId` 返回 Task、子工单摘要、当前阻塞工单和聚合原始计数；当前仍不替换工作台菜单或旧任务中心。
+3. **已完成：** `GET /api/task-work-orders` 及 `/:taskId` 返回授权 Task 根、子工单摘要、当前阻塞工单和聚合原始计数；工作台任务中心以并列的“AI 标准工单任务”摘要/详情接入，保留原有任务列表、今日/待办和运行任务 UI。
 
 ### 阶段 C：Jev 影子判断与规则模拟
 
@@ -293,7 +293,7 @@ PostgreSQL 事务：写主受理人、协同受理人、路由版本、解析链
 1. **已完成模板治理：** 管理端可新建模板草稿、发布、退役旧发布版本和停用；发布时强制校验 A1/A2/A3 所需触发事件、验收条件、路由与阶段策略。已发布模板才可被 Jev 影子判断选择，且界面明确标识“自动执行未启用”。
 2. **已完成受控物化器：** 已发布 A1/A2 模板仍需独立的自动化 release（状态、理由、最低置信度、路由策略和不可变启停审计）。物化器只消费不可变 decision；在同一 PostgreSQL 事务写 Work Order、依据、`task_owner` 主受理、阶段事实、物化尝试和 `work_order.materialized` Outbox。重复 decision / idempotency 不会重复建单；无 release、低置信、无效 Task 或不支持/非唯一的路由只写可审计的 `skipped`。
 3. **尚未连接生产事件入口：** 当前提供管理员受控的 decision materialization API 与模板 release 管理界面；下一步才将已核验业务事件 → Jev decision → execution job 的异步管道接通。未接通前，不宣称生产事件会自动建单。
-4. 工作台任务详情显示“由哪条规则何时自动生成”，并允许有权限的人接管、修订或关闭。
+4. **已完成基础投影：** 工作台任务中心与工单治理页显示 Task 根、子工单数量、阻塞与责任/决策事实；当前治理页仅输出原始负荷，不将工单量或工单终态误报为任务完成或绩效。工单接管、修订、关闭和事件触发来源仍待后续命令与异步管道。
 
 ### 阶段 E：受控自动阶段推进
 
@@ -303,9 +303,9 @@ PostgreSQL 事务：写主受理人、协同受理人、路由版本、解析链
 
 ### 阶段 F：投影和战报收敛
 
-1. 让 `/api/workbench/tasks` 的 PostgreSQL 任务投影返回 child work order 摘要、阻塞原因和 Today 成员原因。
+1. **进行中：** 当前以 `/api/task-work-orders` 并列投影接入任务中心和治理页，避免改变历史任务中心；下一步才把 child work order 摘要、阻塞原因和 Today 成员原因写入统一 `/api/workbench/tasks` PostgreSQL read model。
 2. 将“我的待办”聚合规则调整为任务责任 + 子工单可执行责任，而非仅旧 `owner_user_id`。
-3. 管理端工作战报接入 Task、Work Order、Decision 三层原始指标和授权范围。
+3. **进行中：** 管理工单治理页已接入 Task 根/Work Order 负荷原始摘要；仍需将 Decision/自动化指标和统一授权范围接入历史 `/admin/work-report` 或其原生替代读模型。
 
 ---
 

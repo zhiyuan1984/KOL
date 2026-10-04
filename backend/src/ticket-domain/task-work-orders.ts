@@ -57,6 +57,12 @@ export type TaskWorkOrderAggregate = {
   source: "postgresql_task_work_orders";
 };
 
+export type TaskWorkOrderList = {
+  items: Array<Pick<TaskWorkOrderAggregate, "task" | "counts" | "current_blocking_work_order">>;
+  as_of: string;
+  source: "postgresql_task_work_orders";
+};
+
 function text(value: unknown, field: string, max: number, required = false): string | null {
   const result = String(value ?? "").trim();
   if (!result) {
@@ -217,6 +223,30 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
       completed: workOrders.filter((order) => order.status === "completed").length,
     },
     current_blocking_work_order: blocked[0] || null,
+    as_of: new Date().toISOString(),
+    source: "postgresql_task_work_orders",
+  };
+}
+
+/** The compatibility workbench retains its existing task feed. This separate,
+ * authorized list is the progressive read model for PostgreSQL Task roots so a
+ * new AI task can be shown alongside—not masquerade as—a legacy agent run. */
+export async function listTaskWorkOrderAggregates(actorId: string, isAdmin = false, limit = 50): Promise<TaskWorkOrderList> {
+  const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
+  const rows = await postgresPool().query<{ id: string }>(
+    `SELECT t.id
+       FROM tickets t
+      WHERE t.task_type=$1 AND t.profile=$2
+        AND ($3::boolean OR t.owner_user_id=$4 OR EXISTS (
+          SELECT 1 FROM work_orders wo JOIN work_order_assignments wa ON wa.work_order_id=wo.id
+           WHERE wo.task_id=t.id AND wa.principal_id=$4 AND wa.status='active'
+        ))
+      ORDER BY t.updated_at DESC,t.id DESC LIMIT $5`,
+    [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, bounded],
+  );
+  const aggregates = await Promise.all(rows.rows.map((row) => taskWorkOrderAggregate(actorId, row.id, isAdmin)));
+  return {
+    items: aggregates.map(({ task, counts, current_blocking_work_order }) => ({ task, counts, current_blocking_work_order })),
     as_of: new Date().toISOString(),
     source: "postgresql_task_work_orders",
   };
