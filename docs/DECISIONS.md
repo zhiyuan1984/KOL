@@ -139,6 +139,7 @@
 - **影响**：`frontend/src/layout/adminNav.ts`、`frontend/src/layout/sidebarNav.test.ts`、`frontend/e2e/workbench.spec.ts`（`.sidebar [data-admin-nav]` 文字序列）、`docs/org-permissions.md`（§导航规则「管理端信息架构」行的侧栏顺序）、`docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md`（§3 菜单映射表）。
 - **审宪记录**：需求「管理页面右侧导航调整为：员工 / 连接 / 知识 / 审批 / 技能 / 考试 / 治理 / 数据 / 配置；仅改变导航菜单项的顺序和展示文字」→ 主责 UI/UX 专家 + 平台产品经理 → CONST-04（前端不重写权限判定）、CONST-08、CONST-09（细则写死了旧顺序，须同步而非偷改）、CONST-10 → 细则：`ia-information-architecture.md` §4（禁可见组标题、簇间只用分割线、`aria-label` 留给读屏）；`org-permissions.md` §管理端左侧菜单 / §管理端信息架构；`TECHNOLOGY.md` TECH-FE → **符合**：href、id、面板内容、页头与发送 / 阶段 / 解密 / 删除闸门均未变 → 下一步以 typecheck / build / `vitest sidebarNav` / 管理端 E2E 取证。
 - **限制**：管理端配置面 `/admin/kol` 仍是遗留页；「连接」「治理」只是入口名，相关面板标题仍为「已添加的连接器」「数字员工治理」等治理文案，两者措辞不一致属预期。
+- **修订（2026-10-04）**：本条中的入口名「治理」由 ADR-2026-10-04 修订为「Agent」（图标同步为员工端同款）；条目顺序、href、id、分簇与其余文字不变。
 
 ## ADR-2026-09-27：对外只暴露技能（人员授权只对技能）
 
@@ -306,3 +307,25 @@
 - **审宪记录**：需求「知识分领域：主题域族→主题域→知识库；知识库分结构化/非结构化；遵循 WeKnora 流程；先实现结构化；前端重做」→ 主责 智能体产品经理＋平台产品经理（分类口径与 IA）＋KOL 业务专家（业务分类）＋后端/前端专家（实现）→ CONST-02/03/04/06/08/09/10、TECH-ARCH-01、PROD-PLAT-04/05、PROD-AGENT-04~07、BIZ-02/18、`ia-information-architecture.md` §1/§2#5/§3/§4、`org-permissions.md` 知识库行、`DESIGN.md` §1/§8/§11 → **符合（含一处细则修订）**：分类口径先在细则原位修订并留本记录，再动代码 → 下一步：按 P0→P6 分批实施，非结构化另案。
 - **限制**：本批不做非结构化解析/分块/索引/向量/ASR 与 WeKnora 接入；不做域级权限；不改管理端导航；`kind` 字典仅增 `prompt`，其余扩展（faq/case）仍属业务口径空白。
 - **修订（2026-10-02，用户决策）**：非结构化层引擎由「WeKnora 承担」改为 **PageIndex 本地模式 ＋ 多模态规整层**（用户评估后定调：「pageindex 够了，音视频有多模态大模型解决」），属本 ADR 第 4 条「非结构化另案」的落点。四项同批决策：① 检索直接使用 PageIndex 文档问答（答案＋页级引用；自带 LLM key、OpenAI 兼容端点）；② 文档级授权 v1 用「发布即可见＋品牌/范围」，文档级 grants 后续；③ 音视频产出全文转写稿＋摘要（可溯留档）；④ P1 先只开管理端（试算验证质量后再开 Worker 通道）。第 3 条中「沿用其 `pending→processing→finalizing→completed`」的流程语义保留为状态机设计参照（落为本仓 `uploaded→normalizing→indexing→pending_review→published→archived`，含失败/取消/重试与重启对账），**WeKnora 的平台、解析与向量能力不引入**；不采用 PageIndex Cloud（数据出本机）；不引向量库与 embedding。详细设计见 [specs/2026-10-02-knowledge-unstructured-pageindex-design.md](superpowers/specs/2026-10-02-knowledge-unstructured-pageindex-design.md)（含审宪记录与落档清单）。
+
+## ADR-2026-10-04：管理端侧栏「治理」改名「Agent」（图标对齐员工端）
+
+- **状态**：已接受（用户 2026-10-04 直接指定）
+- **决定者**：用户（产品发起人）；UI/UX 专家负责导航文字与图标，平台产品经理负责管理端 IA 不降级。
+- **背景**：`/admin/agents` 入口自 2026-09-27 起显示为「治理」（原「数字员工治理」），图标为独立机器人头；用户要求显示名改为「Agent」，图标同步调整。
+- **决定**：`frontend/src/layout/adminNav.ts` 的 `agents` 条目 `label` 改为 `"Agent"`、`icon` 改用员工端 Agent 条目同一描边路径（`Workbench.tsx` 气泡机器人）；条目顺序、分簇、`id`、`href`、面板与权限闸门全部不变。parity spec §3 映射表此前即登记该行图标「同员工端」，本次使实现与该登记相符。
+- **理由**：用户口径即产品口径；同名「Agent」在员工端与管理端使用同一图形，减少两套近似图标的分歧；管理页标题本就为「Agent 列表 / Agent 详情」，改名后菜单与页面口径一致。
+- **影响**：`frontend/src/layout/adminNav.ts`（label / icon / 注释）、`frontend/src/layout/sidebarNav.test.ts`（labels 断言 + 图标同源断言）、`frontend/e2e/workbench.spec.ts`（管理端区块同步至 14 条并更换标题断言）、`frontend/src/pages/SimplePages.tsx`（遗留 `/admin/kol` 页链接文字）、`docs/org-permissions.md`（§导航规则·管理端信息架构行）、`docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md`（§3 映射表）。
+- **审宪记录**：需求「管理端左栏导航治理菜单改名为 Agent，图标也修改」→ 主责 UI/UX 专家 + 平台产品经理 → CONST-04 / CONST-07 / CONST-08 / CONST-09 / CONST-10 → 细则：`ia-information-architecture.md` §4（组名仅读屏、无可见组标题）；`org-permissions.md` §管理端左侧菜单 / §管理端信息架构（本次同步）；parity spec §3 → **符合**：只动可见文字与图形，href / id / 面板 / 权限闸门不变；锁死文案的测试与文档显式同步（非偷改）→ 下一步以 typecheck / build / vitest `sidebarNav` / 管理端 E2E 取证。
+- **限制**：「工单治理」「治理日常」（aria）「治理审计切片」等同词不同物不改；`docs/ontop/智能体-清单与定义.md`（非规范研究笔记）未随改。
+
+## ADR-2026-10-04（二）：账户块头像端到端——`/api/me` 补 `avatar_url`，全员经组织人员关联解析
+
+- **状态**：已接受（用户 2026-10-04 要求「左侧底部面板头像从员工信息表读取真实头像；所有的员工登录都取头像」）
+- **决定者**：用户（产品发起人）；后端专家负责接口补全，UI/UX 专家负责回退与呈现（不变）。
+- **背景**：445ff0b（2026-10-03）已建立 `organization_people.avatar_url`、`avatarUrlForUser()` 与前端 `AccountBar` 图片分支，并声明「/api/auth/status、/api/me、/api/admin/users 均带 avatar_url」；实际 `GET /api/me` 未返回该字段，而侧栏会在延迟后用 `/api/me` 覆盖 AuthGate 账号，导致左下头像恒为首字母。
+- **决定**：`backend/src/routers/misc.ts` 的 `GET /api/me` 增加 `avatar_url: avatarUrlForUser(user.id)`（与 `auth.ts` `userPublic()`、`enterprise.ts` `safeUser()` 同口径）；前端不改（`AccountBar`、`styles.css`、`Account.avatar_url` 类型在 748e886 已就绪）。「所有员工」依赖既有组织人员关联（`organization_people.user_id` 为唯一权威）：已建库显式执行 `backend/scripts/org-registry-replay.ts --apply` 回填组织值，再执行 `import-org-accounts`（`npm run db:import:org-accounts -- --apply`）按工号邮箱精确匹配回填既有账号关联；两者均为既有工具与既有匹配规则。
+- **理由**：完成既有承诺而非新增能力；头像与 `person_ref` / `employee_no` 等共用同一 `user_id` 关联口径（不新增读取期推断规则）；无头像 / 未关联保持首字母回退。
+- **影响**：`backend/src/routers/misc.ts`、`backend/tests/enterprise-auth.test.ts`（`/api/me` 头像断言）；运行时数据按环境执行重放与账号导入（本次已在隔离 PG 验证库完整演练通过：重放 → 导入后 19/19 在册人员关联、18 张真实头像就位；目标环境按同一步骤执行）。
+- **审宪记录**：需求同上 → 主责 后端专家 + UI/UX 专家 → CONST-08 / CONST-10 → 细则：TECHNOLOGY.md 前后端实施与测试登记；`organization-tree` 运行时契约为既有实现 → **符合**：只读自身信息，不涉 L2/L3 闸门；不以文档或测试冒充完成（CONST-10），以接口断言与实机核验取证 → 下一步：开发库重放 → 导入账号关联 → 登录核验。
+- **限制**：不引入读取期的邮箱回退等新关联规则（关联规则变更须由责任角色另行裁定）；员工头像的写入接口（上传 / 编辑）不存在，属另立需求；Postgres 基线与 auth-disabled / Postgres-only 部署形态的侧栏可见性按部署环境另行核实。

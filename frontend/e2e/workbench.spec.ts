@@ -3206,7 +3206,7 @@ test("docs/org-permissions.md admin agents governance is reachable from admin ch
   await page.locator("[data-admin-nav='agents']").click();
   await expect(page).toHaveURL(/\/admin\/agents$/);
   await expect(page.locator("[data-admin-page='agents']")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "数字员工治理" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agent 列表" })).toBeVisible();
   await expect(page.locator("[data-admin-nav='agents']")).toHaveClass(/active/);
   await expect(page.locator("[data-admin-tab='agents']")).toHaveClass(/active/);
 });
@@ -3218,7 +3218,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "连接", "知识", "审批", "技能", "考试", "治理", "数据", "成本", "配置",
+    "员工", "工作战报", "连接", "知识", "审批", "技能", "考试", "Agent", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
   ]);
   await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
   await expect(page.locator(".admin-header")).toHaveCount(0);
@@ -3268,11 +3268,11 @@ test("admin left menu replicates the employee sidebar shell", async ({ page }) =
   await expect(rail.locator(".sidebar-head [data-sidebar-brand]")).toBeVisible();
   await expect(rail.locator(".sidebar-head .sidebar-lucas img")).toHaveAttribute("src", /Lucas6\.webp$/);
   await expect(rail.locator(".sidebar-foot [data-account-bar]")).toBeVisible();
-  // 只换菜单文字：管理端 10 条，员工开工条目 0 条。
-  await expect(rail.locator("[data-admin-nav]")).toHaveCount(10);
+  // 只换菜单文字：管理端 14 条，员工开工条目 0 条。
+  await expect(rail.locator("[data-admin-nav]")).toHaveCount(14);
   await expect(rail.locator("[data-nav='new-task'], [data-nav='running'], [data-nav='cron'], [data-nav='mail']")).toHaveCount(0);
   // 同解剖：18px 描边图标 + 标签；分簇靠分隔线，不用可见组标题。
-  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(10);
+  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(14);
   await expect(rail.locator("nav.nav-group")).toHaveCount(5);
   await expect(rail.locator(".nav-group > h2, .nav-group > .nav-group-title")).toHaveCount(0);
   const clusterBorder = await rail.locator("nav.nav-group").nth(1).evaluate((el) => getComputedStyle(el).borderTopWidth);
@@ -3471,6 +3471,19 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await page.goto("/admin/starry");
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
+});
+
+test("account bar renders the avatar image when the session payload carries avatar_url", async ({ page }) => {
+  await page.route("**/api/me", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...body, avatar_url: "/avatars/employees/yan_chen.png" } });
+  });
+  await page.goto("/");
+  const avatar = page.locator(".sidebar .account-avatar [data-account-avatar]");
+  await expect(avatar).toBeVisible();
+  await expect(avatar).toHaveAttribute("src", "/avatars/employees/yan_chen.png");
+  await expect(avatar).toHaveAttribute("alt", "");
 });
 
 test("settings delete memory uses L3 confirm and keeps a durable receipt", async ({ page }) => {
