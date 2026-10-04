@@ -55,4 +55,5 @@ Go4x4 新读取原文为 `@go4x4media•1.94M subscribers•207 videos`，解析
 - 严格解析离线4例通过；线上源码隔离副本的原有 YouTube / writer / loader 回归及新增 client→core→writer→loader 证据链共31例通过，没有真实网络或采集。
 - 后端 typecheck、生产契约校验及前端构建通过；发现入口 E2E 7例通过（夹具，包括旧值4不判低于门槛）。解析离线回归加入发布 CI。
 - 外部 MediaCrawler 补丁已应用，四文件原文保存在相邻 `.tcw-backup`，未重启 MCP。它不属于本仓库 Git 部署；今后采集器更新须核对上述 SHA，避免覆盖补丁。恢复时只回退这四个源码文件，先确认无采集任务，不修改既有结果文件。
-- 平台本轮来源展示及旧值保护纳入发布，是否已上线以本轮质量修复提交的发布流水线及 `/api/version` 回执为准。真实空结果、真实进程恢复/未知回执演练及完整设备矩阵仍待验证，P1 保持 `in_progress`；P2–P5 未开始。
+- 平台来源展示及旧值保护已随 main `a19aa25` 上线；[流水线37211898652](https://github.com/zhiyuan1984/KOL/actions/runs/37211898652)全量后端、前端、预发 E2E 与部署成功。API 启动时间 `2026-10-04T15:28:41.314Z`，生产 HEAD、服务、迁移与前端资源一致，见[生产核验回执](evidence/task-collaboration-workbench-p1-quality-production-20261004.json)。
+- 后续进程恢复与交互验证见[恢复记录](task-collaboration-workbench-p1-recovery.md)。真实空结果、外部故障/接管恢复、完整无障碍与生产浏览器验收仍未完成；P1 保持 `in_progress`，P2–P5 未开始。

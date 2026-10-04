@@ -1,0 +1,89 @@
+{
+  "checked_at": "2026-10-04T15:30:00.468Z",
+  "expected_revision": "a19aa25765ec3a993feb83f93861893cb7ba9699",
+  "production_revision": "a19aa25765ec3a993feb83f93861893cb7ba9699",
+  "version": {
+    "version": "a19aa25",
+    "started_at": "2026-10-04T15:28:41.314Z"
+  },
+  "health_http_status": 200,
+  "services": [
+    {
+      "name": "lingong",
+      "state": "active",
+      "started_at": "Sun 2026-10-04 23:28:38 CST"
+    },
+    {
+      "name": "lingong-execution-worker@1",
+      "state": "active",
+      "started_at": "Sun 2026-10-04 23:27:32 CST"
+    },
+    {
+      "name": "lingong-execution-worker@2",
+      "state": "active",
+      "started_at": "Sun 2026-10-04 23:27:32 CST"
+    },
+    {
+      "name": "lingong-outbox",
+      "state": "active",
+      "started_at": "Sun 2026-10-04 23:27:32 CST"
+    }
+  ],
+  "migration": {
+    "id": "20261004_discovery_results",
+    "applied_at": "2026-10-04T14:16:34.043Z"
+  },
+  "active_execution_jobs": [],
+  "frontend_html_matches": true,
+  "assets": [
+    {
+      "url": "/assets/index-DXoaiGOT.js",
+      "matches": true,
+      "sha256": "65f100594ed2515d5790c3f4d230fd56a17a190541f3104a9d9d1dd76e3ce924"
+    },
+    {
+      "url": "/assets/vendor-Hdrrd06K.js",
+      "matches": true,
+      "sha256": "200c44873cbcfc5ba3ee4cb8d21b4f09964c90c44b4e61f819a375868206f397"
+    },
+    {
+      "url": "/assets/markdown-DntZjU2g.js",
+      "matches": true,
+      "sha256": "02a249ca98310c37fb09101fe02d14c5ceed63b7fbcb10496bd08ce1e390c865"
+    },
+    {
+      "url": "/assets/index-6Is-CAHX.css",
+      "matches": true,
+      "sha256": "9d10617c8e26d0d0cd007b6b2a70dd13160c14c2d9e1c49df2d1581af16a854d"
+    }
+  ],
+  "external_crawler_patch": [
+    {
+      "file": "media_platform/youtube/help.py",
+      "matches": true,
+      "backup_exists": true
+    },
+    {
+      "file": "media_platform/youtube/client.py",
+      "matches": true,
+      "backup_exists": true
+    },
+    {
+      "file": "media_platform/youtube/core.py",
+      "matches": true,
+      "backup_exists": true
+    },
+    {
+      "file": "tools/standard_creator_writer.py",
+      "matches": true,
+      "backup_exists": true
+    }
+  ],
+  "tracked_changes": false,
+  "workflow": "https://github.com/zhiyuan1984/KOL/actions/runs/37211898652",
+  "limits": [
+    "Real empty result was not observed in the two authorized searches",
+    "Production authenticated browser and complete device acceptance not verified",
+    "P1 exceptional-path and actual recovery rehearsal remain incomplete"
+  ]
+}

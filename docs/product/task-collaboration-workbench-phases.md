@@ -348,7 +348,7 @@ Agent、Skill、规则、schema、连接器配置版本
 | 交付项 | 状态 | 已有证据 | 尚未完成 |
 |---|---|---|---|
 | PRD 与 Phase 计划 | 设计稿已落盘 | 本文、配套 PRD、文档链接/引用检查 | 业务与技术实施时继续细化契约 |
-| P1 | in_progress | 入口/现场/契约、候选持久读取与分析上下文已实施；远端任务级接口已只读核验；[本地回归与证据](task-collaboration-workbench-p1-evidence.md) | 已验证一次授权采集与真实分析；仍待订阅数质量、真实异常/空结果、设备矩阵、发布回滚验收 |
+| P1 | in_progress | 入口/现场/契约、候选持久读取与分析上下文已实施；main a19aa25 已部署；三次授权采集、来源修复及真实分析见[质量记录](task-collaboration-workbench-p1-quality.md)；本平台子进程恢复3例、尺寸交互及小屏确认25例见[恢复记录](task-collaboration-workbench-p1-recovery.md) | 真实空结果、外部异常/接管、实际恢复演练、完整无障碍及生产浏览器验证；本轮交互修正待自身发布门禁 |
 | P2 | not_started | 现有邮件/快照/网关可复用 | P2-D1–D6、AT-07–12 |
 | P3 | not_started | 现有审批/工单资产可复用 | P3-D1–D6、AT-13–17 |
 | P4 | not_started | 既有业务条款与阶段规则 | 完整归属口径、P4-D1–D6、AT-18–23 |

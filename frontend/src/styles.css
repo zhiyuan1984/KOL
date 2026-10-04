@@ -15571,5 +15571,30 @@ button.today-brief-primary-btn:disabled {
 .task-center-system-toggle small { margin-top: 2px; color: var(--text-muted); font-size: var(--ds-font-helper, 12px); }
 .task-center-system-toggle > span:last-child { color: var(--accent-text); font-size: var(--ds-font-sm, 13px); white-space: nowrap; }
 .task-center-system-body { margin-top: var(--space-4, 16px); }
+/* DESIGN §4/11: enlarge touch hit areas independently from visual controls.
+   Reserve space between chips so the transparent targets cannot overlap. */
+:root { --touch-hit-min: 44px; }
+@media (pointer: coarse) {
+  [data-discovery-search-card] button[data-discovery-chip],
+  [data-ai-prompt-submit],
+  [data-session-back-link],
+  [data-runtime-actions] button,
+  [data-discovery-results] button {
+    position: relative;
+  }
+  [data-discovery-search-card] button[data-discovery-chip] {
+    margin-block: var(--space-2);
+  }
+  :is([data-discovery-search-card] button[data-discovery-chip], [data-ai-prompt-submit],
+    [data-session-back-link], [data-runtime-actions] button, [data-discovery-results] button)::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--touch-hit-min));
+    height: max(100%, var(--touch-hit-min));
+    transform: translate(-50%, -50%);
+  }
+}
 @media (max-width: 980px) { .task-work-order-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .task-work-order-kpis { grid-template-columns: 1fr; } .task-work-order-kpis article { padding: 10px; } }
