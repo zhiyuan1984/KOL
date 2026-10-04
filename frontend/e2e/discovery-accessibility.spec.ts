@@ -2,14 +2,20 @@ import { expect, test, type Locator } from "@playwright/test";
 
 async function fullyVisible(control: Locator) {
   await expect(control).toBeVisible();
-  await expect.poll(() => control.evaluate(element => {
+  const measure = () => control.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
     return { fullyVisible: rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth && !!hit && element.contains(hit),
       rect: rect.toJSON(), viewport: { width: innerWidth, height: innerHeight },
       hit: hit ? { tag: hit.tagName, className: hit.className } : null,
       focused: document.activeElement === element };
-  })).toMatchObject({ fullyVisible: true });
+  });
+  try {
+    await expect.poll(measure).toMatchObject({ fullyVisible: true });
+  } catch (error) {
+    await control.page().screenshot({ path: test.info().outputPath("geometry-failure.png") });
+    throw new Error(`Control geometry: ${JSON.stringify(await measure())}`, { cause: error });
+  }
 }
 async function touchHitArea(control: Locator) {
   await control.scrollIntoViewIfNeeded();
