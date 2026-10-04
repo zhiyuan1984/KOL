@@ -10,11 +10,13 @@ import { createConnectorOperationsRouter } from "../src/routers/connector-operat
 import type { Json } from "../src/types.js";
 import { publishFixtureSkills } from "./helpers/skill-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { createCredential } from "../src/runtime/credentials.js";
+import { getToolPolicy, setToolPolicy } from "../src/runtime/store.js";
 
 const CONNECTOR = "starrykol";
 const SKILL = "declared_fixture";
 const DEFINED_SKILL = "declared_defined_fixture";
-/** 探针目录：L1 读取、L2 预览、两个发布名单里的 L3（策略自动登记为禁用）。 */
+/** 探针目录：L1 读取、L2 预览，以及由管理员显式停用的两个 L3 工具。 */
 const PROBE_TOOLS: Json[] = [
   { name: "pageKolProfiles", inputSchema: { type: "object" } },
   { name: "previewEmailDraft", inputSchema: { type: "object" } },
@@ -28,6 +30,8 @@ const UNKNOWN_CONNECTOR = { tool_name: "get_collaboration", reason: "unknown_con
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
+let previousMasterKey: string | undefined;
+const numericEnabled = (row: any) => ({ ...row, enabled: Number(row?.enabled) });
 
 type ApiResult = { status: number; body: Record<string, any> };
 
@@ -88,6 +92,8 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
   process.env.NODE_ENV = "test";
+  previousMasterKey = process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+  process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "34".repeat(32);
   // 夹具技能只能经数据目录下的 published-skills 进入 taskDefinitions。
   publishFixtureSkills(tmp, [SKILL, DEFINED_SKILL]);
   resetConn();
@@ -102,13 +108,19 @@ beforeEach(async () => {
   adminCookie = setup.headers.get("set-cookie")?.split(";")[0] || "";
   expect(adminCookie).toBeTruthy();
 
+  const credential = createCredential({ type: "organization_secret", secret: "mount-test-key" }, "admin");
   const config = await call("PUT", `/api/admin/runtime/connectors/${CONNECTOR}/config`, {
     url: "https://mcp.example.test/streamable",
-    allow_unauthenticated: true,
+    headers_secret_refs: { "X-MCP-API-KEY": credential.id },
     expected_version: 0,
   });
   expect(config.status, JSON.stringify(config.body)).toBe(200);
   await probeConnector();
+  for (const name of ["decryptKolContact", "sendEmailNow"]) {
+    const policy = getToolPolicy(CONNECTOR, name)!;
+    expect(policy).toMatchObject({ risk: "L3", access: "write" });
+    setToolPolicy(CONNECTOR, name, { enabled: false, risk: "L3", access: "write", schema_hash: String(policy.schema_hash) }, Number(policy.version));
+  }
 
   // 夹具技能上线：Agent 绑定走真实路由，发布阶段直接写生命周期表（阶段流转自带前后置条件）。
   const bound = await call("PUT", `/api/admin/runtime/agents/agent:kol/skills/${SKILL}`, {
@@ -120,6 +132,8 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  if (previousMasterKey === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+  else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previousMasterKey;
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
@@ -165,11 +179,11 @@ describe("skill coverage over declared MCP tools", () => {
     expect(legacy).not.toHaveProperty("connector_label");
     expect(all.body.connectors.map((connector: Record<string, unknown>) => connector.id)).not.toContain("starry");
 
-    // 探针登记的 L3 目录行保持禁用，覆盖率不得把它算作可挂载。
+    // 管理员显式禁用的 L3 目录行，覆盖率不得把它算作可挂载。
     const disabled = getConn().prepare(
       "SELECT risk,enabled FROM runtime_tool_policies WHERE connector_id=? AND tool_name='sendEmailNow'",
     ).get(CONNECTOR);
-    expect(disabled).toMatchObject({ risk: "L3", enabled: 0 });
+    expect(numericEnabled(disabled)).toMatchObject({ risk: "L3", enabled: 0 });
   });
 
   it("mounts declared tools, skips the rest, stays idempotent, then opens the enable gate", async () => {
@@ -198,20 +212,20 @@ describe("skill coverage over declared MCP tools", () => {
       }],
     });
 
-    expect(getConn().prepare(
+    expect(numericEnabled(getConn().prepare(
       "SELECT enabled FROM runtime_skill_connectors WHERE skill_id=? AND connector_id=?",
-    ).get(SKILL, CONNECTOR)).toMatchObject({ enabled: 1 });
+    ).get(SKILL, CONNECTOR))).toMatchObject({ enabled: 1 });
     expect(getConn().prepare(
       "SELECT tool_name,enabled FROM runtime_skill_tools WHERE skill_id=? AND connector_id=? ORDER BY tool_name",
-    ).all(SKILL, CONNECTOR)).toEqual([
+    ).all(SKILL, CONNECTOR).map(numericEnabled)).toEqual([
       { tool_name: "pageKolProfiles", enabled: 1 },
       { tool_name: "previewEmailDraft", enabled: 1 },
     ]);
     // 挂载不放行策略行，也不启用连接器本体。
-    expect(getConn().prepare(
+    expect(numericEnabled(getConn().prepare(
       "SELECT enabled FROM runtime_tool_policies WHERE connector_id=? AND tool_name='decryptKolContact'",
-    ).get(CONNECTOR)).toMatchObject({ enabled: 0 });
-    expect(getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(CONNECTOR)).toMatchObject({ enabled: 0 });
+    ).get(CONNECTOR))).toMatchObject({ enabled: 0 });
+    expect(numericEnabled(getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(CONNECTOR))).toMatchObject({ enabled: 0 });
 
     const events = getConn().prepare(
       "SELECT event_type,payload FROM audit_events WHERE event_type='runtime.skill_mount.declared' ORDER BY id",

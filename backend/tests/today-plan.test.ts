@@ -10,8 +10,9 @@ import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.js";
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
-import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot } from "../src/host/today-plan-run.js";
+import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot, executeClaimedPlanningJob } from "../src/host/today-plan-run.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
+import { runtimeClaimExecutionJobById } from "../src/execution-jobs/runtime-store.js";
 import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
@@ -24,6 +25,13 @@ import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
+
+// Test the retained adapter explicitly; production dispatch quarantines these retired jobs.
+async function executeRetiredPlanningAdapter(id: string, workerId: string) {
+  const claimed = await runtimeClaimExecutionJobById(id, workerId);
+  expect(claimed).toBeTruthy();
+  return executeClaimedPlanningJob(claimed!);
+}
 
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
@@ -450,7 +458,7 @@ describe("today_plan harness", () => {
     }
   });
 
-  it("POST today-brief/enqueue creates a session then leaves model execution to the durable worker", async () => {
+  it("POST today-brief/enqueue persists a session usable by the retained planning adapter", async () => {
     const run = vi.spyOn(runner, "runWorker");
     const beforeSessions = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
     const res = await request("POST", "/api/home/today-brief/enqueue", { objects: [] });
@@ -462,9 +470,18 @@ describe("today_plan harness", () => {
     expect(res.body.session_id).toBeTruthy();
     expect(res.body.execution_job_id).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
-    await processExecutionJobById(String(res.body.execution_job_id), "test-analysis-worker");
+    await executeRetiredPlanningAdapter(String(res.body.execution_job_id), "test-analysis-worker");
     expect(run).toHaveBeenCalled();
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions + 1);
+  });
+
+  it("production dispatch marks retired planning jobs for takeover without calling the model", async () => {
+    const run = vi.spyOn(runner, "runWorker");
+    const queued = await request("POST", "/api/home/today-brief/enqueue", { objects: [] });
+    expect(queued.status).toBe(202);
+    const result = await processExecutionJobById(String(queued.body.execution_job_id), "test-production-worker");
+    expect(result).toMatchObject({ handled: false, outcome: "needs_takeover" });
+    expect(run).not.toHaveBeenCalled();
   });
 
   describe.each(["today", "todo"] as const)("mid events and open-todo listing (%s)", (scope) => {
@@ -482,7 +499,7 @@ describe("today_plan harness", () => {
       vi.spyOn(runner, "runWorker").mockReturnValue(held);
       const plan = await request("POST", planPath);
       expect([200, 202]).toContain(plan.status);
-      const processor = processExecutionJobById(String(plan.body.execution_job_id), "test-plan-worker");
+      const processor = executeRetiredPlanningAdapter(String(plan.body.execution_job_id), "test-plan-worker");
       await vi.waitFor(() => expect(runner.runWorker).toHaveBeenCalled());
       const mid = await request("GET", briefPath);
       expect(mid.body.planning).toBe(true);
@@ -719,7 +736,7 @@ describe("plan trace rows", () => {
     });
     const plan = await request("POST", "/api/home/today-brief/plan");
     expect([200, 202]).toContain(plan.status);
-    void processExecutionJobById(String(plan.body.execution_job_id), "test-trace-worker");
+    await executeRetiredPlanningAdapter(String(plan.body.execution_job_id), "test-trace-worker");
     const workItemId = String(plan.body.work_item_id);
     const rowFor = (eventType: string) =>
       getConn().prepare(

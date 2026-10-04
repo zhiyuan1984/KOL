@@ -177,7 +177,10 @@ jobs:
           # The PostgreSQL authority is long-lived, so new tables/indexes must
           # be applied explicitly before the API starts querying them.
           bash scripts/apply-postgres-schema.sh
-          sudo -n systemctl restart lingong
+          # The new crawler.results handler must be loaded before the API can
+          # enqueue it. Keep workers and the API on the same verified revision.
+          sudo -n systemctl restart lingong-execution-worker@1 lingong-execution-worker@2 lingong-outbox
+          bash scripts/deploy.sh
           REMOTE
 
       - name: Verify deployed revision
