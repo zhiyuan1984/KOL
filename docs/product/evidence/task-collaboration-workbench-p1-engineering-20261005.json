@@ -1,14 +1,33 @@
 {
   "date": "2026-10-05",
   "branch": "codex/task-collaboration-p1-release",
-  "phase_status": { "P1": "in_progress", "P2": "not_started", "P3": "not_started", "P4": "not_started", "P5": "not_started" },
-  "production_deployed_by_this_continuation": false,
+  "phase_status": {
+    "P1": "in_progress",
+    "P2": "not_started",
+    "P3": "not_started",
+    "P4": "not_started",
+    "P5": "not_started"
+  },
+  "production_deployed_by_this_continuation": true,
   "real_external_crawls_started_by_this_continuation": 0,
   "backend_related_regression": {
     "environment": "Windows, isolated PostgreSQL and local MCP protocol fixture",
-    "after_merging_main_2307930": { "passed": 61, "failed": 0 },
-    "after_merging_main_c2feaa8_progress_tests": { "passed": 13, "failed": 0 },
-    "full_release_suite_for_final_branch": "pending",
+    "after_merging_main_2307930": {
+      "passed": 61,
+      "failed": 0
+    },
+    "after_merging_main_c2feaa8_progress_tests": {
+      "passed": 13,
+      "failed": 0
+    },
+    "full_release_suite_for_final_branch": {
+      "environment": "Linux CI PostgreSQL 18",
+      "revision": "375bf5a56d3b2be8280b0eeb66f86f4dcca78203",
+      "passed": 1585,
+      "skipped": 27,
+      "failed": 0,
+      "run_id": 37241280145
+    },
     "typecheck": "passed",
     "production_contract_validation": "passed before final frontend-only changes",
     "scope_note": "Counts belong to separate runs with overlapping tests; not a combined full-suite count or real external acceptance."
@@ -17,8 +36,18 @@
     "revision": "e19df15",
     "compiled_application_revision": "053b1f1",
     "environment": "Linux staging, isolated PostgreSQL, stub, Chromium, one worker",
-    "runtime_config": { "passed": 26, "failed": 0, "retried": 0, "duration": "1.8m" },
-    "other_release_specs": { "passed": 21, "failed": 0, "retried": 0, "duration": "54.9s" },
+    "runtime_config": {
+      "passed": 26,
+      "failed": 0,
+      "retried": 0,
+      "duration": "1.8m"
+    },
+    "other_release_specs": {
+      "passed": 21,
+      "failed": 0,
+      "retried": 0,
+      "duration": "54.9s"
+    },
     "total": 47,
     "scope_note": "Subsequent revisions changed only tests and review records; no real external actions."
   },
@@ -40,22 +69,79 @@
     "includes_context_growth_and_manual_reading": true
   },
   "superseded_failures_preserved": [
-    { "revision": "345c671", "passed": 25, "failed": 1, "reason": "route.fetch lifecycle competing with reload" },
-    { "revision": "721b0f1", "passed": 24, "failed": 2, "reason": "old status-text assertions after merging main" },
-    { "revision": "6d900c2", "passed": 25, "failed": 1, "reason": "navigation and task-view assertion timeout" },
-    { "revision": "2b54303", "first_pass": 25, "passed_after_retry": 1, "reason": "keyboard control outside viewport" },
-    { "revision": "962201f", "passed": 11, "failed": 1, "retries_configured": 0, "reason": "polling geometry alone did not fix control position" },
-    { "revision": "e27b34d", "passed": 3, "failed": 2, "reason": "focused control top 881, bottom 913, viewport height 589, hit null" }
+    {
+      "revision": "345c671",
+      "passed": 25,
+      "failed": 1,
+      "reason": "route.fetch lifecycle competing with reload"
+    },
+    {
+      "revision": "721b0f1",
+      "passed": 24,
+      "failed": 2,
+      "reason": "old status-text assertions after merging main"
+    },
+    {
+      "revision": "6d900c2",
+      "passed": 25,
+      "failed": 1,
+      "reason": "navigation and task-view assertion timeout"
+    },
+    {
+      "revision": "2b54303",
+      "first_pass": 25,
+      "passed_after_retry": 1,
+      "reason": "keyboard control outside viewport"
+    },
+    {
+      "revision": "962201f",
+      "passed": 11,
+      "failed": 1,
+      "retries_configured": 0,
+      "reason": "polling geometry alone did not fix control position"
+    },
+    {
+      "revision": "e27b34d",
+      "passed": 3,
+      "failed": 2,
+      "reason": "focused control top 881, bottom 913, viewport height 589, hit null"
+    }
   ],
-  "remaining_release_dependencies": [
-    "Full backend release gate for the final branch",
-    "Main integration and production verification"
-  ],
+  "remaining_release_dependencies": [],
   "portrait_markdown_dependency": {
     "required": false,
     "user_decision": "2026-10-05: 根本就不需要这个表，继续吧",
     "change": "Removed obsolete portrait row-count/name checks; remaining offline mailbox/SOP validation is conditional on source directory presence, matching CI/deployment."
   },
-  "pull_request": { "created": false, "connector_error": "403 Resource not accessible by integration" },
-  "cleanup": { "local_temporary_postgres": "stopped", "isolated_e2e_servers": "exited with test runners" }
+  "pull_request": {
+    "created": false,
+    "connector_error": "403 Resource not accessible by integration"
+  },
+  "cleanup": {
+    "local_temporary_postgres": "stopped",
+    "interrupted_worker_databases_removed": 22,
+    "isolated_e2e_servers": "exited with test runners"
+  },
+  "remaining_phase_acceptance": [
+    "Real empty-result acceptance",
+    "Authorized external abnormal/unknown receipt and manual takeover recovery",
+    "Native 200% zoom, real screen reader, full semantic contrast, streamed scrolling, production authenticated browser acceptance"
+  ],
+  "final_production_release": {
+    "revision": "375bf5a56d3b2be8280b0eeb66f86f4dcca78203",
+    "evidence": "task-collaboration-workbench-p1-production-20261005.json",
+    "frontend": {
+      "runtime_first_pass": 26,
+      "other_first_pass": 20,
+      "other_pass_after_retry": 1,
+      "failed_final": 0
+    }
+  },
+  "local_full_suite_continuation": {
+    "completed_files": 3,
+    "completed_tests_passed": 127,
+    "full_suite_completed": false,
+    "reason_stopped": "Full Linux CI suite passed; supplemental Windows run stopped and its own test databases cleaned",
+    "invalid_initial_run": "Temporary PostgreSQL default port did not match test port; discarded before corrected rerun"
+  }
 }

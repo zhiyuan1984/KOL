@@ -1,0 +1,92 @@
+{
+  "at": "2026-10-04T23:08:58.725Z",
+  "expected_revision": "375bf5a56d3b2be8280b0eeb66f86f4dcca78203",
+  "git_revision": "375bf5a56d3b2be8280b0eeb66f86f4dcca78203",
+  "api": {
+    "version": "375bf5a",
+    "started_at": "2026-10-04T23:06:21.228Z"
+  },
+  "asset_count": 44,
+  "asset_hash_mismatches": [],
+  "html_matches": true,
+  "services_all_active": true,
+  "service_metadata": "Id=lingong.service\nActiveState=active\nMainPID=357866\nExecMainStartTimestamp=Mon 2026-10-05 07:06:18 CST\n\nId=lingong-execution-worker@1.service\nActiveState=active\nMainPID=357570\nExecMainStartTimestamp=Mon 2026-10-05 07:05:15 CST\n\nId=lingong-execution-worker@2.service\nActiveState=active\nMainPID=357571\nExecMainStartTimestamp=Mon 2026-10-05 07:05:15 CST\n\nId=lingong-outbox.service\nActiveState=active\nMainPID=357569\nExecMainStartTimestamp=Mon 2026-10-05 07:05:15 CST\n",
+  "real_external_actions": 0,
+  "existing_receipts": {
+    "at": "2026-10-04T23:09:55.150Z",
+    "transaction_read_only": true,
+    "crawls": [
+      {
+        "id": "action_28683673-f162-4ca6-81be-bbd2269dc6ad",
+        "remote_task_id": "20261004233711_d0ba2ed4",
+        "state": "failed",
+        "result_state": "pending",
+        "error_code": "runtime_crawl_timeout",
+        "updated_at": "2026-10-04T16:52:03.626Z"
+      },
+      {
+        "id": "action_39656022-4359-4a1f-9990-365110fe141f",
+        "remote_task_id": "20261005005849_9fcf2f21",
+        "state": "succeeded",
+        "result_state": "ready",
+        "error_code": null,
+        "updated_at": "2026-10-04T17:07:38.179Z"
+      },
+      {
+        "id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f",
+        "remote_task_id": "20261005014123_06c69239",
+        "state": "succeeded",
+        "result_state": "ready",
+        "error_code": null,
+        "updated_at": "2026-10-04T17:54:59.826Z"
+      }
+    ],
+    "historical_job": [
+      {
+        "id": "job_390d56f9374b",
+        "status": "uncertain",
+        "error_code": "execution_handler_error"
+      }
+    ],
+    "historical_action": [
+      {
+        "id": "action_21d2ce71-7e45-4ae7-a245-11cfc0923ef0",
+        "state": "rejected",
+        "error_code": "runtime_probe_crawl_busy"
+      }
+    ],
+    "external_calls": 0
+  },
+  "release_gate": {
+    "run_id": 37241280145,
+    "url": "https://github.com/zhiyuan1984/KOL/actions/runs/37241280145",
+    "conclusion": "success",
+    "deploy_conclusion": "success",
+    "backend": {
+      "passed": 1585,
+      "skipped": 27,
+      "failed": 0,
+      "files_passed": 168,
+      "files_skipped": 8
+    },
+    "frontend": {
+      "runtime_first_pass": 26,
+      "other_first_pass": 20,
+      "other_pass_after_retry": 1,
+      "failed_final": 0
+    },
+    "flaky": {
+      "spec": "home-surface-failure.spec.ts:19",
+      "observed": "Expected HTTP 502 title, received HTML/JSON parse error on first run",
+      "root_cause": "not independently proven"
+    }
+  },
+  "predeploy_backup": {
+    "file": "/home/ecs-user/kol/backups/tcw-p1-predeploy-375bf5a-20261005.dump",
+    "bytes": 16161845,
+    "mode": "600",
+    "sha256": "d0d0af0af79ff617a70a95e1f9c037b2467e5c34c8d4d9dc430a5dc53de31b55",
+    "list_verified": true,
+    "restore_rehearsal": false
+  }
+}
