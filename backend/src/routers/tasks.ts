@@ -11,7 +11,8 @@ import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { isSkillTemplateSnapshot } from "../tasks/skill-template.js";
 import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
 import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, isTodoWorkItem, OPEN_WORK_ITEM_SQL, TODO_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, todayMembershipReasons, type TaskDefinitionIndex } from "../host/home-board.js";
-import { cachedPoll, pollEpoch } from "../host/response-cache.js";
+import { cachedPoll, cachedPollAsync, pollEpoch } from "../host/response-cache.js";
+import { postgresQuery } from "../postgres/pool.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
 import { FROM_TEXT_FORBIDDEN_TASK_TYPES } from "../gateway/discovery-harness.js";
@@ -113,21 +114,36 @@ function resolutionIssueFields(resolution: ReturnType<typeof resolveTaskIntent>)
   ])];
 }
 
-function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinitionIndex): Json {
+function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinitionIndex, listReads?: {
+  templates: Map<string, ReturnType<typeof skillTemplate>>;
+  discoveryRuns: Map<string, string>;
+  projects: Map<string, Row>;
+}): Json {
   const definition = definitions ? definitions.get(String(row.task_type)) : taskDefinition(String(row.task_type));
   const input = parseJson(row.input) as Json;
-  const template = isSkillTemplateSnapshot(input._skill_template, String(row.task_type))
-    ? input._skill_template : definition ? skillTemplate(definition) : null;
+  const templateId = String(row.task_type);
+  const fallbackTemplate = () => {
+    if (!definition) return null;
+    if (!listReads) return skillTemplate(definition);
+    if (!listReads.templates.has(templateId)) listReads.templates.set(templateId, skillTemplate(definition));
+    return listReads.templates.get(templateId)!;
+  };
+  const template = isSkillTemplateSnapshot(input._skill_template, templateId)
+    ? input._skill_template : fallbackTemplate();
   const { _skill_template: _internalTemplate, ...publicInput } = input;
   let project: string | null = collab?.display_name ? String(collab.display_name) : null;
-  if (!project && row.project_id && !collab) {
+  if (!project && row.project_id && !collab && listReads) {
+    project = String(listReads.projects.get(String(row.project_id))?.display_name || "") || null;
+  } else if (!project && row.project_id && !collab) {
     // Single-item paths only. List endpoints must pass the batched collab.
     const hit = getConn().prepare("SELECT display_name FROM collaborations WHERE id=?").get(row.project_id) as
       | { display_name?: string }
       | undefined;
     project = hit?.display_name || null;
   }
-  const discoveryRun = String(row.task_type) === "discovery_crawl"
+  const discoveryRun = listReads
+    ? { id: listReads.discoveryRuns.get(String(row.id)) }
+    : String(row.task_type) === "discovery_crawl"
     ? getConn().prepare(
       "SELECT id FROM discovery_runs WHERE work_item_id=? AND kind='home' ORDER BY created_at DESC LIMIT 1",
     ).get(row.id) as { id?: string } | undefined
@@ -186,16 +202,22 @@ function lastEventsByWorkItem(ids: string[]): Map<string, Row> {
  */
 export const MAX_LIST_HISTORY_EVENTS = 5;
 
-function eventsByWorkItem(ids: string[], max = MAX_LIST_HISTORY_EVENTS): Map<string, Row[]> {
+async function eventsByWorkItem(ids: string[], max = MAX_LIST_HISTORY_EVENTS): Promise<Map<string, Row[]>> {
   const map = new Map<string, Row[]>();
   if (!ids.length) return map;
-  const stmt = getConn().prepare(
-    `SELECT ${TASK_LIST_EVENT_COLUMNS.replaceAll("\n", " ")}
-     FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT ?`,
+  const rows = await postgresQuery<Row>(
+    `SELECT event.* FROM unnest($1::text[]) AS requested(id)
+     CROSS JOIN LATERAL (
+       SELECT ${TASK_LIST_EVENT_COLUMNS.replaceAll("?", "$2")}
+       FROM task_events WHERE work_item_id=requested.id ORDER BY sequence DESC LIMIT $3
+     ) AS event ORDER BY event.work_item_id, event.sequence`,
+    [ids, MAX_TASK_LIST_TEXT_CHARS, max],
   );
-  for (const id of ids) {
-    const rows = (stmt.all(MAX_TASK_LIST_TEXT_CHARS, MAX_TASK_LIST_TEXT_CHARS, id, max) as Row[]).reverse();
-    if (rows.length) map.set(id, rows);
+  for (const row of rows) {
+    const id = String(row.work_item_id);
+    const events = map.get(id) || [];
+    events.push(row);
+    map.set(id, events);
   }
   return map;
 }
@@ -896,7 +918,7 @@ tasks.get("/runs/:id", (c) => {
   return c.json({ ...taskRunView(run), ...meta, source_refs: ticketSourceRefs(ticket) });
 });
 
-tasks.get("/tasks", (c) => {
+tasks.get("/tasks", async (c) => {
   const view = String(c.req.query("view") || "");
   const openView = view === "open" || view === "todo" || view === "active";
   const clauses: string[] = [];
@@ -964,7 +986,7 @@ tasks.get("/tasks", (c) => {
   // This endpoint is polled every few seconds by every open tab, so an
   // unchanged data window is served from the 4s in-process cache.
   const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${c.req.query("status") || ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
-  const payload = cachedPoll(cacheKey, tasksEpoch(), () => {
+  const payload = await cachedPollAsync(cacheKey, tasksEpoch(), async () => {
     const definitions = taskDefinitionIndex();
     const total = paged || openView
       ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM tickets ${countWhere}`).get(...countValues) as { c: number }).c || 0)
@@ -983,16 +1005,27 @@ tasks.get("/tasks", (c) => {
     const rows = paged ? fetched.slice(0, limit) : fetched;
     const ids = rows.map((row) => String(row.id));
     const lastByTask = openView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
-    const eventsByTask = openView ? new Map<string, Row[]>() : eventsByWorkItem(ids);
-    const collabIds = [...new Set(rows.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))];
+    const eventsByTask = openView ? new Map<string, Row[]>() : await eventsByWorkItem(ids);
+    const collabIds = [...new Set(rows.flatMap((row) => [String(row.collaboration_id || ""), String(row.project_id || "")]).filter(Boolean))];
     const collabById = collabsByIds(collabIds);
+    const discoveryIds = rows.filter((row) => row.task_type === "discovery_crawl").map((row) => String(row.id));
+    const discoveryRows = discoveryIds.length ? await postgresQuery<Row>(
+      `SELECT DISTINCT ON (work_item_id) work_item_id, id FROM discovery_runs
+       WHERE work_item_id=ANY($1::text[]) AND kind='home' ORDER BY work_item_id, created_at DESC`,
+      [discoveryIds],
+    ) : [];
+    const listReads = {
+      templates: new Map<string, ReturnType<typeof skillTemplate>>(),
+      discoveryRuns: new Map(discoveryRows.map((row) => [String(row.work_item_id), String(row.id)])),
+      projects: collabById,
+    };
     const list = rows.map((row) => {
       const collab = collabById.get(String(row.collaboration_id || row.project_id || ""));
       const events = openView
         ? (lastByTask.get(String(row.id)) ? [eventView(lastByTask.get(String(row.id))!)] : [])
         : (eventsByTask.get(String(row.id)) || []).map(eventView);
       return decorateTaskFromCollab({
-        ...publicWorkItem(row, collab, definitions),
+        ...publicWorkItem(row, collab, definitions, listReads),
         ...(openView ? {} : { history: events }),
         history_summary: historySummary(events),
       }, collab);
