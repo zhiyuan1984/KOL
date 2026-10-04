@@ -1633,6 +1633,7 @@ export type Message = {
 export type TraceStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
 export type ProcessTraceItem = {
+  observed_at?: string;
   id?: string;
   label?: string;
   title?: string;
@@ -1645,6 +1646,7 @@ export type ProcessTraceItem = {
 };
 
 export type OperationTraceItem = {
+  observed_at?: string;
   id?: string;
   label?: string;
   tool_label?: string;

@@ -9,7 +9,7 @@ const task = { id: "presentation-task", session_id: "presentation-session", titl
     kind: "discovery", version: 1, agent_id: "lead", profile: "lead", brief, template, submitted_text: "发现露营线索",
   } } };
 
-async function intercept(page: Page, taskDelay = 0) {
+async function intercept(page: Page, taskDelay = 0, settled = false) {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/**", async route => {
@@ -25,11 +25,16 @@ async function intercept(page: Page, taskDelay = 0) {
       if (taskDelay) await new Promise(resolve => setTimeout(resolve, taskDelay));
       json = { task };
     } else if (path === "/api/queries/runtime.actions") json = { actions: [{
-      id: "presentation-action", skill_id: "crawler_collect", operation: "start_crawl", risk: "L3", state: "pending",
+      id: "presentation-action", skill_id: "crawler_collect", operation: "start_crawl", risk: "L3", state: settled ? "succeeded" : "pending",
+      receipt: settled ? { task_id: "remote-task", accepted: true } : null,
       confirmation_version: "v1", arguments: { platforms: ["youtube"], keywords: "camping,portable power station",
         crawler_type: "search", enable_comments: false, enable_sub_comments: false },
     }] };
     else if (path === `/api/sessions/${task.session_id}`) json = { agent_status: "listening", messages: [
+      { id: "steps", kind: "process_trace", payload: { title: "快照核对", items: [
+        { id: "snapshot", label: "快照完整性已确认", status: "done", observed_at: "2026-10-05T01:02:03Z" },
+        { id: "legacy", label: "历史核对步骤", status: "done" },
+      ] } },
       { id: "review", kind: "text", payload: { text: "### 审宪与权限结论\n\n符合本轮授权：主责为线索发现；仅提出 L3 受控采集确认。\n\n### 下一步\n\n请核对确认卡。" } },
       { id: "conflict", kind: "text", payload: { text: "### 审宪与权限结论\n\n权限冲突：无法访问该对象，请核对当前范围。" } },
       ...Array.from({ length: 20 }, (_, i) => ({
@@ -129,3 +134,19 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
     await page.screenshot({ path: info.outputPath("discovery-presentation.png") });
   });
 }
+
+test("submitted collection is compact and steps show only recorded times", async ({ page }) => {
+  await intercept(page, 0, true);
+  await page.goto(`/s/${task.session_id}`);
+  const card = page.locator('.runtime-action-card');
+  await expect(card).toContainText('采集请求已提交');
+  await expect(card).toContainText('需确认执行（L3）');
+  await expect(card).not.toContainText('已取得回执');
+  await expect(card.locator('.runtime-action-summary')).not.toBeVisible();
+  await expect(card.getByText('查看回执')).toBeVisible();
+  const trace = page.locator('[data-kind=process-trace]');
+  await expect(trace.locator('time')).toHaveAttribute('datetime', '2026-10-05T01:02:03Z');
+  await expect(trace).toContainText('时间未记录');
+  await card.locator('.runtime-action-scope > summary').click();
+  await expect(card.locator('.runtime-action-summary')).toBeVisible();
+});

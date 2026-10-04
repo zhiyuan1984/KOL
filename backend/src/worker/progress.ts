@@ -21,6 +21,7 @@ export const REMOTE_MCP_TITLE = "远程MCP调用";
 export const REASONING_STREAM_LIMIT = 4000;
 
 export type WorkerTraceItem = {
+  observed_at?: string;
   id: string;
   label: string;
   status: "running" | "done" | "failed" | "interrupted";
@@ -279,9 +280,9 @@ export function preferHostOperations(live: Json[], host: Json[]): Json[] {
 }
 
 export function upsertOperationItem(
-  items: { id: string; name: string; label: string; status: string }[],
+  items: { id: string; name: string; label: string; status: string; observed_at?: string }[],
   next: WorkerOperation,
-): { id: string; name: string; label: string; status: string }[] {
+): { id: string; name: string; label: string; status: string; observed_at?: string }[] {
   const name = qualifiedMcpName(next);
   const id = String(next.id || name);
   const row = {
@@ -296,7 +297,7 @@ export function upsertOperationItem(
     copy[index] = { ...items[index], ...row };
     return copy;
   }
-  return [...items, row];
+  return [...items, { ...row, observed_at: new Date().toISOString() }];
 }
 
 export function upsertProcessItem(items: WorkerTraceItem[], next: WorkerTraceItem): WorkerTraceItem[] {
@@ -308,7 +309,7 @@ export function upsertProcessItem(items: WorkerTraceItem[], next: WorkerTraceIte
     copy[index] = merged;
     return copy;
   }
-  return [...items, next];
+  return [...items, { ...next, observed_at: next.observed_at || new Date().toISOString() }];
 }
 
 export function applyHostPhase(items: WorkerTraceItem[], phase: WorkerPhase): WorkerTraceItem[] {

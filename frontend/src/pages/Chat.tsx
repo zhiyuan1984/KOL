@@ -319,6 +319,7 @@ function safeCrawlEventMessages(taskId: string, events: TaskEvent[], job: CrawlJ
     seenStatuses.add(status);
     return [{
       label: employeeProcessLabel(CRAWL_PROGRESS[status] || "远程采集状态已更新"),
+      observed_at: event.created_at,
       status: status === "error" ? "failed" : status === "result_ready" || status === "stopped" ? "done" : "running",
     }];
   });
@@ -348,6 +349,7 @@ function safeCrawlOperationMessages(taskId: string, events: TaskEvent[]): Messag
       label: employeeProcessLabel(String(payload.label || event.summary || name)),
       status: String(payload.operation_status || event.status || "running"),
       summary: event.summary,
+      observed_at: event.created_at,
     });
   }
   if (!operations.size) return [];
@@ -405,7 +407,7 @@ function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
         kind: "process_trace",
         payload: {
           title: "任务进度",
-          phases: [{ label, status: event.status || "running", summary }],
+          phases: [{ label, status: event.status || "running", summary, observed_at: event.created_at }],
         },
         created_at: event.created_at || new Date().toISOString(),
       };

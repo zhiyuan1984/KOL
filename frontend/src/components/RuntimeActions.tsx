@@ -3,7 +3,7 @@ import { api, type RuntimeActionView } from "../api";
 
 const states: Record<string, string> = { pending: "待确认", dispatching: "正在提交；若长时间无回执，请核对远端结果，不要重复提交",
   queued: "已确认，等待执行", running: "正在采集", starting: "正在启动", stopping: "正在停止", failed: "执行失败",
-  succeeded: "已取得回执", rejected: "未执行", uncertain: "结果待核实，不能重复提交", cancelled: "已取消" };
+  succeeded: "已执行", rejected: "未执行", uncertain: "结果待核实，不能重复提交", cancelled: "已取消" };
 
 const argumentLabels: Record<string, string> = {
   keywords: "关键词", platforms: "平台", platform: "平台", crawler_type: "采集方式",
@@ -18,6 +18,13 @@ function readableValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "未指定";
   if (typeof value === "object") return Object.entries(value).map(([key, child]) => `${argumentLabels[key] || key}：${readableValue(child)}`).join("；");
   return argumentValues[String(value)] || String(value);
+}
+
+function actionLabel(action: RuntimeActionView): string {
+  const operation = action.operation === "start_crawl" ? "采集线索" : action.operation === "stop_crawl" ? "停止采集" : "业务操作";
+  const state = action.execution && action.state === "pending" ? action.execution.status : action.state;
+  if (state === "succeeded") return action.operation === "start_crawl" ? "采集请求已提交" : action.operation === "stop_crawl" ? "停止请求已提交" : "操作已执行";
+  return `${operation} · ${states[state] || state}`;
 }
 
 export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onChange?: (actions: RuntimeActionView[]) => void }) {
@@ -58,9 +65,10 @@ export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onC
   return <section aria-label="待确认动作" data-runtime-actions>
     {error ? <p role="status">{error}</p> : null}
     {actions.map((action) => <article className="artifact risk-l3 runtime-action-card" key={action.id}>
-      <strong>L3 · {action.progress?.label || states[action.execution && action.state === "pending" ? action.execution.status : action.state] || action.state}</strong>
+      <header className="runtime-action-heading"><strong>{actionLabel(action)}</strong><span className="muted">需确认执行（L3）</span></header>
       {action.progress && action.progress.state !== "pending" ? <p role="status">{action.progress.summary}</p> : null}
-      <p>{action.operation === "start_crawl" ? "采集线索" : action.operation === "stop_crawl" ? "停止采集" : "业务操作"}</p>
+      <details className="runtime-action-scope" open={action.state === "pending" && !action.execution}>
+      <summary>操作内容与范围</summary>
       <dl className="runtime-action-summary" aria-label="操作内容与范围">
         {Object.entries(action.arguments).map(([key, value]) => <div key={key}><dt>{argumentLabels[key] || key}</dt><dd>{readableValue(value)}</dd></div>)}
       </dl>
@@ -68,13 +76,14 @@ export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onC
       <details><summary>查看提交参数</summary>
         <pre>{JSON.stringify(action.arguments, null, 2)}</pre>
       </details>
+      </details>
       {action.blocked_reason ? <p>{action.blocked_reason}</p> : null}
       {action.state === "pending" && !action.execution ? <div>
         <button className="btn ghost" disabled={Boolean(busy) || Boolean(action.blocked_reason)} onClick={() => void submit(action, true)}>确认执行以上内容</button>
         <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void submit(action, false)}>取消</button>
       </div> : null}
       {action.crawl ? <div role="status">
-        <p>采集：{states[action.crawl.state] || action.crawl.state} · 任务 {action.crawl.remote_task_id || "等待远端回执"}</p>
+        <p>采集：{action.crawl.state === "succeeded" ? "已结束" : states[action.crawl.state] || action.crawl.state} · 任务 {action.crawl.remote_task_id || "等待远端回执"}</p>
         {action.crawl.status_json ? <details><summary>采集进度</summary><pre>{JSON.stringify(action.crawl.status_json, null, 2)}</pre></details> : null}
         {action.crawl.state === "running" ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, true)}>申请停止采集</button> : null}
         {!action.can_retry && !action.progress && ["failed", "cancelled"].includes(action.crawl.state) ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, false)}>重新核对并重试</button> : null}

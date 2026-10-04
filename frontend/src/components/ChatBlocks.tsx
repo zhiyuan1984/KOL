@@ -30,6 +30,7 @@ function ThreadMessage({
   role,
   result,
   risk,
+  observedAt,
   children,
   className = "",
   ...attrs
@@ -37,6 +38,7 @@ function ThreadMessage({
   role: ThreadRole;
   result?: ResultShape;
   risk?: MessageRisk;
+  observedAt?: string;
   children: ReactNode;
   className?: string;
 } & HTMLAttributes<HTMLDivElement>) {
@@ -59,6 +61,7 @@ function ThreadMessage({
       {...attrs}
     >
       {risk ? <span className="risk-kicker">{MESSAGE_RISK_LABEL[risk]}</span> : null}
+      {observedAt ? <div className="message-time"><StepTime value={observedAt} /></div> : null}
       <div className="message-content">{children}</div>
     </div>
   );
@@ -1087,6 +1090,7 @@ function humanizeToolName(name: string) {
 
 function stripEngineCopy(text: string) {
   return String(text || "")
+    .replace(/\bcrawler_collect\b/g, "候选线索整理")
     .replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "")
     .replace(/\b(?:MCP|Codex|Thread|Skill)\b/gi, "")
     .replace(/[ \t]+$/gm, "")
@@ -1182,6 +1186,13 @@ function employeeMessageBody(text: string, debug = false, onRefresh?: () => void
   const cleaned = stripEngineCopy(humanizeMaybeJson(text));
   if (!debug && /[{[]/.test(cleaned)) return <p>正在整理结果</p>;
   return <Markdown foldInternalReview={!debug}>{cleaned}</Markdown>;
+}
+
+function StepTime({ value }: { value?: string }) {
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime())
+    ? <time dateTime={value} title={`步骤记录时间：${date.toLocaleString("zh-CN", { hour12: false })}`}>{date.toLocaleTimeString("zh-CN", { hour12: false })}</time>
+    : <span className="trace-time-missing">时间未记录</span>;
 }
 
 export { humanizeTraceLabel };
@@ -1545,6 +1556,7 @@ export function ChatThread({
                     <li key={item.id || `${label}-${index}`} data-status={status} data-kind={item.kind || undefined}>
                       <i>{statusMark(status)}</i>
                       <span className={streaming ? "is-streaming" : undefined}>{label}</span>
+                      <StepTime value={item.observed_at} />
                     </li>
                   );
                 })}
@@ -1586,6 +1598,7 @@ export function ChatThread({
                       <li key={operation.id || name || index} data-status={status} data-mcp-name={debug ? (name || undefined) : undefined}>
                         <i>{statusMark(status)}</i>
                         <span className={streaming ? "is-streaming" : undefined}>{employeeProcessLabel(human)}</span>
+                        <StepTime value={operation.observed_at} />
                       </li>
                     );
                   })
@@ -1663,6 +1676,7 @@ export function ChatThread({
             key={m.id}
             role="assistant"
             result={stageReceipt ? "confirm" : undefined}
+            observedAt={m.created_at}
             className={m.payload.streaming ? "is-streaming" : ""}
             data-streaming={m.payload.streaming ? "true" : undefined}
           >
