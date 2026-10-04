@@ -5,6 +5,7 @@ import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "../src/ticket
 import { createTaskRootPostgres, taskWorkOrderAggregate } from "../src/ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../src/ticket-domain/work-order-shadow.js";
 import { setWorkOrderJevFetch } from "../src/ticket-domain/work-order-jev.js";
+import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate } from "../src/ticket-domain/work-order-template-governance.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
 if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
@@ -13,7 +14,7 @@ const describePostgres = configured ? describe : describe.skip;
 describePostgres("PostgreSQL task to AI work-order model", () => {
   beforeEach(async () => {
     await postgresPool().query(`
-      TRUNCATE task_root_command_receipts,work_order_command_receipts,work_order_stage_events,work_order_decisions,work_order_basis_refs,
+      TRUNCATE task_root_command_receipts,work_order_command_receipts,work_order_template_command_receipts,work_order_stage_events,work_order_decisions,work_order_basis_refs,
         work_order_assignments,work_orders,work_order_templates,workbench_principal_binding_events,
         workbench_principal_bindings,ticket_auth_sessions,ticket_accounts,tickets CASCADE
     `);
@@ -128,5 +129,31 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
       if (previousEnabled === undefined) delete process.env.JEV_WORK_ORDER_ENABLED;
       else process.env.JEV_WORK_ORDER_ENABLED = previousEnabled;
     }
+  });
+
+  it("publishes only governed A2 templates, retires the prior published version, and records idempotent commands", async () => {
+    const actor = await syncWorkbenchTicketPrincipal({
+      id: "u-template-admin", username: "template_admin", name: "Template Admin", email: "template@example.test", roles: ["admin"], active: true,
+    });
+    const base = {
+      template_code: "quote_deadline_followup", title: "报价期限跟进", description: "基于已核验报价期限创建跟进工单", automation_level: "A2",
+      trigger_event_types: ["deadline.quote"], acceptance_criteria: ["报价期限已核验", "下一步商务动作已记录"],
+      routing_policy_code: "quote_owner", input_schema: { event_id: { required: true } }, fill_policy: { due_at: "event.deadline" },
+    };
+    const draft = await createWorkOrderTemplateDraft(actor.id, { ...base, idempotency_key: "template-draft-1" });
+    expect(draft.template).toMatchObject({ status: "draft", version: 1, automation_level: "A2" });
+    expect((await createWorkOrderTemplateDraft(actor.id, { ...base, idempotency_key: "template-draft-1" })).replayed).toBe(true);
+    const published = await publishWorkOrderTemplate(actor.id, draft.template.id, { expected_version: 1, idempotency_key: "template-publish-1" });
+    expect(published.template).toMatchObject({ status: "published", template_code: "quote_deadline_followup" });
+
+    const v2 = await createWorkOrderTemplateDraft(actor.id, { ...base, title: "报价期限跟进 v2", idempotency_key: "template-draft-2" });
+    expect(v2.template.version).toBe(2);
+    await publishWorkOrderTemplate(actor.id, v2.template.id, { expected_version: 2, idempotency_key: "template-publish-2" });
+    const rows = await listWorkOrderTemplates();
+    expect(rows.templates.filter((item) => item.template_code === "quote_deadline_followup").map((item) => [item.version, item.status])).toEqual([[2, "published"], [1, "retired"]]);
+
+    const disabled = await disableWorkOrderTemplate(actor.id, v2.template.id, { reason: "暂停报价活动", idempotency_key: "template-disable-2" });
+    expect(disabled.template).toMatchObject({ status: "disabled", disable_reason: "暂停报价活动" });
+    expect((await postgresPool().query("SELECT COUNT(*)::int AS count FROM work_order_template_command_receipts")).rows[0]?.count).toBe(5);
   });
 });

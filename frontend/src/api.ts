@@ -497,6 +497,43 @@ export type Ticket = Task & {
   audit?: Array<Record<string, unknown>>;
 };
 
+export type WorkOrderTemplate = {
+  id: string;
+  template_code: string;
+  version: number;
+  title: string;
+  description: string;
+  status: "draft" | "published" | "disabled" | "retired" | string;
+  automation_level: "A0" | "A1" | "A2" | "A3" | "L3" | string;
+  business_category: string | null;
+  trigger_event_types: string[];
+  input_schema: Record<string, unknown>;
+  fill_policy: Record<string, unknown>;
+  acceptance_criteria: string[];
+  routing_policy_code: string | null;
+  stage_policy: Record<string, unknown>;
+  created_by: string;
+  published_by: string | null;
+  created_at: string;
+  published_at: string | null;
+  updated_at: string;
+};
+
+export type WorkOrderTemplateDraftInput = {
+  template_code: string;
+  title: string;
+  description?: string;
+  automation_level: "A0" | "A1" | "A2" | "A3" | "L3";
+  business_category?: string;
+  trigger_event_types: string[];
+  acceptance_criteria: string[];
+  routing_policy_code?: string;
+  input_schema?: Record<string, unknown>;
+  fill_policy?: Record<string, unknown>;
+  stage_policy?: Record<string, unknown>;
+  idempotency_key: string;
+};
+
 export type TicketCommandInput =
   | { action: "accept" | "cancel" | "reopen"; expected_version: number; idempotency_key: string; reason?: string }
   | { action: "complete"; expected_version: number; idempotency_key: string; acceptance_evidence: Record<string, unknown> }
@@ -1749,6 +1786,16 @@ export const api = {
   ticketFormBootstrap: () => request<TicketFormBootstrap>("/api/tickets/form-bootstrap"),
   adminTicketOrganizationQuality: () => request<TicketOrganizationQualityReport>("/api/admin/work-orders/data-quality"),
   adminTicketAccountBindingOptions: () => request<TicketAccountBindingOptions>("/api/admin/work-orders/account-bindings/options"),
+  adminWorkOrderTemplates: (status?: string) => request<{ templates: WorkOrderTemplate[]; request_id: string; as_of: string }>(`/api/admin/work-orders/templates${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  createWorkOrderTemplateDraft: (body: WorkOrderTemplateDraftInput) => request<{ template: WorkOrderTemplate; replayed: boolean; request_id: string }>("/api/admin/work-orders/templates/drafts", {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  publishWorkOrderTemplate: (id: string, body: { expected_version: number; idempotency_key: string }) => request<{ template: WorkOrderTemplate; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/publish`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  disableWorkOrderTemplate: (id: string, body: { reason: string; idempotency_key: string }) => request<{ template: WorkOrderTemplate & { disable_reason?: string }; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/disable`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
   bindTicketAccountToOrganizationPerson: (body: { person_ref: string; account_id: string; reason: string }) =>
     request<{ person_ref: string; account_id: string; username: string; changed: boolean; prior_account_id: string | null; request_id: string }>("/api/admin/work-orders/account-bindings", { method: "POST", body: JSON.stringify(body) }),
   createFormalTicket: (body: CreateFormalTicketInput) => request<CreateFormalTicketResult>("/api/tickets", {

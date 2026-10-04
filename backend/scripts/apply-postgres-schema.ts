@@ -930,6 +930,21 @@ const migrations: SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    // 模板发布是自动化的前置治理动作；命令回执独立于具体 Task / Work
+    // Order，确保浏览器重试不会生成第二个模板版本或重复退役已发布版本。
+    id: "20261004_work_order_template_command_receipts",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS work_order_template_command_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES work_order_templates(id) ON DELETE RESTRICT,
+        actor_ref TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        command TEXT NOT NULL,
+        response_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    ],
+  },
 ];
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);

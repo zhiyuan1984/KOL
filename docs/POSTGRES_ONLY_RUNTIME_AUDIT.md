@@ -32,6 +32,7 @@
 | 规则成效与人工确认原始计数 | `rule-effectiveness.ts`、不可变 `ticket_rule_confirmation_decisions`；按规则版本汇总评估、事件、关联工单、确认与驳回，确认事实本身不触发执行 | PG 规则治理集成测试、前端 typecheck/build |
 | Task → AI Work Order 原生模型 | `task-work-orders.ts`；新 Task 根复用 PostgreSQL `tickets(task_type=business_task, profile=task-root)`，`work_orders`/模板/责任/依据/决定/阶段事件是明确子关系；父 Task 不会因工单或运行完成而完成 | 空库 migration + PG Task/Work Order 聚合集成测试 |
 | Jev AI 工单影子判断 | `work-order-jev.ts`、`work-order-shadow.ts`；仅对已发布模板做 TypeSafe System One 有界选择，写不可变 `work_order_decisions(decision_mode=shadow)` 与输入哈希/模型/概率/gate，端点仅管理员可触发 | PG 集成测试验证高置信命中、重放与零建单/分派/阶段/完成副作用 |
+| AI 工单模板发布治理 | `work-order-template-governance.ts`、`/admin/work-orders/templates/*`；草稿、发布、发布版本退役、停用和命令回执都在 PostgreSQL，A1/A2/A3 发布校验事件/验收/路由/阶段边界；管理端明确显示自动执行未启用 | PG 模板治理集成测试、前端 typecheck/build |
 
 ## 已安全隔离或停用
 

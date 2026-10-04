@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport } from "../api";
+import { api, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport, type WorkOrderTemplate } from "../api";
 import { useAccount } from "../components/AuthGate";
 
 function time(value: string | null | undefined): string {
@@ -27,8 +27,10 @@ function AdminWorkOrdersContent() {
   const [organizationReport, setOrganizationReport] = useState<OrganizationTicketRawCountReport | null>(null);
   const [stageReport, setStageReport] = useState<OrganizationTicketStageRawReport | null>(null);
   const [options, setOptions] = useState<TicketAccountBindingOptions | null>(null);
+  const [templates, setTemplates] = useState<WorkOrderTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [bindingBusy, setBindingBusy] = useState(false);
+  const [templateBusy, setTemplateBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -36,16 +38,18 @@ function AdminWorkOrdersContent() {
     setLoading(true);
     setError("");
     try {
-      const [quality, bindingOptions, rawReport, stageRawReport] = await Promise.all([
+      const [quality, bindingOptions, rawReport, stageRawReport, templateRows] = await Promise.all([
         api.adminTicketOrganizationQuality(),
         api.adminTicketAccountBindingOptions(),
         api.organizationTicketRawCountReport(),
         api.organizationTicketStageRawReport(),
+        api.adminWorkOrderTemplates(),
       ]);
       setReport(quality);
       setOptions(bindingOptions);
       setOrganizationReport(rawReport);
       setStageReport(stageRawReport);
+      setTemplates(templateRows.templates);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取工单组织数据质量");
     } finally {
@@ -78,6 +82,52 @@ function AdminWorkOrdersContent() {
   };
 
   const unboundAccounts = (options?.accounts || []).filter((item) => !item.bound_person_ref);
+  const idempotency = () => `wot-${crypto.randomUUID()}`;
+
+  const createTemplate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const split = (name: string) => String(data.get(name) || "").split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+    const template_code = String(data.get("template_code") || "").trim();
+    const title = String(data.get("title") || "").trim();
+    const automation_level = String(data.get("automation_level") || "A1") as "A0" | "A1" | "A2" | "A3" | "L3";
+    if (!template_code || !title) return;
+    setTemplateBusy(true); setError(""); setNotice("");
+    try {
+      const result = await api.createWorkOrderTemplateDraft({
+        template_code, title, description: String(data.get("description") || "").trim(), automation_level,
+        business_category: String(data.get("business_category") || "").trim() || undefined,
+        trigger_event_types: split("trigger_event_types"), acceptance_criteria: split("acceptance_criteria"),
+        routing_policy_code: String(data.get("routing_policy_code") || "").trim() || undefined,
+        input_schema: {}, fill_policy: {}, stage_policy: {}, idempotency_key: idempotency(),
+      });
+      setNotice(`已创建模板草稿 ${result.template.template_code}.v${result.template.version}；发布前仍不会进入 AI 自动化。`);
+      event.currentTarget.reset();
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "创建工单模板草稿失败");
+    } finally { setTemplateBusy(false); }
+  };
+
+  const publishTemplate = async (template: WorkOrderTemplate) => {
+    setTemplateBusy(true); setError(""); setNotice("");
+    try {
+      const result = await api.publishWorkOrderTemplate(template.id, { expected_version: template.version, idempotency_key: idempotency() });
+      setNotice(`已发布 ${result.template.template_code}.v${result.template.version}。发布仅允许它被影子判断选择，尚未启用自动执行。`);
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "发布工单模板失败"); }
+    finally { setTemplateBusy(false); }
+  };
+
+  const disableTemplate = async (template: WorkOrderTemplate) => {
+    setTemplateBusy(true); setError(""); setNotice("");
+    try {
+      const result = await api.disableWorkOrderTemplate(template.id, { reason: "管理员从工单治理界面停用模板", idempotency_key: idempotency() });
+      setNotice(`已停用 ${result.template.template_code}.v${result.template.version}；后续 Jev 判断不会再选择该版本。`);
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "停用工单模板失败"); }
+    finally { setTemplateBusy(false); }
+  };
 
   return (
     <section className="admin-grid" data-admin-work-orders>
@@ -112,6 +162,24 @@ function AdminWorkOrdersContent() {
           <label className="field ticket-binding-reason">绑定原因<textarea name="reason" minLength={2} maxLength={500} required placeholder="例如：已核验员工账号与组织人员身份" /></label>
           <div className="ticket-binding-action"><button className="btn work" disabled={bindingBusy || loading || !unboundAccounts.length}>{bindingBusy ? "正在写入审计…" : "确认绑定并记录审计"}</button></div>
         </form>
+      </article>
+      <article className="panel" style={{ gridColumn: "1 / -1" }} data-work-order-template-governance>
+        <div className="split-head"><div><h3>AI 工单模板治理</h3><p className="muted">模板先保存为草稿，再由管理员发布。已发布模板只能被 Jev 影子判断选择；当前版本不自动建单、分派、推进阶段或完成任务。</p></div><span className="status-warn">自动执行：未启用</span></div>
+        <form className="ticket-binding-form" onSubmit={(event) => void createTemplate(event)}>
+          <label className="field">模板编码<input name="template_code" required pattern="[a-z][a-z0-9_]{2,119}" placeholder="quote_deadline_followup" /></label>
+          <label className="field">模板名称<input name="title" required maxLength={200} placeholder="报价期限跟进" /></label>
+          <label className="field">自动化等级<select name="automation_level" defaultValue="A1"><option value="A0">A0 · 仅观察</option><option value="A1">A1 · 自动生成草稿</option><option value="A2">A2 · 自动建单与分派（尚未启用）</option><option value="A3">A3 · 自动阶段（尚未启用）</option><option value="L3">L3 · 始终人工确认</option></select></label>
+          <label className="field">路由策略编码<input name="routing_policy_code" placeholder="task_owner（A2/A3 发布必填）" /></label>
+          <label className="field ticket-binding-reason">触发事件<textarea name="trigger_event_types" placeholder={"deadline.quote\nmail.reply_verified"} /></label>
+          <label className="field ticket-binding-reason">验收条件<textarea name="acceptance_criteria" required placeholder={"报价期限已核验\n下一步商务动作已记录"} /></label>
+          <label className="field ticket-binding-reason">模板说明<textarea name="description" maxLength={2000} placeholder="仅描述标准动作，不填写未经核验的业务事实。" /></label>
+          <div className="ticket-binding-action"><button className="btn work" disabled={loading || templateBusy}>{templateBusy ? "正在写入治理记录…" : "创建模板草稿"}</button></div>
+        </form>
+        {!loading && templates.length === 0 ? <p className="muted">尚无 AI 工单模板。创建并发布低风险模板后，才可进行 Jev 影子判断。</p> : null}
+        {templates.map((template) => <div className="admin-row" key={template.id} data-work-order-template={template.template_code}>
+          <div><strong>{template.title}</strong><p className="muted">{template.template_code}.v{template.version} · {template.automation_level} · {template.status} · 事件：{template.trigger_event_types.join("、") || "—"}</p></div>
+          <div className="row-actions"><span className={template.status === "published" ? "status-ok" : template.status === "draft" ? "status-warn" : "muted"}>{template.status}</span>{template.status === "draft" ? <button className="btn ghost" type="button" disabled={templateBusy} onClick={() => void publishTemplate(template)}>发布</button> : null}{template.status === "published" ? <button className="btn ghost danger" type="button" disabled={templateBusy} onClick={() => void disableTemplate(template)}>停用</button> : null}</div>
+        </div>)}
       </article>
       <article className="panel" style={{ gridColumn: "1 / -1" }} data-organization-ticket-report>
         <div className="split-head"><div><h3>组织工单原始计数</h3><p className="muted">数据时间：{time(organizationReport?.as_of)} · 时区：{organizationReport?.timezone || "—"} · 来源：PostgreSQL 正式工单。只展示受控组织范围内的当前数量。</p></div></div>

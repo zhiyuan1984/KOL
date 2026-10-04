@@ -12,6 +12,7 @@ import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ti
 import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
 import { createTaskRootPostgres, taskWorkOrderAggregate, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shadow.js";
+import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
 import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -118,6 +119,35 @@ tickets.post("/admin/work-orders/tasks/:taskId/jev-shadow", async (c) => {
     idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
   }, { isAdmin: true });
   return c.json({ ...result, ...requestMetadata() }, result.decision.replayed ? 200 : 201);
+});
+
+tickets.get("/admin/work-orders/templates", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await listWorkOrderTemplates(parseLimit(c.req.query("limit"), 100), c.req.query("status"))), ...requestMetadata() });
+});
+
+tickets.post("/admin/work-orders/templates/drafts", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as WorkOrderTemplateInput;
+  const result = await createWorkOrderTemplateDraft(actor.id, { ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim() });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.post("/admin/work-orders/templates/:id/publish", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await publishWorkOrderTemplate(actor.id, c.req.param("id"), { ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim() });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.post("/admin/work-orders/templates/:id/disable", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await disableWorkOrderTemplate(actor.id, c.req.param("id"), { ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim() });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
 });
 
 tickets.get("/tickets/reports/personal", async (c) => {
