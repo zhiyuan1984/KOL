@@ -11,6 +11,15 @@ import {
 } from "../src/worker/progress.js";
 
 describe("Codex harness process traces", () => {
+  it("records first observation time and preserves it across updates and completion", () => {
+    const first = applyProgress([], { phase: "generating", trace: { id: "step", label: "核对快照", status: "running" } });
+    expect(Number.isFinite(Date.parse(first[0].observed_at!))).toBe(true);
+    const updated = applyProgress(first, { phase: "generating", trace: { id: "step", label: "已核对", status: "done" } });
+    expect(finishProcessItems(updated, false)[0].observed_at).toBe(first[0].observed_at);
+    const operations = upsertOperationItem([], { id: "call", name: "read_data", status: "running" });
+    expect(Number.isFinite(Date.parse(operations[0].observed_at!))).toBe(true);
+    expect(upsertOperationItem(operations, { id: "call", name: "read_data", status: "done" })[0].observed_at).toBe(operations[0].observed_at);
+  });
   it("turns reasoning notifications into process items and hides raw reasoning_text", () => {
     const memory = emptyHarnessMemory();
     const started = progressFromHarness(

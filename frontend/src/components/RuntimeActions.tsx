@@ -20,6 +20,13 @@ function readableValue(value: unknown): string {
   return argumentValues[String(value)] || String(value);
 }
 
+function actionLabel(action: RuntimeActionView): string {
+  const operation = action.operation === "start_crawl" ? "采集线索" : action.operation === "stop_crawl" ? "停止采集" : "业务操作";
+  const state = action.execution && action.state === "pending" ? action.execution.status : action.state;
+  if (state === "succeeded") return action.operation === "start_crawl" ? "采集请求已提交" : action.operation === "stop_crawl" ? "停止请求已提交" : "操作已执行";
+  return `${operation} · ${states[state] || state}`;
+}
+
 export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onChange?: (actions: RuntimeActionView[]) => void }) {
   const [actions, setActions] = useState<RuntimeActionView[]>([]);
   const [error, setError] = useState("");
@@ -58,15 +65,17 @@ export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onC
   return <section aria-label="待确认动作" data-runtime-actions>
     {error ? <p role="status">{error}</p> : null}
     {actions.map((action) => <article className="artifact risk-l3 runtime-action-card" key={action.id}>
-      <strong>L3 · {action.progress?.label || states[action.execution && action.state === "pending" ? action.execution.status : action.state] || action.state}</strong>
+      <header className="runtime-action-heading"><strong>{actionLabel(action)}</strong><span className="muted">需确认执行（L3）</span></header>
       {action.progress && action.progress.state !== "pending" ? <p role="status">{action.progress.summary}</p> : null}
-      <p>{action.operation === "start_crawl" ? "采集线索" : action.operation === "stop_crawl" ? "停止采集" : "业务操作"}</p>
+      <details className="runtime-action-scope" open={action.state === "pending" && !action.execution}>
+      <summary>操作内容与范围</summary>
       <dl className="runtime-action-summary" aria-label="操作内容与范围">
         {Object.entries(action.arguments).map(([key, value]) => <div key={key}><dt>{argumentLabels[key] || key}</dt><dd>{readableValue(value)}</dd></div>)}
       </dl>
       {action.operation === "start_crawl" ? <p className="muted">确认后开始采集，仅保存候选线索。地区、粉丝与均播条件在结果中核对；检索数量不等于候选人数或任务总量上限。</p> : null}
       <details><summary>查看提交参数</summary>
         <pre>{JSON.stringify(action.arguments, null, 2)}</pre>
+      </details>
       </details>
       {action.blocked_reason ? <p>{action.blocked_reason}</p> : null}
       {action.state === "pending" && !action.execution ? <div>

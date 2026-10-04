@@ -15668,3 +15668,23 @@ button.today-brief-primary-btn:disabled {
 }
 @media (max-width: 980px) { .task-work-order-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .task-work-order-kpis { grid-template-columns: 1fr; } .task-work-order-kpis article { padding: 10px; } }
+
+/* Employee trace: compact inside each block, clear separation between blocks. */
+.runtime-action-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); }
+.runtime-action-card p { margin-block: var(--space-1); }
+.runtime-action-card details { margin-block: var(--space-2); }
+.runtime-action-summary > div { display: block; }
+.runtime-action-summary dt, .runtime-action-summary dd { display: inline; }
+.runtime-action-summary dt::after { content: '：'; }
+.session-center .conversation-content { gap: var(--space-4); }
+.session-center .message .message-content { width: 100%; min-width: 0; }
+.session-center .message.risk-l1 { padding-block: var(--space-2); gap: 0; }
+.session-center .message .md p { margin-block: 0 var(--space-1); }
+.session-center .message .md > :last-child { margin-bottom: 0; }
+.session-center .message .md h1, .session-center .message .md h2, .session-center .message .md h3 { margin-block: var(--space-2) var(--space-1); }
+.session-center .message .md > :first-child { margin-top: 0; }
+.trace-list { margin-top: var(--space-1); gap: var(--space-1); }
+.trace-list li, .trace-list li[data-kind='reasoning'] { grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-1); }
+.trace-list li span { white-space: normal; overflow-wrap: anywhere; }
+.trace-list time, .trace-time-missing, .message-time { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.message-time { align-self: flex-end; }
