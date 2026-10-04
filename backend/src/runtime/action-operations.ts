@@ -8,6 +8,7 @@ import { runtimeActionGate, validateRuntimeToolScope } from "./action-gates.js";
 import type { Operation } from "./operations.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPublic } from "../execution-jobs/postgres-store.js";
 import { enqueueCrawlResults } from "../crawl/results.js";
+import { canRetryRuntimeCrawl, runtimeActionProgress } from "./action-progress.js";
 
 function actor(): string {
   const user = scopedUser();
@@ -25,7 +26,10 @@ async function view(action: RuntimeAction) {
     [`runtime-confirm:${action.id}`, action.actor_id])).rows[0] || null;
   return { id: action.id, skill_id: action.context_json.skillId, operation: action.tool_name,
     arguments: action.args_json, state: action.state, risk: "L3", confirmation_version: action.snapshot,
-    blocked_reason: blocked, receipt: action.receipt_json, error_code: action.error_code, crawl, execution };
+    blocked_reason: blocked, receipt: action.receipt_json, error_code: action.error_code, crawl, execution,
+    run_id: action.context_json.originRunId || action.context_json.runId, progress: action.connector_id === "claw" && action.tool_name === "start_crawl"
+      ? runtimeActionProgress(action, crawl, execution) : null,
+    can_retry: action.tool_name === "start_crawl" && canRetryRuntimeCrawl(action, crawl) };
 }
 export const runtimeActionOperations: Operation[] = [
   { id: "runtime.crawl.results.retry", kind: "action", async handle(c, input) {
@@ -51,8 +55,8 @@ export const runtimeActionOperations: Operation[] = [
   { id: "runtime.crawl.retry", kind: "action", async handle(c, input) {
     const action = await runtimeAction(String(input.action_id || ""), actor());
     const crawl = (await postgresPool().query("SELECT state FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2", [action.id, action.actor_id])).rows[0];
-    if (!crawl || !["failed", "cancelled"].includes(crawl.state)) throw new HttpFail(409, { code: "runtime_crawl_not_retryable" });
-    const runtime = new SkillExecution({ ...action.context_json, runId: `retry:${randomUUID()}` });
+    if (action.connector_id !== "claw" || action.tool_name !== "start_crawl" || !canRetryRuntimeCrawl(action, crawl || null)) throw new HttpFail(409, { code: "runtime_crawl_not_retryable" });
+    const runtime = new SkillExecution({ ...action.context_json, originRunId: action.context_json.originRunId || action.context_json.runId, runId: `retry:${randomUUID()}` });
     try {
       const tool = (await runtime.discover()).tools.find((item) => item.connectorId === "claw" && item.remoteName === "start_crawl");
       if (!tool) throw new HttpFail(403, { code: "runtime_tool_not_granted" });

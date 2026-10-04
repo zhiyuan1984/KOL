@@ -151,12 +151,14 @@ export async function monitorRuntimeCrawl(executionJob: ClaimedExecutionJob, che
     if (String(status.task_id || "") !== job.remote_task_id) fail("runtime_crawl_task_mismatch");
     const terminal = value === "idle" ? (status.error_message ? "failed" : job.state === "stopping" ? "cancelled" : "succeeded")
       : ["completed", "done", "succeeded"].includes(value) ? "succeeded"
-      : ["failed", "error"].includes(value) ? "failed" : ["stopped", "cancelled", "canceled"].includes(value) ? "cancelled" : null;
+      : ["failed", "error", "timeout", "timed_out"].includes(value) ? "failed" : ["stopped", "cancelled", "canceled"].includes(value) ? "cancelled" : null;
     await checkpoint();
     await postgresTransaction(async client => {
       const changed = await client.query(`UPDATE runtime_crawl_jobs SET state=COALESCE($2,state),status_json=$3,
-        receipt_json=CASE WHEN $2::text IS NULL THEN receipt_json ELSE $3 END,updated_at=now() WHERE id=$1
-        AND state IN ('starting','running','stopping') RETURNING id`, [job.id, terminal, JSON.stringify(status)]);
+        receipt_json=CASE WHEN $2::text IS NULL THEN receipt_json ELSE $3 END,
+        error_code=CASE WHEN $2='failed' THEN $4 ELSE error_code END,updated_at=now() WHERE id=$1
+        AND state IN ('starting','running','stopping') RETURNING id`, [job.id, terminal, JSON.stringify(status),
+          ["timeout", "timed_out"].includes(value) ? "runtime_crawl_timeout" : "runtime_crawl_failed"]);
       if (!changed.rowCount) return;
       if (terminal && ["succeeded", "cancelled"].includes(terminal)) await enqueueCrawlResults(job.id, job.actor_id, "initial", client);
       if (!terminal) await enqueueMonitor(job, sequence + 1, client);

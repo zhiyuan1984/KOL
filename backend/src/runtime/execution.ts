@@ -18,7 +18,7 @@ import { runtimeActionGate, runtimeToolPresentation, validateRuntimeToolScope } 
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 import { assertRuntimeToolArguments, RuntimeToolArgumentsInvalid } from "./tool-arguments.js";
 
-export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
+export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string; originRunId?: string };
 export type RuntimeRemote = Pick<RemoteMcpClient, "listTools" | "callToolRaw" | "close">;
 
 function reject(code: string, status = 403): never { throw new HttpFail(status, { code }); }

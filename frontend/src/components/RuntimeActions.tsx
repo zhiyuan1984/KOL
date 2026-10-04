@@ -25,7 +25,8 @@ export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onC
     try {
       if (confirm) await api.confirmRuntimeAction(action.id, action.confirmation_version);
       else await api.cancelRuntimeAction(action.id);
-      setActions((await api.runtimeActions(sessionId)).actions);
+      const updated = (await api.runtimeActions(sessionId)).actions;
+      setActions(updated); changeRef.current?.(updated);
     } catch { setError("操作未完成，请刷新核对当前状态；参数或权限变化后需要重新提出动作。"); }
     finally { setBusy(null); }
   }
@@ -33,7 +34,8 @@ export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onC
     setBusy(action.id); setError("");
     try {
       if (stop) await api.proposeCrawlStop(action.id); else await api.proposeCrawlRetry(action.id);
-      setActions((await api.runtimeActions(sessionId)).actions);
+      const updated = (await api.runtimeActions(sessionId)).actions;
+      setActions(updated); changeRef.current?.(updated);
     } catch { setError("无法提出操作，请刷新核对任务状态和当前权限。"); }
     finally { setBusy(null); }
   }
@@ -41,7 +43,8 @@ export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onC
   return <section aria-label="待确认动作" data-runtime-actions>
     {error ? <p role="status">{error}</p> : null}
     {actions.map((action) => <article className="artifact risk-l3" key={action.id}>
-      <strong>L3 · {states[action.execution && action.state === "pending" ? action.execution.status : action.state] || action.state}</strong>
+      <strong>L3 · {action.progress?.label || states[action.execution && action.state === "pending" ? action.execution.status : action.state] || action.state}</strong>
+      {action.progress && action.progress.state !== "pending" ? <p role="status">{action.progress.summary}</p> : null}
       <p>{action.operation === "start_crawl" ? "采集线索" : action.operation === "stop_crawl" ? "停止采集" : "业务操作"}</p>
       <details open={action.state === "pending"}><summary>核对操作内容与范围</summary>
         <pre>{JSON.stringify(action.arguments, null, 2)}</pre>
@@ -56,8 +59,9 @@ export function RuntimeActions({ sessionId, onChange }: { sessionId: string; onC
         <p>采集：{states[action.crawl.state] || action.crawl.state} · 任务 {action.crawl.remote_task_id || "等待远端回执"}</p>
         {action.crawl.status_json ? <details><summary>采集进度</summary><pre>{JSON.stringify(action.crawl.status_json, null, 2)}</pre></details> : null}
         {action.crawl.state === "running" ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, true)}>申请停止采集</button> : null}
-        {["failed", "cancelled"].includes(action.crawl.state) ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, false)}>重新核对并重试</button> : null}
+        {!action.can_retry && !action.progress && ["failed", "cancelled"].includes(action.crawl.state) ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, false)}>重新核对并重试</button> : null}
       </div> : null}
+      {action.can_retry ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, false)}>重新核对并重试</button> : null}
       {action.receipt ? <details><summary>查看回执</summary><pre>{JSON.stringify(action.receipt, null, 2)}</pre></details> : null}
     </article>)}
   </section>;

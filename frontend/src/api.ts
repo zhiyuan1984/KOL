@@ -2,6 +2,9 @@ export type RuntimeActionView = {
   id: string; skill_id: string; operation: string; arguments: Record<string, unknown>;
   state: string; risk: "L3"; confirmation_version: string; blocked_reason: string | null;
   receipt: Record<string, unknown> | null; error_code: string | null;
+  run_id?: string;
+  can_retry?: boolean;
+  progress?: { state: string; label: string; summary: string; replace_result: boolean; result: TaskResultCard } | null;
   crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null;
     result_state?: string; result_error?: string | null; result_json?: { task_id: string; complete: boolean; captured_at: string; candidates: Array<{
       id: string; name: string; platform: string; source_url: string | null; followers: number | null; avg_views_10: number | null; region: string | null;

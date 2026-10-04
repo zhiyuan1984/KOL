@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -79,6 +79,7 @@ beforeEach(async () => {
   db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(context.userId, "person:ye_guanwang");
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const close of cleanup.reverse()) await close();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -243,7 +244,7 @@ describe("governed Skill Runtime", () => {
     expect(JSON.stringify(jobs)).not.toContain("cannot-override");
     expect(calls).toHaveLength(0);
   });
-  it.each([null, "remote process failed"])("mounts MediaCrawler writes, persists one remote job, enforces task scope, and resumes monitoring (%s)", async (remoteError) => {
+  it.each([null, "remote process failed", "timeout"])("mounts MediaCrawler writes, persists one remote job, enforces task scope, and resumes monitoring (%s)", async (remoteError) => {
     configureCrawlerFixture("http://crawler.example.test/mcp");
     const crawlContext = { ...context, skillId: "crawler_collect" };
     setAgentSkill(context.agentId, "crawler_collect", true, 0);
@@ -259,7 +260,7 @@ describe("governed Skill Runtime", () => {
       listTools: async () => [start, status], close: async () => {},
       callToolRaw: async (name, args) => { remoteCalls += 1; return { structuredContent: name === "start_crawl"
         ? { ok: true, task_id: "remote-one", status: "running" }
-        : { task_id: args?.task_id, status: "idle", error_message: remoteError } }; },
+        : { task_id: args?.task_id, status: remoteError === "timeout" ? "timeout" : "idle", error_message: remoteError } }; },
     });
     const runtime = new SkillExecution(crawlContext, factory);
     const catalog = await runtime.discover();
@@ -291,6 +292,27 @@ describe("governed Skill Runtime", () => {
     const receipt = await monitorRuntimeCrawl({ ...monitor, worker_id: "test" } as ClaimedExecutionJob, async () => {}, (ctx) => new SkillExecution(ctx, factory));
     expect(receipt).toMatchObject({ state: remoteError ? "failed" : "succeeded" });
     expect((await postgresPool().query("SELECT state FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].state).toBe(remoteError ? "failed" : "succeeded");
+    if (remoteError === "timeout") {
+      const listSpy = vi.spyOn(RemoteMcpClient.prototype, "listTools").mockResolvedValue([start, status] as Tool[]);
+      const callSpy = vi.spyOn(RemoteMcpClient.prototype, "callToolRaw").mockImplementation((name, args) => factory().callToolRaw(name, args));
+      expect((await postgresPool().query("SELECT error_code FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].error_code).toBe("runtime_crawl_timeout");
+      const app = new Hono();
+      app.route("/api", operationRouter(runtimeActionOperations));
+      const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
+      const response = await withScopedUser(owner, () => app.request("/api/actions/runtime.crawl.retry", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: secondAction.id }),
+      }));
+      expect(response.status).toBe(200);
+      const retry = await response.json();
+      const retryAction = await runtimeAction(String(retry.structuredContent.action_id), context.userId);
+      expect(retryAction).toMatchObject({ state: "pending", args_json: { ...args, keywords: "outdoor" } });
+      expect(retryAction.context_json.originRunId).toBe(crawlContext.runId);
+      expect(remoteCalls).toBe(2); // start and its scoped status read, no retry dispatch yet
+      await new SkillExecution(retryAction.context_json, factory).confirm(retryAction.id, retryAction.snapshot);
+      expect(remoteCalls).toBe(3);
+      listSpy.mockRestore();
+      callSpy.mockRestore();
+    }
   });
   it.each([
     ["missing annotations", undefined, "L1", "read", true],

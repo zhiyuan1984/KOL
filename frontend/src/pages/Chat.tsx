@@ -432,6 +432,9 @@ export default function Chat() {
   const [task, setTask] = useState<Task | null>(null);
   const discoveryWorkspace = discoveryWorkspaceOf(task);
   const [runtimeActions, setRuntimeActions] = useState<RuntimeActionView[]>([]);
+  const discoveryProgress = runtimeActions.find(action => action.operation === "start_crawl" && action.skill_id === "crawler_collect"
+    && (!task?.worker_id || action.run_id === task.worker_id))?.progress;
+  const discoveryExecutionResult = discoveryProgress?.replace_result ? discoveryProgress.result : undefined;
   const [selectedSkillTemplate, setSelectedSkillTemplate] = useState<SkillTemplate | null>(null);
   const [selectedTemplateSkillId, setSelectedTemplateSkillId] = useState<string | null>(null);
   const [skillParamValues, setSkillParamValues] = useState<Record<string, unknown>>({});
@@ -1159,11 +1162,11 @@ export default function Chat() {
             </div>
             <div className="task-detail-meta">
               <span className={`task-ux-badge is-${agentTaskUxStatus(task, status === "running").toLowerCase()}`} data-task-ux-status={agentTaskUxStatus(task, status === "running")}>
-                {AGENT_TASK_STATUS_LABEL[agentTaskUxStatus(task, status === "running")]}
+                {discoveryProgress?.label || AGENT_TASK_STATUS_LABEL[agentTaskUxStatus(task, status === "running")]}
               </span>
               {task.priority === "high" && <span>高优先级</span>}
             </div>
-            {(task.context || task.description) && <p className="task-context">{task.context || task.description}</p>}
+            {!discoveryExecutionResult && (task.context || task.description) && <p className="task-context">{task.context || task.description}</p>}
             {completion && <p className={task.status === "completed" ? "completion-feedback" : "error"} role="status">{completion}</p>}
             </>
           )}
@@ -1336,6 +1339,8 @@ export default function Chat() {
           onRefresh={reload}
           onPosted={(msgs) => setMessages(msgs)}
           task={task}
+          resultOverride={discoveryExecutionResult}
+          statusOverride={discoveryProgress?.label}
           resultExtra={discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
             analyzing={pending || status === "running"} onAnalyze={taskId => void send({
               text: `请基于本任务已保存的发现条件与采集 ${taskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
