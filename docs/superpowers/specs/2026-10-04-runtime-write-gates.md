@@ -21,3 +21,7 @@
 定向验证（2026-10-04）：运行时、连接配置与启用门禁首轮 50 项通过；修复后确认归属、真实 Worker 协议接线与采集监控定向复测通过，覆盖远端 idle 带错误的失败终态。原生 PostgreSQL 执行队列 5 项通过，包含延迟 Outbox 不提前派发。线索智能体清单定向测试通过；前端确认与首页迁移 2 项 Playwright 通过；MediaCrawler 补丁在服务器真实源文件副本上 5 项通过。后端类型检查、前端生产构建、契约和注册表校验通过。未运行全量测试；生产实证另行记录。
 
 发布：先备份库和远端源文件；只应用 `20261004_runtime_actions` 增量；修补远端任务范围；读取真实 tools/list 后执行显式管理员迁移；重启 API、Outbox、两个执行消费者。使用唯一 YouTube 探针验证“提议零执行 → 确认排队 → 真实启动回执 → 独立停止确认 → 终态回执”，不导入或发信。
+
+生产实证（2026-10-04 16:19–16:22 CST）：实现提交 `f511ff4` 已合并 main、推送、部署；公网 `/api/version` 返回同 SHA，首页 HTTP 200。claw 仍为保险柜配置 v14，真实目录 8 个工具、`crawler_collect` 挂载其中 5 个，连接器 verified/enabled。`runtime.confirm` 启动和停止两个执行作业、`crawler.monitor` 作业均 succeeded；真实任务 `20261004161922_158c6b2e` 取得停止回执，持久状态 cancelled，远端 idle。真实 Codex 回合 `ses_model_probe_05ae90e3-0532-473a-922d-48b0a69dee12` 返回 done，产生 1 个 start_crawl 待确认动作且远端作业数为 0，探针动作随后取消。远端补丁在正式源文件上再次通过 5 项测试。
+
+回退资产：服务器 `/home/ecs-user/kol/backups/runtime-writes-20261004T0820/` 保存变更前数据库、配置、MediaCrawler 两个源文件与前端产物；远端原文件另有 `.before-kol-task-scope` 备份。数据库包含探针审计与回执，不应为应用回滚直接恢复全库。应用回退需停服务，恢复旧代码与前端，撤销本次切换标记和新增技能挂载后重启；已有持久动作不得重放。

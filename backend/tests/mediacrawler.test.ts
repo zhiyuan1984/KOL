@@ -23,6 +23,7 @@ import {
   retryUpload,
   setCrawlMcpClientFactory,
   stopCrawl,
+  startCrawl,
 } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
 import { RemoteMcpClient } from "../src/mcp/remote.js";
@@ -159,6 +160,12 @@ afterEach(async () => {
 });
 
 describe("remote Streamable HTTP MCP", () => {
+  it("retires the old start entry after skill cutover without a remote call", async () => {
+    getConn().prepare("INSERT INTO runtime_bootstrap_migrations(id,applied_at) VALUES('runtime.crawler-skill.v1',?)").run(new Date().toISOString());
+    await expect(startCrawl({ ownerUserId: "user-a", workItemId: "old-task", platform: "youtube", mode: "search", parameters: { keywords: "test" }, idempotencyKey: "old-entry" }))
+      .rejects.toMatchObject({ status: 410, detail: { code: "crawler_skill_entry_required" } });
+    expect(calls).toEqual([]);
+  });
   it("migrates only on apply, is idempotent and requires new configuration verification", () => {
     const before = getConnectorConfig("claw")!.version;
     const input = { url: baseUrl, token: "replacement-secret", apply: false };
