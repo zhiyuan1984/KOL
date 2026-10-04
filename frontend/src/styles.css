@@ -15530,3 +15530,11 @@ button.today-brief-primary-btn:disabled {
   .task-work-order-create { grid-template-columns: 1fr; }
   .task-work-order-create .row-actions { padding: 0; }
 }
+
+.task-work-order-event-create {
+  grid-template-columns: 1fr;
+}
+
+.task-work-order-event-create .row-actions {
+  justify-content: flex-start;
+}

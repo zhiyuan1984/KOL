@@ -1850,6 +1850,9 @@ export const api = {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),
   aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
+  recordAiTaskVerifiedEvent: (taskId: string, body: { source_system: string; source_event_id: string; source_version?: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; evidence: Record<string, unknown>; payload?: Record<string, unknown>; idempotency_key: string }) => request<{ event: { id: string; replayed: boolean }; decision: { id: string; outcome: string; status: string; confidence: number | null }; execution_job: { id: string; status: string; job_type: string }; execution_mode: string; request_id: string }>(`/api/task-work-orders/tasks/${encodeURIComponent(taskId)}/verified-events`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
   ticketFormBootstrap: () => request<TicketFormBootstrap>("/api/tickets/form-bootstrap"),
   adminTicketOrganizationQuality: () => request<TicketOrganizationQualityReport>("/api/admin/work-orders/data-quality"),
   adminTicketAccountBindingOptions: () => request<TicketAccountBindingOptions>("/api/admin/work-orders/account-bindings/options"),

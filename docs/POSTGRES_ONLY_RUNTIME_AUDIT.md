@@ -38,6 +38,7 @@
 | 已核验事件→AI 工单触发入口 | `work-order-verified-event.ts`、`POST /task-work-orders/tasks/:taskId/verified-events`；首批事件白名单、来源版本、证据、验证人与幂等均先写不可变 PostgreSQL 事件，再触发有界 Jev decision 与持久队列 | PG 集成测试覆盖事件重放、证据投影、Jev/Outbox/Worker 自动建单与任务状态不变；外部邮件/期限生产者待对接 |
 | 管理端工作战报 | `AdminWorkReport.tsx` 复用授权 AI Task 根列表，显示 Task 根、开放/阻塞子工单及当前阻塞项；保留原日度战报口径 | 前端构建与导航/首页回归通过；AI 工单摘要明确不纳入验收、完成或个人绩效指标 |
 | AI 业务任务入口 | `POST /api/task-work-orders/tasks` 仅使用已登录工作台主体创建 PostgreSQL Task 根；任务中心提供标题、业务目标、优先级和截止日期表单 | PG 集成测试覆盖 HTTP 路由、共享会话主体和幂等回执；创建根任务不自动生成工单，仍需已核验事件与已发布自动化规则 |
+| 已核验事件工作台入口 | 任务详情登记首批白名单事实、证据引用和发生时间，调用 `POST /api/task-work-orders/tasks/:taskId/verified-events` | 前端构建回归通过；服务端仍以不可变事件→Jev→Outbox→Worker 执行，页面不绕过证据、发布开关或人工验收边界 |
 | AI Task / Work Order 工作台与治理投影 | `/task-work-orders`、`task-work-orders.ts` 以工作台主体/主受理授权返回 Task 根、子工单计数与当前阻塞；`Tasks.tsx` 以并列摘要/详情呈现，`AdminWorkOrders.tsx` 输出管理原始负荷 | PG 集成路由测试、前端 typecheck/build；不替换历史任务列表/Today/Todo，也不把工单终态写成任务完成 |
 
 ## 已安全隔离或停用

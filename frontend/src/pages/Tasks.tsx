@@ -128,6 +128,9 @@ export default function Tasks() {
   const [selectedAiTask, setSelectedAiTask] = useState<AiTaskWorkOrderAggregate | null>(null);
   const [showAiTaskCreate, setShowAiTaskCreate] = useState(false);
   const [aiTaskDraft, setAiTaskDraft] = useState({ title: "", goal: "", due_at: "", priority: "normal" });
+  const [showAiEventCreate, setShowAiEventCreate] = useState(false);
+  const [aiEventDraft, setAiEventDraft] = useState({ event_type: "mail.reply_verified", summary: "", evidence_ref: "", occurred_at: "" });
+  const [aiEventNotice, setAiEventNotice] = useState("");
   const [actionBusy, setActionBusy] = useState("");
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
@@ -273,6 +276,42 @@ export default function Tasks() {
     }
   };
 
+  const recordAiVerifiedEvent = async () => {
+    if (!selectedAiTask) return;
+    if (!aiEventDraft.summary.trim() || !aiEventDraft.evidence_ref.trim()) {
+      setError("请填写已核验事实摘要和证据引用。");
+      return;
+    }
+    const taskId = selectedAiTask.task.task_id;
+    setActionBusy("ai-task:verified-event");
+    setError("");
+    setAiEventNotice("");
+    try {
+      const stamp = Date.now();
+      const result = await api.recordAiTaskVerifiedEvent(taskId, {
+        source_system: "workbench_human_verification",
+        source_event_id: `workbench:${taskId}:${stamp}`,
+        source_version: "workbench.v1",
+        event_type: aiEventDraft.event_type,
+        occurred_at: aiEventDraft.occurred_at ? new Date(aiEventDraft.occurred_at).toISOString() : new Date().toISOString(),
+        summary: aiEventDraft.summary.trim(),
+        evidence_ref: aiEventDraft.evidence_ref.trim(),
+        evidence: { verified_in: "workbench", actor_action: "human_verified_event" },
+        payload: {},
+        idempotency_key: `workbench-verified-event-${taskId}-${stamp}`,
+      });
+      setAiEventDraft({ event_type: "mail.reply_verified", summary: "", evidence_ref: "", occurred_at: "" });
+      setShowAiEventCreate(false);
+      setAiEventNotice(`已核验事件已进入 Jev → Outbox → Worker 管道（决策：${result.decision.outcome}；作业：${result.execution_job.status}）。`);
+      await loadAiTaskRoots();
+      setSelectedAiTask(await api.aiTaskWorkOrder(taskId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "已核验事件登记失败");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
   const visible = useMemo(() => rows.filter((task) => belongsToTab(task, selectedStatus)), [rows, selectedStatus]);
   const counts = useMemo(() => {
     const next = new Map<TaskStatusTab, number>();
@@ -412,6 +451,7 @@ export default function Tasks() {
       {selectedAiTask ? <div className="task-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedAiTask(null); }}><aside className="task-detail-drawer" role="dialog" aria-modal="true" aria-label="AI 标准工单任务详情">
         <header><div><p className="eyebrow">业务任务 · AI 标准工单</p><h2>{selectedAiTask.task.title}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelectedAiTask(null)}>×</button></header>
         <dl className="task-detail-meta"><div><dt>任务状态</dt><dd>{selectedAiTask.task.status}</dd></div><div><dt>业务目标</dt><dd>{selectedAiTask.task.goal}</dd></div><div><dt>任务截止</dt><dd>{formatTime(selectedAiTask.task.due_at)}</dd></div><div><dt>子工单</dt><dd>{selectedAiTask.counts.open} 开放 / {selectedAiTask.counts.total} 总计 / {selectedAiTask.counts.blocked} 阻塞</dd></div></dl>
+        <section><div className="split-head"><div><h3>登记已核验业务事件</h3><p className="muted">只登记已核验事实，不填写推测或结论。提交后才会触发受控 Jev 判断与异步工单管道；运行成功不代表工单或任务完成。</p></div><button className="btn ghost sm" type="button" onClick={() => setShowAiEventCreate((current) => !current)}>{showAiEventCreate ? "收起" : "登记事件"}</button></div>{showAiEventCreate && <form className="task-work-order-create task-work-order-event-create" onSubmit={(event) => { event.preventDefault(); void recordAiVerifiedEvent(); }}><label>事件类型<select value={aiEventDraft.event_type} onChange={(event) => setAiEventDraft((current) => ({ ...current, event_type: event.target.value }))}><option value="mail.reply_verified">已验证邮件回复</option><option value="mail.commitment_verified">已验证邮件承诺</option><option value="deadline.quote">报价期限</option><option value="deadline.contract">合同期限</option><option value="deadline.sample">样品期限</option><option value="deadline.content">内容期限</option></select></label><label>事实摘要<textarea value={aiEventDraft.summary} maxLength={1000} placeholder="仅写已经确认的事实，例如：已确认报价回复截止时间为…" onChange={(event) => setAiEventDraft((current) => ({ ...current, summary: event.target.value }))} /></label><label>证据引用<input value={aiEventDraft.evidence_ref} maxLength={1000} placeholder="例如：mail:thread/123 或 contract:version/2" onChange={(event) => setAiEventDraft((current) => ({ ...current, evidence_ref: event.target.value }))} /></label><label>发生时间<input type="datetime-local" value={aiEventDraft.occurred_at} onChange={(event) => setAiEventDraft((current) => ({ ...current, occurred_at: event.target.value }))} /></label><div className="row-actions"><button className="btn primary" type="submit" disabled={actionBusy === "ai-task:verified-event"}>{actionBusy === "ai-task:verified-event" ? "提交中…" : "提交已核验事件"}</button></div></form>}{aiEventNotice && <p className="muted" role="status">{aiEventNotice}</p>}</section>
         <section><h3>已核验业务事件</h3>{selectedAiTask.verified_events.length ? <ol className="task-detail-events">{selectedAiTask.verified_events.map((event) => <li key={event.id}><strong>{event.event_type}</strong><small>{formatTime(event.occurred_at)} · 核验 {formatTime(event.verified_at)}</small><p>{event.summary}</p><p className="muted">证据：{event.evidence_ref}</p></li>)}</ol> : <p className="muted">尚未记录可用于自动化判断的已核验业务事件。</p>}</section>
         <section><h3>标准执行工单</h3>{selectedAiTask.work_orders.length ? <ol className="task-detail-events">{selectedAiTask.work_orders.map((order) => <li key={order.work_order_id}><strong>{order.title}</strong><small>{order.template_code}.v{order.template_version} · {order.automation_level} · {order.status}</small><p>{order.objective}</p><p className="muted">主受理：{order.primary_assignee?.person_ref || order.primary_assignee?.principal_id || "尚未分派"} · 决策：{order.latest_decision ? `${order.latest_decision.outcome}（${order.latest_decision.confidence ?? "—"}）` : "—"}</p></li>)}</ol> : <p className="muted">该业务任务尚未物化标准执行工单。</p>}</section>
         <p className="muted">数据来源：PostgreSQL 任务—工单关系；子工单终态不会直接改变任务根状态。</p>
