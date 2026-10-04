@@ -435,6 +435,8 @@ export default function Chat() {
   const discoveryProgress = runtimeActions.find(action => action.operation === "start_crawl" && action.skill_id === "crawler_collect"
     && (!task?.worker_id || action.run_id === task.worker_id))?.progress;
   const discoveryExecutionResult = discoveryProgress?.replace_result ? discoveryProgress.result : undefined;
+  const pendingRuntimeActionId = runtimeActions.find((action) => action.state === "pending" && !action.execution)?.id || null;
+  const focusedPendingRuntimeActionRef = useRef<string | null>(null);
   const [selectedSkillTemplate, setSelectedSkillTemplate] = useState<SkillTemplate | null>(null);
   const [selectedTemplateSkillId, setSelectedTemplateSkillId] = useState<string | null>(null);
   const [skillParamValues, setSkillParamValues] = useState<Record<string, unknown>>({});
@@ -773,6 +775,23 @@ export default function Chat() {
       streamStickBottomRef.current = true;
     }
   }, [timelineWithCrawl, crawlJob, err, submitErr]);
+  useEffect(() => {
+    if (!pendingRuntimeActionId) {
+      focusedPendingRuntimeActionRef.current = null;
+      return;
+    }
+    if (focusedPendingRuntimeActionRef.current === pendingRuntimeActionId) return;
+    focusedPendingRuntimeActionRef.current = pendingRuntimeActionId;
+    const frame = window.requestAnimationFrame(() => {
+      const pane = streamRef.current;
+      if (!pane) return;
+      // Keep the confirmation in the conversation flow and bring its trailing
+      // actions into view once; do not turn it into a floating overlay.
+      pane.scrollTop = pane.scrollHeight;
+      streamStickBottomRef.current = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingRuntimeActionId]);
   const lastComposeGap = lastUnsentComposeGap(messages);
   const composerHint = String(lastComposeGap?.placeholder || journey?.composer_placeholder || "");
   const boundExpert = !discoveryWorkspace && id ? readBoundExpert(id) : null;
@@ -1266,11 +1285,11 @@ export default function Chat() {
           </div>
         )}
         {id && (
-          <><RuntimeActions sessionId={id} onChange={setRuntimeActions} /><ChatThread
+          <><ChatThread
             messages={timelineWithCrawl}
             officialStage={String(journey?.stage_code || "")}
             onRefresh={reload}
-          /></>
+          /><RuntimeActions sessionId={id} onChange={setRuntimeActions} /></>
         )}
         </div>
         <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>
