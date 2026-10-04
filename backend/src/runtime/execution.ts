@@ -347,9 +347,12 @@ export class SkillExecution {
         const valid = new AjvJsonSchemaValidator().getValidator(documentToolSchema.inputSchema as object)(args).valid;
         if (!valid) reject("runtime_tool_arguments_invalid", 422);
         const authorize = () => { this.active(); assertRuntimeSkill(this.context); };
+        await this.checkpoint();
         authorize();
         audit(this.context.userId, "runtime.tool.started", { ...trace, risk: "L1" });
         const result = await invokeDocumentTool(this.context, args, authorize);
+        await this.checkpoint();
+        authorize();
         audit(this.context.userId, "runtime.tool.completed", { ...trace, output: summary(result), risk: "L1" });
         return result;
       }
