@@ -3,14 +3,14 @@ import { expect, test } from "@playwright/test";
 test("confirmation replaces stale discovery results and restores a busy rejection", async ({ page, request }) => {
   const response = await request.post("/api/home/discovery/workspace", { data: {
     request_id: `confirmation-progress-${Date.now()}`, text: "发现露营候选", brief: {
-      platforms: ["youtube"], region: "global", directions: [], keywords: ["camping"],
+      platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"],
       min_followers: 10000, max_followers: 2000000, min_avg_plays_10: 5000, expect_count: 30,
     },
   } });
-  expect(response.ok()).toBeTruthy();
+  expect(response.ok(), await response.text()).toBeTruthy();
   const saved = await response.json();
   const stale = { type: "task_result", title: "等待确认", summary: "已生成平台确认卡，远端尚未执行。请核对后在平台确认。", sections: [], metrics: [], recommended_actions: [] };
-  await page.route(`**/api/tasks/by-session/${saved.session_id}`, async route => {
+  await page.route(new RegExp(`/api/tasks/(?:by-session/${saved.session_id}|${saved.task_id})$`), async route => {
     const data = await (await route.fetch()).json();
     const task = data.task || data;
     Object.assign(task, { worker_id: "confirmation-worker", status: "waiting", context: stale.summary, task_result: stale });
