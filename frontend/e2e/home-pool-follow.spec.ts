@@ -491,6 +491,31 @@ test("leaving today for pool aborts its pending memory reads", async ({ page }) 
   } finally { release(); }
 });
 
+test("slow active-task polling does not overlap and is cancelled on pool entry", async ({ page }) => {
+  let reads = 0;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const aborted: string[] = [];
+  await page.route(/\/api\/tasks$/, async (route) => {
+    reads++;
+    if (reads >= 3) await held;
+    await route.fulfill({ json: [{ id: "tsk_slow_run", title: "运行中的任务", status: "running" }] }).catch(() => undefined);
+  });
+  page.on("requestfailed", (request) => {
+    if (new URL(request.url()).pathname === "/api/tasks" && /ABORTED/i.test(request.failure()?.errorText || "")) aborted.push(request.url());
+  });
+  try {
+    await page.goto("/");
+    await expect.poll(() => reads).toBe(3);
+    await page.waitForTimeout(4500);
+    expect(reads).toBe(3);
+    await openPool(page);
+    await expect.poll(() => aborted.length).toBe(1);
+    await page.waitForTimeout(4500);
+    expect(reads).toBe(3);
+  } finally { release(); }
+});
+
 test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {
   const syncPosts: string[] = [];
   let synced = false;

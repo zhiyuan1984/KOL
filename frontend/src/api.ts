@@ -1898,12 +1898,12 @@ export const api = {
   saveStarryBinding: (body: { mailbox_email: string; bearer?: string; mailbox_id?: string; owner_name?: string }) =>
     request<StarryBinding>("/api/me/starry-binding", { method: "POST", body: JSON.stringify(body) }),
   clearStarryBinding: () => request<StarryBinding>("/api/me/starry-binding", { method: "DELETE" }),
-  tasks: (params?: { status?: string; source?: string; priority?: string; view?: string; q?: string; skill?: string; from?: string; to?: string }) => {
+  tasks: (params?: { status?: string; source?: string; priority?: string; view?: string; q?: string; skill?: string; from?: string; to?: string }, signal?: AbortSignal) => {
     const query = new URLSearchParams();
     Object.entries(params || {}).forEach(([key, value]) => {
       if (value) query.set(key, value);
     });
-    return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`);
+    return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`, { signal });
   },
   taskPage: (opts: { cursor?: string; limit?: number; view?: string; q?: string; from?: string; to?: string } = {}) => {
     const query = new URLSearchParams();
