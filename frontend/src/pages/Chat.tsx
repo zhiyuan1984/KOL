@@ -1096,6 +1096,7 @@ export default function Chat() {
           </div>
           {discoveryWorkspace ? (
             <div data-discovery-workspace data-agent-identity={discoveryWorkspace.agent_id} data-agent-profile="lead">
+              <strong>线索智能体</strong>
               {task?.status === "pending" && status !== "running" ? <button className="btn ghost" onClick={async () => {
                 if (!id || pending) return;
                 setPending(true); setSubmitErr("");
