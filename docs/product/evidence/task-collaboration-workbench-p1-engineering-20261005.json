@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-05",
+  "branch": "codex/task-collaboration-p1-release",
+  "phase_status": { "P1": "in_progress", "P2": "not_started", "P3": "not_started", "P4": "not_started", "P5": "not_started" },
+  "production_deployed_by_this_continuation": false,
+  "real_external_crawls_started_by_this_continuation": 0,
+  "backend_related_regression": {
+    "environment": "Windows, isolated PostgreSQL and local MCP protocol fixture",
+    "after_merging_main_2307930": { "passed": 61, "failed": 0 },
+    "after_merging_main_c2feaa8_progress_tests": { "passed": 13, "failed": 0 },
+    "full_release_suite_for_final_branch": "pending",
+    "typecheck": "passed",
+    "production_contract_validation": "passed before final frontend-only changes",
+    "scope_note": "Counts belong to separate runs with overlapping tests; not a combined full-suite count or real external acceptance."
+  },
+  "frontend_final_release_set": {
+    "revision": "e19df15",
+    "compiled_application_revision": "053b1f1",
+    "environment": "Linux staging, isolated PostgreSQL, stub, Chromium, one worker",
+    "runtime_config": { "passed": 26, "failed": 0, "retried": 0, "duration": "1.8m" },
+    "other_release_specs": { "passed": 21, "failed": 0, "retried": 0, "duration": "54.9s" },
+    "total": 47,
+    "scope_note": "Subsequent revisions changed only tests and review records; no real external actions."
+  },
+  "accessibility_repeat": {
+    "revision": "053b1f1",
+    "environment": "Linux staging, stub, Chromium",
+    "distinct_cases": 6,
+    "repeat_each": 2,
+    "retries_configured": 0,
+    "passed": 12,
+    "failed": 0,
+    "duration": "52.7s"
+  },
+  "presentation_regression": {
+    "environment": "Windows Chromium, intercepted API fixtures, no database or external tools",
+    "passed": 7,
+    "failed": 0,
+    "duration": "33.9s",
+    "includes_context_growth_and_manual_reading": true
+  },
+  "superseded_failures_preserved": [
+    { "revision": "345c671", "passed": 25, "failed": 1, "reason": "route.fetch lifecycle competing with reload" },
+    { "revision": "721b0f1", "passed": 24, "failed": 2, "reason": "old status-text assertions after merging main" },
+    { "revision": "6d900c2", "passed": 25, "failed": 1, "reason": "navigation and task-view assertion timeout" },
+    { "revision": "2b54303", "first_pass": 25, "passed_after_retry": 1, "reason": "keyboard control outside viewport" },
+    { "revision": "962201f", "passed": 11, "failed": 1, "retries_configured": 0, "reason": "polling geometry alone did not fix control position" },
+    { "revision": "e27b34d", "passed": 3, "failed": 2, "reason": "focused control top 881, bottom 913, viewport height 589, hit null" }
+  ],
+  "remaining_release_dependencies": [
+    "Real canonical source data/kol/红人画像信息表.md or explicit authoritative migration decision",
+    "Full backend release gate for the final branch",
+    "Main integration and production verification"
+  ],
+  "pull_request": { "created": false, "connector_error": "403 Resource not accessible by integration" },
+  "cleanup": { "local_temporary_postgres": "stopped", "isolated_e2e_servers": "exited with test runners" }
+}
