@@ -36,6 +36,7 @@
 | A1/A2 受控物化与发布开关 | `work-order-automation-release.ts`、`work-order-executor.ts`；模板发布之外仍需可审计 release，阈值、`task_owner` 唯一路由、幂等与 Task 状态共同闸门通过后，才在一个事务写子工单、主受理、阶段事实、物化尝试和 `work_order.materialized` Outbox；任务不会被完成 | PG 集成测试覆盖无 release 跳过、启用后创建、重放去重、分派、Outbox 与 Task 状态不变；前端 typecheck/build |
 | AI 决策持久异步执行 | `work-order-automation-pipeline.ts` 将不可变 Jev decision 以 `work_order.materialize` execution job + `execution_outbox` 排队；`execution-jobs/dispatcher.ts` 由 PostgreSQL claim/BullMQ Worker 调用确定性物化器并写终态回执 | PG 集成测试覆盖 job/outbox 去重、Worker 物化、任务状态不变；生产邮件/期限事件生产者尚未接入 |
 | 已核验事件→AI 工单触发入口 | `work-order-verified-event.ts`、`POST /task-work-orders/tasks/:taskId/verified-events`；首批事件白名单、来源版本、证据、验证人与幂等均先写不可变 PostgreSQL 事件，再触发有界 Jev decision 与持久队列 | PG 集成测试覆盖事件重放、证据投影、Jev/Outbox/Worker 自动建单与任务状态不变；外部邮件/期限生产者待对接 |
+| 管理端工作战报 | `AdminWorkReport.tsx` 复用授权 AI Task 根列表，显示 Task 根、开放/阻塞子工单及当前阻塞项；保留原日度战报口径 | 前端构建与导航/首页回归通过；AI 工单摘要明确不纳入验收、完成或个人绩效指标 |
 | AI Task / Work Order 工作台与治理投影 | `/task-work-orders`、`task-work-orders.ts` 以工作台主体/主受理授权返回 Task 根、子工单计数与当前阻塞；`Tasks.tsx` 以并列摘要/详情呈现，`AdminWorkOrders.tsx` 输出管理原始负荷 | PG 集成路由测试、前端 typecheck/build；不替换历史任务列表/Today/Todo，也不把工单终态写成任务完成 |
 
 ## 已安全隔离或停用

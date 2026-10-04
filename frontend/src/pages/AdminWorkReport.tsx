@@ -4,6 +4,7 @@ import {
   type AdminWorkReport,
   type AdminWorkReportDetail,
   type AdminWorkReportTicket,
+  type AiTaskWorkOrderList,
   type WorkReportView,
 } from "../api";
 import "./admin-work-report.css";
@@ -73,6 +74,7 @@ export default function AdminWorkReport() {
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminWorkReportDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [aiTaskRoots, setAiTaskRoots] = useState<AiTaskWorkOrderList["items"]>([]);
 
   const filters = useMemo(() => ({ date, timezone: DEFAULT_TIMEZONE, owner: owner || undefined, kind: kind || undefined, team: team || undefined }), [date, owner, kind, team]);
 
@@ -81,6 +83,7 @@ export default function AdminWorkReport() {
     setError("");
     try {
       setReport(await api.adminWorkReport(filters));
+      api.aiTaskWorkOrders().then((response) => setAiTaskRoots(response.items || [])).catch(() => setAiTaskRoots([]));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取工作战报");
     } finally {
@@ -180,6 +183,11 @@ export default function AdminWorkReport() {
           </button>
         ))}
       </div>
+
+      <article className="work-report__panel" data-ai-work-order-work-report>
+        <div className="work-report__panel-head"><div><h3>AI 业务任务与标准工单</h3><p>业务任务是目标根；AI 工单是按模板生成、可自动分派的执行单元。此处显示当前 PostgreSQL 原始存量和阻塞，不与上方日度验收或个人绩效混算。</p></div><span>{aiTaskRoots.length} 个任务根</span></div>
+        {!aiTaskRoots.length ? <p className="muted">当前没有授权范围内的 AI 任务根，或该投影暂不可用。</p> : <div className="work-report__table-wrap"><table className="work-report__table"><thead><tr><th>业务任务</th><th>任务状态</th><th>开放子工单</th><th>阻塞</th><th>当前阻塞项</th></tr></thead><tbody>{aiTaskRoots.map((item) => <tr key={item.task.task_id}><td><strong>{item.task.title}</strong><small>{item.task.goal}</small></td><td>{statusLabel(item.task.status)}</td><td>{item.counts.open} / {item.counts.total}</td><td>{item.counts.blocked}</td><td>{item.current_blocking_work_order ? `${item.current_blocking_work_order.title} · ${statusLabel(item.current_blocking_work_order.status)}` : "—"}</td></tr>)}</tbody></table></div>}
+      </article>
 
       <div className="work-report__main-grid">
         <article className="work-report__panel work-report__members">
