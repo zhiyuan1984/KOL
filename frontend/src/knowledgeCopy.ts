@@ -563,6 +563,7 @@ export const KB_INGEST_LEAD =
 /* ---- 非结构化资料（P1）：状态、进度与文案 ---- */
 
 export const KB_DOC_STATUS_LABEL: Record<string, string> = {
+  draft: "草稿（未解析）",
   uploaded: "排队中（待加工）",
   normalizing: "规整中",
   indexing: "建索引中",

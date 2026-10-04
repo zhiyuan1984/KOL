@@ -127,6 +127,7 @@ export type TaskDefinition = {
 };
 
 export const ALLOWED_TASK_MCP = new Set([
+  "knowledge.ask_documents",
   "starry.get_collaboration",
   "starry.list_collaborations",
   "starry.deal_memory",

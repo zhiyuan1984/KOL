@@ -2,6 +2,7 @@ import { getConn } from "../db.js";
 import { taskDefinitions } from "../tasks/registry.js";
 import type { Row } from "../types.js";
 import { ensureRuntimeSchema, listSkillConnectorBindings, listSkillToolBindings } from "./store.js";
+import { DOCUMENT_TOOL, documentDependencies } from "./document-knowledge.js";
 
 /** 技能声明的 MCP 工具：`<connector>.<tool>`，无前缀的条目照原样保留连接器为空。 */
 export type DeclaredTool = { connector_id: string; tool_name: string; declared_as: string };
@@ -180,6 +181,11 @@ export function skillCoverage(options: { connectorId?: string; root?: string } =
     const tools: CoverageTool[] = [];
     for (const declared of parseDeclaredMcp(definition.mcp)) {
       if (connectorId && declared.connector_id !== connectorId) continue;
+      if (declared.declared_as === DOCUMENT_TOOL) {
+        tools.push({ ...declared, connector_label: "知识文档", policy_risk: "L1", policy_enabled: true,
+          state: documentDependencies(definition.id).length ? "mounted" : "available" });
+        continue;
+      }
       const connector = directory.get(declared.connector_id);
       const policy = policies.get(keyOf(declared.connector_id, declared.tool_name));
       // 「已挂载」对齐启用闸门：父连接器绑定与工具绑定都得启用，否则上游仍不可用。

@@ -19,6 +19,7 @@ import { recordCostEvent } from "../costs.js";
 import { intentLlmApiKey, intentLlmFetch } from "../tasks/openai-intent.js";
 
 export const DOCUMENT_STATUSES = [
+  "draft",
   "uploaded",
   "normalizing",
   "indexing",
@@ -250,6 +251,7 @@ export function uploadDocument(
   file: { name: string; type: string; buf: Buffer },
   baseId: string,
   actor = knowledgeActorId(),
+  options: { draft?: boolean } = {},
 ): Json {
   requireAdmin();
   const base = getConn().prepare("SELECT * FROM knowledge_bases WHERE id=?").get(String(baseId || "")) as Row | undefined;
@@ -269,6 +271,9 @@ export function uploadDocument(
     });
   }
   const maxBytes = Number(process.env.KNOWLEDGE_DOC_MAX_BYTES || 536870912);
+  if (!file.buf.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
+    throw new HttpFail(400, { code: "knowledge_invalid_pdf", message: "文件不是有效的 PDF" });
+  }
   if (file.buf.length > maxBytes) {
     throw new HttpFail(413, { code: "knowledge_document_too_large", message: `单个文件不得超过 ${Math.floor(maxBytes / 1048576)} MiB` });
   }
@@ -285,12 +290,27 @@ export function uploadDocument(
        (id,base_id,title,filename,media_type,mime,size_bytes,source_path,status,error,retry_count,artifacts,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
-      id, String(base.id), title, filename, "pdf", String(file.type || ""), file.buf.length,
-      storePath(sourcePath), "uploaded", null, 0, null, actor, now, now,
+      id, String(base.id), title, filename, "pdf", "application/pdf", file.buf.length,
+      storePath(sourcePath), options.draft ? "draft" : "uploaded", null, 0, null, actor, now, now,
     );
-    insertQueuedJob(db, id, "normalize", actor);
+    if (!options.draft) insertQueuedJob(db, id, "normalize", actor);
   });
   audit(actor, "knowledge.document.upload", { document_id: id, base_id: String(base.id), filename });
+  if (!options.draft) enqueueDocument(id, "normalize");
+  return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
+}
+
+export function startDocument(id: string, actor = knowledgeActorId()): Json {
+  requireAdmin();
+  const doc = docRow(id);
+  const base = getConn().prepare("SELECT status FROM knowledge_bases WHERE id=?").get(doc.base_id) as Row | undefined;
+  if (base?.status !== "active") throw new HttpFail(409, "知识库已归档");
+  tx((db) => {
+    const changed = db.prepare("UPDATE knowledge_documents SET status='uploaded',updated_at=? WHERE id=? AND status='draft'").run(nowIso(), id);
+    if (!changed.changes) throw new HttpFail(409, "只有草稿可以开始解析");
+    insertQueuedJob(db, id, "normalize", actor);
+  });
+  audit(actor, "knowledge.document.start", { document_id: id, base_id: doc.base_id });
   enqueueDocument(id, "normalize");
   return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
 }
@@ -537,6 +557,7 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
   mergeArtifacts(String(doc.id), {
     normalize: {
       mode: "scanned-ocr",
+      page_map: make.page_map,
       model: mediaModel(),
       pages,
       extracted_path: storePath(extractedPath),
@@ -712,13 +733,22 @@ export function deleteDocument(id: string, actor = knowledgeActorId()): Json {
 
 export function documentSourceFile(id: string): { path: string; name: string; mime: string } {
   requireAdmin();
+  return sourceFileRef(docRow(id));
+}
+
+export function publishedDocumentSourceFile(id: string, allowedBaseIds: string[]): { path: string; name: string; mime: string } {
   const doc = docRow(id);
+  if (doc.status !== "published" || !allowedBaseIds.includes(String(doc.base_id))) throw new HttpFail(403, "资料不在当前技能的已发布范围内");
+  return sourceFileRef(doc);
+}
+
+function sourceFileRef(doc: Row): { path: string; name: string; mime: string } {
   const file = resolveStorePath(String(doc.source_path || ""));
   if (!fs.existsSync(file)) throw new HttpFail(404, "原文件不存在");
   return {
     path: file,
     name: String(doc.filename || "source.pdf"),
-    mime: String(doc.mime || "application/pdf") || "application/pdf",
+    mime: "application/pdf",
   };
 }
 
@@ -739,12 +769,19 @@ export async function searchDocuments(input: {
   include_pending?: unknown;
 }): Promise<Json> {
   requireAdmin();
-  const actor = knowledgeActorId();
+  return queryDocuments(input, knowledgeActorId());
+}
+
+/** Internal retrieval service. Callers must authorize scope before dispatch and again before returning. */
+export async function queryDocuments(input: {
+  query?: string; base_id?: string; doc_ids?: unknown; include_pending?: unknown;
+}, actor: string, revalidate: () => void = () => {}): Promise<Json> {
   const query = String(input.query || "").trim();
   if (!query) throw new HttpFail(400, "query required");
   const baseId = String(input.base_id || "").trim();
   const base = getConn().prepare("SELECT * FROM knowledge_bases WHERE id=?").get(baseId) as Row | undefined;
   if (!base) throw new HttpFail(400, { code: "knowledge_base_missing", message: "知识库不存在" });
+  if (base.status !== "active") throw new HttpFail(409, { code: "knowledge_base_archived", message: "知识库已归档" });
   if (String(base.kind) !== "unstructured") {
     throw new HttpFail(400, { code: "knowledge_base_not_unstructured", message: "只有非结构化库支持资料检索" });
   }
@@ -778,6 +815,13 @@ export async function searchDocuments(input: {
   const args = ["--library", libraryDir(baseId), "--question", query, "--chat-model", chatModel(), "--citations"];
   for (const engineId of engineIds) args.push("--doc-id", engineId);
   const outcome: BridgeOutcome = await runBridge({ cmd: "ask", args, timeoutMs: 10 * 60_000 });
+  revalidate();
+  for (const doc of docs) {
+    const current = docRow(String(doc.id));
+    if (current.status !== doc.status || current.updated_at !== doc.updated_at || engineDocIdOf(current) !== engineDocIdOf(doc)) {
+      throw new HttpFail(409, { code: "knowledge_document_changed", message: "资料已变更，请重新查询" });
+    }
+  }
   if (!outcome.ok) {
     throw new HttpFail(outcome.code === "knowledge_ask_failed" ? 502 : 503, {
       code: String(outcome.code || "knowledge_ask_failed"),
@@ -790,14 +834,22 @@ export async function searchDocuments(input: {
     const engineDocId = String(item.doc_id || "");
     const doc = byEngineId.get(engineDocId);
     const page = Number(item.page || 0);
+    if (!doc || !Number.isInteger(page) || page < 1) {
+      throw new HttpFail(502, { code: "knowledge_invalid_citation", message: "检索引用不属于本次资料范围" });
+    }
+    const normalize = artifactsOf(doc).normalize as Json | undefined;
+    const pageMap = normalize?.page_map as Json | undefined;
+    const sourcePage = normalize?.mode === "scanned-ocr" ? Number(pageMap?.[String(page)]) : page;
+    if (!Number.isInteger(sourcePage) || sourcePage < 1) throw new HttpFail(502, { code: "knowledge_invalid_citation", message: "缺少原件页码映射，请重新解析资料" });
     return {
       document: String(item.document || ""),
       engine_doc_id: engineDocId,
-      page: Number.isFinite(page) && page > 0 ? page : null,
+      page: sourcePage,
       document_id: doc ? String(doc.id) : null,
       title: doc ? String(doc.title) : "",
     };
   });
+  if (!rawCitations.length) throw new HttpFail(502, { code: "knowledge_missing_citations", message: "引擎未返回可验证引用，请重试或检查原文" });
   const usage = (outcome.usage || null) as Json | null;
   audit(actor, "knowledge.search", {
     base_id: baseId,

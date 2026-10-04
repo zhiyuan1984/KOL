@@ -1,21 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { KnowledgeBaseRow } from "../../api";
+import { api, type KnowledgeBaseRow } from "../../api";
 import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
-import StageTags from "../../components/StageTags";
 import KbvIcon from "../../knowledgeIcons";
 
-/** 上传弹窗：选择 / 拖入 / 校验 / 归档目标（业务域→业务主题→知识库三级 tab）/ 适用阶段标签 / 队列为真实交互；
- *  提交在后端上传通道接入前保持禁用（不出现工程阶段话术）。 */
-const UPLOAD_FORMATS: Record<string, string> = {
-  pdf: "PDF 文档",
-  doc: "Word 文档", docx: "Word 文档",
-  xls: "Excel 表格", xlsx: "Excel 表格", csv: "CSV 表格",
-  ppt: "演示文稿", pptx: "演示文稿",
-  txt: "纯文本", md: "Markdown", html: "HTML 文档",
-  png: "图片 / 待 OCR", jpg: "图片 / 待 OCR", jpeg: "图片 / 待 OCR", webp: "图片 / 待 OCR",
-  mp3: "音频 / 待转写", m4a: "音频 / 待转写", wav: "音频 / 待转写",
-  mp4: "视频 / 待转写", mov: "视频 / 待转写", webm: "视频 / 待转写",
-};
+/** PDF 原件保存为草稿；解析与发布是后续独立动作。 */
+const UPLOAD_FORMATS: Record<string, string> = { pdf: "PDF 文档" };
 
 const ACCEPT = Object.keys(UPLOAD_FORMATS).map((ext) => `.${ext}`).join(",");
 
@@ -29,15 +18,17 @@ type Props = {
   open: boolean;
   onClose: () => void;
   bases: KnowledgeBaseRow[];
+  onCreated: (id: string) => void;
 };
 
-export default function UploadDialog({ open, onClose, bases }: Props) {
+export default function UploadDialog({ open, onClose, bases: allBases, onCreated }: Props) {
+  const bases = useMemo(() => allBases.filter((base) => base.kind === "unstructured" && base.status === "active"), [allBases]);
+  const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [familyId, setFamilyId] = useState("");
   const [domainId, setDomainId] = useState("");
   const [baseId, setBaseId] = useState("");
-  const [stages, setStages] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -49,7 +40,6 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
       setFamilyId("");
       setDomainId("");
       setBaseId("");
-      setStages([]);
       el.showModal();
     }
     if (!open && el.open) el.close();
@@ -108,19 +98,36 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
     setError(errors.join("；"));
   };
 
+  const submit = async () => {
+    if (busy || !baseId || !files.length) return;
+    setBusy(true); setError("");
+    let saved = 0;
+    try {
+      for (const file of files) {
+        const result = await api.adminKnowledgeDocumentUpload(baseId, file, true);
+        saved += 1;
+        setFiles((current) => current.filter((item) => item !== file));
+        onCreated(result.document.id);
+      }
+      onClose();
+    } catch (cause) {
+      setError(`已保存 ${saved} 份；${cause instanceof Error ? cause.message : "上传失败"}。剩余文件可重试。`);
+    } finally { setBusy(false); }
+  };
+
   return (
     <dialog
       ref={ref}
       className="kbv-dialog"
       data-kbv-upload-dialog
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose(); }}
       onClick={(event) => {
-        if (event.target === ref.current) onClose();
+        if (!busy && event.target === ref.current) onClose();
       }}
     >
       <div className="kbv-dialog-head">
         <h2>上传文件</h2>
-        <button type="button" className="btn ghost" aria-label="关闭" onClick={onClose}>
+        <button type="button" className="btn ghost" aria-label="关闭" disabled={busy} onClick={onClose}>
           <KbvIcon name="close" />
         </button>
       </div>
@@ -132,13 +139,14 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
           onDragOver={(event) => event.preventDefault()}
           onDrop={(event) => {
             event.preventDefault();
-            add([...event.dataTransfer.files]);
+            if (!busy) add([...event.dataTransfer.files]);
           }}
         >
           <label className="btn">
             选择文件
             <input
               type="file"
+              disabled={busy}
               multiple
               accept={ACCEPT}
               data-kbv-upload-pick
@@ -149,8 +157,8 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
               }}
             />
           </label>
-          <p className="muted">PDF · Word · Excel / CSV · PowerPoint · TXT / Markdown / HTML · 图片（PNG/JPG/WEBP）· 音视频（MP3/M4A/WAV/MP4/MOV/WEBM）</p>
-          <p className="muted">音视频将先转写；扫描件将先 OCR。</p>
+          <p className="muted">支持 PDF；归属必须为非结构化知识库。</p>
+          <p className="muted">保存草稿仅保存原件，不开始解析，也不发布。</p>
         </div>
         {files.length ? (
           <div data-kbv-upload-queue>
@@ -166,6 +174,7 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
                     type="button"
                     className="kbv-link-plain"
                     aria-label={`移除 ${file.name}`}
+                    disabled={busy}
                     onClick={() => setFiles(files.filter((_, itemIndex) => itemIndex !== index))}
                   >
                     移除
@@ -200,17 +209,18 @@ export default function UploadDialog({ open, onClose, bases }: Props) {
             baseTotal={0}
           />
         </div>
-        <StageTags selected={stages} onChange={setStages} />
+
       </div>
       <div className="kbv-dialog-actions">
-        <button type="button" className="btn" onClick={onClose}>取消</button>
+        <button type="button" className="btn" disabled={busy} onClick={onClose}>取消</button>
         <button
           type="button"
           className="btn work"
           data-kbv-upload-submit
-          disabled
+          disabled={busy || !baseId || !files.length}
+          onClick={() => void submit()}
         >
-          创建文件草稿
+          {busy ? "保存中…" : "保存草稿"}
         </button>
       </div>
     </dialog>

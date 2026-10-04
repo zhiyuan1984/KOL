@@ -12,6 +12,8 @@ import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetch
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
 import { canUseAgent, canUseSkill } from "./organization-tree.js";
 import { isMediaCrawlerHostConfig } from "./mediacrawler-config.js";
+import { agentIsPublished } from "./managed-agents.js";
+import { DOCUMENT_TOOL, documentDependencies, documentToolSchema, hasDocumentTool, invokeDocumentTool } from "./document-knowledge.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
 export type RuntimeRemote = Pick<RemoteMcpClient, "listTools" | "callToolRaw" | "close">;
@@ -90,6 +92,7 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
   if (!user?.active) reject("runtime_identity_unavailable", 401);
   const binding = getAgentSkills(context.agentId).find((row) => row.skill_id === context.skillId);
   if (!binding?.enabled) reject("runtime_skill_unbound");
+  if (!agentIsPublished(context.agentId)) reject("runtime_agent_not_usable");
   const definition = requireTaskDefinition(context.skillId);
   const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(context.skillId) as Row | undefined;
   if (lifecycle && lifecycle.stage !== "published") reject("runtime_skill_not_published");
@@ -100,6 +103,20 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
   }
   const sop = getConn().prepare("SELECT summary,body,updated_at FROM skill_sops WHERE id=?").get(context.skillId);
   return { user, binding, skillVersion: runtimeHash({ definition, body: fs.readFileSync(definition.path, "utf8"), sop }) };
+}
+
+/** Skills are reusable across Agents. Resolve only a current, published and usable assembly. */
+export function runtimeAgentForSkill(skillId: string, userId: string): string {
+  ensureRuntimeSchema();
+  const definition = requireTaskDefinition(skillId);
+  const user = getConn().prepare("SELECT active,roles FROM users WHERE id=?").get(userId) as Row | undefined;
+  if (!user?.active) reject("runtime_identity_unavailable", 401);
+  const admin = parseRoles(user.roles).includes("admin");
+  const rows = getConn().prepare("SELECT agent_id FROM runtime_agent_skills WHERE skill_id=? AND enabled=1 ORDER BY agent_id").all(skillId) as Row[];
+  const usable = rows.map((row) => String(row.agent_id)).filter((id) => agentIsPublished(id) && (admin || canUseAgent(userId, id)));
+  if (usable.includes(definition.runtime_agent_id)) return definition.runtime_agent_id;
+  if (usable.length === 1) return usable[0];
+  reject(usable.length ? "runtime_agent_ambiguous" : "runtime_agent_not_usable");
 }
 /**
  * Runtime authorization for one connector. The only per-person unit is Agent
@@ -252,6 +269,11 @@ export class SkillExecution {
     this.active();
     assertRuntimeSkill(this.context);
     const tools: DiscoveredTool[] = [];
+    if (hasDocumentTool(this.context.skillId)) {
+      tools.push({ connectorId: "knowledge", remoteName: DOCUMENT_TOOL,
+        exposed: { ...documentToolSchema, description: `${documentToolSchema.description}\n可用库：${JSON.stringify(documentDependencies(this.context.skillId).map(({ id, name }) => ({ id, name })))}` },
+        schemaHash: toolSchemaHash(documentToolSchema), stamp: "", toolBindingVersion: 1 });
+    }
     const unavailable: RuntimeCatalog["unavailable"] = [];
     for (const binding of getSkillConnectors(this.context.skillId)) {
       const connectorId = String(binding.connector_id);
@@ -318,6 +340,16 @@ export class SkillExecution {
     try {
       this.active();
       if (!handle) reject("runtime_tool_not_discovered");
+      if (handle.connectorId === "knowledge" && handle.remoteName === DOCUMENT_TOOL) {
+        const valid = new AjvJsonSchemaValidator().getValidator(documentToolSchema.inputSchema as object)(args).valid;
+        if (!valid) reject("runtime_tool_arguments_invalid", 422);
+        const authorize = () => { this.active(); assertRuntimeSkill(this.context); };
+        authorize();
+        audit(this.context.userId, "runtime.tool.started", { ...trace, risk: "L1" });
+        const result = await invokeDocumentTool(this.context, args, authorize);
+        audit(this.context.userId, "runtime.tool.completed", { ...trace, output: summary(result), risk: "L1" });
+        return result;
+      }
       const check = () => {
         this.active();
         const policy = getToolPolicy(handle.connectorId, handle.remoteName);

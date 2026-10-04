@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { managedAgent } from "./runtime/managed-agents.js";
 
 type ScopeRegistry = {
   companies?: { id: string; status?: string }[];
@@ -137,6 +138,15 @@ function buildScope(agentId: string): RuntimeAgentScope {
 
 /** Scope sent to every Codex CONTEXT; Host remains the authority for decisions. */
 export function runtimeAgentScopeContext(agentId: string): RuntimeAgentScope {
+  if (agentId.startsWith("agent_")) {
+    const agent = managedAgent(agentId);
+    // Managed agents do not inherit KOL business scope from a static manifest.
+    // Resource scope is resolved by each skill at the execution gate.
+    return { agent_id: agent.id, agent_version: String(agent.version), status: agent.status,
+      kind: "platform", execution_scope: "skill-resources", company_ids: [], organization_scope: [],
+      brand_scope: [], region_scope: [], owner_ref: "system:managed-agent", owner_principal_ref: null,
+      department_head_scope_policy: null };
+  }
   const known = cached.get(agentId);
   if (known) return known;
   const scope = buildScope(agentId);

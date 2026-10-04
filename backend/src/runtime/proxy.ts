@@ -5,11 +5,13 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Json } from "../types.js";
 import { SkillExecution, runtimeErrorCode } from "./execution.js";
+import { hasDocumentTool } from "./document-knowledge.js";
 
 export type RuntimeProxy = { spec: Json; close: () => Promise<void> };
 
 /** Protocol-only proxy: no business tool implementation, supplier switch, or reasoning loop. */
 export async function startRuntimeProxy(execution: SkillExecution): Promise<RuntimeProxy> {
+  const toolTimeoutSeconds = hasDocumentTool(execution.context.skillId) ? 660 : 120;
   const token = randomBytes(32).toString("base64url");
   const expected = Buffer.from(`Bearer ${token}`);
   const active = new Set<{ server: Server; transport: StreamableHTTPServerTransport }>();
@@ -79,7 +81,7 @@ export async function startRuntimeProxy(execution: SkillExecution): Promise<Runt
       if (pair) { active.delete(pair); await pair.server.close().catch(() => undefined); }
     }
   });
-  httpServer.requestTimeout = 120_000;
+  httpServer.requestTimeout = toolTimeoutSeconds * 1000;
   httpServer.headersTimeout = 10_000;
   await new Promise<void>((resolve, reject) => {
     httpServer.once("error", reject);
@@ -89,7 +91,7 @@ export async function startRuntimeProxy(execution: SkillExecution): Promise<Runt
   if (!address || typeof address === "string") throw new Error("runtime proxy could not bind");
   return {
     spec: { url: `http://127.0.0.1:${address.port}/mcp`, http_headers: { Authorization: `Bearer ${token}` },
-      enabled: true, startup_timeout_sec: 30, tool_timeout_sec: 120 },
+      enabled: true, startup_timeout_sec: 30, tool_timeout_sec: toolTimeoutSeconds },
     async close() {
       if (stopped) return;
       stopped = true;

@@ -4,6 +4,7 @@ import { AUDIT_PAYLOAD_PREVIEW_CHARS, audit, auditPayloadPreview, getConn } from
 import { HttpFail } from "../host/errors.js";
 import { deleteBinding, listBases, saveBinding } from "../host/knowledge.js";
 import { skillCatalog } from "../host/skills-catalog.js";
+import { hasDocumentTool } from "../runtime/document-knowledge.js";
 import {
   createManagedAgent, listManagedAgents, managedAgent, updateManagedAgent,
 } from "../runtime/managed-agents.js";
@@ -82,7 +83,7 @@ adminAgentsRouter.get("/admin/agents", (c) => {
     agents: listManagedAgents().map((row) => agentView(row.id)),
     units: listOrganizationUnits().filter((unit) => unit.status === "active"),
     people: listOrganizationPeople().filter((person) => person.status === "active"),
-    skills: skillCatalog().map((skill) => ({ id: skill.id, label: skill.label, category: skill.category, summary: skill.summary })),
+    skills: skillCatalog().map((skill) => ({ id: skill.id, label: skill.label, category: skill.category, summary: skill.summary, document_query: hasDocumentTool(skill.id) })),
     bases: listBases(),
   });
 });
@@ -137,8 +138,8 @@ adminAgentsRouter.post("/admin/agents/:id/knowledge", async (c) => {
   }
   const base = listBases().find((row) => String(row.id) === baseId);
   if (!base) throw new HttpFail(404, "知识库不存在");
-  if (String(base.kind) !== "structured") {
-    throw new HttpFail(409, "当前技能知识解析只支持结构化知识库；非结构化库需使用文档检索技能");
+  if (String(base.kind) === "unstructured" && !hasDocumentTool(skillId)) {
+    throw new HttpFail(409, "请先为该技能启用非结构化文档问答能力");
   }
   const binding = saveBinding({
     skill_id: skillId,

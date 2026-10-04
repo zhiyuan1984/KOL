@@ -10,10 +10,15 @@ stdout 单行 JSON 契约调用本脚本；侧车升级/替换不影响 Host。
 - 测试：后端与 e2e 默认走 `KNOWLEDGE_ENGINE_MODE=stub`（Node 内夹具），**不依赖本目录**；
   本目录只在真实模式（试点与生产）使用。
 
-## 试点待办（首日实测后固定，写回本节）
+## 接口验证（2026-10-04）
 
-1. **本地库目录机制**：当前以 `PAGEINDEX_HOME=<library>` 指向每库目录；需实测 SDK 本地
-   存储是否遵循该变量（或改用其参数/工作目录），并把结论固定到 `bridge.py`。
+已验证 0.2.21 的 `index_model` / `chat_model` / `storage_path`、`chat(citations=True)` 与 `resolve_citations(answer, doc_id=...)`。0.2.10 不支持原桥接使用的调用接口。每库使用显式本地目录，不依赖未验证的环境变量。真实合成两页 PDF 索引与问答返回了正确的第二页引用。
+
+`python -m unittest test_bridge.py` 验证存储隔离及 OCR 重排到原件页码的映射。
+
+## 部署核对
+
+1. **本地库目录**：显式 `mode="local", storage_path=<library>`；部署时验证目录写权限。
 2. **pageindex 版本**：`requirements.txt` 的 pin 与 `ping` 返回值对齐；升级按变更处理。
 3. **模型配置**：`KNOWLEDGE_INDEX_MODEL` / `KNOWLEDGE_CHAT_MODEL` / `KNOWLEDGE_MEDIA_MODEL`
    与 provider（OpenAI 兼容端点）实测；记录每查成本。

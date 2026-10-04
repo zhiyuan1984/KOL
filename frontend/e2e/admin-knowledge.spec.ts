@@ -84,24 +84,12 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await expect(page.locator("[data-kbv-detail]")).toContainText("属性与范围");
     await expect(page.locator("[data-kbv-detail]")).toContainText("来源与版本");
 
-    // 上传弹窗：音视频格式在列；归档目标＝三级 tab；阶段标签可增可删；提交在服务接入前禁用。
+    // PDF 草稿入口：缺少文件或非结构化目标时禁用。
     await page.locator("[data-kbv-upload]").click();
     const upload = page.locator("[data-kbv-upload-dialog]");
     await expect(upload).toBeVisible();
-    await expect(upload).toContainText("音视频将先转写");
+    await expect(upload).toContainText("支持 PDF");
     await expect(upload.locator("[data-kb-scope-picker]")).toBeVisible();
-    const baseTabs = upload.locator("[data-kb-scope-base]");
-    await expect(baseTabs.first()).toBeVisible();
-    await baseTabs.nth(1).click();
-    await expect(baseTabs.nth(1)).toHaveAttribute("aria-pressed", "true");
-
-    const stageRow = upload.locator("[data-kb-stage-tags]");
-    await expect(stageRow).not.toContainText("全部");
-    await stageRow.locator("[data-kb-stage-add]").selectOption("INITIAL_CONTACT");
-    await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toBeVisible();
-    await stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]').click();
-    await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toHaveCount(0);
-
     await expect(upload).not.toContainText("上传服务暂不可用");
     await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
     await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);

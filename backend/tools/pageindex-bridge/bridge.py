@@ -15,12 +15,12 @@ docs/superpowers/specs/2026-10-02-knowledge-unstructured-pageindex-design.md §7
 约定：成功与可预期失败都以退出码 0 + 一行 JSON 输出：
   {"ok": true, ...} / {"ok": false, "code": "...", "message": "..."}
 进程级异常（缺包、崩溃）由 Node 侧映射为 knowledge_index_unavailable。日志一律走 stderr。
-本地库目录：以 --library 为准（设置 PAGEINDEX_HOME 并在该目录内工作）；SDK 本地存储的
-具体机制在试点首日实测后固定，见 tools/pageindex-bridge/README.md「试点待办」。
+本地库目录：以 --library 为准，显式传入 SDK storage_path；使用 local 模式。
 """
 import argparse
 import json
 import os
+import re
 import sys
 import time
 
@@ -39,10 +39,11 @@ def local_client(library, index_model=None, chat_model=None):
     from pageindex import PageIndexClient
     library = os.path.abspath(library)
     os.makedirs(library, exist_ok=True)
-    os.environ["PAGEINDEX_HOME"] = library
     return PageIndexClient(
-        index=index_model or os.environ.get("KNOWLEDGE_INDEX_MODEL") or "gpt-5.6-luna",
-        chat=chat_model or os.environ.get("KNOWLEDGE_CHAT_MODEL") or "gpt-5.6-sol",
+        mode="local",
+        storage_path=library,
+        index_model=index_model or os.environ.get("KNOWLEDGE_INDEX_MODEL") or "gpt-5.6-luna",
+        chat_model=chat_model or os.environ.get("KNOWLEDGE_CHAT_MODEL") or "gpt-5.6-sol",
     )
 
 
@@ -83,7 +84,7 @@ def cmd_ask(args):
         citations = []
         if args.citations:
             try:
-                resolved = client.resolve_citations(answer)
+                resolved = client.resolve_citations(answer, doc_id=kwargs.get("doc_id"))
                 answer = resolved.get("answer", answer)
                 for item in resolved.get("citations", []) or []:
                     citations.append({
@@ -91,8 +92,8 @@ def cmd_ask(args):
                         "doc_id": item.get("doc_id"),
                         "page": item.get("page"),
                     })
-            except Exception:
-                pass
+            except Exception as exc:
+                return fail("knowledge_citations_failed", str(exc)[:500])
         emit({"ok": True, "answer": answer, "citations": citations})
     except Exception as exc:
         return fail("knowledge_ask_failed", str(exc)[:500])
@@ -127,7 +128,7 @@ def cmd_make_pdf(args):
         from reportlab.lib.units import mm
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, PageBreak, Flowable
     except Exception as exc:
         return fail("knowledge_index_unavailable", "reportlab 缺失：%s" % exc)
     try:
@@ -136,13 +137,31 @@ def cmd_make_pdf(args):
         pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
         body = ParagraphStyle("body", fontName="STSong-Light", fontSize=10, leading=15)
         heading = ParagraphStyle("heading", fontName="STSong-Light", fontSize=13, leading=19, spaceBefore=6)
-        doc = SimpleDocTemplate(
+        page_map = {}
+        class MappedDoc(SimpleDocTemplate):
+            source_page = 1
+            def afterPage(self):
+                page_map[str(self.page)] = self.source_page
+
+        class SourceMarker(Flowable):
+            def __init__(self, number):
+                Flowable.__init__(self)
+                self.number = number
+            def draw(self):
+                self.canv._doctemplate.source_page = self.number
+
+        doc = MappedDoc(
             args.out, pagesize=A4,
             leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm,
         )
         story = []
         for line in raw.splitlines():
             text = line.rstrip()
+            marker = re.fullmatch(r"## 第 (\d+) 页", text)
+            if marker:
+                if story:
+                    story.append(PageBreak())
+                story.append(SourceMarker(int(marker.group(1))))
             if not text:
                 story.append(Spacer(1, 5))
                 continue
@@ -152,7 +171,7 @@ def cmd_make_pdf(args):
             else:
                 story.append(Paragraph(escaped, body))
         doc.build(story)
-        emit({"ok": True})
+        emit({"ok": True, "page_map": page_map})
     except Exception as exc:
         return fail("knowledge_index_failed", str(exc)[:500])
     return 0

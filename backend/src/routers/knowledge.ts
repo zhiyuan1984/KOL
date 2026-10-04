@@ -1,5 +1,9 @@
 import { Hono } from "hono";
 import fs from "node:fs";
+import { startDocument, publishedDocumentSourceFile } from "../host/knowledge-documents.js";
+import { scopedUser } from "../auth.js";
+import { assertRuntimeSkill } from "../runtime/execution.js";
+import { hasDocumentTool, documentDependencies } from "../runtime/document-knowledge.js";
 import { requireAdmin, requireSkill } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
@@ -164,6 +168,8 @@ knowledge.post("/admin/knowledge/documents", async (c) => {
   return c.json(uploadDocument(
     { name: (file as File).name || "upload.pdf", type: (file as File).type || "", buf },
     String(body.base_id || ""),
+    undefined,
+    { draft: body.draft === "true" },
   ), 201);
 });
 knowledge.get("/admin/knowledge/documents/:id", (c) => c.json(getDocumentDetail(c.req.param("id"))));
@@ -173,7 +179,21 @@ knowledge.get("/admin/knowledge/documents/:id/file", (c) => {
   c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
   return c.body(new Uint8Array(fs.readFileSync(ref.path)));
 });
+knowledge.get("/knowledge/documents/:id/file", (c) => {
+  const user = scopedUser();
+  if (!user) throw new HttpFail(401, "authentication required");
+  const skillId = String(c.req.query("skill_id") || "");
+  assertRuntimeSkill({ agentId: String(c.req.query("agent_id") || ""), skillId, userId: user.id, runId: "document-source" });
+  if (!hasDocumentTool(skillId)) throw new HttpFail(403, "文档查询技能未启用");
+  const ref = publishedDocumentSourceFile(c.req.param("id"), documentDependencies(skillId).map((base) => String(base.id)));
+  c.header("Content-Type", "application/pdf");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Cache-Control", "private, no-store");
+  c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
+  return c.body(new Uint8Array(fs.readFileSync(ref.path)));
+});
 knowledge.post("/admin/knowledge/documents/:id/retry", (c) => c.json(retryDocument(c.req.param("id"))));
+knowledge.post("/admin/knowledge/documents/:id/start", (c) => c.json(startDocument(c.req.param("id"))));
 knowledge.post("/admin/knowledge/documents/:id/cancel", (c) => c.json(cancelDocument(c.req.param("id"))));
 knowledge.post("/admin/knowledge/documents/:id/reprocess", (c) => c.json(reprocessDocument(c.req.param("id"))));
 knowledge.post("/admin/knowledge/documents/:id/publish", (c) => c.json(publishDocument(c.req.param("id"))));

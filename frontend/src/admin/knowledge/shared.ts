@@ -12,6 +12,7 @@ import {
 
 export type Row = Record<string, unknown>;
 export type KbAssetRow = KnowledgeRow & {
+  asset_type?: "document";
   ref_skills?: string[];
   effective_at?: string;
   expires_at?: string;

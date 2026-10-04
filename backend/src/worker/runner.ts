@@ -6,7 +6,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { SkillExecution, assertRuntimeSkill } from "../runtime/execution.js";
+import { SkillExecution, assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
 import { startRuntimeProxy, type RuntimeProxy } from "../runtime/proxy.js";
 import { getConnectorConfig } from "../runtime/store.js";
 import { BRAND_MAILBOXES, boxDir, codexMode, codexTurnTimeout } from "../config.js";
@@ -656,7 +656,7 @@ export async function runCodex(
   const skill = definition.id;
   emitPhase(onProgress, "preparing");
   const wid = nid("wrk");
-  const agentScope = runtimeAgentScopeContext(definition.runtime_agent_id);
+  const agentScope = runtimeAgentScopeContext(runtimeAgentForSkill(skill, scopedUser()?.id || ""));
   const runtimeContext = { agentId: agentScope.agent_id, skillId: skill,
     userId: scopedUser()?.id || "", runId: wid, sessionId };
   const runtimeAuthorization = assertRuntimeSkill(runtimeContext);

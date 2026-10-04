@@ -140,7 +140,7 @@ export type AdminAgentsResponse = {
   agents: AdminAgentRow[];
   units: Array<{ id: string; display_name: string; company_id: string; parent_id: string | null; level: number; status: string }>;
   people: Array<{ person_ref: string; display_name: string; user_id: string | null; status: string }>;
-  skills: Array<{ id: string; label: string; category: string; summary: string }>;
+  skills: Array<{ id: string; label: string; category: string; summary: string; document_query?: boolean }>;
   bases: KnowledgeBaseRow[];
 };
 
@@ -2605,13 +2605,14 @@ export const api = {
   },
   adminKnowledgeDocument: (id: string) =>
     request<KnowledgeDocumentDetail>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`),
-  adminKnowledgeDocumentUpload: (baseId: string, file: File) => {
+  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false) => {
     const form = new FormData();
     form.append("base_id", baseId);
+    form.append("draft", String(draft));
     form.append("file", file);
     return request<{ document: KnowledgeDocumentRow }>("/api/admin/knowledge/documents", { method: "POST", body: form });
   },
-  adminKnowledgeDocumentAction: (id: string, action: "retry" | "cancel" | "reprocess" | "publish" | "archive") =>
+  adminKnowledgeDocumentAction: (id: string, action: "start" | "retry" | "cancel" | "reprocess" | "publish" | "archive") =>
     request<{ document: KnowledgeDocumentRow }>(
       `/api/admin/knowledge/documents/${encodeURIComponent(id)}/${action}`,
       { method: "POST" },

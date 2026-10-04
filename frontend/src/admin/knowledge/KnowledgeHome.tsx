@@ -9,6 +9,7 @@ import DetailRail from "./DetailRail";
 import KnowledgeFilters, { type FilterOption } from "./KnowledgeFilters";
 import LibraryPane, { type KbView } from "./LibraryPane";
 import UploadDialog from "./UploadDialog";
+import DocumentRail from "./DocumentRail";
 
 const PAGE_SIZE = 5;
 const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
@@ -38,13 +39,18 @@ type Skip = { view?: boolean; kind?: boolean; brand?: boolean; stage?: boolean; 
  */
 export default function KnowledgeHome() {
   const load = useCallback(async () => {
-    const [rows, bases, domains] = await Promise.all([
+    const [rows, bases, domains, documents] = await Promise.all([
       api.adminKnowledge(),
       api.adminKnowledgeBases(),
       api.adminKnowledgeDomains(),
+      api.adminKnowledgeDocuments(),
     ]);
     return {
-      rows: rows as KbAssetRow[],
+      rows: [...rows, ...documents.documents.map((doc): KbAssetRow => {
+        const base = bases.bases.find((item) => item.id === doc.base_id);
+        return { ...doc, body: "", kind: "document", asset_type: "document", base_name: base?.name,
+          domain_id: base?.domain_id, domain_name: base?.domain_name, family_id: base?.family_id || undefined, family_name: base?.family_name || undefined };
+      })] as KbAssetRow[],
       bases: bases.bases || [],
       domains: domains.domains || [],
     };
@@ -321,7 +327,7 @@ export default function KnowledgeHome() {
             loading={loading}
           />
           <aside className="kbv-admin-detail" aria-label="知识详情" data-kbv-detail>
-            {selectedRow ? (
+            {selectedRow?.asset_type === "document" ? <DocumentRail key={selectedRow.id} id={selectedRow.id} path={pathOf(selectedRow)} notify={notify} fail={fail} reload={reload} /> : selectedRow ? (
               <DetailRail
                 key={selectedRow.id}
                 row={selectedRow}
@@ -338,7 +344,7 @@ export default function KnowledgeHome() {
         </section>
       </div>
 
-      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} />
+      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} onCreated={(id) => { notify("PDF 草稿已保存，尚未解析或发布。"); reload(); setView("draft"); setScope(EMPTY_SCOPE); setQuery(""); setKind(""); setBrands([]); setStages([]); setSelectedId(id); }} />
       <CreateKnowledgeDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}

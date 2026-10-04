@@ -25,6 +25,7 @@ export default function SkillLifecycleV2() {
   const [importOpen, setImportOpen] = useState(false);
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
+  const [documentQuery, setDocumentQuery] = useState(false);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [metricsDays, setMetricsDays] = useState(7);
@@ -58,14 +59,14 @@ export default function SkillLifecycleV2() {
     if (!id.trim() || !title.trim() || !body.trim()) { setCreateError("请填写技能 Key、名称与说明。"); return; }
     setBusy(true); setCreateError("");
     try {
-      await api.createAdminSkill({ id: id.trim(), title: title.trim(), description: title.trim(), body: body.trim(), grant_org: false, in_market: false });
+      await api.createAdminSkill({ id: id.trim(), title: title.trim(), description: title.trim(), body: body.trim(), mcp: documentQuery ? ["knowledge.ask_documents"] : [], grant_org: false, in_market: false });
       setSelectedId(id.trim()); setCreateOpen(false); setId(""); setTitle(""); setBody("");
       setNotice("技能草稿已创建。装配到 Agent 后，按技能阶段完成测试与发布。");
       await load();
     } catch (cause) { setCreateError(cause instanceof Error ? cause.message : "创建技能失败"); }
     finally { setBusy(false); }
   };
-  const openCreate = () => { setId(""); setTitle(""); setBody(""); setCreateError(""); setCreateOpen(true); };
+  const openCreate = () => { setDocumentQuery(false); setId(""); setTitle(""); setBody(""); setCreateError(""); setCreateOpen(true); };
   const moveStage = (next: string, needReason?: boolean) => {
     if (!selected) return;
     ask(
@@ -113,6 +114,7 @@ export default function SkillLifecycleV2() {
     >
       <label>技能 Key（snake_case）<input ref={createKeyRef} type="text" value={id} onChange={(event) => setId(event.target.value)} /></label>
       <label>名称<input type="text" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+      <label><input type="checkbox" checked={documentQuery} onChange={(event) => setDocumentQuery(event.target.checked)} />非结构化文档问答（L1 只读；知识库在 Agent 页绑定）</label>
       <label>说明（Markdown）<textarea value={body} onChange={(event) => setBody(event.target.value)} /></label>
     </AdminFormDialog>
   </section>;

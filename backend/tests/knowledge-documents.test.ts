@@ -1,12 +1,20 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as bridge from "../src/knowledge-bridge.js";
+import { tokenDigest } from "../src/auth.js";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { setPersona } from "../src/host/persona.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { SkillExecution, runtimeAgentForSkill } from "../src/runtime/execution.js";
+import { login } from "../src/host/auth.js";
+import { DEMO_ADMIN } from "../src/config.js";
+import { runtimeAgentScopeContext } from "../src/contract-scope.js";
+import { createAgentBinding, revokeAgentBinding, canUseAgent } from "../src/runtime/organization-tree.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 
 type Json = Record<string, unknown>;
 
@@ -112,6 +120,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   resetConn();
   delete process.env.KNOWLEDGE_ENGINE_MODE;
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
@@ -119,6 +128,86 @@ afterEach(() => {
 });
 
 describe("knowledge documents (P1 pipeline)", () => {
+  it("saves a PDF draft without jobs, starts explicitly once, and keeps it unpublished", async () => {
+    const base = await createUnstructuredBase();
+    const form = new FormData();
+    form.append("base_id", String(base.id)); form.append("draft", "true");
+    form.append("file", new File([blobPart(pdfBytes())], "产品规格.pdf"));
+    const response = await request("POST", "/api/admin/knowledge/documents", form);
+    expect(response.status).toBe(201);
+    const doc = (await response.json()).document as Json;
+    expect(doc.status).toBe("draft");
+    expect((await docDetail(String(doc.id))).jobs).toEqual([]);
+    expect((await request("POST", `/api/admin/knowledge/documents/${doc.id}/publish`)).status).toBe(409);
+    expect((await request("POST", `/api/admin/knowledge/documents/${doc.id}/start`)).status).toBe(200);
+    expect((await request("POST", `/api/admin/knowledge/documents/${doc.id}/start`)).status).toBe(409);
+    await waitStatus(String(doc.id), ["pending_review"]);
+  });
+
+  it("product consultation uses published bound PDFs through the runtime and rechecks user access", async () => {
+    login(DEMO_ADMIN.handle, DEMO_ADMIN.password);
+    const base = await createUnstructuredBase();
+    const create = await request("POST", "/api/admin/skills", {
+      id: "product_consultation", title: "产品咨询", body: "使用知识文档问答工具回答并保留页码。", mcp: ["knowledge.ask_documents"],
+    });
+    expect(create.status, await create.text()).toBe(201);
+    for (const stage of ["editing", "testing", "published"]) {
+      const result = await request("POST", "/api/admin/skills/product_consultation/stage", { stage });
+      expect(result.status, await result.text()).toBe(200);
+    }
+    seedPublishedAgent("agent_product_test", "产品专家");
+    const enabled = await request("PUT", "/api/admin/agents/agent_product_test/skills/product_consultation", { enabled: true, expected_version: 0 });
+    expect(enabled.status).toBe(200);
+    const binding = await request("POST", "/api/admin/agents/agent_product_test/knowledge", { skill_id: "product_consultation", base_id: base.id });
+    expect(binding.status, await binding.text()).toBe(201);
+    const db = getConn();
+    db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .run("product-user", "product-user", "产品测试用户", "no-login", '["employee"]', '[]', '', 1, "now", "now");
+    db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref=?").run("product-user", "person:ye_guanwang");
+    const access = createAgentBinding({ agent_id: "agent_product_test", target_type: "person", target_id: "person:ye_guanwang", company_id: "company:amperetime", source: "test" });
+    expect(canUseAgent("product-user", "agent_product_test")).toBe(true);
+    expect(runtimeAgentForSkill("product_consultation", "product-user")).toBe("agent_product_test");
+    expect(runtimeAgentScopeContext("agent_product_test").execution_scope).toBe("skill-resources");
+    const runtime = new SkillExecution({ agentId: "agent_product_test", skillId: "product_consultation", userId: "product-user", runId: "product-test" });
+    try {
+      const catalog = await runtime.discover();
+      expect(catalog.tools.map((tool) => tool.exposed.name)).toContain("knowledge.ask_documents");
+      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？", base_id: "unbound-base" })).rejects.toMatchObject({ detail: { code: "knowledge_scope_unavailable" } });
+      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？", include_pending: true })).rejects.toMatchObject({ detail: { code: "runtime_tool_arguments_invalid" } });
+      const doc = await upload(String(base.id), "产品规格.pdf", pdfBytes());
+      await waitStatus(String(doc.id), ["pending_review"]);
+      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_no_published_documents" } });
+      await request("POST", `/api/admin/knowledge/documents/${doc.id}/publish`);
+      const result = await runtime.invoke("knowledge.ask_documents", { query: "规格？" });
+      const answer = JSON.parse(String((result.content as Json[])[0].text));
+      expect(answer.citations[0]).toMatchObject({ document_id: doc.id, page: 1 });
+      expect(answer.citations[0].source_url).toContain("agent_id=agent_product_test");
+      const invalid = vi.spyOn(bridge, "runBridge").mockResolvedValueOnce({ ok: true, answer: "untrusted", citations: [{ doc_id: "outside-scope", page: 1 }] });
+      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_invalid_citation" } });
+      invalid.mockRestore();
+      db.prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
+        .run(tokenDigest("product-source-test"), "product-user", new Date(Date.now() + 60000).toISOString(), new Date().toISOString());
+      process.env.AUTH_MODE = "enabled";
+      const sourceUrl = String(answer.citations[0].source_url).split("#")[0];
+      expect((await request("GET", sourceUrl, undefined, "lingong_session=product-source-test")).status).toBe(200);
+      process.env.AUTH_MODE = "disabled";
+      db.prepare("UPDATE knowledge_bases SET status='archived' WHERE id=?").run(base.id);
+      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_scope_unavailable" } });
+      db.prepare("UPDATE knowledge_bases SET status='active' WHERE id=?").run(base.id);
+      const originalBridge = bridge.runBridge;
+      const revoked = vi.spyOn(bridge, "runBridge").mockImplementationOnce(async (call) => {
+        const outcome = await originalBridge(call);
+        revokeAgentBinding(access.id, { reason: "查询过程中撤权" });
+        return outcome;
+      });
+      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "runtime_agent_not_usable" } });
+      revoked.mockRestore();
+      process.env.AUTH_MODE = "enabled";
+      expect((await request("GET", sourceUrl, undefined, "lingong_session=product-source-test")).status).toBe(403);
+      process.env.AUTH_MODE = "disabled";
+      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "runtime_agent_not_usable" } });
+    } finally { runtime.close(); process.env.AUTH_MODE = "disabled"; }
+  });
   it("accepts only PDF uploads into an active unstructured base", async () => {
     const structuredFamily = (await (await request("POST", "/api/admin/knowledge/domains", {
       code: "s_fam", name: "族", level: "family",

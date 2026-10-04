@@ -85,9 +85,8 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await page.locator("[data-kbv-upload]").click();
     const upload = page.locator("[data-kbv-upload-dialog]");
     await expect(upload).toBeVisible();
-    await expect(upload).toContainText("音视频将先转写");
+    await expect(upload).toContainText("支持 PDF");
     await expect(upload.locator("[data-kb-scope-picker]")).toBeVisible();
-    await expect(upload.locator("[data-kb-stage-tags]")).toBeVisible();
     await expect(upload).not.toContainText("上传服务暂不可用");
     await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
     await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);

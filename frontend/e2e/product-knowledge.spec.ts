@@ -1,0 +1,44 @@
+import { expect, test } from "@playwright/test";
+
+test("PDF 草稿可见、独立解析，文档问答技能可绑定非结构化库", async ({ page, request }) => {
+  const suffix = Date.now().toString();
+  const family = (await (await request.post("/api/admin/knowledge/domains", { data: { code: `ipd_${suffix}`, name: "IPD 测试", level: "family" } })).json()).domain;
+  const domain = (await (await request.post("/api/admin/knowledge/domains", { data: { code: `battery_${suffix}`, name: "电池测试", level: "domain", parent_id: family.id } })).json()).domain;
+  const base = (await (await request.post("/api/admin/knowledge/bases", { data: { code: `spec_${suffix}`, name: "产品规格测试", kind: "unstructured", domain_id: domain.id } })).json()).base;
+  await page.goto("/admin/knowledge");
+  await page.locator("[data-kbv-upload]").click();
+  const upload = page.locator("[data-kbv-upload-dialog]");
+  await upload.locator(`[data-kb-scope-family="${family.id}"]`).click();
+  await upload.locator(`[data-kb-scope-domain="${domain.id}"]`).click();
+  await upload.locator(`[data-kb-scope-base="${base.id}"]`).click();
+  await upload.locator("[data-kbv-upload-pick]").setInputFiles({ name: `产品规格-${suffix}.pdf`, mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nProduct fixture\n%%EOF") });
+  await upload.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(upload).not.toBeVisible();
+  const detail = page.locator("[data-kbv-detail]");
+  await expect(detail).toContainText("草稿（未解析）");
+  const documents = (await (await request.get(`/api/admin/knowledge/documents?base=${base.id}`)).json()).documents;
+  expect(documents).toHaveLength(1);
+  const doc = documents[0];
+  expect((await (await request.get(`/api/admin/knowledge/documents/${doc.id}`)).json()).jobs).toEqual([]);
+  await detail.getByRole("button", { name: "开始解析" }).click();
+  await expect.poll(async () => (await (await request.get(`/api/admin/knowledge/documents/${doc.id}`)).json()).document.status).toBe("pending_review");
+
+  const skillId = `product_test_${suffix}`;
+  await page.goto("/admin/skills");
+  await page.getByRole("button", { name: "新增技能", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "新增技能" });
+  await dialog.getByLabel("技能 Key（snake_case）").fill(skillId);
+  await dialog.getByLabel("名称", { exact: true }).fill(`产品咨询 ${suffix}`);
+  await dialog.getByLabel("说明（Markdown）").fill("查询产品规格，返回原文页码，不编造参数。");
+  await dialog.getByRole("checkbox").check();
+  await dialog.getByRole("button", { name: "创建技能", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const agent = await (await request.post("/api/admin/agents", { data: { name: `产品专家 ${suffix}` } })).json();
+  expect((await request.put(`/api/admin/agents/${agent.id}/skills/${skillId}`, { data: { enabled: true, expected_version: 0 } })).ok()).toBe(true);
+  await page.goto("/admin/agents");
+  await page.getByRole("button").filter({ hasText: `产品专家 ${suffix}` }).click();
+  await page.getByLabel("调用技能").selectOption(skillId);
+  await page.getByLabel("知识库").selectOption(base.id);
+  await page.getByRole("button", { name: "绑定知识库", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("知识库已绑定到技能");
+});

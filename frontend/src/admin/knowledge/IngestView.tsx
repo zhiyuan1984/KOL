@@ -203,7 +203,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
                   const progress = kbDocProgressText(doc);
                   const status = String(doc.status || "");
                   const busy = ["uploaded", "normalizing", "indexing"].includes(status);
-                  const removable = ["uploaded", "pending_review", "failed", "cancelled"].includes(status);
+                  const removable = ["draft", "uploaded", "pending_review", "failed", "cancelled"].includes(status);
                   const chipClass = status === "published" ? "chip chip-ok" : status === "failed" ? "chip chip-warn" : "chip";
                   return (
                     <tr key={doc.id} data-admin-kb-doc={doc.id} data-admin-kb-doc-status={status}>
@@ -229,6 +229,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
                       <td>{formatKbTime(doc.updated_at) || "—"}</td>
                       <td>
                         <div className="kbadmin-row-actions">
+                          {status === "draft" && <button className="kbadmin-action-link" type="button" onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "start"), "已开始解析；完成后待审核。")}>开始解析</button>}
                           {["failed", "cancelled"].includes(status) ? (
                             <button
                               className="kbadmin-action-link"
