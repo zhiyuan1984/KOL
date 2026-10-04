@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Json } from "../types.js";
-import { SkillExecution, runtimeErrorCode } from "./execution.js";
+import { SkillExecution, runtimeErrorCode, runtimeErrorDetail } from "./execution.js";
 import { hasDocumentTool } from "./document-knowledge.js";
 
 export type RuntimeProxy = { spec: Json; close: () => Promise<void> };
@@ -70,7 +70,10 @@ export async function startRuntimeProxy(execution: SkillExecution): Promise<Runt
           } as CallToolResult;
         }
         try { return await execution.invoke(request.params.name, (request.params.arguments || {}) as Json) as CallToolResult; }
-        catch (error) { return { content: [{ type: "text", text: runtimeErrorCode(error) }], isError: true }; }
+        catch (error) {
+          const detail = runtimeErrorDetail(error);
+          return { content: [{ type: "text", text: detail.argument_issues ? JSON.stringify(detail) : runtimeErrorCode(error) }], isError: true };
+        }
       });
       await server.connect(transport);
       await transport.handleRequest(req, res, body);

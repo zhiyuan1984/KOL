@@ -6,6 +6,8 @@ export type RuntimeActionView = {
     result_state?: string; result_error?: string | null; result_json?: { task_id: string; complete: boolean; captured_at: string; candidates: Array<{
       id: string; name: string; platform: string; source_url: string | null; followers: number | null; avg_views_10: number | null; region: string | null;
       sampled_views_count?: number; sampled_views_avg?: number | null;
+      followers_evidence?: { state: "source_recorded" | "missing_source" | "unavailable"; raw_text: string | null;
+        source_field: string | null; captured_at: string | null; parser_version: string | null };
     }> } | null } | null;
   execution?: { id: string; status: string; error_code: string | null } | null;
 };

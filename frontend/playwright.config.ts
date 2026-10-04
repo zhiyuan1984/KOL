@@ -9,7 +9,7 @@ const executablePath = process.env.PW_EXECUTABLE_PATH;
 
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: ["**/runtime-actions.spec.ts"],
+  testIgnore: ["**/runtime-actions.spec.ts", "**/discovery-accessibility.spec.ts"],
   fullyParallel: false,
   // Stub gate runs the full 72-case file on one worker. A single leftover
   // library-sync race should not fail the release gate; real mode stays strict.

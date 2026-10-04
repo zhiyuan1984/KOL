@@ -129,7 +129,7 @@ describe("discovery workspace persistence and result isolation", () => {
       .rejects.toMatchObject(denied("discovery_brief_invalid"));
   });
 
-  it.each(["ready", "empty", "wrong-task", "unsupported", "partial"])("persists only verifiable task results: %s", async mode => {
+  it.each(["ready", "empty", "wrong-task", "unsupported", "partial", "read-error-retry", "wrong-platform", "snapshot-changed", "revoked-after-read"])("persists only verifiable task results: %s", async mode => {
     configureCrawlerFixture("http://crawler.example.test/mcp");
     setAgentSkill(context.agentId, "crawler_collect", true, 0);
     setSkillConnector("crawler_collect", "claw", true, 0);
@@ -144,13 +144,24 @@ describe("discovery workspace persistence and result isolation", () => {
     let calls = 0;
     const factory = (): RuntimeRemote => ({ listTools: async () => [descriptor], close: async () => {}, callToolRaw: async (_name, args) => {
       calls++; expect(args?.task_id).toBe("remote-result");
+      expect(_name).toBe("get_creators"); // Recovery must never start another crawl.
+      if (mode === "read-error-retry" && calls === 1) throw new Error("simulated transport interruption");
+      if (mode === "revoked-after-read") {
+        const binding = getSkillConnectors("crawler_collect").find(row => row.connector_id === "claw")!;
+        setSkillConnector("crawler_collect", "claw", false, Number(binding.version));
+      }
+      if (mode === "snapshot-changed") {
+        const offset = Number(args?.offset);
+        return { structuredContent: { task_id: "remote-result", total: calls === 1 ? 101 : 102, offset,
+          creators: Array.from({ length: calls === 1 ? 100 : 2 }, (_, index) => ({ id: `changed-${offset + index}`, platform: "youtube" })) } };
+      }
       if (mode === "partial") {
         const offset = Number(args?.offset);
         return { structuredContent: { task_id: "remote-result", total: 2001, offset,
           creators: Array.from({ length: Math.min(100, 2001 - offset) }, (_, index) => ({ id: `candidate-${offset + index}`, platform: "youtube" })) } };
       }
       return { structuredContent: { task_id: mode === "wrong-task" ? "another-task" : "remote-result",
-        creators: mode === "empty" ? [] : [{ id: "candidate", name: "Public creator", platform: "youtube", followers: null }], total: mode === "empty" ? 0 : 1 } };
+        creators: mode === "empty" ? [] : [{ id: "candidate", name: "Public creator", platform: mode === "wrong-platform" ? "instagram" : "youtube", followers: 4 }], total: mode === "empty" ? 0 : 1 } };
     } });
     const job = { payload_json: JSON.stringify({ crawl_id: "result-job" }), worker_id: "result-test", lease_until: new Date(Date.now() + 60000).toISOString() } as ClaimedExecutionJob;
     const read = () => collectCrawlResults(job, async () => {}, c => new SkillExecution(c, factory));
@@ -161,6 +172,8 @@ describe("discovery workspace persistence and result isolation", () => {
         VALUES('result-job',$1,$2,$3,'claw','start_crawl','{}','test','context-test','succeeded')`, [ctx.userId, ctx.sessionId, JSON.stringify(ctx)]);
       const snapshots = await discoveryResultContext(ctx);
       expect(snapshots[0]).toMatchObject({ task_id: "remote-result", result_complete: true, included_count: mode === "empty" ? 0 : 1 });
+      if (mode === "ready") expect(snapshots[0].candidates).toEqual([expect.objectContaining({ followers: null, reported_followers: 4,
+        followers_evidence: expect.objectContaining({ state: "missing_source" }) })]);
       expect(await discoveryResultContext({ ...ctx, sessionId: "other-session" })).toEqual([]);
       const binding = getSkillConnectors("crawler_collect").find(row => row.connector_id === "claw")!;
       setSkillConnector("crawler_collect", "claw", false, Number(binding.version));
@@ -169,11 +182,19 @@ describe("discovery workspace persistence and result isolation", () => {
       await expect(read()).resolves.toMatchObject({ state: "partial", count: 2000 });
       await expect(read()).resolves.toMatchObject({ state: "ready", count: 2001 });
       expect(calls).toBe(21);
+    } else if (mode === "read-error-retry") {
+      await expect(read()).rejects.toThrow();
+      expect((await postgresPool().query("SELECT result_state FROM runtime_crawl_jobs WHERE id='result-job'")).rows[0].result_state).toBe("failed");
+      // A new runtime reconstructs authorization and reads the same existing task.
+      await expect(read()).resolves.toMatchObject({ state: "ready", count: 1 });
+      expect(calls).toBe(2);
     } else {
-      await expect(read()).rejects.toMatchObject(denied(mode === "unsupported" ? "crawl_result_scope_unsupported" : "crawl_result_task_mismatch"));
+      if (mode === "revoked-after-read") await expect(read()).rejects.toThrow();
+      else await expect(read()).rejects.toMatchObject(denied(mode === "unsupported" ? "crawl_result_scope_unsupported"
+        : mode === "snapshot-changed" ? "crawl_result_snapshot_changed" : "crawl_result_task_mismatch"));
       expect((await postgresPool().query("SELECT result_json,result_state FROM runtime_crawl_jobs WHERE id='result-job'")).rows[0])
         .toMatchObject({ result_json: null, result_state: "failed" });
-      expect(calls).toBe(mode === "unsupported" ? 0 : 1);
+      expect(calls).toBe(mode === "unsupported" ? 0 : mode === "snapshot-changed" ? 2 : 1);
     }
   });
 });
@@ -245,6 +266,11 @@ describe("governed Skill Runtime", () => {
     expect(catalog.tools).toHaveLength(2);
     const startAlias = String(catalog.tools.find((item) => item.remoteName === "start_crawl")!.exposed.name);
     const args = { platforms: ["youtube"], crawler_type: "search", keywords: "camping" };
+    await expect(runtime.invoke(startAlias, { ...args, keywords: ["camping"] })).rejects.toMatchObject({
+      detail: { code: "runtime_tool_arguments_invalid", dispatched: false,
+        argument_issues: [{ field: "keywords", issue: "type", expected: ["string"], actual: "array" }] },
+    });
+    expect(remoteCalls).toBe(0);
     const proposed = await runtime.invoke(startAlias, args);
     expect(remoteCalls).toBe(0);
     const action = await runtimeAction(String((proposed.structuredContent as Json).action_id), context.userId);

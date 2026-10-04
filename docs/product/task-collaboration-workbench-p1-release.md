@@ -24,6 +24,12 @@
 
 回退时先暂停新提交，保留已分发回执；检查 `crawler.results` 及监控作业，不能把仍需这些处理器的 Worker 降级为未知作业版本。不可逆业务动作不能宣称被代码回滚撤销。
 
-MediaCrawler 订阅数提取补丁仍为离线验证资产，本次不修改外部 MediaCrawler 服务。候选来源、订阅数原文、空结果和异常恢复验收仍按原 evidence 记录推进；P1 不登记为全量完成。
+本次 `19c78a1` 发布时，MediaCrawler 订阅数补丁仍为离线验证资产，未修改外部服务。后续已按质量记录完成补丁应用、限定采集及平台质量发布；本段保留该次发布范围，不代表当前补丁尚未应用。P1 不登记为全量完成。
 
 最终生产版本与流水线结果以本次 main 发布 run 和 `/api/version` 为准，发布完成后附在会话回执；此文不提前宣称部署成功。
+
+## 发布回执
+
+main `19c78a109a3c92eb7931fe5247b15d51724ad8a9` 已于2026-10-04发布。[流水线37207654221](https://github.com/zhiyuan1984/KOL/actions/runs/37207654221)完成全量后端 CI、前端检查/构建、预发 E2E 和生产部署；API 启动时间为 `2026-10-04T14:17:38.427Z`。生产 HEAD 与 API 版本一致，执行 Worker 两实例、Outbox、API 均 active，前端资源哈希一致，`20261004_discovery_results` 迁移已应用。
+
+发布前 PostgreSQL custom-format 备份 `backups/tcw-p1-predeploy-20261004.dump` 已用 `pg_restore --list` 核验，大小15,853,937字节。备份存在与清单验证不能替代实际业务恢复演练。此回执证明该版本上线，不将 P1 或后续五期登记为全部完成。后续质量修复见[质量记录](task-collaboration-workbench-p1-quality.md)。

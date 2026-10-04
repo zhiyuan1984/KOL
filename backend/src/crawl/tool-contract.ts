@@ -9,7 +9,10 @@ export function crawlToolPresentation(tool: Json): Json | null {
     return { ...tool,
       description: `${tool.description || ""}\nOnly propose a confirmed-scope collection. Allowed arguments: ${START_FIELDS.join(", ")}. Region, follower/view thresholds and desired candidate count are post-collection criteria. max_notes_count limits a remote query/mode, NOT the total task or distinct creators; multiple keywords and channel enrichment may perform additional collection. P1 only accepts comments switches set to false. Do not promise a hard task-total limit.`,
       inputSchema: { ...schema,
-        properties: Object.fromEntries(START_FIELDS.filter(key => key in properties).map(key => [key, properties[key]])),
+        properties: Object.fromEntries(START_FIELDS.filter(key => key in properties).map(key => [key,
+          key === "keywords" && (properties[key] as Json)?.type === "string"
+            ? { ...(properties[key] as Json), description: "Search keywords as one comma-separated string, e.g. boat life,marine power,sailboat living. Never pass an array; preserve every requested keyword." }
+            : properties[key]])),
         additionalProperties: false,
         allOf: [...(Array.isArray(schema.allOf) ? schema.allOf : []), {
           type: "object", properties: { platforms: { type: "array", minItems: 1, maxItems: 1,
