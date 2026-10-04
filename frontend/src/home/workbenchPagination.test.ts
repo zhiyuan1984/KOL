@@ -15,6 +15,17 @@ function page(items: string[], cursor: string | null): WorkbenchTaskPage {
 }
 
 describe("loadAllWorkbenchTasks", () => {
+  it("forwards cancellation and stops before loading another page", async () => {
+    const controller = new AbortController();
+    const load = vi.fn(async (_view: "today" | "todo", opts?: { signal?: AbortSignal }) => {
+      expect(opts?.signal).toBe(controller.signal);
+      controller.abort();
+      return page(["tsk_1"], "cursor-2");
+    });
+    await expect(loadAllWorkbenchTasks("today", load, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it("accumulates every page and replaces duplicated ids", async () => {
     const load = vi.fn(async (_view: "today" | "todo", opts?: { cursor?: string }) => {
       return opts?.cursor ? page(["tsk_2", "tsk_3"], null) : page(["tsk_1", "tsk_2"], "cursor-2");

@@ -467,6 +467,30 @@ test("switching to pool does not fetch unopened attachment directories", async (
   await expect.poll(() => directories.every((path) => paths.has(path))).toBe(true);
 });
 
+test("leaving today for pool aborts its pending memory reads", async ({ page }) => {
+  const paths = ["/api/workbench/tasks", "/api/workbench/plan", "/api/home/today-tasks"];
+  const started = new Set<string>();
+  const aborted = new Set<string>();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(/\/api\/(workbench\/(tasks|plan)|home\/today-tasks)(?:\?.*)?$/, async (route) => {
+    started.add(new URL(route.request().url()).pathname);
+    await held;
+    await route.fulfill({ json: { items: [], page: { next_cursor: null } } }).catch(() => undefined);
+  });
+  page.on("requestfailed", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (paths.includes(path) && /ABORTED/i.test(request.failure()?.errorText || "")) aborted.add(path);
+  });
+  try {
+    await page.goto("/");
+    await expect.poll(() => started.size).toBe(3);
+    await page.locator("[data-home-mode='pool']").click();
+    await expect(page.locator("[data-pool-card]").first()).toBeVisible();
+    await expect.poll(() => aborted.size).toBe(3);
+  } finally { release(); }
+});
+
 test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {
   const syncPosts: string[] = [];
   let synced = false;

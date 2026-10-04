@@ -1910,11 +1910,11 @@ export const api = {
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<TaskListPage>(`/api/tasks?${query}`);
   },
-  workbenchTasks: (view: "today" | "todo", opts?: { cursor?: string; limit?: number }) => {
+  workbenchTasks: (view: "today" | "todo", opts?: { cursor?: string; limit?: number; signal?: AbortSignal }) => {
     const query = new URLSearchParams({ view });
     if (opts?.cursor) query.set("cursor", opts.cursor);
     if (opts?.limit) query.set("limit", String(opts.limit));
-    return request<WorkbenchTaskPage>(`/api/workbench/tasks?${query}`);
+    return request<WorkbenchTaskPage>(`/api/workbench/tasks?${query}`, { signal: opts?.signal });
   },
   tickets: (opts: {
     cursor?: string; limit?: number; view?: "authorized" | "created" | "assigned" | "watching" | "completed";
@@ -2290,7 +2290,7 @@ export const api = {
   planToday: () => planScope("today"),
   todoBrief: () => scopeBrief("todo"),
   planTodo: () => planScope("todo"),
-  workbenchPlan: () => request<TodayBriefResponse>("/api/workbench/plan"),
+  workbenchPlan: (signal?: AbortSignal) => request<TodayBriefResponse>("/api/workbench/plan", { signal }),
   startWorkbenchPlan: () => request<TodayPlanResult>("/api/workbench/plan-runs", {
     method: "POST", body: JSON.stringify({ mode: "deterministic_organize" }),
   }),
@@ -2729,7 +2729,7 @@ export const api = {
   },
   kbMarket: () => request<KnowledgeRow[]>("/api/knowledge/market"),
   /** Authorized, read-only projection of published SKILL.md interaction contracts. */
-  skillTemplates: () => request<SkillTemplate[]>("/api/knowledge/skill-templates"),
+  skillTemplates: (signal?: AbortSignal) => request<SkillTemplate[]>("/api/knowledge/skill-templates", { signal }),
   skillTemplate: (skillId: string) =>
     request<SkillTemplate>(`/api/knowledge/skill-templates/${encodeURIComponent(skillId)}`),
   /** 零会话、零模型：只读已发布的问题模板，供公海四个入口预填提问框。 */

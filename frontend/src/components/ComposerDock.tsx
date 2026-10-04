@@ -263,13 +263,10 @@ export default function ComposerDock({
     setDismissedObjectChipKeys([]);
   }, [objectChipSignature]);
 
-  // 技能 / 知识 / 项目 / 最近文件候选只在真正用到提问框时才读：＋ 菜单、技能选择器、
-  // 已有输入或已锁定意图；仅聚焦空提问框不读取目录。
+  // 技能目录由添加菜单或 @ / / 候选触发；预填文本和已知意图无需预读整份目录。
   const catalogsNeeded = plusOpen
     || picker
-    || value.trim().length > 0
-    || Boolean(lockedIntent)
-    || Boolean(lockedKnowledgeId);
+    || Boolean(triggerQuery(value, value.length));
   const [catalogsEngaged, setCatalogsEngaged] = useState(false);
   useEffect(() => {
     if (catalogsNeeded && !catalogsEngaged) setCatalogsEngaged(true);
@@ -308,7 +305,7 @@ export default function ComposerDock({
     load().catch(() => {
       if (!cancelled) setSkills([]);
     });
-    api.skillTemplates().then((rows) => {
+    api.skillTemplates(controller.signal).then((rows) => {
       if (!cancelled && Array.isArray(rows)) setSkillTemplates(rows);
     }).catch(() => {
       if (!cancelled) setSkillTemplates([]);
