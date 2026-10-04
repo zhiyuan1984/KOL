@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { tickets } from "../src/routers/tickets.js";
 import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "../src/ticket-domain/auth.js";
-import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate } from "../src/ticket-domain/task-work-orders.js";
+import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, taskWorkOrderDashboard } from "../src/ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../src/ticket-domain/work-order-shadow.js";
 import { setWorkOrderJevFetch } from "../src/ticket-domain/work-order-jev.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate } from "../src/ticket-domain/work-order-template-governance.js";
@@ -87,7 +87,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
 
     const aggregate = await taskWorkOrderAggregate(actor.id, task.task_id);
     expect(aggregate.task).toMatchObject({ task_id: task.task_id, status: "open", title: "推进 KOL 报价合作" });
-    expect(aggregate.counts).toEqual({ total: 2, open: 1, blocked: 1, waiting_review: 1, completed: 1 });
+    expect(aggregate.counts).toEqual({ total: 2, open: 1, blocked: 1, waiting_review: 1, completed: 1, automatic_created: 0, automatic_assigned: 0 });
     expect(aggregate.current_blocking_work_order).toMatchObject({ work_order_id: "wo-review", status: "needs_review", latest_decision: { decision_mode: "shadow", outcome: "needs_review" } });
     expect(aggregate.work_orders).toHaveLength(2);
 
@@ -99,6 +99,113 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     const listResponse = await withTicketPrincipal(actor, () => tickets.fetch(new Request("http://test.local/task-work-orders?limit=20")));
     expect(listResponse.status).toBe(200);
     expect(await listResponse.json()).toMatchObject({ items: [{ task: { task_id: task.task_id }, current_blocking_work_order: { work_order_id: "wo-review" } }] });
+  });
+
+  it("derives dashboard totals, template versions and automatic assignment from immutable PostgreSQL facts", async () => {
+    const actor = await syncWorkbenchTicketPrincipal({
+      id: "u-dashboard-owner", username: "dashboard_owner", name: "Dashboard Owner", email: "dashboard-owner@example.test", roles: ["employee"], active: true,
+    });
+    const other = await syncWorkbenchTicketPrincipal({
+      id: "u-dashboard-other", username: "dashboard_other", name: "Dashboard Other", email: "dashboard-other@example.test", roles: ["employee"], active: true,
+    });
+    const task = await createTaskRootPostgres(actor.id, {
+      title: "推进报价与样品", goal: "分别验证自动建单与派单的运营口径", priority: "important", idempotency_key: "task-dashboard-owner-1",
+    });
+    await postgresPool().query(
+      `INSERT INTO work_order_templates
+       (id,template_code,version,title,description,status,automation_level,created_by)
+       VALUES
+        ('tpl-dashboard-v1','quote_followup',1,'报价跟进','自动报价跟进','published','A2',$1),
+        ('tpl-dashboard-v2','quote_followup',2,'报价跟进（新版）','人工复核版本','published','A1',$1)`,
+      [actor.id],
+    );
+    const decision = async (key: string, templateVersion: number) => {
+      const inserted = await postgresPool().query<{ id: string }>(
+        `INSERT INTO work_order_decisions
+         (task_id,template_code,template_version,decision_mode,outcome,status,input_hash,input_json,judgment_json,gate_results_json,actor_ref,idempotency_key,confidence)
+         VALUES ($1,'quote_followup',$2,'automatic','create','executed',$3,'{}','{}','{}',$4,$5,0.99)
+         RETURNING id`,
+        [task.task_id, templateVersion, `dashboard-hash-${key}`, actor.id, `dashboard-decision-${key}`],
+      );
+      return inserted.rows[0]!.id;
+    };
+    const autoAssignedDecision = await decision("a2", 1);
+    const autoUnassignedDecision = await decision("a1", 2);
+    const duplicateAttemptDecision = await decision("duplicate", 1);
+    const skippedDecision = await decision("skipped", 1);
+    await postgresPool().query(
+      `INSERT INTO work_orders
+       (id,task_id,template_id,template_code,template_version,status,priority,title,objective,automation_level,decision_id,created_by,created_at,updated_at)
+       VALUES
+        ('wo-dashboard-a2',$1,'tpl-dashboard-v1','quote_followup',1,'assigned','important','自动报价跟进','自动生成并派单','A2',$2,$3,now(),now()),
+        ('wo-dashboard-a1',$1,'tpl-dashboard-v2','quote_followup',2,'proposed','normal','自动报价复核','自动生成待人工派单','A1',$4,$3,now(),now()),
+        ('wo-dashboard-manual',$1,'tpl-dashboard-v1','quote_followup',1,'needs_review','normal','人工报价复核','人工创建不计自动化','A2',NULL,$3,now(),now())`,
+      [task.task_id, autoAssignedDecision, actor.id, autoUnassignedDecision],
+    );
+    await postgresPool().query(
+      `INSERT INTO work_order_assignments
+       (id,work_order_id,principal_id,role,status,routing_policy_code,assigned_by)
+       VALUES
+        ('woa-dashboard-auto','wo-dashboard-a2',$1,'primary','active','task_owner',$1),
+        ('woa-dashboard-manual','wo-dashboard-manual',$1,'primary','active','task_owner',$1)`,
+      [actor.id],
+    );
+    await postgresPool().query(
+      `INSERT INTO work_order_execution_attempts
+       (id,decision_id,work_order_id,actor_ref,execution_mode,status,idempotency_key)
+       VALUES
+        ('woe-dashboard-a2',$1,'wo-dashboard-a2',$2,'automatic','created','dashboard-attempt-a2'),
+        ('woe-dashboard-a2-duplicate',$3,'wo-dashboard-a2',$2,'automatic','created','dashboard-attempt-a2-duplicate'),
+        ('woe-dashboard-a1',$4,'wo-dashboard-a1',$2,'automatic','created','dashboard-attempt-a1'),
+        ('woe-dashboard-skipped',$5,'wo-dashboard-manual',$2,'automatic','skipped','dashboard-attempt-skipped')`,
+      [autoAssignedDecision, actor.id, duplicateAttemptDecision, autoUnassignedDecision, skippedDecision],
+    );
+
+    const otherTask = await createTaskRootPostgres(other.id, {
+      title: "协同任务", goal: "普通员工只能因有效受理获得可见性", idempotency_key: "task-dashboard-other-1",
+    });
+    await postgresPool().query(
+      `INSERT INTO work_orders
+       (id,task_id,template_id,template_code,template_version,status,priority,title,objective,automation_level,created_by,created_at,updated_at)
+       VALUES ('wo-dashboard-collab',$1,'tpl-dashboard-v1','quote_followup',1,'assigned','normal','协同报价任务','受理后可见','A2',$2,now(),now())`,
+      [otherTask.task_id, other.id],
+    );
+    await postgresPool().query(
+      `INSERT INTO work_order_assignments
+       (id,work_order_id,principal_id,role,status,assigned_by)
+       VALUES ('woa-dashboard-collab','wo-dashboard-collab',$1,'collaborator','active',$2)`,
+      [actor.id, other.id],
+    );
+
+    const dashboard = await taskWorkOrderDashboard(actor.id, false, { limit: 1 });
+    expect(dashboard).toMatchObject({
+      report_version: "task-work-order-dashboard.v1",
+      scope: "personal_authorized",
+      summary: {
+        tasks: { total: 2, open: 2, blocked: 1, waiting_review: 1, completed: 0 },
+        work_orders: { total: 4, automatic_created: 2, automatic_assigned: 1, open: 4, blocked: 1, waiting_review: 1, completed: 0 },
+      },
+      tasks: { page: { limit: 1, total: 2 } },
+    });
+    expect(dashboard.tasks.page.next_cursor).toBeTruthy();
+    expect(dashboard.by_template).toEqual(expect.arrayContaining([
+      expect.objectContaining({ template_code: "quote_followup", template_version: 1, total: 3, automatic_created: 1, automatic_assigned: 1, waiting_review: 1 }),
+      expect.objectContaining({ template_code: "quote_followup", template_version: 2, total: 1, automatic_created: 1, automatic_assigned: 0 }),
+    ]));
+    const firstTask = dashboard.tasks.items.find((item) => item.task.task_id === task.task_id)!;
+    expect(firstTask.counts).toMatchObject({ total: 3, automatic_created: 2, automatic_assigned: 1, blocked: 1 });
+    expect(firstTask.current_blocking_work_order).toMatchObject({ work_order_id: "wo-dashboard-manual", automatic_created: false, automatic_assigned: false });
+    const secondPage = await taskWorkOrderDashboard(actor.id, false, { limit: 1, cursor: dashboard.tasks.page.next_cursor });
+    expect(secondPage.tasks.items).toHaveLength(1);
+    expect([...dashboard.tasks.items, ...secondPage.tasks.items].map((item) => item.task.task_id).sort()).toEqual([task.task_id, otherTask.task_id].sort());
+
+    const response = await withTicketPrincipal(actor, () => tickets.fetch(new Request("http://test.local/task-work-orders/dashboard?limit=1")));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      report_version: "task-work-order-dashboard.v1",
+      summary: { work_orders: { automatic_created: 2, automatic_assigned: 1 } },
+      tasks: { page: { limit: 1, total: 2 } },
+    });
   });
 
   it("records a bounded Jev shadow recommendation without creating, assigning, staging, or completing anything", async () => {

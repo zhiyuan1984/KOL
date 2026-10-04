@@ -15538,3 +15538,38 @@ button.today-brief-primary-btn:disabled {
 .task-work-order-event-create .row-actions {
   justify-content: flex-start;
 }
+
+
+/* 任务中心：先呈现 PostgreSQL 标准工单的运营事实，再按业务任务展开。 */
+.task-work-order-dashboard,
+.task-work-order-task-list,
+.task-center-system-section { margin-bottom: var(--space-4, 16px); }
+.task-work-order-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3, 12px); margin: var(--space-4, 16px) 0; }
+.task-work-order-kpis article { min-width: 0; padding: var(--space-3, 12px); border: 1px solid var(--ds-border, var(--border)); border-radius: var(--radius-sm, 8px); background: color-mix(in srgb, var(--bg) 94%, var(--accent)); }
+.task-work-order-kpis span, .task-work-order-kpis small, .task-work-order-template-table small, .task-work-order-task-table small, .task-work-order-child-table small { display: block; color: var(--text-muted); font-size: var(--ds-font-helper, 12px); line-height: var(--ds-line-helper, 16px); }
+.task-work-order-kpis strong { display: block; margin: 3px 0; color: var(--text); font-size: 1.45rem; line-height: 1.2; }
+.task-work-order-template-wrap { overflow-x: auto; border-top: 1px solid var(--ds-border, var(--border)); padding-top: var(--space-3, 12px); }
+.task-work-order-template-wrap h3, .task-work-order-detail-panel h3 { margin: 0 0 var(--space-2, 8px); font-size: var(--ds-font-body, 14px); }
+.task-work-order-template-table, .task-work-order-task-table, .task-work-order-child-table { width: 100%; border-collapse: collapse; font-size: var(--ds-font-sm, 13px); line-height: var(--ds-line-body, 20px); }
+.task-work-order-template-table th, .task-work-order-template-table td, .task-work-order-task-table th, .task-work-order-task-table td, .task-work-order-child-table th, .task-work-order-child-table td { padding: 9px 8px; border-bottom: 1px solid var(--ds-border, var(--border)); text-align: left; vertical-align: top; }
+.task-work-order-template-table th, .task-work-order-task-table th, .task-work-order-child-table th { color: var(--text-muted); font-size: var(--ds-font-helper, 12px); font-weight: 500; }
+.task-work-order-template-table strong, .task-work-order-task-table strong, .task-work-order-child-table strong { display: block; color: var(--text); font-weight: 600; }
+.task-work-order-as-of { margin: var(--space-3, 12px) 0 0; }
+.task-work-order-task-table-wrap { overflow-x: auto; }
+.task-work-order-task-table { min-width: 980px; }
+.task-work-order-task-table > tbody > tr:first-child > td { border-top: 1px solid var(--ds-border, var(--border)); }
+.task-work-order-task-table .is-expanded > td { background: color-mix(in srgb, var(--accent) 5%, var(--bg)); }
+.task-work-order-row-actions { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.task-work-order-detail-row > td { padding: 0; background: color-mix(in srgb, var(--bg) 96%, var(--text)); }
+.task-work-order-detail-panel { padding: var(--space-3, 12px) var(--space-4, 16px); }
+.task-work-order-child-table { min-width: 900px; }
+.task-work-order-child-table td { max-width: 14rem; }
+.task-work-order-child-table td small + small { margin-top: 2px; }
+.status-alert { color: var(--danger, #c2410c) !important; }
+.task-center-system-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: var(--space-3, 12px); border: 0; background: transparent; color: var(--text); padding: 0; text-align: left; cursor: pointer; font: inherit; }
+.task-center-system-toggle strong, .task-center-system-toggle small { display: block; }
+.task-center-system-toggle small { margin-top: 2px; color: var(--text-muted); font-size: var(--ds-font-helper, 12px); }
+.task-center-system-toggle > span:last-child { color: var(--accent-text); font-size: var(--ds-font-sm, 13px); white-space: nowrap; }
+.task-center-system-body { margin-top: var(--space-4, 16px); }
+@media (max-width: 980px) { .task-work-order-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .task-work-order-kpis { grid-template-columns: 1fr; } .task-work-order-kpis article { padding: 10px; } }

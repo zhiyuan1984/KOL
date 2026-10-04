@@ -304,7 +304,7 @@ PostgreSQL 事务：写主受理人、协同受理人、路由版本、解析链
 
 ### 阶段 F：投影和战报收敛
 
-1. **进行中：** 当前以 `/api/task-work-orders` 并列投影接入任务中心、工单治理页和管理端工作战报，避免改变历史任务中心；下一步才把 child work order 摘要、阻塞原因和 Today 成员原因写入统一 `/api/workbench/tasks` PostgreSQL read model。
+1. **已完成任务中心报表主视图：** 新增 `/api/task-work-orders/dashboard`，在一个 PostgreSQL 授权 CTE 读模型中返回工单 KPI、模板代码/版本计数、自动生成/自动派单事实、业务任务行与当前阻塞/下一单摘要；员工任务中心现按“报表 → 业务任务行 → 按需展开子工单 → 折叠系统运行任务”显示。旧 `/api/workbench/tasks`、Today 与 Todo 仍保持原语义；后续才将 child work order 摘要、阻塞原因和 Today 成员原因写入其统一 PostgreSQL read model。
 2. 将“我的待办”聚合规则调整为任务责任 + 子工单可执行责任，而非仅旧 `owner_user_id`。
 3. **进行中：** 管理工单治理页与历史 `/admin/work-report` 均已接入 Task 根/Work Order 负荷原始摘要；仍需将 Decision/自动化指标、外部事件流入与统一授权范围收敛到工作战报或其原生替代读模型。
 
