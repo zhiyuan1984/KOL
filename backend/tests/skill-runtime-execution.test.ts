@@ -245,6 +245,11 @@ describe("governed Skill Runtime", () => {
     expect(catalog.tools).toHaveLength(2);
     const startAlias = String(catalog.tools.find((item) => item.remoteName === "start_crawl")!.exposed.name);
     const args = { platforms: ["youtube"], crawler_type: "search", keywords: "camping" };
+    await expect(runtime.invoke(startAlias, { ...args, keywords: ["camping"] })).rejects.toMatchObject({
+      detail: { code: "runtime_tool_arguments_invalid", dispatched: false,
+        argument_issues: [{ field: "keywords", issue: "type", expected: ["string"], actual: "array" }] },
+    });
+    expect(remoteCalls).toBe(0);
     const proposed = await runtime.invoke(startAlias, args);
     expect(remoteCalls).toBe(0);
     const action = await runtimeAction(String((proposed.structuredContent as Json).action_id), context.userId);

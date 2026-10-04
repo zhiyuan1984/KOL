@@ -25,6 +25,10 @@ supports: {"cancel":true,"retry":true,"resume":true}
 
 启动参数使用 platforms、crawler_type，以及对应模式的 keywords / specified_ids / creator_ids。当前远端声明支持时，可显式传 max_notes_count（1–10000）、enable_comments=false、enable_sub_comments=false；P1 不采评论。max_notes_count 是远端检索/模式参数：YouTube 多关键词及频道补充读取可能产生额外内容，不能称为整个任务的硬性总量上限，更不等于候选人数。地区、方向、粉丝、近10条均播和期望人数保留为发现筛选依据。未知开关、上传开关不能补进调用。若用户要求任务总量硬限制但工具无法保证，说明缺口并停止提出不满足限制的动作。
 
+发现表单里的 keywords 是数组，远端 start_crawl 的 keywords 是字符串。按当前工具 schema 传参：多个关键词以英文逗号连接成一个字符串，保留全部关键词，例如 `{"platforms":["youtube"],"crawler_type":"search","keywords":"boat life,marine power,sailboat living","enable_comments":false,"enable_sub_comments":false}`。不得把 keywords 数组直接传给字符串字段，也不得将期望人数自动填入 max_notes_count；员工没有明确要求该检索参数时省略它。
+
+参数校验失败表示本次入参不符合契约，不足以证明工具缺少能力。先查看返回的 argument_issues 和本轮工具 schema；若是类型错误且远端未执行，在保持平台、模式和全部关键词不变的前提下修正类型，重新提出待确认动作。不得删除必要字段、缩小范围或绕过确认。未取得 action_id 前，不得声称确认卡已创建或让员工执行不存在的卡片。
+
 没有持久 start 回执中的 task_id 时，不调用状态、日志、结果或停止工具。当前没有已启动任务也是有效状态，不能为检查进度而创建新采集。采集失败和等待确认必须在回答中保留，不能被后续分析改写为已完成。
 
 start_crawl 与 stop_crawl 都只提出待确认动作。收到 action_id 后说明等待用户核对，不声称远端已经执行，不重复提议同一动作，不要求用户复制确认编号。执行按钮由平台呈现，模型不能代替用户确认。

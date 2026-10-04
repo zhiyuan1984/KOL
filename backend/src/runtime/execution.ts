@@ -16,6 +16,7 @@ import { DOCUMENT_TOOL, documentDependencies, documentToolSchema, hasDocumentToo
 import { proposeRuntimeAction, runtimeAction, claimRuntimeAction, finishRuntimeAction } from "./action-store.js";
 import { runtimeActionGate, runtimeToolPresentation, validateRuntimeToolScope } from "./action-gates.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
+import { assertRuntimeToolArguments, RuntimeToolArgumentsInvalid } from "./tool-arguments.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
 export type RuntimeRemote = Pick<RemoteMcpClient, "listTools" | "callToolRaw" | "close">;
@@ -49,6 +50,9 @@ export function runtimeErrorCode(error: unknown): string {
   }
   // Remote errors may contain credentials, private URLs or payloads. Never echo them.
   return "runtime_remote_failed";
+}
+export function runtimeErrorDetail(error: unknown): Json {
+  return error instanceof RuntimeToolArgumentsInvalid ? error.detail as Json : { code: runtimeErrorCode(error) };
 }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -406,14 +410,7 @@ export class SkillExecution {
         reject("runtime_tool_schema_changed", 409);
       }
       const remote = matching[0];
-      let valid = false;
-      try {
-        const validator = new AjvJsonSchemaValidator();
-        valid = validator.getValidator(remote.inputSchema as object)(args).valid
-          && validator.getValidator(handle.exposed.inputSchema as object)(args).valid;
-      }
-      catch { reject("runtime_tool_schema_invalid", 422); }
-      if (!valid) reject("runtime_tool_arguments_invalid", 422);
+      assertRuntimeToolArguments([remote.inputSchema as Json, handle.exposed.inputSchema as Json], args);
       if (Buffer.byteLength(JSON.stringify(args)) > 1_000_000) reject("runtime_tool_arguments_too_large", 413);
       authorized = guardedCheck();
       await validateRuntimeToolScope(handle.connectorId, this.context, handle.remoteName, args);
@@ -465,7 +462,8 @@ export class SkillExecution {
       const code = runtimeErrorCode(error);
       if (claimedHere) await finishRuntimeAction(this.confirmedActionId!, dispatched ? "uncertain" : "rejected", null, code);
       audit(this.context.userId, "runtime.tool.denied_or_failed", { ...trace, code, dispatched, duration_ms: Date.now() - started });
-      throw new HttpFail(error instanceof HttpFail ? error.status : 502, { code });
+      if (error instanceof RuntimeToolArgumentsInvalid) throw error;
+      throw new HttpFail(error instanceof HttpFail ? error.status : 502, runtimeErrorDetail(error));
     } finally { if (client) this.clients.delete(client); await client?.close().catch(() => undefined); }
   }
   /** Only the authenticated confirmation route calls this; it is never exposed as an MCP tool. */
