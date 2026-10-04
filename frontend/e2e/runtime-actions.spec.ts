@@ -10,18 +10,19 @@ test("confirmation replaces stale discovery results and restores a busy rejectio
   expect(response.ok(), await response.text()).toBeTruthy();
   const saved = await response.json();
   const stale = { type: "task_result", title: "等待确认", summary: "已生成平台确认卡，远端尚未执行。请核对后在平台确认。", sections: [], metrics: [], recommended_actions: [] };
-  await page.route(new RegExp(`/api/tasks/(?:by-session/${saved.session_id}|${saved.task_id})$`), async route => {
-    const data = await (await route.fetch()).json();
-    const task = data.task || data;
-    Object.assign(task, { worker_id: "confirmation-worker", status: "waiting", context: stale.summary, task_result: stale });
-    await route.fulfill({ json: data });
-  });
-  await page.route(`**/api/sessions/${saved.session_id}`, async route => {
-    const data = await (await route.fetch()).json();
-    data.messages = [...(data.messages || []), { id: "stale-result", session_id: saved.session_id,
-      role: "assistant", kind: "task_result_card", payload: stale, created_at: new Date().toISOString() }];
-    await route.fulfill({ json: data });
-  });
+  // Read the real persisted envelope once before installing the fixture.
+  // A live route.fetch can finish after reload cancels its intercepted request.
+  const taskResponse = await request.get(`/api/tasks/${saved.task_id}`);
+  expect(taskResponse.ok(), await taskResponse.text()).toBeTruthy();
+  const taskData = await taskResponse.json();
+  Object.assign(taskData.task || taskData, { worker_id: "confirmation-worker", status: "waiting", context: stale.summary, task_result: stale });
+  await page.route(new RegExp(`/api/tasks/(?:by-session/${saved.session_id}|${saved.task_id})$`), route => route.fulfill({ json: taskData }));
+  const sessionResponse = await request.get(`/api/sessions/${saved.session_id}`);
+  expect(sessionResponse.ok(), await sessionResponse.text()).toBeTruthy();
+  const sessionData = await sessionResponse.json();
+  sessionData.messages = [...(sessionData.messages || []), { id: "stale-result", session_id: saved.session_id,
+    role: "assistant", kind: "task_result_card", payload: stale, created_at: new Date().toISOString() }];
+  await page.route(`**/api/sessions/${saved.session_id}`, route => route.fulfill({ json: sessionData }));
   let stage = "pending";
   let confirmations = 0;
   await page.route("**/api/queries/runtime.actions?*", route => {
