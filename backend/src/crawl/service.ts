@@ -1,5 +1,5 @@
 import { ingestMediacrawler } from "../adapters/claw.js";
-import { mediaCrawlerConfigured } from "../config.js";
+import { createMediaCrawlerClient, mediaCrawlerConfigured } from "./managed-connection.js";
 import { getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, onConnReset, tx } from "../db.js";
 import {
   CRAWL_ACTIVE_MESSAGE,
@@ -20,7 +20,7 @@ const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "startin
 const monitors = new Map<string, ReturnType<typeof setTimeout>>();
 /** Poll count per job, for the monitor backoff. Reset when a job settles. */
 const monitorAttempts = new Map<string, number>();
-let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => new RemoteMcpClient();
+let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => createMediaCrawlerClient();
 /** Discovery (and other hosts) subscribe to crawl settle without importing crawl internals. */
 export function onCrawlJobSettled(handler: (job: Row) => void): void {
   const bucket = settleBucket();
@@ -56,7 +56,7 @@ onConnReset(clearMonitors);
 export function setCrawlMcpClientFactory(
   factory?: () => Pick<RemoteMcpClient, "callTool" | "close">,
 ): void {
-  clientFactory = factory || (() => new RemoteMcpClient());
+  clientFactory = factory || (() => createMediaCrawlerClient());
 }
 
 function json(value: unknown): Json {
@@ -197,7 +197,7 @@ export async function startCrawl(input: {
     throw new HttpFail(503, {
       code: "mediacrawler_not_configured",
       message: "远程采集服务未配置。",
-      next_action: "请在根目录 .env 配置 MEDIACRAWLER_MCP_URL 和 MEDIACRAWLER_MCP_TOKEN 后重启服务。",
+      next_action: "请在管理端配置并启用 MediaCrawler 连接器及保险柜凭据。",
     });
   }
   const workItem = getConn().prepare("SELECT id FROM tickets WHERE id=?").get(input.workItemId) as

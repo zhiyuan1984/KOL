@@ -184,7 +184,7 @@ describe("admin identity and Starry mailbox bind", () => {
       is_default: false,
     });
 
-    const box = await call("GET", "/api/mail/box");
+    const box = await call("GET", "/api/queries/mail.box");
     expect((box.json.bindings as Json[]).map((row) => row.mailbox))
       .toEqual(["larry.zhao@amperetime.com", "second.mailbox@amperetime.com"]);
     expect(typeof box.json.total_unread).toBe("number");

@@ -478,7 +478,7 @@ export default function SideWorkbench({
       <div className="artifact-toolbar" aria-label="产物工具栏">
         <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=md`} download aria-label="下载 Markdown">↓ MD</a>
         {debug ? <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=json`} download aria-label="下载 JSON">↓ JSON</a> : null}
-        {draft?.draft_id && <a className="icon-btn" href={`/api/drafts/${draft.draft_id}/export?format=eml`} download aria-label="下载邮件草稿">.eml</a>}
+        {draft?.draft_id && <a className="icon-btn" href={`/api/queries/mail.export?draft_id=${encodeURIComponent(draft.draft_id)}&format=eml`} download aria-label="下载邮件草稿">.eml</a>}
         <button className="icon-btn" onClick={() => void copyArtifact()}>复制</button>
         <button className="icon-btn" onClick={() => window.open(`/s/${sessionId}`, "_blank", "noopener")}>打开</button>
         <button className="icon-btn" onClick={() => void createShare()}>分享</button>

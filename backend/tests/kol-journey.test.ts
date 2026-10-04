@@ -297,7 +297,7 @@ describe("KOL persistent session and fact-advance", () => {
       official_stage: "SHIPPED",
       collaboration_id: "col_ship",
     });
-    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {});
+    const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect([200, 400, 403]).toContain(sent.status);
     const sj = await sent.json();
     const detail = (sj.detail && typeof sj.detail === "object" ? sj.detail : sj) as Json;

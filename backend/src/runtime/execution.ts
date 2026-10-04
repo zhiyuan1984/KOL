@@ -119,7 +119,7 @@ export function authorizeConnector(context: RuntimeContext, connectorId: string)
   if (!connector?.enabled) reject("runtime_connector_disabled");
   const configuration = getConnectorConfig(connectorId);
   if (!configuration) reject("runtime_connector_not_configured", 409);
-  if (isMediaCrawlerHostConfig(configuration.config)) reject("runtime_host_only_connector", 403);
+  if (isMediaCrawlerHostConfig(configuration.config, connectorId)) reject("runtime_host_only_connector", 403);
   return { ...skill, resourceBinding: binding, connector, configuration };
 }
 function authorizationStamp(auth: ReturnType<typeof authorizeConnector>, policy?: Row, toolBinding?: Row): string {
@@ -157,11 +157,8 @@ export function connectorOptions(context: RuntimeContext, config: ConnectorConfi
       Object.assign(headers, resolveAccountHeaders(config.credential_account_id, context.userId));
     } else reject("runtime_credential_provider_unavailable", 503);
   }
-  // The built-in MediaCrawler path reads a raw MEDIACRAWLER_MCP_TOKEN and
-  // RemoteMcpClient turns it into `Authorization: Bearer <token>`. Apply the
-  // same normalization to an explicitly configured MCP Authorization header;
-  // otherwise entering the same raw token in the admin form produces a
-  // different wire request. Existing schemes such as Basic remain untouched.
+  // Normalize a raw token entered in the administrator Authorization field.
+  // Explicit authentication schemes (such as Basic) remain unchanged.
   if (isMcp) {
     const authorizationKey = Object.keys(headers).find((key) => key.toLowerCase() === "authorization");
     if (authorizationKey) {
@@ -403,7 +400,7 @@ export async function inspectConnectorTools(context: RuntimeContext, connectorId
   const connector = getConn().prepare("SELECT id FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector) reject("runtime_connector_not_found", 404);
   if (!configuration) reject("runtime_connector_not_configured", 409);
-  if (isMediaCrawlerHostConfig(configuration.config)) return [];
+  if (isMediaCrawlerHostConfig(configuration.config, connectorId)) return [];
   const options = connectorOptions(context, configuration.config);
   const client = createConfiguredClient(context, configuration.config);
   try {

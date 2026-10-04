@@ -3,7 +3,6 @@ import { HttpFail } from "../host/errors.js";
 import { normalizeMcpContent } from "../mcp/remote.js";
 import type { ConnectorConfig } from "./store.js";
 import { createConfiguredClient, type RuntimeContext } from "./execution.js";
-import { isMediaCrawlerHostConfig } from "./mediacrawler-config.js";
 
 /**
  * The administration probe uses the same tools/call(start_crawl) as AI discovery.
@@ -13,7 +12,7 @@ import { isMediaCrawlerHostConfig } from "./mediacrawler-config.js";
  * to stop; surface failure instead of claiming that cleanup succeeded.
  */
 export async function probeMediaCrawlerStart(context: RuntimeContext, config: ConnectorConfig): Promise<void> {
-  if (!isMediaCrawlerHostConfig(config)) throw new HttpFail(409, { code: "runtime_probe_mode_invalid" });
+  if ((config.protocol || "mcp") !== "mcp" || config.transport === "sse") throw new HttpFail(409, { code: "runtime_probe_mode_invalid" });
   const client = createConfiguredClient(context, config);
   let taskId = "";
   try {

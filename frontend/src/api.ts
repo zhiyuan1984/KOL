@@ -1,3 +1,9 @@
+export type OperationJob = {
+  id: string;
+  status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled" | "uncertain";
+  error_summary?: string | null;
+  receipt?: Record<string, unknown> | null;
+};
 import type {
   DeclaredMountResult,
   McpImportPreview,
@@ -2169,7 +2175,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   prepareEmailCompose: (body: EmailComposePrepareRequest, signal?: AbortSignal) =>
-    request<EmailComposePrepareResponse>("/api/email-compose/prepare", {
+    request<EmailComposePrepareResponse>("/api/actions/mail.prepare", {
       method: "POST",
       body: JSON.stringify(body),
       signal,
@@ -2228,12 +2234,12 @@ export const api = {
       { method: "DELETE" },
     ),
   draftActions: (id: string) =>
-    request<DraftActionsResponse>(`/api/drafts/${encodeURIComponent(id)}/actions`),
+    request<DraftActionsResponse>(`/api/queries/mail.draft-actions?draft_id=${encodeURIComponent(id)}`),
   sendDraft: async (id: string, extra?: { confirmation_version?: string; request_id?: string }) => {
-    const r = await fetch(`/api/drafts/${id}/send`, {
+    const r = await fetch("/api/actions/mail.send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(extra || {}),
+      body: JSON.stringify({ ...extra, draft_id: id }),
     });
     const b = (await parse(r)) as { ok?: boolean; detail?: { message?: string; status?: string; toast_success?: boolean } };
     if (!r.ok) {
@@ -2256,7 +2262,7 @@ export const api = {
       return b;
     }),
   translate: async (id: string) => {
-    const r = await fetch(`/api/drafts/${id}/translate`, { method: "POST" });
+    const r = await fetch("/api/actions/mail.translate-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draft_id: id }) });
     const b = (await parse(r)) as { zh?: string; detail?: { message?: string } | string };
     if (!r.ok) {
       const detail = b.detail;
@@ -3152,16 +3158,16 @@ export const api = {
       body: JSON.stringify(body),
     }),
   mailBox: (box?: string) =>
-    request<Record<string, unknown>>(box ? `/api/mail/box?box=${encodeURIComponent(box)}` : "/api/mail/box"),
+    request<Record<string, unknown>>(box ? `/api/queries/mail.box?box=${encodeURIComponent(box)}` : "/api/queries/mail.box"),
   mailConversations: (box?: string) =>
     request<{
       entry?: string;
       creates_session?: boolean;
       mailbox?: string;
       conversations?: Array<Record<string, unknown>>;
-    }>(box ? `/api/mail/conversations?box=${encodeURIComponent(box)}` : "/api/mail/conversations"),
+    }>(box ? `/api/queries/mail.conversations?box=${encodeURIComponent(box)}` : "/api/queries/mail.conversations"),
   mailConversation: (id: string) =>
-    request<Record<string, unknown>>(`/api/mail/conversations/${encodeURIComponent(id)}`),
+    request<Record<string, unknown>>(`/api/queries/mail.conversation?id=${encodeURIComponent(id)}`),
   /** Read-only stage letter catalog (email_compose contract). Never creates a session. */
   mailComposeCatalog: () =>
     request<{
@@ -3170,11 +3176,11 @@ export const api = {
       creates_turn?: boolean;
       calls_model?: boolean;
       letters?: MailComposeLetter[];
-    }>("/api/mail/compose-catalog"),
+    }>("/api/queries/mail.compose-catalog"),
   mailPerson: (box: string, p: string) =>
-    request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
+    request<Record<string, unknown>>(`/api/queries/mail.person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
   runMailSkill: (skillId: "mail_summary" | "mail_translate", body: { box?: string; conversation_id?: string; message_id?: string }) =>
-    request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/mail/skills/${encodeURIComponent(skillId)}/run`, {
+    request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/skills/${encodeURIComponent(skillId)}/execute`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -3191,19 +3197,23 @@ export const api = {
       synced_at?: string;
       cursor_at?: string;
       error?: string;
-    }>("/api/mail/sync", { method: "POST", body: JSON.stringify(body) }),
+      job: OperationJob;
+    }>("/api/jobs/mail.sync/start", { method: "POST", body: JSON.stringify(body) }),
+  operationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}`),
+  cancelOperationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
+  retryOperationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: "POST", body: "{}" }),
   /** Optional endpoint: resolves null on 404/405 so callers can ignore silently. */
   markMailConversationRead: (id: string) =>
-    request<{ ok?: boolean } | null>(`/api/mail/conversations/${encodeURIComponent(id)}/read`, {
+    request<{ ok?: boolean } | null>("/api/actions/mail.read", {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ id }),
       optional: true,
     }).catch(() => null),
   /** Optional endpoint: resolves null on 404/405; callers fall back to local state. */
   updateMailConversation: (id: string, fields: { starred?: boolean }) =>
-    request<Record<string, unknown> | null>(`/api/mail/conversations/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(fields),
+    request<Record<string, unknown> | null>("/api/actions/mail.star", {
+      method: "POST",
+      body: JSON.stringify({ ...fields, id }),
       optional: true,
     }).catch(() => null),
 };

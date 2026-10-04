@@ -174,7 +174,7 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
       collaboration_id: id,
     });
     expect(String(draft.to_addr)).toBe("");
-    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {
+    const sent = await confirmAndSendDraft(request, String(draft.id), {
       to_addr: "qiyou1984@gmail.com",
     });
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);

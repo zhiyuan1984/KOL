@@ -49,7 +49,7 @@ async function chooseMailSkill(page: Page): Promise<void> {
 
 async function stubPrepare(page: Page, reply: PrepareReply, delay = 0): Promise<Array<Record<string, unknown>>> {
   const requests: Array<Record<string, unknown>> = [];
-  await page.route("**/api/email-compose/prepare", async (route) => {
+  await page.route("**/api/actions/mail.prepare", async (route) => {
     requests.push(route.request().postDataJSON() as Record<string, unknown>);
     if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
     await route.fulfill({ json: reply });
@@ -84,7 +84,7 @@ test("choosing email compose prepares immediately and unknown context never supp
 
 test("template candidates stay deterministic until the employee chooses one, then prepare that exact knowledge id", async ({ page }) => {
   const requests: Array<Record<string, unknown>> = [];
-  await page.route("**/api/email-compose/prepare", async (route) => {
+  await page.route("**/api/actions/mail.prepare", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     requests.push(body);
     if (body.knowledge_id === "kb_b") {
@@ -184,7 +184,7 @@ test("the Chat composer prepares with its current session and forwards the edite
 test("the test suite never calls a mail draft send endpoint", async ({ page }) => {
   const sendPosts: string[] = [];
   page.on("request", (request) => {
-    if (request.method() === "POST" && /\/api\/drafts\/[^/]+\/send$/.test(new URL(request.url()).pathname)) {
+    if (request.method() === "POST" && /\/api\/actions\/mail\.send$/.test(new URL(request.url()).pathname)) {
       sendPosts.push(request.url());
     }
   });

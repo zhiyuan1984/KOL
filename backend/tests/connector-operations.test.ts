@@ -1,3 +1,4 @@
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -34,6 +35,7 @@ const root = "/api/admin/runtime/connectors/probe_fixture";
 describe("connector operations (isolated inspector, no external service)", () => {
   it("uses the actual start/stop probe for a matching MediaCrawler URL, without registering phantom tools", async () => {
     process.env.MEDIACRAWLER_MCP_URL = "https://fixture.example/mcp";
+    configureCrawlerFixture("https://fixture.example/mcp");
     let starts = 0;
     const a = app(async () => { throw new Error("tools/list must not be called"); }, async () => { starts += 1; });
     const response = await a.request(root + "/probe", { method: "POST" });

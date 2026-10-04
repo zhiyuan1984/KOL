@@ -71,7 +71,7 @@ describe("human-confirmed mail send boundary", () => {
   it("rejects a direct send without any human-confirmed version", async () => {
     expect(() => claimMailSend(draftId, {})).toThrow(/确认/);
     await expect(sendDraft(draftId)).rejects.toThrow(/确认/);
-    const response = await request("POST", `/api/drafts/${draftId}/send`, {});
+    const response = await request("POST", "/api/actions/mail.send", { draft_id: draftId,});
     expect(response.status).toBe(409);
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
   });
@@ -118,10 +118,10 @@ describe("human-confirmed mail send boundary", () => {
   });
 
   it("exposes the checked action and rejects edits submitted inside send", async () => {
-    const view = await request("GET", `/api/drafts/${draftId}/actions`);
+    const view = await request("GET", `/api/queries/mail.draft-actions?draft_id=${draftId}`);
     expect(view.status).toBe(200);
     expect(view.body.action).toMatchObject({ action_id: "mail.draft.send", enabled: true });
-    const rejected = await request("POST", `/api/drafts/${draftId}/send`, { ...confirmation(), to_addr: "someone-else@example.com" });
+    const rejected = await request("POST", "/api/actions/mail.send", { draft_id: draftId, ...confirmation(), to_addr: "someone-else@example.com" });
     expect(rejected.status).toBe(409);
     expect(getDraft(draftId).to_addr).toBe("xiaomei.beauty@example.com");
   });
@@ -130,9 +130,9 @@ describe("human-confirmed mail send boundary", () => {
     const input = confirmation();
     await request("PATCH", `/api/drafts/${draftId}`, { subject: "Changed" });
     await request("PATCH", `/api/drafts/${draftId}`, { subject: "Collaboration invitation" });
-    const rejected = await request("POST", `/api/drafts/${draftId}/send`, input);
+    const rejected = await request("POST", "/api/actions/mail.send", { ...input, draft_id: draftId });
     expect(rejected.status).toBe(409);
-    const sent = await request("POST", `/api/drafts/${draftId}/send`, confirmation());
+    const sent = await request("POST", "/api/actions/mail.send", { ...confirmation(), draft_id: draftId });
     expect(sent.status).toBe(200);
     expect(sent.body.status).toBe("sent");
     expect((await request("PATCH", `/api/drafts/${draftId}`, { body_en: "Too late" })).status).toBe(409);
@@ -145,4 +145,13 @@ describe("human-confirmed mail send boundary", () => {
       subject: "Test", body: "Test", confirm_send: true,
     })).rejects.toThrow(/mail_send_requires_gateway/);
   });
+  it("exports the authorized draft through a query without sending", async () => {
+    const response = await app.request(`/api/queries/mail.export?draft_id=${encodeURIComponent(draftId)}&format=eml`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("message/rfc822");
+    expect(await response.text()).toContain("Collaboration invitation");
+    expect(getDraft(draftId).sent_at).toBeFalsy();
+    expect((await app.request(`/api/drafts/${draftId}/export`)).status).toBe(404);
+  });
+
 });

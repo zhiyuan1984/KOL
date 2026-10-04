@@ -107,14 +107,13 @@ const PERSON_DIGEST = {
 };
 
 async function mockMail(page: import("@playwright/test").Page) {
-  await page.route("**/api/mail/box**", (route) => route.fulfill({ json: FORMAL_BOX }));
-  await page.route("**/api/mail/conversations**", (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (/^\/api\/mail\/conversations\/[^/]+$/.test(path)) return route.fallback();
+  await page.route("**/api/queries/mail.box**", (route) => route.fulfill({ json: FORMAL_BOX }));
+  await page.route("**/api/queries/mail.conversations**", (route) => {
+
     return route.fulfill({ json: { entry: "memory", creates_session: false, mailbox: "larry.zhao@amperetime.com", conversations: [FORMAL_CONVERSATION] } });
   });
-  await page.route("**/api/mail/conversations/**", (route) => route.fulfill({ json: FORMAL_THREAD }));
-  await page.route("**/api/mail/person**", (route) => route.fulfill({ json: PERSON_DIGEST }));
+  await page.route("**/api/queries/mail.conversation?**", (route) => route.fulfill({ json: FORMAL_THREAD }));
+  await page.route("**/api/queries/mail.person**", (route) => route.fulfill({ json: PERSON_DIGEST }));
   await page.route("**/api/home/board**", (route) => route.fulfill({ json: { kols: [], follow_scope: { bound: true, mailbox_email: "larry.zhao@amperetime.com", owner_name: "赵良玉", status: "connected" } } }));
 }
 

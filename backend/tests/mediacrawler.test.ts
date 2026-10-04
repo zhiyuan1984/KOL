@@ -1,3 +1,8 @@
+import { migrateCrawlerVault } from "../scripts/migrate-crawler-vault.js";
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
+import { createMediaCrawlerClient, mediaCrawlerConfigured } from "../src/crawl/managed-connection.js";
+import { setConnectorConfig, getConnectorConfig } from "../src/runtime/store.js";
+import { updateCredentialMetadata } from "../src/runtime/credentials.js";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -133,6 +138,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   await startMockMcp();
+  configureCrawlerFixture(baseUrl);
   process.env.MEDIACRAWLER_MCP_URL = baseUrl;
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
 });
@@ -146,12 +152,48 @@ afterEach(async () => {
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.MEDIACRAWLER_INGEST_TOKEN;
+  delete process.env.MEDIACRAWLER_INGEST_SECRET_REF;
   delete process.env.MEDIACRAWLER_AUTO_START;
   delete process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE;
   delete process.env.AUTH_MODE;
 });
 
 describe("remote Streamable HTTP MCP", () => {
+  it("migrates only on apply, is idempotent and requires new configuration verification", () => {
+    const before = getConnectorConfig("claw")!.version;
+    const input = { url: baseUrl, token: "replacement-secret", apply: false };
+    expect(migrateCrawlerVault(input)).toMatchObject({ pending: true, migrated: false });
+    expect(getConnectorConfig("claw")!.version).toBe(before);
+    const applied = migrateCrawlerVault({ ...input, apply: true });
+    expect(applied).toMatchObject({ migrated: true, version: before + 1 });
+    expect(getConn().prepare("SELECT enabled,status FROM connectors WHERE id='claw'").get())
+      .toMatchObject({ enabled: 0, status: "pending_verification" });
+    expect(migrateCrawlerVault({ ...input, apply: true })).toMatchObject({ migrated: false, version: before + 1 });
+    expect(JSON.stringify(getConnectorConfig("claw"))).not.toContain("replacement-secret");
+  });
+
+  it("uses vault credentials even when obsolete environment values disagree", async () => {
+    process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:1/obsolete";
+    process.env.MEDIACRAWLER_MCP_TOKEN = "wrong-token";
+    const client = createMediaCrawlerClient();
+    try { expect((await client.listTools()).map((tool) => tool.name)).toContain("start_crawl"); }
+    finally { await client.close(); }
+    expect(() => new RemoteMcpClient()).toThrow("MCP URL");
+    expect(() => setConnectorConfig("claw", { url_env: "MEDIACRAWLER_MCP_URL", bearer_env: "MEDIACRAWLER_MCP_TOKEN" }, 1))
+      .toThrow();
+  });
+
+  it("fails closed for disabled connectors and revoked vault credentials", () => {
+    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='claw'").run();
+    expect(mediaCrawlerConfigured()).toBe(false);
+    expect(() => createMediaCrawlerClient()).toThrow();
+    getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='claw'").run();
+    const reference = getConnectorConfig("claw")!.config.bearer_secret_ref!;
+    updateCredentialMetadata(reference, { status: "disabled", expected_version: 1 });
+    expect(mediaCrawlerConfigured()).toBe(false);
+    expect(() => createMediaCrawlerClient()).toThrow();
+  });
+
   it("parses the remote URL and bearer credential from mcp_server.md", () => {
     expect(parseMediaCrawlerConfigMarkdown(`
       endpoint: http://crawler.example/mcp
@@ -160,7 +202,7 @@ describe("remote Streamable HTTP MCP", () => {
   });
 
   it("lists and calls tools with bearer auth and JSON normalization", async () => {
-    const client = new RemoteMcpClient();
+    const client = createMediaCrawlerClient();
     const tools = await client.listTools();
     expect(tools.map((tool) => tool.name)).toContain("start_crawl");
     expect(await client.callTool("start_crawl", { platform: "youtube", mode: "search", keywords: "battery" }))
@@ -168,16 +210,12 @@ describe("remote Streamable HTTP MCP", () => {
     await client.close();
   });
 
-  it("uses remote Codex config in real mode and local fallback only in stub mode", () => {
+  it("keeps production collection behind jobs without injecting secrets into Codex", () => {
     process.env.CODEX_MODE = "real";
     process.env.CLAW_MODE = "remote";
     const remote = mcpServerSpecs(["claw.get_creators"]) as Record<string, Json>;
-    expect(remote.claw).toMatchObject({
-      url: baseUrl,
-      bearer_token_env_var: "MEDIACRAWLER_MCP_TOKEN",
-      enabled_tools: ["get_creators"],
-    });
-    expect(remote.claw.command).toBeUndefined();
+    expect(remote.claw).toBeUndefined();
+    expect(JSON.stringify(remote)).not.toContain("MEDIACRAWLER_MCP_TOKEN");
     process.env.CODEX_MODE = "stub";
     const local = mcpServerSpecs(["claw.get_creators"]) as Record<string, Json>;
     expect(local.claw.command).toBe(process.execPath);
@@ -197,6 +235,21 @@ describe("remote Streamable HTTP MCP", () => {
 });
 
 describe("creator ingestion and scoring", () => {
+  it("authenticates the upload callback with a vault reference, never the obsolete MCP environment token", async () => {
+    process.env.AUTH_MODE = "enabled";
+    const { createApp } = await import("../src/app.js");
+    const app = createApp();
+    const request = () => app.request("/api/integrations/mediacrawler/creators", {
+      method: "POST", headers: { "Content-Type": "application/json", "x-mediacrawler-token": "test-secret" },
+      body: JSON.stringify({ creators: [] }),
+    });
+    expect((await request()).status).not.toBe(202);
+    process.env.MEDIACRAWLER_INGEST_SECRET_REF = getConnectorConfig("claw")!.config.bearer_secret_ref!;
+    expect((await request()).status).toBe(202);
+    updateCredentialMetadata(process.env.MEDIACRAWLER_INGEST_SECRET_REF, { status: "disabled", expected_version: 1 });
+    expect((await request()).status).toBe(403);
+  });
+
   it("deduplicates identities, appends snapshots, and computes transparent score inputs", () => {
     const first = ingestMediacrawler({ creators: [{
       platform: "youtube", platform_creator_id: "same", nickname: "A",
@@ -276,8 +329,7 @@ describe("creator ingestion and scoring", () => {
 
 describe("crawl lifecycle", () => {
   it("rejects missing remote configuration before creating a crawl job", async () => {
-    delete process.env.MEDIACRAWLER_MCP_URL;
-    delete process.env.MEDIACRAWLER_MCP_TOKEN;
+    getConn().prepare("DELETE FROM runtime_connector_config WHERE connector_id='claw'").run();
     const { createApp } = await import("../src/app.js");
     const app = createApp();
     const created = await app.request("/api/tasks", {

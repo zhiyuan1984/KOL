@@ -108,10 +108,20 @@ export function pgExecutionJobPublic(job: Row): Json {
 }
 
 /** Persist the authority job and its Outbox dispatch in the same PostgreSQL transaction. */
-export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: { now?: Date } = {}): Promise<{ job: Row; created: boolean }> {
+export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: { now?: Date; deduplicate_active?: boolean } = {}): Promise<{ job: Row; created: boolean }> {
   const now = options.now || new Date();
   const stamp = now.toISOString();
   return postgresTransaction(async (client) => {
+    if (options.deduplicate_active) {
+      const object = JSON.stringify(input.object_ref || {});
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [JSON.stringify([input.tenant_ref, input.actor_ref, input.job_type, object])]);
+      const active = await client.query<Row>(
+        `SELECT * FROM execution_jobs WHERE tenant_ref=$1 AND actor_ref=$2 AND job_type=$3
+           AND object_ref_json::jsonb=$4::jsonb AND status IN ('queued','running','retrying') LIMIT 1`,
+        [input.tenant_ref, input.actor_ref, input.job_type, object],
+      );
+      if (active.rows[0]) return { job: normalizedJob(active.rows[0]), created: false };
+    }
     const id = nid("job");
     const risk = input.risk_level || "low";
     const maxAttempts = Math.max(1, Math.min(20, Math.floor(Number(input.max_attempts || 1))));
@@ -153,7 +163,7 @@ export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: {
       ],
     );
     return { job, created: true };
-  }, { isolation: "SERIALIZABLE" });
+  }, { isolation: options.deduplicate_active ? "READ COMMITTED" : "SERIALIZABLE" });
 }
 
 function claimed(row: Row): ClaimedExecutionJob {
@@ -235,15 +245,15 @@ export async function pgRenewExecutionJobLease(
   return Number(result.rowCount || 0) > 0;
 }
 
-export async function pgCompleteExecutionJob(id: string, receipt: Json = {}, now = new Date()): Promise<Row | undefined> {
+export async function pgCompleteExecutionJob(id: string, receipt: Json = {}, now = new Date(), expectedWorker?: string): Promise<Row | undefined> {
   const stamp = now.toISOString();
   const result = await postgresPool().query<Row>(
     `UPDATE execution_jobs
      SET status='succeeded',lease_until=NULL,lease_owner=NULL,receipt_json=$1,error_code=NULL,error_summary=NULL,
          terminal_at=$2,updated_at=$2
-     WHERE id=$3 AND status='running'
+     WHERE id=$3 AND status='running' AND ($4::text IS NULL OR lease_owner=$4)
      RETURNING *`,
-    [JSON.stringify(receipt), stamp, id],
+    [JSON.stringify(receipt), stamp, id, expectedWorker || null],
   );
   return result.rows[0] as Row | undefined;
 }
@@ -251,13 +261,14 @@ export async function pgCompleteExecutionJob(id: string, receipt: Json = {}, now
 export async function pgFailExecutionJob(
   id: string,
   error: { code: string; summary: string },
-  options: { retry_at?: string | null; now?: Date } = {},
+  options: { retry_at?: string | null; now?: Date; expected_worker?: string } = {},
 ): Promise<Row | undefined> {
   const now = options.now || new Date();
   const stamp = now.toISOString();
   return postgresTransaction(async (client) => {
     const current = await jobByIdIn(client, id, true);
     if (!current || String(current.status) !== "running") return current;
+    if (options.expected_worker && current.lease_owner !== options.expected_worker) return current;
     const highRisk = ["high", "critical"].includes(String(current.risk_level));
     const canRetry = !highRisk && Number(current.attempts || 0) < Number(current.max_attempts || 1);
     const retryAt = canRetry ? (options.retry_at || isoAfter(now, retryDelayMs(Number(current.attempts || 0)))) : null;

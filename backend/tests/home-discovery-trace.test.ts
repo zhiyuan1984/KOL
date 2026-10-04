@@ -1,3 +1,4 @@
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 /**
  * AI发现 runs must stream the same 处理过程 rows as the today plan run:
  * reasoning summaries as run.think (label「Codex 推理」), harness steps as
@@ -149,6 +150,7 @@ beforeEach(async () => {
   }];
   resetConn();
   seedAll();
+  configureCrawlerFixture();
   clearTaskRegistryCache();
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();

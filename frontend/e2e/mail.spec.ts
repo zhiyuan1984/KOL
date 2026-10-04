@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { stubHomeFollowing } from "./kol-surface-stub";
 
 const BOARD = {
@@ -49,7 +49,7 @@ const BOARD = {
 };
 
 async function mockMailMissing(page: Page) {
-  await page.route("**/api/mail/**", async (route) => {
+  await page.route(/\/api\/(?:queries\/mail\.|actions\/mail\.|skills\/mail_|jobs\/mail\.sync\/start)/, async (route) => {
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "not found" }) });
   });
   await page.route("**/api/me/starry-binding", async (route) => {
@@ -188,7 +188,7 @@ const FORMAL_CONVERSATION = {
   last_receipt: "",
   digest_source: "codex_memory",
   digest_text: "对方已确认档期",
-  // The real GET /api/mail/conversations LEFT JOINs collaborations and returns these.
+  // The real GET /api/queries/mail.conversations LEFT JOINs collaborations and returns these.
   kol_uid: "KOL_X",
   handle: "小美妆日记",
 };
@@ -253,17 +253,13 @@ const PERSON_DIGEST = {
   digest_generated_at: "2026-09-18T01:00:00.000Z",
 };
 
-function pathOf(route: Route): string {
-  return new URL(route.request().url()).pathname;
-}
-
 async function mockFormalMail(page: Page, person: Record<string, unknown> = PERSON_DIGEST) {
-  await page.route("**/api/mail/box**", async (route) => {
+  await page.route("**/api/queries/mail.box**", async (route) => {
     await route.fulfill({ json: FORMAL_BOX });
   });
   // Query-safe: the list URL gains ?box= as soon as a mailbox is switched.
-  await page.route("**/api/mail/conversations**", async (route) => {
-    if (/^\/api\/mail\/conversations\/[^/]+$/.test(pathOf(route))) return route.fallback();
+  await page.route("**/api/queries/mail.conversations**", async (route) => {
+
     await route.fulfill({
       json: {
         entry: "memory",
@@ -273,10 +269,10 @@ async function mockFormalMail(page: Page, person: Record<string, unknown> = PERS
       },
     });
   });
-  await page.route("**/api/mail/conversations/**", async (route) => {
+  await page.route("**/api/queries/mail.conversation?**", async (route) => {
     await route.fulfill({ json: FORMAL_THREAD });
   });
-  await page.route("**/api/mail/person**", async (route) => {
+  await page.route("**/api/queries/mail.person**", async (route) => {
     await route.fulfill({ json: person });
   });
   await page.route("**/api/home/board**", async (route) => {
@@ -294,12 +290,14 @@ test("returned 往来要点 when GET /api/mail is the primary path", async ({ pa
   await expect(page.locator("[data-mail-digest] [data-digest-body]")).toContainText("与 Amy 的往来集中在 LiTime 合作");
 });
 
-test("POST /api/mail/sync uses SyncReceipt and does not create sessions", async ({ page }) => {
+test("POST /api/jobs/mail.sync/start uses SyncReceipt and does not create sessions", async ({ page }) => {
   const sessionPosts = sessionPostsOf(page);
   await mockFormalMail(page);
-  await page.route("**/api/mail/sync", async (route) => {
+  await page.route("**/api/jobs/mail_sync_test", (route) => route.fulfill({ json: { job: { id: "mail_sync_test", status: "queued" } } }));
+  await page.route("**/api/jobs/mail.sync/start", async (route) => {
     await route.fulfill({
       json: {
+        job: { id: "mail_sync_test", status: "queued" },
         entry: "command",
         kind: "command",
         creates_session: false,
@@ -316,7 +314,7 @@ test("POST /api/mail/sync uses SyncReceipt and does not create sessions", async 
   });
   await page.goto("/mail");
   await page.locator("[data-mail-sync]").click();
-  await expect(page.locator("[data-mail-notice]")).toContainText("已在后台开始收取");
+  await expect(page.locator("[data-mail-notice]")).toContainText("正在排队");
   expect(sessionPosts).toEqual([]);
 });
 
@@ -409,7 +407,7 @@ test("邮件任务 chip fills the提问框 from the compose catalog", async ({ p
     template_id: `template_${index}`,
     kind: "letter",
   }));
-  await page.route("**/api/mail/compose-catalog**", async (route) => {
+  await page.route("**/api/queries/mail.compose-catalog**", async (route) => {
     await route.fulfill({
       json: { entry: "memory", creates_session: false, creates_turn: false, calls_model: false, letters },
     });
@@ -430,7 +428,7 @@ test("邮件任务 chip fills the提问框 from the compose catalog", async ({ p
 
 test("a dead compose catalog renders no chips and no crash", async ({ page }) => {
   await mockFormalMail(page);
-  await page.route("**/api/mail/compose-catalog**", async (route) => {
+  await page.route("**/api/queries/mail.compose-catalog**", async (route) => {
     await route.fulfill({ status: 500, json: { detail: "boom" } });
   });
   await page.goto("/mail?c=3901");
@@ -456,7 +454,7 @@ test("composer submit opens the run session and never the home page", async ({ p
 });
 
 test("unbound mailbox guides to Starry settings", async ({ page }) => {
-  await page.route("**/api/mail/**", async (route) => {
+  await page.route(/\/api\/(?:queries\/mail\.|actions\/mail\.|skills\/mail_|jobs\/mail\.sync\/start)/, async (route) => {
     await route.fulfill({ status: 404, json: { detail: "not found" } });
   });
   await page.route("**/api/me/starry-binding", async (route) => {
@@ -563,8 +561,8 @@ const TWO_BOXES = {
 };
 
 test("the mailbox switcher shows only the current mailbox until opened", async ({ page }) => {
-  await page.route("**/api/mail/box**", (route) => route.fulfill({ json: TWO_BOXES }));
-  await page.route("**/api/mail/conversations**", (route) => route.fulfill({ json: { conversations: [] } }));
+  await page.route("**/api/queries/mail.box**", (route) => route.fulfill({ json: TWO_BOXES }));
+  await page.route("**/api/queries/mail.conversations**", (route) => route.fulfill({ json: { conversations: [] } }));
   await page.route("**/api/home/board**", (route) => route.fulfill({ json: BOARD }));
   await page.goto("/mail");
 
@@ -583,14 +581,14 @@ test("the mailbox switcher shows only the current mailbox until opened", async (
 test("当前邮箱没有绑定行时，切换器仍然报出这个邮箱", async ({ page }) => {
   // 绑定行还没落库（follow scope 先命名了邮箱）时，收起态必须以 current 为准，
   // 不能退回 bindings[0] 的地址，更不能只剩「选择邮箱」。
-  await page.route("**/api/mail/box**", (route) => route.fulfill({
+  await page.route("**/api/queries/mail.box**", (route) => route.fulfill({
     json: {
       ...FORMAL_BOX,
       mailbox: "larry.zhao@amperetime.com",
       bindings: [{ mailbox: "eu@litime.com", label: "欧洲邮箱", unread: 3, bound: true, synced_at: FORMAL_BOX.synced_at, error: null }],
     },
   }));
-  await page.route("**/api/mail/conversations**", (route) => route.fulfill({ json: { conversations: [] } }));
+  await page.route("**/api/queries/mail.conversations**", (route) => route.fulfill({ json: { conversations: [] } }));
   await page.route("**/api/home/board**", (route) => route.fulfill({ json: BOARD }));
   await page.goto("/mail");
 
@@ -740,13 +738,13 @@ test("停止 intake 只停本页等待，并说明任务仍会落在服务器", 
 });
 
 test("mail negotiation workbench: mailbox to conversation to mail, summary stays", async ({ page }) => {
-  await page.route("**/api/mail/box**", (route) => route.fulfill({ json: TWO_BOXES }));
-  await page.route("**/api/mail/conversations**", (route) => {
-    if (/^\/api\/mail\/conversations\/[^/]+$/.test(pathOf(route))) return route.fallback();
+  await page.route("**/api/queries/mail.box**", (route) => route.fulfill({ json: TWO_BOXES }));
+  await page.route("**/api/queries/mail.conversations**", (route) => {
+
     return route.fulfill({ json: { conversations: [FORMAL_CONVERSATION] } });
   });
-  await page.route("**/api/mail/conversations/**", (route) => route.fulfill({ json: FORMAL_THREAD }));
-  await page.route("**/api/mail/person**", (route) => route.fulfill({ json: PERSON_DIGEST }));
+  await page.route("**/api/queries/mail.conversation?**", (route) => route.fulfill({ json: FORMAL_THREAD }));
+  await page.route("**/api/queries/mail.person**", (route) => route.fulfill({ json: PERSON_DIGEST }));
   await page.route("**/api/home/board**", (route) => route.fulfill({ json: BOARD }));
   await page.goto("/mail");
 
@@ -854,7 +852,7 @@ test("保留的 data-mail-* 契约全部渲染", async ({ page }) => {
 
 test("首屏骨架保留三栏形状", async ({ page }) => {
   await mockFormalMail(page);
-  await page.route("**/api/mail/box**", async (route) => {
+  await page.route("**/api/queries/mail.box**", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 800));
     await route.fulfill({ json: FORMAL_BOX });
   });
@@ -882,4 +880,48 @@ test("a long person digest is clamped with an expand toggle", async ({ page }) =
   await toggle.click();
   await expect(toggle).toHaveText("收起");
   expect(await body.evaluate((el) => el.clientHeight >= el.scrollHeight - 1)).toBe(true);
+});
+
+
+test("mail sync job shows failure, retries and survives a page reload", async ({ page }) => {
+  await mockFormalMail(page);
+  let status = "queued";
+  let polls = 0;
+  await page.route("**/api/jobs/mail.sync/start", (route) => route.fulfill({ json: { accepted: true, job: { id: "sync_recovery", status } } }));
+  await page.route("**/api/jobs/sync_recovery", (route) => {
+    polls += 1;
+    return route.fulfill({ json: { job: { id: "sync_recovery", status, error_summary: status === "failed" ? "邮件服务暂不可用" : null } } });
+  });
+  await page.route("**/api/jobs/sync_recovery/retry", (route) => {
+    status = "running";
+    return route.fulfill({ json: { job: { id: "sync_recovery", status } } });
+  });
+  await page.goto("/mail");
+  await page.locator("[data-mail-sync]").click();
+  await expect(page.locator("[data-mail-notice]")).toContainText("正在排队");
+  const beforeReload = polls;
+  await page.reload();
+  await expect.poll(() => polls).toBeGreaterThan(beforeReload);
+  status = "failed";
+  await expect(page.getByRole("button", { name: "重试同步", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "重试同步", exact: true }).click();
+  await expect(page.locator("[data-mail-notice]")).toContainText("正在同步邮件索引");
+  status = "succeeded";
+  await expect(page.locator("[data-mail-notice]")).toContainText("邮件索引同步完成");
+});
+
+test("mail sync cancellation uses the job action and preserves a truthful status", async ({ page }) => {
+  await mockFormalMail(page);
+  let status = "running";
+  await page.route("**/api/jobs/mail.sync/start", (route) => route.fulfill({ json: { accepted: true, job: { id: "sync_cancel", status } } }));
+  await page.route("**/api/jobs/sync_cancel", (route) => route.fulfill({ json: { job: { id: "sync_cancel", status } } }));
+  await page.route("**/api/jobs/sync_cancel/cancel", (route) => {
+    status = "cancelled";
+    return route.fulfill({ json: { job: { id: "sync_cancel", status } } });
+  });
+  await page.goto("/mail");
+  await page.locator("[data-mail-sync]").click();
+  await page.getByRole("button", { name: "取消同步", exact: true }).click();
+  await expect(page.getByText("已取消后续同步，已读取的数据保留。", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-mail-sync]")).toBeEnabled();
 });

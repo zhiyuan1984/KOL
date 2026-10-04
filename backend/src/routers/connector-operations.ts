@@ -64,7 +64,7 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     const started = Date.now();
     const checkedAt = nowIso();
     // An HTTP action catalog is configuration, not an external reachability check.
-    const kind = isMediaCrawlerHostConfig(before.config) ? "mediacrawler_start"
+    const kind = isMediaCrawlerHostConfig(before.config, id) ? "mediacrawler_start"
       : before.config.protocol === "http" ? "http_definition" : "mcp_tools_list";
     let count = 0;
     let code: string | null = null;

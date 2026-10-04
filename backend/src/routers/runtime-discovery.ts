@@ -16,7 +16,7 @@ runtimeDiscoveryRouter.get("/admin/runtime/connectors/:connectorId/discovery", a
   const connectorId = c.req.param("connectorId");
   if (process.env.NODE_ENV !== "test") requireManagedConnector(connectorId);
   const tools = await inspectConnectorTools({ agentId: "governance", skillId: "", userId: admin.id, runId: "discovery" }, connectorId);
-  const hostOnly = isMediaCrawlerHostConfig(getConnectorConfig(connectorId)?.config || {});
+  const hostOnly = isMediaCrawlerHostConfig(getConnectorConfig(connectorId)?.config || {}, connectorId);
   return c.json({ tools, authorization: hostOnly
     ? "MediaCrawler is Host-only. Its start/stop probe does not create a generic Skill tool catalog."
     : "Discovery is not a grant. Approve each metadata/schema hash before execution." });

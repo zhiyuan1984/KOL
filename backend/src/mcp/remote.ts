@@ -134,16 +134,8 @@ export class RemoteMcpClient {
   private closed = false;
 
   constructor(options: RemoteMcpOptions = {}) {
-    const usesDefaultMediaCrawlerEndpoint = options.url === undefined;
-    this.url = required(
-      usesDefaultMediaCrawlerEndpoint ? process.env.MEDIACRAWLER_MCP_URL : options.url,
-      "MCP URL",
-    );
-    // An explicitly supplied endpoint is a separate connector. Never attach the
-    // MediaCrawler credential to it, including when token is deliberately "".
-    const token = usesDefaultMediaCrawlerEndpoint
-      ? options.token ?? process.env.MEDIACRAWLER_MCP_TOKEN
-      : options.token;
+    this.url = required(options.url, "MCP URL");
+    const token = options.token;
     const headers: Record<string, string> = { ...(options.headers || {}) };
     const trimmedToken = token?.trim();
     if (trimmedToken && !hasHeader(headers, "authorization") && !hasHeader(headers, "x-mcp-api-key")) {
@@ -152,7 +144,7 @@ export class RemoteMcpClient {
     if (!hasAuthenticationHeader(headers) && !options.allowUnauthenticated) {
       throw new Error("MCP auth header is required");
     }
-    this.timeoutMs = options.timeoutMs ?? Number(process.env.MEDIACRAWLER_MCP_TIMEOUT_MS || 30_000);
+    this.timeoutMs = options.timeoutMs ?? 30_000;
     this.client = new Client({ name: "lingong-mcp", version: "0.1.0" });
     const endpoint = new URL(this.url);
     // SSE splits traffic over two legs: a long-lived GET event stream and the POST

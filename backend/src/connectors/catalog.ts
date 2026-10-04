@@ -7,6 +7,7 @@ import { HttpFail } from "../host/errors.js";
  */
 export const BUILTIN_CONNECTORS = {
   claw: {
+    credential_storage: "vault",
     label: "MediaCrawler MCP",
     purpose: "创作者采集、检索与画像数据",
   },

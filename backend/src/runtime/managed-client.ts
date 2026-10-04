@@ -23,6 +23,7 @@ export function createManagedClient(connectorId: string, userId: string, credent
   }
   const client = createConfiguredClient({ userId, agentId: "", skillId: "", runId: "business-gateway" }, config);
   return {
+    listTools: () => client.listTools(),
     async callTool(name: string, args: Json = {}): Promise<Json> {
       const result = await client.callToolRaw(name, args);
       const normalized = normalizeMcpContent(result);

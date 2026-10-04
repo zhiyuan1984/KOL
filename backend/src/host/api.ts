@@ -1,3 +1,4 @@
+import type { Operation } from "../runtime/operations.js";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 /**
  * Host = Dify「应用后端」。
@@ -401,8 +402,8 @@ function authoredComposeItem(item: Json, composeInput: ComposeInput | null): Jso
   };
 }
 
-host.post("/email-compose/prepare", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as Json;
+export const prepareMail: Operation["handle"] = async (c, input) => {
+  const body = input as Json;
   if (String(body.skill_id || "") !== "email_compose") {
     throw new HttpFail(400, { code: "invalid_skill", message: "skill_id 必须是 email_compose" });
   }
@@ -507,7 +508,7 @@ host.post("/email-compose/prepare", async (c) => {
     candidates: [],
     context_version: contextVersion,
   }));
-});
+};
 
 function collabDisplay(id: unknown): string {
   const cid = String(id || "");
@@ -3865,14 +3866,14 @@ host.delete("/sessions/:sid/queue/:qid", (c) => {
   return c.json({ ok: true, run_queue: publicQueue(sid) });
 });
 
-host.get("/drafts/:did/actions", (c) => {
-  return c.json(mailSendAction(getDraft(c.req.param("did"))));
-});
+export const mailDraftActions: Operation["handle"] = (c, input) => {
+  return c.json(mailSendAction(getDraft(String(input.draft_id || ""))));
+};
 
-host.post("/drafts/:did/send", async (c) => {
-  const did = c.req.param("did");
+export const sendMailDraft: Operation["handle"] = async (c, payload) => {
+  const did = String(payload.draft_id || "");
   const d = getDraft(did);
-  const body = (await c.req.json().catch(() => ({}))) as Json;
+  const body = payload as Json;
   if (["cc", "from_addr", "to_addr", "subject", "body", "body_en", "template_id"].some((key) => body[key] !== undefined)) {
     throw new HttpFail(409, { code: "mail_edits_require_reconfirmation", message: "请先保存修改，再核对当前草稿并确认发送。" });
   }
@@ -3931,11 +3932,11 @@ host.post("/drafts/:did/send", async (c) => {
     }).catch(() => audit("host", "host.send.digest_pending", { draft_id: did }));
   }
   return c.json({ ok: true, status: "sent", result, official_stage: stageNow, stage_changed: false, toast_success: false, message: msg, keep_stage: true });
-});
+};
 
-host.post("/drafts/:did/translate", async (c) => {
+export const translateMailDraft: Operation["handle"] = async (c, input) => {
   requireConnector("starry", "read");
-  const did = c.req.param("did");
+  const did = String(input.draft_id || "");
   const d = getDraft(did);
   const cached = String(d.body_zh_internal || "").trim();
   const zh = await translateDraftInternal(String(d.body_en || ""), cached);
@@ -3947,11 +3948,11 @@ host.post("/drafts/:did/translate", async (c) => {
     syncEmailCard(did);
   }
   return c.json({ ok: true, zh, internal_only: true, smtp: false });
-});
+};
 
-host.get("/drafts/:did/export", (c) => {
-  const d = getDraft(c.req.param("did"));
-  if ((c.req.query("format") || "eml") !== "eml") throw new HttpFail(400, "format must be eml");
+export const exportMailDraft: Operation["handle"] = (c, input) => {
+  const d = getDraft(String(input.draft_id || ""));
+  if ((String(input.format || "") || "eml") !== "eml") throw new HttpFail(400, "format must be eml");
   const header = (value: unknown) => String(value || "").replace(/[\r\n]+/g, " ").trim();
   const eml = [
     `From: ${header(d.from_addr)}`,
@@ -3967,7 +3968,7 @@ host.get("/drafts/:did/export", (c) => {
   c.header("Content-Type", "message/rfc822");
   c.header("Content-Disposition", `attachment; filename="${header(d.id)}.eml"`);
   return c.body(eml);
-});
+};
 
 host.patch("/drafts/:did", async (c) => {
   const did = c.req.param("did");

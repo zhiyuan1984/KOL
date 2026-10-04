@@ -1,10 +1,12 @@
 import { executeClaimedCronJob } from "../cron/worker.js";
+import { pgExecutionJobById } from "./postgres-store.js";
 import {
   type ClaimedExecutionJob,
 } from "./contracts.js";
 import {
   runtimeClaimExecutionJobById,
   runtimeClaimNextExecutionJob,
+  runtimeCompleteExecutionJob,
   runtimeFailExecutionJob,
   runtimeQuarantineExecutionJob,
   runtimeRenewExecutionJobLease,
@@ -27,6 +29,21 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
   const id = String(claimed.id);
   const jobType = String(claimed.job_type);
   try {
+    if (jobType === "mail.sync") {
+      if (process.env.KOL_RUNTIME_MODE === "postgres-only") {
+        await runtimeQuarantineExecutionJob(id, { code: "needs_takeover", summary: "Mail index adapter is not available in PostgreSQL-only mode" });
+        return { execution_job_id: id, job_type: jobType, handled: false, outcome: "needs_takeover" };
+      }
+      const { executeMailSyncJob } = await import("../mail/sync-job.js");
+      const checkpoint = async () => {
+        const current = await pgExecutionJobById(id);
+        if (current?.status !== "running" || current.lease_owner !== claimed.worker_id) throw new Error("execution_job_claim_lost_or_cancelled");
+      };
+      const receipt = await executeMailSyncJob(claimed, checkpoint);
+      await checkpoint();
+      const completed = await runtimeCompleteExecutionJob(id, receipt, new Date(), claimed.worker_id);
+      return { execution_job_id: id, job_type: jobType, handled: true, outcome: completed ? "processed" : "duplicate" };
+    }
     if (jobType === "cron.run") {
       const runId = await executeClaimedCronJob(claimed);
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: runId };
@@ -45,7 +62,7 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
     return { execution_job_id: id, job_type: jobType, handled: false, outcome: "failed", target_id: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "execution handler failed");
-    await runtimeFailExecutionJob(id, { code: "execution_handler_error", summary: message });
+    await runtimeFailExecutionJob(id, { code: "execution_handler_error", summary: message }, { expected_worker: claimed.worker_id });
     console.error("[execution-dispatcher] handler failed", { executionJobId: id, jobType, error });
     return { execution_job_id: id, job_type: jobType, handled: true, outcome: "failed", target_id: null };
   }

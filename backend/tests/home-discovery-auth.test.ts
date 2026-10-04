@@ -1,3 +1,4 @@
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -82,6 +83,7 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_POLL_INTERVAL_MS = "600000";
   resetConn();
   seedAll();
+  configureCrawlerFixture();
   setCrawlMcpClientFactory(mockMcp);
   setDiscoveryBriefRunner(async () => ({ items: [] }));
   const { createApp } = await import("../src/app.js");
@@ -109,7 +111,13 @@ afterEach(() => {
 });
 
 describe("home discovery submit authorization", () => {
-  it("accepts the signed-in admin while the claw connector is still disabled", async () => {
+  it("accepts the admin request but records an honest failure without calling a disabled collector", async () => {
+    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='claw'").run();
+    let remoteCalls = 0;
+    setCrawlMcpClientFactory(() => ({
+      async callTool() { remoteCalls++; return {}; },
+      async close() {},
+    }));
     const claw = getConn().prepare("SELECT enabled FROM connectors WHERE id='claw'").get() as
       | { enabled?: number }
       | undefined;
@@ -122,7 +130,10 @@ describe("home discovery submit authorization", () => {
     const job = getConn().prepare("SELECT crawl_job_id FROM discovery_runs WHERE id=?").get(runId) as
       | { crawl_job_id?: string | null }
       | undefined;
-    expect(String(job?.crawl_job_id || "")).toMatch(/^crawl_/);
+    expect(job?.crawl_job_id).toBeFalsy();
+    expect(remoteCalls).toBe(0);
+    const run = await call("GET", `/api/home/discovery/runs/${runId}`);
+    expect(run.json.run).toMatchObject({ status: "crawl_failed" });
   });
 
   it("gates employees by the Agent that assembles creator_discovery, not by a skill grant", async () => {

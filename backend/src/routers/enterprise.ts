@@ -421,7 +421,7 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
       const config = getConnectorConfig(id);
-      const hostOnly = Boolean(config && isMediaCrawlerHostConfig(config.config));
+      const hostOnly = Boolean(config && isMediaCrawlerHostConfig(config.config, id));
       if (hostOnly && !mediaCrawlerProbeVerified(id, config!.version)) {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }

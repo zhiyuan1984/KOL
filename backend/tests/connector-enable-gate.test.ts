@@ -1,3 +1,4 @@
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -101,6 +102,7 @@ describe("connector enable gate follows Skill bindings only", () => {
     const id = "gate_hostcrawler";
     await verifiedConnector(id);
     process.env.MEDIACRAWLER_MCP_URL = "https://crawler.example/mcp";
+    configureCrawlerFixture("https://crawler.example/mcp");
     setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 0);
     const saved = await call("GET", `/api/admin/runtime/connectors/${id}/config`);
     expect(saved.body).toMatchObject({ probe_mode: "mediacrawler_start", version: 1 });

@@ -60,7 +60,7 @@ test("choose skill, edit, submit, review exact snapshot and confirm once; cancel
   const sid = await preparedSession(request);
   const sendRequests: Array<Record<string, unknown>> = [];
   page.on("request", (req) => {
-    if (req.method() === "POST" && /\/api\/drafts\/[^/]+\/send$/.test(new URL(req.url()).pathname)) sendRequests.push(req.postDataJSON());
+    if (req.method() === "POST" && /\/api\/actions\/mail\.send$/.test(new URL(req.url()).pathname)) sendRequests.push(req.postDataJSON());
   });
   const did = await createAuthoredDraft(page, sid);
   expect(sendRequests).toHaveLength(0);
@@ -83,7 +83,7 @@ test("choose skill, edit, submit, review exact snapshot and confirm once; cancel
   expect(sendRequests[0].confirmation_version).toBeTruthy();
   expect(sendRequests[0].request_id).toBeTruthy();
   expect(sendRequests[0]).not.toHaveProperty("body_en");
-  const replay = await request.post(`/api/drafts/${did}/send`, { data: sendRequests[0] });
+  const replay = await request.post("/api/actions/mail.send", { data: sendRequests[0] });
   expect(replay.ok(), await replay.text()).toBeTruthy();
   expect(await replay.json()).toMatchObject({ status: "sent", replayed: true, stage_changed: false });
   const session = await request.get(`/api/sessions/${sid}`).then((r) => r.json());
@@ -98,11 +98,11 @@ test("editing the server draft after the dialog opened invalidates confirmation 
   const confirm = page.locator('[data-admin-confirm="draft-send"]');
   await expect(confirm).toBeVisible();
   expect((await request.patch(`/api/drafts/${did}`, { data: { body_en: "A new unconfirmed body from another tab." } })).ok()).toBeTruthy();
-  const rejected = page.waitForResponse((res) => res.request().method() === "POST" && res.url().endsWith(`/api/drafts/${did}/send`));
+  const rejected = page.waitForResponse((res) => res.request().method() === "POST" && res.url().endsWith("/api/actions/mail.send"));
   await confirm.locator("[data-admin-confirm-ok]").click();
   expect((await rejected).status()).toBe(409);
   await expect(confirm.getByRole("alert")).toBeVisible();
-  const view = await request.get(`/api/drafts/${did}/actions`).then((r) => r.json());
+  const view = await request.get(`/api/queries/mail.draft-actions?draft_id=${did}`).then((r) => r.json());
   expect(view.action.state).not.toBe("completed");
   expect(view.snapshot.body).toBe("A new unconfirmed body from another tab.");
 });

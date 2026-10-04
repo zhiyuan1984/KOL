@@ -120,7 +120,7 @@ describe("WikiSkill knowledge", () => {
     expect(card.knowledge_id).toBe("kb_mail_followup");
     expect(typeof card.knowledge_version).toBe("number");
     expect(String(card.knowledge_title || "")).not.toBe("");
-    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {});
+    const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status).toBe(200);
     const sj = await sent.json();
     expect(sj.stage_changed).toBe(false);
@@ -226,7 +226,7 @@ describe("WikiSkill knowledge", () => {
       knowledge_id: "kb_mail_followup",
     });
     const draft = data.draft as Json;
-    expect((await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {})).status).toBe(200);
+    expect((await confirmAndSendDraft(request, String(draft.id), {})).status).toBe(200);
     const archived = await request("POST", "/api/admin/knowledge/kb_mail_followup/archive", {});
     expect(archived.status).toBe(200);
     const del = await request("DELETE", "/api/admin/knowledge/kb_mail_followup");
@@ -243,7 +243,7 @@ describe("WikiSkill knowledge", () => {
     const draft = data.draft as Json;
     expect(draft).toBeTruthy();
     expect((draft.extra as Json).knowledge_id).toBe("kb_mail_quote");
-    const fail = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {});
+    const fail = await confirmAndSendDraft(request, String(draft.id), {});
     expect([200, 400, 403]).toContain(fail.status);
     if (fail.status >= 400) {
       const raw = await (await request("GET", "/api/admin/knowledge/raw")).json() as unknown as Json[];
