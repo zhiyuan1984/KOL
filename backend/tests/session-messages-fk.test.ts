@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, isSqliteForeignKeyError, resetConn } from "../src/db.js";
+import { databaseEngine, getConn, isSqliteForeignKeyError, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import { ingestKolMail } from "../src/host/kol-journey.js";
 import { insertSessionMessage, isSessionNotFound } from "../src/host/session-messages.js";
@@ -57,11 +57,13 @@ afterEach(() => {
 
 describe("messages.session_id foreign key", () => {
   it("raw INSERT still enforces FK when session_id is missing", () => {
-    const fk = getConn().pragma("foreign_keys");
-    const enabled = Array.isArray(fk)
-      ? fk.some((row) => Number((row as { foreign_keys?: number }).foreign_keys ?? Object.values(row as object)[0]) === 1)
-      : Number(fk) === 1 || String(fk).includes("1");
-    expect(enabled, "foreign_keys must stay ON").toBe(true);
+    if (databaseEngine() === "sqlite") {
+      const fk = getConn().pragma("foreign_keys");
+      const enabled = Array.isArray(fk)
+        ? fk.some((row) => Number((row as { foreign_keys?: number }).foreign_keys ?? Object.values(row as object)[0]) === 1)
+        : Number(fk) === 1 || String(fk).includes("1");
+      expect(enabled, "foreign_keys must stay ON").toBe(true);
+    }
 
     let thrown: unknown;
     try {
@@ -71,7 +73,7 @@ describe("messages.session_id foreign key", () => {
     }
     expect(thrown).toBeTruthy();
     expect(isSqliteForeignKeyError(thrown)).toBe(true);
-    expect(String(thrown)).toMatch(/FOREIGN KEY constraint failed/i);
+    expect(String(thrown)).toMatch(/foreign key/i);
   });
 
   it("insertSessionMessage fail-closes with session_not_found instead of SqliteError", async () => {

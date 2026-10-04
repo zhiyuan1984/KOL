@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { databaseEngine, getConn, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import { connectorImportRouter } from "../src/routers/connector-import.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -92,8 +92,9 @@ describe("connector JSON import", () => {
     const broken = servers.find((server) => server.label === "Broken Url");
     expect(broken?.valid).toBe(false);
     expect(importedIds()).toEqual([]);
-    // Dry run writes nothing — the lazily created credential table must not exist yet.
-    expect(count("FROM sqlite_master WHERE type='table' AND name='runtime_credentials'")).toBe(0);
+    // PostgreSQL creates the table from its baseline; SQLite creates it lazily.
+    if (databaseEngine() === "postgres") expect(count("FROM runtime_credentials")).toBe(0);
+    else expect(count("FROM sqlite_master WHERE type='table' AND name='runtime_credentials'")).toBe(0);
   });
 
   it("imports on confirm: pending verification, transports, vaulted secrets and references", async () => {

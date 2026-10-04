@@ -373,7 +373,7 @@ describe("home workbench", () => {
   });
 
   it("persists promote columns on tickets", () => {
-    const cols = getConn().prepare("PRAGMA table_info(tickets)").all() as { name: string }[];
+    const cols = getConn().pragma("table_info(tickets)") as { name: string }[];
     expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining([
       "promoted_at",
       "dismissed_at",
