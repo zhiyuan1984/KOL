@@ -38,3 +38,15 @@
 邮件改动的 94 项专项测试及 11 项浏览器通过证据见 [邮件迁移记录](2026-10-04-mail-operation-migration.md)。原版本也失败的模板输入框 E2E 断言仍保留，不宣称全量 E2E 或全量发布门禁通过。
 
 生产备份位于服务器 `backups/mail-crawler-2026-10-04T06-42-43-348Z`，包含数据库、环境、前端产物及未提交页面补丁；后续部署结果写入同一目录的发布回执，并在交付消息记录提交与服务检查结果。
+
+## 生产部署结果
+
+2026-10-04 14:51（Asia/Shanghai），功能提交 `5a4fb39` 已合并并推送 GitHub main，服务器快进更新；已包含并行合入的知识库修复 `a6fbf15`，未丢弃其页面改动。
+
+- 服务器前端类型检查与正式构建成功；前后端同步切换，应用、outbox 和两个 execution Worker 均更新运行。
+- MediaCrawler 环境地址与令牌迁入组织保险柜，配置从 v13 升至 v14；按现有流程真实 start/stop 探测成功并确认停止后启用。随后 managed client 的 `get_crawl_status` 返回 `idle`，连接检查返回 `ok`。
+- 新进程中旧 `MEDIACRAWLER_MCP_URL` / `MEDIACRAWLER_MCP_TOKEN` 不存在；入库回调使用保险柜引用。未发送真实邮件。
+- 公网 `/api/version` 返回 `5a4fb39`，应用与队列服务正常；没有宣称完成真实邮件提供方与队列的全链路同步验收。
+- 切换前第二份备份与发布回执保存在服务器 `backups/mail-crawler-2026-10-04T06-50-41-493Z`；回滚代码锚点为 `a6fbf15`，上一版前端另存于 `frontend/dist.before-mail-crawler-5a4fb39`。
+
+本记录之后仅补齐 README 与部署证据，不改变功能实现。测试范围和已知旧模板断言问题见上文。
