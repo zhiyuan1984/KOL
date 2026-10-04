@@ -3,12 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
-import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
+let databaseUrl: string | undefined;
 
-beforeEach(async () => {
-  await freshTestDatabase();
+beforeEach(() => {
+  databaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL; // The reconnect migration only runs for SQLite.
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-managed-connectors-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
@@ -22,6 +23,8 @@ afterEach(() => {
   delete process.env.LINGONG_DB;
   delete process.env.LINGONG_DATA;
   delete process.env.NODE_ENV;
+  if (databaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = databaseUrl;
 });
 
 describe("managed MCP connector catalog", () => {

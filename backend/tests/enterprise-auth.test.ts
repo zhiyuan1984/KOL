@@ -231,7 +231,7 @@ describe("production account and enterprise controls", () => {
     const detail = await call("GET", `/api/admin/users/${employee.id}`);
     expect(detail.json).toMatchObject({
       skill_grants: [],
-      approval_roles: ["lead"],
+      approval_roles: [expect.objectContaining({ role: "lead", kind: "position" })],
     });
     expect(detail.json).not.toHaveProperty("connector_grants");
 

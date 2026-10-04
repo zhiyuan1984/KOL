@@ -21,6 +21,7 @@ const CLASSIFIED_FLAG = "tickets_classified_v1";
 
 let tmp: string;
 let app: Hono;
+let databaseUrl: string | undefined;
 
 async function request(method: string, url: string, body?: unknown) {
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
@@ -31,6 +32,8 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
+  databaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL; // Includes the work_items → tickets SQLite migration.
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-tickets-"));
   process.env.LINGONG_DB = path.join(tmp, "tickets.db");
   process.env.LINGONG_DATA = tmp;
@@ -49,6 +52,8 @@ afterEach(() => {
   resetTicketTypesCache();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
+  if (databaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = databaseUrl;
 });
 
 function insertTicket(id: string, overrides: Partial<Record<string, string>> = {}): void {

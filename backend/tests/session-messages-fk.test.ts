@@ -10,6 +10,7 @@ import { insertSessionMessage, isSessionNotFound } from "../src/host/session-mes
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -37,6 +38,7 @@ function rawInsertMessage(sid: string): void {
 }
 
 beforeEach(async () => {
+  if (process.env.TEST_DATABASE_URL) await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-msg-fk-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;

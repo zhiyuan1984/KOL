@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import { connectorImportRouter } from "../src/routers/connector-import.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -51,7 +52,8 @@ const SAMPLE = {
   },
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+  if (process.env.TEST_DATABASE_URL) await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-import-"));
   Object.assign(process.env, {
     LINGONG_DB: path.join(tmp, "test.db"),

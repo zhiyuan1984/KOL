@@ -7,8 +7,11 @@ import { knowledgeKindSpec, resetKnowledgeKindsCache, validateStructuredFields }
 import type { Row } from "../src/types.js";
 
 let tmp: string;
+let databaseUrl: string | undefined;
 
 beforeEach(() => {
+  databaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL; // This suite verifies the SQLite legacy migration.
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kb-taxonomy-"));
   process.env.LINGONG_DB = path.join(tmp, "kb.db");
   process.env.LINGONG_DATA = tmp;
@@ -22,6 +25,8 @@ afterEach(() => {
   resetKnowledgeKindsCache();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
+  if (databaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = databaseUrl;
 });
 
 describe("knowledge taxonomy (P1)", () => {
