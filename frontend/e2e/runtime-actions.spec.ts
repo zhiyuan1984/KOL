@@ -133,13 +133,22 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await page.goto("/?tab=discovery");
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
   await page.locator('[data-skill-param="region"] [data-discovery-chip="na"]').click();
+  const workspaceSaved = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/home/discovery/workspace");
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
+  const savedResponse = await workspaceSaved;
+  expect(savedResponse.ok(), await savedResponse.text()).toBeTruthy();
+  const savedWorkspace = await savedResponse.json();
+  const readsWorkspaceTask = (response: import("@playwright/test").Response) => response.request().method() === "GET"
+    && [`/api/tasks/${savedWorkspace.task_id}`, `/api/tasks/by-session/${savedWorkspace.session_id}`].includes(new URL(response.url()).pathname);
   await expect(page).toHaveURL(/\/s\/[^/]+$/);
   const sessionUrl = page.url();
   await expect(page.locator('[data-agent-profile="lead"]')).toContainText("线索智能体");
   await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
   await expect(page.locator("[data-expert-identity='expert:crawler']")).toHaveCount(0);
+  const restoredTask = page.waitForResponse(readsWorkspaceTask);
   await page.reload();
+  expect((await restoredTask).ok()).toBeTruthy();
   await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
   const back = page.getByRole("link", { name: "返回AI发现" });
   if (surface.name.startsWith("short-keyboard")) { await back.focus(); await page.keyboard.press("Enter"); }
@@ -148,7 +157,9 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await expect(page).toHaveURL(/tab=discovery&resume=/);
   await expect(page.locator("[data-discovery-resume]")).toBeVisible();
   await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/北美/);
+  const continuedTask = page.waitForResponse(readsWorkspaceTask);
   await page.getByRole("button", { name: "继续原发现任务" }).click();
+  expect((await continuedTask).ok()).toBeTruthy();
   await expect(page).toHaveURL(sessionUrl);
   await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
