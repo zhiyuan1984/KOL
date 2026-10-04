@@ -16,7 +16,7 @@ import { currentUser, setPersona } from "../host/persona.js";
 import { personaAccess } from "../host/persona-key.js";
 import { login, logout, requirePm, isProductManager } from "../host/auth.js";
 import { directory, grantsForSkill, setSkillGrants, visibleSkillIds } from "../host/grants.js";
-import { visibleSkillIdsForUser } from "../runtime/organization-tree.js";
+import { avatarUrlForUser, visibleSkillIdsForUser } from "../runtime/organization-tree.js";
 import { FUNNEL_STAGES, SOP_POLICY, skillCatalog, skillEmployeeDoc } from "../host/skills-catalog.js";
 import {
   effectiveSkillTemplate,
@@ -593,6 +593,7 @@ misc.get("/me", (c) => {
   const appUser = scopedUser();
   return c.json({
     ...user,
+    avatar_url: avatarUrlForUser(user.id),
     exam_todo_count: appUser?.exam_todo_count ?? examTodoCount(user.id),
     ...(appUser ? {
       username: appUser.username,

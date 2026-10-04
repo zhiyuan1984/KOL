@@ -80,7 +80,7 @@ describe("admin sidebar parity", () => {
       "评审流程",
       "技能",
       "考试",
-      "治理",
+      "Agent",
       "数据",
       "成本",
       "调度监控",
@@ -101,6 +101,14 @@ describe("admin sidebar parity", () => {
     expect(adminTabOf("/admin/approval-types")).toBe("approval-types");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
     expect(adminTabOf("/admin/unknown")).toBe("employees");
+  });
+
+  it("keeps the admin Agent entry on the employee Agent glyph", () => {
+    const agents = ADMIN_NAV_GROUPS.flatMap((group) => group.rows).find((row) => row.id === "agents");
+    expect(agents?.label).toBe("Agent");
+    // 图标与员工端 Agent 条目同一描边路径（ADR-2026-10-04）：两处字符串应始终一致。
+    expect(agents).toBeDefined();
+    expect(WORKBENCH).toContain(agents!.icon);
   });
 
   it("renders the admin entries inside the employee sidebar shell", () => {
