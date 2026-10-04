@@ -1806,15 +1806,20 @@ export default function Home() {
   );
 
   useEffect(() => {
-    if (!hasActiveRuns) return;
+    if (!hasActiveRuns || mode === "pool") return;
+    const controller = new AbortController();
+    let inFlight = false;
     const tick = () => {
-      if (document.visibilityState !== "visible") return;
-      void fetchHomeTasks().catch(() => undefined);
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      void api.tasks(undefined, controller.signal).then(unwrapTaskList).then((catalog) => {
+        if (!controller.signal.aborted) applyTaskCatalog(catalog);
+      }).catch(() => undefined).finally(() => { inFlight = false; });
     };
     const kickoff = window.setTimeout(tick, SHELL_READ_DELAY_MS);
     const timer = window.setInterval(tick, HOME_TASK_POLL_MS);
-    return () => { window.clearTimeout(kickoff); window.clearInterval(timer); };
-  }, [hasActiveRuns]);
+    return () => { controller.abort(); window.clearTimeout(kickoff); window.clearInterval(timer); };
+  }, [hasActiveRuns, mode]);
 
 
   useEffect(() => {
