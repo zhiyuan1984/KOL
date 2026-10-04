@@ -1,3 +1,4 @@
+import { starryKolConnectionHealth } from "../starrykol/connection.js";
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
@@ -6,7 +7,7 @@ import { parse as parseYaml } from "yaml";
 import { authDisabled, isAdmin, requireAdmin, requireSkill, scopedUser } from "../auth.js";
 import { examDemoStatus, examTodoCount } from "../exam.js";
 import { starry } from "../adapters/clients.js";
-import { BRAND_MAILBOXES, DEMO_USER, clawMode, kolClawConfigured, starryKolMcpBearer, starryKolMcpConfigured } from "../config.js";
+import { BRAND_MAILBOXES, DEMO_USER, clawMode, kolClawConfigured } from "../config.js";
 import { AUDIT_PAYLOAD_PREVIEW_CHARS, auditPayloadPreview, getConn, listAudit, nowIso } from "../db.js";
 import { uploadsDir } from "../host/attachments.js";
 import { HttpFail } from "../host/errors.js";
@@ -753,30 +754,8 @@ misc.get("/admin", (c) => {
         }
       })(),
     },
-    emailmcp_health: {
-      mode: process.env.STARRY_KOL_MCP_MODE || process.env.EMAIL_MCP_MODE || "remote",
-      configured: starryKolMcpConfigured(),
-      user_jwt: Boolean(starryKolMcpBearer()),
-      url: (() => {
-        try {
-          return starryKolMcpConfigured() ? new URL(process.env.STARRY_KOL_MCP_URL || process.env.EMAIL_MCP_URL || "").origin : null;
-        } catch {
-          return null;
-        }
-      })(),
-    },
-    starrykol_health: {
-      mode: process.env.STARRY_KOL_MCP_MODE || process.env.EMAIL_MCP_MODE || "remote",
-      configured: starryKolMcpConfigured(),
-      user_jwt: Boolean(starryKolMcpBearer()),
-      url: (() => {
-        try {
-          return starryKolMcpConfigured() ? new URL(process.env.STARRY_KOL_MCP_URL || process.env.EMAIL_MCP_URL || "").origin : null;
-        } catch {
-          return null;
-        }
-      })(),
-    },
+    emailmcp_health: starryKolConnectionHealth(),
+    starrykol_health: starryKolConnectionHealth(),
     can_edit_skills: isProductManager(),
     logged_in: isProductManager(),
     sop: {

@@ -1,3 +1,4 @@
+import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
 import { appendBusinessEvent } from "../business-events.js";
 import { mailPreview } from "../host/mail-preview.js";
@@ -20,7 +21,6 @@ import { markPendingMailMemory, triggerMailMemoryIncrement } from "../host/mail-
 import { recordEffectiveCorrespondence, recordFollowedMailMemory } from "../host/kol-memory.js";
 import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
 import { inboundIdentity, mailAlreadySeen } from "../host/inbound-identity.js";
-import { starryKolMcpConfigured } from "../config.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import {

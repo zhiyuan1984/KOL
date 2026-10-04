@@ -197,39 +197,22 @@ Lead Skill 生成采集计划
 
 ## 远程 Starry KOL MCP
 
-品牌邮箱、邮件会话、草稿预览，以及红人库查询 / 画像 / 负责人 / 入库走同一套 Streamable HTTP MCP（`starry-kol-mcp`，兼容旧名 `email-mcp`）。不要和 MediaCrawler / KOL Claw 混用。
+品牌邮箱、邮件会话、草稿预览，以及红人库查询、画像、负责人和入库共用管理侧的 Starry KOL 连接配置。连接只使用保险柜，不读取旧 MCP 环境变量或本地 JSON 文件，不把远端凭据写入 Codex 配置。
 
-打 `https://dev-api.askstarry.com/starry/email-agent/mcp` 时必须同时带两个头：
+在管理端为 `starrykol` 保存 MCP 地址和传输方式，并配置两个保险柜引用：
 
-- `X-MCP-API-KEY`：MCP 客户端密钥（如 `email-agent-mcp-dev`）
-- `Authorization: Bearer <JWT>`：Starry 登录用户（payload 里的 `user_id`）。邮箱 ACL 和红人可见范围按这个用户算，不是灵工网页登录账号。
+- `headers_secret_refs["X-MCP-API-KEY"]`：组织级 MCP API Key。
+- `bearer_secret_ref` 或 `headers_secret_refs.Authorization`：Starry JWT；也可显式选择 `credential_provider="user-account"` 与 `credential_account_id`，由保险柜检查账号归属。
 
-只带 API Key 时，网关返回「登录过期」；只带 JWT 时返回缺 `X-MCP-API-KEY`。复制 `.env.example` 为 `.env`，或把 Cursor 的 `mcpServers` JSON 放到已忽略的配置文件：
+完成连接测试、启用连接器，再把工具挂到 Agent 所装配的技能。人员使用资格只绑定 Agent，不再给员工单独授 Skill/MCP/API 权限。远端邮箱 ACL 和红人可见范围仍按 Starry JWT 身份生效。
 
-```json
-{
-  "mcpServers": {
-    "email-mcp": {
-      "type": "streamableHttp",
-      "url": "https://dev-api.askstarry.com/starry/email-agent/mcp",
-      "headers": {
-        "X-MCP-API-KEY": "<STARRY_KOL_MCP_API_KEY>",
-        "Authorization": "Bearer <STARRY_USER_JWT>"
-      }
-    }
-  }
-}
-```
-
-对应环境变量：`STARRY_KOL_MCP_URL` / `STARRY_KOL_MCP_API_KEY` / `STARRY_KOL_MCP_BEARER`（兼容 `EMAIL_MCP_*`）。**已存在的环境变量不会被 JSON 覆盖。** 加载顺序：环境变量 → `STARRY_KOL_MCP_CONFIG_FILE` → 仓库根目录 `mcp_starry_kol.json` / `starry-kol-mcp.json` / `mcp_email.json` / `mcp.json`。JSON 和 Markdown 中的占位 Key 会被忽略。这些文件已加入忽略规则，不要把 JWT 提交进仓库。改完后必须重启 Host。
-
-灵工 `/admin` 只能开关 `starrykol` 连接器、给员工授 `read/write`，以及授权 `email_compose` 等技能。不能在管理端粘贴 JWT，也不能改 Starry 的邮箱权限或红人可见范围——那些在 Starry 后台，按 JWT 的 `user_id` 生效。
+个人设置提交的邮箱 JWT 先存入保险柜，邮箱记录只保留引用；调用失败不会改用进程身份重试。旧邮箱令牌需在发布切换时迁移，见[切换与验收记录](docs/superpowers/plans/2026-10-04-starry-vault-cutover.md)。保险柜主密钥 `RUNTIME_CREDENTIAL_MASTER_KEY` 仍由服务部署提供，须在迁移和运行时保持一致。
 
 写信 / 画像 Skill 的 Codex turn 查询链：`pageKolProfiles` → `getKolProfileDetail`（含红人负责人）→ `listKolPlatformData`。更新负责人走 `updateKolProfile`。`decryptKolContact` 属于敏感操作，只有「解密达人联系方式」技能会调用。默认只预览草稿；用户明确回复「确认发送」后才会由 Gateway 调用 `sendEmailNow`。
 
 ## 多用户管理与个人数据
 
-- 管理端 `/admin`：员工、技能授权、连接器与访问级别、审批角色、考试下发、留存策略和审计。
+- 管理端 `/admin`：员工与 Agent 使用绑定、技能装配、连接器与保险柜、审批角色、考试下发、留存策略和审计。
 - 个人设置 `/settings`：资料、偏好、密码、Markdown 记忆、Cookie 选择、数据占用和会话导出/归档/删除。
 - 密码使用 Node `scrypt` 加盐哈希；登录使用 HttpOnly、SameSite=Lax Cookie，生产 HTTPS 下加 Secure。
 - 连接器只保存 `credential_ref`，不保存或回显明文密钥。

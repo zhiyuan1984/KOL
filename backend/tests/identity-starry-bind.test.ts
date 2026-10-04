@@ -31,6 +31,7 @@ async function call(method: string, url: string, body?: unknown, useCookie = coo
 }
 
 beforeEach(async () => {
+  process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "17".repeat(32);
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-identity-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
@@ -57,6 +58,7 @@ afterEach(() => {
   resetStarryHomeLibrarySync();
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
+  delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
   process.env.CODEX_MODE = "stub";
 });
 

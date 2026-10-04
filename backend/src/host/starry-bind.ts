@@ -1,3 +1,4 @@
+import { createCredential, credentialReferencedByRuntimeConfig, deleteCredential, getCredentialMetadata } from "../runtime/credentials.js";
 import { DEMO_ADMIN } from "../config.js";
 import { audit, getConn, nowIso } from "../db.js";
 import type { Json, Row } from "../types.js";
@@ -93,9 +94,13 @@ export function boundMailboxEmail(userId?: string | null): string {
   }
 }
 
-export function boundStarryBearer(userId?: string | null, mailbox?: string): string {
+export function boundStarryCredentialId(userId?: string | null, mailbox?: string): string {
   if (!userId) return "";
-  return String(starryBindingRow(userId, mailbox)?.bearer_token || "").trim();
+  const reference = String(starryBindingRow(userId, mailbox)?.bearer_token || "").trim();
+  if (reference && !/^cred_[A-Za-z0-9_-]{8,160}$/.test(reference)) {
+    throw new HttpFail(409, { code: "starry_credential_migration_required" });
+  }
+  return reference;
 }
 
 export function currentFollowScope(): FollowScope {
@@ -140,6 +145,13 @@ export function matchesFollowedMailbox(
   return false;
 }
 
+function removeUnusedMailboxCredential(value: unknown): void {
+  const id = String(value || "");
+  if (!/^cred_[A-Za-z0-9_-]{8,160}$/.test(id) || credentialReferencedByRuntimeConfig(id)) return;
+  const credential = getCredentialMetadata(id);
+  deleteCredential(id, credential.version);
+}
+
 export function saveStarryBinding(userId: string, input: {
   mailbox_email: string;
   mailbox_id?: string;
@@ -150,31 +162,41 @@ export function saveStarryBinding(userId: string, input: {
   const mailbox = normalizeEmail(input.mailbox_email);
   if (!mailbox || !mailbox.includes("@")) throw new HttpFail(400, "请选择要绑定的 Starry 发件邮箱");
   const existing = starryBindingRow(userId, mailbox);
-  const bearer = String(input.bearer || existing?.bearer_token || "").trim();
+  // Historical column name retained for compatibility; new values are vault references only.
+  const secret = String(input.bearer || "").trim().replace(/^Bearer\s+/i, "");
+  const bearer = secret ? createCredential({ type: "user_account", owner_user_id: userId,
+    label: "Starry mailbox", purpose: "Starry mailbox authentication", secret }, userId).id
+    : boundStarryCredentialId(userId, mailbox);
   const rowsBefore = starryBindingRows(userId);
   // The first binding of a user becomes the default; adding another mailbox never
   // moves the default off the existing primary mailbox.
   const isDefault = rowsBefore.length === 0 ? 1 : 0;
   const now = nowIso();
-  getConn().prepare(
-    `INSERT INTO user_starry_bindings (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)
-     VALUES (?,?,?,?,?,?,?,?)
-     ON CONFLICT(user_id, mailbox_email) DO UPDATE SET
-       mailbox_id=excluded.mailbox_id,
-       owner_name=excluded.owner_name,
-       bearer_token=excluded.bearer_token,
-       status=excluded.status,
-       updated_at=excluded.updated_at`,
-  ).run(
-    userId,
-    mailbox,
-    isDefault,
-    String(input.mailbox_id || existing?.mailbox_id || ""),
-    String(input.owner_name || existing?.owner_name || ""),
-    bearer,
-    input.status || "connected",
-    now,
-  );
+  try {
+    getConn().prepare(
+      `INSERT INTO user_starry_bindings (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT(user_id, mailbox_email) DO UPDATE SET
+         mailbox_id=excluded.mailbox_id,
+         owner_name=excluded.owner_name,
+         bearer_token=excluded.bearer_token,
+         status=excluded.status,
+         updated_at=excluded.updated_at`,
+    ).run(
+      userId,
+      mailbox,
+      isDefault,
+      String(input.mailbox_id || existing?.mailbox_id || ""),
+      String(input.owner_name || existing?.owner_name || ""),
+      bearer,
+      input.status || "connected",
+      now,
+    );
+  } catch (error) {
+    if (secret) removeUnusedMailboxCredential(bearer);
+    throw error;
+  }
+  if (existing?.bearer_token !== bearer) removeUnusedMailboxCredential(existing?.bearer_token);
   audit(userId, "starry.bind", {
     mailbox_email: mailbox,
     owner_name: String(input.owner_name || ""),
@@ -200,6 +222,7 @@ export function clearStarryBinding(userId: string, mailbox?: string): PublicStar
         .run(userId, String(rows[0].mailbox_email || ""));
     }
   }
+  removeUnusedMailboxCredential(target.bearer_token);
   audit(userId, "starry.unbind", { mailbox_email: String(target.mailbox_email || "") });
   return publicStarryBinding(starryBindingRow(userId));
 }

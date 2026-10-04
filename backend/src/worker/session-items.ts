@@ -422,7 +422,7 @@ function hasStarryResult(items: Json[]): boolean {
   return items.some((item) => starryPayload(item));
 }
 
-/** Codex `approvalPolicy: never` rejects first remote Starry KOL reads; those cards are not usable data. */
+/** An approval rejection is never usable business data, even when a model reports a completed turn. */
 export function starryReadBlockedByApproval(data: Json | null): boolean {
   if (!data) return false;
   const blob = JSON.stringify(data);

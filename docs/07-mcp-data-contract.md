@@ -4,13 +4,13 @@
 
 ## MCP 服务器（物理接入事实）
 
-| 服务 | 用途 | 环境变量 | 鉴权头 |
+| 服务 | 用途 | 连接配置来源 | 鉴权头 |
 |---|---|---|---|
-| Starry KOL / email-agent | 红人库、品牌邮箱、邮件会话、合作阶段（62 个 `@Tool`） | `STARRY_KOL_MCP_URL` / `_API_KEY` / `_BEARER` | `X-MCP-API-KEY` + `Authorization: Bearer`（网关要**两个头**） |
+| Starry KOL / email-agent | 红人库、品牌邮箱、邮件会话、合作阶段（62 个 `@Tool`） | 管理侧 `starrykol` 连接配置 + 保险柜引用 | `X-MCP-API-KEY` + `Authorization: Bearer`（网关要**两个头**） |
 | MediaCrawler | 采集（YouTube / Instagram / Facebook） | `MEDIACRAWLER_MCP_URL` / `_TOKEN` | `Authorization: Bearer <token>` |
 | KOL Claw | 评分、建联话术、每日任务、预算 | `KOLCLAW_MCP_URL` / `_TOKEN` | 见 `.env.example` |
 
-地址与密钥只以 `.env.example` 的变量名为准；不在此写死 URL、IP 或隧道地址。
+Starry KOL 只读取管理侧保存的地址及保险柜引用，不再读取 MCP 环境变量、上传文件或进程级身份回退。个人邮箱令牌也存入保险柜，邮箱绑定只持有引用；历史明文绑定须在切换时迁移。MediaCrawler 与 KOL Claw 仍沿用 `.env.example` 的配置，本次未迁移。不在此写死 URL、IP 或隧道地址。
 
 ### MediaCrawler 工具与平台码
 

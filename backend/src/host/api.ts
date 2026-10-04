@@ -1,3 +1,4 @@
+import { starryKolMcpConfigured } from "../starrykol/connection.js";
 /**
  * Host = Dify「应用后端」。
  * 职责：意图分类、选 Skill、起/杀 box、落 session、把 Item 映成 UI Markdown。
@@ -15,7 +16,6 @@ import {
   hostWorkerTimeout,
   liveRemoteSideEffectsEnabled,
   liveTestKolAllowed,
-  starryKolMcpConfigured,
 } from "../config.js";
 import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx } from "../db.js";
 import { sendDraft } from "../gateway/send.js";

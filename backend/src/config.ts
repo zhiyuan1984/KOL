@@ -176,7 +176,8 @@ export function frontendDist(): string {
 }
 
 export function starryMode(): string {
-  return process.env.STARRY_MODE || "mock";
+  // Local fixture adapter only; real Starry connections use the managed vault configuration.
+  return "mock";
 }
 
 export function clawMode(): string {
@@ -184,7 +185,7 @@ export function clawMode(): string {
 }
 
 export function starryBaseUrl(): string {
-  return process.env.STARRY_BASE_URL || "http://127.0.0.1:8765/mock/starry";
+  return "http://127.0.0.1:8765/mock/starry";
 }
 
 export function clawBaseUrl(): string {
@@ -224,163 +225,9 @@ export function kolClawMcpToken(): string {
   return value;
 }
 
-export type StarryKolMcpConfig = {
-  url?: string;
-  apiKey?: string;
-  bearer?: string;
-  /** Same as apiKey. Kept so existing callers/tests still read `token`. */
-  token?: string;
-};
-
-function starryKolServerCredential(server: Record<string, unknown>): StarryKolMcpConfig {
-  const url = String(server.url || server.serverUrl || "").trim();
-  const headers = server.headers && typeof server.headers === "object" && !Array.isArray(server.headers)
-    ? server.headers as Record<string, unknown>
-    : {};
-  const apiKey = usableSecret(String(headers["X-MCP-API-KEY"] || headers["x-mcp-api-key"] || headers["Api-Key"] || ""));
-  const bearer = bearerToken(headers.Authorization ?? headers.authorization)
-    || bearerToken(server.bearer_token || server.bearer);
-  return {
-    ...(url ? { url } : {}),
-    ...(apiKey ? { apiKey, token: apiKey } : {}),
-    ...(bearer ? { bearer } : {}),
-  };
-}
-
-/** Cursor mcp.json / mcpServers.starry-kol-mcp（兼容 email-mcp）streamable HTTP 配置。 */
-export function parseStarryKolMcpConfig(text: string): StarryKolMcpConfig {
-  const obj = jsonObject(text);
-  if (obj) {
-    const servers = obj.mcpServers && typeof obj.mcpServers === "object" && !Array.isArray(obj.mcpServers)
-      ? obj.mcpServers as Record<string, unknown>
-      : (obj.url || obj.type ? { "starry-kol-mcp": obj } : {});
-    const entries = Object.entries(servers).filter(([, value]) => value && typeof value === "object" && !Array.isArray(value));
-    const chosen = entries.find(([name]) => /starry[-_]?kol[-_]?mcp/i.test(name))
-      || entries.find(([name]) => /email[-_]?(mcp|agent)/i.test(name))
-      || entries.find(([, value]) => /starry[-_]?kol|email[-_]?(mcp|agent)|askstarry|:9091\b/i.test(String((value as Record<string, unknown>).url || "")));
-    if (chosen) return starryKolServerCredential(chosen[1] as Record<string, unknown>);
-  }
-  const url = text.match(/https?:\/\/[^\s`"'<>]+\/mcp\b/i)?.[0];
-  const apiKey = usableSecret(text.match(/X-MCP-API-KEY:\s*([^\s`"'<>]+)/i)?.[1]);
-  const bearer = usableSecret(text.match(/Authorization:\s*Bearer\s+([^\s`"'<>]+)/i)?.[1]);
-  return {
-    ...(url ? { url } : {}),
-    ...(apiKey ? { apiKey, token: apiKey } : {}),
-    ...(bearer ? { bearer } : {}),
-  };
-}
-export const parseEmailMcpConfig = parseStarryKolMcpConfig;
-
-function starryKolMcpConfigCandidates(): string[] {
-  const explicit = process.env.STARRY_KOL_MCP_CONFIG_FILE?.trim() || process.env.EMAIL_MCP_CONFIG_FILE?.trim();
-  const rootFiles = [
-    "mcp_starry_kol.json",
-    "starry-kol-mcp.json",
-    "mcp_email.json",
-    "email-mcp.json",
-    "mcp.json",
-  ].map((name) => path.join(REPO_ROOT, name));
-  const cursorUploads = path.join(
-    os.homedir(),
-    ".cursor",
-    "projects",
-    path.basename(REPO_ROOT),
-    "uploads",
-  );
-  const uploaded = fs.existsSync(cursorUploads)
-    ? fs.readdirSync(cursorUploads)
-      .filter((name) => /(starry[-_]?kol|email[-_]?(mcp|agent)|mcp_email|mcp_starry).*\.(json|md)$/i.test(name))
-      .map((name) => path.join(cursorUploads, name))
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
-    : [];
-  return [explicit, ...rootFiles, ...uploaded].filter((value): value is string => Boolean(value));
-}
-
-for (const candidate of starryKolMcpConfigCandidates()) {
-  if (starryKolMcpUrlValue() && starryKolMcpKeyValue() && starryKolMcpBearerValue()) break;
-  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) continue;
-  const parsed = parseStarryKolMcpConfig(fs.readFileSync(candidate, "utf8"));
-  if (!starryKolMcpUrlValue() && parsed.url) {
-    process.env.STARRY_KOL_MCP_URL = parsed.url;
-    process.env.EMAIL_MCP_URL = process.env.EMAIL_MCP_URL || parsed.url;
-  }
-  if (!starryKolMcpKeyValue() && parsed.apiKey) {
-    process.env.STARRY_KOL_MCP_API_KEY = parsed.apiKey;
-    process.env.EMAIL_MCP_API_KEY = process.env.EMAIL_MCP_API_KEY || parsed.apiKey;
-  }
-  if (!starryKolMcpBearerValue() && parsed.bearer) {
-    process.env.STARRY_KOL_MCP_BEARER = parsed.bearer;
-    process.env.EMAIL_MCP_BEARER = process.env.EMAIL_MCP_BEARER || parsed.bearer;
-  }
-}
-
-function starryKolMcpUrlValue(): string {
-  const explicit = (
-    process.env.STARRY_KOL_MCP_URL
-    || process.env.EMAIL_MCP_URL
-    || process.env.STARRY_URL
-    || ""
-  ).trim();
-  if (explicit) return explicit;
-  return starryKolMcpKeyValue() ? "https://dev-api.askstarry.com/starry/email-agent/mcp" : "";
-}
-
-function starryKolMcpKeyValue(): string {
-  return (
-    process.env.STARRY_KOL_MCP_API_KEY
-    || process.env.EMAIL_MCP_API_KEY
-    || process.env.STARRY_API_KEY
-    || ""
-  ).trim();
-}
-
-function starryKolMcpBearerValue(): string {
-  return bearerToken(
-    process.env.STARRY_KOL_MCP_BEARER
-    || process.env.STARRY_KOL_MCP_AUTHORIZATION
-    || process.env.EMAIL_MCP_BEARER
-    || process.env.EMAIL_MCP_AUTHORIZATION
-    || process.env.STARRY_JWT
-    || process.env.STARRY_BEARER
-    || "",
-  ) || "";
-}
-
 export function kolClawConfigured(): boolean {
   return Boolean(process.env.KOLCLAW_MCP_URL?.trim() && process.env.KOLCLAW_MCP_TOKEN?.trim());
 }
-
-export function starryKolMcpUrl(): string {
-  const value = starryKolMcpUrlValue();
-  if (!value) throw new Error("STARRY_KOL_MCP_URL is required");
-  return value;
-}
-
-export function starryKolMcpApiKey(): string {
-  const value = starryKolMcpKeyValue();
-  if (!value) throw new Error("STARRY_KOL_MCP_API_KEY is required");
-  return value;
-}
-
-export function starryKolMcpBearer(): string {
-  return starryKolMcpBearerValue();
-}
-
-/** Headers Host sends to Starry KOL MCP. API Key opens tools; Bearer is the Starry user. */
-export function starryKolMcpHeaders(bearerOverride?: string): Record<string, string> {
-  const headers: Record<string, string> = { "X-MCP-API-KEY": starryKolMcpApiKey() };
-  const bearer = bearerToken(bearerOverride || "") || starryKolMcpBearerValue();
-  if (bearer) headers.Authorization = `Bearer ${bearer}`;
-  return headers;
-}
-
-export function starryKolMcpConfigured(): boolean {
-  return Boolean(starryKolMcpUrlValue() && starryKolMcpKeyValue());
-}
-
-export const emailMcpUrl = starryKolMcpUrl;
-export const emailMcpApiKey = starryKolMcpApiKey;
-export const emailMcpConfigured = starryKolMcpConfigured;
 
 export function codexMode(): string {
   return (process.env.CODEX_MODE || "real").toLowerCase();

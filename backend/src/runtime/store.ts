@@ -1,3 +1,4 @@
+import { assertConnectorCredentialStorage } from "../connectors/catalog.js";
 import { asRow, asRows, getConn, nowIso, txImmediate } from "../db.js";
 import { runtimeAgentBindingManifest } from "../contract-scope.js";
 import { HttpFail } from "../host/errors.js";
@@ -584,7 +585,9 @@ export function getConnectorConfig(id: string): { config: ConnectorConfig; versi
   if (!row) return undefined;
   let decoded: unknown;
   try { decoded = JSON.parse(String(row.config_json)); } catch { throw new HttpFail(500, "stored runtime connector config is invalid"); }
-  return { config: validateConnectorConfig(decoded), version: Number(row.version) };
+  const config = validateConnectorConfig(decoded);
+  assertConnectorCredentialStorage(connectorId, config);
+  return { config, version: Number(row.version) };
 }
 
 export function getToolPolicy(id: string, name: string): Row | undefined {
@@ -649,6 +652,7 @@ export function setConnectorConfig(id: string, config: ConnectorConfig, expected
   const connectorId = assertIdentifier(id, "connector_id");
   assertRuntimeConnectorExists(connectorId);
   const validated = validateConnectorConfig(config);
+  assertConnectorCredentialStorage(connectorId, validated);
   const now = nowIso();
   return versionedUpsert("runtime_connector_config", ["connector_id"], [connectorId],
     ["connector_id", "config_json", "version", "updated_at"], [connectorId, JSON.stringify(validated), 1, now], ["config_json=?"], expectedVersion);

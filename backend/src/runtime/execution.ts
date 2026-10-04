@@ -282,7 +282,15 @@ export class SkillExecution {
           try { current = authorizeConnector(this.context, connectorId); }
           catch { continue; }
           const alias = runtimeToolAlias(connectorId, name);
-          const exposed: Json = { ...remote, name: alias };
+          // Codex treats a missing readOnlyHint as approval-required. Translate the
+          // reviewed L1/read policy into the MCP contract, while preserving explicit
+          // upstream contradictions. Never present L2 writes as read-only.
+          const annotations = remote.annotations && typeof remote.annotations === "object"
+            ? remote.annotations as Json : {};
+          const readOnly = policy?.risk === "L1" && policy.access === "read"
+            && annotations.readOnlyHint !== false && annotations.destructiveHint !== true;
+          const exposed: Json = { ...remote, name: alias,
+            annotations: { ...annotations, readOnlyHint: readOnly } };
           tools.push({ connectorId, remoteName: name, exposed, schemaHash: toolSchemaHash(remote),
             stamp: authorizationStamp(current, policy, toolBinding), toolBindingVersion: Number(toolBinding.version) });
           authorized += 1;

@@ -346,6 +346,7 @@ function configReferencesCredential(config: unknown, id: string): boolean {
 export function credentialReferencedByRuntimeConfig(id: string): boolean {
   const credentialIdValue = credentialId(id);
   ensureRuntimeSchema();
+  if (getConn().prepare("SELECT 1 FROM user_starry_bindings WHERE bearer_token=? LIMIT 1").get(credentialIdValue)) return true;
   const rows = getConn().prepare("SELECT config_json FROM runtime_connector_config").all() as Row[];
   for (const row of rows) {
     try {

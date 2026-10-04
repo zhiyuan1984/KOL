@@ -13,9 +13,6 @@ import {
   kolClawMcpUrl,
   mcpDir,
   mediaCrawlerMcpUrl,
-  starryKolMcpConfigured,
-  starryKolMcpHeaders,
-  starryKolMcpUrl,
 } from "../src/config.js";
 import type { Json } from "../src/types.js";
 import { ALLOWED_TASK_MCP } from "../src/tasks/registry.js";
@@ -30,7 +27,6 @@ export function mcpServerSpecs(allowlist: readonly string[] = [...ALLOWED_TASK_M
   const db = dbPath();
   const starry = path.join(mcpDir(), "starry-server.ts");
   const grouped = {
-    starrykol: toolsForServer(allowlist, "starrykol"),
     kolclaw: toolsForServer(allowlist, "kolclaw"),
     starry: toolsForServer(allowlist, "starry"),
     claw: toolsForServer(allowlist, "claw"),
@@ -42,16 +38,6 @@ export function mcpServerSpecs(allowlist: readonly string[] = [...ALLOWED_TASK_M
     cwd: BACKEND_ROOT,
     enabled: true,
   };
-  if (grouped.starrykol.length && starryKolMcpConfigured()) {
-    specs.starrykol = {
-      url: starryKolMcpUrl(),
-      http_headers: starryKolMcpHeaders(),
-      enabled_tools: grouped.starrykol,
-      enabled: true,
-      startup_timeout_sec: 15,
-      tool_timeout_sec: 30,
-    };
-  }
   if (grouped.kolclaw.length && kolClawConfigured()) {
     specs.kolclaw = {
       url: kolClawMcpUrl(),

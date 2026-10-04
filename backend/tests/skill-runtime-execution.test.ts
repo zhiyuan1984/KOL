@@ -1,3 +1,6 @@
+import { createManagedClient } from "../src/runtime/managed-client.js";
+import { saveStarryBinding, boundStarryCredentialId } from "../src/host/starry-bind.js";
+import { deleteCredential } from "../src/runtime/credentials.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +22,8 @@ import { runCodex } from "../src/worker/runner.js";
 import { isolatedCodexModelConfig } from "../src/worker/auth.js";
 import { freshTestDatabase } from "./support/pg.js";
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { createCredential } from "../src/runtime/credentials.js";
+import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 
 let tmp: string;
 let cleanup: Array<() => Promise<unknown>>;
@@ -100,6 +105,25 @@ async function one(hooks: Parameters<typeof fake>[1] = {}) {
 }
 
 describe("governed Skill Runtime", () => {
+  it.each([
+    ["missing annotations", undefined, "L1", "read", true],
+    ["explicit write", { readOnlyHint: false }, "L1", "read", false],
+    ["destructive contradiction", { destructiveHint: true }, "L1", "read", false],
+    ["L2 cannot claim read-only", { readOnlyHint: true }, "L2", "write", false],
+  ] as const)("publishes governed read-only hints: %s", async (_label, annotations, risk, access, expected) => {
+    const descriptor: Json = { ...tool(), ...(annotations ? { annotations } : {}) };
+    connector("hints", [descriptor]);
+    approve("hints", descriptor, risk, access);
+    const fixture = fake({ "http://hints.example.test/mcp": [descriptor] });
+    const catalog = await new SkillExecution(context, fixture.factory).discover();
+    expect(catalog.tools).toHaveLength(1);
+    expect(catalog.tools[0].exposed.annotations).toMatchObject({ readOnlyHint: expected });
+    expect(catalog.tools[0].schemaHash).toBe(toolSchemaHash(descriptor));
+    if (annotations && "destructiveHint" in annotations) {
+      expect(catalog.tools[0].exposed.annotations).toMatchObject({ destructiveHint: true });
+    }
+  });
+
   it("preserves model provider config without inheriting tools, plugins or trust", () => {
     const safe = isolatedCodexModelConfig(`model="chosen-model"\nmodel_provider="custom"\nprofile="fast"\n
 [model_providers.custom]\nname="Custom"\nbase_url="https://model.example/v1"\nenv_key="MODEL_KEY"\nwire_api="responses"\n
@@ -300,17 +324,20 @@ describe("governed Skill Runtime", () => {
   });
 });
 
-async function localRemote() {
+async function localRemote(descriptor = tool(), requiredHeaders: Record<string, string> = {}, result: Json = { creator: "creator-local-42" }) {
   const calls: string[] = [];
   const server = http.createServer(async (req, res) => {
+    if (Object.entries(requiredHeaders).some(([name, value]) => req.headers[name.toLowerCase()] !== value)) {
+      res.writeHead(401).end(); return;
+    }
     if (req.method !== "POST") { res.writeHead(405).end(); return; }
     const chunks: Buffer[] = [];
     for await (const part of req) chunks.push(Buffer.from(part));
     const mcp = new Server({ name: "local-real-protocol-fixture", version: "1" }, { capabilities: { tools: {} } });
-    mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [tool() as Tool] }));
+    mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [descriptor as Tool] }));
     mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
       calls.push(request.params.name);
-      return { content: [{ type: "text", text: "creator-local-42" }], structuredContent: { creator: "creator-local-42" } };
+      return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
     });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     try { await mcp.connect(transport); await transport.handleRequest(req, res, JSON.parse(Buffer.concat(chunks).toString())); }
@@ -326,6 +353,91 @@ function proxyClient(proxy: RuntimeProxy) {
 }
 
 describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)", () => {
+  it("routes Starry business calls through vault, rejects legacy config and never retries another identity", async () => {
+    const previous = process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+    process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "29".repeat(32);
+    try {
+      const remote = await localRemote(tool(), { "X-MCP-API-KEY": "vault-key", Authorization: "Bearer personal-vault-token" });
+      const key = createCredential({ type: "organization_secret", secret: "vault-key" }, "admin-a");
+      getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='starrykol'").run();
+      expect(() => setConnectorConfig("starrykol", { url: remote.url, headers_env: { "X-Key": "OLD_KEY" } }, 0))
+        .toThrow();
+      expect(() => setConnectorConfig("starrykol", { url: remote.url, allow_unauthenticated: true }, 0)).toThrow();
+      setConnectorConfig("starrykol", { url: remote.url, headers_secret_refs: { "X-MCP-API-KEY": key.id } }, 0);
+      saveStarryBinding(context.userId, { mailbox_email: "person@example.test", bearer: "personal-vault-token" });
+      const reference = boundStarryCredentialId(context.userId);
+      expect(reference).toMatch(/^cred_/);
+      expect(JSON.stringify(getConn().prepare("SELECT * FROM user_starry_bindings").all())).not.toContain("personal-vault-token");
+      expect(() => deleteCredential(reference, 1)).toThrow();
+      const client = createManagedClient("starrykol", context.userId, reference);
+      try { expect(await client.callTool("lookup", { query: "fixture" })).toEqual({ creator: "creator-local-42" }); }
+      finally { await client.close(); }
+      expect(remote.calls).toEqual(["lookup"]);
+      expect(() => createManagedClient("starrykol", "user-b", reference)).toThrow();
+      getConn().prepare("UPDATE runtime_credentials SET status='disabled' WHERE id=?").run(reference);
+      expect(() => createManagedClient("starrykol", context.userId, reference)).toThrow();
+      expect(remote.calls).toHaveLength(1);
+      getConn().prepare("UPDATE user_starry_bindings SET bearer_token='legacy-plaintext' WHERE user_id=?").run(context.userId);
+      expect(() => boundStarryCredentialId(context.userId)).toThrow();
+      getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='starrykol'").run();
+      expect(() => createManagedClient("starrykol", context.userId)).toThrow();
+    } finally {
+      if (previous === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+      else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previous;
+    }
+  });
+
+  it("queries all KOL profiles using vaulted config with legacy Host disabled and only an Agent user binding", async () => {
+    const ctx = { ...context, skillId: "creator_library_all" };
+    const descriptor: Json = { name: "listAllKolProfiles", description: "List all visible KOL profiles",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false } };
+    const expected = { data: [{ kolUid: "fixture-kol-1", kolName: "Protocol fixture only" }] };
+    const remote = await localRemote(descriptor,
+      { "X-MCP-API-KEY": "fixture-vault-key", Authorization: "Bearer fixture-vault-account" }, expected);
+    let legacyCalls = 0;
+    setStarryKolClientFactory(() => { legacyCalls++; throw new Error("legacy Host deliberately disabled"); });
+    const savedKey = process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+    const legacyEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+      /^(STARRY_|EMAIL_MCP_)/.test(key)));
+    for (const key of Object.keys(legacyEnv)) delete process.env[key];
+    process.env.RUNTIME_CREDENTIAL_MASTER_KEY = Buffer.alloc(32, 19).toString("base64");
+    try {
+      const apiKey = createCredential({ type: "organization_secret", secret: "fixture-vault-key" }, "admin-a");
+      const bearer = createCredential({ type: "user_account", owner_user_id: ctx.userId,
+        secret: "fixture-vault-account" }, "admin-a");
+      connector("vaulted_starry", [descriptor], remote.url);
+      setConnectorConfig("vaulted_starry", { url: remote.url,
+        headers_secret_refs: { "X-MCP-API-KEY": apiKey.id },
+        credential_provider: "user-account", credential_account_id: bearer.id }, 1);
+      setAgentSkill(ctx.agentId, ctx.skillId, true, 0);
+      setSkillConnector(ctx.skillId, "vaulted_starry", true, 0);
+      setSkillTool(ctx.skillId, "vaulted_starry", "listAllKolProfiles", true, 0);
+      // Explicitly remove obsolete per-person resource grants. Assembly is not a user grant.
+      getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(ctx.userId);
+      getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(ctx.userId);
+      const runtime = new SkillExecution(ctx);
+      const proxy = await startRuntimeProxy(runtime); cleanup.push(proxy.close);
+      const client = proxyClient(proxy); cleanup.push(() => client.close());
+      const tools = await client.listTools();
+      expect(tools).toHaveLength(1);
+      const result = await client.callToolRaw(String(tools[0].name), {});
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual(expected);
+      expect(remote.calls).toEqual(["listAllKolProfiles"]);
+      expect(legacyCalls).toBe(0);
+      revokeAgentBinding(runtimeBindingId);
+      const deniedResult = await client.callToolRaw(String(tools[0].name), {});
+      expect(deniedResult.isError).toBe(true);
+      expect(remote.calls).toHaveLength(1);
+      expect(legacyCalls).toBe(0);
+    } finally {
+      setStarryKolClientFactory();
+      Object.assign(process.env, legacyEnv);
+      if (savedKey === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+      else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = savedKey;
+    }
+  });
+
   it("wires the actual Worker through an isolated fake-Codex protocol process and the runtime proxy", async () => {
     const remote = await localRemote();
     connector("local_provider", [tool()], remote.url);

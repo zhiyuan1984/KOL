@@ -540,12 +540,8 @@ describe("Starry KOL MCP live smoke", () => {
   const live = Boolean(process.env.RUN_LIVE_STARRY_KOL);
 
   it.skipIf(!live)("still lists Wendell Fishing from the test MCP", async () => {
-    const { RemoteMcpClient } = await import("../src/mcp/remote.js");
-    const client = new RemoteMcpClient({
-      url: process.env.STARRY_KOL_MCP_URL || "http://47.251.65.112:9091/mcp",
-      headers: { "X-MCP-API-KEY": process.env.STARRY_KOL_MCP_API_KEY || "email-agent-mcp-dev" },
-      timeoutMs: 20000,
-    });
+    const { createManagedClient } = await import("../src/runtime/managed-client.js");
+    const client = createManagedClient("starrykol", process.env.LIVE_TEST_USER_ID || "");
     try {
       const listed = await client.callTool("listAllKolProfiles", {});
       const data = (listed.data || listed) as { list?: Json[] };
