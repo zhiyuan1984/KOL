@@ -3,9 +3,9 @@ import path from "node:path";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
-import { authMiddleware, authRouter, ensureDemoAdmin, scopedUser } from "./auth.js";
+import { authDisabled, authMiddleware, authRouter, ensureDemoAdmin, scopedUser } from "./auth.js";
 import { clawRouter, starryRouter } from "./adapters/httpMount.js";
-import { clawMode, codexMode, frontendDist } from "./config.js";
+import { clawMode, codexMode, DEMO_ADMIN, DEMO_USER, frontendDist } from "./config.js";
 import { codexBinOk, isTestRuntime } from "./codex-runtime.js";
 import { getConn } from "./db.js";
 import { host } from "./host/api.js";
@@ -28,7 +28,7 @@ import { costsRouter } from "./routers/costs.js";
 import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
 import { tickets } from "./routers/tickets.js";
-import { ticketAuthMiddleware, ticketAuthRouter, ticketPrincipalFromWorkbenchUser, withTicketPrincipal } from "./ticket-domain/auth.js";
+import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "./ticket-domain/auth.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { experts } from "./routers/experts.js";
@@ -36,7 +36,11 @@ import { discovery } from "./routers/discovery.js";
 import { homeDiscovery } from "./routers/home-discovery.js";
 import { cron } from "./routers/cron.js";
 import { kolMemory } from "./routers/kol-memory.js";
-import { mail } from "./routers/mail.js";
+import { mailOperations, mailJobScopes } from "./mail/operations.js";
+import { operationRouter } from "./runtime/operations.js";
+import { runtimeActionOperations } from "./runtime/action-operations.js";
+import "./crawl/runtime-gates.js";
+import { operationJobsRouter } from "./routers/operation-jobs.js";
 import { homeToday } from "./routers/home-today.js";
 import { workReport } from "./routers/work-report.js";
 import { restoreActiveCrawlJobs } from "./crawl/service.js";
@@ -69,24 +73,27 @@ export function createApp(): Hono {
   app.use("/api/*", compress());
   app.use("/api/*", async (c, next) => {
     const pathname = new URL(c.req.url).pathname;
-    const workbenchCronPath = pathname.startsWith("/api/cron/")
-      || pathname.startsWith("/api/admin/scheduling/");
-    const formalTicketPath = pathname.startsWith("/api/tickets")
-      || pathname.startsWith("/api/ticket-auth")
+    const formalAuthorityPath = pathname.startsWith("/api/tickets")
+      || pathname.startsWith("/api/cron/")
+      || pathname.startsWith("/api/admin/scheduling/")
       || pathname.startsWith("/api/admin/work-orders/");
     // Scheduler tick can authenticate with a dedicated secret and therefore
     // intentionally bypasses browser ticket-session middleware.
     if (pathname === "/api/cron/internal/tick") return next();
-    // Compatibility mode retains the existing workbench session. Cron and its
-    // scheduling console must never introduce a second ticket login domain.
-    if (workbenchCronPath) {
-      return authMiddleware(c, () => {
-        const user = scopedUser();
-        if (!user) return next();
-        return withTicketPrincipal(ticketPrincipalFromWorkbenchUser(user), next);
-      });
-    }
-    return formalTicketPath ? ticketAuthMiddleware(c, next) : authMiddleware(c, next);
+    // The existing workbench session is the only browser authentication domain.
+    // Formal-ticket and scheduling requests mirror its server-verified claims
+    // into PostgreSQL for auditable foreign keys; they never request another
+    // account, password, cookie, setup, or login page.
+    return authMiddleware(c, async () => {
+      if (!formalAuthorityPath) return next();
+      const user = scopedUser() || (authDisabled() ? {
+        id: DEMO_USER.id, username: DEMO_USER.handle, name: DEMO_USER.name,
+        email: DEMO_ADMIN.email, roles: ["employee", "admin"], active: true,
+      } : undefined);
+      if (!user) return next();
+      const principal = await syncWorkbenchTicketPrincipal(user);
+      return withTicketPrincipal(principal, next);
+    });
   });
 
   app.onError((err, c) => {
@@ -130,13 +137,13 @@ export function createApp(): Hono {
   app.route("/api", homeDiscovery);
   app.route("/api", cron);
   app.route("/api", kolMemory);
-  app.route("/api", mail);
+  app.route("/api", operationRouter([...mailOperations, ...runtimeActionOperations]));
+  app.route("/api", operationJobsRouter(mailJobScopes));
   app.route("/api", homeToday);
   app.route("/api", workReport);
   app.route("/api", misc);
   // Formal ticket endpoints are isolated from the legacy `/tasks` router so
   // their production request path has no SQLite-shaped repository or identity imports.
-  app.route("/api", ticketAuthRouter);
   app.route("/api", tickets);
   app.route("/api", tasks);
   app.route("/api", events);

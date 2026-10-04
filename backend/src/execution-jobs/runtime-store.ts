@@ -39,14 +39,14 @@ export async function runtimeRenewExecutionJobLease(
   return pgRenewExecutionJobLease(id, workerId, options);
 }
 
-export async function runtimeCompleteExecutionJob(id: string, receipt: Json = {}, now = new Date()): Promise<Row | undefined> {
-  return pgCompleteExecutionJob(id, receipt, now);
+export async function runtimeCompleteExecutionJob(id: string, receipt: Json = {}, now = new Date(), expectedWorker?: string): Promise<Row | undefined> {
+  return pgCompleteExecutionJob(id, receipt, now, expectedWorker);
 }
 
 export async function runtimeFailExecutionJob(
   id: string,
   error: { code: string; summary: string },
-  options: { retry_at?: string | null; now?: Date } = {},
+  options: { retry_at?: string | null; now?: Date; expected_worker?: string } = {},
 ): Promise<Row | undefined> {
   return pgFailExecutionJob(id, error, options);
 }

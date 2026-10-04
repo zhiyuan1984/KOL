@@ -1,3 +1,4 @@
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -167,6 +168,7 @@ beforeEach(async () => {
   creators = threeCreators();
   resetConn();
   seedAll();
+  configureCrawlerFixture();
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();

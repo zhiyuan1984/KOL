@@ -155,7 +155,7 @@ export function normalizePersonDigest(raw: Record<string, unknown>): MailPersonD
   };
 }
 
-/** GET /api/mail/conversations/:id → { conversation, messages, digest_text, digest_source } */
+/** GET /api/queries/mail.conversation?id=:id → { conversation, messages, digest_text, digest_source } */
 export function normalizeThread(raw: Record<string, unknown>, mailbox = ""): MailThread | null {
   const conversationRaw = (
     raw.conversation && typeof raw.conversation === "object"
@@ -199,7 +199,7 @@ async function decorateOwner(box: MailBox): Promise<MailBox> {
   return owner ? { ...box, owner_name: owner } : box;
 }
 
-/** Legacy servers without `/api/mail` — the board is the only place left to read mail from. */
+/** Legacy servers without registered mail queries — the board is the only place left to read mail from. */
 async function loadFallbackWorkspace(): Promise<MailWorkspace> {
   const [binding, board] = await Promise.all([
     api.starryBinding().catch(() => null as StarryBinding | null),
@@ -244,7 +244,7 @@ export async function loadMailWorkspaceFast(boxParam?: string): Promise<MailWork
 
 /**
  * Optional owner label only. The conversation rows already carry kol_uid/handle
- * from `/api/mail/conversations`, so no board request is needed (and the board
+ * from `/api/queries/mail.conversations`, so no board request is needed (and the board
  * must never be fetched to fill the list).
  */
 export async function decorateWorkspace(workspace: MailWorkspace): Promise<MailWorkspace> {
@@ -293,6 +293,7 @@ export async function loadMailPersonDigest(box: string, peerEmail: string): Prom
 export async function syncMailboxMail(box?: string): Promise<MailSyncReceipt> {
   const receipt = await api.syncMailboxMail(box ? { box } : {});
   return {
+    job_id: receipt.job?.id,
     ok: receipt.ok !== false,
     mailbox: receipt.mailbox ? String(receipt.mailbox) : undefined,
     listed: receipt.listed != null ? Number(receipt.listed) : undefined,

@@ -1,3 +1,16 @@
+export type RuntimeActionView = {
+  id: string; skill_id: string; operation: string; arguments: Record<string, unknown>;
+  state: string; risk: "L3"; confirmation_version: string; blocked_reason: string | null;
+  receipt: Record<string, unknown> | null; error_code: string | null;
+  crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null } | null;
+  execution?: { id: string; status: string; error_code: string | null } | null;
+};
+export type OperationJob = {
+  id: string;
+  status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled" | "uncertain";
+  error_summary?: string | null;
+  receipt?: Record<string, unknown> | null;
+};
 import type {
   DeclaredMountResult,
   McpImportPreview,
@@ -482,6 +495,105 @@ export type Ticket = Task & {
   acceptance?: Record<string, unknown> | null;
   acceptance_history?: Array<Record<string, unknown>>;
   audit?: Array<Record<string, unknown>>;
+};
+
+export type WorkOrderTemplate = {
+  id: string;
+  template_code: string;
+  version: number;
+  title: string;
+  description: string;
+  status: "draft" | "published" | "disabled" | "retired" | string;
+  automation_level: "A0" | "A1" | "A2" | "A3" | "L3" | string;
+  business_category: string | null;
+  trigger_event_types: string[];
+  input_schema: Record<string, unknown>;
+  fill_policy: Record<string, unknown>;
+  acceptance_criteria: string[];
+  routing_policy_code: string | null;
+  stage_policy: Record<string, unknown>;
+  created_by: string;
+  published_by: string | null;
+  created_at: string;
+  published_at: string | null;
+  updated_at: string;
+};
+
+export type WorkOrderTemplateDraftInput = {
+  template_code: string;
+  title: string;
+  description?: string;
+  automation_level: "A0" | "A1" | "A2" | "A3" | "L3";
+  business_category?: string;
+  trigger_event_types: string[];
+  acceptance_criteria: string[];
+  routing_policy_code?: string;
+  input_schema?: Record<string, unknown>;
+  fill_policy?: Record<string, unknown>;
+  stage_policy?: Record<string, unknown>;
+  idempotency_key: string;
+};
+
+export type WorkOrderAutomationRelease = {
+  template_id: string;
+  automation_level: "A1" | "A2" | "A3" | string;
+  status: "enabled" | "disabled" | string;
+  minimum_confidence: number;
+  routing_policy_code: string | null;
+  enabled_by: string | null;
+  enabled_at: string | null;
+  disabled_by: string | null;
+  disabled_at: string | null;
+  reason: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiTaskRoot = {
+  task_id: string;
+  title: string;
+  goal: string;
+  status: string;
+  priority: string;
+  due_at: string | null;
+  data_version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiWorkOrderSummary = {
+  work_order_id: string;
+  template_code: string;
+  template_version: number;
+  template_title: string;
+  status: string;
+  priority: string;
+  stage_code: string | null;
+  title: string;
+  objective: string;
+  due_at: string | null;
+  automation_level: string;
+  created_at: string;
+  updated_at: string;
+  primary_assignee: { principal_id: string; person_ref: string | null; org_unit_id: string | null } | null;
+  latest_decision: { id: string; decision_mode: string; outcome: string; status: string; confidence: number | null; created_at: string } | null;
+};
+
+export type AiTaskWorkOrderAggregate = {
+  task: AiTaskRoot;
+  work_orders: AiWorkOrderSummary[];
+  verified_events: Array<{ id: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; verified_by: string; verified_at: string }>;
+  counts: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
+  current_blocking_work_order: AiWorkOrderSummary | null;
+  as_of: string;
+  source: "postgresql_task_work_orders" | string;
+};
+
+export type AiTaskWorkOrderList = {
+  items: Array<Pick<AiTaskWorkOrderAggregate, "task" | "counts" | "current_blocking_work_order">>;
+  as_of: string;
+  source: "postgresql_task_work_orders" | string;
+  request_id: string;
 };
 
 export type TicketCommandInput =
@@ -1362,23 +1474,6 @@ export type AuthStatus = {
   available_modes?: ("employee" | "admin")[];
 };
 
-export type TicketIdentityAccount = {
-  id: string;
-  username: string;
-  name: string;
-  email?: string;
-  roles: string[];
-  role: "employee" | "admin" | string;
-  active: boolean;
-};
-
-export type TicketIdentityStatus = {
-  authentication_domain: "postgresql_ticket_identity.v1" | string;
-  authenticated: boolean;
-  setup_required: boolean;
-  account: TicketIdentityAccount | null;
-};
-
 export type TicketAccountBindingOptions = {
   accounts: Array<{ id: string; username: string; name: string; roles: string[]; bound_person_ref: string | null }>;
   people: Array<{ person_ref: string; display_name: string; org_unit_id: string | null; user_id: string | null }>;
@@ -1672,18 +1767,17 @@ export type AdminSaveBudgetInput = {
 };
 
 export const api = {
+  runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
+  confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),
+  cancelRuntimeAction: (id: string) => request("/api/actions/runtime.cancel", { method: "POST", body: JSON.stringify({ action_id: id }) }),
+  proposeCrawlStop: (id: string) => request("/api/actions/runtime.crawl.stop", { method: "POST", body: JSON.stringify({ action_id: id }) }),
+  proposeCrawlRetry: (id: string) => request("/api/actions/runtime.crawl.retry", { method: "POST", body: JSON.stringify({ action_id: id }) }),
   get: (path: string) => request<unknown>(path),
   post: (path: string, body?: unknown) =>
     request<unknown>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
   put: (path: string, body?: unknown) =>
     request<unknown>(path, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined }),
   authStatus: () => request<AuthStatus>("/api/auth/status"),
-  ticketAuthStatus: () => request<TicketIdentityStatus>("/api/ticket-auth/status"),
-  ticketAuthSetup: (body: { username: string; name?: string; password: string }) =>
-    request<{ ok: boolean; account: TicketIdentityAccount }>("/api/ticket-auth/setup", { method: "POST", body: JSON.stringify(body) }),
-  ticketAuthLogin: (body: { username: string; password: string }) =>
-    request<{ ok: boolean; account: TicketIdentityAccount }>("/api/ticket-auth/login", { method: "POST", body: JSON.stringify(body) }),
-  ticketAuthLogout: () => request<{ ok: boolean }>("/api/ticket-auth/logout", { method: "POST" }),
   setup: (body: { name: string; email: string; password: string }) =>
     request<AuthStatus>("/api/auth/setup", { method: "POST", body: JSON.stringify(body) }),
   login: async (body: { email?: string; username?: string; password: string } | string, password?: string) => {
@@ -1751,9 +1845,31 @@ export const api = {
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
   },
+  aiTaskWorkOrders: (limit = 50) => request<AiTaskWorkOrderList>(`/api/task-work-orders?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`),
+  createAiTaskWorkOrderRoot: (body: { title: string; goal?: string; priority?: "important_urgent" | "important" | "urgent" | "normal" | "low"; due_at?: string; idempotency_key: string }) => request<{ task: AiTaskRoot; request_id: string; as_of: string; schema_version: string }>("/api/task-work-orders/tasks", {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
+  recordAiTaskVerifiedEvent: (taskId: string, body: { source_system: string; source_event_id: string; source_version?: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; evidence: Record<string, unknown>; payload?: Record<string, unknown>; work_order_id?: string; idempotency_key: string }) => request<{ event: { id: string; replayed: boolean }; decision: { id: string; outcome: string; status: string; confidence: number | null }; execution_job: { id: string; status: string; job_type: string }; execution_mode: string; request_id: string }>(`/api/task-work-orders/tasks/${encodeURIComponent(taskId)}/verified-events`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
   ticketFormBootstrap: () => request<TicketFormBootstrap>("/api/tickets/form-bootstrap"),
   adminTicketOrganizationQuality: () => request<TicketOrganizationQualityReport>("/api/admin/work-orders/data-quality"),
   adminTicketAccountBindingOptions: () => request<TicketAccountBindingOptions>("/api/admin/work-orders/account-bindings/options"),
+  adminWorkOrderTemplates: (status?: string) => request<{ templates: WorkOrderTemplate[]; request_id: string; as_of: string }>(`/api/admin/work-orders/templates${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  createWorkOrderTemplateDraft: (body: WorkOrderTemplateDraftInput) => request<{ template: WorkOrderTemplate; replayed: boolean; request_id: string }>("/api/admin/work-orders/templates/drafts", {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  publishWorkOrderTemplate: (id: string, body: { expected_version: number; idempotency_key: string }) => request<{ template: WorkOrderTemplate; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/publish`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  disableWorkOrderTemplate: (id: string, body: { reason: string; idempotency_key: string }) => request<{ template: WorkOrderTemplate & { disable_reason?: string }; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/disable`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  adminWorkOrderAutomationReleases: () => request<{ releases: WorkOrderAutomationRelease[]; request_id: string; as_of: string }>("/api/admin/work-orders/automation-releases"),
+  setWorkOrderAutomationRelease: (id: string, body: { action: "enabled" | "disabled"; minimum_confidence?: number; routing_policy_code?: string; reason: string; idempotency_key: string }) => request<{ release: WorkOrderAutomationRelease; replayed: boolean; request_id: string }>(`/api/admin/work-orders/templates/${encodeURIComponent(id)}/automation-release`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
   bindTicketAccountToOrganizationPerson: (body: { person_ref: string; account_id: string; reason: string }) =>
     request<{ person_ref: string; account_id: string; username: string; changed: boolean; prior_account_id: string | null; request_id: string }>("/api/admin/work-orders/account-bindings", { method: "POST", body: JSON.stringify(body) }),
   createFormalTicket: (body: CreateFormalTicketInput) => request<CreateFormalTicketResult>("/api/tickets", {
@@ -2169,7 +2285,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   prepareEmailCompose: (body: EmailComposePrepareRequest, signal?: AbortSignal) =>
-    request<EmailComposePrepareResponse>("/api/email-compose/prepare", {
+    request<EmailComposePrepareResponse>("/api/actions/mail.prepare", {
       method: "POST",
       body: JSON.stringify(body),
       signal,
@@ -2228,12 +2344,12 @@ export const api = {
       { method: "DELETE" },
     ),
   draftActions: (id: string) =>
-    request<DraftActionsResponse>(`/api/drafts/${encodeURIComponent(id)}/actions`),
+    request<DraftActionsResponse>(`/api/queries/mail.draft-actions?draft_id=${encodeURIComponent(id)}`),
   sendDraft: async (id: string, extra?: { confirmation_version?: string; request_id?: string }) => {
-    const r = await fetch(`/api/drafts/${id}/send`, {
+    const r = await fetch("/api/actions/mail.send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(extra || {}),
+      body: JSON.stringify({ ...extra, draft_id: id }),
     });
     const b = (await parse(r)) as { ok?: boolean; detail?: { message?: string; status?: string; toast_success?: boolean } };
     if (!r.ok) {
@@ -2256,7 +2372,7 @@ export const api = {
       return b;
     }),
   translate: async (id: string) => {
-    const r = await fetch(`/api/drafts/${id}/translate`, { method: "POST" });
+    const r = await fetch("/api/actions/mail.translate-draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draft_id: id }) });
     const b = (await parse(r)) as { zh?: string; detail?: { message?: string } | string };
     if (!r.ok) {
       const detail = b.detail;
@@ -3153,16 +3269,16 @@ export const api = {
       body: JSON.stringify(body),
     }),
   mailBox: (box?: string) =>
-    request<Record<string, unknown>>(box ? `/api/mail/box?box=${encodeURIComponent(box)}` : "/api/mail/box"),
+    request<Record<string, unknown>>(box ? `/api/queries/mail.box?box=${encodeURIComponent(box)}` : "/api/queries/mail.box"),
   mailConversations: (box?: string) =>
     request<{
       entry?: string;
       creates_session?: boolean;
       mailbox?: string;
       conversations?: Array<Record<string, unknown>>;
-    }>(box ? `/api/mail/conversations?box=${encodeURIComponent(box)}` : "/api/mail/conversations"),
+    }>(box ? `/api/queries/mail.conversations?box=${encodeURIComponent(box)}` : "/api/queries/mail.conversations"),
   mailConversation: (id: string) =>
-    request<Record<string, unknown>>(`/api/mail/conversations/${encodeURIComponent(id)}`),
+    request<Record<string, unknown>>(`/api/queries/mail.conversation?id=${encodeURIComponent(id)}`),
   /** Read-only stage letter catalog (email_compose contract). Never creates a session. */
   mailComposeCatalog: () =>
     request<{
@@ -3171,11 +3287,11 @@ export const api = {
       creates_turn?: boolean;
       calls_model?: boolean;
       letters?: MailComposeLetter[];
-    }>("/api/mail/compose-catalog"),
+    }>("/api/queries/mail.compose-catalog"),
   mailPerson: (box: string, p: string) =>
-    request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
+    request<Record<string, unknown>>(`/api/queries/mail.person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
   runMailSkill: (skillId: "mail_summary" | "mail_translate", body: { box?: string; conversation_id?: string; message_id?: string }) =>
-    request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/mail/skills/${encodeURIComponent(skillId)}/run`, {
+    request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/skills/${encodeURIComponent(skillId)}/execute`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -3192,19 +3308,23 @@ export const api = {
       synced_at?: string;
       cursor_at?: string;
       error?: string;
-    }>("/api/mail/sync", { method: "POST", body: JSON.stringify(body) }),
+      job: OperationJob;
+    }>("/api/jobs/mail.sync/start", { method: "POST", body: JSON.stringify(body) }),
+  operationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}`),
+  cancelOperationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
+  retryOperationJob: (id: string) => request<{ job: OperationJob }>(`/api/jobs/${encodeURIComponent(id)}/retry`, { method: "POST", body: "{}" }),
   /** Optional endpoint: resolves null on 404/405 so callers can ignore silently. */
   markMailConversationRead: (id: string) =>
-    request<{ ok?: boolean } | null>(`/api/mail/conversations/${encodeURIComponent(id)}/read`, {
+    request<{ ok?: boolean } | null>("/api/actions/mail.read", {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ id }),
       optional: true,
     }).catch(() => null),
   /** Optional endpoint: resolves null on 404/405; callers fall back to local state. */
   updateMailConversation: (id: string, fields: { starred?: boolean }) =>
-    request<Record<string, unknown> | null>(`/api/mail/conversations/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(fields),
+    request<Record<string, unknown> | null>("/api/actions/mail.star", {
+      method: "POST",
+      body: JSON.stringify({ ...fields, id }),
       optional: true,
     }).catch(() => null),
 };

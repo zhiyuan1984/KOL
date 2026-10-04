@@ -128,6 +128,11 @@ export type TaskDefinition = {
 
 export const ALLOWED_TASK_MCP = new Set([
   "knowledge.ask_documents",
+  "claw.start_crawl",
+  "claw.get_crawl_status",
+  "claw.get_crawl_logs",
+  "claw.get_creators",
+  "claw.stop_crawl",
   "starry.get_collaboration",
   "starry.list_collaborations",
   "starry.deal_memory",

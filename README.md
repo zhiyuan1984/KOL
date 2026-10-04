@@ -139,20 +139,11 @@ ssh ecs-user@47.88.94.205 "cd ~/kol && ./scripts/deploy.sh --sync"
 
 ## 远程 Claw / MediaCrawler MCP
 
-真实运行默认使用远程 Streamable HTTP MCP；本地 `claw-server.ts` 只在 `CODEX_MODE=stub`、`CLAW_MODE=mock` 或显式测试模式使用。复制 `.env.example` 为 `.env`，配置：
+真实采集使用管理端 `claw` 连接器中保存的 Streamable HTTP MCP 地址和组织保险柜凭据。请在连接器管理页保存地址与凭据引用，完成真实启动/停止连通性测试后启用。后台作业、停止、重试与连接检查均使用这一配置；停用连接器或凭据后不再回退到旧环境令牌。本地 `claw-server.ts` 只在 `CODEX_MODE=stub` 使用。
 
-```bash
-CLAW_MODE=remote
-MEDIACRAWLER_MCP_URL=http://你的采集服务/mcp
-MEDIACRAWLER_MCP_TOKEN=...
-```
+保险柜主密钥仍由部署环境的 `RUNTIME_CREDENTIAL_MASTER_KEY` 提供。采集地址和出站令牌不再从 `.env` 或自动扫描 Markdown 读取。已有环境配置可用 `backend/scripts/migrate-crawler-vault.ts` 预检，维护窗口中加 `--apply` 迁移；迁移后仍须验证并启用。详见 [切换记录](docs/superpowers/specs/2026-10-04-crawler-vault-cutover.md)。
 
-`scripts/start.sh` 和直接运行 `backend/src/index.ts` 都会读取仓库根目录 `.env`；修改后必须重启 Host。
-缺少 URL 或 Token 时会在创建远程任务前返回“远程采集服务未配置”，不会留下一个永久停在“正在分配”的采集任务。
-
-也可以直接使用交付的 `mcp_server.md`。加载优先级为：环境变量 → `MEDIACRAWLER_MCP_CONFIG_FILE`
-指定的 Markdown → 仓库根目录 `mcp_server.md` → Cursor 当前项目最新上传的 `mcp_server*.md`。
-Markdown 中需包含 `/mcp` 地址和 `Authorization: Bearer ...`；该文件已加入忽略规则，不会提交 Token。
+入库回调使用 `MEDIACRAWLER_INGEST_SECRET_REF` 指定的组织保险柜凭据，兼容显式 `MEDIACRAWLER_INGEST_TOKEN`；不再借用旧 `MEDIACRAWLER_MCP_TOKEN`。远端回调必须提供匹配的认证头。
 
 MediaCrawler 服务的自动入库地址设置为：
 

@@ -1,3 +1,4 @@
+import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -67,6 +68,7 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_PROBE_TIMEOUT_MS = "400";
   resetConn();
   seedAll();
+  configureCrawlerFixture();
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
@@ -119,8 +121,7 @@ describe("employeeError mapping", () => {
 
 describe("GET/POST /api/discovery/connection", () => {
   it("returns not_configured when URL+token are missing", async () => {
-    delete process.env.MEDIACRAWLER_MCP_URL;
-    delete process.env.MEDIACRAWLER_MCP_TOKEN;
+    getConn().prepare("DELETE FROM runtime_connector_config WHERE connector_id='claw'").run();
     resetCollectorConnectionCache();
     const got = await request("GET", "/api/discovery/connection");
     expect(got.status).toBe(200);

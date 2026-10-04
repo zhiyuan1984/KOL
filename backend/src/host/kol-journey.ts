@@ -471,7 +471,7 @@ export function ingestKolMail(collaborationId: string, input: {
   };
   const judgment = inbound
     ? judgeCollaborationStage(judgmentInput)
-    : { suggested_stage: null, confidence: "low" as const, reason: "", evidence: [], flags: [], auto_propose: false };
+    : { suggested_stage: null, confidence: "low" as const, evidence_confidence: "low" as const, reason: "", evidence: [], flags: [], auto_propose: false };
   const advanced = inbound ? tryFactAdvance(collaborationId, judgment, sid) : null;
   writeKolMailCard(sid, existing?.id, {
     collaboration_id: collaborationId,

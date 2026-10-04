@@ -433,6 +433,8 @@
 
 ## 14. 实施进展（2026-10-03）
 
+> **2026-10-04 校正：** 本节早期关于 `ticket_accounts`、首次工单管理员和独立工单 Cookie 的叙述已经废弃，不能作为现行产品设计或部署依据。浏览器唯一登录是既有工作台会话；PostgreSQL 只保存服务端同步主体、组织绑定和工单/自动化领域事实。AI 工单自动化的后续进度以 [`2026-10-04-ai-work-order-automation-design.md`](2026-10-04-ai-work-order-automation-design.md) 与 [`POSTGRES_ONLY_RUNTIME_AUDIT.md`](../../POSTGRES_ONLY_RUNTIME_AUDIT.md) 为准。
+
 ### 已完成的 PostgreSQL 原生链路
 
 - 追加 PostgreSQL-only 核心引导迁移；全新空库可依次建立 `tickets`、`task_events`、`execution_jobs`、`execution_outbox`、组织投影与正式工单领域表，不依赖 SQLite 快照建表。
@@ -453,15 +455,17 @@
 - 创建人可通过明确原因重开已完成工单；重开会移除 `ticket_acceptances` 的当前投影，但会将每次验收永久写入 `ticket_acceptance_history`，再次验收使用新版本，历史事实不被更新或删除。
 - 已提供 PostgreSQL 原生的个人授权工单原始计数报表；响应显式标识 `as_of`、时区、个人授权范围和来源，不包含 SLA、绩效、排名或生产率推断。
 - 已提供 PostgreSQL 原生的组织授权工单原始计数报表：范围只能由已绑定组织负责人向下展开，或由已绑定公司管理员按其公司范围展开；不接受浏览器自报的公司/组织筛选，不暴露员工排名、SLA 或绩效指标。工单治理页展示状态与受理组织分布；员工工单中心仅在当前账号具备组织负责人或公司管理员范围时显示同源汇总，普通员工不因无权读取而看到组织数据。
-- 正式工单现使用独立的 PostgreSQL `ticket_accounts` 与 `ticket_auth_sessions`，支持首个管理员 setup、登录、登出、Cookie 会话；账号与受控组织人员的绑定只能由管理员以原因发起，并写入不可变 `ticket_account_organization_bindings` 审计，绝不从显示名或历史 SQLite 用户猜测映射。
-- 员工 `/tasks` 已先通过明确的“正式工单 PostgreSQL 身份”门禁再读取工单；管理端“工单治理”已使用同一管理员会话，展示未绑定账号和受控人员，并通过有原因的确认绑定表单调用审计命令。该页面不复用历史工作台会话作为工单授权。
-- 新增 `KOL_RUNTIME_MODE=postgres-only` 正式启动模式：入口动态加载仅含 PostgreSQL 的 HTTP 应用，启动前校验正式 schema 并播种已发布的系统 Cron 作业；只挂载工单身份、`/tickets`、Cron 与调度运维端点，历史 `/tasks`、首页、邮件等路由不装配并返回 404。Cron 的可见性、修改权限、人工执行和风险读取也已切至正式工单身份与 PostgreSQL 工单投影。
-- 已补充 [`docs/POSTGRES_ONLY_OPERATIONS.md`](../../POSTGRES_ONLY_OPERATIONS.md) 运行手册，明确环境校验、schema、HTTP/Outbox/Worker 启动顺序、tick 健康检查、账号绑定以及“绝不自动回退 SQLite”的故障边界；本次未进行任何生产切换。
+- 已废弃独立的 PostgreSQL 工单账号、首次管理员、密码、Cookie 会话及前端 `TicketIdentityGate`；后端将已认证的工作台主体同步/映射为 PostgreSQL principal。账号与受控组织人员的绑定只能由管理员以原因发起，并写入不可变 `ticket_account_organization_bindings` 审计，绝不从显示名或历史 SQLite 用户猜测映射。
+- 员工 `/tasks`、定时任务、工单治理与 AI 工单均复用已登录工作台会话；没有第二套账号、密码、首次管理员页面或工单登录跳转。未绑定主体在原工作台内得到“尚未配置工单权限”提示，由管理端受控绑定处理。
+- `KOL_RUNTIME_MODE=postgres-only` 只装配 PostgreSQL 领域路由、Outbox/Worker 和系统 Cron；在共享工作台身份提供方尚未原生化前，它不对浏览器提供独立登录，并明确拒绝无工作台主体的浏览器请求。兼容应用仍为当前工作台会话提供者，不能宣称全应用已经 PostgreSQL-only。
+- 已补充 [`docs/POSTGRES_ONLY_OPERATIONS.md`](../../POSTGRES_ONLY_OPERATIONS.md) 运行手册，明确环境校验、schema、HTTP/Outbox/Worker 启动顺序、tick 健康检查、**同一工作台身份**与“绝不自动回退 SQLite”的故障边界；本次记录不构成生产切换授权。
 - 已完成一次运行时依赖审计，详见 [`docs/POSTGRES_ONLY_RUNTIME_AUDIT.md`](../../POSTGRES_ONLY_RUNTIME_AUDIT.md)：正式工单/执行/Cron 原生子链已可在空 PostgreSQL 库验证，但 HTTP 启动、旧 `/tasks` 与首页等仍含 SQLite-shaped bridge，不能把整个历史应用宣称为 PostgreSQL-only。
 - 已追加 `scheduling_rule_simulations`、`scheduling_rule_audit_events` 和规则命令回执；管理员可在 `/admin/scheduling` 创建仅限人工确认的规则草稿、对当前版本正式工单进行只读模拟、引用该模拟发布或停用版本。历史版本“回滚”只会复制为新的草稿版本，必须重新模拟后才能发布，不能重新激活旧行或复用旧模拟。发布要求版本、幂等键、审计原因和同内容指纹的成功模拟。
 - 已追加独立且不可变的 PostgreSQL `ticket_business_events`：仅接收已核验的首批邮件回复/承诺、报价/合同/样品/内容期限、风险、审批或资料缺失事件。已发布规则必须显式声明 `trigger_event_types` 才会参与评估；评估写入规则版本、范围、事件、工单快照和 `matched/skipped/missing_fields` 回执。管理端可人工登记受控证据事件并查看建议；关联工单的授权员工可在详情和时间线读取安全摘要与证据引用。此链路**不**自动建单、分派、升级或改变工单状态。
 - 已提供按规则版本聚合的 PostgreSQL 原始计数报表：展示评估次数、去重事件、关联工单及 `matched/skipped/missing_fields/failed`。管理员可对单条 `matched` 建议形成不可变的确认或驳回事实，报表据此显示待审/确认/驳回覆盖；**确认事实不触发执行器**，不伪造命中率、业务执行成效、SLA 或绩效结论。
 - 已提供复用组织负责人/公司管理员授权范围的分类与阶段当前存量报表，管理端展示分类、阶段和状态原始数量；有组织范围授权的员工任务中心也显示分类摘要。它不是漏斗转化、停留时长、SLA、绩效、成交或收入报表。
+- 已实现 AI Task → 标准 Work Order 的 PostgreSQL 原生关系、Jev 有界影子决策、模板草稿/发布/停用与 A1/A2 release。已核验事件通过 `work_order.materialize` durable job、PostgreSQL Outbox 与 Worker 物化工单/分派；父 Task 不因该运行或子工单终态自动完成。
+- 已实现 A3 阶段执行器：模板须发布显式目标阶段、目标事件、必需证据键和跨阶段许可，再单独启用 A3 release。已核验事件可以绑定当前 Task 的既有子工单；Jev 高置信目标、`stage-judgment` 高直接证据置信度、连续中间阶段事实、事件来源、模板/release 与锁定后的 Work Order 版本均一致时，Worker 才写不可变阶段事件、依据、执行回执与 `work_order.stage_advanced` Outbox。非相邻阶段不是默认禁止，但没有完整逐项事实时必定 `skipped`，且不会完成父 Task。
 
 ### 当前仍在推进的范围
 
@@ -469,6 +473,6 @@
 - **工单中心完善：** PostgreSQL 详情读取和员工端详情抽屉已呈现来源依据、已核验事件、受理历史/关注关系、组织与工单版本、验收事实、运行回执和审计索引；外部产物链接和更细的受控证据预览仍待原生 artifact 合约发布后补充。
 - **全应用身份切换：** 员工工单中心与工单治理页已具备原生身份入口；其余历史工作台仍由旧登录域保护。后续需将可保留的页面迁到原生身份或在 PostgreSQL-only 部署模式下明确退役，不能混用两套会话。
 - **Cron 业务处理器收敛：** `overdue-scan` 与 `daily-task-snapshot` 已改为只读取 PostgreSQL 正式工单投影；Cron PostgreSQL 仓储不再导入旧 Cron store。`ownership-release`、邮件记忆与 AI 处理器因其业务仓储尚未原生化，已改为显式 `needs_takeover`，其中两个已发布系统写入作业会通过 migration 停用，防止其隐式触达 SQLite。后续需按领域完成原生仓储后重新走规则发布，而不是直接恢复旧处理器。
-- **P3/P4 治理：** 已交付规则草稿、模拟、发布、停用和“历史版本恢复为新草稿”的技术闸门、首批已核验事件的无副作用评估记录、规则成效原始计数、不可变人工确认/驳回事实以及分类/阶段当前存量报表；但 Event→Ticket 自动执行器、阶段流转漏斗和停留时长口径仍未上线。个人与组织原始计数、受理/转办/协同受理/重开已上线，但仍需补更细的管理授权与协同处理语义。
+- **P3/P4 治理：** 已交付规则草稿、模拟、发布、停用和“历史版本恢复为新草稿”的技术闸门、首批已核验事件的无副作用规则评估记录、规则成效原始计数、不可变人工确认/驳回事实以及分类/阶段当前存量报表；AI Task/Work Order 已另行实现受控的 Event → Jev → A1/A2/A3 Worker 自动化。阶段流转漏斗、停留时长口径、外部邮件/期限生产者接入和更细的管理授权仍未上线。个人与组织原始计数、受理/转办/协同受理/重开已上线，但仍需补更细的管理授权与协同处理语义。
 
 > 本记录不将历史 SQLite 兼容层标记为验收通过。生产发布前，所有进入正式工单与调度路径的服务必须仅以同一 `DATABASE_URL` 运行为前提。

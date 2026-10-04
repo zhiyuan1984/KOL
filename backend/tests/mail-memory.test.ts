@@ -1,3 +1,7 @@
+import { pgClaimExecutionJobById, pgCompleteExecutionJob, pgFailExecutionJob } from "../src/execution-jobs/postgres-store.js";
+import { closePostgresPool } from "../src/postgres/pool.js";
+import { mapUser, withScopedUser } from "../src/auth.js";
+import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -25,11 +29,13 @@ const calls: string[] = [];
 let listDelayMs = 0;
 
 async function request(method: string, url: string, body?: unknown) {
-  const response = await app.request(url, {
+  const actor = getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Json | undefined;
+  const invoke = () => app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...(method === "GET" ? {} : { body: JSON.stringify(body || {}) }),
   });
+  const response = actor ? await withScopedUser(mapUser(actor), invoke) : await invoke();
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
@@ -44,6 +50,8 @@ function unreadOf(mailbox: string): number {
 
 function bindLarry(): void {
   bindStarryUser();
+  process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "a".repeat(64);
+  saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" });
 }
 
 function stubStarry(extraConversations: Json[] = []): void {
@@ -154,7 +162,8 @@ beforeEach(async () => {
     .run("KOL51DA646D8D8A4544BB93", "xiaomei.beauty@example.com");
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await closePostgresPool();
   setStarryKolClientFactory();
   setIntentLlmFetch();
   delete process.env.CODEX_API_KEY;
@@ -169,21 +178,21 @@ describe("mailbox memory P0", () => {
     bindLarry();
     await ensureFollowedMailSync(true);
     process.env.INTENT_LLM_MODE = "real";
-    const listed = await request("GET", "/api/mail/conversations");
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const first = (listed.body.conversations as Json[])[0];
-    const opened = await request("GET", `/api/mail/conversations/${first.id}`);
+    const opened = await request("GET", `/api/queries/mail.conversation?id=${first.id}`);
     const message = (opened.body.messages as Json[])[0];
-    const summary = await request("POST", "/api/mail/skills/mail_summary/run", {
+    const summary = await request("POST", "/api/skills/mail_summary/execute", {
       box: "larry.zhao@amperetime.com", conversation_id: first.conversation_id,
     });
     expect(summary.status).toBe(200);
     expect(summary.body).toMatchObject({ skill_id: "mail_summary", accepted: true, pending: false });
-    const translation = await request("POST", "/api/mail/skills/mail_translate/run", {
+    const translation = await request("POST", "/api/skills/mail_translate/execute", {
       box: "larry.zhao@amperetime.com", message_id: message.id,
     });
     expect(translation.status).toBe(200);
     expect(translation.body).toMatchObject({ skill_id: "mail_translate", accepted: true, pending: false });
-    const reread = await request("GET", `/api/mail/conversations/${first.id}`);
+    const reread = await request("GET", `/api/queries/mail.conversation?id=${first.id}`);
     expect((reread.body.messages as Json[]).find((row) => row.id === message.id)?.translation_zh).toContain("中文");
   });
 
@@ -194,10 +203,10 @@ describe("mailbox memory P0", () => {
     const sessionsBefore = sessionCount();
     calls.length = 0;
 
-    const box = await request("GET", "/api/mail/box");
-    const listed = await request("GET", "/api/mail/conversations");
+    const box = await request("GET", "/api/queries/mail.box");
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const first = (listed.body.conversations as Json[])[0];
-    const opened = await request("GET", `/api/mail/conversations/${first.id}`);
+    const opened = await request("GET", `/api/queries/mail.conversation?id=${first.id}`);
 
     expect(box.status).toBe(200);
     expect(listed.status).toBe(200);
@@ -214,9 +223,9 @@ describe("mailbox memory P0", () => {
   it("returns each mail title separately from the conversation subject", async () => {
     bindLarry();
     await ensureFollowedMailSync(true);
-    const listed = await request("GET", "/api/mail/conversations");
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const conversation = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901")!;
-    const opened = await request("GET", `/api/mail/conversations/${conversation.id}`);
+    const opened = await request("GET", `/api/queries/mail.conversation?id=${conversation.id}`);
     const message = (opened.body.messages as Json[]).find((row) => row.provider_message_id === "mid-3901-2");
 
     expect(conversation.subject).toBe("Re: LiTime MCP 连通测试");
@@ -242,9 +251,9 @@ describe("mailbox memory P0", () => {
     }]);
     bindLarry();
     const collabsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
-    await request("POST", "/api/mail/sync");
-    await waitForBackgroundSync();
-    const listed = await request("GET", "/api/mail/conversations");
+    const queued = await request("POST", "/api/jobs/mail.sync/start");
+    await processExecutionJobById(String((queued.body.job as Json).id));
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const unbound = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "8801");
     expect(unbound).toMatchObject({
       match_state: "unbound",
@@ -257,7 +266,7 @@ describe("mailbox memory P0", () => {
 
   it("gzip-compresses the mailbox conversation list for slow links", async () => {
     bindLarry();
-    const response = await app.request("/api/mail/conversations", {
+    const response = await app.request("/api/queries/mail.conversations", {
       headers: { "Accept-Encoding": "gzip" },
     });
     expect(response.status).toBe(200);
@@ -268,12 +277,13 @@ describe("mailbox memory P0", () => {
     bindLarry();
     listDelayMs = 40;
     const [first, second] = await Promise.all([
-      request("POST", "/api/mail/sync"),
-      request("POST", "/api/mail/sync"),
+      request("POST", "/api/jobs/mail.sync/start"),
+      request("POST", "/api/jobs/mail.sync/start"),
     ]);
     expect(first.status).toBe(202);
     expect(second.status).toBe(202);
-    await waitForBackgroundSync();
+    expect((first.body.job as Json).id).toBe((second.body.job as Json).id);
+    await processExecutionJobById(String((first.body.job as Json).id));
     // total=1 with a single partial page: the background loop must not fetch page 2 (spec §3 stop conditions).
     expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(1);
     const bind = getConn().prepare("SELECT * FROM user_starry_bindings").get() as Json;
@@ -309,7 +319,7 @@ describe("mailbox memory P0", () => {
     )?.id).toBe("col_xiaomei");
 
     await ensureFollowedMailSync(true);
-    const listed = await request("GET", "/api/mail/conversations");
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
     expect(thread).toMatchObject({
       mailbox: "larry.zhao@amperetime.com",
@@ -337,14 +347,14 @@ describe("mailbox memory P0", () => {
 
     bindLarry();
     await ensureFollowedMailSync(true);
-    const listed = await request("GET", "/api/mail/conversations");
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
     expect(String(thread?.last_preview)).toMatch(/Please share the rate|想和贵品牌litime合作|测试邮件/);
     expect(String(thread?.last_preview).length).toBeLessThanOrEqual(89);
     expect(String(thread?.digest_source)).toBe("body_analysis");
     expect(["codex_memory", "luna"]).not.toContain(thread?.digest_source);
 
-    const opened = await request("GET", `/api/mail/conversations/${thread?.id}`);
+    const opened = await request("GET", `/api/queries/mail.conversation?id=${thread?.id}`);
     const inbound = (opened.body.messages as Json[]).find((row) => row.direction === "inbound");
     expect(inbound?.summary_source).toBe("body_analysis");
     expect(inbound?.letter_summary).toBeTruthy();
@@ -370,7 +380,7 @@ describe("mailbox memory P0", () => {
     bindLarry();
     await ensureFollowedMailSync(true);
 
-    const box = await request("GET", "/api/mail/box");
+    const box = await request("GET", "/api/queries/mail.box");
     expect(box.status).toBe(200);
     const bindings = box.body.bindings as Json[];
     expect(Array.isArray(bindings)).toBe(true);
@@ -378,17 +388,17 @@ describe("mailbox memory P0", () => {
     expect(typeof box.body.total_unread).toBe("number");
     expect(Number(box.body.total_unread)).toBeGreaterThan(0);
 
-    const listed = await request("GET", "/api/mail/conversations");
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
     expect(thread?.starred).toBe(false);
 
-    const starred = await request("PUT", `/api/mail/conversations/${thread?.id}`, { starred: true });
+    const starred = await request("POST", "/api/actions/mail.star", { id: thread?.id, starred: true });
     expect(starred.status).toBe(200);
     expect((starred.body.conversation as Json).starred).toBe(true);
-    const listedAgain = await request("GET", "/api/mail/conversations");
+    const listedAgain = await request("GET", "/api/queries/mail.conversations");
     expect((listedAgain.body.conversations as Json[]).find((row) => row.conversation_id === "3901")?.starred).toBe(true);
 
-    const opened = await request("GET", `/api/mail/conversations/${thread?.id}`);
+    const opened = await request("GET", `/api/queries/mail.conversation?id=${thread?.id}`);
     const firstMessage = (opened.body.messages as Json[])[0];
     expect(firstMessage).toHaveProperty("translation_zh");
     expect(firstMessage).toHaveProperty("translation_source");
@@ -401,21 +411,21 @@ describe("mailbox memory P0", () => {
     expect(openedMessages.some((row) => row.unread === true)).toBe(true);
     expect(openedMessages.find((row) => row.direction === "outbound")?.unread).toBe(false);
 
-    const read = await request("POST", `/api/mail/conversations/${thread?.id}/read`);
+    const read = await request("POST", "/api/actions/mail.read", { id: thread?.id });
     expect(read.status).toBe(200);
     expect((read.body.conversation as Json).unread_count).toBe(0);
-    const afterRead = await request("GET", `/api/mail/conversations/${thread?.id}`);
+    const afterRead = await request("GET", `/api/queries/mail.conversation?id=${thread?.id}`);
     expect((afterRead.body.messages as Json[]).every((row) => row.unread === false)).toBe(true);
     const remaining = Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM kol_mail_items WHERE thread_id=? AND unread=1",
     ).get(String(thread?.id)) as { n: unknown }).n);
     expect(remaining).toBe(0);
 
-    const missing = await request("POST", "/api/mail/conversations/conv_missing/read");
+    const missing = await request("POST", "/api/actions/mail.read", { id: "conv_missing" });
     expect(missing.status).toBe(404);
   });
 
-  it("serves ?box= per mailbox: bindings stay per-mailbox and unknown boxes fall back to the default", async () => {
+  it("serves ?box= per mailbox: bindings stay per-mailbox and unknown boxes are rejected", async () => {
     bindLarry();
     await ensureFollowedMailSync(true);
     saveStarryBinding(DEMO_USER.id, { mailbox_email: "second.box@amperetime.com", owner_name: "赵良玉" });
@@ -425,7 +435,7 @@ describe("mailbox memory P0", () => {
        VALUES ('thr_second', '9901', 'Second box mail', 'second.box@amperetime.com', 3, ?, ?, ?)`,
     ).run(now, now, now);
 
-    const second = await request("GET", `/api/mail/box?box=${encodeURIComponent("second.box@amperetime.com")}`);
+    const second = await request("GET", `/api/queries/mail.box?box=${encodeURIComponent("second.box@amperetime.com")}`);
     expect(second.body.mailbox).toBe("second.box@amperetime.com");
     expect(Number(second.body.unread)).toBe(3);
     const bindings = second.body.bindings as Json[];
@@ -435,11 +445,12 @@ describe("mailbox memory P0", () => {
       (bindings as Array<{ unread: number }>).reduce((sum, row) => sum + Number(row.unread), 0),
     );
 
-    const listed = await request("GET", `/api/mail/conversations?box=${encodeURIComponent("second.box@amperetime.com")}`);
+    const listed = await request("GET", `/api/queries/mail.conversations?box=${encodeURIComponent("second.box@amperetime.com")}`);
     expect((listed.body.conversations as Json[]).map((row) => row.conversation_id)).toEqual(["9901"]);
 
-    const fallback = await request("GET", "/api/mail/box?box=unknown@example.com");
-    expect(fallback.body.mailbox).toBe("larry.zhao@amperetime.com");
+    const fallback = await request("GET", "/api/queries/mail.box?box=unknown@example.com");
+    expect(fallback.status).toBe(403);
+    expect(fallback.body.detail).toMatchObject({ code: "mailbox_access_denied" });
   });
 
   it("registers the four mailbox-memory entries without changing confirm-send", () => {
@@ -448,13 +459,13 @@ describe("mailbox memory P0", () => {
       kind: "memory",
       creates_session: false,
       calls_model: false,
-      route: expect.stringContaining("/api/mail/conversations"),
+      route: expect.stringContaining("/api/queries/mail.conversations"),
     });
     expect(byId["open-mail-thread"]).toMatchObject({
       kind: "memory",
       creates_session: false,
       calls_model: false,
-      route: expect.stringContaining("/api/mail/conversations/:id"),
+      route: expect.stringContaining("/api/queries/mail.conversation?id=:id"),
     });
     expect(byId["mail-compose-catalog"]).toMatchObject({
       kind: "memory",
@@ -462,13 +473,13 @@ describe("mailbox memory P0", () => {
       creates_session: false,
       creates_turn: false,
       calls_model: false,
-      route: "GET /api/mail/compose-catalog",
+      route: "GET /api/queries/mail.compose-catalog",
     });
     expect(byId["sync-mailbox-mail"]).toMatchObject({
       kind: "command",
       creates_session: false,
       calls_model: false,
-      route: expect.stringContaining("/api/mail/sync"),
+      route: expect.stringContaining("/api/jobs/mail.sync/start"),
     });
     expect(byId["confirm-send"]).toMatchObject({
       kind: "command",
@@ -503,7 +514,7 @@ describe("mailbox memory P0", () => {
     item.run("mit_a2", "thr_two", "9101", "mid-9101-2", now, now);
     item.run("mit_b1", "thr_one", "9102", "mid-9102-1", now, now);
 
-    const listed = await request("GET", "/api/mail/conversations");
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const two = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "9101");
     const one = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "9102");
     expect(two?.message_count).toBe(2);
@@ -512,7 +523,7 @@ describe("mailbox memory P0", () => {
     expect(two).not.toHaveProperty("digest_text");
     expect(listed.body.conversations as Json[]).not.toContainEqual(expect.objectContaining({ digest_text: expect.anything() }));
 
-    const opened = await request("GET", `/api/mail/conversations/${two?.id}`);
+    const opened = await request("GET", `/api/queries/mail.conversation?id=${two?.id}`);
     expect(opened.status).toBe(200);
     expect(opened.body.digest_text).toBe("两封往来摘要");
   });
@@ -520,7 +531,7 @@ describe("mailbox memory P0", () => {
   it("returns kol_uid/handle on the conversation list so the page needs no board fetch", async () => {
     bindLarry();
     await ensureFollowedMailSync(true);
-    const listed = await request("GET", "/api/mail/conversations");
+    const listed = await request("GET", "/api/queries/mail.conversations");
     const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
     expect(thread).toMatchObject({
       collaboration_id: "col_xiaomei",
@@ -532,7 +543,7 @@ describe("mailbox memory P0", () => {
   it("serves the compose catalog from the email_compose contract with no session and no model", async () => {
     const { emailComposeContract } = await import("../src/skills/email-compose-contract.js");
     const sessionsBefore = sessionCount();
-    const response = await app.request("/api/mail/compose-catalog");
+    const response = await app.request("/api/queries/mail.compose-catalog");
     expect(response.status).toBe(200);
     expect(String(response.headers.get("cache-control") || "")).toBe("no-store");
     const body = await response.json() as Json;
@@ -560,4 +571,57 @@ describe("mailbox memory P0", () => {
     expect(calls).toEqual([]);
     expect(sessionCount()).toBe(sessionsBefore);
   });
+  it("retires mail-specific routes and rejects an unregistered tool action", async () => {
+    expect((await app.request("/api/mail/box")).status).toBe(404);
+    expect((await app.request("/api/mail/sync", { method: "POST", body: "{}" })).status).toBe(404);
+    expect((await app.request("/api/drafts/missing/send", { method: "POST", body: "{}" })).status).toBe(404);
+    expect((await request("POST", "/api/actions/sendEmailNow", {})).status).toBe(404);
+    expect(calls).toEqual([]);
+  });
+
+  it("persists a cancellable sync job without making calls in the HTTP request", async () => {
+    bindLarry();
+    const queued = await request("POST", "/api/jobs/mail.sync/start", { request_id: "cancel-test" });
+    expect(queued.status).toBe(202);
+    const id = String((queued.body.job as Json).id);
+    expect(calls).toEqual([]);
+    expect((await request("GET", `/api/jobs/${id}`)).body.job).toMatchObject({ status: "queued" });
+    const cancelled = await request("POST", `/api/jobs/${id}/cancel`, {});
+    expect(cancelled.body.job).toMatchObject({ status: "cancelled" });
+    expect(await processExecutionJobById(id)).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects another actor's job and rechecks revoked mailbox bindings before execution", async () => {
+    bindLarry();
+    const queued = await request("POST", "/api/jobs/mail.sync/start", {});
+    const id = String((queued.body.job as Json).id);
+    getConn().prepare("UPDATE execution_jobs SET actor_ref=? WHERE id=?").run("someone-else", id);
+    expect((await request("GET", `/api/jobs/${id}`)).status).toBe(404);
+    expect((await request("POST", `/api/jobs/${id}/cancel`, {})).status).toBe(404);
+    getConn().prepare("UPDATE execution_jobs SET actor_ref=?,max_attempts=1 WHERE id=?").run(DEMO_USER.id, id);
+    getConn().prepare("UPDATE user_starry_bindings SET status='expired' WHERE user_id=?").run(DEMO_USER.id);
+    await processExecutionJobById(id);
+    expect(calls).toEqual([]);
+    expect(getConn().prepare("SELECT status FROM execution_jobs WHERE id=?").get(id)).toMatchObject({ status: "failed" });
+    getConn().prepare("UPDATE user_starry_bindings SET status='connected' WHERE user_id=?").run(DEMO_USER.id);
+    expect((await request("POST", `/api/jobs/${id}/retry`, {})).status).toBe(202);
+    await processExecutionJobById(id);
+    expect((await request("GET", `/api/jobs/${id}`)).body.job).toMatchObject({ status: "succeeded" });
+  });
+
+  it("does not let an old sync worker overwrite a newer lease or cancellation", async () => {
+    bindLarry();
+    const queued = await request("POST", "/api/jobs/mail.sync/start", {});
+    const id = String((queued.body.job as Json).id);
+    await pgClaimExecutionJobById(id, "old-worker");
+    getConn().prepare("UPDATE execution_jobs SET lease_owner='new-worker' WHERE id=?").run(id);
+    expect(await pgCompleteExecutionJob(id, { ok: true }, new Date(), "old-worker")).toBeUndefined();
+    await pgFailExecutionJob(id, { code: "stale_failure", summary: "old attempt" }, { expected_worker: "old-worker" });
+    expect((await request("GET", `/api/jobs/${id}`)).body.job).toMatchObject({ status: "running", lease_owner: "new-worker" });
+    await request("POST", `/api/jobs/${id}/cancel`, {});
+    expect(await pgCompleteExecutionJob(id, { ok: true }, new Date(), "new-worker")).toBeUndefined();
+    expect((await request("GET", `/api/jobs/${id}`)).body.job).toMatchObject({ status: "cancelled" });
+  });
+
 });

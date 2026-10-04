@@ -5,8 +5,9 @@
  * 模板库由 `npm run db:apply:postgres-schema` 建出（见 docs 与 migrations/pg-baseline.sql）。
  * 管理连接只用 TEST_DATABASE_URL（缺省回落到 DATABASE_URL），仅用于 CREATE/DROP 测试库。
  */
-import { Client } from "pg";
+import { Client, Pool } from "pg";
 import { resetConn } from "../../src/db.js";
+import { closePostgresPool } from "../../src/postgres/pool.js";
 
 const ADMIN_URL = String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || "").trim();
 const TEMPLATE = String(process.env.TEST_DB_TEMPLATE || "lingong_template").trim();
@@ -39,12 +40,18 @@ export async function freshTestDatabase(): Promise<string> {
   }
   created.push(name);
   process.env.DATABASE_URL = urlWithDatabase(name);
+  const { postgresPool } = await import("../../src/postgres/pool.js");
+  const { runtimeActionSchema } = await import("../../src/runtime/action-schema.js");
+  await postgresPool().query(runtimeActionSchema);
   return name;
 }
 
 /** 删掉本 worker 建过的所有测试库（由 tests/setup.ts 的 afterAll 调用）。 */
 export async function dropTestDatabases(): Promise<void> {
   if (!ADMIN_URL || !created.length) return;
+  // Durable job routes use the native pool alongside historical mail fixtures.
+  // Release it before DROP rather than waiting for PostgreSQL to evict it.
+  await closePostgresPool();
   // 先把应用侧连接从测试库上摘下来：resetConn() 会立即重连，所以先把 DATABASE_URL 指回管理库，
   // 否则 DROP 会踢掉在线连接并抛 57P01（admin_shutdown）噪声错误。
   process.env.DATABASE_URL = ADMIN_URL;
@@ -53,17 +60,14 @@ export async function dropTestDatabases(): Promise<void> {
   } catch {
     /* 连接已关闭等情形忽略 */
   }
-  const admin = new Client({ connectionString: ADMIN_URL });
-  await admin.connect();
+  // Drop only databases this worker created. Bounded parallel drops share the
+  // server checkpoint instead of waiting for one Windows checkpoint per DB.
+  const admin = new Pool({ connectionString: ADMIN_URL, max: 8 });
   try {
-    for (const name of created.splice(0, created.length)) {
-      try {
-        await admin.query(`DROP DATABASE IF EXISTS ${ident(name)}`);
-      } catch {
-        await admin.query(`DROP DATABASE IF EXISTS ${ident(name)} WITH (FORCE)`);
-      }
-    }
-  } finally {
-    await admin.end();
-  }
+    const results = await Promise.allSettled(created.splice(0, created.length).map((name) =>
+      admin.query(`DROP DATABASE IF EXISTS ${ident(name)} WITH (FORCE)`),
+    ));
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "test database cleanup failed");
+  } finally { await admin.end(); }
 }

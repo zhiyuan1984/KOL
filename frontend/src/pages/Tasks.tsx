@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type Task, type TaskDetail, type TaskEvent } from "../api";
+import { api, type AiTaskWorkOrderAggregate, type AiTaskWorkOrderList, type Task, type TaskDetail, type TaskEvent } from "../api";
 import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
 
 type View = "active" | "history";
@@ -124,6 +124,13 @@ export default function Tasks() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<TaskDetail | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [aiTaskRoots, setAiTaskRoots] = useState<AiTaskWorkOrderList["items"]>([]);
+  const [selectedAiTask, setSelectedAiTask] = useState<AiTaskWorkOrderAggregate | null>(null);
+  const [showAiTaskCreate, setShowAiTaskCreate] = useState(false);
+  const [aiTaskDraft, setAiTaskDraft] = useState({ title: "", goal: "", due_at: "", priority: "normal" });
+  const [showAiEventCreate, setShowAiEventCreate] = useState(false);
+  const [aiEventDraft, setAiEventDraft] = useState({ event_type: "mail.reply_verified", summary: "", evidence_ref: "", occurred_at: "", work_order_id: "", evidence_keys: "", completed_stages: "" });
+  const [aiEventNotice, setAiEventNotice] = useState("");
   const [actionBusy, setActionBusy] = useState("");
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
@@ -182,6 +189,16 @@ export default function Tasks() {
   }, [view, query, from, to]);
 
   useEffect(() => { void load(); }, [load]);
+  const loadAiTaskRoots = useCallback(async () => {
+    try {
+      const response = await api.aiTaskWorkOrders();
+      setAiTaskRoots(response.items || []);
+    } catch {
+      // The legacy task center remains usable while PostgreSQL AI task roots are unavailable.
+      setAiTaskRoots([]);
+    }
+  }, []);
+  useEffect(() => { void loadAiTaskRoots(); }, [loadAiTaskRoots]);
   useEffect(() => {
     if (view !== "active") return;
     const refresh = () => {
@@ -217,6 +234,87 @@ export default function Tasks() {
       if (selected?.id === task.id) setSelected(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "取消失败");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
+  const openAiTask = async (taskId: string) => {
+    setActionBusy(`ai-task:${taskId}`);
+    try {
+      setSelectedAiTask(await api.aiTaskWorkOrder(taskId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "AI 工单任务详情加载失败");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
+  const createAiTask = async () => {
+    if (!aiTaskDraft.title.trim()) {
+      setError("请填写业务任务标题。");
+      return;
+    }
+    setActionBusy("ai-task:create");
+    setError("");
+    try {
+      const created = await api.createAiTaskWorkOrderRoot({
+        title: aiTaskDraft.title.trim(),
+        goal: aiTaskDraft.goal.trim() || undefined,
+        due_at: aiTaskDraft.due_at ? new Date(`${aiTaskDraft.due_at}T23:59:59`).toISOString() : undefined,
+        priority: aiTaskDraft.priority as "important_urgent" | "important" | "urgent" | "normal" | "low",
+        idempotency_key: `ai-task-root-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      });
+      setAiTaskDraft({ title: "", goal: "", due_at: "", priority: "normal" });
+      setShowAiTaskCreate(false);
+      await loadAiTaskRoots();
+      setSelectedAiTask(await api.aiTaskWorkOrder(created.task.task_id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "AI 业务任务创建失败");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
+  const recordAiVerifiedEvent = async () => {
+    if (!selectedAiTask) return;
+    if (!aiEventDraft.summary.trim() || !aiEventDraft.evidence_ref.trim()) {
+      setError("请填写已核验事实摘要和证据引用。");
+      return;
+    }
+    const taskId = selectedAiTask.task.task_id;
+    setActionBusy("ai-task:verified-event");
+    setError("");
+    setAiEventNotice("");
+    try {
+      const stamp = Date.now();
+      const split = (value: string) => [...new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))];
+      const evidenceKeys = split(aiEventDraft.evidence_keys);
+      const completedStages = split(aiEventDraft.completed_stages);
+      const result = await api.recordAiTaskVerifiedEvent(taskId, {
+        source_system: "workbench_human_verification",
+        source_event_id: `workbench:${taskId}:${stamp}`,
+        source_version: "workbench.v1",
+        event_type: aiEventDraft.event_type,
+        occurred_at: aiEventDraft.occurred_at ? new Date(aiEventDraft.occurred_at).toISOString() : new Date().toISOString(),
+        summary: aiEventDraft.summary.trim(),
+        evidence_ref: aiEventDraft.evidence_ref.trim(),
+        evidence: {
+          verified_in: "workbench", actor_action: "human_verified_event",
+          completed_stages: completedStages,
+          ...Object.fromEntries(evidenceKeys.map((key) => [key, true])),
+        },
+        payload: {},
+        work_order_id: aiEventDraft.work_order_id || undefined,
+        idempotency_key: `workbench-verified-event-${taskId}-${stamp}`,
+      });
+      setAiEventDraft({ event_type: "mail.reply_verified", summary: "", evidence_ref: "", occurred_at: "", work_order_id: "", evidence_keys: "", completed_stages: "" });
+      setShowAiEventCreate(false);
+      setAiEventNotice(`已核验事件已进入 Jev → Outbox → Worker 管道（决策：${result.decision.outcome}；作业：${result.execution_job.status}）。阶段写入只会在 A3 模板、置信度、证据一致性和发布开关全部通过时发生。`);
+      await loadAiTaskRoots();
+      setSelectedAiTask(await api.aiTaskWorkOrder(taskId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "已核验事件登记失败");
     } finally {
       setActionBusy("");
     }
@@ -284,6 +382,21 @@ export default function Tasks() {
         </div>
       </div>
 
+      <section className="panel task-work-order-summary" aria-label="AI 标准工单任务">
+        <div className="split-head"><div><h2>AI 标准工单任务</h2><p className="muted">先建立业务目标，再由已核验事件、已发布模板和受控 Jev 判断生成标准执行工单。下方工作台运行任务和今日/待办投影保持原有语义；子工单不会自动完成任务根。</p></div><div className="row-actions"><span className="status-ok">{aiTaskRoots.length} 个任务根</span><button className="btn ghost" type="button" onClick={() => setShowAiTaskCreate((current) => !current)}>{showAiTaskCreate ? "收起" : "新建业务任务"}</button></div></div>
+        {showAiTaskCreate && <form className="task-work-order-create" onSubmit={(event) => { event.preventDefault(); void createAiTask(); }}>
+          <label>任务标题<input value={aiTaskDraft.title} maxLength={200} placeholder="例如：推进 KOL 报价确认" onChange={(event) => setAiTaskDraft((current) => ({ ...current, title: event.target.value }))} /></label>
+          <label>业务目标<textarea value={aiTaskDraft.goal} maxLength={4000} placeholder="说明要达成的业务结果；工单将围绕该目标生成。" onChange={(event) => setAiTaskDraft((current) => ({ ...current, goal: event.target.value }))} /></label>
+          <label>优先级<select value={aiTaskDraft.priority} onChange={(event) => setAiTaskDraft((current) => ({ ...current, priority: event.target.value }))}><option value="important_urgent">重要且紧急</option><option value="important">重要</option><option value="urgent">紧急</option><option value="normal">普通</option><option value="low">低</option></select></label>
+          <label>截止日期<input type="date" value={aiTaskDraft.due_at} onChange={(event) => setAiTaskDraft((current) => ({ ...current, due_at: event.target.value }))} /></label>
+          <div className="row-actions"><button className="btn primary" type="submit" disabled={actionBusy === "ai-task:create"}>{actionBusy === "ai-task:create" ? "创建中…" : "创建业务任务"}</button></div>
+        </form>}
+        {aiTaskRoots.length ? aiTaskRoots.map((item) => <div className="admin-row" key={item.task.task_id}>
+          <div><strong>{item.task.title}</strong><p className="muted">开放工单 {item.counts.open}/{item.counts.total} · 阻塞 {item.counts.blocked} · 待复核 {item.counts.waiting_review}{item.current_blocking_work_order ? ` · 当前阻塞：${item.current_blocking_work_order.title}` : ""}</p></div>
+          <div className="row-actions"><span className="muted">任务：{item.task.status}</span><button className="btn ghost" type="button" disabled={actionBusy === `ai-task:${item.task.task_id}`} onClick={() => void openAiTask(item.task.task_id)}>查看工单</button></div>
+        </div>) : <p className="muted">尚未建立 AI 业务任务。创建任务后，只有已核验事件和已发布的自动化规则才能生成或分派标准工单。</p>}
+      </section>
+
       {error && <p className="surface-error" role="alert">{hidesSignalTimeout(error) ? "任务暂时无法读取，请稍后查看。" : error}</p>}
 
       {loading ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 ? (
@@ -342,6 +455,27 @@ export default function Tasks() {
         <p className="muted">已尝试 {selected.runs?.length || 0} 次{selected.runs?.length ? `；最近一次：${String(selected.runs[selected.runs.length - 1]?.status || "未知")}` : ""}</p>
         <section><h3>执行事件 {liveRunEvents.connected ? <small className="muted">实时更新中</small> : liveRunEvents.fallback ? <small className="muted">正在以安全补读更新</small> : null}</h3>{(liveRunEvents.events.length ? liveRunEvents.events : events).length ? <ol className="task-detail-events">{(liveRunEvents.events.length ? liveRunEvents.events : events).map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section>
         <div className="task-detail-actions">{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>{selected.status === "waiting" || selected.status === "waiting_approval" ? "继续处理" : "查看任务"}</Link> : null}</div>
+      </aside></div> : null}
+      {selectedAiTask ? <div className="task-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedAiTask(null); }}><aside className="task-detail-drawer" role="dialog" aria-modal="true" aria-label="AI 标准工单任务详情">
+        <header><div><p className="eyebrow">业务任务 · AI 标准工单</p><h2>{selectedAiTask.task.title}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelectedAiTask(null)}>×</button></header>
+        <dl className="task-detail-meta"><div><dt>任务状态</dt><dd>{selectedAiTask.task.status}</dd></div><div><dt>业务目标</dt><dd>{selectedAiTask.task.goal}</dd></div><div><dt>任务截止</dt><dd>{formatTime(selectedAiTask.task.due_at)}</dd></div><div><dt>子工单</dt><dd>{selectedAiTask.counts.open} 开放 / {selectedAiTask.counts.total} 总计 / {selectedAiTask.counts.blocked} 阻塞</dd></div></dl>
+        <section>
+          <div className="split-head"><div><h3>登记已核验业务事件</h3><p className="muted">只登记已核验事实，不填写推测或结论。提交后才会触发受控 Jev 判断与异步工单管道；运行成功不代表工单或任务完成。选择目标子工单后，A3 可以提出非相邻阶段，但必须由模板明确授权，并证明每一个中间阶段事实。</p></div><button className="btn ghost sm" type="button" onClick={() => setShowAiEventCreate((current) => !current)}>{showAiEventCreate ? "收起" : "登记事件"}</button></div>
+          {showAiEventCreate && <form className="task-work-order-create task-work-order-event-create" onSubmit={(event) => { event.preventDefault(); void recordAiVerifiedEvent(); }}>
+            <label>事件类型<select value={aiEventDraft.event_type} onChange={(event) => setAiEventDraft((current) => ({ ...current, event_type: event.target.value }))}><option value="mail.reply_verified">已验证邮件回复</option><option value="mail.commitment_verified">已验证邮件承诺</option><option value="deadline.quote">报价期限</option><option value="deadline.contract">合同期限</option><option value="deadline.sample">样品期限</option><option value="deadline.content">内容期限</option></select></label>
+            <label>作用子工单（A3 可选）<select value={aiEventDraft.work_order_id} onChange={(event) => setAiEventDraft((current) => ({ ...current, work_order_id: event.target.value }))}><option value="">不指定：仅判断是否新建/分派工单</option>{selectedAiTask.work_orders.filter((order) => !["completed", "cancelled"].includes(order.status)).map((order) => <option key={order.work_order_id} value={order.work_order_id}>{order.title} · 当前阶段 {order.stage_code || "未设定"}</option>)}</select></label>
+            <label>事实摘要<textarea value={aiEventDraft.summary} maxLength={1000} placeholder="仅写已经确认的事实，例如：样品已签收并进入测试。" onChange={(event) => setAiEventDraft((current) => ({ ...current, summary: event.target.value }))} /></label>
+            <label>证据引用<input value={aiEventDraft.evidence_ref} maxLength={1000} placeholder="例如：mail:thread/123 或 fulfillment:receipt/2" onChange={(event) => setAiEventDraft((current) => ({ ...current, evidence_ref: event.target.value }))} /></label>
+            <label>已核验证据键（每行一个）<textarea value={aiEventDraft.evidence_keys} placeholder={"receipt_verified\ncompleted_stages"} onChange={(event) => setAiEventDraft((current) => ({ ...current, evidence_keys: event.target.value }))} /><small className="muted">需匹配 A3 模板策略；键值将随事件不可变审计。</small></label>
+            <label>已完成阶段（每行一个）<textarea value={aiEventDraft.completed_stages} placeholder={"SHIPPED\nTESTING"} onChange={(event) => setAiEventDraft((current) => ({ ...current, completed_stages: event.target.value }))} /><small className="muted">跨阶段时必须逐项列出并已由当前证据核验的中间阶段与目标阶段。</small></label>
+            <label>发生时间<input type="datetime-local" value={aiEventDraft.occurred_at} onChange={(event) => setAiEventDraft((current) => ({ ...current, occurred_at: event.target.value }))} /></label>
+            <div className="row-actions"><button className="btn primary" type="submit" disabled={actionBusy === "ai-task:verified-event"}>{actionBusy === "ai-task:verified-event" ? "提交中…" : "提交已核验事件"}</button></div>
+          </form>}
+          {aiEventNotice && <p className="muted" role="status">{aiEventNotice}</p>}
+        </section>
+        <section><h3>已核验业务事件</h3>{selectedAiTask.verified_events.length ? <ol className="task-detail-events">{selectedAiTask.verified_events.map((event) => <li key={event.id}><strong>{event.event_type}</strong><small>{formatTime(event.occurred_at)} · 核验 {formatTime(event.verified_at)}</small><p>{event.summary}</p><p className="muted">证据：{event.evidence_ref}</p></li>)}</ol> : <p className="muted">尚未记录可用于自动化判断的已核验业务事件。</p>}</section>
+        <section><h3>标准执行工单</h3>{selectedAiTask.work_orders.length ? <ol className="task-detail-events">{selectedAiTask.work_orders.map((order) => <li key={order.work_order_id}><strong>{order.title}</strong><small>{order.template_code}.v{order.template_version} · {order.automation_level} · {order.status}</small><p>{order.objective}</p><p className="muted">主受理：{order.primary_assignee?.person_ref || order.primary_assignee?.principal_id || "尚未分派"} · 决策：{order.latest_decision ? `${order.latest_decision.outcome}（${order.latest_decision.confidence ?? "—"}）` : "—"}</p></li>)}</ol> : <p className="muted">该业务任务尚未物化标准执行工单。</p>}</section>
+        <p className="muted">数据来源：PostgreSQL 任务—工单关系；子工单终态不会直接改变任务根状态。</p>
       </aside></div> : null}
     </main>
   );

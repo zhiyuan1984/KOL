@@ -118,12 +118,12 @@ describe("ExpertManifest loader", () => {
     expect(crawler).toMatchObject({
       id: "expert:crawler",
       display_name: "爬虫工程师",
-      kind: "collector",
-      primary_entry: "job_console",
-      entry_skill: "creator_discovery",
+      kind: "business",
+      primary_entry: "think",
+      entry_skill: "crawler_collect",
       status: "published",
     });
-    expect(crawler?.skill_ids).toEqual(["creator_discovery"]);
+    expect(crawler?.skill_ids).toEqual(["discovery_plan", "crawler_collect", "discovery_brief"]);
     expect(crawler?.tool_ids).toEqual(["mediacrawler"]);
 
     const approver = findExpertManifest("expert:approver");
@@ -173,8 +173,8 @@ describe("GET /api/experts", () => {
     expect(rows[1]).toMatchObject({
       id: "expert:crawler",
       display_name: "爬虫工程师",
-      kind: "collector",
-      primary_entry: "job_console",
+      kind: "business",
+      primary_entry: "think",
       tool_ids: ["mediacrawler"],
     });
     expect(rows[2]).toMatchObject({
@@ -235,9 +235,9 @@ describe("GET /api/experts/:id", () => {
     expect(crawler.status).toBe(200);
     expect(await crawler.json()).toMatchObject({
       id: "expert:crawler",
-      kind: "collector",
-      primary_entry: "job_console",
-      skill_ids: ["creator_discovery"],
+      kind: "business",
+      primary_entry: "think",
+      skill_ids: ["discovery_plan", "crawler_collect", "discovery_brief"],
       tool_ids: ["mediacrawler"],
     });
 
@@ -303,17 +303,12 @@ describe("POST /api/experts/:id/summon", () => {
     });
   });
 
-  it("rejects crawler and approver summon without creating a session", async () => {
+  it("opens the crawler Skill session while keeping approval decisions in their queue", async () => {
     const crawler = await request("POST", "/api/experts/expert:crawler/summon", {});
-    expect(crawler.status).toBe(409);
+    expect(crawler.status).toBe(200);
     const crawlerBody = await crawler.json() as Json;
-    const crawlerDetail = crawlerBody.detail as Json;
-    expect(crawlerDetail).toMatchObject({
-      code: "expert_summon_not_allowed",
-      primary_entry: "job_console",
-      next_action: "open_job_console",
-    });
-    expect(String(crawlerDetail.message)).toContain("任务控制台");
+    expect(crawlerBody).toMatchObject({ expert_id: "expert:crawler", expert_version: "0.2.0" });
+    expect(String(crawlerBody.session_id)).toMatch(/^ses_/);
 
     const approver = await request("POST", "/api/experts/expert:approver/summon", {});
     expect(approver.status).toBe(409);
@@ -325,7 +320,7 @@ describe("POST /api/experts/:id/summon", () => {
     });
     expect(String(approverDetail.message)).toContain("审批队列");
 
-    expect(sessionCount("expert:crawler")).toBe(0);
+    expect(sessionCount("expert:crawler")).toBe(1);
     expect(sessionCount("expert:approver")).toBe(0);
     expect(sideEffects().sends).toBe(0);
     expect(sideEffects().stageWrites).toBe(0);

@@ -99,7 +99,7 @@
       "name": "采集工单",
       "desc": "MediaCrawler 异步采集作业：同一时间只跑一个采集任务，须有进度、取消、重试与真实终态。",
       "match": {
-        "task_type": ["creator_discovery", "discovery_crawl"]
+        "task_type": ["creator_discovery", "discovery_crawl", "crawler_collect"]
       },
       "clauses": ["BIZ-10", "07-mcp"],
       "source_ref": "BIZ-10；07-mcp-data-contract（真实调用规则）"

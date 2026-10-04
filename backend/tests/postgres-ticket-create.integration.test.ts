@@ -112,10 +112,10 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
         organization_units, ticket_account_organization_bindings, ticket_auth_sessions, ticket_accounts CASCADE;
     `);
     await pool.query(
-      `INSERT INTO ticket_accounts (id,username,name,password_hash,roles,active,created_at,updated_at)
-       VALUES ('u-creator','ye_guanwang','叶观旺','x','["employee"]'::jsonb,true,$1,$1),
-              ('u-supervisor','zhong_jiankui','钟建奎','x','["employee","admin"]'::jsonb,true,$1,$1),
-              ('u-collaborator','diao_chucong','刁楚聪','x','["employee"]'::jsonb,true,$1,$1)`,
+      `INSERT INTO ticket_accounts (id,username,name,password_hash,roles,active,identity_provider,created_at,updated_at)
+       VALUES ('u-creator','ye_guanwang','叶观旺','workbench-session-only','["employee"]'::jsonb,true,'workbench_session',$1,$1),
+              ('u-supervisor','zhong_jiankui','钟建奎','workbench-session-only','["employee","admin"]'::jsonb,true,'workbench_session',$1,$1),
+              ('u-collaborator','diao_chucong','刁楚聪','workbench-session-only','["employee"]'::jsonb,true,'workbench_session',$1,$1)`,
       ["2031-01-01T00:00:00.000Z"],
     );
   });

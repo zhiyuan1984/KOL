@@ -1,3 +1,4 @@
+import { mediaCrawlerConfigured } from "../crawl/managed-connection.js";
 import { starryKolConnectionHealth } from "../starrykol/connection.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -741,7 +742,7 @@ misc.get("/admin", (c) => {
     starry_mode: starry.mode,
     claw_health: {
       mode: clawMode(),
-      configured: clawMode() === "mock" || Boolean(process.env.MEDIACRAWLER_MCP_URL && process.env.MEDIACRAWLER_MCP_TOKEN),
+      configured: clawMode() === "mock" || mediaCrawlerConfigured(),
     },
     kolclaw_health: {
       mode: process.env.KOLCLAW_MODE || "remote",

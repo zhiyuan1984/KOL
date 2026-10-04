@@ -1,3 +1,7 @@
+import { closePostgresPool } from "../src/postgres/pool.js";
+import { saveStarryBinding } from "../src/host/starry-bind.js";
+import { mapUser, withScopedUser } from "../src/auth.js";
+import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,11 +21,13 @@ let app: Hono;
 const calls: string[] = [];
 
 async function request(method: string, url: string, body?: unknown) {
-  const response = await app.request(url, {
+  const actor = getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Json | undefined;
+  const invoke = () => app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...(method === "GET" ? {} : { body: JSON.stringify(body || {}) }),
   });
+  const response = actor ? await withScopedUser(mapUser(actor), invoke) : await invoke();
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
@@ -37,6 +43,8 @@ function bindLarry(): void {
      VALUES (?,?,?,?,?,?,?,?)
      ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at`,
   ).run(DEMO_USER.id, "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now);
+  process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "a".repeat(64);
+  saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" });
 }
 
 beforeEach(async () => {
@@ -98,7 +106,8 @@ beforeEach(async () => {
     .run("KOL51DA646D8D8A4544BB93", "xiaomei.beauty@example.com");
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await closePostgresPool();
   setStarryKolClientFactory();
   resetFollowedMailSync();
   resetConn();
@@ -219,15 +228,16 @@ describe("followed KOL unread mail sync", () => {
     expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6003'").get()).toBeTruthy();
   });
 
-  it("POST /api/mail/sync accepts immediately and syncs in the background", async () => {
+  it("POST /api/jobs/mail.sync/start accepts immediately and syncs in the background", async () => {
     bindLarry();
     const started = Date.now();
-    const response = await request("POST", "/api/mail/sync");
+    const response = await request("POST", "/api/jobs/mail.sync/start");
     const elapsed = Date.now() - started;
     expect(response.status).toBe(202);
     expect(response.body.accepted).toBe(true);
     expect(elapsed).toBeLessThan(500);
-    await waitForBackgroundSync();
+    expect((response.body.job as Json).status).toBe("queued");
+    await processExecutionJobById(String((response.body.job as Json).id));
     expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='3901'").get()).toBeTruthy();
   });
 

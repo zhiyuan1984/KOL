@@ -527,7 +527,7 @@ describe("home board and host flows with Starry + markdown creators", () => {
     });
     expect(Boolean(draft.keep_stage)).toBe(true);
     expect(String(draft.to || draft.to_addr)).toBe("wendellfishing@gmail.com");
-    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {});
+    const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);
     expect(sent.body.stage_changed).toBe(false);
     expect(sent.body.official_stage).toBe("INITIAL_CONTACT");

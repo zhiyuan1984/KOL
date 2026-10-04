@@ -10,6 +10,14 @@ import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
+import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
+import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shadow.js";
+import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
+import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
+import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
+import { advanceWorkOrderStageForDecision } from "../ticket-domain/work-order-stage-executor.js";
+import { enqueueWorkOrderDecisionExecution } from "../ticket-domain/work-order-automation-pipeline.js";
+import { recordVerifiedWorkOrderEvent } from "../ticket-domain/work-order-verified-event.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
 import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -88,6 +96,126 @@ tickets.get("/tickets", async (c) => {
     due: c.req.query("due"), q: c.req.query("q"), from: c.req.query("from"), to: c.req.query("to"),
   });
   return c.json({ ...page, ...requestMetadata() });
+});
+
+/** Task is the business-goal root; child work orders are standard execution
+ * units. This remains separate from legacy `/tasks` until the workbench task
+ * projection itself is migrated to PostgreSQL. */
+tickets.post("/task-work-orders/tasks", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as TaskRootInput;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const task = await createTaskRootPostgres(ownerId(), { ...body, idempotency_key: idempotencyKey });
+  return c.json({ task, ...requestMetadata() }, 201);
+});
+
+tickets.get("/task-work-orders", async (c) => {
+  const actor = requireTicketPrincipal();
+  return c.json({ ...(await listTaskWorkOrderAggregates(actor.id, ticketIsAdmin(actor), parseLimit(c.req.query("limit"), 50))), ...requestMetadata() });
+});
+
+tickets.get("/task-work-orders/:taskId", async (c) => {
+  const actor = requireTicketPrincipal();
+  return c.json({ ...(await taskWorkOrderAggregate(actor.id, c.req.param("taskId"), ticketIsAdmin(actor))), ...requestMetadata() });
+});
+
+/** The event is immutable evidence first. Only after it is stored does the
+ * bounded Jev decision run and hand off a durable job to the Worker. */
+tickets.post("/task-work-orders/tasks/:taskId/verified-events", async (c) => {
+  const actor = requireTicketPrincipal();
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const event = await recordVerifiedWorkOrderEvent(actor.id, c.req.param("taskId"), { ...body, idempotency_key: idempotencyKey }, { isAdmin: ticketIsAdmin(actor) });
+  const decision = await recordWorkOrderShadowDecision(actor.id, c.req.param("taskId"), {
+    source_event: { id: event.event.id, type: event.event.event_type, summary: event.event.summary, occurred_at: event.event.occurred_at },
+    work_order_id: body.work_order_id,
+    idempotency_key: `work-order-verified-event:${event.event.id}:jev`,
+  }, { isAdmin: ticketIsAdmin(actor) });
+  const execution = await enqueueWorkOrderDecisionExecution(actor.id, decision.decision.id);
+  return c.json({ ...event, ...decision, ...execution, execution_mode: "verified_event_to_jev_to_outbox", ...requestMetadata() }, event.event.replayed ? 200 : 202);
+});
+
+/** Initial AI-work-order integration: administrator-triggered, immutable Jev
+ * shadow decision only. It never creates, assigns, advances or completes. */
+tickets.post("/admin/work-orders/tasks/:taskId/jev-shadow", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await recordWorkOrderShadowDecision(actor.id, c.req.param("taskId"), {
+    ...body,
+    idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  }, { isAdmin: true });
+  const execution = await enqueueWorkOrderDecisionExecution(actor.id, result.decision.id);
+  return c.json({ ...result, ...execution, ...requestMetadata() }, result.decision.replayed ? 200 : 202);
+});
+
+tickets.get("/admin/work-orders/templates", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await listWorkOrderTemplates(parseLimit(c.req.query("limit"), 100), c.req.query("status"))), ...requestMetadata() });
+});
+
+tickets.post("/admin/work-orders/templates/drafts", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as WorkOrderTemplateInput;
+  const result = await createWorkOrderTemplateDraft(actor.id, { ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim() });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.post("/admin/work-orders/templates/:id/publish", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await publishWorkOrderTemplate(actor.id, c.req.param("id"), { ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim() });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.post("/admin/work-orders/templates/:id/disable", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await disableWorkOrderTemplate(actor.id, c.req.param("id"), { ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim() });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+tickets.get("/admin/work-orders/automation-releases", async (c) => {
+  if (!ticketIsAdmin()) throw new HttpFail(403, "admin required");
+  return c.json({ ...(await listWorkOrderAutomationReleases()), ...requestMetadata() });
+});
+
+tickets.post("/admin/work-orders/templates/:id/automation-release", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await setWorkOrderAutomationRelease(actor.id, c.req.param("id"), {
+    ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+/** A governed materialization endpoint for the initial A1/A2 executor. It
+ * accepts an immutable decision only; worker/event wiring is added separately. */
+tickets.post("/admin/work-orders/decisions/:id/execute", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await executeWorkOrderDecision(actor.id, c.req.param("id"), {
+    ...body, idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
+});
+
+/** Operator replay cannot bypass the A3 evidence, version, release or
+ * confidence gates used by the durable Worker. */
+tickets.post("/admin/work-orders/decisions/:id/execute-stage", async (c) => {
+  const actor = requireTicketPrincipal();
+  if (!ticketIsAdmin(actor)) throw new HttpFail(403, "admin required");
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await advanceWorkOrderStageForDecision(actor.id, c.req.param("id"), {
+    ...body,
+    mode: "operator_replay",
+    idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
 });
 
 tickets.get("/tickets/reports/personal", async (c) => {

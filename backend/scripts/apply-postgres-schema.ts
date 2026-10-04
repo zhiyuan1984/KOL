@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { Client } from "pg";
+import { runtimeActionSchema } from "../src/runtime/action-schema.js";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL schema migration");
@@ -44,6 +45,7 @@ type SchemaMigration = {
 };
 
 const migrations: SchemaMigration[] = [
+  { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
   {
     id: "20261003_managed_agents",
     statements: [
@@ -724,8 +726,342 @@ const migrations: SchemaMigration[] = [
        FOR EACH ROW EXECUTE FUNCTION prevent_ticket_rule_confirmation_decision_mutation()`,
     ],
   },
+  {
+    // 正式工单不再建立第二套账号或密码。现有工作台会话是唯一认证入口；
+    // PostgreSQL 仅保存该已认证主体的可审计授权映射和快照，供工单、规则与
+    // 调度事实引用。历史 ticket-auth 账号保留为审计历史，但不会再用于登录。
+    id: "20261004_workbench_principal_bindings",
+    statements: [
+      "ALTER TABLE ticket_accounts ADD COLUMN IF NOT EXISTS identity_provider TEXT NOT NULL DEFAULT 'retired_ticket_login'",
+      "ALTER TABLE ticket_accounts DROP CONSTRAINT IF EXISTS ticket_accounts_identity_provider_check",
+      "ALTER TABLE ticket_accounts ADD CONSTRAINT ticket_accounts_identity_provider_check CHECK (identity_provider IN ('workbench_session','retired_ticket_login'))",
+      "CREATE INDEX IF NOT EXISTS ticket_accounts_identity_provider_idx ON ticket_accounts(identity_provider,active,updated_at DESC)",
+      `CREATE TABLE IF NOT EXISTS workbench_principal_bindings (
+        workbench_user_id TEXT PRIMARY KEY,
+        principal_id TEXT NOT NULL UNIQUE REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        username_snapshot TEXT NOT NULL,
+        name_snapshot TEXT NOT NULL,
+        email_snapshot TEXT,
+        roles_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT true,
+        source TEXT NOT NULL DEFAULT 'workbench_session',
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS workbench_principal_bindings_active_idx ON workbench_principal_bindings(active,last_seen_at DESC)",
+      `CREATE TABLE IF NOT EXISTS workbench_principal_binding_events (
+        id TEXT PRIMARY KEY,
+        workbench_user_id TEXT NOT NULL REFERENCES workbench_principal_bindings(workbench_user_id) ON DELETE RESTRICT,
+        principal_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        event_type TEXT NOT NULL CHECK (event_type IN ('bound','claims_refreshed','deactivated')),
+        claims_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS workbench_principal_binding_events_principal_idx ON workbench_principal_binding_events(principal_id,occurred_at DESC)",
+      `CREATE OR REPLACE FUNCTION prevent_workbench_principal_binding_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'workbench principal binding events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS workbench_principal_binding_events_no_mutation ON workbench_principal_binding_events",
+      `CREATE TRIGGER workbench_principal_binding_events_no_mutation
+       BEFORE UPDATE OR DELETE ON workbench_principal_binding_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_workbench_principal_binding_event_mutation()`,
+    ],
+  },
+  {
+    // 任务是业务目标根；AI 工单是其标准化、可分派且可验收的子动作。新
+    // work_orders 绝不复制任务，也不把一次执行或模型判断等同为任务完成。
+    id: "20261004_task_work_order_native_model",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS work_order_templates (
+        id TEXT PRIMARY KEY,
+        template_code TEXT NOT NULL,
+        version INTEGER NOT NULL CHECK (version > 0),
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL CHECK (status IN ('draft','published','disabled','retired')),
+        automation_level TEXT NOT NULL CHECK (automation_level IN ('A0','A1','A2','A3','L3')),
+        business_category TEXT,
+        trigger_event_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+        input_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        fill_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        acceptance_criteria_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        routing_policy_code TEXT,
+        stage_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        published_by TEXT REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        published_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(template_code,version)
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_templates_lookup_idx ON work_order_templates(status,template_code,version DESC)",
+      `CREATE TABLE IF NOT EXISTS work_orders (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        template_id TEXT NOT NULL REFERENCES work_order_templates(id) ON DELETE RESTRICT,
+        template_code TEXT NOT NULL,
+        template_version INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('proposed','pending_assignment','assigned','accepted','in_progress','waiting_external','waiting_approval','ready_for_acceptance','completed','cancelled','needs_review')),
+        priority TEXT NOT NULL DEFAULT 'normal',
+        stage_code TEXT,
+        title TEXT NOT NULL,
+        objective TEXT NOT NULL DEFAULT '',
+        due_at TIMESTAMPTZ,
+        no_due_reason TEXT,
+        automation_level TEXT NOT NULL CHECK (automation_level IN ('A0','A1','A2','A3','L3')),
+        automation_ref JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        latest_decision_id UUID,
+        data_version INTEGER NOT NULL DEFAULT 1 CHECK (data_version > 0),
+        created_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        completed_at TIMESTAMPTZ,
+        UNIQUE(task_id,template_code,template_version,id)
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_orders_task_status_idx ON work_orders(task_id,status,updated_at DESC)",
+      "CREATE INDEX IF NOT EXISTS work_orders_template_idx ON work_orders(template_code,template_version,status)",
+      `CREATE TABLE IF NOT EXISTS work_order_assignments (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE RESTRICT,
+        principal_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        person_ref TEXT,
+        org_unit_id TEXT,
+        role TEXT NOT NULL CHECK (role IN ('primary','collaborator','watcher')),
+        status TEXT NOT NULL CHECK (status IN ('active','superseded','removed')),
+        routing_policy_code TEXT,
+        routing_trace_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        assigned_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        effective_from TIMESTAMPTZ NOT NULL DEFAULT now(),
+        effective_to TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS work_order_assignments_one_primary_idx ON work_order_assignments(work_order_id) WHERE role='primary' AND status='active'",
+      "CREATE UNIQUE INDEX IF NOT EXISTS work_order_assignments_active_principal_idx ON work_order_assignments(work_order_id,principal_id,role) WHERE status='active'",
+      "CREATE INDEX IF NOT EXISTS work_order_assignments_principal_idx ON work_order_assignments(principal_id,status,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS work_order_basis_refs (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE RESTRICT,
+        source_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_version TEXT,
+        source_hash TEXT,
+        occurred_at TIMESTAMPTZ,
+        summary_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(work_order_id,source_type,source_id,source_version)
+      )`,
+      `CREATE TABLE IF NOT EXISTS work_order_decisions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        work_order_id TEXT REFERENCES work_orders(id) ON DELETE RESTRICT,
+        source_event_id TEXT,
+        rule_id TEXT,
+        rule_version INTEGER,
+        template_code TEXT,
+        template_version INTEGER,
+        routing_policy_code TEXT,
+        decision_mode TEXT NOT NULL CHECK (decision_mode IN ('shadow','manual','automatic')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('no_action','needs_review','create','merge_open_order','update_next_step','advance_stage','rejected')),
+        status TEXT NOT NULL CHECK (status IN ('recorded','executed','superseded','failed')),
+        input_hash TEXT NOT NULL,
+        input_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        judgment_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        gate_results_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        jev_model TEXT,
+        prompt_version TEXT,
+        confidence NUMERIC(5,4),
+        reason TEXT,
+        actor_ref TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_decisions_task_idx ON work_order_decisions(task_id,created_at DESC)",
+      "CREATE INDEX IF NOT EXISTS work_order_decisions_event_idx ON work_order_decisions(source_event_id,rule_id,rule_version)",
+      `CREATE TABLE IF NOT EXISTS work_order_stage_events (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE RESTRICT,
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        from_stage_code TEXT,
+        to_stage_code TEXT,
+        actor_ref TEXT NOT NULL,
+        decision_id UUID REFERENCES work_order_decisions(id) ON DELETE RESTRICT,
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(work_order_id,sequence)
+      )`,
+      `CREATE TABLE IF NOT EXISTS work_order_command_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        work_order_id TEXT REFERENCES work_orders(id) ON DELETE RESTRICT,
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        actor_ref TEXT NOT NULL,
+        command TEXT NOT NULL,
+        response_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      `CREATE OR REPLACE FUNCTION prevent_work_order_decision_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'work order decisions are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS work_order_decisions_no_mutation ON work_order_decisions",
+      `CREATE TRIGGER work_order_decisions_no_mutation
+       BEFORE UPDATE OR DELETE ON work_order_decisions
+       FOR EACH ROW EXECUTE FUNCTION prevent_work_order_decision_mutation()`,
+      `CREATE OR REPLACE FUNCTION prevent_work_order_stage_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'work order stage events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS work_order_stage_events_no_mutation ON work_order_stage_events",
+      `CREATE TRIGGER work_order_stage_events_no_mutation
+       BEFORE UPDATE OR DELETE ON work_order_stage_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_work_order_stage_event_mutation()`,
+    ],
+  },
+  {
+    // Task 根创建也必须抗重放；不能依赖历史 tickets.input 的 TEXT/JSONB
+    // 物理表示来查找幂等键。
+    id: "20261004_task_root_command_receipts",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS task_root_command_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        requester_user_id TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        response_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    ],
+  },
+  {
+    // 模板发布是自动化的前置治理动作；命令回执独立于具体 Task / Work
+    // Order，确保浏览器重试不会生成第二个模板版本或重复退役已发布版本。
+    id: "20261004_work_order_template_command_receipts",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS work_order_template_command_receipts (
+        idempotency_key TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES work_order_templates(id) ON DELETE RESTRICT,
+        actor_ref TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        command TEXT NOT NULL,
+        response_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    ],
+  },
+  {
+    // 发布模板本身不足以产生副作用。每个模板版本还需要独立的 A1/A2
+    // execution release，且所有执行尝试、创建结果和后续通知 outbox 都
+    // 保留在 PostgreSQL 的同一事务内。
+    id: "20261004_work_order_execution_releases",
+    statements: [
+      `ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS decision_id UUID REFERENCES work_order_decisions(id) ON DELETE RESTRICT`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS work_orders_decision_unique_idx ON work_orders(decision_id) WHERE decision_id IS NOT NULL",
+      `CREATE TABLE IF NOT EXISTS work_order_automation_releases (
+        template_id TEXT PRIMARY KEY REFERENCES work_order_templates(id) ON DELETE RESTRICT,
+        automation_level TEXT NOT NULL CHECK (automation_level IN ('A1','A2')),
+        status TEXT NOT NULL CHECK (status IN ('enabled','disabled')),
+        minimum_confidence NUMERIC(5,4) NOT NULL DEFAULT 0.9000 CHECK (minimum_confidence >= 0 AND minimum_confidence <= 1),
+        routing_policy_code TEXT,
+        enabled_by TEXT REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        enabled_at TIMESTAMPTZ,
+        disabled_by TEXT REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        disabled_at TIMESTAMPTZ,
+        reason TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      `CREATE TABLE IF NOT EXISTS work_order_execution_attempts (
+        id TEXT PRIMARY KEY,
+        decision_id UUID NOT NULL REFERENCES work_order_decisions(id) ON DELETE RESTRICT,
+        work_order_id TEXT REFERENCES work_orders(id) ON DELETE RESTRICT,
+        actor_ref TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        execution_mode TEXT NOT NULL CHECK (execution_mode IN ('automatic','operator_replay')),
+        status TEXT NOT NULL CHECK (status IN ('created','skipped','failed')),
+        reason_code TEXT,
+        receipt_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_execution_attempts_decision_idx ON work_order_execution_attempts(decision_id,created_at DESC)",
+      `CREATE TABLE IF NOT EXISTS work_order_outbox (
+        id TEXT PRIMARY KEY,
+        work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE RESTRICT,
+        decision_id UUID NOT NULL REFERENCES work_order_decisions(id) ON DELETE RESTRICT,
+        event_type TEXT NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','published','failed')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        published_at TIMESTAMPTZ,
+        last_error TEXT
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_outbox_ready_idx ON work_order_outbox(status,created_at)",
+    ],
+  },
+  {
+    id: "20261004_work_order_automation_release_events",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS work_order_automation_release_events (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES work_order_templates(id) ON DELETE RESTRICT,
+        action TEXT NOT NULL CHECK (action IN ('enabled','disabled')),
+        prior_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        current_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        actor_ref TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        reason TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      `CREATE OR REPLACE FUNCTION prevent_work_order_release_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'work order automation release events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS work_order_release_events_no_mutation ON work_order_automation_release_events",
+      `CREATE TRIGGER work_order_release_events_no_mutation
+       BEFORE UPDATE OR DELETE ON work_order_automation_release_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_work_order_release_event_mutation()`,
+    ],
+  },
+  {
+    id: "20261004_work_order_verified_events",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS work_order_verified_events (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE RESTRICT,
+        source_system TEXT NOT NULL,
+        source_event_id TEXT NOT NULL,
+        source_version TEXT NOT NULL DEFAULT '',
+        event_type TEXT NOT NULL,
+        occurred_at TIMESTAMPTZ NOT NULL,
+        summary TEXT NOT NULL,
+        evidence_ref TEXT NOT NULL,
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        verified_by TEXT NOT NULL REFERENCES ticket_accounts(id) ON DELETE RESTRICT,
+        verified_at TIMESTAMPTZ NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(task_id,source_system,source_event_id,source_version)
+      )`,
+      "CREATE INDEX IF NOT EXISTS work_order_verified_events_task_idx ON work_order_verified_events(task_id,occurred_at DESC,id DESC)",
+      `CREATE OR REPLACE FUNCTION prevent_work_order_verified_event_mutation()
+       RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'work order verified events are immutable'; END; $$ LANGUAGE plpgsql`,
+      "DROP TRIGGER IF EXISTS work_order_verified_events_no_mutation ON work_order_verified_events",
+      `CREATE TRIGGER work_order_verified_events_no_mutation
+       BEFORE UPDATE OR DELETE ON work_order_verified_events
+       FOR EACH ROW EXECUTE FUNCTION prevent_work_order_verified_event_mutation()`,
+    ],
+  },
+  {
+    // A3 与 A1/A2 一样必须经过模板版本级的显式 release；A3 仅用于
+    // 已发布策略指定、证据可复核的阶段写入，绝不放宽 L3 的人工边界。
+    id: "20261004_work_order_a3_stage_releases",
+    statements: [
+      "ALTER TABLE work_order_automation_releases DROP CONSTRAINT IF EXISTS work_order_automation_releases_automation_level_check",
+      `ALTER TABLE work_order_automation_releases
+       ADD CONSTRAINT work_order_automation_releases_automation_level_check
+       CHECK (automation_level IN ('A1','A2','A3'))`,
+    ],
+  },
 ];
 
+const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
+if (onlyMigration && !migrations.some((migration) => migration.id === onlyMigration)) throw new Error("Unknown migration selection");
 const client = new Client({ connectionString: databaseUrl });
 await client.connect();
 try {
@@ -736,6 +1072,7 @@ try {
       "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'app_schema_migrations'",
     )).rows[0]?.n || 0,
   ) === 0;
+  if (empty && onlyMigration) throw new Error("Selective migration requires an initialized database");
   if (empty) await client.query(baselineSql);
   await client.query(`CREATE TABLE IF NOT EXISTS app_schema_migrations (
     id TEXT PRIMARY KEY,
@@ -759,6 +1096,7 @@ try {
     completed.push(BASELINE_ID);
   }
   for (const migration of migrations) {
+    if (onlyMigration && migration.id !== onlyMigration) continue;
     // DDL is idempotent even if a prior deploy created the table before this
     // ledger existed. Recording it prevents future release restarts from
     // executing non-idempotent migrations accidentally.

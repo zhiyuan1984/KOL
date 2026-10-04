@@ -84,35 +84,6 @@ export function parseKolClawMcpConfig(text: string): { url?: string; token?: str
   return parseMediaCrawlerConfigMarkdown(text);
 }
 
-function mediaCrawlerMarkdownCandidates(): string[] {
-  const explicit = process.env.MEDIACRAWLER_MCP_CONFIG_FILE?.trim();
-  const rootFile = path.join(REPO_ROOT, "mcp_server.md");
-  const cursorUploads = path.join(
-    os.homedir(),
-    ".cursor",
-    "projects",
-    path.basename(REPO_ROOT),
-    "uploads",
-  );
-  const uploaded = fs.existsSync(cursorUploads)
-    ? fs.readdirSync(cursorUploads)
-      .filter((name) => /^mcp_server.*\.md$/i.test(name))
-      .map((name) => path.join(cursorUploads, name))
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
-    : [];
-  return [explicit, rootFile, ...uploaded].filter((value): value is string => Boolean(value));
-}
-
-if (!process.env.MEDIACRAWLER_MCP_URL?.trim() || !process.env.MEDIACRAWLER_MCP_TOKEN?.trim()) {
-  for (const candidate of mediaCrawlerMarkdownCandidates()) {
-    if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) continue;
-    const parsed = parseMediaCrawlerConfigMarkdown(fs.readFileSync(candidate, "utf8"));
-    if (!process.env.MEDIACRAWLER_MCP_URL?.trim() && parsed.url) process.env.MEDIACRAWLER_MCP_URL = parsed.url;
-    if (!process.env.MEDIACRAWLER_MCP_TOKEN?.trim() && parsed.token) process.env.MEDIACRAWLER_MCP_TOKEN = parsed.token;
-    if (process.env.MEDIACRAWLER_MCP_URL?.trim() && process.env.MEDIACRAWLER_MCP_TOKEN?.trim()) break;
-  }
-}
-
 function kolClawConfigCandidates(): string[] {
   const explicit = process.env.KOLCLAW_MCP_CONFIG_FILE?.trim();
   const rootFiles = ["mcp_kolclaw.json", "kol-claw.json", "mcp.json"].map((name) => path.join(REPO_ROOT, name));
@@ -195,23 +166,6 @@ export function clawBaseUrl(): string {
 export function clawApiKey(): string {
   return process.env.CLAW_API_KEY || "demo-claw-key";
 }
-
-export function mediaCrawlerMcpUrl(): string {
-  const value = process.env.MEDIACRAWLER_MCP_URL?.trim();
-  if (!value) throw new Error("MEDIACRAWLER_MCP_URL is required for remote Claw MCP");
-  return value;
-}
-
-/**
- * Cheap credential presence check (URL + token only).
- * This is NOT the employee 「已配置」 signal — that requires a live probe
- * (`probeMediaCrawlerConnection` / GET /api/discovery/connection).
- */
-export function mediaCrawlerConfigured(): boolean {
-  return Boolean(process.env.MEDIACRAWLER_MCP_URL?.trim() && process.env.MEDIACRAWLER_MCP_TOKEN?.trim());
-}
-
-export const mediaCrawlerCredentialsPresent = mediaCrawlerConfigured;
 
 export function kolClawMcpUrl(): string {
   const value = process.env.KOLCLAW_MCP_URL?.trim();

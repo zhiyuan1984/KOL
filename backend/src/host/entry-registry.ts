@@ -334,7 +334,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/mail/box · GET /api/mail/conversations",
+    route: "GET /api/queries/mail.box · GET /api/queries/mail.conversations",
   },
   {
     id: "open-mail-thread",
@@ -343,7 +343,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/mail/conversations/:id",
+    route: "GET /api/queries/mail.conversation?id=:id",
   },
   {
     id: "mail-compose-catalog",
@@ -352,7 +352,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/mail/compose-catalog",
+    route: "GET /api/queries/mail.compose-catalog",
   },
   {
     id: "sync-mailbox-mail",
@@ -361,7 +361,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "POST /api/mail/sync",
+    route: "POST /api/jobs/mail.sync/start",
   },
   {
     id: "run-mail-summary",
@@ -370,7 +370,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: true,
-    route: "POST /api/mail/skills/mail_summary/run",
+    route: "POST /api/skills/mail_summary/execute",
   },
   {
     id: "run-mail-translate",
@@ -379,7 +379,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: true,
-    route: "POST /api/mail/skills/mail_translate/run",
+    route: "POST /api/skills/mail_translate/execute",
   },
   {
     id: "confirm-send",

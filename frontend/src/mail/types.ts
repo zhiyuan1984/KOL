@@ -1,11 +1,11 @@
-/** Formal FE contract for kol PR #177 `/api/mail`. Do not send legacy mailbox filter strings. */
+/** Formal FE contract for kol PR #177 registered mail queries. Do not send legacy mailbox filter strings. */
 
 export type MailMatchState = "matched" | "unbound" | "deferred" | "ignored";
 export type MailDigestSource = "codex_memory" | "luna" | "openai" | "body_analysis" | "analysis_failed";
 export type MailDirection = "inbound" | "outbound";
 export type MailDataSource = "api" | "fallback";
 
-/** One mailbox binding chip on GET /api/mail/box (extended shape). Brand/region stay bound to the mailbox chip only. */
+/** One mailbox binding chip on GET /api/queries/mail.box (extended shape). Brand/region stay bound to the mailbox chip only. */
 export type MailBoxBinding = {
   mailbox: string;
   label?: string;
@@ -18,7 +18,7 @@ export type MailBoxBinding = {
   error: string | null;
 };
 
-/** GET /api/mail/box — MailBoxStatus + memory envelope. owner_name is display-only decorate. */
+/** GET /api/queries/mail.box — MailBoxStatus + memory envelope. owner_name is display-only decorate. */
 export type MailBox = {
   mailbox: string;
   bound: boolean;
@@ -33,7 +33,7 @@ export type MailBox = {
   total_unread?: number;
 };
 
-/** GET /api/mail/conversations[] — ConversationRow */
+/** GET /api/queries/mail.conversations[] — ConversationRow */
 export type MailConversation = {
   id: string;
   mailbox: string;
@@ -56,7 +56,7 @@ export type MailConversation = {
   handle?: string;
 };
 
-/** GET /api/mail/conversations/:id messages[] — MessageRow */
+/** GET /api/queries/mail.conversation?id=:id messages[] — MessageRow */
 export type MailMessage = {
   id: string;
   conversation_id: string;
@@ -111,8 +111,9 @@ export type MailThread = {
   hydrating?: boolean;
 };
 
-/** POST /api/mail/sync — SyncReceipt + command envelope */
+/** POST /api/jobs/mail.sync/start — SyncReceipt + command envelope */
 export type MailSyncReceipt = {
+  job_id?: string;
   ok: boolean;
   mailbox?: string;
   listed?: number;
@@ -125,7 +126,7 @@ export type MailSyncReceipt = {
 };
 
 /**
- * GET /api/mail/compose-catalog letters[] — one row per published stage letter of
+ * GET /api/queries/mail.compose-catalog letters[] — one row per published stage letter of
  * the email_compose contract. Copy (chip/prompt) and order come from the contract;
  * the page must not re-invent a label.
  */

@@ -92,9 +92,13 @@ export function isStarryKolReadTask(value: string | null | undefined): boolean {
   return isStarryKolTask(value) && !isStarryKolWriteTask(value);
 }
 
-type StarryKolClient = ReturnType<typeof createManagedClient>;
+type StarryKolClient = Pick<ReturnType<typeof createManagedClient>, "callTool" | "close">;
 let clientFactory: (() => StarryKolClient) | null = null;
 const callScope = new AsyncLocalStorage<{ credentialAccountId?: string }>();
+
+export function withStarryCredential<T>(credentialAccountId: string, action: () => T): T {
+  return callScope.run({ credentialAccountId }, action);
+}
 
 export function setStarryKolClientFactory(factory?: () => StarryKolClient): void {
   if (factory && process.env.NODE_ENV !== "test") throw new Error("Starry client fixtures are test-only");
