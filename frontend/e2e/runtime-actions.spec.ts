@@ -199,10 +199,13 @@ test("shows exact pending scope, confirms once, and restores the receipt after r
   await expect(actions).toContainText("camping");
   expect(confirmations).toBe(0);
   await actions.getByRole("button", { name: "确认执行以上内容" }).click();
-  await expect(actions).toContainText("已取得回执");
+  await expect(actions).toContainText("采集请求已提交");
+  await expect(actions.getByText("查看回执", { exact: true })).toBeVisible();
   expect(confirmations).toBe(1);
   await page.reload();
-  await expect(page.locator("[data-runtime-actions]")).toContainText("已取得回执");
+  await expect(page.locator("[data-runtime-actions]")).toContainText("采集请求已提交");
+  await page.getByText("查看回执", { exact: true }).click();
+  await expect(page.locator("[data-runtime-actions] pre")).toContainText('"task_id": "task_ui_test"');
   await expect(page.getByRole("button", { name: "确认执行以上内容" })).toHaveCount(0);
   expect(confirmations).toBe(1);
 });
