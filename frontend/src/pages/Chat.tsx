@@ -768,7 +768,14 @@ export default function Chat() {
     const pane = streamRef.current;
     if (!pane) return;
     streamStickBottomRef.current = streamAtBottom(pane);
-    setStreamPosition({ scrollable: pane.scrollHeight > pane.clientHeight + 1, atBottom: streamAtBottom(pane) });
+    const scrollable = pane.scrollHeight > pane.clientHeight + 1;
+    const atBottom = streamAtBottom(pane);
+    // Timeline projections may be rebuilt on render. Do not schedule another
+    // render when the measured scroll position is unchanged: that loop can
+    // keep a pending route transition from committing.
+    setStreamPosition(current => current.scrollable === scrollable && current.atBottom === atBottom
+      ? current
+      : { scrollable, atBottom });
   };
   useEffect(() => {
     const pane = streamRef.current;
