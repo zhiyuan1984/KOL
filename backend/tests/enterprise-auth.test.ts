@@ -316,6 +316,22 @@ describe("production account and enterprise controls", () => {
     expect((await call("GET", "/api/admin/organization-people", undefined, cookie)).response.status).toBe(403);
   });
 
+  it("returns the session payload's linked employee avatar from the organization person table", async () => {
+    const me = await call("GET", "/api/me");
+    const adminId = String(me.json.id || "");
+    expect(adminId).not.toBe("");
+    expect(me.json.avatar_url).toBeNull();
+    const db = getConn();
+    try {
+      db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?")
+        .run(adminId, "person:ye_guanwang");
+      const linked = await call("GET", "/api/me");
+      expect(linked.json.avatar_url).toBe("/avatars/employees/ye_guanwang.png");
+    } finally {
+      db.prepare("UPDATE organization_people SET user_id = NULL WHERE person_ref = ?").run("person:ye_guanwang");
+    }
+  });
+
   it("updates profile and password, invalidating old sessions", async () => {
     const profile = await call("PATCH", "/api/me", { name: "Renamed Admin", email: "admin@example.com" });
     expect(profile.json).toMatchObject({ name: "Renamed Admin", email: "admin@example.com" });

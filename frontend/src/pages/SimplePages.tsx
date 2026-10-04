@@ -133,7 +133,7 @@ export function Admin() {
       </div>
       <div className="panel">
         <h3>智能体能力域</h3>
-        <p className="muted">治理入口在 <Link to="/admin/agents">数字员工治理</Link>。下面仍是只读能力域声明。</p>
+        <p className="muted">治理入口在 <Link to="/admin/agents">Agent</Link>。下面仍是只读能力域声明。</p>
         <p className="muted">对外可称智能体；对内共用同一套运行环境，不是多套系统。</p>
         {(data?.profiles || []).map((profile) => (
           <div key={profile.id} data-profile={profile.id} style={{ marginTop: 12 }}>
