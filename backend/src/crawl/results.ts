@@ -7,6 +7,7 @@ import { registerExecutionHandler } from "../execution-jobs/handlers.js";
 import type { Json } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import type { PoolClient } from "pg";
+import { followerEvidence } from "./candidate-evidence.js";
 
 export async function enqueueCrawlResults(id: string, actor: string, attempt = "initial", client?: PoolClient): Promise<void> {
   await pgEnqueueExecutionJob({ job_type: "crawler.results", tenant_ref: "runtime", actor_ref: actor,
@@ -27,6 +28,7 @@ export function candidateView(value: Json, platform: string): Json {
   return { id: String(value.platform_creator_id || value.creator_id || value.user_id || value.id || ""),
     name: String(value.nickname || value.name || value.handle || "未提供名称"), platform, source_url: url,
     followers: number(value.followers ?? value.follower_count ?? value.fans),
+    followers_evidence: followerEvidence(value.followers_evidence),
     avg_views_10: recent.length === 10 && recent.every(v => v !== null) ? recent.reduce<number>((sum, v) => sum + v!, 0) / 10 : null,
     sampled_views_count: samples.length,
     sampled_views_avg: samples.length && samples.every(v => v !== null) ? samples.reduce<number>((sum, v) => sum + v!, 0) / samples.length : null,

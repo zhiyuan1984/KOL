@@ -1,0 +1,527 @@
+{
+  "schema": "tcw_p1_quality_acceptance/v1",
+  "captured_at": "2026-10-04T15:05:51.72Z",
+  "environment": "Isolated PostgreSQL and application code; existing MediaCrawler; real Codex harness; native durable dispatcher by ID; no production BullMQ/browser acceptance",
+  "authorization": "Two sequential YouTube searches: camping/max_notes_count=5, tcw-empty-20261004-6f13e3/max_notes_count=1; comments and subcomments false; read and analyze only; own-task cancel allowed; no import/email",
+  "patch": {
+    "mode": "apply",
+    "changed_files": [
+      "media_platform/youtube/help.py",
+      "media_platform/youtube/client.py",
+      "media_platform/youtube/core.py",
+      "tools/standard_creator_writer.py"
+    ],
+    "before_sha256": {
+      "media_platform/youtube/help.py": "8a94e7defdeffe9d1bc8007354d830f0958ebfa8f45659d9944d38bfd51e5157",
+      "media_platform/youtube/client.py": "450868bc15b50d734e5ec034f717efdf7a5e310bff4c89e76c0490f108da1fb9",
+      "media_platform/youtube/core.py": "b34db02908703cc0937886793c37da4a20a4f841cfcf5325c9a5a6531693732a",
+      "tools/standard_creator_writer.py": "4eae5ee31fe49b45982bc8e1227b82d2bb8401c6b91613a1c997588f6f438bf0"
+    },
+    "after_sha256": {
+      "media_platform/youtube/help.py": "4b83822ea5b29891f792bf2b79599880fb29c0dcbdb3319df15aa8f146d97f6b",
+      "media_platform/youtube/client.py": "bb64f2f9030a04c0a566509bbe8a35fac5fc58f5f17615ae685b1c7a9bfa73a8",
+      "media_platform/youtube/core.py": "6ebd5ac033fba3253bed28633193f02788ff9b6cdc5edefaf3b4b88cf06c8907",
+      "tools/standard_creator_writer.py": "10a24d44c197d640936c84127d012637bacac8f31db4a58d3ab6b6adcdf6782f"
+    }
+  },
+  "cases": [
+    {
+      "case": "camping",
+      "task_id": "20261004225930_1bd97319",
+      "scope": {
+        "keywords": "camping",
+        "platforms": [
+          "youtube"
+        ],
+        "crawler_type": "search",
+        "enable_comments": false,
+        "max_notes_count": 5,
+        "enable_sub_comments": false
+      },
+      "state": "succeeded",
+      "result_state": "ready",
+      "result_error": null,
+      "status": {
+        "status": "idle",
+        "task_id": "20261004225930_1bd97319",
+        "platform": "youtube",
+        "platforms": [
+          "youtube"
+        ],
+        "started_at": "2026-10-04T22:59:30.778179",
+        "crawler_type": "search",
+        "idle_seconds": 4,
+        "error_message": null,
+        "last_activity_at": "2026-10-04T23:00:36.827005",
+        "idle_timeout_seconds": 300,
+        "task_elapsed_seconds": 70,
+        "task_timeout_seconds": 1800
+      },
+      "result": {
+        "total": 4,
+        "schema": "crawl_candidates/v1",
+        "task_id": "20261004225930_1bd97319",
+        "complete": true,
+        "platform": "youtube",
+        "candidates": [
+          {
+            "id": "UCOtCKIoHcQvBl1GzRo7Z2SA",
+            "name": "Go4x4",
+            "region": "Australia",
+            "platform": "youtube",
+            "followers": 1940000,
+            "source_url": "https://www.youtube.com/channel/UCOtCKIoHcQvBl1GzRo7Z2SA",
+            "avg_views_10": null,
+            "sampled_views_avg": 62698,
+            "followers_evidence": {
+              "state": "source_recorded",
+              "raw_text": "@go4x4media•1.94M subscribers•207 videos",
+              "captured_at": "2026-10-04T14:59:48.225Z",
+              "source_field": "dom.subscriberText",
+              "parser_version": "youtube-subscribers/v1"
+            },
+            "sampled_views_count": 1
+          },
+          {
+            "id": "UCFxun9rfdywpAYeI2nMNEwA",
+            "name": "treebud",
+            "region": "Malaysia",
+            "platform": "youtube",
+            "followers": 82800,
+            "source_url": "https://www.youtube.com/channel/UCFxun9rfdywpAYeI2nMNEwA",
+            "avg_views_10": null,
+            "sampled_views_avg": 60065,
+            "followers_evidence": {
+              "state": "source_recorded",
+              "raw_text": "@treebud139•82.8K subscribers•146 videos",
+              "captured_at": "2026-10-04T15:00:03.92Z",
+              "source_field": "dom.subscriberText",
+              "parser_version": "youtube-subscribers/v1"
+            },
+            "sampled_views_count": 1
+          },
+          {
+            "id": "UCT6fVez_0DmaZ_WDaRhUw2A",
+            "name": "Baum Outdoors",
+            "region": "United States",
+            "platform": "youtube",
+            "followers": 281000,
+            "source_url": "https://www.youtube.com/channel/UCT6fVez_0DmaZ_WDaRhUw2A",
+            "avg_views_10": null,
+            "sampled_views_avg": 20763,
+            "followers_evidence": {
+              "state": "source_recorded",
+              "raw_text": "@BaumOutdoors•281K subscribers•256 videos",
+              "captured_at": "2026-10-04T15:00:17.061Z",
+              "source_field": "dom.subscriberText",
+              "parser_version": "youtube-subscribers/v1"
+            },
+            "sampled_views_count": 1
+          },
+          {
+            "id": "UCC8U0I2nDZInYMZKR_F2ROg",
+            "name": "Weekend Sidequest",
+            "region": null,
+            "platform": "youtube",
+            "followers": 13700,
+            "source_url": "https://www.youtube.com/channel/UCC8U0I2nDZInYMZKR_F2ROg",
+            "avg_views_10": null,
+            "sampled_views_avg": 28002,
+            "followers_evidence": {
+              "state": "source_recorded",
+              "raw_text": "@weekendsidequest•13.7K subscribers•68 videos",
+              "captured_at": "2026-10-04T15:00:29.032Z",
+              "source_field": "dom.subscriberText",
+              "parser_version": "youtube-subscribers/v1"
+            },
+            "sampled_views_count": 1
+          }
+        ],
+        "captured_at": "2026-10-04T15:00:44.371Z",
+        "collection_state": "succeeded"
+      },
+      "proposal": {
+        "status": "done",
+        "thread_id": "01a1076c-df53-7400-bdaa-e490c6b97246",
+        "final_brief": {
+          "type": "task_result",
+          "title": "采集提案已提出",
+          "summary": "唯一采集提案已进入待确认状态，尚未执行。",
+          "sections": [
+            {
+              "title": "提案参数",
+              "body": "{\"platforms\":[\"youtube\"],\"crawler_type\":\"search\",\"keywords\":\"camping\",\"max_notes_count\":5,\"enable_comments\":false,\"enable_sub_comments\":false}",
+              "items": []
+            }
+          ],
+          "metrics": [],
+          "recommended_actions": [
+            "请在平台待确认动作中核对并决定是否确认。"
+          ]
+        },
+        "model": [
+          {
+            "method": "profile/select",
+            "params": {
+              "id": "lead",
+              "name": "Lead",
+              "harness": "codex-app-server"
+            }
+          },
+          {
+            "method": "model/tier",
+            "params": {
+              "tier": "balanced",
+              "effort": "medium"
+            }
+          }
+        ]
+      },
+      "analysis": {
+        "status": "done",
+        "thread_id": "01a1076f-935f-7b91-8162-5fddd47c8123",
+        "final_brief": {
+          "type": "task_result",
+          "title": "YouTube 候选简报｜任务 20261004225930_1bd97319",
+          "summary": "权威任务结果非空：任务终态日志显示成功，隔离结果共4名候选，结果完整且未截断。发现条件为北美（na）、关键词 camping、订阅数100–2,000,000、最近10条均播≥100、期望5名；实际少1名。现有证据不足以确认任何候选完全符合全部条件。",
+          "sections": [
+            {
+              "title": "候选核对",
+              "body": "1. Go4x4｜记录地区：Australia，与北美条件不符；订阅数1,940,000，符合区间。订阅数原文“@go4x4media•1.94M subscribers•207 videos”，来源字段 dom.subscriberText，采集时间2026-10-04T14:59:48.225Z，解析器 youtube-subscribers/v1。仅采集1条播放样本62,698，不能核验最近10条均播。\n\n2. treebud｜记录地区：Malaysia，与北美条件不符；订阅数82,800，符合区间。原文“@treebud139•82.8K subscribers•146 videos”，来源字段 dom.subscriberText，采集时间2026-10-04T15:00:03.920Z，解析器 youtube-subscribers/v1。仅采集1条播放样本60,065，不能核验最近10条均播。\n\n3. Baum Outdoors｜记录地区：United States，按记录值符合北美条件；订阅数281,000，符合区间。原文“@BaumOutdoors•281K subscribers•256 videos”，来源字段 dom.subscriberText，采集时间2026-10-04T15:00:17.061Z，解析器 youtube-subscribers/v1。仅采集1条播放样本20,763，不能核验最近10条均播。\n\n4. Weekend Sidequest｜地区缺失，无法核验北美条件；订阅数13,700，符合区间。原文“@weekendsidequest•13.7K subscribers•68 videos”，来源字段 dom.subscriberText，采集时间2026-10-04T15:00:29.032Z，解析器 youtube-subscribers/v1。仅采集1条播放样本28,002，不能核验最近10条均播。",
+              "items": []
+            },
+            {
+              "title": "证据缺口与条件差距",
+              "body": "方向条件为空，未定义可判定口径；由关键词 camping 搜到不等于频道方向已核验。前三名虽有地区记录，但快照没有地区来源证据，不能视为独立核验；第四名地区为空。全部候选的 avg_views_10 均为 null，每人仅有1条采集样本，样本播放量不能替代最近10条均播。订阅数证据状态均为 source_recorded，表示保留了采集来源，并非正式档案或人工复核。",
+              "items": []
+            }
+          ],
+          "metrics": [
+            {
+              "label": "权威候选数",
+              "value": "4",
+              "detail": "任务隔离结果 total=4"
+            },
+            {
+              "label": "期望人数差距",
+              "value": "少1名",
+              "detail": "期望5名，已有4名"
+            },
+            {
+              "label": "订阅数区间",
+              "value": "4/4按来源记录符合",
+              "detail": "门槛100–2,000,000"
+            },
+            {
+              "label": "北美条件",
+              "value": "1名记录匹配",
+              "detail": "Baum Outdoors记录为United States；其余2名不符、1名未知"
+            },
+            {
+              "label": "最近10条均播",
+              "value": "0/4可核验",
+              "detail": "全部avg_views_10为空"
+            }
+          ],
+          "recommended_actions": []
+        },
+        "model": [
+          {
+            "method": "profile/select",
+            "params": {
+              "id": "lead",
+              "name": "Lead",
+              "harness": "codex-app-server"
+            }
+          },
+          {
+            "method": "model/tier",
+            "params": {
+              "tier": "balanced",
+              "effort": "medium"
+            }
+          }
+        ]
+      },
+      "source_files": [
+        {
+          "name": "search_kol_creators_20261004225930_1bd97319_camping_349cffd6_2026-10-04.json",
+          "sha256": "c2e3c96b39223d9da1cd20152eb53e1fdf00c8a84e90202deaf20496852373a9",
+          "valid_json": true,
+          "rows": 4,
+          "candidates": [
+            {
+              "id": "UCOtCKIoHcQvBl1GzRo7Z2SA",
+              "followers": 1940000,
+              "followers_evidence": {
+                "raw_text": "@go4x4media•1.94M subscribers•207 videos",
+                "source_field": "dom.subscriberText",
+                "captured_at": "2026-10-04T22:59:48.22513+08:00",
+                "parser_version": "youtube-subscribers/v1",
+                "state": "source_recorded"
+              }
+            },
+            {
+              "id": "UCFxun9rfdywpAYeI2nMNEwA",
+              "followers": 82800,
+              "followers_evidence": {
+                "raw_text": "@treebud139•82.8K subscribers•146 videos",
+                "source_field": "dom.subscriberText",
+                "captured_at": "2026-10-04T23:00:03.920314+08:00",
+                "parser_version": "youtube-subscribers/v1",
+                "state": "source_recorded"
+              }
+            },
+            {
+              "id": "UCT6fVez_0DmaZ_WDaRhUw2A",
+              "followers": 281000,
+              "followers_evidence": {
+                "raw_text": "@BaumOutdoors•281K subscribers•256 videos",
+                "source_field": "dom.subscriberText",
+                "captured_at": "2026-10-04T23:00:17.061603+08:00",
+                "parser_version": "youtube-subscribers/v1",
+                "state": "source_recorded"
+              }
+            },
+            {
+              "id": "UCC8U0I2nDZInYMZKR_F2ROg",
+              "followers": 13700,
+              "followers_evidence": {
+                "raw_text": "@weekendsidequest•13.7K subscribers•68 videos",
+                "source_field": "dom.subscriberText",
+                "captured_at": "2026-10-04T23:00:29.032965+08:00",
+                "parser_version": "youtube-subscribers/v1",
+                "state": "source_recorded"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "empty",
+      "task_id": "20261004230329_b608c240",
+      "scope": {
+        "keywords": "tcw-empty-20261004-6f13e3",
+        "platforms": [
+          "youtube"
+        ],
+        "crawler_type": "search",
+        "enable_comments": false,
+        "max_notes_count": 1,
+        "enable_sub_comments": false
+      },
+      "state": "succeeded",
+      "result_state": "ready",
+      "result_error": null,
+      "status": {
+        "status": "idle",
+        "task_id": "20261004230329_b608c240",
+        "platform": "youtube",
+        "platforms": [
+          "youtube"
+        ],
+        "started_at": "2026-10-04T23:03:29.807248",
+        "crawler_type": "search",
+        "idle_seconds": 6,
+        "error_message": null,
+        "last_activity_at": "2026-10-04T23:03:51.640473",
+        "idle_timeout_seconds": 300,
+        "task_elapsed_seconds": 28,
+        "task_timeout_seconds": 1800
+      },
+      "result": {
+        "total": 1,
+        "schema": "crawl_candidates/v1",
+        "task_id": "20261004230329_b608c240",
+        "complete": true,
+        "platform": "youtube",
+        "candidates": [
+          {
+            "id": "UC5gAIX0XD0aynfA2PsOxXmg",
+            "name": "InterGlobix Magazine",
+            "region": "United States",
+            "platform": "youtube",
+            "followers": 1580,
+            "source_url": "https://www.youtube.com/channel/UC5gAIX0XD0aynfA2PsOxXmg",
+            "avg_views_10": null,
+            "sampled_views_avg": 9,
+            "followers_evidence": {
+              "state": "source_recorded",
+              "raw_text": "@InterGlobixMagazine•1.58K subscribers•157 videos",
+              "captured_at": "2026-10-04T15:03:44.933Z",
+              "source_field": "dom.subscriberText",
+              "parser_version": "youtube-subscribers/v1"
+            },
+            "sampled_views_count": 1
+          }
+        ],
+        "captured_at": "2026-10-04T15:04:01.001Z",
+        "collection_state": "succeeded"
+      },
+      "proposal": {
+        "status": "done",
+        "thread_id": "01a10770-5b9e-7402-b5b8-c41d9432220f",
+        "final_brief": {
+          "type": "task_result",
+          "title": "采集提案已提交",
+          "summary": "操作尚未执行，正等待用户在确认卡中核对并确认。未启动其他采集，未导入，未发信。",
+          "sections": [
+            {
+              "title": "提案参数",
+              "body": "{\"platforms\":[\"youtube\"],\"crawler_type\":\"search\",\"keywords\":\"tcw-empty-20261004-6f13e3\",\"max_notes_count\":1,\"enable_comments\":false,\"enable_sub_comments\":false}",
+              "items": []
+            }
+          ],
+          "metrics": [],
+          "recommended_actions": [
+            "在平台待确认动作中核对参数。"
+          ]
+        },
+        "model": [
+          {
+            "method": "profile/select",
+            "params": {
+              "id": "lead",
+              "name": "Lead",
+              "harness": "codex-app-server"
+            }
+          },
+          {
+            "method": "model/tier",
+            "params": {
+              "tier": "balanced",
+              "effort": "medium"
+            }
+          }
+        ]
+      },
+      "analysis": {
+        "status": "done",
+        "thread_id": "01a10772-0288-7613-92e3-5164037d5270",
+        "final_brief": {
+          "type": "task_result",
+          "title": "任务 20261004230329_b608c240 候选简报",
+          "summary": "权威隔离结果读取成功，共1名候选；结果完整且无截断。该候选订阅数符合门槛，但地区证据、内容方向及最近10条均播不足，暂不能判定为完全合格推荐。",
+          "sections": [
+            {
+              "title": "候选",
+              "body": "InterGlobix Magazine｜YouTube｜https://www.youtube.com/channel/UC5gAIX0XD0aynfA2PsOxXmg",
+              "items": [
+                "订阅数原文：@InterGlobixMagazine•1.58K subscribers•157 videos",
+                "来源：dom.subscriberText；采集时间 2026-10-04T15:03:44.933Z；解析器 youtube-subscribers/v1；状态 source_recorded（仅表示保留采集来源，非人工核验）",
+                "解析订阅数：1,580；符合100–2,000,000门槛",
+                "地区：结果字段为 United States，符合北美字面范围，但缺少地区来源证据，无法独立核验",
+                "方向：发现条件未设置方向，快照也无内容方向证据，无法评估方向匹配",
+                "最近10条均播：未提供，无法核验是否达到≥100",
+                "采集样本：仅1条播放量9，样本均播9；这不是最近10条均播。若仅作提示，较门槛低91，但不能据此判定最近10条均播不达标"
+              ]
+            },
+            {
+              "title": "条件结论",
+              "body": "平台匹配，订阅数门槛匹配；期望数量为1，原始候选数达到1，但因地区来源、方向和最近10条均播未充分核验，合格候选数仍无法确定。",
+              "items": []
+            }
+          ],
+          "metrics": [
+            {
+              "label": "权威候选数",
+              "value": "1",
+              "detail": "按 task_id 隔离读取成功"
+            },
+            {
+              "label": "结果完整性",
+              "value": "完整",
+              "detail": "result_complete=true，context_truncated=false"
+            },
+            {
+              "label": "可确认完全合格数",
+              "value": "0",
+              "detail": "关键条件证据不足，并非判定候选不合格"
+            }
+          ],
+          "recommended_actions": [
+            "如需后续处理，应先人工核验地区来源、内容方向及频道最近10条视频的平均播放量；本次未重新采集、未导入、未发信。"
+          ]
+        },
+        "model": [
+          {
+            "method": "profile/select",
+            "params": {
+              "id": "lead",
+              "name": "Lead",
+              "harness": "codex-app-server"
+            }
+          },
+          {
+            "method": "model/tier",
+            "params": {
+              "tier": "balanced",
+              "effort": "medium"
+            }
+          }
+        ]
+      },
+      "source_files": [
+        {
+          "name": "search_kol_creators_20261004230329_b608c240_tcw-empty-20261004-6f13e3_efc02d59_2026-10-04.json",
+          "sha256": "2302b0e76a4b5bb61f82a541bc2f19eca1068284daf57e864e61e915095d580e",
+          "valid_json": true,
+          "rows": 1,
+          "candidates": [
+            {
+              "id": "UC5gAIX0XD0aynfA2PsOxXmg",
+              "followers": 1580,
+              "followers_evidence": {
+                "raw_text": "@InterGlobixMagazine•1.58K subscribers•157 videos",
+                "source_field": "dom.subscriberText",
+                "captured_at": "2026-10-04T23:03:44.93375+08:00",
+                "parser_version": "youtube-subscribers/v1",
+                "state": "source_recorded"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "tool_name": "start_crawl",
+      "state": "succeeded",
+      "count": 2
+    }
+  ],
+  "jobs": [
+    {
+      "job_type": "crawler.results",
+      "status": "succeeded",
+      "count": 2
+    },
+    {
+      "job_type": "runtime.confirm",
+      "status": "succeeded",
+      "count": 2
+    },
+    {
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "count": 14
+    }
+  ],
+  "phase_complete": false,
+  "verification": {
+    "external_crawler_active_processes_after": 0,
+    "real_empty_result": "not_observed: second authorized search returned one real candidate",
+    "source_snapshot_match": true,
+    "isolated_connectors_disabled": true,
+    "normal_candidate_path": "passed",
+    "no_import_email": true,
+    "isolated_credentials_removed": true,
+    "analysis_created_no_new_actions": true,
+    "subscribers_source_preserved": true,
+    "production_active_crawls_after": 0,
+    "copied_master_key_removed": true,
+    "start_actions": 2
+  }
+}

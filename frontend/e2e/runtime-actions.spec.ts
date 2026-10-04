@@ -15,7 +15,7 @@ test("uses saved candidates for analysis and distinguishes sampled views from la
     crawl: { id: "candidate-action", remote_task_id: "scoped-crawl", state: "succeeded", result_state: "ready", result_json: {
       task_id: "scoped-crawl", captured_at: "2026-10-04T10:00:00Z", complete: true, candidates: [
         { id: "candidate-1", name: "测试候选", platform: "youtube", source_url: "https://www.youtube.com/channel/fixture",
-          followers: 1000, avg_views_10: null, region: null, sampled_views_count: 10, sampled_views_avg: 123 },
+          followers: 4, avg_views_10: null, region: null, sampled_views_count: 10, sampled_views_avg: 123 },
       ],
     } },
   }] } }));
@@ -29,6 +29,8 @@ test("uses saved candidates for analysis and distinguishes sampled views from la
   const results = page.locator("[data-discovery-results]");
   await expect(results).toContainText("采集样本 10 条");
   await expect(results).toContainText("近10条均播：数据不足，无法核验");
+  await expect(results).toContainText("粉丝：4 · 缺少可核验来源，暂不判定门槛");
+  await expect(results).not.toContainText("不符合当前门槛");
   await expect(results.getByRole("link", { name: "查看原始主页" })).toHaveAttribute("href", "https://www.youtube.com/channel/fixture");
   await page.screenshot({ path: testInfo.outputPath("discovery-candidates.png"), fullPage: true });
   await results.getByRole("button", { name: "让线索智能体分析候选" }).click();
