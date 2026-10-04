@@ -7,6 +7,7 @@ import { runtimeAction, type RuntimeAction } from "./action-store.js";
 import { runtimeActionGate, validateRuntimeToolScope } from "./action-gates.js";
 import type { Operation } from "./operations.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPublic } from "../execution-jobs/postgres-store.js";
+import { enqueueCrawlResults } from "../crawl/results.js";
 
 function actor(): string {
   const user = scopedUser();
@@ -18,7 +19,7 @@ async function view(action: RuntimeAction) {
   let blocked: string | null = null;
   try { if (action.state === "pending") await runtimeActionGate(action.connector_id, action.tool_name).validate(action.context_json, action.args_json); }
   catch { blocked = "此动作仍需业务范围或审批校验，请使用对应业务操作入口。"; }
-  const crawl = (await postgresPool().query(`SELECT id,remote_task_id,state,status_json,error_code FROM runtime_crawl_jobs
+  const crawl = (await postgresPool().query(`SELECT id,remote_task_id,state,status_json,error_code,result_state,result_json,result_error FROM runtime_crawl_jobs
     WHERE id=$1 AND actor_id=$2`, [action.id, action.actor_id])).rows[0] || null;
   const execution = (await postgresPool().query(`SELECT id,status,error_code FROM execution_jobs WHERE idempotency_key=$1 AND actor_ref=$2`,
     [`runtime-confirm:${action.id}`, action.actor_id])).rows[0] || null;
@@ -27,6 +28,15 @@ async function view(action: RuntimeAction) {
     blocked_reason: blocked, receipt: action.receipt_json, error_code: action.error_code, crawl, execution };
 }
 export const runtimeActionOperations: Operation[] = [
+  { id: "runtime.crawl.results.retry", kind: "action", async handle(c, input) {
+    const action = await runtimeAction(String(input.action_id || ""), actor());
+    authorizeConnector(action.context_json, action.connector_id);
+    const crawl = (await postgresPool().query("SELECT state,result_state FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2", [action.id, action.actor_id])).rows[0];
+    if (!crawl || !["succeeded", "cancelled"].includes(crawl.state) || !["failed", "partial"].includes(crawl.result_state)) throw new HttpFail(409, { code: "crawl_result_not_retryable" });
+    // Read-only recovery; retry a failed result read, never start another remote collection.
+    await enqueueCrawlResults(action.id, action.actor_id, `retry:${randomUUID()}`);
+    return c.json({ state: "queued" }, 202);
+  } },
   { id: "runtime.crawl.stop", kind: "action", async handle(c, input) {
     const action = await runtimeAction(String(input.action_id || ""), actor());
     const crawl = (await postgresPool().query("SELECT remote_task_id,state FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2", [action.id, action.actor_id])).rows[0];

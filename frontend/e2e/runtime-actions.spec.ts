@@ -1,16 +1,113 @@
 import { expect, test } from "@playwright/test";
 
-test("home discovery submits to the lead agent without calling the retired crawler entry", async ({ page }) => {
+test("uses saved candidates for analysis and distinguishes sampled views from latest ten", async ({ page, request }, testInfo) => {
+  const response = await request.post("/api/home/discovery/workspace", { data: {
+    request_id: `candidate-context-${Date.now()}`, text: "发现北美露营候选", brief: {
+      platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"],
+      min_followers: 100, max_followers: 20000, min_avg_plays_10: 100, expect_count: 10,
+    },
+  } });
+  expect(response.ok()).toBeTruthy();
+  const saved = await response.json();
+  await page.route("**/api/queries/runtime.actions?*", route => route.fulfill({ json: { actions: [{
+    id: "candidate-action", skill_id: "crawler_collect", operation: "start_crawl", arguments: { keywords: "camping" },
+    state: "succeeded", risk: "L3", confirmation_version: "reviewed", blocked_reason: null, receipt: { task_id: "scoped-crawl" },
+    crawl: { id: "candidate-action", remote_task_id: "scoped-crawl", state: "succeeded", result_state: "ready", result_json: {
+      task_id: "scoped-crawl", captured_at: "2026-10-04T10:00:00Z", complete: true, candidates: [
+        { id: "candidate-1", name: "测试候选", platform: "youtube", source_url: "https://www.youtube.com/channel/fixture",
+          followers: 1000, avg_views_10: null, region: null, sampled_views_count: 10, sampled_views_avg: 123 },
+      ],
+    } },
+  }] } }));
+  let submitted: Record<string, unknown> | null = null;
+  await page.route(`**/api/sessions/${saved.session_id}/messages`, async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ json: { messages: [], agent_status: "listening" } });
+  });
+  await page.goto(`/s/${saved.session_id}`);
+  const results = page.locator("[data-discovery-results]");
+  await expect(results).toContainText("采集样本 10 条");
+  await expect(results).toContainText("近10条均播：数据不足，无法核验");
+  await expect(results.getByRole("link", { name: "查看原始主页" })).toHaveAttribute("href", "https://www.youtube.com/channel/fixture");
+  await page.screenshot({ path: testInfo.outputPath("discovery-candidates.png"), fullPage: true });
+  await results.getByRole("button", { name: "让线索智能体分析候选" }).click();
+  await expect.poll(() => submitted).toMatchObject({ intent: "crawler_collect", text: expect.stringContaining("scoped-crawl") });
+});
+
+test("recovers a saved discovery after the browser loses its initial pending message", async ({ page, request }) => {
+  const response = await request.post("/api/home/discovery/workspace", { data: {
+    request_id: `lost-pending-${Date.now()}`, text: "发现北美露营候选", brief: {
+      platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"],
+      min_followers: 100, max_followers: 20000, min_avg_plays_10: 100, expect_count: 10,
+    },
+  } });
+  expect(response.ok()).toBeTruthy();
+  const saved = await response.json();
+  await page.goto(`/s/${saved.session_id}`);
+  await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
+  const post = page.waitForRequest(r => r.method() === "POST" && r.url().includes(`/sessions/${saved.session_id}/messages`));
+  await page.getByRole("button", { name: "继续分析发现需求" }).click();
+  expect((await post).postDataJSON()).toMatchObject({ work_item_id: saved.task_id, run_id: saved.pending.run_id });
+  await expect(page.getByRole("button", { name: "继续分析发现需求" })).toHaveCount(0);
+});
+
+for (const surface of [
+  { name: "pointer", width: 1440, height: 900, touch: false },
+  { name: "short-keyboard", width: 1024, height: 589, touch: false },
+  { name: "touch", width: 820, height: 700, touch: true },
+]) test.describe(surface.name, () => {
+test.use({ viewport: { width: surface.width, height: surface.height }, hasTouch: surface.touch });
+test("home discovery submits to the lead agent without calling the retired crawler entry", async ({ page }, testInfo) => {
+  // The reported deployment uses HTTP on an IP address: randomUUID may be absent.
+  await page.addInitScript(() => { Object.defineProperty(crypto, "randomUUID", { value: undefined }); });
   const oldPosts: string[] = [];
   page.on("request", request => {
     if (request.method() === "POST" && /\/api\/home\/discovery\/run$|\/start-crawl$/.test(new URL(request.url()).pathname)) oldPosts.push(request.url());
   });
   await page.goto("/?tab=discovery");
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
+  await page.locator('[data-skill-param="region"] [data-discovery-chip="na"]').click();
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
   await expect(page).toHaveURL(/\/s\/[^/]+$/);
-  await expect(page.locator("[data-expert-identity='expert:crawler']")).toBeVisible();
+  const sessionUrl = page.url();
+  await expect(page.locator('[data-agent-profile="lead"]')).toContainText("线索智能体");
+  await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
+  await expect(page.locator("[data-expert-identity='expert:crawler']")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
+  const back = page.getByRole("link", { name: "返回AI发现" });
+  if (surface.name === "short-keyboard") { await back.focus(); await page.keyboard.press("Enter"); }
+  else if (surface.touch) await back.tap();
+  else await back.click();
+  await expect(page).toHaveURL(/tab=discovery&resume=/);
+  await expect(page.locator("[data-discovery-resume]")).toBeVisible();
+  await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/北美/);
+  await page.getByRole("button", { name: "继续原发现任务" }).click();
+  await expect(page).toHaveURL(sessionUrl);
+  await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  if (surface.width < 1200) await expect(page.getByRole("button", { name: "展开本轮结果" })).toBeVisible();
+  if (surface.touch) {
+    const top = await page.locator(".mobile-top").boundingBox();
+    expect(top!.height).toBeLessThan(surface.height / 5);
+  }
+  await page.screenshot({ path: testInfo.outputPath(`discovery-${surface.name}.png`), fullPage: true });
+  if (surface.touch) await page.getByRole("button", { name: "打开导航", exact: true }).tap();
+  await page.getByRole("link", { name: "技能", exact: true }).click();
+  await expect(page).toHaveURL(/\/skills$/);
   expect(oldPosts).toEqual([]);
+});
+});
+
+test("a previous failed discovery does not hide the new conditions or template", async ({ page }) => {
+  await page.route("**/api/home/discovery/runs", route => route.fulfill({ json: { runs: [
+    { id: "old_failure", status: "crawl_failed", work_item_id: "old_task", error: "采集失败" },
+  ] } }));
+  await page.goto("/?tab=discovery");
+  await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
+  await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/【发现任务】/);
+  await expect(page.locator('[data-skill-template-context]').first()).toBeVisible();
 });
 
 test("shows exact pending scope, confirms once, and restores the receipt after reload", async ({ page, request }) => {

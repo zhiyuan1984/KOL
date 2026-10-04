@@ -14,7 +14,7 @@ import { canUseAgent, canUseSkill } from "./organization-tree.js";
 import { agentIsPublished } from "./managed-agents.js";
 import { DOCUMENT_TOOL, documentDependencies, documentToolSchema, hasDocumentTool, invokeDocumentTool } from "./document-knowledge.js";
 import { proposeRuntimeAction, runtimeAction, claimRuntimeAction, finishRuntimeAction } from "./action-store.js";
-import { runtimeActionGate, validateRuntimeToolScope } from "./action-gates.js";
+import { runtimeActionGate, runtimeToolPresentation, validateRuntimeToolScope } from "./action-gates.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
@@ -311,7 +311,9 @@ export class SkillExecution {
             ? remote.annotations as Json : {};
           const readOnly = !runtimeRequiresGate(name) && policy?.risk === "L1" && policy.access === "read"
             && annotations.readOnlyHint !== false && annotations.destructiveHint !== true;
-          const exposed: Json = { ...remote, name: alias,
+          const presented = runtimeToolPresentation(connectorId, remote);
+          if (!presented) { unavailable.push({ connector_id: connectorId, code: "runtime_tool_scope_unsupported" }); continue; }
+          const exposed: Json = { ...presented, name: alias,
             annotations: { ...annotations, readOnlyHint: readOnly },
             _meta: { risk: runtimeRequiresGate(name) ? "L3" : policy?.risk,
               confirmation_required: runtimeRequiresGate(name) || policy?.risk === "L3" } };
@@ -405,7 +407,11 @@ export class SkillExecution {
       }
       const remote = matching[0];
       let valid = false;
-      try { valid = new AjvJsonSchemaValidator().getValidator(remote.inputSchema as object)(args).valid; }
+      try {
+        const validator = new AjvJsonSchemaValidator();
+        valid = validator.getValidator(remote.inputSchema as object)(args).valid
+          && validator.getValidator(handle.exposed.inputSchema as object)(args).valid;
+      }
       catch { reject("runtime_tool_schema_invalid", 422); }
       if (!valid) reject("runtime_tool_arguments_invalid", 422);
       if (Buffer.byteLength(JSON.stringify(args)) > 1_000_000) reject("runtime_tool_arguments_too_large", 413);

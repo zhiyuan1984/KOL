@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import {
   api,
@@ -12,6 +12,7 @@ import {
   type TaskEvent,
   type KnowledgeRow,
   type SkillTemplate,
+  type RuntimeActionView,
 } from "../api";
 import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
 import { RuntimeActions } from "../components/RuntimeActions";
@@ -38,6 +39,9 @@ import SkillParamCard from "../home/workspace/SkillParamCard";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import { defaultTemplateValues, nonEmptyTemplateEntities, templateInputFields } from "../skillTemplate";
 import { bindTemplateSessionTask } from "../skillTemplateTask";
+import { discoveryWorkspaceOf } from "../home/discoveryWorkspaceState";
+import { renderDiscoveryBody } from "../home/discoveryTemplate";
+import DiscoveryRuntimeResults from "../home/DiscoveryRuntimeResults";
 
 type RecommendedAction = {
   label?: string;
@@ -411,7 +415,6 @@ function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
 const DRAFT_SUBMIT_GUARD_MS = 500;
 
 export default function Chat() {
-  const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
   const { account } = useAccount();
@@ -427,6 +430,8 @@ export default function Chat() {
   const [submitErr, setSubmitErr] = useState("");
   const [pending, setPending] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
+  const discoveryWorkspace = discoveryWorkspaceOf(task);
+  const [runtimeActions, setRuntimeActions] = useState<RuntimeActionView[]>([]);
   const [selectedSkillTemplate, setSelectedSkillTemplate] = useState<SkillTemplate | null>(null);
   const [selectedTemplateSkillId, setSelectedTemplateSkillId] = useState<string | null>(null);
   const [skillParamValues, setSkillParamValues] = useState<Record<string, unknown>>({});
@@ -496,6 +501,8 @@ export default function Chat() {
   useEffect(() => {
     // The persisted task snapshot remains the default after refresh; an
     // explicit skill switch belongs only to the currently open session.
+    setTask(null);
+    setRuntimeActions([]);
     setSelectedTemplateSkillId(null);
     setSelectedSkillTemplate(null);
     paramTemplateKey.current = null;
@@ -627,7 +634,7 @@ export default function Chat() {
     const existingTask = task;
     const intent = p.intent === "email_compose" || mailCompose.active
       ? "email_compose"
-      : (p.intent || lockedIntent || (skillParamTouched.size ? activeSkillTemplate?.skill_id : undefined));
+      : (p.intent || lockedIntent || (discoveryWorkspace ? "crawler_collect" : undefined) || (skillParamTouched.size ? activeSkillTemplate?.skill_id : undefined));
     const submittedTemplate = activeSkillTemplate?.skill_id === intent ? activeSkillTemplate : null;
     const submittedFields = templateInputFields(submittedTemplate);
     const submittedTemplateKey = submittedTemplate ? `${submittedTemplate.id}:${submittedTemplate.version}` : "";
@@ -638,6 +645,7 @@ export default function Chat() {
       ? skillParamTouched
       : new Set<string>();
     const submittedEntities = {
+      ...(discoveryWorkspace ? { discovery_brief: discoveryWorkspace.brief } : {}),
       ...(p.entities || {}),
       ...nonEmptyTemplateEntities(submittedFields, submittedValues, submittedTouched),
     };
@@ -764,7 +772,7 @@ export default function Chat() {
   }, [timelineWithCrawl, crawlJob, err, submitErr]);
   const lastComposeGap = lastUnsentComposeGap(messages);
   const composerHint = String(lastComposeGap?.placeholder || journey?.composer_placeholder || "");
-  const boundExpert = id ? readBoundExpert(id) : null;
+  const boundExpert = !discoveryWorkspace && id ? readBoundExpert(id) : null;
   const recommendedActions = (() => {
     const expertTasks = (boundExpert?.recommended_tasks || []).map((task) => ({
       label: task.title,
@@ -1040,19 +1048,39 @@ export default function Chat() {
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
             <Link
-              to="/"
+              to={discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
               className="task-back"
               data-session-back-link
-              onClick={(event) => {
-                // Keep the anchor fallback, but make the SPA transition explicit.
-                // This avoids the detail view remaining mounted when the click is
-                // handled while the session stream is being updated.
-                event.preventDefault();
-                navigate("/");
-              }}
-            >← 返回任务列表</Link>
-            <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />
+            >{discoveryWorkspace ? "← 返回AI发现" : "← 返回任务列表"}</Link>
+            {discoveryWorkspace ? <span className="muted">{status === "running" ? "正在分析发现需求" : "发现协作 · 执行状态见下方"}</span>
+              : <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
           </div>
+          {discoveryWorkspace ? (
+            <div data-discovery-workspace data-agent-identity={discoveryWorkspace.agent_id} data-agent-profile="lead">
+              <strong>线索智能体 · AI发现</strong>
+              <p className="muted">围绕本次发现条件核对采集范围、跟踪进度并整理候选。采集需要确认，结果保留在当前任务。</p>
+              {task?.status === "pending" && status !== "running" ? <button className="btn ghost" onClick={async () => {
+                if (!id || pending) return;
+                setPending(true); setSubmitErr("");
+                try {
+                  const restored = await api.pendingDiscoveryWorkspace(task.id);
+                  if (restored.pending) {
+                    const response = await postOnce(id, restored.pending);
+                    setMessages(response.messages || []);
+                    setAgentStatus(String(response.agent_status || (response.accepted ? "running" : "listening")));
+                  }
+                  reload();
+                } catch { setSubmitErr("尚未恢复分析，请核对网络和当前权限后重试。原任务条件仍保留。"); }
+                finally { setPending(false); }
+              }}>继续分析发现需求</button> : null}
+              <details data-discovery-condition-snapshot open>
+                <summary>本次发现条件</summary>
+                <p>{renderDiscoveryBody(discoveryWorkspace.brief)}</p>
+                <p className="muted">地区、粉丝和均播门槛用于结果核对；期望人数不代表远端采集数量上限。缺失数据会标注为无法核验。</p>
+              </details>
+              <SkillTemplateContext template={discoveryWorkspace.template} />
+            </div>
+          ) : null}
           {boundExpert ? (
             <div className="expert-session-bar" data-expert-identity={boundExpert.expert_id}>
               <div>
@@ -1140,7 +1168,7 @@ export default function Chat() {
             </>
           )}
         </header>
-        {activeSkillTemplate ? (
+        {activeSkillTemplate && !discoveryWorkspace ? (
           <div className="session-skill-template" data-session-skill-template>
             <SkillTemplateContext
               template={activeSkillTemplate}
@@ -1171,7 +1199,7 @@ export default function Chat() {
             <button type="button" className="digest-retry" onClick={() => reload(true, true)}>刷新收取</button>
           </section>
         ) : null}
-        {task && (
+        {task && !discoveryWorkspace && (
           <section className="task-analysis-summary" data-task-analysis-summary>
             <strong>分析摘要</strong>
             <p>{taskAnalysisSummary(task)}</p>
@@ -1235,7 +1263,7 @@ export default function Chat() {
           </div>
         )}
         {id && (
-          <><RuntimeActions sessionId={id} /><ChatThread
+          <><RuntimeActions sessionId={id} onChange={setRuntimeActions} /><ChatThread
             messages={timelineWithCrawl}
             officialStage={String(journey?.stage_code || "")}
             onRefresh={reload}
@@ -1258,8 +1286,8 @@ export default function Chat() {
             queue={runQueue}
             onStop={() => void stopRun()}
             onRemoveQueued={(qid) => void removeQueued(qid)}
-            lockedIntent={lockedIntent}
-            lockedLabel={lockedLabel}
+            lockedIntent={lockedIntent || (discoveryWorkspace ? "crawler_collect" : null)}
+            lockedLabel={lockedLabel || (discoveryWorkspace ? "AI发现" : null)}
             lockedKnowledgeId={lockedKnowledgeId}
             onKnowledgeChange={(row: KnowledgeRow | null) => {
               setLockedKnowledgeId(row?.id || null);
@@ -1308,6 +1336,11 @@ export default function Chat() {
           onRefresh={reload}
           onPosted={(msgs) => setMessages(msgs)}
           task={task}
+          resultExtra={discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
+            analyzing={pending || status === "running"} onAnalyze={taskId => void send({
+              text: `请基于本任务已保存的发现条件与采集 ${taskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
+              intent: "crawler_collect",
+            })} /> : undefined}
           crawlJob={crawlJob}
           crawlEvents={crawlEvents}
           crawlBusy={crawlBusy}

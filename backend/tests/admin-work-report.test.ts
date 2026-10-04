@@ -96,6 +96,10 @@ describe("admin daily work report", () => {
 
   it("persists evidence and acceptance-time ownership when the command completes a ticket", async () => {
     insertTicket("tkt_command", "sriphy", "waiting", "命令验收工单");
+    // The command endpoint operates on formal tickets and an explicit primary assignee.
+    getConn().prepare("UPDATE tickets SET task_type='manual_ticket',profile='ticket-workbench' WHERE id=?").run("tkt_command");
+    getConn().prepare("INSERT INTO ticket_assignments(ticket_id,assignee_person_ref,assignee_user_id,org_unit_id,role) VALUES (?,?,?,?,?)")
+      .run("tkt_command", "person:fixture", "sriphy", "org:fixture", "primary");
     const command = await request("POST", "/api/tickets/tkt_command/commands", {
       action: "complete", expected_version: 1, acceptance_evidence: { receipt: "验收附件#1" },
     }, { "Idempotency-Key": "acceptance-command-0001" });

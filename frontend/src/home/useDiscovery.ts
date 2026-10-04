@@ -143,7 +143,6 @@ export default function useDiscovery({
     setRunHistory(rows);
     const chosen = rows.find((row) => row.id === preferRunId)
       || rows.find((row) => row.work_item_id && row.work_item_id === activeTaskId)
-      || rows[0]
       || null;
     if (!chosen) {
       setActiveRun(null);

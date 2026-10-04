@@ -9340,7 +9340,7 @@ body {
     min-height: 40px;
   }
   .mobile-top a { color: var(--accent-text); min-height: 36px; display: inline-flex; align-items: center; }
-  .workbench { grid-template-columns: 1fr; }
+  .workbench { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .sidebar { display: none; position: fixed; z-index: 100; top: 45px; bottom: 0; left: 0; height: auto; width: min(300px, 88vw); min-width: 0; max-width: none; box-shadow: var(--shadow-quiet); border-right: 1px solid var(--border); }
   .sidebar.mobile-open { display: flex; }
   .home-hero h1 { font-size: var(--font-title); margin: var(--space-2) 0 var(--space-3); }

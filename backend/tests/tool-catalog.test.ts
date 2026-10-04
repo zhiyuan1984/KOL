@@ -48,14 +48,14 @@ describe("registerDiscoveredToolPolicies", () => {
     enabled: Number(row?.enabled ?? 0),
     version: Number(row?.version ?? 0),
   });
-  it("creates derived policies on first discovery and disables L3 rows", () => {
+  it("registers risk-classified tools; L3 execution still requires the runtime gate", () => {
     const result = registerDiscoveredToolPolicies("catalog_fixture", [
       { name: "pageKolProfiles", schema_hash: hash("a"), inputSchema: { type: "object" } },
       { name: "sendEmailNow", schema_hash: hash("b"), inputSchema: { type: "object" } },
     ]);
     expect(result).toMatchObject({ total: 2, created: 2, refreshed: 0, skipped: 0 });
     expect(numericPolicy(getToolPolicy("catalog_fixture", "pageKolProfiles"))).toMatchObject({ risk: "L1", access: "read", enabled: 1 });
-    expect(numericPolicy(getToolPolicy("catalog_fixture", "sendEmailNow"))).toMatchObject({ risk: "L3", enabled: 0 });
+    expect(numericPolicy(getToolPolicy("catalog_fixture", "sendEmailNow"))).toMatchObject({ risk: "L3", enabled: 1 });
   });
   it("derives a missing fingerprint instead of skipping the tool", () => {
     const result = registerDiscoveredToolPolicies("catalog_fixture", [{ name: "listAllKolProfiles", inputSchema: { type: "object" } }]);

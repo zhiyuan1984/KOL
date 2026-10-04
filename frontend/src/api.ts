@@ -2,7 +2,11 @@ export type RuntimeActionView = {
   id: string; skill_id: string; operation: string; arguments: Record<string, unknown>;
   state: string; risk: "L3"; confirmation_version: string; blocked_reason: string | null;
   receipt: Record<string, unknown> | null; error_code: string | null;
-  crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null } | null;
+  crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null;
+    result_state?: string; result_error?: string | null; result_json?: { task_id: string; complete: boolean; captured_at: string; candidates: Array<{
+      id: string; name: string; platform: string; source_url: string | null; followers: number | null; avg_views_10: number | null; region: string | null;
+      sampled_views_count?: number; sampled_views_avg?: number | null;
+    }> } | null } | null;
   execution?: { id: string; status: string; error_code: string | null } | null;
 };
 export type OperationJob = {
@@ -1825,6 +1829,7 @@ export type AdminSaveBudgetInput = {
 
 export const api = {
   runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
+  retryCrawlResults: (actionId: string) => request<{ state: string }>("/api/actions/runtime.crawl.results.retry", { method: "POST", body: JSON.stringify({ action_id: actionId }) }),
   confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),
   cancelRuntimeAction: (id: string) => request("/api/actions/runtime.cancel", { method: "POST", body: JSON.stringify({ action_id: id }) }),
   proposeCrawlStop: (id: string) => request("/api/actions/runtime.crawl.stop", { method: "POST", body: JSON.stringify({ action_id: id }) }),
@@ -1988,6 +1993,9 @@ export const api = {
     }),
   createTask: (body: Record<string, unknown>) =>
     request<Task | { task: Task }>("/api/tasks", { method: "POST", body: JSON.stringify(body) }),
+  pendingDiscoveryWorkspace: (id: string) => request<{ pending: PendingAsk | null }>(`/api/home/discovery/workspace/${encodeURIComponent(id)}/pending`),
+  createDiscoveryWorkspace: (body: Record<string, unknown>) =>
+    request<{ task_id: string; session_id: string; pending: PendingAsk | null }>("/api/home/discovery/workspace", { method: "POST", body: JSON.stringify(body) }),
   createTaskFromText: (body: Record<string, unknown>) =>
     request<FromTextResult>("/api/tasks/from-text", { method: "POST", body: JSON.stringify(body) }),
   runTask: (id: string, body: Record<string, unknown> = {}) =>

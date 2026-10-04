@@ -341,6 +341,7 @@ export default function SideWorkbench({
   officialStage = "",
   collaborationId = "",
   handle = "",
+  resultExtra,
 }: {
   sessionId: string;
   messages: Message[];
@@ -362,6 +363,7 @@ export default function SideWorkbench({
   officialStage?: string;
   collaborationId?: string;
   handle?: string;
+  resultExtra?: import("react").ReactNode;
 }) {
   const { debug } = useViewMode();
   const round = afterLastUser(messages);
@@ -416,7 +418,10 @@ export default function SideWorkbench({
     focusedMail || draft || stageMsg || result || hasCrawlArtifact || inboundMsg || shipMsg || overdueMsg || approvalLine || mailMsgs.length,
   );
 
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ui:right-collapsed") === "true");
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = localStorage.getItem("ui:right-collapsed");
+    return saved === null ? window.matchMedia("(max-width: 1199px)").matches : saved === "true";
+  });
   const [share, setShare] = useState<{ url?: string; expires_at?: string } | null>(null);
   const [toolStatus, setToolStatus] = useState("");
   const sideRef = useRef<HTMLElement>(null);
@@ -493,10 +498,11 @@ export default function SideWorkbench({
         </div>
       </div>
       {(toolStatus || share) && <div className="share-status" role="status">{toolStatus}{share?.expires_at && <> · {new Date(share.expires_at).toLocaleString()} 过期</>}{share?.url && <><input className="share-url" aria-label="分享链接" readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} /><button className="link-button" onClick={() => void navigator.clipboard.writeText(share.url || "").then(() => setToolStatus("分享链接已复制")).catch(() => setToolStatus("请手动复制链接"))}>复制链接</button></>}{share && <button className="link-button" onClick={() => void api.revokeShare(sessionId).then(() => { setShare(null); setToolStatus("分享已撤销"); }).catch((e) => setToolStatus(String(e)))}>撤销</button>}</div>}
-      {!hasRoundResult && (
+      {!hasRoundResult && !resultExtra && (
         <p className="muted">这一轮还没有结果。开始一项工作后，结果会出现在这里。</p>
       )}
       <div className="side-body" data-round-results>
+        {resultExtra}
         {focusedMail ? (
           <section data-tab="result" aria-selected={primary === "result"} data-mail-focus>
             <MailBodyArtifact mail={focusedMail} />

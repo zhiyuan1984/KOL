@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { bindExpertSession, fetchExpert, CRAWLER_EXPERT_ID } from "../experts";
 import {
   api,
   type FromTextResult,
@@ -30,6 +29,7 @@ import {
 import { rememberJourney } from "../journey";
 import { fieldLabel, friendlyApiError, missingFieldsMessage } from "../labels";
 import DiscoveryWorkspace from "../home/DiscoveryWorkspace";
+import { discoveryWorkspaceOf } from "../home/discoveryWorkspaceState";
 import ObjectWorkspace from "../home/ObjectWorkspace";
 import { scopeRows } from "../home/scopeRows";
 import ScopeWorkspace from "../home/ScopeWorkspace";
@@ -587,6 +587,7 @@ export default function Home() {
   };
 
   const submitDiscovery = async (brief: DiscoveryBrief, body: string, version: string) => {
+    if (busy) return;
     setDiscoverySubmitFailed(false);
     setDiscoverySubmitError("");
     if (!canSubmitDiscovery(brief)) {
@@ -604,13 +605,17 @@ export default function Home() {
     // 只有确实是发现模板正文时才清空，避免连带丢掉无关输入。
     if (text.startsWith(DISCOVERY_BODY_PREFIX)) setText("");
     try {
-      const expert = await fetchExpert(CRAWLER_EXPERT_ID);
-      if (!expert) throw new Error("线索智能体暂不可用，请稍后重试。");
-      const result = await api.summonExpert(CRAWLER_EXPERT_ID);
+      const fingerprint = JSON.stringify({ brief, body, version });
+      if (discoveryRequest.current?.fingerprint !== fingerprint) {
+        const requestId = typeof crypto.randomUUID === "function" ? crypto.randomUUID()
+          : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+        discoveryRequest.current = { fingerprint, id: requestId };
+      }
+      const result = await api.createDiscoveryWorkspace({ brief, text: body, version, request_id: discoveryRequest.current.id });
       // ▪ 只中止客户端后续动作：不调用后端取消，也不改任何服务端状态。
       if (intakeCancelled.current) return;
-      bindExpertSession(result.session_id, expert, result);
-      storePending(result.session_id, { text: body, intent: "crawler_collect" });
+      sessionStorage.setItem(`task:${result.session_id}`, result.task_id);
+      if (result.pending) storePending(result.session_id, result.pending);
       refreshWorkbenchSessions();
       clearDiscoveryLock();
       nav(`/s/${result.session_id}`);
@@ -686,6 +691,30 @@ export default function Home() {
   const [discoverySubmitFailed, setDiscoverySubmitFailed] = useState(false);
   /** 失败原因的可读文案：只在中栏 AI发现 面渲染，切页签不得跟着出现。 */
   const [discoverySubmitError, setDiscoverySubmitError] = useState("");
+  const discoveryRequest = useRef<{ fingerprint: string; id: string } | null>(null);
+  const [resumedDiscoverySession, setResumedDiscoverySession] = useState<string | null>(null);
+  const resumeDiscoveryId = params.get("resume");
+  useEffect(() => {
+    let active = true;
+    setResumedDiscoverySession(null);
+    if (!resumeDiscoveryId || params.get("tab") !== "discovery") return;
+    void api.task(resumeDiscoveryId).then(value => {
+      if (!active) return;
+      const restored = ("task" in value ? value.task : value) as Task;
+      const workspace = discoveryWorkspaceOf(restored);
+      if (!workspace) throw new Error("该任务没有可恢复的发现条件。");
+      setDiscoveryFormBrief(workspace.brief);
+      setDiscoveryBrief(workspace.brief);
+      setText(workspace.submitted_text || renderDiscoveryBody(workspace.brief));
+      setLockedIntent(DISCOVERY_INTENT);
+      setLockedLabel(DISCOVERY_LOCK_LABEL);
+      setEntryIntent("discover");
+      setResumedDiscoverySession(String(restored.session_id || "") || null);
+    }).catch(() => {
+      if (active) setDiscoverySubmitError("无法恢复该发现任务，请从任务中心核对访问权限。已有输入仍保留。");
+    });
+    return () => { active = false; };
+  }, [resumeDiscoveryId]);
   const mode = parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {
@@ -1896,12 +1925,13 @@ export default function Home() {
   const activeSkillTemplate = selectedSkillTemplate?.skill_id === lockedIntent
     ? selectedSkillTemplate
     : genericParamDefinition?.ui_template
+      || (lockedIntent === DISCOVERY_INTENT ? definitions.find(definition => definition.id === "crawler_collect")?.ui_template : null)
       || (lockedIntent === "creator_daily_tasks"
         ? definitions.find((definition) => definition.id === "creator_daily_tasks")?.ui_template || null
         : lockedIntent === "todo_plan"
           ? definitions.find((definition) => definition.id === "todo_plan")?.ui_template || null
           : null);
-  const genericParamFields = templateInputFields(
+  const genericParamFields = lockedIntent === DISCOVERY_INTENT ? [] : templateInputFields(
     activeSkillTemplate,
     Array.isArray(genericParamDefinition?.input_schema) ? genericParamDefinition.input_schema as SkillParamField[] : [],
   );
@@ -2263,7 +2293,13 @@ export default function Home() {
               activeRunId={discoveryRunId}
               lastSubmit={lastDiscoverySubmit}
               onRetrySubmit={() => void retryDiscoveryRun()}
-              centerSupplement={interactionFeedback}
+              centerSupplement={<>
+                {resumedDiscoverySession ? <p role="status" data-discovery-resume>
+                  已恢复上次条件。<button className="btn ghost" onClick={() => nav(`/s/${resumedDiscoverySession}`)}>继续原发现任务</button>
+                  <span className="muted">修改条件后提交将新建发现任务，原结果保留。</span>
+                </p> : null}
+                {interactionFeedback}
+              </>}
               centerFooter={renderComposerDock()}
             />
           ) : null}
