@@ -1,5 +1,6 @@
 import { ConditionEditor } from "./ConditionEditor";
 import { useState } from "react";
+import { randomUuid } from "../uuid";
 import { OperationEditor } from "./OperationEditor";
 import type { ReviewDefinition, ReviewNode } from "../../../shared/review";
 import type { ReviewContext } from "./api";
@@ -58,7 +59,7 @@ export function FlowDesigner({
     onChange({ ...definition, nodes: rest });
   }
   function add(type: "review" | "condition" | "cc" | "consult" | "handler") {
-    const id = `node_${crypto.randomUUID().slice(0, 8)}`,
+    const id = `node_${randomUuid().slice(0, 8)}`,
       after =
         n && n.type !== "end" ? n : nodes.find((x) => x.type === "start")!;
     const next = after.next || nodes.find((x) => x.type === "end")?.id;

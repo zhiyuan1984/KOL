@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ReviewCommand } from "../../../shared/review";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import { prepareReview, reviewApi } from "./api";
+import { randomUuid } from "../uuid";
 const labels = {
   submit: "提交评审",
   publish: "发布流程",
@@ -27,7 +28,7 @@ export function useReviewCommand(after: () => Promise<void>) {
     setBusy(true);
     try {
       const prepared = await prepareReview(command),
-        key = crypto.randomUUID();
+        key = randomUuid();
       confirm.ask(
         {
           kind: "review-command",

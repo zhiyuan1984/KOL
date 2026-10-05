@@ -14,6 +14,7 @@ import { reviewApi, type ReviewContext } from "../reviews/api";
 import { FlowDesigner } from "../reviews/FlowDesigner";
 import { ReviewForm } from "../reviews/ReviewForm";
 import { useReviewCommand } from "../reviews/useReviewCommand";
+import { randomUuid } from "../uuid";
 import "../reviews/reviews.css";
 type History = {
   past: ReviewDefinition[];
@@ -312,7 +313,7 @@ export default function ReviewTypes() {
                       fields: [
                         ...d.fields,
                         {
-                          id: `field_${crypto.randomUUID().slice(0, 8)}`,
+                          id: `field_${randomUuid().slice(0, 8)}`,
                           label: "新字段",
                           type: "text",
                           required: false,

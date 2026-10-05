@@ -101,6 +101,52 @@ async function fixture(page: Page) {
   });
   return { commands, getTemplate: () => template };
 }
+
+for (const subject of ["", "?subject=knowledge_publication"]) {
+  test(`new review flow publishes without randomUUID ${subject || "general"} and retries with the same key`, async ({ page }) => {
+    await page.addInitScript(() => Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true }));
+    const f = await fixture(page);
+    let failOnce = true;
+    await page.route("**/api/approvals/v2/commands", async route => {
+      f.commands.push(route.request().postDataJSON());
+      if (failOnce) {
+        failOnce = false;
+        return route.fulfill({ status: 503, json: { detail: "临时连接失败" } });
+      }
+      return route.fulfill({ json: { id: "http-uuid-receipt", resourceId: "template", version: 2 } });
+    });
+    await page.goto(`/admin/approval-types${subject}`);
+    const main = page.locator("main.review-page");
+    await main.getByRole("button", { name: "新建流程", exact: true }).click();
+    await main.getByLabel("流程名称").fill("新建审批流程兼容测试");
+    if (!subject) {
+      await main.getByRole("button", { name: "表单字段", exact: true }).click();
+      await main.getByRole("button", { name: "添加字段", exact: true }).click();
+    }
+    await main.getByRole("button", { name: "评审流程", exact: true }).click();
+    await main.getByRole("button", { name: "添加评审节点", exact: true }).click();
+    await expect(main.locator(".review-canvas li")).toHaveCount(4);
+    await main.getByRole("button", { name: "保存草稿", exact: true }).click();
+    await main.getByRole("button", { name: "校验与发布", exact: true }).click();
+    const publish = main.getByRole("button", { name: /检查并发布/ });
+    await expect(publish).toBeEnabled();
+    await publish.click();
+    const dialog = page.getByRole("dialog", { name: "确认发布流程" });
+    await expect(dialog).toBeVisible();
+    await dialog.locator("[data-admin-confirm-cancel]").click();
+    expect(f.commands).toHaveLength(0);
+    await publish.click();
+    await dialog.getByRole("button", { name: "发布流程", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await dialog.getByRole("button", { name: "发布流程", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(main).toContainText("已发布流程 · 回执 http-uuid-receipt");
+    expect(f.commands).toHaveLength(2);
+    expect(f.commands[0].idempotencyKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(f.commands[1].idempotencyKey).toBe(f.commands[0].idempotencyKey);
+    expect((f.commands[0].command as Record<string, unknown>).action).toBe("publish");
+  });
+}
 test("employee can save a non-expense draft and explicitly confirm submission", async ({
   page,
 }) => {
