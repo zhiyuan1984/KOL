@@ -55,7 +55,7 @@ export type CrawlerImportFile = {
 };
 
 export function isPlaceholderKolUid(value: unknown): boolean {
-  return /^disc_/i.test(String(value || "").trim());
+  return /^(?:disc_|candidate:)/i.test(String(value || "").trim());
 }
 
 export function isRealKolUid(value: unknown): boolean {

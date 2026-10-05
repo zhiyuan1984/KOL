@@ -46,7 +46,7 @@ export type WorkerProgress = {
 };
 
 const HOST_PHASE_TRACE: Partial<Record<WorkerPhase, { id: string; label: string }>> = {
-  preparing: { id: "host:preparing", label: "准备任务" },
+  preparing: { id: "host:preparing", label: "正在核对任务条件" },
   skill_ready: { id: "host:skill_ready", label: "加载任务规则" },
   generating: { id: "host:generating", label: "正在分析…" },
   formatting: { id: "host:formatting", label: "整理结果" },
@@ -304,6 +304,7 @@ export function upsertProcessItem(items: WorkerTraceItem[], next: WorkerTraceIte
   const index = items.findIndex((item) => item.id === next.id);
   if (index >= 0) {
     const merged = { ...items[index], ...next };
+    merged.observed_at = items[index].observed_at || next.observed_at || new Date().toISOString();
     if (!next.label && items[index].label) merged.label = items[index].label;
     const copy = items.slice();
     copy[index] = merged;

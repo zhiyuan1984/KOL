@@ -8,6 +8,7 @@ export type RuntimeAction = {
   id: string; actor_id: string; session_id: string | null; context_json: RuntimeContext;
   connector_id: string; tool_name: string; args_json: Json; snapshot: string;
   state: string; receipt_json: Json | null; error_code: string | null;
+  created_at?: Date | string; updated_at?: Date | string;
 };
 
 export async function proposeRuntimeAction(input: {

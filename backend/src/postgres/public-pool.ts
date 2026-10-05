@@ -66,6 +66,12 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
               THEN trim(regexp_replace(COALESCE(NULLIF(p.handle, ''), p.display_name, ''), '^@', '')) ELSE '' END
           ELSE '' END AS public_url
       FROM kol_profile_index p WHERE p.company_id=$1 AND p.pool_status='open'
+        AND p.ingest_source IS DISTINCT FROM 'discovery-candidate'
+        AND NOT EXISTS (SELECT 1 FROM kol_follow_index f JOIN kol_profile_index owned
+          ON owned.company_id=f.company_id AND owned.kol_uid=f.kol_uid
+          WHERE f.company_id=p.company_id AND f.status='active' AND
+            (f.kol_uid=p.kol_uid OR (lower(owned.platform)=lower(p.platform)
+              AND NULLIF(owned.platform_creator_id,'')=NULLIF(p.platform_creator_id,''))))
     ), candidates AS (
       SELECT s.*, CASE WHEN public_url <> '' THEN 'url:' || regexp_replace(lower(public_url), '/+$', '')
         ELSE 'identity:' || lower(trim(COALESCE(platform, ''))) || ':@' || lower(bare_handle) END AS profile_key,

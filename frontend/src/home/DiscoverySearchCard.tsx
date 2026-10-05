@@ -36,7 +36,7 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema }
     directions: catalog?.directions?.length ? catalog.directions : DISCOVERY_DIRECTION_PACKS,
   };
   const update = (key: string, value: unknown) => {
-    const next = { ...brief, [key]: value } as DiscoveryBrief;
+    const next = { ...brief, [key]: key === "max_followers" && value == null ? null : value } as DiscoveryBrief;
     if (key === "directions") next.keywords = keywordsForDirections(value as string[], options.directions);
     onChange(next);
   };

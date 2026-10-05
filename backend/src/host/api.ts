@@ -1,4 +1,5 @@
 import type { Operation } from "../runtime/operations.js";
+import { traceEventPayload } from "../worker/trace-events.js";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 /**
  * Host = Dify「应用后端」。
@@ -523,6 +524,7 @@ function collabDisplay(id: unknown): string {
 }
 
 function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
+  if (kind === "process_trace" || kind === "operation_trace") payload = traceEventPayload(null, payload, nowIso());
   if (kind === "me") {
     const last = getConn().prepare(
       "SELECT id, payload, created_at FROM messages WHERE session_id=? AND kind='me' ORDER BY created_at DESC, id DESC LIMIT 1",
@@ -540,9 +542,12 @@ function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
 }
 
 function updateMsg(mid: string, payload: Json): void {
-  const row = getConn().prepare("SELECT session_id, role, kind, created_at FROM messages WHERE id=?").get(mid) as
-    | { session_id: string; role: string; kind: string; created_at: string }
+  const row = getConn().prepare("SELECT session_id, role, kind, created_at, payload FROM messages WHERE id=?").get(mid) as
+    | { session_id: string; role: string; kind: string; created_at: string; payload: string }
     | undefined;
+  if (row && (row.kind === "process_trace" || row.kind === "operation_trace")) {
+    payload = traceEventPayload(JSON.parse(row.payload), payload, nowIso());
+  }
   tx((c) => {
     c.prepare("UPDATE messages SET payload = ? WHERE id = ?").run(JSON.stringify(payload), mid);
   });
@@ -1085,7 +1090,7 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
     });
     trace = addMsg(sid, "assistant", "process_trace", {
       title: "处理过程",
-      items: [{ id: "host:preparing", label: "准备任务", status: "running", kind: "host" }],
+      items: [{ id: "host:preparing", label: "正在核对任务条件", status: "running", kind: "host", observed_at: nowIso() }],
     });
     operations = addMsg(sid, "assistant", "operation_trace", {
       title: REMOTE_MCP_TITLE,
@@ -1104,7 +1109,7 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
   const operationId = String(operations.id);
   let operationItems: { id: string; name: string; label: string; status: string }[] = [];
   let processItems: WorkerTraceItem[] = [
-    { id: "host:preparing", label: "准备任务", status: "running", kind: "host" },
+    { id: "host:preparing", label: "正在核对任务条件", status: "running", kind: "host", observed_at: String((trace.payload as Json)?.items && ((trace.payload as Json).items as Json[])[0]?.observed_at || trace.created_at) },
   ];
   let latestPhase: WorkerProgress["phase"] = "preparing";
   let latestSummary = "";

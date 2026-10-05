@@ -618,7 +618,6 @@ export default function Home() {
       if (result.pending) storePending(result.session_id, result.pending);
       refreshWorkbenchSessions();
       clearDiscoveryLock();
-      await import("./Chat").catch(() => undefined);
       nav(`/s/${result.session_id}`, { state: { discoverySession: result.session_id } });
     } catch (error) {
       setDiscoverySubmitFailed(true);
@@ -2149,7 +2148,7 @@ export default function Home() {
                             ? entities.keywords.map(String)
                             : entities.keywords ? [String(entities.keywords)] : undefined,
                           min_followers: numericEntity("min_followers"),
-                          max_followers: numericEntity("max_followers"),
+                          max_followers: entities.max_followers === null ? null : numericEntity("max_followers"),
                           min_avg_plays_10: numericEntity("min_avg_plays_10"),
                           expect_count: numericEntity("expect_count"),
                         });

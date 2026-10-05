@@ -23,9 +23,9 @@ export const AGENT_TASK_STATUS_LABEL: Record<AgentTaskUxStatus, string> = {
 };
 
 export const MESSAGE_RISK_LABEL: Record<MessageRisk, string> = {
-  L1: "只读分析",
-  L2: "AI生成草稿，未生效",
-  L3: "待确认变更",
+  L1: "只读（L1）",
+  L2: "草稿（L2）· 未生效",
+  L3: "需要确认（L3）",
 };
 
 export function agentTaskUxStatus(task: Task, running = false): AgentTaskUxStatus {

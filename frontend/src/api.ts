@@ -2,6 +2,8 @@ export type HomePoolPage = { offset: number; limit: number; total: number; match
 export type HomePoolOptions = { query?: string; filter?: string; sort?: string; offset?: number; limit?: number };
 
 export type RuntimeActionView = {
+  events?: Array<{ sequence: string; source: string; state: string; recorded_at: string }>;
+  created_at?: string; updated_at?: string; actor_name?: string;
   id: string; skill_id: string; operation: string; arguments: Record<string, unknown>;
   state: string; risk: "L3"; confirmation_version: string; blocked_reason: string | null;
   receipt: Record<string, unknown> | null; error_code: string | null;
@@ -11,7 +13,8 @@ export type RuntimeActionView = {
   crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null;
     result_state?: string; result_error?: string | null; result_json?: { task_id: string; complete: boolean; captured_at: string; candidates: Array<{
       id: string; name: string; platform: string; source_url: string | null; followers: number | null; avg_views_10: number | null; region: string | null;
-      sampled_views_count?: number; sampled_views_avg?: number | null;
+        sampled_views_count?: number; sampled_views_avg?: number | null;
+        avatar_url?: string | null; direction?: string | null; ignored?: boolean; followed?: boolean; in_pool?: boolean; snapshot_version?: string;
       followers_evidence?: { state: "source_recorded" | "missing_source" | "unavailable"; raw_text: string | null;
         source_field: string | null; captured_at: string | null; parser_version: string | null };
     }> } | null } | null;
@@ -1849,6 +1852,10 @@ export type AdminSaveBudgetInput = {
 export const api = {
   runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
   retryCrawlResults: (actionId: string) => request<{ state: string }>("/api/actions/runtime.crawl.results.retry", { method: "POST", body: JSON.stringify({ action_id: actionId }) }),
+  discoveryCandidateCommand: (actionId: string, candidateId: string, verb: "follow" | "ignore" | "restore" | "ingest", snapshotVersion: string) =>
+    request<{ ok: boolean }>(`/api/home/discovery/runtime/${encodeURIComponent(actionId)}/candidates/${encodeURIComponent(candidateId)}/${verb}`, {
+      method: "POST", body: JSON.stringify({ snapshot_version: snapshotVersion, confirmed: verb === "follow" || verb === "ingest" }),
+    }),
   confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),
   cancelRuntimeAction: (id: string) => request("/api/actions/runtime.cancel", { method: "POST", body: JSON.stringify({ action_id: id }) }),
   proposeCrawlStop: (id: string) => request("/api/actions/runtime.crawl.stop", { method: "POST", body: JSON.stringify({ action_id: id }) }),
