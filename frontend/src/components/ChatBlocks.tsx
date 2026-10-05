@@ -1540,7 +1540,7 @@ export function ChatThread({
                 : kind === "direction"
                   ? "请选择最符合你意图的任务，或补充说明后再发。"
                   : message || "还需要补充信息后再继续。";
-          const risk = messageRisk("supplement_card", m.payload) || "L2";
+          const risk = kind === "direction" ? undefined : messageRisk("supplement_card", m.payload) || "L2";
           return (
             <ThreadMessage key={m.id} role="assistant" risk={risk} data-kind="supplement" data-clarification={kind || undefined}>
               {title ? <strong>{title}</strong> : null}

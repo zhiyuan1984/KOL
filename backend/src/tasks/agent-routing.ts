@@ -6,8 +6,9 @@ import { assertRuntimeSkill } from "../runtime/execution.js";
 import { taskDefinition } from "./registry.js";
 
 export type AgentRoute = { agent_id: string; agent_name: string; description: string; task_type: string; title: string; summary: string };
-const routing = new AsyncLocalStorage<AgentRoute[]>();
-export function currentAgentRoutes(): AgentRoute[] | undefined { return routing.getStore(); }
+const routing = new AsyncLocalStorage<{ routes: AgentRoute[]; selectedAgentId?: string }>();
+export function currentAgentRoutes(): AgentRoute[] | undefined { return routing.getStore()?.routes; }
+export function currentSelectedAgentId(): string | undefined { return routing.getStore()?.selectedAgentId; }
 
 /** Filter before giving the catalog to a model. Execution revalidates the chosen pair. */
 export function availableAgentRoutes(agentId?: string): AgentRoute[] {
@@ -26,5 +27,7 @@ export function availableAgentRoutes(agentId?: string): AgentRoute[] {
     }));
 }
 
-export function withAgentRoutes<T>(routes: AgentRoute[], action: () => T): T { return routing.run(routes, action); }
+export function withAgentRoutes<T>(routes: AgentRoute[], action: () => T, selectedAgentId?: string): T {
+  return routing.run({ routes, selectedAgentId }, action);
+}
 export function routeChoice(route: AgentRoute): string { return JSON.stringify([route.agent_id, route.task_type]); }

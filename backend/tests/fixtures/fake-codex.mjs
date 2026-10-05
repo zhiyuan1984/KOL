@@ -122,6 +122,10 @@ rl.on("line", (line) => {
     return;
   }
   if (method === "thread/fork") {
+    if (process.env.FAKE_CODEX_REJECT_EMPTY_FORK === "1") {
+      send({ id, error: { code: -32600, message: "no rollout found for thread id thr_fake" } });
+      return;
+    }
     send({ id, result: { thread: { id: "thr_child", parentId: params?.threadId } } });
     return;
   }

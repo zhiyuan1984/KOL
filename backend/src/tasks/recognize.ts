@@ -130,7 +130,7 @@ export async function recognizeTaskIntent(input: {
   input?: Record<string, unknown>;
 }): Promise<TaskRecognition> {
   if (scopedUser() && !currentAgentRoutes()) {
-    return withAgentRoutes(availableAgentRoutes(input.agent_id), () => recognizeTaskIntent(input));
+    return withAgentRoutes(availableAgentRoutes(input.agent_id), () => recognizeTaskIntent(input), input.agent_id);
   }
   const text = String(input.text || "").trim();
   let lockedType = input.task_type && taskDefinition(String(input.task_type))
@@ -215,7 +215,11 @@ export async function recognizeTaskIntent(input: {
       ...fallback,
       task_type: null,
       confidence: verdict?.confidence || 0,
-      alternatives: (verdict?.alternatives?.length ? verdict.alternatives : fallback.alternatives),
+      alternatives: routes ? routes.map(route => ({ task_type: route.task_type, title: route.title, confidence: 0 }))
+        : (verdict?.alternatives?.length ? verdict.alternatives : fallback.alternatives),
+      ...(routes ? { next_action: input.agent_id
+        ? "当前智能体无法确定这个问题是否属于其职责，请补充问题内容，或换一位智能体。"
+        : "请补充问题内容，帮助选择有使用资格的智能体。" } : {}),
       needs_clarification: true,
       clarification_kind: "direction",
       source: "llm",

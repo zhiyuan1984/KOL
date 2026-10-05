@@ -801,16 +801,8 @@ export async function runCodex(
       throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
     }
     setThread(sessionId, threadId);
-    let turnThreadId = threadId;
-    if (extra.derive_child && profile.canDeriveChildThreads) {
-      const child = await rpc.deriveChildThread(threadId);
-      const childId = String(((child.thread as Json | undefined)?.id) || child.id || "");
-      if (!childId) {
-        throw new CodexUnavailable("thread/fork 未返回子 thread.id。", "升级 Codex CLI 后重试。");
-      }
-      turnThreadId = childId;
-      log.push({ method: "thread/fork", params: { parent: threadId, threadId: childId, skill } });
-    }
+    // A fresh thread has no completed rollout to fork. Execute its first turn directly.
+    const turnThreadId = threadId;
     const userText = `$${skill} ${prompt}`;
     const turnInput: Json[] = [{ type: "text", text: userText }];
     if (taskContext) {

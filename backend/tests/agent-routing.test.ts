@@ -7,7 +7,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { availableAgentRoutes, withAgentRoutes, routeChoice } from "../src/tasks/agent-routing.js";
 import { recognizeTaskIntent, setTaskClassifier } from "../src/tasks/recognize.js";
-import { classifyIntentWithJev, intentSystemPrompt, intentOutputSchema, setJevIntentFetch } from "../src/tasks/openai-intent.js";
+import { classifyIntentWithJev, intentSystemPrompt, intentOutputSchema, setJevIntentFetch, setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { createManagedAgent, updateManagedAgent } from "../src/runtime/managed-agents.js";
 import { setAgentSkill } from "../src/runtime/store.js";
 import { createAgentBinding, revokeAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
@@ -36,7 +36,7 @@ beforeEach(async () => {
   seedAll();
   const dir = path.join(tmp, "published-skills", skillId);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nid: ${skillId}\ntitle: 产品咨询\ndescription: 查询产品规格和使用方法\ncategory: 产品\nprofile: lead\noutput: task_result\nmcp: ["knowledge.ask_documents"]\nrequired_inputs: []\npermissions: []\nactions: ["analyze"]\naliases: ["产品参数"]\nin_market: true\n---\n依据绑定知识库回答产品问题，给出来源。\n`);
+  fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nid: ${skillId}\ntitle: 产品咨询\ndescription: 查询产品规格和使用方法\ncategory: 产品\nprofile: commander\noutput: task_result\nmcp: ["knowledge.ask_documents"]\nrequired_inputs: []\npermissions: []\nactions: ["analyze"]\naliases: ["产品参数"]\nin_market: true\n---\n依据绑定知识库回答产品问题，给出来源。\n`);
   clearTaskRegistryCache();
   const now = new Date().toISOString();
   getConn().prepare("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
@@ -54,6 +54,7 @@ beforeEach(async () => {
 afterEach(() => {
   setTaskClassifier();
   setJevIntentFetch();
+  setIntentLlmFetch();
   vi.restoreAllMocks();
   clearTaskRegistryCache();
   resetConn();
@@ -63,6 +64,42 @@ afterEach(() => {
 });
 
 describe("employee Agent routing", () => {
+  it("interprets short questions in the selected Agent context and escalates uncertain Jev to Luna", async () => {
+    const saved = Object.fromEntries(["INTENT_LLM_MODE", "OPENROUTER_API_KEY", "OPENAI_API_KEY"].map(key => [key, process.env[key]]));
+    Object.assign(process.env, { INTENT_LLM_MODE: "real", OPENROUTER_API_KEY: "fixture", OPENAI_API_KEY: "fixture" });
+    setJevIntentFetch(async (_url, init) => {
+      expect(String(init?.body)).toContain("selected_agent");
+      expect(String(init?.body)).toContain("产品专家");
+      return new Response(JSON.stringify({ model: "jev-1.13", answers: { task_type: { type: "choice", choice: "clarification", confidence: 0.24 } } }), { headers: { "Content-Type": "application/json" } });
+    });
+    setIntentLlmFetch(async (_url, init) => {
+      expect(String(init?.body)).toContain("Conversation Agent is already selected");
+      return new Response(JSON.stringify({ output_text: JSON.stringify({ agent_id: agentId, task_type: skillId, confidence: 1, entities: {}, missing_fields: [], clarification_kind: "none" }) }));
+    });
+    try {
+      expect(await asUser(() => recognizeTaskIntent({ text: "有什么产品？功能是什么？", agent_id: agentId })))
+        .toMatchObject({ agent_id: agentId, task_type: skillId, needs_clarification: false });
+      setTaskClassifier(async () => ({ task_type: null, confidence: 0.2 }));
+      const outside = await asUser(() => recognizeTaskIntent({ text: "给 发货通知 运单号 承运商 ETA", agent_id: agentId }));
+      expect(outside.task_type).toBeNull();
+      expect(outside.alternatives.map(route => route.task_type)).toEqual([skillId]);
+      expect(outside.next_action).toContain("当前智能体");
+    } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+  });
+
+  it("starts the first turn of a fresh Commander thread without forking an absent rollout", async () => {
+    const keys = ["CODEX_MODE", "CODEX_BIN", "FAKE_CODEX_MODE", "FAKE_CODEX_REJECT_EMPTY_FORK"];
+    const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+    Object.assign(process.env, { CODEX_MODE: "real", CODEX_BIN: path.resolve("tests/fixtures/fake-codex.mjs"), FAKE_CODEX_MODE: "task-result-success", FAKE_CODEX_REJECT_EMPTY_FORK: "1" });
+    try {
+      const session = asUser(() => summonEmployeeAgent(agentId));
+      const result = await asUser(() => Promise.resolve(runner.runWorker(String(session.session_id), skillId, "有什么产品？功能是什么？", { agent_id: agentId, derive_child: true })));
+      expect(result.status).toBe("done");
+      expect(result.contract_log.some(entry => entry.method === "thread/start")).toBe(true);
+      expect(result.contract_log.some(entry => entry.method === "thread/fork")).toBe(false);
+    } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+  });
+
   it("lists and summons a published managed Agent with a persisted entry binding", () => asUser(() => {
     expect(employeeExperts()).toContainEqual(expect.objectContaining({ id: agentId, display_name: "产品专家", skill_ids: [skillId] }));
     const session = summonEmployeeAgent(agentId);
