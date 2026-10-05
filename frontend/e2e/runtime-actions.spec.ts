@@ -155,7 +155,8 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await page.reload();
   expect((await restoredTask).ok()).toBeTruthy();
   await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
-  const back = page.getByRole("link", { name: "返回AI发现" });
+  const back = page.getByRole("link", { name: /返回\s*AI发现/ });
+  await expect(back).toHaveCount(1);
   if (surface.name.startsWith("short-keyboard")) { await back.focus(); await page.keyboard.press("Enter"); }
   else if (surface.touch) await back.tap();
   else await back.click();
@@ -211,7 +212,7 @@ test("shows exact pending scope, confirms once, and restores the receipt after r
   });
   await page.goto(`/s/${id}`);
   const actions = page.locator("[data-runtime-actions]");
-  await expect(actions).toContainText("待确认");
+  await expect(actions).toContainText("请确认本次采集范围");
   await expect(actions).toContainText("camping");
   expect(confirmations).toBe(0);
   await actions.getByRole("button", { name: "确认开始采集" }).click();
