@@ -76,7 +76,7 @@ import {
 import type { Json } from "../types.js";
 import { postgresQuery } from "../postgres/pool.js";
 import { publicationContext, publicationState, bindPublication, preparePublication, checkPublication,
-  knowledgeReviewMaterial, knowledgeReviewTrial, retryPublication, createDocumentRevision,replaceDraftDocument } from "../knowledge/publication.js";
+  knowledgeReviewMaterial, knowledgeReviewTrial, retryPublication, publishApprovedDocument, createDocumentRevision,replaceDraftDocument } from "../knowledge/publication.js";
 
 export const knowledge = new Hono();
 
@@ -118,6 +118,8 @@ knowledge.post("/admin/knowledge/documents/:id/review-prepare", async c => {
 });
 knowledge.post("/admin/knowledge/documents/:id/publication-retry", async c =>
   c.json(await retryPublication(c.req.param("id"),publicationContext(c.req.header("X-Review-Company")))));
+knowledge.post("/admin/knowledge/documents/:id/publication-execute", async c =>
+  c.json(await publishApprovedDocument(c.req.param("id"),publicationContext(c.req.header("X-Review-Company")))));
 knowledge.post("/admin/knowledge/documents/:id/revision", async c =>
   c.json(await createDocumentRevision(c.req.param("id"),publicationContext(c.req.header("X-Review-Company"))),201));
 knowledge.put("/admin/knowledge/documents/:id/draft-file",async c=>{

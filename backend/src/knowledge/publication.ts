@@ -115,6 +115,7 @@ export async function publicationState(id: string, ctx: ReviewContext) {
   const actions: string[] = [];
   if (doc.status === "pending_review" && (!pub || ["rejected","withdrawn"].includes(pub.review_status)) && !blocking) actions.push("submit");
   if (pub) actions.push("view_review");
+  if (pub?.review_status === "approved" && pub.publication_status === "queued" && pub.job_status === "queued" && doc.base_status === "active") actions.push("publish_approved");
   if (pub?.review_status === "approved" && ["failed","blocked"].includes(pub.publication_status) && ["failed","uncertain"].includes(pub.job_status) && doc.base_status === "active") actions.push("retry_publication");
   if (["published","archived"].includes(doc.status) || pub) actions.push("create_revision");
   const process = ({pending_review:"ready",published:"ready",archived:"ready",uploaded:"queued"} as Row)[doc.status] || doc.status;
@@ -209,7 +210,8 @@ export async function knowledgeReviewMaterial(instanceId: string,ctx: ReviewCont
   const snapshot = decode(req.snapshot);
   verifySnapshot(snapshot,await document(req.document_id,ctx.tenant));
   return {title:snapshot.title,base_id:snapshot.base_id,pages:snapshot.pages,version:snapshot.document_version,
-    publication_status:req.publication_status || "unpublished",error:req.error,receipt:req.receipt,source_path:snapshot.source_path,document_id:req.document_id};
+    publication_status:req.publication_status || "unpublished",error:req.error,receipt:req.receipt,source_path:snapshot.source_path,document_id:req.document_id,
+    management_url:ctx.admin ? `/admin/knowledge?document=${encodeURIComponent(req.document_id)}&reviewCompany=${encodeURIComponent(ctx.tenant)}` : null};
 }
 
 export async function knowledgeReviewTrial(instanceId:string,query:string,ctx:ReviewContext) {
@@ -262,6 +264,21 @@ export async function publishApprovedKnowledge(job: ClaimedExecutionJob, checkpo
   }
 }
 registerExecutionHandler("knowledge.publish",publishApprovedKnowledge);
+
+/** Execute the existing approved job now, using the same lease and receipt as the worker. */
+export async function publishApprovedDocument(id:string,ctx:ReviewContext) {
+  requireAdmin();
+  if (!ctx.admin) fail("knowledge_publication_forbidden", "没有当前组织的知识发布权限",403);
+  const state=await publicationState(id,ctx);
+  if (state.publication_status === "published") return {publication_status:"published",receipt:state.receipt};
+  if (!state.allowed_actions.includes("publish_approved")) fail("knowledge_publication_not_publishable", "当前版本未获批准或发布任务正在执行，请刷新状态");
+  const { processExecutionJobById } = await import("../execution-jobs/dispatcher.js");
+  const result=await processExecutionJobById(`knowledge-publish:${ctx.tenant}:${state.instance_id}`,`knowledge-publish-now:${randomUUID()}`);
+  const current=await publicationState(id,ctx);
+  if (current.publication_status === "published") return {publication_status:"published",receipt:current.receipt};
+  if (result?.outcome === "failed") fail("knowledge_publication_failed",current.error || "发布失败，请核对原因后重试");
+  fail("knowledge_publication_busy", "发布任务正在执行，请刷新状态");
+}
 
 export async function retryPublication(id:string,ctx:ReviewContext) {
   requireAdmin();

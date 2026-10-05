@@ -75,6 +75,14 @@ export default function LegacyPublicationPanel({id,updatedAt,reload,actionTarget
       </details>}
       {!ctx?.admin && state.blocking_reason && <p>请联系有流程管理资格的管理员配置。</p>}
       {state.allowed_actions.includes("submit") && <><label className="kbv-release-note">发布说明<textarea maxLength={2000} value={note} onChange={e=>setNote(e.target.value)} /></label><fieldset disabled={busy}><ReviewForm fields={state.fields || []} values={values} onChange={setValues} onUploadBusy={setUploadBusy} /></fieldset>{checking && <p role="status">正在检查评审人与材料版本…</p>}{check && !check.allowed && <div className="kbv-document-notice" role="alert"><span>{check.reason}</span><button className="kbv-text-action" onClick={()=>setCheckVersion(v=>v+1)} disabled={busy || checking}>重新检查</button></div>}{check?.allowed && <p>当前评审人：{check.reviewers.join("、")}</p>}{actionTarget && createPortal(<button className={confirm.open?"btn":"btn work"} data-kbv-doc-action="submit" disabled={busy || uploadBusy || checking || !check?.allowed || !note.trim()} onClick={()=>void submit()}>提交审批</button>,actionTarget)}</>}
+      {state.allowed_actions.includes("publish_approved") && <>
+        <p>审批已通过，可以立即发布；无需重新解析。</p>
+        <button className="btn" disabled={busy} onClick={()=>confirm.ask({kind:"approval-initiate",title:"确认发布",object:`资料版本 v${state.version}`,scope:"当前知识库",
+          consequence:"此版本发布后可供员工问答使用。",confirmLabel:"确认发布",confirmTone:"primary"},async()=>{
+            setBusy(true);try { await reviewApi(`/admin/knowledge/documents/${id}/publication-execute`,{}); }
+            finally { setBusy(false);await load();reload(); }
+          })}>立即发布</button>
+      </>}
       {state.allowed_actions.includes("retry_publication") && <button className="btn" disabled={busy} onClick={()=>confirm.ask({kind:"approval-initiate",title:"确认重试发布",object:`资料版本 v${state.version}`,scope:state.binding?.name || "当前知识库",
         consequence:"重新执行本次已批准版本的发布，仍会核验资料与权限；不会创建新的审批或重跑咨询任务。",confirmLabel:"确认重试发布",confirmTone:"primary"},async()=>{await reviewApi(`/admin/knowledge/documents/${id}/publication-retry`,{});await load();reload();})}>重试已批准版本的发布</button>}
       {state.allowed_actions.includes("create_revision") && <button className="btn" disabled={busy} onClick={()=>void run(async()=>{
