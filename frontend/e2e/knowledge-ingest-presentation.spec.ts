@@ -31,12 +31,15 @@ async function fixture(page: Page, v2 = false) {
     } else if (path.endsWith("/publication")) {
       const published = path.includes("/published/");
       json = { tenant: "test", base_id: "base", version: 1, label: published ? "已发布" : ready ? "待提交审批" : "审批中", review_status: published ? "legacy" : ready ? "not_submitted" : "reviewing", publication_status: published ? "published" : "unpublished", allowed_actions: published ? ["create_revision"] : ready ? ["submit"] : ["view_review"], instance_id: published || ready ? null : "approval", binding: null, error: null, attempts: 0, blocking_reason: "" };
+    } else if (path.endsWith("/review-check")) {
+      json = { allowed: true, reason: "", reviewers: [] };
     } else if (path.endsWith("/review-prepare")) {
       json = { confirmationId: "confirmation", command: { action: "submit", values: {} }, material: { title: "产品规格", base_name: "产品规格", pages: 4, version: 1 }, summary: { consequence: "审批通过后将自动发布此版本" } };
     } else if (/\/documents\/[^/]+$/.test(path)) {
       if (detailFails) return route.fulfill({ status: 503, json: { detail: "详情暂不可用" } });
       json = { document: documents.find(doc => path.endsWith(doc.id)), base: { name: "产品规格" }, jobs: [{ id: "job", kind: "normalize", status: "done", attempt: 1, progress_total: 4, progress_done: 4 }], text_preview: { text: "加工结果正文" } };
     } else if (path.endsWith("/archive")) writes.push("archive");
+    else if (path === "/api/approvals/v2/commands") { writes.push("submit-review"); json = { id: "receipt" }; }
     else if (path === "/api/approvals/v2/context") json = { tenant: "test", actor: "admin", admin: false, people: [] };
     await route.fulfill({ json });
   });
