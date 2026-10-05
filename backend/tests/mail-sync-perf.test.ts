@@ -8,6 +8,7 @@ import { setEmailMcpClientFactory } from "../src/starrykol/service.js";
 import { syncFollowedKolMail, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { bindStarryUser } from "./helpers/starry-binding.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let conversationId = 1000;
 
@@ -77,7 +78,8 @@ function mockMcp(readMs: number, totalCount: number, pageSize = 10) {
 }
 
 describe("mail sync performance", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await freshTestDatabase();
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-sync-perf-"));
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";

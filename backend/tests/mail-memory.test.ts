@@ -117,16 +117,17 @@ function stubStarry(extraConversations: Json[] = []): void {
             conversationId: 3901,
             subject: "Re: LiTime MCP 连通测试",
             messages: [
-              { id: "mid-3901-1", title: "品牌首次联系", direction: "outbound", body: "Hello", unread: false, from: "larry.zhao@amperetime.com" },
+              { id: "mid-3901-1", sentAt: "2026-10-01T01:00:00Z", title: "品牌首次联系", direction: "outbound", body: "Hello", unread: false, from: "larry.zhao@amperetime.com" },
               {
                 id: "mid-3901-2",
+                sentAt: "2026-10-01T02:00:00Z",
                 title: "达人确认合作意向",
                 direction: "inbound",
                 body: "这是一封测试邮件，请查收，我现在想和贵品牌litime合作",
                 unread: true,
                 from: "xiaomei.beauty@example.com",
               },
-              { id: "mid-3901-3", direction: "inbound", body: "Please share the rate.", unread: true, from: "xiaomei.beauty@example.com" },
+              { id: "mid-3901-3", sentAt: "2026-10-01T03:00:00Z", direction: "inbound", body: "Please share the rate.", unread: true, from: "xiaomei.beauty@example.com" },
             ],
           },
         };

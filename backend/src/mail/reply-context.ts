@@ -55,6 +55,7 @@ export async function readReplyContext(sessionId: string, after = 0): Promise<Js
   const version = replyFingerprint({ collaboration_id: col.id, stage_code: col.stage_code, stage_version: col.stage_version,
     messages: messages.map(row => [row.id,row.version]) });
   const cursor = Math.max(0, ...messages.map(row => row.sequence));
+  const missingBodyCount = rows.filter(row => typeof row.body_text !== "string").length;
   const drafts = (await db.query<Row>(`SELECT id,subject,body_en,from_addr,to_addr,status,count(*) OVER() AS total
     FROM drafts WHERE session_id=$1 AND collaboration_id=$2 AND sent_at IS NULL
     AND status NOT IN ('sent','sending','send_unknown') ORDER BY id LIMIT 20`, [sessionId,col.id])).rows;
@@ -66,7 +67,8 @@ export async function readReplyContext(sessionId: string, after = 0): Promise<Js
     ORDER BY r.sequence LIMIT 201`, [after,col.id,boxes])).rows;
   return { entry: "memory", risk: "L1", creates_session: false, creates_turn: false, calls_model: false,
     session_id: sessionId, collaboration_id: col.id, object: { stage_code: col.stage_code, stage_version: col.stage_version }, version, cursor, sources,
-    complete: Number(rows[0]?.total || 0) <= 200 && sources.length > 0 && sources.every(row => row.state === "verified_cache"),
+    complete: missingBodyCount === 0 && Number(rows[0]?.total || 0) <= 200 && sources.length > 0 && sources.every(row => row.state === "verified_cache"),
+    missing_body_count: missingBodyCount,
     messages, drafts: drafts.map(({total, ...draft}) => draft), drafts_version: draftsVersion,
     drafts_complete: Number(drafts[0]?.total || 0) <= 20, changes: messages.filter(row => row.sequence > after),
     events: events.slice(0,200), has_more_events: events.length > 200,

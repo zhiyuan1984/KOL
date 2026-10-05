@@ -1,7 +1,7 @@
 export const replyContextSchema = `
 CREATE TABLE IF NOT EXISTS reply_mail_revisions (
   sequence BIGSERIAL PRIMARY KEY,
-  mail_item_id TEXT NOT NULL REFERENCES kol_mail_items(id),
+  mail_item_id TEXT NOT NULL REFERENCES kol_mail_items(id) ON DELETE CASCADE,
   mailbox TEXT NOT NULL,
   collaboration_id TEXT,
   provider_message_id TEXT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS reply_mail_quarantine (
 );
 CREATE TABLE IF NOT EXISTS reply_send_basis (
   request_id TEXT PRIMARY KEY,
-  draft_id TEXT NOT NULL REFERENCES drafts(id),
+  draft_id TEXT NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
   actor_id TEXT NOT NULL,
   confirmation_version TEXT NOT NULL,
   legacy_confirmation_version TEXT NOT NULL,

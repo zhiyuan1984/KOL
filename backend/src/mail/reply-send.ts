@@ -55,7 +55,9 @@ export async function bindReplySend(draft: Row, base: SendView, input: MailSendC
       await client.query("DELETE FROM mail_send_attempts WHERE draft_id=$1 AND actor_id=$2 AND status='reply_stale'", [draft.id,actor.id]);
     }
     await client.query(`INSERT INTO reply_send_basis(request_id,draft_id,actor_id,confirmation_version,legacy_confirmation_version,context_version)
-      VALUES ($1,$2,$3,$4,$5,$6)`, [requestId,draft.id,actor.id,input.confirmation_version,base.action.confirmation_version,view.reply_context?.version || "no_reply_mail"]);
+      VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(request_id) DO NOTHING`, [requestId,draft.id,actor.id,input.confirmation_version,base.action.confirmation_version,view.reply_context?.version || "no_reply_mail"]);
+    const winner = (await client.query<Row>("SELECT * FROM reply_send_basis WHERE request_id=$1", [requestId])).rows[0];
+    if (winner.draft_id !== draft.id || winner.actor_id !== actor.id || winner.confirmation_version !== input.confirmation_version || winner.state === "rejected") throw new HttpFail(409, "reply_confirmation_already_used");
   });
   return { ...input, confirmation_version: base.action.confirmation_version || undefined };
 }
@@ -71,10 +73,10 @@ export async function assertReplySendCurrent(draft: Row, requestId: string): Pro
     && ((current?.complete && current.version === basis.context_version)
       || (!current && basis.context_version === "no_reply_mail"))) return;
   await postgresTransaction(async db => {
-    await db.query(`UPDATE reply_send_basis SET state='rejected',rejected_at=now(),rejected_attempt=
-      (SELECT to_jsonb(a) FROM mail_send_attempts a WHERE a.request_id=$1) WHERE request_id=$1`, [requestId]);
+    await db.query(`UPDATE reply_send_basis SET state='rejected',rejected_at=COALESCE(rejected_at,now()),rejected_attempt=COALESCE(rejected_attempt,
+      (SELECT to_jsonb(a) FROM mail_send_attempts a WHERE a.request_id=$1)) WHERE request_id=$1`, [requestId]);
     await db.query("UPDATE mail_send_attempts SET status='reply_stale',error='mail_reply_context_changed',updated_at=$3 WHERE draft_id=$1 AND request_id=$2 AND status='sending'", [draft.id,requestId,new Date().toISOString()]);
     await db.query("UPDATE drafts SET status='draft' WHERE id=$1 AND status='sending'", [draft.id]);
   });
-  throw new HttpFail(409, { code: "mail_reply_context_changed", message: "执行前相关邮件或权限已变化，本次未调用邮件服务。请保留草稿并重新核对。" });
+  throw new HttpFail(409, { code: "mail_reply_context_changed", message: "执行前相关邮件或权限已变化，本次未调用发送接口。请保留草稿并重新核对。" });
 }

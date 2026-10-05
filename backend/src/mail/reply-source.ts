@@ -46,7 +46,7 @@ export async function observeReplyMail(input: ReplyMailObservation): Promise<{ c
       from: input.from, to: input.to, occurred_at: input.occurred_at,
       // Stable metadata references only; expiring signed URLs and provider
       // credentials are not mail facts and must not enter the model snapshot.
-      attachments: (input.attachments || []).map(file => ({
+      attachments: (Array.isArray(input.attachments) ? input.attachments : []).filter(file => file && typeof file === "object" && !Array.isArray(file)).map(file => ({
         id: String(file.id || file.fileId || file.attachmentId || ""),
         name: String(file.name || file.filename || ""),
         content_type: String(file.contentType || file.mimeType || ""),

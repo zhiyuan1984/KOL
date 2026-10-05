@@ -68,12 +68,36 @@ describe("reply confirmation dependencies before provider IO", () => {
     await expect(withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-request-01",confirmation_version: view.action.confirmation_version!}))).rejects.toThrow(/尚未发送/);
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_send_basis")).rows[0].n).toBe(0);
   });
+  it("deduplicates concurrent binding and preserves the first refusal audit after retry", async () => {
+    const {draft,base} = await prepare();
+    const view = await withScopedUser(actor, () => replySendView(draft,base));
+    const confirmed = {request_id: "reply-concurrent-01",confirmation_version: view.action.confirmation_version!};
+    await Promise.all([1,2].map(() => withScopedUser(actor, () => bindReplySend(draft,base,confirmed))));
+    expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_send_basis")).rows[0].n).toBe(1);
+    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,$2,$3,'sending')", [draft.id,confirmed.request_id,actor.id]);
+    await observeReplyMail({...input,body: "New reply",source_updated_at: "2026-10-05T02:00:00Z"});
+    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
+    const audit = (await postgresPool().query("SELECT rejected_at,rejected_attempt FROM reply_send_basis WHERE request_id=$1", [confirmed.request_id])).rows[0];
+    const fresh = await withScopedUser(actor, () => replySendView(draft,base));
+    await withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-concurrent-02",confirmation_version: fresh.action.confirmation_version!}));
+    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
+    expect((await postgresPool().query("SELECT rejected_at,rejected_attempt FROM reply_send_basis WHERE request_id=$1", [confirmed.request_id])).rows[0]).toEqual(audit);
+  });
+  it("does not block authorized removal or retain dependent mail snapshots and confirmation records", async () => {
+    const {draft,base} = await prepare();
+    const view = await withScopedUser(actor, () => replySendView(draft,base));
+    await withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-delete-01",confirmation_version: view.action.confirmation_version!}));
+    await postgresPool().query("DELETE FROM drafts WHERE id=$1", [draft.id]);
+    await postgresPool().query("DELETE FROM kol_mail_items WHERE thread_id='reply-thread'");
+    expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_send_basis")).rows[0].n).toBe(0);
+    expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_mail_revisions")).rows[0].n).toBe(0);
+  });
   it("rejects after confirmation, preserves human draft and audit, allows a fresh confirmation", async () => {
     const {draft,base,input: confirmed} = await claim();
     await observeReplyMail({...input, body: "Please delay to Friday",source_updated_at: "2026-10-05T02:00:00Z"});
     const provider = vi.spyOn(starry, "sendConversation");
     try {
-      await expect(withScopedUser(actor, () => sendDraft(String(draft.id),"operator",confirmed.request_id))).rejects.toThrow(/未调用邮件服务/);
+      await expect(withScopedUser(actor, () => sendDraft(String(draft.id),"operator",confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
       expect(provider).not.toHaveBeenCalled();
     } finally { provider.mockRestore(); }
     expect((await postgresPool().query("SELECT status,body_en FROM drafts WHERE id=$1", [draft.id])).rows[0]).toMatchObject({status: "draft",body_en: "Human draft"});
@@ -87,12 +111,12 @@ describe("reply confirmation dependencies before provider IO", () => {
     await postgresPool().query("UPDATE collaborations SET stage_version=stage_version+1 WHERE id <> 'col_xiaomei'");
     await withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id));
     await postgresPool().query("UPDATE collaborations SET stage_version=stage_version+1 WHERE id='col_xiaomei'");
-    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用邮件服务/);
+    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
   });
   it("rechecks persisted brand revocation and rejects before provider IO", async () => {
     const {draft,input: confirmed} = await claim();
     await postgresPool().query("UPDATE users SET brands='[]' WHERE id=$1", [actor.id]);
-    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用邮件服务/);
+    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
   });
   it("binds an empty reply dependency so a first incoming mail still invalidates confirmation", async () => {
     const {draft,base} = await prepare();
@@ -101,7 +125,7 @@ describe("reply confirmation dependencies before provider IO", () => {
     await withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-empty-01",confirmation_version: base.action.confirmation_version!}));
     await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,'reply-empty-01',$2,'sending')", [draft.id,actor.id]);
     await observeReplyMail(input);
-    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,"reply-empty-01"))).rejects.toThrow(/未调用邮件服务/);
+    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,"reply-empty-01"))).rejects.toThrow(/未调用发送接口/);
   });
   it("rechecks again at the send adapter boundary after preparatory reads", async () => {
     const {draft,input: confirmed} = await claim();
@@ -110,7 +134,7 @@ describe("reply confirmation dependencies before provider IO", () => {
     try {
       await observeReplyMail({...input,body: "Please delay to Friday",source_updated_at: "2026-10-05T02:00:00Z"});
       await expect(withScopedUser(actor, () => withMailSendAuthority(String(draft.id),confirmed.request_id,
-        () => callStarryKolTool("sendEmailNow",{}), () => assertReplySendCurrent(draft,confirmed.request_id)))).rejects.toThrow(/未调用邮件服务/);
+        () => callStarryKolTool("sendEmailNow",{}), () => assertReplySendCurrent(draft,confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
       expect(provider).not.toHaveBeenCalled();
     } finally {setStarryKolClientFactory();}
   });
@@ -168,6 +192,13 @@ describe("native reply context and source revisions", () => {
     expect(ctx.complete).toBe(false);
     expect(ctx.messages).toHaveLength(1);
     expect(ctx.sources).toMatchObject([{ state: "failed" }]);
+  });
+  it("does not approve a metadata-only cache as complete send evidence", async () => {
+    await observeReplyMail(input);
+    await postgresPool().query("UPDATE kol_mail_items SET body_text=NULL WHERE thread_id='reply-thread'");
+    const ctx = await read();
+    expect(ctx).toMatchObject({complete: false,missing_body_count: 1});
+    expect((ctx.messages as Array<{body: unknown}>)[0].body).toBeNull();
   });
   it("quarantines missing occurrence time without inventing arrival as source time", async () => {
     expect(await observeReplyMail({...input,occurred_at: ""})).toMatchObject({quarantined: true});

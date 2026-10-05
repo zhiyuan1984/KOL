@@ -1,5 +1,6 @@
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
-import { requireConnector, requireSkill } from "../auth.js";
+import { authDisabled, requireSkill, scopedUser } from "../auth.js";
+import { authorizeConnector, runtimeAgentForSkill } from "../runtime/execution.js";
 import { codexMode, liveRemoteSideEffectsEnabled, liveTestKolAllowed, liveTestRecipientAllowed } from "../config.js";
 import { audit, getConn, nowIso, txImmediate } from "../db.js";
 import type { Json, Row } from "../types.js";
@@ -82,8 +83,13 @@ export function assertMailGatewayReady(draft: Row): void {
 
 /** Rerun permissions and current business facts; never trust action DTOs from a client. */
 export function validateMailSend(draft: Row): void {
-  requireSkill(String(draft.skill || "email_compose"));
-  requireConnector("enterprise_mail", "write");
+  const skillId = String(draft.skill || "email_compose");
+  requireSkill(skillId);
+  if (!authDisabled()) {
+    const userId = scopedUser()?.id || "";
+    authorizeConnector({ agentId: runtimeAgentForSkill(skillId, userId), skillId, userId,
+      runId: "mail-send-validation", sessionId: String(draft.session_id) }, "starrykol");
+  }
   const extra = extraOf(draft);
   let checked = draft;
   let objectBrand = String(extra.brand || "");
