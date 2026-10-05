@@ -128,14 +128,19 @@ export function FlowDesigner({
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
-                if (dragged) move(dragged, index);
+                const source = e.dataTransfer.getData("text/plain") || dragged;
+                if (source) move(source, index);
                 setDragged(null);
               }}
             >
               <button
                 type="button"
                 draggable={!linear || !["start", "end"].includes(node.type)}
-                onDragStart={() => setDragged(node.id)}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", node.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDragged(node.id);
+                }}
                 onDragEnd={() => setDragged(null)}
                 onClick={() => setSelected(node.id)}
                 aria-pressed={selected === node.id}

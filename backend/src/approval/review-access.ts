@@ -14,7 +14,7 @@ export function reviewContextForActor(
   const now = new Date().toISOString();
   const rows = db
     .prepare(
-      `SELECT p.user_id,p.display_name,m.company_id,m.org_unit_id,u.head_person_ref
+      `SELECT p.user_id,p.display_name,m.company_id,m.org_unit_id,m.relation,u.head_person_ref
     FROM organization_people p JOIN users a ON a.id=p.user_id AND a.active=1
     JOIN organization_memberships m ON m.person_ref=p.person_ref
     JOIN organization_units u ON u.id=m.org_unit_id AND u.company_id=m.company_id
@@ -26,6 +26,7 @@ export function reviewContextForActor(
     display_name: string;
     company_id: string;
     org_unit_id: string;
+    relation: string;
     head_person_ref: string | null;
   }[];
   const tenants = [
@@ -33,7 +34,8 @@ export function reviewContextForActor(
       rows.filter((r) => r.user_id === actorId).map((r) => r.company_id),
     ),
   ];
-  const tenant = selectedTenant || (tenants.length === 1 ? tenants[0] : "");
+  const primaryCompanies = [...new Set(rows.filter(r => r.user_id === actorId && r.relation === "primary").map(r => r.company_id))];
+  const tenant = selectedTenant || (primaryCompanies.length === 1 ? primaryCompanies[0] : tenants.length === 1 ? tenants[0] : "");
   if (!tenant || !tenants.includes(tenant))
     throw new HttpFail(403, {
       message:
@@ -78,7 +80,26 @@ export function reviewContextForActor(
     actor: actorId,
     admin: JSON.parse(actor.roles).includes("admin"),
     people,
+    organization: reviewOrganization(db, tenant, scoped.filter(r => r.user_id === actorId && r.relation === "primary").map(r => r.org_unit_id)),
   };
+}
+
+/** Return only active units connected to this company's authoritative root. */
+function reviewOrganization(db: SqliteConn, tenant: string, primaryIds: string[]) {
+  const rows = db.prepare('SELECT id,display_name AS name,parent_id AS "parentId" FROM organization_units WHERE company_id=? AND status=\'active\' ORDER BY level,display_name,id').all(tenant) as { id: string; name: string; parentId: string | null }[];
+  const byId = new Map(rows.map(unit => [unit.id, unit]));
+  const units = rows.filter(unit => {
+    const seen = new Set<string>();
+    let current: typeof unit | undefined = unit;
+    while (current && !seen.has(current.id) && seen.size < 4) {
+      if (current.id === tenant && !current.parentId) return true;
+      seen.add(current.id);
+      current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+    return false;
+  });
+  const defaults = [...new Set(primaryIds)].filter(id => units.some(unit => unit.id === id));
+  return { units, ...(defaults.length === 1 ? { defaultUnitId: defaults[0] } : {}) };
 }
 
 export function reviewCompaniesForActor(db: SqliteConn, actorId: string) {

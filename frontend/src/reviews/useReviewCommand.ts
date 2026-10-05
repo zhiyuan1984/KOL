@@ -34,10 +34,10 @@ export function useReviewCommand(after: () => Promise<void>) {
           kind: "review-command",
           title: `确认${labels[command.action]}`,
           object: prepared.summary.name,
-          scope: "当前组织内的流程参与人",
+          scope: prepared.summary.scope || "当前组织内的流程参与人",
           ruleVersion: String(prepared.summary.version),
           consequence: prepared.summary.consequence,
-          change: "reason" in command ? command.reason : undefined,
+          change: prepared.summary.configuration || ("reason" in command ? command.reason : undefined),
           confirmLabel: labels[command.action],
           confirmTone: ["reject", "withdraw"].includes(command.action)
             ? "danger"

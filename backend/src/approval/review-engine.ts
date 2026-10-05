@@ -22,8 +22,10 @@ export function validateDefinition(input: unknown): ReviewIssue[] {
     return [{ path: "", message: "流程必须为对象" }];
   const d = input as ReviewDefinition;
   for (const key of Object.keys(d))
-    if (!["schema", "name", "description", "fields", "nodes", "subjectType"].includes(key))
+    if (!["schema", "name", "description", "fields", "nodes", "subjectType", "organizationUnitId"].includes(key))
       add(key, "不支持的流程属性");
+  if (d.organizationUnitId !== undefined && (typeof d.organizationUnitId !== "string" || !d.organizationUnitId.trim() || d.organizationUnitId.length > 200))
+    add("organizationUnitId", "组织标识格式错误");
   if (d.schema !== "review.definition.v1") add("schema", "不支持的契约版本");
   if (typeof d.name !== "string" || !d.name.trim() || d.name.length > 120)
     add("name", "名称必填，最多 120 字");

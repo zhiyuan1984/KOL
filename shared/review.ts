@@ -58,11 +58,17 @@ export type ReviewNode = {
 };
 export type ReviewDefinition = {
   schema: "review.definition.v1";
+  /** Authoring ownership only; never grants access or changes reviewer resolution. */
+  organizationUnitId?: string;
   subjectType?: "knowledge_publication";
   name: string;
   description: string;
   fields: ReviewField[];
   nodes: ReviewNode[];
+};
+export type ReviewOrganizationContext = {
+  units: { id: string; name: string; parentId: string | null }[];
+  defaultUnitId?: string;
 };
 export type ReviewTask = {
   id?: string;

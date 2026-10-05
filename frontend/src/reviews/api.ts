@@ -1,4 +1,4 @@
-import type { ReviewCommand, ReviewInstance } from "../../../shared/review";
+import type { ReviewCommand, ReviewInstance, ReviewOrganizationContext } from "../../../shared/review";
 export type InstanceView = ReviewInstance & {
   allowedActions: string[];
   candidates?: { transfer: string[]; countersign: string[] };
@@ -18,6 +18,7 @@ export type InstanceView = ReviewInstance & {
   }[];
 };
 export type ReviewContext = {
+  organization?: ReviewOrganizationContext;
   intake?: { allowed: boolean; reason: string };
   tenant: string;
   actor: string;
@@ -76,6 +77,8 @@ export const prepareReview = (command: ReviewCommand) =>
       name: string;
       version: number;
       consequence: string;
+      scope?: string;
+      configuration?: string;
       reviewers?: string[];
     };
   }>("/approvals/v2/prepare", command);

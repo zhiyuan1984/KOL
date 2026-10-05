@@ -260,7 +260,9 @@ reviews.put("/admin/approval-types/v2/templates/:id", async (c) => {
 reviews.post("/admin/approval-types/v2/validate", async (c) => {
   const s = service(c.req.header("X-Review-Company"));
   s.templates(true);
-  return c.json({ issues: validateDefinition((await body(c)).definition) });
+  const definition = (await body(c)).definition;
+  s.checkOrganization(definition);
+  return c.json({ issues: validateDefinition(definition) });
 });
 reviews.post("/admin/approval-types/v2/simulate", async (c) => {
   const b = await body(c);

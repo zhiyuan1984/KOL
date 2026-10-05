@@ -11,6 +11,7 @@ import type {
   ReviewNode,
   ReviewTemplate,
   ReviewTask,
+  ReviewOrganizationContext,
 } from "../../../shared/review.js";
 import {
   REVIEW_ACTIONS,
@@ -29,6 +30,7 @@ import {
 } from "./review-engine.js";
 
 export type ReviewContext = {
+  organization?: ReviewOrganizationContext;
   tenant: string;
   actor: string;
   admin: boolean;
@@ -338,6 +340,7 @@ export class ReviewService {
     definition: ReviewDefinition,
   ): ReviewTemplate {
     this.admin();
+    this.checkOrganization(definition);
     // Incomplete graph is a valid draft, malformed data isn't. Publication performs full validation.
     if (
       !definition ||
@@ -402,6 +405,12 @@ export class ReviewService {
       )
       .get(this.ctx.tenant, id) as Row | undefined;
     return r || fail(404, "流程不存在");
+  }
+  checkOrganization(definition: ReviewDefinition) {
+    if (definition?.organizationUnitId !== undefined &&
+      (typeof definition.organizationUnitId !== "string" ||
+       !this.ctx.organization?.units.some(unit => unit.id === definition.organizationUnitId)))
+      fail(422, "流程归属组织不存在、已归档或不属于当前公司，请重新选择");
   }
   private definition(id: string, version: number): ReviewDefinition {
     const r = this.db
@@ -860,6 +869,7 @@ export class ReviewService {
       if (t.published_version === t.version) fail(409, "此版本已发布");
       const d = JSON.parse(t.definition) as ReviewDefinition,
         issues = validateDefinition(d);
+      this.checkOrganization(d);
       if (issues.length)
         throw new HttpFail(422, { message: "流程校验未通过", issues });
       for (const n of d.nodes || [])
@@ -903,6 +913,8 @@ export class ReviewService {
       return {
         name: d.name,
         version: t.version,
+        scope: `公司：${this.ctx.organization?.units.find(unit => unit.id === this.ctx.tenant)?.name || this.ctx.tenant}；流程创建归属：${this.ctx.organization?.units.find(unit => unit.id === d.organizationUnitId)?.name || "公司范围"}`,
+        configuration: `${d.fields.length} 个表单字段；${d.nodes.filter(node => !["start", "end"].includes(node.type)).length} 个处理节点`,
         consequence:
           t.enabled === 1
             ? "该版本将用于后续新申请；已发起评审保持原版本。"
