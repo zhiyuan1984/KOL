@@ -16,8 +16,12 @@ import {
   type IntentVerdict,
 } from "./openai-intent.js";
 import { extractTaskEntities, resolveTaskIntent, type ClarificationKind, type TaskResolution } from "./resolver.js";
+import { availableAgentRoutes, currentAgentRoutes, withAgentRoutes } from "./agent-routing.js";
+import { runtimeAgentForSkill } from "../runtime/execution.js";
 
 export type TaskRecognition = TaskResolution & {
+  agent_id?: string;
+  agent_name?: string;
   source: "llm" | "locked" | "none";
   error?: string;
   next_action?: string;
@@ -119,11 +123,15 @@ async function judgeIntent(text: string): Promise<IntentVerdict> {
 }
 
 export async function recognizeTaskIntent(input: {
+  agent_id?: string;
   text?: string;
   task_type?: string | null;
   entities?: Record<string, unknown>;
   input?: Record<string, unknown>;
 }): Promise<TaskRecognition> {
+  if (scopedUser() && !currentAgentRoutes()) {
+    return withAgentRoutes(availableAgentRoutes(input.agent_id), () => recognizeTaskIntent(input));
+  }
   const text = String(input.text || "").trim();
   let lockedType = input.task_type && taskDefinition(String(input.task_type))
     ? String(input.task_type)
@@ -179,6 +187,22 @@ export async function recognizeTaskIntent(input: {
   }
 
   const taskType = lockedType || (verdict?.task_type && taskDefinition(verdict.task_type) ? verdict.task_type : null);
+  const routes = currentAgentRoutes();
+  const candidates = routes?.filter(route => route.task_type === taskType);
+  const selectedId = input.agent_id || verdict?.agent_id;
+  let selected = candidates?.find(route => route.agent_id === selectedId);
+  if (!selectedId && candidates?.length === 1) selected = candidates[0];
+  // A locked task preserves existing task execution semantics; free text must resolve ownership.
+  if (!selectedId && !selected && lockedType && candidates?.length) {
+    const id = runtimeAgentForSkill(lockedType, scopedUser()!.id);
+    selected = candidates.find(route => route.agent_id === id);
+  }
+  if (routes && taskType && (!selected || (!lockedType && (verdict?.confidence || 0) < 0.75))) {
+    return { task_type: null, confidence: 0, entities: {}, missing_fields: [], alternatives: [],
+      needs_clarification: true, clarification_kind: "direction", source: "llm",
+      next_action: candidates?.length ? `请说明要由哪位智能体处理：${candidates.map(route => route.agent_name).join("、")}。`
+        : "当前入口没有可用的对应技能，请选择有使用资格的智能体或补充问题归属。" };
+  }
   const bound = boundMailboxEmail();
   const extracted = extractTaskEntities(text);
   const llmEntities = sanitizeIntentEntities(verdict?.entities || {}, text, bound);
@@ -209,12 +233,14 @@ export async function recognizeTaskIntent(input: {
     audit("host", "task.recognize", {
       text: text.slice(0, 200),
       task_type: taskType,
+      agent_id: selected?.agent_id,
       confidence: verdict.confidence,
       source: "llm",
     });
   }
   return {
     ...locked,
+    ...(selected ? { agent_id: selected.agent_id, agent_name: selected.agent_name } : {}),
     confidence: lockedType ? 1 : Math.max(locked.confidence, verdict?.confidence || 0),
     needs_clarification: clarificationKind !== "none",
     clarification_kind: clarificationKind,

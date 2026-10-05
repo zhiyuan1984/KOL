@@ -1480,6 +1480,9 @@ export function ChatThread({
             </div>
           </ThreadMessage>;
         }
+        if (m.kind === "agent_identity") {
+          return <p key={m.id} className="muted" data-agent-identity={String(m.payload.agent_id || "")} role="status">{String(m.payload.agent_name || "智能体")} · 回答本次问题</p>;
+        }
         if (m.kind === "me") {
           return (
             <ThreadMessage key={m.id} role="user" data-kind="me" observedAt={discovery ? m.created_at : undefined}>

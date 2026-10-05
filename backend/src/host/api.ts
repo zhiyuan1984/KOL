@@ -125,8 +125,10 @@ import { isSafeSkillResultForMemory, persistValidatedSkillResult } from "./skill
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { insertSessionMessage, isSessionNotFound } from "./session-messages.js";
 import { publishSession, subscribeSession } from "./session-events.js";
-import { agentSubmissionAllowed } from "../contract-scope.js";
 import { assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { agentForExpert, employeeExpert } from "../runtime/employee-agents.js";
+import { managedAgent } from "../runtime/managed-agents.js";
+import { isTestRuntime } from "../codex-runtime.js";
 import { extractTaskEntities, mergeExtractedOntoIntent } from "../tasks/resolver.js";
 import { fieldLabel } from "../labels.js";
 import { assertCollaborationInScope, inboundVisibleSql, scopedCollaborationSearch } from "./inbound-scope.js";
@@ -188,11 +190,11 @@ host.use("/sessions/:sid/*", async (c,next) => {
 });
 const progressBySession = new Map<string, (progress: WorkerProgress) => void>();
 
-function requireTaskAccess(skill: string): void {
+function requireTaskAccess(skill: string, agentId?: string): void {
   const definition = taskDefinition(skill);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
   if (codexMode() !== "stub") {
-    assertRuntimeSkill({ agentId: runtimeAgentForSkill(skill, scopedUser()?.id || ""), skillId: skill,
+    assertRuntimeSkill({ agentId: agentId || runtimeAgentForSkill(skill, scopedUser()?.id || ""), skillId: skill,
       userId: scopedUser()?.id || "", runId: "submission" });
     return;
   }
@@ -581,7 +583,7 @@ function messages(sid: string): Json[] {
   return rows.map((r) => ({ ...r, payload: JSON.parse(String(r.payload)) }));
 }
 
-type BoundTask = { workItemId: string; runId: string; taskType: string };
+type BoundTask = { workItemId: string; runId: string; taskType: string; agentId?: string };
 
 /**
  * Validation only: the run may queue, but nothing has started yet. The state
@@ -612,7 +614,8 @@ function resolveBoundTask(sid: string, body: Json): BoundTask | null {
     ).get(item.id, sid)) as Row | undefined;
   if (!run) throw new HttpFail(409, "pending task run not found");
   if (!["pending", "failed"].includes(String(run.status))) throw new HttpFail(409, `task run is ${run.status}`);
-  const storedTemplate = (JSON.parse(String(run.input || "{}")) as Json)._skill_template;
+  const runInput = JSON.parse(String(run.input || "{}")) as Json;
+  const storedTemplate = runInput._skill_template;
   if (isSkillTemplateSnapshot(storedTemplate, taskType)
     && storedTemplate.version !== effectiveSkillTemplate(taskDefinition(taskType)!).version) {
     const detail = { code: "skill_template_version_conflict", message: "技能模板在排队期间已更新，请重新选用模板并检查参数后创建任务。" };
@@ -625,7 +628,8 @@ function resolveBoundTask(sid: string, body: Json): BoundTask | null {
     appendTaskEvent(String(item.id), String(run.id), "run.template_changed", "技能模板已更新", "needs_clarification", detail.message);
     throw new HttpFail(409, detail);
   }
-  return { workItemId: String(item.id), runId: String(run.id), taskType };
+  return { workItemId: String(item.id), runId: String(run.id), taskType,
+    ...(runInput.agent_id ? { agentId: String(runInput.agent_id) } : {}) };
 }
 
 function boundFromIntent(intent: Intent): BoundTask | null {
@@ -1880,7 +1884,7 @@ function finishWorkerTrace(sid: string, failed: boolean): void {
 async function execWorker(sid: string, skill: string, text: string, extra: Json): Promise<WorkerResult> {
   const definition = taskDefinition(skill);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
-  requireTaskAccess(skill);
+  requireTaskAccess(skill, extra.agent_id ? String(extra.agent_id) : undefined);
   const sec = hostWorkerTimeout();
   const controller = new AbortController();
   attachRunAbort(sid, controller);
@@ -2435,6 +2439,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
   });
   const extra: Json = {
     handle: col?.handle || intent.handle,
+    agent_id: intent.extras?.agent_id,
     stage_code: col?.stage_code,
     stage: col?.stage_code,
     creator_id: intent.extras?.creator_id,
@@ -3596,6 +3601,7 @@ async function recognizeBoxOrAsk(
     || (body.intent && taskDefinition(String(body.intent)) ? String(body.intent) : undefined);
   const resolution = await recognizeTaskIntent({
     text,
+    agent_id: body.agent_id ? String(body.agent_id) : undefined,
     task_type: locked,
     entities: body.entities && typeof body.entities === "object" ? body.entities as Record<string, unknown> : undefined,
     input: {
@@ -3619,7 +3625,7 @@ async function recognizeBoxOrAsk(
       clarification_kind: "direction",
       alternatives: resolution.alternatives,
       fields: [],
-      message: "请选择最符合你意图的任务，或补充说明后再发。",
+      message: resolution.next_action || "请选择最符合你意图的任务，或补充说明后再发。",
     });
     return null;
   }
@@ -3629,6 +3635,8 @@ async function recognizeBoxOrAsk(
   intent.needs_worker = true;
   intent.extras = {
     ...intent.extras,
+    agent_id: resolution.agent_id,
+    agent_name: resolution.agent_name,
     entities: resolution.entities,
     derive_child: !locked,
   };
@@ -3711,10 +3719,17 @@ host.post("/sessions/:sid/messages", async (c) => {
   if (body.act && body.act !== "ask") {
     throw new HttpFail(400, "go 只改路由，禁止 POST /messages、禁止起箱");
   }
-  if (!agentSubmissionAllowed()) {
-    throw new HttpFail(409, { code: "agent_not_published", message: "KOL Agent 尚未发布，员工端暂不可提交", next_action: "等待管理员发布 Agent" });
+  if (session.expert_id) {
+    employeeExpert(String(session.expert_id));
+    const agentId = agentForExpert(String(session.expert_id));
+    if (body.agent_id && body.agent_id !== agentId) throw new HttpFail(409, "当前会话已绑定其他智能体");
+    body.agent_id = agentId;
   }
   const boundTask = workspace ? null : resolveBoundTask(sid, body);
+  if (boundTask?.agentId) {
+    if (body.agent_id && body.agent_id !== boundTask.agentId) throw new HttpFail(409, "任务已绑定其他智能体");
+    body.agent_id = boundTask.agentId;
+  }
   const text = String(body.text || body.content || "").trim();
   const attachments = sanitizeAttachments(body.attachments);
   const pendingResult = lastUnsentResult(messages(sid));
@@ -3762,8 +3777,22 @@ host.post("/sessions/:sid/messages", async (c) => {
       draft: null,
     });
   }
+  // Historical unauthenticated stub fixtures do not execute a harness. Real or identified runs always validate the selected pair.
+  const unscopedFixture = isTestRuntime() && codexMode() === "stub" && !scopedUser() && !body.agent_id;
+  let selectedAgent: string | undefined;
+  let agent: ReturnType<typeof managedAgent> | null = null;
+  try {
+    selectedAgent = unscopedFixture ? undefined : String(body.agent_id || intent.extras?.agent_id || runtimeAgentForSkill(intent.skill || intent.type, scopedUser()?.id || ""));
+    if (selectedAgent) assertRuntimeSkill({ agentId: selectedAgent, skillId: intent.skill || intent.type,
+      userId: scopedUser()?.id || "", runId: "submission", sessionId: sid });
+    agent = selectedAgent ? managedAgent(selectedAgent) : null;
+  } catch (error) {
+    failBoundTask(boundTask, error);
+    throw error;
+  }
   intent.extras = {
     ...intent.extras,
+    ...(agent ? { agent_id: agent.id, agent_name: agent.name } : {}),
     ...(attachments.length ? { attachments } : {}),
     ...(body.creator_id ? { creator_id: body.creator_id } : {}),
     ...(body.knowledge_id ? { knowledge_id: String(body.knowledge_id) } : {}),
@@ -3811,7 +3840,7 @@ host.post("/sessions/:sid/messages", async (c) => {
     if (col && isMailDraftIntent(intent) && !isEmailMcpTask(intent.type) && !intent.extras?.result_revise && !resolveMailTo(col, intent, {}, text)) {
       throwMailToSupplement(sid, me, intent, col);
     }
-    if (startsWorker) requireTaskAccess(skill);
+    if (startsWorker) requireTaskAccess(skill, selectedAgent);
     if (isWriteSkill(skill) && isSessionRunning(sid)) {
       dropOwnMe(me);
       throw new HttpFail(409, "请先停止当前生成，再确认阶段。");
@@ -3821,6 +3850,7 @@ host.post("/sessions/:sid/messages", async (c) => {
     failBoundTask(boundTask, e);
     throw e;
   }
+  if (agent) addMsg(sid, "assistant", "agent_identity", { agent_id: agent.id, agent_name: agent.name, skill_id: skill });
   if (startsWorker && isSessionRunning(sid)) {
     enqueueAsk(sid, { text, intent, me });
     queueBoundTask(boundTask);
