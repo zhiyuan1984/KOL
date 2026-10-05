@@ -9,6 +9,12 @@ export type AdminConfirmCopy = {
   object: string;
   scope: string;
   consequence: string;
+  /** 人员紧凑布局：姓名与邮箱同行，范围与影响分行（员工停用等确认卡）。 */
+  person?: { name: string; email?: string };
+  /** 紧凑布局的范围行前缀，如「停用范围」；缺省「范围」。 */
+  scopeLabel?: string;
+  /** 紧凑布局的次要说明行：保留项与可恢复入口。 */
+  note?: string;
   change?: string;
   approvalState?: string;
   ruleVersion?: string;
@@ -21,6 +27,8 @@ export type AdminConfirmCopy = {
   reasonOptional?: boolean;
   reasonLabel?: string;
   reasonPlaceholder?: string;
+  /** 执行中按钮文案，如「停用中…」；缺省仍为「执行中…」。 */
+  busyLabel?: string;
   confirmTone?: AdminConfirmTone;
   initialFocus?: AdminConfirmFocus;
 };
@@ -80,13 +88,20 @@ function named(label: string, extra = ""): string {
 }
 
 export function userDeactivateConfirm(name: string, email = ""): AdminConfirmCopy {
+  const personName = String(name || "").trim() || "未命名";
+  const personEmail = String(email || "").trim();
   return {
     kind: "user-deactivate",
     title: "停用员工",
-    object: named(name, email),
+    object: named(personName, personEmail),
+    person: personEmail ? { name: personName, email: personEmail } : { name: personName },
+    scopeLabel: "停用范围",
     scope: "组织账号 · 登录与工作台授权",
-    consequence: "该员工立即无法登录或使用工作台。已发出的邮件与审计记录保留。可在本页再次启用。",
+    consequence: "停用后立即无法登录或使用工作台。",
+    note: "已发邮件与审计记录保留，可在本页再次启用。",
+    cancelLabel: "取消",
     confirmLabel: "确认停用",
+    busyLabel: "停用中…",
   };
 }
 

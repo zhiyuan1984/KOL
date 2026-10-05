@@ -28,6 +28,10 @@ export function ConfirmDialog({
   scope,
   change,
   consequence,
+  person,
+  scopeLabel,
+  note,
+  busyLabel,
   approvalState,
   ruleVersion,
   mailBody,
@@ -88,38 +92,57 @@ export function ConfirmDialog({
         data-approval-confirm-decision={kind === "approval-reject" ? "reject" : kind === "approval-approve" ? "approve" : undefined}
       >
         <h2 id={titleId}>{title}</h2>
-        <dl id={descId} className="admin-confirm-facts">
-          <div>
-            <dt>对象</dt>
-            <dd data-admin-confirm-object data-approval-confirm-object={approval ? "" : undefined}>{object}</dd>
-          </div>
-          <div>
-            <dt>范围</dt>
-            <dd data-admin-confirm-scope data-approval-confirm-scope={approval ? "" : undefined}>{scope}</dd>
-          </div>
-          {change ? (
-            <div>
-              <dt>变更</dt>
-              <dd data-admin-confirm-change data-approval-confirm-change={approval ? "" : undefined}>{change}</dd>
+        {person ? (
+          <div id={descId} className="admin-confirm-person-card">
+            <div className="admin-confirm-identity">
+              <p className="admin-confirm-person" data-admin-confirm-object>
+                <strong>{person.name}</strong>
+                {person.email ? <span className="muted">{person.email}</span> : null}
+              </p>
+              <p className="admin-confirm-scope-line">
+                <span className="muted">{scopeLabel || "范围"}</span>
+                <span data-admin-confirm-scope>{scope}</span>
+              </p>
             </div>
-          ) : null}
-          <div>
-            <dt>后果</dt>
-            <dd data-admin-confirm-consequence data-approval-confirm-consequence={approval ? "" : undefined}>{consequence}</dd>
+            <div className="admin-confirm-impact">
+              <p data-admin-confirm-consequence>{consequence}</p>
+              {note ? <p className="muted" data-admin-confirm-note>{note}</p> : null}
+            </div>
           </div>
-          {approvalState ? (
+        ) : (
+          <dl id={descId} className="admin-confirm-facts">
             <div>
-              <dt>审批状态</dt>
-              <dd data-admin-confirm-state data-approval-confirm-state={approval ? "" : undefined}>{approvalState}</dd>
+              <dt>对象</dt>
+              <dd data-admin-confirm-object data-approval-confirm-object={approval ? "" : undefined}>{object}</dd>
             </div>
-          ) : null}
-          {ruleVersion ? (
             <div>
-              <dt>规则版本</dt>
-              <dd data-admin-confirm-version data-approval-confirm-version={approval ? "" : undefined}>{ruleVersion}</dd>
+              <dt>范围</dt>
+              <dd data-admin-confirm-scope data-approval-confirm-scope={approval ? "" : undefined}>{scope}</dd>
             </div>
-          ) : null}
-        </dl>
+            {change ? (
+              <div>
+                <dt>变更</dt>
+                <dd data-admin-confirm-change data-approval-confirm-change={approval ? "" : undefined}>{change}</dd>
+              </div>
+            ) : null}
+            <div>
+              <dt>后果</dt>
+              <dd data-admin-confirm-consequence data-approval-confirm-consequence={approval ? "" : undefined}>{consequence}</dd>
+            </div>
+            {approvalState ? (
+              <div>
+                <dt>审批状态</dt>
+                <dd data-admin-confirm-state data-approval-confirm-state={approval ? "" : undefined}>{approvalState}</dd>
+              </div>
+            ) : null}
+            {ruleVersion ? (
+              <div>
+                <dt>规则版本</dt>
+                <dd data-admin-confirm-version data-approval-confirm-version={approval ? "" : undefined}>{ruleVersion}</dd>
+              </div>
+            ) : null}
+          </dl>
+        )}
         {mailBody !== undefined ? (
           <section data-mail-confirm-snapshot>
             <h3>本次发送正文</h3>
@@ -141,12 +164,14 @@ export function ConfirmDialog({
             />
           </label>
         ) : null}
-        <p className="admin-confirm-cancel-hint muted" data-admin-confirm-cancel-hint>
-          {cancelHint
-            || (requireReason
-              ? "取消只关闭确认，不会写入。确认这条关闭路径才需要填写原因。"
-              : ADMIN_CANCEL_HINT)}
-        </p>
+        {person ? null : (
+          <p className="admin-confirm-cancel-hint muted" data-admin-confirm-cancel-hint>
+            {cancelHint
+              || (requireReason
+                ? "取消只关闭确认，不会写入。确认这条关闭路径才需要填写原因。"
+                : ADMIN_CANCEL_HINT)}
+          </p>
+        )}
         {error ? <p className="error" role="alert">{error}</p> : null}
         <div className="admin-confirm-actions">
           <button
@@ -169,7 +194,7 @@ export function ConfirmDialog({
             disabled={busy || (requireReason && !reason.trim())}
             onClick={() => void onConfirm()}
           >
-            {busy ? "执行中…" : confirmLabel}
+            {busy ? (busyLabel || "执行中…") : confirmLabel}
           </button>
         </div>
       </div>
@@ -199,6 +224,9 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode; op
       scope={pending?.scope || ""}
       change={pending?.change}
       consequence={pending?.consequence || ""}
+      person={pending?.person}
+      scopeLabel={pending?.scopeLabel}
+      note={pending?.note}
       approvalState={pending?.approvalState}
       ruleVersion={pending?.ruleVersion}
       mailBody={pending?.mailBody}
@@ -209,6 +237,7 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode; op
       reasonOptional={pending?.reasonOptional}
       reasonLabel={pending?.reasonLabel}
       reasonPlaceholder={pending?.reasonPlaceholder}
+      busyLabel={pending?.busyLabel}
       confirmTone={pending?.confirmTone}
       initialFocus={pending?.initialFocus}
       reason={reason}

@@ -8055,6 +8055,59 @@ body {
   min-height: 44px;
 }
 
+/* 员工停用确认：紧凑三区（人员信息 / 影响说明 / 操作），宽度取弹窗小档。 */
+[data-admin-confirm="user-deactivate"] .admin-confirm {
+  width: min(var(--dialog-w-sm), 100%);
+  gap: var(--space-4);
+  padding: var(--dialog-pad-t) var(--dialog-pad-x) var(--dialog-pad-b);
+}
+
+[data-admin-confirm="user-deactivate"] .admin-confirm-person-card {
+  display: grid;
+  gap: var(--space-4);
+}
+
+[data-admin-confirm="user-deactivate"] .admin-confirm-person-card p {
+  margin: 0;
+}
+
+[data-admin-confirm="user-deactivate"] .admin-confirm-identity,
+[data-admin-confirm="user-deactivate"] .admin-confirm-impact {
+  display: grid;
+  gap: var(--space-1);
+}
+
+[data-admin-confirm="user-deactivate"] .admin-confirm-person,
+[data-admin-confirm="user-deactivate"] .admin-confirm-scope-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  overflow-wrap: anywhere;
+}
+
+[data-admin-confirm="user-deactivate"] .admin-confirm-person strong {
+  font-weight: 600;
+}
+
+[data-admin-confirm="user-deactivate"] .admin-confirm-identity .muted,
+[data-admin-confirm="user-deactivate"] .admin-confirm-impact .muted {
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-body);
+}
+
+[data-admin-confirm="user-deactivate"] .admin-confirm-actions .btn {
+  min-height: var(--control-h-form);
+}
+
+@media (pointer: coarse) {
+  [data-admin-confirm="user-deactivate"] .admin-confirm-actions .btn {
+    min-height: 44px;
+  }
+}
+
 .pipeline-drawer,
 .kb-drawer,
 .work-panel {
