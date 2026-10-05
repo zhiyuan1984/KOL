@@ -1,18 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../../api";
+import { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect } from "react";
 import { brandLabel, kindLabel } from "../../knowledgeCopy";
 import { MAIN_STAGE_TABS } from "../../kolStages";
 import { stageLabel } from "../../labels";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
-import CreateKnowledgeDialog from "./CreateKnowledgeDialog";
-import DetailRail from "./DetailRail";
+import EntryEditor from "./EntryEditor";
+import WorkspaceEntry from "./WorkspaceEntry";
+import { WorkspaceActionContext } from "./WorkspaceActions";
+import { reviewApi,reviewCompany } from "../../reviews/api";
+import { useAccount } from "../../components/AuthGate";
 import KnowledgeFilters, { type FilterOption } from "./KnowledgeFilters";
 import LibraryPane, { type KbView } from "./LibraryPane";
 import UploadDialog from "./UploadDialog";
 import DocumentRail from "./DocumentRail";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams,useBlocker } from "react-router-dom";
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 20;
 const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
   pending: "pending_review",
   published: "published",
@@ -41,38 +43,51 @@ type Skip = { view?: boolean; kind?: boolean; brand?: boolean; stage?: boolean; 
 export default function KnowledgeHome() {
   const [params,setParams]=useSearchParams();
   const requestedDocument=params.get("document");
-  const load = useCallback(async () => {
-    const [rows, bases, domains, documents] = await Promise.all([
-      api.adminKnowledge(),
-      api.adminKnowledgeBases(),
-      api.adminKnowledgeDomains(),
-      api.adminKnowledgeDocuments(),
-    ]);
-    return {
-      rows: [...rows, ...documents.documents.map((doc): KbAssetRow => {
-        const base = bases.bases.find((item) => item.id === doc.base_id);
-        return { ...doc, body: "", kind: "document", asset_type: "document", base_name: base?.name,
-          domain_id: base?.domain_id, domain_name: base?.domain_name, family_id: base?.family_id || undefined, family_name: base?.family_name || undefined };
-      })] as KbAssetRow[],
-      bases: bases.bases || [],
-      domains: domains.domains || [],
-    };
-  }, []);
+  const {account}=useAccount();
+  const contextKey=`knowledge.workspace:${account?.id || "current"}:${reviewCompany()}`;
+  const restore=useMemo(()=>{try{return JSON.parse(sessionStorage.getItem(contextKey)||"{}");}catch{return {};}},[contextKey]);
+  const load = useCallback(()=>reviewApi<{rows:KbAssetRow[];bases:import("../../api").KnowledgeBaseRow[];domains:import("../../api").KnowledgeDomainRow[]}>("/admin/knowledge/workspace-v1"),[contextKey]);
   const { data, error, loading, reload } = useKbData(load);
 
   const [receipt, setReceipt] = useState("");
   const [actionError, setActionError] = useState("");
-  const [query, setQuery] = useState("");
-  const [scope, setScope] = useState<KbScope>(EMPTY_SCOPE);
-  const [brands, setBrands] = useState<string[]>([]);
-  const [stages, setStages] = useState<string[]>([]);
-  const [kind, setKind] = useState("");
-  const [view, setView] = useState<KbView>("all");
-  const [page, setPage] = useState(1);
-  const [selectedId, setSelectedId] = useState("");
-  const [revealId, setRevealId] = useState(() => new URLSearchParams(window.location.search).get("document") || "");
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [query, setQuery] = useState<string>(restore.query || "");
+  const [scope, setScope] = useState<KbScope>(restore.scope || EMPTY_SCOPE);
+  const [brands, setBrands] = useState<string[]>(restore.brands || []);
+  const [stages, setStages] = useState<string[]>(restore.stages || []);
+  const [kind, setKind] = useState<string>(restore.kind || "");
+  const [view, setView] = useState<KbView>(restore.view || "all");
+  const [page, setPage] = useState<number>(restore.page || 1);
+  const [selectedId, setSelectedId] = useState<string>(params.get("assetId") || requestedDocument || restore.selectedId || "");
+  const mode=params.get("mode") || (requestedDocument ? "detail":"list");
+  const selectedType=params.get("assetType") || (requestedDocument ? "document":restore.selectedType || "entry");
+  useEffect(()=>{const id=params.get("assetId") || params.get("document");if(id!==null)setSelectedId(id);},[params]);
+  const [dirty,setDirty]=useState(false),dirtyRef=useRef(false);
+  const onDirty=useCallback((value:boolean)=>{dirtyRef.current=value;setDirty(value);},[]);
+  const blocker=useBlocker(()=>dirtyRef.current),asking=useRef(false);
+  useEffect(()=>{
+    if(blocker.state!=="blocked"){asking.current=false;return;}
+    if(asking.current)return;asking.current=true;
+    if(window.confirm("当前有未保存内容，放弃修改并离开？")){onDirty(false);blocker.proceed();}
+    else blocker.reset();
+  },[blocker,onDirty]);
+  const [actionTarget,setActionTarget]=useState<HTMLElement|null>(null);
+  const bodyRef=useRef<HTMLDivElement>(null),positions=useRef<Record<string,number>>(restore.positions || {});
+  const switchMode=(next:string,id=selectedId,type=selectedType)=>{
+    if(dirtyRef.current && !window.confirm("当前有未保存内容，放弃修改并离开？"))return;
+    onDirty(false);setSelectedId(id);
+    if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;
+    const nextParams=new URLSearchParams(params);nextParams.delete("document");
+    nextParams.set("mode",next);nextParams.set("assetId",id);nextParams.set("assetType",type);setParams(nextParams);
+  };
+  useLayoutEffect(()=>{const body=bodyRef.current;if(body)body.scrollTop=positions.current[`${mode}:${selectedType}:${selectedId}`] || 0;
+    if(mode==="list" && selectedId)document.querySelector<HTMLButtonElement>(`[data-kbv-record="${CSS.escape(selectedId)}"]`)?.focus({preventScroll:true});
+  },[mode,selectedId,selectedType,loading]);
+  useEffect(()=>{
+    const before=(event:BeforeUnloadEvent)=>{if(dirtyRef.current){event.preventDefault();event.returnValue="";}};
+    window.addEventListener("beforeunload",before);
+    return()=>{window.removeEventListener("beforeunload",before);};
+  },[]);
 
   const notify = useCallback((message: string) => {
     setActionError("");
@@ -257,44 +272,12 @@ export default function KnowledgeHome() {
     () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
     [filtered, currentPage],
   );
-  const selectedRow = useMemo(
-    () => (requestedDocument ? rows.find(row=>row.id===requestedDocument && row.asset_type==="document") : undefined) || pageRows.find((row) => row.id === selectedId) || pageRows[0] || null,
-    [pageRows, selectedId,rows,requestedDocument],
-  );
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, kind, view, scope.familyId, scope.domainId, scope.baseId, brands, stages]);
-  useEffect(() => {
-    if (page !== currentPage) setPage(currentPage);
-  }, [page, currentPage]);
-  useEffect(() => {
-    if (revealId) return;
-    const first = pageRows[0]?.id || "";
-    if (first && !pageRows.some((row) => row.id === selectedId)) setSelectedId(first);
-    if (!first && selectedId) setSelectedId("");
-  }, [pageRows, selectedId, revealId]);
-  useEffect(() => {
-    if (!revealId || loading) return;
-    const index = filtered.findIndex((row) => row.id === revealId);
-    if (index < 0) return;
-    const targetPage = Math.floor(index / PAGE_SIZE) + 1;
-    setPage(targetPage);
-    setSelectedId(revealId);
-    if (currentPage === targetPage) setRevealId("");
-  }, [revealId, filtered, loading, currentPage]);
-
-  const revealCreated = (id: string) => {
-    setView("draft");
-    setScope(EMPTY_SCOPE);
-    setQuery("");
-    setKind("");
-    setBrands([]);
-    setStages([]);
-    setRevealId(id);
-    setSelectedId(id);
-    reload();
-  };
+  const selectedRow=rows.find(row=>row.id===selectedId && (row.asset_type==="document" ? "document":"entry")===selectedType) || null;
+  const lastFilters=useRef(JSON.stringify({query,kind,view,scope,brands,stages}));
+  useEffect(()=>{const current=JSON.stringify({query,kind,view,scope,brands,stages});if(lastFilters.current!==current){setPage(1);lastFilters.current=current;}},[query,kind,view,scope,brands,stages]);
+  useEffect(()=>{if(page!==currentPage)setPage(currentPage);},[page,currentPage]);
+  useEffect(()=>{sessionStorage.setItem(contextKey,JSON.stringify({query,scope,brands,stages,kind,view,page,selectedId,selectedType,positions:positions.current}));},[contextKey,query,scope,brands,stages,kind,view,page,selectedId,selectedType,mode]);
+  const revealCreated=(id:string,type="entry")=>{onDirty(false);switchMode("detail",id,type);reload();};
 
   const toggleBrand = useCallback((value: string) => {
     setBrands((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
@@ -336,50 +319,29 @@ export default function KnowledgeHome() {
           viewOptions={viewFacet}
           view={view}
           onView={setView}
-          onUpload={() => setUploadOpen(true)}
-          onCreate={() => setCreateOpen(true)}
+          onUpload={() => switchMode("upload")}
+          onCreate={() => switchMode("create")}
         />
 
-        <section className="kbv-browser" aria-label="浏览知识">
-          {!error && <LibraryPane
-            rows={pageRows}
-            totalCount={filtered.length}
-            page={currentPage}
-            pageCount={pageCount}
-            selectedId={selectedRow?.id || ""}
-            onSelect={id=>{setSelectedId(id);if(requestedDocument){const next=new URLSearchParams(params);next.delete("document");setParams(next);}}}
-            onPrevious={() => setPage((current) => Math.max(1, current - 1))}
-            onNext={() => setPage((current) => Math.min(pageCount, current + 1))}
-            loading={loading}
-          />}
-          <aside className="kbv-admin-detail" aria-label="知识详情" data-kbv-detail>
-            {error ? <p className="kbv-empty">知识服务暂不可用，请重新加载。</p> : selectedRow?.asset_type === "document" ? <DocumentRail key={selectedRow.id} id={selectedRow.id} path={pathOf(selectedRow)} notify={notify} fail={fail} reload={reload} /> : selectedRow ? (
-              <DetailRail
-                key={selectedRow.id}
-                row={selectedRow}
-                path={pathOf(selectedRow)}
-                baseKind={selectedRow.base_id ? bases.find((item) => item.id === selectedRow.base_id)?.kind : undefined}
-                notify={notify}
-                fail={fail}
-                reload={reload}
-              />
-            ) : (
-              <p className="kbv-empty">从上方列表选择一条知识，查看详情。</p>
-            )}
-          </aside>
+        <WorkspaceActionContext.Provider value={actionTarget}>
+        <section className="kbv-browser kbw-workarea" aria-label="知识工作区" data-workspace-mode={mode} aria-busy={loading}>
+          {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
+          <div className="kbw-body" ref={bodyRef} onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
+          {error ? <p role="alert">知识服务暂不可用，请重新加载。</p> : mode==="list" ? <LibraryPane
+            rows={pageRows} totalCount={filtered.length} page={currentPage} pageCount={pageCount} selectedId={selectedId}
+            onSelect={id=>{const row=pageRows.find(r=>r.id===id);switchMode("detail",id,row?.asset_type==="document"?"document":"entry");}}
+            onPrevious={()=>setPage(p=>Math.max(1,p-1))} onNext={()=>setPage(p=>Math.min(pageCount,p+1))} loading={loading}
+          /> : mode==="create" ? <EntryEditor bases={bases} onDirty={onDirty} onCancel={()=>switchMode("list")} onSaved={row=>{notify("草稿已保存");revealCreated(row.id);}} />
+          : mode==="upload" ? <UploadDialog inline open onProgress={reload} bases={bases} onDirty={onDirty} onClose={()=>switchMode("list")} onCreated={id=>{notify("PDF 草稿已保存，尚未解析或发布");revealCreated(id,"document");}} />
+          : selectedId ? selectedType==="document" ? <DocumentRail key={selectedId} id={selectedId} path={selectedRow ? pathOf(selectedRow):""} mode={mode} onMode={next=>switchMode(next)} onRevision={id=>{revealCreated(id,"document");}} onDirty={onDirty} notify={notify} fail={fail} reload={reload} />
+          : <WorkspaceEntry key={selectedId} id={selectedId} bases={bases} mode={mode} onMode={next=>switchMode(next)} onDirty={onDirty} onSaved={reload} notify={notify} />
+          : <p className="kbv-empty">知识不存在，请返回列表。</p>}
+          </div>
+          {mode!=="list" && <footer className="kbw-action-bar" ref={setActionTarget} />}
         </section>
+        </WorkspaceActionContext.Provider>
       </div>
 
-      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} onCreated={(id) => { notify("PDF 草稿已保存，尚未解析或发布。"); revealCreated(id); }} />
-      <CreateKnowledgeDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        bases={bases}
-        onCreated={(id, title) => {
-          notify(`已创建草稿「${title}」`);
-          revealCreated(id);
-        }}
-      />
     </section>
   );
 }

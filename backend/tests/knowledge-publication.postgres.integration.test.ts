@@ -23,6 +23,7 @@ import {
   preparePublicationRecovery,
   recoverPublication,
 } from "../src/knowledge-publication/service.js";
+import { saveEntry, reviseEntry, entryDetail, workspaceData,removeEntryDraft } from "../src/knowledge/workspace.js";
 import { executionHandler } from "../src/execution-jobs/handlers.js";
 import "../src/knowledge-publication/worker.js";
 import { Hono } from "hono";
@@ -81,7 +82,7 @@ describe.skipIf(!configured)(
       );
       baseline = baseline
         .split(/\r?\n/)
-        .filter((line) => !line.startsWith("\\"))
+        .filter((line) => !line.startsWith("\\") && !line.startsWith("SET transaction_timeout"))
         .map((line) =>
           line.includes("set_config('search_path'")
             ? "SELECT pg_catalog.set_config('search_path', 'public', false);"
@@ -104,6 +105,7 @@ describe.skipIf(!configured)(
           "utf8",
         ),
       );
+      await postgresPool().query(await fs.readFile(new URL("../migrations/026_knowledge_workspace.sql",import.meta.url),"utf8"));
       await postgresPool().query("INSERT INTO knowledge_domains(id,code,name,level,created_at,updated_at) VALUES('domain','domain','产品规格','domain',$1,$1)",[stamp]);
       await postgresPool().query("INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,created_at,updated_at) VALUES('specs','specs','产品规格','domain','unstructured','active',$1,$1)",[stamp]);
       for (const id of ["admin", "reviewer", "reviewer-two", "outsider"]) {
@@ -190,7 +192,7 @@ describe.skipIf(!configured)(
         [randomUUID(), docId, stamp],
       );
     });
-    async function submit() {
+    async function submit(mode: "automatic" | "manual" = "automatic") {
       const prepared = await preparePublication(
         "admin",
         "company",
@@ -206,6 +208,8 @@ describe.skipIf(!configured)(
         prepared.confirmationId,
         key,
       );
+      // Existing release contracts retain automatic mode; new workspace behavior is tested separately below.
+      if(mode==="automatic") await postgresPool().query("UPDATE knowledge_publication_applications SET release_mode='automatic' WHERE instance_id=$1",[receipt.instanceId]);
       return { prepared, key, receipt };
     }
     // Same pure engine and persisted shape used by the existing generic review API.
@@ -241,6 +245,50 @@ describe.skipIf(!configured)(
         );
       });
     }
+    it("manual approval stays unpublished without a job until separately confirmed publication",async()=>{
+      const {receipt}=await submit("manual");await decision(receipt.instanceId,"approve");
+      expect((await postgresPool().query("SELECT id FROM execution_jobs WHERE object_ref_json::jsonb->>'instanceId'=$1",[receipt.instanceId])).rowCount).toBe(0);
+      expect((await executePublication("company",receipt.instanceId)).status).toBe("waiting");
+      expect((await publicationOptions("admin","company",docId)).publication?.canPublish).toBe(true);
+      const p=await preparePublicationRecovery("admin","company",docId,"publish"),key=randomUUID();
+      const r=await recoverPublication("admin","company",docId,p.confirmationId,key,"publish");
+      expect(await recoverPublication("admin","company",docId,p.confirmationId,key,"publish")).toEqual(r);
+      expect((await postgresPool().query("SELECT id FROM execution_jobs WHERE object_ref_json::jsonb->>'instanceId'=$1",[receipt.instanceId])).rowCount).toBe(1);
+      expect((await executePublication("company",receipt.instanceId)).status).toBe("published");
+    });
+    it("online content uses the same approval, freezes its version and preserves the effective snapshot during revision",async()=>{
+      await postgresPool().query("INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,created_at,updated_at) VALUES($1,$1,'在线知识','domain','structured','active',$2,$2)",[docId,stamp]);
+      const row=await saveEntry("admin","company",undefined,{title:"IPD 方法",base_id:docId,kind:"policy",body:"v1 正文"});
+      const ref=`entry:${row.id}`,p=await preparePublication("admin","company",ref,command());
+      const r=await submitPublication("admin","company",ref,command(),p.confirmationId,randomUUID());
+      await expect(saveEntry("admin","company",row.id,{title:"变化",expectedRevision:row.updated_at})).rejects.toThrow("冻结");
+      await decision(r.instanceId,"approve");
+      expect((await executePublication("company",r.instanceId)).status).toBe("waiting");
+      const publish=await preparePublicationRecovery("admin","company",ref,"publish");
+      await recoverPublication("admin","company",ref,publish.confirmationId,randomUUID(),"publish");
+      expect((await executePublication("company",r.instanceId)).status).toBe("published");
+      const current=await entryDetail("admin","company",row.id);
+      const draft=await reviseEntry("admin","company",row.id,current.row.updated_at);
+      const edited=await saveEntry("admin","company",row.id,{body:"v2 未发布",expectedRevision:draft.updated_at});
+      expect(edited.status).toBe("draft");expect(edited.published_version).toBe(1);
+      expect((await publicationOptions("admin","company",ref)).publication).toBeNull();
+      expect((await postgresPool().query("SELECT body FROM knowledge_versions WHERE knowledge_id=$1 AND status='published' AND note='approve'",[row.id])).rows[0].body).toBe("v1 正文");
+      await expect(saveEntry("admin","company",row.id,{body:"并发覆盖",expectedRevision:draft.updated_at})).rejects.toThrow("内容已变化");
+      await expect(entryDetail("outsider","other",row.id)).rejects.toThrow();
+      expect((await workspaceData("admin","company")).rows.some(x=>x.id===row.id)).toBe(true);
+      const rollback=await reviseEntry("admin","company",row.id,edited.updated_at,1);
+      expect(rollback.body).toBe("v1 正文");expect(rollback.current_version).toBe(3);expect(rollback.published_version).toBe(1);expect(rollback.status).toBe("draft");
+      await expect(removeEntryDraft("admin","company",row.id,rollback.updated_at)).rejects.toThrow("只能删除");
+    });
+    it("draft deletion enforces organization and current revision and records a real receipt",async()=>{
+      await postgresPool().query("INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,created_at,updated_at) VALUES($1,$1,'在线知识','domain','structured','active',$2,$2)",[docId,stamp]);
+      const row=await saveEntry("admin","company",undefined,{title:"待删除草稿",base_id:docId,kind:"policy",body:"草稿"});
+      await expect(removeEntryDraft("outsider","other",row.id,row.updated_at)).rejects.toThrow();
+      await expect(removeEntryDraft("admin","company",row.id,"stale")).rejects.toThrow("已变化");
+      const receipt=await removeEntryDraft("admin","company",row.id,row.updated_at);
+      expect(receipt.status).toBe("deleted");expect((await postgresPool().query("SELECT id FROM knowledge WHERE id=$1",[row.id])).rowCount).toBe(0);
+      expect((await postgresPool().query("SELECT payload FROM audit_events WHERE event_type='knowledge.draft.deleted' AND payload::jsonb->>'id'=$1",[receipt.id])).rowCount).toBe(1);
+    });
     it("confirmed submit is idempotent; approval commits durable outbox; worker publishes once", async () => {
       const { prepared, key, receipt } = await submit();
       expect(

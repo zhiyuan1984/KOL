@@ -1,3 +1,4 @@
+import WorkspaceActions from "./WorkspaceActions";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type KnowledgeBaseRow } from "../../api";
 import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
@@ -16,12 +17,15 @@ function formatSize(size: number): string {
 
 type Props = {
   open: boolean;
+  inline?: boolean;
+  onDirty?: (dirty:boolean)=>void;
   onClose: () => void;
   bases: KnowledgeBaseRow[];
   onCreated: (id: string) => void;
+  onProgress?:()=>void;
 };
 
-export default function UploadDialog({ open, onClose, bases: allBases, onCreated }: Props) {
+export default function UploadDialog({ open, inline=false,onDirty, onClose, bases: allBases, onCreated,onProgress }: Props) {
   const bases = useMemo(() => allBases.filter((base) => base.kind === "unstructured" && base.status === "active"), [allBases]);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
@@ -76,6 +80,7 @@ export default function UploadDialog({ open, onClose, bases: allBases, onCreated
   );
 
   const add = (incoming: File[]) => {
+    onDirty?.(true);
     const errors: string[] = [];
     const next = [...files];
     for (const file of incoming) {
@@ -102,23 +107,27 @@ export default function UploadDialog({ open, onClose, bases: allBases, onCreated
     if (busy || !baseId || !files.length) return;
     setBusy(true); setError("");
     let saved = 0;
+    let lastId="";
     try {
       for (const file of files) {
         const result = await api.adminKnowledgeDocumentUpload(baseId, file, true);
         saved += 1;
         setFiles((current) => current.filter((item) => item !== file));
-        onCreated(result.document.id);
+        lastId=result.document.id;
+        onProgress?.();
       }
-      onClose();
+      onDirty?.(false);
+      if(lastId)onCreated(lastId);else onClose();
     } catch (cause) {
       setError(`已保存 ${saved} 份；${cause instanceof Error ? cause.message : "上传失败"}。剩余文件可重试。`);
     } finally { setBusy(false); }
   };
 
+  const Container=inline ? "div":"dialog";
   return (
-    <dialog
-      ref={ref}
-      className="kbv-dialog"
+    <Container
+      ref={inline?undefined:ref as never}
+      className={inline?"kbw-upload":"kbv-dialog"}
       data-kbv-upload-dialog
       onClose={() => { if (!busy) onClose(); }}
       onClick={(event) => {
@@ -211,7 +220,7 @@ export default function UploadDialog({ open, onClose, bases: allBases, onCreated
         </div>
 
       </div>
-      <div className="kbv-dialog-actions">
+      <WorkspaceActions><div className="kbv-dialog-actions">
         <button type="button" className="btn" disabled={busy} onClick={onClose}>取消</button>
         <button
           type="button"
@@ -222,7 +231,7 @@ export default function UploadDialog({ open, onClose, bases: allBases, onCreated
         >
           {busy ? "保存中…" : "保存草稿"}
         </button>
-      </div>
-    </dialog>
+      </div></WorkspaceActions>
+    </Container>
   );
 }

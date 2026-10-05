@@ -1,3 +1,4 @@
+import WorkspaceActions from "./WorkspaceActions";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ReviewCommand, ReviewTemplate, ReviewField } from "../../../../shared/review";
@@ -14,7 +15,7 @@ type State = {
 function commandKey() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)),b => b.toString(16).padStart(2,"0")).join("");
 }
-export default function LegacyPublicationPanel({id,updatedAt,reload}:{id:string;updatedAt:string;reload:()=>void}) {
+export default function LegacyPublicationPanel({id,updatedAt,reload,mode="detail",onInitiate,onSubmitted,onDirty}:{id:string;updatedAt:string;reload:()=>void;mode?:"detail"|"review";onInitiate?:()=>void;onSubmitted?:()=>void;onDirty?:(dirty:boolean)=>void}) {
   const [state,setState]=useState<State>(),[ctx,setCtx]=useState<ReviewContext>(),[templates,setTemplates]=useState<ReviewTemplate[]>([]);
   const [note,setNote]=useState(""),[chosen,setChosen]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const [values,setValues]=useState<Record<string, unknown>>({});
@@ -27,6 +28,7 @@ export default function LegacyPublicationPanel({id,updatedAt,reload}:{id:string;
     return()=>{live=false;clearTimeout(timer);};
   },[id,note,values,state?.binding?.version,state?.allowed_actions.join(","),checkVersion]);
   useEffect(()=>{setValues({});},[state?.binding?.template_id,state?.binding?.version]);
+  useEffect(()=>onDirty?.(mode==="review" && Boolean(note || Object.keys(values).length)),[mode,note,values,onDirty]);
   const confirm=useAdminConfirm();
   async function load() { setState(await reviewApi<State>(`/admin/knowledge/documents/${id}/publication`)); }
   useEffect(() => {
@@ -53,7 +55,7 @@ export default function LegacyPublicationPanel({id,updatedAt,reload}:{id:string;
         change:`发布说明：${note}${(state?.fields || []).map(field=>`\n${field.label}：${JSON.stringify(values[field.id] ?? "未填写")}`).join("")}\n审核人：${p.summary.reviewers?.map(x=>ctx?.people.find(y=>y.id===x)?.name || x).join("、") || "由流程解析"}`,
         consequence:p.summary.consequence,confirmLabel:"确认提交审批",confirmTone:"primary"},async()=>{
           await reviewApi("/approvals/v2/commands",{command:p.command,confirmationId:p.confirmationId,idempotencyKey:key});
-          await load();reload();
+          onDirty?.(false);onSubmitted?.();await load();reload();
         });
     }catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }
@@ -73,14 +75,15 @@ export default function LegacyPublicationPanel({id,updatedAt,reload}:{id:string;
         <Link className="kbv-link-plain" to={create}>新建审批流程 →</Link>
       </details>}
       {!ctx?.admin && state.blocking_reason && <p>请联系有流程管理资格的管理员配置。</p>}
-      {state.allowed_actions.includes("submit") && <><label className="kbv-release-note">发布说明<textarea maxLength={2000} value={note} onChange={e=>setNote(e.target.value)} /></label><fieldset disabled={busy}><ReviewForm fields={state.fields || []} values={values} onChange={setValues} onUploadBusy={setUploadBusy} /></fieldset>{checking && <p role="status">正在检查评审人与材料版本…</p>}{check && !check.allowed && <div className="kbv-document-notice" role="alert"><span>{check.reason}</span><button className="kbv-text-action" onClick={()=>setCheckVersion(v=>v+1)} disabled={busy || checking}>重新检查</button></div>}{check?.allowed && <p>当前评审人：{check.reviewers.join("、")}</p>}{(<button className={confirm.open?"btn":"btn work"} data-kbv-doc-action="submit" disabled={busy || uploadBusy || checking || !check?.allowed || !note.trim()} onClick={()=>void submit()}>提交审批</button>)}</>}
+      {mode==="detail" && state.allowed_actions.includes("submit") && <WorkspaceActions><button className="btn work" onClick={onInitiate}>提交审批</button></WorkspaceActions>}
+      {mode==="review" && state.allowed_actions.includes("submit") && <><label className="kbv-release-note">发布说明<textarea maxLength={2000} value={note} onChange={e=>setNote(e.target.value)} /></label><fieldset disabled={busy}><ReviewForm fields={state.fields || []} values={values} onChange={setValues} onUploadBusy={setUploadBusy} /></fieldset>{checking && <p role="status">正在检查评审人与材料版本…</p>}{check && !check.allowed && <div className="kbv-document-notice" role="alert"><span>{check.reason}</span><button className="kbv-text-action" onClick={()=>setCheckVersion(v=>v+1)} disabled={busy || checking}>重新检查</button></div>}{check?.allowed && <p>当前评审人：{check.reviewers.join("、")}</p>}{(<WorkspaceActions><button className={confirm.open?"btn":"btn work"} data-kbv-doc-action="submit" disabled={busy || uploadBusy || checking || !check?.allowed || !note.trim()} onClick={()=>void submit()}>提交审批</button></WorkspaceActions>)}</>}
       {state.allowed_actions.includes("publish_approved") && <>
         <p>审批已通过，可以立即发布；无需重新解析。</p>
-        <button className="btn" disabled={busy} onClick={()=>confirm.ask({kind:"approval-initiate",title:"确认发布",object:`资料版本 v${state.version}`,scope:"当前知识库",
+        <WorkspaceActions><button className="btn work" disabled={busy} onClick={()=>confirm.ask({kind:"approval-initiate",title:"确认发布",object:`资料版本 v${state.version}`,scope:"当前知识库",
           consequence:"此版本发布后可供员工问答使用。",confirmLabel:"确认发布",confirmTone:"primary"},async()=>{
             setBusy(true);try { await reviewApi(`/admin/knowledge/documents/${id}/publication-execute`,{}); }
             finally { setBusy(false);await load();reload(); }
-          })}>立即发布</button>
+          })}>立即发布</button></WorkspaceActions>
       </>}
       {state.allowed_actions.includes("retry_publication") && <button className="btn" disabled={busy} onClick={()=>confirm.ask({kind:"approval-initiate",title:"确认重试发布",object:`资料版本 v${state.version}`,scope:state.binding?.name || "当前知识库",
         consequence:"重新执行本次已批准版本的发布，仍会核验资料与权限；不会创建新的审批或重跑咨询任务。",confirmLabel:"确认重试发布",confirmTone:"primary"},async()=>{await reviewApi(`/admin/knowledge/documents/${id}/publication-retry`,{});await load();reload();})}>重试已批准版本的发布</button>}

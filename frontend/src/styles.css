@@ -15892,3 +15892,13 @@ button.today-brief-primary-btn:disabled {
   .review-author-page label { padding-block: var(--space-2); }
 }
 @media (max-height:600px) { .review-author-page .review-steps small { display: none; } .review-author-page.review-page { padding-block: var(--space-2); } }
+
+/* DESIGN §5.1: knowledge workspace only; global navigation is unchanged. */
+.kbv-filter-browser {
+  --knowledge-font-title:18px;
+  --knowledge-font-body:14px;
+  --knowledge-font-meta:13px;
+  --knowledge-filter-width:260px;
+  --knowledge-action:var(--accent-text);
+  --knowledge-action-hover:var(--accent-hover);
+}

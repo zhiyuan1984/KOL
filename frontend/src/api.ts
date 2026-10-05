@@ -1378,6 +1378,7 @@ export type KnowledgeRow = {
   stage_codes?: string[];
   status?: string;
   current_version?: number;
+  published_version?: number | null;
   cited?: boolean;
   deprecated?: boolean;
   deprecate_reason?: string;
@@ -1391,6 +1392,7 @@ export type KnowledgeRow = {
   updated_at?: string;
   created_by?: string;
   approved_at?: string;
+  expires_at?: string;
   /** 分类与库（2026-10-01 契约）：族 → 域 → 库，分类不承载权限。 */
   base_id?: string;
   base_code?: string;
@@ -1461,6 +1463,7 @@ export type KnowledgeDocumentRow = {
   base_id: string;
   base_name?: string;
   publication_label?: string;
+  current_version?: number;
   title: string;
   filename: string;
   media_type: string;
@@ -1478,6 +1481,7 @@ export type KnowledgeDocumentRow = {
 };
 
 export type KnowledgeDocumentDetail = {
+  actions?: {edit:boolean;start:boolean;retry:boolean;cancel:boolean;revision:boolean};
   document: KnowledgeDocumentRow;
   base: {
     id: string;
@@ -1621,6 +1625,7 @@ async function readJson(response: Response): Promise<unknown> {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { optional, ...init } = options;
   const headers = new Headers(init.headers);
+  if(path.startsWith("/api/admin/knowledge") && typeof window!=="undefined") { const company=new URLSearchParams(window.location.search).get("reviewCompany") || sessionStorage.getItem("review.company");if(company)headers.set("X-Review-Company",company); }
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const signals = [init.signal, AbortSignal.timeout(45_000)].filter(Boolean) as AbortSignal[];
   let response: Response;
