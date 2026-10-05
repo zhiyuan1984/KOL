@@ -1,0 +1,94 @@
+{
+  "phase": "P1",
+  "phase_status": "in_progress",
+  "date": "2026-10-05",
+  "revision": "bd1cb1c0e9c72da1f1d48a13d0de37f359ca38ed",
+  "changes": [
+    "homeBoard shared HTTP error parser",
+    "native EventSource HTTP SSE scrolling regression",
+    "release gate includes discovery presentation",
+    "workbench principal bridge for task-work-orders"
+  ],
+  "ci": {
+    "run_id": 37255044842,
+    "url": "https://github.com/zhiyuan1984/KOL/actions/runs/37255044842",
+    "conclusion": "success",
+    "backend": {
+      "passed": 1589,
+      "skipped": 27,
+      "files_passed": 169,
+      "files_skipped": 8
+    },
+    "frontend": {
+      "presentation_and_other": 30,
+      "runtime": 26,
+      "retries": 0
+    },
+    "deploy": "success"
+  },
+  "focused": {
+    "api_http": 3,
+    "enterprise_auth": 15,
+    "staging_http_recovery": {
+      "passed": 9,
+      "repeats": 3,
+      "retries": 0
+    },
+    "staging_sse": {
+      "passed": 4,
+      "repeats": 2,
+      "retries": 0
+    }
+  },
+  "production": {
+    "verified_at": "2026-10-05T02:42:52.951Z",
+    "api_version": "bd1cb1c",
+    "assets": 44,
+    "asset_hash_mismatches": [],
+    "html_matches": true,
+    "services_all_active": true,
+    "work_orders_browser": {
+      "before": "workbench_authentication_required despite current workbench identity",
+      "after": "0 business tasks; no login error",
+      "new_task_created": false
+    }
+  },
+  "backup": {
+    "path": "/home/ecs-user/kol/backups/tcw-p1-predeploy-bd1cb1c-20261005.dump",
+    "bytes": 16190359,
+    "sha256": "e2d8f2c6322c4aca91938c973e2e188d476593b55d23852e9486e81802bc715f",
+    "list_verified": true,
+    "restore_rehearsal": false
+  },
+  "browser": {
+    "viewport_checks": [
+      {
+        "width": 1280,
+        "height": 600,
+        "horizontal_overflow": false,
+        "composer_in_viewport": true
+      },
+      {
+        "width": 390,
+        "height": 600,
+        "horizontal_overflow": false,
+        "composer_reachable_by_keyboard": true
+      }
+    ],
+    "viewport_override_reset": true,
+    "touch_hit_area_not_verified": true,
+    "native_zoom_not_verified": true,
+    "screen_reader_not_verified": true
+  },
+  "new_external_crawls": 0,
+  "pending": [
+    "additional one-crawl authorization not received",
+    "real successful empty result",
+    "real abnormal/unknown receipt and manual takeover acceptance",
+    "complete native zoom, screen-reader and semantic contrast acceptance"
+  ],
+  "superseded_runs": [
+    37253193804,
+    37253578477
+  ]
+}

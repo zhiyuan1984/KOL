@@ -318,20 +318,24 @@ function usableInternalZh(zh: string | undefined, english: string): string | nul
   return text;
 }
 
+export type DraftEdit = { cc: string; from: string; to: string; subject: string; body: string };
 export function DraftArtifact({
   card,
   onRefresh,
+  edits,
 }: {
   card: EmailCard;
   onRefresh: () => void;
+  edits?: Map<string, DraftEdit>;
 }) {
+  const restored = edits?.get(card.draft_id);
   const [zh, setZh] = useState<string | null>(() => usableInternalZh(card.body_zh_internal, card.body || ""));
-  const [cc, setCc] = useState(card.cc || "");
+  const [cc, setCc] = useState(restored?.cc ?? card.cc ?? "");
   const opts = card.allowed_from_mailboxes || [];
-  const [fromAddr, setFromAddr] = useState(() => pickFromAddr(card.send_from || card.from, opts));
-  const [toAddr, setToAddr] = useState(card.to || "");
-  const [subject, setSubject] = useState(card.subject || "");
-  const [body, setBody] = useState(card.body || "");
+  const [fromAddr, setFromAddr] = useState(() => restored?.from ?? pickFromAddr(card.send_from || card.from, opts));
+  const [toAddr, setToAddr] = useState(restored?.to ?? card.to ?? "");
+  const [subject, setSubject] = useState(restored?.subject ?? card.subject ?? "");
+  const [body, setBody] = useState(restored?.body ?? card.body ?? "");
   const [err, setErr] = useState(card.send_error || "");
   const [busy, setBusy] = useState<string | null>(null);
   const confirmedSend = useConfirmedDraftSend(onRefresh);
@@ -347,15 +351,20 @@ export function DraftArtifact({
   const messageOf = (e: unknown) => e instanceof Error ? e.message : String(e);
 
   useEffect(() => {
-    setCc(card.cc || "");
-    setFromAddr(pickFromAddr(card.send_from || card.from, card.allowed_from_mailboxes || []));
-    setToAddr(card.to || "");
-    setSubject(card.subject || "");
-    setBody(card.body || "");
+    const local = edits?.get(card.draft_id);
+    setCc(local?.cc ?? card.cc ?? "");
+    setFromAddr(local?.from ?? pickFromAddr(card.send_from || card.from, card.allowed_from_mailboxes || []));
+    setToAddr(local?.to ?? card.to ?? "");
+    setSubject(local?.subject ?? card.subject ?? "");
+    setBody(local?.body ?? card.body ?? "");
     setErr(card.send_error || "");
     const nextZh = usableInternalZh(card.body_zh_internal, card.body || "");
     if (nextZh) setZh(nextZh);
   }, [card.draft_id, card.cc, card.from, card.send_from, card.to, card.subject, card.body, card.send_error, card.body_zh_internal, fromOptionsKey]);
+  useEffect(() => {
+    if (dirty) edits?.set(card.draft_id, {cc,from: fromAddr,to: toAddr,subject,body});
+    else edits?.delete(card.draft_id);
+  }, [edits,card.draft_id,dirty,cc,fromAddr,toAddr,subject,body]);
 
   const persist = async () => {
     await api.patchDraft(card.draft_id, {
@@ -365,6 +374,7 @@ export function DraftArtifact({
       subject,
       body_en: body,
     });
+    edits?.delete(card.draft_id);
   };
 
   const translate = async () => {
@@ -480,6 +490,8 @@ export function DraftArtifact({
         </div>
       )}
       {card.knowledge_id ? <p className="muted" data-draft-template-source title={card.knowledge_id}>模板来源：知识库 · 第 {card.knowledge_version} 版</p> : null}
+      {card.reply_context_version ? <p className="muted" data-draft-reply-basis>生成依据：{card.reply_context_version.slice(0, 12)} · {(card.reply_evidence || []).length} 封邮件{card.reply_context_stale ? " · 生成期间依据已变化，请核对最新原文后修改；此稿未自动发送。" : ""}</p> : null}
+      {dirty ? <details data-draft-comparison><summary>比较已保存稿与当前人工修改</summary><p>已保存稿</p><pre className="mail-body-text">{card.body}</pre><p>当前人工修改（尚未保存）</p><pre className="mail-body-text">{body}</pre></details> : null}
       <div className="action-row">
         {!sent && (
           <button className="btn ghost" data-draft-save onClick={() => void save()} disabled={!!busy || confirmedSend.busy || !dirty}>
@@ -974,6 +986,7 @@ function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; 
   return (
     <article className="stream-task-result" data-kind="task-result-card" data-stream-result>
       <strong>{title}</strong>
+      {card.reply_context_version ? <p className="muted">邮件依据版本 {String(card.reply_context_version).slice(0,12)}{card.reply_context_stale ? " · 已过期" : ""}</p> : null}
       {summary ? <p>{summary}</p> : null}
       <ResultDraftPreview card={card} onRefresh={onRefresh} />
       {sections.map((section, index) => {
@@ -1205,6 +1218,10 @@ function statusMark(status: TraceStatus) {
   if (status === "skipped") return "–";
   if (status === "interrupted") return "已中断";
   return status === "running" ? "…" : "○";
+}
+
+function statusLabel(status: TraceStatus) {
+  return { done: "已完成", failed: "失败", skipped: "已跳过", interrupted: "已中断", running: "执行中", pending: "待处理" }[status];
 }
 
 function traceItems(payload: Record<string, unknown>): ProcessTraceItem[] {
@@ -1448,14 +1465,14 @@ export function ChatThread({
       {(discovery ? discoveryTimeline(messages, actions) : messages).map((m) => {
         if (m.kind === "discovery_history") return <ThreadMessage key={m.id} role="assistant" data-kind="discovery-history">
           <details><summary>旧任务记录</summary>{(m.payload.items as Message[]).map(item =>
-            <p key={item.id} data-kind="discovery-step"><StepTime /> · {employeeTraceLabel(String(item.payload.text), String(item.payload.kind || ""))}</p>)}</details>
+            <p key={item.id} data-kind="discovery-step"><StepTime /> · <i role="img" aria-label={statusLabel(safeStatus(item.payload.status))}>{statusMark(safeStatus(item.payload.status))}</i> {employeeTraceLabel(String(item.payload.text), String(item.payload.kind || ""))}</p>)}</details>
         </ThreadMessage>;
         if (m.kind === "discovery_action") return <div key={m.id}>{renderAction?.(String(m.payload.action_id))}</div>;
         if (m.kind === "discovery_step") {
           const status = safeStatus(m.payload.status);
           const label = employeeTraceLabel(String(m.payload.text), String(m.payload.kind || ""));
           return <ThreadMessage key={m.id} role="assistant" className="discovery-process-event" data-kind="discovery-step">
-            <div className="discovery-event-heading"><StepTime value={m.created_at} /><i>{statusMark(status)}</i>
+            <div className="discovery-event-heading"><StepTime value={m.created_at} /><i role="img" aria-label={statusLabel(status)}>{statusMark(status)}</i>
               {m.payload.kind === "reasoning" ? <details><summary>分析发现条件</summary><p>{label}</p></details>
                 : <span>{label === "准备任务" || label === "正在核对任务条件" ? "正在核对发现条件" : label}</span>}
               <span className="muted">{status === "running" ? "进行中" : status === "done" ? "已完成" : "未完成"}</span>
@@ -1529,7 +1546,8 @@ export function ChatThread({
           );
         }
         if (m.kind === "task_result_card") {
-          if (hasDraftCard || m.id !== latestResultId) return null;
+            if (m.id !== latestResultId || (hasDraftCard && m.payload.skill !== "reply_analysis")) return null;
+            if (m.payload.skill === "reply_analysis") return <ThreadMessage key={m.id} role="assistant" result="task_result" risk="L1"><StreamResultCard card={m.payload} onRefresh={onRefresh} /></ThreadMessage>;
           const risk = messageRisk("task_result_card", m.payload) || "L1";
           const title = String(m.payload.title || "任务结果");
           return (
@@ -1580,7 +1598,7 @@ export function ChatThread({
                   const streaming = item.kind === "reasoning" && (item.streaming || status === "running");
                   return (
                     <li key={item.id || `${label}-${index}`} data-status={status} data-kind={item.kind || undefined}>
-                      <i>{statusMark(status)}</i>
+                      <i role="img" aria-label={statusLabel(status)}>{statusMark(status)}</i>
                       <span className={streaming ? "is-streaming" : undefined}>{label}</span>
                       <StepTime value={item.observed_at} />
                     </li>
@@ -1632,7 +1650,7 @@ export function ChatThread({
                       : label;
                     return (
                       <li key={operation.id || name || index} data-status={status} data-mcp-name={debug ? (name || undefined) : undefined}>
-                        <i>{statusMark(status)}</i>
+                        <i role="img" aria-label={statusLabel(status)}>{statusMark(status)}</i>
                         <span className={streaming ? "is-streaming" : undefined}>{settledLabel}</span>
                         <StepTime value={operation.observed_at} />
                       </li>
@@ -1640,7 +1658,7 @@ export function ChatThread({
                   })
                   : (
                     <li data-status="running" data-mcp-waiting>
-                      <i>…</i>
+                      <i role="img" aria-label="执行中">…</i>
                       <span className="is-streaming">正在调用系统能力…</span>
                     </li>
                   )}

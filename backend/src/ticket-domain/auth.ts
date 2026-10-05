@@ -54,63 +54,74 @@ export async function syncWorkbenchTicketPrincipal(user: WorkbenchSessionUser): 
     throw new HttpFail(401, { code: "workbench_identity_incomplete", message: "工作台会话缺少可用主体信息" });
   }
   const now = new Date().toISOString();
-  await postgresTransaction(async (client) => {
-    const existing = await client.query<{ id: string; identity_provider: string }>(
-      "SELECT id,identity_provider FROM ticket_accounts WHERE id=$1 FOR UPDATE",
-      [actor.id],
-    );
-    if (existing.rows[0] && existing.rows[0].identity_provider !== "workbench_session") {
-      throw new HttpFail(409, { code: "workbench_principal_collision", message: "工作台主体与已退休的工单账号标识冲突，请由管理员处理" });
-    }
-    const usernameOwner = await client.query<{ id: string }>(
-      "SELECT id FROM ticket_accounts WHERE lower(username)=lower($1) AND id<>$2 FOR UPDATE",
-      [actor.username, actor.id],
-    );
-    if (usernameOwner.rows[0]) {
-      throw new HttpFail(409, { code: "workbench_username_collision", message: "工作台账号与现有工单主体名称冲突，请由管理员处理" });
-    }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await postgresTransaction(async (client) => {
+        const existing = await client.query<{ id: string; identity_provider: string }>(
+          "SELECT id,identity_provider FROM ticket_accounts WHERE id=$1 FOR UPDATE",
+          [actor.id],
+        );
+        if (existing.rows[0] && existing.rows[0].identity_provider !== "workbench_session") {
+          throw new HttpFail(409, { code: "workbench_principal_collision", message: "工作台主体与已退休的工单账号标识冲突，请由管理员处理" });
+        }
+        const usernameOwner = await client.query<{ id: string }>(
+          "SELECT id FROM ticket_accounts WHERE lower(username)=lower($1) AND id<>$2 FOR UPDATE",
+          [actor.username, actor.id],
+        );
+        if (usernameOwner.rows[0]) {
+          throw new HttpFail(409, { code: "workbench_username_collision", message: "工作台账号与现有工单主体名称冲突，请由管理员处理" });
+        }
 
-    await client.query(
-      `INSERT INTO ticket_accounts
-       (id,username,name,password_hash,email,roles,active,identity_provider,created_at,updated_at)
-       VALUES ($1,$2,$3,'workbench-session-only',$4,$5,$6,'workbench_session',$7,$7)
-       ON CONFLICT (id) DO UPDATE SET
-         username=EXCLUDED.username,name=EXCLUDED.name,email=EXCLUDED.email,roles=EXCLUDED.roles,
-         active=EXCLUDED.active,identity_provider='workbench_session',updated_at=EXCLUDED.updated_at`,
-      [actor.id, actor.username, actor.name, actor.email, JSON.stringify(actor.roles), actor.active, now],
-    );
+        await client.query(
+          `INSERT INTO ticket_accounts
+           (id,username,name,password_hash,email,roles,active,identity_provider,created_at,updated_at)
+           VALUES ($1,$2,$3,'workbench-session-only',$4,$5,$6,'workbench_session',$7,$7)
+           ON CONFLICT (id) DO UPDATE SET
+             username=EXCLUDED.username,name=EXCLUDED.name,email=EXCLUDED.email,roles=EXCLUDED.roles,
+             active=EXCLUDED.active,identity_provider='workbench_session',updated_at=EXCLUDED.updated_at`,
+          [actor.id, actor.username, actor.name, actor.email, JSON.stringify(actor.roles), actor.active, now],
+        );
 
-    const prior = await client.query<{
-      username_snapshot: string; name_snapshot: string; email_snapshot: string | null; roles_snapshot: unknown; active: boolean;
-    }>(
-      `SELECT username_snapshot,name_snapshot,email_snapshot,roles_snapshot,active
-         FROM workbench_principal_bindings WHERE workbench_user_id=$1 FOR UPDATE`,
-      [actor.id],
-    );
-    const previous = prior.rows[0];
-    const claims = { username: actor.username, name: actor.name, email: actor.email, roles: actor.roles, active: actor.active };
-    await client.query(
-      `INSERT INTO workbench_principal_bindings
-       (workbench_user_id,principal_id,username_snapshot,name_snapshot,email_snapshot,roles_snapshot,active,source,first_seen_at,last_seen_at,updated_at)
-       VALUES ($1,$1,$2,$3,$4,$5,$6,'workbench_session',$7,$7,$7)
-       ON CONFLICT (workbench_user_id) DO UPDATE SET
-         principal_id=EXCLUDED.principal_id,username_snapshot=EXCLUDED.username_snapshot,name_snapshot=EXCLUDED.name_snapshot,
-         email_snapshot=EXCLUDED.email_snapshot,roles_snapshot=EXCLUDED.roles_snapshot,active=EXCLUDED.active,
-         last_seen_at=EXCLUDED.last_seen_at,updated_at=EXCLUDED.updated_at`,
-      [actor.id, actor.username, actor.name, actor.email, JSON.stringify(actor.roles), actor.active, now],
-    );
-    const changed = !previous || previous.username_snapshot !== actor.username || previous.name_snapshot !== actor.name
-      || previous.email_snapshot !== actor.email || previous.active !== actor.active
-      || JSON.stringify(normalizedRoles(previous.roles_snapshot)) !== JSON.stringify(actor.roles);
-    if (changed) {
-      await client.query(
-        `INSERT INTO workbench_principal_binding_events
-         (id,workbench_user_id,principal_id,event_type,claims_json,occurred_at)
-         VALUES ($1,$2,$2,$3,$4,$5)`,
-        [nid("wpbe"), actor.id, previous ? (actor.active ? "claims_refreshed" : "deactivated") : "bound", JSON.stringify(claims), now],
-      );
+        const prior = await client.query<{
+          username_snapshot: string; name_snapshot: string; email_snapshot: string | null; roles_snapshot: unknown; active: boolean;
+        }>(
+          `SELECT username_snapshot,name_snapshot,email_snapshot,roles_snapshot,active
+             FROM workbench_principal_bindings WHERE workbench_user_id=$1 FOR UPDATE`,
+          [actor.id],
+        );
+        const previous = prior.rows[0];
+        const claims = { username: actor.username, name: actor.name, email: actor.email, roles: actor.roles, active: actor.active };
+        await client.query(
+          `INSERT INTO workbench_principal_bindings
+           (workbench_user_id,principal_id,username_snapshot,name_snapshot,email_snapshot,roles_snapshot,active,source,first_seen_at,last_seen_at,updated_at)
+           VALUES ($1,$1,$2,$3,$4,$5,$6,'workbench_session',$7,$7,$7)
+           ON CONFLICT (workbench_user_id) DO UPDATE SET
+             principal_id=EXCLUDED.principal_id,username_snapshot=EXCLUDED.username_snapshot,name_snapshot=EXCLUDED.name_snapshot,
+             email_snapshot=EXCLUDED.email_snapshot,roles_snapshot=EXCLUDED.roles_snapshot,active=EXCLUDED.active,
+             last_seen_at=EXCLUDED.last_seen_at,updated_at=EXCLUDED.updated_at`,
+          [actor.id, actor.username, actor.name, actor.email, JSON.stringify(actor.roles), actor.active, now],
+        );
+        const changed = !previous || previous.username_snapshot !== actor.username || previous.name_snapshot !== actor.name
+          || previous.email_snapshot !== actor.email || previous.active !== actor.active
+          || JSON.stringify(normalizedRoles(previous.roles_snapshot)) !== JSON.stringify(actor.roles);
+        if (changed) {
+          await client.query(
+            `INSERT INTO workbench_principal_binding_events
+             (id,workbench_user_id,principal_id,event_type,claims_json,occurred_at)
+             VALUES ($1,$2,$2,$3,$4,$5)`,
+            [nid("wpbe"), actor.id, previous ? (actor.active ? "claims_refreshed" : "deactivated") : "bound", JSON.stringify(claims), now],
+          );
+        }
+      }, { isolation: "SERIALIZABLE" });
+      break;
+    } catch (error) {
+      // Only retry a fully rolled-back database transaction; no external effects
+      // occur here. Keep identity conflicts and exhausted attempts fail-closed.
+      const code = (error as { code?: string }).code;
+      if (attempt >= 7 || (code !== "40001" && code !== "40P01")) throw error;
+      await new Promise(resolve => setTimeout(resolve, Math.min(200, 10 * 2 ** attempt)));
     }
-  }, { isolation: "SERIALIZABLE" });
+  }
   return actor;
 }
 

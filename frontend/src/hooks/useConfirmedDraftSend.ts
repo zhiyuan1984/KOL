@@ -25,7 +25,7 @@ export function useConfirmedDraftSend(onRefresh?: () => void) {
         attempt.current = { draftId, version, requestId: typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("") };
       }
       const confirmed = { ...attempt.current };
-      ask(draftSendConfirm(view.snapshot), async () => {
+      ask(draftSendConfirm(view.snapshot, view.reply_context), async () => {
         setBusy(true);
         try {
           await api.sendDraft(confirmed.draftId, { confirmation_version: confirmed.version, request_id: confirmed.requestId });

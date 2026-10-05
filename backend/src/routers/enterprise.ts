@@ -26,6 +26,17 @@ import { listOrganizationUnits, syncUserOrganization } from "../runtime/organiza
 
 export const enterprise = new Hono();
 
+enterprise.use("/sessions/:sid/*",async (c,next) => {
+  const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
+  await authorizedTaskSession(scopedUser()?.id || "",c.req.param("sid"),c.req.path.endsWith("/unarchive"));
+  await next();
+});
+enterprise.use("/sessions/:sid",async (c,next) => {
+  const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
+  await authorizedTaskSession(scopedUser()?.id || "",c.req.param("sid"));
+  await next();
+});
+
 function connectorProbeVerified(id: string, version: number): boolean {
   try {
     const probe = getConn().prepare(`SELECT status, probe_kind, config_version FROM runtime_connector_probes
@@ -755,11 +766,13 @@ enterprise.delete("/sessions/:sid/share", (c) => {
   return c.json({ ok: true, revoked: result.changes });
 });
 
-enterprise.get("/shared/:token", (c) => {
+enterprise.get("/shared/:token", async (c) => {
   const row = getConn().prepare(
     `SELECT * FROM session_shares WHERE token_hash=? AND revoked_at IS NULL AND expires_at>?`,
   ).get(tokenDigest(c.req.param("token")), nowIso()) as Row | undefined;
   if (!row) throw new HttpFail(404, "share unavailable");
+  const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
+  await authorizedTaskSession(scopedUser()?.id || "",String(row.session_id));
   return c.json({ ...sessionSnapshot(String(row.session_id), Boolean(row.include_internal)), read_only: true, expires_at: row.expires_at });
 });
 

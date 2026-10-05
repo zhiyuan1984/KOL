@@ -1,4 +1,4 @@
-import { closePostgresPool } from "../src/postgres/pool.js";
+import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
@@ -62,8 +62,10 @@ beforeEach(async () => {
         return { data: { total: 0, list: [] } };
       }
       if (name === "pageEmailConversations") {
+        if (Number(args.pageNo || 1) > 1) return { data: { total: 1, list: [] } };
         return {
           data: {
+            total: 1,
             list: [{
               id: 3901,
               conversationId: 3901,
@@ -86,9 +88,9 @@ beforeEach(async () => {
             conversationId: 3901,
             subject: "Re: LiTime MCP 连通测试",
             messages: [
-              { id: "mid-3901-1", direction: "outbound", body: "Hello", unread: false },
-              { id: "mid-3901-2", direction: "inbound", body: "Can we start next week?", unread: true },
-              { id: "mid-3901-3", direction: "inbound", body: "Please share the rate.", unread: true },
+              { id: "mid-3901-1", sentAt: "2026-10-01T01:00:00Z", direction: "outbound", body: "Hello", unread: false },
+              { id: "mid-3901-2", sentAt: "2026-10-01T02:00:00Z", direction: "inbound", body: "Can we start next week?", unread: true },
+              { id: "mid-3901-3", sentAt: "2026-10-01T03:00:00Z", direction: "inbound", body: "Please share the rate.", unread: true },
             ],
           },
         };
@@ -107,6 +109,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForBackgroundSync();
   await closePostgresPool();
   setStarryKolClientFactory();
   resetFollowedMailSync();
@@ -115,13 +118,28 @@ afterEach(async () => {
 });
 
 describe("followed KOL unread mail sync", () => {
+  it("rejects moving a remembered conversation to another collaboration", async () => {
+    bindLarry();
+    await ensureFollowedMailSync(true);
+    getConn().prepare(`INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,kol_uid)
+      SELECT 'col_other_source',handle,display_name,brand,email,mailbox_from,lifecycle_id,'other-conversation',stage_code,kol_uid
+      FROM collaborations WHERE id='col_xiaomei'`).run();
+    getConn().prepare("UPDATE collaborations SET kol_uid='OTHER-UID',email='other@example.test' WHERE id='col_other_source'").run();
+    getConn().prepare("UPDATE kol_mail_threads SET collaboration_id='col_other_source' WHERE conversation_id='3901'").run();
+    const result = await ensureFollowedMailSync(true);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("mail_conversation_association_mismatch");
+    expect(getConn().prepare("SELECT collaboration_id FROM kol_mail_threads WHERE conversation_id='3901'").get()).toMatchObject({collaboration_id: "col_other_source"});
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_mail_items WHERE collaboration_id='col_other_source'").get()).toMatchObject({n: 0});
+  });
   it("uses local mail memory and skips unchanged remote conversation details", async () => {
     bindLarry();
     setStarryKolClientFactory(() => ({
-      async callTool(name: string) {
+      async callTool(name: string, args: Json = {}) {
         calls.push(name);
         if (name === "pageEmailConversations") {
-          return { data: { list: [{
+          if (Number(args.pageNo || 1) > 1) return {data: {total: 1,list: []}};
+          return { data: { total: 1,list: [{
             id: 4901,
             conversationId: 4901,
             subject: "Incremental sync",
@@ -151,6 +169,13 @@ describe("followed KOL unread mail sync", () => {
     await ensureFollowedMailSync(true);
     expect(calls).toContain("pageEmailConversations");
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(0);
+    // A remembered index cannot certify a missing body. Fetch the authorized
+    // detail again, without creating another event for the same source version.
+    getConn().prepare("UPDATE kol_mail_items SET body_text=NULL WHERE provider_message_id='mid-4901'").run();
+    calls.length = 0;
+    await ensureFollowedMailSync(true);
+    expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(1);
+    expect(getConn().prepare("SELECT body_text FROM kol_mail_items WHERE provider_message_id='mid-4901'").get()).toMatchObject({body_text: "Stored once"});
   });
 
   it("drops conversations belonging to another mailbox", async () => {
@@ -238,6 +263,7 @@ describe("followed KOL unread mail sync", () => {
     expect(elapsed).toBeLessThan(500);
     expect((response.body.job as Json).status).toBe("queued");
     await processExecutionJobById(String((response.body.job as Json).id));
+    expect((await request("GET", `/api/jobs/${String((response.body.job as Json).id)}`)).body.job).toMatchObject({status: "succeeded"});
     expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='3901'").get()).toBeTruthy();
   });
 
@@ -270,11 +296,9 @@ describe("followed KOL unread mail sync", () => {
 
     const opened = await request("POST", "/api/collaborations/col_xiaomei/session", {});
     expect(opened.status).toBe(200);
-    await expect.poll(() => Number((
-      getConn().prepare(
+    await expect.poll(async () => Number((await postgresPool().query(
         "SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE collaboration_id='col_xiaomei'",
-      ).get() as { n: unknown }
-    ).n)).toBe(0);
+      )).rows[0].n)).toBe(0);
   });
 
   it("matches inbound by handle suffix and keeps the conversation body", async () => {

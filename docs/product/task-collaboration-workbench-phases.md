@@ -5,7 +5,7 @@
 | 计划 ID / 版本 | PLAN-TCW-2026-10-04 / v1.0 |
 | 日期 / 基线 | 2026-10-04 / 仓库 `248764c` |
 | 产品设计 | [任务协作工作台 PRD](task-collaboration-workbench-prd.md) |
-| 当前状态 | P1 `in_progress`，发现链路、来源保护及进程恢复/触摸修正已发布；P2–P5 `not_started`；发布不等于 Phase 闭环，见[恢复验收与剩余门禁](task-collaboration-workbench-p1-recovery.md) |
+| 当前状态 | P1 `in_progress`，发现链路、来源保护及进程恢复/触摸修正已发布；P2 `in_progress`，见[邮件变化与回复任务实施](task-collaboration-workbench-p2-implementation.md)；P3–P5 `not_started`；发布不等于 Phase 闭环，见[恢复验收与剩余门禁](task-collaboration-workbench-p1-recovery.md) |
 | 排期口径 | 以依赖与退出条件推进；无已确认团队产能、开始日期与外部 SLA，不虚构交付日期 |
 | 法律层级 | 实施计划，服从 [CONSTITUTION](../CONSTITUTION.md)、[PRODUCT](../PRODUCT.md)、[BUSINESS](../BUSINESS.md)、[TECHNOLOGY](../TECHNOLOGY.md) |
 
@@ -159,6 +159,8 @@
 ## 5. P3：审批与关联工单真正影响当前工作
 
 ### 5.1 用户故事与范围
+
+**实施状态（2026-10-05）：in_progress。** 已实现原生源事件、版本依赖复核、任务详情关联面板，以及复用原 A1/A2 执行器的人工确认采纳/明确合并和并发去重；D1 的真实审批类型及实际工单链未确定，D3 真实 harness 影响分析、完整三栏联动及真实 D6 尚未完成。实现边界与验证见 [P3 实施记录](task-collaboration-workbench-p3-implementation.md)，本期尚未达到退出条件。
 
 员工的当前动作正在等待特定审批或前置工单。审批通过/驳回/撤回、前置工单完成/重开时，中栏解释变化，当前工单重新计算可执行性；员工完成对应动作及工单验收，结果反馈关联任务。
 
@@ -348,7 +350,7 @@ Agent、Skill、规则、schema、连接器配置版本
 | 交付项 | 状态 | 已有证据 | 尚未完成 |
 |---|---|---|---|
 | PRD 与 Phase 计划 | 设计稿已落盘 | 本文、配套 PRD、文档链接/引用检查 | 业务与技术实施时继续细化契约 |
-| P1 | in_progress | 入口/现场/契约、候选持久读取与分析上下文已实施；main a19aa25 已部署；三次授权采集、来源修复及真实分析见[质量记录](task-collaboration-workbench-p1-quality.md)；本平台子进程恢复3例、尺寸交互及小屏确认25例见[恢复记录](task-collaboration-workbench-p1-recovery.md) | 真实空结果、外部异常/接管、实际恢复演练、完整无障碍及生产浏览器验证；本轮交互修正待自身发布门禁 |
+| P1 | in_progress | 入口/现场/契约、候选持久读取与分析上下文已实施；三次授权采集、来源修复及真实分析见[质量记录](task-collaboration-workbench-p1-quality.md)；本平台子进程恢复3例、尺寸交互及小屏确认25例见[恢复记录](task-collaboration-workbench-p1-recovery.md)；bd1cb1c完整门禁通过并部署，HTTP失败、SSE、工单主体桥接及生产只读浏览器证据见[接续记录](task-collaboration-workbench-p1-http-recovery.md)；171表/58,622行的独立库实际备份恢复见[演练记录](task-collaboration-workbench-p1-backup-restore.md) | 真实空结果、外部异常/接管、恢复后服务续跑与完整回滚、完整无障碍与剩余生产浏览器矩阵；新增一次限定采集尚待授权 |
 | P2 | not_started | 现有邮件/快照/网关可复用 | P2-D1–D6、AT-07–12 |
 | P3 | not_started | 现有审批/工单资产可复用 | P3-D1–D6、AT-13–17 |
 | P4 | not_started | 既有业务条款与阶段规则 | 完整归属口径、P4-D1–D6、AT-18–23 |

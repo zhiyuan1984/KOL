@@ -465,7 +465,7 @@ export function approvalInitiateConfirm(input: {
   };
 }
 
-export function draftSendConfirm(input: { from?: string; to?: string; cc?: string; subject?: string; body?: string }): AdminConfirmCopy {
+export function draftSendConfirm(input: { from?: string; to?: string; cc?: string; subject?: string; body?: string }, evidence?: { version: string; sources: Array<{ mailbox: string; checked_at: string | null }> }): AdminConfirmCopy {
   const from = String(input.from || "").trim() || "未指定发件邮箱";
   const to = String(input.to || "").trim() || "未指定收件邮箱";
   const subject = String(input.subject || "").trim() || "无主题";
@@ -475,7 +475,7 @@ export function draftSendConfirm(input: { from?: string; to?: string; cc?: strin
     object: `${from} → ${to} · ${subject}`,
     scope: `外发 SMTP · 英文原文（内部中文不发送）${input.cc ? ` · 抄送：${input.cc}` : " · 无抄送"}`,
     mailBody: input.body,
-    consequence: "确认后将真正发出以下版本的邮件。发送不会推进正式阶段；若回执不确定，将停止重复发送并提示核对。",
+    consequence: `${evidence ? `依据版本 ${evidence.version.slice(0, 12)}；来源：${evidence.sources.map(source => `${source.mailbox}（核验于 ${source.checked_at || "未知"}）`).join("、")}。相关邮件或合作阶段变化后需要重新确认。` : ""}确认后将真正发出以下版本的邮件。发送不会推进正式阶段；若回执不确定，将停止重复发送并提示核对。`,
     confirmLabel: "确认发送",
     confirmTone: "work",
   };

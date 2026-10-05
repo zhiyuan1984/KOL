@@ -2,6 +2,7 @@ import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { stagePolicyPublicationError } from "./work-order-stage-policy.js";
+import { parseCollaborationPolicy } from "./collaboration-context.js";
 
 const AUTOMATION_LEVELS = ["A0", "A1", "A2", "A3", "L3"] as const;
 type AutomationLevel = (typeof AUTOMATION_LEVELS)[number];
@@ -140,6 +141,7 @@ function parseDraft(raw: WorkOrderTemplateInput) {
 }
 
 function validatePublication(row: TemplateRow): void {
+  parseCollaborationPolicy(row.fill_policy_json);
   if (!Array.isArray(row.acceptance_criteria_json) || row.acceptance_criteria_json.length === 0) {
     throw new HttpFail(422, { code: "template_acceptance_criteria_required" });
   }
@@ -220,6 +222,24 @@ export async function publishWorkOrderTemplate(actorId: string, templateId: stri
     if (Number(template.version) !== expectedVersion) throw new HttpFail(409, { code: "template_version_conflict", current_version: Number(template.version) });
     if (template.status !== "draft") throw new HttpFail(409, { code: "template_not_publishable", status: template.status });
     validatePublication(template);
+    const dependencyPolicy = parseCollaborationPolicy(template.fill_policy_json);
+    if (dependencyPolicy) {
+      for (const dependency of dependencyPolicy.prerequisites) {
+        const published = await client.query("SELECT id FROM work_order_templates WHERE template_code=$1 AND version=$2 AND status='published' FOR SHARE", [dependency.template_code, dependency.template_version]);
+        if (!published.rows.length || (dependency.template_code === template.template_code && dependency.template_version === Number(template.version))) {
+          throw new HttpFail(422, { code: "collaboration_prerequisite_not_published" });
+        }
+      }
+      if (dependencyPolicy.review) {
+        const review = dependencyPolicy.review;
+        const published = await client.query<{ definition: string }>(`SELECT v.definition FROM review_versions v JOIN review_templates t ON t.tenant=v.tenant AND t.id=v.template_id
+          WHERE v.tenant=$1 AND v.template_id=$2 AND v.version=$3 AND t.published_version IS NOT NULL FOR SHARE OF v,t`, [review.company_id,review.template_id,review.template_version]);
+        const definition = published.rows[0] ? JSON.parse(published.rows[0].definition) : null;
+        if (!definition || !Array.isArray(definition.fields) || Object.values(review.fields).some(id => !definition.fields.some((f: { id: string }) => f.id === id))) {
+          throw new HttpFail(422, { code: "collaboration_review_mapping_not_published" });
+        }
+      }
+    }
     const now = new Date();
     await client.query(
       "UPDATE work_order_templates SET status='retired',updated_at=$1 WHERE template_code=$2 AND status='published'",

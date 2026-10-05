@@ -182,6 +182,8 @@ describe("email.received wiring", () => {
   }
 
   it("records inbound mail arrival as an idempotent business event", async () => {
+    await freshTestDatabase();
+    resetConn(); seedAll();
     bindLarry();
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
@@ -197,8 +199,8 @@ describe("email.received wiring", () => {
         }
         if (name === "getEmailConversation") {
           return { data: { id: 6901, subject: "Re: events wiring", messages: [
-            { id: "mid-6901-1", direction: "outbound", body: "Hello", unread: false },
-            { id: "mid-6901-2", direction: "inbound", from: "creator@example.com", body: "Can we start?", unread: true },
+              { id: "mid-6901-1", sentAt: "2026-10-01T01:00:00Z", direction: "outbound", body: "Hello", unread: false },
+              { id: "mid-6901-2", sentAt: "2026-10-01T02:00:00Z", direction: "inbound", from: "creator@example.com", body: "Can we start?", unread: true },
           ] } };
         }
         return { data: {} };
@@ -211,7 +213,9 @@ describe("email.received wiring", () => {
     ).all() as Row[];
     expect(events).toHaveLength(1);
     expect(String(events[0].object_type)).toBe("email");
-    expect(String(events[0].idempotency_key)).toBe("email.received:mid-6901-2");
+    expect(String(events[0].idempotency_key)).toMatch(/^email\.received:[a-f0-9]{64}:[a-f0-9]{64}$/);
+    await ensureFollowedMailSync(true);
+    expect(getConn().prepare("SELECT id FROM business_events WHERE event_type='email.received'").all()).toHaveLength(1);
     expect(String(events[0].actor_type)).toBe("external");
     const response = await request("GET", "/api/events?event_type=email.received");
     expect(response.status, JSON.stringify(response.body)).toBe(200);

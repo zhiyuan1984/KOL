@@ -9,11 +9,15 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { persistDraft, getDraft } from "../src/host/api.js";
-import { mailSendAction, claimMailSend, assertDraftEditable } from "../src/host/mail-send-confirmation.js";
+import { mailSendAction, claimMailSend, assertDraftEditable, validateMailSend } from "../src/host/mail-send-confirmation.js";
+import { mapUser, withScopedUser } from "../src/auth.js";
+import { seedPublishedAgent, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
+import { listAgentBindings, revokeAgentBinding } from "../src/runtime/organization-tree.js";
+import { getSkillConnectors, setSkillConnector, setConnectorConfig } from "../src/runtime/store.js";
 import { sendDraft } from "../src/gateway/send.js";
 import { callStarryKolTool, executeStarryKolTask } from "../src/starrykol/service.js";
 import { starry } from "../src/adapters/clients.js";
-import type { Json } from "../src/types.js";
+import type { Json, Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
@@ -59,6 +63,35 @@ afterEach(() => {
 });
 
 describe("human-confirmed mail send boundary", () => {
+  it("uses current Agent and skill resource bindings without a personal connector grant and rechecks revocation", () => {
+    process.env.AUTH_MODE = "enabled";
+    seedPublishedAgent("agent:kol");
+    seedRuntimeTestActor(["email_compose"],true);
+    const actor = mapUser(getConn().prepare("SELECT * FROM users WHERE id='usr_runtime_fixture'").get() as Row);
+    getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Test mail resource',1,'configured','2026-10-05') ON CONFLICT(id) DO UPDATE SET enabled=1").run();
+    const binding = getSkillConnectors("email_compose").find(row => row.connector_id === "starrykol");
+    const enabled = setSkillConnector("email_compose","starrykol",true,Number(binding?.version || 0));
+    setConnectorConfig("starrykol",{protocol: "mcp",url: "https://api.example.test/mcp",headers_secret_refs: {"X-MCP-API-KEY": "isolated-mail-secret"}},0);
+    getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(actor.id);
+    withScopedUser(actor, () => expect(() => validateMailSend(getDraft(draftId))).not.toThrow());
+    const actorBinding = listAgentBindings("agent:kol").find(row => row.source === "test");
+    expect(actorBinding).toBeTruthy();
+    revokeAgentBinding(actorBinding!.id);
+    withScopedUser(actor, () => expect(() => validateMailSend(getDraft(draftId))).toThrow(/runtime_agent_not_usable/));
+  });
+  it("rejects administrator send when the current skill resource binding is revoked", () => {
+    process.env.AUTH_MODE = "enabled";
+    seedPublishedAgent("agent:kol");
+    seedRuntimeTestActor(["email_compose"],true);
+    const actor = mapUser(getConn().prepare("SELECT * FROM users WHERE id='usr_runtime_fixture'").get() as Row);
+    getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Test mail resource',1,'configured','2026-10-05') ON CONFLICT(id) DO UPDATE SET enabled=1").run();
+    const binding = getSkillConnectors("email_compose").find(row => row.connector_id === "starrykol");
+    const enabled = setSkillConnector("email_compose","starrykol",true,Number(binding?.version || 0));
+    setConnectorConfig("starrykol",{protocol: "mcp",url: "https://api.example.test/mcp",headers_secret_refs: {"X-MCP-API-KEY": "isolated-mail-secret"}},0);
+    withScopedUser(actor, () => expect(() => validateMailSend(getDraft(draftId))).not.toThrow());
+    setSkillConnector("email_compose","starrykol",false,Number(enabled.version));
+    withScopedUser(actor, () => expect(() => validateMailSend(getDraft(draftId))).toThrow(/runtime_connector_unbound/));
+  });
   it("preparing a send action is read-only, including an empty recipient binding", () => {
     getConn().prepare("UPDATE collaborations SET email='' WHERE id='col_xiaomei'").run();
     const view = mailSendAction(getDraft(draftId));
