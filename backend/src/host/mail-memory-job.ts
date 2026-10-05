@@ -7,6 +7,7 @@
  */
 import crypto from "node:crypto";
 import { audit, getConn, nowIso } from "../db.js";
+import { postgresQuery } from "../postgres/pool.js";
 import type { Json, Row } from "../types.js";
 import {
   itemsForConversation,
@@ -428,11 +429,22 @@ export function triggerMailMemoryIncrement(mailbox?: string): void {
   const key = mailbox || "*";
   if (inflight.has(key)) return;
   const promise = runMailMemoryIncrement(mailbox)
-    .catch((err) => {
-      audit("host", "mail_memory.increment_failed", {
-        mailbox: mailbox || "*",
-        error: err instanceof Error ? err.message : String(err),
-      });
+    .catch(async (err) => {
+      // This is detached background work. A second database failure while
+      // reporting the first must not reject an unobserved promise or stop the
+      // API process. Use the asynchronous pool so audit waits do not freeze
+      // employee requests on the synchronous connection.
+      try {
+        await postgresQuery(
+          "INSERT INTO audit_events (ts,actor,event_type,payload) VALUES ($1,$2,$3,$4)",
+          [nowIso(), "host", "mail_memory.increment_failed", JSON.stringify({
+            mailbox: mailbox || "*",
+            error: err instanceof Error ? err.message : String(err),
+          })],
+        );
+      } catch {
+        console.error("[mail-memory] increment failed; failure audit unavailable");
+      }
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
     })
     .finally(() => inflight.delete(key));
