@@ -197,7 +197,7 @@ export function ensureDemoAdmin(): void {
     `INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)`,
   ).run(
-    DEMO_USER.id,
+    DEMO_ADMIN.user_id,
     DEMO_ADMIN.handle,
     DEMO_ADMIN.name,
     hash,
@@ -208,7 +208,7 @@ export function ensureDemoAdmin(): void {
     now,
     now,
   );
-  seedDemoAdminContact(db, DEMO_USER.id);
+  seedDemoAdminContact(db, DEMO_ADMIN.user_id);
 }
 
 async function verifyPassword(password: string, stored: string): Promise<boolean> {
