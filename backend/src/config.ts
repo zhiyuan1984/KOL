@@ -318,6 +318,13 @@ export const DEMO_ADMIN = {
   name: "黄启友",
   handle: "jeffrey",
   email: "jeffrey.huang@amperetime.com",
+  /**
+   * Fresh-database insert id. It must NOT be the legacy demo id `sriphy`:
+   * existing databases still carry the old demo account there (production keeps
+   * 鄢棽's real account; test databases keep the legacy fixture), and inserting
+   * over it would collide on users.id.
+   */
+  user_id: "usr_jeffrey",
   phone: (process.env.DEMO_ADMIN_PHONE || "").trim(),
   password: "123456789",
   role: "product_manager" as const,

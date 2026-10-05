@@ -30,6 +30,7 @@
 7. 连带修正（登录身份切换的直接后果）：
    - `PERSONAS.permission_blocked` 的 `name` 改为「受限演示账号」：若仍叫「黄启友」，会命中 `departmentHeadAccessForUser` 的姓名匹配，拿到公司级全品牌授权，`blocked_permission` 演示失效（黄启友本人按政策本就不可被品牌范围拦截）。
    - `host/grants.ts seedDirectory()` 为 `jeffrey` 补目录与范围行（org_litime + team_kol）：`memberScopeIds()` 按 handle 取知识/技能范围，切换后需与「演示管理员」保持等价；鄢棽原有行保留。
+   - `ensureDemoAdmin()` 新建演示账号改用独立 id `usr_jeffrey`：旧库中 `sriphy` 已被历史演示账号（生产即鄢棽账号）占用，沿用 `DEMO_USER.id` 插入会撞 `users_pkey` 导致启动失败；生产库走邮箱匹配重命名路径（黄启友现有账号），行为不变。**该缺陷由预发 E2E 门禁（runtime 配置，真实登录）实际拦下，部署被跳过；修复后在本地用相同场景（遗留 `sriphy` 固件 + auth 启用）复现通过。**
 
 ## 验证证据（本地，2026-10-05）
 
