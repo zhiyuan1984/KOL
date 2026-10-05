@@ -233,14 +233,16 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   const agentText = (user: Employee) => data ? agentNames(user).join("、") || "未绑定 Agent" : "读取中…";
   const changeActive = (user: Employee) => {
     const act = async () => {
-      try {
-        await api.adminSave(`/api/admin/users/${encodeURIComponent(user.id)}`, { active: user.active === false }, "PATCH");
-        setNotice(`${label(user)} 的账号已${user.active === false ? "启用" : "停用"}。`);
-        onReload();
-      } catch (cause) { setLoadError(cause instanceof Error ? cause.message : "账号操作失败"); }
+      await api.adminSave(`/api/admin/users/${encodeURIComponent(user.id)}`, { active: user.active === false }, "PATCH");
+      setNotice(`${label(user)} 的账号已${user.active === false ? "启用" : "停用"}。`);
+      onReload();
     };
-    if (user.active === false) void act();
-    else ask(userDeactivateConfirm(label(user), email(user)), act);
+    if (user.active === false) {
+      void act().catch((cause) => setLoadError(cause instanceof Error ? cause.message : "账号操作失败"));
+      return;
+    }
+    // 停用失败不落页面：异常交给确认卡显示，弹窗保持打开等待重试或取消。
+    ask(userDeactivateConfirm(label(user), email(user)), act);
   };
   return <section className="governance-workspace" data-admin-employees>
     <aside className="governance-rail">
@@ -283,7 +285,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
                     <span className="action-divider" aria-hidden="true" />
                     <button type="button" onClick={() => setManaging(user)}>管理绑定</button>
                     <span className="action-divider" aria-hidden="true" />
-                    <button type="button" className={user.active === false ? undefined : "employee-danger-action"} onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button>
+                    <button type="button" data-employee-action={user.active === false ? "enable" : "deactivate"} className={user.active === false ? undefined : "employee-danger-action"} onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button>
                   </div>
                 </div>
               </div>
