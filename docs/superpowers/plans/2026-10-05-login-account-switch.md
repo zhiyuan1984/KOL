@@ -44,9 +44,21 @@
 - 前端门禁：`npm run typecheck` 与 `npm run build` 通过（stub 构建 10.87s）。
 - 前端 E2E（stub + PostgreSQL，data-e2e_local）：账号栏显示「黄启友」且不含 `jeffrey`（workbench.spec 账号栏用例的断言全部通过）；「产品经理登录」用例通过。`workbench.spec.ts:428` 的后续步骤因 2026-09-22 起已移除的 `[data-open-work-panel]` 选择器超时——该陈旧用例早于本次变更存在，且不在发布门禁的 E2E 子集内。
 
-## 线上操作与核验（执行记录）
+## 线上操作与核验（执行记录，2026-10-05）
 
-（推送 main → release-gate → deploy-production 后，在服务器执行 `backend/scripts/copy-account-access.ts`（先 dry-run 再 `--apply`），随后只做只读核验：登录、`/api/auth/status`、`/api/me`、admin agents 覆盖、首页跟进范围；核验结果追加到本文件。）
+- 发布：提交 `d552ddea`（首次门禁被预发 E2E 拦下，见「连带修正」第 3 条）与修复提交 `6270299f` 已进入 `github/main`；线上于 06:18:58Z 重启至含两笔提交的 `0dcf267a`，`/api/version` 一致。`ensureDemoAdmin()` 在重启时把黄启友账号重命名为 `jeffrey` 并写入密码与 `employee+admin` 角色（鄢棽账号与邮箱保持不动）。
+- 数据复制（服务器执行 `backend/scripts/copy-account-access.ts`，dry-run 5 项待复制 → `--apply` 5 项、跳过 1 项；审计 `account_access.copied`，actor `cli:copy-account-access`，06:29:30Z）：
+  - 邮箱绑定 `larry.zhao@amperetime.com` 复制到黄启友（默认邮箱；保险柜凭据为黄启友新建持密副本 `cred_af59ada03…`，源凭据 `cred_cd3ba2bbf…` 未动）。
+  - `brands` `[] → ["LT","RO","PQ"]`；`roles` 已一致（employee+admin）。
+  - 审批角色 `lead` 复制；agent 使用绑定 `agent:kol`、`agent_9d5314a7605b` 复制到 `person:huang_qiyou`（直接绑定目标，原件保留）。
+- 只读核验：
+  - 登录 `jeffrey.huang@amperetime.com / 123456789` → 200；`/api/auth/status`：黄启友、handle `jeffrey`、roles employee+admin、`available_modes` 含 admin、`starry_binding.bound=true`（`larry.zhao@amperetime.com`，has_token=true）、头像 `huang_qiyou.png`。
+  - `permissions`：`{admin:true, skills:["*"], approval_roles:["*"]}`。
+  - 管理端 `/api/admin/agents`：`agent:kol` 与 `agent_9d5314a7605b` 的绑定均含 `person:huang_qiyou`（via `binding_target`），覆盖含黄启友。
+  - 首页 `/api/home/board`：`follow_scope` 已绑定到 `larry.zhao@amperetime.com`（赵良玉）。
+  - 重复 dry-run：待复制 0 项、跳过 6 项（幂等）。
+  - 鄢棽（`sriphy`）账号、邮箱绑定与 agent 绑定均保持原样。
+- 备注：本文件随修复提交进入 main；本节线上证据在工作区就绪，为避免与并行发布任务互相挤占（concurrency 取消规则）暂未追加推送，可按需补推。
 
 ## 回滚
 
