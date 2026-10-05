@@ -94,6 +94,22 @@ describe("admin identity and Starry mailbox bind", () => {
     }
   });
 
+  it("keeps 鄢棽's name login as an alias to his own account after the handover", async () => {
+    const { hashPassword } = await import("../src/auth.js");
+    getConn().prepare(
+      `INSERT INTO users (id,username,name,password_hash,roles,brands,active,email,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run("sriphy", "sriphy", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee", "admin"]), "[]", 1, "sriphy.yan@amperetime.com", "now", "now");
+    for (const ident of ["鄢棽", "sriphy", "sriphy.yan@amperetime.com"]) {
+      const login = await call("POST", "/api/auth/login", { email: ident, password: "123456789" }, "");
+      expect(login.status, ident).toBe(200);
+      const status = await call("GET", "/api/auth/status", undefined, login.cookie);
+      const user = status.json.user as Json;
+      expect(user.username).toBe("sriphy");
+      expect(user.name).toBe("鄢棽");
+    }
+  });
+
   it("binds larry.zhao without echoing the JWT and scopes the home board", async () => {
     const unbound = await call("GET", "/api/home/board");
     expect(unbound.json.follow_scope).toMatchObject({ required: true, bound: false });

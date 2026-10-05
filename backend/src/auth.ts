@@ -133,7 +133,7 @@ export async function hashPassword(password: string): Promise<string> {
 export function findUserForLogin(raw: string): Row | undefined {
   const ident = String(raw || "").trim();
   if (!ident) return undefined;
-  normalizeAccount(ident);
+  const account = normalizeAccount(ident);
   const db = getConn();
   const email = ident.includes("@") ? normalizeEmail(ident) : "";
   if (isDemoAdminIdentifier(ident)) {
@@ -144,7 +144,7 @@ export function findUserForLogin(raw: string): Row | undefined {
     ).get(DEMO_ADMIN.handle, normalizeEmail(DEMO_ADMIN.email), DEMO_ADMIN.name, DEMO_ADMIN.handle) as Row | undefined;
     if (admin) return admin;
   }
-  const lowered = email || ident.toLowerCase();
+  const lowered = email || account;
   const byUsername = db.prepare("SELECT * FROM users WHERE username = ? AND active = 1").get(lowered) as Row | undefined;
   if (byUsername) return byUsername;
   if (email) {
