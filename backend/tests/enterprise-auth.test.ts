@@ -78,6 +78,29 @@ afterEach(() => {
 });
 
 describe("production account and enterprise controls", () => {
+  it("bridges the workbench session for task-work-order routes without leaking another employee's tasks", async () => {
+    await createEmployee("work-order-owner");
+    await createEmployee("work-order-other");
+    const ownerCookie = await employeeLogin("work-order-owner");
+    const otherCookie = await employeeLogin("work-order-other");
+    const created = await call("POST", "/api/task-work-orders/tasks", {
+      title: "Owner private task", idempotency_key: "workbench-task-bridge-1",
+    }, ownerCookie);
+    expect(created.response.status).toBe(201);
+    const taskId = String((created.json.task as { task_id: string }).task_id);
+    const dashboard = await call("GET", "/api/task-work-orders/dashboard", undefined, ownerCookie);
+    expect(dashboard.response.status).toBe(200);
+    expect(dashboard.json).toMatchObject({ tasks: { items: [{ task: { task_id: taskId } }] } });
+    expect((await call("GET", `/api/task-work-orders/${taskId}`, undefined, ownerCookie)).response.status).toBe(200);
+    const other = await call("GET", "/api/task-work-orders/dashboard", undefined, otherCookie);
+    expect(other.response.status).toBe(200);
+    expect(other.json).toMatchObject({ tasks: { items: [] } });
+    expect((await call("GET", `/api/task-work-orders/${taskId}`, undefined, otherCookie)).response.status).toBe(404);
+    expect((await call("GET", "/api/task-work-orders/dashboard", undefined, "")).response.status).toBe(401);
+    expect((await call("POST", "/api/auth/logout", {}, ownerCookie)).response.status).toBe(200);
+    expect((await call("GET", "/api/task-work-orders/dashboard", undefined, ownerCookie)).response.status).toBe(401);
+  });
+
   it("rejects expired sessions, disabled users and logged-out cookie replay on pool reads", async () => {
     const employee = await createEmployee("pool-reader");
     const cookie = await employeeLogin("pool-reader");
