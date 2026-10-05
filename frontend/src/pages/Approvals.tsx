@@ -98,7 +98,7 @@ const CURRENCIES = [
 ] as const;
 
 const BOXES: { id: Box; label: string }[] = [
-  { id: "inbox", label: "待我决定" },
+  { id: "inbox", label: "待我处理" },
   { id: "submitted", label: "我发起的" },
   { id: "done", label: "已处理" },
 ];
@@ -179,7 +179,8 @@ function rejectReasonOf(row: Approval): string {
 }
 
 function statusCopy(row: Approval) {
-  return row.business_status_label || approvalStatusLabel(row.business_status || row.status);
+  if (row.status === "consumed" || row.status === "sent" || row.status === "approved") return "审批已通过";
+  return approvalStatusLabel(row.status);
 }
 
 function durableReceipt(row: Approval, session?: SessionReceipt | null): { text: string; tone: "ok" | "danger" | "info" } | null {
@@ -193,7 +194,7 @@ function durableReceipt(row: Approval, session?: SessionReceipt | null): { text:
     };
   }
   if (row.status === "consumed" || row.status === "sent") {
-    return { text: notice || "已同意，本单已办结。", tone: "ok" };
+    return { text: "审批已通过，请查看业务结果。", tone: "ok" };
   }
   if (row.status === "pending" && row.current_index > 0 && notice) {
     return { text: notice, tone: "ok" };
@@ -206,7 +207,7 @@ function consequenceCopy(row: Approval, decision: Decision): string {
   if (isFinalStep(row)) {
     return row.kind && row.kind !== "expense"
       ? "你是最后一位。同意后本单办结，并写入已确认的阶段。"
-      : "你是最后一位。同意后本单办结。";
+      : "你是最后一位。同意后审批通过，外部执行结果另行核对。";
   }
   const next = row.chain_detail?.[row.current_index + 1]?.name || "下一位审批人";
   return `同意后，审批交给下一位「${next}」。本单不会办结。`;
@@ -217,7 +218,7 @@ function receiptCopy(row: Approval, decision: Decision, result: Record<string, u
     return { id: row.id, decision, tone: "danger", text: `已驳回，本单已作废。原因：${reason}` };
   }
   if (result.status === "consumed" || result.status === "sent") {
-    return { id: row.id, decision, tone: "ok", text: "已同意，本单已办结。" };
+    return { id: row.id, decision, tone: "ok", text: "审批已通过，请查看业务结果。" };
   }
   const next = (result.chain_detail as { name: string }[] | undefined)?.[Number(result.current_index)]?.name
     || row.chain_detail?.[row.current_index + 1]?.name
@@ -230,10 +231,10 @@ function ReceiptLines({ row }: { row: Approval }) {
   if (!receipts || receipts.decision === "none" || !receipts.decision) return null;
   return (
     <ul className="approval-receipt-lines" data-approval-receipt-lines>
-      <li data-receipt="decision">{receipts.decision_label || "尚未决定"}</li>
-      <li data-receipt="gateway">{receipts.gateway_label || "网关未接受"}</li>
+      <li data-receipt="decision">审批结果：{statusCopy(row)}</li>
+      <li data-receipt="gateway"><details><summary>执行记录</summary>{receipts.gateway_label || "尚未提交业务执行"}</details></li>
       <li data-receipt="external" data-receipt-state={receipts.external || "pending_check"}>
-        外部回执：{receipts.external_label || "待核对"}
+        业务结果 · 外部回执：{receipts.external_label || "待核对"}
       </li>
     </ul>
   );
@@ -242,7 +243,9 @@ function ReceiptLines({ row }: { row: Approval }) {
 function InitiateExpenseForm({
   onCreated,
   ask,
+  locked,
 }: {
+  locked: boolean;
   onCreated: (id: string) => void;
   ask: ReturnType<typeof useAdminConfirm>["ask"];
 }) {
@@ -256,6 +259,7 @@ function InitiateExpenseForm({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState("");
+  useEffect(() => setPreview(null), [amount, currency, requester, purpose, brand, region]);
 
   const payload = () => ({
     kind: "expense" as const,
@@ -291,7 +295,10 @@ function InitiateExpenseForm({
       setFormErr("请填写金额");
       return;
     }
-    const ready = preview || await runPreview();
+    if (busy) return;
+    setBusy(true);
+    const ready = await runPreview();
+    setBusy(false);
     if (!ready || ready.expected_version == null) return;
     const object = `${ready.plan?.requester_name || requester.trim() || account?.name || "当前登录人"}申请 ${currency} ${formatAmount(Number(amount))}`;
     const rule = ready.plan?.rule_id || "";
@@ -352,8 +359,8 @@ function InitiateExpenseForm({
           申请人
           <input
             name="requester"
-            value={requester}
-            onChange={(event) => setRequester(event.target.value)}
+            value={account?.name || "当前登录人"}
+            readOnly
             onBlur={() => void runPreview()}
             placeholder={account?.name ? `默认 ${account.name}` : "默认当前登录人"}
             autoComplete="name"
@@ -414,7 +421,7 @@ function InitiateExpenseForm({
         </div>
       )}
       {formErr && <p className="error" role="alert">{formErr}</p>}
-      <button className="btn" type="submit" disabled={busy}>
+      <button className={locked || busy ? "btn" : "btn primary"} type="submit" disabled={busy || locked}>
         {busy ? "提交中…" : "提交费用审批"}
       </button>
     </form>
@@ -446,6 +453,7 @@ export default function Approvals({
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [receipts, setReceipts] = useState<Record<string, SessionReceipt>>({});
   const [reloadTick, setReloadTick] = useState(0);
+  const [creating, setCreating] = useState(false);
   const { ask, dialog, open: confirmOpen } = useAdminConfirm();
 
   const setQuery = (next: { box?: Box; id?: string }) => {
@@ -662,19 +670,23 @@ export default function Approvals({
       {!embedded ? (
         <>
           <header className="approval-page-head">
-            <div className="page-kicker">审批</div>
-            <h1>工作审批</h1>
-            <p className="muted">待我决定只列出轮到你确认的单。同意或驳回是受控命令，不会进入对话。交给 Agent 只可分析，不能代批。</p>
+            <h1>旧审批单据</h1>
+            <Link to="/approvals">审批中心</Link>
+            <button className={!creating && !expandedId && !confirmOpen ? "btn primary" : "btn"} onClick={() => setCreating(!creating)}>{creating ? "返回列表（保留填写）" : "发起费用审批"}</button>
           </header>
+          <div hidden={!creating}>
           <InitiateExpenseForm
+            locked={confirmOpen}
             ask={ask}
             onCreated={(id) => {
               setErr("");
+              setCreating(false);
               setReceipts((prev) => ({ ...prev, [id]: { id, decision: "submit", tone: "info", text: "已提交" } }));
               setQuery({ box: "submitted", id });
               setReloadTick((value) => value + 1);
             }}
           />
+          </div>
         </>
       ) : (
         <p className="muted" data-approval-workbench-hint>
@@ -682,6 +694,7 @@ export default function Approvals({
           发起费用审批请到 <Link to="/approvals">工作审批</Link>。
         </p>
       )}
+      <div hidden={creating}>
       <div className="task-filters approval-filters" aria-label="筛选审批">
         {BOXES.map((item) => (
           <button
@@ -704,7 +717,7 @@ export default function Approvals({
         const receipt = durableReceipt(a, receipts[a.id]);
         const confirming = confirmOpen && pending?.id === a.id;
         const inbox = box === "inbox" && a.can_decide !== false && a.status === "pending";
-        const expanded = expandedId === a.id || focusId === a.id;
+        const expanded = expandedId === a.id;
         const nodes = pathNodes(a);
         return (
           <article
@@ -716,11 +729,8 @@ export default function Approvals({
             data-approval-focus={focusId === a.id ? "true" : undefined}
             data-approval-version={a.version ?? ""}
           >
-            <h3 className="approval-title">
-              <span className="approval-kind">{kindLabel(a)}</span>
-              <span>{moneyLine(a)}</span>
-              <span className="nowrap">{statusCopy(a)}</span>
-            </h3>
+            <button className="approval-summary" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? "" : a.id)}><span>{moneyLine(a)}</span><span>{kindLabel(a)}</span><span>{statusCopy(a)}</span></button>
+            {expanded && <div className="approval-detail-body">
             <p className="muted">
               {a.kind && a.kind !== "expense" ? "按审批规则" : "按费用规则"}
               {a.need_manual_band ? " · 需人工确认金额档" : ""}
@@ -729,7 +739,7 @@ export default function Approvals({
               {a.status === "pending" ? ` · 当前等待 ${current}（第 ${a.current_index + 1}/${a.chain_detail?.length || a.chain.length} 人）` : ""}
             </p>
             <p className="approval-row-meta" data-approval-row-meta>
-              <span data-approval-action>{a.action_id || a.kind || "expense"}</span>
+
               {a.consequence_label ? <span data-approval-consequence> · {a.consequence_label}</span> : null}
               {a.version_code ? <span data-approval-version-code> · {a.version_code}</span> : null}
             </p>
@@ -749,6 +759,7 @@ export default function Approvals({
               </p>
             )}
             <ReceiptLines row={a} />
+            </div>}
             {inbox && !expanded && !confirming && (
               <div className="approval-actions">
                 <button
@@ -766,10 +777,10 @@ export default function Approvals({
             )}
             {inbox && expanded && !confirming && (
               <div className="approval-actions" data-approval-detail>
-                <button type="button" className="btn primary" onClick={() => decide(a, "approve")}>同意</button>
-                <button type="button" className="btn danger" onClick={() => decide(a, "reject")}>驳回</button>
-                <button type="button" className="btn" data-approval-transfer onClick={() => transfer(a)}>转交</button>
-                <button type="button" className="btn" data-approval-countersign onClick={() => countersign(a)}>加签</button>
+                <button type="button" className="btn primary" disabled={a.allowed_actions ? !a.allowed_actions.includes("approve") : a.can_decide === false} onClick={() => decide(a, "approve")}>同意</button>
+                <button type="button" className="btn danger" disabled={a.allowed_actions ? !a.allowed_actions.includes("reject") : a.can_decide === false} onClick={() => decide(a, "reject")}>驳回</button>
+                {a.allowed_actions?.includes("transfer") && <button type="button" className="btn" data-approval-transfer onClick={() => transfer(a)}>转交</button>}
+                {a.allowed_actions?.includes("countersign") && <button type="button" className="btn" data-approval-countersign onClick={() => countersign(a)}>加签</button>}
                 {onExplainRisk ? (
                   <button
                     type="button"
@@ -805,15 +816,15 @@ export default function Approvals({
           </article>
         );
       })}
-      <section className="panel approval-notices">
-        <h3>审批通知</h3>
+      <details className="approval-notices"><summary>审批通知 · {cards.length}</summary>
         {cards.length === 0 && <p className="muted">暂无通知。</p>}
         {cards.map((c) => (
           <p key={c.approval_id} className="muted">
             [{approvalStatusLabel(c.status)}] {c.assignee} · {stripApprovalRecordIds(c.body)}
           </p>
         ))}
-      </section>
+      </details>
+      </div>
     </div>
   );
 }

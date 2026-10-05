@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { validateDefinition } from "../../backend/src/approval/review-engine";
+import { validateDefinition, validatePublicationNames } from "../../backend/src/approval/review-engine";
 import { emptyReviewDefinition } from "../../shared/review";
 
 /** Browser interaction fixtures only; authenticated persistence is tested in review-api.test.ts. */
@@ -55,6 +55,7 @@ async function fixture(page: Page) {
     if (p === "instance-page")
       return route.fulfill({ json: { items: [], nextCursor: null } });
     if (p === "instances") return route.fulfill({ json: [] });
+    if (p === "instances/instance") return route.fulfill({ json: { id: "instance", templateId: template.id, templateVersion: template.version, version: 1, definition: template.definition, title: "已提交申请", requester: "employee", values: {}, currentNode: "review", status: "reviewing", tasks: [], allowedActions: [], createdAt: "2026-10-05T00:00:00Z", updatedAt: "2026-10-05T00:00:00Z" } });
     if (p === "drafts") {
       if (route.request().method() === "POST") {
         const b = route.request().postDataJSON();
@@ -103,7 +104,7 @@ async function fixture(page: Page) {
       return route.fulfill({ json: { publishedVersion: 1, changes: [] } });
     if (path.endsWith("/validate")) {
       const b = route.request().postDataJSON(); requests.push({ path: "validate", body: b });
-      const issues = validateDefinition(b.definition).map(issue => {
+      const issues = [...validateDefinition(b.definition), ...validatePublicationNames(b.definition)].map(issue => {
         const [group, index, ...property] = issue.path.split(".");
         return { ...issue, target: { step: group === "fields" ? "form" : group === "nodes" ? "flow" : "basic", id: (b.definition[group]?.find((item: { id: string }) => item.id === index) || b.definition[group]?.[Number(index)])?.id, property: property.join(".") } };
       });
@@ -321,16 +322,16 @@ test("employee can save a non-expense draft and explicitly confirm submission", 
   const f = await fixture(page);
   await page.goto("/approvals");
   const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "发起评审", exact: true }).click();
+  await main.getByRole("button", { name: "发起审批", exact: true }).click();
   await main.getByLabel("申请标题").fill("新品视频评审");
   await main.getByLabel("稿件内容").fill("待审核的脚本内容");
   await main.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect(main.getByText("草稿已保存 v1")).toBeVisible();
-  await main.getByRole("button", { name: "预览并提交" }).click();
+  await main.getByRole("button", { name: "提交审批" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   expect(f.commands).toHaveLength(0);
-  await dialog.getByRole("button", { name: "提交评审", exact: true }).click();
+  await dialog.getByRole("button", { name: "提交审批", exact: true }).click();
   await expect(main.getByText(/回执 receipt/)).toBeVisible();
   expect(f.commands).toHaveLength(1);
   expect(f.commands[0].command).toMatchObject({
@@ -384,6 +385,7 @@ test("stale draft upgrade preserves source and opens compatible material for rev
   );
   await page.goto("/approvals");
   const main = page.locator("main.review-page");
+  await main.getByText("个人草稿 · 1", { exact: true }).click();
   await main.getByRole("button", { name: "原稿", exact: true }).click();
   await expect(main.getByText('原字段："原字段材料"（已删除）')).toBeVisible();
   await main
@@ -414,7 +416,7 @@ test("attachment upload completes before a review can be submitted", async ({
   );
   await page.goto("/approvals");
   const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "发起评审", exact: true }).click();
+  await main.getByRole("button", { name: "发起审批", exact: true }).click();
   await main.getByLabel("申请标题").fill("附材料");
   await main.getByLabel("稿件内容").fill("附件说明");
   await main.locator("input[type=file]").setInputFiles({
@@ -423,10 +425,10 @@ test("attachment upload completes before a review can be submitted", async ({
     buffer: Buffer.from("正文"),
   });
   await expect(main.getByRole("link", { name: "稿件.txt" })).toBeVisible();
-  await main.getByRole("button", { name: "预览并提交" }).click();
+  await main.getByRole("button", { name: "提交审批" }).click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "提交评审", exact: true })
+    .getByRole("button", { name: "提交审批", exact: true })
     .click();
   await expect.poll(() => f.commands.length).toBe(1);
   expect(f.commands[0].command).toMatchObject({
@@ -440,12 +442,13 @@ test("personal draft autosaves without submitting a formal review", async ({
   const f = await fixture(page);
   await page.goto("/approvals");
   const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "发起评审", exact: true }).click();
+  await main.getByRole("button", { name: "发起审批", exact: true }).click();
   await main.getByLabel("申请标题").fill("自动保存草稿");
   await main.getByLabel("稿件内容").fill("未提交材料");
   await expect(main.getByText(/草稿已自动保存 v/)).toBeVisible();
   expect(f.commands).toHaveLength(0);
   await main.getByRole("button", { name: "返回（保留本次填写）" }).click();
+  await main.getByText("个人草稿 · 1", { exact: true }).click();
   await expect(
     main.getByRole("button", { name: "自动保存草稿", exact: true }),
   ).toBeVisible();
@@ -476,16 +479,16 @@ test("money configuration and employee submission preserve exact decimal strings
     currencySource: "测试金额规则 v1",
   });
   await page.goto("/approvals");
-  await main.getByRole("button", { name: "发起评审", exact: true }).click();
+  await main.getByRole("button", { name: "发起审批", exact: true }).click();
   await main.getByLabel("申请标题").fill("精确预算测试");
   await main
     .getByLabel("预算金额", { exact: true })
     .fill("9007199254740993.01");
   await main.getByLabel("预算币种", { exact: true }).selectOption("CNY");
-  await main.getByRole("button", { name: "预览并提交", exact: true }).click();
+  await main.getByRole("button", { name: "提交审批", exact: true }).click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "提交评审", exact: true })
+    .getByRole("button", { name: "提交审批", exact: true })
     .click();
   await expect(main.getByText(/回执 receipt/)).toBeVisible();
   expect(f.commands[0].command).toMatchObject({

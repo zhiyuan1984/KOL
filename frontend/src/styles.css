@@ -6072,6 +6072,20 @@ summary:focus-visible,
   max-width: 760px;
   gap: var(--space-5);
 }
+.approval-page [hidden] { display: none !important; }
+.approval-page-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.approval-page-head h1 { margin-right: auto; }
+.approval-page .approval-summary { display: flex; width: 100%; gap: var(--space-3); align-items: center; padding: var(--space-2); border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.approval-summary > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.approval-page .approval-path { display: grid; gap: var(--space-2); }
+.approval-page .approval-path li { flex-direction: row; min-width: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+.approval-page .approval-actions[data-approval-detail] { position: sticky; bottom: 0; padding: var(--space-3); background: var(--bg); border-top: 1px solid var(--border); z-index: 1; }
+.approval-page .approval-initiate-grid { grid-template-columns: 1fr; }
+.approval-page .approval-initiate { container-type: inline-size; }
+.approval-page .approval-notices { padding: var(--space-3); }
+@container (min-width: 720px) {
+  .approval-page .approval-initiate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .approval-page-head h1 {
   margin: 0;
   font-size: var(--font-page-title);

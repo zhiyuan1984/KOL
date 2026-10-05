@@ -29,6 +29,7 @@ import {
   advanceReview,
   decideReview,
   validateDefinition,
+  validatePublicationNames,
   validateValues,
 } from "./review-engine.js";
 
@@ -781,7 +782,7 @@ export class ReviewService {
   }
   configurationIssues(d: ReviewDefinition): ReviewIssue[] {
     this.admin();
-    const issues = validateDefinition(d);
+    const issues = [...validateDefinition(d), ...validatePublicationNames(d)];
     if (issues.length) return this.locateIssues(d, issues);
     try { this.checkOrganization(d); }
     catch (error) {

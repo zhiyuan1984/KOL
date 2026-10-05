@@ -1,8 +1,3 @@
-import { formatReviewValue } from "../reviews/formatReviewValue";
-import { ReviewOrganization } from "../reviews/ReviewOrganization";
-import { AttachmentLinks } from "../reviews/ReviewAttachments";
-import KnowledgeMaterial from "../reviews/KnowledgeMaterial";
-import { UpgradeDraft } from "../reviews/ReviewChanges";
 import { useEffect, useState, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { ReviewTemplate, ReviewDraft } from "../../../shared/review";
@@ -12,29 +7,13 @@ import {
   type ReviewContext,
 } from "../reviews/api";
 import { ReviewForm } from "../reviews/ReviewForm";
-import { ReviewActions, reviewActionLabels } from "../reviews/ReviewActions";
+import { ReviewActions } from "../reviews/ReviewActions";
 import { ReviewInbox } from "../reviews/ReviewInbox";
 import { useReviewCommand } from "../reviews/useReviewCommand";
 import "../reviews/reviews.css";
-const statusText = {
-  reviewing: "评审中",
-  approved: "已通过",
-  rejected: "已拒绝",
-  withdrawn: "已撤回",
-  blocked: "已阻塞",
-  awaiting_amendment: "等待补充材料",
-};
-const taskText = {
-  pending: "待处理",
-  waiting: "等待前序",
-  approved: "已同意",
-  rejected: "已拒绝",
-  cancelled: "已关闭",
-  transferred: "已转交",
-  suspended: "已暂停",
-  superseded: "已被新轮次取代",
-  completed: "已完成",
-};
+import { ReviewDetail, reviewStatusText as statusText } from "../reviews/ReviewDetail";
+import { UpgradeDraft } from "../reviews/ReviewChanges";
+import { ReviewOrganization } from "../reviews/ReviewOrganization";
 export default function Reviews() {
   const { id } = useParams(),
     [context, setContext] = useState<ReviewContext>(),
@@ -42,6 +21,8 @@ export default function Reviews() {
     [instances, setInstances] = useState<InstanceView[]>([]),
     [selected, setSelected] = useState<InstanceView>(),
     [creating, setCreating] = useState(false),
+    [wide, setWide] = useState(false),
+    [detailLoading, setDetailLoading] = useState(false),
     [templateId, setTemplateId] = useState(""),
     [title, setTitle] = useState(""),
     [values, setValues] = useState<Record<string, unknown>>({}),
@@ -101,6 +82,7 @@ export default function Reviews() {
     loadList().catch((e) => setError(e.message));
   }, [filter, search, cursor]);
   async function load() {
+    const selectionRequest = detailRequest.current;
     const [ctx, ts, savedDrafts] = await Promise.all([
       reviewApi<ReviewContext>("/approvals/v2/context"),
       reviewApi<ReviewTemplate[]>("/approvals/v2/templates"),
@@ -111,19 +93,25 @@ export default function Reviews() {
     await loadList();
     setDrafts(savedDrafts);
     if (selected) {
-      setSelected(
-        await reviewApi<InstanceView>(`/approvals/v2/instances/${selected.id}`),
-      );
+      const detail = await reviewApi<InstanceView>(`/approvals/v2/instances/${selected.id}`);
+      if (selectionRequest === detailRequest.current) setSelected(detail);
+      return detail;
     }
   }
-  const command = useReviewCommand(async () => {
+  const command = useReviewCommand(async (receipt, action) => {
     setCreating(false);
     setDraft(undefined);
     setDraftNotice("");
     setValues({});
     setTitle("");
     setReason("");
-    await load();
+    const refreshed = await load();
+    const detail = action === "submit" ? await reviewApi<InstanceView>(`/approvals/v2/instances/${receipt.resourceId}`) : refreshed;
+    if (action === "submit" && detail) setSelected(detail);
+    if (detail) {
+      const pending = detail.tasks.filter(t => t.status === "pending");
+      return `${statusText[detail.status]}${pending.length ? ` · 当前处理人：${pending.map(t => context?.people.find(p => p.id === t.userId)?.name || t.userId).join("、")}` : ""}`;
+    }
   });
   const saveLock = useRef(false);
   const [autosavePaused, setAutosavePaused] = useState(false);
@@ -201,26 +189,41 @@ export default function Reviews() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
+  const detailRequest = useRef(0);
+  useEffect(() => {
+    if (!selected?.knowledgePublication || selected.knowledgePublication.status !== "waiting") return;
+    const selectedId = selected.id, request = detailRequest.current;
+    const timer = window.setInterval(() => {
+      void reviewApi<InstanceView>(`/approvals/v2/instances/${selectedId}`).then(detail => {
+        if (request === detailRequest.current) setSelected(detail);
+      }).catch(e => { if (request === detailRequest.current) setError(e.message); });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [selected?.id, selected?.knowledgePublication?.status]);
   async function show(i: InstanceView) {
+    const request = ++detailRequest.current;
+    setDetailLoading(true);
     setError("");
     setReason("");
     try {
-      setSelected(
-        await reviewApi<InstanceView>(`/approvals/v2/instances/${i.id}`),
-      );
+      const detail = await reviewApi<InstanceView>(`/approvals/v2/instances/${i.id}`);
+      if (request === detailRequest.current) setSelected(detail);
     } catch (e) {
-      setError((e as Error).message);
+      if (request === detailRequest.current) setError((e as Error).message);
+    } finally {
+      if (request === detailRequest.current) setDetailLoading(false);
     }
   }
   return (
-    <main className="review-page">
-      <ReviewOrganization />
+    <main className={`review-page review-workbench${wide && selected ? " is-wide" : ""}`}>
       <header className="review-toolbar">
-        <h1>评审中心</h1>
+        <h1>审批中心</h1>
+        <ReviewOrganization />
+        {context && <ReviewInbox refreshKey={command.receipt} onOpen={async id => { setCreating(false); await show({ id } as InstanceView); }} />}
         <Link to="/approvals/legacy">旧审批单据</Link>
-        {!creating && !selected && (
+        {!creating && (
           <button
-            className="primary"
+            className={!selected && !command.busy ? "primary" : ""}
             disabled={
               !context || !templates.length || context.intake?.allowed === false
             }
@@ -228,8 +231,9 @@ export default function Reviews() {
               setCreating(true);
               if (!templateId) setTemplateId(templates[0]?.id || "");
             }}
+            title={!templates.length ? "暂无可发起的流程" : context?.intake?.allowed === false ? context.intake.reason : undefined}
           >
-            发起评审
+            发起审批
           </button>
         )}
       </header>
@@ -250,17 +254,6 @@ export default function Reviews() {
         </p>
       )}
       {command.receipt && <p role="status">{command.receipt}</p>}
-      {context && !creating && !selected && (
-        <ReviewInbox
-          refreshKey={command.receipt}
-          onOpen={async (id) => {
-            setReason("");
-            setSelected(
-              await reviewApi<InstanceView>(`/approvals/v2/instances/${id}`),
-            );
-          }}
-        />
-      )}
       {upgradeId && (
         <UpgradeDraft
           id={upgradeId}
@@ -296,10 +289,10 @@ export default function Reviews() {
               });
           }}
         >
-          <h2>发起评审</h2>
-          <fieldset className="review-form" disabled={command.busy || saving}>
+          <h2>发起审批</h2>
+          <fieldset className="review-form review-create-fields" disabled={command.busy || saving}>
             <label>
-              评审流程
+              审批类型
               <select
                 value={templateId}
                 onChange={(e) => {
@@ -311,7 +304,7 @@ export default function Reviews() {
               >
                 {templates.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.definition.name} · v{t.version}
+                    {t.definition.name} · 流程版本 v{t.version}
                   </option>
                 ))}
               </select>
@@ -321,6 +314,7 @@ export default function Reviews() {
               申请标题
               <input
                 required
+                data-review-field="title"
                 maxLength={200}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -335,156 +329,34 @@ export default function Reviews() {
               />
             )}
             <p role="status">{draftNotice}</p>
-            <div className="review-toolbar">
+          </fieldset>
+            <div className="review-toolbar review-submit-bar">
               <button
                 type="button"
-                disabled={!template}
+                disabled={!template || saving || command.busy}
                 onClick={() => void savePersonalDraft()}
               >
                 保存草稿
               </button>
-              <button type="button" onClick={() => setCreating(false)}>
+              <button type="button" disabled={saving || command.busy} onClick={() => setCreating(false)}>
                 返回（保留本次填写）
               </button>
               <button
-                disabled={context?.intake?.allowed === false}
+                disabled={saving || command.busy || context?.intake?.allowed === false}
                 className={command.busy ? "" : "primary"}
                 type="submit"
               >
-                预览并提交
+                {command.busy ? "正在提交…" : "提交审批"}
               </button>
             </div>
-          </fieldset>
         </form>
-      ) : selected ? (
-        <section>
-          <div className="review-toolbar">
-            <button onClick={() => setSelected(undefined)}>返回列表</button>
-            <h2>{selected.title}</h2>
-            <span>
-              {statusText[selected.status]} · v{selected.templateVersion}
-            </span>
-          </div>
-          {selected.knowledgePublication && <section aria-label="知识发布材料">
-            <p>知识发布 · 原件：{selected.knowledgePublication.filename} · 材料版本 {selected.knowledgePublication.fingerprint.slice(0,12)}</p>
-            <p>发布说明：{selected.knowledgePublication.releaseNote || "未填写"}</p>
-            {selected.knowledgePublication.content ? <><pre className="kbv-body">{selected.knowledgePublication.content.body}</pre><dl>{Object.entries(selected.knowledgePublication.content.structured).map(([key,value])=><div key={key}><dt>{key}</dt><dd>{Array.isArray(value)?value.join("、"):String(value)}</dd></div>)}</dl></> : <a href={`/api/approvals/v2/instances/${encodeURIComponent(selected.id)}/knowledge-source?company=${encodeURIComponent(selected.knowledgePublication.tenant)}`} target="_blank" rel="noreferrer">查看审批 PDF 原件（新窗口）</a>}
-            <p>此流程通过后，服务端核对本次材料与授权并自动发布；未发布版本不参与员工问答。</p>
-            <p>发布状态：{{waiting:"等待审批与发布服务",published:"已发布",failed:"发布失败",rejected:"已拒绝，未发布",withdrawn:"已撤回，未发布"}[selected.knowledgePublication.status]}</p>
-            {selected.knowledgePublication.error && <p role="alert">{selected.knowledgePublication.error}</p>}
-            {selected.knowledgePublication.receipt && <p>发布回执：{selected.knowledgePublication.receipt.id}</p>}
-          </section>}
-          {selected.blockedReason && (
-            <p role="alert">{selected.blockedReason}</p>
-          )}
-          <dl className="review-values">
-            {selected.definition.fields.filter(f=>f.id !== "knowledge_request" || selected.definition.subjectType !== "knowledge_publication").map((f) => (
-              <div key={f.id}>
-                <dt>{f.label}</dt>
-                <dd>
-                  {f.type === "attachment" ? (
-                    <AttachmentLinks
-                      ids={(selected.values[f.id] as string[]) || []}
-                      instanceId={selected.id}
-                    />
-                  ) : (
-                    formatReviewValue(selected.values[f.id])
-                  )}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          {selected.definition.subjectType === "knowledge_publication" && !selected.knowledgePublication && <KnowledgeMaterial id={selected.id} />}
-          <h3>评审进度</h3>
-          <ol className="review-list">
-            {selected.tasks.map((t, index) => (
-              <li key={index}>
-                <span>
-                  {
-                    selected.definition.nodes.find((n) => n.id === t.nodeId)
-                      ?.name
-                  }{" "}
-                  /{" "}
-                  {context?.people.find((p) => p.id === t.userId)?.name ||
-                    t.userId}
-                </span>
-                <span>
-                  第 {t.round || 1} 轮 · {taskText[t.status]}
-                  {t.status === "pending" &&
-                  t.dueAt &&
-                  Date.parse(t.dueAt) < Date.now()
-                    ? " · 已超时"
-                    : ""}
-                </span>
-                {t.reason && <span>{t.reason}</span>}
-              </li>
-            ))}
-          </ol>
-          {selected.allowedActions.length > 0 && (
-            <ReviewActions
-              key={`${selected.id}:${selected.round || 1}`}
-              instance={selected}
-              people={context?.people || []}
-              reason={reason}
-              setReason={setReason}
-              busy={command.busy}
-              run={command.run}
-            />
-          )}
-          {(selected.revisions?.length || 0) > 1 && (
-            <details>
-              <summary>历次材料（当前第 {selected.round || 1} 轮）</summary>
-              {selected.revisions?.map((r) => (
-                <section key={r.round}>
-                  <h3>第 {r.round} 轮</h3>
-                  <dl className="review-values">
-                    {selected.definition.fields.map((f) => (
-                      <div key={f.id}>
-                        <dt>{f.label}</dt>
-                        <dd>
-                          {f.type === "attachment" ? (
-                            <AttachmentLinks
-                              ids={(r.values[f.id] as string[]) || []}
-                              instanceId={selected.id}
-                            />
-                          ) : (
-                            formatReviewValue(r.values[f.id])
-                          )}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-              ))}
-            </details>
-          )}
-          <h3>操作记录</h3>
-          <ol>
-            {selected.events?.map((e) => (
-              <li key={e.id}>
-                {new Date(e.created_at).toLocaleString()} ·{" "}
-                {context?.people.find((p) => p.id === e.actor)?.name || e.actor}{" "}
-                ·{" "}
-                {{
-                  submit: "提交",
-                  approve: "同意",
-                  reject: "拒绝",
-                  withdraw: "撤回",
-                  retry: "重试",
-                }[e.action] ||
-                  reviewActionLabels[e.action] ||
-                  e.action}
-                {e.detail.reason && ` · ${e.detail.reason}`}
-              </li>
-            ))}
-          </ol>
-        </section>
       ) : (
-        <>
+        <div className="review-workspace">
+        <section className="review-list-pane" aria-label="审批列表区域">
           <section aria-label="个人草稿">
             {drafts.length > 0 && (
               <>
-                <h2>个人草稿</h2>
+                <details><summary>个人草稿 · {drafts.length}</summary>
                 <ul className="review-list">
                   {drafts.map((saved) => (
                     <li key={saved.id}>
@@ -520,13 +392,13 @@ export default function Reviews() {
                       </span>
                     </li>
                   ))}
-                </ul>
+                </ul></details>
               </>
             )}
           </section>
-          <nav aria-label="评审列表" className="review-toolbar">
+          <nav aria-label="审批列表" className="review-toolbar review-list-tools">
             {[
-              ["todo", "待我评审"],
+              ["todo", "待我处理"],
               ["mine", "我发起的"],
               ["all", "我参与的"],
             ].map(([key, label]) => (
@@ -541,50 +413,29 @@ export default function Reviews() {
                 {label}
               </button>
             ))}
-            <button onClick={() => load().catch((e) => setError(e.message))}>
-              刷新
-            </button>
+            <form className="review-search" onSubmit={e => { e.preventDefault(); setCursor(undefined); setSearch(query); }}>
+              <input aria-label="搜索标题或流程名称" placeholder="搜索标题或流程名称" value={query} maxLength={120} onChange={e => setQuery(e.target.value)} />
+            </form>
+            <button title="刷新" aria-label="刷新" disabled={listLoading || detailLoading || command.busy} onClick={() => load().catch(e => setError(e.message))}>↻</button>
           </nav>
-          {!templates.length && (
-            <p>当前组织暂无已发布流程，请联系流程管理员。</p>
-          )}
-          <form
-            className="review-toolbar"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setCursor(undefined);
-              setSearch(query);
-            }}
-          >
-            <label>
-              搜索标题或流程名称
-              <input
-                value={query}
-                maxLength={120}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </label>
-            <button type="submit">搜索</button>
-          </form>
+          {detailLoading && <p role="status">正在加载申请详情…</p>}
           {listLoading ? (
-            <p role="status">正在检索参与范围内的评审…</p>
+            <p role="status">正在检索审批…</p>
           ) : (
             !instances.length && (
               <p>
-                当前页暂无匹配评审。{nextCursor ? "可继续检索下一页。" : ""}
+                当前页暂无匹配申请。{nextCursor ? "可继续检索下一页。" : ""}
               </p>
             )
           )}
-          <ul className="review-list">
-            {instances.map((i) => (
-              <li key={i.id}>
-                <button onClick={() => show(i)}>{i.title}</button>
-                <span>{i.definition.name}</span>
-                <span>{statusText[i.status]}</span>
-                <time>{new Date(i.updatedAt).toLocaleString()}</time>
-              </li>
-            ))}
-          </ul>
+          <div className="review-table-scroll">
+            <table className="review-table"><thead><tr><th>申请标题</th><th>流程</th><th>状态</th><th>发起时间</th></tr></thead>
+            <tbody>{instances.map(i => <tr key={i.id} aria-selected={selected?.id === i.id} onClick={() => void show(i)}>
+              <td><button title={i.title} className="review-row-title" onClick={e => { e.stopPropagation(); void show(i); }}>{i.title}</button></td>
+              <td>{i.definition.name}</td><td><span data-review-status={i.status}>{statusText[i.status]}</span></td>
+              <td><time dateTime={i.createdAt} title={new Date(i.createdAt).toLocaleString()}>{new Date(i.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</time></td>
+            </tr>)}</tbody></table>
+          </div>
           <div className="review-toolbar">
             <button
               disabled={!cursor || listLoading}
@@ -599,10 +450,10 @@ export default function Reviews() {
               下一页
             </button>
           </div>
-          <p className="review-muted">
-            按发起时间排序；每页最多 30 条。通过评审不会自动外发或推进业务阶段。
-          </p>
-        </>
+          <span className="review-muted">本页 {instances.length} 条 · 按发起时间排序</span>
+        </section>
+        {selected && <ReviewDetail instance={selected} context={context} wide={wide} toggleWide={() => setWide(!wide)} close={() => { ++detailRequest.current; setDetailLoading(false); setSelected(undefined); setWide(false); }} actions={selected.allowedActions.length > 0 ? <ReviewActions key={`${selected.id}:${selected.round || 1}`} instance={selected} people={context?.people || []} reason={reason} setReason={setReason} busy={command.busy} run={command.run} /> : null} />}
+        </div>
       )}
       {command.dialog}
     </main>

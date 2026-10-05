@@ -40,7 +40,6 @@ export function ReviewOrganization() {
       >
         切换组织
       </button>
-      <small>切换会重新加载页面，请先保存正在编辑的草稿。</small>
       {error && <p role="alert">{error}</p>}
     </section>
   );

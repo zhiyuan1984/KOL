@@ -39,6 +39,7 @@ export const reviewCompany = () =>
 export const reviewHeaders = (): Record<string, string> =>
   reviewCompany() ? { "X-Review-Company": reviewCompany() } : {};
 export class ReviewApiError extends Error {
+  get issues() { return typeof this.detail === "string" ? [] : this.detail.issues || []; }
   constructor(readonly status:number, readonly detail: {message?:string;code?:string;issues?:{path:string;message:string}[]}|string) {
     super(typeof detail === "string" ? detail : [detail.message, ...(detail.issues || []).map(issue => `${issue.path}: ${issue.message}`)].filter(Boolean).join("\n") || "请求失败");
   }

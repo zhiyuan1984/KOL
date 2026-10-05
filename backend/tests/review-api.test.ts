@@ -151,6 +151,11 @@ describe("review API with actual session authentication and organization storage
     expect((await response.json()).issues).toEqual(expect.arrayContaining([expect.objectContaining({ path: "nodes.review.operations" })]));
     delete definition.nodes[1].operations;
     expect((await (await req("admin", "/admin/approval-types/v2/validate", { definition })).json()).issues).toEqual([]);
+    definition.nodes[1].name = "新评审节点";
+    const names = await (await req("admin", "/admin/approval-types/v2/validate", { definition })).json();
+    expect(names.issues).toContainEqual(expect.objectContaining({ target: { step: "flow", id: "review", property: "name" } }));
+    const draft = await (await req("admin", "/admin/approval-types/v2/templates", { definition })).json();
+    expect((await req("admin", "/approvals/v2/prepare", { action: "publish", templateId: draft.id, expectedVersion: draft.version })).status).toBe(422);
   });
   it("replays a lost create response without another draft, and compares content rather than version numbers", async () => {
     const definition = emptyReviewDefinition(), creationKey = "review-editor-create-key-001";

@@ -8,10 +8,19 @@ import {
   advanceReview,
   decideReview,
   validateDefinition,
+  validatePublicationNames,
   validateValues,
 } from "../src/approval/review-engine.js";
 const now = "2026-10-04T00:00:00.000Z";
 const resolve = () => ["r1", "r2"];
+it("allows draft placeholders but requires business step names for publication", () => {
+  const definition = emptyReviewDefinition();
+  definition.nodes[1].name = "新评审节点";
+  expect(validateDefinition(definition)).toEqual([]);
+  expect(validatePublicationNames(definition)).toEqual([{ path: "nodes.1.name", message: expect.stringContaining("业务名称") }]);
+  definition.nodes[1].name = "负责人评审";
+  expect(validatePublicationNames(definition)).toEqual([]);
+});
 function instance(
   mode: "single" | "all" | "any" | "sequential" = "all",
 ): ReviewInstance {
