@@ -1,13 +1,15 @@
-import { ReviewOrganization } from "../reviews/ReviewOrganization";
+import { ReviewAuthorOrganization } from "../reviews/ReviewAuthorOrganization";
+import { ReviewLeaveDialog } from "../reviews/ReviewLeaveDialog";
+import { ReviewFieldsEditor } from "../reviews/ReviewFieldsEditor";
 import { PublishChanges } from "../reviews/ReviewChanges";
-import { useEffect, useReducer, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   emptyReviewDefinition,
+  knowledgeReviewDefinition,
   type ReviewDefinition,
   type ReviewTemplate,
   type ReviewIssue,
-  type ReviewField,
 } from "../../../shared/review";
 import { reviewApi, type ReviewContext } from "../reviews/api";
 import { FlowDesigner } from "../reviews/FlowDesigner";
@@ -19,6 +21,7 @@ type History = {
   present: ReviewDefinition;
   future: ReviewDefinition[];
 };
+const steps = [["basic", "填写基本信息"], ["form", "填写表单字段"], ["flow", "添加节点"], ["publish", "校验与发布"]];
 export function definitionHistory(
   s: History,
   a: { type: "edit" | "reset" | "undo" | "redo"; value?: ReviewDefinition },
@@ -45,6 +48,9 @@ export function definitionHistory(
   return s;
 }
 export default function ReviewTypes() {
+  const navigate = useNavigate();
+  const leaveAction = useRef<() => void>(() => {}), allowLeave = useRef(false);
+  const [leaving, setLeaving] = useState(false), [validatedVersion, setValidatedVersion] = useState<number>();
   const [context, setContext] = useState<ReviewContext>(),
     [list, setList] = useState<ReviewTemplate[]>([]),
     [active, setActive] = useState<ReviewTemplate>(),
@@ -87,7 +93,7 @@ export default function ReviewTypes() {
   }, []);
   useEffect(() => {
     const before = (e: BeforeUnloadEvent) => {
-      if (dirty) {
+      if (dirty && !allowLeave.current) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -95,6 +101,42 @@ export default function ReviewTypes() {
     window.addEventListener("beforeunload", before);
     return () => window.removeEventListener("beforeunload", before);
   }, [dirty]);
+  useEffect(() => { setValidatedVersion(undefined); setValidation(""); setIssues([]); setSimulation(""); }, [d]);
+  function requestLeave(action: () => void) {
+    if (busy || command.busy) return;
+    if (!dirty) { action(); return; }
+    leaveAction.current = action;
+    setLeaving(true);
+  }
+  function leave() {
+    allowLeave.current = true;
+    setLeaving(false);
+    leaveAction.current();
+  }
+  function back() {
+    requestLeave(() => {
+      const returnTo = new URLSearchParams(window.location.search).get("returnTo");
+      if (returnTo?.startsWith("/admin/knowledge?")) navigate(returnTo);
+      else if (editing) setEditing(false);
+      else if (window.history.state?.idx > 0) navigate(-1);
+      else navigate("/admin");
+      allowLeave.current = false;
+    });
+  }
+  useEffect(() => {
+    if (!dirty) return;
+    const onLink = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element).closest?.("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.download) return;
+      const url = new URL(anchor.href);
+      if (url.origin !== window.location.origin || url.href === window.location.href) return;
+      event.preventDefault(); event.stopPropagation();
+      requestLeave(() => navigate(url.pathname + url.search + url.hash));
+    };
+    document.addEventListener("click", onLink, true);
+    return () => document.removeEventListener("click", onLink, true);
+  }, [dirty, busy, command.busy]);
   function edit(next: ReviewDefinition) {
     dispatch({ type: "edit", value: next });
     setValidation("");
@@ -102,10 +144,11 @@ export default function ReviewTypes() {
     setSimulation("");
   }
   function open(t?: ReviewTemplate) {
+    allowLeave.current = false;
     setActive(t);
     dispatch({
       type: "reset",
-      value: t?.definition || emptyReviewDefinition(),
+      value: { ...(t?.definition || (new URLSearchParams(window.location.search).get("subject")==="knowledge_publication" ? knowledgeReviewDefinition() : emptyReviewDefinition())), ...(!t?.definition.organizationUnitId && context?.organization?.defaultUnitId ? { organizationUnitId: context.organization.defaultUnitId } : {}) },
     });
     setEditing(true);
     setTab("basic");
@@ -115,6 +158,10 @@ export default function ReviewTypes() {
     setValues({});
   }
   async function save() {
+    if (!active && context?.organization?.units.length && !d.organizationUnitId) {
+      setError("请选择流程归属部门或当前公司范围后保存。");
+      return false;
+    }
     setBusy(true);
     setError("");
     try {
@@ -127,15 +174,19 @@ export default function ReviewTypes() {
       );
       setActive(saved);
       await load();
-      setValidation("草稿已保存");
+      setValidatedVersion(undefined);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
   }
   async function validate() {
+    if (!active || dirty) return;
     setBusy(true);
+    setError("");
     try {
       const result = await reviewApi<{ issues: ReviewIssue[] }>(
         "/admin/approval-types/v2/validate",
@@ -143,37 +194,30 @@ export default function ReviewTypes() {
       );
       setIssues(result.issues);
       setValidation(result.issues.length ? "校验未通过" : "结构校验通过");
+      setValidatedVersion(result.issues.length ? undefined : active.version);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
-  const field = (index: number, patch: Partial<ReviewField>) =>
-    edit({
-      ...d,
-      fields: d.fields.map((f, i) => (i === index ? { ...f, ...patch } : f)),
-    });
+  const locked = busy || command.busy;
+  const stepIndex = steps.findIndex(([id]) => id === tab);
   return (
-    <main className="review-page">
-      <ReviewOrganization />
+    <main className={`review-page review-author-page${editing ? " is-editing" : ""}`} aria-busy={locked || undefined}>
+      <ReviewAuthorOrganization context={context} unitId={editing ? d.organizationUnitId : context?.organization?.defaultUnitId}
+        onUnitChange={id => { if (editing) edit({ ...d, organizationUnitId: id }); }}
+        onCompanyChange={id => { if (id && id !== context?.tenant) requestLeave(() => { const url = new URL(window.location.href); url.searchParams.set("reviewCompany", id); window.location.assign(url.toString()); }); }}
+        onBack={back} disabled={locked} editing={editing} />
       <header className="review-toolbar">
-        <h1>评审流程管理</h1>
-        <Link to="/admin/approval-types/legacy">旧审批类型</Link>
-        {!editing && (
-          <button
-            className="primary"
-            disabled={!context?.admin}
-            onClick={() => open()}
-          >
-            新建流程
-          </button>
-        )}
+        <h1>{editing ? active ? "编辑审批流程" : "新建审批流程" : "评审流程管理"}</h1>
+        {!editing && <button className="primary" disabled={loading || !context?.admin} onClick={() => open()}>新建流程</button>}
       </header>
-      {(error || command.error) && (
+      {!leaving && (error || command.error) && (
         <p role="alert" className="review-error">
           {error || command.error}{" "}
           <button
+            disabled={locked}
             onClick={() => {
               setLoading(true);
               load()
@@ -208,73 +252,17 @@ export default function ReviewTypes() {
         </>
       ) : (
         <>
-          <div className="review-toolbar">
-            <button disabled={dirty || busy} onClick={() => setEditing(false)}>
-              返回列表
-            </button>
-            <button
-              disabled={!history.past.length || busy}
-              onClick={() => {
-                dispatch({ type: "undo" });
-                setValidation("");
-                setSimulation("");
-              }}
-            >
-              撤销
-            </button>
-            <button
-              disabled={!history.future.length || busy}
-              onClick={() => {
-                dispatch({ type: "redo" });
-                setValidation("");
-                setSimulation("");
-              }}
-            >
-              重做
-            </button>
-            <span role="status">
-              {dirty ? "有未保存修改" : `已保存 v${active?.version || 1}`}
-            </span>
-            <button
-              className={tab === "publish" ? "" : "primary"}
-              disabled={busy || !dirty}
-              onClick={save}
-            >
-              保存草稿
-            </button>
-            {dirty && (
-              <button
-                onClick={() => {
-                  dispatch({
-                    type: "reset",
-                    value: active?.definition || emptyReviewDefinition(),
-                  });
-                  if (!active) setEditing(false);
-                }}
-              >
-                放弃未保存修改
-              </button>
-            )}
-          </div>
-          <nav className="review-toolbar" aria-label="流程配置步骤">
-            {[
-              ["basic", "基本信息"],
-              ["form", "表单字段"],
-              ["flow", "评审流程"],
-              ["publish", "校验与发布"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                aria-current={tab === id ? "step" : undefined}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
-            ))}
+          <nav className="review-steps" aria-label="流程配置步骤">
+            {steps.map(([id, label], index) => <button key={id} aria-label={label} disabled={locked}
+              aria-current={tab === id ? "step" : undefined} aria-controls="review-editor-content" onClick={() => setTab(id)}>
+              <span className="review-step-heading"><span className="review-step-number" aria-hidden="true">{index + 1}</span>{label}</span>
+              <small>{id === "basic" ? d.name.trim() ? "已填写" : "待填写" : id === "form" ? `${d.fields.length} 个字段` : id === "flow" ? `${d.nodes.filter(n => !["start", "end"].includes(n.type)).length} 个节点` : dirty ? "待保存后校验" : validatedVersion === active?.version && validatedVersion !== undefined ? "校验通过" : validation || "待校验"}</small>
+            </button>)}
           </nav>
-          <fieldset disabled={busy || command.busy} className="review-editor">
+          <fieldset disabled={locked} className="review-editor" id="review-editor-content" aria-label={steps[stepIndex][1]}>
             {tab === "basic" && (
               <div className="review-form">
+                {d.subjectType === "knowledge_publication" && <p>知识发布流程：人工审核通过后自动发布被冻结的资料版本。原件变化须重新申请。</p>}
                 <label>
                   流程名称
                   <input
@@ -298,210 +286,7 @@ export default function ReviewTypes() {
                 </p>
               </div>
             )}
-            {tab === "form" && (
-              <>
-                <button
-                  onClick={() =>
-                    edit({
-                      ...d,
-                      fields: [
-                        ...d.fields,
-                        {
-                          id: `field_${crypto.randomUUID().slice(0, 8)}`,
-                          label: "新字段",
-                          type: "text",
-                          required: false,
-                        },
-                      ],
-                    })
-                  }
-                >
-                  添加字段
-                </button>
-                <div className="review-fields">
-                  {d.fields.map((f, i) => (
-                    <fieldset key={f.id}>
-                      <legend>字段 {i + 1}</legend>
-                      <label>
-                        字段名称
-                        <input
-                          value={f.label}
-                          onChange={(e) => field(i, { label: e.target.value })}
-                        />
-                      </label>
-                      <label>
-                        字段类型
-                        <select
-                          value={f.type}
-                          onChange={(e) =>
-                            field(i, {
-                              type: e.target.value as ReviewField["type"],
-                              options: [],
-                              numeric: ["decimal", "money"].includes(
-                                e.target.value,
-                              )
-                                ? { precision: 18, scale: 2 }
-                                : undefined,
-                              currencies:
-                                e.target.value === "money" ? [] : undefined,
-                              currencySource:
-                                e.target.value === "money" ? "" : undefined,
-                            })
-                          }
-                        >
-                          {[
-                            ["text", "短文本"],
-                            ["textarea", "长文本"],
-                            ["number", "数值"],
-                            ["decimal", "精确十进制"],
-                            ["money", "货币金额"],
-                            ["date", "日期"],
-                            ["select", "单选"],
-                            ["multiselect", "多选"],
-                            ["attachment", "附件"],
-                          ].map(([id, l]) => (
-                            <option key={id} value={id}>
-                              {l}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {["decimal", "money"].includes(f.type) && (
-                        <>
-                          <label>
-                            总精度（位）
-                            <input
-                              type="number"
-                              min={1}
-                              max={38}
-                              value={f.numeric?.precision ?? ""}
-                              onChange={(e) =>
-                                field(i, {
-                                  numeric: {
-                                    ...f.numeric!,
-                                    precision: Number(e.target.value),
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                          <label>
-                            小数位
-                            <input
-                              type="number"
-                              min={0}
-                              max={18}
-                              value={f.numeric?.scale ?? ""}
-                              onChange={(e) =>
-                                field(i, {
-                                  numeric: {
-                                    ...f.numeric!,
-                                    scale: Number(e.target.value),
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                          <label>
-                            下限（可选）
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={f.numeric?.min ?? ""}
-                              onChange={(e) =>
-                                field(i, {
-                                  numeric: {
-                                    ...f.numeric!,
-                                    min: e.target.value || undefined,
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                          <label>
-                            上限（可选）
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={f.numeric?.max ?? ""}
-                              onChange={(e) =>
-                                field(i, {
-                                  numeric: {
-                                    ...f.numeric!,
-                                    max: e.target.value || undefined,
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                          <p>
-                            精确保存原始数值，不四舍五入。整数位最多为总精度减小数位。
-                          </p>
-                        </>
-                      )}
-                      {f.type === "money" && (
-                        <>
-                          <label>
-                            允许币种，每行一个代码
-                            <textarea
-                              value={f.currencies?.join("\n") || ""}
-                              onChange={(e) =>
-                                field(i, {
-                                  currencies: e.target.value.split("\n"),
-                                })
-                              }
-                            />
-                          </label>
-                          <label>
-                            币种及金额规则来源与版本
-                            <input
-                              value={f.currencySource || ""}
-                              onChange={(e) =>
-                                field(i, { currencySource: e.target.value })
-                              }
-                            />
-                          </label>
-                          <p>
-                            不自动换汇。条件比较须使用同一币种，否则流程阻断并提示处理。
-                          </p>
-                        </>
-                      )}
-                      <label className="review-check">
-                        <input
-                          type="checkbox"
-                          checked={f.required}
-                          onChange={(e) =>
-                            field(i, { required: e.target.checked })
-                          }
-                        />
-                        必填
-                      </label>
-                      {["select", "multiselect"].includes(f.type) && (
-                        <label>
-                          选项，每行一个
-                          <textarea
-                            value={f.options?.join("\n") || ""}
-                            onChange={(e) =>
-                              field(i, { options: e.target.value.split("\n") })
-                            }
-                          />
-                        </label>
-                      )}
-                      <button
-                        onClick={() =>
-                          edit({
-                            ...d,
-                            fields: d.fields.filter((_, index) => index !== i),
-                          })
-                        }
-                      >
-                        删除字段
-                      </button>
-                    </fieldset>
-                  ))}
-                </div>
-              </>
-            )}
+            {tab === "form" && <ReviewFieldsEditor definition={d} onChange={edit} />}
             {tab === "flow" && (
               <FlowDesigner
                 definition={d}
@@ -515,13 +300,14 @@ export default function ReviewTypes() {
                 <p>
                   试运行只检查分支与评审人，不创建申请。员工填写的真实材料会在发起时再次校验。
                 </p>
-                <button onClick={validate}>校验流程</button>
-                <p role="status">{validation}</p>
+                <button disabled={dirty || !active} onClick={validate}>校验流程</button>
                 {issues.length > 0 && (
                   <ul role="alert">
                     {issues.map((x, i) => (
                       <li key={i}>
-                        {x.path}：{x.message}
+                        {x.message} <button onClick={() => {
+                          setTab(x.path.startsWith("fields") ? "form" : x.path.startsWith("nodes") ? "flow" : "basic");
+                        }}>前往修正</button>
                       </li>
                     ))}
                   </ul>
@@ -586,25 +372,6 @@ export default function ReviewTypes() {
                 <p>
                   当前可用：基础表单、条件分支、四种评审方式。可配置转交、加签、补充材料重审和超时策略。支持抄送、征询与办理。支持权限校验的附件上传与下载，外部执行尚未开放。
                 </p>
-                <button
-                  className={command.busy ? "" : "primary"}
-                  disabled={
-                    dirty ||
-                    !active ||
-                    active.publishedVersion === active.version ||
-                    command.busy
-                  }
-                  onClick={() =>
-                    active &&
-                    command.run({
-                      action: "publish",
-                      templateId: active.id,
-                      expectedVersion: active.version,
-                    })
-                  }
-                >
-                  检查并发布 v{active?.version || 1}
-                </button>
                 {active?.publishedVersion && (
                   <button
                     disabled={dirty || command.busy}
@@ -624,8 +391,21 @@ export default function ReviewTypes() {
               </>
             )}
           </fieldset>
+          <footer className="review-save-bar">
+            <span role="status" className="review-save-status">{busy ? "正在处理…" : dirty ? active ? "有未保存修改" : "尚未保存" : `已保存 v${active?.version}`}</span>
+            <button className="review-quiet" disabled={locked || !history.past.length} onClick={() => dispatch({ type: "undo" })}>撤销</button>
+            <button className="review-quiet" disabled={locked || !history.future.length} onClick={() => dispatch({ type: "redo" })}>重做</button>
+            <button className="review-quiet" disabled={locked || !dirty || (!active && Boolean(context?.organization?.units.length) && !d.organizationUnitId)} onClick={save}>{active ? "保存" : "保存草稿"}</button>
+            {stepIndex > 0 && <button className="review-quiet" disabled={locked} onClick={() => setTab(steps[stepIndex - 1][0])}>上一步</button>}
+            {stepIndex < steps.length - 1 ? <button className={command.busy ? "" : "primary"} disabled={locked} onClick={() => setTab(steps[stepIndex + 1][0])}>继续：{steps[stepIndex + 1][1]}</button> :
+              <button className={command.busy ? "" : "primary"}
+                disabled={locked || dirty || !active || validatedVersion !== active.version || active.publishedVersion === active.version}
+                onClick={() => active && command.run({ action: "publish", templateId: active.id, expectedVersion: active.version })}>发布流程 v{active?.version || 1}</button>}
+          </footer>
+
         </>
       )}
+      <ReviewLeaveDialog open={leaving} busy={busy} error={error} onStay={() => setLeaving(false)} onDiscard={leave} onSave={async () => { if (await save()) leave(); }} />
       {command.dialog}
     </main>
   );

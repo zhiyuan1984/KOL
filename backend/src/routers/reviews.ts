@@ -16,6 +16,7 @@ import {
   type ReviewContext,
 } from "../approval/review-service.js";
 import { validateDefinition } from "../approval/review-engine.js";
+import { guardKnowledgeReview } from "../knowledge/publication.js";
 
 export function reviewContext(
   db: SqliteConn,
@@ -42,6 +43,8 @@ function reviewTx<T>(action: (db: SqliteConn) => T): T {
       return txImmediate(action);
     } catch (error) {
       const code = (error as { code?: string }).code;
+      if(code==="23514" && error instanceof Error && error.message.startsWith("knowledge_"))
+        throw new HttpFail(409,{code:error.message,message:"知识资料、流程绑定或审批状态已变化，请返回资料详情重新检查。"});
       if (!["40001", "40P01", "23505", "SQLITE_BUSY"].includes(code || ""))
         throw error;
     }
@@ -212,6 +215,7 @@ reviews.post("/approvals/v2/notifications/:id/read", (c) =>
 );
 reviews.post("/approvals/v2/prepare", async (c) => {
   const b = await body(c);
+    await guardKnowledgeReview(b, reviewContext(getConn(), c.req.header("X-Review-Company")));
   const prepared=reviewTx((db) => service(c.req.header("X-Review-Company"), db).prepare(b));
   if (process.env.DATABASE_URL && typeof b.instanceId === "string") {
     const tenant=service(c.req.header("X-Review-Company")).ctx.tenant;
@@ -222,6 +226,7 @@ reviews.post("/approvals/v2/prepare", async (c) => {
 });
 reviews.post("/approvals/v2/commands", async (c) => {
   const b = await body(c);
+  await guardKnowledgeReview(b.command, reviewContext(getConn(), c.req.header("X-Review-Company")));
   return c.json(
     reviewTx((db) =>
       service(c.req.header("X-Review-Company"), db).execute(
@@ -262,7 +267,9 @@ reviews.put("/admin/approval-types/v2/templates/:id", async (c) => {
 reviews.post("/admin/approval-types/v2/validate", async (c) => {
   const s = service(c.req.header("X-Review-Company"));
   s.templates(true);
-  return c.json({ issues: validateDefinition((await body(c)).definition) });
+  const definition = (await body(c)).definition;
+  s.checkOrganization(definition);
+  return c.json({ issues: validateDefinition(definition) });
 });
 reviews.post("/admin/approval-types/v2/simulate", async (c) => {
   const b = await body(c);

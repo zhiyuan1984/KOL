@@ -78,7 +78,7 @@ ECS / 服务器第一次跑如果缺编译链，先装 `gcc-c++ make python3`（
 
 浏览器打开 http://127.0.0.1:8765
 
-生产模式首次打开会进入“创建首位管理员”。登录可用邮箱 **sriphy.yan@amperetime.com**、姓名 **鄢棽**、账号 `sriphy`，或个人资料里保存的手机号；密码 `123456789`。已有 `test` 账号的服务器在启动时会迁成鄢棽。管理员在「管理控制台 → 连接 Starry」或「个人设置 → 连接 Starry」绑定跟进邮箱（例如 `larry.zhao@amperetime.com`）后，首页「我跟进的红人」只显示该邮箱负责人的红人与生命周期。左下角菜单提供「连接 Starry 邮箱」。同一账号可以在左下角菜单切换员工工作台、管理控制台和个人设置；切换只改变界面，权限始终由后端 Session、角色和授权表判定。自动化测试的 `CODEX_MODE=stub` 保留免登录模式。
+生产模式首次打开会进入“创建首位管理员”。登录可用邮箱 **jeffrey.huang@amperetime.com**、姓名 **黄启友**、账号 `jeffrey`，或个人资料里保存的手机号；密码 `123456789`。已有 `test` 账号的服务器在启动时会迁成黄启友。管理员在「管理控制台 → 连接 Starry」或「个人设置 → 连接 Starry」绑定跟进邮箱（例如 `larry.zhao@amperetime.com`）后，首页「我跟进的红人」只显示该邮箱负责人的红人与生命周期。左下角菜单提供「连接 Starry 邮箱」。同一账号可以在左下角菜单切换员工工作台、管理控制台和个人设置；切换只改变界面，权限始终由后端 Session、角色和授权表判定。自动化测试的 `CODEX_MODE=stub` 保留免登录模式。
 
 没有 `codex` 或不登录时，点「写跟进信」会出持久错误（安装/登录指引），**不会**悄悄用模板假信。自动化测试才允许 `CODEX_MODE=stub`。
 
@@ -231,7 +231,7 @@ export MAX_ATTACHMENT_BYTES=10485760
 | KOL Claw 0.1.0 | `/mock/claw`。Worker 只读；`POST /ingestions/mediacrawler` 仅 Host。 |
 | Codex app-server | **默认真实** `codex app-server`（stdio JSONL，**无** `jsonrpc:2.0`）。Handshake：`initialize` → `initialized` → `account/read`（必要时 `account/login/start` `{type:apiKey}`）→ `skills/extraRoots/set` → `skills/config/write`（一份 SKILL.md）→ `thread/start\|resume` → `turn/start` `{type:skill,name,path}`。一任务一箱，turn 结束杀进程。后台另有 Codex 进程不算已登录。`CODEX_MODE=stub` 仅测试。MCP 线才带 `jsonrpc:2.0`。 |
 | 企业邮 / 企微 | 无真实 secret。企微模板卡与「工作审批」共用 `approval_id` / `chain_id`。文案只有「允许发送」或「确认阶段」。 |
-| 考试门 | 默认「鄢棽/Sriphy」已通过。学习考试页可切「未过考试 / 无发信权」演示 403。 |
+| 考试门 | 默认「黄启友/Jeffrey」已通过。学习考试页可切「未过考试 / 无发信权」演示 403。 |
 
 Worker **没有** SMTP、企微 secret、阶段库凭据，也不能发信 / 改正式阶段 / 解密 / ingest。
 
@@ -284,7 +284,7 @@ Worker **没有** SMTP、企微 secret、阶段库凭据，也不能发信 / 改
 
 失败留在会话错误 + 红字，并写下一步。**不会**只弹成功 Toast。
 
-演示 403：打开 **学习考试** → 「未过考试」或「无发信权」→ 再发送。测完切回「鄢棽/Sriphy · 已通过」。
+演示 403：打开 **学习考试** → 「未过考试」或「无发信权」→ 再发送。测完切回「黄启友/Jeffrey · 已通过」。
 
 From 只能选授权品牌邮箱。一档时锁定文案 **「已按品牌和权限锁定」**。MIME 只用英文原文。发送路径不调用 confirm-stage。
 
@@ -303,7 +303,7 @@ From 只能选授权品牌邮箱。一档时锁定文案 **「已按品牌和权
 
 | 页 | 期望 |
 | --- | --- |
-    | 管理配置 | 产品经理可用 **sriphy.yan@amperetime.com** / **鄢棽** / `sriphy`，密码 `123456789`。跟进邮箱在个人设置绑定，不在连接器里贴 JWT。登录后可编辑 SOP、把技能分给组织 / 小队 / 个人。飞书多维表 / 本地文件夹标「本期隐藏」。`test` 账号已取消。 |
+    | 管理配置 | 产品经理可用 **jeffrey.huang@amperetime.com** / **黄启友** / `jeffrey`，密码 `123456789`。跟进邮箱在个人设置绑定，不在连接器里贴 JWT。登录后可编辑 SOP、把技能分给组织 / 小队 / 个人。飞书多维表 / 本地文件夹标「本期隐藏」。`test` 账号已取消。 |
 | 定时任务 | 只有 **T8 失联与延期扫描**。 |
 | 技能市场 | 只有官方 KOL 技能。无经营复盘 / 数据清洗 / 周报。 |
 | 最近会话 | 不出现加班申请 / 华北渠道（或标「平台示例·非本期」且不可点）。 |

@@ -529,7 +529,7 @@ describe("未指定发件箱时的默认发件箱", () => {
 
   it("refuses the mounted mailbox outside the user's brand scope", () => {
     bindMountedMailbox(MOUNTED, "LT");
-    const restricted: Persona = { ...PERSONAS.sriphy, brands: [] };
+    const restricted: Persona = { ...PERSONAS.permission_blocked };
     expect(() => enforceSend(draftRow(MOUNTED) as never, restricted)).toThrow(/From 必须是品牌邮箱/);
   });
 });

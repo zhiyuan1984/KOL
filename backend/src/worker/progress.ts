@@ -17,7 +17,7 @@ export type WorkerPhase =
 
 export type WorkerTraceKind = "host" | "reasoning" | "result";
 
-export const REMOTE_MCP_TITLE = "远程MCP调用";
+export const REMOTE_MCP_TITLE = "系统能力调用记录";
 export const REASONING_STREAM_LIMIT = 4000;
 
 export type WorkerTraceItem = {
@@ -349,19 +349,21 @@ export function finishProcessItems(items: WorkerTraceItem[], failed: boolean): W
       ? [{ id: "host:preparing", label: "准备任务", status: "interrupted", kind: "host" }]
       : [{ id: "host:validating", label: "校验输出", status: "done", kind: "result" }];
   }
-  let marked = false;
-  return items.map((item, index) => {
+  return items.map((item) => {
+    if (item.status === "failed" || item.status === "interrupted") return { ...item, streaming: false };
     if (!failed) return { ...item, status: "done", streaming: false };
     if (item.status === "running") {
-      marked = true;
-      return { ...item, status: "interrupted", streaming: false };
-    }
-    if (!marked && index === items.length - 1) {
-      marked = true;
       return { ...item, status: "interrupted", streaming: false };
     }
     return { ...item, streaming: false };
   });
+}
+
+/** A finished turn is not evidence that an unfinished tool call succeeded. */
+export function finishOperationItems<T extends { status?: unknown }>(items: T[]): T[] {
+  return items.map((item) => ["running", "pending", "active", "in_progress", "processing"].includes(String(item.status || "pending"))
+    ? { ...item, status: "interrupted", streaming: false }
+    : { ...item, streaming: false });
 }
 
 export function reasoningSummariesOf(items: WorkerTraceItem[]): string[] {

@@ -122,6 +122,26 @@ export function seedDirectory(): void {
     "team",
     "team_kol",
   );
+  // 2026-10-05 登录账户切换为黄启友：目录与范围行与「演示管理员」保持一致
+  // （memberScopeIds 按 handle 取知识/技能范围；鄢棽原有行保留不动）。
+  db.prepare("INSERT OR REPLACE INTO directory_users (id, handle, name, role) VALUES (?,?,?,?)").run(
+    "jeffrey",
+    "jeffrey",
+    "黄启友",
+    "product_manager",
+  );
+  db.prepare("INSERT OR IGNORE INTO memberships (id, user_handle, scope, scope_id) VALUES (?,?,?,?)").run(
+    "mem_jeffrey_org",
+    "jeffrey",
+    "org",
+    "org_litime",
+  );
+  db.prepare("INSERT OR IGNORE INTO memberships (id, user_handle, scope, scope_id) VALUES (?,?,?,?)").run(
+    "mem_jeffrey_team",
+    "jeffrey",
+    "team",
+    "team_kol",
+  );
   db.prepare("INSERT OR IGNORE INTO memberships (id, user_handle, scope, scope_id) VALUES (?,?,?,?)").run(
     "mem_lead_org",
     "lead",

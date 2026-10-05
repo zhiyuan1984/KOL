@@ -10,6 +10,7 @@ import KnowledgeFilters, { type FilterOption } from "./KnowledgeFilters";
 import LibraryPane, { type KbView } from "./LibraryPane";
 import UploadDialog from "./UploadDialog";
 import DocumentRail from "./DocumentRail";
+import { useSearchParams } from "react-router-dom";
 
 const PAGE_SIZE = 5;
 const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
@@ -38,6 +39,8 @@ type Skip = { view?: boolean; kind?: boolean; brand?: boolean; stage?: boolean; 
  * 筛选同组多选为任一匹配，跨筛选区为同时满足；所有计数基于当前可见数据。
  */
 export default function KnowledgeHome() {
+  const [params,setParams]=useSearchParams();
+  const requestedDocument=params.get("document");
   const load = useCallback(async () => {
     const [rows, bases, domains, documents] = await Promise.all([
       api.adminKnowledge(),
@@ -255,8 +258,8 @@ export default function KnowledgeHome() {
     [filtered, currentPage],
   );
   const selectedRow = useMemo(
-    () => pageRows.find((row) => row.id === selectedId) || pageRows[0] || null,
-    [pageRows, selectedId],
+    () => (requestedDocument ? rows.find(row=>row.id===requestedDocument && row.asset_type==="document") : undefined) || pageRows.find((row) => row.id === selectedId) || pageRows[0] || null,
+    [pageRows, selectedId,rows,requestedDocument],
   );
 
   useEffect(() => {
@@ -344,7 +347,7 @@ export default function KnowledgeHome() {
             page={currentPage}
             pageCount={pageCount}
             selectedId={selectedRow?.id || ""}
-            onSelect={setSelectedId}
+            onSelect={id=>{setSelectedId(id);if(requestedDocument){const next=new URLSearchParams(params);next.delete("document");setParams(next);}}}
             onPrevious={() => setPage((current) => Math.max(1, current - 1))}
             onNext={() => setPage((current) => Math.min(pageCount, current + 1))}
             loading={loading}

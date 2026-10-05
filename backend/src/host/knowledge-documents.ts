@@ -17,6 +17,7 @@ import { knowledgeActorId } from "./knowledge.js";
 import { bridgeMode, chatModel, indexModel, mediaModel, runBridge, type BridgeOutcome } from "../knowledge-bridge.js";
 import { recordCostEvent } from "../costs.js";
 import { intentLlmApiKey, intentLlmFetch } from "../tasks/openai-intent.js";
+import { postgresQuery } from "../postgres/pool.js";
 
 export const DOCUMENT_STATUSES = [
   "draft",
@@ -669,6 +670,7 @@ export function reprocessDocument(id: string, actor = knowledgeActorId()): Json 
   requireAdmin();
   const doc = docRow(id);
   const status = String(doc.status);
+  if(status === "published") throw new HttpFail(409,{code:"knowledge_revision_required",message:"已发布版本保持可检索，请从资料详情创建新版本草稿。"});
   if (!["pending_review", "published"].includes(status)) {
     throw new HttpFail(409, { code: "knowledge_document_not_reprocessable", message: "只有待审或已发布的资料可以重新加工" });
   }
@@ -682,7 +684,8 @@ export function reprocessDocument(id: string, actor = knowledgeActorId()): Json 
 
 export function publishDocument(id: string, actor = knowledgeActorId()): Json {
   requireAdmin();
-  throw new HttpFail(409, { code: "knowledge_publication_review_required", message: "请先提交独立知识发布审批；流程通过后由服务端发布" });
+  docRow(id);
+  throw new HttpFail(409, { code: "knowledge_publication_review_required", message: "请从资料详情提交知识发布审批；批准后由发布任务生效。" });
 }
 
 export function archiveDocument(id: string, actor = knowledgeActorId()): Json {
@@ -795,7 +798,17 @@ export async function queryDocuments(input: {
     }
     docs = getConn().prepare(`SELECT * FROM knowledge_documents WHERE ${clauses.join(" AND ")}`).all(...args) as Row[];
     if (!docs.length) {
-      throw new HttpFail(409, { code: "knowledge_no_published_documents", message: "这个库还没有已发布的资料" });
+      const states=await postgresQuery(`SELECT d.status,p.review_status,p.publication_status FROM knowledge_documents d
+        LEFT JOIN knowledge_publications p ON p.document_id=d.id WHERE d.base_id=$1
+        AND ($2::text[] IS NULL OR d.id=ANY($2::text[]))`,[baseId,docIds.length ? docIds : null]);
+      let reason="这个库还没有已发布的资料，请联系知识库管理员补充资料并提交发布审批。";
+      if(states.some(d=>d.review_status==="approved")) reason="资料已通过审批，发布尚未完成，请联系知识库管理员查看发布任务与恢复入口。";
+      else if(states.some(d=>["reviewing","awaiting_amendment","blocked"].includes(d.review_status))) reason="资料已解析，正在等待审批完成与发布；未发布资料暂不可用于产品咨询。";
+      else if(states.some(d=>d.status==="pending_review")) reason="资料已解析并建立索引，但尚未完成发布审批；请联系知识库管理员从资料详情提交审批。";
+      else if(states.some(d=>["uploaded","normalizing","indexing"].includes(d.status))) reason="资料正在解析或建立索引，完成后还需提交审批并发布。";
+      else if(states.some(d=>d.status==="draft")) reason="资料仍是未解析草稿，需要管理员解析、提交审批并发布后才能查询。";
+      else if(states.some(d=>["failed","cancelled"].includes(d.status))) reason="资料解析失败或已取消，请联系知识库管理员恢复处理，再提交审批与发布。";
+      throw new HttpFail(409, { code: "knowledge_no_published_documents", message:reason });
     }
   }
   const engineIds = docs.map(engineDocIdOf).filter(Boolean);

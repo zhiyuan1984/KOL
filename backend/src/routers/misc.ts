@@ -8,7 +8,7 @@ import { parse as parseYaml } from "yaml";
 import { authDisabled, isAdmin, requireAdmin, requireSkill, scopedUser } from "../auth.js";
 import { examDemoStatus, examTodoCount } from "../exam.js";
 import { starry } from "../adapters/clients.js";
-import { BRAND_MAILBOXES, DEMO_USER, clawMode, kolClawConfigured } from "../config.js";
+import { BRAND_MAILBOXES, DEMO_ADMIN, DEMO_USER, clawMode, kolClawConfigured } from "../config.js";
 import { AUDIT_PAYLOAD_PREVIEW_CHARS, auditPayloadPreview, getConn, listAudit, nowIso } from "../db.js";
 import { uploadsDir } from "../host/attachments.js";
 import { HttpFail } from "../host/errors.js";
@@ -603,7 +603,7 @@ misc.get("/me", (c) => {
       available_modes: ["employee", ...(isAdmin(appUser) ? ["admin"] : [])],
       starry_binding: publicStarryBinding(starryBindingRow(appUser.id)),
     } : {
-      email: appUser ? "" : (user.handle === "lingong" ? "" : "sriphy.yan@amperetime.com"),
+      email: appUser ? "" : (user.handle === "lingong" ? "" : DEMO_ADMIN.email),
       ...personaAccess(),
       starry_binding: currentFollowScope(),
     }),

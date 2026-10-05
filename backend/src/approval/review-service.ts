@@ -12,6 +12,7 @@ import type {
   ReviewNode,
   ReviewTemplate,
   ReviewTask,
+  ReviewOrganizationContext,
 } from "../../../shared/review.js";
 import {
   REVIEW_ACTIONS,
@@ -30,6 +31,7 @@ import {
 } from "./review-engine.js";
 
 export type ReviewContext = {
+  organization?: ReviewOrganizationContext;
   tenant: string;
   actor: string;
   admin: boolean;
@@ -321,6 +323,7 @@ export class ReviewService {
     definition: ReviewDefinition,
   ): ReviewTemplate {
     this.admin();
+    this.checkOrganization(definition);
     // Incomplete graph is a valid draft, malformed data isn't. Publication performs full validation.
     if (
       !definition ||
@@ -385,6 +388,12 @@ export class ReviewService {
       )
       .get(this.ctx.tenant, id) as Row | undefined;
     return r || fail(404, "流程不存在");
+  }
+  checkOrganization(definition: ReviewDefinition) {
+    if (definition?.organizationUnitId !== undefined &&
+      (typeof definition.organizationUnitId !== "string" ||
+       !this.ctx.organization?.units.some(unit => unit.id === definition.organizationUnitId)))
+      fail(422, "流程归属组织不存在、已归档或不属于当前公司，请重新选择");
   }
   private definition(id: string, version: number): ReviewDefinition {
     const r = this.db
@@ -843,6 +852,7 @@ export class ReviewService {
       if (t.published_version === t.version) fail(409, "此版本已发布");
       const d = JSON.parse(t.definition) as ReviewDefinition,
         issues = validateDefinition(d);
+      this.checkOrganization(d);
       if (issues.length)
         throw new HttpFail(422, { message: "流程校验未通过", issues });
       for (const n of d.nodes || [])
@@ -886,6 +896,8 @@ export class ReviewService {
       return {
         name: d.name,
         version: t.version,
+        scope: `公司：${this.ctx.organization?.units.find(unit => unit.id === this.ctx.tenant)?.name || this.ctx.tenant}；流程创建归属：${this.ctx.organization?.units.find(unit => unit.id === d.organizationUnitId)?.name || "公司范围"}`,
+        configuration: `${d.fields.length} 个表单字段；${d.nodes.filter(node => !["start", "end"].includes(node.type)).length} 个处理节点`,
         consequence:
           t.enabled === 1
             ? "该版本将用于后续新申请；已发起评审保持原版本。"
@@ -941,7 +953,9 @@ export class ReviewService {
         name: command.title,
         version: command.templateVersion,
         consequence:
-          "提交后材料冻结，评审人可查看本申请。评审通过不会自动触发外发或业务阶段变更。",
+          d.subjectType === "knowledge_publication"
+            ? "提交后冻结此资料版本；审批通过后将自动发布到指定知识库，供获准使用该库的技能检索。"
+            : "提交后材料冻结，评审人可查看本申请。评审通过不会自动触发外发或业务阶段变更。",
         reviewers: preview.tasks.map((t) => t.userId),
         evidence: hash(d),
       };
@@ -987,7 +1001,9 @@ export class ReviewService {
       name: i.title,
       version: i.version,
       consequence:
-        command.action === "transfer"
+        command.action === "approve" && i.definition.subjectType === "knowledge_publication"
+          ? "本次批准将留痕；全部审核通过后系统会自动发布被冻结的资料版本。发布结果另有回执。"
+          : command.action === "transfer"
           ? `当前任务将转交给 ${this.ctx.people.find((p) => p.id === command.targetUserId)?.name || command.targetUserId}，原任务保留转交记录。`
           : command.action === "countersign"
             ? `新增 ${this.ctx.people.find((p) => p.id === command.targetUserId)?.name || command.targetUserId} 的必要评审任务，不替代当前人员的决定。`
@@ -1028,6 +1044,8 @@ export class ReviewService {
         })),
     });
   }
+  /** Read-only validation for document preflight; creates no confirmation or request. */
+  preview(command: ReviewCommand) { return this.check(command); }
   prepare(command: ReviewCommand) {
     const summary = this.check(command),
       id = randomUUID(),

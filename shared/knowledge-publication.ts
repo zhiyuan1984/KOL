@@ -17,6 +17,7 @@ export type KnowledgePublication = {
   updatedAt: string;
 };
 export type KnowledgePublicationOptions = {
+  legacy?: { updatedAt: string };
   tenant: string;
   templates: { id: string; version: number; definition: ReviewDefinition }[];
   publication: KnowledgePublication | null;

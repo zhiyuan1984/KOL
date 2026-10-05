@@ -8,6 +8,7 @@ import type { Json, Row } from "../types.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
+import { taskExecutionView } from "../tasks/execution-view.js";
 import { isSkillTemplateSnapshot } from "../tasks/skill-template.js";
 import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
 import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, isTodoWorkItem, OPEN_WORK_ITEM_SQL, TODO_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, todayMembershipReasons, type TaskDefinitionIndex } from "../host/home-board.js";
@@ -1344,15 +1345,24 @@ tasks.post("/tasks/from-text", async (c) => {
   }, 201);
 });
 
-tasks.get("/tasks/by-session/:sid", (c) => {
+async function executionView(row: Row) {
+  const runs = await postgresQuery<Row>(
+    "SELECT id,status FROM task_runs WHERE work_item_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [row.id],
+  );
+  return taskExecutionView(String(row.status), taskDefinition(String(row.task_type))?.side_effects,
+    runs[0] ? { id: runs[0].id, status: runs[0].status } : null);
+}
+
+tasks.get("/tasks/by-session/:sid", async (c) => {
   const row = getConn().prepare(
     "SELECT * FROM tickets WHERE session_id=? ORDER BY updated_at DESC LIMIT 1",
   ).get(c.req.param("sid")) as Row | undefined;
   if (!row) throw new HttpFail(404, "task not found");
-  return c.json(publicWorkItem(ownedWorkItem(String(row.id))));
+  const owned = ownedWorkItem(String(row.id));
+  return c.json({ ...publicWorkItem(owned), execution: await executionView(owned) });
 });
 
-tasks.get("/tasks/:id", (c) => {
+tasks.get("/tasks/:id", async (c) => {
   const row = ownedWorkItem(c.req.param("id"));
   const runs = getConn().prepare("SELECT * FROM task_runs WHERE work_item_id=? ORDER BY created_at").all(row.id) as Row[];
   const artifacts = getConn().prepare(
@@ -1360,6 +1370,7 @@ tasks.get("/tasks/:id", (c) => {
   ).all(row.id) as Row[];
   return c.json({
     ...publicWorkItem(row),
+    execution: await executionView(row),
     runs: runs.map((run) => ({ ...run, input: parseJson(run.input), entities: parseJson(run.entities), error: parseJson(run.error) })),
     artifacts: artifacts.map((artifact) => ({ ...artifact, payload: parseJson(artifact.payload) })),
   });

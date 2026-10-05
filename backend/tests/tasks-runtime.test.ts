@@ -341,6 +341,8 @@ describe("task CRUD and run flow", () => {
 
     const detail = await request("GET", `/api/tasks/${taskId}`);
     expect(detail.body.status).toBe("waiting");
+    expect(detail.body.execution).toEqual({ run_id: String(queued.body.run_id), status: "completed", result_ready: true });
+    expect(bySession.body.execution).toEqual(detail.body.execution);
     expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);
     const events = await request("GET", `/api/tasks/${taskId}/events`);
     const rows = events.body as unknown as Json[];
@@ -348,6 +350,10 @@ describe("task CRUD and run flow", () => {
     expect(rows.map((event) => Number(event.sequence))).toEqual(rows.map((_, index) => index + 1));
     expect(rows.every((event) => event.type && event.title && event.created_at)).toBe(true);
     expect(rows.map((event) => event.event_type)).toContain("run.completed");
+    expect(rows.find((event) => event.event_type === "run.completed")?.summary).toContain("只读查询已结束");
+    getConn().prepare("UPDATE task_runs SET status='running' WHERE id=?").run(queued.body.run_id);
+    expect(((await request("GET", `/api/tasks/${taskId}`)).body.execution as Json).result_ready).toBe(false);
+    getConn().prepare("UPDATE task_runs SET status='completed' WHERE id=?").run(queued.body.run_id);
     expect((await request("GET", `/api/tasks/${taskId}`)).body.status).toBe("waiting");
     const retired = await request("POST", `/api/tasks/${taskId}/complete`, {});
     expect(retired.status).toBe(410);

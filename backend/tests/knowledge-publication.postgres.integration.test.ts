@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ReviewDefinition, ReviewInstance } from "../../shared/review.js";
+import { knowledgeReviewDefinition, type ReviewDefinition, type ReviewInstance } from "../../shared/review.js";
 import { reviewSchema } from "../src/approval/review-schema.js";
 import {
   closePostgresPool,
@@ -42,7 +42,8 @@ describe.skipIf(!configured)(
       schema: "review.definition.v1",
       name: "知识发布审批",
       description: "独立知识发布",
-      fields: [],
+      subjectType:"knowledge_publication",
+      fields: knowledgeReviewDefinition().fields,
       nodes: [
         { id: "start", name: "开始", type: "start", next: "review" },
         {
@@ -93,15 +94,18 @@ describe.skipIf(!configured)(
       await postgresPool().query(
         "ALTER TABLE approval_role_bindings ADD COLUMN valid_from TEXT, ADD COLUMN valid_to TEXT",
       );
+      await postgresPool().query(await fs.readFile(new URL("../migrations/024_knowledge_publication.sql", import.meta.url),"utf8"));
       await postgresPool().query(
         await fs.readFile(
           new URL(
-            "../migrations/024_knowledge_publication.sql",
+            "../migrations/025_knowledge_publication_applications.sql",
             import.meta.url,
           ),
           "utf8",
         ),
       );
+      await postgresPool().query("INSERT INTO knowledge_domains(id,code,name,level,created_at,updated_at) VALUES('domain','domain','产品规格','domain',$1,$1)",[stamp]);
+      await postgresPool().query("INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,created_at,updated_at) VALUES('specs','specs','产品规格','domain','unstructured','active',$1,$1)",[stamp]);
       for (const id of ["admin", "reviewer", "reviewer-two", "outsider"]) {
         await postgresPool().query(
           "INSERT INTO users(id,username,name,password_hash,roles,created_at,updated_at) VALUES($1,$1,$1,'unusable',$2,$3,$3)",
@@ -154,11 +158,16 @@ describe.skipIf(!configured)(
         if(!target.startsWith(path.resolve(os.tmpdir())+path.sep)||!path.basename(target).startsWith("knowledge-publication-test-")) throw new Error("Test cleanup target escaped its temporary scope");
         await fs.rm(target, { recursive: true, force: true });
       }
-    });
+    },90000);
     beforeEach(async () => {
       docId = randomUUID();
       source = path.join(files, `${docId}.pdf`);
       await fs.writeFile(source, "%PDF-1.7 isolated original");
+      const library=path.join(files,docId);
+      await fs.mkdir(path.join(library,"docs",docId),{recursive:true});
+      await fs.writeFile(path.join(library,`${docId}.tree.json`),JSON.stringify({status:"completed",retrieval_ready:true}));
+      await fs.writeFile(path.join(library,"docs",docId,"pages.json"),JSON.stringify([{page:1,text:"product"}]));
+      await fs.writeFile(path.join(library,"docs",docId,"tree.json"),"{}");
       await postgresPool().query(
         "UPDATE users SET active=1 WHERE id IN ('admin','reviewer')",
       );
@@ -173,8 +182,8 @@ describe.skipIf(!configured)(
         [JSON.stringify(definition)],
       );
       await postgresPool().query(
-        "INSERT INTO knowledge_documents(id,base_id,title,filename,media_type,source_path,status,artifacts,created_by,created_at,updated_at) VALUES($1,'specs','储能规格书','spec.pdf','pdf',$2,'pending_review','{}','admin',$3,$3)",
-        [docId, source, stamp],
+        "INSERT INTO knowledge_documents(id,base_id,title,filename,media_type,source_path,status,artifacts,created_by,created_at,updated_at) VALUES($1,'specs','储能规格书','spec.pdf','pdf',$2,'pending_review',$4,'admin',$3,$3)",
+        [docId, source, stamp,JSON.stringify({index:{doc_id:docId,library}})],
       );
       await postgresPool().query(
         "INSERT INTO knowledge_document_jobs(id,document_id,kind,status,created_at,finished_at) VALUES($1,$2,'index','done',$3,$3)",
@@ -278,6 +287,8 @@ describe.skipIf(!configured)(
         )
       ).rows[0];
       expect(job.status).toBe("queued");
+      await postgresPool().query("UPDATE execution_jobs SET status='running',lease_owner='test',lease_until=$2 WHERE id=$1",[job.id,new Date(Date.now()+60000).toISOString()]);
+      job.worker_id="integration";
       expect(
         (
           await postgresPool().query(
@@ -426,7 +437,7 @@ describe.skipIf(!configured)(
       expect(
         (
           await postgresPool().query(
-            "SELECT COUNT(*)::int AS n FROM knowledge_publications WHERE document_id=$1",
+            "SELECT COUNT(*)::int AS n FROM knowledge_publication_applications WHERE document_id=$1",
             [docId],
           )
         ).rows[0].n,
@@ -462,7 +473,7 @@ describe.skipIf(!configured)(
       expect(
         (
           await postgresPool().query(
-            "SELECT COUNT(*)::int AS n FROM knowledge_publications WHERE document_id=$1",
+            "SELECT COUNT(*)::int AS n FROM knowledge_publication_applications WHERE document_id=$1",
             [docId],
           )
         ).rows[0].n,
@@ -542,7 +553,7 @@ describe.skipIf(!configured)(
         (
           await request(
             undefined,
-            `/api/admin/knowledge/documents/${docId}/publication`,
+            `/api/admin/knowledge/documents/${docId}/publication-v2`,
           )
         ).status,
       ).toBe(401);
@@ -554,7 +565,7 @@ describe.skipIf(!configured)(
       expect(await authorized.text()).toContain("isolated original");
     expect((await request("outsider", sourceUrl)).status).toBe(403);
     expect((await request("reviewer-two", sourceUrl)).status).toBe(403);
-    const invalid=await withScopedUser({id:"admin"} as AppUser,()=>app.request(`/api/admin/knowledge/documents/${docId}/publication/prepare`,{method:"POST",headers:{"Content-Type":"application/json"},body:"[invalid"}));
+    const invalid=await withScopedUser({id:"admin"} as AppUser,()=>app.request(`/api/admin/knowledge/documents/${docId}/publication-v2/prepare`,{method:"POST",headers:{"Content-Type":"application/json"},body:"[invalid"}));
     expect(invalid.status).toBe(400);
       await fs.writeFile(source, "%PDF changed");
       expect((await request("reviewer", sourceUrl)).status).toBe(409);

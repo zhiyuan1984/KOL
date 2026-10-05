@@ -1,3 +1,4 @@
+import { reviewApi, reviewHeaders } from "../../reviews/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
@@ -53,6 +54,21 @@ export default function DocumentRail({ id, path, reload, notify }: {
     }
   };
 
+  async function replace(file:File) {
+    if(!doc)return;
+    setBusy(true);setActionError("");
+    try {
+      const form=new FormData();form.append("file",file);form.append("updated_at",doc.updated_at);
+      const response=await fetch(`/api/admin/knowledge/documents/${encodeURIComponent(id)}/draft-file`,{method:"PUT",headers:reviewHeaders(),body:form});
+      const body=await response.json();if(!response.ok)throw new Error(body.detail?.message || body.detail || "替换失败");
+      notify("草稿原件已替换，尚未解析或发布");refresh();reload();
+    }catch(cause){setActionError(errorMessage(cause));}finally{setBusy(false);}
+  }
+  async function revision() {
+    setBusy(true);setActionError("");
+    try {const r=await reviewApi<{document_id:string}>(`/admin/knowledge/documents/${encodeURIComponent(id)}/revision`,{});window.location.assign(`/admin/knowledge?document=${encodeURIComponent(r.document_id)}`);}
+    catch(cause){setActionError(errorMessage(cause));setBusy(false);}
+  }
   const blocked = busy || loading || Boolean(error) || confirming;
   return <>
     {dialog}
@@ -70,7 +86,7 @@ export default function DocumentRail({ id, path, reload, notify }: {
         </section>
         {doc.error && <div className="kbv-document-notice" role="alert"><KbvIcon name="status" /><span>{doc.error}</span><button className="kbv-text-action" disabled={blocked} onClick={refresh}>重新检查</button></div>}
         {processing && <p role="status" className="kbv-document-progress">{progress || "等待加工服务处理已提交的资料"} · 自动刷新中</p>}
-        {doc.status === "draft" && <p>原件已保存，尚未解析；不会参与员工问答。</p>}
+        {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p><label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,application/pdf" onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";if(file)void replace(file);}} /></label></>}
         {doc.status === "pending_review" && <p>解析已完成，请核对原件与加工结果后提交审批。</p>}
         {doc.status === "cancelled" && <p>加工已取消，可重试恢复；未发布资料不参与员工问答。</p>}
         {["pending_review", "published"].includes(doc.status) && <PublicationPanel key={id} id={id} notify={notify} actionTarget={actionTarget} refreshDocument={() => { refresh(); reload(); }} />}
@@ -99,6 +115,7 @@ export default function DocumentRail({ id, path, reload, notify }: {
 
         {["failed", "cancelled"].includes(doc.status) && <button className="btn work" data-kbv-doc-action="retry" disabled={blocked} onClick={() => void run("retry", "已提交重试，完成后待审核")}>{busy ? "提交中…" : "重试加工"}</button>}
         {processing && <button className="btn" data-kbv-doc-action="cancel" disabled={blocked} onClick={() => void run("cancel", "已提交取消加工")}>取消加工</button>}
+        {["pending_review","published","archived"].includes(doc.status) && <button className="kbv-text-action" disabled={blocked} onClick={()=>void revision()}>创建新版本草稿</button>}
         <button className="kbv-text-action" disabled={busy || loading || confirming} onClick={refresh}>{loading ? "检查中…" : "刷新资料"}</button>
       </div>
     </footer>}

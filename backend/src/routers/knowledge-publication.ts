@@ -36,17 +36,17 @@ async function body(c: { req: { text: () => Promise<string> } }) {
     throw new HttpFail(400, "无效 JSON 对象");
   }
 }
-knowledgePublication.get("/admin/knowledge/publication/companies", async (c) =>
+knowledgePublication.get("/admin/knowledge/publication-v2/companies", async (c) =>
   c.json(
     await postgresTransaction((db) => postgresReviewCompanies(db, actor())),
   ),
 );
 knowledgePublication.use(
-  "/admin/knowledge/documents/:id/publication/*",
+  "/admin/knowledge/documents/:id/publication-v2/*",
   bodyLimit({ maxSize: 250000 }),
 );
 knowledgePublication.get(
-  "/admin/knowledge/documents/:id/publication",
+  "/admin/knowledge/documents/:id/publication-v2",
   async (c) =>
     c.json(
       await publicationOptions(
@@ -57,7 +57,7 @@ knowledgePublication.get(
     ),
 );
 knowledgePublication.post(
-  "/admin/knowledge/documents/:id/publication/prepare",
+  "/admin/knowledge/documents/:id/publication-v2/prepare",
   async (c) =>
     c.json(
       await preparePublication(
@@ -69,7 +69,7 @@ knowledgePublication.post(
     ),
 );
 knowledgePublication.post(
-  "/admin/knowledge/documents/:id/publication/check",
+  "/admin/knowledge/documents/:id/publication-v2/check",
   async (c) =>
     c.json(
       await checkPublication(
@@ -81,7 +81,7 @@ knowledgePublication.post(
     ),
 );
 knowledgePublication.post(
-  "/admin/knowledge/documents/:id/publication/submit",
+  "/admin/knowledge/documents/:id/publication-v2/submit",
   async (c) => {
     const b = await body(c);
     return c.json(
@@ -97,7 +97,7 @@ knowledgePublication.post(
   },
 );
 knowledgePublication.post(
-  "/admin/knowledge/documents/:id/publication/recovery/prepare",
+  "/admin/knowledge/documents/:id/publication-v2/recovery/prepare",
   async (c) =>
     c.json(
       await preparePublicationRecovery(
@@ -108,7 +108,7 @@ knowledgePublication.post(
     ),
 );
 knowledgePublication.post(
-  "/admin/knowledge/documents/:id/publication/recovery/submit",
+  "/admin/knowledge/documents/:id/publication-v2/recovery/submit",
   async (c) => {
     const b = await body(c);
     return c.json(
@@ -141,7 +141,7 @@ knowledgePublication.get(
         throw new HttpFail(403, "仅当前组织的流程参与人可查看审批原件");
       const p = (
         await db.query(
-          "SELECT p.snapshot,d.source_path FROM knowledge_publications p JOIN knowledge_documents d ON d.id=p.document_id WHERE p.tenant=$1 AND p.instance_id=$2",
+          "SELECT p.snapshot,d.source_path FROM knowledge_publication_applications p JOIN knowledge_documents d ON d.id=p.document_id WHERE p.tenant=$1 AND p.instance_id=$2",
           [ctx.tenant, c.req.param("id")],
         )
       ).rows[0];

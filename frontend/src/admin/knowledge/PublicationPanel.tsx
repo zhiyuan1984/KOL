@@ -1,3 +1,4 @@
+import LegacyPublicationPanel from "./LegacyPublicationPanel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
@@ -43,7 +44,7 @@ export default function PublicationPanel({
   const load = useCallback(
     () =>
       publicationApi<KnowledgePublicationOptions>(
-        `/admin/knowledge/documents/${encodeURIComponent(id)}/publication`,
+        `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2`,
       ),
     [id, publicationApi],
   );
@@ -51,7 +52,7 @@ export default function PublicationPanel({
   const loadCompanies = useCallback(
     () =>
       reviewApi<{ id: string; name: string }[]>(
-        "/admin/knowledge/publication/companies",
+        "/admin/knowledge/publication-v2/companies",
       ),
     [],
   );
@@ -91,7 +92,7 @@ export default function PublicationPanel({
           reason: string;
           reviewers: string[];
         }>(
-          `/admin/knowledge/documents/${encodeURIComponent(id)}/publication/check`,
+          `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/check`,
           {
             templateId: template.id,
             templateVersion: template.version,
@@ -169,7 +170,7 @@ export default function PublicationPanel({
           consequence: string;
         };
       }>(
-        `/admin/knowledge/documents/${encodeURIComponent(id)}/publication/prepare`,
+        `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/prepare`,
         command,
       );
       const key = crypto.randomUUID();
@@ -191,7 +192,7 @@ export default function PublicationPanel({
             instanceId: string;
             tenant: string;
           }>(
-            `/admin/knowledge/documents/${encodeURIComponent(id)}/publication/submit`,
+            `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/submit`,
             {
               command,
               confirmationId: prepared.confirmationId,
@@ -219,7 +220,7 @@ export default function PublicationPanel({
     setActionError("");
     try {
       const r = await publicationApi<{ confirmationId: string; title: string }>(
-          `/admin/knowledge/documents/${encodeURIComponent(id)}/publication/recovery/prepare`,
+          `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/recovery/prepare`,
           {},
         ),
         key = crypto.randomUUID();
@@ -236,7 +237,7 @@ export default function PublicationPanel({
         },
         async () => {
           const receipt = await publicationApi<{ id: string }>(
-            `/admin/knowledge/documents/${encodeURIComponent(id)}/publication/recovery/submit`,
+            `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/recovery/submit`,
             { confirmationId: r.confirmationId, idempotencyKey: key },
           );
           notify(`已提交发布恢复 · 回执 ${receipt.id}`);
@@ -250,6 +251,7 @@ export default function PublicationPanel({
       lock.current = false;
     }
   };
+  if(data?.legacy) return <LegacyPublicationPanel id={id} updatedAt={data.legacy.updatedAt} reload={refreshDocument} actionTarget={actionTarget} />;
   return (
     <section
       className="kbv-publication"
@@ -390,7 +392,7 @@ export default function PublicationPanel({
                 </label>
                 {template && (
                   <ReviewForm
-                    fields={template.definition.fields}
+                    fields={template.definition.fields.filter(f=>template.definition.subjectType !== "knowledge_publication" || !["knowledge_request","publication_note"].includes(f.id))}
                     values={values}
                     onChange={setValues}
                     disabled={blocked}

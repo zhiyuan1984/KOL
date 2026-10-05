@@ -139,6 +139,78 @@ async function publish(definition = emptyReviewDefinition()) {
   return t;
 }
 describe("review API with actual session authentication and organization storage", () => {
+  it("supports the real authority shape with no company unit and four organization levels", async () => {
+    department("institute", "review-test-a", 1);
+    department("digital", "institute", 2);
+    department("product", "digital", 3);
+    department("ai", "product", 4);
+    getConn().prepare("UPDATE organization_units SET parent_id=NULL WHERE id='institute'").run();
+    getConn().prepare("DELETE FROM organization_units WHERE id='review-test-a'").run();
+    getConn().prepare("UPDATE organization_memberships SET org_unit_id='ai' WHERE id='review-membership:admin'").run();
+    const response = await req("admin", "/approvals/v2/context");
+    expect(response.status).toBe(200);
+    const context = await response.json();
+    expect(context.organization.defaultUnitId).toBe("ai");
+    expect(context.organization.units.find((unit: {id:string}) => unit.id === "institute").parentId).toBe("review-test-a");
+    expect(context.organization.units.map((unit: {id:string}) => unit.id)).toEqual(expect.arrayContaining(["institute","digital","product","ai"]));
+    const definition = {...emptyReviewDefinition(), organizationUnitId:"ai"};
+    expect((await req("admin", "/admin/approval-types/v2/templates", {definition})).status).toBe(200);
+    expect((await req("outsider", "/approvals/v2/context", undefined, {"X-Review-Company":"review-test-a"})).status).toBe(403);
+  });
+  function department(id: string, parent: string, level: number, status = "active") {
+    getConn().prepare("INSERT INTO organization_units(id,company_id,display_name,type,parent_id,level,status,org_version,created_at,updated_at) VALUES(?,?,?,'department',?,?,?,1,'now','now')")
+      .run(id, "review-test-a", id, parent, level, status);
+  }
+  it("returns the actual primary organization path and excludes foreign, archived and orphan departments", async () => {
+    department("center", "review-test-a", 2);
+    department("department", "center", 3);
+    department("group", "department", 4);
+    department("archived", "review-test-a", 2, "archived");
+    department("archived-child", "archived", 3);
+    department("orphan", "missing", 2);
+    getConn().prepare("UPDATE organization_memberships SET org_unit_id='group' WHERE id='review-membership:admin'").run();
+    getConn().prepare("INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES('collab','review-person:admin','review-test-b','review-test-b','collaborative','active','now','now')").run();
+    const response = await req("admin", "/approvals/v2/context");
+    expect(response.status).toBe(200);
+    const context = await response.json();
+    expect(context.tenant).toBe("review-test-a");
+    expect(context.organization.defaultUnitId).toBe("group");
+    expect(context.organization.units.map((unit: { id: string }) => unit.id).sort()).toEqual(["center", "department", "group", "review-test-a"]);
+    expect((await req("outsider", "/approvals/v2/context", undefined, { "X-Review-Company": "review-test-a" })).status).toBe(403);
+  });
+  it("does not guess a primary department when multiple organization memberships are primary", async () => {
+    department("center", "review-test-a", 2);
+    getConn().prepare("INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES('primary-extra','review-person:admin','review-test-a','center','primary','active','now','now')").run();
+    const context = await (await req("admin", "/approvals/v2/context")).json();
+    expect(context.organization.defaultUnitId).toBeUndefined();
+  });
+  it("persists draft organization ownership and rejects a foreign or archived organization", async () => {
+    department("center", "review-test-a", 2);
+    const definition = { ...emptyReviewDefinition(), organizationUnitId: "center", name: "" };
+    const saved = await req("admin", "/admin/approval-types/v2/templates", { definition });
+    expect(saved.status).toBe(200);
+    const template = await saved.json();
+    const rows = await (await req("admin", "/admin/approval-types/v2/templates")).json();
+    expect(rows.find((row: { id: string }) => row.id === template.id).definition.organizationUnitId).toBe("center");
+    expect((await req("admin", "/admin/approval-types/v2/templates", { definition: { ...definition, organizationUnitId: "review-test-b" } })).status).toBe(422);
+    getConn().prepare("UPDATE organization_units SET status='archived' WHERE id='center'").run();
+    expect((await req("admin", "/admin/approval-types/v2/templates", { definition })).status).toBe(422);
+  });
+  it("rechecks organization status before a confirmed publish and preserves legacy drafts", async () => {
+    department("center", "review-test-a", 2);
+    const definition = { ...emptyReviewDefinition(), organizationUnitId: "center" };
+    const template = await (await req("admin", "/admin/approval-types/v2/templates", { definition })).json();
+    const command = { action: "publish", templateId: template.id, expectedVersion: template.version };
+    const prepared = await req("admin", "/approvals/v2/prepare", command);
+    expect(prepared.status).toBe(200);
+    const confirmation = await prepared.json();
+    getConn().prepare("UPDATE organization_units SET status='archived' WHERE id='center'").run();
+    expect((await req("admin", "/admin/approval-types/v2/validate", { definition })).status).toBe(422);
+    expect((await req("admin", "/approvals/v2/commands", { command, confirmationId: confirmation.confirmationId, idempotencyKey: "archived-org" })).status).toBe(422);
+    const rows = await (await req("admin", "/admin/approval-types/v2/templates")).json();
+    expect(rows.find((row: { id: string }) => row.id === template.id).publishedVersion).toBeNull();
+    expect((await req("admin", "/admin/approval-types/v2/templates", { definition: emptyReviewDefinition() })).status).toBe(200);
+  });
   it("persists exact monetary material through confirmed HTTP commands", async () => {
     const definition = emptyReviewDefinition();
     definition.fields = [
@@ -185,7 +257,7 @@ describe("review API with actual session authentication and organization storage
     expect(instance.revisions[0].values).toEqual(values);
   });
 
-  it("lists only effective company memberships and requires an explicit scope for multi-company users", async () => {
+  it("lists only effective company memberships, defaults to the unique primary company and checks explicit scope", async () => {
     getConn()
       .prepare(
         "INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES(?,?,?,?,'collaborative','active',?,?)",
@@ -205,7 +277,9 @@ describe("review API with actual session authentication and organization storage
       "review-test-a",
       "review-test-b",
     ]);
-    expect((await req("employee", "/approvals/v2/context")).status).toBe(403);
+    const defaultContext = await req("employee", "/approvals/v2/context");
+    expect(defaultContext.status).toBe(200);
+    expect((await defaultContext.json()).tenant).toBe("review-test-a");
     expect(
       (
         await req("employee", "/approvals/v2/context", undefined, {

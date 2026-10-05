@@ -418,6 +418,7 @@ export type SkillTemplate = {
 };
 
 export type Task = {
+  execution?: { run_id: string; status: string; result_ready: boolean } | null;
   id: string;
   title: string;
   description?: string;
@@ -1634,7 +1635,7 @@ export type Message = {
   created_at: string;
 };
 
-export type TraceStatus = "pending" | "running" | "done" | "failed" | "skipped";
+export type TraceStatus = "pending" | "running" | "done" | "failed" | "skipped" | "interrupted";
 
 export type ProcessTraceItem = {
   observed_at?: string;

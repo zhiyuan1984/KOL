@@ -154,7 +154,7 @@ describe("effective Agent users", () => {
     expect(byRef.get("person:zhong_jiankui")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:promotion_department" });
     expect(byRef.get("person:zhang_huiling")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:brand_user_growth_center" });
     expect(byRef.get("person:yan_chen")).toMatchObject({ via: "binding_target", display_name: "鄢棽" });
-    expect(byRef.get("person:huang_qiyou")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:digital_intelligence_center" });
+    expect(byRef.get("person:huang_qiyou")).toMatchObject({ via: "binding_target", via_unit_id: "org:digital_intelligence_center" });
     expect(byRef.get("person:lu_haijun")).toMatchObject({ via: "ancestor_head", via_unit_id: "org:research_institute" });
     expect(byRef.has("person:chen_bingbing")).toBe(false);
     expect(effective.org_version).toBe(1);
@@ -185,9 +185,10 @@ describe("effective Agent users", () => {
     expect(byRef.get("person:zhang_huiling")?.via).toBe("unit_head");
     expect(byRef.get("person:liu_min")).toMatchObject({ via: "unit_member", via_unit_id: "org:promotion_department" });
     expect(byRef.get("person:ye_guanwang")?.via_unit_id).toBe("org:lt_team");
-    // 本绑定不产生 ancestor_head；仅 registry 的人员试点绑定（yan_chen）沿研究院链路带上两位负责人。
+    // 本绑定不产生 ancestor_head；registry 的人员试点绑定（yan_chen / huang_qiyou）沿研究院链路带上负责人。
+    // 黄启友自 2026-10-05 起是 registry 声明的直接绑定目标，因此只剩陆海军是继承来的负责人。
     const ancestorHeads = effective.users.filter((user) => user.via === "ancestor_head").map((user) => user.person_ref).sort();
-    expect(ancestorHeads).toEqual(["person:huang_qiyou", "person:lu_haijun"]);
+    expect(ancestorHeads).toEqual(["person:lu_haijun"]);
   });
 
   it("绑定人员：本人 + 所属单元与各级上级负责人，不含同事", () => {
@@ -211,8 +212,8 @@ describe("effective Agent users", () => {
     const binding = bind("organization_unit", "org:lt_team");
     expect(effectiveAgentUsers("agent:kol").users).toHaveLength(11);
     expect(revokeAgentBinding(binding.id)).toBe(true);
-    expect(effectiveAgentUsers("agent:kol").person_refs).toEqual(["person:yan_chen", "person:huang_qiyou", "person:lu_haijun"]);
-    expect(listAgentBindings("agent:kol")).toHaveLength(1);
+    expect([...effectiveAgentUsers("agent:kol").person_refs].sort()).toEqual(["person:huang_qiyou", "person:lu_haijun", "person:yan_chen"]);
+    expect(listAgentBindings("agent:kol")).toHaveLength(2);
     expect(() => bind("organization_unit", "org:not_exists")).toThrow(/unknown organization unit/);
     expect(() => bind("person", "person:not_exists")).toThrow(/unknown person/);
     expect(() => createAgentBinding({ agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:other" })).toThrow(
@@ -278,8 +279,11 @@ describe("person binding and Starry account facts", () => {
     bind("person", "person:yan_chen");
     getConn().prepare("UPDATE organization_memberships SET status = 'ended' WHERE person_ref = ?").run("person:yan_chen");
     const effective = effectiveAgentUsers("agent:kol");
-    expect(effective.person_refs).toEqual(["person:yan_chen"]);
-    expect(effective.users[0]).toMatchObject({ via: "binding_target", display_name: "鄢棽", via_unit_id: "" });
+    // 另有 huang_qiyou 的 registry 试点绑定（2026-10-05）覆盖其本人与上级负责人；
+    // 这里只校验 yan_chen 的本人覆盖：无成员关系时 via_unit_id 为空，不虚构上级。
+    expect([...effective.person_refs].sort()).toEqual(["person:huang_qiyou", "person:lu_haijun", "person:yan_chen"]);
+    const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
+    expect(byRef.get("person:yan_chen")).toMatchObject({ via: "binding_target", display_name: "鄢棽", via_unit_id: "" });
   });
 
   it("registry 的 account_username 落为登录账号，未建账号的人保持为空", () => {

@@ -114,6 +114,54 @@
 .employee-tool-list small { display: block; }
 .employee-tool-list small { margin-top: 3px; color: var(--text-muted); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
 .employee-tool-list .employee-tool-empty { display: block; color: var(--text-muted); text-align: center; }
+/* 人员治理：统一小字号、文字操作、单列组织联动；不改变授权计算。 */
+[data-admin-employees] { font-size: var(--ds-font-sm); grid-template-columns: minmax(0, 36%) minmax(var(--workspace-result-rail-min), 1fr); }
+[data-admin-employees] .governance-main { container-type: inline-size; }
+[data-admin-employees] .governance-main-head { justify-content: center; flex-wrap: wrap; min-height: var(--control-h-lg); }
+[data-admin-employees] .governance-main-head h2,
+[data-admin-employees] .governance-count,
+[data-admin-employees] .governance-filter-group strong,
+[data-admin-employees] .governance-employee-number { font-size: var(--ds-font-sm); }
+[data-admin-employees] .governance-count { margin: 0; white-space: nowrap; }
+.employee-search-wrap { margin-bottom: var(--space-3); }
+.employee-search-wrap svg { width: var(--space-4); height: var(--space-4); flex-shrink: 0; stroke: currentColor; stroke-width: 1.5; fill: none; color: var(--text-muted); }
+.employee-search-wrap:focus-within { outline: var(--focus-ring); }
+.employee-organization-filter { display: grid; gap: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-3); }
+.employee-organization-filter h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; }
+.employee-organization-filter label { display: grid; gap: var(--space-1); }
+.employee-organization-filter select,
+.employee-organization-filter input { width: 100%; min-width: 0; height: var(--control-h-lg); min-height: var(--control-h-lg); padding: 0 var(--space-2); border: 0; border-radius: var(--radius-control); background: var(--fill-control); color: var(--text); font: inherit; }
+[data-admin-employees] button:not(.icon-btn) { border: 0; background: transparent; box-shadow: none; font-size: var(--ds-font-sm); min-height: var(--control-h-lg); cursor: pointer; }
+[data-admin-employees] .governance-filter-options button[aria-pressed='true'] { color: var(--accent-text); font-weight: 600; text-decoration: underline; text-underline-offset: var(--space-1); }
+[data-admin-employees] button:hover { color: var(--accent-text); text-decoration: underline; }
+[data-admin-employees] .governance-inline-actions .employee-danger-action { color: var(--danger); }
+[data-admin-employees] button:focus-visible,
+.employee-organization-filter select:focus-visible,
+.employee-organization-filter input:focus-visible { outline: var(--focus-ring); }
+[data-admin-employees] .governance-employee-row { grid-template-columns: 1fr; gap: var(--space-1); cursor: default; }
+[data-admin-employees] .governance-employee-row > * { display: block; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+[data-admin-employees] .governance-employee-row > .governance-inline-actions { display: flex; flex-wrap: wrap; }
+[data-admin-employees] .governance-inline-actions button { padding: 0 var(--space-1); }
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog { width: min(var(--dialog-w-lg), calc(100vw - var(--space-4) * 2)); max-height: 88dvh; border-radius: var(--radius-dialog); container-type: inline-size; }
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog :is(h2, h3, p, label, legend, input, select, button, strong, span) { font-size: var(--ds-font-sm); }
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog-head { position: relative; padding-inline: calc(var(--space-4) + var(--control-h-form)); min-height: var(--control-h-form); align-items: center; }
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog-head > div { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: var(--space-2); width: 100%; text-align: center; min-height: var(--control-h-form); }
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog-head p { margin: 0; overflow-wrap: anywhere; }
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog-head > button { position: absolute; right: var(--space-4); top: var(--space-4); }
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-form-grid,
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-bindings-grid { grid-template-columns: 1fr; }
+.employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-form-grid :is(input, select) { height: var(--control-h-form); min-height: var(--control-h-form); padding-block: 0; }
+.employee-binding-heading { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: var(--space-2); text-align: center; }
+.employee-binding-heading > :is(h3, p) { margin: 0; }
+@container (min-width: 720px) {
+  .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-form-grid,
+  .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-bindings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) { [data-admin-employees] { grid-template-columns: 1fr; } }
+@media (pointer: coarse) {
+  [data-admin-employees] button,
+  .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) button { min-height: 44px; }
+}
 @media (max-width: 860px) {
   .employee-directory-head { align-items: flex-start; flex-direction: column; }
   .employee-result-count { width: 100%; margin-left: 0; }

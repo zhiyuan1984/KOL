@@ -9,6 +9,8 @@ export type TaskRunKey =
   | "queued"
   | "running"
   | "awaiting_confirm"
+  | "awaiting_acceptance"
+  | "result_ready"
   | "stopped"
   | "cancelled"
   | "failed"
@@ -28,6 +30,8 @@ export const TASK_RUN_LABEL: Record<TaskRunKey, string> = {
   queued: "已排队",
   running: "执行中",
   awaiting_confirm: "待你确认",
+  awaiting_acceptance: "结果待验收",
+  result_ready: "结果已生成",
   stopped: "已停止",
   cancelled: "已取消",
   failed: "失败",
@@ -46,8 +50,13 @@ export function taskRunView(task: Task | null | undefined, agentStatus?: string)
   if (status === "failed" || status === "error") return view("failed", false, true);
   if (status === "stopped") return view("stopped", false, true);
   if (status === "cancelled") return view("cancelled", false, false);
-  if (status === "waiting" || status === "waiting_approval" || status === "pending_approve") {
+  if (status === "waiting_approval" || status === "pending_approve" || agentStatus === "waiting_approval") {
     return view("awaiting_confirm", false, false);
+  }
+  if (status === "waiting") {
+    return task?.execution?.result_ready
+      ? view("result_ready", false, false)
+      : view("awaiting_acceptance", false, false);
   }
   if (status === "running" || status === "in_progress" || status === "starting") return view("running", true, false);
   if (status === "queued" || status === "pending") return view("queued", true, false);

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function surface(page: Page, status = "pending_review") {
+async function surface(page: Page, status = "pending_review", legacy = false) {
   const account = { id: "admin", name: "管理员", available_modes: ["admin", "employee"] };
   const base = { id: "specs", name: "产品规格", kind: "unstructured", family_id: "ipd", family_name: "ipd", domain_id: "battery", domain_name: "电池" };
   let doc = { id: "pdf", base_id: base.id, title: "NETC-50160116-A5-102储能型产品规格书", filename: "NETC-50160116-A5-102储能型产品规格书.pdf", media_type: "pdf", size_bytes: 2000, status, retry_count: 0, created_by: "管理员", created_at: "2026-10-05T01:00:00Z", updated_at: "2026-10-05T02:00:00Z", error: status === "failed" ? "索引服务不可用，请恢复连接后重试" : "" };
@@ -29,10 +29,16 @@ async function surface(page: Page, status = "pending_review") {
     } else if (path === "/api/admin/knowledge/bases") json = { bases: [{ ...base, status: "active" }, { id: "structured", name: "历史知识", kind: "structured", code: "legacy", status: "active" }] };
     else if (path === "/api/admin/knowledge/domains") json = { domains: [{ id: "ipd", name: "ipd", level: "family" }, { id: "battery", name: "电池", level: "domain", parent_id: "ipd" }] };
     else if (path === "/api/admin/knowledge/documents") json = { documents: [{...doc, publication_label:doc.status==="pending_review"?(publication?"审批中":"解析完成 · 待提交审批"):undefined}] };
-    else if (path === "/api/admin/knowledge/documents/pdf/publication") json={tenant:"company",templates:[{id:"knowledge-release",version:1,definition}],publication,intake:{allowed:true,reason:""}};
-    else if (path === "/api/admin/knowledge/documents/pdf/publication/check") json={allowed:checkAllowed,reason:checkAllowed?"":"无法解析合格评审人，或发起人与评审人冲突。请修复组织配置后重试。",reviewers:checkAllowed?["评审人"]:[],fingerprint:"frozen"};
-    else if (path === "/api/admin/knowledge/documents/pdf/publication/prepare") json={confirmationId:"confirmed",expiresAt:"2099-01-01",summary:{name:doc.title,flow:"知识发布审批",version:1,reviewers:["评审人"],consequence:"流程通过后由服务端自动发布本次资料版本"}};
-    else if (path === "/api/admin/knowledge/documents/pdf/publication/submit") {
+    else if (path === "/api/admin/knowledge/documents/pdf/publication-v2") json=legacy?{tenant:"company",legacy:{updatedAt:doc.updated_at},templates:[],publication:null,intake:{allowed:true,reason:""}}:{tenant:"company",templates:[{id:"knowledge-release",version:1,definition}],publication,intake:{allowed:true,reason:""}};
+    else if(path==="/api/admin/knowledge/documents/pdf/publication") json={tenant:"company",base_id:"specs",version:1,review_status:publication?"reviewing":"not_submitted",publication_status:"unpublished",blocking_reason:"",allowed_actions:publication?["view_review"]:["submit"],instance_id:publication?"review-1":null,error:null,attempts:0,binding:{template_id:"knowledge-release",version:1,name:"知识发布审批"},fields:[]};
+    else if(path==="/api/approvals/v2/context") json={tenant:"company",actor:"admin",admin:true,people:[]};
+    else if(path==="/api/admin/approval-types/v2/templates") json=[{id:"knowledge-release",publishedVersion:1,version:1,definition:{...definition,subjectType:"knowledge_publication"}}];
+    else if(path==="/api/admin/knowledge/documents/pdf/review-check") json={allowed:checkAllowed,reason:checkAllowed?"":"无法解析合格评审人，或发起人与评审人冲突",reviewers:checkAllowed?["评审人"]:[]};
+    else if(path==="/api/admin/knowledge/documents/pdf/review-prepare") json={confirmationId:"confirmed",command:{action:"submit",templateId:"knowledge-release",templateVersion:1,title:doc.title,values:{publication_note:route.request().postDataJSON().note,knowledge_request:"material"}},material:{title:doc.title,base_name:"产品规格",pages:1,version:1},summary:{consequence:"审批通过后由服务端发布",reviewers:["评审人"]}};
+    else if(path==="/api/approvals/v2/commands") {calls.push("submit");publication={instanceId:"review-1",status:"waiting"};json={resourceId:"review-1"};}
+    else if (path === "/api/admin/knowledge/documents/pdf/publication-v2/check") json={allowed:checkAllowed,reason:checkAllowed?"":"无法解析合格评审人，或发起人与评审人冲突。请修复组织配置后重试。",reviewers:checkAllowed?["评审人"]:[],fingerprint:"frozen"};
+    else if (path === "/api/admin/knowledge/documents/pdf/publication-v2/prepare") json={confirmationId:"confirmed",expiresAt:"2099-01-01",summary:{name:doc.title,flow:"知识发布审批",version:1,reviewers:["评审人"],consequence:"流程通过后由服务端自动发布本次资料版本"}};
+    else if (path === "/api/admin/knowledge/documents/pdf/publication-v2/submit") {
       calls.push("submit");
       await new Promise(resolve=>setTimeout(resolve,150));
       if(failPublish) return route.fulfill({status:409,json:{detail:"资料已变更，请重新检查"}});
@@ -185,4 +191,19 @@ test("reviewer conflict is visible and prevents submission until server recheck"
   await expect(page.getByRole("alert")).toContainText("无法解析合格评审人");
   await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeDisabled();
   expect(s.calls).toEqual([]);
+});
+
+
+test("existing publication records preserve readonly preflight and confirmed submission",async({page})=>{
+  const flow=await surface(page,"pending_review",true);
+  await page.getByLabel("发布说明",{exact:true}).fill("更新产品规格");
+  const button=page.locator('[data-kbv-doc-action="submit"]');
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("审批通过后由服务端发布");
+  await page.getByRole("dialog").getByRole("button",{name:"确认提交审批",exact:true}).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  expect(flow.calls.filter(x=>x==="submit")).toHaveLength(1);
+  await expect(page.locator('[data-kbv-detail]')).toContainText("查看本次审批与发布回执");
 });

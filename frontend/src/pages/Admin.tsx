@@ -306,11 +306,11 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
           }}
         >
           <h3>产品经理登录</h3>
-          <p className="muted">可用邮箱 sriphy.yan@amperetime.com、账号 鄢棽 / sriphy，或已保存的手机号。运营在技能页只选用动作，不能改技能说明。</p>
+          <p className="muted">可用邮箱 jeffrey.huang@amperetime.com、账号 黄启友 / jeffrey，或已保存的手机号。运营在技能页只选用动作，不能改技能说明。</p>
           {loginErr && <p className="error">{loginErr}</p>}
           <label className="sop-field">
             邮箱、手机或账号
-            <input data-login-name value={user} onChange={(e) => setUser(e.target.value)} autoComplete="username" placeholder="sriphy.yan@amperetime.com" />
+            <input data-login-name value={user} onChange={(e) => setUser(e.target.value)} autoComplete="username" placeholder="jeffrey.huang@amperetime.com" />
           </label>
           <label className="sop-field">
             密码
@@ -340,7 +340,7 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
           <h1 style={{ margin: 0 }}>管理配置</h1>
         </div>
         <div className="hub-tools">
-          <span className="muted">产品经理 · 鄢棽</span>
+          <span className="muted">产品经理 · 黄启友</span>
           <button type="button" className="btn" data-logout onClick={() => void onLogout()}>
             退出
           </button>

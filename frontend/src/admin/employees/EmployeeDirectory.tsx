@@ -116,14 +116,14 @@ function BindingList({
   children,
 }: {
   title: string;
-  count: number;
+  count?: number;
   empty: string;
   children: React.ReactNode;
 }) {
   return (
     <section className="employee-binding-list">
-      <div className="employee-binding-list-head"><h3>{title}</h3><span>{count}</span></div>
-      {count ? <ul>{children}</ul> : <p className="muted">{empty}</p>}
+      <div className="employee-binding-list-head"><h3>{title}</h3>{count !== undefined ? <span>{count}</span> : null}</div>
+      {count === undefined ? <ul>{children}</ul> : count ? <ul>{children}</ul> : <p className="muted">{empty}</p>}
     </section>
   );
 }
@@ -174,9 +174,17 @@ export function EmployeeEditDialog({
   const [managerId, setManagerId] = useState(text(employee?.manager_user_id));
   const [active, setActive] = useState(employee?.active !== false);
   const [selectedBrands, setSelectedBrands] = useState<string[]>(asList(employee?.brands));
+  const [contextAttempt, setContextAttempt] = useState(0);
+  const allBrandsRef = useRef<HTMLInputElement>(null);
+  const allBrandsSelected = brands.length > 0 && brands.every((brand) => selectedBrands.includes(brand));
+  useEffect(() => {
+    if (allBrandsRef.current) allBrandsRef.current.indeterminate = !allBrandsSelected && brands.some((brand) => selectedBrands.includes(brand));
+  }, [brands, selectedBrands, allBrandsSelected]);
 
   useEffect(() => {
     if (!employee) return;
+    setLoading(true);
+    setError("");
     let live = true;
     api.adminEmployeeContext(employee.id).then((data) => {
       if (!live) return;
@@ -196,7 +204,7 @@ export function EmployeeEditDialog({
       setLoading(false);
     });
     return () => { live = false; };
-  }, [employee]);
+  }, [employee, contextAttempt]);
 
   const toggleBrand = (brand: string) => {
     setSelectedBrands((current) => current.includes(brand) ? current.filter((item) => item !== brand) : [...current, brand]);
@@ -275,16 +283,14 @@ export function EmployeeEditDialog({
             <label className="field">直属上级<select data-employee-field="manager" value={managerId} onChange={(event) => setManagerId(event.target.value)}><option value="">未设置</option>{allEmployees.filter((candidate) => candidate.id !== employee?.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{employeeLabel(candidate)}</option>)}</select></label>
             {existing ? <label className="field">账号状态<select data-employee-field="active" value={active ? "active" : "inactive"} onChange={(event) => setActive(event.target.value === "active")}><option value="active">启用</option><option value="inactive">停用</option></select></label> : null}
           </div>
-          <fieldset className="employee-brand-field"><legend>品牌范围</legend><div>{brands.map((brand) => <label key={brand}><input type="checkbox" checked={selectedBrands.includes(brand)} onChange={() => toggleBrand(brand)} />{brand}</label>)}</div></fieldset>
+          <fieldset className="employee-brand-field"><legend>品牌范围</legend><div><label><input ref={allBrandsRef} type="checkbox" checked={allBrandsSelected} disabled={!brands.length} onChange={() => setSelectedBrands((current) => allBrandsSelected ? current.filter((brand) => !brands.includes(brand)) : [...new Set([...current, ...brands])])} />全部</label>{brands.map((brand) => <label key={brand}><input type="checkbox" checked={selectedBrands.includes(brand)} onChange={() => toggleBrand(brand)} />{brand}</label>)}</div></fieldset>
         </section>
         {existing ? <section className="employee-form-section employee-bindings" data-employee-bindings>
-          <h3>业务绑定</h3>
-          <p className="muted">邮箱凭据和令牌不会在管理端展示。</p>
-          <div className="employee-bindings-grid">
-            <BindingList title="绑定邮箱" count={mailboxes.length} empty="暂未绑定邮箱。">{mailboxes.map((mailbox) => <MailboxBinding key={mailbox.mailbox_email} mailbox={mailbox} />)}</BindingList>
-            <BindingList title="负责 KOL" count={kols.length} empty="暂无负责中的 KOL。">{kols.map((kol) => <KolBinding key={kol.id || kol.kol_uid} kol={kol} />)}</BindingList>
-          </div>
-          {loadedUser ? <p className="employee-binding-summary">当前共绑定 {mailboxes.length} 个邮箱，负责 {kols.length} 个 KOL。</p> : null}
+          <div className="employee-binding-heading"><h3>业务绑定</h3><p className="muted">邮箱凭据和令牌不会在管理端展示。</p>{context ? <p className="employee-binding-summary">当前共绑定 {mailboxes.length} 个邮箱，负责 {kols.length} 个 KOL。</p> : null}</div>
+          {context ? <div className="employee-bindings-grid">
+            <BindingList title="绑定邮箱" empty="暂未绑定邮箱。">{mailboxes.length ? mailboxes.map((mailbox) => <MailboxBinding key={mailbox.mailbox_email} mailbox={mailbox} />) : <li>暂未绑定邮箱。</li>}</BindingList>
+            <BindingList title="负责 KOL" empty="暂无负责中的 KOL。">{kols.length ? kols.map((kol) => <KolBinding key={kol.id || kol.kol_uid} kol={kol} />) : <li>暂无负责中的 KOL。</li>}</BindingList>
+          </div> : <p role="status">绑定数据读取失败 · <button type="button" className="governance-text-action" onClick={() => setContextAttempt((attempt) => attempt + 1)}>重试</button></p>}
         </section> : null}
       </>}
     </EmployeeModal>
