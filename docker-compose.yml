@@ -82,6 +82,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-lingong}:${POSTGRES_PASSWORD:-local-dev-only}@postgres:5432/${POSTGRES_DB:-lingong}
       REDIS_URL: redis://redis:6379
       EXECUTION_WORKER_CONCURRENCY: ${EXECUTION_WORKER_CONCURRENCY:-4}
+      LINGONG_DATA: /app/data
+    volumes:
+      - lingong-data:/app/data
     depends_on:
       postgres:
         condition: service_healthy

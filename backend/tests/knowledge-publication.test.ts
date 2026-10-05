@@ -14,7 +14,7 @@ import { knowledgeReviewDefinition, type ReviewCommand } from "../../shared/revi
 import { validateDefinition } from "../src/approval/review-engine.js";
 import { uploadDocument,getDocumentDetail,startDocument,publishDocument,queryDocuments,deleteDocument } from "../src/host/knowledge-documents.js";
 import { publicationState,bindPublication,preparePublication,guardKnowledgeReview,createDocumentRevision,
-  replaceDraftDocument,knowledgeReviewMaterial,knowledgeReviewTrial,publicationSnapshot,retryPublication } from "../src/knowledge/publication.js";
+  replaceDraftDocument,knowledgeReviewMaterial,knowledgeReviewTrial,publicationSnapshot,retryPublication,publishApprovedDocument } from "../src/knowledge/publication.js";
 import { postgresQuery } from "../src/postgres/pool.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 
@@ -72,6 +72,44 @@ beforeEach(async()=>{
 afterEach(()=>{resetConn();fs.rmSync(tmp,{recursive:true,force:true});delete process.env.KNOWLEDGE_ENGINE_MODE;});
 
 describe("knowledge publication through real review instances and PostgreSQL outbox",()=>{
+  it("checks immediate publication authority and approval at the HTTP boundary",async()=>{
+    const f=await fixture(),s=await submitted(f.id,f.base);
+    const {createApp}=await import("../src/app.js"),app=createApp();
+    for(const actor of ["sriphy","knowledge-reviewer"]){
+      getConn().prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
+        .run(tokenDigest(`publish-${actor}`),actor,new Date(Date.now()+60000).toISOString(),new Date().toISOString());
+    }
+    process.env.AUTH_MODE="enabled";
+    const url=`/api/admin/knowledge/documents/${f.id}/publication-execute`;
+    const send=(actor:string)=>app.request(url,{method:"POST",headers:{Cookie:`lingong_session=publish-${actor}`,"X-Review-Company":"company:amperetime"}});
+    expect((await app.request(url,{method:"POST"})).status).toBe(401);
+    expect((await send("knowledge-reviewer")).status).toBe(403);
+    expect((await send("sriphy")).status).toBe(409);
+    await approve(s.instance);
+    expect((await send("sriphy")).status).toBe(200);
+    expect((await send("sriphy")).status).toBe(200);
+    const status=await app.request(`/api/admin/knowledge/documents/${f.id}/publication`,{headers:{Cookie:"lingong_session=publish-sriphy","X-Review-Company":"company:amperetime"}});
+    expect(status.status).toBe(200);
+    expect((await status.json()).publication_status).toBe("published");
+  });
+  it("publishes an approved version immediately without parsing again and deduplicates worker delivery",async()=>{
+    const f=await fixture(),s=await submitted(f.id,f.base);
+    await expect(publishApprovedDocument(f.id,ctx())).rejects.toMatchObject({status:409});
+    await approve(s.instance);
+    expect((await publicationState(f.id,ctx())).allowed_actions).toContain("publish_approved");
+    const jobs=getDocumentDetail(f.id).jobs;
+    await expect(publishApprovedDocument(f.id,ctx("knowledge-reviewer"))).rejects.toMatchObject({status:403});
+    const results=await Promise.allSettled([publishApprovedDocument(f.id,ctx()),execute(s.instance)]);
+    expect(results.some(r=>r.status==="fulfilled")).toBe(true);
+    const state=await publicationState(f.id,ctx());
+    expect(state.publication_status).toBe("published");
+    expect(state.receipt.document_id).toBe(f.id);
+    expect(getDocumentDetail(f.id).jobs).toEqual(jobs);
+    expect(await publishApprovedDocument(f.id,ctx())).toMatchObject({publication_status:"published",receipt:state.receipt});
+    expect(await execute(s.instance)).toBeNull();
+    expect((await knowledgeReviewMaterial(s.instance,ctx())).management_url).toContain(`/admin/knowledge?document=${f.id}`);
+    expect((await knowledgeReviewMaterial(s.instance,ctx("knowledge-reviewer"))).management_url).toBeNull();
+  });
   it("adds custom fields and preserves them through submission, approval and publication",async()=>{
     const f=await fixture(),t=template([{id:"model",label:"产品型号",type:"text",required:true}]);
     await bindPublication(f.base,t.id,0,ctx());

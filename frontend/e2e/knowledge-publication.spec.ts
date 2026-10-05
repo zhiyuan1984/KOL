@@ -20,6 +20,7 @@ async function fixture(page:Page,missing=false){
     if(p.endsWith("/documents"))return route.fulfill({json:{documents:[doc]}});
     if(p.endsWith(`/documents/${doc.id}`))return route.fulfill({json:{document:doc,jobs:[],text_preview:null}});
     if(p.endsWith("/publication"))return route.fulfill({json:state});
+    if(p.endsWith("/publication-execute")){actions.push("publish");state={...state,label:"已发布",publication_status:"published",allowed_actions:["view_review","create_revision"]};return route.fulfill({json:{publication_status:"published"}});}
     if(p.endsWith("/review-prepare"))return route.fulfill({json:{confirmationId:"prepared",command:{action:"submit",templateId:template.id,templateVersion:1,title:"发布产品规格",values:{...route.request().postDataJSON().values,knowledge_request:"frozen-request",publication_note:route.request().postDataJSON().note}},
       material:{title:doc.title,base_name:"产品库",pages:16,version:1},summary:{reviewers:["reviewer"],consequence:"审批通过后将自动发布此版本；不会自动重跑原咨询任务。"}}});
     if(p.endsWith("/publication-flow")){actions.push("bind");state={...state,binding:{template_id:template.id,version:1,name:definition.name},blocking_reason:"",allowed_actions:["submit"]};return route.fulfill({json:{bound:true}});}
@@ -88,13 +89,13 @@ test("已批准的失败发布可恢复，重新进入页面仍展示发布状�
   await page.reload();await expect(f.panel).toContainText("已批准·等待发布");
 });
 
-test("审核页展示冻结原件、限定版本试算和发布回执",async({page})=>{
+test("审核页展示冻结原件、限定版本试算和发布时间",async({page})=>{
   await fixture(page);
   const id="publication-instance",definition=knowledgeReviewDefinition(),trials:any[]=[];
   await page.route(`**/api/approvals/v2/instances/${id}**`,async route=>{
     const p=new URL(route.request().url()).pathname;
     if(p.endsWith("/trial")){trials.push(route.request().postDataJSON());return route.fulfill({json:{answer:"规格试算结果",scope:"仅本次审批版本",citations:[{page:2,source_url:`/api/approvals/v2/instances/${id}/knowledge/file?company=test#page=2`}]}});}
-    if(p.endsWith("/knowledge"))return route.fulfill({json:{title:"产品规格",pages:16,version:1,publication_status:"published",error:null,receipt:{document_id:"publication-pdf",instance_id:id}}});
+    if(p.endsWith("/knowledge"))return route.fulfill({json:{title:"产品规格",pages:16,version:1,publication_status:"published",error:null,receipt:{published_at:"2026-10-05T08:00:00Z"}}});
     return route.fulfill({json:{id,templateId:"publication-flow",templateVersion:1,version:2,requester:"owner",title:"产品规格发布",definition,values:{knowledge_request:"hidden-token",publication_note:"已核对"},currentNode:"end",status:"approved",tasks:[],createdAt:"2026-10-05T00:00:00Z",updatedAt:"2026-10-05T00:00:00Z",allowedActions:[]}});
   });
   await page.goto(`/reviews/${id}?reviewCompany=test`);
@@ -104,5 +105,20 @@ test("审核页展示冻结原件、限定版本试算和发布回执",async({pa
   await material.getByRole("button",{name:"试算",exact:true}).click();await expect(material).toContainText("规格试算结果");
   expect(trials).toEqual([{query:"额定容量？"}]);
   await expect(material.getByRole("link",{name:"原文第2页"})).toHaveAttribute("href",/knowledge\/file\?company=test#page=2/);
-  await material.getByText("发布回执",{exact:true}).click();await expect(material).toContainText('"document_id": "publication-pdf"');
+  await expect(material).toContainText("发布时间：");
+  await expect(material.getByText("发布回执",{exact:true})).toHaveCount(0);
+});
+
+test("已批准版本可立即发布，取消不写入，也不要求填写回执",async({page})=>{
+  const f=await fixture(page);
+  f.setState({review_status:"approved",publication_status:"queued",label:"已批准·等待发布",instance_id:"publication-instance",allowed_actions:["publish_approved","view_review","create_revision"]});
+  await page.reload();await f.panel.getByRole("button",{name:"立即发布",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"确认发布",exact:true});
+  await expect(dialog).toContainText("可供员工问答使用");
+  await dialog.locator("[data-admin-confirm-cancel]").click();expect(f.actions).toEqual([]);
+  await f.panel.getByRole("button",{name:"立即发布",exact:true}).click();
+  await dialog.getByRole("button",{name:"确认发布",exact:true}).click();
+  await expect(f.panel).toContainText("已发布");
+  await expect(f.panel.getByRole("button",{name:"立即发布",exact:true})).toHaveCount(0);
+  expect(f.actions).toEqual(["publish"]);expect(f.commands).toHaveLength(0);
 });

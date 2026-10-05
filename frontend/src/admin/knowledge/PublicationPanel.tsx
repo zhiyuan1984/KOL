@@ -58,7 +58,15 @@ export default function PublicationPanel({id,updatedAt,reload}:{id:string;update
     {state && <>
       <p role="status">{state.label || "尚未提交审批"} · v{state.version}</p>
       {state.error && <p role="alert">{state.error} · 已尝试{state.attempts}次</p>}
-      {state.instance_id && <Link className="kbv-link-plain" to={`/reviews/${encodeURIComponent(state.instance_id)}?reviewCompany=${encodeURIComponent(state.tenant)}`}>查看本次审批与发布回执 →</Link>}
+      {state.instance_id && <Link className="kbv-link-plain" to={`/reviews/${encodeURIComponent(state.instance_id)}?reviewCompany=${encodeURIComponent(state.tenant)}`}>查看本次审批 →</Link>}
+      {state.allowed_actions.includes("publish_approved") && <>
+        <p>审批已通过，可以立即发布；无需重新解析。</p>
+        <button className="btn" disabled={busy} onClick={()=>confirm.ask({kind:"approval-initiate",title:"确认发布",object:`资料版本 v${state.version}`,scope:"当前知识库",
+          consequence:"此版本发布后可供员工问答使用。",confirmLabel:"确认发布",confirmTone:"primary"},async()=>{
+            setBusy(true);try { await reviewApi(`/admin/knowledge/documents/${id}/publication-execute`,{}); }
+            finally { setBusy(false);await load();reload(); }
+          })}>立即发布</button>
+      </>}
       {!state.instance_id && state.blocking_reason && <p>{state.blocking_reason}；资料与解析产物保留。</p>}
       {ctx?.admin && <details><summary>{state.binding ? `发布流程：${state.binding.name}` : "配置知识发布流程"}</summary>
         <label>选择已发布流程<select value={chosen} onChange={e=>setChosen(e.target.value)}><option value="">请选择</option>{templates.map(t=><option key={t.id} value={t.id}>{t.definition.name}</option>)}</select></label>
@@ -73,7 +81,7 @@ export default function PublicationPanel({id,updatedAt,reload}:{id:string;update
         const r=await reviewApi<{document_id:string}>(`/admin/knowledge/documents/${id}/revision`,{});
         window.location.assign(`/admin/knowledge?document=${encodeURIComponent(r.document_id)}`);
       })}>创建新版本草稿</button>}
-      <p>保存、解析、提交审批和发布分别留痕；未发布版本不参与员工问答。</p>
+      <p>发布后，此版本才参与员工问答。</p>
     </>}
     {confirm.dialog}
   </section>;

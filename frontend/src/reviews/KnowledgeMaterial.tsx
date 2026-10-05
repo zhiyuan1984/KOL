@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { reviewApi, reviewCompany } from "./api";
+import { Link } from "react-router-dom";
 export default function KnowledgeMaterial({id}:{id:string}) {
-  const [data,setData]=useState<{title:string;pages:number;version:number;publication_status:string;error:string|null;receipt:unknown}>(),[error,setError]=useState("");
+  const [data,setData]=useState<{title:string;pages:number;version:number;publication_status:string;error:string|null;receipt:{published_at?:string}|null;management_url?:string|null}>(),[error,setError]=useState("");
   const [query,setQuery]=useState(""),[busy,setBusy]=useState(false),[answer,setAnswer]=useState<{answer?:string;scope?:string;citations?:{page:number;source_url:string}[]}>();
   async function trial(){setBusy(true);setError("");setAnswer(undefined);try{
     setAnswer(await reviewApi(`/approvals/v2/instances/${id}/knowledge/trial`,{query}));
@@ -23,7 +24,8 @@ export default function KnowledgeMaterial({id}:{id:string}) {
       </details>
       <p>发布状态：{({unpublished:"未发布",queued:"等待发布",publishing:"发布中",published:"已发布",failed:"发布失败",blocked:"发布受阻"} as Record<string,string>)[data.publication_status] || data.publication_status}</p>
       {data.error && <p role="alert">{data.error}</p>}
-      {data.receipt && <details><summary>发布回执</summary><pre>{JSON.stringify(data.receipt,null,2)}</pre></details>}
+      {data.publication_status === "queued" && data.management_url && <p><Link to={data.management_url}>前往资料详情立即发布 →</Link></p>}
+      {data.receipt?.published_at && <p>发布时间：{new Date(data.receipt.published_at).toLocaleString()}</p>}
     </>}
   </section>;
 }
