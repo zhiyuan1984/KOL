@@ -64,6 +64,24 @@ afterEach(() => {
 });
 
 describe("employee Agent routing", () => {
+  it("does not invent missing inputs for a valid product question when the model asks for fields", async () => {
+    setTaskClassifier(async () => ({ task_type: skillId, agent_id: agentId,
+      confidence: 0.84, clarification_kind: "missing_fields", missing_fields: ["product_model"] }));
+    const { tasks } = await import("../src/routers/tasks.js");
+    const response = await asUser(() => tasks.request("/tasks/from-text", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "有什么产品，产品的功能是？", source: "text" }) }));
+    const body = await response.json();
+    expect(response.status).toBe(201);
+    expect(body).toMatchObject({ needs_clarification: false, clarification_kind: "none",
+      resolution: { task_type: skillId, agent_id: agentId, missing_fields: [], needs_clarification: false },
+      task: { status: "pending" } });
+    const run = await asUser(() => tasks.request(`/tasks/${body.task.id}/run`, { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: "{}" }));
+    expect(run.status).toBe(202);
+    expect(await run.json()).toMatchObject({ pending_message: { agent_id: agentId, intent: skillId } });
+  });
+
   it("interprets short questions in the selected Agent context and escalates uncertain Jev to Luna", async () => {
     const saved = Object.fromEntries(["INTENT_LLM_MODE", "OPENROUTER_API_KEY", "OPENAI_API_KEY"].map(key => [key, process.env[key]]));
     Object.assign(process.env, { INTENT_LLM_MODE: "real", OPENROUTER_API_KEY: "fixture", OPENAI_API_KEY: "fixture" });

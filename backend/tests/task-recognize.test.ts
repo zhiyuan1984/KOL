@@ -109,6 +109,14 @@ describe("Luna task recognition", () => {
     expect(result.alternatives).toEqual([]);
   });
 
+  it("still requires published inputs even when the model says the request is complete", async () => {
+    setTaskClassifier(async () => ({ task_type: "email_compose", confidence: 0.95,
+      clarification_kind: "none", missing_fields: [], entities: {} }));
+    const result = await recognizeTaskIntent({ text: "首封建联" });
+    expect(result).toMatchObject({ clarification_kind: "missing_fields", needs_clarification: true,
+      missing_fields: ["mailboxEmail", "to", "subject"] });
+  });
+
   it("uses a classifier verdict and rejects unknown ids", async () => {
     setTaskClassifier(async () => ({ task_type: "email_mailbox_list", confidence: 0.88 }));
     const hit = await recognizeTaskIntent({ text: "帮我看看合作用的发信账号现在授权了没有" });

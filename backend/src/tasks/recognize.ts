@@ -111,10 +111,13 @@ function mergeEntities(
   return merged;
 }
 
-function kindOf(resolution: TaskResolution, fallback: ClarificationKind): ClarificationKind {
+function kindOf(resolution: TaskResolution): ClarificationKind {
   if (!resolution.task_type) return "direction";
   if (resolution.missing_fields.length || Object.keys(resolution.invalid_fields || {}).length) return "missing_fields";
-  return fallback === "direction" ? "none" : fallback;
+  // The model selects intent; the published schema decides required inputs.
+  // Keeping a model's missing_fields flag after successful validation yields
+  // an impossible clarification card with no fields the employee can fill.
+  return "none";
 }
 
 async function judgeIntent(text: string): Promise<IntentVerdict> {
@@ -232,7 +235,7 @@ export async function recognizeTaskIntent(input: {
     entities: merged,
     input: input.input,
   });
-  const clarificationKind = kindOf(locked, verdict?.clarification_kind || "none");
+  const clarificationKind = kindOf(locked);
   if (verdict && !lockedType) {
     audit("host", "task.recognize", {
       text: text.slice(0, 200),
