@@ -146,7 +146,10 @@ export async function workOrderCollaborationGate(db: Query, actorId: string, wor
 
 export async function readTaskCollaborationContext(actorId: string, taskId: string, after = 0) {
   if (!Number.isSafeInteger(after) || after < 0) throw new HttpFail(422, { code: "invalid_event_cursor" });
-  return postgresTransaction(async db => {
+  return postgresTransaction(db => taskCollaborationContextInTransaction(db,actorId,taskId,after), { isolation: "REPEATABLE READ" });
+}
+
+export async function taskCollaborationContextInTransaction(db: Pick<PoolClient,"query">, actorId: string, taskId: string, after = 0) {
     const task = (await db.query(`SELECT t.id,t.collaboration_id FROM tickets t JOIN ticket_accounts a ON a.id=$2 AND a.active
       WHERE t.id=$1 AND t.task_type='business_task' AND t.profile='task-root'
         AND (t.owner_user_id=$2 OR EXISTS (SELECT 1 FROM work_orders wo JOIN work_order_assignments wa ON wa.work_order_id=wo.id
@@ -176,5 +179,4 @@ export async function readTaskCollaborationContext(actorId: string, taskId: stri
     return { risk: "L1", calls_model: false, task_id: taskId, gates: gates.map(g => g.blockers.includes("review_content_mismatch") || g.blockers.includes("review_template_mismatch") ? { ...g, review: null } : g),
       events: page, cursor: page.length ? Number(page[page.length - 1].sequence) : after, has_more: events.length > 100,
       version: collaborationContentHash(gates.map(g => g.version)), as_of: new Date().toISOString() };
-  }, { isolation: "REPEATABLE READ" });
 }

@@ -572,6 +572,7 @@ export type WorkOrderAutomationRelease = {
 };
 
 export type AiTaskRoot = {
+  workspace_allowed?: boolean;
   task_id: string;
   title: string;
   goal: string;
@@ -1962,6 +1963,8 @@ export const api = {
   }),
   aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
   taskCollaborationContext: (taskId: string, after = 0) => request<TaskCollaborationContext>(`/api/task-work-orders/${encodeURIComponent(taskId)}/collaboration-context?after=${after}`),
+  openTaskCollaborationWorkspace: (taskId: string) => request<{ id: string; task_id: string; replayed: boolean; calls_model: false }>(`/api/task-work-orders/${encodeURIComponent(taskId)}/workspace`, { method: "POST" }),
+  taskSessionWorkspace: (sessionId: string) => request<{ workspace: { task_id: string; title: string; evidence_version: string } | null }>(`/api/task-work-orders/sessions/${encodeURIComponent(sessionId)}/context`),
   workOrderSuggestions: (taskId: string) => request<{ suggestions: WorkOrderSuggestion[]; calls_model: false }>(`/api/task-work-orders/${encodeURIComponent(taskId)}/suggestions`),
   adoptWorkOrderSuggestion: (decisionId: string, body: { idempotency_key: string; confirmed: true; basis_version: string; action: string; target_id?: string }) =>
     request<{ attempt: { id: string; status: string; reason_code: string | null }; work_order: { id: string; status: string; data_version: number } | null; replayed: boolean }>(`/api/task-work-orders/decisions/${encodeURIComponent(decisionId)}/adopt`, { method: "POST", body: JSON.stringify(body) }),

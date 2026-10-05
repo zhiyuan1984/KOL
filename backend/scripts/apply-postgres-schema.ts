@@ -1074,6 +1074,8 @@ const { collaborationSchema } = await import("../src/ticket-domain/collaboration
 migrations.push({ id: "20261005_collaboration_source_events", statements: [collaborationSchema] });
 const { workOrderAdoptionSchema } = await import("../src/ticket-domain/work-order-adoption-schema.js");
 migrations.push({ id: "20261005_work_order_human_adoption", statements: [workOrderAdoptionSchema] });
+const { taskCollaborationSessionSchema } = await import("../src/ticket-domain/task-collaboration-session.js");
+migrations.push({ id: "20261005_task_collaboration_sessions", statements: [taskCollaborationSessionSchema] });
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
 if (onlyMigration && !migrations.some((migration) => migration.id === onlyMigration)) throw new Error("Unknown migration selection");

@@ -1,5 +1,8 @@
-import { Link, useLocation, useParams } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTaskCollaborationWorkspace } from "../tasks/useTaskCollaborationWorkspace";
+import { TaskCollaborationContext } from "../tasks/TaskCollaborationContext";
+import { WorkOrderSuggestions } from "../tasks/WorkOrderSuggestions";
 import {
   api,
   type CrawlJob,
@@ -420,6 +423,9 @@ const DRAFT_SUBMIT_GUARD_MS = 500;
 export default function Chat() {
   const { id } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
+  const leaveUnavailableTask = useCallback(()=>{navigate("/tasks",{replace:true});},[navigate]);
+  const taskWorkspace = useTaskCollaborationWorkspace(id,leaveUnavailableTask);
   const { account } = useAccount();
   const { debug } = useViewMode();
   const { messages, err, reload, setMessages, agentStatus, setAgentStatus, journey, collaborationId, sessionLoaded, runQueue, setRunQueue } = useSessionMessages(id);
@@ -642,7 +648,7 @@ export default function Chat() {
     if (!t && !p.attachments?.length) return;
     const title = lockedLabel;
     const existingTask = task;
-    const intent = p.intent === "email_compose" || mailCompose.active
+    const intent = taskWorkspace.task ? "kol_analyze" : p.intent === "email_compose" || mailCompose.active
       ? "email_compose"
       : (p.intent || lockedIntent || (discoveryWorkspace ? "crawler_collect" : undefined) || (skillParamTouched.size ? activeSkillTemplate?.skill_id : undefined));
     const submittedTemplate = activeSkillTemplate?.skill_id === intent ? activeSkillTemplate : null;
@@ -693,7 +699,7 @@ export default function Chat() {
         compose_input: p.compose_input,
         skill_template_version: p.skill_template_version || submittedTemplate?.version,
       };
-      if (submittedTemplate && !["email_compose", "creator_discovery"].includes(submittedTemplate.skill_id)
+      if (!taskWorkspace.task && submittedTemplate && !["email_compose", "creator_discovery"].includes(submittedTemplate.skill_id)
         && (selectedTemplateSkillId || skillParamTouched.size)) {
         const bound = await bindTemplateSessionTask(id, pendingAsk, submittedTemplate);
         sessionStorage.setItem(`task:${id}`, bound.task.id);
@@ -1098,7 +1104,8 @@ export default function Chat() {
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
             <Link
-              to={discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
+              to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
+              reloadDocument={Boolean(taskWorkspace.task)}
               className="task-back"
               data-session-back-link
             >{discoveryEntry ? "← 返回AI发现" : "← 返回任务列表"}</Link>
@@ -1216,6 +1223,12 @@ export default function Chat() {
             </>
           )}
         </header>
+        {taskWorkspace.task ? <section className="task-analysis-summary" aria-label="当前业务任务">
+          <strong>{taskWorkspace.task.task.title}</strong><p>{taskWorkspace.task.task.goal}</p>
+          <p>任务状态：{taskWorkspace.task.task.status} · 开放工单 {taskWorkspace.task.counts.open} · 阻塞 {taskWorkspace.task.counts.blocked}</p>
+          <button className="btn ghost" type="button" disabled={pending || status === "running"} onClick={()=>pickSuggestion({label:"分析当前任务依赖",intent:"kol_analyze",prompt:"请基于本会话服务端绑定的正式 Task 和当前授权的审批/工单依赖快照，解释阻塞原因、变化影响及下一步。引用真实对象 ID 和版本，区分事实、建议及缺失依据；只分析，不建单、不派单、不审批、不外发、不改阶段。"})}>让 Agent 分析当前依赖</button>
+          <TaskCollaborationContext taskId={taskWorkspace.task.task.task_id} titles={Object.fromEntries(taskWorkspace.task.work_orders.map(order=>[order.work_order_id,order.title]))} onUnavailable={leaveUnavailableTask} />
+        </section> : null}
         {activeSkillTemplate && !discoveryEntry ? (
           <div className="session-skill-template" data-session-skill-template>
             <SkillTemplateContext
@@ -1348,7 +1361,7 @@ export default function Chat() {
             queue={runQueue}
             onStop={() => void stopRun()}
             onRemoveQueued={(qid) => void removeQueued(qid)}
-            lockedIntent={lockedIntent || (discoveryWorkspace ? "crawler_collect" : null)}
+            lockedIntent={taskWorkspace.task ? "kol_analyze" : lockedIntent || (discoveryWorkspace ? "crawler_collect" : null)}
             lockedLabel={lockedLabel || (discoveryWorkspace ? "AI发现" : null)}
             lockedKnowledgeId={lockedKnowledgeId}
             onKnowledgeChange={(row: KnowledgeRow | null) => {
@@ -1400,7 +1413,12 @@ export default function Chat() {
           task={task}
           resultOverride={discoveryExecutionResult}
           statusOverride={discoveryProgress?.label}
-          resultExtra={discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
+          resultExtra={taskWorkspace.task ? <>
+            <section aria-label="任务分析依据"><p className="muted">当前依据版本：{taskWorkspace.version}</p>
+              {messages.some(message=>{const payload=message.payload as Record<string,unknown>;return payload.task_context_version && (payload.task_context_stale || payload.task_context_version !== taskWorkspace.version);}) ? <p role="status">已有分析的依据已变化，请复核当前事实后重新分析。</p> : null}
+            </section>
+            <WorkOrderSuggestions key={taskWorkspace.task.task.task_id} taskId={taskWorkspace.task.task.task_id} onChanged={()=>taskWorkspace.refresh()} />
+          </> : discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
             analyzing={pending || status === "running"} onAnalyze={taskId => void send({
               text: `请基于本任务已保存的发现条件与采集 ${taskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
               intent: "crawler_collect",

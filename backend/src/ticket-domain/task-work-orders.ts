@@ -19,6 +19,7 @@ export type TaskRootInput = {
 };
 
 export type TaskRoot = {
+  workspace_allowed?: boolean;
   task_id: string;
   title: string;
   goal: string;
@@ -222,7 +223,7 @@ async function authorizedTask(actorId: string, taskId: string, isAdmin: boolean)
     [taskId, TASK_TYPE, TASK_PROFILE, isAdmin, actorId],
   );
   if (!task.rows[0]) throw new HttpFail(404, { code: "task_not_found_or_not_authorized" });
-  return taskRow(task.rows[0]);
+  return { ...taskRow(task.rows[0]), workspace_allowed: task.rows[0].owner_user_id === actorId };
 }
 
 function fingerprint(value: unknown): string {

@@ -16,6 +16,7 @@ import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTe
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
 import { readWorkOrderSuggestions } from "../ticket-domain/work-order-adoption.js";
+import { openTaskCollaborationSession, taskSessionHarnessEvidence } from "../ticket-domain/task-collaboration-session.js";
 import { advanceWorkOrderStageForDecision } from "../ticket-domain/work-order-stage-executor.js";
 import { enqueueWorkOrderDecisionExecution } from "../ticket-domain/work-order-automation-pipeline.js";
 import { recordVerifiedWorkOrderEvent } from "../ticket-domain/work-order-verified-event.js";
@@ -142,6 +143,15 @@ tickets.get("/task-work-orders/:taskId/collaboration-context", async (c) => {
 
 tickets.get("/task-work-orders/:taskId/suggestions", async (c) => {
   return c.json({ ...(await readWorkOrderSuggestions(ownerId(), c.req.param("taskId"))), ...requestMetadata() });
+});
+
+tickets.post("/task-work-orders/:taskId/workspace", async (c) => {
+  return c.json({ ...(await openTaskCollaborationSession(ownerId(), c.req.param("taskId"))), ...requestMetadata() });
+});
+
+tickets.get("/task-work-orders/sessions/:sid/context", async (c) => {
+  const evidence = await taskSessionHarnessEvidence(ownerId(), c.req.param("sid"));
+  return c.json({ workspace: evidence ? { task_id: String(evidence.task.id), title: String(evidence.task.title), evidence_version: evidence.version } : null, risk:"L1", calls_model:false, ...requestMetadata() });
 });
 
 /** Explicit human command, sharing the governed executor with the Worker. */

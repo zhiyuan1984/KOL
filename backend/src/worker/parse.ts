@@ -15,6 +15,7 @@ const ALLOWED = new Set([
   "text",
   "note",
   "task_result",
+  "kol_analyze_brief",
   "crawl_plan",
   "today_brief",
 ]);
