@@ -3329,27 +3329,28 @@ test("employee connector use surface is retired", async ({ page, request }) => {
 test("admin L3 destructive writes open confirm dialog with cancel focused", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "员工目录" })).toBeVisible();
-  const deactivate = page.locator("[data-admin-user-action='deactivate']");
-  await expect(page.getByText("暂无员工").or(deactivate.first())).toBeVisible();
+  await expect(page.getByRole("heading", { name: "员工列表" })).toBeVisible();
+  const deactivate = page.locator("[data-employee-action='deactivate']");
   if (await deactivate.count() === 0) {
-    const email = `e2e-deactivate-${Date.now()}@example.com`;
-    await page.locator('input[name="name"]').fill("E2E 停用对象");
-    await page.locator('input[name="email"]').fill(email);
-    await page.locator('input[name="password"]').fill("1234567890");
-    await page.getByRole("button", { name: "创建员工" }).click();
+    await page.locator("[data-employee-create]").click();
+    await page.locator('[data-employee-field="name"]').fill("E2E 停用对象");
+    await page.locator('[data-employee-field="email"]').fill(`e2e-deactivate-${Date.now()}@example.com`);
+    await page.locator('[data-employee-field="password"]').fill("1234567890");
+    await page.locator("[data-employee-edit-save]").click();
     await expect(deactivate.first()).toBeVisible();
   }
   await deactivate.first().click();
   const dialog = page.locator("[data-admin-confirm='user-deactivate']");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "停用员工" })).toBeVisible();
+  // 紧凑三区：姓名＋邮箱、停用范围＋值、影响＋次要说明；默认取消提示不再渲染。
   await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("组织账号");
   await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("无法登录");
-  await expect(page.locator("[data-admin-confirm-cancel]")).toHaveText("取消，不执行");
-  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
-  await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
+  await expect(dialog.locator("[data-admin-confirm-note]")).toContainText("保留");
+  await expect(dialog.locator("[data-admin-confirm-cancel]")).toHaveText("取消");
+  await expect(dialog.locator("[data-admin-confirm-cancel-hint]")).toHaveCount(0);
+  await expect(dialog.locator("[data-admin-confirm-cancel]")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
 

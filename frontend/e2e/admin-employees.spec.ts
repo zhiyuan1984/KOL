@@ -224,3 +224,94 @@ test("选择上级组织时包含下级组员工，不包含旁支员工", async
   await expect(directory.locator("[data-employee-row='sriphy']")).toHaveCount(0);
   await expect(directory.locator("[data-employee-row='usr_promotion']")).toBeVisible();
 });
+
+test("停用员工确认卡：紧凑三区、执行中防重复、成功后更新账号状态", async ({ page }) => {
+  const target = {
+    id: "usr_deactivate", name: "停用对象", username: "deactivate@amperetime.com", email: "deactivate@amperetime.com",
+    site: "", position: "KOL 经理", brands: [], roles: ["employee"], active: true,
+  };
+  let active = true;
+  let releasePatch: (() => void) | null = null;
+  const patches: Json[] = [];
+
+  await page.route("**/api/admin/users", (route) => route.fulfill({ json: [{ ...target, active }] }));
+  await page.route("**/api/admin/agents", (route) => route.fulfill({ json: { agents: [], units: [], people: [], skills: [], bases: [] } }));
+  await page.route("**/api/admin/users/usr_deactivate", async (route) => {
+    patches.push(route.request().postDataJSON() as Json);
+    await new Promise<void>((resolve) => { releasePatch = resolve; });
+    active = false;
+    await route.fulfill({ json: { ...target, active: false } });
+  });
+
+  await page.goto("/admin");
+  const row = page.locator("[data-employee-row='usr_deactivate']");
+  await expect(row).toBeVisible();
+  await row.locator("[data-employee-action='deactivate']").click();
+
+  const dialog = page.locator("[data-admin-confirm='user-deactivate']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "停用员工" })).toBeVisible();
+  // 姓名＋邮箱、停用范围＋值同一行；影响与次要说明分行；默认取消提示不再渲染。
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("停用对象");
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("deactivate@amperetime.com");
+  await expect(dialog.locator(".admin-confirm-scope-line")).toContainText("停用范围");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("组织账号");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("无法登录");
+  await expect(dialog.locator("[data-admin-confirm-note]")).toContainText("保留");
+  await expect(dialog.locator("[data-admin-confirm-cancel-hint]")).toHaveCount(0);
+  const geometry = await dialog.locator(".admin-confirm").evaluate((el) => {
+    const personLine = el.querySelector("[data-admin-confirm-object]") as HTMLElement;
+    const mail = personLine.querySelector("span") as HTMLElement;
+    const scopeLine = el.querySelector(".admin-confirm-scope-line") as HTMLElement;
+    const token = parseFloat(getComputedStyle(el).getPropertyValue("--dialog-w-sm"));
+    return {
+      sameLine: Math.abs(personLine.querySelector("strong")!.getBoundingClientRect().top - mail.getBoundingClientRect().top) < 2,
+      personHeight: Math.round(personLine.getBoundingClientRect().height),
+      scopeHeight: Math.round(scopeLine.getBoundingClientRect().height),
+      width: Math.round(el.getBoundingClientRect().width),
+      tokenWidth: Math.round(token),
+    };
+  });
+  expect(geometry.sameLine).toBe(true);
+  expect(geometry.personHeight).toBeLessThan(28);
+  expect(geometry.scopeHeight).toBeLessThan(28);
+  expect(geometry.width).toBe(geometry.tokenWidth);
+  await expect(dialog.locator("[data-admin-confirm-cancel]")).toHaveText("取消");
+  await expect(dialog.locator("[data-admin-confirm-cancel]")).toBeFocused();
+
+  await dialog.locator("[data-admin-confirm-ok]").click();
+  await expect(dialog.locator("[data-admin-confirm-ok]")).toHaveText("停用中…");
+  await expect(dialog.locator("[data-admin-confirm-ok]")).toBeDisabled();
+  await expect(dialog.locator("[data-admin-confirm-cancel]")).toBeDisabled();
+  await expect.poll(() => Boolean(releasePatch)).toBe(true);
+  releasePatch?.();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => patches).toEqual([{ active: false }]);
+  await expect(row.locator("[data-employee-action='enable']")).toBeVisible();
+  await expect(page.locator(".governance-notice")).toContainText("已停用");
+});
+
+test("停用失败时确认卡保持打开并在卡内显示原因", async ({ page }) => {
+  const target = {
+    id: "usr_deactivate_fail", name: "失败对象", username: "deactivate-fail@amperetime.com", email: "deactivate-fail@amperetime.com",
+    site: "", position: "", brands: [], roles: ["employee"], active: true,
+  };
+  await page.route("**/api/admin/users", (route) => route.fulfill({ json: [target] }));
+  await page.route("**/api/admin/agents", (route) => route.fulfill({ json: { agents: [], units: [], people: [], skills: [], bases: [] } }));
+  await page.route("**/api/admin/users/usr_deactivate_fail", (route) => route.fulfill({ status: 500, json: { message: "账号服务暂不可用" } }));
+
+  await page.goto("/admin");
+  const row = page.locator("[data-employee-row='usr_deactivate_fail']");
+  await expect(row).toBeVisible();
+  await row.locator("[data-employee-action='deactivate']").click();
+  const dialog = page.locator("[data-admin-confirm='user-deactivate']");
+  await expect(dialog).toBeVisible();
+  await dialog.locator("[data-admin-confirm-ok]").click();
+  await expect(dialog.locator("[role='alert']")).toContainText("账号服务暂不可用");
+  await expect(dialog).toBeVisible();
+  await expect(page.locator(".governance-main .error")).toHaveCount(0);
+  await expect(dialog.locator("[data-admin-confirm-ok]")).toHaveText("确认停用");
+  await dialog.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toHaveCount(0);
+  await expect(row.locator("[data-employee-action='deactivate']")).toBeVisible();
+});

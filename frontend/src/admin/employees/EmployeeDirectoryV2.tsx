@@ -214,14 +214,16 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
     .map((agent) => `${agent.name}${agent.status === "published" ? "" : agent.status === "draft" ? "（草稿）" : "（停用）"}`);
   const changeActive = (user: Employee) => {
     const act = async () => {
-      try {
-        await api.adminSave(`/api/admin/users/${encodeURIComponent(user.id)}`, { active: user.active === false }, "PATCH");
-        setNotice(`${label(user)} 的账号已${user.active === false ? "启用" : "停用"}。`);
-        onReload();
-      } catch (cause) { setLoadError(cause instanceof Error ? cause.message : "账号操作失败"); }
+      await api.adminSave(`/api/admin/users/${encodeURIComponent(user.id)}`, { active: user.active === false }, "PATCH");
+      setNotice(`${label(user)} 的账号已${user.active === false ? "启用" : "停用"}。`);
+      onReload();
     };
-    if (user.active === false) void act();
-    else ask(userDeactivateConfirm(label(user), email(user)), act);
+    if (user.active === false) {
+      void act().catch((cause) => setLoadError(cause instanceof Error ? cause.message : "账号操作失败"));
+      return;
+    }
+    // 停用失败不落页面：异常交给确认卡显示，弹窗保持打开等待重试或取消。
+    ask(userDeactivateConfirm(label(user), email(user)), act);
   };
   return <section className="governance-workspace" data-admin-employees>
     <aside className="governance-rail">
@@ -246,7 +248,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
             <span>{names(user).join("、") || "—"}</span>
             <span>{user.position || "—"}</span>
             <span>{data ? agentNames(user).join("、") || "未绑定 Agent" : "读取中…"}</span>
-            <span className="governance-inline-actions"><button type="button" onClick={() => setEditing(user)}>编辑</button><button type="button" onClick={() => setManaging(user)}>管理绑定</button><button type="button" onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button></span>
+            <span className="governance-inline-actions"><button type="button" onClick={() => setEditing(user)}>编辑</button><button type="button" onClick={() => setManaging(user)}>管理绑定</button><button type="button" data-employee-action={user.active === false ? "enable" : "deactivate"} onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button></span>
           </div>)}
           {!visible.length && <p className="governance-empty">没有符合筛选条件的员工。</p>}
         </div>
