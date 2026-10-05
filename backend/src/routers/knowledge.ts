@@ -8,7 +8,7 @@ import { startDocument, publishedDocumentSourceFile } from "../host/knowledge-do
 import { scopedUser } from "../auth.js";
 import { assertRuntimeSkill } from "../runtime/execution.js";
 import { hasDocumentTool, documentDependencies } from "../runtime/document-knowledge.js";
-import { requireAdmin, requireSkill } from "../auth.js";
+import { requireAdmin, requireSkill,isAdmin } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
@@ -55,6 +55,7 @@ import {
   listVersions,
   proposeEvolve,
   publicKnowledge,
+  employeeKnowledge,
   questionTemplates,
   reviewProposal,
   reviewQueue,
@@ -171,7 +172,7 @@ knowledge.get("/knowledge/:id", (c) => {
   if (String(row.status) !== "published") {
     requireAdmin();
   }
-  return c.json(publicKnowledge(row));
+  return c.json(isAdmin()?publicKnowledge(row):employeeKnowledge(row));
 });
 knowledge.get("/knowledge", (c) => {
   const num = (value: string | undefined): number | undefined => {
@@ -347,12 +348,8 @@ knowledge.post("/admin/knowledge/:id/transfer", async (c) => {
   const body = (await c.req.json()) as { to_brand?: string };
   return c.json(transferBrand(c.req.param("id"), String(body.to_brand || "")));
 });
-knowledge.post("/admin/knowledge/:id/approve", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as Json;
-  const expected = body.expected_version == null ? null : Number(body.expected_version);
-  return c.json(approveKnowledge(c.req.param("id"), expected));
-});
+knowledge.post("/admin/knowledge/:id/approve", () => { throw new HttpFail(409,"请从当前知识提交审批，审批通过后独立发布"); });
 knowledge.post("/admin/knowledge/:id/archive", (c) => c.json(archiveKnowledge(c.req.param("id"))));
-knowledge.post("/admin/knowledge", async (c) => c.json(createKnowledge((await c.req.json()) as { title: string; body: string }), 201));
+knowledge.post("/admin/knowledge", async (c) => { const b=await c.req.json(); if(b.status && b.status!=="draft") throw new HttpFail(422,"新建只能保存草稿"); return c.json(createKnowledge({...b,status:"draft"}),201); });
 knowledge.put("/admin/knowledge/:id", async (c) => c.json(editKnowledge(c.req.param("id"), (await c.req.json()) as { title: string; body: string })));
 knowledge.delete("/admin/knowledge/:id", (c) => c.json(hardDeleteKnowledge(c.req.param("id"))));

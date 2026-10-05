@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, Navigate, useLocation } from "react-router-dom";
 import {
   KB_ADMIN_DEFAULT_PATH,
   KB_ADMIN_VIEW_LEAD,
@@ -7,6 +7,8 @@ import {
   type KbAdminView,
 } from "../knowledgeCopy";
 import { errorMessage } from "../admin/knowledge/shared";
+import {useAccount} from "../components/AuthGate";
+import {reviewCompany} from "../reviews/api";
 import CatalogView from "../admin/knowledge/CatalogView";
 import BaseView from "../admin/knowledge/BaseView";
 import EntryView from "../admin/knowledge/EntryView";
@@ -35,8 +37,10 @@ export function parseKnowledgePath(pathname: string): { view: KbAdminView; id: s
 
 export default function AdminKnowledge() {
   const location = useLocation();
+  const {account}=useAccount();
   const { view, id } = parseKnowledgePath(location.pathname);
-  if (view === "review") return <KnowledgeHome />;
+  if(view === "entry" && id) { const query=new URLSearchParams(location.search);query.set("mode","detail");query.set("assetType","entry");query.set("assetId",id);return <Navigate replace to={`/admin/knowledge?${query}`} />; }
+  if (view === "review") return <KnowledgeHome key={`${account?.id}:${reviewCompany()}`} />;
   return <SubViewHost view={view} id={id} />;
 }
 
@@ -66,18 +70,18 @@ function SubViewHost({ view, id }: { view: KbAdminView; id: string }) {
       ) : null}
       {error ? <p className="error" role="alert">{error}</p> : null}
 
-      <header className="admin-section-head">
+      {view !== "ingest" && <header className="admin-section-head">
         <div>
           <h2>{KB_ADMIN_VIEW_TITLE[view]}</h2>
           <p className="muted">{KB_ADMIN_VIEW_LEAD[view]}</p>
         </div>
-      </header>
+      </header>}
 
-      <p className="kbadmin-back">
+      {view !== "ingest" && <p className="kbadmin-back">
         <Link to={KB_ADMIN_DEFAULT_PATH} data-admin-kb-home-link className="kbadmin-action-link">
           ← 返回知识管理
         </Link>
-      </p>
+      </p>}
 
       {view === "catalog" ? <CatalogView notify={notify} fail={fail} /> : null}
       {view === "base" ? (

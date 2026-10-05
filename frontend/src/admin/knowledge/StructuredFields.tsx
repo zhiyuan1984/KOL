@@ -5,7 +5,7 @@ import { kindFields, kindSpec, listText, type Row } from "./shared";
  * 结构化字段输入：字段表来自 shared.ts 的 kind 单一来源
  * （与 config/knowledge-kinds.yaml 同步；待后端提供 kinds 接口后替换）。
  */
-export default function StructuredFields({ kind, defaults }: { kind: string; defaults?: Row }) {
+export default function StructuredFields({ kind, defaults,errors=[] }: { kind: string; defaults?: Row;errors?:{path:string;message:string}[] }) {
   const spec = kindSpec(kind);
   const fields = kindFields(kind);
   if (!spec) {
@@ -37,6 +37,7 @@ export default function StructuredFields({ kind, defaults }: { kind: string; def
               <span className="muted kbadmin-field-hint" data-admin-kb-structured-field={field.key}>
                 {field.key} · {field.type === "string_list" ? "字符串列表" : field.type === "longtext" ? "长文本" : "文本"}
               </span>
+              {errors.filter(e=>e.path===`structured:${field.key}`).map(e=><span key={e.path} className="error" data-field-error={e.path}>{e.message}</span>)}
             </label>
           );
         })}

@@ -6,23 +6,26 @@ export function ReviewForm({
   onChange,
   disabled = false,
   onUploadBusy,
+  preview = false,
 }: {
   fields: ReviewField[];
   values: Record<string, unknown>;
   onChange: (v: Record<string, unknown>) => void;
   disabled?: boolean;
   onUploadBusy?: (busy: boolean) => void;
+  /** Authoring previews must never upload or read formal attachments. */
+  preview?: boolean;
 }) {
   const set = (id: string, value: unknown) =>
     onChange({ ...values, [id]: value });
   return (
-    <div className="review-form">
+    <div className="review-form review-dynamic-fields">
       {fields.map((f) => (
-        <label key={f.id}>
+        <label key={f.id} data-review-field={f.id} className={["textarea", "attachment"].includes(f.type) ? "review-field-long" : undefined}>
           {f.label}
           {f.required ? " *" : ""}
           {f.type === "money" ? (
-            <span className="review-form">
+            <span className="review-money-input">
               <input
                 aria-label={`${f.label}金额`}
                 required={f.required}
@@ -70,6 +73,7 @@ export function ReviewForm({
               </select>
             </span>
           ) : f.type === "attachment" ? (
+            preview ? <span className="review-muted">附件上传区域（预览和路径试运行不上传文件）</span> :
             <AttachmentInput
               ids={
                 Array.isArray(values[f.id]) ? (values[f.id] as string[]) : []

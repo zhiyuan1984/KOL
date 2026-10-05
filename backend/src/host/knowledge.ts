@@ -543,9 +543,10 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
   };
 }
 
-function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean): Json[] {
+function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean, effectiveOnly = false): Json[] {
   const userId = knowledgeActorId();
-  const all = getConn().prepare(sql).all(...args) as Row[];
+  const raw = getConn().prepare(sql).all(...args) as Row[];
+  const all = effectiveOnly ? effectivePublishedRows(raw) : raw;
   const rows = filter ? all.filter(filter) : all;
   if (!rows.length) return [];
   const ids = rows.map((row) => String(row.id));
@@ -582,7 +583,7 @@ function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean): J
 
 export function listPublishedForOps(opts: KnowledgeListOpts = {}): Json[] {
   const filters = knowledgeListFilters(opts);
-  const rows = listed(filters.sql, filters.args, filters.filter);
+  const rows = listed(filters.sql, filters.args, filters.filter, true);
   const offset = Math.max(0, Number(opts.offset || 0) || 0);
   const limit = Math.max(0, Number(opts.limit == null ? 0 : opts.limit) || 0);
   if (!limit && !offset) return rows;
@@ -591,7 +592,7 @@ export function listPublishedForOps(opts: KnowledgeListOpts = {}): Json[] {
 
 export function listMarket(): Json[] {
   const filters = knowledgeListFilters({ inMarket: true });
-  return listed(filters.sql, filters.args, filters.filter);
+  return listed(filters.sql, filters.args, filters.filter, true);
 }
 
 export function brandMatched(row: Row, brands = actorBrands()): boolean {
@@ -1351,6 +1352,20 @@ function publishedSnapshot(row: Row, version?: number | null): Row {
   }
   return snapshot;
 }
+function effectivePublishedRow(row:Row):Row {
+  const snapshot=publishedSnapshot(row);
+  return {...row,...Object.fromEntries(Object.entries(snapshot).filter(([,v])=>v!=null)),id:row.id,current_version:snapshot.version};
+}
+function effectivePublishedRows(rows:Row[]):Row[] {
+  return rows.flatMap(row=>{try{return [effectivePublishedRow(row)];}catch(e){if(e instanceof HttpFail)return [];throw e;}});
+}
+/** Employee detail always resolves the effective snapshot, including while a newer draft exists. */
+export function employeeKnowledge(row:Row):Json {
+  if(row.status!=="published")throw new HttpFail(403,"未发布知识不可使用");
+  const effective=effectivePublishedRow(row);
+  if(!canSeeKnowledge(effective) || !brandMatched(effective))throw new HttpFail(404,"知识不存在或不可访问");
+  return publicKnowledge(effective);
+}
 
 function templateFromSnapshot(row: Row, snapshot: Row): UsableTemplate {
   const skill = String(snapshot.skill_id || "");
@@ -1701,7 +1716,8 @@ function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boolean } =
     return true;
   };
   return {
-    sql: `SELECT ${KNOWLEDGE_LIST_COLUMNS} FROM knowledge k ${TAXONOMY_JOIN} WHERE ${clauses.join(" AND ")} ORDER BY k.kind, k.title`,
+    sql: `SELECT ${KNOWLEDGE_LIST_COLUMNS} FROM knowledge k LEFT JOIN knowledge_versions pv ON pv.id=(SELECT v.id FROM knowledge_versions v WHERE v.knowledge_id=k.id AND v.version=k.published_version AND v.status='published' AND (v.note='approve' OR v.note='create' OR v.note LIKE 'seed %') ORDER BY v.created_at DESC,v.id DESC LIMIT 1)
+      ${TAXONOMY_JOIN.replace("b.id=k.base_id","b.id=COALESCE(pv.base_id,k.base_id)")} WHERE pv.id IS NOT NULL AND ${clauses.map(c=>c.replace(/\bk\.(title|body|tags|subject|body_en|kind|in_market)\b/g,"COALESCE(pv.$1,k.$1)")).join(" AND ")} ORDER BY COALESCE(pv.kind,k.kind),COALESCE(pv.title,k.title)`,
     args,
     filter,
   };
@@ -2039,7 +2055,7 @@ export function resolveForSkill(
   const stage = String(opts.stageCode || "").trim();
   const handle = viewerHandle(userId);
   const db = getConn();
-  const published = db.prepare("SELECT * FROM knowledge WHERE status='published'").all() as Row[];
+  const published = effectivePublishedRows(db.prepare("SELECT * FROM knowledge WHERE status='published'").all() as Row[]);
   const citedIds = new Set(
     (db.prepare("SELECT knowledge_id FROM knowledge_citations WHERE user_id=?").all(userId) as Row[])
       .map((row) => String(row.knowledge_id)),
@@ -2072,7 +2088,7 @@ export function resolveForSkill(
   const evaluated = new Set<string>();
   for (const binding of bindings) {
     for (const id of binding.selector.ids || []) {
-      const row = db.prepare("SELECT * FROM knowledge WHERE id=?").get(id) as Row | undefined;
+      let row = db.prepare("SELECT * FROM knowledge WHERE id=?").get(id) as Row | undefined;
       if (!row) {
         pushSkip({ knowledge_id: id, reason: "missing" });
         continue;
@@ -2084,6 +2100,7 @@ export function resolveForSkill(
         evaluated.add(id);
         continue;
       }
+      try{row=effectivePublishedRow(row);}catch(e){if(!(e instanceof HttpFail))throw e;pushSkip({knowledge_id:id,reason:"not_published"});evaluated.add(id);continue;}
       if (!bindingMatchesRow(binding.selector, row)) continue;
       const reason = gateReason(row);
       if (reason) {
@@ -2170,7 +2187,7 @@ export function resolvePreview(input: {
   const bindings: Json[] = bindingRows(skillId).map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
   const skipped: KnowledgeResolveSkip[] = [...result.skipped];
   const seen = new Set(skipped.map((entry) => `${entry.knowledge_id}:${entry.reason}`));
-  const published = getConn().prepare("SELECT * FROM knowledge WHERE status='published'").all() as Row[];
+  const published = effectivePublishedRows(getConn().prepare("SELECT * FROM knowledge WHERE status='published'").all() as Row[]);
   for (const binding of bindings) {
     if (Number(binding.enabled || 0)) continue;
     const selector = parseSelectorStored(binding.selector);

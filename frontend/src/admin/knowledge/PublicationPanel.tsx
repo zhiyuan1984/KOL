@@ -1,3 +1,4 @@
+import WorkspaceActions from "./WorkspaceActions";
 import LegacyPublicationPanel from "./LegacyPublicationPanel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -5,15 +6,15 @@ import type {
   KnowledgePublicationCommand,
   KnowledgePublicationOptions,
 } from "../../../../shared/knowledge-publication";
-import { reviewApi, reviewCompany } from "../../reviews/api";
+import { reviewApi, reviewCompany, ReviewApiError } from "../../reviews/api";
 import { ReviewForm } from "../../reviews/ReviewForm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { errorMessage, useKbData } from "./shared";
 import KbvIcon from "../../knowledgeIcons";
 
-const stateLabel: Record<string, string> = {
+export const stateLabel: Record<string, string> = {
   reviewing: "审批中",
-  approved: "审批通过 · 等待发布服务",
+  approved: "审批通过 · 等待发布",
   rejected: "审批已拒绝",
   withdrawn: "已撤回",
   blocked: "审批阻塞",
@@ -26,11 +27,18 @@ export default function PublicationPanel({
   id,
   notify,
   refreshDocument,
+  assetType = "document", mode = "detail", onInitiate, onSubmitted, onDirty,
 }: {
   id: string;
+  assetType?: "entry" | "document";
+  mode?: "detail" | "review";
+  onInitiate?: () => void;
+  onSubmitted?: () => void;
+  onDirty?: (dirty:boolean) => void;
   notify: (s: string) => void;
   refreshDocument: () => void;
 }) {
+  const resource = assetType === "entry" ? "entries":"documents";
   const [company, setCompany] = useState(reviewCompany);
   const [, setSearchParams] = useSearchParams();
   const publicationApi = useCallback(
@@ -41,9 +49,9 @@ export default function PublicationPanel({
   const load = useCallback(
     () =>
       publicationApi<KnowledgePublicationOptions>(
-        `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2`,
+        `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2`,
       ),
-    [id, publicationApi],
+    [id, resource, publicationApi],
   );
   const { data, error, loading, reload } = useKbData(load);
   const loadCompanies = useCallback(
@@ -72,6 +80,7 @@ export default function PublicationPanel({
   const template = data?.templates.find((t) => t.id === templateId);
   const p = data?.publication;
   const waiting = p?.status === "waiting";
+  useEffect(()=>{onDirty?.(mode==="review" && Boolean(releaseNote || Object.keys(values).length));},[mode,releaseNote,values,onDirty]);
   const lastState = useRef("");
   useEffect(() => {
     if (data?.templates.length === 1 && !templateId)
@@ -89,7 +98,7 @@ export default function PublicationPanel({
           reason: string;
           reviewers: string[];
         }>(
-          `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/check`,
+          `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/check`,
           {
             templateId: template.id,
             templateVersion: template.version,
@@ -127,7 +136,7 @@ export default function PublicationPanel({
     publicationApi,
   ]);
   useEffect(() => {
-    const state = p ? `${p.instanceId}:${p.status}` : "";
+    const state = p ? `${p.instanceId}:${p.status}:${p.reviewStatus}:${p.job?.status || ""}` : "";
     if (lastState.current && lastState.current !== state) refreshDocument();
     lastState.current = state;
     if (!waiting || loading || error || busy || confirm.open) return;
@@ -136,6 +145,8 @@ export default function PublicationPanel({
   }, [
     p?.instanceId,
     p?.status,
+    p?.reviewStatus,
+    p?.job?.status,
     waiting,
     loading,
     error,
@@ -167,7 +178,7 @@ export default function PublicationPanel({
           consequence: string;
         };
       }>(
-        `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/prepare`,
+        `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/prepare`,
         command,
       );
       const key = crypto.randomUUID();
@@ -189,7 +200,7 @@ export default function PublicationPanel({
             instanceId: string;
             tenant: string;
           }>(
-            `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/submit`,
+            `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/submit`,
             {
               command,
               confirmationId: prepared.confirmationId,
@@ -197,12 +208,15 @@ export default function PublicationPanel({
             },
           );
           notify(`已提交审批 · 回执 ${receipt.id}`);
+          onDirty?.(false);
+          onSubmitted?.();
           reload();
           refreshDocument();
         },
       );
     } catch (cause) {
       setActionError(errorMessage(cause));
+      if(cause instanceof ReviewApiError && typeof cause.detail!=="string" && cause.detail.issues?.length) { const field=document.getElementsByName(cause.detail.issues[0].path)[0] as HTMLElement|undefined; field?.focus(); }
     } finally {
       lock.current = false;
       setBusy(false);
@@ -210,45 +224,46 @@ export default function PublicationPanel({
   };
   const blocked =
     busy || confirm.open || loading || Boolean(error) || uploadBusy;
-  const recover = async () => {
+  const recover = async (operation: "publish" | "recovery" = "recovery") => {
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
     setActionError("");
     try {
       const r = await publicationApi<{ confirmationId: string; title: string }>(
-          `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/recovery/prepare`,
+          `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/${operation}/prepare`,
           {},
         ),
         key = crypto.randomUUID();
       confirm.ask(
         {
           kind: "knowledge-document-publish",
-          title: "确认恢复发布",
+          title: operation === "publish" ? "确认发布" : "确认恢复发布",
           object: r.title,
           scope: "已通过审批的原资料版本",
           consequence:
             "重新提交服务端发布作业；再次核对材料与授权，成功后该资料参与员工检索。",
-          confirmLabel: "确认恢复发布",
+          confirmLabel: operation === "publish" ? "确认发布" : "确认恢复发布",
           confirmTone: "work",
         },
         async () => {
           const receipt = await publicationApi<{ id: string }>(
-            `/admin/knowledge/documents/${encodeURIComponent(id)}/publication-v2/recovery/submit`,
+            `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/${operation}/submit`,
             { confirmationId: r.confirmationId, idempotencyKey: key },
           );
-          notify(`已提交发布恢复 · 回执 ${receipt.id}`);
+          notify(`${operation === "publish" ? "已提交发布" : "已提交发布恢复"} · 回执 ${receipt.id}`);
           reload();
         },
       );
     } catch (cause) {
       setActionError(errorMessage(cause));
+      if(cause instanceof ReviewApiError && typeof cause.detail!=="string" && cause.detail.issues?.length) { const field=document.getElementsByName(cause.detail.issues[0].path)[0] as HTMLElement|undefined; field?.focus(); }
     } finally {
       setBusy(false);
       lock.current = false;
     }
   };
-  if(data?.legacy) return <LegacyPublicationPanel id={id} updatedAt={data.legacy.updatedAt} reload={refreshDocument} />;
+  if(data?.legacy) return <LegacyPublicationPanel id={id} updatedAt={data.legacy.updatedAt} reload={refreshDocument} mode={mode} onInitiate={onInitiate} onSubmitted={onSubmitted} onDirty={onDirty} />;
   return (
     <section
       className="kbv-publication"
@@ -256,7 +271,7 @@ export default function PublicationPanel({
       aria-busy={busy || loading}
     >
       {confirm.dialog}
-      {(companies.data?.length || 0) > 1 && (
+      {mode === "review" && (companies.data?.length || 0) > 1 && (
         <label>
           当前组织
           <select
@@ -332,25 +347,28 @@ export default function PublicationPanel({
           >
             查看审批记录与处理入口 →
           </Link>
+          {p.canPublish && <WorkspaceActions><button className={confirm.open ? "btn":"btn work"} disabled={blocked} onClick={()=>void recover("publish")}>{busy ? "处理中…":"发布"}</button></WorkspaceActions>}
           {waiting &&
             p.reviewStatus === "approved" &&
             p.job &&
             ["failed", "uncertain", "cancelled"].includes(p.job.status) &&
             (
-              <button
+              <WorkspaceActions><button
                 className={confirm.open ? "btn" : "btn work"}
                 disabled={blocked}
                 onClick={() => void recover()}
               >
                 恢复发布
-              </button>
+              </button></WorkspaceActions>
             )}
         </div>
       )}
-      {data && !p && <p role="status">待提交审批</p>}
-      {data && !waiting && p?.status !== "published" && (
+      {data && !p && <p role="status">{data.submission?.allowed===false?data.submission.reason:"待提交审批"}</p>}
+      {mode === "detail" && data && !waiting && p?.status !== "published" && data.submission?.allowed!==false && <WorkspaceActions><button className="btn work" disabled={blocked || !data.intake.allowed} onClick={onInitiate}>提交审批</button></WorkspaceActions>}
+      {mode === "review" && data && !waiting && p?.status !== "published" && (
         <>
           {!data.intake.allowed && <p role="alert">{data.intake.reason}</p>}
+          {data.submission?.allowed===false && <p role="alert">{data.submission.reason}</p>}
           {!data.templates.length ? (
             <div className="kbv-document-notice" role="alert">
               <span>
@@ -426,7 +444,7 @@ export default function PublicationPanel({
               {check?.allowed && (
                 <p>当前评审人：{check.reviewers.join("、")}</p>
               )}
-              {(                  <button
+              {(<WorkspaceActions><button
                     type="button"
                     className={confirm.open ? "btn" : "btn work"}
                     data-kbv-doc-action="submit"
@@ -437,11 +455,12 @@ export default function PublicationPanel({
                       !check?.allowed ||
                       !template ||
                       !data.intake.allowed
+                      || data.submission?.allowed===false
                     }
                     onClick={() => void submit()}
                   >
                     {busy ? "检查中…" : "提交审批"}
-                  </button>
+                  </button></WorkspaceActions>
                 )}
             </>
           )}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
+import {reviewApi} from "../../reviews/api";
 import {
   knowledgeArchiveConfirm,
   knowledgeHardDeleteConfirm,
@@ -59,9 +60,15 @@ function fieldValue(source: Row | undefined, key: string, type: string): string 
 }
 
 /** 条目详情：这条知识的治理状态与影响面？—— 主行动按状态唯一渲染。 */
-export default function EntryView({ id, notify, fail }: KbFeed & { id: string }) {
+export default function EntryView({ id, notify, fail, maintenanceOnly=false }: KbFeed & { id: string;maintenanceOnly?:boolean }) {
   const { ask, dialog } = useAdminConfirm();
   const load = useCallback(async () => {
+    if(maintenanceOnly){
+      const detail=await reviewApi<{row:KbAssetRow;versions:VersionRow[];grants:{scope:string;scope_id:string}[];refs:string[]}>(`/admin/knowledge/workspace-v1/entries/${encodeURIComponent(id)}`);
+      const grants={org:[] as string[],team:[] as string[],user:[] as string[]};
+      for(const g of detail.grants)if(g.scope in grants)grants[g.scope as keyof typeof grants].push(g.scope_id);
+      return {row:detail.row,versions:detail.versions,refs:detail.refs,grants};
+    }
     const rows = await api.adminKnowledge();
     const row = (rows as KbAssetRow[]).find((item) => item.id === id) || null;
     if (!row) return { row: null, versions: [] as VersionRow[], grants: EMPTY_GRANTS, refs: [] as string[] };
@@ -72,7 +79,7 @@ export default function EntryView({ id, notify, fail }: KbFeed & { id: string })
     ]);
     const hit = assets.find((item) => item.id === id);
     return { row, versions, grants, refs: hit?.ref_skills || [] };
-  }, [id]);
+  }, [id,maintenanceOnly]);
   const { data, error, loading, reload } = useKbData(load, [id]);
 
   const [editing, setEditing] = useState(false);
@@ -218,15 +225,15 @@ export default function EntryView({ id, notify, fail }: KbFeed & { id: string })
     <>
       {dialog}
       {error && <p className="error" role="alert">{error}</p>}
-      <p className="admin-crumb">
+      {!maintenanceOnly && <p className="admin-crumb">
         <Link to="/admin/knowledge/catalog">知识目录</Link>
         {row.family_name ? <> / {row.family_name}</> : null}
         {row.domain_name ? <> / {row.domain_name}</> : null}
         {row.base_id ? <> / <Link to={basePath(row.base_id)}>{row.base_name || row.base_id}</Link></> : null}
         {" / "}{row.title}
-      </p>
+      </p>}
 
-      <article className="panel" data-admin-kb-entry-meta>
+      {!maintenanceOnly && <article className="panel" data-admin-kb-entry-meta>
         <div className="admin-section-head">
           <div>
             <h2>{row.title}</h2>
@@ -414,7 +421,7 @@ export default function EntryView({ id, notify, fail }: KbFeed & { id: string })
         <p className="muted admin-note">
           归档与删除是不同副作用：归档只从解析与员工面移除，彻底删除只对未发布草稿开放。
         </p>
-      </article>
+      </article>}
 
       <article className="panel" data-admin-kb-versions>
         <div className="admin-section-head">
@@ -462,7 +469,7 @@ export default function EntryView({ id, notify, fail }: KbFeed & { id: string })
                   onClick={() => ask(
                     knowledgeRollbackConfirm(row.title, rowVersion, number),
                     () => run(
-                      () => api.adminKnowledgeRollback(row.id, number),
+                      () => maintenanceOnly ? reviewApi(`/admin/knowledge/workspace-v1/entries/${encodeURIComponent(row.id)}/rollback`,{version:number,expectedRevision:row.updated_at}) : api.adminKnowledgeRollback(row.id, number),
                       `已按第 ${number} 版生成新草稿；需重新审批后才对员工生效。`,
                     ),
                   )}
