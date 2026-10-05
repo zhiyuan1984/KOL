@@ -156,7 +156,10 @@ export function findUserForLogin(raw: string): Row | undefined {
     const rows = db.prepare("SELECT * FROM users WHERE phone IS NOT NULL AND trim(phone) != '' AND active = 1").all() as Row[];
     return rows.find((row) => normalizePhone(String(row.phone || "")) === phone);
   }
-  return undefined;
+  // 姓名登录（2026-10-05，用户要求叶观旺等同事也能登录）：邮箱/手机/账号都匹配不到时，
+  // 按展示姓名精确匹配（大小写不敏感）；同名不唯一则不生效，避免误登入他人账号。
+  const byName = db.prepare("SELECT * FROM users WHERE lower(trim(name)) = lower(?) AND active = 1").all(ident) as Row[];
+  return byName.length === 1 ? byName[0] : undefined;
 }
 
 function seedDemoAdminContact(db: ReturnType<typeof getConn>, userId: string): void {

@@ -94,20 +94,33 @@ describe("admin identity and Starry mailbox bind", () => {
     }
   });
 
-  it("keeps 鄢棽's name login as an alias to his own account after the handover", async () => {
+  it("logs in by unique display name after account/email/phone lookup", async () => {
     const { hashPassword } = await import("../src/auth.js");
-    getConn().prepare(
+    const insert = getConn().prepare(
       `INSERT INTO users (id,username,name,password_hash,roles,brands,active,email,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run("sriphy", "sriphy", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee", "admin"]), "[]", 1, "sriphy.yan@amperetime.com", "now", "now");
-    for (const ident of ["鄢棽", "sriphy", "sriphy.yan@amperetime.com"]) {
+    );
+    insert.run("sriphy", "sriphy", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee", "admin"]), "[]", 1, "sriphy.yan@amperetime.com", "now", "now");
+    insert.run("usr_org_ye_guanwang", "robertson.ye@amperetime.com", "叶观旺", await hashPassword("123456789"), JSON.stringify(["employee"]), "[]", 1, "robertson.ye@amperetime.com", "now", "now");
+    const cases: Array<[string, string]> = [
+      ["鄢棽", "sriphy"],
+      ["sriphy", "sriphy"],
+      ["sriphy.yan@amperetime.com", "sriphy"],
+      ["叶观旺", "usr_org_ye_guanwang"],
+      ["robertson.ye@amperetime.com", "usr_org_ye_guanwang"],
+    ];
+    for (const [ident, expected] of cases) {
       const login = await call("POST", "/api/auth/login", { email: ident, password: "123456789" }, "");
       expect(login.status, ident).toBe(200);
       const status = await call("GET", "/api/auth/status", undefined, login.cookie);
-      const user = status.json.user as Json;
-      expect(user.username).toBe("sriphy");
-      expect(user.name).toBe("鄢棽");
+      expect((status.json.user as Json).id).toBe(expected);
     }
+    // 同名不唯一时姓名登录不生效（防止误登入他人账号），账号/邮箱路径不受影响。
+    insert.run("usr_dup_name", "dup_name", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee"]), "[]", 1, "", "now", "now");
+    const ambiguous = await call("POST", "/api/auth/login", { email: "鄢棽", password: "123456789" }, "");
+    expect(ambiguous.status).toBe(401);
+    const stillById = await call("POST", "/api/auth/login", { email: "sriphy", password: "123456789" }, "");
+    expect(stillById.status).toBe(200);
   });
 
   it("binds larry.zhao without echoing the JWT and scopes the home board", async () => {
