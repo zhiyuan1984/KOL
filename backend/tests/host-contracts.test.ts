@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { BRAND_MAILBOXES } from "../src/config.js";
+import { BRAND_MAILBOXES, DEMO_ADMIN } from "../src/config.js";
 import { getConn, listAudit, resetConn, tx } from "../src/db.js";
 import { seedAll, seedIfEmpty } from "../src/seed.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
@@ -590,7 +590,7 @@ describe("host contracts", () => {
     seedIfEmpty();
     const me = await (await request("GET", "/api/me")).json();
     expect((me as Json).exam_passed).toBe(true);
-    expect(me.handle).toBe("sriphy");
+    expect(me.handle).toBe(DEMO_ADMIN.handle);
   });
 
   it("one-click translation returns the model-produced internal Chinese draft", async () => {
@@ -876,7 +876,7 @@ describe("host contracts", () => {
     expect(denied.status).toBe(403);
     const bad = await request("POST", "/api/login", { username: "test", password: "123456789" });
     expect(bad.status).toBe(401);
-    const auth = await request("POST", "/api/login", { username: "鄢棽", password: "123456789" });
+    const auth = await request("POST", "/api/login", { username: DEMO_ADMIN.name, password: "123456789" });
     expect(auth.status, await auth.text()).toBe(200);
     const put = await request("PUT", "/api/skills/creator_discovery/sop", {
       summary: "测试改过的达人发现摘要",

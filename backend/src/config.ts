@@ -269,8 +269,8 @@ export type Persona = {
 export const PERSONAS: Record<string, Persona> = {
   sriphy: {
     id: "sriphy",
-    name: "鄢棽",
-    handle: "sriphy",
+    name: "黄启友",
+    handle: "jeffrey",
     site: "深圳站",
     role: "operator",
     exam_passed: true,
@@ -279,8 +279,8 @@ export const PERSONAS: Record<string, Persona> = {
   },
   exam_blocked: {
     id: "sriphy",
-    name: "鄢棽",
-    handle: "sriphy",
+    name: "黄启友",
+    handle: "jeffrey",
     site: "深圳站",
     role: "operator",
     exam_passed: false,
@@ -289,8 +289,10 @@ export const PERSONAS: Record<string, Persona> = {
   },
   permission_blocked: {
     id: "sriphy",
-    name: "鄢棽",
-    handle: "sriphy",
+    // “无发信权”演示身份不能取名「黄启友」：该姓名会命中 department_head_scope_policy 的
+    // 公司级全品牌授权，品牌范围永远拦不住 blocked_permission 演示（2026-10-05 登录账户切换后修正）。
+    name: "受限演示账号",
+    handle: "jeffrey",
     site: "深圳站",
     role: "operator",
     exam_passed: true,
@@ -311,11 +313,11 @@ export const PERSONAS: Record<string, Persona> = {
 
 export const DEMO_USER = PERSONAS.sriphy;
 
-/** Product-manager / first admin. Handle stays sriphy; email and phone are login aliases. */
+/** Product-manager / first admin. The handle is the login username; email and phone are login aliases. */
 export const DEMO_ADMIN = {
-  name: "鄢棽",
-  handle: "sriphy",
-  email: "sriphy.yan@amperetime.com",
+  name: "黄启友",
+  handle: "jeffrey",
+  email: "jeffrey.huang@amperetime.com",
   phone: (process.env.DEMO_ADMIN_PHONE || "").trim(),
   password: "123456789",
   role: "product_manager" as const,

@@ -8,6 +8,7 @@ import { canDecideCurrent, employeeForUser } from "../src/approval/inbox.js";
 import { createWorkApproval } from "../src/gateway/wecom.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { DEMO_ADMIN } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
@@ -85,7 +86,7 @@ describe("approval inbox by login name", () => {
     expect(employeeForUser({ name: "财务负责人", username: "finance" })?.id).toBe("emp_finance");
     expect(employeeForUser({ name: "张总", username: "zhang" })?.id).toBe("emp_zhang");
     expect(employeeForUser({ name: "林桐", username: "lintong" })?.id).toBe("emp_lintong");
-    expect(employeeForUser({ name: "鄢棽", username: "sriphy" })).toBeNull();
+    expect(employeeForUser({ name: DEMO_ADMIN.name, username: DEMO_ADMIN.handle })).toBeNull();
   });
 
   it("lets 王主管 / 财务负责人 / 张总 see the bill only when it is their turn", async () => {

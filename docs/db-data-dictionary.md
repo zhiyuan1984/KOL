@@ -93,7 +93,7 @@
 
 | 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
 |---|---|---|---|---|
-| `id` | TEXT | 主键，非空 | 用户 ID | 用户唯一标识，管理端新建时用 `nid("usr")` 生成（`usr_` 前缀）；演示/固定账号为 `sriphy`、`usr_lead`、`usr_lingong`。 |
+| `id` | TEXT | 主键，非空 | 用户 ID | 用户唯一标识，管理端新建时用 `nid("usr")` 生成（`usr_` 前缀）；演示/固定账号为 `sriphy`、`usr_lead`、`usr_lingong`；2026-10-05 起演示管理员登录账号为黄启友（`usr_org_huang_qiyou` / `jeffrey`）。 |
 | `username` | TEXT | 非空，唯一 | 登录账号 | 登录用账号名（小写，正则 `^[a-z0-9._@-]{3,100}$`），也可写成邮箱形式；由 `/auth/setup`、`POST /admin/users` 写入，`ensureDemoAdmin()` 会把遗留的 `test` 改成演示管理员 handle。 |
 | `name` | TEXT | 非空 | 姓名 | 界面展示姓名；`PATCH /me`、`PATCH /admin/users/:uid` 可改。 |
 | `password_hash` | TEXT | 非空 | 口令散列 | scrypt 散列，格式 `scrypt$<base64 盐>$<base64 密钥>`（`backend/src/auth.ts`）；设置/改密时写入，明文不落库。 |

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "status": "confirmed",
-  "revision": "2026-10-03 员工档案卡刷新（18 张卡 + 2 张头像，D:/项目/KOL/employee）：更正 钟剑奎/刁楚聪 姓名、钟剑奎 职务为广告投放主管、组织名 数智中心→数字智能中心、PQ-RO-TB 组负责人为钟剑奎；补 研究院/数字智能中心 分支与广告投放部；补 邮箱、工号、入职时间；人员由 14 人增至 19 人",
+  "revision": "2026-10-03 员工档案卡刷新（18 张卡 + 2 张头像，D:/项目/KOL/employee）：更正 钟剑奎/刁楚聪 姓名、钟剑奎 职务为广告投放主管、组织名 数智中心→数字智能中心、PQ-RO-TB 组负责人为钟剑奎；补 研究院/数字智能中心 分支与广告投放部；补 邮箱、工号、入职时间；人员由 14 人增至 19 人；2026-10-05 登录账户从鄢棽（sriphy）切换为黄启友（jeffrey，login 账号 jeffrey.huang@amperetime.com）：黄启友获得鄢棽原有邮箱与权限（见 agent_bindings 追加），鄢棽侧保留",
   "companies": [
     {
       "id": "company:amperetime",
@@ -34,6 +34,13 @@
       "target_id": "person:yan_chen",
       "reason": "用户 2026-10-03：当前登录账号鄢棽使用 kol agent（试点绑定）",
       "source": "user-confirmed 2026-10-03"
+    },
+    {
+      "agent_id": "agent:kol",
+      "target_type": "person",
+      "target_id": "person:huang_qiyou",
+      "reason": "用户 2026-10-05：登录账户从鄢棽切换为黄启友；黄启友获得鄢棽原有的全部邮箱与权限（复制，鄢棽保留）",
+      "source": "user-confirmed 2026-10-05"
     },
     {
       "agent_id": "agent:workspace-planner",
@@ -97,6 +104,7 @@
       "title": "数字化VP",
       "org_unit": "org:digital_intelligence_center",
       "user_ref": null,
+      "account_username": "jeffrey",
       "email": "jeffrey.huang@amperetime.com",
       "avatar": "employees/huang_qiyou.png",
       "employee_no": "0987",

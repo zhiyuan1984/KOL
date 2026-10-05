@@ -11,7 +11,7 @@ import { request, type FullConfig } from "@playwright/test";
  */
 export default async function globalSetup(config: FullConfig): Promise<void> {
   const baseURL = String(config.projects[0]?.use?.baseURL || process.env.E2E_BASE || "http://127.0.0.1:8876");
-  const username = process.env.E2E_TEST_USERNAME || "sriphy";
+  const username = process.env.E2E_TEST_USERNAME || "jeffrey";
   const password = process.env.E2E_TEST_PASSWORD || "123456789";
   const authFile = process.env.E2E_AUTH_STATE
     || path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || os.tmpdir(), "lingong-e2e-auth", "user.json");
