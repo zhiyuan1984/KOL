@@ -163,6 +163,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
   test(`layout and actions visible at ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
     await page.setViewportSize(viewport);
     const s = await surface(page);
+    await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();
     if (viewport.width < 1100) await page.locator('[data-kbv-doc-action="submit"]').scrollIntoViewIfNeeded();
     await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeInViewport();
     await expect(page.locator("[data-kbv-upload]")).toBeInViewport();
@@ -214,6 +215,7 @@ test("existing publication records preserve readonly preflight and confirmed sub
 test("reference structure keeps desktop rows inline and all document actions in the body", async ({page},info)=>{
   await page.setViewportSize({width:1800,height:1000});
   await surface(page);
+  await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();
   await expect(page.getByRole("heading",{name:"NETC-50160116-A5-102储能型产品规格书",exact:true})).toBeVisible();
   await expect(page.locator(".kbv-document-body [data-kbv-doc-action=submit]")).toHaveCount(1);
   await expect(page.locator(".kbv-document-foot")).toHaveCount(0);

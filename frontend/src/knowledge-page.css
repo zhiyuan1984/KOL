@@ -1710,3 +1710,31 @@
 @media (min-width: 1101px) {
   .kbv-filter-browser .kbv-workspace { grid-template-columns: minmax(var(--left-width), 26%) minmax(0, 1fr); }
 }
+/* 用户指定图2的中/右栏视觉比例；只覆盖知识页，不改变全局字阶。 */
+#root .workbench .kbv-filter-browser :is(.kbv-chip,.kbv-filter-section > summary,.kbv-search input,.kbv-browser-record,.kbv-browser-record-meta,.kbv-browser-list-head,.kbv-pagination,.kbv-text-action) { font-size: var(--ds-font-block-title) !important; line-height: var(--ds-line-block-title); }
+#root .workbench .kbv-filter-browser .kbv-chip small { font-size: var(--ds-font-section) !important; }
+#root .workbench .kbv-filter-browser h2.kbv-document-title { font-size: var(--ds-font-title) !important; line-height: var(--ds-line-title); }
+#root .workbench .kbv-filter-browser .kbv-document-body,
+#root .workbench .kbv-filter-browser .kbv-document-body :is(p,a,label,summary,textarea,input,select,.btn) { font-size: var(--ds-font-block-title) !important; line-height: var(--ds-line-block-title); }
+.kbv-filter-browser .kbv-filter-section > summary { min-height: var(--control-h-lg); }
+.kbv-filter-browser .kbv-chip { min-height: var(--control-h-lg); }
+.kbv-filter-browser .kbv-search { height: calc(var(--control-h-lg) + var(--space-5)); }
+.kbv-filter-browser .kbv-browser-record { min-height: calc(var(--control-h-lg) + var(--space-5) + var(--space-3)); }
+.kbv-filter-browser .kbv-document-body { padding: calc(var(--space-5) + var(--space-3)); }
+.kbv-filter-browser .kbv-publication-flow > summary { min-height: var(--control-h-lg); }
+.kbv-filter-browser .kbv-publication .btn { min-height: calc(var(--control-h-lg) + var(--space-3)); padding-inline: var(--space-5); }
+.kbv-filter-browser .kbv-release-note textarea { min-height: calc(var(--control-h-lg) * 2 + var(--space-4)); }
+@media (max-width: 1100px), (max-height: 700px) {
+  #root .workbench .kbv-filter-browser :is(.kbv-chip,.kbv-filter-section > summary,.kbv-search input,.kbv-browser-record,.kbv-browser-record-meta,.kbv-browser-list-head,.kbv-pagination,.kbv-text-action) { font-size: var(--ds-font-sm) !important; line-height: var(--ds-line-sm); }
+  #root .workbench .kbv-filter-browser .kbv-document-body :is(p,a,label,summary,textarea,input,select,.btn) { font-size: var(--ds-font-body) !important; line-height: var(--ds-line-body); }
+  #root .workbench .kbv-filter-browser h2.kbv-document-title { font-size: var(--ds-font-block-title) !important; line-height: var(--ds-line-block-title); }
+  .kbv-filter-browser .kbv-document-body { padding: var(--space-3) var(--space-4); }
+  .kbv-filter-browser .kbv-search { height: var(--control-h-lg); }
+}
+#root .workbench .kbv-filter-browser span { font-size: inherit !important; }
+#root .workbench .kbv-filter-browser :is(.kbv-document-path,.kbv-document-notice,.kbv-document-source h3) { font-size: var(--ds-font-block-title) !important; line-height: var(--ds-line-block-title); }
+@media (max-width: 1100px), (max-height: 700px) {
+  #root .workbench .kbv-filter-browser :is(.kbv-document-path,.kbv-document-notice,.kbv-document-source h3) { font-size: var(--ds-font-body) !important; line-height: var(--ds-line-body); }
+}
+.kbv-filter-browser .kbv-release-note textarea { max-width: calc(var(--workspace-result-rail-min) + var(--space-5) * 2); }
+.kbv-filter-browser .kbv-publication [data-kbv-doc-action="submit"] { margin-inline-start: calc(4em + var(--space-4)); }
