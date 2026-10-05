@@ -114,6 +114,7 @@ jobs:
             e2e/home-followed-legacy-projection.spec.ts
             e2e/home-followed-focus.spec.ts
             e2e/home-surface-failure.spec.ts
+            e2e/discovery-presentation.spec.ts
             e2e/home-followed-rail-layout.spec.ts
             e2e/review-workflow.spec.ts
         run: |
