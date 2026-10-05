@@ -16,7 +16,7 @@ type Props = {
   loading: boolean;
 };
 
-/** 右栏浏览区：固定五条结果、一次总数和分页；详情由同栏下方承接。 */
+/** 右栏浏览区：平面分页列表；点击条目在工作区原位进入详情。 */
 export default function LibraryPane({
   rows, totalCount, page, pageCount, selectedId, onSelect, onPrevious, onNext, loading,
 }: Props) {
@@ -76,10 +76,10 @@ function RecordRow({ row, selected, onSelect }: {
       aria-current={selected}
       onClick={() => onSelect(row.id)}
     >
-      <span className="kbv-record-heading"><span className="kbv-record-icon"><KbvIcon name={row.asset_type === "document" ? "pdf" : "book"} /></span><span className="kbv-record-title">{row.title}</span></span>
+      <span className="kbv-record-heading"><span className="kbv-record-icon"><KbvIcon name={row.asset_type === "document" ? "pdf" : "book"} /></span><span className="kbv-record-title" title={row.title}>{row.title}</span></span>
       <span className="kbv-browser-record-meta">
         <span className="kbv-record-kind">{row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind)}</span>
-        <span className={`kbv-status ${statusClass}`}>{row.asset_type === "document" ? row.publication_label || kbDocStatusLabel(status) : statusLabel(status)}</span>
+        <span className={`kbv-status ${statusClass}`}>{row.asset_type === "document" ? row.publication_label || kbDocStatusLabel(status) : row.publication_label || statusLabel(status)}</span>
         {row.updated_at ? <span className="kbv-record-date">{kbDateOnly(row.updated_at)}</span> : null}
       </span>
     </button>

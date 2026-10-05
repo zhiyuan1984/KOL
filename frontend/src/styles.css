@@ -10901,8 +10901,7 @@ button.today-brief-primary-btn:disabled {
   user-select: all;
 }
 
-/* ============================================================
-   今日任务 vivid pink redesign (mockup pass)
+/* =====================================================   今日任务 vivid pink redesign (mockup pass)
    ============================================================ */
 :root[data-theme="dark"] {
   --color-page-bg: #101216;
@@ -15956,3 +15955,12 @@ button.today-brief-primary-btn:disabled {
   .review-template-table th, .review-template-table td { padding-inline:var(--space-1); }
 }
 @container (max-width:479px) { .review-branches { grid-template-columns:minmax(0,1fr); } }
+/* DESIGN §5.1: knowledge workspace only; global navigation is unchanged. */
+.kbv-filter-browser {
+  --knowledge-font-title:18px;
+  --knowledge-font-body:14px;
+  --knowledge-font-meta:13px;
+  --knowledge-filter-width:260px;
+  --knowledge-action:var(--accent-text);
+  --knowledge-action-hover:var(--accent-hover);
+}

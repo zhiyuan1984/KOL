@@ -1378,6 +1378,7 @@ export type KnowledgeRow = {
   stage_codes?: string[];
   status?: string;
   current_version?: number;
+  published_version?: number | null;
   cited?: boolean;
   deprecated?: boolean;
   deprecate_reason?: string;
@@ -1391,6 +1392,7 @@ export type KnowledgeRow = {
   updated_at?: string;
   created_by?: string;
   approved_at?: string;
+  expires_at?: string;
   /** 分类与库（2026-10-01 契约）：族 → 域 → 库，分类不承载权限。 */
   base_id?: string;
   base_code?: string;
@@ -1461,6 +1463,7 @@ export type KnowledgeDocumentRow = {
   base_id: string;
   base_name?: string;
   publication_label?: string;
+  current_version?: number;
   title: string;
   filename: string;
   media_type: string;
@@ -1478,6 +1481,7 @@ export type KnowledgeDocumentRow = {
 };
 
 export type KnowledgeDocumentDetail = {
+  actions?: {edit:boolean;start:boolean;retry:boolean;cancel:boolean;revision:boolean};
   document: KnowledgeDocumentRow;
   base: {
     id: string;
@@ -1621,6 +1625,7 @@ async function readJson(response: Response): Promise<unknown> {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { optional, ...init } = options;
   const headers = new Headers(init.headers);
+  if(path.startsWith("/api/admin/knowledge") && typeof window!=="undefined") { const company=new URLSearchParams(window.location.search).get("reviewCompany") || sessionStorage.getItem("review.company");if(company)headers.set("X-Review-Company",company); }
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const signals = [init.signal, AbortSignal.timeout(45_000)].filter(Boolean) as AbortSignal[];
   let response: Response;
@@ -2852,11 +2857,27 @@ export const api = {
   },
   adminKnowledgeDocument: (id: string) =>
     request<KnowledgeDocumentDetail>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`),
-  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false) => {
+  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false, onProgress?: (percent: number | null) => void) => {
     const form = new FormData();
     form.append("base_id", baseId);
     form.append("draft", String(draft));
     form.append("file", file);
+    if (onProgress) return new Promise<{ document: KnowledgeDocumentRow }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/admin/knowledge/documents");
+      xhr.timeout = 45_000;
+      xhr.upload.onprogress = event => onProgress(event.lengthComputable ? Math.round(event.loaded / event.total * 100) : null);
+      xhr.onerror = () => reject(httpError(0, null, "上传连接中断，结果尚未确认；请刷新资料列表核对后再重试"));
+      xhr.ontimeout = () => reject(httpError(0, null, "上传请求超时，结果尚未确认；请刷新资料列表核对后再重试"));
+      xhr.onload = () => {
+        try {
+          const body = JSON.parse(xhr.responseText);
+          if (xhr.status < 200 || xhr.status >= 300) reject(httpError(xhr.status, body));
+          else resolve(body);
+        } catch { reject(httpError(xhr.status >= 400 ? xhr.status : 502)); }
+      };
+      xhr.send(form);
+    });
     return request<{ document: KnowledgeDocumentRow }>("/api/admin/knowledge/documents", { method: "POST", body: form });
   },
   adminKnowledgeDocumentAction: (id: string, action: "start" | "retry" | "cancel" | "reprocess" | "publish" | "archive") =>

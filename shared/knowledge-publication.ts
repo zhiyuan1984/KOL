@@ -3,6 +3,12 @@ export type KnowledgePublication = {
   tenant: string;
   instanceId: string;
   documentId: string;
+  assetType?: "entry" | "document";
+  assetId?: string;
+  version?: number;
+  content?: { body: string; structured: Record<string, unknown>; title: string; kind: string };
+  releaseMode?: "automatic" | "manual";
+  canPublish?: boolean;
   title: string;
   filename: string;
   fingerprint: string;
@@ -17,6 +23,7 @@ export type KnowledgePublication = {
   updatedAt: string;
 };
 export type KnowledgePublicationOptions = {
+  submission?:{allowed:boolean;reason:string};
   legacy?: { updatedAt: string };
   tenant: string;
   templates: { id: string; version: number; definition: ReviewDefinition }[];
