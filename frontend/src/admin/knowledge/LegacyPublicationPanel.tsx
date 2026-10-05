@@ -5,7 +5,7 @@ import { ReviewForm } from "../../reviews/ReviewForm";
 import { reviewApi, type ReviewContext } from "../../reviews/api";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 
-type State = {
+export type LegacyPublicationState = {
   tenant:string;label?:string;base_id:string;version:number;review_status:string;publication_status:string;
   blocking_reason:string;allowed_actions:string[];instance_id:string|null;error:string|null;attempts:number;
   binding:{template_id:string;version:number;name:string}|null;
@@ -15,7 +15,7 @@ function commandKey() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)),b => b.toString(16).padStart(2,"0")).join("");
 }
 export default function LegacyPublicationPanel({id,updatedAt,reload}:{id:string;updatedAt:string;reload:()=>void}) {
-  const [state,setState]=useState<State>(),[ctx,setCtx]=useState<ReviewContext>(),[templates,setTemplates]=useState<ReviewTemplate[]>([]);
+  const [state,setState]=useState<LegacyPublicationState>(),[ctx,setCtx]=useState<ReviewContext>(),[templates,setTemplates]=useState<ReviewTemplate[]>([]);
   const [note,setNote]=useState(""),[chosen,setChosen]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const [values,setValues]=useState<Record<string, unknown>>({});
   const [uploadBusy,setUploadBusy]=useState(false);
@@ -28,11 +28,11 @@ export default function LegacyPublicationPanel({id,updatedAt,reload}:{id:string;
   },[id,note,values,state?.binding?.version,state?.allowed_actions.join(","),checkVersion]);
   useEffect(()=>{setValues({});},[state?.binding?.template_id,state?.binding?.version]);
   const confirm=useAdminConfirm();
-  async function load() { setState(await reviewApi<State>(`/admin/knowledge/documents/${id}/publication`)); }
+  async function load() { setState(await reviewApi<LegacyPublicationState>(`/admin/knowledge/documents/${id}/publication`)); }
   useEffect(() => {
     let live=true;
     setState(undefined);setError("");setNote("");setValues({});
-    Promise.all([reviewApi<State>(`/admin/knowledge/documents/${id}/publication`),reviewApi<ReviewContext>("/approvals/v2/context"),reviewApi<ReviewTemplate[]>("/admin/approval-types/v2/templates")])
+    Promise.all([reviewApi<LegacyPublicationState>(`/admin/knowledge/documents/${id}/publication`),reviewApi<ReviewContext>("/approvals/v2/context"),reviewApi<ReviewTemplate[]>("/admin/approval-types/v2/templates")])
       .then(([s,c,t])=>{if(live){setState(s);setCtx(c);setTemplates(t.filter(x=>x.definition.subjectType==="knowledge_publication" && x.publishedVersion && x.enabled!==false));}})
       .catch(e=>{if(live)setError(e.message);});
     return ()=>{live=false;};
@@ -40,7 +40,7 @@ export default function LegacyPublicationPanel({id,updatedAt,reload}:{id:string;
   useEffect(()=>{
     if(!state || !["reviewing","awaiting_amendment","approved"].includes(state.review_status) || state.publication_status==="published")return;
     let live=true;
-    const timer=setInterval(()=>{reviewApi<State>(`/admin/knowledge/documents/${id}/publication`).then(s=>{if(live)setState(s);if(s.publication_status==="published")reload();}).catch(e=>{if(live)setError(e.message);});},3000);
+    const timer=setInterval(()=>{reviewApi<LegacyPublicationState>(`/admin/knowledge/documents/${id}/publication`).then(s=>{if(live)setState(s);if(s.publication_status==="published")reload();}).catch(e=>{if(live)setError(e.message);});},3000);
     return ()=>{live=false;clearInterval(timer);};
   },[id,state?.review_status,state?.publication_status]);
   async function run(action:()=>Promise<unknown>){setBusy(true);setError("");try{await action();await load();reload();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
@@ -75,7 +75,7 @@ export default function LegacyPublicationPanel({id,updatedAt,reload}:{id:string;
       {!ctx?.admin && state.blocking_reason && <p>请联系有流程管理资格的管理员配置。</p>}
       {state.allowed_actions.includes("submit") && <><label className="kbv-release-note">发布说明<textarea maxLength={2000} value={note} onChange={e=>setNote(e.target.value)} /></label><fieldset disabled={busy}><ReviewForm fields={state.fields || []} values={values} onChange={setValues} onUploadBusy={setUploadBusy} /></fieldset>{checking && <p role="status">正在检查评审人与材料版本…</p>}{check && !check.allowed && <div className="kbv-document-notice" role="alert"><span>{check.reason}</span><button className="kbv-text-action" onClick={()=>setCheckVersion(v=>v+1)} disabled={busy || checking}>重新检查</button></div>}{check?.allowed && <p>当前评审人：{check.reviewers.join("、")}</p>}{(<button className={confirm.open?"btn":"btn work"} data-kbv-doc-action="submit" disabled={busy || uploadBusy || checking || !check?.allowed || !note.trim()} onClick={()=>void submit()}>提交审批</button>)}</>}
       {state.allowed_actions.includes("publish_approved") && <>
-        <p>审批已通过，可以立即发布；无需重新解析。</p>
+        <p>审批已通过，系统已安排自动发布。可立即执行已批准版本；无需重新解析。</p>
         <button className="btn" disabled={busy} onClick={()=>confirm.ask({kind:"approval-initiate",title:"确认发布",object:`资料版本 v${state.version}`,scope:"当前知识库",
           consequence:"此版本发布后可供员工问答使用。",confirmLabel:"确认发布",confirmTone:"primary"},async()=>{
             setBusy(true);try { await reviewApi(`/admin/knowledge/documents/${id}/publication-execute`,{}); }

@@ -2852,11 +2852,27 @@ export const api = {
   },
   adminKnowledgeDocument: (id: string) =>
     request<KnowledgeDocumentDetail>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`),
-  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false) => {
+  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false, onProgress?: (percent: number | null) => void) => {
     const form = new FormData();
     form.append("base_id", baseId);
     form.append("draft", String(draft));
     form.append("file", file);
+    if (onProgress) return new Promise<{ document: KnowledgeDocumentRow }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/admin/knowledge/documents");
+      xhr.timeout = 45_000;
+      xhr.upload.onprogress = event => onProgress(event.lengthComputable ? Math.round(event.loaded / event.total * 100) : null);
+      xhr.onerror = () => reject(httpError(0, null, "上传连接中断，结果尚未确认；请刷新资料列表核对后再重试"));
+      xhr.ontimeout = () => reject(httpError(0, null, "上传请求超时，结果尚未确认；请刷新资料列表核对后再重试"));
+      xhr.onload = () => {
+        try {
+          const body = JSON.parse(xhr.responseText);
+          if (xhr.status < 200 || xhr.status >= 300) reject(httpError(xhr.status, body));
+          else resolve(body);
+        } catch { reject(httpError(xhr.status >= 400 ? xhr.status : 502)); }
+      };
+      xhr.send(form);
+    });
     return request<{ document: KnowledgeDocumentRow }>("/api/admin/knowledge/documents", { method: "POST", body: form });
   },
   adminKnowledgeDocumentAction: (id: string, action: "start" | "retry" | "cancel" | "reprocess" | "publish" | "archive") =>

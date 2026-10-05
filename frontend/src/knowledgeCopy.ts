@@ -567,7 +567,7 @@ export const KB_DOC_STATUS_LABEL: Record<string, string> = {
   uploaded: "排队中（待加工）",
   normalizing: "规整中",
   indexing: "建索引中",
-  pending_review: "解析完成·待提交审批",
+  pending_review: "待提交审批",
   published: "已发布",
   archived: "已停用",
   failed: "失败",

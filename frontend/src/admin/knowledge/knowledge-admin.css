@@ -576,3 +576,69 @@
 .admin-kb .admin-kv dd {
   overflow-wrap: anywhere;
 }
+
+/* 入库：控制区紧凑，资料及其原位详情共享一个工作表。 */
+.admin-kb[data-admin-kb-view="ingest"] { gap: var(--space-3); min-width: 0; }
+.kbingest-head, .kbingest-breadcrumb { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.kbingest-head { justify-content: space-between; flex-wrap: wrap; }
+.kbingest-head h2, .kbingest-head p { margin: 0; }
+.kbingest-health { position: relative; }
+.kbingest-health summary, .kbingest-rule summary, .kbingest-more summary { cursor: pointer; color: var(--accent-text); }
+.kbingest-health p { margin: var(--space-2) 0; overflow-wrap: anywhere; }
+.kbingest-upload { padding: var(--space-3) 0; border-block: 1px solid var(--border); }
+.kbingest-upload .kbadmin-toolbar { margin: 0; align-items: end; }
+.kbingest-upload .field { margin: 0; min-width: 0; }
+.kbingest-upload .field:first-child { flex: 0 1 25%; }
+.kbingest-upload .field:nth-child(2) { flex: 1; }
+.kbingest-upload select, .kbingest-upload .btn { height: var(--control-h-lg); min-height: var(--control-h-lg); }
+.kbingest-upload .kbadmin-file-picker { min-height: var(--control-h-lg); min-width: 0; }
+.kbingest-upload .kbadmin-file-name { overflow-wrap: anywhere; }
+.kbingest-upload p { margin: var(--space-2) 0 0; }
+.kbingest-rule { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin-top: var(--space-2); color: var(--text-muted); }
+.kbingest-rule details { flex: 1; }
+.kbingest-tabs { display: flex; gap: var(--space-3); border-bottom: 1px solid var(--border); }
+.kbingest-tabs button { border: 0; border-bottom: var(--focus-ring-width) solid transparent; border-radius: 0; background: transparent; color: var(--text-muted); min-height: var(--control-h-lg); padding: var(--space-2); cursor: pointer; }
+.kbingest-tabs button[aria-pressed="true"] { color: var(--accent-text); border-bottom-color: var(--accent-text); font-weight: 600; }
+.kbingest-worktable { min-width: 0; }
+.kbingest-worktable > p { padding: var(--space-3); margin: 0; }
+.kbingest-worktable .admin-table { width: 100%; table-layout: fixed; }
+.kbingest-worktable .admin-table th { position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.kbingest-worktable .admin-table th:first-child { width: 40%; }
+.kbingest-worktable .admin-table th:nth-child(2) { width: 10%; }
+.kbingest-worktable .admin-table th:nth-child(3) { width: 20%; }
+.kbingest-worktable .admin-table th:nth-child(4) { width: 12%; }
+.kbingest-worktable .admin-table th:last-child { width: 18%; }
+.kbingest-worktable .admin-table td, .kbingest-worktable .admin-table th { padding: var(--space-3) var(--space-2); overflow-wrap: anywhere; }
+.kbingest-worktable .kbadmin-title-link { text-align: left; overflow-wrap: anywhere; }
+.kbingest-worktable .kbadmin-row-actions { gap: var(--space-2); }
+.kbingest-worktable .chip { min-height: var(--badge-h); padding: 0 var(--space-2); background: var(--bg-elevated); color: var(--text); border: 0; }
+.kbingest-worktable .kbingest-status-success { background: color-mix(in srgb, var(--success) 10%, var(--bg)); color: var(--success); }
+.kbingest-worktable .kbingest-status-error { background: color-mix(in srgb, var(--danger) 10%, var(--bg)); color: var(--danger); }
+.kbingest-worktable .kbingest-status-busy { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); color: var(--accent-text); }
+.kbingest-more { position: relative; }
+.kbingest-more > div { position: absolute; right: 0; z-index: 2; display: grid; gap: var(--space-2); width: max-content; max-width: var(--dialog-w-sm); padding: var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-control); }
+.kbingest-detail-row > td { background: var(--bg-elevated); }
+.kbingest-detail-row .kbadmin-doc-detail { margin: 0; padding: 0; border: 0; }
+.kbingest-detail-row .kbadmin-body { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.kbingest-detail-row [data-knowledge-publication] { margin-top: var(--space-3); border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.kbingest-detail-row [data-knowledge-publication] .btn { background: transparent; color: var(--accent-text); border: 1px solid var(--border); }
+.kbingest-detail-row [data-knowledge-publication] label { display: grid; gap: var(--space-2); margin: var(--space-2) 0; }
+.kbingest-head a { color: var(--accent-text); }
+.kbingest-tabs button:focus-visible, .kbingest-more summary:focus-visible, .kbingest-rule summary:focus-visible, .kbingest-health summary:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--space-1); }
+@media (max-width: 860px) {
+  .kbingest-upload .kbadmin-toolbar { flex-direction: column; align-items: stretch; }
+  .kbingest-upload .field:first-child { flex-basis: auto; }
+  .kbingest-worktable .admin-table, .kbingest-worktable tbody, .kbingest-worktable tr, .kbingest-worktable td { display: block; width: auto; }
+  .kbingest-worktable thead { display: none; }
+  .kbingest-worktable .admin-table td { border: 0; padding: var(--space-1) var(--space-2); }
+  .kbingest-worktable .admin-table tr { border-bottom: 1px solid var(--border); padding: var(--space-2) 0; }
+}
+@media (max-height: 630px) { .kbingest-upload { padding-block: var(--space-2); } }
+@media (pointer: coarse) {
+  .kbingest-tabs button, .kbingest-upload .btn, .kbingest-upload select, .kbingest-worktable button, .kbingest-more summary { min-height: var(--touch-hit-min); }
+}
+
+.admin-kb[data-admin-kb-view="ingest"] .kbingest-head h2 { font-size: var(--ds-font-sm); }
+.kbingest-worktable .admin-table-wrap { overflow: visible; }
+
+.kbingest-detail-row .kbv-publication .btn.work { background: transparent; color: var(--accent-text); border: 1px solid var(--border); }
