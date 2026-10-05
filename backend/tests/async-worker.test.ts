@@ -204,7 +204,7 @@ describe("real Codex HTTP flow", () => {
     expect(JSON.stringify(processTrace?.payload?.items || [])).toContain("已根据平台和关键词整理采集范围。");
     expect(JSON.stringify(processTrace?.payload?.items || [])).not.toContain("理解任务");
     const operations = session.messages?.find((message) => message.kind === "operation_trace");
-    expect(operations?.payload?.title).toBe("远程MCP调用");
+    expect(operations?.payload?.title).toBe("系统能力调用记录");
     expect(operations?.payload?.items).toEqual([]);
   });
 

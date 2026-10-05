@@ -16,6 +16,7 @@ import {
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { ensureFollowedMailSync, resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
 import type { Json, Row } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const CLASSIFIED_FLAG = "tickets_classified_v1";
 
@@ -33,9 +34,8 @@ async function request(method: string, url: string, body?: unknown) {
 
 beforeEach(async () => {
   databaseUrl = process.env.DATABASE_URL;
-  delete process.env.DATABASE_URL; // Includes the work_items → tickets SQLite migration.
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-tickets-"));
-  process.env.LINGONG_DB = path.join(tmp, "tickets.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.NODE_ENV = "test";
@@ -242,6 +242,9 @@ describe("work_items → tickets merge migration", () => {
     raw.close();
 
     // 指向旧库并重连：initSchema + migrateSchema（含 work_items → tickets 合并）
+    // Only this historical SQLite migration fixture opens its legacy file;
+    // business/API cases above keep their isolated PostgreSQL database.
+    delete process.env.DATABASE_URL;
     process.env.LINGONG_DB = legacyPath;
     resetConn();
     const conn = getConn();

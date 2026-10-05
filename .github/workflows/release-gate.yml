@@ -191,7 +191,11 @@ jobs:
         env:
           EXPECTED_VERSION: ${{ github.sha }}
         run: |
-          expected="${EXPECTED_VERSION:0:7}"
+          # Match the API's git --short result; Git may extend abbreviations
+          # beyond seven characters when repository objects share a prefix.
+          expected="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "cd ~/kol && git rev-parse --short '${EXPECTED_VERSION}'")"
           for attempt in $(seq 1 36); do
             response="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "http://${DEPLOY_HOST}/api/version" || true)"
             actual="$(printf '%s' "$response" | jq -r '.version // empty' 2>/dev/null || true)"
