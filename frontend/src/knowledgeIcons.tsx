@@ -16,6 +16,8 @@ const KBV_ICON_PATHS: Record<string, string> = {
 };
 
 export default function KbvIcon({ name }: { name: string }) {
+  if (name === "pdf") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2h11l5 5v15H4z" fill="currentColor" stroke="none"/><path d="M15 2v5h5 M7 17c5-9 3-12 2-8-1 5 8 7 8 5-1-2-8 1-10 3z" fill="none" stroke="var(--bg)" strokeWidth="1"/></svg>;
+  if (["family", "layers", "tag", "hierarchy"].includes(name)) return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={KBV_ICON_PATHS[name]} fill="currentColor" stroke="currentColor" strokeWidth="1" /></svg>;
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d={KBV_ICON_PATHS[name] || KBV_ICON_PATHS.file} />

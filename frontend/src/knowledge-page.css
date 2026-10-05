@@ -1644,3 +1644,69 @@
 @media (pointer: coarse) {
   .kbv-publication-flow > summary { min-height: var(--touch-hit-min); }
 }
+/* 图2：紧凑筛选、单行列表与连续详情，使用现有设计 token。 */
+.kbv-filter-browser .kbv-filter-scroll { padding: var(--space-2) var(--space-3); }
+.kbv-filter-browser .kbv-filter-group { gap: var(--space-3); padding-block: var(--space-2); }
+.kbv-filter-browser .kbv-filter-block + .kbv-filter-block { margin-top: var(--space-2); }
+.kbv-filter-browser .kbv-filter-section > summary { min-height: var(--control-h); font-size: var(--ds-font-ui); }
+.kbv-filter-browser .kbv-filter-section > summary svg:first-child { color: var(--text); }
+.kbv-filter-browser .kbv-chip { min-height: var(--chip-h); padding-block: 0; font-size: var(--ds-font-sm); }
+.kbv-filter-browser .kbv-chip[aria-pressed="true"] { box-shadow: none; font-weight: 500; }
+.kbv-filter-browser .kbv-facet-list { gap: var(--space-1) var(--space-2); }
+.kbv-filter-browser .kbv-filter-block .kbv-facet-list { gap: 0; }
+.kbv-filter-browser .kbv-filter-block .kbv-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); text-decoration: none; }
+.kbv-filter-browser .kbv-browser { overflow-y: auto; }
+.kbv-filter-browser .kbv-browser-records { max-height: none; overflow: visible; gap: var(--space-1); }
+.kbv-filter-browser .kbv-browser-record { flex-direction: row; min-height: calc(var(--control-h-lg) + var(--space-4)); border-bottom: 0; gap: var(--space-3); }
+.kbv-filter-browser .kbv-browser-record[aria-current="true"] { box-shadow: none; }
+.kbv-filter-browser .kbv-record-heading { flex: 1; }
+.kbv-filter-browser .kbv-record-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kbv-filter-browser .kbv-browser-record-meta { flex: 0 0 auto; flex-wrap: nowrap; white-space: nowrap; padding: 0; align-items: center; font-weight: 400; }
+.kbv-filter-browser .kbv-record-icon { color: var(--danger); }
+.kbv-filter-browser .kbv-admin-detail { flex: 1 0 auto; overflow: visible; border-width: 1px; }
+.kbv-filter-browser .kbv-document-body { flex: none; overflow: visible; padding: var(--space-5); font-size: var(--ds-font-body); line-height: var(--ds-line-body); }
+.kbv-document-title { margin: 0 0 var(--space-4); font-size: var(--ds-font-block-title); font-weight: 600; line-height: var(--ds-line-body); overflow-wrap: anywhere; }
+.kbv-filter-browser .kbv-document-source h3 { font-weight: 400; margin: var(--space-4) 0 var(--space-2); }
+.kbv-filter-browser .kbv-document-source { border-width: 1px; padding-bottom: var(--space-3); }
+.kbv-filter-browser .kbv-document-body .kbv-publication { border-top: 0; padding-top: 0; margin-top: var(--space-3); }
+.kbv-filter-browser .kbv-publication fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.kbv-filter-browser .kbv-release-note { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: var(--space-4); }
+.kbv-filter-browser .kbv-release-note textarea { max-width: var(--prose-measure); }
+.kbv-filter-browser .kbv-document-actions { margin-top: var(--space-3); }
+.kbv-filter-browser .kbv-document-history { margin-top: var(--space-3); font-size: var(--ds-font-sm); }
+.kbv-filter-browser .kbv-document-links { margin-top: var(--space-3); }
+@container (max-width: 719px) {
+  .kbv-filter-browser .kbv-browser-record { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .kbv-filter-browser .kbv-browser-record-meta { justify-content: flex-start; padding-left: calc(var(--icon-md) + var(--space-2)); flex-wrap: wrap; }
+}
+@media (max-height: 700px) {
+  .kbv-filter-browser .kbv-document-body { padding: var(--space-3) var(--space-4); }
+  .kbv-filter-browser .kbv-document-title { margin-bottom: var(--space-2); }
+  .kbv-filter-browser .kbv-document-path { margin-bottom: var(--space-2); }
+  .kbv-filter-browser .kbv-publication label { margin-block: var(--space-2); }
+}
+@media (pointer: coarse) {
+  .kbv-filter-browser .kbv-document-actions .btn,
+  .kbv-filter-browser .kbv-publication .btn { position: relative; min-height: var(--touch-hit-min); }
+  .kbv-filter-browser .kbv-publication .btn::after { content: ""; position: absolute; inset: 0; min-height: var(--touch-hit-min); }
+}
+
+.kbv-filter-browser .kbv-document-body h2.kbv-document-title { font-size: var(--ds-font-block-title); line-height: var(--ds-line-block-title); }
+.kbv-filter-browser .kbv-publication .btn.work { background: var(--accent); color: var(--accent-fg); }
+.kbv-filter-browser .kbv-publication .btn.work:hover { background: var(--accent-hover); }
+@media (max-width: 1100px) and (min-width: 720px) {
+  .kbv-filter-browser .kbv-workspace { grid-template-columns: var(--left-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+}
+@media (max-width: 719px) {
+  .kbv-filter-browser .kbv-workspace { grid-template-rows: minmax(0, 1fr) minmax(0, 3fr); }
+}
+/* Scope the reference hierarchy around the shell's uniform-text override. */
+#root .workbench .kbv-filter-browser h2.kbv-document-title { font-size: var(--ds-font-block-title) !important; line-height: var(--ds-line-block-title); margin-bottom: var(--space-4); }
+#root .workbench .kbv-filter-browser .kbv-document-body { font-size: var(--ds-font-body) !important; }
+#root .workbench .kbv-filter-browser .kbv-document-body :is(p,a,label,summary,textarea,input,select) { font-size: var(--ds-font-body) !important; }
+.kbv-filter-browser .kbv-document-path > span { background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
+.kbv-filter-browser .kbv-record-kind { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
+.kbv-filter-browser .kbv-publication .btn.work { border-color: var(--accent); }
+@media (min-width: 1101px) {
+  .kbv-filter-browser .kbv-workspace { grid-template-columns: minmax(var(--left-width), 26%) minmax(0, 1fr); }
+}

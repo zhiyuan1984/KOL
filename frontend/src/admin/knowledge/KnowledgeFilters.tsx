@@ -44,7 +44,7 @@ type Props = {
 };
 
 /** 长选项组使用紧凑列表；折叠时选中项始终可见。 */
-const CHIP_VISIBLE_LIMIT = 8;
+const CHIP_VISIBLE_LIMIT = 5;
 
 function FilterGroup({ label, icon, children, className = "" }: {
   label: string; icon: string; children: ReactNode; className?: string;
@@ -158,7 +158,7 @@ export default function KnowledgeFilters({
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="brand">
-          <FilterGroup label={KB_FILTER_LABEL.brand} icon="tag" className={brandOptions.length > CHIP_VISIBLE_LIMIT ? "kbv-filter-list" : ""}>
+          <FilterGroup label={KB_FILTER_LABEL.brand} icon="tag" >
           <div className="kbv-facet-list" role="group" aria-label={KB_FILTER_LABEL.brand}>
             <FilterChip
               label="全部"
@@ -182,7 +182,7 @@ export default function KnowledgeFilters({
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="stage">
-          <FilterGroup label={KB_FILTER_LABEL.stage} icon="hierarchy" className={stageOptions.length > CHIP_VISIBLE_LIMIT ? "kbv-filter-list" : ""}>
+          <FilterGroup label={KB_FILTER_LABEL.stage} icon="hierarchy" >
           <div className="kbv-facet-list" role="group" aria-label={KB_FILTER_LABEL.stage}>
             <FilterChip
               label="全部"

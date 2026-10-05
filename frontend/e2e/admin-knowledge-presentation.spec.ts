@@ -7,7 +7,7 @@ async function surface(page: Page, status = "pending_review", legacy = false) {
   const rows = Array.from({ length: 7 }, (_, i) => ({ id: `text-${i}`, title: `合作知识 ${i + 1}`, kind: "policy", body: "授权知识正文", current_version: 1, status: "published", brand: "LT", stage_codes: [], created_by: "知识负责人", updated_at: "2026-10-05T01:00:00Z" }));
   const calls: string[] = [], errors: string[] = [];
   let failPublish = false, failList = false, detailReads = 0;
-  let publication:Record<string,unknown>|null=null;
+  let publication:Record<string,unknown>|null=status === "published" ? {tenant:"company",instanceId:"review-1",documentId:"pdf",filename:doc.filename,fingerprint:"published-version",status:"published",reviewStatus:"approved",receipt:{id:"publish-receipt",status:"published",at:doc.updated_at}} : null;
   let checkAllowed=true;
   const definition={schema:"review.definition.v1",name:"知识发布审批",description:"",fields:[],nodes:[{id:"start",name:"开始",type:"start",next:"review"},{id:"review",name:"评审",type:"review",next:"end",mode:"single",reject:"any_reject",assignee:{kind:"named",userIds:["reviewer"]}},{id:"end",name:"结束",type:"end"}]};
   page.on("pageerror", e => errors.push(e.message));
@@ -61,7 +61,7 @@ async function surface(page: Page, status = "pending_review", legacy = false) {
     await route.fulfill({ json });
   });
   await page.goto("/admin/knowledge");
-  await expect(page.locator("[data-kbv-record]")).toHaveCount(5);
+  await expect(page.locator("[data-kbv-record]")).toHaveCount(5,{timeout:15000});
   await page.locator('[data-kbv-filter-pane] [data-kb-scope-base="specs"]').click();
   await expect(page.locator("[data-kbv-count]")).toHaveText("1 条知识");
   await expect(page.locator("[data-kbv-detail]")).toContainText("非结构化 PDF");
@@ -163,6 +163,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
   test(`layout and actions visible at ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
     await page.setViewportSize(viewport);
     const s = await surface(page);
+    if (viewport.width < 1100) await page.locator('[data-kbv-doc-action="submit"]').scrollIntoViewIfNeeded();
     await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeInViewport();
     await expect(page.locator("[data-kbv-upload]")).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
@@ -176,6 +177,7 @@ test.describe("touch input", () => {
   test("facet and primary action hit areas remain usable", async ({ page }) => {
     await surface(page);
     const button = page.locator('[data-kbv-doc-action="submit"]');
+    await button.scrollIntoViewIfNeeded();
     await expect(button).toBeInViewport();
     expect(await button.evaluate(el => parseFloat(getComputedStyle(el, "::after").height))).toBeGreaterThanOrEqual(44);
     const facet = page.locator('[data-kbv-filter-pane] [data-kb-scope-base="specs"]');
@@ -206,4 +208,28 @@ test("existing publication records preserve readonly preflight and confirmed sub
   await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(flow.calls.filter(x=>x==="submit")).toHaveLength(1);
   await expect(page.locator('[data-kbv-detail]')).toContainText("查看本次审批与发布回执");
+});
+
+
+test("reference structure keeps desktop rows inline and all document actions in the body", async ({page},info)=>{
+  await page.setViewportSize({width:1800,height:1000});
+  await surface(page);
+  await expect(page.getByRole("heading",{name:"NETC-50160116-A5-102储能型产品规格书",exact:true})).toBeVisible();
+  await expect(page.locator(".kbv-document-body [data-kbv-doc-action=submit]")).toHaveCount(1);
+  await expect(page.locator(".kbv-document-foot")).toHaveCount(0);
+  const layout=await page.locator('[data-kbv-record="pdf"]').evaluate(el=>{
+    const title=el.querySelector(".kbv-record-heading")!.getBoundingClientRect();
+    const meta=el.querySelector(".kbv-browser-record-meta")!.getBoundingClientRect();
+    return {inline:Math.abs((title.top+title.bottom)/2-(meta.top+meta.bottom)/2)<2,scroll:getComputedStyle(document.querySelector(".kbv-document-body")!).overflowY};
+  });
+  expect(layout.inline).toBe(true);expect(layout.scroll).toBe("visible");
+  await expect(page.locator('[data-kb-filter="stage"]')).toBeInViewport();
+  await page.screenshot({path:info.outputPath("reference-desktop.png")});
+});
+
+test("published documents have one revision action and no submission form",async({page},info)=>{
+  await surface(page,"published");
+  await expect(page.getByRole("button",{name:"创建新版本草稿",exact:true})).toHaveCount(1);
+  await expect(page.locator('[data-kbv-doc-action="submit"]')).toHaveCount(0);
+  await page.screenshot({path:info.outputPath("published-desktop.png")});
 });

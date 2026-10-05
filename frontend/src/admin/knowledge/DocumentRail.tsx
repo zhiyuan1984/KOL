@@ -16,7 +16,6 @@ export default function DocumentRail({ id, path, reload, notify }: {
   const { ask, dialog, open: confirming } = useAdminConfirm();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
-  const [actionTarget, setActionTarget] = useState<HTMLDivElement|null>(null);
   const lock = useRef(false);
   const doc = data?.document;
   const processing = Boolean(doc && ["uploaded", "normalizing", "indexing"].includes(doc.status));
@@ -72,12 +71,12 @@ export default function DocumentRail({ id, path, reload, notify }: {
   const blocked = busy || loading || Boolean(error) || confirming;
   return <>
     {dialog}
-    <div className="kbv-rail-head"><h2>资料详情</h2></div>
     <div className="kbv-rail-body kbv-document-body" aria-busy={busy || loading}>
       {loading && !data && <p role="status">正在读取资料…</p>}
       {error && <div className="kbv-document-notice" role="alert"><KbvIcon name="status" /><span>{error}</span><button className="kbv-text-action" disabled={loading} onClick={refresh}>重新检查</button></div>}
       {actionError && !confirming && <p className="error" role="alert">{actionError}</p>}
       {doc && data && <>
+        <h2 className="kbv-document-title">{doc.title}</h2>
         {path && <div className="kbv-document-path" aria-label="资料分类">{path.split(" / ").map((part, index) => <span key={`${index}-${part}`}>{part}</span>)}</div>}
         <section className="kbv-document-source">
           <h3>非结构化 PDF</h3>
@@ -87,9 +86,18 @@ export default function DocumentRail({ id, path, reload, notify }: {
         {doc.error && <div className="kbv-document-notice" role="alert"><KbvIcon name="status" /><span>{doc.error}</span><button className="kbv-text-action" disabled={blocked} onClick={refresh}>重新检查</button></div>}
         {processing && <p role="status" className="kbv-document-progress">{progress || "等待加工服务处理已提交的资料"} · 自动刷新中</p>}
         {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p><label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,application/pdf" onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";if(file)void replace(file);}} /></label></>}
-        {doc.status === "pending_review" && <p>解析已完成，请核对原件与加工结果后提交审批。</p>}
         {doc.status === "cancelled" && <p>加工已取消，可重试恢复；未发布资料不参与员工问答。</p>}
-        {["pending_review", "published"].includes(doc.status) && <PublicationPanel key={id} id={id} notify={notify} actionTarget={actionTarget} refreshDocument={() => { refresh(); reload(); }} />}
+        {["pending_review", "published"].includes(doc.status) && <PublicationPanel key={id} id={id} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}
+        <div className="kbv-document-actions">
+      <div className="kbv-actions">
+        {doc.status === "draft" && <button className="btn work" data-kbv-doc-action="start" disabled={blocked} onClick={() => void run("start", "已提交解析，完成后待审核，不自动发布")}>{busy ? "提交中…" : "开始解析"}</button>}
+
+        {["failed", "cancelled"].includes(doc.status) && <button className="btn work" data-kbv-doc-action="retry" disabled={blocked} onClick={() => void run("retry", "已提交重试，完成后待审核")}>{busy ? "提交中…" : "重试加工"}</button>}
+        {processing && <button className="btn" data-kbv-doc-action="cancel" disabled={blocked} onClick={() => void run("cancel", "已提交取消加工")}>取消加工</button>}
+        {["pending_review","published","archived"].includes(doc.status) && <button className="kbv-text-action" disabled={blocked} onClick={()=>void revision()}>创建新版本草稿</button>}
+        <button className="kbv-text-action" disabled={busy || loading || confirming} onClick={refresh}>{loading ? "检查中…" : "刷新资料"}</button>
+      </div>
+        </div>
         <details className="kbv-document-history">
           <summary>加工记录与来源</summary>
           {doc.created_by && <p>维护责任人：{doc.created_by}</p>}
@@ -107,17 +115,6 @@ export default function DocumentRail({ id, path, reload, notify }: {
         </div>
       </>}
     </div>
-    {doc && <footer className="kbv-rail-foot kbv-document-foot">
-      <p className="muted">未发布资料不参与员工问答。</p>
-      <div className="kbv-actions">
-        <div ref={setActionTarget} className="kbv-publication-primary" />
-        {doc.status === "draft" && <button className="btn work" data-kbv-doc-action="start" disabled={blocked} onClick={() => void run("start", "已提交解析，完成后待审核，不自动发布")}>{busy ? "提交中…" : "开始解析"}</button>}
 
-        {["failed", "cancelled"].includes(doc.status) && <button className="btn work" data-kbv-doc-action="retry" disabled={blocked} onClick={() => void run("retry", "已提交重试，完成后待审核")}>{busy ? "提交中…" : "重试加工"}</button>}
-        {processing && <button className="btn" data-kbv-doc-action="cancel" disabled={blocked} onClick={() => void run("cancel", "已提交取消加工")}>取消加工</button>}
-        {["pending_review","published","archived"].includes(doc.status) && <button className="kbv-text-action" disabled={blocked} onClick={()=>void revision()}>创建新版本草稿</button>}
-        <button className="kbv-text-action" disabled={busy || loading || confirming} onClick={refresh}>{loading ? "检查中…" : "刷新资料"}</button>
-      </div>
-    </footer>}
   </>;
 }

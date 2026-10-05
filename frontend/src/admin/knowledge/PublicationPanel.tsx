@@ -1,7 +1,6 @@
 import LegacyPublicationPanel from "./LegacyPublicationPanel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { createPortal } from "react-dom";
 import type {
   KnowledgePublicationCommand,
   KnowledgePublicationOptions,
@@ -27,12 +26,10 @@ export default function PublicationPanel({
   id,
   notify,
   refreshDocument,
-  actionTarget,
 }: {
   id: string;
   notify: (s: string) => void;
   refreshDocument: () => void;
-  actionTarget: HTMLElement | null;
 }) {
   const [company, setCompany] = useState(reviewCompany);
   const [, setSearchParams] = useSearchParams();
@@ -251,7 +248,7 @@ export default function PublicationPanel({
       lock.current = false;
     }
   };
-  if(data?.legacy) return <LegacyPublicationPanel id={id} updatedAt={data.legacy.updatedAt} reload={refreshDocument} actionTarget={actionTarget} />;
+  if(data?.legacy) return <LegacyPublicationPanel id={id} updatedAt={data.legacy.updatedAt} reload={refreshDocument} />;
   return (
     <section
       className="kbv-publication"
@@ -339,19 +336,18 @@ export default function PublicationPanel({
             p.reviewStatus === "approved" &&
             p.job &&
             ["failed", "uncertain", "cancelled"].includes(p.job.status) &&
-            actionTarget &&
-            createPortal(
+            (
               <button
                 className={confirm.open ? "btn" : "btn work"}
                 disabled={blocked}
                 onClick={() => void recover()}
               >
                 恢复发布
-              </button>,
-              actionTarget,
+              </button>
             )}
         </div>
       )}
+      {data && !p && <p role="status">待提交审批</p>}
       {data && !waiting && p?.status !== "published" && (
         <>
           {!data.intake.allowed && <p role="alert">{data.intake.reason}</p>}
@@ -364,7 +360,7 @@ export default function PublicationPanel({
             </div>
           ) : (
             <>
-              <details className="kbv-publication-flow" open>
+              <details className="kbv-publication-flow" open={!templateId}>
                 <summary>
                   发布流程
                   {template
@@ -390,6 +386,10 @@ export default function PublicationPanel({
                     ))}
                   </select>
                 </label>
+                <Link className="kbv-link-plain" to="/admin/approval-types">
+                  查看流程配置
+                </Link>
+              </details>
                 {template && (
                   <ReviewForm
                     fields={template.definition.fields.filter(f=>template.definition.subjectType !== "knowledge_publication" || !["knowledge_request","publication_note"].includes(f.id))}
@@ -399,10 +399,6 @@ export default function PublicationPanel({
                     onUploadBusy={setUploadBusy}
                   />
                 )}
-                <Link className="kbv-link-plain" to="/admin/approval-types">
-                  查看流程配置
-                </Link>
-              </details>
               <label className="kbv-release-note">
                 发布说明
                 <textarea
@@ -430,9 +426,7 @@ export default function PublicationPanel({
               {check?.allowed && (
                 <p>当前评审人：{check.reviewers.join("、")}</p>
               )}
-              {actionTarget &&
-                createPortal(
-                  <button
+              {(                  <button
                     type="button"
                     className={confirm.open ? "btn" : "btn work"}
                     data-kbv-doc-action="submit"
@@ -447,8 +441,7 @@ export default function PublicationPanel({
                     onClick={() => void submit()}
                   >
                     {busy ? "检查中…" : "提交审批"}
-                  </button>,
-                  actionTarget,
+                  </button>
                 )}
             </>
           )}
