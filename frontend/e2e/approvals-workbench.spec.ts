@@ -1,12 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
 import { emptyReviewDefinition, type ReviewInstance } from "../../shared/review";
+import type { InstanceView } from "../src/reviews/api";
 
 async function workbench(page: Page) {
   const definition = emptyReviewDefinition();
   definition.name = "资料审批";
   definition.fields = [{ id: "note", label: "发布说明", type: "textarea", required: true }];
   const base: ReviewInstance = { id: "a", title: "同名申请", templateId: "flow", templateVersion: 4, version: 1, requester: "employee", definition, values: { note: "你好" }, currentNode: "review", status: "reviewing", round: 2, tasks: [{ id: "old", nodeId: "review", userId: "employee", round: 1, status: "superseded" }, { id: "current", nodeId: "review", userId: "employee", round: 2, status: "pending" }], createdAt: "2026-10-05T07:02:00Z", updatedAt: "2026-10-05T09:00:00Z" };
-  let item = { ...base, allowedActions: ["approve", "reject", "transfer"], candidates: { transfer: ["reviewer"], countersign: [] }, events: [
+  let item: InstanceView = { ...base, allowedActions: ["approve", "reject", "transfer"], candidates: { transfer: ["reviewer"], countersign: [] }, events: [
     { id: "later", actor: "employee", action: "knowledge.published", version: 3, detail: {}, created_at: "2026-10-05T09:00:00Z" },
     { id: "earlier", actor: "employee", action: "approve", version: 2, detail: { reason: "核对无误" }, created_at: "2026-10-05T08:00:00Z" },
   ] };
@@ -30,8 +31,21 @@ async function workbench(page: Page) {
     }
     return route.fulfill({ status: 404, json: { detail: "未配置测试接口" } });
   });
-  return { requests, commands, setFail: () => { fail = true; } };
+  return { requests, commands, setFail: () => { fail = true; }, setPublication: (publication: InstanceView["knowledgePublication"]) => { item = { ...item, status: "approved", allowedActions: [], knowledgePublication: publication }; } };
 }
+
+test("structured knowledge retains material version and manual publication state", async ({ page }) => {
+  const f = await workbench(page);
+  f.setPublication({ tenant: "test", instanceId: "a", documentId: "entry", title: "同名申请", filename: "结构化资料", fingerprint: "material-fingerprint", releaseNote: "核对后发布", status: "waiting", reviewStatus: "approved", version: 2, releaseMode: "manual", content: { body: "当前审批正文", structured: { 品牌: "LT" }, title: "结构化资料", kind: "spec" }, createdAt: "now", updatedAt: "now" });
+  await page.goto("/approvals");
+  await page.getByRole("button", { name: "同名申请", exact: true }).first().click();
+  const detail = page.getByRole("region", { name: "申请详情" });
+  await expect(detail.getByText("当前审批正文", { exact: true })).toBeVisible();
+  await expect(detail.getByText("资料版本 v2", { exact: false })).toBeVisible();
+  await expect(detail.getByText("流程版本 v4", { exact: false })).toBeVisible();
+  await expect(detail.getByText("业务结果：等待管理员发布", { exact: true })).toBeVisible();
+  await expect(detail.getByRole("link", { name: "查看 PDF 原件" })).toHaveCount(0);
+});
 
 test("list and detail preserve search and identity, keep current actions visible and fold history", async ({ page }) => {
   const f = await workbench(page);
