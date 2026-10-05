@@ -17,3 +17,5 @@
 复现：502 HTML产生SyntaxError、403 JSON被当作成功返回；修复后三个API定向测试通过，前端类型检查与构建通过。Linux预发236882c的原失败恢复三个场景重复三轮，9/9通过、retries=0；996b998的浅色/深色HTTP SSE场景各两轮4/4通过、retries=0，复用236882c同应用构建。发布前端集合新增presentation九项，CI与npm命令保持一致；不取消已有门禁。完整发布门禁与生产核验待完成。
 
 剩余真实空结果验收的待授权范围：仅一次YouTube search，关键词tcw-p1-empty-20261005-d0f3ad1，max_notes_count=1，enable_comments=false，enable_sub_comments=false；现有真实harness提出动作并通过既有确认/持久执行链提交，随后仅读取该task_id的状态与结果。使用独立验收数据库和同一排他连接器，不导入、不发信、不改阶段、不重启外部服务；返回候选则如实记录，不能伪造空结果或追加采集。超时/未知状态保留，不盲重放。此前三次真实采集授权已用完，本范围尚未授权，未执行。
+
+发布复核已完成：[CI 37255044842](https://github.com/zhiyuan1984/KOL/actions/runs/37255044842) 对bd1cb1c完整通过并自动部署；后端1589通过、27跳过，前端30+26全部首次通过。先前两轮门禁被更新版本取代，不作为通过证据。10:42:52生产核验git/API版本一致，44个资源哈希一致、HTML一致、API/两执行Worker/Outbox均active。生产浏览器同一员工的工单区域恢复显示0个业务任务、无登录错误；未创建生产工单。390×600无横向溢出，键盘移入底部工具栏后提交区可见；这是指针/键盘证据，不能代替触摸44px命中区验证。详见[脱敏证据](evidence/task-collaboration-workbench-p1-http-release-20261005.json)。P1保持in_progress，P2–P5不因工程发布而推进。
