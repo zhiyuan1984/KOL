@@ -34,7 +34,7 @@ export type DiscoveryBrief = {
   directions: DiscoveryDirectionCode[];
   keywords: string[];
   min_followers: number;
-  max_followers: number;
+  max_followers: number | null;
   min_avg_plays_10: number;
   expect_count: number;
 };
@@ -46,7 +46,7 @@ export type DiscoveryTemplate = {
   directions: Array<DiscoveryOption<DiscoveryDirectionCode>>;
   thresholds: {
     min_followers: number;
-    max_followers: number;
+    max_followers: number | null;
     min_avg_plays_10: number;
     expect_count: number;
   };
@@ -84,7 +84,7 @@ export const DISCOVERY_DIRECTION_PACKS: Array<DiscoveryOption<DiscoveryDirection
 
 export const DEFAULT_DISCOVERY_THRESHOLDS = {
   min_followers: 10_000,
-  max_followers: 2_000_000,
+  max_followers: null,
   min_avg_plays_10: 5_000,
   expect_count: 30,
 } as const;
@@ -172,7 +172,7 @@ export function renderDiscoveryBody(
     `地区：${regionLabel(brief.region, regions)}`,
     `方向：${directionLine}`,
     `关键词：${keywordLine}`,
-    `粉丝：${brief.min_followers}–${brief.max_followers}`,
+    brief.max_followers == null ? `粉丝：至少 ${brief.min_followers}，上限不限` : `粉丝：${brief.min_followers}–${brief.max_followers}`,
     `近10条均播 ≥ ${brief.min_avg_plays_10}`,
     `期望人数：${brief.expect_count}`,
   ].join("\n");
@@ -277,6 +277,12 @@ export function parseDiscoveryBody(text: string): Partial<DiscoveryBrief> {
       out.keywords = raw === "（未填）" ? [] : asStringList(raw);
       continue;
     }
+    const unlimitedFollowers = line.match(/^\s*粉丝[：:]\s*至少\s*(\d+)\s*[，,]?\s*上限不限/);
+    if (unlimitedFollowers) {
+      out.min_followers = Number(unlimitedFollowers[1]);
+      out.max_followers = null;
+      continue;
+    }
     const followers = line.match(/^\s*粉丝[：:]\s*(\d+)\s*[–\-至到]\s*(\d+)/);
     if (followers) {
       out.min_followers = Number(followers[1]);
@@ -310,7 +316,7 @@ export function mergeDiscoveryBrief(
     directions,
     keywords,
     min_followers: patch.min_followers ?? current.min_followers,
-    max_followers: patch.max_followers ?? current.max_followers,
+    max_followers: patch.max_followers === undefined ? current.max_followers : patch.max_followers,
     min_avg_plays_10: patch.min_avg_plays_10 ?? current.min_avg_plays_10,
     expect_count: patch.expect_count ?? current.expect_count,
   };
@@ -418,7 +424,7 @@ export function asDiscoveryTemplate(raw: unknown): DiscoveryTemplate | null {
     : fallback.directions;
   const thresholds = {
     min_followers: parseNumber(asRecord(row.thresholds).min_followers, fallback.thresholds.min_followers),
-    max_followers: parseNumber(asRecord(row.thresholds).max_followers, fallback.thresholds.max_followers),
+    max_followers: asRecord(row.thresholds).max_followers == null ? null : parseNumber(asRecord(row.thresholds).max_followers, 0),
     min_avg_plays_10: parseNumber(
       asRecord(row.thresholds).min_avg_plays_10 ?? asRecord(row.thresholds).min_avg_views_10,
       fallback.thresholds.min_avg_plays_10,

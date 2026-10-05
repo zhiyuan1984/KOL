@@ -13,6 +13,7 @@ import {
 export type Row = Record<string, unknown>;
 export type KbAssetRow = KnowledgeRow & {
   asset_type?: "document";
+  publication_label?: string;
   ref_skills?: string[];
   effective_at?: string;
   expires_at?: string;
@@ -286,6 +287,7 @@ export function expirySoon(expiresAt?: string, withinDays = 30): boolean {
 }
 
 export function errorMessage(error: unknown, fallback = "操作失败"): string {
+  if (typeof error === "string" && error.trim()) return error;
   return error instanceof Error && error.message ? error.message : fallback;
 }
 

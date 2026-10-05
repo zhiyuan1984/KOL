@@ -21,7 +21,7 @@ export type KolScoringCriteria = {
   directions: string[];
   keywords: string[];
   min_followers: number;
-  max_followers: number;
+  max_followers: number | null;
   min_avg_plays_10: number;
   expect_count: number;
   brand: string | null;
@@ -72,9 +72,8 @@ export function normalizeScoringCriteria(value: unknown): KolScoringCriteria | n
   const minFollowers = boundedNumber(
     thresholds.min_followers, DEFAULT_DISCOVERY_THRESHOLDS.min_followers, 0, MAX_FOLLOWERS,
   );
-  const maxFollowers = boundedNumber(
-    thresholds.max_followers, DEFAULT_DISCOVERY_THRESHOLDS.max_followers, minFollowers, MAX_FOLLOWERS,
-  );
+  const maxFollowers = thresholds.max_followers == null ? null
+    : boundedNumber(thresholds.max_followers, minFollowers, minFollowers, MAX_FOLLOWERS);
   const minAvgPlays = boundedNumber(
     thresholds.min_avg_plays_10 ?? thresholds.min_avg_views_10,
     DEFAULT_DISCOVERY_THRESHOLDS.min_avg_views_10,
@@ -148,7 +147,7 @@ export function criteriaState(criteria: KolScoringCriteria): string {
       region: criteria.region || "未设置",
       directions: criteria.directions.length ? criteria.directions : "未设置",
       keywords: criteria.keywords.length ? criteria.keywords : "未设置",
-      followers_range: `${criteria.min_followers}-${criteria.max_followers}`,
+      followers_range: criteria.max_followers == null ? `至少${criteria.min_followers}，上限不限` : `${criteria.min_followers}-${criteria.max_followers}`,
       min_avg_plays_10: criteria.min_avg_plays_10,
       expect_count: criteria.expect_count,
       brand: criteria.brand || "未设置",
@@ -169,7 +168,7 @@ export function criteriaSummary(criteria: KolScoringCriteria | null): string {
     criteria.region ? `地区 ${criteria.region}` : "",
     criteria.directions.length ? `方向 ${criteria.directions.join("/")}` : "",
     criteria.keywords.length ? `关键词 ${criteria.keywords.join(", ")}` : "",
-    `粉丝 ${wan(criteria.min_followers)}–${wan(criteria.max_followers)}`,
+    criteria.max_followers == null ? `粉丝至少${wan(criteria.min_followers)}，上限不限` : `粉丝 ${wan(criteria.min_followers)}–${wan(criteria.max_followers)}`,
     `近10条均播 ≥${criteria.min_avg_plays_10}`,
   ].filter(Boolean);
   return parts.join(" · ").slice(0, 300);

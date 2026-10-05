@@ -28,6 +28,16 @@ beforeEach(async()=>{
 });
 
 describe("native Task workspace and fixed harness evidence",()=>{
+  it("retries concurrent principal refreshes without duplicate claims events or retaining revoked identity",async()=>{
+    const updated = { ...actor, name: "Concurrent updated owner" };
+    await Promise.all(Array.from({length:8},()=>syncWorkbenchTicketPrincipal(updated)));
+    const db=postgresPool();
+    expect((await db.query("SELECT count(*)::int AS n FROM workbench_principal_binding_events WHERE principal_id=$1 AND event_type='claims_refreshed'",[actor.id])).rows[0].n).toBe(1);
+    await Promise.all(Array.from({length:8},()=>syncWorkbenchTicketPrincipal({...updated,active:false})));
+    expect((await db.query("SELECT active FROM ticket_accounts WHERE id=$1",[actor.id])).rows[0].active).toBe(false);
+    await expect(openTaskCollaborationSession(actor.id,taskId)).rejects.toBeInstanceOf(HttpFail);
+    expect((await db.query("SELECT count(*)::int AS n FROM workbench_principal_binding_events WHERE principal_id=$1 AND event_type='deactivated'",[actor.id])).rows[0].n).toBe(1);
+  });
   it("concurrent opens recover one session and the original task without starting a model",async()=>{
     const opened=await Promise.all(Array.from({length:4},()=>openTaskCollaborationSession(actor.id,taskId)));
     expect(new Set(opened.map(item=>item.id)).size).toBe(1);

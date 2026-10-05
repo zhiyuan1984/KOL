@@ -185,7 +185,9 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
-  const [org, setOrg] = useState("");
+  const [departments, setDepartments] = useState(["", "", ""]);
+  const [person, setPerson] = useState("");
+  const [personQuery, setPersonQuery] = useState("");
   const [brand, setBrand] = useState("");
   const [account, setAccount] = useState<"all" | "active" | "disabled">("all");
   const [editing, setEditing] = useState<Employee | null | undefined>(undefined);
@@ -200,15 +202,31 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   const unitParents = useMemo(() => new Map(units.map((unit) => [unit.id, unit.parent_id])), [units]);
   const brands = useMemo(() => [...new Set(users.flatMap(names))].sort(), [users]);
   const orgs = useMemo(() => units.filter((unit) => users.some((user) => belongsToOrganization(user.site, unit.id, unitParents))), [units, users, unitParents]);
+  const org = departments[2] || departments[1] || departments[0];
+  const people = users.filter((user) => !org || belongsToOrganization(user.site, org, unitParents));
+  const changeDepartment = (index: number, value: string) => {
+    setDepartments((current) => {
+      const next = current.map((id, position) => position === index ? value : position > index ? "" : id);
+      let parentId = unitParents.get(value);
+      for (let position = index - 1; value && position >= 0; position--) {
+        next[position] = parentId || "";
+        parentId = parentId ? unitParents.get(parentId) : null;
+      }
+      return next;
+    });
+    setPerson("");
+    setPersonQuery("");
+  };
   const visible = useMemo(() => users.filter((user) => {
     const search = query.trim().toLowerCase();
     if (search && ![label(user), email(user), String(user.position || ""), String(user.employee_no || "")].join(" ").toLowerCase().includes(search)) return false;
     if (org && !belongsToOrganization(user.site, org, unitParents)) return false;
+    if (person && user.id !== person) return false;
     if (brand && !names(user).includes(brand)) return false;
     if (account === "active" && user.active === false) return false;
     if (account === "disabled" && user.active !== false) return false;
     return true;
-  }), [users, query, org, brand, account, unitParents]);
+  }), [users, query, org, person, brand, account, unitParents]);
   const agentNames = (user: Employee) => (data?.agents || [])
     .filter((agent) => agent.coverage.user_ids.includes(user.id))
     .map((agent) => `${agent.name}${agent.status === "published" ? "" : agent.status === "draft" ? "（草稿）" : "（停用）"}`);
@@ -226,27 +244,27 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   return <section className="governance-workspace" data-admin-employees>
     <aside className="governance-rail">
       <div className="governance-scroll">
-        <input className="governance-search" aria-label="搜索员工" data-employee-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、邮箱、岗位、工号" />
-        <p className="governance-count">{visible.length} / {users.length} 名员工</p>
+        <div className="governance-search-wrap employee-search-wrap"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg><input className="governance-search" aria-label="搜索员工" data-employee-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、邮箱、岗位、工号" /></div>
         <div className="governance-filter-group"><strong>品牌</strong><div className="governance-filter-options"><button type="button" aria-pressed={!brand} onClick={() => setBrand("")}>全部</button>{brands.map((item) => <button type="button" key={item} aria-pressed={brand === item} onClick={() => setBrand(item)}>{item}</button>)}</div></div>
-        <div className="governance-filter-group"><strong>账号</strong><div className="governance-filter-options">{([["all", "全部"], ["active", "启用"], ["disabled", "停用"]] as const).map(([id, name]) => <button type="button" key={id} aria-pressed={account === id} onClick={() => setAccount(id)}>{name}</button>)}</div></div>
-        <div className="governance-filter-group"><strong>组织</strong><div className="governance-filter-options"><button type="button" aria-pressed={!org} onClick={() => setOrg("")}>全部</button>{orgs.map((unit) => <button type="button" key={unit.id} aria-pressed={org === unit.id} onClick={() => setOrg(unit.id)}>{unit.display_name}</button>)}</div></div>
+        <div className="governance-filter-group"><strong>状态</strong><div className="governance-filter-options">{([["all", "全部"], ["active", "启用"], ["disabled", "停用"]] as const).map(([id, name]) => <button type="button" key={id} aria-pressed={account === id} onClick={() => setAccount(id)}>{name}</button>)}</div></div>
+        <section className="employee-organization-filter" aria-label="组织筛选"><h3>组织</h3>{["一级部门", "二级部门", "三级部门"].map((title, index) => {
+          const parent = index ? departments[index - 1] : "";
+          const options = orgs.filter((unit) => unit.level === index + 1 && (!parent || unit.parent_id === parent));
+          return <label key={title}>{title}<select value={departments[index]} onChange={(event) => changeDepartment(index, event.target.value)} disabled={!data || !options.length} data-employee-department={index + 1}><option value="">{!data ? "正在读取组织…" : options.length ? "全部" : "无下级部门"}</option>{options.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select></label>;
+        })}<label>人员<input type="search" aria-label="搜索组织内人员" placeholder="搜索姓名或邮箱" value={personQuery} onChange={(event) => setPersonQuery(event.target.value)} /><select aria-label="人员" value={person} onChange={(event) => setPerson(event.target.value)}><option value="">全部</option>{people.filter((user) => user.id === person || `${label(user)} ${email(user)}`.toLowerCase().includes(personQuery.trim().toLowerCase())).map((user) => <option key={user.id} value={user.id}>{label(user)} · {email(user)}</option>)}</select></label></section>
       </div>
-      <div className="governance-rail-footer"><button type="button" className="btn work" data-employee-create onClick={() => setEditing(null)}>新增员工</button></div>
+      <div className="governance-rail-footer"><button type="button" className="governance-text-action" data-employee-create onClick={() => setEditing(null)}>新增员工</button></div>
     </aside>
     <div className="governance-main">
-      <header className="governance-main-head"><h2>员工列表</h2><span className="governance-count">{visible.length} 人</span></header>
+      <header className="governance-main-head"><h2>员工列表</h2><span className="governance-count" role="status">{visible.length}/{users.length}名员工</span></header>
       <div className="governance-scroll">
         {notice && <p className="governance-notice" role="status">{notice}</p>}
         {loadError && <p className="error" role="alert">{loadError}</p>}
         <div className="governance-list">
           {visible.map((user) => <div className="governance-list-row governance-employee-row" key={user.id} data-employee-row={user.id}>
             <strong title={user.employee_no ? `${label(user)} · 工号 ${user.employee_no}` : label(user)}>{user.avatar_url ? <img className="employee-row-avatar" data-employee-avatar src={String(user.avatar_url)} alt="" aria-hidden /> : null}{label(user)}{user.employee_no ? <small className="governance-employee-number"> · {user.employee_no}</small> : null}</strong><span className="muted">{email(user)}</span>
-            <span>{units.find((unit) => unit.id === user.site)?.display_name || user.site || "未分配"}</span>
-            <span>{names(user).join("、") || "—"}</span>
-            <span>{user.position || "—"}</span>
             <span>{data ? agentNames(user).join("、") || "未绑定 Agent" : "读取中…"}</span>
-            <span className="governance-inline-actions"><button type="button" onClick={() => setEditing(user)}>编辑</button><button type="button" onClick={() => setManaging(user)}>管理绑定</button><button type="button" onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button></span>
+            <span className="governance-inline-actions"><button type="button" onClick={() => setEditing(user)}>编辑</button><button type="button" onClick={() => setManaging(user)}>管理绑定</button><button type="button" className={user.active === false ? undefined : "employee-danger-action"} onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button></span>
           </div>)}
           {!visible.length && <p className="governance-empty">没有符合筛选条件的员工。</p>}
         </div>

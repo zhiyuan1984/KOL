@@ -1,6 +1,7 @@
 import { formatReviewValue } from "../reviews/formatReviewValue";
 import { ReviewOrganization } from "../reviews/ReviewOrganization";
 import { AttachmentLinks } from "../reviews/ReviewAttachments";
+import KnowledgeMaterial from "../reviews/KnowledgeMaterial";
 import { UpgradeDraft } from "../reviews/ReviewChanges";
 import { useEffect, useState, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -106,7 +107,7 @@ export default function Reviews() {
       reviewApi<ReviewDraft[]>("/approvals/v2/drafts"),
     ]);
     setContext(ctx);
-    setTemplates(ts);
+    setTemplates(ts.filter(t=>t.definition.subjectType !== "knowledge_publication"));
     await loadList();
     setDrafts(savedDrafts);
     if (selected) {
@@ -364,11 +365,20 @@ export default function Reviews() {
               {statusText[selected.status]} · v{selected.templateVersion}
             </span>
           </div>
+          {selected.knowledgePublication && <section aria-label="知识发布材料">
+            <p>知识发布 · 原件：{selected.knowledgePublication.filename} · 材料版本 {selected.knowledgePublication.fingerprint.slice(0,12)}</p>
+            <p>发布说明：{selected.knowledgePublication.releaseNote || "未填写"}</p>
+            <a href={`/api/approvals/v2/instances/${encodeURIComponent(selected.id)}/knowledge-source?company=${encodeURIComponent(selected.knowledgePublication.tenant)}`} target="_blank" rel="noreferrer">查看审批 PDF 原件（新窗口）</a>
+            <p>此流程通过后，服务端核对本次材料与授权并自动发布；未发布版本不参与员工问答。</p>
+            <p>发布状态：{{waiting:"等待审批与发布服务",published:"已发布",failed:"发布失败",rejected:"已拒绝，未发布",withdrawn:"已撤回，未发布"}[selected.knowledgePublication.status]}</p>
+            {selected.knowledgePublication.error && <p role="alert">{selected.knowledgePublication.error}</p>}
+            {selected.knowledgePublication.receipt && <p>发布回执：{selected.knowledgePublication.receipt.id}</p>}
+          </section>}
           {selected.blockedReason && (
             <p role="alert">{selected.blockedReason}</p>
           )}
           <dl className="review-values">
-            {selected.definition.fields.map((f) => (
+            {selected.definition.fields.filter(f=>f.id !== "knowledge_request" || selected.definition.subjectType !== "knowledge_publication").map((f) => (
               <div key={f.id}>
                 <dt>{f.label}</dt>
                 <dd>
@@ -384,6 +394,7 @@ export default function Reviews() {
               </div>
             ))}
           </dl>
+          {selected.definition.subjectType === "knowledge_publication" && !selected.knowledgePublication && <KnowledgeMaterial id={selected.id} />}
           <h3>评审进度</h3>
           <ol className="review-list">
             {selected.tasks.map((t, index) => (

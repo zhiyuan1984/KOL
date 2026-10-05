@@ -117,7 +117,7 @@ export default function AccountSettings() {
         }}>
           <h2>个人资料</h2>
           <label className="field">姓名<input name="name" defaultValue={account?.name || ""} autoComplete="name" required /></label>
-          <label className="field">邮箱<input name="email" type="email" defaultValue={account?.email || ""} autoComplete="email" placeholder="sriphy.yan@amperetime.com" /></label>
+          <label className="field">邮箱<input name="email" type="email" defaultValue={account?.email || ""} autoComplete="email" placeholder="jeffrey.huang@amperetime.com" /></label>
           <label className="field">手机号<input name="phone" type="tel" defaultValue={account?.phone || ""} autoComplete="tel" inputMode="tel" placeholder="填写后可用手机登录" /></label>
           <p className="muted">身份：{account?.handle || account?.id || "当前账户"}。邮箱和手机只是登录别名，不会改掉账号 handle。</p>
           <button className="btn work">保存资料</button>

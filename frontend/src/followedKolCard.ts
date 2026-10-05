@@ -16,6 +16,7 @@ export type FollowedKolRecord = {
   handle: string;
   kol_uid?: string;
   follow_id?: string;
+  collaboration_id?: string;
   brand?: string;
   stage_code?: string;
   stage_label?: string;

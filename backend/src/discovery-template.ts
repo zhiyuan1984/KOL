@@ -13,7 +13,7 @@ export const DISCOVERY_MODES = ["search", "detail", "creator"] as const;
 
 export const DEFAULT_DISCOVERY_THRESHOLDS = {
   min_followers: 10000,
-  max_followers: 2000000,
+  max_followers: null,
   min_avg_views_10: 5000,
   target_count: 30,
 } as const;

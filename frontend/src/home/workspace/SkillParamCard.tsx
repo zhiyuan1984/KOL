@@ -45,6 +45,7 @@ function sourceKey(field: SkillParamField): string {
 }
 
 function displayValue(field: SkillParamField, value: unknown, options: DiscoveryOption[]): string {
+  if (field.key === "max_followers" && value == null) return "不限";
   if (field.kind === "object" && value && typeof value === "object") return JSON.stringify(value);
   const values = Array.isArray(value) ? value.map(String) : [String(value ?? "")];
   return values.filter(Boolean).map((code) => options.find((option) => option.code === code)?.label || code).join("、") || "未填写";
@@ -183,6 +184,7 @@ export default function SkillParamCard({
         : numberText;
       return <input className="ai-discovery-input is-number" type={compactDiscoveryLayout ? "text" : "number"} inputMode="numeric"
       aria-label={field.label} aria-invalid={invalid}
+      placeholder={field.key === "max_followers" ? "不限" : undefined}
       data-discovery-pristine={isPristine ? "true" : "false"}
       {...(field.key === "min_followers" ? { "data-discovery-min-followers": true }
         : field.key === "max_followers" ? { "data-discovery-max-followers": true }
@@ -228,10 +230,12 @@ export default function SkillParamCard({
           <div className="ai-discovery-inline-field" data-skill-param="min_followers">
             <span className="sr-only">{minFollowers.label}</span>{renderField(minFollowers)}
           </div>
-          <span className="ai-discovery-range-separator" aria-hidden="true">—</span>
-          <div className="ai-discovery-inline-field" data-skill-param="max_followers">
-            <span className="sr-only">{maxFollowers.label}</span>{renderField(maxFollowers)}
-          </div>
+          <details className="discovery-optional-upper" open={values.max_followers != null || undefined}>
+            <summary>上限：{values.max_followers == null ? "不限（可选）" : String(values.max_followers)}</summary>
+            <div className="ai-discovery-inline-field" data-skill-param="max_followers">
+              <span className="sr-only">{maxFollowers.label}</span>{renderField(maxFollowers)}
+            </div>
+          </details>
         </div>
       </div> : null}
       {hasCompactThresholds && minPlays && expectCount ? <div className="ai-discovery-row is-metric-pair" data-skill-param-group="discovery_metrics">

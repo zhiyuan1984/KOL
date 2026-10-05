@@ -1,9 +1,11 @@
+import "../knowledge-publication/worker.js";
 import { executeClaimedCronJob } from "../cron/worker.js";
 import { executeReviewTimeout } from "../approval/review-worker.js";
 import { executionHandler } from "./handlers.js";
 import { ExecutionNotDispatched } from "./failure.js";
 import "../runtime/action-worker.js";
 import "../crawl/runtime-gates.js";
+import "../knowledge/publication.js";
 import { pgExecutionJobById } from "./postgres-store.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
 import { advanceWorkOrderStageForDecision } from "../ticket-domain/work-order-stage-executor.js";

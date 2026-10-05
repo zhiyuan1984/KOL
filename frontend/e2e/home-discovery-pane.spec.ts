@@ -357,8 +357,8 @@ test("idle discovery keeps the task-rail width and full brief above the dock", a
 });
 
 test("compact discovery thresholds stay visible above the dock", async ({ page }) => {
-  // Reference view from the design review: all core conditions, including
-  // expected count, must fit before the fixed composer at 916px wide.
+  // Core conditions fit above the composer; the optional upper bound starts
+  // unlimited and does not add an input until the employee expands it.
   await page.setViewportSize({ width: 916, height: 916 });
   await stubNoRuns(page);
   await openDiscovery(page);
@@ -375,19 +375,21 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
   await expect(followerRange).toHaveAccessibleName("粉丝数范围");
   await expect(metricPair).toBeVisible();
   await expect(followerMin.locator("input")).toHaveValue("10,000");
-  await expect(followerMax.locator("input")).toHaveValue("2,000,000");
+  const optionalUpper = card.locator(".discovery-optional-upper summary");
+  await expect(optionalUpper).toContainText("不限（可选）");
+  await expect(followerMax.locator("input")).toHaveValue("");
+  await expect(followerMax.locator("input")).not.toBeVisible();
   await expect(avgPlays.locator("input")).toHaveValue("5,000");
   await expect(expectedCount.locator("input")).toHaveValue("30");
 
   const minBox = await followerMin.boundingBox();
-  const maxBox = await followerMax.boundingBox();
   const playsBox = await avgPlays.boundingBox();
   const countBox = await expectedCount.boundingBox();
   const keywordBox = await card.locator("[data-discovery-keywords]").boundingBox();
   const minInputBox = await followerMin.locator("input").boundingBox();
   const playsInputBox = await avgPlays.locator("input").boundingBox();
   const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
-  expect(minBox && maxBox && Math.abs(minBox.y - maxBox.y) < 2).toBeTruthy();
+  expect(minBox).toBeTruthy();
   expect(playsBox && countBox && Math.abs(playsBox.y - countBox.y) < 2).toBeTruthy();
   // All primary controls share the same left baseline; compact numeric fields
   // no longer stretch to the width of the keyword field.
@@ -399,6 +401,10 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
   }
   expect(countBox && dockBox && countBox.y + countBox.height <= dockBox.y).toBeTruthy();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+  await optionalUpper.click();
+  await expect(followerMax.locator("input")).toBeVisible();
+  await followerMax.locator("input").fill("2000000");
+  await expect(optionalUpper).toContainText("2000000");
 });
 
 test("+ menu no longer offers the discovery template (AI发现 pane owns discovery)", async ({ page }) => {

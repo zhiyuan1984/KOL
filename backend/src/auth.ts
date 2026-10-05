@@ -133,7 +133,7 @@ export async function hashPassword(password: string): Promise<string> {
 export function findUserForLogin(raw: string): Row | undefined {
   const ident = String(raw || "").trim();
   if (!ident) return undefined;
-  normalizeAccount(ident);
+  const account = normalizeAccount(ident);
   const db = getConn();
   const email = ident.includes("@") ? normalizeEmail(ident) : "";
   if (isDemoAdminIdentifier(ident)) {
@@ -144,7 +144,7 @@ export function findUserForLogin(raw: string): Row | undefined {
     ).get(DEMO_ADMIN.handle, normalizeEmail(DEMO_ADMIN.email), DEMO_ADMIN.name, DEMO_ADMIN.handle) as Row | undefined;
     if (admin) return admin;
   }
-  const lowered = email || ident.toLowerCase();
+  const lowered = email || account;
   const byUsername = db.prepare("SELECT * FROM users WHERE username = ? AND active = 1").get(lowered) as Row | undefined;
   if (byUsername) return byUsername;
   if (email) {
@@ -156,7 +156,10 @@ export function findUserForLogin(raw: string): Row | undefined {
     const rows = db.prepare("SELECT * FROM users WHERE phone IS NOT NULL AND trim(phone) != '' AND active = 1").all() as Row[];
     return rows.find((row) => normalizePhone(String(row.phone || "")) === phone);
   }
-  return undefined;
+  // 姓名登录（2026-10-05，用户要求叶观旺等同事也能登录）：邮箱/手机/账号都匹配不到时，
+  // 按展示姓名精确匹配（大小写不敏感）；同名不唯一则不生效，避免误登入他人账号。
+  const byName = db.prepare("SELECT * FROM users WHERE lower(trim(name)) = lower(?) AND active = 1").all(ident) as Row[];
+  return byName.length === 1 ? byName[0] : undefined;
 }
 
 function seedDemoAdminContact(db: ReturnType<typeof getConn>, userId: string): void {
@@ -167,7 +170,7 @@ function seedDemoAdminContact(db: ReturnType<typeof getConn>, userId: string): v
   }
 }
 
-/** Server deploy: turn leftover `test` into 鄢棽 / 123456789. Skip in automated tests. */
+/** Server deploy: turn leftover `test` into 黄启友 / 123456789. Skip in automated tests. */
 export function ensureDemoAdmin(): void {
   if (process.env.NODE_ENV === "test") return;
   if ((process.env.CODEX_MODE || "").toLowerCase() === "stub" && process.env.AUTH_MODE !== "enabled") return;
@@ -197,7 +200,7 @@ export function ensureDemoAdmin(): void {
     `INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)`,
   ).run(
-    DEMO_USER.id,
+    DEMO_ADMIN.user_id,
     DEMO_ADMIN.handle,
     DEMO_ADMIN.name,
     hash,
@@ -208,7 +211,7 @@ export function ensureDemoAdmin(): void {
     now,
     now,
   );
-  seedDemoAdminContact(db, DEMO_USER.id);
+  seedDemoAdminContact(db, DEMO_ADMIN.user_id);
 }
 
 async function verifyPassword(password: string, stored: string): Promise<boolean> {

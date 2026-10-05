@@ -9,6 +9,7 @@ import type { Operation } from "./operations.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPublic } from "../execution-jobs/postgres-store.js";
 import { enqueueCrawlResults } from "../crawl/results.js";
 import { canRetryRuntimeCrawl, runtimeActionProgress } from "./action-progress.js";
+import { runtimeCandidateViews } from "../crawl/candidate-actions.js";
 
 function actor(): string {
   const user = scopedUser();
@@ -24,7 +25,12 @@ async function view(action: RuntimeAction) {
     WHERE id=$1 AND actor_id=$2`, [action.id, action.actor_id])).rows[0] || null;
   const execution = (await postgresPool().query(`SELECT id,status,error_code FROM execution_jobs WHERE idempotency_key=$1 AND actor_ref=$2`,
     [`runtime-confirm:${action.id}`, action.actor_id])).rows[0] || null;
+  const events = (await postgresPool().query("SELECT sequence::text,source,state,recorded_at FROM runtime_action_events WHERE action_id=$1 ORDER BY sequence", [action.id])).rows;
+  if (crawl?.result_json?.candidates) crawl.result_json = { ...crawl.result_json,
+    candidates: await runtimeCandidateViews(action.context_json, action.id, crawl.result_json.candidates) };
   return { id: action.id, skill_id: action.context_json.skillId, operation: action.tool_name,
+    created_at: action.created_at, updated_at: action.updated_at, actor_name: scopedUser()?.name,
+    events,
     arguments: action.args_json, state: action.state, risk: "L3", confirmation_version: action.snapshot,
     blocked_reason: blocked, receipt: action.receipt_json, error_code: action.error_code, crawl, execution,
     run_id: action.context_json.originRunId || action.context_json.runId, progress: action.connector_id === "claw" && action.tool_name === "start_crawl"

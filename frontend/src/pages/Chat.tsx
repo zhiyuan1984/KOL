@@ -30,6 +30,7 @@ import { AGENT_TASK_STATUS_LABEL, agentTaskUxStatus } from "../agentUx";
 import { useAccount } from "../components/AuthGate";
 import { useViewMode } from "../viewMode";
 import RunHud from "../components/RunHud";
+import { taskRunView } from "../runViewState";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useRunStatus } from "../hooks/useRunStatus";
 import { rememberJourney } from "../journey";
@@ -367,7 +368,7 @@ function safeCrawlOperationMessages(taskId: string, events: TaskEvent[]): Messag
   }];
 }
 
-function taskAnalysisSummary(task: Task): string {
+function taskAnalysisSummary(task: Task, agentStatus?: string): string {
   const entities = task.entities && typeof task.entities === "object"
     ? task.entities as Record<string, unknown>
     : {};
@@ -380,7 +381,10 @@ function taskAnalysisSummary(task: Task): string {
     const keywords = Array.isArray(entities.keywords) ? entities.keywords.map(String).join("、") : "待补充关键词";
     return `已识别为达人发现任务；目标平台：${platform}；搜索主题：${keywords}。参数生成后将自动启动远程采集。`;
   }
-  return `正在处理“${task.title}”。完整结果会放在结果工作台。`;
+  const state = taskRunView(task, agentStatus);
+  return state.live
+    ? `正在处理“${task.title}”。完整结果会放在结果工作台。`
+    : `“${task.title}”：${state.label}。请查看结果工作台中的结果、资料来源及待补充说明。`;
 }
 
 function humanError(message: string) {
@@ -439,6 +443,9 @@ export default function Chat() {
   const [submitErr, setSubmitErr] = useState("");
   const [pending, setPending] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
+  const [taskReadError, setTaskReadError] = useState("");
+  const [taskReadGeneration, setTaskReadGeneration] = useState(0);
+  const taskSessionRef = useRef(id);
   const discoveryWorkspace = discoveryWorkspaceOf(task);
   const discoveryEntry = discoveryWorkspace !== null || (location.state as { discoverySession?: string } | null)?.discoverySession === id;
   const [runtimeActions, setRuntimeActions] = useState<RuntimeActionView[]>([]);
@@ -484,9 +491,13 @@ export default function Chat() {
 
   useEffect(() => {
     if (!id) return;
+    if (taskSessionRef.current !== id) { taskSessionRef.current = id; setTask(null); setTaskReadError(""); }
     const taskId = sessionStorage.getItem(`task:${id}`) || id;
     let cancelled = false;
+    let loading = false;
     const loadTask = async () => {
+      if (loading) return;
+      loading = true;
       try {
         const nextTask = unwrapTask(
           sessionStorage.getItem(`task:${id}`)
@@ -495,12 +506,16 @@ export default function Chat() {
         );
         if (cancelled) return;
         setTask(nextTask);
+        setTaskReadError("");
         sessionStorage.setItem(`task:${id}`, nextTask.id);
         const events = unwrapEvents(await api.taskEvents(nextTask.id).catch(() => []));
         if (!cancelled) setTaskEvents(events);
       } catch {
         // Legacy sessions have no task resource and continue using session messages.
-      }
+        if (!cancelled && (sessionStorage.getItem(`task:${id}`) || (location.state as { discoverySession?: string } | null)?.discoverySession === id)) {
+          setTaskReadError("暂时无法读取已保存的发现条件，请重试读取；这不会重新提交任务。");
+        }
+      } finally { loading = false; }
     };
     void loadTask();
     const timer = window.setInterval(() => {
@@ -512,12 +527,11 @@ export default function Chat() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [id, task?.status]);
+  }, [id, task?.status, taskReadGeneration]);
 
   useEffect(() => {
     // The persisted task snapshot remains the default after refresh; an
     // explicit skill switch belongs only to the currently open session.
-    setTask(null);
     setRuntimeActions([]);
     setSelectedTemplateSkillId(null);
     setSelectedSkillTemplate(null);
@@ -758,6 +772,7 @@ export default function Chat() {
 
   const status: AgentRunStatus = agentStatus === "running" || pending ? "running" : (agentStatus as AgentRunStatus) || "listening";
   const { phase, task: runTask } = useRunStatus(id, messages, status);
+  const taskView = task ? taskRunView(task, status) : undefined;
   const skillId = String(task?.skill_id || task?.skill || task?.task_type || runTask?.skill_id || runTask?.skill || "");
   const remoteLabel = debug && skillId ? REMOTE_BACKEND_LABEL[remoteForSkill(skillId)] : undefined;
   const hasVisibleTrace = messages.some((message) => message.kind === "process_trace" || message.kind === "operation_trace");
@@ -1080,7 +1095,7 @@ export default function Chat() {
 
   return (
     <div
-      className={`session-shell conversation-workspace${showLeftRail ? " has-tasklist" : ""}${showRightWorkbench ? "" : " no-workbench"}`}
+      className={`session-shell conversation-workspace${discoveryEntry ? " is-discovery-task" : ""}${showLeftRail ? " has-tasklist" : ""}${showRightWorkbench ? "" : " no-workbench"}`}
       style={{ ["--tasklist-width" as string]: `${taskListWidth}px` }}
     >
       {showLeftRail ? (
@@ -1103,14 +1118,14 @@ export default function Chat() {
         {id && kolSession && !discoveryEntry ? <ReplyContextPanel sessionId={id} analyzing={pending} onAnalyze={() => pickSuggestion({label: "分析最新邮件对草稿的影响", prompt: "分析回复：请引用当前授权邮件的 ID 和版本，解释对现有草稿的影响。延期仅作为申请，不视为已批准；保留人工稿，不发信、不改正式阶段。", intent: "reply_analysis"})} /> : null}
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
-            <Link
+            {!discoveryEntry && <Link
               to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
               reloadDocument={Boolean(taskWorkspace.task)}
               className="task-back"
               data-session-back-link
-            >{discoveryEntry ? "← 返回AI发现" : "← 返回任务列表"}</Link>
+            >← 返回任务列表</Link>}
             {discoveryEntry ? <span className="muted">{status === "running" ? "正在分析发现需求" : "AI发现"}</span>
-              : <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
+              : <RunHud status={status} view={taskView} phase={!taskView || taskView.live ? phase : undefined} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
           </div>
           {discoveryWorkspace ? (
             <div data-discovery-workspace data-agent-identity={discoveryWorkspace.agent_id} data-agent-profile="lead">
@@ -1135,7 +1150,10 @@ export default function Chat() {
                 <p className="muted">地区、粉丝和均播门槛用于结果核对；期望人数不代表远端采集数量上限。缺失数据会标注为无法核验。</p>
               </details>
             </div>
-          ) : null}
+          ) : discoveryEntry ? <div data-discovery-workspace="loading" role="status">
+            <p>{taskReadError || "正在读取已保存的发现条件；你可以使用左栏导航离开。"}</p>
+            {taskReadError ? <button type="button" className="btn ghost" onClick={() => setTaskReadGeneration(value => value + 1)}>重新读取条件</button> : null}
+          </div> : null}
           {boundExpert ? (
             <div className="expert-session-bar" data-expert-identity={boundExpert.expert_id}>
               <div>
@@ -1263,7 +1281,7 @@ export default function Chat() {
         {task && !discoveryEntry && (
           <section className="task-analysis-summary" data-task-analysis-summary>
             <strong>分析摘要</strong>
-            <p>{taskAnalysisSummary(task)}</p>
+            <p>{taskAnalysisSummary(task, status)}</p>
           </section>
         )}
         {crawlJob && (
@@ -1324,11 +1342,14 @@ export default function Chat() {
           </div>
         )}
         {id && (
-          <><ChatThread
+          <RuntimeActions sessionId={id} onChange={setRuntimeActions}>{(actions, renderAction) => <><ChatThread
             messages={timelineWithCrawl}
+            discovery={discoveryEntry}
+            actions={actions}
+            renderAction={renderAction}
             officialStage={String(journey?.stage_code || "")}
             onRefresh={reload}
-          /><RuntimeActions sessionId={id} onChange={setRuntimeActions} /></>
+          />{!discoveryEntry ? actions.map(action => renderAction(action.id)) : null}</>}</RuntimeActions>
         )}
         </div>
         {streamPosition.scrollable ? <div className="session-scroll-control">
@@ -1411,6 +1432,7 @@ export default function Chat() {
           onRefresh={reload}
           onPosted={(msgs) => setMessages(msgs)}
           task={task}
+          discoveryReturn={discoveryEntry ? (task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/?tab=discovery") : undefined}
           resultOverride={discoveryExecutionResult}
           statusOverride={discoveryProgress?.label}
           resultExtra={taskWorkspace.task ? <>
@@ -1419,6 +1441,7 @@ export default function Chat() {
             </section>
             <WorkOrderSuggestions key={taskWorkspace.task.task.task_id} taskId={taskWorkspace.task.task.task_id} onChanged={()=>taskWorkspace.refresh()} />
           </> : discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
+            onRefresh={reload}
             analyzing={pending || status === "running"} onAnalyze={taskId => void send({
               text: `请基于本任务已保存的发现条件与采集 ${taskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
               intent: "crawler_collect",

@@ -1,4 +1,5 @@
 import type { Operation } from "../runtime/operations.js";
+import { traceEventPayload } from "../worker/trace-events.js";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 /**
  * Host = Dify「应用后端」。
@@ -47,6 +48,7 @@ import { runWorker, type WorkerProgress } from "../worker/runner.js";
 import {
   applyProgress,
   finishProcessItems,
+  finishOperationItems,
   preferHostOperations,
   reasoningSummariesOf,
   statusTextForProgress,
@@ -539,6 +541,7 @@ function collabDisplay(id: unknown): string {
 }
 
 function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
+  if (kind === "process_trace" || kind === "operation_trace") payload = traceEventPayload(null, payload, nowIso());
   if (kind === "me") {
     const last = getConn().prepare(
       "SELECT id, payload, created_at FROM messages WHERE session_id=? AND kind='me' ORDER BY created_at DESC, id DESC LIMIT 1",
@@ -556,9 +559,12 @@ function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
 }
 
 function updateMsg(mid: string, payload: Json): void {
-  const row = getConn().prepare("SELECT session_id, role, kind, created_at FROM messages WHERE id=?").get(mid) as
-    | { session_id: string; role: string; kind: string; created_at: string }
+  const row = getConn().prepare("SELECT session_id, role, kind, created_at, payload FROM messages WHERE id=?").get(mid) as
+    | { session_id: string; role: string; kind: string; created_at: string; payload: string }
     | undefined;
+  if (row && (row.kind === "process_trace" || row.kind === "operation_trace")) {
+    payload = traceEventPayload(JSON.parse(row.payload), payload, nowIso());
+  }
   tx((c) => {
     c.prepare("UPDATE messages SET payload = ? WHERE id = ?").run(JSON.stringify(payload), mid);
   });
@@ -825,7 +831,9 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
     runStatus,
     failed
       ? `未生成结果：${failureReason || "执行未完成"}。可重新执行。`
-      : "结果与产物已就绪，等待你确认。",
+      : taskDefinition(bound.taskType)?.side_effects === "none"
+        ? "本轮只读查询已结束。结果已生成，可查看资料来源；正式任务仍可验收。"
+        : "本轮结果已生成，任务待验收；正式操作仍需单独确认。",
   );
   audit(scopedUser()?.id || "demo", `task.run.${runStatus}`, {
     work_item_id: bound.workItemId,
@@ -1101,7 +1109,7 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
     });
     trace = addMsg(sid, "assistant", "process_trace", {
       title: "处理过程",
-      items: [{ id: "host:preparing", label: "准备任务", status: "running", kind: "host" }],
+      items: [{ id: "host:preparing", label: "正在核对任务条件", status: "running", kind: "host", observed_at: nowIso() }],
     });
     operations = addMsg(sid, "assistant", "operation_trace", {
       title: REMOTE_MCP_TITLE,
@@ -1120,7 +1128,7 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
   const operationId = String(operations.id);
   let operationItems: { id: string; name: string; label: string; status: string }[] = [];
   let processItems: WorkerTraceItem[] = [
-    { id: "host:preparing", label: "准备任务", status: "running", kind: "host" },
+    { id: "host:preparing", label: "正在核对任务条件", status: "running", kind: "host", observed_at: String((trace.payload as Json)?.items && ((trace.payload as Json).items as Json[])[0]?.observed_at || trace.created_at) },
   ];
   let latestPhase: WorkerProgress["phase"] = "preparing";
   let latestSummary = "";
@@ -1861,10 +1869,10 @@ function finishWorkerTrace(sid: string, failed: boolean): void {
     let payload: { title?: string; items?: Json[]; persistent?: boolean } = {};
     try { payload = JSON.parse(String(op.payload || "{}")); } catch { payload = {}; }
     updateMsg(op.id, {
-      title: payload.title || REMOTE_MCP_TITLE,
+      title: "系统能力调用记录",
       persistent: true,
       active: false,
-      items: payload.items || [],
+      items: finishOperationItems(payload.items || []),
     });
   }
 }

@@ -9,7 +9,7 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { bundledSkillPath } from "../src/host/skill-sop.js";
 import { resolveMailTemplate } from "../src/host/knowledge.js";
-import { DEMO_USER } from "../src/config.js";
+import { DEMO_ADMIN, DEMO_USER } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
@@ -178,7 +178,7 @@ describe("WikiSkill knowledge", () => {
   it("keeps evolve rejection after a skill overlay rollback and never writes SKILL.md", async () => {
     const skillFile = bundledSkillPath("email_compose");
     const before = fs.readFileSync(skillFile, "utf8");
-    expect((await request("POST", "/api/login", { username: "鄢棽", password: "123456789" })).status).toBe(200);
+    expect((await request("POST", "/api/login", { username: DEMO_ADMIN.name, password: "123456789" })).status).toBe(200);
     const proposed = await (await request("POST", "/api/admin/knowledge/evolve/propose", {
       kind: "skill_patch",
       skill_id: "email_compose",

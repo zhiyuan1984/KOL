@@ -1,5 +1,6 @@
 import { kbDateOnly, kbDocStatusLabel, kindLabel, statusLabel } from "../../knowledgeCopy";
 import type { KbAssetRow } from "./shared";
+import KbvIcon from "../../knowledgeIcons";
 
 export type KbView = "all" | "pending" | "published" | "draft" | "disabled";
 
@@ -75,10 +76,10 @@ function RecordRow({ row, selected, onSelect }: {
       aria-current={selected}
       onClick={() => onSelect(row.id)}
     >
-      <span className="kbv-record-title">{row.title}</span>
+      <span className="kbv-record-heading"><span className="kbv-record-icon"><KbvIcon name={row.asset_type === "document" ? "file" : "book"} /></span><span className="kbv-record-title">{row.title}</span></span>
       <span className="kbv-browser-record-meta">
-        <span>{row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind)}</span>
-        <span className={`kbv-status ${statusClass}`}>{row.asset_type === "document" ? kbDocStatusLabel(status) : statusLabel(status)}</span>
+        <span className="kbv-record-kind">{row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind)}</span>
+        <span className={`kbv-status ${statusClass}`}>{row.asset_type === "document" ? row.publication_label || kbDocStatusLabel(status) : statusLabel(status)}</span>
         {row.updated_at ? <span className="kbv-record-date">{kbDateOnly(row.updated_at)}</span> : null}
       </span>
     </button>

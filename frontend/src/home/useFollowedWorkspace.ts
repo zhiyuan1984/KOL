@@ -243,7 +243,7 @@ export function useFollowedWorkspace(options: {
         skillId: kol.unbound ? "creator_profile" : undefined,
         skillLabel: kol.unbound ? "达人画像" : undefined,
       });
-      if (kol.unbound) {
+      if (kol.unbound || (kol.follow_id && !kol.collaboration_id)) {
         onFillComposer(`达人画像 ${kol.handle}`, "creator_profile", "达人画像");
         return;
       }

@@ -21,8 +21,8 @@ export const useAccount = () => useContext(AuthContext);
 function adminLoginIdent(raw: string): { email: string; username: string } {
   const t = String(raw || "").trim();
   const email = t.toLowerCase();
-  if (t === "鄢棽" || email === "sriphy" || email === "sriphy.yan@amperetime.com") {
-    return { username: "sriphy", email: email.includes("@") ? email : "sriphy.yan@amperetime.com" };
+  if (t === "黄启友" || email === "jeffrey" || email === "jeffrey.huang@amperetime.com") {
+    return { username: "jeffrey", email: email.includes("@") ? email : "jeffrey.huang@amperetime.com" };
   }
   return { username: t, email: t };
 }
@@ -144,7 +144,7 @@ function AuthForm({
     const data = new FormData(event.currentTarget);
     const email = String(data.get("email") || "").trim();
     const password = String(data.get("password") || "");
-    setIdentError(email ? "" : "请填写邮箱、手机或账号");
+    setIdentError(email ? "" : "请填写邮箱、手机、账号或姓名");
     setPasswordError(password ? "" : "请填写密码");
     if (!email || !password) return;
     setBusy(true);
@@ -171,16 +171,16 @@ function AuthForm({
         <div className="page-kicker">灵工工作台</div>
         <h1>{setup ? "创建首位管理员" : "登录"}</h1>
         {setup && (
-          <label className="field">姓名<input name="name" autoComplete="name" defaultValue="鄢棽" required /></label>
+          <label className="field">姓名<input name="name" autoComplete="name" defaultValue="黄启友" required /></label>
         )}
         <label className="field">
-          邮箱、手机或账号
+          邮箱、手机、账号或姓名
           <input
             name="email"
             autoComplete="username"
             inputMode="email"
-            defaultValue={setup ? "sriphy.yan@amperetime.com" : ""}
-            placeholder="sriphy.yan@amperetime.com"
+            defaultValue={setup ? "jeffrey.huang@amperetime.com" : ""}
+            placeholder="jeffrey.huang@amperetime.com"
             aria-describedby={identError ? "auth-ident-error" : undefined}
             required
           />
@@ -198,7 +198,7 @@ function AuthForm({
           />
         </label>
         {passwordError && <p id="auth-password-error" className="field-error">{passwordError}</p>}
-        {!setup && <p className="muted">管理员可用邮箱、鄢棽或 sriphy，密码 123456789。</p>}
+        {!setup && <p className="muted">管理员可用邮箱、黄启友或 jeffrey，密码 123456789。</p>}
         <button className="btn work" disabled={busy}>{busy ? "请稍候…" : setup ? "完成设置" : "登录"}</button>
       </form>
     </main>

@@ -34,9 +34,8 @@ async function request(method: string, url: string, body?: unknown) {
 
 beforeEach(async () => {
   databaseUrl = process.env.DATABASE_URL;
-  delete process.env.DATABASE_URL; // Includes the work_items → tickets SQLite migration.
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-tickets-"));
-  process.env.LINGONG_DB = path.join(tmp, "tickets.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.NODE_ENV = "test";
@@ -174,7 +173,7 @@ describe("email.received wiring", () => {
     getConn().prepare(
       `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run(DEMO_USER.id, "sriphy", "鄢棽", "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
+    ).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
     getConn().prepare(
       `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)
        VALUES (?,?,?,?,?,?,?,?)
@@ -247,6 +246,9 @@ describe("work_items → tickets merge migration", () => {
     raw.close();
 
     // 指向旧库并重连：initSchema + migrateSchema（含 work_items → tickets 合并）
+    // Only this historical SQLite migration fixture opens its legacy file;
+    // business/API cases above keep their isolated PostgreSQL database.
+    delete process.env.DATABASE_URL;
     process.env.LINGONG_DB = legacyPath;
     resetConn();
     const conn = getConn();

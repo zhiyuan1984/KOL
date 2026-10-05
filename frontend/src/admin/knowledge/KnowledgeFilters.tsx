@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import KbvIcon from "../../knowledgeIcons";
 import {
   brandLabel,
   KB_FILTER_LABEL,
@@ -42,8 +43,17 @@ type Props = {
   onCreate: () => void;
 };
 
-/** chips 超过 8 项时先折叠，由「更多阶段」展开（DESIGN §4；选中项始终可见）。 */
+/** 长选项组使用紧凑列表；折叠时选中项始终可见。 */
 const CHIP_VISIBLE_LIMIT = 8;
+
+function FilterGroup({ label, icon, children, className = "" }: {
+  label: string; icon: string; children: ReactNode; className?: string;
+}) {
+  return <details open className={`kbv-filter-section ${className}`}>
+    <summary><KbvIcon name={icon} /><span>{label}</span><KbvIcon name="chevron" /></summary>
+    {children}
+  </details>;
+}
 
 function FilterChip({ label, count, pressed, attrs, onClick }: {
   label: string;
@@ -61,9 +71,9 @@ function FilterChip({ label, count, pressed, attrs, onClick }: {
 }
 
 /**
- * 管理端中栏筛选列：七组筛选全部为「标签＋计数」chips，每组一个「全部」。
+ * 管理端筛选列：可折叠的分类列表与短选项组，每组一个「全部」。
  * 分类（业务族 → 业务域 → 知识库）逐级收窄；品牌/阶段为多选，其余单选。
- * 底部操作始终固定可见；中栏只做筛选，不再出现卡片壳。
+ * 底部操作固定可见；折叠不会清除已选条件。
  */
 export default function KnowledgeFilters({
   query, onQuery, scope, onFamily, onDomain, onBase,
@@ -103,7 +113,7 @@ export default function KnowledgeFilters({
     <aside className="kbv-filter-pane" aria-label="知识筛选" data-kbv-filter-pane>
       <div className="kbv-filter-scroll">
         <label className="kbv-search" aria-label="搜索知识">
-          <span className="kbv-search-glyph" aria-hidden="true">⌕</span>
+          <KbvIcon name="search" />
           <input
             type="search"
             aria-label="搜索知识"
@@ -115,8 +125,7 @@ export default function KnowledgeFilters({
         </label>
 
         <section className="kbv-filter-group" data-kb-filter="taxonomy">
-          <div className="kbv-filter-block">
-            <span className="kbv-filter-name">{KB_SCOPE_FAMILY}</span>
+          <FilterGroup label={KB_SCOPE_FAMILY} icon="family" className="kbv-filter-block">
             <div className="kbv-facet-list" role="group" aria-label={KB_SCOPE_FAMILY}>
               {chipList(
                 familyOptions,
@@ -125,9 +134,8 @@ export default function KnowledgeFilters({
                 onFamily,
               )}
             </div>
-          </div>
-          <div className="kbv-filter-block">
-            <span className="kbv-filter-name">{KB_SCOPE_DOMAIN}</span>
+          </FilterGroup>
+          <FilterGroup label={KB_SCOPE_DOMAIN} icon="layers" className="kbv-filter-block">
             <div className="kbv-facet-list" role="group" aria-label={KB_SCOPE_DOMAIN}>
               {chipList(
                 domainOptions,
@@ -136,9 +144,8 @@ export default function KnowledgeFilters({
                 onDomain,
               )}
             </div>
-          </div>
-          <div className="kbv-filter-block">
-            <span className="kbv-filter-name">{KB_SCOPE_BASE}</span>
+          </FilterGroup>
+          <FilterGroup label={KB_SCOPE_BASE} icon="book" className="kbv-filter-block">
             <div className="kbv-facet-list" role="group" aria-label={KB_SCOPE_BASE}>
               {chipList(
                 baseOptions,
@@ -147,11 +154,11 @@ export default function KnowledgeFilters({
                 onBase,
               )}
             </div>
-          </div>
+          </FilterGroup>
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="brand">
-          <span className="kbv-filter-name">{KB_FILTER_LABEL.brand}</span>
+          <FilterGroup label={KB_FILTER_LABEL.brand} icon="tag" className={brandOptions.length > CHIP_VISIBLE_LIMIT ? "kbv-filter-list" : ""}>
           <div className="kbv-facet-list" role="group" aria-label={KB_FILTER_LABEL.brand}>
             <FilterChip
               label="全部"
@@ -171,10 +178,11 @@ export default function KnowledgeFilters({
               />
             ))}
           </div>
+          </FilterGroup>
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="stage">
-          <span className="kbv-filter-name">{KB_FILTER_LABEL.stage}</span>
+          <FilterGroup label={KB_FILTER_LABEL.stage} icon="hierarchy" className={stageOptions.length > CHIP_VISIBLE_LIMIT ? "kbv-filter-list" : ""}>
           <div className="kbv-facet-list" role="group" aria-label={KB_FILTER_LABEL.stage}>
             <FilterChip
               label="全部"
@@ -205,10 +213,11 @@ export default function KnowledgeFilters({
               </button>
             ) : null}
           </div>
+          </FilterGroup>
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="kind">
-          <span className="kbv-filter-name">类型</span>
+          <FilterGroup label="类型" icon="file" className={kindOptions.length > CHIP_VISIBLE_LIMIT ? "kbv-filter-list" : ""}>
           <div className="kbv-facet-list" role="group" aria-label="类型">
             {chipList(
               kindOptions,
@@ -217,10 +226,11 @@ export default function KnowledgeFilters({
               onKind,
             )}
           </div>
+          </FilterGroup>
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="status">
-          <span className="kbv-filter-name">状态</span>
+          <FilterGroup label="状态" icon="status">
           <div className="kbv-facet-list" role="group" aria-label="状态">
             {chipList(
               viewOptions,
@@ -229,6 +239,7 @@ export default function KnowledgeFilters({
               (value) => onView(value as KbView),
             )}
           </div>
+          </FilterGroup>
         </section>
       </div>
 

@@ -3,6 +3,7 @@ import { reviewApi } from "./api";
 import type { ReviewDraft, ReviewIssue } from "../../../shared/review";
 type Change = { path: string; before: unknown; after: unknown };
 const labels: Record<string, string> = {
+  organizationUnitId: "流程归属组织",
   name: "名称",
   description: "说明",
   id: "标识",

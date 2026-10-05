@@ -748,13 +748,13 @@ describe("plan trace rows", () => {
       item_key: "reasoning:r1",
       label: "Codex 推理",
       safe_summary: "先看未了结的报价",
-      status: "interrupted",
+      status: "done",
     });
     const stepRow = getConn().prepare(
       "SELECT * FROM task_events WHERE work_item_id=? AND item_key='host:preparing'",
     ).get(workItemId) as Row;
     // 简报校验失败发生在 worker 返回之后：已经收尾的 host 步骤保持 done，
-    // 只有收尾时仍在跑的推理行被标失败（与抽取前 finishTrace 的行为一致）。
+    // 推理行也已收尾，保持 done；工作项失败由最终失败事件表达。
     expect(stepRow).toMatchObject({
       event_type: "run.step",
       label: "准备任务",

@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { clearTaskRegistryCache } from "../src/tasks/registry.js";
-import { dataDir } from "../src/config.js";
+import { dataDir, DEMO_ADMIN } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
@@ -25,7 +25,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 async function loginPm() {
-  const auth = await request("POST", "/api/login", { username: "鄢棽", password: "123456789" });
+  const auth = await request("POST", "/api/login", { username: DEMO_ADMIN.name, password: "123456789" });
   expect(auth.status, JSON.stringify(auth.body)).toBe(200);
 }
 

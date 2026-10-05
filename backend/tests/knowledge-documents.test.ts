@@ -3,9 +3,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../src/knowledge-bridge.js";
-import { tokenDigest } from "../src/auth.js";
+import { tokenDigest,withScopedUser,requireAdmin,authDisabled } from "../src/auth.js";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { getConn, resetConn,txImmediate } from "../src/db.js";
+import { randomUUID } from "node:crypto";
+import { ensureOrganizationTree } from "../src/runtime/organization-tree.js";
+import { reviewContextForActor } from "../src/approval/review-access.js";
+import { ReviewService } from "../src/approval/review-service.js";
+import { knowledgeReviewDefinition } from "../../shared/review.js";
+import { bindPublication,preparePublication,guardKnowledgeReview } from "../src/knowledge/publication.js";
+import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 import { seedAll } from "../src/seed.js";
 import { setPersona } from "../src/host/persona.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -36,7 +43,7 @@ async function request(
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await app.request(url, init);
+  const res = await (authDisabled() ? withScopedUser(requireAdmin(),()=>app.request(url,init)) : app.request(url,init));
   const text = await res.text();
   return {
     status: res.status,
@@ -105,6 +112,21 @@ async function auditCount(eventType: string): Promise<number> {
   return Number(row.n || 0);
 }
 
+async function approveAndPublish(id:string,base:string){
+  const context=(actor="sriphy")=>reviewContextForActor(getConn(),actor,"company:amperetime");
+  const definition=knowledgeReviewDefinition();definition.nodes.find(n=>n.type==="review")!.assignee={kind:"named",userIds:["pdf-reviewer"]};
+  const template=txImmediate(db=>new ReviewService(db,context()).saveTemplate(undefined,undefined,definition));
+  txImmediate(db=>{const service=new ReviewService(db,context()),command={action:"publish" as const,templateId:template.id,expectedVersion:template.version};
+    const prepare=service.prepare(command);service.execute(command,prepare.confirmationId,randomUUID());});
+  await bindPublication(base,template.id,0,context());
+  const prepare=await preparePublication(id,"核对原文后发布",context());await guardKnowledgeReview(prepare.command,context());
+  const submit=txImmediate(db=>new ReviewService(db,context()).execute(prepare.command,prepare.confirmationId,randomUUID()));
+  const instance=String(submit.resourceId),service=new ReviewService(getConn(),context("pdf-reviewer")),view=service.instance(instance);
+  const command={action:"approve" as const,instanceId:instance,expectedVersion:view.version,reason:"已核对"};await guardKnowledgeReview(command,context("pdf-reviewer"));
+  txImmediate(db=>{const s=new ReviewService(db,context("pdf-reviewer")),p=s.prepare(command);s.execute(command,p.confirmationId,randomUUID());});
+  expect((await processExecutionJobById(`knowledge-publish:company:amperetime:${instance}`,"pdf-test"))?.outcome).toBe("processed");
+}
+
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kdoc-"));
@@ -115,6 +137,13 @@ beforeEach(async () => {
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
   resetConn();
   seedAll();
+  process.env.AUTH_MODE="disabled";ensureOrganizationTree();
+  const db=getConn(),time=new Date().toISOString();
+  for(const [id,roles] of [["sriphy",'["employee","admin"]'],["pdf-reviewer",'["employee"]']])
+    db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .run(id,id,id,"unused",roles,'[]','',1,time,time);
+  db.prepare("UPDATE organization_people SET user_id='sriphy' WHERE person_ref='person:yan_chen'").run();
+  db.prepare("UPDATE organization_people SET user_id='pdf-reviewer' WHERE person_ref='person:zhang_gan'").run();
   const { createApp } = await import("../src/app.js");
   app = createApp();
 });
@@ -177,7 +206,7 @@ describe("knowledge documents (P1 pipeline)", () => {
       const doc = await upload(String(base.id), "产品规格.pdf", pdfBytes());
       await waitStatus(String(doc.id), ["pending_review"]);
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_no_published_documents" } });
-      await request("POST", `/api/admin/knowledge/documents/${doc.id}/publish`);
+      await approveAndPublish(String(doc.id),String(base.id));
       const result = await runtime.invoke("knowledge.ask_documents", { query: "规格？" });
       const answer = JSON.parse(String((result.content as Json[])[0].text));
       expect(answer.citations[0]).toMatchObject({ document_id: doc.id, page: 1 });
@@ -275,7 +304,8 @@ describe("knowledge documents (P1 pipeline)", () => {
     const doc = await upload(String(base.id), "选手手册.pdf", pdfBytes());
     await waitStatus(String(doc.id), ["pending_review"]);
 
-    const published = (await (await request("POST", `/api/admin/knowledge/documents/${doc.id}/publish`)).json()).document as Json;
+    await approveAndPublish(String(doc.id),String(base.id));
+    const published = (await docDetail(String(doc.id))).document as Json;
     expect(published.status).toBe("published");
     expect(published.published_at).toBeTruthy();
 
@@ -298,7 +328,7 @@ describe("knowledge documents (P1 pipeline)", () => {
     const base = await createUnstructuredBase();
     const publishedDoc = await upload(String(base.id), "已发布.pdf", pdfBytes());
     await waitStatus(String(publishedDoc.id), ["pending_review"]);
-    await request("POST", `/api/admin/knowledge/documents/${publishedDoc.id}/publish`);
+    await approveAndPublish(String(publishedDoc.id),String(base.id));
     const pendingDoc = await upload(String(base.id), "未发布.pdf", pdfBytes());
     await waitStatus(String(pendingDoc.id), ["pending_review"]);
 
@@ -364,11 +394,11 @@ describe("knowledge documents (P1 pipeline)", () => {
     const base = await createUnstructuredBase();
     const doc = await upload(String(base.id), "先发布.pdf", pdfBytes());
     await waitStatus(String(doc.id), ["pending_review"]);
-    await request("POST", `/api/admin/knowledge/documents/${doc.id}/publish`);
+    await approveAndPublish(String(doc.id),String(base.id));
 
     const blocked = await request("DELETE", `/api/admin/knowledge/documents/${doc.id}`);
     expect(blocked.status).toBe(409);
-    expect(await detailCode(blocked)).toBe("knowledge_document_published");
+    expect(await detailCode(blocked)).toBe("knowledge_document_frozen");
 
     const archived = (await (await request("POST", `/api/admin/knowledge/documents/${doc.id}/archive`)).json()).document as Json;
     expect(archived.status).toBe("archived");

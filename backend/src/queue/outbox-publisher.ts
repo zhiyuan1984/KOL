@@ -113,7 +113,7 @@ export class PostgresOutboxPublisher {
             { execution_job_id: row.job_id, outbox_id: row.id },
             {
               // BullMQ reserves ':' as an internal key separator.
-              jobId: `outbox-${row.id}`,
+              jobId: `outbox-${encodeURIComponent(row.id)}`,
               attempts: 1,
               removeOnComplete: { age: 86_400, count: 10_000 },
               removeOnFail: { age: 7 * 86_400, count: 20_000 },

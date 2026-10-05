@@ -10,7 +10,7 @@
   "behavioral_tests": {
     "status": "pass",
     "exit_code": 0,
-    "stdout_tail": "\n RUN  v3.2.7 D:/workspace/lingong-kol-ts/backend\n\n ✓ tests/conformance-redlines.test.ts (6 tests) 46ms\n ✓ tests/contract-scope.test.ts (3 tests) 17ms\n\n Test Files  2 passed (2)\n      Tests  9 passed (9)\n   Start at  12:44:59\n   Duration  1.42s (transform 272ms, setup 32ms, collect 475ms, tests 63ms, environment 1ms, prepare 310ms)\n\n",
+    "stdout_tail": "\n RUN  v3.2.7 C:/Users/admin/.codex/worktrees/b04b/KOL/backend\n\n ✓ tests/conformance-redlines.test.ts (7 tests) 180ms\n ✓ tests/contract-scope.test.ts (4 tests) 33ms\n\n Test Files  2 passed (2)\n      Tests  11 passed (11)\n   Start at  15:56:09\n   Duration  2.23s (transform 424ms, setup 489ms, collect 547ms, tests 213ms, environment 1ms, prepare 373ms)\n\n",
     "stderr_tail": ""
   },
   "thresholds": {
@@ -37,5 +37,5 @@
     ]
   },
   "errors": [],
-  "generated_at": "2026-09-13T04:45:01.192Z"
+  "generated_at": "2026-10-05T07:56:11.543Z"
 }

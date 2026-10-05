@@ -19,10 +19,12 @@ export function validateWorkspaceBrief(input: unknown): Json {
     || b.directions.some(x => !DISCOVERY_KEYWORD_PACKS.some(pack => pack.id === x))) return invalid();
   if (!Array.isArray(b.keywords) || !b.keywords.length || b.keywords.length > 40
     || b.keywords.some(x => typeof x !== "string" || !x.trim() || x.length > 200)) return invalid();
-  for (const key of ["min_followers", "max_followers", "min_avg_plays_10", "expect_count"]) {
+  for (const key of ["min_followers", "min_avg_plays_10", "expect_count"]) {
     if (!Number.isSafeInteger(b[key]) || Number(b[key]) < 0) return invalid();
   }
-  if (Number(b.max_followers) < Number(b.min_followers) || Number(b.expect_count) < 1 || Number(b.expect_count) > MAX_DISCOVERY_TARGET) return invalid();
+  if (b.max_followers != null && (!Number.isSafeInteger(b.max_followers) || Number(b.max_followers) < Number(b.min_followers))) return invalid();
+  if (Number(b.expect_count) < 1 || Number(b.expect_count) > MAX_DISCOVERY_TARGET) return invalid();
+  b.max_followers = b.max_followers ?? null;
   return Object.fromEntries(["platforms", "region", "directions", "keywords", "min_followers", "max_followers", "min_avg_plays_10", "expect_count"].map(key => [key, b[key]]));
 }
 

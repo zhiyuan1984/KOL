@@ -345,6 +345,7 @@ export default function SideWorkbench({
   resultExtra,
   resultOverride,
   statusOverride,
+  discoveryReturn,
 }: {
   sessionId: string;
   messages: Message[];
@@ -369,6 +370,7 @@ export default function SideWorkbench({
   resultExtra?: import("react").ReactNode;
   resultOverride?: TaskResultCard;
   statusOverride?: string;
+  discoveryReturn?: string;
 }) {
   const { debug } = useViewMode();
   const editing = useRef({sessionId, drafts: new Map<string, DraftEdit>()});
@@ -476,28 +478,32 @@ export default function SideWorkbench({
       data-workbench
     >
       {/* 收起/展开按钮＝今日任务右栏同一个控件（24px 图标 + 竖排标签 + 可见焦点环）。 */}
-      <button
+      {!discoveryReturn || collapsed ? <button
         type="button"
         className="scope-task-rail-toggle"
         aria-expanded={!collapsed}
-        aria-label={collapsed ? "展开本轮结果" : "收起本轮结果"}
-        title={collapsed ? "展开本轮结果" : "收起本轮结果"}
+        aria-label={collapsed ? "展开结果" : "收起结果"}
+        title={collapsed ? "展开结果" : "收起结果"}
         data-workbench-toggle
         onClick={toggle}
       >
         <PanelToggleIcon className="scope-task-rail-toggle-icon" />
-      </button>
+      </button> : null}
+      {discoveryReturn && collapsed ? <Link className="discovery-return is-collapsed-return" to={discoveryReturn} data-session-back-link>返回 AI发现</Link> : null}
       {collapsed ? null : <>
       <div className="artifact-toolbar" aria-label="产物工具栏">
+        {discoveryReturn ? <Link className="discovery-return" to={discoveryReturn} data-session-back-link>返回 AI发现</Link> : null}
         <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=md`} download aria-label="下载 Markdown">↓ MD</a>
         {debug ? <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=json`} download aria-label="下载 JSON">↓ JSON</a> : null}
         {draft?.draft_id && <a className="icon-btn" href={`/api/queries/mail.export?draft_id=${encodeURIComponent(draft.draft_id)}&format=eml`} download aria-label="下载邮件草稿">.eml</a>}
         <button className="icon-btn" onClick={() => void copyArtifact()}>复制</button>
         <button className="icon-btn" onClick={() => window.open(`/s/${sessionId}`, "_blank", "noopener")}>打开</button>
         <button className="icon-btn" onClick={() => void createShare()}>分享</button>
+        {discoveryReturn ? <button type="button" className="icon-btn discovery-inline-toggle" data-workbench-toggle
+          aria-label="收起结果" aria-expanded onClick={toggle}><PanelToggleIcon className="scope-task-rail-toggle-icon" /></button> : null}
       </div>
       <div className="side-head">
-        <div className="page-kicker">本轮结果{primary === "result" ? "" : ` · ${TAB_LABEL[primary]}`}</div>
+        {!discoveryReturn ? <div className="page-kicker">本轮结果{primary === "result" ? "" : ` · ${TAB_LABEL[primary]}`}</div> : null}
         <div className="side-status">
           <i className={"status-dot " + status} />
           <span data-agent-status={status}>

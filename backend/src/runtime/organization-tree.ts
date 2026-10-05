@@ -278,6 +278,11 @@ function readRegistry(): OrgRegistry {
   return parsed;
 }
 
+/** Company names are registry metadata, not a grant of membership or authority. */
+export function organizationCompanyName(id: string): string {
+  return readRegistry().companies?.find(company => company.id === id)?.display_name || id;
+}
+
 /** 深度：直属公司为一级，其余按 parent 链加一。 */
 function unitLevels(units: RegistryUnit[]): Map<string, number> {
   const byId = new Map(units.map((unit) => [String(unit.id), unit]));
