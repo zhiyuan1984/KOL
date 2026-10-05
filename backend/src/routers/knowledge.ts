@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import fs from "node:fs";
+import path from "node:path";
+import { dataDir } from "../config.js";
 import { startDocument, publishedDocumentSourceFile } from "../host/knowledge-documents.js";
 import { scopedUser } from "../auth.js";
 import { assertRuntimeSkill } from "../runtime/execution.js";
@@ -70,8 +72,62 @@ import {
   undeprecate,
 } from "../host/knowledge.js";
 import type { Json } from "../types.js";
+import { postgresQuery } from "../postgres/pool.js";
+import { publicationContext, publicationState, bindPublication, preparePublication,
+  knowledgeReviewMaterial, knowledgeReviewTrial, retryPublication, createDocumentRevision,replaceDraftDocument } from "../knowledge/publication.js";
 
 export const knowledge = new Hono();
+
+knowledge.use("/admin/knowledge/documents/*",async(c,next)=>{
+  requireAdmin();
+  const id=c.req.path.split("/documents/")[1]?.split("/")[0];
+  if(id){
+    const bound=(await postgresQuery(`SELECT b.tenant,p.review_status FROM knowledge_documents d
+      LEFT JOIN knowledge_publication_bindings b ON b.base_id=d.base_id
+      LEFT JOIN knowledge_publications p ON p.document_id=d.id WHERE d.id=$1`,[id]))[0];
+    if(bound?.tenant && publicationContext(c.req.header("X-Review-Company")).tenant!==bound.tenant)
+      throw new HttpFail(404,"资料不存在或不在当前组织范围");
+    if((c.req.method==="DELETE" || c.req.path.endsWith("/reprocess")) && bound?.review_status)
+      throw new HttpFail(409,{code:"knowledge_document_frozen",message:"本版本已有有效审批，不能删除或重新加工；请创建新版本草稿。"});
+  }
+  await next();
+});
+
+knowledge.post("/approvals/v2/instances/:id/knowledge/trial",async c=>{
+  const body=await c.req.json();
+  return c.json(await knowledgeReviewTrial(c.req.param("id"),body.query,publicationContext(c.req.header("X-Review-Company"))));
+});
+
+knowledge.get("/admin/knowledge/documents/:id/publication", async c =>
+  c.json(await publicationState(c.req.param("id"),publicationContext(c.req.header("X-Review-Company")))));
+knowledge.put("/admin/knowledge/bases/:id/publication-flow", async c => {
+  const b = await c.req.json();
+  return c.json(await bindPublication(c.req.param("id"),b.template_id,b.expected_version,publicationContext(c.req.header("X-Review-Company"))));
+});
+knowledge.post("/admin/knowledge/documents/:id/review-prepare", async c => {
+  const b = await c.req.json();
+  return c.json(await preparePublication(c.req.param("id"),b.note,publicationContext(c.req.header("X-Review-Company"))));
+});
+knowledge.post("/admin/knowledge/documents/:id/publication-retry", async c =>
+  c.json(await retryPublication(c.req.param("id"),publicationContext(c.req.header("X-Review-Company")))));
+knowledge.post("/admin/knowledge/documents/:id/revision", async c =>
+  c.json(await createDocumentRevision(c.req.param("id"),publicationContext(c.req.header("X-Review-Company"))),201));
+knowledge.put("/admin/knowledge/documents/:id/draft-file",async c=>{
+  requireAdmin();const b=await c.req.parseBody(),file=b.file;
+  if(!file || typeof file==="string" || Array.isArray(file)) throw new HttpFail(422,"请选择PDF原件");
+  return c.json(await replaceDraftDocument(c.req.param("id"),{name:file.name,bytes:Buffer.from(await file.arrayBuffer())},String(b.updated_at || ""),publicationContext(c.req.header("X-Review-Company"))));
+});
+knowledge.get("/approvals/v2/instances/:id/knowledge", async c => {
+  const {source_path,...material} = await knowledgeReviewMaterial(c.req.param("id"),publicationContext(c.req.header("X-Review-Company")));
+  return c.json(material);
+});
+knowledge.get("/approvals/v2/instances/:id/knowledge/file", async c => {
+  const material = await knowledgeReviewMaterial(c.req.param("id"),publicationContext(c.req.query("company")));
+  const file = path.isAbsolute(material.source_path) ? material.source_path : path.join(dataDir(),material.source_path);
+  c.header("Content-Type","application/pdf"); c.header("X-Content-Type-Options","nosniff");
+  c.header("Cache-Control","private, no-store");
+  return c.body(new Uint8Array(fs.readFileSync(file)));
+});
 
 // Skill templates are the knowledge module's read-only projection of published
 // manifests, not mail bodies or another independently editable execution source.

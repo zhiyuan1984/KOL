@@ -180,17 +180,7 @@ export default function ReviewView({ notify, fail }: KbFeed) {
               </p>
             </div>
             <div className="kbadmin-row-actions">
-              <button
-                className="kbadmin-action-link"
-                type="button"
-                data-admin-kb-doc-publish={doc.id}
-                onClick={() => ask(
-                  knowledgeDocumentPublishConfirm(doc.title),
-                  () => run(() => api.adminKnowledgeDocumentAction(doc.id, "publish"), "已发布：该资料参与检索。"),
-                )}
-              >
-                {KB_DOC_ACTION.publish}
-              </button>
+              <Link className="kbadmin-action-link" to={`/admin/knowledge?document=${encodeURIComponent(doc.id)}`}>查看资料与提交审批</Link>
               <button
                 className="kbadmin-action-link"
                 type="button"

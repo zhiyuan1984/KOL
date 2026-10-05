@@ -771,7 +771,7 @@ function safeStatus(status: unknown): TraceStatus {
   if (["complete", "completed", "success", "succeeded"].includes(value)) return "done";
   if (["error", "errored"].includes(value)) return "failed";
   if (["active", "in_progress", "processing"].includes(value)) return "running";
-  if (["done", "failed", "running", "skipped"].includes(value)) return value as TraceStatus;
+  if (["done", "failed", "running", "skipped", "interrupted"].includes(value)) return value as TraceStatus;
   return "pending";
 }
 
@@ -1201,6 +1201,7 @@ function statusMark(status: TraceStatus) {
   if (status === "done") return "✓";
   if (status === "failed") return "!";
   if (status === "skipped") return "–";
+  if (status === "interrupted") return "已中断";
   return status === "running" ? "…" : "○";
 }
 
@@ -1583,7 +1584,8 @@ export function ChatThread({
               .filter((operation) => !isLegacyPhaseOperation(operation, legacyTrace))
             : [];
           const active = Boolean(m.payload.active);
-          const title = employeeProcessLabel(String(m.payload.title || "正在调用系统能力"));
+          const ended = m.payload.active === false;
+          const title = ended ? "系统能力调用记录" : employeeProcessLabel(String(m.payload.title || "正在调用系统能力"));
           if (!operations.length && !active) return null;
           return (
             <ThreadMessage key={m.id} role="assistant" className="operation-trace process-md" data-kind="operation-trace">
@@ -1592,12 +1594,17 @@ export function ChatThread({
                 {operations.length
                   ? operations.map((operation, index) => {
                     const { human, name } = operationParts(operation, index);
-                    const status = safeStatus(operation.status);
+                    const reportedStatus = safeStatus(operation.status);
+                    const status = ended && (reportedStatus === "running" || reportedStatus === "pending") ? "interrupted" : reportedStatus;
                     const streaming = status === "running";
+                    const label = employeeProcessLabel(human);
+                    const settledLabel = !streaming && label === "正在处理这项工作"
+                      ? `系统能力调用${status === "failed" ? "失败" : status === "interrupted" ? "中断" : "记录"}`
+                      : label;
                     return (
                       <li key={operation.id || name || index} data-status={status} data-mcp-name={debug ? (name || undefined) : undefined}>
                         <i>{statusMark(status)}</i>
-                        <span className={streaming ? "is-streaming" : undefined}>{employeeProcessLabel(human)}</span>
+                        <span className={streaming ? "is-streaming" : undefined}>{settledLabel}</span>
                         <StepTime value={operation.observed_at} />
                       </li>
                     );

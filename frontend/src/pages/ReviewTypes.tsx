@@ -4,6 +4,7 @@ import { useEffect, useReducer, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   emptyReviewDefinition,
+  knowledgeReviewDefinition,
   type ReviewDefinition,
   type ReviewTemplate,
   type ReviewIssue,
@@ -105,7 +106,7 @@ export default function ReviewTypes() {
     setActive(t);
     dispatch({
       type: "reset",
-      value: t?.definition || emptyReviewDefinition(),
+      value: t?.definition || (new URLSearchParams(window.location.search).get("subject")==="knowledge_publication" ? knowledgeReviewDefinition() : emptyReviewDefinition()),
     });
     setEditing(true);
     setTab("basic");
@@ -158,6 +159,7 @@ export default function ReviewTypes() {
     <main className="review-page">
       <ReviewOrganization />
       <header className="review-toolbar">
+        {new URLSearchParams(window.location.search).get("returnTo")?.startsWith("/admin/knowledge?") && <Link to={new URLSearchParams(window.location.search).get("returnTo")!}>返回知识资料并继续提交 →</Link>}
         <h1>评审流程管理</h1>
         <Link to="/admin/approval-types/legacy">旧审批类型</Link>
         {!editing && (
@@ -275,6 +277,7 @@ export default function ReviewTypes() {
           <fieldset disabled={busy || command.busy} className="review-editor">
             {tab === "basic" && (
               <div className="review-form">
+                {d.subjectType === "knowledge_publication" && <p>知识发布流程：人工审核通过后自动发布被冻结的资料版本。原件变化须重新申请。</p>}
                 <label>
                   流程名称
                   <input
@@ -300,7 +303,9 @@ export default function ReviewTypes() {
             )}
             {tab === "form" && (
               <>
+                {d.subjectType === "knowledge_publication" && <p>资料引用与发布说明由知识资料入口提供，字段结构固定。</p>}
                 <button
+                  disabled={d.subjectType === "knowledge_publication"}
                   onClick={() =>
                     edit({
                       ...d,
@@ -320,7 +325,7 @@ export default function ReviewTypes() {
                 </button>
                 <div className="review-fields">
                   {d.fields.map((f, i) => (
-                    <fieldset key={f.id}>
+                    <fieldset key={f.id} disabled={d.subjectType === "knowledge_publication"}>
                       <legend>字段 {i + 1}</legend>
                       <label>
                         字段名称

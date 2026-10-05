@@ -58,6 +58,7 @@ export type ReviewNode = {
 };
 export type ReviewDefinition = {
   schema: "review.definition.v1";
+  subjectType?: "knowledge_publication";
   name: string;
   description: string;
   fields: ReviewField[];
@@ -198,4 +199,13 @@ export function emptyReviewDefinition(): ReviewDefinition {
       { id: "end", name: "结束", type: "end", x: 0, y: 2 },
     ],
   };
+}
+
+export function knowledgeReviewDefinition(): ReviewDefinition {
+  return { ...emptyReviewDefinition(), name: "知识发布审批", subjectType: "knowledge_publication",
+    description: "审核指定资料版本；批准后自动发布。审核人员须按实际职责配置。",
+    fields: [
+      { id: "knowledge_request", label: "资料版本引用（系统生成）", type: "text", required: true },
+      { id: "publication_note", label: "发布说明", type: "textarea", required: true },
+    ] };
 }

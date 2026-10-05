@@ -958,7 +958,9 @@ export class ReviewService {
         name: command.title,
         version: command.templateVersion,
         consequence:
-          "提交后材料冻结，评审人可查看本申请。评审通过不会自动触发外发或业务阶段变更。",
+          d.subjectType === "knowledge_publication"
+            ? "提交后冻结此资料版本；审批通过后将自动发布到指定知识库，供获准使用该库的技能检索。"
+            : "提交后材料冻结，评审人可查看本申请。评审通过不会自动触发外发或业务阶段变更。",
         reviewers: preview.tasks.map((t) => t.userId),
         evidence: hash(d),
       };
@@ -1004,7 +1006,9 @@ export class ReviewService {
       name: i.title,
       version: i.version,
       consequence:
-        command.action === "transfer"
+        command.action === "approve" && i.definition.subjectType === "knowledge_publication"
+          ? "本次批准将留痕；全部审核通过后系统会自动发布被冻结的资料版本。发布结果另有回执。"
+          : command.action === "transfer"
           ? `当前任务将转交给 ${this.ctx.people.find((p) => p.id === command.targetUserId)?.name || command.targetUserId}，原任务保留转交记录。`
           : command.action === "countersign"
             ? `新增 ${this.ctx.people.find((p) => p.id === command.targetUserId)?.name || command.targetUserId} 的必要评审任务，不替代当前人员的决定。`

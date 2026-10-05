@@ -251,17 +251,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
                             </button>
                           ) : null}
                           {status === "pending_review" ? (
-                            <button
-                              className="kbadmin-action-link"
-                              type="button"
-                              data-admin-kb-doc-publish={doc.id}
-                              onClick={() => ask(
-                                knowledgeDocumentPublishConfirm(doc.title),
-                                () => run(() => api.adminKnowledgeDocumentAction(doc.id, "publish"), "已发布：该资料参与检索。"),
-                              )}
-                            >
-                              {KB_DOC_ACTION.publish}
-                            </button>
+                            <a className="kbadmin-action-link" href={`/admin/knowledge?document=${encodeURIComponent(doc.id)}`}>查看资料与提交审批</a>
                           ) : null}
                           {status === "published" ? (
                             <button

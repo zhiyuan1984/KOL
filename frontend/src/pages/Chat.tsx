@@ -26,6 +26,7 @@ import { AGENT_TASK_STATUS_LABEL, agentTaskUxStatus } from "../agentUx";
 import { useAccount } from "../components/AuthGate";
 import { useViewMode } from "../viewMode";
 import RunHud from "../components/RunHud";
+import { taskRunView } from "../runViewState";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useRunStatus } from "../hooks/useRunStatus";
 import { rememberJourney } from "../journey";
@@ -363,7 +364,7 @@ function safeCrawlOperationMessages(taskId: string, events: TaskEvent[]): Messag
   }];
 }
 
-function taskAnalysisSummary(task: Task): string {
+function taskAnalysisSummary(task: Task, agentStatus?: string): string {
   const entities = task.entities && typeof task.entities === "object"
     ? task.entities as Record<string, unknown>
     : {};
@@ -376,7 +377,10 @@ function taskAnalysisSummary(task: Task): string {
     const keywords = Array.isArray(entities.keywords) ? entities.keywords.map(String).join("、") : "待补充关键词";
     return `已识别为达人发现任务；目标平台：${platform}；搜索主题：${keywords}。参数生成后将自动启动远程采集。`;
   }
-  return `正在处理“${task.title}”。完整结果会放在结果工作台。`;
+  const state = taskRunView(task, agentStatus);
+  return state.live
+    ? `正在处理“${task.title}”。完整结果会放在结果工作台。`
+    : `“${task.title}”：${state.label}。请查看结果工作台中的结果、资料来源及待补充说明。`;
 }
 
 function humanError(message: string) {
@@ -751,6 +755,7 @@ export default function Chat() {
 
   const status: AgentRunStatus = agentStatus === "running" || pending ? "running" : (agentStatus as AgentRunStatus) || "listening";
   const { phase, task: runTask } = useRunStatus(id, messages, status);
+  const taskView = task ? taskRunView(task, status) : undefined;
   const skillId = String(task?.skill_id || task?.skill || task?.task_type || runTask?.skill_id || runTask?.skill || "");
   const remoteLabel = debug && skillId ? REMOTE_BACKEND_LABEL[remoteForSkill(skillId)] : undefined;
   const hasVisibleTrace = messages.some((message) => message.kind === "process_trace" || message.kind === "operation_trace");
@@ -1101,7 +1106,7 @@ export default function Chat() {
               data-session-back-link
             >{discoveryEntry ? "← 返回AI发现" : "← 返回任务列表"}</Link>
             {discoveryEntry ? <span className="muted">{status === "running" ? "正在分析发现需求" : "AI发现"}</span>
-              : <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
+              : <RunHud status={status} view={taskView} phase={!taskView || taskView.live ? phase : undefined} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
           </div>
           {discoveryWorkspace ? (
             <div data-discovery-workspace data-agent-identity={discoveryWorkspace.agent_id} data-agent-profile="lead">
@@ -1248,7 +1253,7 @@ export default function Chat() {
         {task && !discoveryEntry && (
           <section className="task-analysis-summary" data-task-analysis-summary>
             <strong>分析摘要</strong>
-            <p>{taskAnalysisSummary(task)}</p>
+            <p>{taskAnalysisSummary(task, status)}</p>
           </section>
         )}
         {crawlJob && (

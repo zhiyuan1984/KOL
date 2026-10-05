@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("PDF 草稿可见、独立解析，文档问答技能可绑定非结构化库", async ({ page, request }) => {
+test("PDF 草稿可见并独立解析", async ({ page, request }) => {
   const suffix = Date.now().toString();
   const family = (await (await request.post("/api/admin/knowledge/domains", { data: { code: `ipd_${suffix}`, name: "IPD 测试", level: "family" } })).json()).domain;
   const domain = (await (await request.post("/api/admin/knowledge/domains", { data: { code: `battery_${suffix}`, name: "电池测试", level: "domain", parent_id: family.id } })).json()).domain;
@@ -20,9 +20,15 @@ test("PDF 草稿可见、独立解析，文档问答技能可绑定非结构化�
   expect(documents).toHaveLength(1);
   const doc = documents[0];
   expect((await (await request.get(`/api/admin/knowledge/documents/${doc.id}`)).json()).jobs).toEqual([]);
-  await detail.getByRole("button", { name: "开始解析" }).click();
+  await detail.getByRole("button", { name: "解析并准备审批" }).click();
   await expect.poll(async () => (await (await request.get(`/api/admin/knowledge/documents/${doc.id}`)).json()).document.status).toBe("pending_review");
+});
 
+test("文档问答技能可绑定非结构化库", async ({ page, request }) => {
+  const suffix=Date.now().toString();
+  const bases=(await (await request.get("/api/admin/knowledge/bases?kind=unstructured")).json()).bases;
+  const base=bases.find((b:{status:string})=>b.status==="active");
+  expect(base).toBeTruthy();
   const skillId = `product_test_${suffix}`;
   await page.goto("/admin/skills");
   await page.getByRole("button", { name: "新增技能", exact: true }).click();

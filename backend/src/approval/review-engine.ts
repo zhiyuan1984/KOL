@@ -22,7 +22,7 @@ export function validateDefinition(input: unknown): ReviewIssue[] {
     return [{ path: "", message: "流程必须为对象" }];
   const d = input as ReviewDefinition;
   for (const key of Object.keys(d))
-    if (!["schema", "name", "description", "fields", "nodes"].includes(key))
+    if (!["schema", "name", "description", "fields", "nodes", "subjectType"].includes(key))
       add(key, "不支持的流程属性");
   if (d.schema !== "review.definition.v1") add("schema", "不支持的契约版本");
   if (typeof d.name !== "string" || !d.name.trim() || d.name.length > 120)
@@ -31,6 +31,15 @@ export function validateDefinition(input: unknown): ReviewIssue[] {
     add("description", "说明最多 2000 字");
   if (!Array.isArray(d.fields) || !Array.isArray(d.nodes))
     return [...issues, { path: "", message: "字段和节点必须为数组" }];
+  if (d.subjectType !== undefined && d.subjectType !== "knowledge_publication") add("subjectType", "未知的资料类型");
+  if (d.subjectType === "knowledge_publication") {
+    if (d.fields.length !== 2 || !d.fields.some(f => f?.id === "knowledge_request" && f.type === "text" && f.required)
+      || !d.fields.some(f => f?.id === "publication_note" && f.type === "textarea" && f.required))
+      add("fields", "知识发布流程须保留系统资料引用和发布说明两个字段");
+    if (!d.nodes.some(n => n?.type === "review")) add("nodes", "知识发布必须经过人工审核");
+    for (const n of d.nodes) if (Array.isArray(n?.operations?.amendment?.fields) && n.operations.amendment.fields.some(f => f !== "publication_note"))
+      add(`nodes.${n.id}.operations`, "仅可补充发布说明；原件变化须创建新版本重新申请");
+  }
   if (d.fields.length > 100 || d.nodes.length > 100 || !d.nodes.length)
     add("", "流程须有 1–100 个节点，最多 100 个字段");
   const fields = new Map<string, (typeof d.fields)[number]>();

@@ -46,6 +46,7 @@ import { runWorker, type WorkerProgress } from "../worker/runner.js";
 import {
   applyProgress,
   finishProcessItems,
+  finishOperationItems,
   preferHostOperations,
   reasoningSummariesOf,
   statusTextForProgress,
@@ -809,7 +810,9 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
     runStatus,
     failed
       ? `未生成结果：${failureReason || "执行未完成"}。可重新执行。`
-      : "结果与产物已就绪，等待你确认。",
+      : taskDefinition(bound.taskType)?.side_effects === "none"
+        ? "本轮只读查询已结束。结果已生成，可查看资料来源；正式任务仍可验收。"
+        : "本轮结果已生成，任务待验收；正式操作仍需单独确认。",
   );
   audit(scopedUser()?.id || "demo", `task.run.${runStatus}`, {
     work_item_id: bound.workItemId,
@@ -1838,10 +1841,10 @@ function finishWorkerTrace(sid: string, failed: boolean): void {
     let payload: { title?: string; items?: Json[]; persistent?: boolean } = {};
     try { payload = JSON.parse(String(op.payload || "{}")); } catch { payload = {}; }
     updateMsg(op.id, {
-      title: payload.title || REMOTE_MCP_TITLE,
+      title: "系统能力调用记录",
       persistent: true,
       active: false,
-      items: payload.items || [],
+      items: finishOperationItems(payload.items || []),
     });
   }
 }

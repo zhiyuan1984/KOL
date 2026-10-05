@@ -1,6 +1,7 @@
 import { formatReviewValue } from "../reviews/formatReviewValue";
 import { ReviewOrganization } from "../reviews/ReviewOrganization";
 import { AttachmentLinks } from "../reviews/ReviewAttachments";
+import KnowledgeMaterial from "../reviews/KnowledgeMaterial";
 import { UpgradeDraft } from "../reviews/ReviewChanges";
 import { useEffect, useState, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -106,7 +107,7 @@ export default function Reviews() {
       reviewApi<ReviewDraft[]>("/approvals/v2/drafts"),
     ]);
     setContext(ctx);
-    setTemplates(ts);
+    setTemplates(ts.filter(t=>t.definition.subjectType !== "knowledge_publication"));
     await loadList();
     setDrafts(savedDrafts);
     if (selected) {
@@ -368,7 +369,7 @@ export default function Reviews() {
             <p role="alert">{selected.blockedReason}</p>
           )}
           <dl className="review-values">
-            {selected.definition.fields.map((f) => (
+            {selected.definition.fields.filter(f=>f.id !== "knowledge_request" || selected.definition.subjectType !== "knowledge_publication").map((f) => (
               <div key={f.id}>
                 <dt>{f.label}</dt>
                 <dd>
@@ -384,6 +385,7 @@ export default function Reviews() {
               </div>
             ))}
           </dl>
+          {selected.definition.subjectType === "knowledge_publication" && <KnowledgeMaterial id={selected.id} />}
           <h3>评审进度</h3>
           <ol className="review-list">
             {selected.tasks.map((t, index) => (
