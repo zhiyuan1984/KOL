@@ -83,11 +83,13 @@ test("uses saved candidates for analysis and distinguishes sampled views from la
   });
   await page.goto(`/s/${saved.session_id}`);
   const results = page.locator("[data-discovery-results]");
-  await expect(results).toContainText("采集样本 10 条");
-  await expect(results).toContainText("近10条均播：数据不足，无法核验");
-  await expect(results).toContainText("粉丝：4 · 缺少可核验来源，暂不判定门槛");
-  await expect(results).not.toContainText("不符合当前门槛");
-  await expect(results.getByRole("link", { name: "查看原始主页" })).toHaveAttribute("href", "https://www.youtube.com/channel/fixture");
+  await results.getByText("资料与筛选依据", { exact: true }).click();
+  await expect(results).toContainText("本次采样 10 条，样本均播 123；未证明覆盖最近10条。");
+  await expect(results.locator(".pool-row-metrics")).toContainText(/近10条均播\s*无法核验/);
+  await expect(results.locator(".pool-row-metrics")).toContainText(/粉丝\s*4/);
+  await expect(results).toContainText("粉丝缺少可核验来源");
+  await expect(results).not.toContainText("粉丝不符合当前条件");
+  await expect(results.getByRole("link", { name: "主页 ↗", exact: true })).toHaveAttribute("href", "https://www.youtube.com/channel/fixture");
   await page.screenshot({ path: testInfo.outputPath("discovery-candidates.png"), fullPage: true });
   await results.getByRole("button", { name: "让线索智能体分析候选" }).click();
   await expect.poll(() => submitted).toMatchObject({ intent: "crawler_collect", text: expect.stringContaining("scoped-crawl") });

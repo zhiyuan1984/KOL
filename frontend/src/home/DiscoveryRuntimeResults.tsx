@@ -13,8 +13,9 @@ export default function DiscoveryRuntimeResults({ actions, brief, onAnalyze, ana
   const [showIgnored, setShowIgnored] = useState(false);
   const runs = actions.filter(a => a.operation === "start_crawl" && a.crawl);
   if (!runs.length) return <p className="muted" data-discovery-results>确认采集范围后，候选资料会显示在这里。</p>;
+  const hasIgnored = runs.some(action => action.crawl?.result_json?.candidates.some(row => row.ignored));
   return <section data-discovery-results aria-label="发现候选">
-    <button type="button" className="link-button" aria-pressed={showIgnored} onClick={() => setShowIgnored(value => !value)}>{showIgnored ? "返回候选" : "已忽略"}</button>
+    {hasIgnored || showIgnored ? <button type="button" className="link-button" aria-pressed={showIgnored} onClick={() => setShowIgnored(value => !value)}>{showIgnored ? "返回候选" : "已忽略"}</button> : null}
     {error ? <p role="alert">{error}</p> : null}
     {runs.map(action => {
       const crawl = action.crawl!;
