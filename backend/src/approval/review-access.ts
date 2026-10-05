@@ -1,5 +1,6 @@
 import type { SqliteConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
+import { organizationCompanyName } from "../runtime/organization-tree.js";
 import type { ReviewContext } from "./review-service.js";
 /** Scope comes only from current effective organization memberships, never display names. */
 export function reviewContextForActor(
@@ -86,12 +87,17 @@ export function reviewContextForActor(
 
 /** Return only active units connected to this company's authoritative root. */
 function reviewOrganization(db: SqliteConn, tenant: string, primaryIds: string[]) {
-  const rows = db.prepare('SELECT id,display_name AS name,parent_id AS "parentId" FROM organization_units WHERE company_id=? AND status=\'active\' ORDER BY level,display_name,id').all(tenant) as { id: string; name: string; parentId: string | null }[];
+  const stored = db.prepare('SELECT id,display_name AS name,parent_id AS "parentId",level FROM organization_units WHERE company_id=? AND status=\'active\' ORDER BY level,display_name,id').all(tenant) as { id: string; name: string; parentId: string | null; level: number }[];
+  // The authority stores top-level departments with parent_id=NULL; companies
+  // are a separate registry, not necessarily organization_units rows.
+  const rows = stored.map(unit => ({ id:unit.id, name:unit.name, parentId: unit.id === tenant ? unit.parentId : unit.parentId || (unit.level === 1 ? tenant : null) }));
+  if (!stored.some(unit => unit.id === tenant) && !db.prepare("SELECT 1 FROM organization_units WHERE id=?").get(tenant))
+    rows.unshift({ id: tenant, name: organizationCompanyName(tenant), parentId: null });
   const byId = new Map(rows.map(unit => [unit.id, unit]));
   const units = rows.filter(unit => {
     const seen = new Set<string>();
     let current: typeof unit | undefined = unit;
-    while (current && !seen.has(current.id) && seen.size < 4) {
+    while (current && !seen.has(current.id) && seen.size < 64) {
       if (current.id === tenant && !current.parentId) return true;
       seen.add(current.id);
       current = current.parentId ? byId.get(current.parentId) : undefined;
@@ -104,7 +110,7 @@ function reviewOrganization(db: SqliteConn, tenant: string, primaryIds: string[]
 
 export function reviewCompaniesForActor(db: SqliteConn, actorId: string) {
   const now = new Date().toISOString();
-  return db
+  const companies = db
     .prepare(
       `SELECT DISTINCT m.company_id AS id,COALESCE(root.display_name,m.company_id) AS name
     FROM organization_people p JOIN users a ON a.id=p.user_id AND a.active=1
@@ -115,4 +121,5 @@ export function reviewCompaniesForActor(db: SqliteConn, actorId: string) {
     AND (m.effective_from IS NULL OR m.effective_from<=?) AND (m.effective_to IS NULL OR m.effective_to>?) ORDER BY id`,
     )
     .all(actorId, now, now) as { id: string; name: string }[];
+  return companies.map(company => ({ ...company, name: company.name === company.id ? organizationCompanyName(company.id) : company.name }));
 }

@@ -106,7 +106,7 @@ knowledge.put("/admin/knowledge/bases/:id/publication-flow", async c => {
 });
 knowledge.post("/admin/knowledge/documents/:id/review-prepare", async c => {
   const b = await c.req.json();
-  return c.json(await preparePublication(c.req.param("id"),b.note,publicationContext(c.req.header("X-Review-Company"))));
+  return c.json(await preparePublication(c.req.param("id"),b.note,publicationContext(c.req.header("X-Review-Company")),b.values));
 });
 knowledge.post("/admin/knowledge/documents/:id/publication-retry", async c =>
   c.json(await retryPublication(c.req.param("id"),publicationContext(c.req.header("X-Review-Company")))));

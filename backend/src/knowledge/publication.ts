@@ -122,7 +122,8 @@ export async function publicationState(id: string, ctx: ReviewContext) {
     review_status:pub?.review_status || (["published","archived"].includes(doc.status) ? "legacy" : "not_submitted"),publication_status:doc.status === "archived" ? "archived" : pub?.publication_status || (doc.status === "published" ? "published" : "unpublished"),
     version:doc.document_version || 1,binding:binding ? {template_id:binding.template_id,version:binding.version,name:decode(binding.definition).name} : null,
     blocking_reason:blocking,allowed_actions:actions,instance_id:pub?.instance_id || null,error:pub?.error || pub?.error_summary || null,
-    receipt:pub?.receipt || null,attempts:pub?.attempts || 0 };
+    receipt:pub?.receipt || null,attempts:pub?.attempts || 0,
+    fields:binding ? (decode(binding.definition).fields || []).filter((field: Row) => !["knowledge_request","publication_note"].includes(field.id)) : [] };
 }
 
 export async function bindPublication(baseId: string, templateId: string, expectedVersion: number, ctx: ReviewContext) {
@@ -146,7 +147,7 @@ export async function bindPublication(baseId: string, templateId: string, expect
   });
 }
 
-export async function preparePublication(id: string, note: string, ctx: ReviewContext) {
+export async function preparePublication(id: string, note: string, ctx: ReviewContext, extraValues: unknown = {}) {
   requireAdmin();
   if (typeof note !== "string" || !note.trim() || note.length > 2000) fail("knowledge_note_required", "请填写发布说明，最多2000字",422);
   const state = await publicationState(id,ctx);
@@ -154,7 +155,8 @@ export async function preparePublication(id: string, note: string, ctx: ReviewCo
   const doc = await document(id,ctx.tenant), snapshot = publicationSnapshot(doc), token = randomUUID();
   const binding = (await postgresQuery(`SELECT b.*,t.published_version FROM knowledge_publication_bindings b
     JOIN review_templates t ON t.tenant=b.tenant AND t.id=b.template_id WHERE b.base_id=$1 AND b.tenant=$2`,[doc.base_id,ctx.tenant]))[0];
-  const values = {knowledge_request:token,publication_note:note.trim()};
+  if (!extraValues || typeof extraValues !== "object" || Array.isArray(extraValues)) fail("knowledge_fields_invalid", "自定义字段格式错误",422);
+  const values = {...extraValues as Record<string, unknown>,knowledge_request:token,publication_note:note.trim()};
   const command: ReviewCommand = {action:"submit",templateId:binding.template_id,templateVersion:binding.published_version,title:`知识发布：${doc.title}`.slice(0,200),values};
   // Existing review service owns confirmation/organization parsing. The native
   // trigger performs the atomic object association inside its submit transaction.

@@ -148,7 +148,7 @@ export default function ReviewTypes() {
     setActive(t);
     dispatch({
       type: "reset",
-      value: t?.definition || { ...(new URLSearchParams(window.location.search).get("subject")==="knowledge_publication" ? knowledgeReviewDefinition() : emptyReviewDefinition()), ...(context?.organization?.defaultUnitId ? { organizationUnitId: context.organization.defaultUnitId } : {}) },
+      value: { ...(t?.definition || (new URLSearchParams(window.location.search).get("subject")==="knowledge_publication" ? knowledgeReviewDefinition() : emptyReviewDefinition())), ...(!t?.definition.organizationUnitId && context?.organization?.defaultUnitId ? { organizationUnitId: context.organization.defaultUnitId } : {}) },
     });
     setEditing(true);
     setTab("basic");

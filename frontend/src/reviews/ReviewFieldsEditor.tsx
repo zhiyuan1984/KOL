@@ -8,14 +8,15 @@ export function ReviewFieldsEditor({ definition: d, onChange }: { definition: Re
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => { if (focusId) { container.current?.querySelector<HTMLInputElement>(`[data-field-id="${focusId}"]`)?.focus(); setFocusId(""); } }, [focusId]);
   const locked = d.subjectType === "knowledge_publication";
+  const systemField = (f: ReviewField) => locked && ["knowledge_request", "publication_note"].includes(f.id);
   const field = (index: number, patch: Partial<ReviewField>) => onChange({ ...d, fields: d.fields.map((f,i) => i === index ? { ...f, ...patch } : f) });
   function move(index: number, offset: number) { const fields = [...d.fields]; [fields[index],fields[index+offset]] = [fields[index+offset],fields[index]]; onChange({ ...d, fields }); }
   return <div ref={container}>
-    <div className="review-section-head"><p>{locked ? "系统资料引用和发布说明为固定字段。" : "可连续添加字段，也可用上移、下移调整填写顺序。"}</p>
-      <button className="review-quiet" disabled={locked} onClick={() => { const id = `field_${randomUuid().slice(0,8)}`; onChange({ ...d, fields: [...d.fields, { id, label: "新字段", type: "text", required: false }] }); setFocusId(id); }}>添加字段</button>
+    <div className="review-section-head"><p>{locked ? "系统资料引用和发布说明保留；可连续添加自定义字段，提交知识审批时填写。" : "可连续添加字段，也可用上移、下移调整填写顺序。"}</p>
+      <button className="review-quiet" disabled={d.fields.length >= 100} onClick={() => { const id = `field_${randomUuid().slice(0,8)}`; onChange({ ...d, fields: [...d.fields, { id, label: "新字段", type: "text", required: false }] }); setFocusId(id); }}>添加字段</button>
     </div>
     <div className="review-field-list">
-      {d.fields.map((f,i) => <fieldset key={f.id} className="review-field-row" disabled={locked}>
+      {d.fields.map((f,i) => <fieldset key={f.id} className="review-field-row" disabled={systemField(f)}>
         <legend>字段 {i+1}</legend>
         <div className="review-field-core">
           <label>字段名称<input data-field-id={f.id} value={f.label} maxLength={120} onChange={e => field(i,{label:e.target.value})} /></label>

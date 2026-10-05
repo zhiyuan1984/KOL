@@ -139,6 +139,24 @@ async function publish(definition = emptyReviewDefinition()) {
   return t;
 }
 describe("review API with actual session authentication and organization storage", () => {
+  it("supports the real authority shape with no company unit and four organization levels", async () => {
+    department("institute", "review-test-a", 1);
+    department("digital", "institute", 2);
+    department("product", "digital", 3);
+    department("ai", "product", 4);
+    getConn().prepare("UPDATE organization_units SET parent_id=NULL WHERE id='institute'").run();
+    getConn().prepare("DELETE FROM organization_units WHERE id='review-test-a'").run();
+    getConn().prepare("UPDATE organization_memberships SET org_unit_id='ai' WHERE id='review-membership:admin'").run();
+    const response = await req("admin", "/approvals/v2/context");
+    expect(response.status).toBe(200);
+    const context = await response.json();
+    expect(context.organization.defaultUnitId).toBe("ai");
+    expect(context.organization.units.find((unit: {id:string}) => unit.id === "institute").parentId).toBe("review-test-a");
+    expect(context.organization.units.map((unit: {id:string}) => unit.id)).toEqual(expect.arrayContaining(["institute","digital","product","ai"]));
+    const definition = {...emptyReviewDefinition(), organizationUnitId:"ai"};
+    expect((await req("admin", "/admin/approval-types/v2/templates", {definition})).status).toBe(200);
+    expect((await req("outsider", "/approvals/v2/context", undefined, {"X-Review-Company":"review-test-a"})).status).toBe(403);
+  });
   function department(id: string, parent: string, level: number, status = "active") {
     getConn().prepare("INSERT INTO organization_units(id,company_id,display_name,type,parent_id,level,status,org_version,created_at,updated_at) VALUES(?,?,?,'department',?,?,?,1,'now','now')")
       .run(id, "review-test-a", id, parent, level, status);

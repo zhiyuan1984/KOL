@@ -23,8 +23,9 @@ const ctx=(actor="sriphy")=>reviewContextForActor(getConn(),actor,"company:amper
 const command=(actor:string,c:ReviewCommand,key=randomUUID())=>txImmediate(db=>{
   const s=new ReviewService(db,ctx(actor)),p=s.prepare(c);return s.execute(c,p.confirmationId,key);
 });
-function template(){
+function template(extraFields = [] as ReturnType<typeof knowledgeReviewDefinition>["fields"]){
   const d=knowledgeReviewDefinition();d.nodes.find(n=>n.type==="review")!.assignee={kind:"named",userIds:["knowledge-reviewer"]};
+  d.fields.push(...extraFields);
   const t=txImmediate(db=>new ReviewService(db,ctx()).saveTemplate(undefined,undefined,d));
   command("sriphy",{action:"publish",templateId:t.id,expectedVersion:t.version});return t;
 }
@@ -71,6 +72,25 @@ beforeEach(async()=>{
 afterEach(()=>{resetConn();fs.rmSync(tmp,{recursive:true,force:true});delete process.env.KNOWLEDGE_ENGINE_MODE;});
 
 describe("knowledge publication through real review instances and PostgreSQL outbox",()=>{
+  it("adds custom fields and preserves them through submission, approval and publication",async()=>{
+    const f=await fixture(),t=template([{id:"model",label:"产品型号",type:"text",required:true}]);
+    await bindPublication(f.base,t.id,0,ctx());
+    const state=await publicationState(f.id,ctx());
+    expect(state.fields.map((field:{id:string})=>field.id)).toEqual(["model"]);
+    await expect(preparePublication(f.id,"发布规格",ctx())).rejects.toMatchObject({status:422});
+    const p=await preparePublication(f.id,"发布规格",ctx(),{model:"LT-100",knowledge_request:"forged",publication_note:"forged"});
+    expect(p.command.action).toBe("submit");
+    if(p.command.action!=="submit")throw Error("submit expected");
+    expect(p.command.values.model).toBe("LT-100");
+    expect(p.command.values.knowledge_request).not.toBe("forged");
+    expect(p.command.values.publication_note).toBe("发布规格");
+    await guardKnowledgeReview(p.command,ctx());
+    const receipt=txImmediate(db=>new ReviewService(db,ctx()).execute(p.command,p.confirmationId,randomUUID()));
+    const instance=String(receipt.resourceId);
+    expect(new ReviewService(getConn(),ctx()).instance(instance).values.model).toBe("LT-100");
+    await approve(instance);await execute(instance);
+    expect((await publicationState(f.id,ctx())).publication_status).toBe("published");
+  });
   it("keeps draft/ready separate and explains missing flow without creating an instance",async()=>{
     const f=await fixture(true);expect((await publicationState(f.id,ctx())).processing_status).toBe("draft");
     await expect(queryDocuments({base_id:f.base,query:"产品"},"employee")).rejects.toMatchObject({detail:{message:expect.stringContaining("未解析草稿")}});

@@ -34,10 +34,11 @@ async function fixture(page: Page) {
             defaultUnitId: "group",
             units: [
               { id: "test", name: "测试组织", parentId: null },
-              { id: "center", name: "产品中心", parentId: "test" },
+              { id: "institute", name: "研究院", parentId: "test" },
+              { id: "center", name: "产品中心", parentId: "institute" },
               { id: "department", name: "产品部", parentId: "center" },
               { id: "group", name: "规格组", parentId: "department" },
-              { id: "other-center", name: "运营中心", parentId: "test" },
+              { id: "other-center", name: "运营中心", parentId: "institute" },
               { id: "other-department", name: "内容部", parentId: "other-center" },
             ],
           },
@@ -130,9 +131,14 @@ for (const subject of ["", "?subject=knowledge_publication"]) {
     const main = page.locator("main.review-page");
     await main.getByRole("button", { name: "新建流程", exact: true }).click();
     await main.getByLabel("流程名称").fill("新建审批流程兼容测试");
-    if (!subject) {
-      await main.getByRole("button", { name: "填写表单字段", exact: true }).click();
+    await main.getByRole("button", { name: "填写表单字段", exact: true }).click();
+    await main.getByRole("button", { name: "添加字段", exact: true }).click();
+    if(subject) {
       await main.getByRole("button", { name: "添加字段", exact: true }).click();
+      await expect(main.locator(".review-field-row")).toHaveCount(4);
+      await expect(main.getByLabel("字段名称").first()).toBeDisabled();
+      await expect(main.getByLabel("字段名称").last()).toBeEnabled();
+      await main.getByLabel("字段名称").last().fill("产品型号");
     }
     await main.getByRole("button", { name: "添加节点", exact: true }).click();
     await main.getByRole("button", { name: "添加评审节点", exact: true }).click();
@@ -166,7 +172,7 @@ test("authoring restores default departments, clears descendants and revisits re
   const main = page.locator("main.review-page");
   await expect(main.getByRole("link", { name: "旧审批类型" })).toHaveCount(0);
   await main.getByRole("button", { name: "新建流程", exact: true }).click();
-  await expect(main.getByLabel("当前组织", { exact: true })).toHaveValue("test");
+  await expect(main.getByLabel("当前组织", { exact: true })).toHaveValue("institute");
   await expect(main.getByLabel("一级部门", { exact: true })).toHaveValue("center");
   await expect(main.getByLabel("二级部门", { exact: true })).toHaveValue("department");
   await expect(main.getByLabel("三级部门", { exact: true })).toHaveValue("group");
