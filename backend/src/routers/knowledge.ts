@@ -1,3 +1,5 @@
+import { publicationLabels } from "../knowledge-publication/service.js";
+import { postgresQuery } from "../postgres/pool.js";
 import { Hono } from "hono";
 import fs from "node:fs";
 import { startDocument, publishedDocumentSourceFile } from "../host/knowledge-documents.js";
@@ -156,9 +158,12 @@ knowledge.put("/admin/knowledge/bases/:id", async (c) => c.json(editBase(c.req.p
 
 // 非结构化资料（P1，2026-10-02）：上传 → 规整 → 索引 → 待审 → 发布 → 试算。
 // 设计 docs/superpowers/specs/2026-10-02-knowledge-unstructured-pageindex-design.md §10。
-knowledge.get("/admin/knowledge/documents", (c) => c.json({
-  documents: listDocuments({ base: c.req.query("base"), status: c.req.query("status") }),
-}));
+knowledge.get("/admin/knowledge/documents", async (c) => {
+  const documents=listDocuments({ base: c.req.query("base"), status: c.req.query("status") });
+  const user=scopedUser();
+  const labels=process.env.DATABASE_URL && user ? await publicationLabels(user.id) : new Map<string,string>();
+  return c.json({documents:documents.map(document=>({...document,publication_label:document.status==='pending_review'?(labels.get(String(document.id)) || '解析完成 · 待提交审批'):undefined}))});
+});
 knowledge.post("/admin/knowledge/documents", async (c) => {
   requireAdmin();
   const body = await c.req.parseBody();
@@ -198,7 +203,13 @@ knowledge.post("/admin/knowledge/documents/:id/cancel", (c) => c.json(cancelDocu
 knowledge.post("/admin/knowledge/documents/:id/reprocess", (c) => c.json(reprocessDocument(c.req.param("id"))));
 knowledge.post("/admin/knowledge/documents/:id/publish", (c) => c.json(publishDocument(c.req.param("id"))));
 knowledge.post("/admin/knowledge/documents/:id/archive", (c) => c.json(archiveDocument(c.req.param("id"))));
-knowledge.delete("/admin/knowledge/documents/:id", (c) => c.json(deleteDocument(c.req.param("id"))));
+knowledge.delete("/admin/knowledge/documents/:id", async (c) => {
+  requireAdmin();
+  if (process.env.DATABASE_URL && (await postgresQuery("SELECT instance_id FROM knowledge_publications WHERE document_id=$1 LIMIT 1", [c.req.param("id")])).length) {
+    throw new HttpFail(409, "该资料已有审批留痕，请归档并保留审批原件与记录");
+  }
+  return c.json(deleteDocument(c.req.param("id")));
+});
 knowledge.post("/admin/knowledge/search", async (c) => c.json(await searchDocuments((await c.req.json()) as Json)));
 knowledge.get("/admin/knowledge/index-health", async (c) => c.json(await documentIndexHealth()));
 

@@ -1,3 +1,5 @@
+import { postgresTransaction } from "../postgres/pool.js";
+import { publicationProjection } from "../knowledge-publication/service.js";
 import { reviewIntake } from "../approval/review-rollout.js";
 import { bodyLimit } from "hono/body-limit";
 import { Hono } from "hono";
@@ -186,11 +188,12 @@ reviews.get("/approvals/v2/instances", (c) => {
   const s = service(c.req.header("X-Review-Company"));
   return c.json(s.instances().map((i) => s.project(i)));
 });
-reviews.get("/approvals/v2/instances/:id", (c) => {
+reviews.get("/approvals/v2/instances/:id", async (c) => {
   const s = service(c.req.header("X-Review-Company")),
     i = s.instance(c.req.param("id"));
   return c.json({
     ...s.project(i),
+    ...(process.env.DATABASE_URL ? { knowledgePublication: await postgresTransaction(db => publicationProjection(db, s.ctx.tenant, i.id)) } : {}),
     events: s.events(i.id),
     revisions: s.revisions(i.id),
   });
@@ -209,9 +212,13 @@ reviews.post("/approvals/v2/notifications/:id/read", (c) =>
 );
 reviews.post("/approvals/v2/prepare", async (c) => {
   const b = await body(c);
-  return c.json(
-    reviewTx((db) => service(c.req.header("X-Review-Company"), db).prepare(b)),
-  );
+  const prepared=reviewTx((db) => service(c.req.header("X-Review-Company"), db).prepare(b));
+  if (process.env.DATABASE_URL && typeof b.instanceId === "string") {
+    const tenant=service(c.req.header("X-Review-Company")).ctx.tenant;
+    const publication=await postgresTransaction(db=>publicationProjection(db,tenant,b.instanceId));
+    if(publication) prepared.summary.consequence += " 本申请属于知识发布审批：流程通过后，服务端核对冻结材料与当前授权并自动发布本次资料版本。";
+  }
+  return c.json(prepared);
 });
 reviews.post("/approvals/v2/commands", async (c) => {
   const b = await body(c);

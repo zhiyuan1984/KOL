@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
 import type { KnowledgeDocumentRow } from "../../api";
-import { knowledgeArchiveConfirm, knowledgeDocumentDeleteConfirm, knowledgeDocumentPublishConfirm, knowledgeProposalRejectConfirm } from "../../adminConfirm";
+import { knowledgeArchiveConfirm, knowledgeDocumentDeleteConfirm, knowledgeProposalRejectConfirm } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import {
   HIDE_REASONS,
@@ -180,17 +180,7 @@ export default function ReviewView({ notify, fail }: KbFeed) {
               </p>
             </div>
             <div className="kbadmin-row-actions">
-              <button
-                className="kbadmin-action-link"
-                type="button"
-                data-admin-kb-doc-publish={doc.id}
-                onClick={() => ask(
-                  knowledgeDocumentPublishConfirm(doc.title),
-                  () => run(() => api.adminKnowledgeDocumentAction(doc.id, "publish"), "已发布：该资料参与检索。"),
-                )}
-              >
-                {KB_DOC_ACTION.publish}
-              </button>
+              <Link className="kbadmin-action-link" data-admin-kb-doc-publish={doc.id} to={`/admin/knowledge?document=${encodeURIComponent(doc.id)}`}>提交发布审批</Link>
               <button
                 className="kbadmin-action-link"
                 type="button"

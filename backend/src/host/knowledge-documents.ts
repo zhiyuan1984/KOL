@@ -682,17 +682,7 @@ export function reprocessDocument(id: string, actor = knowledgeActorId()): Json 
 
 export function publishDocument(id: string, actor = knowledgeActorId()): Json {
   requireAdmin();
-  const doc = docRow(id);
-  if (String(doc.status) !== "pending_review") {
-    throw new HttpFail(409, { code: "knowledge_document_not_publishable", message: "只有待审资料可以发布" });
-  }
-  if (jobCount(id) === 0) {
-    throw new HttpFail(409, { code: "knowledge_document_not_indexed", message: "资料还没有完成加工" });
-  }
-  getConn().prepare("UPDATE knowledge_documents SET status='published', published_by=?, published_at=?, updated_at=? WHERE id=?")
-    .run(actor, nowIso(), nowIso(), id);
-  audit(actor, "knowledge.document.publish", { document_id: id, base_id: String(doc.base_id) });
-  return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
+  throw new HttpFail(409, { code: "knowledge_publication_review_required", message: "请先提交独立知识发布审批；流程通过后由服务端发布" });
 }
 
 export function archiveDocument(id: string, actor = knowledgeActorId()): Json {
@@ -718,14 +708,14 @@ export function deleteDocument(id: string, actor = knowledgeActorId()): Json {
   }
   const engineDocId = engineDocIdOf(doc);
   const library = libraryDir(String(doc.base_id));
-  if (engineDocId) {
-    void runBridge({ cmd: "remove", args: ["--library", library, "--doc-id", engineDocId], timeoutMs: 60_000 }).catch(() => undefined);
-  }
   removeFromQueue(id);
   tx((db) => {
     db.prepare("DELETE FROM knowledge_document_jobs WHERE document_id=?").run(id);
     db.prepare("DELETE FROM knowledge_documents WHERE id=?").run(id);
   });
+  if (engineDocId) {
+    void runBridge({ cmd: "remove", args: ["--library", library, "--doc-id", engineDocId], timeoutMs: 60_000 }).catch(() => undefined);
+  }
   fs.rmSync(docDirOf(doc), { recursive: true, force: true });
   audit(actor, "knowledge.document.delete", { document_id: id, base_id: String(doc.base_id) });
   return { deleted: true, document_id: id };

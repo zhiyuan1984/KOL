@@ -28,6 +28,16 @@ export function reviewContextForActor(
     org_unit_id: string;
     head_person_ref: string | null;
   }[];
+  return buildReviewContext(actorId, actor.roles, rows, refsFor(db), rolesFor(db, now), selectedTenant);
+}
+function refsFor(db: SqliteConn) {
+  return db.prepare("SELECT person_ref,user_id FROM organization_people WHERE status='active'").all() as {person_ref:string;user_id:string}[];
+}
+function rolesFor(db: SqliteConn, now: string) {
+  return db.prepare("SELECT user_id,approval_role FROM approval_role_bindings WHERE (valid_from IS NULL OR valid_from<=?) AND (valid_to IS NULL OR valid_to>?)").all(now,now) as {user_id:string;approval_role:string}[];
+}
+export type ReviewMembership = {user_id:string;display_name:string;company_id:string;org_unit_id:string;head_person_ref:string|null};
+export function buildReviewContext(actorId: string, actorRoles: string, rows: ReviewMembership[], refs: {person_ref:string;user_id:string}[], roles: {user_id:string;approval_role:string}[], selectedTenant?:string): ReviewContext {
   const tenants = [
     ...new Set(
       rows.filter((r) => r.user_id === actorId).map((r) => r.company_id),
@@ -43,16 +53,6 @@ export function reviewContextForActor(
       companies: tenants,
     });
   const scoped = rows.filter((r) => r.company_id === tenant);
-  const refs = db
-    .prepare(
-      "SELECT person_ref,user_id FROM organization_people WHERE status='active'",
-    )
-    .all() as { person_ref: string; user_id: string }[];
-  const roles = db
-    .prepare(
-      "SELECT user_id,approval_role FROM approval_role_bindings WHERE (valid_from IS NULL OR valid_from<=?) AND (valid_to IS NULL OR valid_to>?)",
-    )
-    .all(now, now) as { user_id: string; approval_role: string }[];
   const people = [...new Set(scoped.map((r) => r.user_id))]
     .sort()
     .map((id) => ({
@@ -76,7 +76,7 @@ export function reviewContextForActor(
   return {
     tenant,
     actor: actorId,
-    admin: JSON.parse(actor.roles).includes("admin"),
+    admin: JSON.parse(actorRoles).includes("admin"),
     people,
   };
 }

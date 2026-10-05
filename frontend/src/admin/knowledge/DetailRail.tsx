@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../../api";
 import { knowledgeArchiveConfirm, knowledgeHardDeleteConfirm, knowledgePublishConfirm } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
-import { formatKbTime, kbBaseKindLabel, kindLabel, statusLabel, versionLine } from "../../knowledgeCopy";
+import { formatKbTime, kbBaseKindLabel, kindLabel, versionLine } from "../../knowledgeCopy";
 import KbvIcon from "../../knowledgeIcons";
 import { errorStatus, kbScopeLine, structuredDisplay, textValue, useKbData, type KbAssetRow, type Row } from "./shared";
 
@@ -44,13 +44,6 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
   const entryPath = `/admin/knowledge/entries/${encodeURIComponent(row.id)}`;
   const fields = structuredDisplay(row.kind, row.structured).filter((field) => field.value !== String(row.body || "").trim());
   const scope = kbScopeLine(row);
-  const statusClass = status === "published"
-    ? "is-published"
-    : status === "pending_review"
-      ? "is-pending"
-      : status === "archived"
-        ? "is-disabled"
-        : "is-draft";
 
   const run = async (fn: () => Promise<unknown>, message: string) => {
     try {
@@ -85,8 +78,7 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
       {dialog}
       <div className="kbv-rail-head">
         <div className="kbv-title-row">
-          <h2>{row.title}</h2>
-          <span className={`kbv-status ${statusClass}`} data-kbv-status={status}>{statusLabel(status)}</span>
+          <h2>知识详情</h2>
         </div>
       </div>
 

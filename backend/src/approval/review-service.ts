@@ -1,3 +1,4 @@
+import { reviewResolver } from "./review-resolver.js";
 import { reviewIntake } from "./review-rollout.js";
 import { definitionDiff } from "./review-diff.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -294,25 +295,7 @@ export class ReviewService {
         );
     return draft;
   }
-  private resolve = (
-    node: ReviewNode,
-    requester: string,
-    task?: ReviewTask,
-  ): string[] => {
-    const assignee = taskPolicy(node, task);
-    if (!assignee) return [];
-    const ids =
-      assignee?.kind === "named"
-        ? assignee.userIds
-        : assignee?.kind === "role"
-          ? this.ctx.people
-              .filter((p) => p.roles?.includes(assignee.role))
-              .map((p) => p.id)
-          : this.ctx.people.find((p) => p.id === requester)?.managerIds || [];
-    // Never silently drop a departed reviewer and thereby weaken an all-sign rule.
-    if (ids.some((id) => !this.ctx.people.some((p) => p.id === id))) return [];
-    return ids;
-  };
+  private resolve = (node: ReviewNode, requester: string, task?: ReviewTask) => reviewResolver(this.ctx)(node, requester, task);
   templates(admin = false): ReviewTemplate[] {
     if (admin) this.admin();
     const rows = this.db

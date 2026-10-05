@@ -281,6 +281,20 @@
 - 实质内容、金额或授权条件改变后，旧审批不能自动覆盖新版本（BIZ-15）。
 - 审批链：工具权限 → 业务 Policy → 人工确认 → 组织审批（如需）→ 外部提交 → 回执（org-permissions §审批链）。
 
+### 知识发布实施事件（2026-10-05）
+
+用户明确授权「补齐独立知识发布审批流程及后端事件联动」。本节登记该范围的实施载体，不改变审批权限；当前组织、已发布流程及有效评审人仍以现行组织权限与流程定义为准。
+
+| 事件码 | 事实与证据 | 持久载体 |
+|---|---|---|
+| `knowledge.submit` | 管理员确认提交，绑定原件/加工指纹、流程版本与发布说明；提交回执 | `knowledge_publications`、`review_instances`、`review_events` |
+| `knowledge.published` | 审批通过后的指定版本已发布；授权与材料再次核验；发布回执 | `knowledge_publications`、`review_events`、`knowledge_documents` |
+| `knowledge.failed` | 发布被权限或材料变化阻塞；原因与未发布回执 | `knowledge_publications`、`review_events` |
+| `knowledge.rejected` / `knowledge.withdrawn` | 原申请结束，资料未发布；审批状态与终态回执 | `knowledge_publications`、`review_events` |
+| `knowledge.recover` | 管理员确认恢复不确定/失败发布作业；新作业与幂等回执 | `review_events`、`execution_jobs`、`execution_outbox` |
+
+审批终态更新由 PostgreSQL 触发器同事务写入执行作业与 Outbox，后台处理不依赖页面。审批通过不覆盖变更后的材料；处理器锁定申请和资料、检查指纹，并只产生一次发布回执。队列服务不可用时展示真实等待状态与作业编号，不声称已经发布。依据：BIZ-14/15、TECH-BE-02/03/04；审查与验证见 `docs/superpowers/specs/2026-10-05-admin-knowledge-page-optimization.md`。
+
 ---
 
 ## 9. 风险

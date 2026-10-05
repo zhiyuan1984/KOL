@@ -1765,6 +1765,132 @@
       "status": "built",
       "carrier": "memory_entries",
       "source_ref": "事件清单 §11"
+    },
+    {
+      "code": "knowledge.submit",
+      "name": "知识发布审批已提交",
+      "category": "human_action",
+      "object_type": "approval",
+      "payload": [
+        "receipt",
+        "fingerprint",
+        "releaseNote"
+      ],
+      "producer": "knowledge_publication",
+      "clauses": [
+        "BIZ-14",
+        "BIZ-15",
+        "TECH-BE-02",
+        "TECH-BE-03",
+        "TECH-BE-04"
+      ],
+      "status": "built",
+      "carrier": "knowledge_publications + review_events + execution_jobs + execution_outbox",
+      "source_ref": "事件清单 §8（知识发布实施事件）"
+    },
+    {
+      "code": "knowledge.published",
+      "name": "审批资料版本已发布",
+      "category": "authorized_auto",
+      "object_type": "knowledge",
+      "payload": [
+        "receipt"
+      ],
+      "producer": "knowledge_publication",
+      "clauses": [
+        "BIZ-14",
+        "BIZ-15",
+        "TECH-BE-02",
+        "TECH-BE-03",
+        "TECH-BE-04"
+      ],
+      "status": "built",
+      "carrier": "knowledge_publications + review_events + execution_jobs + execution_outbox",
+      "source_ref": "事件清单 §8（知识发布实施事件）"
+    },
+    {
+      "code": "knowledge.failed",
+      "name": "审批资料发布已阻塞",
+      "category": "system_job",
+      "object_type": "knowledge",
+      "payload": [
+        "receipt",
+        "reason"
+      ],
+      "producer": "knowledge_publication",
+      "clauses": [
+        "BIZ-14",
+        "BIZ-15",
+        "TECH-BE-02",
+        "TECH-BE-03",
+        "TECH-BE-04"
+      ],
+      "status": "built",
+      "carrier": "knowledge_publications + review_events + execution_jobs + execution_outbox",
+      "source_ref": "事件清单 §8（知识发布实施事件）"
+    },
+    {
+      "code": "knowledge.rejected",
+      "name": "知识发布申请已因审批拒绝结束",
+      "category": "derived",
+      "object_type": "knowledge",
+      "payload": [
+        "receipt"
+      ],
+      "producer": "knowledge_publication",
+      "clauses": [
+        "BIZ-14",
+        "BIZ-15",
+        "TECH-BE-02",
+        "TECH-BE-03",
+        "TECH-BE-04"
+      ],
+      "status": "built",
+      "carrier": "knowledge_publications + review_events + execution_jobs + execution_outbox",
+      "source_ref": "事件清单 §8（知识发布实施事件）"
+    },
+    {
+      "code": "knowledge.withdrawn",
+      "name": "知识发布申请已因撤回结束",
+      "category": "derived",
+      "object_type": "knowledge",
+      "payload": [
+        "receipt"
+      ],
+      "producer": "knowledge_publication",
+      "clauses": [
+        "BIZ-14",
+        "BIZ-15",
+        "TECH-BE-02",
+        "TECH-BE-03",
+        "TECH-BE-04"
+      ],
+      "status": "built",
+      "carrier": "knowledge_publications + review_events + execution_jobs + execution_outbox",
+      "source_ref": "事件清单 §8（知识发布实施事件）"
+    },
+    {
+      "code": "knowledge.recover",
+      "name": "知识发布恢复作业已提交",
+      "category": "human_action",
+      "object_type": "auto_job",
+      "payload": [
+        "id",
+        "jobId",
+        "instanceId",
+        "at"
+      ],
+      "producer": "knowledge_publication",
+      "clauses": [
+        "BIZ-14",
+        "BIZ-15",
+        "TECH-BE-02",
+        "TECH-BE-03",
+        "TECH-BE-04"
+      ],
+      "status": "built",
+      "carrier": "knowledge_publications + review_events + execution_jobs + execution_outbox",
+      "source_ref": "事件清单 §8（知识发布实施事件）"
     }
   ]
 }

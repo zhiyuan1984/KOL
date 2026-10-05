@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../api";
 import type { KnowledgeDocumentDetail, KnowledgeDocumentRow } from "../../api";
-import { knowledgeDocumentArchiveConfirm, knowledgeDocumentDeleteConfirm, knowledgeDocumentPublishConfirm } from "../../adminConfirm";
+import { knowledgeDocumentArchiveConfirm, knowledgeDocumentDeleteConfirm } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import {
   KB_ADMIN_ACTION,
@@ -251,17 +252,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
                             </button>
                           ) : null}
                           {status === "pending_review" ? (
-                            <button
-                              className="kbadmin-action-link"
-                              type="button"
-                              data-admin-kb-doc-publish={doc.id}
-                              onClick={() => ask(
-                                knowledgeDocumentPublishConfirm(doc.title),
-                                () => run(() => api.adminKnowledgeDocumentAction(doc.id, "publish"), "已发布：该资料参与检索。"),
-                              )}
-                            >
-                              {KB_DOC_ACTION.publish}
-                            </button>
+                            <Link className="kbadmin-action-link" data-admin-kb-doc-publish={doc.id} to={`/admin/knowledge?document=${encodeURIComponent(doc.id)}`}>提交发布审批</Link>
                           ) : null}
                           {status === "published" ? (
                             <button

@@ -1,3 +1,4 @@
+import "../knowledge-publication/worker.js";
 import { executeClaimedCronJob } from "../cron/worker.js";
 import { executeReviewTimeout } from "../approval/review-worker.js";
 import { executionHandler } from "./handlers.js";

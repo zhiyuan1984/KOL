@@ -67,6 +67,7 @@ export default function KnowledgeHome() {
   const [view, setView] = useState<KbView>("all");
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState("");
+  const [revealId, setRevealId] = useState(() => new URLSearchParams(window.location.search).get("document") || "");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -265,10 +266,32 @@ export default function KnowledgeHome() {
     if (page !== currentPage) setPage(currentPage);
   }, [page, currentPage]);
   useEffect(() => {
+    if (revealId) return;
     const first = pageRows[0]?.id || "";
     if (first && !pageRows.some((row) => row.id === selectedId)) setSelectedId(first);
     if (!first && selectedId) setSelectedId("");
-  }, [pageRows, selectedId]);
+  }, [pageRows, selectedId, revealId]);
+  useEffect(() => {
+    if (!revealId || loading) return;
+    const index = filtered.findIndex((row) => row.id === revealId);
+    if (index < 0) return;
+    const targetPage = Math.floor(index / PAGE_SIZE) + 1;
+    setPage(targetPage);
+    setSelectedId(revealId);
+    if (currentPage === targetPage) setRevealId("");
+  }, [revealId, filtered, loading, currentPage]);
+
+  const revealCreated = (id: string) => {
+    setView("draft");
+    setScope(EMPTY_SCOPE);
+    setQuery("");
+    setKind("");
+    setBrands([]);
+    setStages([]);
+    setRevealId(id);
+    setSelectedId(id);
+    reload();
+  };
 
   const toggleBrand = useCallback((value: string) => {
     setBrands((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
@@ -283,7 +306,7 @@ export default function KnowledgeHome() {
     <section className="kbv kbv-filter-browser" data-admin-knowledge data-admin-kb-v2="home">
       {receipt ? <p className="admin-receipt status-ok" data-admin-receipt role="status">{receipt}</p> : null}
       {actionError ? <p className="error" role="alert">{actionError}</p> : null}
-      {error && !actionError ? <p className="error" role="alert">{errorMessage(error)}</p> : null}
+      {error && !actionError ? <p className="error" role="alert">{errorMessage(error)} <button className="kbv-text-action" disabled={loading} onClick={reload}>重新加载</button></p> : null}
 
       <div className="kbv-workspace">
         <KnowledgeFilters
@@ -315,7 +338,7 @@ export default function KnowledgeHome() {
         />
 
         <section className="kbv-browser" aria-label="浏览知识">
-          <LibraryPane
+          {!error && <LibraryPane
             rows={pageRows}
             totalCount={filtered.length}
             page={currentPage}
@@ -325,9 +348,9 @@ export default function KnowledgeHome() {
             onPrevious={() => setPage((current) => Math.max(1, current - 1))}
             onNext={() => setPage((current) => Math.min(pageCount, current + 1))}
             loading={loading}
-          />
+          />}
           <aside className="kbv-admin-detail" aria-label="知识详情" data-kbv-detail>
-            {selectedRow?.asset_type === "document" ? <DocumentRail key={selectedRow.id} id={selectedRow.id} path={pathOf(selectedRow)} notify={notify} fail={fail} reload={reload} /> : selectedRow ? (
+            {error ? <p className="kbv-empty">知识服务暂不可用，请重新加载。</p> : selectedRow?.asset_type === "document" ? <DocumentRail key={selectedRow.id} id={selectedRow.id} path={pathOf(selectedRow)} notify={notify} fail={fail} reload={reload} /> : selectedRow ? (
               <DetailRail
                 key={selectedRow.id}
                 row={selectedRow}
@@ -344,15 +367,14 @@ export default function KnowledgeHome() {
         </section>
       </div>
 
-      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} onCreated={(id) => { notify("PDF 草稿已保存，尚未解析或发布。"); reload(); setView("draft"); setScope(EMPTY_SCOPE); setQuery(""); setKind(""); setBrands([]); setStages([]); setSelectedId(id); }} />
+      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} bases={bases} onCreated={(id) => { notify("PDF 草稿已保存，尚未解析或发布。"); revealCreated(id); }} />
       <CreateKnowledgeDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         bases={bases}
         onCreated={(id, title) => {
           notify(`已创建草稿「${title}」`);
-          reload();
-          setSelectedId(id);
+          revealCreated(id);
         }}
       />
     </section>

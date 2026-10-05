@@ -1439,6 +1439,7 @@ export type KnowledgeDocumentRow = {
   id: string;
   base_id: string;
   base_name?: string;
+  publication_label?: string;
   title: string;
   filename: string;
   media_type: string;

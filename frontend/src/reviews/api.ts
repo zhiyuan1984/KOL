@@ -1,6 +1,8 @@
+import type { KnowledgePublication } from "../../../shared/knowledge-publication";
 import type { ReviewCommand, ReviewInstance } from "../../../shared/review";
 export type InstanceView = ReviewInstance & {
   allowedActions: string[];
+  knowledgePublication?: KnowledgePublication | null;
   candidates?: { transfer: string[]; countersign: string[] };
   revisions?: {
     round: number;
@@ -39,12 +41,13 @@ export async function reviewApi<T>(
   path: string,
   body?: unknown,
   method = "POST",
+  company?: string,
 ): Promise<T> {
   const r = await fetch(`/api${path}`, {
     credentials: "same-origin",
     method: body === undefined ? "GET" : method,
     headers: {
-      ...reviewHeaders(),
+      ...(company === undefined ? reviewHeaders() : company ? {"X-Review-Company":company} : {}),
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
