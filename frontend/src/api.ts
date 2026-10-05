@@ -642,6 +642,15 @@ export type TaskCollaborationContext = {
     before_state: { status?: string; version?: number } | null; after_state: { status?: string; version?: number }; occurred_at: string }>;
 };
 
+export type WorkOrderSuggestion = {
+  decision_id: string; task_id: string; outcome: string; template_title: string; template_code: string; template_version: number;
+  source_event: { id: string; summary: string; evidence_ref: string; source_version: string; occurred_at: string } | null;
+  candidates: Array<{ id: string; title: string; status: string; version: number }>;
+  actions: string[]; blockers: string[]; existing_work_order_id: string | null; version: string; risk: "L3";
+  execution_receipt: { id: string; status: string; work_order_id: string } | null;
+  automation_level: string; assignment_target: { id: string; name: string } | null;
+};
+
 export type AiTaskWorkOrderList = {
   items: Array<Pick<AiTaskWorkOrderAggregate, "task" | "counts" | "current_blocking_work_order">>;
   as_of: string;
@@ -1953,6 +1962,9 @@ export const api = {
   }),
   aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
   taskCollaborationContext: (taskId: string, after = 0) => request<TaskCollaborationContext>(`/api/task-work-orders/${encodeURIComponent(taskId)}/collaboration-context?after=${after}`),
+  workOrderSuggestions: (taskId: string) => request<{ suggestions: WorkOrderSuggestion[]; calls_model: false }>(`/api/task-work-orders/${encodeURIComponent(taskId)}/suggestions`),
+  adoptWorkOrderSuggestion: (decisionId: string, body: { idempotency_key: string; confirmed: true; basis_version: string; action: string; target_id?: string }) =>
+    request<{ attempt: { id: string; status: string; reason_code: string | null }; work_order: { id: string; status: string; data_version: number } | null; replayed: boolean }>(`/api/task-work-orders/decisions/${encodeURIComponent(decisionId)}/adopt`, { method: "POST", body: JSON.stringify(body) }),
   recordAiTaskVerifiedEvent: (taskId: string, body: { source_system: string; source_event_id: string; source_version?: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; evidence: Record<string, unknown>; payload?: Record<string, unknown>; work_order_id?: string; idempotency_key: string }) => request<{ event: { id: string; replayed: boolean }; decision: { id: string; outcome: string; status: string; confidence: number | null }; execution_job: { id: string; status: string; job_type: string }; execution_mode: string; request_id: string }>(`/api/task-work-orders/tasks/${encodeURIComponent(taskId)}/verified-events`, {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),

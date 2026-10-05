@@ -49,6 +49,8 @@ export async function freshTestDatabase(): Promise<string> {
   await postgresPool().query(replyContextSchema);
   const { collaborationSchema } = await import("../../src/ticket-domain/collaboration-schema.js");
   await postgresPool().query(collaborationSchema);
+  const { workOrderAdoptionSchema } = await import("../../src/ticket-domain/work-order-adoption-schema.js");
+  await postgresPool().query(workOrderAdoptionSchema);
   return name;
 }
 

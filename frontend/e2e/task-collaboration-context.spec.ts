@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /** UI transport fixtures only; native persistence/permissions have separate tests. */
-async function fixture(page: Page) {
+async function fixture(page: Page, readSuggestions: () => unknown[] = () => []) {
+  await page.route("**/api/task-work-orders/fixture-task/suggestions", route => route.fulfill({ json: { suggestions: readSuggestions(), calls_model: false } }));
   const counts = { total: 1, open: 1, blocked: 1, waiting_review: 0, completed: 0, automatic_created: 0, automatic_assigned: 0 };
   const task = { task_id: "fixture-task", title: "依赖核验测试任务", goal: "核验当前动作依赖", status: "open", priority: "normal", due_at: null, data_version: 1 };
   const order = { work_order_id: "fixture-next", template_code: "fixture_next", template_version: 1, template_title: "测试模板", status: "waiting_approval",
@@ -36,6 +37,45 @@ test("shows precise dependency reason and links the scoped approval without exec
   await context.getByText("关联变化记录", { exact: true }).click();
   await expect(context).toContainText("审批中 → 已通过");
   expect(writes).toBe(0);
+});
+
+const suggestion = { decision_id: "fixture-decision", task_id: "fixture-task", outcome: "create", template_title: "确认测试模板", template_code: "fixture-template", template_version: 1,
+  source_event: { id: "fixture-source", summary: "核验后的事件", source_version: "v1", evidence_ref: "fixture:evidence" }, candidates: [], actions: ["create"], blockers: [],
+  version: "basis-v1", risk: "L3", existing_work_order_id: null, execution_receipt: null };
+
+test("requires explicit confirmation and shows the real adoption receipt", async ({ page }) => {
+  let posts = 0, committed = false;
+  await fixture(page, () => [{ ...suggestion,
+    actions: committed ? [] : suggestion.actions, blockers: committed ? ["source_event_already_adopted"] : [],
+    execution_receipt: committed ? { id: "fixture-receipt", status: "created", work_order_id: "fixture-order" } : null }]);
+  await page.route("**/api/task-work-orders/decisions/fixture-decision/adopt", async route => {
+    posts++;
+    expect(route.request().postDataJSON()).toMatchObject({ confirmed: true, basis_version: "basis-v1", action: "create" });
+    committed = true;
+    await route.fulfill({ json: { attempt: { id: "fixture-receipt", status: "created" }, work_order: { id: "fixture-order" }, replayed: false } });
+  });
+  const region = page.getByRole("region", { name: "工单建议" });
+  await region.getByRole("button", { name: "采纳建单建议" }).click();
+  expect(posts).toBe(0);
+  await expect(region.getByRole("group", { name: "确认采纳建议" })).toContainText("L3");
+  await expect(region.getByRole("group", { name: "确认采纳建议" })).toContainText("尚不分派人员");
+  await region.getByRole("button", { name: "确认采纳", exact: true }).click();
+  await expect(region).toContainText("执行回执：fixture-receipt");
+  expect(posts).toBe(1);
+});
+
+test("invalidates a pending confirmation when its basis changes without writing", async ({ page }) => {
+  await page.clock.install();
+  let version = "basis-v1", posts = 0;
+  await fixture(page, () => [{ ...suggestion, version }]);
+  page.on("request", request => { if (request.method() === "POST" && request.url().includes("/adopt")) posts++; });
+  const region = page.getByRole("region", { name: "工单建议" });
+  await region.getByRole("button", { name: "采纳建单建议" }).click();
+  version = "basis-v2";
+  await page.clock.fastForward(15_100);
+  await expect(region.getByRole("group", { name: "确认采纳建议" })).toHaveCount(0);
+  await expect(region).toContainText("采纳依据已变化");
+  expect(posts).toBe(0);
 });
 
 test("deduplicates cursor replay and clears the entire task cache when access is revoked", async ({ page }) => {

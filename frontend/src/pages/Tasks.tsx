@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, type AiTaskWorkOrderAggregate, type AiTaskWorkOrderDashboard, type Task, type TaskDetail, type TaskEvent } from "../api";
 import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
 import { TaskCollaborationContext } from "../tasks/TaskCollaborationContext";
+import { WorkOrderSuggestions } from "../tasks/WorkOrderSuggestions";
 
 type View = "active" | "history";
 type TaskStatusTab = "all" | "queued" | "running" | "waiting_approval" | "failed" | "completed" | "cancelled";
@@ -535,6 +536,7 @@ export default function Tasks() {
         <header><div><p className="eyebrow">业务任务 · AI 标准工单</p><h2>{selectedAiTask.task.title}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelectedAiTask(null)}>×</button></header>
         <dl className="task-detail-meta"><div><dt>任务状态</dt><dd>{selectedAiTask.task.status}</dd></div><div><dt>业务目标</dt><dd>{selectedAiTask.task.goal}</dd></div><div><dt>任务截止</dt><dd>{formatTime(selectedAiTask.task.due_at)}</dd></div><div><dt>子工单</dt><dd>{selectedAiTask.counts.open} 开放 / {selectedAiTask.counts.total} 总计 / {selectedAiTask.counts.blocked} 阻塞</dd></div></dl>
         <TaskCollaborationContext taskId={selectedAiTask.task.task_id} titles={Object.fromEntries(selectedAiTask.work_orders.map(order => [order.work_order_id, order.title]))} onUnavailable={clearUnavailableAiTask} />
+        <WorkOrderSuggestions key={selectedAiTask.task.task_id} taskId={selectedAiTask.task.task_id} onChanged={() => { void openAiTask(selectedAiTask.task.task_id); void loadAiDashboard(true); }} />
         <section>
           <div className="split-head"><div><h3>登记已核验业务事件</h3><p className="muted">只登记已核验事实，不填写推测或结论。提交后才会触发受控 Jev 判断与异步工单管道；运行成功不代表工单或任务完成。选择目标子工单后，A3 可以提出非相邻阶段，但必须由模板明确授权，并证明每一个中间阶段事实。</p></div><button className="btn ghost sm" type="button" onClick={() => setShowAiEventCreate((current) => !current)}>{showAiEventCreate ? "收起" : "登记事件"}</button></div>
           {showAiEventCreate && <form className="task-work-order-create task-work-order-event-create" onSubmit={(event) => { event.preventDefault(); void recordAiVerifiedEvent(); }}>

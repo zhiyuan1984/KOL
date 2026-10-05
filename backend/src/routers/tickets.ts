@@ -15,6 +15,7 @@ import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shado
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
+import { readWorkOrderSuggestions } from "../ticket-domain/work-order-adoption.js";
 import { advanceWorkOrderStageForDecision } from "../ticket-domain/work-order-stage-executor.js";
 import { enqueueWorkOrderDecisionExecution } from "../ticket-domain/work-order-automation-pipeline.js";
 import { recordVerifiedWorkOrderEvent } from "../ticket-domain/work-order-verified-event.js";
@@ -137,6 +138,19 @@ tickets.get("/task-work-orders/:taskId", async (c) => {
 /** L1 authoritative dependencies and persistent source-event cursor. */
 tickets.get("/task-work-orders/:taskId/collaboration-context", async (c) => {
   return c.json({ ...(await readTaskCollaborationContext(ownerId(), c.req.param("taskId"), Number(c.req.query("after") || 0))), ...requestMetadata() });
+});
+
+tickets.get("/task-work-orders/:taskId/suggestions", async (c) => {
+  return c.json({ ...(await readWorkOrderSuggestions(ownerId(), c.req.param("taskId"))), ...requestMetadata() });
+});
+
+/** Explicit human command, sharing the governed executor with the Worker. */
+tickets.post("/task-work-orders/decisions/:id/adopt", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const result = await executeWorkOrderDecision(ownerId(), c.req.param("id"), {
+    idempotency_key: String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim(),
+  }, { confirmed: body.confirmed, basis_version: body.basis_version, action: body.action, target_id: body.target_id });
+  return c.json({ ...result, ...requestMetadata() }, result.replayed ? 200 : 201);
 });
 
 /** The event is immutable evidence first. Only after it is stored does the

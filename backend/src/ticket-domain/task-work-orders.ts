@@ -267,7 +267,7 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
        ) primary_assignment ON true
        LEFT JOIN LATERAL (
          SELECT id,decision_mode,outcome,status,confidence,created_at FROM work_order_decisions
-          WHERE work_order_id=wo.id ORDER BY created_at DESC LIMIT 1
+          WHERE work_order_id=wo.id OR id=wo.decision_id OR id=wo.latest_decision_id ORDER BY created_at DESC LIMIT 1
        ) latest_decision ON true
       WHERE wo.task_id=$1
       ORDER BY CASE wo.status WHEN 'needs_review' THEN 0 WHEN 'pending_assignment' THEN 1 WHEN 'waiting_external' THEN 2 ELSE 3 END,
