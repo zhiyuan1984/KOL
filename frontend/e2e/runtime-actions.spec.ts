@@ -43,10 +43,10 @@ test("confirmation replaces stale discovery results and restores a busy rejectio
   });
   await page.goto(`/s/${saved.session_id}`);
   const actions = page.locator("[data-runtime-actions]");
-  await actions.getByRole("button", { name: "确认执行以上内容" }).click();
+  await actions.getByRole("button", { name: "确认开始采集" }).click();
   await expect(page.locator(".side-workbench")).toContainText("已确认，等待执行");
   await expect(page.locator(".side-workbench")).not.toContainText(stale.summary);
-  await expect(actions.getByRole("button", { name: "确认执行以上内容" })).toHaveCount(0);
+  await expect(actions.getByRole("button", { name: "确认开始采集" })).toHaveCount(0);
   stage = "rejected";
   await page.reload();
   await expect(page.locator(".side-workbench")).toContainText("采集未启动 · 已有任务占用");
@@ -168,7 +168,7 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await expect(page).toHaveURL(sessionUrl);
   await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  if (surface.width < 1200) await expect(page.getByRole("button", { name: "展开本轮结果" })).toBeVisible();
+  if (surface.width < 1200) await expect(page.getByRole("button", { name: "展开结果", exact: true })).toBeVisible();
   if (surface.touch) {
     const top = await page.locator(".mobile-top").boundingBox();
     expect(top!.height).toBeLessThan(surface.height / 5);
@@ -214,14 +214,17 @@ test("shows exact pending scope, confirms once, and restores the receipt after r
   await expect(actions).toContainText("待确认");
   await expect(actions).toContainText("camping");
   expect(confirmations).toBe(0);
-  await actions.getByRole("button", { name: "确认执行以上内容" }).click();
+  await actions.getByRole("button", { name: "确认开始采集" }).click();
   await expect(actions).toContainText("采集请求已提交");
-  await expect(actions.getByText("查看回执", { exact: true })).toBeVisible();
+  await expect(actions.getByText("查看操作记录", { exact: true })).toBeVisible();
   expect(confirmations).toBe(1);
   await page.reload();
   await expect(page.locator("[data-runtime-actions]")).toContainText("采集请求已提交");
-  await page.getByText("查看回执", { exact: true }).click();
-  await expect(page.getByText("查看回执", { exact: true }).locator("..").locator("pre")).toContainText('"task_id": "task_ui_test"');
-  await expect(page.getByRole("button", { name: "确认执行以上内容" })).toHaveCount(0);
+  await page.getByText("查看操作记录", { exact: true }).click();
+  const record = page.getByText("查看操作记录", { exact: true }).locator("..");
+  await expect(record).toContainText("采集公开红人资料");
+  await expect(record).toContainText("采集请求已提交");
+  await expect(record.locator("pre")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "确认开始采集" })).toHaveCount(0);
   expect(confirmations).toBe(1);
 });
