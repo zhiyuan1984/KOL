@@ -239,6 +239,7 @@ test("a terminal discovery error stops the process trail before later success ev
   await openDiscovery(page, { expectCard: false });
   const process = page.locator("[data-discovery-process]");
   await expect(process).toContainText("失败原因：读取远程采集日志未完成");
+  await expect(page.locator('[data-business-step="terminal"]')).toHaveClass(/is-failed/);
   await expect(process).not.toContainText("采集完成");
   await expect(process).not.toContainText("整理候选");
   await expect(process).not.toContainText("已排出候选");
@@ -288,6 +289,7 @@ test("a failed run keeps one business status block and folds the engine detail",
 test("a discovery task record opens its linked run instead of a chat session", async ({ page }) => {
   const run = stubRun();
   await mockExistingRun(page);
+  await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => route.fulfill({ json: { events: [] } }));
   await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({
     json: [{
       id: "tsk_disc_e2e",
@@ -740,8 +742,8 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-ai-summary]")).toContainText("已完成");
   await expect(page.locator("[data-discovery-next-plan]")).toContainText("核对线索后选择入库对象");
-  await expect(page.locator("[data-discovery-conversion-overview]")).toContainText("转化概览");
-  await expect(page.locator('[data-discovery-conversion-count="ready"]')).toContainText("可入库");
+  await expect(page.locator("[data-discovery-conversion-overview]")).toHaveCount(0);
+  await expect(page.locator('[data-discovery-result-filter="ready"]')).toContainText("可入库");
   await expect(page.locator("[data-discovery-ingest]")).toBeDisabled();
   await page.locator('[data-discovery-result-filter="existing"]').click();
   await expect(page.locator('[data-discovery-candidate="NoStats"]')).toBeVisible();
@@ -777,7 +779,7 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   expect(followPosts).toEqual([]);
   expect(claimPosts).toEqual([]);
   expect(livePosts).toEqual([]);
-  await expect(page.locator("[data-nav='running'] .nav-badge")).toHaveText("1");
+  // 全站运行中角标包括演示种子任务，不以固定总数衡量发现入库；上面的回执与 POST 断言才是本链路证据。
 });
 
 test("submit hides the condition card; 改条件再搜 brings it back to the center", async ({ page }) => {
@@ -849,6 +851,73 @@ async function mockExistingRun(page: Page) {
     void route.fulfill({ json: { runs: [stubRun()] } });
   });
 }
+
+test("discovery summary and lead rows use their full width without repeating run metadata", async ({ page }) => {
+  const run = {
+    ...stubRun(),
+    created_at: "2026-09-30T09:30:07.000Z",
+    started_at: "2026-09-30T09:30:12.000Z",
+    completed_at: "2026-09-30T09:33:51.000Z",
+    status_contract: {
+      status: "completed", stage: "completed", title: "红人线索发现完成",
+      message: "共找到 2 位符合条件的红人。",
+      input_preserved: true, execution_started: true, has_results: true,
+      retryable: false, retry_mode: "manual", next_retry_at: null,
+      condition_snapshot: {
+        platforms: ["youtube"], keywords: ["camping"], region: "global_en",
+        min_followers: 10000, max_followers: 2000000, min_avg_views_10: 5000,
+      },
+      progress: { collected: 40, parsed: null, deduplicated: null, matched: 2 },
+      diagnostics: { service: "discovery", error_code: null, occurred_at: null,
+        request_id: null, last_heartbeat: "2026-09-30T09:33:51.000Z" },
+    },
+  };
+  await page.route("**/api/home/discovery/runs**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/candidates")) return void route.fulfill({ json: { candidates: stubCandidates() } });
+    if (/\/runs\/[^/]+$/.test(path)) return void route.fulfill({ json: { run } });
+    return void route.fulfill({ json: { runs: [run] } });
+  });
+  await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => route.fulfill({ json: {
+    events: [
+      { type: "discovery.conditions_confirmed", created_at: run.created_at },
+      { type: "crawl_started", created_at: run.started_at },
+      { type: "discovery.filtered", summary: "原始 40 条，入围 2 位", created_at: "2026-09-30T09:33:00.000Z" },
+      { type: "artifact_ready", created_at: run.completed_at },
+    ],
+  } }));
+  await page.setViewportSize({ width: 1680, height: 900 });
+  await openDiscovery(page, { expectCard: false });
+  const summary = page.locator("[data-discovery-ai-summary]");
+  await expect(summary.locator("[data-discovery-headline]")).toHaveText("红人线索发现完成");
+  await expect(summary.locator("[data-discovery-counts]")).toHaveText("原始 40 · 入围 2");
+  await expect(summary).not.toContainText("共找到 2 位符合条件的红人");
+  await expect(page.locator("[data-result-context]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-business-process]")).toContainText("条件初筛 · 2 位候选");
+  await expect(page.locator("[data-discovery-business-process]")).toContainText("近10均播 ≥5,000");
+  await expect(page.locator("[data-discovery-technical-trace]")).not.toHaveAttribute("open", "");
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("以下为采集与评分的只读预检");
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("按推荐分与匹配度排序");
+  const lead = page.locator('[data-discovery-candidate="TheSolarLab"]');
+  await expect(lead).toBeVisible();
+  await expect(lead).not.toContainText("平台账号 ID");
+  const summaryTitle = await summary.locator("h2").boundingBox();
+  const summaryCounts = await summary.locator("[data-discovery-counts]").boundingBox();
+  expect(summaryTitle && summaryCounts && Math.abs(summaryTitle.y - summaryCounts.y) < 5).toBeTruthy();
+  const detailTitle = await page.locator(".discovery-result-detail-head h3").boundingBox();
+  const detailHint = await page.locator(".discovery-result-detail-hint").boundingBox();
+  expect(detailTitle && detailHint && Math.abs(detailTitle.y - detailHint.y) < 5).toBeTruthy();
+  expect((await lead.boundingBox())?.height).toBeLessThan(130);
+  await page.screenshot({ path: "/tmp/discovery-density-wide.png" });
+  for (const width of [1024, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+    await expect(lead.locator("[data-lead-expand]")).toBeVisible();
+  }
+  await lead.locator("[data-lead-expand]").click();
+  await expect(lead.locator("[data-lead-detail]")).toContainText("平台账号 ID");
+  await page.screenshot({ path: "/tmp/discovery-density-narrow.png" });
+});
 
 test("ingest 404 stays an empty-state and does not claim", async ({ page }) => {
   const claimPosts: string[] = [];
