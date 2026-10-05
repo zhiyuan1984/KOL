@@ -210,7 +210,7 @@ export default function ReviewTypes() {
         onCompanyChange={id => { if (id && id !== context?.tenant) requestLeave(() => { const url = new URL(window.location.href); url.searchParams.set("reviewCompany", id); window.location.assign(url.toString()); }); }}
         onBack={back} disabled={locked} editing={editing} />
       <header className="review-toolbar">
-        <h1>{editing ? active ? "编辑审批流程" : "新建审批流程" : "评审流程管理"}</h1>
+        <h1>{editing ? active ? "编辑审批流程" : "新建审批流程" : "审批流程管理"}</h1>
         {!editing && <button className="primary" disabled={loading || !context?.admin} onClick={() => open()}>新建流程</button>}
       </header>
       {!leaving && (error || command.error) && (

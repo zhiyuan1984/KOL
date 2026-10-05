@@ -4,10 +4,10 @@ import type { InstanceView, ReviewContext } from "./api";
 import { ReviewForm } from "./ReviewForm";
 export const reviewActionLabels: Record<string, string> = {
   approve: "同意",
-  reject: "拒绝",
+  reject: "驳回",
   withdraw: "撤回申请",
   retry: "重新解析",
-  transfer: "转交评审",
+  transfer: "转交审批",
   countersign: "加签",
   request_amendment: "请求补充材料",
   resubmit: "提交补充材料并重审",
@@ -31,10 +31,13 @@ export function ReviewActions({
   const [uploadBusy, setUploadBusy] = useState(false);
   const [targets, setTargets] = useState<Record<string, string>>({}),
     [values, setValues] = useState(i.values);
+  const [more, setMore] = useState(false);
+  const secondary = ["transfer", "countersign", "request_amendment", "retry"];
+  const primary = i.allowedActions.find(a => ["approve", "resubmit", "complete"].includes(a));
   return (
-    <fieldset className="review-form" disabled={busy || uploadBusy}>
+    <fieldset className="review-form review-action-form" disabled={busy || uploadBusy}>
       {i.allowedActions.includes("resubmit") && (
-        <>
+        <div className="review-amendment-fields">
           <p>补充要求：{i.amendment?.reason}。提交后重新开始全部评审。</p>
           <ReviewForm
             fields={i.definition.fields.filter((f) =>
@@ -44,10 +47,10 @@ export function ReviewActions({
             onChange={setValues}
             onUploadBusy={setUploadBusy}
           />
-        </>
+        </div>
       )}
       <label>
-        处理意见（拒绝、撤回和补充操作必填）
+        处理意见（驳回、撤回和补充操作必填）
         <textarea
           maxLength={2000}
           value={reason}
@@ -55,7 +58,7 @@ export function ReviewActions({
         />
       </label>
       {(["transfer", "countersign"] as const)
-        .filter((a) => i.allowedActions.includes(a))
+        .filter((a) => more && i.allowedActions.includes(a))
         .map((action) => (
           <label key={action}>
             {action === "transfer" ? "转交对象" : "加签人员"}
@@ -75,13 +78,11 @@ export function ReviewActions({
           </label>
         ))}
       <div className="review-toolbar">
-        {i.allowedActions.map((action) => (
+        {i.allowedActions.filter(action => more || !secondary.includes(action)).map((action) => (
           <button
             key={action}
             className={
-              (action === "approve" ||
-                action === "resubmit" ||
-                action === "complete") &&
+              action === primary &&
               !busy
                 ? "primary"
                 : ""
@@ -116,6 +117,7 @@ export function ReviewActions({
             {reviewActionLabels[action]}
           </button>
         ))}
+        {i.allowedActions.some(a => secondary.includes(a)) && <button type="button" aria-expanded={more} onClick={() => setMore(!more)}>{more ? "收起更多操作" : "更多操作"}</button>}
       </div>
     </fieldset>
   );

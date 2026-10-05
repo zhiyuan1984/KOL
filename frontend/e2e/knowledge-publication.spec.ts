@@ -90,7 +90,13 @@ test("已批准的失败发布可恢复，重新进入页面仍展示发布状�
 });
 
 test("审核页展示冻结原件、限定版本试算和发布时间",async({page})=>{
-  await fixture(page);
+  await page.route("**/api/approvals/v2/**", route => {
+    const path = new URL(route.request().url()).pathname.split("/v2/")[1];
+    if (path === "companies") return route.fulfill({ json: [{ id: "test", name: "测试组织" }] });
+    if (path === "context") return route.fulfill({ json: { tenant: "test", actor: "owner", admin: false, people: [{ id: "owner", name: "资料管理员", managerIds: [] }] } });
+    if (path === "instance-page") return route.fulfill({ json: { items: [], nextCursor: null } });
+    return route.fulfill({ json: [] });
+  });
   const id="publication-instance",definition=knowledgeReviewDefinition(),trials:any[]=[];
   await page.route(`**/api/approvals/v2/instances/${id}**`,async route=>{
     const p=new URL(route.request().url()).pathname;
@@ -101,7 +107,7 @@ test("审核页展示冻结原件、限定版本试算和发布时间",async({pa
   await page.goto(`/reviews/${id}?reviewCompany=test`);
   const material=page.getByRole("region",{name:"审批资料版本"});await expect(material).toContainText("16页");
   await expect(page.getByText("hidden-token",{exact:true})).toHaveCount(0);
-  await material.getByText("本次审批版本试算",{exact:true}).click();await material.getByLabel("试算问题").fill("额定容量？");
+  await material.getByText("本次资料版本试算",{exact:true}).click();await material.getByLabel("试算问题").fill("额定容量？");
   await material.getByRole("button",{name:"试算",exact:true}).click();await expect(material).toContainText("规格试算结果");
   expect(trials).toEqual([{query:"额定容量？"}]);
   await expect(material.getByRole("link",{name:"原文第2页"})).toHaveAttribute("href",/knowledge\/file\?company=test#page=2/);

@@ -15,9 +15,9 @@ export default function KnowledgeMaterial({id}:{id:string}) {
   },[id]);
   return <section aria-label="审批资料版本"><h3>知识资料</h3>
     {error && <p role="alert">{error}</p>}
-    {data && <><p>{data.title} · v{data.version} · {data.pages}页</p>
+    {data && <><p>{data.title} · 资料版本 v{data.version} · {data.pages}页</p>
       <a href={`/api/approvals/v2/instances/${id}/knowledge/file?company=${encodeURIComponent(reviewCompany())}`} target="_blank" rel="noreferrer">查看本次审批 PDF 原件</a>
-      <details><summary>本次审批版本试算</summary><p>仅查询当前资料；不会发布或写入员工结果。</p>
+      <details><summary>本次资料版本试算</summary><p>使用本次审批的资料版本回答问题，便于核对资料内容；不会发布或写入员工结果。</p>
         <label>试算问题<textarea maxLength={2000} value={query} onChange={e=>setQuery(e.target.value)} /></label>
         <button className="btn" disabled={busy || !query.trim()} onClick={()=>void trial()}>{busy ? "正在试算…" : "试算"}</button>
         {answer && <><p>{answer.scope}</p><p>{answer.answer}</p>{answer.citations?.map((c,i)=><a key={i} href={c.source_url} target="_blank" rel="noreferrer">原文第{c.page}页 </a>)}</>}

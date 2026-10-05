@@ -74,6 +74,13 @@ beforeEach(() => {
 });
 afterEach(() => db.close());
 describe("transactional generic review service", () => {
+  it("persists placeholders as drafts but rejects them at the confirmed publish boundary", () => {
+    const definition = emptyReviewDefinition();
+    definition.nodes[1].name = "新评审节点";
+    const draft = transaction(() => service().saveTemplate(undefined, undefined, definition));
+    expect(() => service().prepare({ action: "publish", templateId: draft.id, expectedVersion: 1 })).toThrow("流程校验未通过");
+    expect(service().templates(true).find(t => t.id === draft.id)?.publishedVersion).toBeNull();
+  });
   it("drains existing work while blocking new submissions and preserves original receipts", () => {
     const oldMode = process.env.REVIEW_V2_NEW_REQUESTS,
       oldCompanies = process.env.REVIEW_V2_COMPANIES;

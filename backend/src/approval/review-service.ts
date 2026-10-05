@@ -27,6 +27,7 @@ import {
   advanceReview,
   decideReview,
   validateDefinition,
+  validatePublicationNames,
   validateValues,
 } from "./review-engine.js";
 
@@ -851,7 +852,7 @@ export class ReviewService {
         fail(409, "草稿已变化，请重新校验");
       if (t.published_version === t.version) fail(409, "此版本已发布");
       const d = JSON.parse(t.definition) as ReviewDefinition,
-        issues = validateDefinition(d);
+        issues = [...validateDefinition(d), ...validatePublicationNames(d)];
       this.checkOrganization(d);
       if (issues.length)
         throw new HttpFail(422, { message: "流程校验未通过", issues });

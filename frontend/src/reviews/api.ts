@@ -38,6 +38,9 @@ export const reviewCompany = () =>
   "";
 export const reviewHeaders = (): Record<string, string> =>
   reviewCompany() ? { "X-Review-Company": reviewCompany() } : {};
+export class ReviewApiError extends Error {
+  constructor(message: string, public issues: { path: string; message: string }[] = []) { super(message); }
+}
 export async function reviewApi<T>(
   path: string,
   body?: unknown,
@@ -56,7 +59,7 @@ export async function reviewApi<T>(
   const data = await r.json();
   if (!r.ok) {
     const detail = data.detail || data;
-    throw new Error(
+    throw new ReviewApiError(
       typeof detail === "string"
         ? detail
         : [
@@ -68,6 +71,7 @@ export async function reviewApi<T>(
           ]
             .filter(Boolean)
             .join("\n"),
+      typeof detail === "object" ? detail.issues || [] : [],
     );
   }
   return data;

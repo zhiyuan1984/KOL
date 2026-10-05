@@ -16,13 +16,13 @@ export function ReviewForm({
   const set = (id: string, value: unknown) =>
     onChange({ ...values, [id]: value });
   return (
-    <div className="review-form">
+    <div className="review-form review-dynamic-fields">
       {fields.map((f) => (
-        <label key={f.id}>
+        <label key={f.id} data-review-field={f.id} className={["textarea", "attachment"].includes(f.type) ? "review-field-long" : undefined}>
           {f.label}
           {f.required ? " *" : ""}
           {f.type === "money" ? (
-            <span className="review-form">
+            <span className="review-money-input">
               <input
                 aria-label={`${f.label}金额`}
                 required={f.required}

@@ -15,6 +15,14 @@ import { randomUUID } from "node:crypto";
 
 const idPattern = /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
 const unsafe = new Set(["__proto__", "constructor", "prototype"]);
+/** Drafts may retain editor placeholders; published steps must describe the duty. */
+export function validatePublicationNames(input: unknown): ReviewIssue[] {
+  const nodes = (input as ReviewDefinition | undefined)?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes.flatMap((node, index) => node && ["review", "cc", "consult", "handler"].includes(node.type)
+    && typeof node.name === "string" && /^新(?:评审|审批|抄送|征询|办理)节点(?:\s*\d+)?$/.test(node.name.trim())
+    ? [{ path: `nodes.${index}.name`, message: "发布前请将默认节点名改为可理解的业务名称，例如负责人评审。" }] : []);
+}
 export function validateDefinition(input: unknown): ReviewIssue[] {
   const issues: ReviewIssue[] = [];
   const add = (path: string, message: string) => issues.push({ path, message });
