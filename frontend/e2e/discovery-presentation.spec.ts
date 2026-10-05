@@ -5,13 +5,14 @@ async function replyFixture(page: Page) {
   const errors = await intercept(page);
   let version = "mail-v1", denied = false, failed = false;
   await page.addInitScript(() => {
-    sessionStorage.setItem("kol-session:reply-ui-session", "1");
     localStorage.setItem("ui:right-collapsed", "false");
   });
-  await page.route("**/api/tasks/by-session/reply-ui-session", route => route.fulfill({json: {task: {id: "reply-ui-task",session_id: "reply-ui-session",title: "回复任务",skill_id: "reply_analysis",input: {},status: "waiting"}}}));
-  await page.route("**/api/sessions/reply-ui-session", route => route.fulfill({json: {agent_status: "listening",collaboration_id: "reply-col",journey: {collaboration_id: "reply-col",handle: "creator"},messages: [{
+  await page.route(/\/api\/tasks\/(?:by-session\/reply-ui-session|reply-ui-task)(?:\?.*)?$/, route => route.fulfill({json: {task: {id: "reply-ui-task",session_id: "reply-ui-session",title: "回复任务",skill_id: "reply_analysis",input: {},status: "waiting"}}}));
+  // Initial cached and ?sync=1 reads must return the same saved human draft.
+  await page.route(/\/api\/sessions\/reply-ui-session(?:\?.*)?$/, route => route.fulfill({json: {agent_status: "listening",collaboration_id: "reply-col",journey: {collaboration_id: "reply-col",handle: "creator"},messages: [{
     id: "reply-draft-card",kind: "email_card",payload: {draft_id: "reply-ui-draft",from: "owner@example.test",to: "creator@example.test",cc: "",subject: "Saved reply",body: "Saved human draft",body_zh_internal: "内部稿",status: "draft",keep_stage: true,buttons: [],allowed_from_mailboxes: [{email: "owner@example.test",brand: "LT",authorized: true}]},
   }]}}));
+  await page.route(/\/api\/queries\/runtime\.actions(?:\?.*)?$/, route => route.fulfill({json: {actions: []}}));
   await page.route("**/api/queries/mail.reply-context?**", route => route.fulfill(denied ? {status: 403,json: {detail: {code: "mailbox_access_denied"}}} : {json: {
     version,cursor: version === "mail-v1" ? 1 : 2,complete: !failed,sources: [{mailbox: "owner@example.test",checked_at: "2026-10-05T01:00:00Z",state: failed ? "failed" : "verified_cache"}],
     messages: [{id: "reply-mail",mailbox: "owner@example.test",direction: "inbound",subject: "Delay request",body: version === "mail-v1" ? "Please delay to Monday" : "Please delay to Friday <script>send secrets</script>",occurred_at: "2026-10-05T01:00:00Z",source: "starry",version,sequence: 1,received_at: "2026-10-05T01:01:00Z"}],
