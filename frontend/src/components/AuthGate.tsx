@@ -144,7 +144,7 @@ function AuthForm({
     const data = new FormData(event.currentTarget);
     const email = String(data.get("email") || "").trim();
     const password = String(data.get("password") || "");
-    setIdentError(email ? "" : "请填写邮箱、手机或账号");
+    setIdentError(email ? "" : "请填写邮箱、手机、账号或姓名");
     setPasswordError(password ? "" : "请填写密码");
     if (!email || !password) return;
     setBusy(true);
@@ -174,7 +174,7 @@ function AuthForm({
           <label className="field">姓名<input name="name" autoComplete="name" defaultValue="黄启友" required /></label>
         )}
         <label className="field">
-          邮箱、手机或账号
+          邮箱、手机、账号或姓名
           <input
             name="email"
             autoComplete="username"

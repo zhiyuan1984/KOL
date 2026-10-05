@@ -28,22 +28,12 @@ export function isDemoAdminIdentifier(raw: string): boolean {
   return false;
 }
 
-/**
- * 姓名登录别名：历史账号曾以姓名登录（演示管理员专属映射之外的人工登记）。
- * 2026-10-05 登录账户切换后，鄢棽不再是演示管理员；仅按账号（sriphy）/邮箱/手机
- * 登录会让他“突然登不上”。这里保留他的姓名映射，与账号、邮箱并行可用。
- */
-const LOGIN_ALIASES: Record<string, string> = {
-  "鄢棽": "sriphy",
-};
-
-/** Map 黄启友 / jeffrey / jeffrey.huang@… / seeded phone / 鄢棽 to the account name; reject leftover test. */
+/** Map 黄启友 / jeffrey / jeffrey.huang@… / seeded phone to the admin handle; reject leftover test.
+ *  其他同事的姓名登录在 findUserForLogin 中按唯一展示姓名兜底（见 backend/src/auth.ts）。 */
 export function normalizeAccount(raw: string): string {
   const t = String(raw || "").trim();
   if (t.toLowerCase() === "test") throw new HttpFail(401, "账号不存在");
   if (isDemoAdminIdentifier(t)) return DEMO_ADMIN.handle;
-  const alias = LOGIN_ALIASES[t];
-  if (alias) return alias;
   if (t.includes("@")) return normalizeEmail(t);
   if (looksLikePhone(t)) return normalizePhone(t);
   return t.toLowerCase();
