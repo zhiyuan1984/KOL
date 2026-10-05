@@ -1,0 +1,155 @@
+{
+  "checked_at": "2026-10-04T18:20:28.018Z",
+  "crawls": [
+    {
+      "id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f",
+      "remote_task_id": "20261005014123_06c69239",
+      "state": "succeeded",
+      "result_state": "ready",
+      "error_code": null,
+      "created_at": "2026-10-04T17:41:22.763Z",
+      "updated_at": "2026-10-04T17:54:59.826Z"
+    },
+    {
+      "id": "action_39656022-4359-4a1f-9990-365110fe141f",
+      "remote_task_id": "20261005005849_9fcf2f21",
+      "state": "succeeded",
+      "result_state": "ready",
+      "error_code": null,
+      "created_at": "2026-10-04T16:58:49.109Z",
+      "updated_at": "2026-10-04T17:07:38.179Z"
+    },
+    {
+      "id": "action_28683673-f162-4ca6-81be-bbd2269dc6ad",
+      "remote_task_id": "20261004233711_d0ba2ed4",
+      "state": "failed",
+      "result_state": "pending",
+      "error_code": "runtime_crawl_timeout",
+      "created_at": "2026-10-04T15:37:11.065Z",
+      "updated_at": "2026-10-04T16:52:03.626Z"
+    },
+    {
+      "id": "action_f3a627b7-59e4-4d69-b73c-e1a005225790",
+      "remote_task_id": "20261004161922_158c6b2e",
+      "state": "cancelled",
+      "result_state": "pending",
+      "error_code": null,
+      "created_at": "2026-10-04T08:19:22.198Z",
+      "updated_at": "2026-10-04T08:19:25.970Z"
+    }
+  ],
+  "jobs": [
+    {
+      "id": "job_817a252a0f19",
+      "job_type": "crawler.results",
+      "status": "succeeded",
+      "error_code": null,
+      "attempts": "1",
+      "max_attempts": "3",
+      "lease_until": null,
+      "next_attempt_at": "2026-10-04T17:54:58.723Z",
+      "started_at": "2026-10-04T17:54:59.026Z",
+      "terminal_at": "2026-10-04T17:54:59.864Z",
+      "updated_at": "2026-10-04T17:54:59.864Z",
+      "crawl_id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f"
+    },
+    {
+      "id": "job_516b6d613acc",
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "error_code": null,
+      "attempts": "1",
+      "max_attempts": "4",
+      "lease_until": null,
+      "next_attempt_at": "2026-10-04T17:54:57.493Z",
+      "started_at": "2026-10-04T17:54:58.002Z",
+      "terminal_at": "2026-10-04T17:54:58.739Z",
+      "updated_at": "2026-10-04T17:54:58.739Z",
+      "crawl_id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f"
+    },
+    {
+      "id": "job_f260dba66158",
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "error_code": null,
+      "attempts": "1",
+      "max_attempts": "4",
+      "lease_until": null,
+      "next_attempt_at": "2026-10-04T17:54:48.241Z",
+      "started_at": "2026-10-04T17:54:48.733Z",
+      "terminal_at": "2026-10-04T17:54:52.512Z",
+      "updated_at": "2026-10-04T17:54:52.512Z",
+      "crawl_id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f"
+    },
+    {
+      "id": "job_289b926d484c",
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "error_code": null,
+      "attempts": "1",
+      "max_attempts": "4",
+      "lease_until": null,
+      "next_attempt_at": "2026-10-04T17:54:41.293Z",
+      "started_at": "2026-10-04T17:54:41.573Z",
+      "terminal_at": "2026-10-04T17:54:43.246Z",
+      "updated_at": "2026-10-04T17:54:43.246Z",
+      "crawl_id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f"
+    },
+    {
+      "id": "job_27c22cbe5c95",
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "error_code": null,
+      "attempts": "1",
+      "max_attempts": "4",
+      "lease_until": null,
+      "next_attempt_at": "2026-10-04T17:54:34.744Z",
+      "started_at": "2026-10-04T17:54:34.842Z",
+      "terminal_at": "2026-10-04T17:54:36.308Z",
+      "updated_at": "2026-10-04T17:54:36.308Z",
+      "crawl_id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f"
+    },
+    {
+      "id": "job_d97afe28f818",
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "error_code": null,
+      "attempts": "1",
+      "max_attempts": "4",
+      "lease_until": null,
+      "next_attempt_at": "2026-10-04T17:54:27.459Z",
+      "started_at": "2026-10-04T17:54:27.643Z",
+      "terminal_at": "2026-10-04T17:54:29.772Z",
+      "updated_at": "2026-10-04T17:54:29.772Z",
+      "crawl_id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f"
+    },
+    {
+      "id": "job_c1c7e8575935",
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "error_code": null,
+      "attempts": "1",
+      "max_attempts": "4",
+      "lease_until": null,
+      "next_attempt_at": "2026-10-04T17:54:20.765Z",
+      "started_at": "2026-10-04T17:54:21.013Z",
+      "terminal_at": "2026-10-04T17:54:22.468Z",
+      "updated_at": "2026-10-04T17:54:22.468Z",
+      "crawl_id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f"
+    },
+    {
+      "id": "job_7968d723c56d",
+      "job_type": "crawler.monitor",
+      "status": "succeeded",
+      "error_code": null,
+      "attempts": "1",
+      "max_attempts": "4",
+      "lease_until": null,
+      "next_attempt_at": "2026-10-04T17:54:14.426Z",
+      "started_at": "2026-10-04T17:54:14.539Z",
+      "terminal_at": "2026-10-04T17:54:15.773Z",
+      "updated_at": "2026-10-04T17:54:15.773Z",
+      "crawl_id": "action_eb634bf2-eecb-4241-9929-651f2de9c97f"
+    }
+  ]
+}

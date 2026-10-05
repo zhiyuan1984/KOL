@@ -5,7 +5,7 @@
 | 计划 ID / 版本 | PLAN-TCW-2026-10-04 / v1.0 |
 | 日期 / 基线 | 2026-10-04 / 仓库 `248764c` |
 | 产品设计 | [任务协作工作台 PRD](task-collaboration-workbench-prd.md) |
-| 当前状态 | P1 `in_progress`，入口、任务现场、参数契约与候选读取已于 main `19c78a1` 部署；订阅数质量收口见[质量记录](task-collaboration-workbench-p1-quality.md)；P2–P5 `not_started`，[证据与剩余门禁](task-collaboration-workbench-p1-evidence.md) |
+| 当前状态 | P1 `in_progress`，发现链路、来源保护及进程恢复/触摸修正已发布；P2–P5 `not_started`；发布不等于 Phase 闭环，见[恢复验收与剩余门禁](task-collaboration-workbench-p1-recovery.md) |
 | 排期口径 | 以依赖与退出条件推进；无已确认团队产能、开始日期与外部 SLA，不虚构交付日期 |
 | 法律层级 | 实施计划，服从 [CONSTITUTION](../CONSTITUTION.md)、[PRODUCT](../PRODUCT.md)、[BUSINESS](../BUSINESS.md)、[TECHNOLOGY](../TECHNOLOGY.md) |
 

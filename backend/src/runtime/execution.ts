@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { ExecutionNotDispatched } from "../execution-jobs/failure.js";
 import fs from "node:fs";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { audit, getConn } from "../db.js";
@@ -460,8 +461,13 @@ export class SkillExecution {
       return result;
     } catch (error) {
       const code = runtimeErrorCode(error);
-      if (claimedHere) await finishRuntimeAction(this.confirmedActionId!, dispatched ? "uncertain" : "rejected", null, code);
+      const rejectionSaved = claimedHere
+        ? await finishRuntimeAction(this.confirmedActionId!, dispatched ? "uncertain" : "rejected", null, code)
+        : false;
       audit(this.context.userId, "runtime.tool.denied_or_failed", { ...trace, code, dispatched, duration_ms: Date.now() - started });
+      if (rejectionSaved && !dispatched) {
+        throw new ExecutionNotDispatched(error instanceof HttpFail ? error.status : 502, runtimeErrorDetail(error), code);
+      }
       if (error instanceof RuntimeToolArgumentsInvalid) throw error;
       throw new HttpFail(error instanceof HttpFail ? error.status : 502, runtimeErrorDetail(error));
     } finally { if (client) this.clients.delete(client); await client?.close().catch(() => undefined); }

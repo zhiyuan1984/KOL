@@ -2,16 +2,25 @@ import { expect, test, type Locator } from "@playwright/test";
 
 async function fullyVisible(control: Locator) {
   await expect(control).toBeVisible();
-  expect(await control.evaluate(element => {
+  const measure = () => control.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-    return rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth && !!hit && element.contains(hit);
-  })).toBe(true);
+    return { fullyVisible: rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth && !!hit && element.contains(hit),
+      rect: rect.toJSON(), viewport: { width: innerWidth, height: innerHeight },
+      hit: hit ? { tag: hit.tagName, className: hit.className } : null,
+      focused: document.activeElement === element };
+  });
+  try {
+    await expect.poll(measure).toMatchObject({ fullyVisible: true });
+  } catch (error) {
+    await control.page().screenshot({ path: test.info().outputPath("geometry-failure.png") });
+    throw new Error(`Control geometry: ${JSON.stringify(await measure())}`, { cause: error });
+  }
 }
 async function touchHitArea(control: Locator) {
   await control.scrollIntoViewIfNeeded();
   // Measure actual hit testing, including transparent target extensions.
-  expect(await control.evaluate(element => {
+  await expect.poll(() => control.evaluate(element => {
     const rect = element.getBoundingClientRect();
     return [-21.5, 0, 21.5].every(x => [-21.5, 0, 21.5].every(y => {
       const hit = document.elementFromPoint(rect.x + rect.width / 2 + x, rect.y + rect.height / 2 + y);
@@ -114,8 +123,11 @@ test.describe("short touch confirmation", () => {
     });
     await page.goto(`/s/${session.id}`);
     const actions = page.locator("[data-runtime-actions]");
-    await expect(actions).toContainText("L3 · 待确认");
-    await expect(actions).toContainText("enable_sub_comments");
+    await expect(actions).toContainText("采集线索 · 待确认");
+    await expect(actions).toContainText("需确认执行（L3）");
+    await expect(actions.locator(".runtime-action-summary")).toContainText("采集评论回复关闭");
+    await actions.getByText("查看提交参数", { exact: true }).click();
+    await expect(actions.locator("pre")).toContainText('"enable_sub_comments": false');
     expect(confirmed).toBe(false);
     const confirm = actions.getByRole("button", { name: "确认执行以上内容" });
     await touchHitArea(confirm); await fullyVisible(confirm);
@@ -123,7 +135,8 @@ test.describe("short touch confirmation", () => {
     const box = (await confirm.boundingBox())!;
     // Tap the outer part of the target rather than the center of the small visual button.
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2 + 21);
-    await expect(actions).toContainText("已取得回执");
+    await expect(actions).toContainText("采集请求已提交");
+    await expect(actions.getByText("查看回执", { exact: true })).toBeVisible();
     expect(confirmed).toBe(true);
     await page.reload();
     await expect(page.getByRole("button", { name: "确认执行以上内容" })).toHaveCount(0);

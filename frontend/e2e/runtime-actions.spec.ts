@@ -10,18 +10,19 @@ test("confirmation replaces stale discovery results and restores a busy rejectio
   expect(response.ok(), await response.text()).toBeTruthy();
   const saved = await response.json();
   const stale = { type: "task_result", title: "等待确认", summary: "已生成平台确认卡，远端尚未执行。请核对后在平台确认。", sections: [], metrics: [], recommended_actions: [] };
-  await page.route(new RegExp(`/api/tasks/(?:by-session/${saved.session_id}|${saved.task_id})$`), async route => {
-    const data = await (await route.fetch()).json();
-    const task = data.task || data;
-    Object.assign(task, { worker_id: "confirmation-worker", status: "waiting", context: stale.summary, task_result: stale });
-    await route.fulfill({ json: data });
-  });
-  await page.route(`**/api/sessions/${saved.session_id}`, async route => {
-    const data = await (await route.fetch()).json();
-    data.messages = [...(data.messages || []), { id: "stale-result", session_id: saved.session_id,
-      role: "assistant", kind: "task_result_card", payload: stale, created_at: new Date().toISOString() }];
-    await route.fulfill({ json: data });
-  });
+  // Read the real persisted envelope once before installing the fixture.
+  // A live route.fetch can finish after reload cancels its intercepted request.
+  const taskResponse = await request.get(`/api/tasks/${saved.task_id}`);
+  expect(taskResponse.ok(), await taskResponse.text()).toBeTruthy();
+  const taskData = await taskResponse.json();
+  Object.assign(taskData.task || taskData, { worker_id: "confirmation-worker", status: "waiting", context: stale.summary, task_result: stale });
+  await page.route(new RegExp(`/api/tasks/(?:by-session/${saved.session_id}|${saved.task_id})$`), route => route.fulfill({ json: taskData }));
+  const sessionResponse = await request.get(`/api/sessions/${saved.session_id}`);
+  expect(sessionResponse.ok(), await sessionResponse.text()).toBeTruthy();
+  const sessionData = await sessionResponse.json();
+  sessionData.messages = [...(sessionData.messages || []), { id: "stale-result", session_id: saved.session_id,
+    role: "assistant", kind: "task_result_card", payload: stale, created_at: new Date().toISOString() }];
+  await page.route(`**/api/sessions/${saved.session_id}`, route => route.fulfill({ json: sessionData }));
   let stage = "pending";
   let confirmations = 0;
   await page.route("**/api/queries/runtime.actions?*", route => {
@@ -132,13 +133,27 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await page.goto("/?tab=discovery");
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
   await page.locator('[data-skill-param="region"] [data-discovery-chip="na"]').click();
+  const workspaceSaved = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/home/discovery/workspace");
+  const initialTask = page.waitForResponse(response => response.request().method() === "GET"
+    && /^\/api\/tasks\/(?:by-session\/)?(?:wi|ses)_discovery_/.test(new URL(response.url()).pathname));
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
+  const savedResponse = await workspaceSaved;
+  expect(savedResponse.ok(), await savedResponse.text()).toBeTruthy();
+  const savedWorkspace = await savedResponse.json();
+  const readsWorkspaceTask = (response: import("@playwright/test").Response) => response.request().method() === "GET"
+    && [`/api/tasks/${savedWorkspace.task_id}`, `/api/tasks/by-session/${savedWorkspace.session_id}`].includes(new URL(response.url()).pathname);
+  const initialTaskResponse = await initialTask;
+  expect(readsWorkspaceTask(initialTaskResponse)).toBe(true);
+  expect(initialTaskResponse.ok()).toBeTruthy();
   await expect(page).toHaveURL(/\/s\/[^/]+$/);
   const sessionUrl = page.url();
   await expect(page.locator('[data-agent-profile="lead"]')).toContainText("线索智能体");
   await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
   await expect(page.locator("[data-expert-identity='expert:crawler']")).toHaveCount(0);
+  const restoredTask = page.waitForResponse(readsWorkspaceTask);
   await page.reload();
+  expect((await restoredTask).ok()).toBeTruthy();
   await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
   const back = page.getByRole("link", { name: "返回AI发现" });
   if (surface.name.startsWith("short-keyboard")) { await back.focus(); await page.keyboard.press("Enter"); }
@@ -147,7 +162,9 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await expect(page).toHaveURL(/tab=discovery&resume=/);
   await expect(page.locator("[data-discovery-resume]")).toBeVisible();
   await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/北美/);
+  const continuedTask = page.waitForResponse(readsWorkspaceTask);
   await page.getByRole("button", { name: "继续原发现任务" }).click();
+  expect((await continuedTask).ok()).toBeTruthy();
   await expect(page).toHaveURL(sessionUrl);
   await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -198,10 +215,13 @@ test("shows exact pending scope, confirms once, and restores the receipt after r
   await expect(actions).toContainText("camping");
   expect(confirmations).toBe(0);
   await actions.getByRole("button", { name: "确认执行以上内容" }).click();
-  await expect(actions).toContainText("已取得回执");
+  await expect(actions).toContainText("采集请求已提交");
+  await expect(actions.getByText("查看回执", { exact: true })).toBeVisible();
   expect(confirmations).toBe(1);
   await page.reload();
-  await expect(page.locator("[data-runtime-actions]")).toContainText("已取得回执");
+  await expect(page.locator("[data-runtime-actions]")).toContainText("采集请求已提交");
+  await page.getByText("查看回执", { exact: true }).click();
+  await expect(page.getByText("查看回执", { exact: true }).locator("..").locator("pre")).toContainText('"task_id": "task_ui_test"');
   await expect(page.getByRole("button", { name: "确认执行以上内容" })).toHaveCount(0);
   expect(confirmations).toBe(1);
 });

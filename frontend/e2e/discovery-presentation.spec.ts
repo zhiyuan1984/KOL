@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { createServer, type ServerResponse } from "node:http";
 
 const brief = { platforms: ["youtube"], region: "global_en", directions: [], keywords: ["camping", "portable power station"],
   min_followers: 10000, max_followers: null, min_avg_plays_10: 5000, expect_count: 30 };
@@ -106,6 +107,40 @@ test("Home uses one directional jump control without covering the composer", asy
   await jump.click();
   await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
   await expect(page.locator("[data-home] [data-ai-prompt-submit]")).toBeInViewport();
+  expect(errors).toEqual([]);
+});
+
+test("short discovery reveals focused input after context growth and respects manual reading", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 589 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const errors = await intercept(page);
+  await page.goto("/?tab=discovery");
+  await page.getByRole("button", { name: "编辑完整请求" }).click();
+  await page.locator("[data-home] [data-composer-input]").fill("保留尺寸变化时的草稿");
+  const submit = page.locator("[data-home] [data-ai-prompt-submit]");
+  await submit.focus();
+  const grow = () => page.locator(".scope-workspace-center-scroll-content").evaluate(el => {
+    for (let i = 0; i < 40; i++) {
+      const p = document.createElement("p");
+      p.textContent = `异步上下文 ${i}`;
+      el.append(p);
+    }
+  });
+  await grow();
+  await expect.poll(() => submit.evaluate(el => {
+    const r = el.getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= innerHeight && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+  })).toBe(true);
+  await expect(submit).toBeFocused();
+  const stage = page.locator(".home-stage");
+  await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  await stage.hover();
+  await page.mouse.wheel(0, -10000);
+  await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);
+  await grow();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue("保留尺寸变化时的草稿");
   expect(errors).toEqual([]);
 });
 
@@ -240,3 +275,55 @@ test('unlimited upper followers remains optional and candidate cards fit the rig
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   }
 });
+for (const theme of ["light", "dark"]) {
+  test(`HTTP SSE preserves history reading and follows the bottom in ${theme}`, async ({ page }) => {
+    const clients = new Set<ServerResponse>();
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "access-control-allow-origin": "*" });
+      response.flushHeaders();
+      clients.add(response);
+      response.on("close", () => clients.delete(response));
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing isolated stream address");
+    try {
+      const errors = await intercept(page, 0, true);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.route(`**/api/sessions/${task.session_id}/events`, route => route.continue({ url: `http://127.0.0.1:${address.port}/events` }));
+      await page.goto(`/s/${task.session_id}`);
+      await page.evaluate(value => document.documentElement.dataset.theme = value, theme);
+      const pane = page.locator("[data-session-stream-pane]");
+      await expect(pane).toBeVisible();
+      await expect.poll(() => clients.size).toBe(1);
+      await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
+      const emit = (revision: number) => {
+        const message = { id: "sse-scroll-message", session_id: task.session_id, kind: "text", payload: {
+          text: Array.from({ length: 12 + revision * 4 }, (_, i) => `流式段落 ${i}：受控事件验收。`).join("\n\n") + `\n\nSSE版本${revision}`,
+        } };
+        for (const response of clients) response.write(`event: upsert\ndata: ${JSON.stringify({ message })}\n\n`);
+      };
+      emit(1);
+      await expect(pane).toContainText("SSE版本1");
+      await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
+      await pane.hover();
+      await page.mouse.wheel(0, -10000);
+      await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
+      emit(2);
+      await expect(pane).toContainText("SSE版本2");
+      await expect(pane).not.toContainText("SSE版本1");
+      await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
+      const jump = page.locator("[data-session-scroll-jump]");
+      await expect(jump).toHaveAccessibleName("滚到底部");
+      await jump.click();
+      await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
+      emit(3);
+      await expect(pane).toContainText("SSE版本3");
+      await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
+      expect(errors).toEqual([]);
+    } finally {
+      for (const response of clients) response.end();
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+}

@@ -308,6 +308,7 @@ function isPresetStarterText(value: string): boolean {
 }
 
 export default function Home() {
+  const homeRef = useRef<HTMLDivElement>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
   const [tab, setTab] = useState<HomeTab>("today");
@@ -1892,6 +1893,43 @@ export default function Home() {
     || (feedback?.resolution?.missing_fields?.length ? "missing_fields" : candidates.length ? "direction" : "none");
   const understood = understoodFields(feedback?.resolution?.entities);
   const composerReading = stageScrolled && !composerFocused;
+  useEffect(() => {
+    if (mode !== "discovery") return;
+    const home = homeRef.current;
+    const content = home?.querySelector(".scope-workspace-center-content");
+    if (!home || !content) return;
+    let frame = 0;
+    let followFocus = true;
+    const keepFocusedInputVisible = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        if (!followFocus) return;
+        const focused = document.activeElement;
+        if (!(focused instanceof HTMLElement) || !home.contains(focused)
+          || !focused.matches("[data-ai-prompt-submit], [data-composer-input]")) return;
+        const rect = focused.getBoundingClientRect();
+        if (rect.top < 0 || rect.bottom > window.innerHeight) {
+          focused.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+        }
+      });
+    };
+    // Async context can grow after Tab has already focused the dock. The
+    // browser does not automatically reveal focus again after that layout shift.
+    const observer = new ResizeObserver(keepFocusedInputVisible);
+    const onFocus = () => { followFocus = true; keepFocusedInputVisible(); };
+    const onManualScroll = () => { followFocus = false; };
+    observer.observe(content);
+    home.addEventListener("focusin", onFocus);
+    home.addEventListener("wheel", onManualScroll, { passive: true });
+    home.addEventListener("touchmove", onManualScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      home.removeEventListener("focusin", onFocus);
+      home.removeEventListener("wheel", onManualScroll);
+      home.removeEventListener("touchmove", onManualScroll);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [mode]);
 
   useEffect(() => {
     if (feedbackKind === "missing_fields") missingAlertRef.current?.focus();
@@ -2240,6 +2278,7 @@ export default function Home() {
         + " is-composer-dock"
       }
       data-home
+      ref={homeRef}
       data-home-active-mode={mode}
       data-home-workspace={workspacePane ?? undefined}
       data-followed-chrome={mode === "lifecycle" || mode === "pool" ? "compact" : undefined}

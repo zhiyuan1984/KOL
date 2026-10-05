@@ -130,6 +130,10 @@ function belongsToTab(task: Task, tab: TaskStatusTab) {
   return CANCELLED.has(value);
 }
 
+function TaskChevron({ expanded }: { expanded: boolean }) {
+  return <svg className="task-center-chevron" data-expanded={expanded} viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4" /></svg>;
+}
+
 export default function Tasks() {
   const [params, setParams] = useSearchParams();
   const selectedStatus: TaskStatusTab = isStatusTab(params.get("status")) ? params.get("status") as TaskStatusTab : "running";
@@ -137,6 +141,7 @@ export default function Tasks() {
   const [rows, setRows] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [systemError, setSystemError] = useState("");
   const [selected, setSelected] = useState<TaskDetail | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [aiDashboard, setAiDashboard] = useState<AiTaskWorkOrderDashboard | null>(null);
@@ -153,7 +158,9 @@ export default function Tasks() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [showSystemTasks, setShowSystemTasks] = useState(false);
+  const [showSystemTasks, setShowSystemTasks] = useState(true);
+  const [showReport, setShowReport] = useState(false);
+  const [expandedSystemTasks, setExpandedSystemTasks] = useState<Set<string>>(new Set());
   const requestRef = useRef<Promise<void> | null>(null);
   const rowsRef = useRef<Task[]>([]);
   const nextCursorRef = useRef<string | null>(null);
@@ -173,7 +180,7 @@ export default function Tasks() {
     const request = (async () => {
       if (!background && !append) setLoading(true);
       if (append) setLoadingMore(true);
-      setError("");
+      setSystemError("");
       try {
         const response = await api.taskPage({
           view: "history", q: query, from, to, limit: 100,
@@ -195,7 +202,7 @@ export default function Tasks() {
           setNextCursor(nextCursorRef.current);
         }
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "任务列表加载失败");
+        setSystemError(cause instanceof Error ? cause.message : "任务列表加载失败");
       } finally {
         if (!background && !append) setLoading(false);
         if (append) setLoadingMore(false);
@@ -398,19 +405,53 @@ export default function Tasks() {
 
   return (
     <main className="tasks-page" data-task-center>
-      <section className="panel task-work-order-dashboard" aria-label="标准工单运营报表">
-        <div className="split-head">
-          <div>
-            <p className="eyebrow">业务运营 · PostgreSQL 工单事实</p>
-            <h2>标准工单运营报表</h2>
-            <p className="muted">先看授权范围内的工单存量、自动生成和自动派单事实，再按业务任务展开查看归属子工单。运行成功不会自动完成业务任务。</p>
-          </div>
-          <div className="row-actions">
-            <span className="muted">{aiDashboard?.scope === "organization_authorized" ? "组织授权范围" : "个人授权范围"}</span>
-            <button className="btn ghost" type="button" onClick={() => void loadAiDashboard()} disabled={aiDashboardLoading}>{aiDashboardLoading ? "刷新中…" : "刷新报表"}</button>
+      <section className="panel task-center-system-section" aria-label="系统运行任务">
+        <header className="task-center-system-head">
+          <h2>系统运行任务</h2><p className="muted">保留原工作台 Agent、计划和执行任务</p>
+        </header>
+        <div className="task-center-filters" role="search" aria-label="筛选任务">
+          <label className="task-filter-search"><span className="sr-only">搜索任务</span><span className="task-filter-search-wrap"><svg aria-hidden="true" viewBox="0 0 16 16" focusable="false"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg><input aria-label="搜索任务名称、内容或技能" placeholder="搜索任务名称、内容或技能" value={query} onChange={(event) => setQuery(event.target.value)} /></span></label>
+          <fieldset className="task-filter-date-range"><legend className="sr-only">时间范围</legend><span className="task-filter-date-label">时间范围</span><input type="date" aria-label="开始日期" value={from} onChange={(event) => setFrom(event.target.value)} /><span aria-hidden="true">至</span><input type="date" aria-label="结束日期" value={to} onChange={(event) => setTo(event.target.value)} /></fieldset>
+          <div className="task-filter-actions">{view === "active" && selectedIds.size ? <button type="button" onClick={() => void cancelSelected()} disabled={Boolean(actionBusy)}>取消选中 ({selectedIds.size})</button> : null}
+            <button className="task-center-fold" type="button" aria-label={showSystemTasks ? "收起系统运行任务" : "展开系统运行任务"} aria-expanded={showSystemTasks} aria-controls="task-center-system-body" onClick={() => setShowSystemTasks((current) => !current)}><TaskChevron expanded={showSystemTasks} /></button>
           </div>
         </div>
-        {aiDashboardLoading ? <p className="muted">正在汇总标准工单运营事实…</p> : !aiDashboard ? <p className="muted">暂时无法读取工单运营报表；系统运行任务仍可在下方展开查看。</p> : <>
+        {showSystemTasks ? <div className="task-center-system-body" id="task-center-system-body">
+          <nav className="tasks-tabs" aria-label="任务状态">
+            {STATUS_TABS.map((tab) => (
+              <button key={tab.value} type="button" className={selectedStatus === tab.value ? "is-active" : ""} aria-pressed={selectedStatus === tab.value} onClick={() => setParams({ status: tab.value })}>{tab.label}<span className="tasks-tab-count" aria-label={`${counts.get(tab.value) || 0} 个任务`}>{counts.get(tab.value) || 0}</span></button>
+            ))}
+            {selectedStatus === "cancelled" ? <Link className="button button-primary task-center-create-action" to="/">新建任务</Link> : null}
+          </nav>
+          {loading ? <p className="muted">正在读取系统任务状态…</p> : systemError && rows.length === 0 ? <p className="task-center-load-error" role="alert">系统任务暂时无法读取。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : visible.length === 0 ? <section className="task-center-empty"><strong>当前没有{STATUS_TABS.find((tab) => tab.value === selectedStatus)?.label}任务</strong><p>任务状态变化后会自动更新。</p></section> : <div className="task-center-table-wrap"><table className="task-center-table"><colgroup><col className="task-center-col-type" /><col className="task-center-col-task" /><col className="task-center-col-summary" /><col className="task-center-col-actions" /><col className="task-center-col-fold" /></colgroup>
+            <thead><tr><th>{view === "active" && selectableRows.length ? <input type="checkbox" aria-label="全选可取消任务" checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} /> : null}任务类型</th><th>任务名</th><th>结果摘要</th><th>操作</th><th><span className="sr-only">展开明细</span></th></tr></thead>
+            <tbody>{visible.map((task) => {
+              const summary = taskSummary(task);
+              const expanded = expandedSystemTasks.has(task.id);
+              return <Fragment key={task.id}>
+                <tr>
+                  <td data-label="任务类型" className="task-center-type-cell">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${task.title || "未命名任务"}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}<span>{safeTaskText(task.skill || task.skill_id || task.task_type || task.source, "Agent 任务")}</span></td>
+                  <td data-label="任务名" className="task-center-task-cell"><strong>{safeTaskText(task.title, "未命名任务")}</strong></td>
+                  <td data-label="结果摘要" className="task-center-summary-cell"><span>{summary}</span></td>
+                  <td data-label="操作"><div className="task-center-actions"><button type="button" onClick={() => void openDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</div></td>
+                  <td className="task-center-fold-cell"><button className="task-center-fold" type="button" aria-label={`${expanded ? "收起" : "展开"}${safeTaskText(task.title, "未命名任务")}明细`} aria-expanded={expanded} aria-controls={`task-meta-${task.id}`} onClick={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })}><TaskChevron expanded={expanded} /></button></td>
+                </tr>
+                {expanded ? <tr className="task-center-meta-row"><td colSpan={5}><dl id={`task-meta-${task.id}`} className="task-center-inline-meta"><div><dt>状态</dt><dd><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span>{task.queue_position ? <span> · 队列第 {task.queue_position} 位</span> : null}</dd></div><div><dt>开始时间</dt><dd>{formatTime(task.started_at)}</dd></div><div><dt>创建时间</dt><dd>{formatTime(task.created_at)}</dd></div></dl></td></tr> : null}
+              </Fragment>;
+            })}</tbody></table></div>}
+
+          {systemError && rows.length > 0 ? <p className="task-center-load-error" role="alert">更新失败，当前显示上次载入的任务。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : null}
+          {!loading && rows.length > 0 ? <div className="row-actions task-center-pagination" aria-live="polite"><span className="muted">已载入 {rows.length} / {total || rows.length} 个系统任务</span>{nextCursor ? <button type="button" className="btn ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "加载中…" : "加载更多任务"}</button> : <span className="muted">已显示全部匹配任务</span>}</div> : null}
+        </div> : null}
+      </section>
+
+      <section className="panel task-work-order-dashboard" aria-label="标准工单运营报表">
+        <div className="split-head task-center-compact-head">
+          <h2>标准工单运营报表</h2>
+          <button className="task-center-text-action" type="button" aria-expanded={showReport} aria-controls="task-center-report" onClick={() => { setShowReport((current) => !current); if (!showReport) void loadAiDashboard(); }}>{showReport ? "收起报表" : "查看报表"}</button>
+        </div>
+        {showReport && <div id="task-center-report">
+        {aiDashboardLoading ? <p className="muted">正在汇总标准工单运营事实…</p> : !aiDashboard ? <p className="muted">暂时无法读取工单运营报表；系统运行任务仍可在上方查看。</p> : <>
           <div className="task-work-order-kpis" aria-label="工单运营关键计数">
             <article><span>业务任务</span><strong>{aiDashboard.summary.tasks.total}</strong><small>开放 {aiDashboard.summary.tasks.open} · 有阻塞 {aiDashboard.summary.tasks.blocked}</small></article>
             <article><span>标准工单</span><strong>{aiDashboard.summary.work_orders.total}</strong><small>开放 {aiDashboard.summary.work_orders.open} · 待复核 {aiDashboard.summary.work_orders.waiting_review}</small></article>
@@ -429,12 +470,13 @@ export default function Tasks() {
           </div>
           <p className="muted task-work-order-as-of">口径：{aiDashboard.source} · 截止 {formatTime(aiDashboard.as_of)} · 时区 {aiDashboard.timezone}</p>
         </>}
+        </div>}
       </section>
 
       <section className="panel task-work-order-task-list" aria-label="业务任务及其标准工单">
-        <div className="split-head">
-          <div><h2>业务任务与标准工单</h2><p className="muted">每一行是一个业务目标；展开后查看它已物化的标准工单、自动化来源、主受理、当前阶段与阻塞事实。</p></div>
-          <div className="row-actions"><span className="status-ok">{aiDashboard?.tasks.page.total || 0} 个业务任务</span><button className="btn ghost" type="button" onClick={() => setShowAiTaskCreate((current) => !current)}>{showAiTaskCreate ? "收起" : "新建业务任务"}</button></div>
+        <div className="split-head task-center-compact-head">
+          <h2>业务任务与标准工单</h2>
+          <div className="row-actions"><span className="muted">{aiDashboard ? `${aiDashboard.tasks.page.total} 个业务任务` : aiDashboardLoading ? "读取中…" : "数量暂不可用"}</span><button className="task-center-text-action" type="button" aria-expanded={showAiTaskCreate} onClick={() => setShowAiTaskCreate((current) => !current)}>{showAiTaskCreate ? "收起" : "新建工单"}</button></div>
         </div>
         {showAiTaskCreate && <form className="task-work-order-create" onSubmit={(event) => { event.preventDefault(); void createAiTask(); }}>
           <label>任务标题<input value={aiTaskDraft.title} maxLength={200} placeholder="例如：推进 KOL 报价确认" onChange={(event) => setAiTaskDraft((current) => ({ ...current, title: event.target.value }))} /></label>
@@ -471,31 +513,11 @@ export default function Tasks() {
               </div></td></tr> : null}
             </Fragment>;
           })}</tbody>
-        </table></div> : <p className="muted">尚未建立业务任务。创建任务后，只有已核验事件、已发布模板和受控 Jev 判断才会生成或分派标准工单。</p>}
+        </table></div> : null}
       </section>
 
       {error && <p className="surface-error" role="alert">{hidesSignalTimeout(error) ? "任务暂时无法读取，请稍后查看。" : error}</p>}
 
-      <section className="panel task-center-system-section" aria-label="系统运行任务">
-        <button className="task-center-system-toggle" type="button" aria-expanded={showSystemTasks} onClick={() => setShowSystemTasks((current) => !current)}>
-          <span><strong>系统运行任务</strong><small>保留原工作台 Agent、计划和执行任务</small></span><span>{showSystemTasks ? "收起" : `展开（${total || rows.length}）`}</span>
-        </button>
-        {showSystemTasks ? <div className="task-center-system-body">
-          <nav className="tasks-tabs" aria-label="任务状态">
-            {STATUS_TABS.map((tab) => (
-              <button key={tab.value} type="button" className={selectedStatus === tab.value ? "is-active" : ""} aria-pressed={selectedStatus === tab.value} onClick={() => setParams({ status: tab.value })}>{tab.label}<span className="tasks-tab-count" aria-label={`${counts.get(tab.value) || 0} 个任务`}>{counts.get(tab.value) || 0}</span></button>
-            ))}
-            {selectedStatus === "cancelled" ? <Link className="button button-primary task-center-create-action" to="/">新建任务</Link> : null}
-          </nav>
-          <div className="task-center-filters" role="search" aria-label="筛选任务">
-            <label className="task-filter-search"><span className="sr-only">搜索任务</span><span className="task-filter-search-wrap"><svg aria-hidden="true" viewBox="0 0 16 16" focusable="false"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg><input aria-label="搜索任务名称、内容或技能" placeholder="搜索任务名称、内容或技能" value={query} onChange={(event) => setQuery(event.target.value)} /></span></label>
-            <fieldset className="task-filter-date-range"><span className="task-filter-date-label">时间范围</span><input type="date" aria-label="开始日期" value={from} onChange={(event) => setFrom(event.target.value)} /><span aria-hidden="true">至</span><input type="date" aria-label="结束日期" value={to} onChange={(event) => setTo(event.target.value)} /></fieldset>
-            <div className="task-filter-actions">{view === "active" && selectedIds.size ? <button type="button" onClick={() => void cancelSelected()} disabled={Boolean(actionBusy)}>取消选中 ({selectedIds.size})</button> : null}</div>
-          </div>
-          {loading ? <p className="muted">正在读取系统任务状态…</p> : visible.length === 0 ? <section className="task-center-empty"><strong>当前没有{STATUS_TABS.find((tab) => tab.value === selectedStatus)?.label}任务</strong><p>任务状态变化后会自动更新。</p></section> : <div className="task-center-table-wrap"><table className="task-center-table"><colgroup><col className="task-center-col-select" /><col className="task-center-col-task" /><col className="task-center-col-status" /><col className="task-center-col-time" /><col className="task-center-col-summary" /><col className="task-center-col-actions" /></colgroup><thead><tr><th className="task-center-select">{view === "active" && selectableRows.length ? <input type="checkbox" aria-label="全选可取消任务" checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} /> : null}</th><th>任务</th><th>状态</th><th>时间</th><th>结果摘要</th><th>操作</th></tr></thead><tbody>{visible.map((task) => { const summary = taskSummary(task); return <tr key={task.id}><td className="task-center-select">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${task.title || "未命名任务"}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}</td><td className="task-center-task-cell"><strong title={safeTaskText(task.title, "未命名任务")}>{safeTaskText(task.title, "未命名任务")}</strong><small>{task.skill || task.skill_id || task.source || "Agent 任务"}</small></td><td className="task-center-status-cell"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span>{task.queue_position ? <small>队列第 {task.queue_position} 位</small> : null}</td><td className="task-center-time-cell"><small>创建 {formatTime(task.created_at)}</small>{task.started_at ? <small>开始 {formatTime(task.started_at)}</small> : task.queued_at ? <small>入队 {formatTime(task.queued_at)}</small> : null}</td><td className="task-center-summary-cell" title={summary}><span>{summary}</span></td><td className="task-center-actions"><button type="button" onClick={() => void openDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</td></tr>; })}</tbody></table></div>}
-          {!loading && rows.length > 0 ? <div className="row-actions task-center-pagination" aria-live="polite"><span className="muted">已载入 {rows.length} / {total || rows.length} 个系统任务</span>{nextCursor ? <button type="button" className="btn ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "加载中…" : "加载更多任务"}</button> : <span className="muted">已显示全部匹配任务</span>}</div> : null}
-        </div> : null}
-      </section>
 
       {selected ? <div className="task-detail-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><aside className="task-detail-drawer" role="dialog" aria-modal="true" aria-label="任务详情">
         <header><div><p className="eyebrow">任务详情</p><h2>{safeTaskText(selected.title, "未命名任务")}</h2></div><button type="button" aria-label="关闭详情" onClick={() => setSelected(null)}>×</button></header>

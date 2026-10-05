@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -49,7 +50,10 @@ const stubE2eEnv = {
 };
 
 const steps = [
-  { id: "kol-data", cwd: backend, command: process.execPath, args: ["scripts/validate-kol-data.mjs"] },
+  // Match CI/deployment: offline operational source is not stored in Git.
+  ...(existsSync(path.join(root, "data", "kol"))
+    ? [{ id: "kol-data", cwd: backend, command: process.execPath, args: ["scripts/validate-kol-data.mjs"] }]
+    : []),
   { id: "registry", cwd: backend, command: process.execPath, args: ["scripts/validate-registry.mjs", "--require-all"] },
   { id: "contracts-pilot", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs"] },
   ...(internal ? [] : [

@@ -46,7 +46,7 @@ export async function runtimeCompleteExecutionJob(id: string, receipt: Json = {}
 export async function runtimeFailExecutionJob(
   id: string,
   error: { code: string; summary: string },
-  options: { retry_at?: string | null; now?: Date; expected_worker?: string } = {},
+  options: { retry_at?: string | null; now?: Date; expected_worker?: string; not_dispatched?: boolean } = {},
 ): Promise<Row | undefined> {
   return pgFailExecutionJob(id, error, options);
 }

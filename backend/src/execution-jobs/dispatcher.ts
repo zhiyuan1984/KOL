@@ -1,6 +1,7 @@
 import { executeClaimedCronJob } from "../cron/worker.js";
 import { executeReviewTimeout } from "../approval/review-worker.js";
 import { executionHandler } from "./handlers.js";
+import { ExecutionNotDispatched } from "./failure.js";
 import "../runtime/action-worker.js";
 import "../crawl/runtime-gates.js";
 import { pgExecutionJobById } from "./postgres-store.js";
@@ -130,6 +131,12 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
     });
     return { execution_job_id: id, job_type: jobType, handled: false, outcome: "failed", target_id: null };
   } catch (error) {
+    if (error instanceof ExecutionNotDispatched) {
+      await runtimeFailExecutionJob(id, { code: error.code, summary: error.code }, {
+        expected_worker: claimed.worker_id, not_dispatched: true,
+      });
+      return { execution_job_id: id, job_type: jobType, handled: true, outcome: "failed", target_id: null };
+    }
     const message = error instanceof Error ? error.message : String(error || "execution handler failed");
     await runtimeFailExecutionJob(id, { code: "execution_handler_error", summary: message }, { expected_worker: claimed.worker_id });
     console.error("[execution-dispatcher] handler failed", { executionJobId: id, jobType, error });
