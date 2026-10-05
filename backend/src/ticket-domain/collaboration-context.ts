@@ -113,24 +113,26 @@ export async function workOrderCollaborationGate(db: Query, actorId: string, wor
         if (Number(artifact.version) !== context.artifact_version || hash !== context.content_hash) blockers.push("artifact_version_conflict");
       }
       const company = context.company_id, reviewId = context.review_instance_id;
-      const current = blockers.includes("collaboration_not_available") || company !== policy.review.company_id ? null : (await db.query(`SELECT i.*,v.definition,l.enabled
+      const current = blockers.includes("collaboration_not_available") || company !== policy.review.company_id ? null : (await db.query(`SELECT i.*,v.definition
         FROM review_instances i JOIN review_versions v ON v.tenant=i.tenant AND v.template_id=i.template_id AND v.version=i.template_version
-        LEFT JOIN review_template_lifecycle l ON l.tenant=i.tenant AND l.template_id=i.template_id
-        WHERE i.tenant=$1 AND i.id=$2 AND EXISTS (SELECT 1 FROM review_participants p
-          WHERE p.tenant=i.tenant AND p.instance_id=i.id AND p.user_id=$3)
-        AND EXISTS (SELECT 1 FROM organization_people p JOIN organization_memberships m ON m.person_ref=p.person_ref
-          JOIN organization_units u ON u.id=m.org_unit_id AND u.company_id=m.company_id
-          JOIN users a ON a.id=p.user_id AND a.active=1
-          WHERE p.user_id=$3 AND p.status='active' AND m.status='active' AND u.status='active' AND m.company_id=i.tenant
-            AND (m.effective_from IS NULL OR m.effective_from<=now()::text) AND (m.effective_to IS NULL OR m.effective_to>now()::text))
-        FOR SHARE OF i,v`, [company || null, reviewId || null, actorId])).rows[0];
+        JOIN review_templates rt ON rt.tenant=i.tenant AND rt.id=i.template_id
+        JOIN review_participants rp ON rp.tenant=i.tenant AND rp.instance_id=i.id AND rp.user_id=$3
+        JOIN organization_people p ON p.user_id=$3 AND p.status='active'
+        JOIN organization_memberships m ON m.person_ref=p.person_ref AND m.company_id=i.tenant AND m.status='active'
+        JOIN organization_units u ON u.id=m.org_unit_id AND u.company_id=m.company_id AND u.status='active'
+        JOIN users a ON a.id=p.user_id AND a.active=1
+        WHERE i.tenant=$1 AND i.id=$2
+          AND (m.effective_from IS NULL OR m.effective_from<=now()::text) AND (m.effective_to IS NULL OR m.effective_to>now()::text)
+        FOR SHARE OF i,v,rp,p,m,u,a FOR UPDATE OF rt`, [company || null, reviewId || null, actorId])).rows[0];
       if (!current) blockers.push("review_not_available");
       else {
         const payload = object(typeof current.payload === "string" ? JSON.parse(current.payload) : current.payload);
         const values = object(payload.values), mapping = policy.review.fields;
+        const lifecycle = (await db.query("SELECT enabled FROM review_template_lifecycle WHERE tenant=$1 AND template_id=$2 FOR SHARE", [company,current.template_id])).rows[0];
+        const enabled = lifecycle ? Number(lifecycle.enabled) : 1;
         review = { id: current.id, company_id: current.tenant, status: current.status, version: Number(current.version), round: Number(payload.round || 1) };
-        basis.push(review, values, current.enabled);
-        if (current.template_id !== policy.review.template_id || Number(current.template_version) !== policy.review.template_version || current.enabled === 0) blockers.push("review_template_mismatch");
+        basis.push(review, values, enabled);
+        if (current.template_id !== policy.review.template_id || Number(current.template_version) !== policy.review.template_version || enabled === 0) blockers.push("review_template_mismatch");
         if (current.status !== "approved") blockers.push("review_not_approved");
         const expected: ObjectValue = { collaboration_id: context.collaboration_id, work_order_id: row.id, action_id: policy.action_id,
           artifact_id: context.artifact_id, artifact_version: context.artifact_version, content_hash: context.content_hash };

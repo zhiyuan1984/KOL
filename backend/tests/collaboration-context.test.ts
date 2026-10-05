@@ -144,6 +144,28 @@ describe("native collaboration dependency and source-event boundaries", () => {
     await expect(db.query("UPDATE work_orders SET status='in_progress' WHERE id='fixture-prior'")).rejects.toThrow("newer data_version");
     expect((await db.query("SELECT status FROM work_orders WHERE id='fixture-prior'")).rows[0].status).toBe("completed");
   });
+  it("holds approval authority and permission rows stable until the execution transaction commits", async () => {
+    const holder = await postgresPool().connect(), competitor = await postgresPool().connect();
+    try {
+      await holder.query("BEGIN");
+      expect((await workOrderCollaborationGate(holder,"fixture-actor","fixture-next")).allowed).toBe(true);
+      for (const sql of [
+        "UPDATE organization_memberships SET status='ended' WHERE id='fixture-member'",
+        "DELETE FROM review_participants WHERE instance_id='fixture-instance'",
+        "INSERT INTO review_template_lifecycle(tenant,template_id,version,enabled) VALUES ('fixture-company','fixture-review',1,0)",
+      ]) {
+        await competitor.query("BEGIN");
+        await competitor.query("SET LOCAL lock_timeout='150ms'");
+        await expect(competitor.query(sql)).rejects.toMatchObject({ code: "55P03" });
+        await competitor.query("ROLLBACK");
+      }
+      await holder.query("COMMIT");
+      await competitor.query("UPDATE organization_memberships SET status='ended' WHERE id='fixture-member'");
+      expect((await gate()).blockers).toContain("review_not_available");
+    } finally {
+      await holder.query("ROLLBACK"); await competitor.query("ROLLBACK"); holder.release(); competitor.release();
+    }
+  });
   it("rejects duplicate approval-field mappings and malformed published dependency rules", () => {
     expect(() => parseCollaborationPolicy({ collaboration_dependencies: { ...policy, action_id: "send_email" } })).toThrow();
     expect(() => parseCollaborationPolicy({ collaboration_dependencies: { ...policy, review: { ...policy.review, fields: { ...policy.review.fields, artifact_id: "col" } } } })).toThrow();
