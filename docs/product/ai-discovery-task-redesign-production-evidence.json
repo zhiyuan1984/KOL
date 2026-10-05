@@ -1,58 +1,147 @@
 {
-  "checked_at": "2026-10-05T03:48:44.043302+00:00",
-  "expected_revision": "e0035ae6bec2dc8d685034e2a0379f32a966a3fc",
-  "git_revision": "e0035ae6bec2dc8d685034e2a0379f32a966a3fc",
-  "discovery_commit": "8ada26c38466b93cb1589469eebc41bad7732e5d",
-  "discovery_commit_in_production": true,
-  "api": {
-    "version": "e0035ae6",
-    "started_at": "2026-10-05T03:46:36.496Z"
+  "checked_at": "2026-10-05T05:10:01.199583+00:00",
+  "expected_revision": "fa34f2db592018e55689cbcc10e31a5c6115a1e0",
+  "git_revision": "fa34f2db592018e55689cbcc10e31a5c6115a1e0",
+  "local_api": {
+    "version": "fa34f2db",
+    "started_at": "2026-10-05T05:08:13.868Z"
+  },
+  "public_api": {
+    "version": "fa34f2db",
+    "started_at": "2026-10-05T05:08:13.868Z"
   },
   "html_matches": true,
   "assets_checked": 45,
   "asset_mismatches": [],
   "services": {
     "lingong": {
-      "state": "active",
-      "started_at": "2026-10-05 11:46:32 CST"
+      "ActiveState": "active",
+      "ExecMainStartTimestamp": "Mon 2026-10-05 13:08:10 CST"
     },
     "lingong-execution-worker@1": {
-      "state": "active",
-      "started_at": "2026-10-05 11:45:31 CST"
+      "ActiveState": "active",
+      "ExecMainStartTimestamp": "Mon 2026-10-05 13:07:05 CST"
     },
     "lingong-execution-worker@2": {
-      "state": "active",
-      "started_at": "2026-10-05 11:45:31 CST"
+      "ActiveState": "active",
+      "ExecMainStartTimestamp": "Mon 2026-10-05 13:07:05 CST"
     },
     "lingong-outbox": {
-      "state": "active",
-      "started_at": "2026-10-05 11:45:31 CST"
+      "ActiveState": "active",
+      "ExecMainStartTimestamp": "Mon 2026-10-05 13:07:05 CST"
     }
   },
-  "migrations": [
-    "20261005_discovery_candidate_actions",
-    "20261005_runtime_action_events"
-  ],
-  "enabled_triggers": [
-    "discovery_ownership_guard",
-    "runtime_action_event",
-    "runtime_crawl_event"
-  ],
-  "table_counts": {
-    "runtime_action_events": 0,
-    "candidate_decisions": 0,
-    "candidate_imports": 0,
-    "candidate_ownership": 0
+  "database": {
+    "migrations": [
+      "20261005_discovery_candidate_actions",
+      "20261005_runtime_action_events"
+    ],
+    "enabled_triggers": [
+      "discovery_ownership_guard",
+      "runtime_action_event",
+      "runtime_crawl_event"
+    ],
+    "table_counts": {
+      "runtime_action_events": 6,
+      "candidate_decisions": 0,
+      "candidate_imports": 0,
+      "candidate_ownership": 1
+    }
   },
-  "backup": {
-    "path": "backups/discovery-redesign-predeploy-20261005T024418Z.dump",
-    "bytes": 16198552,
-    "list_verified": true
-  },
-  "integration_limit": "No production candidate write or authenticated browser flow was executed.",
+  "backup_bytes": 16198552,
+  "backup_list_present": true,
+  "integration_limit": "This verification was read-only. This task did not execute production candidate writes or authenticated production browser flows; formal Starry import without email remains unverified.",
+  "discovery_commit": "8ada26c38466b93cb1589469eebc41bad7732e5d",
+  "discovery_commit_in_production": true,
   "release_gate": {
-    "run_id": 37260634765,
-    "status": "in_progress"
+    "run_id": 37264768277,
+    "status": "completed",
+    "conclusion": "success",
+    "evidence": {
+      "run_id": 37264768277,
+      "job_id": 111619126082,
+      "summaries": [
+        "release-gate\tBackend full deterministic tests\t2026-10-05T05:01:05.0601420Z  Test Files  174 passed | 8 skipped (182)",
+        "release-gate\tBackend full deterministic tests\t2026-10-05T05:01:05.0630780Z       Tests  1614 passed | 27 skipped (1641)",
+        "release-gate\tE2E on staging server (PostgreSQL)\t2026-10-05T05:04:34.9782597Z   36 passed (1.9m)",
+        "release-gate\tE2E on staging server (PostgreSQL)\t2026-10-05T05:06:53.7859663Z   26 passed (2.3m)"
+      ],
+      "head_sha": "fa34f2db592018e55689cbcc10e31a5c6115a1e0",
+      "status": "completed",
+      "conclusion": "success",
+      "backend": {
+        "passed": 1614,
+        "skipped": 27,
+        "failed": 0,
+        "files_passed": 174,
+        "files_skipped": 8
+      },
+      "browser": {
+        "presentation_and_release_passed": 36,
+        "runtime_passed": 26,
+        "failed": 0
+      }
+    }
   },
-  "ok": true
+  "ok": true,
+  "previous_observations": [
+    {
+      "checked_at": "2026-10-05T03:48:44.043302+00:00",
+      "expected_revision": "e0035ae6bec2dc8d685034e2a0379f32a966a3fc",
+      "git_revision": "e0035ae6bec2dc8d685034e2a0379f32a966a3fc",
+      "discovery_commit": "8ada26c38466b93cb1589469eebc41bad7732e5d",
+      "discovery_commit_in_production": true,
+      "api": {
+        "version": "e0035ae6",
+        "started_at": "2026-10-05T03:46:36.496Z"
+      },
+      "html_matches": true,
+      "assets_checked": 45,
+      "asset_mismatches": [],
+      "services": {
+        "lingong": {
+          "state": "active",
+          "started_at": "2026-10-05 11:46:32 CST"
+        },
+        "lingong-execution-worker@1": {
+          "state": "active",
+          "started_at": "2026-10-05 11:45:31 CST"
+        },
+        "lingong-execution-worker@2": {
+          "state": "active",
+          "started_at": "2026-10-05 11:45:31 CST"
+        },
+        "lingong-outbox": {
+          "state": "active",
+          "started_at": "2026-10-05 11:45:31 CST"
+        }
+      },
+      "migrations": [
+        "20261005_discovery_candidate_actions",
+        "20261005_runtime_action_events"
+      ],
+      "enabled_triggers": [
+        "discovery_ownership_guard",
+        "runtime_action_event",
+        "runtime_crawl_event"
+      ],
+      "table_counts": {
+        "runtime_action_events": 0,
+        "candidate_decisions": 0,
+        "candidate_imports": 0,
+        "candidate_ownership": 0
+      },
+      "backup": {
+        "path": "backups/discovery-redesign-predeploy-20261005T024418Z.dump",
+        "bytes": 16198552,
+        "list_verified": true
+      },
+      "integration_limit": "No production candidate write or authenticated browser flow was executed.",
+      "release_gate": {
+        "run_id": 37260634765,
+        "status": "in_progress"
+      },
+      "ok": true
+    }
+  ]
 }
