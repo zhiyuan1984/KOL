@@ -1,0 +1,87 @@
+{
+  "phase": "P1",
+  "at": "2026-10-05T02:56:05.360Z",
+  "backup": "/home/ecs-user/kol/backups/tcw-p1-predeploy-bd1cb1c-20261005.dump",
+  "backup_sha256": "e2d8f2c6322c4aca91938c973e2e188d476593b55d23852e9486e81802bc715f",
+  "target": "tcw_p1_restore_f70e3c8644eb1822",
+  "scope": "isolated database restore only; no application or worker started",
+  "restore_completed": true,
+  "data_matches": true,
+  "cleanup_completed": true,
+  "new_external_actions": 0,
+  "tables_compared": 171,
+  "rows_compared": 58622,
+  "sequences_compared": 5,
+  "inventory_sha256": "ff703176f76704ffbebe94674dab7060e407576b7da97a769bbef711a6d6b494",
+  "key_tables": [
+    {
+      "table": "agent_bindings",
+      "rows": 3,
+      "data_matches": true
+    },
+    {
+      "table": "runtime_agent_skills",
+      "rows": 38,
+      "data_matches": true
+    },
+    {
+      "table": "runtime_tool_policies",
+      "rows": 70,
+      "data_matches": true
+    },
+    {
+      "table": "workbench_principal_bindings",
+      "rows": 1,
+      "data_matches": true
+    },
+    {
+      "table": "runtime_actions",
+      "rows": 13,
+      "data_matches": true
+    },
+    {
+      "table": "runtime_crawl_jobs",
+      "rows": 7,
+      "data_matches": true
+    },
+    {
+      "table": "execution_jobs",
+      "rows": 1242,
+      "data_matches": true
+    },
+    {
+      "table": "execution_outbox",
+      "rows": 1246,
+      "data_matches": true
+    },
+    {
+      "table": "task_events",
+      "rows": 17052,
+      "data_matches": true
+    },
+    {
+      "table": "sessions",
+      "rows": 477,
+      "data_matches": true
+    },
+    {
+      "table": "tickets",
+      "rows": 441,
+      "data_matches": true
+    }
+  ],
+  "script_sha256": "d62153e73ade2a9090b5b69bb4b08d9c66bcc2429e318079eef5f5cd07d96342",
+  "production_after": {
+    "api_version": "bd1cb1c",
+    "api_started_at": "2026-10-05T02:42:23.696Z",
+    "services_all_active": true
+  },
+  "limitations": [
+    "database owner and ACL were not restored",
+    "no restored application or worker was started",
+    "external recovery and manual takeover remain unverified"
+  ],
+  "foreign_keys": 131,
+  "unvalidated_foreign_keys": 0,
+  "invalid_indexes": 0
+}

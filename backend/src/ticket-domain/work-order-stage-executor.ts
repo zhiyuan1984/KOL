@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresTransaction } from "../postgres/pool.js";
+import { workOrderCollaborationGate } from "./collaboration-context.js";
 import { judgeCollaborationStage } from "../stage-judgment.js";
 import { BY_CODE, FACT_AUTO_MODES, evidencedPointer, normalizeStage } from "../stages.js";
 import { isForwardMainStage, mainStageIndex, stagePolicyTarget } from "./work-order-stage-policy.js";
@@ -138,6 +139,12 @@ export async function advanceWorkOrderStageForDecision(
       return skip("stage_target_status_not_open", { status: workOrder.status, automatic_effect: "none" }, workOrder.id);
     }
     if (!snapshotMatches(decision.input_json, workOrder)) return skip("stage_target_version_conflict", { automatic_effect: "none", current_data_version: Number(workOrder.data_version), current_stage_code: workOrder.stage_code }, workOrder.id);
+    const collaboration = await workOrderCollaborationGate(client, actorId, workOrder.id);
+    if (collaboration.configured) {
+      if (!collaboration.allowed) return skip("collaboration_dependencies_blocked", { automatic_effect: "none", blockers: collaboration.blockers }, workOrder.id);
+      const expected = object(object(decision.input_json).collaboration_gate);
+      if (expected.version !== collaboration.version) return skip("collaboration_dependency_version_conflict", { automatic_effect: "none", current_version: collaboration.version }, workOrder.id);
+    }
     if (!workOrder.stage_code) return skip("stage_target_current_stage_missing", { automatic_effect: "none" }, workOrder.id);
     if (workOrder.template_code !== decision.template_code || Number(workOrder.template_version) !== Number(decision.template_version)) {
       return skip("stage_template_mismatch", { automatic_effect: "none" }, workOrder.id);
@@ -199,6 +206,7 @@ export async function advanceWorkOrderStageForDecision(
     }
 
     const now = new Date();
+    await client.query("SELECT set_config('app.actor_id',$1,true)", [actorId]);
     const advanced = await client.query<WorkOrderRow>(
       `UPDATE work_orders
           SET stage_code=$1,latest_decision_id=$2,data_version=data_version+1,updated_at=$3

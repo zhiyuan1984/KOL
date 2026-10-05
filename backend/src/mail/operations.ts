@@ -4,7 +4,9 @@
  */
 import type { Operation } from "../runtime/operations.js";
 
-import { requireSkill } from "../auth.js";
+import { authDisabled, requireSkill, scopedUser } from "../auth.js";
+import { assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { canUseAgent } from "../runtime/organization-tree.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeEmail } from "../host/identity.js";
 import {
@@ -23,6 +25,7 @@ import { readOnDemandMemory, readPersonDigest, triggerMailTranslateSkill, trigge
 import { composeCatalog } from "../skills/email-compose-contract.js";
 import { startMailSyncJob, authorizeMailSync } from "./sync-job.js";
 import { prepareMail, mailDraftActions, sendMailDraft, translateMailDraft, exportMailDraft } from "../host/api.js";
+import { readReplyContext } from "./reply-context.js";
 
 const MEMORY = {
   entry: "memory" as const,
@@ -189,6 +192,17 @@ const mailStar: Operation["handle"] = async (c, input) => {
 };
 
 export const mailOperations: Operation[] = [
+  { kind: "query", id: "mail.reply-context", handle: async (c, input) => {
+    if (!authDisabled()) {
+      const userId = scopedUser()?.id || "";
+      const agentId = runtimeAgentForSkill("reply_analysis",userId);
+      if (!canUseAgent(userId,agentId)) throw new HttpFail(403, {code: "runtime_agent_not_usable"});
+      assertRuntimeSkill({agentId,skillId: "reply_analysis",userId,runId: "reply-context-read"});
+    }
+    const after = Number(input.after || 0);
+    if (!Number.isSafeInteger(after) || after < 0) throw new HttpFail(400, "invalid context cursor");
+    return c.json(await readReplyContext(String(input.session_id || ""), after));
+  } },
   { kind: "query", id: "mail.box", handle: mailBox },
   { kind: "query", id: "mail.conversations", handle: mailConversations },
   { kind: "query", id: "mail.conversation", handle: mailConversation },

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { audit, getConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
-import { assertMailSendAuthority } from "../gateway/mail-authority.js";
+import { assertMailSendAuthority, recheckMailSendAuthority } from "../gateway/mail-authority.js";
 import { createManagedClient } from "../runtime/managed-client.js";
 import { createCredential, deleteCredential } from "../runtime/credentials.js";
 import { starryKolMcpConfigured } from "./connection.js";
@@ -649,7 +649,7 @@ export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput 
 }
 
 async function call(name: string, args: Json = {}): Promise<Json> {
-  if (name === "sendEmailNow") assertMailSendAuthority();
+  if (name === "sendEmailNow") await recheckMailSendAuthority();
   if (!clientFactory && codexMode() === "stub") return mockCall(name, args);
   if (!clientFactory && !starryKolMcpConfigured()) {
     throw new HttpFail(503, {

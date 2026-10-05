@@ -9,6 +9,8 @@ import readline from "node:readline";
 
 const mode = process.env.FAKE_CODEX_MODE || "late-chatgpt";
 let loggedIn = mode === "already-chatgpt" || mode === "kol-success" || mode === "task-result-success" || mode === "crawl-plan-success" || mode === "recognize-success" || mode === "mail-digest-success" || mode === "digest-protocol-success";
+let taskContextCwd = "";
+if (mode === "task-collaboration-evidence") loggedIn = true;
 
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -102,7 +104,8 @@ rl.on("line", (line) => {
     });
     return;
   }
-  if (method === "thread/start") {
+  if (method === "thread/start" || (method === "thread/resume" && mode === "task-collaboration-evidence")) {
+    taskContextCwd = String(params?.cwd || "");
     const dump = String(process.env.FAKE_CODEX_THREAD_START || "").trim();
     if (dump) {
       try {
@@ -124,6 +127,16 @@ rl.on("line", (line) => {
   }
   if (method === "turn/start") {
     send({ id, result: { turn: { id: "turn_fake" } } });
+    if (mode === "task-collaboration-evidence") {
+      const input = params.input.find(part=>part.type === "text" && part.text.startsWith("Host authorized Task collaboration evidence"));
+      const evidence = JSON.parse(input.text.split("\n")[1]);
+      const item = {type:"kol_analyze_brief",title:"依赖分析夹具",summary:`Task ${evidence.task.id} · ${evidence.version}`,
+        sections:[{title:"已提供的依据",body:evidence.gates.map(gate=>`${gate.work_order_id}: ${gate.blockers.join(",")}`).join("; "),items:[]}],metrics:[],recommended_actions:[]};
+      setTimeout(()=>{
+        send({method:"item/completed",params:{item:{type:"agent_message",text:JSON.stringify(item)}}});
+        send({method:"turn/completed",params:{turn:{id:"turn_fake",status:"completed"}}});
+      },Number(process.env.FAKE_CODEX_DELAY || 20));
+    }
     if (mode === "kol-success") {
       const item = params?.outputSchema ? {
         type: "create_draft",

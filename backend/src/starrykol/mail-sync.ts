@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
-import { appendBusinessEvent } from "../business-events.js";
 import { mailPreview } from "../host/mail-preview.js";
 import {
   itemsForCollaboration,
@@ -21,7 +20,6 @@ import { translateMailBodyZh } from "./translate-zh.js";
 import { markPendingMailMemory, triggerMailMemoryIncrement } from "../host/mail-memory-job.js";
 import { recordEffectiveCorrespondence, recordFollowedMailMemory } from "../host/kol-memory.js";
 import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
-import { inboundIdentity, mailAlreadySeen } from "../host/inbound-identity.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import {
@@ -39,6 +37,9 @@ import {
   messageTo,
 } from "./mail-fields.js";
 import { executeStarryKolTask } from "./service.js";
+import { observeReplyMail } from "../mail/reply-source.js";
+import { postgresPool } from "../postgres/pool.js";
+import { replyMessageBody } from "./mail-fields.js";
 
 export type FollowedMailSync = {
   ok: boolean;
@@ -231,7 +232,7 @@ function storedDigest(threadId: string): ThreadDigest | null {
   };
 }
 
-function upsertThread(input: {
+async function upsertThread(input: {
   collaborationId?: string | null;
   conversationId: string;
   subject: string;
@@ -247,71 +248,31 @@ function upsertThread(input: {
   lastAt?: string;
   matchState: "matched" | "unbound" | "deferred" | "ignored";
   lastReceipt?: string;
-}): { id: string; inserted: boolean } {
-  const db = getConn();
-  const mailbox = String(input.mailbox || "");
-  const existing = db.prepare(
-    "SELECT id FROM kol_mail_threads WHERE mailbox=? AND conversation_id=?",
-  ).get(mailbox, input.conversationId) as { id: string } | undefined;
+}): Promise<{ id: string; inserted: boolean }> {
   const now = nowIso();
-  const id = existing?.id || nid("thr");
-  const collaborationId = input.collaborationId || null;
-  if (existing) {
-    db.prepare(
-      `UPDATE kol_mail_threads
-       SET subject=?, mailbox=?, last_direction=?, last_snippet=?, last_from=?, last_from_name=?,
-           unread_count=?, last_at=?, updated_at=?, collaboration_id=?, peer_email=?, peer_name=?,
-           last_preview=?, match_state=?, last_receipt=?
-       WHERE id=?`,
-    ).run(
-      input.subject,
-      mailbox,
-      input.direction || "",
-      input.snippet || "",
-      input.from || "",
-      input.fromName || "",
-      input.unread,
-      input.lastAt || now,
-      now,
-      collaborationId,
-      input.peerEmail || input.from || "",
-      input.peerName || input.fromName || "",
-      input.preview || "",
-      input.matchState,
-      input.lastReceipt || "",
-      id,
-    );
-    return { id, inserted: false };
-  }
-  db.prepare(
+  const result = await postgresPool().query<{id: string; inserted: boolean}>(
     `INSERT INTO kol_mail_threads
-     (id, collaboration_id, conversation_id, subject, mailbox, last_direction, last_snippet, last_from, last_from_name,
-      unread_count, last_at, created_at, updated_at, peer_email, peer_name, last_preview, match_state, last_receipt)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    collaborationId,
-    input.conversationId,
-    input.subject,
-    mailbox,
-    input.direction || "",
-    input.snippet || "",
-    input.from || "",
-    input.fromName || "",
-    input.unread,
-    input.lastAt || now,
-    now,
-    now,
-    input.peerEmail || input.from || "",
-    input.peerName || input.fromName || "",
-    input.preview || "",
-    input.matchState,
-    input.lastReceipt || "",
+     (id,collaboration_id,conversation_id,subject,mailbox,last_direction,last_snippet,last_from,last_from_name,
+      unread_count,last_at,created_at,updated_at,peer_email,peer_name,last_preview,match_state,last_receipt)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17)
+     ON CONFLICT(mailbox,conversation_id) DO UPDATE SET
+      collaboration_id=COALESCE(kol_mail_threads.collaboration_id,excluded.collaboration_id),subject=excluded.subject,last_direction=excluded.last_direction,
+      last_snippet=excluded.last_snippet,last_from=excluded.last_from,last_from_name=excluded.last_from_name,
+      unread_count=excluded.unread_count,last_at=excluded.last_at,updated_at=excluded.updated_at,
+      peer_email=excluded.peer_email,peer_name=excluded.peer_name,last_preview=excluded.last_preview,
+      match_state=excluded.match_state,last_receipt=excluded.last_receipt
+     WHERE kol_mail_threads.collaboration_id IS NULL OR excluded.collaboration_id IS NULL
+       OR kol_mail_threads.collaboration_id=excluded.collaboration_id
+     RETURNING id,(xmax=0) AS inserted`,
+    [nid("thr"),input.collaborationId || null,input.conversationId,input.subject,
+     String(input.mailbox || ""),input.direction || "",input.snippet || "",input.from || "",input.fromName || "",
+     input.unread,input.lastAt || now,now,input.peerEmail || input.from || "",input.peerName || input.fromName || "",
+     input.preview || "",input.matchState,input.lastReceipt || ""],
   );
-  return { id, inserted: true };
+  if (!result.rows[0]) throw new Error("mail_conversation_association_mismatch");
+  return result.rows[0];
 }
-
-function rememberItem(
+async function rememberItem(
   threadId: string,
   collaborationId: string | null,
   conversationId: string,
@@ -319,92 +280,24 @@ function rememberItem(
   subject: string,
   col?: Row,
   mailboxEmail = "",
-): boolean {
+): Promise<boolean> {
   const inbound = inboundOf(message, col, mailboxEmail);
-  const providerId = firstString(message.messageId, message.message_id, message.id, message.mailId);
+  const providerId = firstString(message.provider_message_id, message.messageId, message.message_id, message.id, message.mailId);
   const title = messageTitle(message);
-  if (providerId) {
-    const seen = getConn().prepare("SELECT id FROM kol_mail_items WHERE provider_message_id=?").get(providerId) as { id: string } | undefined;
-    if (seen) {
-      // Existing cache rows predate the title field. A detail refresh upgrades
-      // them in place instead of retaining a duplicate subject in the L3 row.
-      getConn().prepare("UPDATE kol_mail_items SET title=? WHERE id=?").run(title, seen.id);
-      return false;
-    }
-  }
-  const body = messageBody(message);
-  const from = messageFrom(message);
-  const to = messageTo(message);
-  const identity = inboundIdentity({
-    provider_message_id: providerId,
-    collaboration_id: collaborationId || "",
-    subject,
-    body,
-    conversation_id: conversationId,
-  });
-  if (mailAlreadySeen(identity)) return false;
+  const body = replyMessageBody(message);
+  const from = messageFrom(message), to = messageTo(message);
   const direction = inbound ? "inbound" : "outbound";
-  const letter = letterSummaryRecord({
-    ...message,
-    direction,
-    body,
-    snippet: body,
-    subject,
-    summary: message.summary,
-    summary_zh: message.summary_zh,
-    summary_source: message.summary_source,
-  });
-  const itemId = nid("kmi");
-  const occurredAt = firstString(message.sentAt, message.createdAt, message.time, message.ts) || nowIso();
-  getConn().prepare(
-    `INSERT INTO kol_mail_items
-     (id, thread_id, collaboration_id, conversation_id, provider_message_id, direction, subject, title, snippet, unread, occurred_at, created_at,
-      from_addr, from_name, to_addr, body_text, summary, summary_zh, summary_source, receipt_status, receipt_at, effective)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    itemId,
-    threadId,
-    collaborationId,
-    conversationId,
-    providerId || identity.identity_hash,
-    direction,
-    subject,
-    title,
-    body.slice(0, 280),
-    inbound && isUnread(message) ? 1 : inbound ? 1 : 0,
-    occurredAt,
-    nowIso(),
-    from.email,
-    from.name,
-    to.email,
-    body,
-    letter.summary,
-    letter.summary_zh,
-    letter.summary_source,
-    "",
-    null,
-    0,
-  );
-  // 「邮件已到达」是外部事实（事件清单 §6）：验源去重后落统一事件账本，
-  // 幂等键取外部邮件标识；发生时间取邮件时间、接收时间取入库时刻。
-  if (inbound) {
-    appendBusinessEvent({
-      eventType: "email.received",
-      objectType: "email",
-      objectId: itemId,
-      occurredAt,
-      source: "starry",
-      actorType: "external",
-      payload: {
-        thread_id: threadId,
-        conversation_id: conversationId,
-        from: from.email || "",
-      },
-      idempotencyKey: `email.received:${providerId || identity.identity_hash}`,
-      correlationId: collaborationId || threadId,
-    });
-  }
-  return inbound;
+  const letter = letterSummaryRecord({ ...message, direction, body: body || "", snippet: body || "", subject });
+  const observed = await observeReplyMail({ thread_id: threadId, collaboration_id: collaborationId,
+    conversation_id: conversationId, mailbox: mailboxEmail, provider_message_id: providerId,
+    direction, subject, title, body, from: from.email, from_name: from.name, to: to.email,
+    occurred_at: firstString(message.sentAt,message.sent_at,message.sentTime,message.sendTime,message.send_time,
+      message.receivedAt,message.received_at,message.receiveTime,message.receive_time,message.occurred_at,
+      message.createdAt,message.created_at,message.time,message.ts),
+    source_updated_at: firstString(message.updatedAt, message.updated_at),
+    attachments: Array.isArray(message.attachments) ? message.attachments as Json[] : [],
+    unread: inbound, summary: letter.summary, summary_zh: letter.summary_zh, summary_source: letter.summary_source });
+  return observed.changed && inbound;
 }
 
 function refreshThreadDigest(threadId: string, conversationId: string, mailbox: string): void {
@@ -496,7 +389,7 @@ export async function hydrateMailThread(thread: Row): Promise<number> {
   ) || String(thread.subject || "(无主题)");
   let inserted = 0;
   for (const message of detail.messages) {
-    if (rememberItem(String(thread.id), col ? String(col.id) : null, conversationId, message, subject, col, mailbox)) {
+    if (await rememberItem(String(thread.id), col ? String(col.id) : null, conversationId, message, subject, col, mailbox)) {
       inserted += 1;
     }
   }
@@ -553,14 +446,14 @@ async function hydrateConversationById(conv: Json, mailbox: string, collabs: Row
   await syncCheckpoint();
   const conversationId = conversationIdOf(conv);
   if (!conversationId) return 0;
-  let thread = getConn().prepare(
-    "SELECT * FROM kol_mail_threads WHERE conversation_id=? LIMIT 1",
-  ).get(conversationId) as Row | undefined;
+  let thread = (await postgresPool().query<Row>(
+    "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,mailbox],
+  )).rows[0];
   if (!thread) {
     // Conversation first seen on a later background page: create the thread
     // shell from the list row, then hydrate the full message history below.
     const col = matchCollaboration(conv, collabs, mailbox);
-    upsertThread({
+    await upsertThread({
       collaborationId: col ? String(col.id) : null,
       conversationId,
       subject: conversationSubject(conv) || "(无主题)",
@@ -573,9 +466,9 @@ async function hydrateConversationById(conv: Json, mailbox: string, collabs: Row
       lastAt: messageOccurredAt(conv) || remoteConversationTime(conv),
       matchState: col ? "matched" : "unbound",
     });
-    thread = getConn().prepare(
-      "SELECT * FROM kol_mail_threads WHERE conversation_id=? LIMIT 1",
-    ).get(conversationId) as Row | undefined;
+    thread = (await postgresPool().query<Row>(
+      "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,mailbox],
+    )).rows[0];
   }
   if (!thread) return 0;
   return hydrateMailThread(thread);
@@ -650,7 +543,7 @@ async function syncRemainingConversations(
     // Persist the fact that we are about to process this page
     updateBindingSyncCursor({ userId, mailbox, syncedAt, pageNo, tool: "pageEmailConversations" });
 
-    const pageCandidates = conversations.filter((conv) => conversationNeedsDetail(conv, mailbox));
+    const pageCandidates = await conversationsNeedingDetail(conversations, mailbox, userId);
 
     for (let i = 0; i < pageCandidates.length; i += 5) {
       const batch = pageCandidates.slice(i, i + 5);
@@ -722,29 +615,27 @@ function remoteConversationTime(conv: Json): string {
 // Shared by the foreground page and the background page walk: a conversation
 // needs a detail fetch when it is not remembered locally, still unread, or
 // changed remotely after the last thing we remembered about it.
-function conversationNeedsDetail(conv: Json, mailbox: string): boolean {
-  const conversationId = conversationIdOf(conv);
-  if (!conversationId) return false;
-  const lookupMailbox = mailbox || conversationMailboxOf(conv);
-  const existing = getConn().prepare(
-    "SELECT id, last_at FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
-  ).get(conversationId) as { id?: string; last_at?: string } | undefined;
-  const binding = lookupMailbox ? getConn().prepare(
-    "SELECT sync_cursor_at FROM user_starry_bindings WHERE lower(mailbox_email)=lower(?) LIMIT 1",
-  ).get(lookupMailbox) as { sync_cursor_at?: string } | undefined : undefined;
-  // `title IS NULL` identifies rows cached before this field existed. A fresh
-  // remote read backfills them once; an empty string means the provider truly
-  // supplied no title and must render as `—`, not retry forever.
-  const titleNeedsBackfill = existing?.id
-    ? Boolean(getConn().prepare("SELECT 1 FROM kol_mail_items WHERE thread_id=? AND title IS NULL LIMIT 1").get(existing.id))
-    : false;
-  const unread = Number(conv.unreadCount ?? conv.unread_count);
-  const remoteAt = remoteConversationTime(conv);
-  const rememberedAt = Math.max(timestampMs(existing?.last_at), timestampMs(binding?.sync_cursor_at));
-  return !existing
-    || titleNeedsBackfill
-    || (Number.isFinite(unread) && unread > 0)
-    || (timestampMs(remoteAt) > rememberedAt);
+async function conversationsNeedingDetail(conversations: Json[], mailbox: string, userId: string): Promise<Json[]> {
+  // Batch native reads, scoped by the already authorized mailbox. An identical
+  // conversation ID in another mailbox cannot satisfy this source dependency.
+  const ids = conversations.map(conversationIdOf).filter(Boolean);
+  if (!ids.length) return [];
+  const db = postgresPool();
+  const remembered = (await db.query<Row>(`SELECT t.conversation_id,t.last_at,
+    (NOT EXISTS(SELECT 1 FROM kol_mail_items i WHERE i.thread_id=t.id) OR
+     EXISTS(SELECT 1 FROM kol_mail_items i WHERE i.thread_id=t.id AND (i.title IS NULL OR i.body_text IS NULL))) AS needs_backfill
+    FROM kol_mail_threads t WHERE lower(t.mailbox)=lower($1) AND t.conversation_id=ANY($2::text[])`, [mailbox,ids])).rows;
+  const binding = (await db.query<Row>("SELECT sync_cursor_at FROM user_starry_bindings WHERE user_id=$1 AND lower(mailbox_email)=lower($2)", [userId,mailbox])).rows[0];
+  const byId = new Map(remembered.map(row => [String(row.conversation_id),row]));
+  return conversations.filter(conv => {
+    const id = conversationIdOf(conv);
+    if (!id) return false;
+    const existing = byId.get(id);
+    const unread = Number(conv.unreadCount ?? conv.unread_count);
+    const rememberedAt = Math.max(timestampMs(existing?.last_at),timestampMs(binding?.sync_cursor_at));
+    return !existing || existing.needs_backfill || (Number.isFinite(unread) && unread > 0)
+      || timestampMs(remoteConversationTime(conv)) > rememberedAt;
+  });
 }
 
 async function mapLimited<T, R>(values: T[], limit: number, fn: (value: T) => Promise<R>): Promise<R[]> {
@@ -829,7 +720,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     let updated = 0;
     let cursorAt = "";
     let cursorId = "";
-    const detailCandidates = conversations.filter((conv) => conversationNeedsDetail(conv, mailbox));
+    const detailCandidates = await conversationsNeedingDetail(conversations, mailbox, userId);
     const immediateCandidates = detailCandidates.slice(0, 5);
     const remainingCandidates = detailCandidates.slice(5);
     const detailRows = await mapLimited(immediateCandidates, 5, async (conv) => ({
@@ -871,7 +762,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
         : (unreadFromMessages || (inboundOf(conv, col, mailbox) && isUnread(conv) ? 1 : 0));
       const lastAt = messageOccurredAt(latestInbound || conv) || remoteConversationTime(conv);
       const threadMailbox = mailbox || conversationMailboxOf(conv) || firstString(conv.mailboxEmail, col?.mailbox_from);
-      const thread = upsertThread({
+      const thread = await upsertThread({
         collaborationId: col ? String(col.id) : null,
         conversationId,
         subject,
@@ -890,12 +781,16 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       if (thread.inserted) inserted += 1;
       else updated += 1;
       for (const message of messages) {
-        if (rememberItem(thread.id, col ? String(col.id) : null, conversationId, message, subject, col, threadMailbox)) {
+        if (await rememberItem(thread.id, col ? String(col.id) : null, conversationId, message, subject, col, threadMailbox)) {
           inbound += 1;
         }
       }
       if (!messages.length && inboundMessages.length) {
-        if (rememberItem(thread.id, col ? String(col.id) : null, conversationId, conv, subject, col, threadMailbox)) {
+        // The list row's id identifies a conversation, not a mail message.
+        // Only a provider-supplied lastMessageId can identify this index hint.
+        const providerId = firstString(conv.lastMessageId,conv.last_message_id);
+        if (providerId && await rememberItem(thread.id, col ? String(col.id) : null, conversationId,
+          { ...conv, id: undefined, messageId: providerId }, subject, col, threadMailbox)) {
           inbound += 1;
         }
       }

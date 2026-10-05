@@ -45,6 +45,14 @@ export async function freshTestDatabase(): Promise<string> {
   await postgresPool().query(runtimeActionSchema);
   const { crawlResultSchema } = await import("../../src/crawl/result-schema.js");
   await postgresPool().query(crawlResultSchema);
+  const { replyContextSchema } = await import("../../src/mail/reply-context-schema.js");
+  await postgresPool().query(replyContextSchema);
+  const { collaborationSchema } = await import("../../src/ticket-domain/collaboration-schema.js");
+  await postgresPool().query(collaborationSchema);
+  const { workOrderAdoptionSchema } = await import("../../src/ticket-domain/work-order-adoption-schema.js");
+  await postgresPool().query(workOrderAdoptionSchema);
+  const { taskCollaborationSessionSchema } = await import("../../src/ticket-domain/task-collaboration-session.js");
+  await postgresPool().query(taskCollaborationSessionSchema);
   const { candidateActionsSchema } = await import("../../src/crawl/candidate-actions-schema.js");
   await postgresPool().query(candidateActionsSchema);
   const { runtimeActionEventSchema } = await import("../../src/runtime/action-event-schema.js");

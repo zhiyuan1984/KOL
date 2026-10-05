@@ -22,6 +22,7 @@ import {
 import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx } from "../db.js";
 import { sendDraft } from "../gateway/send.js";
 import { mailSendAction, claimMailSend, assertDraftEditable, validateMailSend, markMailSendUnknown } from "./mail-send-confirmation.js";
+import { replySendView, bindReplySend } from "../mail/reply-send.js";
 import { confirmStarryStage } from "../gateway/starry.js";
 import { createWorkApproval, listApprovals } from "../gateway/wecom.js";
 import { nid } from "../ids.js";
@@ -170,6 +171,21 @@ import {
 } from "./knowledge.js";
 
 export const host = new Hono();
+// A business-task workspace inherits current Task authorization for every
+// session surface, including messages, actions and recovered thread content.
+host.use("/sessions/:sid", async (c,next) => {
+  const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
+  await authorizedTaskSession(scopedUser()?.id || "", c.req.param("sid"));
+  await next();
+});
+host.use("/sessions/:sid/*", async (c,next) => {
+  const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
+  const workspace = await authorizedTaskSession(scopedUser()?.id || "", c.req.param("sid"),c.req.path.endsWith("/unarchive"));
+  if (workspace && ["compose-preview","confirm-stage"].includes(c.req.path.split("/").at(-1) || "")) {
+    throw new HttpFail(409,{code:"task_workspace_analysis_only"});
+  }
+  await next();
+});
 const progressBySession = new Map<string, (progress: WorkerProgress) => void>();
 
 function requireTaskAccess(skill: string): void {
@@ -1576,6 +1592,10 @@ export function persistDraft(sid: string, item: Json): Row {
     knowledge_id: item.knowledge_id || null,
     knowledge_version: item.knowledge_version ?? null,
     context_version: item.context_version || null,
+    reply_context_version: item.reply_context_version || null,
+    reply_drafts_version: item.reply_drafts_version || null,
+    reply_context_stale: Boolean(item.reply_context_stale),
+    reply_evidence: item.reply_evidence || [],
     source_draft_id: item.source_draft_id ?? null,
     ...(item.from_source ? { from_source: item.from_source } : {}),
     ...(!ownedFrom && resolved.email && resolved.email !== requestedFrom ? { send_from: resolved.email } : {}),
@@ -1680,6 +1700,9 @@ export function emailCardPayload(d: Row): Json {
     knowledge_version: knowledgeId && Number.isFinite(knowledgeVersion) ? knowledgeVersion : null,
     knowledge_title: knowledgeTitle ? String(knowledgeTitle) : null,
     draft_id: d.id,
+    reply_context_version: extra.reply_context_version || null,
+    reply_context_stale: Boolean(extra.reply_context_stale),
+    reply_evidence: extra.reply_evidence || [],
     collaboration_id: d.collaboration_id,
     expected_version: colVer,
     from: d.from_addr,
@@ -2036,7 +2059,13 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
       let card: Json = {
         type: "task_result",
         title: String(item.title || "任务结果"),
-        summary: String(item.summary || ""),
+        summary: `${item.task_context_stale ? "生成期间任务依赖已变化，此分析已过期；请基于当前任务重新分析。 " : ""}${item.reply_context_stale ? "生成期间相关依据已变化，此结果已过期；请基于最新邮件重新分析。 " : ""}${String(item.summary || "")}`,
+        task_context_id: item.task_context_id || null,
+        task_context_version: item.task_context_version || null,
+        task_context_stale: Boolean(item.task_context_stale),
+        reply_context_version: item.reply_context_version || null,
+        reply_context_stale: Boolean(item.reply_context_stale),
+        reply_evidence: item.reply_evidence || [],
         sections: Array.isArray(item.sections) ? item.sections : [],
         ...(item.metrics && typeof item.metrics === "object" ? { metrics: item.metrics } : {}),
         ...(Array.isArray(item.recommended_actions) ? { recommended_actions: item.recommended_actions } : {}),
@@ -3417,7 +3446,7 @@ host.post("/collaborations/:id/ingest-mail", async (c) => {
   return c.json(ingestKolMail(c.req.param("id"), body));
 });
 
-host.get("/sessions", (c) => {
+host.get("/sessions", async (c) => {
   const user = scopedUser();
   const all = c.req.query("scope") === "all" && user && isAdmin(user);
   const includeArchived = c.req.query("include_archived") === "1";
@@ -3425,7 +3454,7 @@ host.get("/sessions", (c) => {
   // replaces ~800 rows-worth of per-session queries with one projection.
   const cacheKey = `sessions:${all ? "all" : user?.id || "anon"}:${includeArchived ? 1 : 0}`;
   const payload = cachedPoll(cacheKey, sessionsEpoch(), () => {
-    const archivedClause = includeArchived ? "" : " AND archived_at IS NULL";
+    const archivedClause = " AND COALESCE(kind,'') <> 'task_collaboration'" + (includeArchived ? "" : " AND archived_at IS NULL");
     // Only `id`, `title`, `archived_at` (shell title list + 账号设置归档开关) leave
     // this endpoint; `disabled`/`kind` are read here and never serialized. Column
     // order matches the output projection so the two can be read together.
@@ -3453,7 +3482,9 @@ host.get("/sessions", (c) => {
       agent_status: statusBySession.get(String(r.id)) || sessionStatus(String(r.id)),
     }));
   });
-  return c.json(payload);
+  const { listTaskCollaborationSessions } = await import("../ticket-domain/task-collaboration-session.js");
+  const workspaces = await listTaskCollaborationSessions(user?.id || "",includeArchived);
+  return c.json([...workspaces.map(row=>({...row,agent_status:sessionStatus(String(row.id))})),...payload]);
 });
 
 host.get("/sessions/:sid", async (c) => {
@@ -3488,6 +3519,8 @@ host.get("/sessions/:sid/events", async (c) => {
   const sid = c.req.param("sid");
   const row = sessionRow(sid);
   const snapshot = async () => {
+    const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
+    await authorizedTaskSession(scopedUser()?.id || "",sid);
     const { journeyPayloadWithMailMemory } = await import("./kol-journey.js");
     return {
       messages: messages(sid),
@@ -3499,24 +3532,38 @@ host.get("/sessions/:sid/events", async (c) => {
     };
   };
   const first = await snapshot();
+  let dispose = () => {};
   return new Response(new ReadableStream({
     start(controller) {
+      let ended = false;
       const encoder = new TextEncoder();
       const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        if (!ended) controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       };
       send("snapshot", { ...first, run_queue: publicQueue(sid) });
-      const unsub = subscribeSession(sid, (ev) => send(ev.type, ev));
-      const ping = setInterval(() => send("ping", { t: Date.now() }), 15000);
+      const actorId = scopedUser()?.id || "";
+      const guardedSend = async (event: string, data: unknown) => {
+        try {
+          const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
+          await authorizedTaskSession(actorId,sid); send(event,data);
+        } catch { abort(); }
+      };
+      const unsub = subscribeSession(sid, (ev) => { void guardedSend(ev.type,ev); });
+      const ping = setInterval(() => { void guardedSend("ping",{t:Date.now()}); }, 15000);
       const abort = () => {
+        if (ended) return;
+        ended = true;
         clearInterval(ping);
         unsub();
+        c.req.raw.signal.removeEventListener("abort", abort);
         try { controller.close(); } catch { /* already closed */ }
       };
+      dispose = abort;
       c.req.raw.signal.addEventListener("abort", abort);
+      if (c.req.raw.signal.aborted) abort();
     },
     cancel() {
-      /* abort handler already tears down */
+      dispose();
     },
   }), {
     headers: {
@@ -3650,9 +3697,14 @@ host.post("/sessions/:sid/compose-preview", async (c) => {
 
 host.post("/sessions/:sid/messages", async (c) => {
   const sid = c.req.param("sid");
+  const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
+  const workspace = await authorizedTaskSession(scopedUser()?.id || "",sid);
   const session = sessionRow(sid);
   if (!isSessionRunning(sid)) beginSessionAsk(sid);
   const body = (await c.req.json()) as Json;
+  if (workspace && ((body.intent && body.intent !== "kol_analyze") || body.collaboration_id || body.work_item_id || body.task_id || body.compose_input)) {
+    throw new HttpFail(409,{code:"task_workspace_analysis_only"});
+  }
   if (session.collaboration_id && !body.collaboration_id) {
     body.collaboration_id = session.collaboration_id;
   }
@@ -3662,24 +3714,25 @@ host.post("/sessions/:sid/messages", async (c) => {
   if (!agentSubmissionAllowed()) {
     throw new HttpFail(409, { code: "agent_not_published", message: "KOL Agent 尚未发布，员工端暂不可提交", next_action: "等待管理员发布 Agent" });
   }
-  const boundTask = resolveBoundTask(sid, body);
+  const boundTask = workspace ? null : resolveBoundTask(sid, body);
   const text = String(body.text || body.content || "").trim();
   const attachments = sanitizeAttachments(body.attachments);
   const pendingResult = lastUnsentResult(messages(sid));
   const lockedIntent = boundTask?.taskType
     || (body.intent && taskDefinition(String(body.intent)) ? String(body.intent) : undefined);
   const me = addMsg(sid, "me", "me", { text, grey: true, attachments });
-  if (!boundTask && !body.compose_input && /^(?:确认发送(?:原文|邮件)?|发送这封(?:邮件)?|confirm\s+send)[。.!！\s]*$/i.test(text)) {
+  if (!workspace && !boundTask && !body.compose_input && /^(?:确认发送(?:原文|邮件)?|发送这封(?:邮件)?|confirm\s+send)[。.!！\s]*$/i.test(text)) {
     addMsg(sid, "assistant", "assistant", {
       text: "请在右栏草稿点击「确认发送」，核对收件人、发件人、抄送、主题及完整正文后确认。聊天中的这句话不会发送邮件。",
       needs_confirmation: true, sent: false,
     });
     return c.json({ messages: messages(sid), agent_status: "listening", needs_confirmation: true, sent: false, worker: null, draft: null });
   }
-  if (!boundTask && isFollowStyleTagCommand(text)) {
+  if (!workspace && !boundTask && isFollowStyleTagCommand(text)) {
     return c.json(await handleFollowStyleTagMessage(sid, me, session, text, body));
   }
-  const intent = boundTask
+  const intent = workspace ? {...classify(text,"kol_analyze"),type:"kol_analyze",skill:"kol_analyze",needs_worker:true,handle:null,collaboration_id:null}
+    : boundTask
     ? (() => {
       const locked = classify(text, boundTask.taskType, body.collaboration_id as string | undefined);
       locked.type = boundTask.taskType;
@@ -3730,14 +3783,14 @@ host.post("/sessions/:sid/messages", async (c) => {
   const skill = intent.skill || intent.type || "creator_discovery";
   let col: Row | null = null;
   try {
-    mergeExtractedOntoIntent(intent, {
+    if (!workspace) mergeExtractedOntoIntent(intent, {
       ...extractTaskEntities(text),
       ...(intent.extras.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),
     });
     if (intent.skill && !isSkillGranted(intent.skill)) {
       throw new HttpFail(400, "未授权该技能");
     }
-    col = resolveCollab(intent) || null;
+    col = workspace ? null : resolveCollab(intent) || null;
     // Internal stub runs may receive the generic exception template before the
     // async library sync has exposed its exception row on the home board. Use
     // one seeded exception only in that test profile; production requires an
@@ -3874,8 +3927,9 @@ host.delete("/sessions/:sid/queue/:qid", (c) => {
   return c.json({ ok: true, run_queue: publicQueue(sid) });
 });
 
-export const mailDraftActions: Operation["handle"] = (c, input) => {
-  return c.json(mailSendAction(getDraft(String(input.draft_id || ""))));
+export const mailDraftActions: Operation["handle"] = async (c, input) => {
+  const draft = getDraft(String(input.draft_id || ""));
+  return c.json(await replySendView(draft, mailSendAction(draft)));
 };
 
 export const sendMailDraft: Operation["handle"] = async (c, payload) => {
@@ -3901,7 +3955,7 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
     }
     throw error;
   }
-  const input = { confirmation_version: String(body.confirmation_version || ""), request_id: String(body.request_id || "") };
+  const input = await bindReplySend(d, mailSendAction(d), { confirmation_version: String(body.confirmation_version || ""), request_id: String(body.request_id || "") });
   const claimed = claimMailSend(did, input);
   if (claimed.replay) {
     return c.json({ ok: true, status: "sent", replayed: true, result: claimed.replay, stage_changed: false, keep_stage: true });
@@ -3910,13 +3964,17 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
   let result: Json;
   try {
     result = await sendDraft(did, "operator", input.request_id);
-  } catch {
+  } catch (error) {
+    if (error instanceof HttpFail && typeof error.detail === "object" && error.detail && (error.detail as Json).code === "mail_reply_context_changed") {
+      syncEmailCard(did);
+      throw error;
+    }
     // A successful provider receipt must not be turned into a false failure by ancillary work.
     if (getDraft(did).status === "sent") {
       const replay = claimMailSend(did, input).replay;
       return c.json({ ok: true, status: "sent", replayed: true, result: replay, stage_changed: false, keep_stage: true });
     }
-    markMailSendUnknown(did, input.request_id);
+    markMailSendUnknown(did, String(input.request_id));
     const msg = addMsg(String(d.session_id), "assistant", "error_card", {
       status: "send_unknown", message: "邮件发送回执暂未确认；请核对邮件服务结果，勿重复发送。",
       next_action: "核对邮件回执后再处理。正式阶段未改。", persistent: true,

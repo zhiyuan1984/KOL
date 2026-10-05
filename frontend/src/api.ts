@@ -41,6 +41,7 @@ import type {
   SkillCoverage,
 } from "./runtimeConnectorUi.js";
 import type { MailComposeLetter } from "./mail/types.js";
+import type { ReplyContext } from "./mail/reply-context.js";
 
 export type SessionRow = {
   id: string;
@@ -575,6 +576,7 @@ export type WorkOrderAutomationRelease = {
 };
 
 export type AiTaskRoot = {
+  workspace_allowed?: boolean;
   task_id: string;
   title: string;
   goal: string;
@@ -634,6 +636,24 @@ export type AiTaskWorkOrderAggregate = {
   current_blocking_work_order: AiWorkOrderSummary | null;
   as_of: string;
   source: "postgresql_task_work_orders" | string;
+};
+
+export type TaskCollaborationContext = {
+  task_id: string; risk: "L1"; calls_model: false; version: string; cursor: number; has_more: boolean; as_of: string;
+  gates: Array<{ work_order_id: string; action_id: string; configured: boolean; allowed: boolean; version: string; blockers: string[];
+    prerequisites: Array<{ id: string; status: string; version: number }>;
+    review: { id: string; company_id: string; status: string; version: number; round: number } | null }>;
+  events: Array<{ sequence: string | number; source_type: string; source_id: string; company_id: string | null; source_version: number; event_type: string;
+    before_state: { status?: string; version?: number } | null; after_state: { status?: string; version?: number }; occurred_at: string }>;
+};
+
+export type WorkOrderSuggestion = {
+  decision_id: string; task_id: string; outcome: string; template_title: string; template_code: string; template_version: number;
+  source_event: { id: string; summary: string; evidence_ref: string; source_version: string; occurred_at: string } | null;
+  candidates: Array<{ id: string; title: string; status: string; version: number }>;
+  actions: string[]; blockers: string[]; existing_work_order_id: string | null; version: string; risk: "L3";
+  execution_receipt: { id: string; status: string; work_order_id: string } | null;
+  automation_level: string; assignment_target: { id: string; name: string } | null;
 };
 
 export type AiTaskWorkOrderList = {
@@ -1322,7 +1342,7 @@ export type DraftActionView = {
   approval_state: "not_required" | "required" | "pending" | "approved" | "rejected";
   receipt_id: string | null;
 };
-export type DraftActionsResponse = { draft_id: string; action: DraftActionView; snapshot: DraftSendSnapshot; request_id?: string };
+export type DraftActionsResponse = { draft_id: string; action: DraftActionView; snapshot: DraftSendSnapshot; request_id?: string; reply_context?: Pick<ReplyContext, "version" | "complete" | "sources"> };
 
 export type PendingAsk = {
   text: string;
@@ -1727,6 +1747,9 @@ export type PostMessageResult = {
 
 export type EmailCard = {
   draft_id: string;
+  reply_context_version?: string | null;
+  reply_context_stale?: boolean;
+  reply_evidence?: Array<{ id: string; version: string }>;
   knowledge_id?: string | null;
   knowledge_version?: number | null;
   knowledge_title?: string | null;
@@ -1852,6 +1875,7 @@ export type AdminSaveBudgetInput = {
 };
 
 export const api = {
+  replyContext: (sessionId: string) => request<ReplyContext>(`/api/queries/mail.reply-context?session_id=${encodeURIComponent(sessionId)}`),
   runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
   retryCrawlResults: (actionId: string) => request<{ state: string }>("/api/actions/runtime.crawl.results.retry", { method: "POST", body: JSON.stringify({ action_id: actionId }) }),
   discoveryCandidateCommand: (actionId: string, candidateId: string, verb: "follow" | "ignore" | "restore" | "ingest", snapshotVersion: string) =>
@@ -1947,6 +1971,12 @@ export const api = {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),
   aiTaskWorkOrder: (taskId: string) => request<AiTaskWorkOrderAggregate & { request_id: string }>(`/api/task-work-orders/${encodeURIComponent(taskId)}`),
+  taskCollaborationContext: (taskId: string, after = 0) => request<TaskCollaborationContext>(`/api/task-work-orders/${encodeURIComponent(taskId)}/collaboration-context?after=${after}`),
+  openTaskCollaborationWorkspace: (taskId: string) => request<{ id: string; task_id: string; replayed: boolean; calls_model: false }>(`/api/task-work-orders/${encodeURIComponent(taskId)}/workspace`, { method: "POST" }),
+  taskSessionWorkspace: (sessionId: string) => request<{ workspace: { task_id: string; title: string; evidence_version: string } | null }>(`/api/task-work-orders/sessions/${encodeURIComponent(sessionId)}/context`),
+  workOrderSuggestions: (taskId: string) => request<{ suggestions: WorkOrderSuggestion[]; calls_model: false }>(`/api/task-work-orders/${encodeURIComponent(taskId)}/suggestions`),
+  adoptWorkOrderSuggestion: (decisionId: string, body: { idempotency_key: string; confirmed: true; basis_version: string; action: string; target_id?: string }) =>
+    request<{ attempt: { id: string; status: string; reason_code: string | null }; work_order: { id: string; status: string; data_version: number } | null; replayed: boolean }>(`/api/task-work-orders/decisions/${encodeURIComponent(decisionId)}/adopt`, { method: "POST", body: JSON.stringify(body) }),
   recordAiTaskVerifiedEvent: (taskId: string, body: { source_system: string; source_event_id: string; source_version?: string; event_type: string; occurred_at: string; summary: string; evidence_ref: string; evidence: Record<string, unknown>; payload?: Record<string, unknown>; work_order_id?: string; idempotency_key: string }) => request<{ event: { id: string; replayed: boolean }; decision: { id: string; outcome: string; status: string; confidence: number | null }; execution_job: { id: string; status: string; job_type: string }; execution_mode: string; request_id: string }>(`/api/task-work-orders/tasks/${encodeURIComponent(taskId)}/verified-events`, {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),

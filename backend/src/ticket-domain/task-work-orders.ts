@@ -19,6 +19,7 @@ export type TaskRootInput = {
 };
 
 export type TaskRoot = {
+  workspace_allowed?: boolean;
   task_id: string;
   title: string;
   goal: string;
@@ -212,6 +213,8 @@ async function authorizedTask(actorId: string, taskId: string, isAdmin: boolean)
     `SELECT t.*
        FROM tickets t
       WHERE t.id=$1 AND t.task_type=$2 AND t.profile=$3
+        AND (t.collaboration_id IS NULL OR EXISTS (SELECT 1 FROM collaborations c JOIN users u ON u.id=$5 AND u.active=1
+          WHERE c.id=t.collaboration_id AND u.brands::jsonb ? c.brand))
         AND ($4::boolean OR t.owner_user_id=$5 OR EXISTS (
           SELECT 1
             FROM work_orders wo JOIN work_order_assignments wa ON wa.work_order_id=wo.id
@@ -220,7 +223,7 @@ async function authorizedTask(actorId: string, taskId: string, isAdmin: boolean)
     [taskId, TASK_TYPE, TASK_PROFILE, isAdmin, actorId],
   );
   if (!task.rows[0]) throw new HttpFail(404, { code: "task_not_found_or_not_authorized" });
-  return taskRow(task.rows[0]);
+  return { ...taskRow(task.rows[0]), workspace_allowed: task.rows[0].owner_user_id === actorId };
 }
 
 function fingerprint(value: unknown): string {
@@ -265,7 +268,7 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
        ) primary_assignment ON true
        LEFT JOIN LATERAL (
          SELECT id,decision_mode,outcome,status,confidence,created_at FROM work_order_decisions
-          WHERE work_order_id=wo.id ORDER BY created_at DESC LIMIT 1
+          WHERE work_order_id=wo.id OR id=wo.decision_id OR id=wo.latest_decision_id ORDER BY created_at DESC LIMIT 1
        ) latest_decision ON true
       WHERE wo.task_id=$1
       ORDER BY CASE wo.status WHEN 'needs_review' THEN 0 WHEN 'pending_assignment' THEN 1 WHEN 'waiting_external' THEN 2 ELSE 3 END,
@@ -340,6 +343,8 @@ export async function listTaskWorkOrderAggregates(actorId: string, isAdmin = fal
     `SELECT t.id
        FROM tickets t
       WHERE t.task_type=$1 AND t.profile=$2
+        AND (t.collaboration_id IS NULL OR EXISTS (SELECT 1 FROM collaborations c JOIN users u ON u.id=$4 AND u.active=1
+          WHERE c.id=t.collaboration_id AND u.brands::jsonb ? c.brand))
         AND ($3::boolean OR t.owner_user_id=$4 OR EXISTS (
           SELECT 1 FROM work_orders wo JOIN work_order_assignments wa ON wa.work_order_id=wo.id
            WHERE wo.task_id=t.id AND wa.principal_id=$4 AND wa.status='active'
@@ -415,6 +420,8 @@ export async function taskWorkOrderDashboard(
               t.status NOT IN ('completed','cancelled') AS task_is_open
          FROM tickets t
         WHERE t.task_type=$1 AND t.profile=$2
+          AND (t.collaboration_id IS NULL OR EXISTS (SELECT 1 FROM collaborations c JOIN users u ON u.id=$4 AND u.active=1
+            WHERE c.id=t.collaboration_id AND u.brands::jsonb ? c.brand))
           AND ($3::boolean OR t.owner_user_id=$4 OR EXISTS (
             SELECT 1 FROM work_orders wo
             JOIN work_order_assignments wa ON wa.work_order_id=wo.id

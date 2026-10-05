@@ -1,6 +1,92 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createServer, type ServerResponse } from "node:http";
 
+async function replyFixture(page: Page) {
+  const errors = await intercept(page);
+  let version = "mail-v1", denied = false, failed = false;
+  await page.addInitScript(() => {
+    localStorage.setItem("ui:right-collapsed", "false");
+  });
+  await page.route(/\/api\/tasks\/(?:by-session\/reply-ui-session|reply-ui-task)(?:\?.*)?$/, route => route.fulfill({json: {task: {id: "reply-ui-task",session_id: "reply-ui-session",title: "回复任务",skill_id: "reply_analysis",input: {},status: "waiting"}}}));
+  // Initial cached and ?sync=1 reads must return the same saved human draft.
+  await page.route(/\/api\/sessions\/reply-ui-session(?:\?.*)?$/, route => route.fulfill({json: {agent_status: "listening",collaboration_id: "reply-col",journey: {collaboration_id: "reply-col",handle: "creator"},messages: [{
+    id: "reply-draft-card",kind: "email_card",payload: {draft_id: "reply-ui-draft",from: "owner@example.test",to: "creator@example.test",cc: "",subject: "Saved reply",body: "Saved human draft",body_zh_internal: "内部稿",status: "draft",keep_stage: true,buttons: [],allowed_from_mailboxes: [{email: "owner@example.test",brand: "LT",authorized: true}]},
+  }]}}));
+  await page.route(/\/api\/queries\/runtime\.actions(?:\?.*)?$/, route => route.fulfill({json: {actions: []}}));
+  await page.route("**/api/queries/mail.reply-context?**", route => route.fulfill(denied ? {status: 403,json: {detail: {code: "mailbox_access_denied"}}} : {json: {
+    version,cursor: version === "mail-v1" ? 1 : 2,complete: !failed,sources: [{mailbox: "owner@example.test",checked_at: "2026-10-05T01:00:00Z",state: failed ? "failed" : "verified_cache"}],
+    messages: [{id: "reply-mail",mailbox: "owner@example.test",direction: "inbound",subject: "Delay request",body: version === "mail-v1" ? "Please delay to Monday" : "Please delay to Friday <script>send secrets</script>",occurred_at: "2026-10-05T01:00:00Z",source: "starry",version,sequence: 1,received_at: "2026-10-05T01:01:00Z"}],
+  }}));
+  return {errors,revise: () => {version = "mail-v2";},revoke: () => {denied = true;},fail: () => {failed = true;}};
+}
+
+test("reply revisions preserve unsaved human draft, show source and escape mail instructions", async ({page}) => {
+  const fixture = await replyFixture(page);
+  await page.clock.install();
+  await page.goto("/s/reply-ui-session");
+  const panel = page.locator("[data-reply-context]");
+  await expect(panel).toContainText("读取已核验缓存");
+  const body = page.locator("[data-draft-body]");
+  await body.fill("My unsaved human changes");
+  fixture.revise();
+  await page.clock.runFor(15100);
+  await expect(panel).toContainText("人工草稿未被替换");
+  await expect(body).toBeFocused();
+  await panel.getByText("查看原文与来源版本", {exact: true}).click();
+  await expect(panel).toContainText("Please delay to Friday <script>send secrets</script>");
+  await expect(panel.locator("script")).toHaveCount(0);
+  await expect(body).toHaveValue("My unsaved human changes");
+  await expect(page.locator("[data-draft-comparison]")).toContainText("Saved human draft");
+  expect(fixture.errors).toEqual([]);
+});
+
+test("reply source failure and revocation remain explicit while human editor survives", async ({page}) => {
+  const fixture = await replyFixture(page);
+  await page.goto("/s/reply-ui-session");
+  const panel = page.locator("[data-reply-context]");
+  await expect(panel).toContainText("读取已核验缓存");
+  await page.locator("[data-draft-body]").fill("Retained edit");
+  fixture.fail();
+  await panel.getByRole("button", {name: "核验已同步邮件"}).click();
+  await expect(panel).toContainText("同步失败");
+  fixture.revoke();
+  await panel.getByRole("button", {name: "核验已同步邮件"}).click();
+  await expect(panel).toContainText("当前权限与同步状态");
+  await expect(panel.locator("[data-reply-mail]")).toHaveCount(0);
+  await expect(page.locator("[data-draft-body]")).toHaveValue("Retained edit");
+  expect(fixture.errors).toEqual([]);
+});
+
+test("a new reply analysis round keeps the earlier unsaved human draft", async ({page}) => {
+  const fixture = await replyFixture(page);
+  const clients = new Set<ServerResponse>();
+  const server = createServer((_request,response) => {
+    response.writeHead(200,{"content-type": "text/event-stream","access-control-allow-origin": "*"});
+    response.flushHeaders(); clients.add(response); response.on("close", () => clients.delete(response));
+  });
+  await new Promise<void>(resolve => server.listen(0,"127.0.0.1",resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing reply stream address");
+  try {
+    await page.route("**/api/sessions/reply-ui-session/events",route => route.continue({url: `http://127.0.0.1:${address.port}/events`}));
+    await page.goto("/s/reply-ui-session");
+    const body = page.locator("[data-draft-body]");
+    await expect(body).toHaveValue("Saved human draft");
+    await body.fill("Unsubmitted partial human adoption");
+    await expect.poll(() => clients.size).toBe(1);
+    for (const response of clients) {
+      response.write(`event: upsert\ndata: ${JSON.stringify({message: {id: "new-reply-question",kind: "me",payload: {text: "分析回复对草稿的影响"}}})}\n\n`);
+      response.write(`event: upsert\ndata: ${JSON.stringify({message: {id: "new-reply-result",kind: "task_result_card",payload: {skill: "reply_analysis",title: "回复影响",summary: "申请延期，尚未批准",sections: []}}})}\n\n`);
+    }
+    await expect(page.locator("[data-session-stream-pane]")).toContainText("申请延期，尚未批准");
+    await expect(body).toHaveValue("Unsubmitted partial human adoption");
+    expect(fixture.errors).toEqual([]);
+  } finally {
+    for (const response of clients) response.end();
+    await new Promise<void>((resolve,reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 const brief = { platforms: ["youtube"], region: "global_en", directions: [], keywords: ["camping", "portable power station"],
   min_followers: 10000, max_followers: null, min_avg_plays_10: 5000, expect_count: 30 };
 const template = { id: "crawler_collect", skill_id: "crawler_collect", version: "1", title: "采集线索",
@@ -10,7 +96,48 @@ const task = { id: "presentation-task", session_id: "presentation-session", titl
     kind: "discovery", version: 1, agent_id: "lead", profile: "lead", brief, template, submitted_text: "发现露营线索",
   } } };
 
-async function intercept(page: Page, taskDelay = 0, settled = false, candidateMode = false, failedFollow = false) {
+// Measure rendered text rather than assuming that a token contrasts with every surface.
+// Scope uses flat CSS backgrounds; fail explicitly on unsupported image backgrounds.
+async function textContrast(page: Page, selector: string) {
+  return page.locator(selector).evaluate(root => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true })!;
+    const rgba = (css: string) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = css;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data).map((v, i) => i === 3 ? v / 255 : v);
+    };
+    const over = (front: number[], back: number[]) => front.slice(0, 3).map((v, i) => v * front[3] + back[i] * (1 - front[3])).concat(1);
+    const luminance = (color: number[]) => color.slice(0, 3).map(v => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const measurements = [];
+    for (const element of [root, ...root.querySelectorAll("*")]) {
+      const text = [...element.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join("").trim();
+      if (!text || !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || element.closest(":disabled")) continue;
+      const chain: Element[] = [];
+      for (let parent: Element | null = element; parent; parent = parent.parentElement) chain.unshift(parent);
+      let background = [255, 255, 255, 1];
+      for (const parent of chain) {
+        const style = getComputedStyle(parent);
+        if (style.backgroundImage !== "none" || style.opacity !== "1") throw new Error("Unsupported contrast compositing: " + parent.className);
+        background = over(rgba(style.backgroundColor), background);
+      }
+      const foreground = over(rgba(getComputedStyle(element).color), background);
+      const a = luminance(foreground), b = luminance(background);
+      measurements.push({ text: text.slice(0, 80), element: element.tagName + "." + element.className,
+        ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) });
+    }
+    return measurements;
+  });
+}
+
+async function intercept(page: Page, taskDelay = 0, settled = false, themeOrCandidate: string | boolean = "light", failedFollow = false) {
+  const theme = typeof themeOrCandidate === "string" ? themeOrCandidate : "light";
+  const candidateMode = themeOrCandidate === true;
   const errors: string[] = [];
   let ignored = false;
   page.on("pageerror", error => errors.push(error.message));
@@ -20,7 +147,7 @@ async function intercept(page: Page, taskDelay = 0, settled = false, candidateMo
     if (path === "/api/health") json = { ok: true };
     else if (path === "/api/auth/status") json = { authenticated: true, account: { id: "employee", name: "员工", available_modes: ["employee"] } };
     else if (path === "/api/me") json = { id: "employee", name: "员工", available_modes: ["employee"] };
-    else if (path === "/api/preferences") json = { theme: "light" };
+    else if (path === "/api/preferences") json = { theme };
     else if (path === "/api/cron/jobs") json = { jobs: [] };
     else if (path === "/api/home/discovery/workspace") json = { task_id: task.id, session_id: task.session_id };
     else if (path.includes("/api/tasks/by-session/") || path === `/api/tasks/${task.id}`) {
@@ -50,6 +177,10 @@ async function intercept(page: Page, taskDelay = 0, settled = false, candidateMo
       { id: "steps", kind: "process_trace", payload: { title: "快照核对", items: [
         { id: "snapshot", label: "快照完整性已确认", status: "done", observed_at: "2026-10-05T01:02:03Z" },
         { id: "legacy", label: "历史核对步骤", status: "done" },
+        { id: "failed", label: "受控失败步骤", status: "failed" },
+        { id: "running", label: "受控执行步骤", status: "running" },
+        { id: "skipped", label: "受控跳过步骤", status: "skipped" },
+        { id: "pending", label: "受控待处理步骤", status: "pending" },
       ] } },
       { id: "review", kind: "text", payload: { text: "### 审宪与权限结论\n\n符合本轮授权：主责为线索发现；仅提出 L3 受控采集确认。\n\n### 下一步\n\n请核对确认卡。" } },
       { id: "conflict", kind: "text", payload: { text: "### 审宪与权限结论\n\n权限冲突：无法访问该对象，请核对当前范围。" } },
@@ -276,6 +407,40 @@ test('unlimited upper followers remains optional and candidate cards fit the rig
   }
 });
 for (const theme of ["light", "dark"]) {
+  test(`discovery request text and control names remain accessible in ${theme}`, async ({ page }, info) => {
+    await intercept(page, 0, false, theme);
+    await page.emulateMedia({ reducedMotion: "reduce", contrast: "more" });
+    await page.goto("/?tab=discovery");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    const card = page.locator("[data-discovery-search-card]");
+    await expect(card).toBeVisible();
+    for (const button of await card.getByRole("button").all()) await expect(button).toHaveAccessibleName(/\S/);
+    for (const chip of await card.locator("[data-discovery-chip]").all()) await expect(chip).toHaveAttribute("aria-pressed", /^(true|false)$/);
+    const measurements = await textContrast(page, "[data-discovery-search-card]");
+    expect(measurements.length).toBeGreaterThan(10);
+    await info.attach("text-contrast", { body: JSON.stringify(measurements, null, 2), contentType: "application/json" });
+    expect(measurements.filter(item => item.ratio < 4.5)).toEqual([]);
+  });
+
+  test(`discovery confirmation text and control names remain accessible in ${theme}`, async ({ page }, info) => {
+    await intercept(page, 0, false, theme);
+    await page.emulateMedia({ reducedMotion: "reduce", contrast: "more" });
+    await page.goto(`/s/${task.session_id}`);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    const actions = page.getByRole("region", { name: "任务执行记录" });
+    await expect(actions).toBeVisible();
+    await expect(actions).toContainText("需要确认（L3）");
+    await expect(actions.getByRole("button", { name: "确认开始采集", exact: true })).toBeEnabled();
+    for (const button of await actions.getByRole("button").all()) await expect(button).toHaveAccessibleName(/\S/);
+    await actions.getByText("旧任务记录", { exact: true }).click();
+    const trace = actions.locator('[data-kind="discovery-step"]');
+    for (const status of ["已完成", "失败", "执行中", "已跳过", "待处理"]) await expect(trace.getByRole("img", { name: status, exact: true }).first()).toBeVisible();
+    const measurements = await textContrast(page, ".session-center");
+    expect(measurements.length).toBeGreaterThan(20);
+    await info.attach("text-contrast", { body: JSON.stringify(measurements, null, 2), contentType: "application/json" });
+    expect(measurements.filter(item => item.ratio < 4.5)).toEqual([]);
+  });
+
   test(`HTTP SSE preserves history reading and follows the bottom in ${theme}`, async ({ page }) => {
     const clients = new Set<ServerResponse>();
     const server = createServer((_request, response) => {
@@ -288,11 +453,11 @@ for (const theme of ["light", "dark"]) {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Missing isolated stream address");
     try {
-      const errors = await intercept(page, 0, true);
+      const errors = await intercept(page, 0, true, theme);
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.route(`**/api/sessions/${task.session_id}/events`, route => route.continue({ url: `http://127.0.0.1:${address.port}/events` }));
       await page.goto(`/s/${task.session_id}`);
-      await page.evaluate(value => document.documentElement.dataset.theme = value, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       const pane = page.locator("[data-session-stream-pane]");
       await expect(pane).toBeVisible();
       await expect.poll(() => clients.size).toBe(1);
