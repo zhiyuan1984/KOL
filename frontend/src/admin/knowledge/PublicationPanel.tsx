@@ -12,7 +12,7 @@ import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { errorMessage, useKbData } from "./shared";
 import KbvIcon from "../../knowledgeIcons";
 
-const stateLabel: Record<string, string> = {
+export const stateLabel: Record<string, string> = {
   reviewing: "审批中",
   approved: "审批通过 · 等待发布",
   rejected: "审批已拒绝",

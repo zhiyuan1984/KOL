@@ -69,7 +69,7 @@ export function expertCanHelpCopy(expert: Expert): string[] {
     const lines = expert.can_finish.filter((line) => line && !isSafetyCopy(line));
     return lines.length ? lines.slice(0, 3) : APPROVER_CAN_HELP;
   }
-  const lines = expert.can_finish.filter((line) => line && !isSafetyCopy(line));
+  const lines = expert.can_finish.filter((line) => line && line !== expert.mission && line !== expert.working_style && !isSafetyCopy(line));
   return lines.slice(0, 3);
 }
 
@@ -180,13 +180,13 @@ const APPROVER_MANIFEST: ExpertManifestView = {
   tool_ids: [],
 };
 
-/** Offline stand-in. Always includes all three posts — never hide crawler/approver. */
+/** Copy defaults for legacy entries; never grants visibility or usage. */
 const MOCK_CATALOG = [KOL_MANIFEST, CRAWLER_MANIFEST, APPROVER_MANIFEST];
 
 export function canonicalExpertId(raw: string): string {
   const decoded = decodeURIComponent(String(raw || "").trim());
   if (!decoded) return "";
-  return decoded.startsWith("expert:") ? decoded : `expert:${decoded}`;
+  return /^(?:expert:|agent:|agent_)/.test(decoded) ? decoded : `expert:${decoded}`;
 }
 
 export function expertSlug(id: string): string {
@@ -346,10 +346,10 @@ export function mergeExpertRoster(apiRows: ExpertRow[], source: ExpertSource = "
     const expert = normalizeExpert(row, source);
     if (expert) byId.set(expert.id, expert);
   }
-  return ROLE_EXPERT_IDS.map((id) => {
-    const fromApi = byId.get(id);
+  return [...byId.values()].map((fromApi) => {
+    const id = fromApi.id;
     const catalog = normalizeExpert(catalogRow(id), "catalog");
-    if (fromApi && catalog) {
+    if (catalog) {
       return {
         ...catalog,
         ...fromApi,
@@ -361,8 +361,7 @@ export function mergeExpertRoster(apiRows: ExpertRow[], source: ExpertSource = "
         source: "api",
       };
     }
-    if (fromApi) return fromApi;
-    return catalog as Expert;
+    return fromApi;
   });
 }
 
@@ -372,7 +371,7 @@ export async function fetchExperts(): Promise<Expert[]> {
   } catch (error) {
     if (!isNotFound(error)) throw error;
   }
-  return mergeExpertRoster(MOCK_CATALOG, "catalog");
+  throw new Error("智能体目录暂不可用，请重试。");
 }
 
 export async function fetchExpert(id: string): Promise<Expert | null> {
@@ -392,11 +391,11 @@ export async function fetchExpert(id: string): Promise<Expert | null> {
         source: "api",
       };
     }
-    return fromApi || catalog;
+    return fromApi;
   } catch (error) {
     if (!isNotFound(error)) throw error;
   }
-  return catalog || null;
+  return null;
 }
 
 function readSummon(payload: Partial<ExpertSummonResult> | null | undefined, expert: Expert): ExpertSummonResult | null {

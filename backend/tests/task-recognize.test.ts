@@ -9,21 +9,24 @@ import { seedAll } from "../src/seed.js";
 import { recognizeTaskIntent, setTaskClassifier } from "../src/tasks/recognize.js";
 import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { agentTestUser } from "./support/agent-user.js";
+import { withScopedUser, type AppUser } from "../src/auth.js";
 
 type Json = Record<string, unknown>;
 let tmp = "";
 let app: Hono;
+let employee: AppUser;
 
 const LARRY = "larry.zhao@amperetime.com";
 const QQ = "100705721@qq.com";
 const FIRST_TOUCH = `首封建联 发件: ${LARRY} 收件: ${QQ} 主题: LiTime MCP 连通测试`;
 
 async function request(method: string, url: string, body?: unknown) {
-  const response = await app.request(url, {
+  const response = await withScopedUser(employee, () => app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  }));
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
@@ -41,6 +44,7 @@ beforeEach(async () => {
   seedAll();
   const { createApp } = await import("../src/app.js");
   app = createApp();
+  employee = agentTestUser();
 });
 
 afterEach(() => {

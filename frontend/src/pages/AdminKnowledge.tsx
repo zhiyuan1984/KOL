@@ -70,18 +70,18 @@ function SubViewHost({ view, id }: { view: KbAdminView; id: string }) {
       ) : null}
       {error ? <p className="error" role="alert">{error}</p> : null}
 
-      <header className="admin-section-head">
+      {view !== "ingest" && <header className="admin-section-head">
         <div>
           <h2>{KB_ADMIN_VIEW_TITLE[view]}</h2>
           <p className="muted">{KB_ADMIN_VIEW_LEAD[view]}</p>
         </div>
-      </header>
+      </header>}
 
-      <p className="kbadmin-back">
+      {view !== "ingest" && <p className="kbadmin-back">
         <Link to={KB_ADMIN_DEFAULT_PATH} data-admin-kb-home-link className="kbadmin-action-link">
           ← 返回知识管理
         </Link>
-      </p>
+      </p>}
 
       {view === "catalog" ? <CatalogView notify={notify} fail={fail} /> : null}
       {view === "base" ? (

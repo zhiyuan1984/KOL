@@ -257,7 +257,7 @@ export default function Agents() {
     <div className="list-page agent-page expert-page" data-expert-page="roster">
       <div className="expert-hero">
         <h1>数字员工</h1>
-        <p className="muted">三个岗位各有入口：跟进走思考会话，采集走作业台，审批走队列。</p>
+        <p className="muted">选择可使用的智能体，或直接提问，由适合的智能体回答。</p>
       </div>
 
       {err && (

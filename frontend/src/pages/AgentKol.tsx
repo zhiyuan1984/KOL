@@ -54,14 +54,14 @@ export default function AgentKol({
       ) : null}
 
       <article className="expert-detail" data-expert-detail={expert.id} data-expert-qa={expert.id}>
-        <section>
+        {mission ? <section>
           <h2>岗位使命</h2>
           <p>{mission}</p>
-        </section>
-        <section>
+        </section> : null}
+        {expert.working_style && expert.working_style !== mission ? <section>
           <h2>岗位说明</h2>
           <p>{expert.working_style || role}</p>
-        </section>
+        </section> : null}
         {canHelp.length > 0 && (
           <section>
             <h2>可以帮你</h2>

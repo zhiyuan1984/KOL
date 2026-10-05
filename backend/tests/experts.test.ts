@@ -16,6 +16,8 @@ import {
   setExpertPublishOverride,
 } from "../src/experts.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { agentTestUser } from "./support/agent-user.js";
+import { withScopedUser, type AppUser } from "../src/auth.js";
 
 type Json = Record<string, unknown>;
 
@@ -42,6 +44,7 @@ const PUBLISHED_IDS = ["expert:kol", "expert:crawler", "expert:approver"];
 
 let tmp: string;
 let app: Hono;
+let employee: AppUser;
 
 async function request(
   method: string,
@@ -50,7 +53,7 @@ async function request(
 ): Promise<{ status: number; json: () => Promise<Json | Json[]>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
   if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await app.request(url, init);
+  const res = await withScopedUser(employee, () => app.request(url, init));
   const text = await res.text();
   return {
     status: res.status,
@@ -90,6 +93,7 @@ beforeEach(async () => {
   seedAll();
   const { createApp } = await import("../src/app.js");
   app = createApp();
+  employee = agentTestUser();
 });
 
 afterEach(() => {

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireSkill, scopedUser } from "../auth.js";
-import { DEMO_USER } from "../config.js";
+import { DEMO_USER, codexMode } from "../config.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
@@ -15,7 +15,9 @@ import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkIt
 import { cachedPoll, cachedPollAsync, pollEpoch } from "../host/response-cache.js";
 import { postgresQuery } from "../postgres/pool.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
-import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
+import { kolAgentManifest } from "../contract-scope.js";
+import { assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { isTestRuntime } from "../codex-runtime.js";
 import { FROM_TEXT_FORBIDDEN_TASK_TYPES } from "../gateway/discovery-harness.js";
 import { applyKolAnalyzeAction, KOL_ANALYZE_TASK_TYPE } from "../host/kol-memory.js";
 import { extractTaskFieldUpdates, type TaskFieldUpdates } from "../tasks/openai-intent.js";
@@ -94,6 +96,7 @@ function parseJson(value: unknown): unknown {
 function taskInput(body: Json): Json {
   const input: Json = {
     ...(body.input && typeof body.input === "object" ? body.input as Json : {}),
+    ...(body.agent_id ? { agent_id: String(body.agent_id) } : {}),
     ...(body.attachments ? { attachments: body.attachments } : {}),
     ...(body.model_tier ? { model_tier: body.model_tier } : {}),
     ...(body.collaboration_id ? { collaboration_id: body.collaboration_id } : {}),
@@ -389,14 +392,15 @@ function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; a
 }
 
 function createWorkItem(body: Json, source: string): Json {
-  if (!agentSubmissionAllowed()) {
-    throw new HttpFail(409, { code: "agent_not_published", message: "KOL Agent 尚未发布，员工端暂不可提交任务", next_action: "等待管理员发布 Agent" });
-  }
   const explicitType = String(body.task_type || body.definition_id || body.intent || "");
   const definition = taskDefinition(explicitType);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: explicitType });
   requireSkill(definition.id);
   const input = taskInput(body);
+  if (!(isTestRuntime() && codexMode() === "stub" && !scopedUser() && !input.agent_id)) {
+    input.agent_id = String(input.agent_id || runtimeAgentForSkill(definition.id, ownerId()));
+    assertRuntimeSkill({ agentId: String(input.agent_id), skillId: definition.id, userId: ownerId(), runId: "task-submission" });
+  }
   const template = skillTemplate(definition);
   if (input.skill_template_version && input.skill_template_version !== template.version) {
     throw new HttpFail(409, { code: "skill_template_version_conflict", message: "技能模板已更新，请刷新模板并检查参数后再提交。" });
@@ -1229,6 +1233,7 @@ tasks.post("/tasks/recognize", async (c) => {
   if (!text) throw new HttpFail(400, "text required");
   const resolution = await recognizeTaskIntent({
     text,
+    agent_id: body.agent_id ? String(body.agent_id) : undefined,
     task_type: (body.task_type || body.intent) as string | undefined,
     entities: body.entities as Record<string, unknown> | undefined,
     input: taskInput(body),
@@ -1259,6 +1264,7 @@ tasks.post("/tasks/from-text", async (c) => {
   const lockedType = requestedType && taskDefinition(requestedType) ? requestedType : undefined;
   const resolution = await recognizeTaskIntent({
     text,
+    agent_id: body.agent_id ? String(body.agent_id) : undefined,
     task_type: lockedType,
     entities: body.entities as Record<string, unknown> | undefined,
     input: taskInput(body),
@@ -1327,6 +1333,7 @@ tasks.post("/tasks/from-text", async (c) => {
   }
   const created = createWorkItem({
     ...body,
+    agent_id: resolution.agent_id,
     text,
     title: body.title,
     task_type: resolution.task_type,
@@ -1415,6 +1422,12 @@ tasks.post("/tasks/:id/run", async (c) => {
       : {}),
   };
   const runText = String(body.text || storedInput.prompt || item.title);
+  if (storedInput.agent_id && (runInput as Json).agent_id !== storedInput.agent_id) throw new HttpFail(409, "任务已绑定其他智能体");
+  if (!(isTestRuntime() && codexMode() === "stub" && !scopedUser() && !(runInput as Json).agent_id)) {
+    const runAgentId = String((runInput as Json).agent_id || runtimeAgentForSkill(definition.id, ownerId()));
+    assertRuntimeSkill({ agentId: runAgentId, skillId: definition.id, userId: ownerId(), runId: "task-run" });
+    (runInput as Json).agent_id = runAgentId;
+  }
   const resolution = resolveTaskIntent({
     text: runText,
     task_type: definition.id,
