@@ -16,6 +16,7 @@ import {
 } from "../api";
 import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
 import { RuntimeActions } from "../components/RuntimeActions";
+import { ReplyContextPanel } from "../mail/ReplyContextPanel";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
@@ -1093,6 +1094,7 @@ export default function Chat() {
       ) : null}
       <section className="session-center">
         <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
+        {id && kolSession && !discoveryEntry ? <ReplyContextPanel sessionId={id} analyzing={pending} onAnalyze={() => pickSuggestion({label: "分析最新邮件对草稿的影响", prompt: "分析回复：请引用当前授权邮件的 ID 和版本，解释对现有草稿的影响。延期仅作为申请，不视为已批准；保留人工稿，不发信、不改正式阶段。", intent: "reply_analysis"})} /> : null}
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
             <Link

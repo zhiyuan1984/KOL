@@ -21,6 +21,7 @@ import {
 import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx } from "../db.js";
 import { sendDraft } from "../gateway/send.js";
 import { mailSendAction, claimMailSend, assertDraftEditable, validateMailSend, markMailSendUnknown } from "./mail-send-confirmation.js";
+import { replySendView, bindReplySend } from "../mail/reply-send.js";
 import { confirmStarryStage } from "../gateway/starry.js";
 import { createWorkApproval, listApprovals } from "../gateway/wecom.js";
 import { nid } from "../ids.js";
@@ -1568,6 +1569,10 @@ export function persistDraft(sid: string, item: Json): Row {
     knowledge_id: item.knowledge_id || null,
     knowledge_version: item.knowledge_version ?? null,
     context_version: item.context_version || null,
+    reply_context_version: item.reply_context_version || null,
+    reply_drafts_version: item.reply_drafts_version || null,
+    reply_context_stale: Boolean(item.reply_context_stale),
+    reply_evidence: item.reply_evidence || [],
     source_draft_id: item.source_draft_id ?? null,
     ...(item.from_source ? { from_source: item.from_source } : {}),
     ...(!ownedFrom && resolved.email && resolved.email !== requestedFrom ? { send_from: resolved.email } : {}),
@@ -1672,6 +1677,9 @@ export function emailCardPayload(d: Row): Json {
     knowledge_version: knowledgeId && Number.isFinite(knowledgeVersion) ? knowledgeVersion : null,
     knowledge_title: knowledgeTitle ? String(knowledgeTitle) : null,
     draft_id: d.id,
+    reply_context_version: extra.reply_context_version || null,
+    reply_context_stale: Boolean(extra.reply_context_stale),
+    reply_evidence: extra.reply_evidence || [],
     collaboration_id: d.collaboration_id,
     expected_version: colVer,
     from: d.from_addr,
@@ -2028,7 +2036,10 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
       let card: Json = {
         type: "task_result",
         title: String(item.title || "任务结果"),
-        summary: String(item.summary || ""),
+        summary: `${item.reply_context_stale ? "生成期间相关依据已变化，此结果已过期；请基于最新邮件重新分析。 " : ""}${String(item.summary || "")}`,
+        reply_context_version: item.reply_context_version || null,
+        reply_context_stale: Boolean(item.reply_context_stale),
+        reply_evidence: item.reply_evidence || [],
         sections: Array.isArray(item.sections) ? item.sections : [],
         ...(item.metrics && typeof item.metrics === "object" ? { metrics: item.metrics } : {}),
         ...(Array.isArray(item.recommended_actions) ? { recommended_actions: item.recommended_actions } : {}),
@@ -3866,8 +3877,9 @@ host.delete("/sessions/:sid/queue/:qid", (c) => {
   return c.json({ ok: true, run_queue: publicQueue(sid) });
 });
 
-export const mailDraftActions: Operation["handle"] = (c, input) => {
-  return c.json(mailSendAction(getDraft(String(input.draft_id || ""))));
+export const mailDraftActions: Operation["handle"] = async (c, input) => {
+  const draft = getDraft(String(input.draft_id || ""));
+  return c.json(await replySendView(draft, mailSendAction(draft)));
 };
 
 export const sendMailDraft: Operation["handle"] = async (c, payload) => {
@@ -3893,7 +3905,7 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
     }
     throw error;
   }
-  const input = { confirmation_version: String(body.confirmation_version || ""), request_id: String(body.request_id || "") };
+  const input = await bindReplySend(d, mailSendAction(d), { confirmation_version: String(body.confirmation_version || ""), request_id: String(body.request_id || "") });
   const claimed = claimMailSend(did, input);
   if (claimed.replay) {
     return c.json({ ok: true, status: "sent", replayed: true, result: claimed.replay, stage_changed: false, keep_stage: true });
@@ -3902,13 +3914,17 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
   let result: Json;
   try {
     result = await sendDraft(did, "operator", input.request_id);
-  } catch {
+  } catch (error) {
+    if (error instanceof HttpFail && typeof error.detail === "object" && error.detail && (error.detail as Json).code === "mail_reply_context_changed") {
+      syncEmailCard(did);
+      throw error;
+    }
     // A successful provider receipt must not be turned into a false failure by ancillary work.
     if (getDraft(did).status === "sent") {
       const replay = claimMailSend(did, input).replay;
       return c.json({ ok: true, status: "sent", replayed: true, result: replay, stage_changed: false, keep_stage: true });
     }
-    markMailSendUnknown(did, input.request_id);
+    markMailSendUnknown(did, String(input.request_id));
     const msg = addMsg(String(d.session_id), "assistant", "error_card", {
       status: "send_unknown", message: "邮件发送回执暂未确认；请核对邮件服务结果，勿重复发送。",
       next_action: "核对邮件回执后再处理。正式阶段未改。", persistent: true,

@@ -14,6 +14,7 @@ import type {
 import {
   ConfirmStageArtifact,
   DraftArtifact,
+  type DraftEdit,
   InboundArtifact,
   KolMailCard,
   OverdueArtifact,
@@ -370,8 +371,11 @@ export default function SideWorkbench({
   statusOverride?: string;
 }) {
   const { debug } = useViewMode();
+  const editing = useRef({sessionId, drafts: new Map<string, DraftEdit>()});
+  if (editing.current.sessionId !== sessionId) editing.current = {sessionId,drafts: new Map<string, DraftEdit>()};
   const round = afterLastUser(messages);
-  const draftMsg = lastOf(round, "email_card");
+  const replyAnalysis = task?.skill_id === "reply_analysis" || lastOf(round,"task_result_card")?.payload.skill === "reply_analysis";
+  const draftMsg = lastOf(round, "email_card") || (replyAnalysis ? lastOf(messages,"email_card") : undefined);
   const draft = draftMsg ? (draftMsg.payload as unknown as EmailCard) : null;
   const stageMsg = lastOf(round, "confirm_stage_card");
   const resultMsg = lastOf(round, "task_result_card");
@@ -546,7 +550,7 @@ export default function SideWorkbench({
                   handle={handle}
                   onRefresh={onRefresh}
                 />
-                {draft && isComposeResultCard(result) ? <DraftArtifact card={draft} onRefresh={onRefresh} /> : null}
+                {draft && isComposeResultCard(result) ? <DraftArtifact card={draft} onRefresh={onRefresh} edits={editing.current.drafts} /> : null}
                 {isComposeResultCard(result) && (!draft || Boolean(result.compose_loop?.gap?.field)) ? (
                   <ResultActions
                     actions={composeResultActions(result, result.recommended_actions || result.actions || [])}
@@ -558,7 +562,7 @@ export default function SideWorkbench({
             )}
             {draft && !(result && isComposeResultCard(result)) && (
               <section data-tab="draft" aria-selected={primary === "draft"}>
-                <DraftArtifact card={draft} onRefresh={onRefresh} />
+                <DraftArtifact card={draft} onRefresh={onRefresh} edits={editing.current.drafts} />
               </section>
             )}
             {stageMsg && (

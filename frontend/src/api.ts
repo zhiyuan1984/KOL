@@ -38,6 +38,7 @@ import type {
   SkillCoverage,
 } from "./runtimeConnectorUi.js";
 import type { MailComposeLetter } from "./mail/types.js";
+import type { ReplyContext } from "./mail/reply-context.js";
 
 export type SessionRow = {
   id: string;
@@ -1318,7 +1319,7 @@ export type DraftActionView = {
   approval_state: "not_required" | "required" | "pending" | "approved" | "rejected";
   receipt_id: string | null;
 };
-export type DraftActionsResponse = { draft_id: string; action: DraftActionView; snapshot: DraftSendSnapshot; request_id?: string };
+export type DraftActionsResponse = { draft_id: string; action: DraftActionView; snapshot: DraftSendSnapshot; request_id?: string; reply_context?: Pick<ReplyContext, "version" | "complete" | "sources"> };
 
 export type PendingAsk = {
   text: string;
@@ -1722,6 +1723,9 @@ export type PostMessageResult = {
 
 export type EmailCard = {
   draft_id: string;
+  reply_context_version?: string | null;
+  reply_context_stale?: boolean;
+  reply_evidence?: Array<{ id: string; version: string }>;
   knowledge_id?: string | null;
   knowledge_version?: number | null;
   knowledge_title?: string | null;
@@ -1847,6 +1851,7 @@ export type AdminSaveBudgetInput = {
 };
 
 export const api = {
+  replyContext: (sessionId: string) => request<ReplyContext>(`/api/queries/mail.reply-context?session_id=${encodeURIComponent(sessionId)}`),
   runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
   retryCrawlResults: (actionId: string) => request<{ state: string }>("/api/actions/runtime.crawl.results.retry", { method: "POST", body: JSON.stringify({ action_id: actionId }) }),
   confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),

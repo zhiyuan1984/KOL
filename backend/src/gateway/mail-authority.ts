@@ -1,10 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 /** Not a model/tool argument: only the checked Gateway owns this execution context. */
-const authority = new AsyncLocalStorage<{ draftId: string; requestId: string }>();
+const authority = new AsyncLocalStorage<{ draftId: string; requestId: string; beforeDispatch?: () => Promise<void> }>();
 
-export function withMailSendAuthority<T>(draftId: string, requestId: string, fn: () => T): T {
-  return authority.run({ draftId, requestId }, fn);
+export function withMailSendAuthority<T>(draftId: string, requestId: string, fn: () => T, beforeDispatch?: () => Promise<void>): T {
+  return authority.run({ draftId, requestId, beforeDispatch }, fn);
+}
+
+export async function recheckMailSendAuthority(): Promise<void> {
+  assertMailSendAuthority();
+  await authority.getStore()?.beforeDispatch?.();
 }
 
 export function assertMailSendAuthority(): void {

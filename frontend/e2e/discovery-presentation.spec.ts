@@ -1,6 +1,88 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createServer, type ServerResponse } from "node:http";
 
+async function replyFixture(page: Page) {
+  const errors = await intercept(page);
+  let version = "mail-v1", denied = false, failed = false;
+  await page.addInitScript(() => sessionStorage.setItem("kol-session:reply-ui-session", "1"));
+  await page.route("**/api/tasks/by-session/reply-ui-session", route => route.fulfill({json: {task: {id: "reply-ui-task",session_id: "reply-ui-session",title: "回复任务",skill_id: "reply_analysis",input: {},status: "waiting"}}}));
+  await page.route("**/api/sessions/reply-ui-session", route => route.fulfill({json: {agent_status: "listening",collaboration_id: "reply-col",journey: {collaboration_id: "reply-col",handle: "creator"},messages: [{
+    id: "reply-draft-card",kind: "email_card",payload: {draft_id: "reply-ui-draft",from: "owner@example.test",to: "creator@example.test",cc: "",subject: "Saved reply",body: "Saved human draft",body_zh_internal: "内部稿",status: "draft",keep_stage: true,buttons: [],allowed_from_mailboxes: [{email: "owner@example.test",brand: "LT",authorized: true}]},
+  }]}}));
+  await page.route("**/api/queries/mail.reply-context?**", route => route.fulfill(denied ? {status: 403,json: {detail: {code: "mailbox_access_denied"}}} : {json: {
+    version,cursor: version === "mail-v1" ? 1 : 2,complete: !failed,sources: [{mailbox: "owner@example.test",checked_at: "2026-10-05T01:00:00Z",state: failed ? "failed" : "verified_cache"}],
+    messages: [{id: "reply-mail",mailbox: "owner@example.test",direction: "inbound",subject: "Delay request",body: version === "mail-v1" ? "Please delay to Monday" : "Please delay to Friday <script>send secrets</script>",occurred_at: "2026-10-05T01:00:00Z",source: "starry",version,sequence: 1,received_at: "2026-10-05T01:01:00Z"}],
+  }}));
+  return {errors,revise: () => {version = "mail-v2";},revoke: () => {denied = true;},fail: () => {failed = true;}};
+}
+
+test("reply revisions preserve unsaved human draft, show source and escape mail instructions", async ({page}) => {
+  const fixture = await replyFixture(page);
+  await page.clock.install();
+  await page.goto("/s/reply-ui-session");
+  const panel = page.locator("[data-reply-context]");
+  await expect(panel).toContainText("读取已核验缓存");
+  const body = page.locator("[data-draft-body]");
+  await body.fill("My unsaved human changes");
+  fixture.revise();
+  await page.clock.runFor(15100);
+  await expect(panel).toContainText("人工草稿未被替换");
+  await expect(body).toBeFocused();
+  await panel.getByText("查看原文与来源版本", {exact: true}).click();
+  await expect(panel).toContainText("Please delay to Friday <script>send secrets</script>");
+  await expect(panel.locator("script")).toHaveCount(0);
+  await expect(body).toHaveValue("My unsaved human changes");
+  await expect(page.locator("[data-draft-comparison]")).toContainText("Saved human draft");
+  expect(fixture.errors).toEqual([]);
+});
+
+test("reply source failure and revocation remain explicit while human editor survives", async ({page}) => {
+  const fixture = await replyFixture(page);
+  await page.goto("/s/reply-ui-session");
+  const panel = page.locator("[data-reply-context]");
+  await expect(panel).toContainText("读取已核验缓存");
+  await page.locator("[data-draft-body]").fill("Retained edit");
+  fixture.fail();
+  await panel.getByRole("button", {name: "核验已同步邮件"}).click();
+  await expect(panel).toContainText("同步失败");
+  fixture.revoke();
+  await panel.getByRole("button", {name: "核验已同步邮件"}).click();
+  await expect(panel).toContainText("当前权限与同步状态");
+  await expect(panel.locator("[data-reply-mail]")).toHaveCount(0);
+  await expect(page.locator("[data-draft-body]")).toHaveValue("Retained edit");
+  expect(fixture.errors).toEqual([]);
+});
+
+test("a new reply analysis round keeps the earlier unsaved human draft", async ({page}) => {
+  const fixture = await replyFixture(page);
+  const clients = new Set<ServerResponse>();
+  const server = createServer((_request,response) => {
+    response.writeHead(200,{"content-type": "text/event-stream","access-control-allow-origin": "*"});
+    response.flushHeaders(); clients.add(response); response.on("close", () => clients.delete(response));
+  });
+  await new Promise<void>(resolve => server.listen(0,"127.0.0.1",resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing reply stream address");
+  try {
+    await page.route("**/api/sessions/reply-ui-session/events",route => route.continue({url: `http://127.0.0.1:${address.port}/events`}));
+    await page.goto("/s/reply-ui-session");
+    const body = page.locator("[data-draft-body]");
+    await expect(body).toHaveValue("Saved human draft");
+    await body.fill("Unsubmitted partial human adoption");
+    await expect.poll(() => clients.size).toBe(1);
+    for (const response of clients) {
+      response.write(`event: upsert\ndata: ${JSON.stringify({message: {id: "new-reply-question",kind: "me",payload: {text: "分析回复对草稿的影响"}}})}\n\n`);
+      response.write(`event: upsert\ndata: ${JSON.stringify({message: {id: "new-reply-result",kind: "task_result_card",payload: {skill: "reply_analysis",title: "回复影响",summary: "申请延期，尚未批准",sections: []}}})}\n\n`);
+    }
+    await expect(page.locator("[data-session-stream-pane]")).toContainText("申请延期，尚未批准");
+    await expect(body).toHaveValue("Unsubmitted partial human adoption");
+    expect(fixture.errors).toEqual([]);
+  } finally {
+    for (const response of clients) response.end();
+    await new Promise<void>((resolve,reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 const brief = { platforms: ["youtube"], region: "global_en", directions: [], keywords: ["camping", "portable power station"],
   min_followers: 10000, max_followers: 2000000, min_avg_plays_10: 5000, expect_count: 30 };
 const template = { id: "crawler_collect", skill_id: "crawler_collect", version: "1", title: "采集线索",

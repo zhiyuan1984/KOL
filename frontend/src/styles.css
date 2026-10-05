@@ -15689,6 +15689,11 @@ button.today-brief-primary-btn:disabled {
 .trace-list time, .trace-time-missing, .message-time { color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .message-time { align-self: flex-end; }
 .runtime-action-card, .session-center .message.risk-l1 { line-height: var(--ds-line-sm); }
+.reply-context-panel { padding: var(--space-3); border-bottom: 1px solid var(--border); }
+.reply-context-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.reply-context-panel p { margin-block: var(--space-2); }
+.reply-context-panel article { padding-block: var(--space-2); border-top: 1px solid var(--border); }
+.reply-context-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .runtime-action-summary { gap: var(--space-1); margin-block: var(--space-2); }
 /* Task center: compact report with progressive row details. */
 .tasks-page .task-center-system-head,

@@ -316,20 +316,24 @@ function usableInternalZh(zh: string | undefined, english: string): string | nul
   return text;
 }
 
+export type DraftEdit = { cc: string; from: string; to: string; subject: string; body: string };
 export function DraftArtifact({
   card,
   onRefresh,
+  edits,
 }: {
   card: EmailCard;
   onRefresh: () => void;
+  edits?: Map<string, DraftEdit>;
 }) {
+  const restored = edits?.get(card.draft_id);
   const [zh, setZh] = useState<string | null>(() => usableInternalZh(card.body_zh_internal, card.body || ""));
-  const [cc, setCc] = useState(card.cc || "");
+  const [cc, setCc] = useState(restored?.cc ?? card.cc ?? "");
   const opts = card.allowed_from_mailboxes || [];
-  const [fromAddr, setFromAddr] = useState(() => pickFromAddr(card.send_from || card.from, opts));
-  const [toAddr, setToAddr] = useState(card.to || "");
-  const [subject, setSubject] = useState(card.subject || "");
-  const [body, setBody] = useState(card.body || "");
+  const [fromAddr, setFromAddr] = useState(() => restored?.from ?? pickFromAddr(card.send_from || card.from, opts));
+  const [toAddr, setToAddr] = useState(restored?.to ?? card.to ?? "");
+  const [subject, setSubject] = useState(restored?.subject ?? card.subject ?? "");
+  const [body, setBody] = useState(restored?.body ?? card.body ?? "");
   const [err, setErr] = useState(card.send_error || "");
   const [busy, setBusy] = useState<string | null>(null);
   const confirmedSend = useConfirmedDraftSend(onRefresh);
@@ -345,15 +349,20 @@ export function DraftArtifact({
   const messageOf = (e: unknown) => e instanceof Error ? e.message : String(e);
 
   useEffect(() => {
-    setCc(card.cc || "");
-    setFromAddr(pickFromAddr(card.send_from || card.from, card.allowed_from_mailboxes || []));
-    setToAddr(card.to || "");
-    setSubject(card.subject || "");
-    setBody(card.body || "");
+    const local = edits?.get(card.draft_id);
+    setCc(local?.cc ?? card.cc ?? "");
+    setFromAddr(local?.from ?? pickFromAddr(card.send_from || card.from, card.allowed_from_mailboxes || []));
+    setToAddr(local?.to ?? card.to ?? "");
+    setSubject(local?.subject ?? card.subject ?? "");
+    setBody(local?.body ?? card.body ?? "");
     setErr(card.send_error || "");
     const nextZh = usableInternalZh(card.body_zh_internal, card.body || "");
     if (nextZh) setZh(nextZh);
   }, [card.draft_id, card.cc, card.from, card.send_from, card.to, card.subject, card.body, card.send_error, card.body_zh_internal, fromOptionsKey]);
+  useEffect(() => {
+    if (dirty) edits?.set(card.draft_id, {cc,from: fromAddr,to: toAddr,subject,body});
+    else edits?.delete(card.draft_id);
+  }, [edits,card.draft_id,dirty,cc,fromAddr,toAddr,subject,body]);
 
   const persist = async () => {
     await api.patchDraft(card.draft_id, {
@@ -363,6 +372,7 @@ export function DraftArtifact({
       subject,
       body_en: body,
     });
+    edits?.delete(card.draft_id);
   };
 
   const translate = async () => {
@@ -478,6 +488,8 @@ export function DraftArtifact({
         </div>
       )}
       {card.knowledge_id ? <p className="muted" data-draft-template-source title={card.knowledge_id}>模板来源：知识库 · 第 {card.knowledge_version} 版</p> : null}
+      {card.reply_context_version ? <p className="muted" data-draft-reply-basis>生成依据：{card.reply_context_version.slice(0, 12)} · {(card.reply_evidence || []).length} 封邮件{card.reply_context_stale ? " · 生成期间依据已变化，请核对最新原文后修改；此稿未自动发送。" : ""}</p> : null}
+      {dirty ? <details data-draft-comparison><summary>比较已保存稿与当前人工修改</summary><p>已保存稿</p><pre className="mail-body-text">{card.body}</pre><p>当前人工修改（尚未保存）</p><pre className="mail-body-text">{body}</pre></details> : null}
       <div className="action-row">
         {!sent && (
           <button className="btn ghost" data-draft-save onClick={() => void save()} disabled={!!busy || confirmedSend.busy || !dirty}>
@@ -972,6 +984,7 @@ function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; 
   return (
     <article className="stream-task-result" data-kind="task-result-card" data-stream-result>
       <strong>{title}</strong>
+      {card.reply_context_version ? <p className="muted">邮件依据版本 {String(card.reply_context_version).slice(0,12)}{card.reply_context_stale ? " · 已过期" : ""}</p> : null}
       {summary ? <p>{summary}</p> : null}
       <ResultDraftPreview card={card} onRefresh={onRefresh} />
       {sections.map((section, index) => {
@@ -1507,7 +1520,8 @@ export function ChatThread({
           );
         }
         if (m.kind === "task_result_card") {
-          if (hasDraftCard || m.id !== latestResultId) return null;
+            if (m.id !== latestResultId || (hasDraftCard && m.payload.skill !== "reply_analysis")) return null;
+            if (m.payload.skill === "reply_analysis") return <ThreadMessage key={m.id} role="assistant" result="task_result" risk="L1"><StreamResultCard card={m.payload} onRefresh={onRefresh} /></ThreadMessage>;
           const risk = messageRisk("task_result_card", m.payload) || "L1";
           const title = String(m.payload.title || "任务结果");
           return (

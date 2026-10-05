@@ -39,6 +39,7 @@ import {
   messageTo,
 } from "./mail-fields.js";
 import { executeStarryKolTask } from "./service.js";
+import { observeReplyMail } from "../mail/reply-source.js";
 
 export type FollowedMailSync = {
   ok: boolean;
@@ -311,7 +312,7 @@ function upsertThread(input: {
   return { id, inserted: true };
 }
 
-function rememberItem(
+async function rememberItem(
   threadId: string,
   collaborationId: string | null,
   conversationId: string,
@@ -319,18 +320,23 @@ function rememberItem(
   subject: string,
   col?: Row,
   mailboxEmail = "",
-): boolean {
+): Promise<boolean> {
   const inbound = inboundOf(message, col, mailboxEmail);
   const providerId = firstString(message.messageId, message.message_id, message.id, message.mailId);
   const title = messageTitle(message);
   if (providerId) {
-    const seen = getConn().prepare("SELECT id FROM kol_mail_items WHERE provider_message_id=?").get(providerId) as { id: string } | undefined;
-    if (seen) {
-      // Existing cache rows predate the title field. A detail refresh upgrades
-      // them in place instead of retaining a duplicate subject in the L3 row.
-      getConn().prepare("UPDATE kol_mail_items SET title=? WHERE id=?").run(title, seen.id);
-      return false;
-    }
+    const body = messageBody(message);
+    const from = messageFrom(message), to = messageTo(message);
+    const direction = inbound ? "inbound" : "outbound";
+    const letter = letterSummaryRecord({ ...message, direction, body, snippet: body, subject });
+    const observed = await observeReplyMail({ thread_id: threadId, collaboration_id: collaborationId,
+      conversation_id: conversationId, mailbox: mailboxEmail, provider_message_id: providerId,
+      direction, subject, title, body, from: from.email, from_name: from.name, to: to.email,
+      occurred_at: firstString(message.sentAt, message.createdAt, message.time, message.ts),
+      source_updated_at: firstString(message.updatedAt, message.updated_at),
+      attachments: Array.isArray(message.attachments) ? message.attachments as Json[] : [],
+      unread: inbound, summary: letter.summary, summary_zh: letter.summary_zh, summary_source: letter.summary_source });
+    return observed.changed && inbound;
   }
   const body = messageBody(message);
   const from = messageFrom(message);
@@ -496,7 +502,7 @@ export async function hydrateMailThread(thread: Row): Promise<number> {
   ) || String(thread.subject || "(无主题)");
   let inserted = 0;
   for (const message of detail.messages) {
-    if (rememberItem(String(thread.id), col ? String(col.id) : null, conversationId, message, subject, col, mailbox)) {
+    if (await rememberItem(String(thread.id), col ? String(col.id) : null, conversationId, message, subject, col, mailbox)) {
       inserted += 1;
     }
   }
@@ -890,12 +896,12 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       if (thread.inserted) inserted += 1;
       else updated += 1;
       for (const message of messages) {
-        if (rememberItem(thread.id, col ? String(col.id) : null, conversationId, message, subject, col, threadMailbox)) {
+        if (await rememberItem(thread.id, col ? String(col.id) : null, conversationId, message, subject, col, threadMailbox)) {
           inbound += 1;
         }
       }
       if (!messages.length && inboundMessages.length) {
-        if (rememberItem(thread.id, col ? String(col.id) : null, conversationId, conv, subject, col, threadMailbox)) {
+        if (await rememberItem(thread.id, col ? String(col.id) : null, conversationId, conv, subject, col, threadMailbox)) {
           inbound += 1;
         }
       }
