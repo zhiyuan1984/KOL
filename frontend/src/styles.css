@@ -15690,3 +15690,40 @@ button.today-brief-primary-btn:disabled {
 .message-time { align-self: flex-end; }
 .runtime-action-card, .session-center .message.risk-l1 { line-height: var(--ds-line-sm); }
 .runtime-action-summary { gap: var(--space-1); margin-block: var(--space-2); }
+
+/* AI discovery uses the full center column and the public-pool object grammar. */
+.is-discovery-task .conversation-content,
+.is-discovery-task .conversation-content .message,
+.is-discovery-task [data-runtime-actions],
+.is-discovery-task .runtime-action-card { width: 100%; max-width: none; margin-inline: 0; box-sizing: border-box; }
+.is-discovery-task .message { padding: var(--space-3); margin-block: var(--space-2); }
+.is-discovery-task .message-content > :first-child { margin-top: 0; }
+.is-discovery-task .message-content p { margin-block: var(--space-1); }
+.is-discovery-task .message-content h1,
+.is-discovery-task .message-content h2,
+.is-discovery-task .message-content h3,
+.is-discovery-task .message-content h4 { margin-block: var(--space-3) var(--space-1); }
+.is-discovery-task .message-content > :last-child { margin-bottom: 0; }
+.is-discovery-task .side-head:has(> :only-child) { padding-block: var(--space-1); }
+.is-discovery-task .artifact-toolbar { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-1); }
+.discovery-return { color: var(--text); text-decoration: none; margin-right: auto; white-space: nowrap; }
+.discovery-return:hover { text-decoration: underline; }
+.is-collapsed-return { writing-mode: vertical-rl; margin-top: var(--space-4); }
+.discovery-event-heading { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.discovery-event-heading i { font-style: normal; }
+.discovery-event-heading > span:first-of-type { flex: 1; overflow-wrap: anywhere; }
+.discovery-event-heading details { flex: 1; min-width: 0; }
+.is-discovery-task .discovery-runtime-candidate { display: block; min-height: 0; padding: var(--space-3); margin-block: var(--space-3); }
+.discovery-runtime-candidate .pool-row-avatar { float: left; margin-inline-end: var(--space-2); margin-block-end: var(--space-1); }
+.discovery-runtime-candidate .pool-row-content { min-width: 0; }
+.discovery-runtime-candidate .pool-row-facts,
+.discovery-runtime-candidate .pool-row-intro { clear: both; }
+.is-discovery-task .discovery-candidate-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); min-width: 0; margin-top: var(--space-2); }
+.is-discovery-task .discovery-candidate-actions .pool-claim-button { min-width: 0; padding-inline: 0; background: transparent; border: 0; color: var(--accent-text); }
+.discovery-runtime-candidate p { margin-block: var(--space-1); overflow-wrap: anywhere; }
+.discovery-follow-impact { margin-top: var(--space-1); }
+.discovery-runtime-candidate details { margin-top: var(--space-2); }
+.discovery-inline-toggle { display: inline-flex; align-items: center; justify-content: center; }
+.discovery-optional-upper { min-width: 0; }
+.discovery-optional-upper summary { cursor: pointer; white-space: nowrap; }
+.discovery-optional-upper input { max-width: 100%; }

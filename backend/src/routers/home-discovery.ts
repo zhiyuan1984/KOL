@@ -16,8 +16,13 @@ import {
 } from "../home-discovery.js";
 import type { Json } from "../types.js";
 import { createDiscoveryWorkspace, pendingDiscoveryWorkspace } from "../crawl/discovery-workspace.js";
+import { runtimeCandidateCommand } from "../crawl/candidate-actions.js";
 
 export const homeDiscovery = new Hono();
+homeDiscovery.post("/home/discovery/runtime/:actionId/candidates/:candidateId/:verb", async c => {
+  const body = await c.req.json();
+  return c.json(await runtimeCandidateCommand(c.req.param("actionId"), c.req.param("candidateId"), c.req.param("verb"), body));
+});
 
 homeDiscovery.post("/home/discovery/workspace", async (c) => {
   const body = await c.req.json().catch(() => null);

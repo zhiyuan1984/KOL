@@ -21,6 +21,8 @@ import { officialStageReached } from "../journey";
 import { MESSAGE_RISK_LABEL, messageRisk, type MessageRisk } from "../agentUx";
 import { useConfirmedDraftSend } from "../hooks/useConfirmedDraftSend";
 import { applyComposerDraft } from "../composer/draft";
+import { discoveryTimeline } from "../home/discoveryTimeline";
+import type { RuntimeActionView } from "../api";
 
 type ThreadRole = "user" | "assistant" | "system";
 type ResultShape = "task_result" | "draft" | "confirm" | "send" | "stage";
@@ -1150,8 +1152,8 @@ function humanizeTraceLabel(label: string) {
 
 export function employeeProcessLabel(raw: string) {
   const human = stripEngineCopy(humanizeTraceLabel(raw));
-  if (!human || /[{[]/.test(human) || isHarnessLabel(human) || /\b(?:starrykol|starry)\./i.test(human)) {
-    return "正在处理这项工作";
+  if (!human || human === "正在处理这项工作" || /[{[]/.test(human) || isHarnessLabel(human) || /\b(?:starrykol|starry)\./i.test(human)) {
+    return "正在读取任务所需资料 · 未提供步骤说明";
   }
   return human;
 }
@@ -1191,8 +1193,8 @@ function employeeMessageBody(text: string, debug = false, onRefresh?: () => void
 function StepTime({ value }: { value?: string }) {
   const date = value ? new Date(value) : null;
   return date && Number.isFinite(date.getTime())
-    ? <time dateTime={value} title={`步骤记录时间：${date.toLocaleString("zh-CN", { hour12: false })}`}>{date.toLocaleTimeString("zh-CN", { hour12: false })}</time>
-    : <span className="trace-time-missing">时间未记录</span>;
+    ? <time dateTime={value} title={`步骤记录时间：${date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}`}>{date.toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</time>
+    : <span className="trace-time-missing">历史步骤未记录时间</span>;
 }
 
 export { humanizeTraceLabel };
@@ -1413,10 +1415,16 @@ export function ChatThread({
   messages,
   officialStage,
   onRefresh,
+  discovery = false,
+  actions = [],
+  renderAction,
 }: {
   messages: Message[];
   officialStage?: string;
   onRefresh?: () => void;
+  discovery?: boolean;
+  actions?: RuntimeActionView[];
+  renderAction?: (id: string) => ReactNode;
 }) {
   const { debug } = useViewMode();
   const hasResult = messages.some((m) =>
@@ -1436,10 +1444,27 @@ export function ChatThread({
       data-session-stream={messages.some((item) => item.payload.streaming) ? "live" : "idle"}
       data-ai-conversation-content
     >
-      {messages.map((m) => {
+      {(discovery ? discoveryTimeline(messages, actions) : messages).map((m) => {
+        if (m.kind === "discovery_history") return <ThreadMessage key={m.id} role="assistant" data-kind="discovery-history">
+          <details><summary>旧任务记录</summary>{(m.payload.items as Message[]).map(item =>
+            <p key={item.id} data-kind="discovery-step"><StepTime /> · {employeeTraceLabel(String(item.payload.text), String(item.payload.kind || ""))}</p>)}</details>
+        </ThreadMessage>;
+        if (m.kind === "discovery_action") return <div key={m.id}>{renderAction?.(String(m.payload.action_id))}</div>;
+        if (m.kind === "discovery_step") {
+          const status = safeStatus(m.payload.status);
+          const label = employeeTraceLabel(String(m.payload.text), String(m.payload.kind || ""));
+          return <ThreadMessage key={m.id} role="assistant" className="discovery-process-event" data-kind="discovery-step">
+            <div className="discovery-event-heading"><StepTime value={m.created_at} /><i>{statusMark(status)}</i>
+              {m.payload.kind === "reasoning" ? <details><summary>分析发现条件</summary><p>{label}</p></details>
+                : <span>{label === "准备任务" || label === "正在核对任务条件" ? "正在核对发现条件" : label}</span>}
+              <span className="muted">{status === "running" ? "进行中" : status === "done" ? "已完成" : "未完成"}</span>
+              {m.payload.late ? <span className="muted">补充记录 · 实际发生于 {String(m.payload.observed_at)}</span> : null}
+            </div>
+          </ThreadMessage>;
+        }
         if (m.kind === "me") {
           return (
-            <ThreadMessage key={m.id} role="user" data-kind="me">
+            <ThreadMessage key={m.id} role="user" data-kind="me" observedAt={discovery ? m.created_at : undefined}>
               {String(m.payload.text || "")}
             </ThreadMessage>
           );
@@ -1508,8 +1533,8 @@ export function ChatThread({
           const title = String(m.payload.title || "任务结果");
           return (
             <ThreadMessage key={m.id} role="assistant" result="task_result" risk={risk} data-kind="task-result-pointer">
-              <strong>{title}</strong>
-              <p>任务结果已放入结果工作台。</p>
+              {!discovery ? <strong>{title}</strong> : null}
+              <p>{discovery ? "候选资料已更新，请在右侧查看。" : "任务结果已放入结果工作台。"}</p>
             </ThreadMessage>
           );
         }
@@ -1666,6 +1691,7 @@ export function ChatThread({
         }
         if (m.kind === "steps") return null;
         const text = String(m.payload.text || "");
+        if (!text && !m.payload.streaming) return null;
         if (isDuplicateSessionChrome(text)) return null;
         if (/正式阶段已按你的确认更新|已提交阶段审批/.test(text) && m.id !== latestStageReceiptId) {
           return null;

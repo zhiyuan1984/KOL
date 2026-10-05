@@ -656,6 +656,7 @@ export function followKolToRecord(item: FollowKol): {
   handle: string;
   kol_uid: string;
   follow_id?: string;
+  collaboration_id?: string;
   platform: string;
   avatar_url?: string;
   followers?: string;
@@ -697,6 +698,7 @@ export function followKolToRecord(item: FollowKol): {
 } {
   return {
     id: item.collaboration_id || item.follow_id || item.kol_uid,
+    collaboration_id: item.collaboration_id,
     handle: item.identity.display.replace(/^@/, ""),
     kol_uid: item.kol_uid,
     follow_id: item.follow_id,

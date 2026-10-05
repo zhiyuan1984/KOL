@@ -308,6 +308,12 @@ export function listOpenPool(companyId = memoryCompanyId(), db: SqliteConn = get
          ORDER BY f.released_at DESC, f.id DESC LIMIT 1) AS latest_release_reason
       FROM kol_profile_index p
       WHERE p.company_id=? AND p.pool_status='open'
+        AND p.ingest_source IS DISTINCT FROM 'discovery-candidate'
+        AND NOT EXISTS (SELECT 1 FROM kol_follow_index f JOIN kol_profile_index owned
+          ON owned.company_id=f.company_id AND owned.kol_uid=f.kol_uid
+          WHERE f.company_id=p.company_id AND f.status='active' AND
+            (f.kol_uid=p.kol_uid OR (lower(owned.platform)=lower(p.platform)
+              AND NULLIF(owned.platform_creator_id,'')=NULLIF(p.platform_creator_id,''))))
       ORDER BY p.ingested_at DESC, p.display_name`,
   ).all(companyId) as Row[];
   return rows.map((row) => trimPrivate(publicProfileFields({
@@ -675,7 +681,7 @@ export function claimFollow(input: {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/UNIQUE|kol_follow_index_active_uniq/i.test(message)) {
+      if (/UNIQUE|kol_follow_index_active_uniq|discovery_follow_conflict/i.test(message)) {
         throw new HttpFail(409, {
           code: "follow_conflict",
           message: "该红人已有有效跟进关系",

@@ -6,6 +6,8 @@ import { Client } from "pg";
 import { reviewSchema } from "../src/approval/review-schema.js";
 import { runtimeActionSchema } from "../src/runtime/action-schema.js";
 import { crawlResultSchema } from "../src/crawl/result-schema.js";
+import { candidateActionsSchema } from "../src/crawl/candidate-actions-schema.js";
+import { runtimeActionEventSchema } from "../src/runtime/action-event-schema.js";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL schema migration");
@@ -54,6 +56,8 @@ const migrations: SchemaMigration[] = [
   { id: "20261004_review_attachments", statements: reviewSchema },
   { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
   { id: "20261004_discovery_results", statements: [crawlResultSchema] },
+  { id: "20261005_discovery_candidate_actions", statements: [candidateActionsSchema] },
+  { id: "20261005_runtime_action_events", statements: [runtimeActionEventSchema] },
   {
     id: "20261003_managed_agents",
     statements: [

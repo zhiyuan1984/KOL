@@ -32,7 +32,7 @@ function ExternalLinkIcon() {
   </svg>;
 }
 
-function FactIcon({ type }: { type: "followers" | "avg-plays" | "engagement" | "ingested" }) {
+export function FactIcon({ type }: { type: "followers" | "avg-plays" | "engagement" | "ingested" }) {
   if (type === "followers") return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.4" /><path d="M3 13c.5-2.4 2.1-3.6 5-3.6s4.5 1.2 5 3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>;
   if (type === "avg-plays") return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="M3 13V9m3 4V5m4 8V7m3 6V3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>;
   if (type === "engagement") return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="M8 13.25s4.75-2.55 4.75-6.25A2.35 2.35 0 0 0 8.7 5.45L8 6.2l-.7-.75A2.35 2.35 0 0 0 3.25 7c0 3.7 4.75 6.25 4.75 6.25Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>;
@@ -46,7 +46,7 @@ function ingested(value?: string | null) {
     : "入库时间未知";
 }
 
-function PoolAvatar({ card }: { card: PoolKol }) {
+export function PoolAvatar({ card }: { card: PoolKol }) {
   const [failed, setFailed] = useState(false);
   const name = card.identity.display.replace(/^@/, "");
   if (card.identity.avatar_url && !failed) return <img className="pool-row-avatar" data-kol-avatar="source" src={card.identity.avatar_url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
