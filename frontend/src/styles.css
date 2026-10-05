@@ -4695,8 +4695,8 @@ summary:focus-visible,
 .trace-list li[data-status="running"] { color: var(--accent-text); }
 .trace-list li[data-status="running"] i { animation: breath-dot 1.6s ease-in-out infinite; }
 .trace-list li span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.trace-list li[data-status="done"] i { color: var(--color-success-vivid); }
-.trace-list li[data-status="failed"] { color: var(--red); }
+.trace-list li[data-status="done"] i { color: color-mix(in srgb, var(--success) 80%, var(--text)); }
+.trace-list li[data-status="failed"] { color: color-mix(in srgb, var(--danger) 80%, var(--text)); }
 .trace-list li[data-kind="reasoning"] {
   grid-template-columns: 18px minmax(0, 1fr);
 }

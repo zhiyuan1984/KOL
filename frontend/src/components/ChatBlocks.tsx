@@ -1204,6 +1204,10 @@ function statusMark(status: TraceStatus) {
   return status === "running" ? "…" : "○";
 }
 
+function statusLabel(status: TraceStatus) {
+  return { done: "已完成", failed: "失败", skipped: "已跳过", running: "执行中", pending: "待处理" }[status];
+}
+
 function traceItems(payload: Record<string, unknown>): ProcessTraceItem[] {
   const source = payload.phases || payload.items || [];
   return Array.isArray(source)
@@ -1554,7 +1558,7 @@ export function ChatThread({
                   const streaming = item.kind === "reasoning" && (item.streaming || status === "running");
                   return (
                     <li key={item.id || `${label}-${index}`} data-status={status} data-kind={item.kind || undefined}>
-                      <i>{statusMark(status)}</i>
+                      <i role="img" aria-label={statusLabel(status)}>{statusMark(status)}</i>
                       <span className={streaming ? "is-streaming" : undefined}>{label}</span>
                       <StepTime value={item.observed_at} />
                     </li>
@@ -1596,7 +1600,7 @@ export function ChatThread({
                     const streaming = status === "running";
                     return (
                       <li key={operation.id || name || index} data-status={status} data-mcp-name={debug ? (name || undefined) : undefined}>
-                        <i>{statusMark(status)}</i>
+                        <i role="img" aria-label={statusLabel(status)}>{statusMark(status)}</i>
                         <span className={streaming ? "is-streaming" : undefined}>{employeeProcessLabel(human)}</span>
                         <StepTime value={operation.observed_at} />
                       </li>
@@ -1604,7 +1608,7 @@ export function ChatThread({
                   })
                   : (
                     <li data-status="running" data-mcp-waiting>
-                      <i>…</i>
+                      <i role="img" aria-label="执行中">…</i>
                       <span className="is-streaming">正在调用系统能力…</span>
                     </li>
                   )}

@@ -10,7 +10,46 @@ const task = { id: "presentation-task", session_id: "presentation-session", titl
     kind: "discovery", version: 1, agent_id: "lead", profile: "lead", brief, template, submitted_text: "发现露营线索",
   } } };
 
-async function intercept(page: Page, taskDelay = 0, settled = false) {
+// Measure rendered text rather than assuming that a token contrasts with every surface.
+// Scope uses flat CSS backgrounds; fail explicitly on unsupported image backgrounds.
+async function textContrast(page: Page, selector: string) {
+  return page.locator(selector).evaluate(root => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true })!;
+    const rgba = (css: string) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = css;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data).map((v, i) => i === 3 ? v / 255 : v);
+    };
+    const over = (front: number[], back: number[]) => front.slice(0, 3).map((v, i) => v * front[3] + back[i] * (1 - front[3])).concat(1);
+    const luminance = (color: number[]) => color.slice(0, 3).map(v => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const measurements = [];
+    for (const element of [root, ...root.querySelectorAll("*")]) {
+      const text = [...element.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join("").trim();
+      if (!text || !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || element.closest(":disabled")) continue;
+      const chain: Element[] = [];
+      for (let parent: Element | null = element; parent; parent = parent.parentElement) chain.unshift(parent);
+      let background = [255, 255, 255, 1];
+      for (const parent of chain) {
+        const style = getComputedStyle(parent);
+        if (style.backgroundImage !== "none" || style.opacity !== "1") throw new Error("Unsupported contrast compositing: " + parent.className);
+        background = over(rgba(style.backgroundColor), background);
+      }
+      const foreground = over(rgba(getComputedStyle(element).color), background);
+      const a = luminance(foreground), b = luminance(background);
+      measurements.push({ text: text.slice(0, 80), element: element.tagName + "." + element.className,
+        ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) });
+    }
+    return measurements;
+  });
+}
+
+async function intercept(page: Page, taskDelay = 0, settled = false, theme = "light") {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/**", async route => {
@@ -19,7 +58,7 @@ async function intercept(page: Page, taskDelay = 0, settled = false) {
     if (path === "/api/health") json = { ok: true };
     else if (path === "/api/auth/status") json = { authenticated: true, account: { id: "employee", name: "员工", available_modes: ["employee"] } };
     else if (path === "/api/me") json = { id: "employee", name: "员工", available_modes: ["employee"] };
-    else if (path === "/api/preferences") json = { theme: "light" };
+    else if (path === "/api/preferences") json = { theme };
     else if (path === "/api/cron/jobs") json = { jobs: [] };
     else if (path === "/api/home/discovery/workspace") json = { task_id: task.id, session_id: task.session_id };
     else if (path.includes("/api/tasks/by-session/") || path === `/api/tasks/${task.id}`) {
@@ -35,6 +74,10 @@ async function intercept(page: Page, taskDelay = 0, settled = false) {
       { id: "steps", kind: "process_trace", payload: { title: "快照核对", items: [
         { id: "snapshot", label: "快照完整性已确认", status: "done", observed_at: "2026-10-05T01:02:03Z" },
         { id: "legacy", label: "历史核对步骤", status: "done" },
+        { id: "failed", label: "受控失败步骤", status: "failed" },
+        { id: "running", label: "受控执行步骤", status: "running" },
+        { id: "skipped", label: "受控跳过步骤", status: "skipped" },
+        { id: "pending", label: "受控待处理步骤", status: "pending" },
       ] } },
       { id: "review", kind: "text", payload: { text: "### 审宪与权限结论\n\n符合本轮授权：主责为线索发现；仅提出 L3 受控采集确认。\n\n### 下一步\n\n请核对确认卡。" } },
       { id: "conflict", kind: "text", payload: { text: "### 审宪与权限结论\n\n权限冲突：无法访问该对象，请核对当前范围。" } },
@@ -186,6 +229,39 @@ test("submitted collection is compact and steps show only recorded times", async
   await expect(card.locator('.runtime-action-summary')).toBeVisible();
 });
 for (const theme of ["light", "dark"]) {
+  test(`discovery request text and control names remain accessible in ${theme}`, async ({ page }, info) => {
+    await intercept(page, 0, false, theme);
+    await page.emulateMedia({ reducedMotion: "reduce", contrast: "more" });
+    await page.goto("/?tab=discovery");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    const card = page.locator("[data-discovery-search-card]");
+    await expect(card).toBeVisible();
+    for (const button of await card.getByRole("button").all()) await expect(button).toHaveAccessibleName(/\S/);
+    for (const chip of await card.locator("[data-discovery-chip]").all()) await expect(chip).toHaveAttribute("aria-pressed", /^(true|false)$/);
+    const measurements = await textContrast(page, "[data-discovery-search-card]");
+    expect(measurements.length).toBeGreaterThan(10);
+    await info.attach("text-contrast", { body: JSON.stringify(measurements, null, 2), contentType: "application/json" });
+    expect(measurements.filter(item => item.ratio < 4.5)).toEqual([]);
+  });
+
+  test(`discovery confirmation text and control names remain accessible in ${theme}`, async ({ page }, info) => {
+    await intercept(page, 0, false, theme);
+    await page.emulateMedia({ reducedMotion: "reduce", contrast: "more" });
+    await page.goto(`/s/${task.session_id}`);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    const actions = page.getByRole("region", { name: "待确认动作" });
+    await expect(actions).toBeVisible();
+    await expect(actions).toContainText("需确认执行（L3）");
+    await expect(actions.getByRole("button", { name: "确认执行以上内容", exact: true })).toBeEnabled();
+    for (const button of await actions.getByRole("button").all()) await expect(button).toHaveAccessibleName(/\S/);
+    const trace = page.locator('[data-kind="process-trace"]');
+    for (const status of ["已完成", "失败", "执行中", "已跳过", "待处理"]) await expect(trace.getByRole("img", { name: status, exact: true }).first()).toBeVisible();
+    const measurements = await textContrast(page, ".session-center");
+    expect(measurements.length).toBeGreaterThan(20);
+    await info.attach("text-contrast", { body: JSON.stringify(measurements, null, 2), contentType: "application/json" });
+    expect(measurements.filter(item => item.ratio < 4.5)).toEqual([]);
+  });
+
   test(`HTTP SSE preserves history reading and follows the bottom in ${theme}`, async ({ page }) => {
     const clients = new Set<ServerResponse>();
     const server = createServer((_request, response) => {
@@ -198,11 +274,11 @@ for (const theme of ["light", "dark"]) {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Missing isolated stream address");
     try {
-      const errors = await intercept(page, 0, true);
+      const errors = await intercept(page, 0, true, theme);
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.route(`**/api/sessions/${task.session_id}/events`, route => route.continue({ url: `http://127.0.0.1:${address.port}/events` }));
       await page.goto(`/s/${task.session_id}`);
-      await page.evaluate(value => document.documentElement.dataset.theme = value, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       const pane = page.locator("[data-session-stream-pane]");
       await expect(pane).toBeVisible();
       await expect.poll(() => clients.size).toBe(1);
