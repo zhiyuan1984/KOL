@@ -49,7 +49,6 @@
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
 }
-.employee-row-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; margin-right: var(--space-2); vertical-align: -5px; }
 .employee-person p { margin: 2px 0 0; }
 .employee-directory-table tr[data-state="inactive"] { color: var(--text-muted); }
 .employee-directory-table tr[data-state="inactive"] .employee-person > span { opacity: .58; }
@@ -134,14 +133,49 @@
 [data-admin-employees] button:not(.icon-btn) { border: 0; background: transparent; box-shadow: none; font-size: var(--ds-font-sm); min-height: var(--control-h-lg); cursor: pointer; }
 [data-admin-employees] .governance-filter-options button[aria-pressed='true'] { color: var(--accent-text); font-weight: 600; text-decoration: underline; text-underline-offset: var(--space-1); }
 [data-admin-employees] button:hover { color: var(--accent-text); text-decoration: underline; }
-[data-admin-employees] .governance-inline-actions .employee-danger-action { color: var(--danger); }
+[data-admin-employees] button.employee-danger-action { color: var(--danger); }
 [data-admin-employees] button:focus-visible,
 .employee-organization-filter select:focus-visible,
 .employee-organization-filter input:focus-visible { outline: var(--focus-ring); }
-[data-admin-employees] .governance-employee-row { grid-template-columns: 1fr; gap: var(--space-1); cursor: default; }
-[data-admin-employees] .governance-employee-row > * { display: block; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
-[data-admin-employees] .governance-employee-row > .governance-inline-actions { display: flex; flex-wrap: wrap; }
-[data-admin-employees] .governance-inline-actions button { padding: 0 var(--space-1); }
+/* 员工卡片：双行结构＝头像＋姓名·工号＋Agent 文案｜邮箱＋操作组；
+   右侧账号启停与操作组固定靠右，左侧自适应省略；卡片间距替代列表分隔线。 */
+[data-admin-employees] .governance-list { display: grid; gap: var(--space-3); border: 0; border-radius: 0; overflow: visible; }
+[data-admin-employees] .governance-employee-row { display: block; padding: 0; border: 0; background: transparent; cursor: default; }
+[data-admin-employees] .governance-employee-row:hover { background: transparent; }
+[data-admin-employees] .governance-employee-row > .employee-card { white-space: normal; overflow: visible; text-overflow: clip; }
+.employee-card { display: flex; align-items: center; min-height: 92px; padding: var(--space-3) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg); }
+.employee-avatar { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; margin-right: var(--space-4); border-radius: 50%; overflow: hidden; background: var(--fill-control); color: var(--text-muted); font-size: var(--ds-font-section); }
+.employee-avatar img { width: 100%; height: 100%; margin: 0; object-fit: cover; }
+.employee-avatar > span { text-transform: uppercase; }
+.employee-main { flex: 1; min-width: 0; }
+.employee-row { display: flex; align-items: center; justify-content: space-between; min-width: 0; }
+.employee-row-primary,
+.employee-row-secondary { min-height: 30px; }
+.employee-row-secondary { margin-top: var(--space-1); padding-top: var(--space-1); border-top: 1px solid var(--border); }
+.employee-profile { display: flex; align-items: center; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
+.employee-name { flex: 0 0 auto; font-size: var(--ds-font-ui); line-height: var(--ds-line-ui); font-weight: 600; color: var(--text); }
+.employee-dot { flex: 0 0 auto; margin: 0 var(--space-1); color: var(--text-muted); }
+.employee-no { flex: 0 0 auto; font-size: var(--ds-font-sm); color: var(--text-muted); }
+.employee-divider { flex: 0 0 auto; width: 1px; height: 14px; margin: 0 var(--space-3); background: var(--border); }
+.employee-agent { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ds-font-sm); color: var(--text-muted); }
+.employee-status { flex: 0 0 auto; margin-left: var(--space-4); }
+.employee-email { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: var(--space-5); font-size: var(--ds-font-sm); color: var(--text-muted); }
+.employee-actions { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-3); white-space: nowrap; }
+.employee-actions .action-divider { flex: 0 0 auto; width: 1px; height: 14px; background: var(--border); }
+[data-admin-employees] .employee-card button { font: inherit; min-height: var(--workspace-task-action-h); padding: 2px 0; }
+[data-admin-employees] .employee-card .employee-actions button,
+[data-admin-employees] .employee-card .employee-status { color: var(--accent-text); }
+[data-admin-employees] .employee-card button.employee-danger-action { color: var(--danger); }
+@media (max-width: 1200px) {
+  .employee-card { padding-inline: var(--space-4); }
+  .employee-divider { margin-inline: var(--space-2); }
+  .employee-actions { gap: var(--space-2); }
+  .employee-email { max-width: 320px; }
+}
+@media (max-width: 960px) {
+  .employee-agent { max-width: 220px; }
+  .employee-email { max-width: 240px; }
+}
 .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog { width: min(var(--dialog-w-lg), calc(100vw - var(--space-4) * 2)); max-height: 88dvh; border-radius: var(--radius-dialog); container-type: inline-size; }
 .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog :is(h2, h3, p, label, legend, input, select, button, strong, span) { font-size: var(--ds-font-sm); }
 .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog-head { position: relative; padding-inline: calc(var(--space-4) + var(--control-h-form)); min-height: var(--control-h-form); align-items: center; }
@@ -160,6 +194,7 @@
 @media (max-width: 1100px) { [data-admin-employees] { grid-template-columns: 1fr; } }
 @media (pointer: coarse) {
   [data-admin-employees] button,
+  [data-admin-employees] .employee-card button,
   .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) button { min-height: 44px; }
 }
 @media (max-width: 860px) {

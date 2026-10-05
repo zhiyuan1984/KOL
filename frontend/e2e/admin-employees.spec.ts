@@ -104,8 +104,20 @@ test("员工页单选筛选与精简列表；管理绑定先试算覆盖再确�
   await expect(row).not.toContainText("LT、PQ");
   await expect(row).not.toContainText("KOL 经理");
   await expect(row).toContainText("商务 Agent");
-  const cells = await row.evaluate((el) => Array.from(el.children).map((child) => (child.textContent || "").trim()));
-  expect(cells).toHaveLength(4);
+  const card = row.locator(".employee-card");
+  await expect(card).toHaveCount(1);
+  await expect(card.locator(".employee-row-primary .employee-name")).toHaveText("目录员工");
+  await expect(card.locator(".employee-row-primary .employee-agent")).toHaveText("商务 Agent");
+  await expect(card.locator(".employee-row-primary .employee-status")).toHaveText("停用");
+  await expect(card.locator(".employee-row-secondary .employee-email")).toHaveText("directory@amperetime.com");
+  await expect(card.locator(".employee-actions button")).toHaveCount(3);
+  // 右侧基线：顶行状态与底行操作组的右缘对齐，不随文字长度漂移。
+  const rightEdges = await card.evaluate((el) => {
+    const status = el.querySelector(".employee-status")!.getBoundingClientRect().right;
+    const actions = el.querySelector(".employee-actions")!.getBoundingClientRect().right;
+    return Math.abs(status - actions);
+  });
+  expect(rightEdges).toBeLessThanOrEqual(1);
   const groups = directory.locator(".governance-filter-group");
   await expect(groups).toHaveCount(2);
   await expect(groups.nth(0).locator("strong")).toHaveText("品牌");
@@ -207,7 +219,16 @@ test("选择上级组织时包含下级组员工，不包含旁支员工", async
   await expect(directory.locator("[data-employee-row='usr_promotion']")).toBeVisible();
   for (const width of [1280, 1024, 860]) {
     await page.setViewportSize({ width, height: 700 });
-    await expect(directory.locator('[data-employee-row="usr_promotion"]').getByRole("button", { name: "编辑", exact: true })).toBeVisible();
+    const card = directory.locator('[data-employee-row="usr_promotion"] .employee-card');
+    await expect(card.locator(".employee-actions").getByRole("button", { name: "编辑", exact: true })).toBeVisible();
+    await expect(card.locator(".employee-status")).toBeVisible();
+    // 右侧基线在窄宽度下同样保持：顶行状态与底行操作组右缘对齐。
+    const edges = await card.evaluate((el) => {
+      const status = el.querySelector(".employee-status")!.getBoundingClientRect().right;
+      const actions = el.querySelector(".employee-actions")!.getBoundingClientRect().right;
+      return Math.abs(status - actions);
+    });
+    expect(edges).toBeLessThanOrEqual(1);
     expect(await directory.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
   }
 });

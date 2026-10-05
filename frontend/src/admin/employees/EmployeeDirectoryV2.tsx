@@ -230,6 +230,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   const agentNames = (user: Employee) => (data?.agents || [])
     .filter((agent) => agent.coverage.user_ids.includes(user.id))
     .map((agent) => `${agent.name}${agent.status === "published" ? "" : agent.status === "draft" ? "（草稿）" : "（停用）"}`);
+  const agentText = (user: Employee) => data ? agentNames(user).join("、") || "未绑定 Agent" : "读取中…";
   const changeActive = (user: Employee) => {
     const act = async () => {
       try {
@@ -262,9 +263,31 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
         {loadError && <p className="error" role="alert">{loadError}</p>}
         <div className="governance-list">
           {visible.map((user) => <div className="governance-list-row governance-employee-row" key={user.id} data-employee-row={user.id}>
-            <strong title={user.employee_no ? `${label(user)} · 工号 ${user.employee_no}` : label(user)}>{user.avatar_url ? <img className="employee-row-avatar" data-employee-avatar src={String(user.avatar_url)} alt="" aria-hidden /> : null}{label(user)}{user.employee_no ? <small className="governance-employee-number"> · {user.employee_no}</small> : null}</strong><span className="muted">{email(user)}</span>
-            <span>{data ? agentNames(user).join("、") || "未绑定 Agent" : "读取中…"}</span>
-            <span className="governance-inline-actions"><button type="button" onClick={() => setEditing(user)}>编辑</button><button type="button" onClick={() => setManaging(user)}>管理绑定</button><button type="button" className={user.active === false ? undefined : "employee-danger-action"} onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button></span>
+            <div className="employee-card">
+              <div className="employee-avatar" aria-hidden="true">
+                {user.avatar_url ? <img data-employee-avatar src={String(user.avatar_url)} alt="" /> : <span>{label(user).slice(0, 1)}</span>}
+              </div>
+              <div className="employee-main">
+                <div className="employee-row employee-row-primary">
+                  <div className="employee-profile">
+                    <strong className="employee-name" title={user.employee_no ? `${label(user)} · 工号 ${user.employee_no}` : label(user)}>{label(user)}</strong>{user.employee_no ? <><span className="employee-dot" aria-hidden="true">·</span><span className="employee-no">{user.employee_no}</span></> : null}
+                    <span className="employee-divider" aria-hidden="true" />
+                    <span className="employee-agent" title={agentText(user)}>{agentText(user)}</span>
+                  </div>
+                  <button type="button" className={user.active === false ? "employee-status" : "employee-status employee-danger-action"} onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button>
+                </div>
+                <div className="employee-row employee-row-secondary">
+                  <div className="employee-email" title={email(user)}>{email(user)}</div>
+                  <div className="employee-actions">
+                    <button type="button" onClick={() => setEditing(user)}>编辑</button>
+                    <span className="action-divider" aria-hidden="true" />
+                    <button type="button" onClick={() => setManaging(user)}>管理绑定</button>
+                    <span className="action-divider" aria-hidden="true" />
+                    <button type="button" className={user.active === false ? undefined : "employee-danger-action"} onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>)}
           {!visible.length && <p className="governance-empty">没有符合筛选条件的员工。</p>}
         </div>
