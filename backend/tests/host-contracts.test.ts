@@ -768,7 +768,7 @@ describe("host contracts", () => {
         });
         const operation = messages.find((message) => message.kind === "operation_trace");
         if (operation) {
-          expect((operation.payload as Json)?.title, `${rec.id}: operation title`).toBe("远程MCP调用");
+          expect((operation.payload as Json)?.title, `${rec.id}: operation title`).toBe("系统能力调用记录");
           const operationItems = (operation.payload as Json).items as Json[];
           expect(operationItems.every((item) => String(item.name || "").startsWith(prefix)),
             `${rec.id}: only ${prefix} operations`).toBe(true);
@@ -779,7 +779,7 @@ describe("host contracts", () => {
       expect(messages.some((message) => message.kind === "process_trace"), `${rec.id}: process`).toBe(true);
       const operation = messages.find((message) => message.kind === "operation_trace");
       if (operation) {
-        expect((operation.payload as Json)?.title, `${rec.id}: operation title`).toBe("远程MCP调用");
+        expect((operation.payload as Json)?.title, `${rec.id}: operation title`).toBe("系统能力调用记录");
         expect(Array.isArray((operation.payload as Json)?.items), `${rec.id}: operation items`).toBe(true);
         const operationItems = (operation.payload as Json).items as Json[];
         expect(operationItems.some((item) => String(item.name || "").startsWith("phase:")),

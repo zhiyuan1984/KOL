@@ -17,7 +17,7 @@ export type WorkerPhase =
 
 export type WorkerTraceKind = "host" | "reasoning" | "result";
 
-export const REMOTE_MCP_TITLE = "远程MCP调用";
+export const REMOTE_MCP_TITLE = "系统能力调用记录";
 export const REASONING_STREAM_LIMIT = 4000;
 
 export type WorkerTraceItem = {

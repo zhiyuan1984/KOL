@@ -258,7 +258,7 @@ describe("home discovery Codex reasoning stream", () => {
     expect(stepRow.status).toBe("interrupted");
   });
 
-  it("marks the running row interrupted and keeps the failure event last when the brief fails validation", async () => {
+  it("preserves finished reasoning and keeps the failure event last when the brief fails validation", async () => {
     setDiscoveryBriefRunner(async (input) => {
       input.onStream?.(reasoning("先按均播粗筛", "running"));
       return { items: [{ type: "task_result", title: "半段结果", summary: "没有 ranking", sections: [], metrics: [], recommended_actions: [] }] };
@@ -267,7 +267,9 @@ describe("home discovery Codex reasoning stream", () => {
     expect(run.status).toBe("rank_failed");
     const workItemId = workItemIdOf(run);
     const thinking = traceRows(workItemId).find((row) => row.event_type === "run.think") as Row;
-    expect(thinking).toMatchObject({ label: "Codex 推理", safe_summary: "先按均播粗筛", status: "interrupted" });
+    // The worker returned before result validation failed: completed reasoning
+    // stays done while the task's final failure event remains authoritative.
+    expect(thinking).toMatchObject({ label: "Codex 推理", safe_summary: "先按均播粗筛", status: "done" });
     // 失败终态事件在推理行之后：工作项的「最新状态」不会被推理行顶掉。
     const last = getConn().prepare(
       "SELECT event_type FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT 1",
