@@ -1,14 +1,16 @@
-import { reviewApi, reviewHeaders } from "../../reviews/api";
+import WorkspaceActions from "./WorkspaceActions";
+import { reviewApi, reviewHeaders,reviewCompany } from "../../reviews/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
 import PublicationPanel from "./PublicationPanel";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
-import { KB_DOC_JOB_KIND_LABEL, KB_DOC_JOB_STATUS_LABEL, formatKbTime, kbDocProgressText } from "../../knowledgeCopy";
+import { KB_DOC_JOB_KIND_LABEL, KB_DOC_JOB_STATUS_LABEL, formatKbTime, kbDocProgressText,kbDocStatusLabel } from "../../knowledgeCopy";
 import KbvIcon from "../../knowledgeIcons";
 import { errorMessage, useKbData } from "./shared";
 
-export default function DocumentRail({ id, path, reload, notify }: {
+export default function DocumentRail({ id, path, reload, notify,mode="detail",onMode,onRevision,onDirty }: {
+  mode?:string;onMode?:(mode:"detail"|"edit"|"review")=>void;onRevision?:(id:string)=>void;onDirty?:(dirty:boolean)=>void;
   id: string; path: string; reload: () => void; notify: (message: string) => void; fail: (cause: unknown) => void;
 }) {
   const load = useCallback(() => api.adminKnowledgeDocument(id), [id]);
@@ -17,6 +19,7 @@ export default function DocumentRail({ id, path, reload, notify }: {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const lock = useRef(false);
+  const [replacement,setReplacement]=useState<File|null>(null);
   const doc = data?.document;
   const processing = Boolean(doc && ["uploaded", "normalizing", "indexing"].includes(doc.status));
   const progress = doc ? kbDocProgressText(doc) : "";
@@ -60,12 +63,12 @@ export default function DocumentRail({ id, path, reload, notify }: {
       const form=new FormData();form.append("file",file);form.append("updated_at",doc.updated_at);
       const response=await fetch(`/api/admin/knowledge/documents/${encodeURIComponent(id)}/draft-file`,{method:"PUT",headers:reviewHeaders(),body:form});
       const body=await response.json();if(!response.ok)throw new Error(body.detail?.message || body.detail || "替换失败");
-      notify("草稿原件已替换，尚未解析或发布");refresh();reload();
+      notify("草稿原件已替换，尚未解析或发布");setReplacement(null);onDirty?.(false);refresh();reload();onMode?.("detail");
     }catch(cause){setActionError(errorMessage(cause));}finally{setBusy(false);}
   }
   async function revision() {
     setBusy(true);setActionError("");
-    try {const r=await reviewApi<{document_id:string}>(`/admin/knowledge/documents/${encodeURIComponent(id)}/revision`,{});window.location.assign(`/admin/knowledge?document=${encodeURIComponent(r.document_id)}`);}
+    try {const r=await reviewApi<{document_id:string}>(`/admin/knowledge/documents/${encodeURIComponent(id)}/revision`,{});onRevision?.(r.document_id);setBusy(false);}
     catch(cause){setActionError(errorMessage(cause));setBusy(false);}
   }
   const blocked = busy || loading || Boolean(error) || confirming;
@@ -77,28 +80,32 @@ export default function DocumentRail({ id, path, reload, notify }: {
       {actionError && !confirming && <p className="error" role="alert">{actionError}</p>}
       {doc && data && <>
         <h2 className="kbv-document-title">{doc.title}</h2>
+        <span className="kbv-status">{doc.publication_label || kbDocStatusLabel(doc.status)} · v{doc.current_version || 1}</span>
+        {mode!=="review" && <dl className="kbw-properties"><div><dt>维护人</dt><dd>{doc.created_by || "未记录"}</dd></div><div><dt>文件大小</dt><dd>{doc.size_bytes} B</dd></div><div><dt>创建时间</dt><dd>{formatKbTime(doc.created_at)}</dd></div><div><dt>更新时间</dt><dd>{formatKbTime(doc.updated_at)}</dd></div>{doc.published_at && <div><dt>发布时间</dt><dd>{formatKbTime(doc.published_at)}</dd></div>}</dl>}
         {path && <div className="kbv-document-path" aria-label="资料分类">{path.split(" / ").map((part, index) => <span key={`${index}-${part}`}>{part}</span>)}</div>}
-        <section className="kbv-document-source">
+        {mode!=="review" && <section className="kbv-document-source">
           <h3>非结构化 PDF</h3>
           <p>{doc.filename}</p>
-          <a className="kbv-link-plain" href={`/api/admin/knowledge/documents/${encodeURIComponent(id)}/file`} target="_blank" rel="noreferrer"><KbvIcon name="file" />查看 PDF 原件<span className="sr-only">（新窗口打开）</span></a>
-        </section>
+          <a className="kbv-link-plain" href={`/api/admin/knowledge/documents/${encodeURIComponent(id)}/file${reviewCompany()?"?company="+encodeURIComponent(reviewCompany()):""}`} target="_blank" rel="noreferrer"><KbvIcon name="file" />查看 PDF 原件<span className="sr-only">（新窗口打开）</span></a>
+        </section>}
         {doc.error && <div className="kbv-document-notice" role="alert"><KbvIcon name="status" /><span>{doc.error}</span><button className="kbv-text-action" disabled={blocked} onClick={refresh}>重新检查</button></div>}
         {processing && <p role="status" className="kbv-document-progress">{progress || "等待加工服务处理已提交的资料"} · 自动刷新中</p>}
-        {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p><label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,application/pdf" onChange={e=>{const file=e.currentTarget.files?.[0];e.currentTarget.value="";if(file)void replace(file);}} /></label></>}
+        {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p>{mode==="edit" && <label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,application/pdf" onChange={e=>{const file=e.currentTarget.files?.[0];if(file){setReplacement(file);onDirty?.(true);}}} />{replacement && <p>{replacement.name}</p>}</label>}</>}
         {doc.status === "cancelled" && <p>加工已取消，可重试恢复；未发布资料不参与员工问答。</p>}
-        {["pending_review", "published"].includes(doc.status) && <PublicationPanel key={id} id={id} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}
-        <div className="kbv-document-actions">
+        {["pending_review", "published"].includes(doc.status) && <PublicationPanel key={id} id={id} mode={mode==="review"?"review":"detail"} onInitiate={()=>onMode?.("review")} onSubmitted={()=>onMode?.("detail")} onDirty={onDirty} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}
+        {mode!=="review" && <WorkspaceActions><div className="kbv-document-actions">
       <div className="kbv-actions">
-        {doc.status === "draft" && <button className="btn work" data-kbv-doc-action="start" disabled={blocked} onClick={() => void run("start", "已提交解析，完成后待审核，不自动发布")}>{busy ? "提交中…" : "开始解析"}</button>}
+        {data.actions?.start && mode!=="edit" && <button className="btn work" data-kbv-doc-action="start" disabled={blocked} onClick={() => void run("start", "已提交解析，完成后待审核，不自动发布")}>{busy ? "提交中…" : "开始解析"}</button>}
 
-        {["failed", "cancelled"].includes(doc.status) && <button className="btn work" data-kbv-doc-action="retry" disabled={blocked} onClick={() => void run("retry", "已提交重试，完成后待审核")}>{busy ? "提交中…" : "重试加工"}</button>}
-        {processing && <button className="btn" data-kbv-doc-action="cancel" disabled={blocked} onClick={() => void run("cancel", "已提交取消加工")}>取消加工</button>}
-        {["pending_review","published","archived"].includes(doc.status) && <button className="kbv-text-action" disabled={blocked} onClick={()=>void revision()}>创建新版本草稿</button>}
+        {data.actions?.edit && mode!=="edit" && <button className="btn" disabled={blocked} onClick={()=>onMode?.("edit")}>替换草稿原件</button>}
+        {mode==="edit" && <><button className="btn" disabled={blocked} onClick={()=>onMode?.("detail")}>取消编辑</button><button className="btn work" disabled={blocked || !replacement} onClick={()=>replacement && void replace(replacement)}>{busy?"保存中…":"保存"}</button></>}
+        {data.actions?.retry && <button className="btn work" data-kbv-doc-action="retry" disabled={blocked} onClick={() => void run("retry", "已提交重试，完成后待审核")}>{busy ? "提交中…" : "重试加工"}</button>}
+        {data.actions?.cancel && <button className="btn" data-kbv-doc-action="cancel" disabled={blocked} onClick={() => void run("cancel", "已提交取消加工")}>取消加工</button>}
+        {data.actions?.revision && <button className={doc.status==="published" ? "btn work":"kbv-text-action"} disabled={blocked} onClick={()=>void revision()}>创建新版本草稿</button>}
         <button className="kbv-text-action" disabled={busy || loading || confirming} onClick={refresh}>{loading ? "检查中…" : "刷新资料"}</button>
       </div>
-        </div>
-        <details className="kbv-document-history">
+        </div></WorkspaceActions>}
+        {mode!=="review" && <><details className="kbv-document-history" open={processing || doc.status==="failed"}>
           <summary>加工记录与来源</summary>
           {doc.created_by && <p>维护责任人：{doc.created_by}</p>}
           {!data.jobs.length ? <p className="muted">暂无加工记录。</p> : <ul>{data.jobs.map(job => <li key={job.id}>
@@ -112,7 +119,7 @@ export default function DocumentRail({ id, path, reload, notify }: {
         <div className="kbv-document-links">
           <Link to="/admin/knowledge/ingest">查看加工进度与恢复操作 <span aria-hidden="true">→</span></Link>
           <Link to={`/admin/knowledge/bases/${encodeURIComponent(doc.base_id)}`}>查看知识库与管理端试算 <span aria-hidden="true">→</span></Link>
-        </div>
+        </div></>}
       </>}
     </div>
 

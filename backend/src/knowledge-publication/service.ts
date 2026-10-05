@@ -1,3 +1,4 @@
+import { entryMaterial, authorizeEntry, publishEntry } from "../knowledge/workspace.js";
 import { publicationSnapshot } from "../knowledge/publication.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -78,7 +79,8 @@ export async function publicationLabels(
     ]);
   });
 }
-export async function documentMaterial(db: PoolClient, documentId: string) {
+export async function documentMaterial(db: PoolClient, documentId: string): Promise<any> {
+  if(documentId.startsWith("entry:")) return entryMaterial(db, documentId.slice(6));
   const doc = (
     await db.query("SELECT d.*,b.status AS base_status FROM knowledge_documents d JOIN knowledge_bases b ON b.id=d.base_id WHERE d.id=$1 FOR UPDATE OF d", [
       documentId,
@@ -120,12 +122,13 @@ export async function documentMaterial(db: PoolClient, documentId: string) {
   };
   return { doc, bytes, snapshot, fingerprint: hash(snapshot) };
 }
-async function adminDocument(
+export async function adminDocument(
   db: PoolClient,
   actor: string,
   tenant: string | undefined,
   id: string,
 ) {
+  if(id.startsWith("entry:")) return authorizeEntry(db, actor, tenant, id.slice(6));
   const ctx = await postgresReviewContext(db, actor, tenant);
   if (!ctx.admin) fail(403, "需要知识管理权限");
   const doc = (
@@ -133,11 +136,13 @@ async function adminDocument(
       id,
     ])
   ).rows[0];
-  if (!doc || !ctx.people.some((p) => p.id === doc.created_by))
+  const ownerIds=ctx.people.map(p=>p.id);
+  const authorizedOwners=(await db.query("SELECT id,username FROM users WHERE id=ANY($1::text[])",[ownerIds])).rows.flatMap(r=>[r.id,r.username]);
+  if (!doc || !authorizedOwners.includes(doc.created_by))
     fail(403, "资料来源缺少当前组织授权依据");
   const legacy=(await db.query("SELECT b.tenant FROM knowledge_documents d JOIN knowledge_publication_bindings b ON b.base_id=d.base_id WHERE d.id=$1",[id])).rows[0];
   if(legacy && legacy.tenant!==ctx.tenant) fail(403,"资料已绑定其他组织的知识库范围");
-  const scope=(await db.query("SELECT tenant FROM knowledge_publication_applications WHERE document_id=$1 ORDER BY created_at,instance_id LIMIT 1",[id])).rows[0];
+  const scope=(await db.query("SELECT tenant FROM knowledge_publication_applications WHERE asset_key=$1 ORDER BY created_at,instance_id LIMIT 1",[id])).rows[0];
   if(scope&&scope.tenant!==ctx.tenant) fail(403,"资料已绑定其他组织的发布审批范围");
   return ctx;
 }
@@ -164,7 +169,13 @@ export async function publicationProjection(
   return {
     tenant,
     instanceId,
-    documentId: row.document_id,
+    documentId: row.document_id || row.asset_key,
+    assetType: row.entry_id ? "entry" : "document",
+    assetId: row.entry_id || row.document_id,
+    content: row.entry_id ? snapshot.content : undefined,
+    version: snapshot.version || snapshot.engine?.document_version,
+    releaseMode: row.release_mode,
+    canPublish: row.status === "waiting" && row.review_status === "approved" && row.release_mode === "manual" && !row.publication_requested,
     title: snapshot.title,
     filename: snapshot.filename,
     fingerprint: row.fingerprint,
@@ -193,9 +204,9 @@ export async function publicationOptions(
   return postgresTransaction(async (db) => {
     const ctx = await postgresReviewContext(db, actor, tenant);
     if (!ctx.admin) fail(403, "需要知识管理权限");
-    const legacy=(await db.query("SELECT d.updated_at FROM knowledge_publications p JOIN knowledge_documents d ON d.id=p.document_id WHERE p.document_id=$1 AND p.tenant=$2",[id,ctx.tenant])).rows[0];
-    if(legacy) return {tenant:ctx.tenant,legacy:{updatedAt:legacy.updated_at},templates:[],publication:null,intake:reviewIntake(ctx.tenant)};
     await adminDocument(db, actor, ctx.tenant, id);
+    const legacy=(await db.query("SELECT d.updated_at FROM knowledge_publications p JOIN knowledge_documents d ON d.id=p.document_id WHERE p.document_id=$1 AND p.tenant=$2",[id,ctx.tenant])).rows[0];
+    if(legacy && !id.startsWith("entry:")) return {tenant:ctx.tenant,legacy:{updatedAt:legacy.updated_at},templates:[],publication:null,intake:reviewIntake(ctx.tenant)};
     const templates = (
       await db.query(
         `SELECT t.id,v.version,v.definition FROM review_templates t
@@ -213,13 +224,18 @@ export async function publicationOptions(
       .filter((t) => t.definition.subjectType === "knowledge_publication" && t.definition.nodes.some((n) => n.type === "review"));
     const latest = (
       await db.query(
-        "SELECT instance_id FROM knowledge_publication_applications WHERE tenant=$1 AND document_id=$2 ORDER BY created_at DESC,instance_id DESC LIMIT 1",
+        "SELECT instance_id FROM knowledge_publication_applications WHERE tenant=$1 AND asset_key=$2 AND (entry_id IS NULL OR (snapshot::jsonb->>'version')::integer=(SELECT current_version FROM knowledge WHERE id=entry_id)) ORDER BY created_at DESC,instance_id DESC LIMIT 1",
         [ctx.tenant, id],
       )
     ).rows[0];
+    const asset=id.startsWith("entry:")
+      ? (await db.query("SELECT status,current_version,published_version FROM knowledge WHERE id=$1",[id.slice(6)])).rows[0]
+      : (await db.query("SELECT status FROM knowledge_documents WHERE id=$1",[id])).rows[0];
+    const allowed=id.startsWith("entry:") ? asset.status!=="archived" && Number(asset.current_version)!==Number(asset.published_version) : asset.status==="pending_review";
     return {
       tenant: ctx.tenant,
       templates,
+      submission:{allowed,reason:allowed?"":asset.status==="published"?"请先创建新版本草稿":asset.status==="archived"?"当前知识已停用":"请先保存原件并完成内容加工"},
       publication: latest
         ? await publicationProjection(db, ctx.tenant, latest.instance_id)
         : null,
@@ -273,7 +289,7 @@ async function prepareMaterial(
   if (
     (
       await db.query(
-        "SELECT instance_id FROM knowledge_publication_applications WHERE document_id=$1 AND status='waiting'",
+        "SELECT instance_id FROM knowledge_publication_applications WHERE asset_key=$1 AND status='waiting'",
         [id],
       )
     ).rowCount
@@ -377,7 +393,7 @@ export async function preparePublication(
           (t) => p.ctx.people.find((u) => u.id === t.userId)?.name || t.userId,
         ),
         consequence:
-          "提交后原件、加工版本及发布说明冻结。此知识发布流程通过后，服务端自动发布该版本并记录回执；未通过时不参与员工问答。",
+          "提交后本次内容、版本及发布说明冻结。审批通过后等待发布；发布前该版本不参与员工问答。",
       },
     };
   });
@@ -406,6 +422,7 @@ export async function checkPublication(
         allowed: false,
         reason: error.message,
         reviewers: [],
+        issues: typeof error.detail === "object" ? (error.detail as Row).issues : [],
         fingerprint: "",
       };
     }
@@ -416,11 +433,12 @@ async function recoveryMaterial(
   actor: string,
   tenant: string | undefined,
   id: string,
+  operation: "recover" | "publish" = "recover",
 ) {
   const ctx = await adminDocument(db, actor, tenant, id);
   const p = (
     await db.query(
-      "SELECT * FROM knowledge_publication_applications WHERE tenant=$1 AND document_id=$2 AND status='waiting' FOR UPDATE",
+      "SELECT * FROM knowledge_publication_applications WHERE tenant=$1 AND asset_key=$2 AND status='waiting' FOR UPDATE",
       [ctx.tenant, id],
     )
   ).rows[0];
@@ -438,7 +456,7 @@ async function recoveryMaterial(
       [ctx.tenant, p.instance_id],
     )
   ).rows[0];
-  if (!job || !["failed", "uncertain", "cancelled"].includes(job.status))
+  if (operation === "publish" ? (p.release_mode !== "manual" || p.publication_requested || Boolean(job)) : (!job || !["failed", "uncertain", "cancelled"].includes(job.status)))
     fail(409, "发布作业仍在处理，请等待服务或查看执行记录");
   const material = await documentMaterial(db, id);
   if (material.fingerprint !== p.fingerprint)
@@ -449,15 +467,15 @@ async function recoveryMaterial(
     job,
     review,
     digest: hash({
-      action: "recover",
+      action: operation,
       tenant: ctx.tenant,
       actor,
       id,
       instanceId: p.instance_id,
-      jobId: job.id,
-      jobStatus: job.status,
-      jobUpdatedAt: job.updated_at,
-      jobAttempts: job.attempts,
+      jobId: job?.id,
+      jobStatus: job?.status,
+      jobUpdatedAt: job?.updated_at,
+      jobAttempts: job?.attempts,
       fingerprint: material.fingerprint,
     }),
   };
@@ -466,14 +484,15 @@ export async function preparePublicationRecovery(
   actor: string,
   tenant: string | undefined,
   id: string,
+  operation: "recover" | "publish" = "recover",
 ) {
   return postgresTransaction(async (db) => {
-    const r = await recoveryMaterial(db, actor, tenant, id),
+    const r = await recoveryMaterial(db, actor, tenant, id, operation),
       confirmationId = randomUUID(),
       expiresAt = new Date(Date.now() + 300000).toISOString();
     await db.query(
-      "INSERT INTO knowledge_publication_confirmations(id,tenant,actor,document_id,digest,expires_at,operation) VALUES($1,$2,$3,$4,$5,$6,'recover')",
-      [confirmationId, r.ctx.tenant, actor, id, r.digest, expiresAt],
+      "INSERT INTO knowledge_publication_confirmations(id,tenant,actor,document_id,digest,expires_at,operation) VALUES($1,$2,$3,$4,$5,$6,$7)",
+      [confirmationId, r.ctx.tenant, actor, id, r.digest, expiresAt, operation],
     );
     return { confirmationId, expiresAt, title: JSON.parse(r.p.snapshot).title };
   });
@@ -484,6 +503,7 @@ export async function recoverPublication(
   id: string,
   confirmationId: string,
   key: string,
+  operation: "recover" | "publish" = "recover",
 ) {
   if (typeof key !== "string" || key.length < 8 || key.length > 128)
     fail(422, "缺少有效幂等键");
@@ -495,7 +515,7 @@ export async function recoverPublication(
       )
     ).rows[0];
     if (!c) fail(403, "缺少恢复发布确认");
-    if (c.operation !== "recover") fail(403, "确认不属于恢复发布操作");
+    if (c.operation !== operation) fail(403, "确认不属于恢复发布操作");
     const ctx = await adminDocument(db, actor, tenant, id);
     if (c.tenant !== ctx.tenant) fail(403, "组织已变化");
     if (c.consumed) {
@@ -503,8 +523,9 @@ export async function recoverPublication(
       fail(409, "确认已使用");
     }
     if (c.expires_at < new Date().toISOString()) fail(409, "恢复确认已过期");
-    const r = await recoveryMaterial(db, actor, tenant, id);
+    const r = await recoveryMaterial(db, actor, tenant, id, operation);
     if (c.digest !== r.digest) fail(409, "发布作业或材料已变化，请重新确认");
+    await db.query("UPDATE knowledge_publication_applications SET publication_requested=1 WHERE tenant=$1 AND instance_id=$2",[ctx.tenant,r.p.instance_id]);
     const result = await pgEnqueueExecutionJob(
       {
         job_type: "knowledge.publication",
@@ -525,7 +546,7 @@ export async function recoverPublication(
     );
     const receipt = {
       id: randomUUID(),
-      status: "recovery_submitted",
+      status: operation === "publish" ? "publication_submitted" : "recovery_submitted",
       jobId: result.job.id,
       instanceId: r.p.instance_id,
       at: new Date().toISOString(),
@@ -601,16 +622,18 @@ export async function submitPublication(
       ],
     );
     await db.query(
-      "INSERT INTO knowledge_publication_applications(tenant,instance_id,document_id,actor,snapshot,fingerprint,release_note,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)",
+      "INSERT INTO knowledge_publication_applications(tenant,instance_id,document_id,actor,snapshot,fingerprint,release_note,created_at,updated_at,entry_id,asset_key,release_mode) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,'manual')",
       [
         ctx.tenant,
         i.id,
-        id,
+        id.startsWith("entry:") ? null : id,
         actor,
         JSON.stringify(p.material.snapshot),
         p.material.fingerprint,
         command.releaseNote,
         now,
+        id.startsWith("entry:") ? id.slice(6) : null,
+        id,
       ],
     );
     await db.query(
@@ -724,14 +747,23 @@ export async function executePublication(tenant: string, instanceId: string, job
     ).rows[0];
     if (!["approved", "rejected", "withdrawn"].includes(review.status))
       return { status: "waiting", reason: "审批尚未结束" };
+    if(review.status === "approved" && p.release_mode === "manual" && !p.publication_requested) return {status:"waiting",reason:"等待确认发布"};
     let status = review.status === "approved" ? "published" : review.status;
     let error: string | undefined;
     if (review.status === "approved") {
       try {
-        await adminDocument(db, p.actor, tenant, p.document_id);
-        const material = await documentMaterial(db, p.document_id);
+        await adminDocument(db, p.actor, tenant, p.asset_key || p.document_id);
+        const material = await documentMaterial(db, p.asset_key || p.document_id);
         if (material.fingerprint !== p.fingerprint)
           fail(409, "审批材料版本已变化，须按新版本重新提交审批");
+        if(job){
+          const lease=(await db.query("SELECT id FROM execution_jobs WHERE id=$1 AND status='running' AND lease_owner=$2 AND lease_until>$3 FOR UPDATE",[job.id,job.worker_id,new Date().toISOString()])).rows[0];
+          if(!lease) throw new Error("发布作业租约已失效");
+        }
+        if(p.entry_id) {
+          await db.query("SELECT set_config('knowledge.native_publication_instance',$1,true)",[instanceId]);
+          await publishEntry(db, p.entry_id, p.actor, material.snapshot);
+        } else {
         const engine = material.snapshot.engine;
         await db.query("SELECT id FROM knowledge_documents WHERE id=$1 FOR UPDATE",[engine.root_id]);
         const active=(await db.query(`SELECT d.id FROM knowledge_documents d LEFT JOIN knowledge_document_lineage l ON l.document_id=d.id WHERE (d.id=$1 OR l.root_id=$1) AND d.status='published' FOR UPDATE OF d`,[engine.root_id])).rows;
@@ -746,6 +778,7 @@ export async function executePublication(tenant: string, instanceId: string, job
           "UPDATE knowledge_documents SET status='published',published_by=$2,published_at=$3,updated_at=$3 WHERE id=$1",
           [p.document_id, p.actor, new Date().toISOString()],
         );
+        }
       } catch (cause) {
         // Infrastructure failures retry through the durable job; domain changes need explicit resubmission.
         if (!(cause instanceof HttpFail)) throw cause;

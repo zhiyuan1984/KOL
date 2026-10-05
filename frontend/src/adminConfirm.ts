@@ -258,7 +258,7 @@ export function knowledgeDocumentDeleteConfirm(title: string): AdminConfirmCopy 
     title: "删除资料",
     object: named(title),
     scope: "未发布资料 · 原文件与索引一并清理",
-    consequence: "从资料库移除并清理本地文件与索引，不能撤销；已发布过的资料只能归档。",
+    consequence: "从资料库移除，并删除该资料的原文件、加工产物、索引和作业历史；审计记录保留。不能撤销，已发布过的资料只能归档。",
     confirmLabel: "确认删除",
   };
 }

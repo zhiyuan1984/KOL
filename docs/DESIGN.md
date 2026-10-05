@@ -124,6 +124,22 @@ description: 员工端视觉 token 与布局实施细则。LLM 实现时唯一�
 
 ---
 
+### 5.1 管理侧知识工作区限定映射（2026-10-05）
+
+依据用户本次统一知识工作区方案及「写代码完成」授权，UI/UX 将该页面限定为以下映射；替代此页面历史截图字号覆盖，不改变全局导航与其他工作台表面。不变量仍优先。
+
+| token | 数值或职责 | 用途 |
+|---|---|---|
+| `--knowledge-font-title` | `18px` | 当前知识标题，字重不超过 600 |
+| `--knowledge-font-body` | `14px` | 正文、分区标题 |
+| `--knowledge-font-meta` | `13px` | 筛选、控件、日期与辅助信息 |
+| `--knowledge-filter-width` | `260px` | 桌面知识筛选列 |
+| `--knowledge-action` / `--knowledge-action-hover` | 主行动职责，复用辅助蓝的既有色值，数值住 styles.css | 本页唯一实底主 CTA |
+
+工作区统一底色、细线分区；内边距取 space-5、字段间距 space-2/3、分区间距 space-4，控件继续取 control-h-lg/form，圆角继续取 radius-control。字段两列只在内容区至少 720px 时成立。页脚参与 flex 布局，不能遮挡正文。确认弹层出现时底层主 CTA 降级。
+
+---
+
 ## 6. 布局：三栏 + 栏内约束
 
 ### 6.1 外层三栏

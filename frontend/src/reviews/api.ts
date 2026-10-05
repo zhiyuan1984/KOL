@@ -39,7 +39,10 @@ export const reviewCompany = () =>
 export const reviewHeaders = (): Record<string, string> =>
   reviewCompany() ? { "X-Review-Company": reviewCompany() } : {};
 export class ReviewApiError extends Error {
-  constructor(message: string, public issues: { path: string; message: string }[] = []) { super(message); }
+  get issues() { return typeof this.detail === "string" ? [] : this.detail.issues || []; }
+  constructor(readonly status:number, readonly detail: {message?:string;code?:string;issues?:{path:string;message:string}[]}|string) {
+    super(typeof detail === "string" ? detail:detail.message || "请求失败");
+  }
 }
 export async function reviewApi<T>(
   path: string,
@@ -59,20 +62,7 @@ export async function reviewApi<T>(
   const data = await r.json();
   if (!r.ok) {
     const detail = data.detail || data;
-    throw new ReviewApiError(
-      typeof detail === "string"
-        ? detail
-        : [
-            detail.message,
-            ...(detail.issues || []).map(
-              (i: { path: string; message: string }) =>
-                `${i.path}: ${i.message}`,
-            ),
-          ]
-            .filter(Boolean)
-            .join("\n"),
-      typeof detail === "object" ? detail.issues || [] : [],
-    );
+    throw new ReviewApiError(r.status,detail);
   }
   return data;
 }
