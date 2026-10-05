@@ -43,14 +43,14 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = createApp();
   const setup = await call("POST", "/api/auth/setup", {
-    name: "鄢棽",
+    name: DEMO_ADMIN.name,
     email: DEMO_ADMIN.email,
-    username: "sriphy.yan@amperetime.com",
+    username: DEMO_ADMIN.email,
     password: "123456789",
   }, "");
   expect(setup.status).toBe(201);
   cookie = setup.cookie;
-  getConn().prepare("UPDATE users SET phone=? WHERE username=?").run("13800138000", "sriphy");
+  getConn().prepare("UPDATE users SET phone=? WHERE username=?").run("13800138000", DEMO_ADMIN.handle);
 });
 
 afterEach(() => {
@@ -63,19 +63,19 @@ afterEach(() => {
 });
 
 describe("admin identity and Starry mailbox bind", () => {
-  it("lets 鄢棽 sign in with email or phone and stay admin", async () => {
-    for (const ident of [DEMO_ADMIN.email, "13800138000", "鄢棽", "sriphy", "+86 138-0013-8000"]) {
+  it(`lets ${DEMO_ADMIN.name} sign in with email or phone and stay admin`, async () => {
+    for (const ident of [DEMO_ADMIN.email, "13800138000", DEMO_ADMIN.name, DEMO_ADMIN.handle, "+86 138-0013-8000"]) {
       const login = await call("POST", "/api/auth/login", { email: ident, password: "123456789" }, "");
       expect(login.status, ident).toBe(200);
       expect(login.cookie).toContain("lingong_session=");
       const status = await call("GET", "/api/auth/status", undefined, login.cookie);
       const user = status.json.user as Json;
       expect(user.roles).toEqual(["employee", "admin"]);
-      expect(user.name).toBe("鄢棽");
-      expect(user.username).toBe("sriphy");
+      expect(user.name).toBe(DEMO_ADMIN.name);
+      expect(user.username).toBe(DEMO_ADMIN.handle);
       expect(user.email).toBe(DEMO_ADMIN.email);
     }
-    getConn().prepare("UPDATE users SET email='' WHERE username=?").run("sriphy");
+    getConn().prepare("UPDATE users SET email='' WHERE username=?").run(DEMO_ADMIN.handle);
     const withoutColumn = await call("POST", "/api/auth/login", {
       email: DEMO_ADMIN.email,
       password: "123456789",
@@ -87,10 +87,10 @@ describe("admin identity and Starry mailbox bind", () => {
   });
 
   it("accepts the product-manager login aliases on /api/login", async () => {
-    for (const ident of [DEMO_ADMIN.email, "13800138000", "鄢棽"]) {
+    for (const ident of [DEMO_ADMIN.email, "13800138000", DEMO_ADMIN.name]) {
       const email = await call("POST", "/api/login", { username: ident, password: "123456789" }, "");
       expect(email.status, ident).toBe(200);
-      expect(email.json).toMatchObject({ ok: true, handle: "sriphy", name: "鄢棽" });
+      expect(email.json).toMatchObject({ ok: true, handle: DEMO_ADMIN.handle, name: DEMO_ADMIN.name });
     }
   });
 
@@ -165,7 +165,7 @@ describe("admin identity and Starry mailbox bind", () => {
       bearer: "user-jwt-does-not-echo",
     });
     expect(bound.status).toBe(200);
-    const user = getConn().prepare("SELECT id FROM users WHERE username='sriphy'").get() as { id: string };
+    const user = getConn().prepare("SELECT id FROM users WHERE username=?").get(DEMO_ADMIN.handle) as { id: string };
     saveStarryBinding(user.id, {
       mailbox_email: "second.mailbox@amperetime.com",
       owner_name: "赵良玉",

@@ -435,9 +435,9 @@ test("home task template 写合作邮件 prefills home composer then follows the
     }
   });
   await page.goto("/");
-  await expect(page.locator(".sidebar [data-account-pedestal]")).toContainText("鄢棽");
+  await expect(page.locator(".sidebar [data-account-pedestal]")).toContainText("黄启友");
   await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("管理员");
-  await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("sriphy");
+  await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("jeffrey");
   await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("考试已通过");
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
@@ -2775,14 +2775,14 @@ test("composer sends the selected model tier", async ({ page }) => {
 test("admin skill page exposes create form after product manager login", async ({ page }) => {
   // 技能列表与写入走产品经理闸门（requirePm）；beforeEach 的 /api/demo/reset 会清空登录态。
   // 旧版页面自带 PM 登录表单，新版不再有，直接在请求层补上同一次登录。
-  const pmLogin = await page.request.post("/api/login", { data: { username: "鄢棽", password: "123456789" } });
+  const pmLogin = await page.request.post("/api/login", { data: { username: "黄启友", password: "123456789" } });
   expect(pmLogin.ok()).toBeTruthy();
   await page.goto("/admin/skills");
   await expect(page.locator(".sidebar [data-account-name]")).not.toHaveText("");
   await expect(page.locator("[data-admin-nav='skills']")).toHaveClass(/active/);
   const login = page.locator("[data-admin-login]");
   if (await login.count()) {
-    await page.locator("[data-login-name]").fill("鄢棽");
+    await page.locator("[data-login-name]").fill("黄启友");
     await page.locator("[data-login-password]").fill("123456789");
     await page.locator("[data-login-submit]").click();
   }

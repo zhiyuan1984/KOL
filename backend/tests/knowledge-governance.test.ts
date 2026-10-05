@@ -87,7 +87,7 @@ describe("knowledge governance", () => {
     const teamHidden = await rows("/api/knowledge");
     expect(teamHidden.map((row) => row.id)).not.toContain("kb_mail_kol");
 
-    setPersona("sriphy"); // sriphy: org_litime + team_kol
+    setPersona("sriphy"); // 演示管理员身份（handle jeffrey）: org_litime + team_kol
     const teamVisible = await rows("/api/knowledge");
     expect(teamVisible.map((row) => row.id)).toContain("kb_mail_kol");
 

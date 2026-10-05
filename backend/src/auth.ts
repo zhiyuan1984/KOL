@@ -167,7 +167,7 @@ function seedDemoAdminContact(db: ReturnType<typeof getConn>, userId: string): v
   }
 }
 
-/** Server deploy: turn leftover `test` into 鄢棽 / 123456789. Skip in automated tests. */
+/** Server deploy: turn leftover `test` into 黄启友 / 123456789. Skip in automated tests. */
 export function ensureDemoAdmin(): void {
   if (process.env.NODE_ENV === "test") return;
   if ((process.env.CODEX_MODE || "").toLowerCase() === "stub" && process.env.AUTH_MODE !== "enabled") return;

@@ -52,7 +52,7 @@ function bindStarryMailbox(): void {
   getConn().prepare(
     `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(DEMO_USER.id, "sriphy", "鄢棽", "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
+  ).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
   getConn().prepare(
     `INSERT INTO user_starry_bindings
      (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)

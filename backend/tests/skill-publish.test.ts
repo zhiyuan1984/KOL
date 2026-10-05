@@ -7,6 +7,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { skillCatalog } from "../src/host/skills-catalog.js";
 import { runtimeSkillsRoot } from "../src/host/skill-sop.js";
+import { DEMO_ADMIN } from "../src/config.js";
 import { clearTaskRegistryCache, taskDefinition } from "../src/tasks/registry.js";
 import { freshTestDatabase } from "./support/pg.js";
 
@@ -26,7 +27,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 async function loginPm() {
-  const auth = await request("POST", "/api/login", { username: "鄢棽", password: "123456789" });
+  const auth = await request("POST", "/api/login", { username: DEMO_ADMIN.name, password: "123456789" });
   expect(auth.status, JSON.stringify(auth.body)).toBe(200);
 }
 

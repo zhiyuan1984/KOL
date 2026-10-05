@@ -28,7 +28,7 @@ export function isDemoAdminIdentifier(raw: string): boolean {
   return false;
 }
 
-/** Map 鄢棽 / sriphy / sriphy.yan@… / seeded phone to the admin handle; reject leftover test. */
+/** Map 黄启友 / jeffrey / jeffrey.huang@… / seeded phone to the admin handle; reject leftover test. */
 export function normalizeAccount(raw: string): string {
   const t = String(raw || "").trim();
   if (t.toLowerCase() === "test") throw new HttpFail(401, "账号不存在");
