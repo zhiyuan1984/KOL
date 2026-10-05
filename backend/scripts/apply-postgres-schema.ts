@@ -1070,6 +1070,8 @@ const migrations: SchemaMigration[] = [
 
 const { replyContextSchema } = await import("../src/mail/reply-context-schema.js");
 migrations.push({ id: "20261005_reply_mail_revisions", statements: [replyContextSchema] });
+const { collaborationSchema } = await import("../src/ticket-domain/collaboration-schema.js");
+migrations.push({ id: "20261005_collaboration_source_events", statements: [collaborationSchema] });
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
 if (onlyMigration && !migrations.some((migration) => migration.id === onlyMigration)) throw new Error("Unknown migration selection");

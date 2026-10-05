@@ -18,6 +18,7 @@ import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.j
 import { advanceWorkOrderStageForDecision } from "../ticket-domain/work-order-stage-executor.js";
 import { enqueueWorkOrderDecisionExecution } from "../ticket-domain/work-order-automation-pipeline.js";
 import { recordVerifiedWorkOrderEvent } from "../ticket-domain/work-order-verified-event.js";
+import { readTaskCollaborationContext } from "../ticket-domain/collaboration-context.js";
 import { confirmTicketRuleEvaluation } from "../ticket-domain/rule-confirmation.js";
 import { schedulingRuleEffectivenessRawReport } from "../ticket-domain/rule-effectiveness.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
@@ -131,6 +132,11 @@ tickets.get("/task-work-orders/dashboard", async (c) => {
 tickets.get("/task-work-orders/:taskId", async (c) => {
   const actor = requireTicketPrincipal();
   return c.json({ ...(await taskWorkOrderAggregate(actor.id, c.req.param("taskId"), ticketIsAdmin(actor))), ...requestMetadata() });
+});
+
+/** L1 authoritative dependencies and persistent source-event cursor. */
+tickets.get("/task-work-orders/:taskId/collaboration-context", async (c) => {
+  return c.json({ ...(await readTaskCollaborationContext(ownerId(), c.req.param("taskId"), Number(c.req.query("after") || 0))), ...requestMetadata() });
 });
 
 /** The event is immutable evidence first. Only after it is stored does the

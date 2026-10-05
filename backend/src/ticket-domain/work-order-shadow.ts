@@ -3,6 +3,7 @@ import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { taskWorkOrderAggregate, workOrderDecisionInputHash } from "./task-work-orders.js";
 import { JevWorkOrderUnavailable, judgeWorkOrderWithJev, type JevWorkOrderTemplateChoice, type JevWorkOrderVerdict } from "./work-order-jev.js";
 import { parseWorkOrderStagePolicy } from "./work-order-stage-policy.js";
+import { workOrderCollaborationGate } from "./collaboration-context.js";
 
 type SourceEvent = { id: string; type: string; summary: string; occurred_at: string | null };
 type TemplateRow = {
@@ -141,6 +142,7 @@ export async function recordWorkOrderShadowDecision(
     allowed_stage_targets: allowedStageTargets,
     mode: "shadow",
     policy: "no_create_no_assign_no_stage_write",
+    collaboration_gate: target ? await workOrderCollaborationGate(postgresPool(), actorId, target.id) : null,
   };
   const inputHash = workOrderDecisionInputHash(input);
   const verdict = !templates.length
