@@ -1623,7 +1623,11 @@ export function ChatThread({
                     const status = ended && (reportedStatus === "running" || reportedStatus === "pending") ? "interrupted" : reportedStatus;
                     const streaming = status === "running";
                     const label = employeeProcessLabel(human);
-                    const settledLabel = !streaming && label === "正在处理这项工作"
+                    const settledLabel = ended && status === "failed"
+                      ? `调用失败：${label.replace(/^正在/, "")}`
+                      : ended && status === "interrupted"
+                      ? label.replace(/^正在/, "")
+                      : !streaming && label === "正在处理这项工作"
                       ? `系统能力调用${status === "failed" ? "失败" : status === "interrupted" ? "中断" : "记录"}`
                       : label;
                     return (
