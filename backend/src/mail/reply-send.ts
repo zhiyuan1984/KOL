@@ -9,7 +9,8 @@ import { replyFingerprint } from "./reply-source.js";
 type SendView = ReturnType<typeof mailSendAction>;
 async function contextFor(draft: Row) {
   if (authDisabled() || !draft.collaboration_id) return null;
-  const present = (await postgresPool().query("SELECT 1 FROM kol_mail_items WHERE collaboration_id=$1 LIMIT 1", [draft.collaboration_id])).rowCount;
+  const present = (await postgresPool().query(`SELECT 1 FROM kol_mail_threads t JOIN user_starry_bindings b ON lower(b.mailbox_email)=lower(t.mailbox)
+    WHERE t.collaboration_id=$1 AND t.match_state='matched' AND b.user_id=$2 AND b.status='connected' LIMIT 1`, [draft.collaboration_id,scopedUser()?.id])).rowCount;
   if (!present) return null; // first contact has no reply dependency
   return readReplyContext(String(draft.session_id));
 }
@@ -67,7 +68,15 @@ export async function assertReplySendCurrent(draft: Row, requestId: string): Pro
   const basis = (await postgresPool().query<Row>("SELECT * FROM reply_send_basis WHERE request_id=$1 AND draft_id=$2", [requestId,draft.id])).rows[0];
   if (!basis) return;
   let current, readable = true;
-  try { current = await contextFor(draft); } catch { current = null; readable = false; }
+  try {
+    current = await contextFor(draft);
+    if (!current && draft.collaboration_id) {
+      // First contact also rechecks current owner, brands and mailbox binding;
+      // absence of cached replies is not an exemption from current authority.
+      const authorized = await readReplyContext(String(draft.session_id));
+      if ((authorized.messages as unknown[]).length) current = authorized;
+    }
+  } catch { current = null; readable = false; }
   const active = (await postgresPool().query("SELECT 1 FROM users WHERE id=$1 AND active=1", [basis.actor_id])).rowCount;
   if (basis.state === "confirmed" && basis.actor_id === scopedUser()?.id && active && readable
     && ((current?.complete && current.version === basis.context_version)

@@ -182,6 +182,13 @@ export function messageBody(row: Json): string {
   return raw;
 }
 
+/** Full-message evidence only. A list preview or generated summary is not raw mail. */
+export function replyMessageBody(row: Json): string | null {
+  const fields = [row.bodyText,row.body_text,row.text,row.body,row.content,row.html,row.bodyHtml];
+  if (!fields.some(value => typeof value === "string")) return null;
+  return fields.find(value => typeof value === "string" && value.length > 0) as string || "";
+}
+
 function addressFromUnknown(value: unknown): { email: string; name: string } {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const obj = value as Json;

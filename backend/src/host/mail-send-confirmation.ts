@@ -1,6 +1,7 @@
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { authDisabled, requireSkill, scopedUser } from "../auth.js";
 import { authorizeConnector, runtimeAgentForSkill } from "../runtime/execution.js";
+import { canUseAgent } from "../runtime/organization-tree.js";
 import { codexMode, liveRemoteSideEffectsEnabled, liveTestKolAllowed, liveTestRecipientAllowed } from "../config.js";
 import { audit, getConn, nowIso, txImmediate } from "../db.js";
 import type { Json, Row } from "../types.js";
@@ -87,7 +88,9 @@ export function validateMailSend(draft: Row): void {
   requireSkill(skillId);
   if (!authDisabled()) {
     const userId = scopedUser()?.id || "";
-    authorizeConnector({ agentId: runtimeAgentForSkill(skillId, userId), skillId, userId,
+    const agentId = runtimeAgentForSkill(skillId, userId);
+    if (!canUseAgent(userId,agentId)) throw new HttpFail(403, {code: "runtime_agent_not_usable"});
+    authorizeConnector({ agentId, skillId, userId,
       runId: "mail-send-validation", sessionId: String(draft.session_id) }, "starrykol");
   }
   const extra = extraOf(draft);

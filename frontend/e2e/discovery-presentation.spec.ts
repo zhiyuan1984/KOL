@@ -4,7 +4,10 @@ import { createServer, type ServerResponse } from "node:http";
 async function replyFixture(page: Page) {
   const errors = await intercept(page);
   let version = "mail-v1", denied = false, failed = false;
-  await page.addInitScript(() => sessionStorage.setItem("kol-session:reply-ui-session", "1"));
+  await page.addInitScript(() => {
+    sessionStorage.setItem("kol-session:reply-ui-session", "1");
+    localStorage.setItem("ui:right-collapsed", "false");
+  });
   await page.route("**/api/tasks/by-session/reply-ui-session", route => route.fulfill({json: {task: {id: "reply-ui-task",session_id: "reply-ui-session",title: "回复任务",skill_id: "reply_analysis",input: {},status: "waiting"}}}));
   await page.route("**/api/sessions/reply-ui-session", route => route.fulfill({json: {agent_status: "listening",collaboration_id: "reply-col",journey: {collaboration_id: "reply-col",handle: "creator"},messages: [{
     id: "reply-draft-card",kind: "email_card",payload: {draft_id: "reply-ui-draft",from: "owner@example.test",to: "creator@example.test",cc: "",subject: "Saved reply",body: "Saved human draft",body_zh_internal: "内部稿",status: "draft",keep_stage: true,buttons: [],allowed_from_mailboxes: [{email: "owner@example.test",brand: "LT",authorized: true}]},

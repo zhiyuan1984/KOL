@@ -7,7 +7,7 @@ export const replyFingerprint = (value: unknown) => createHash("sha256").update(
 
 export type ReplyMailObservation = {
   thread_id: string; collaboration_id: string | null; conversation_id: string; mailbox: string;
-  provider_message_id: string; direction: string; subject: string; title: string; body: string;
+  provider_message_id: string; direction: string; subject: string; title: string; body: string | null;
   from: string; from_name: string; to: string; occurred_at: string; unread: boolean;
   summary: string; summary_zh: string; summary_source: string;
   source_updated_at?: string; attachments?: Json[];
@@ -55,18 +55,23 @@ export async function observeReplyMail(input: ReplyMailObservation): Promise<{ c
         contents_verified: false,
       })) };
     const fingerprint = replyFingerprint(snapshot);
-    if (previous?.fingerprint === fingerprint) return { changed: false, quarantined: false, item_id: itemId };
+    if (previous?.fingerprint === fingerprint) {
+      // Repair a missing cache body from the same verified provider version;
+      // this is not a new mail revision or duplicate business event.
+      if (prior?.body_text == null && input.body !== null) await db.query("UPDATE kol_mail_items SET body_text=$2,snippet=$3 WHERE id=$1 AND body_text IS NULL", [itemId,input.body,input.body.slice(0,280)]);
+      return { changed: false, quarantined: false, item_id: itemId };
+    }
     if (prior) {
       await db.query(`UPDATE kol_mail_items SET subject=$2,title=$3,body_text=$4,snippet=$5,from_addr=$6,to_addr=$7,
         occurred_at=$8,direction=$9,summary=$10,summary_zh=$11,summary_source=$12,
         translation_zh=NULL,translation_source='',memory_fingerprint=NULL,memory_generated_at=NULL WHERE id=$1`,
-      [itemId,input.subject,input.title,input.body,input.body.slice(0,280),input.from,input.to,input.occurred_at,input.direction,input.summary,input.summary_zh,input.summary_source]);
+      [itemId,input.subject,input.title,input.body,input.body?.slice(0,280) || "",input.from,input.to,input.occurred_at,input.direction,input.summary,input.summary_zh,input.summary_source]);
     } else {
       await db.query(`INSERT INTO kol_mail_items(id,thread_id,collaboration_id,conversation_id,provider_message_id,direction,subject,title,
         snippet,unread,occurred_at,created_at,from_addr,from_name,to_addr,body_text,summary,summary_zh,summary_source,receipt_status,effective)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'',0)`,
       [itemId,input.thread_id,input.collaboration_id,input.conversation_id,input.provider_message_id,input.direction,input.subject,input.title,
-        input.body.slice(0,280),input.unread?1:0,input.occurred_at,new Date().toISOString(),input.from,input.from_name,input.to,input.body,input.summary,input.summary_zh,input.summary_source]);
+        input.body?.slice(0,280) || "",input.unread?1:0,input.occurred_at,new Date().toISOString(),input.from,input.from_name,input.to,input.body,input.summary,input.summary_zh,input.summary_source]);
     }
     await db.query(`INSERT INTO reply_mail_revisions(mail_item_id,mailbox,collaboration_id,provider_message_id,fingerprint,source_updated_at,occurred_at,snapshot)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [itemId,mailbox,input.collaboration_id,input.provider_message_id,fingerprint,updatedAt,input.occurred_at,snapshot]);

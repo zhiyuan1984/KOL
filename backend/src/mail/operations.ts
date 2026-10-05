@@ -4,7 +4,9 @@
  */
 import type { Operation } from "../runtime/operations.js";
 
-import { requireSkill } from "../auth.js";
+import { authDisabled, requireSkill, scopedUser } from "../auth.js";
+import { assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { canUseAgent } from "../runtime/organization-tree.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeEmail } from "../host/identity.js";
 import {
@@ -191,7 +193,12 @@ const mailStar: Operation["handle"] = async (c, input) => {
 
 export const mailOperations: Operation[] = [
   { kind: "query", id: "mail.reply-context", handle: async (c, input) => {
-    requireSkill("reply_analysis");
+    if (!authDisabled()) {
+      const userId = scopedUser()?.id || "";
+      const agentId = runtimeAgentForSkill("reply_analysis",userId);
+      if (!canUseAgent(userId,agentId)) throw new HttpFail(403, {code: "runtime_agent_not_usable"});
+      assertRuntimeSkill({agentId,skillId: "reply_analysis",userId,runId: "reply-context-read"});
+    }
     const after = Number(input.after || 0);
     if (!Number.isSafeInteger(after) || after < 0) throw new HttpFail(400, "invalid context cursor");
     return c.json(await readReplyContext(String(input.session_id || ""), after));

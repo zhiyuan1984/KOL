@@ -13,6 +13,7 @@ import { sendDraft } from "../src/gateway/send.js";
 import { starry } from "../src/adapters/clients.js";
 import { withMailSendAuthority } from "../src/gateway/mail-authority.js";
 import { callStarryKolTool, setStarryKolClientFactory } from "../src/starrykol/service.js";
+import { replyMessageBody } from "../src/starrykol/mail-fields.js";
 
 let actor: AppUser;
 let input: ReplyMailObservation;
@@ -122,8 +123,12 @@ describe("reply confirmation dependencies before provider IO", () => {
     const {draft,base} = await prepare();
     await postgresPool().query("DELETE FROM reply_mail_revisions");
     await postgresPool().query("DELETE FROM kol_mail_items WHERE thread_id='reply-thread'");
+    await postgresPool().query("DELETE FROM kol_mail_threads WHERE id='reply-thread'");
     await withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-empty-01",confirmation_version: base.action.confirmation_version!}));
     await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,'reply-empty-01',$2,'sending')", [draft.id,actor.id]);
+    const at = new Date().toISOString();
+    await postgresPool().query(`INSERT INTO kol_mail_threads(id,collaboration_id,conversation_id,subject,mailbox,created_at,updated_at,match_state)
+      VALUES ('reply-thread','col_xiaomei','reply-conversation','Reply','owned@example.test',$1,$1,'matched')`, [at]);
     await observeReplyMail(input);
     await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,"reply-empty-01"))).rejects.toThrow(/未调用发送接口/);
   });
@@ -137,6 +142,13 @@ describe("reply confirmation dependencies before provider IO", () => {
         () => callStarryKolTool("sendEmailNow",{}), () => assertReplySendCurrent(draft,confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
       expect(provider).not.toHaveBeenCalled();
     } finally {setStarryKolClientFactory();}
+  });
+  it("blocks known unresolved mail threads instead of treating them as first contact", async () => {
+    const {draft,base} = await prepare();
+    await postgresPool().query("DELETE FROM kol_mail_items WHERE thread_id='reply-thread'");
+    const view = await withScopedUser(actor, () => replySendView(draft,base));
+    expect(view.action).toMatchObject({enabled: false,state: "blocked"});
+    expect(view.reply_context).toMatchObject({complete: false});
   });
 });
 const read = (after = 0) => withScopedUser(actor, () => readReplyContext("reply-session", after));
@@ -200,8 +212,24 @@ describe("native reply context and source revisions", () => {
     expect(ctx).toMatchObject({complete: false,missing_body_count: 1});
     expect((ctx.messages as Array<{body: unknown}>)[0].body).toBeNull();
   });
+  it("captures missing body separately from a genuinely empty body and never substitutes a preview", async () => {
+    expect(replyMessageBody({snippet: "Partial preview",summary: "Generated summary"})).toBeNull();
+    expect(replyMessageBody({body: "",snippet: "Partial preview"})).toBe("");
+    expect(replyMessageBody({body: "Actual full message",summary: "Generated summary"})).toBe("Actual full message");
+    expect(replyMessageBody({html: '<p>Raw <a href="new">source</a></p>'})).toBe('<p>Raw <a href="new">source</a></p>');
+    await observeReplyMail({...input,body: null});
+    expect(await read()).toMatchObject({complete: false,missing_body_count: 1});
+    await observeReplyMail({...input,body: "",source_updated_at: "2026-10-05T02:00:00Z"});
+    expect(await read()).toMatchObject({complete: true,missing_body_count: 0});
+    expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_mail_revisions")).rows[0].n).toBe(2);
+  });
   it("quarantines missing occurrence time without inventing arrival as source time", async () => {
     expect(await observeReplyMail({...input,occurred_at: ""})).toMatchObject({quarantined: true});
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM kol_mail_items WHERE thread_id='reply-thread'")).rows[0].n).toBe(0);
+  });
+  it("quarantines missing provider identity without fabricating a message ID", async () => {
+    expect(await observeReplyMail({...input,provider_message_id: ""})).toMatchObject({quarantined: true});
+    expect((await postgresPool().query("SELECT count(*)::int AS n FROM kol_mail_items WHERE thread_id='reply-thread'")).rows[0].n).toBe(0);
+    expect((await postgresPool().query("SELECT reason FROM reply_mail_quarantine")).rows[0].reason).toBe("stable_source_identity_missing");
   });
 });

@@ -10,6 +10,8 @@ import { discoveryCandidateContext } from "./discovery-context.js";
 import { readReplyContext } from "../mail/reply-context.js";
 import path from "node:path";
 import { SkillExecution, assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { canUseAgent } from "../runtime/organization-tree.js";
+import { HttpFail } from "../host/errors.js";
 import { postgresPool } from "../postgres/pool.js";
 import { startRuntimeProxy, type RuntimeProxy } from "../runtime/proxy.js";
 import { getConnectorConfig } from "../runtime/store.js";
@@ -665,6 +667,8 @@ export async function runCodex(
   const runtimeContext = { agentId: agentScope.agent_id, skillId: skill,
     userId: scopedUser()?.id || "", runId: wid, sessionId };
   const runtimeAuthorization = assertRuntimeSkill(runtimeContext);
+  const replyTask = skill === "reply_analysis" || skill === "email_compose";
+  if (replyTask && !authDisabled() && !canUseAgent(runtimeContext.userId,runtimeContext.agentId)) throw new HttpFail(403, {code: "runtime_agent_not_usable"});
   const col = collab(extra);
   const profile = profileFor(skill, col?.stage_code as string | undefined);
   const budgetBlock = budgetBlockFor(runtimeContext.agentId, runtimeContext.userId || null);
@@ -866,6 +870,7 @@ export async function runCodex(
       throw new CodexUnavailable(`生成服务结束状态：${completedStatus}；${detail}`, "请检查模型服务与网络后重试。");
     }
     const currentAuthorization = assertRuntimeSkill(runtimeContext);
+    if (replyTask && !authDisabled() && !canUseAgent(runtimeContext.userId,runtimeContext.agentId)) throw new CodexUnavailable("执行期间 Agent 使用资格已撤销，结果未发布。", "请核对当前使用资格。");
     if (currentAuthorization.binding.version !== runtimeAuthorization.binding.version
       || currentAuthorization.skillVersion !== runtimeAuthorization.skillVersion) {
       throw new CodexUnavailable("执行期间能力绑定或技能版本已变化，结果未发布。", "请基于当前配置重新运行。");

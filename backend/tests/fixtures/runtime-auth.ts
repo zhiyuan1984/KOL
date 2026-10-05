@@ -4,6 +4,7 @@ import { kolAgentScopeContext } from "../../src/contract-scope.js";
 import { getConn, nowIso } from "../../src/db.js";
 import { ensureManagedAgents } from "../../src/runtime/managed-agents.js";
 import { getAgentSkills, setAgentSkill } from "../../src/runtime/store.js";
+import { createAgentBinding, syncUserOrganization } from "../../src/runtime/organization-tree.js";
 
 /**
  * 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）；测试夹具按固定 id 落一条
@@ -16,7 +17,7 @@ export function seedPublishedAgent(id: string, name = "测试 Agent"): void {
 }
 
 /** Authenticated local test session; never enables a runtime permission bypass. */
-export function seedRuntimeTestActor(skills: string[]): string {
+export function seedRuntimeTestActor(skills: string[], qualifyAgent = false): string {
   const userId = "usr_runtime_fixture";
   const token = "local-runtime-fixture-cookie";
   const now = nowIso();
@@ -28,6 +29,11 @@ export function seedRuntimeTestActor(skills: string[]): string {
     const current = getAgentSkills(kolAgentScopeContext().agent_id).find((row) => row.skill_id === skill);
     if (!current) setAgentSkill(kolAgentScopeContext().agent_id, skill, true, 0);
     else if (!current.enabled) setAgentSkill(kolAgentScopeContext().agent_id, skill, true, Number(current.version));
+  }
+  if (qualifyAgent) {
+    const personRef = syncUserOrganization(userId,"org:lt_team");
+    createAgentBinding({agent_id: kolAgentScopeContext().agent_id,target_type: "person",target_id: personRef,
+      company_id: "company:amperetime",source: "test"});
   }
   return `lingong_session=${token}`;
 }
