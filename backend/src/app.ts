@@ -75,6 +75,8 @@ export function createApp(): Hono {
   app.use("/api/*", async (c, next) => {
     const pathname = new URL(c.req.url).pathname;
     const formalAuthorityPath = pathname.startsWith("/api/tickets")
+      || pathname === "/api/task-work-orders"
+      || pathname.startsWith("/api/task-work-orders/")
       || pathname.startsWith("/api/cron/")
       || pathname.startsWith("/api/admin/scheduling/")
       || pathname.startsWith("/api/admin/work-orders/");

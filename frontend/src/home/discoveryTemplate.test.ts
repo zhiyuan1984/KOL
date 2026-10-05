@@ -29,7 +29,7 @@ describe("discovery template fallback", () => {
       "portable power station", "solar generator", "energy storage",
     ]);
     expect(template.defaults.min_followers).toBe(10000);
-    expect(template.defaults.max_followers).toBe(2000000);
+    expect(template.defaults.max_followers).toBeNull();
     expect(template.defaults.min_avg_plays_10).toBe(5000);
     expect(template.defaults.expect_count).toBe(30);
   });

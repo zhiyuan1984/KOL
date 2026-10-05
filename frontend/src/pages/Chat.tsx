@@ -436,6 +436,9 @@ export default function Chat() {
   const [submitErr, setSubmitErr] = useState("");
   const [pending, setPending] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
+  const [taskReadError, setTaskReadError] = useState("");
+  const [taskReadGeneration, setTaskReadGeneration] = useState(0);
+  const taskSessionRef = useRef(id);
   const discoveryWorkspace = discoveryWorkspaceOf(task);
   const discoveryEntry = discoveryWorkspace !== null || (location.state as { discoverySession?: string } | null)?.discoverySession === id;
   const [runtimeActions, setRuntimeActions] = useState<RuntimeActionView[]>([]);
@@ -481,9 +484,13 @@ export default function Chat() {
 
   useEffect(() => {
     if (!id) return;
+    if (taskSessionRef.current !== id) { taskSessionRef.current = id; setTask(null); setTaskReadError(""); }
     const taskId = sessionStorage.getItem(`task:${id}`) || id;
     let cancelled = false;
+    let loading = false;
     const loadTask = async () => {
+      if (loading) return;
+      loading = true;
       try {
         const nextTask = unwrapTask(
           sessionStorage.getItem(`task:${id}`)
@@ -492,12 +499,16 @@ export default function Chat() {
         );
         if (cancelled) return;
         setTask(nextTask);
+        setTaskReadError("");
         sessionStorage.setItem(`task:${id}`, nextTask.id);
         const events = unwrapEvents(await api.taskEvents(nextTask.id).catch(() => []));
         if (!cancelled) setTaskEvents(events);
       } catch {
         // Legacy sessions have no task resource and continue using session messages.
-      }
+        if (!cancelled && (sessionStorage.getItem(`task:${id}`) || (location.state as { discoverySession?: string } | null)?.discoverySession === id)) {
+          setTaskReadError("暂时无法读取已保存的发现条件，请重试读取；这不会重新提交任务。");
+        }
+      } finally { loading = false; }
     };
     void loadTask();
     const timer = window.setInterval(() => {
@@ -509,12 +520,11 @@ export default function Chat() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [id, task?.status]);
+  }, [id, task?.status, taskReadGeneration]);
 
   useEffect(() => {
     // The persisted task snapshot remains the default after refresh; an
     // explicit skill switch belongs only to the currently open session.
-    setTask(null);
     setRuntimeActions([]);
     setSelectedTemplateSkillId(null);
     setSelectedSkillTemplate(null);
@@ -1078,7 +1088,7 @@ export default function Chat() {
 
   return (
     <div
-      className={`session-shell conversation-workspace${showLeftRail ? " has-tasklist" : ""}${showRightWorkbench ? "" : " no-workbench"}`}
+      className={`session-shell conversation-workspace${discoveryEntry ? " is-discovery-task" : ""}${showLeftRail ? " has-tasklist" : ""}${showRightWorkbench ? "" : " no-workbench"}`}
       style={{ ["--tasklist-width" as string]: `${taskListWidth}px` }}
     >
       {showLeftRail ? (
@@ -1100,11 +1110,11 @@ export default function Chat() {
         <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
-            <Link
+            {!discoveryEntry && <Link
               to={discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
               className="task-back"
               data-session-back-link
-            >{discoveryEntry ? "← 返回AI发现" : "← 返回任务列表"}</Link>
+            >← 返回任务列表</Link>}
             {discoveryEntry ? <span className="muted">{status === "running" ? "正在分析发现需求" : "AI发现"}</span>
               : <RunHud status={status} view={taskView} phase={!taskView || taskView.live ? phase : undefined} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
           </div>
@@ -1131,7 +1141,10 @@ export default function Chat() {
                 <p className="muted">地区、粉丝和均播门槛用于结果核对；期望人数不代表远端采集数量上限。缺失数据会标注为无法核验。</p>
               </details>
             </div>
-          ) : null}
+          ) : discoveryEntry ? <div data-discovery-workspace="loading" role="status">
+            <p>{taskReadError || "正在读取已保存的发现条件；你可以使用左栏导航离开。"}</p>
+            {taskReadError ? <button type="button" className="btn ghost" onClick={() => setTaskReadGeneration(value => value + 1)}>重新读取条件</button> : null}
+          </div> : null}
           {boundExpert ? (
             <div className="expert-session-bar" data-expert-identity={boundExpert.expert_id}>
               <div>
@@ -1314,11 +1327,14 @@ export default function Chat() {
           </div>
         )}
         {id && (
-          <><ChatThread
+          <RuntimeActions sessionId={id} onChange={setRuntimeActions}>{(actions, renderAction) => <><ChatThread
             messages={timelineWithCrawl}
+            discovery={discoveryEntry}
+            actions={actions}
+            renderAction={renderAction}
             officialStage={String(journey?.stage_code || "")}
             onRefresh={reload}
-          /><RuntimeActions sessionId={id} onChange={setRuntimeActions} /></>
+          />{!discoveryEntry ? actions.map(action => renderAction(action.id)) : null}</>}</RuntimeActions>
         )}
         </div>
         {streamPosition.scrollable ? <div className="session-scroll-control">
@@ -1401,9 +1417,11 @@ export default function Chat() {
           onRefresh={reload}
           onPosted={(msgs) => setMessages(msgs)}
           task={task}
+          discoveryReturn={discoveryEntry ? (task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/?tab=discovery") : undefined}
           resultOverride={discoveryExecutionResult}
           statusOverride={discoveryProgress?.label}
           resultExtra={discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
+            onRefresh={reload}
             analyzing={pending || status === "running"} onAnalyze={taskId => void send({
               text: `请基于本任务已保存的发现条件与采集 ${taskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
               intent: "crawler_collect",

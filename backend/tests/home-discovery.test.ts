@@ -194,7 +194,7 @@ describe("GET /api/home/discovery/template", () => {
       region: "global_en",
       thresholds: {
         min_followers: 10000,
-        max_followers: 2000000,
+        max_followers: null,
         min_avg_views_10: 5000,
         target_count: 30,
       },

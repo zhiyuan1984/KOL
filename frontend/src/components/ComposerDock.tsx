@@ -1136,7 +1136,7 @@ export default function ComposerDock({
           <div className="composer-discovery-preview-copy">
             <strong>发现任务</strong>
             <span>{discoveryBrief.platforms.map((code) => platformLabel(code, discoveryCatalog?.platforms || OVERSEAS_DISCOVERY_PLATFORMS)).join(" / ") || "未选平台"} · {regionLabel(discoveryBrief.region, discoveryCatalog?.regions || DISCOVERY_REGION_OPTIONS)}</span>
-            <small>关键词：{discoveryBrief.keywords.join(", ") || "未填写"} · 粉丝 {discoveryBrief.min_followers}–{discoveryBrief.max_followers} · 均播 ≥{discoveryBrief.min_avg_plays_10} · 人数 {discoveryBrief.expect_count}</small>
+            <small>关键词：{discoveryBrief.keywords.join(", ") || "未填写"} · 粉丝 {discoveryBrief.max_followers == null ? `至少${discoveryBrief.min_followers}，上限不限` : `${discoveryBrief.min_followers}–${discoveryBrief.max_followers}`} · 均播 ≥{discoveryBrief.min_avg_plays_10} · 人数 {discoveryBrief.expect_count}</small>
           </div>
           <button type="button" className="composer-discovery-edit" data-discovery-request-edit onClick={() => {
             setDiscoveryTextExpanded(true);

@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { createServer, type ServerResponse } from "node:http";
 
 const brief = { platforms: ["youtube"], region: "global_en", directions: [], keywords: ["camping", "portable power station"],
-  min_followers: 10000, max_followers: 2000000, min_avg_plays_10: 5000, expect_count: 30 };
+  min_followers: 10000, max_followers: null, min_avg_plays_10: 5000, expect_count: 30 };
 const template = { id: "crawler_collect", skill_id: "crawler_collect", version: "1", title: "采集线索",
   inputs: [], steps: [], constraints: [], output: { title: "候选" } };
 const task = { id: "presentation-task", session_id: "presentation-session", title: "AI发现 · youtube · camping",
@@ -10,8 +10,9 @@ const task = { id: "presentation-task", session_id: "presentation-session", titl
     kind: "discovery", version: 1, agent_id: "lead", profile: "lead", brief, template, submitted_text: "发现露营线索",
   } } };
 
-async function intercept(page: Page, taskDelay = 0, settled = false) {
+async function intercept(page: Page, taskDelay = 0, settled = false, candidateMode = false, failedFollow = false) {
   const errors: string[] = [];
+  let ignored = false;
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/**", async route => {
     const path = new URL(route.request().url()).pathname;
@@ -25,8 +26,22 @@ async function intercept(page: Page, taskDelay = 0, settled = false) {
     else if (path.includes("/api/tasks/by-session/") || path === `/api/tasks/${task.id}`) {
       if (taskDelay) await new Promise(resolve => setTimeout(resolve, taskDelay));
       json = { task };
+    } else if (path.includes('/api/home/discovery/runtime/')) {
+      const verb = path.split('/').at(-1);
+      if (verb === 'follow' && failedFollow) return route.fulfill({ status: 409, json: { code: 'follow_conflict', message: '该红人已被其他员工跟进。' } });
+      if (verb === 'ignore') ignored = true;
+      if (verb === 'restore') ignored = false;
+      json = { ok: true };
     } else if (path === "/api/queries/runtime.actions") json = { actions: [{
       id: "presentation-action", skill_id: "crawler_collect", operation: "start_crawl", risk: "L3", state: settled ? "succeeded" : "pending",
+      created_at: "2026-10-05T01:03:00Z",
+      crawl: candidateMode ? { id: 'presentation-action', state: 'succeeded', result_state: 'ready', result_json: {
+        task_id: 'remote-task', complete: true, captured_at: '2026-10-05T01:05:00Z', candidates: [{
+          id: 'channel-stable', name: 'Camping creator', platform: 'youtube', source_url: 'https://youtube.com/channel/channel-stable',
+          followers: 3000000, avg_views_10: null, region: null, snapshot_version: 'candidate-version', ignored,
+          followers_evidence: { state: 'source_recorded' },
+        }],
+      } } : null,
       receipt: settled ? { task_id: "remote-task", accepted: true } : null,
       confirmation_version: "v1", arguments: { platforms: ["youtube"], keywords: "camping,portable power station",
         crawler_type: "search", enable_comments: false, enable_sub_comments: false },
@@ -62,9 +77,9 @@ test("submitted discovery keeps its own layout while task loading is delayed", a
   });
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
   await expect(page).toHaveURL(/\/s\/presentation-session$/);
-  await expect(page.locator("[data-discovery-workspace]")).toBeVisible();
+  await expect(page.locator("[data-discovery-workspace][data-agent-identity]")).toBeVisible({ timeout: 15000 });
   expect(seen.length).toBeGreaterThan(0);
-  expect(seen.every(text => text.includes("返回AI发现"))).toBeTruthy();
+  expect(seen.every(text => text.replace(/\s/g, "").includes("返回AI发现"))).toBeTruthy();
   await expect(page.locator("[data-complete-task], [data-skill-template-context]")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -135,7 +150,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
     await page.emulateMedia({ reducedMotion: "reduce" });
     const errors = await intercept(page);
     await page.goto(`/s/${task.session_id}`);
-    await expect(page.locator("[data-discovery-workspace]")).toBeVisible();
+    await expect(page.locator("[data-discovery-workspace][data-agent-identity]")).toBeVisible({ timeout: 15000 });
     const card = page.locator(".runtime-action-card");
     await expect(card).toContainText("关键词搜索");
     await expect(card).toContainText("YouTube");
@@ -144,7 +159,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
     await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
     const jump = page.locator("[data-session-scroll-jump]");
     await expect(jump).toHaveAccessibleName("滚到顶部");
-    await expect(card.getByRole("button", { name: "确认执行以上内容" })).toBeInViewport();
+    await expect(card.getByRole("button", { name: "确认开始采集" })).toBeInViewport();
     await jump.click();
     await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
     await expect(page.locator(".agent-internal-review")).toHaveCount(1);
@@ -175,15 +190,90 @@ test("submitted collection is compact and steps show only recorded times", async
   await page.goto(`/s/${task.session_id}`);
   const card = page.locator('.runtime-action-card');
   await expect(card).toContainText('采集请求已提交');
-  await expect(card).toContainText('需确认执行（L3）');
+  await expect(card).not.toContainText('需要确认（L3）');
   await expect(card).not.toContainText('已取得回执');
-  await expect(card.locator('.runtime-action-summary')).not.toBeVisible();
-  await expect(card.getByText('查看回执')).toBeVisible();
-  const trace = page.locator('[data-kind=process-trace]');
+  await expect(card.locator('.runtime-action-scope .runtime-action-summary')).not.toBeVisible();
+  await expect(card.getByText('查看操作记录')).toBeVisible();
+  const trace = page.locator('[data-kind=discovery-step]');
   await expect(trace.locator('time')).toHaveAttribute('datetime', '2026-10-05T01:02:03Z');
-  await expect(trace).toContainText('时间未记录');
+  await expect(trace.filter({ hasText: '历史核对步骤' })).toContainText('历史步骤未记录时间');
   await card.locator('.runtime-action-scope > summary').click();
-  await expect(card.locator('.runtime-action-summary')).toBeVisible();
+  await expect(card.locator('.runtime-action-scope .runtime-action-summary')).toBeVisible();
+});
+
+test('follow opens my creators directly, and import opens public pool after confirmation', async ({ page }) => {
+  await intercept(page, 0, true, true);
+  const requests: string[] = [];
+  page.on('request', request => { if (request.method() === 'POST') requests.push(new URL(request.url()).pathname); });
+  await page.goto(`/s/${task.session_id}`);
+  const card = page.locator('[data-discovery-candidate=channel-stable]');
+  await expect(card).toContainText('粉丝符合当前条件');
+  await card.getByRole('button', { name: '跟进', exact: true }).click();
+  await expect(page).toHaveURL(/tab=lifecycle$/);
+  expect(requests.some(path => path.endsWith('/channel-stable/follow'))).toBeTruthy();
+  expect(requests.some(path => path.includes('/claim') || path.endsWith('/ingest'))).toBeFalsy();
+  await page.goto(`/s/${task.session_id}`);
+  await card.getByRole('button', { name: '加入公海', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '确认入库公海' }).click();
+  await expect(page).toHaveURL(/tab=pool$/);
+  expect(requests.some(path => path.endsWith('/channel-stable/ingest'))).toBeTruthy();
+});
+
+test('ignore survives reload, can be restored, and failed follow stays in the task', async ({ page }) => {
+  await intercept(page, 0, true, true, true);
+  await page.goto(`/s/${task.session_id}`);
+  const card = page.locator('[data-discovery-candidate=channel-stable]');
+  await card.getByRole('button', { name: '忽略', exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await page.locator('[data-discovery-results]').getByRole('button', { name: '已忽略', exact: true }).click();
+  await card.getByRole('button', { name: '恢复考虑', exact: true }).click();
+  await page.locator('[data-discovery-results]').getByRole('button', { name: '返回候选', exact: true }).click();
+  await card.getByRole('button', { name: '跟进', exact: true }).click();
+  await expect(card.getByRole('alert')).toBeVisible();
+  await expect(page).toHaveURL(`/s/${task.session_id}`);
+});
+
+test('right return and sidebar navigation remain usable on a task', async ({ page }) => {
+  await intercept(page, 0, true);
+  await page.goto(`/s/${task.session_id}`);
+  await expect(page.locator('.session-center [data-session-back-link]')).toHaveCount(0);
+  await expect(page.locator('[data-workbench] [data-session-back-link]')).toHaveCount(1);
+  await page.locator('[data-workbench] [data-session-back-link]').click();
+  await expect(page).toHaveURL(/tab=discovery/);
+  for (const [key, path] of [['running', '/tasks'], ['mail', '/mail'], ['cron', '/cron'], ['knowledge', '/kb']]) {
+    await page.goto(`/s/${task.session_id}`);
+    await page.locator(`.sidebar [data-nav=${key}]`).click();
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+  }
+});
+
+test('unlimited upper followers remains optional and candidate cards fit the right pane', async ({ page }) => {
+  await intercept(page, 0, true, true);
+  await page.goto('/?tab=discovery');
+  const upper = page.locator('.discovery-optional-upper');
+  await expect(upper).toContainText('上限：不限');
+  await upper.locator('summary').click();
+  await expect(page.locator('[data-discovery-max-followers]')).toHaveValue('');
+  await page.locator('[data-discovery-max-followers]').fill('5000000');
+  await page.locator('[data-discovery-max-followers]').fill('');
+  await page.goto(`/s/${task.session_id}`);
+  const bounds = await page.locator('.runtime-action-card').evaluate(el => {
+    const pane = document.querySelector('.conversation-content')!.getBoundingClientRect();
+    const card = el.getBoundingClientRect();
+    return { card: card.width, pane: pane.width };
+  });
+  expect(Math.abs(bounds.card - bounds.pane)).toBeLessThanOrEqual(1);
+  for (const width of [1440, 1024, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const card = page.locator('[data-discovery-candidate=channel-stable]');
+    await expect(card).toBeVisible();
+    const sizes = await card.evaluate(el => ({ visible: el.clientWidth, contents: el.scrollWidth }));
+    expect(sizes.contents).toBeLessThanOrEqual(sizes.visible + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  }
 });
 for (const theme of ["light", "dark"]) {
   test(`HTTP SSE preserves history reading and follows the bottom in ${theme}`, async ({ page }) => {

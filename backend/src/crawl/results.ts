@@ -27,6 +27,8 @@ export function candidateView(value: Json, platform: string): Json {
   const samples = (Array.isArray(value.views) ? value.views : []).slice(0, 10).map(number);
   return { id: String(value.platform_creator_id || value.creator_id || value.user_id || value.id || ""),
     name: String(value.nickname || value.name || value.handle || "未提供名称"), platform, source_url: url,
+    avatar_url: typeof value.avatar_url === "string" && /^https?:\/\//i.test(value.avatar_url) ? value.avatar_url : null,
+    direction: typeof value.direction === "string" ? value.direction : null,
     followers: number(value.followers ?? value.follower_count ?? value.fans),
     followers_evidence: followerEvidence(value.followers_evidence),
     avg_views_10: recent.length === 10 && recent.every(v => v !== null) ? recent.reduce<number>((sum, v) => sum + v!, 0) / 10 : null,

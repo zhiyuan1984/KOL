@@ -65,7 +65,7 @@ type DiscoverySpec = {
   region: string;
   thresholds: {
     min_followers: number;
-    max_followers: number;
+    max_followers: number | null;
     min_avg_views_10: number;
     target_count: number;
   };
@@ -282,7 +282,7 @@ function validateSpec(body: Json): DiscoverySpec {
     region,
     thresholds: {
       min_followers: Number(rawThresholds.min_followers ?? DEFAULT_DISCOVERY_THRESHOLDS.min_followers),
-      max_followers: Number(rawThresholds.max_followers ?? DEFAULT_DISCOVERY_THRESHOLDS.max_followers),
+      max_followers: rawThresholds.max_followers == null ? null : Number(rawThresholds.max_followers),
       min_avg_views_10: Number(
         rawThresholds.min_avg_views_10
           ?? rawThresholds.min_avg_plays_10
@@ -323,7 +323,8 @@ function specOf(run: Row): DiscoverySpec {
     region: String(filters.region || employeeDefaultRegion()),
     thresholds: {
       min_followers: Number(parameters.min_followers ?? filters.min_followers ?? DEFAULT_DISCOVERY_THRESHOLDS.min_followers),
-      max_followers: Number(parameters.max_followers ?? filters.max_followers ?? DEFAULT_DISCOVERY_THRESHOLDS.max_followers),
+      max_followers: (parameters.max_followers === undefined ? filters.max_followers : parameters.max_followers) == null ? null
+        : Number(parameters.max_followers === undefined ? filters.max_followers : parameters.max_followers),
       min_avg_views_10: Number(
         parameters.min_avg_views_10 ?? filters.min_avg_views_10 ?? DEFAULT_DISCOVERY_THRESHOLDS.min_avg_views_10,
       ),
@@ -830,7 +831,7 @@ function hostFilterSnapshots(run: Row, job: Row): { kept: Row[]; raw: number; dr
     const followers = followersPresent ? Number(snap.followers || 0) : null;
     const avg = views.length ? avgViews10(snap) : null;
     if (followers != null) {
-      if (followers < spec.thresholds.min_followers || followers > spec.thresholds.max_followers) {
+      if (followers < spec.thresholds.min_followers || (spec.thresholds.max_followers != null && followers > spec.thresholds.max_followers)) {
         dropped += 1;
         continue;
       }

@@ -1,0 +1,72 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api, type RuntimeActionView } from "../api";
+import { friendlyApiError } from "../labels";
+import { PoolAvatar, FactIcon } from "./PoolPane";
+import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
+import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
+
+type Candidate = NonNullable<NonNullable<RuntimeActionView["crawl"]>["result_json"]>["candidates"][number];
+export default function DiscoveryRuntimeCandidate({ row, actionId, brief, capturedAt, refresh }: {
+  row: Candidate; actionId: string; brief: DiscoveryBrief; capturedAt: string; refresh: () => void;
+}) {
+  const nav = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const snapshot = row.snapshot_version;
+  async function command(verb: "follow" | "ignore" | "restore" | "ingest") {
+    if (busy || !snapshot) return;
+    setBusy(true); setError("");
+    try {
+      const result = await api.discoveryCandidateCommand(actionId, row.id, verb, snapshot);
+      if (!result.ok) throw new Error("操作结果尚未确认，请刷新核对。");
+      if (verb === "follow") nav("/?tab=lifecycle");
+      else if (verb === "ingest") nav("/?tab=pool");
+      else refresh();
+      setConfirm(false);
+    } catch (error) { setError(friendlyApiError(error, "操作未完成，请刷新核对当前状态。")); }
+    finally { setBusy(false); }
+  }
+  const followersMatch = row.followers != null && row.followers >= brief.min_followers
+    && (brief.max_followers == null || row.followers <= brief.max_followers);
+  const followerVerified = row.followers_evidence?.state === "source_recorded";
+  const source = row.source_url && /^https?:\/\//i.test(row.source_url) ? row.source_url : undefined;
+  return <article className="pool-kol-row discovery-runtime-candidate" data-kol-work-card data-discovery-candidate={row.id}>
+    <PoolAvatar card={{ kol_uid: row.id, identity: { display: row.name, platform: row.platform, avatar_url: row.avatar_url || undefined }, metrics: {} }} />
+    <div className="pool-row-content">
+      <div className="pool-row-heading"><strong className="pool-row-name">{row.name}</strong>
+        <span className="pool-row-status">{row.followed ? "已跟进" : row.in_pool ? "已加入公海" : row.ignored ? "已忽略" : "候选"}</span></div>
+      <div className="pool-row-meta"><span>{platformLabel(row.platform)}</span>
+        {source ? <a className="pool-profile-link" href={source} target="_blank" rel="noopener noreferrer">主页 ↗</a> : <span>主页未提供</span>}</div>
+      <div className="pool-row-facts"><span className="pool-row-metrics">
+        <span><FactIcon type="followers" />粉丝 <b>{row.followers == null ? "无法核验" : row.followers.toLocaleString()}</b></span>
+        <span><FactIcon type="avg-plays" />近10条均播 <b>{row.avg_views_10 == null ? "无法核验" : Math.round(row.avg_views_10).toLocaleString()}</b></span>
+      </span></div>
+      <p className="pool-row-intro">{[row.direction, row.region].filter(Boolean).join(" · ") || "方向与地区待核验"}</p>
+      <p className="discovery-candidate-fit">{followerVerified ? followersMatch ? "粉丝符合当前条件" : "粉丝不符合当前条件" : "粉丝缺少可核验来源"}
+        {row.avg_views_10 != null ? row.avg_views_10 >= brief.min_avg_plays_10 ? " · 均播符合当前条件" : " · 均播低于当前门槛" : " · 近10条资料不足"}</p>
+      <details><summary>资料与筛选依据</summary>
+        <p>资料取得时间：{new Date(capturedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</p>
+        {row.followers_evidence?.raw_text ? <p>粉丝来源原文：{row.followers_evidence.raw_text}</p> : null}
+        {row.sampled_views_count ? <p>本次采样 {row.sampled_views_count} 条，样本均播 {row.sampled_views_avg == null ? "无法核验" : Math.round(row.sampled_views_avg).toLocaleString()}；未证明覆盖最近10条。</p> : null}
+      </details>
+      <div className="pool-row-actions discovery-candidate-actions">
+        {row.ignored ? <button type="button" className="pool-claim-button" disabled={busy || !snapshot} onClick={() => void command("restore")}>恢复考虑</button> : <>
+          <button type="button" className="pool-claim-button" title="点击即确认归你跟进，其他员工受排他跟进规则限制（L3）" disabled={busy || !snapshot} onClick={() => void command("follow")}>{busy ? "处理中…" : "跟进"}</button>
+          <button type="button" className="pool-claim-button" disabled={busy || !snapshot} onClick={() => void command("ignore")}>忽略</button>
+          <button type="button" className="pool-claim-button" disabled={busy || !snapshot || row.followed} title={row.followed ? "已归你跟进，回公海是独立动作" : undefined} onClick={() => row.in_pool ? nav("/?tab=pool") : setConfirm(true)}>加入公海</button>
+        </>}
+      </div>
+      {!row.ignored && !row.followed ? <p className="muted discovery-follow-impact">跟进：点击即确认归你跟进（L3）</p> : null}
+      {!snapshot ? <p role="status">此历史结果缺少资料版本，请刷新核对后操作。</p> : null}
+      {error && !confirm ? <p role="alert">{error}</p> : null}
+    </div>
+    <DiscoveryIngestConfirm open={confirm} busy={busy} error={error} onConfirm={() => void command("ingest")} onCancel={() => { if (!busy) { setConfirm(false); setError(""); } }}>
+      <p>需要确认（L3）· 将 {row.name} 的公开资料加入正式公海。</p>
+      <p>平台：{platformLabel(row.platform)} · 平台账号：{row.id}</p>
+      <p>来源批次：本次发现任务；当前资料取得于 {new Date(capturedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。</p>
+      <p>导入公开身份和主页；已有指标保留在本地资料索引。缺失联系方式不补造；本次操作不取得个人跟进、不发信、不改变阶段。</p>
+    </DiscoveryIngestConfirm>
+  </article>;
+}
