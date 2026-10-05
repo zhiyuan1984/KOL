@@ -10,6 +10,7 @@ import type {
   ReviewIssue,
   ReviewNode,
   ReviewTask,
+  ReviewTraceStep,
 } from "../../../shared/review.js";
 import { randomUUID } from "node:crypto";
 
@@ -357,18 +358,22 @@ export function advanceReview(
   from: string,
   resolve: ResolveReviewers,
   now: string,
+  trace?: ReviewTraceStep[],
 ): void {
   let id = from;
   for (let steps = 0; steps <= instance.definition.nodes.length; steps++) {
     const n = instance.definition.nodes.find((n) => n.id === id);
     if (!n) throw new Error("流程目标不存在");
     instance.currentNode = id;
+    const entry: ReviewTraceStep = { nodeId: id, type: n.type, next: n.next };
+    trace?.push(entry);
     if (n.type === "end") {
       instance.status = "approved";
       return;
     }
     if (["review", "cc", "consult", "handler"].includes(n.type)) {
       const users = [...new Set(resolve(n, instance.requester))];
+      entry.userIds = users;
       if (
         !users.length ||
         (n.mode === "single" && users.length !== 1) ||
@@ -377,6 +382,7 @@ export function advanceReview(
         instance.status = "blocked";
         instance.blockedReason =
           "无法解析合格评审人，或发起人与评审人冲突。请修复组织配置后重试。";
+        entry.blockedReason = instance.blockedReason;
         return;
       }
       instance.status = "reviewing";
@@ -416,12 +422,24 @@ export function advanceReview(
         instance.values,
         instance.definition.fields,
       );
+      entry.condition = n.condition;
+      const usedFields = new Set<string>();
+      const collect = (condition: import("../../../shared/review.js").ReviewCondition) => {
+        if ("field" in condition) usedFields.add(condition.field);
+        else if (condition.op === "not") collect(condition.condition);
+        else condition.conditions.forEach(collect);
+      };
+      collect(n.condition!);
+      entry.inputs = Object.fromEntries([...usedFields].map(field => [field, instance.values[field] ?? null]));
       if (evaluation.missing.length) {
         instance.status = "blocked";
         instance.blockedReason = `条件字段 ${evaluation.missing.join("、")} 缺失、格式无效或币种与比较规则不一致，请撤回并核对材料后重新发起。`;
+        entry.blockedReason = instance.blockedReason;
         return;
       }
       id = (evaluation.result ? n.next : n.otherwise)!;
+      entry.branch = evaluation.result ? "matched" : "otherwise";
+      entry.next = id;
     } else id = n.next!;
   }
   throw new Error("流程未能收敛");

@@ -56,7 +56,7 @@ export async function reviewApi<T>(
   const data = await r.json();
   if (!r.ok) {
     const detail = data.detail || data;
-    throw new Error(
+    const error = new Error(
       typeof detail === "string"
         ? detail
         : [
@@ -69,6 +69,8 @@ export async function reviewApi<T>(
             .filter(Boolean)
             .join("\n"),
     );
+    Object.assign(error, { status: r.status });
+    throw error;
   }
   return data;
 }

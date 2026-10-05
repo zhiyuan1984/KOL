@@ -15,7 +15,6 @@ import {
   ReviewService,
   type ReviewContext,
 } from "../approval/review-service.js";
-import { validateDefinition } from "../approval/review-engine.js";
 import { guardKnowledgeReview } from "../knowledge/publication.js";
 
 export function reviewContext(
@@ -248,6 +247,7 @@ reviews.post("/admin/approval-types/v2/templates", async (c) => {
         undefined,
         undefined,
         b.definition,
+        b.creationKey,
       ),
     ),
   );
@@ -268,8 +268,7 @@ reviews.post("/admin/approval-types/v2/validate", async (c) => {
   const s = service(c.req.header("X-Review-Company"));
   s.templates(true);
   const definition = (await body(c)).definition;
-  s.checkOrganization(definition);
-  return c.json({ issues: validateDefinition(definition) });
+  return c.json({ issues: s.configurationIssues(definition) });
 });
 reviews.post("/admin/approval-types/v2/simulate", async (c) => {
   const b = await body(c);

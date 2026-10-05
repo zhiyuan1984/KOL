@@ -139,6 +139,52 @@ async function publish(definition = emptyReviewDefinition()) {
   return t;
 }
 describe("review API with actual session authentication and organization storage", () => {
+  it("checks static people and operation candidates before publication, with stable issue targets", async () => {
+    const definition = emptyReviewDefinition();
+    definition.nodes[1].assignee = { kind: "named", userIds: ["review-outsider"] };
+    let response = await req("admin", "/admin/approval-types/v2/validate", { definition });
+    expect(response.status).toBe(200);
+    expect((await response.json()).issues).toEqual(expect.arrayContaining([expect.objectContaining({ target: expect.objectContaining({ step: "flow", id: "review" }) })]));
+    definition.nodes[1].assignee = { kind: "named", userIds: ["review-reviewer"] };
+    definition.nodes[1].operations = { transfer: { candidates: { kind: "named", userIds: ["review-outsider"] }, deadline: "preserve" } };
+    response = await req("admin", "/admin/approval-types/v2/validate", { definition });
+    expect((await response.json()).issues).toEqual(expect.arrayContaining([expect.objectContaining({ path: "nodes.review.operations" })]));
+    delete definition.nodes[1].operations;
+    expect((await (await req("admin", "/admin/approval-types/v2/validate", { definition })).json()).issues).toEqual([]);
+  });
+  it("replays a lost create response without another draft, and compares content rather than version numbers", async () => {
+    const definition = emptyReviewDefinition(), creationKey = "review-editor-create-key-001";
+    const saved = await (await req("admin", "/admin/approval-types/v2/templates", { definition, creationKey })).json();
+    const repeated = await (await req("admin", "/admin/approval-types/v2/templates", { definition, creationKey })).json();
+    expect(repeated.id).toBe(saved.id);
+    expect(repeated.version).toBe(1);
+    expect((await req("admin", "/admin/approval-types/v2/templates", { definition: { ...definition, name: "changed" }, creationKey })).status).toBe(409);
+    const service = new ReviewService(getConn(), reviewContextForActor(getConn(), "review-admin"));
+    txImmediate(() => { const command = { action: "publish" as const, templateId: saved.id, expectedVersion: 1 }; const prepared = service.prepare(command); service.execute(command, prepared.confirmationId, "review-content-diff-publish"); });
+    txImmediate(() => service.saveTemplate(saved.id, 1, definition));
+    expect(service.templates(true).find(t => t.id === saved.id)).toMatchObject({ version: 2, publishedVersion: 1, hasUnpublishedChanges: false });
+  });
+  it("returns both branch outcomes and complete read-only trial traces including cc and waiting duties", async () => {
+    const definition = emptyReviewDefinition();
+    definition.fields = [{ id: "content", label: "内容", type: "text", required: true }];
+    definition.nodes[0].next = "branch";
+    definition.nodes[1].next = "cc";
+    definition.nodes.push(
+      { id: "branch", name: "条件", type: "condition", condition: { field: "content", op: "eq", value: "A" }, next: "review", otherwise: "review" },
+      ...(["cc", "consult", "handler"] as const).map((type, index, types) => ({ id: type, name: type, type, next: types[index+1] || "end", assignee: { kind: "named" as const, userIds: ["review-reviewer"] }, mode: "single" as const })),
+    );
+    const counts = () => ["review_instances", "review_notifications", "review_events"].map(table => (getConn().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
+    const before = counts();
+    for (const [content, branch] of [["A", "matched"], ["B", "otherwise"]]) {
+      const response = await req("admin", "/admin/approval-types/v2/simulate", { definition, values: { content }, requester: "review-employee" });
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      expect(result.trace.map((x: { nodeId: string }) => x.nodeId)).toEqual(["start", "branch", "review", "cc", "consult", "handler", "end"]);
+      expect(result.trace[1]).toMatchObject({ branch, inputs: { content } });
+      expect(result.trace[3]).toMatchObject({ userIds: ["review-reviewer"], type: "cc" });
+    }
+    expect(counts()).toEqual(before);
+  });
   it("supports the real authority shape with no company unit and four organization levels", async () => {
     department("institute", "review-test-a", 1);
     department("digital", "institute", 2);
@@ -205,7 +251,9 @@ describe("review API with actual session authentication and organization storage
     expect(prepared.status).toBe(200);
     const confirmation = await prepared.json();
     getConn().prepare("UPDATE organization_units SET status='archived' WHERE id='center'").run();
-    expect((await req("admin", "/admin/approval-types/v2/validate", { definition })).status).toBe(422);
+    const check = await req("admin", "/admin/approval-types/v2/validate", { definition });
+    expect(check.status).toBe(200);
+    expect((await check.json()).issues).toContainEqual(expect.objectContaining({ path: "organizationUnitId", target: expect.objectContaining({ step: "basic", property: "organizationUnitId" }) }));
     expect((await req("admin", "/approvals/v2/commands", { command, confirmationId: confirmation.confirmationId, idempotencyKey: "archived-org" })).status).toBe(422);
     const rows = await (await req("admin", "/admin/approval-types/v2/templates")).json();
     expect(rows.find((row: { id: string }) => row.id === template.id).publishedVersion).toBeNull();

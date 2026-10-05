@@ -13,6 +13,8 @@ import type {
   ReviewTemplate,
   ReviewTask,
   ReviewOrganizationContext,
+  ReviewIssue,
+  ReviewTraceStep,
 } from "../../../shared/review.js";
 import {
   REVIEW_ACTIONS,
@@ -303,7 +305,7 @@ export class ReviewService {
     const rows = this.db
       .prepare(
         admin
-          ? "SELECT t.*, COALESCE(l.enabled,1) AS enabled, COALESCE(l.version,0) AS lifecycle_version FROM review_templates t LEFT JOIN review_template_lifecycle l ON l.tenant=t.tenant AND l.template_id=t.id WHERE t.tenant=? ORDER BY t.updated_at DESC"
+          ? "SELECT t.*, published.definition AS published_definition, COALESCE(l.enabled,1) AS enabled, COALESCE(l.version,0) AS lifecycle_version FROM review_templates t LEFT JOIN review_template_lifecycle l ON l.tenant=t.tenant AND l.template_id=t.id LEFT JOIN review_versions published ON published.tenant=t.tenant AND published.template_id=t.id AND published.version=t.published_version WHERE t.tenant=? ORDER BY t.updated_at DESC"
           : "SELECT t.id,v.version,v.definition,t.updated_at,t.published_version,COALESCE(l.enabled,1) AS enabled,COALESCE(l.version,0) AS lifecycle_version FROM review_templates t JOIN review_versions v ON v.tenant=t.tenant AND v.template_id=t.id AND v.version=t.published_version LEFT JOIN review_template_lifecycle l ON l.tenant=t.tenant AND l.template_id=t.id WHERE t.tenant=? AND COALESCE(l.enabled,1)=1 ORDER BY t.updated_at DESC",
       )
       .all(this.ctx.tenant) as Row[];
@@ -311,6 +313,7 @@ export class ReviewService {
       id: r.id,
       version: r.version,
       publishedVersion: r.published_version,
+      ...(admin ? { hasUnpublishedChanges: !r.published_version || definitionDiff(r.published_definition ? JSON.parse(r.published_definition) : this.definition(r.id, r.published_version), JSON.parse(r.definition)).length > 0 } : {}),
       enabled: r.enabled === 1,
       lifecycleVersion: r.lifecycle_version,
       definition: JSON.parse(r.definition),
@@ -321,6 +324,7 @@ export class ReviewService {
     id: string | undefined,
     expectedVersion: number | undefined,
     definition: ReviewDefinition,
+    creationKey?: string,
   ): ReviewTemplate {
     this.admin();
     this.checkOrganization(definition);
@@ -370,7 +374,13 @@ export class ReviewService {
         );
       if (result.changes !== 1) fail(409, "草稿已变化，请重新加载");
     } else {
-      id = randomUUID();
+      if (creationKey !== undefined && !/^[a-zA-Z0-9-]{16,80}$/.test(creationKey)) fail(422, "无效的草稿创建请求标识");
+      id = creationKey ? hash({ tenant: this.ctx.tenant, actor: this.ctx.actor, creationKey }).slice(0, 32) : randomUUID();
+      const existing = this.templates(true).find(t => t.id === id);
+      if (existing) {
+        if (canonical(existing.definition) !== canonical(definition)) fail(409, "此创建请求已保存其他内容，请恢复原草稿后修改");
+        return existing;
+      }
       this.db
         .prepare(
           "INSERT INTO review_templates(tenant,id,version,definition,updated_at) VALUES(?,?,1,?,?)",
@@ -769,17 +779,72 @@ export class ReviewService {
       detail: JSON.parse(r.detail),
     }));
   }
+  configurationIssues(d: ReviewDefinition): ReviewIssue[] {
+    this.admin();
+    const issues = validateDefinition(d);
+    if (issues.length) return this.locateIssues(d, issues);
+    try { this.checkOrganization(d); }
+    catch (error) {
+      if (!(error instanceof HttpFail) || error.status !== 422) throw error;
+      issues.push({ path: "organizationUnitId", message: "流程归属组织已不可用，请重新选择有效组织。" });
+    }
+      for (const n of d.nodes || [])
+        if (
+          ["review", "cc", "consult", "handler"].includes(n?.type) &&
+          ["named", "role"].includes(n.assignee?.kind || "")
+        ) {
+          const ids = this.resolve(n, this.ctx.actor);
+          if (!ids.length || (n.mode === "single" && ids.length !== 1))
+            issues.push({
+              path: `nodes.${n.id}.assignee`,
+              message: "评审人为空、不在有效组织内，或单人节点解析到多人",
+            });
+        }
+      for (const n of d.nodes)
+        if (n.type === "review")
+          for (const policy of [
+            n.operations?.transfer,
+            n.operations?.countersign,
+            n.operations?.timeout?.action === "transfer"
+              ? n.operations.timeout
+              : undefined,
+          ]) {
+            if (
+              policy &&
+              policy.candidates.kind !== "manager" &&
+              !this.resolve(
+                { ...n, assignee: policy.candidates },
+                this.ctx.actor,
+              ).length
+            )
+              issues.push({
+                path: `nodes.${n.id}.operations`,
+                message: "操作候选人不在有效组织或角色范围",
+              });
+          }
+    return this.locateIssues(d, issues);
+  }
+  private locateIssues(d: ReviewDefinition, issues: ReviewIssue[]): ReviewIssue[] {
+    return issues.map(issue => {
+      const [group, ref, ...property] = issue.path.split(".");
+      const candidates = group === "nodes" ? d?.nodes : group === "fields" ? d?.fields : [];
+      const objects = Array.isArray(candidates) ? candidates : [];
+      const object = objects.find(x => x?.id === ref) || (/^\d+$/.test(ref || "") ? objects[Number(ref)] : undefined);
+      return { ...issue, target: { step: group === "nodes" ? "flow" as const : group === "fields" ? "form" as const : "basic" as const,
+        ...(object ? { id: object.id } : {}), property: property.join(".") || (group === "nodes" || group === "fields" ? undefined : issue.path) } };
+    });
+  }
   simulate(
     definition: ReviewDefinition,
     values: Record<string, unknown>,
     requester = this.ctx.actor,
   ) {
     this.admin();
-    const issues = validateDefinition(definition);
+    const issues = this.configurationIssues(definition);
     if (!issues.length) issues.push(...validateValues(definition, values));
-    if (issues.length) return { issues, status: "invalid", tasks: [] };
+    if (issues.length) return { issues, status: "invalid", tasks: [], trace: [] };
     if (!this.ctx.people.some((p) => p.id === requester))
-      fail(422, "模拟发起人不在当前组织");
+      fail(422, "测试发起人不在当前组织");
     const i = this.newInstance(
       "preview",
       0,
@@ -788,11 +853,13 @@ export class ReviewService {
       "试运行",
       requester,
     );
+    const trace: ReviewTraceStep[] = [];
     advanceReview(
       i,
       definition.nodes.find((n) => n.type === "start")!.id,
       this.resolve,
       this.now,
+      trace,
     );
     // Follow the complete route without recording or fabricating real decisions.
     const path: string[] = [];
@@ -807,9 +874,11 @@ export class ReviewService {
         definition.nodes.find((n) => n.id === i.currentNode)!.next!,
         this.resolve,
         this.now,
+        trace,
       );
     }
     return {
+      trace,
       issues,
       status: i.status,
       blockedReason: i.blockedReason,
@@ -851,48 +920,9 @@ export class ReviewService {
         fail(409, "草稿已变化，请重新校验");
       if (t.published_version === t.version) fail(409, "此版本已发布");
       const d = JSON.parse(t.definition) as ReviewDefinition,
-        issues = validateDefinition(d);
-      this.checkOrganization(d);
+        issues = this.configurationIssues(d);
       if (issues.length)
         throw new HttpFail(422, { message: "流程校验未通过", issues });
-      for (const n of d.nodes || [])
-        if (
-          ["review", "cc", "consult", "handler"].includes(n?.type) &&
-          ["named", "role"].includes(n.assignee?.kind || "")
-        ) {
-          const ids = this.resolve(n, this.ctx.actor);
-          if (!ids.length || (n.mode === "single" && ids.length !== 1))
-            issues.push({
-              path: `nodes.${n.id}`,
-              message: "评审人为空、不在有效组织内，或单人节点解析到多人",
-            });
-        }
-      if (issues.length)
-        throw new HttpFail(422, { message: "流程校验未通过", issues });
-      for (const n of d.nodes)
-        if (n.type === "review")
-          for (const policy of [
-            n.operations?.transfer,
-            n.operations?.countersign,
-            n.operations?.timeout?.action === "transfer"
-              ? n.operations.timeout
-              : undefined,
-          ]) {
-            if (
-              policy &&
-              policy.candidates.kind !== "manager" &&
-              !this.resolve(
-                { ...n, assignee: policy.candidates },
-                this.ctx.actor,
-              ).length
-            )
-              issues.push({
-                path: `nodes.${n.id}.operations`,
-                message: "操作候选人不在有效组织或角色范围",
-              });
-          }
-      if (issues.length)
-        throw new HttpFail(422, { message: "操作策略校验未通过", issues });
       return {
         name: d.name,
         version: t.version,

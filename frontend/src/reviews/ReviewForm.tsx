@@ -6,12 +6,15 @@ export function ReviewForm({
   onChange,
   disabled = false,
   onUploadBusy,
+  preview = false,
 }: {
   fields: ReviewField[];
   values: Record<string, unknown>;
   onChange: (v: Record<string, unknown>) => void;
   disabled?: boolean;
   onUploadBusy?: (busy: boolean) => void;
+  /** Authoring previews must never upload or read formal attachments. */
+  preview?: boolean;
 }) {
   const set = (id: string, value: unknown) =>
     onChange({ ...values, [id]: value });
@@ -70,6 +73,7 @@ export function ReviewForm({
               </select>
             </span>
           ) : f.type === "attachment" ? (
+            preview ? <span className="review-muted">附件上传区域（预览和路径试运行不上传文件）</span> :
             <AttachmentInput
               ids={
                 Array.isArray(values[f.id]) ? (values[f.id] as string[]) : []

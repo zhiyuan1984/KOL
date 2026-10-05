@@ -117,6 +117,8 @@ export type ReviewInstance = {
   updatedAt: string;
 };
 export type ReviewTemplate = {
+  /** Content comparison, independent of draft version increments. */
+  hasUnpublishedChanges?: boolean;
   enabled?: boolean;
   lifecycleVersion?: number;
   id: string;
@@ -182,7 +184,25 @@ export type ReviewCommand =
       expectedLifecycleVersion: number;
     }
   | { action: "publish"; templateId: string; expectedVersion: number };
-export type ReviewIssue = { path: string; message: string };
+export type ReviewIssue = { path: string; message: string; target?: { step: "basic" | "form" | "flow"; id?: string; property?: string } };
+export type ReviewTraceStep = {
+  nodeId: string;
+  type: ReviewNode["type"];
+  userIds?: string[];
+  branch?: "matched" | "otherwise";
+  condition?: ReviewCondition;
+  inputs?: Record<string, unknown>;
+  next?: string;
+  blockedReason?: string;
+};
+export type ReviewSimulation = {
+  status: string;
+  issues: ReviewIssue[];
+  blockedReason?: string;
+  path?: string[];
+  tasks: ReviewTask[];
+  trace: ReviewTraceStep[];
+};
 export function emptyReviewDefinition(): ReviewDefinition {
   return {
     schema: "review.definition.v1",

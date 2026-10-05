@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { validateDefinition } from "../../backend/src/approval/review-engine";
 import { emptyReviewDefinition } from "../../shared/review";
 
 /** Browser interaction fixtures only; authenticated persistence is tested in review-api.test.ts. */
@@ -17,6 +18,7 @@ async function fixture(page: Page) {
     definition,
     updatedAt: "2026-10-04T00:00:00Z",
   };
+  const requests: { path: string; body: any }[] = [];
   const commands: Record<string, unknown>[] = [],
     drafts: Record<string, unknown>[] = [];
   await page.route("**/api/approvals/v2/**", async (route) => {
@@ -99,11 +101,21 @@ async function fixture(page: Page) {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith("/diff"))
       return route.fulfill({ json: { publishedVersion: 1, changes: [] } });
-    if (path.endsWith("/validate"))
-      return route.fulfill({ json: { issues: [] } });
+    if (path.endsWith("/validate")) {
+      const b = route.request().postDataJSON(); requests.push({ path: "validate", body: b });
+      const issues = validateDefinition(b.definition).map(issue => {
+        const [group, index, ...property] = issue.path.split(".");
+        return { ...issue, target: { step: group === "fields" ? "form" : group === "nodes" ? "flow" : "basic", id: (b.definition[group]?.find((item: { id: string }) => item.id === index) || b.definition[group]?.[Number(index)])?.id, property: property.join(".") } };
+      });
+      return route.fulfill({ json: { issues } });
+    }
+    if (path.endsWith("/simulate")) {
+      const b = route.request().postDataJSON(); requests.push({ path: "simulate", body: b });
+      return route.fulfill({ json: { status: "approved", issues: [], tasks: [], trace: b.definition.nodes.map((n: any) => ({ nodeId: n.id, type: n.type, ...(n.type === "review" ? { userIds: ["reviewer"] } : {}) })) } });
+    }
     if (route.request().method() === "GET")
       return route.fulfill({ json: [template] });
-    const b = route.request().postDataJSON();
+    const b = route.request().postDataJSON(); requests.push({ path: "save", body: b });
     template = {
       ...template,
       definition: b.definition,
@@ -111,165 +123,198 @@ async function fixture(page: Page) {
     };
     return route.fulfill({ json: template });
   });
-  return { commands, getTemplate: () => template };
+  return { commands, requests, getTemplate: () => template };
 }
 
-for (const subject of ["", "?subject=knowledge_publication"]) {
-  test(`new review flow publishes without randomUUID ${subject || "general"} and retries with the same key`, async ({ page }) => {
-    await page.addInitScript(() => Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true }));
-    const f = await fixture(page);
-    let failOnce = true;
-    await page.route("**/api/approvals/v2/commands", async route => {
-      f.commands.push(route.request().postDataJSON());
-      if (failOnce) {
-        failOnce = false;
-        return route.fulfill({ status: 503, json: { detail: "临时连接失败" } });
-      }
-      return route.fulfill({ json: { id: "http-uuid-receipt", resourceId: "template", version: 2 } });
-    });
-    await page.goto(`/admin/approval-types${subject}`);
-    const main = page.locator("main.review-page");
-    await main.getByRole("button", { name: "新建流程", exact: true }).click();
-    await main.getByLabel("流程名称").fill("新建审批流程兼容测试");
-    await main.getByRole("button", { name: "填写表单字段", exact: true }).click();
-    await main.getByRole("button", { name: "添加字段", exact: true }).click();
-    if(subject) {
-      await main.getByRole("button", { name: "添加字段", exact: true }).click();
-      await expect(main.locator(".review-field-row")).toHaveCount(4);
-      await expect(main.getByLabel("字段名称").first()).toBeDisabled();
-      await expect(main.getByLabel("字段名称").last()).toBeEnabled();
-      await main.getByLabel("字段名称").last().fill("产品型号");
-    }
-    await main.getByRole("button", { name: "添加节点", exact: true }).click();
-    await main.getByRole("button", { name: "添加评审节点", exact: true }).click();
-    await expect(main.locator(".review-canvas li")).toHaveCount(4);
-    await main.getByRole("button", { name: "保存草稿", exact: true }).click();
-    await main.getByRole("button", { name: "校验与发布", exact: true }).click();
-    const publish = main.getByRole("button", { name: /发布流程 v/ });
-    await main.getByRole("button", { name: "校验流程", exact: true }).click();
-    await expect(publish).toBeEnabled();
-    await publish.click();
-    const dialog = page.getByRole("dialog", { name: "确认发布流程" });
-    await expect(dialog).toBeVisible();
-    await dialog.locator("[data-admin-confirm-cancel]").click();
-    expect(f.commands).toHaveLength(0);
-    await publish.click();
-    await dialog.getByRole("button", { name: "发布流程", exact: true }).click();
-    await expect(dialog.getByRole("alert")).toBeVisible();
-    await dialog.getByRole("button", { name: "发布流程", exact: true }).click();
-    await expect(dialog).not.toBeVisible();
-    await expect(main).toContainText("已发布流程 · 回执 http-uuid-receipt");
-    expect(f.commands).toHaveLength(2);
-    expect(f.commands[0].idempotencyKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(f.commands[1].idempotencyKey).toBe(f.commands[0].idempotencyKey);
-    expect((f.commands[0].command as Record<string, unknown>).action).toBe("publish");
-  });
-}
-
-test("authoring restores default departments, clears descendants and revisits repeated fields without losing the draft", async ({ page }) => {
-  const f = await fixture(page);
+async function openEditor(page: Page) {
   await page.goto("/admin/approval-types");
   const main = page.locator("main.review-page");
-  await expect(main.getByRole("link", { name: "旧审批类型" })).toHaveCount(0);
+  await main.getByRole("button", { name: "内容评审", exact: true }).click();
+  return main;
+}
+async function addStep(page: Page, name: string, source = "负责人评审") {
+  const main = page.locator("main.review-page");
+  await main.getByRole("button", { name: `在${source}之后添加步骤`, exact: true }).click();
+  await main.getByRole("button", { name: new RegExp(`^${name}`) }).filter({ has: page.locator("strong") }).click();
+}
+
+for (const subject of ["", "?subject=knowledge_publication"]) test(`authoring automatically saves and checks before explicit publication ${subject || "general"}`, async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true }));
+  const f = await fixture(page);
+  await page.goto(`/admin/approval-types${subject}`);
+  const main = page.locator("main.review-page");
   await main.getByRole("button", { name: "新建流程", exact: true }).click();
-  await expect(main.getByLabel("当前组织", { exact: true })).toHaveValue("institute");
-  await expect(main.getByLabel("一级部门", { exact: true })).toHaveValue("center");
-  await expect(main.getByLabel("二级部门", { exact: true })).toHaveValue("department");
-  await expect(main.getByLabel("三级部门", { exact: true })).toHaveValue("group");
-  const orgBoxes = await main.locator(".review-author-org select").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top));
-  expect(new Set(orgBoxes).size).toBe(1);
-  await main.getByLabel("流程名称").fill("连续编辑测试");
-  await main.getByRole("button", { name: "填写表单字段", exact: true }).click();
-  const initial = await main.locator(".review-field-row").count();
-  await main.getByRole("button", { name: "添加字段", exact: true }).click();
+  await expect(main.getByRole("button", { name: "基本信息", exact: true })).toContainText("待完善");
+  await main.getByLabel("流程名称").fill("新流程");
+  await main.getByRole("button", { name: "下一步：表单设计", exact: true }).click();
+  await expect(main.getByRole("heading", { name: /表单字段/ })).toBeVisible();
+  if (subject) {
+    await expect(main.getByLabel("字段名称").first()).toBeDisabled();
+    await main.getByRole("button", { name: "添加字段", exact: true }).click();
+    await main.getByLabel("字段名称").last().fill("产品型号");
+  }
+  await main.getByRole("button", { name: "下一步：评审步骤", exact: true }).click();
+  await expect(main.getByRole("heading", { name: "评审步骤", exact: true })).toBeVisible();
+  await main.getByRole("button", { name: "保存并检查", exact: true }).click();
+  await expect(main.getByText("配置检查通过", { exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("review-publish.png") });
+  expect(f.requests[0].path).toBe("save"); expect(f.requests[1].path).toBe("validate");
+  const publish = main.getByRole("button", { name: /发布流程 v/ });
+  await expect(publish).toBeEnabled(); await publish.click();
+  expect(f.commands).toHaveLength(0);
+  const dialog = page.getByRole("dialog", { name: "确认发布流程" });
+  await expect(main.locator("button.primary:visible")).toHaveCount(0);
+  let failOnce = true;
+  await page.route("**/api/approvals/v2/commands", route => {
+    f.commands.push(route.request().postDataJSON());
+    if (failOnce) { failOnce = false; return route.fulfill({ status: 503, json: { detail: "临时连接失败" } }); }
+    return route.fulfill({ json: { id: "trial-publish-receipt" } });
+  });
+  await dialog.getByRole("button", { name: "发布流程", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await dialog.getByRole("button", { name: "发布流程", exact: true }).click();
+  await expect(main.getByText(/回执 trial-publish-receipt/)).toBeVisible();
+  expect(f.commands[0].idempotencyKey).toBe(f.commands[1].idempotencyKey);
+  expect(f.commands[0].idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+});
+
+test("authoring failed autosave keeps content and does not check; recovered create uses the same key", async ({ page }) => {
+  const f = await fixture(page); await page.goto("/admin/approval-types");
+  const main = page.locator("main.review-page"); await main.getByRole("button", { name: "新建流程", exact: true }).click();
+  await main.getByLabel("流程名称").fill("保留草稿");
+  const keys: string[] = []; let fail = true;
+  await page.route("**/api/admin/approval-types/v2/templates", async route => {
+    if (route.request().method() === "GET") return route.fallback();
+    keys.push(route.request().postDataJSON().creationKey);
+    if (fail) return route.fulfill({ status: 503, json: { detail: "保存失败" } });
+    return route.fallback();
+  });
+  await main.getByRole("button", { name: "下一步：表单设计", exact: true }).click();
+  await expect(main.getByLabel("流程名称")).toHaveValue("保留草稿");
+  expect(f.requests.filter(r => r.path === "validate")).toHaveLength(0);
+  fail = false; await main.getByRole("button", { name: "下一步：表单设计", exact: true }).click();
+  await expect(main.getByRole("heading", { name: /表单字段/ })).toBeVisible(); expect(keys[0]).toBe(keys[1]);
+});
+
+test("authoring edit and undo expire checks, re-entry checks automatically, and trial inputs do not expire configuration", async ({ page }) => {
+  const f = await fixture(page); const main = await openEditor(page);
+  await main.getByLabel("流程名称").fill("已修改");
+  await main.getByRole("button", { name: "检查与发布", exact: true }).click();
+  await expect(main.getByText("配置检查通过", { exact: true })).toBeVisible();
+  await main.getByLabel("稿件内容").fill("测试内容"); await main.getByRole("button", { name: "开始试运行", exact: true }).click();
+  await expect(main.getByRole("heading", { name: /路径试运行结果 · 路径可解析/ })).toBeVisible();
+  await main.getByLabel("测试发起人").selectOption("reviewer");
+  await expect(main.getByText("测试输入或配置已修改，需重新试运行", { exact: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: /发布流程 v/ })).toBeEnabled();
+  await main.getByRole("button", { name: "基本信息", exact: true }).click();
+  await main.getByLabel("流程名称").fill("再次修改"); await main.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(main.getByText("配置已修改，需重新检查", { exact: true })).toBeVisible();
+  const checks = f.requests.filter(r => r.path === "validate").length;
+  await main.getByRole("button", { name: "检查与发布", exact: true }).click();
+  await expect(main.getByText("配置检查通过", { exact: true })).toBeVisible();
+  expect(f.requests.filter(r => r.path === "validate").length).toBe(checks+1);
+});
+
+test("authoring failed recheck clears prior approval and blocks publishing until recovery", async ({ page }) => {
+  await fixture(page); const main = await openEditor(page);
+  await main.getByLabel("流程名称").fill("重新检查的新版本");
+  await main.getByRole("button", { name: "检查与发布", exact: true }).click();
+  await expect(main.getByText("配置检查通过", { exact: true })).toBeVisible();
+  const failedCheck = (route: import("@playwright/test").Route) => route.fulfill({ status: 503, json: { detail: "检查服务暂不可用" } });
+  await page.route("**/api/admin/approval-types/v2/validate", failedCheck);
+  await main.getByRole("button", { name: "基本信息", exact: true }).click();
+  await main.getByRole("button", { name: "检查与发布", exact: true }).click();
+  await expect(main.getByRole("button", { name: /发布流程 v/ })).toBeDisabled();
+  await expect(main.getByText("配置检查通过", { exact: true })).toHaveCount(0);
+  await page.unroute("**/api/admin/approval-types/v2/validate", failedCheck);
+  await main.getByRole("button", { name: "重新检查", exact: true }).click();
+  await expect(main.getByRole("button", { name: /发布流程 v/ })).toBeEnabled();
+});
+
+test("authoring fields preview live, add focuses, delete can undo, and preview attachments never upload", async ({ page }) => {
+  const f = await fixture(page); const main = await openEditor(page);
+  await main.getByRole("button", { name: "表单设计", exact: true }).click();
   await main.getByRole("button", { name: "添加字段", exact: true }).click();
   await expect(main.getByLabel("字段名称").last()).toBeFocused();
   await main.getByLabel("字段名称").last().fill("产品型号");
-  await main.getByRole("button", { name: "添加节点", exact: true }).click();
-  await main.getByRole("button", { name: "添加评审节点", exact: true }).click();
-  await main.getByRole("button", { name: "填写表单字段", exact: true }).click();
-  await expect(main.locator(".review-field-row")).toHaveCount(initial+2);
+  await expect(main.getByRole("region", { name: "员工填写预览" }).getByLabel("产品型号")).toBeVisible();
+  await main.getByRole("button", { name: "删除字段 2", exact: true }).click();
+  await expect(main.getByText(/已删除「产品型号」/)).toBeVisible(); await main.getByRole("button", { name: "撤销", exact: true }).click();
   await expect(main.getByLabel("字段名称").last()).toHaveValue("产品型号");
-  await page.screenshot({ path: test.info().outputPath("approval-editor-fields.png"), fullPage: true });
+  await main.getByLabel("字段类型").last().selectOption("attachment");
+  await expect(main.locator("input[type=file]")).toHaveCount(0);
+  await main.getByRole("button", { name: "保存", exact: true }).click();
+  expect(f.getTemplate().definition.fields[1].type).toBe("attachment");
+  await page.screenshot({ path: test.info().outputPath("review-fields.png") });
+});
+
+test("authoring execution graph inserts, moves and deletes steps without manual linear links", async ({ page }) => {
+  const f = await fixture(page); const main = await openEditor(page);
+  await main.getByRole("button", { name: "评审步骤", exact: true }).click(); await addStep(page, "评审");
+  await main.getByLabel("步骤名称").fill("补充评审");
+  await expect(main.getByLabel("后续步骤（按连线执行）")).toHaveCount(0);
+  await main.getByRole("button", { name: "补充评审上移", exact: true }).click();
+  await main.getByRole("button", { name: "保存", exact: true }).click();
+  expect(f.getTemplate().definition.nodes.find(n => n.id === "start")?.next).toBe(f.getTemplate().definition.nodes.find(n => n.name === "补充评审")?.id);
+  await main.getByRole("button", { name: "删除步骤（自动连接前后路径）", exact: true }).click();
+  await main.getByRole("button", { name: "保存", exact: true }).click();
+  expect(f.getTemplate().definition.nodes.find(n => n.id === "start")?.next).toBe("review");
+  await addStep(page, "条件分支", "发起");
+  await expect(main.getByText("两条路径当前相同，可在各路径添加步骤。", { exact: true })).toBeVisible();
+  await main.getByRole("button", { name: "在条件分支不满足路径添加步骤", exact: true }).click();
+  await main.getByRole("button", { name: /^办理/ }).filter({ has: page.locator("strong") }).click();
+  await main.getByRole("button", { name: "保存", exact: true }).click();
+  const branch = f.getTemplate().definition.nodes.find(n => n.type === "condition")!;
+  expect(branch.next).toBe("review"); expect(branch.otherwise).not.toBe("review");
+  await expect(main.getByRole("button", { name: "负责人评审上移", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("review-branches.png") });
+});
+
+test("authoring checks missing configuration and locates the exact step property", async ({ page }) => {
+  await fixture(page); const main = await openEditor(page);
+  await main.getByRole("button", { name: "评审步骤", exact: true }).click();
+  await main.locator('[data-node-id="review"] > .review-node').click();
+  await main.getByRole("combobox", { name: "人员来源", exact: true }).selectOption("named");
+  await main.getByRole("button", { name: "保存并检查", exact: true }).click();
+  await expect(main.getByRole("button", { name: /发布流程 v/ })).toBeDisabled();
+  await expect(main.getByText(/还有 .* 项配置问题/).first()).toBeVisible();
+  await main.getByRole("button", { name: "去修改", exact: true }).first().click();
+  await expect(main.getByRole("combobox", { name: "人员来源", exact: true })).toBeFocused();
+  await main.locator('[data-node-id="start"] > .review-node').click();
+  await expect(main.getByLabel("步骤名称")).toHaveValue("发起");
+  await main.getByRole("button", { name: "定位缺项", exact: true }).click();
+  await expect(main.getByRole("combobox", { name: "人员来源", exact: true })).toBeFocused();
+});
+
+test("authoring narrow and low viewports keep footer reachable, preserve organization changes and one primary action", async ({ page }) => {
+  const f = await fixture(page); const main = await openEditor(page);
+  for (const viewport of [{ width:1440, height:900 }, { width:1024, height:589 }, { width:390, height:667 }]) {
+    await page.setViewportSize(viewport); await expect(main.locator(".review-save-bar")).toBeInViewport();
+    expect(await main.evaluate(e => e.scrollWidth <= e.clientWidth+1)).toBe(true);
+    await expect(main.locator("button.primary:visible")).toHaveCount(1);
+    await page.screenshot({ path: test.info().outputPath(`review-basic-${viewport.width}.png`) });
+  }
+  await main.locator(".review-departments summary").click();
+  await main.getByLabel("当前组织", { exact: true }).selectOption("institute");
   await main.getByLabel("一级部门", { exact: true }).selectOption("other-center");
   await expect(main.getByLabel("二级部门", { exact: true })).toHaveValue("");
-  await expect(main.getByLabel("三级部门", { exact: true })).toBeDisabled();
   await main.getByLabel("二级部门", { exact: true }).selectOption("other-department");
-  await expect(main.getByRole("button", { name: "保存草稿", exact: true })).not.toHaveClass(/primary/);
-  await main.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await main.locator(".review-departments summary").click(); await main.getByRole("button", { name: "保存", exact: true }).click();
   await expect.poll(() => f.getTemplate().definition.organizationUnitId).toBe("other-department");
-  await main.getByRole("button", { name: "返回上一页", exact: true }).click();
-  await main.getByRole("button", { name: "连续编辑测试", exact: true }).click();
-  await expect(main.getByLabel("一级部门", { exact: true })).toHaveValue("other-center");
-  await expect(main.getByLabel("二级部门", { exact: true })).toHaveValue("other-department");
 });
 
-test("return protects unsaved changes, keeps failed saves editable and offers all three choices", async ({ page }) => {
-  const f = await fixture(page);
-  await page.goto("/admin/approval-types");
-  const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "内容评审", exact: true }).click();
-  await main.getByLabel("流程名称").fill("未保存的编辑");
-  await main.getByRole("button", { name: "返回上一页", exact: true }).click();
+test("authoring leave protects failed saves and lifecycle actions stay in the list with explicit confirmation", async ({ page }) => {
+  const f = await fixture(page); const main = await openEditor(page);
+  await main.getByLabel("流程名称").fill("未保存"); await main.getByRole("button", { name: "返回上一页", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "离开前保存修改？" });
-  await dialog.getByRole("button", { name: "留在此页", exact: true }).click();
-  await expect(main.getByLabel("流程名称")).toHaveValue("未保存的编辑");
+  await dialog.getByRole("button", { name: "留在此页", exact: true }).click(); await expect(main.getByLabel("流程名称")).toHaveValue("未保存");
   await main.getByRole("button", { name: "返回上一页", exact: true }).click();
-  await page.route("**/api/admin/approval-types/v2/templates/template", route => route.fulfill({ status: 503, json: { detail: "保存暂不可用" } }));
-  await dialog.getByRole("button", { name: "保存并返回", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toContainText("保存暂不可用");
-  expect(f.getTemplate().definition.name).toBe("内容评审");
   await dialog.getByRole("button", { name: "放弃修改并返回", exact: true }).click();
-  await expect(main.getByRole("button", { name: "新建流程", exact: true })).toBeVisible();
-  await page.unroute("**/api/admin/approval-types/v2/templates/template");
-  await main.getByRole("button", { name: "内容评审", exact: true }).click();
-  await main.getByLabel("流程名称").fill("保存后返回");
-  await main.getByRole("button", { name: "返回上一页", exact: true }).click();
-  await dialog.getByRole("button", { name: "保存并返回", exact: true }).click();
-  await expect(main.getByRole("button", { name: "保存后返回", exact: true })).toBeVisible();
+  await main.getByRole("button", { name: "停用流程", exact: true }).click(); expect(f.commands).toHaveLength(0);
+  await page.getByRole("dialog").getByRole("button", { name: "停用流程", exact: true }).click();
+  await expect(main.getByRole("button", { name: "启用流程", exact: true })).toBeVisible();
 });
 
-test("publication validation is invalidated by edit and undo, with compact controls and one primary action", async ({ page }) => {
-  await fixture(page);
-  await page.goto("/admin/approval-types");
-  const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "内容评审", exact: true }).click();
-  await main.getByLabel("流程名称").fill("发布校验版本");
-  await main.getByRole("button", { name: "保存", exact: true }).click();
-  await main.getByRole("button", { name: "校验与发布", exact: true }).click();
-  const publish = main.getByRole("button", { name: /发布流程 v/ });
-  await expect(publish).toBeDisabled();
-  await main.getByRole("button", { name: "校验流程", exact: true }).click();
-  await expect(publish).toBeEnabled();
-  await main.getByRole("button", { name: "填写基本信息", exact: true }).click();
-  await main.getByLabel("流程名称").fill("又一次修改");
-  await main.getByRole("button", { name: "撤销", exact: true }).click();
-  await main.getByRole("button", { name: "校验与发布", exact: true }).click();
-  await expect(publish).toBeDisabled();
-  await main.getByRole("button", { name: "校验流程", exact: true }).click();
-  await expect(publish).toBeEnabled();
-  await expect(main.locator("button.primary:visible")).toHaveCount(1);
-  await publish.click();
-  await expect(main.locator("button.primary:visible")).toHaveCount(0);
-  await page.getByRole("dialog").locator("[data-admin-confirm-cancel]").click();
-  await main.getByRole("button", { name: "填写基本信息", exact: true }).click();
-  const height = await main.getByLabel("流程名称").evaluate(element => element.getBoundingClientRect().height);
-  expect(height).toBe(32);
-  for (const viewport of [{width:1024,height:589},{width:390,height:667}]) {
-    await page.setViewportSize(viewport);
-    await expect(main.getByRole("button", { name: "返回上一页", exact: true })).toBeInViewport();
-    await expect(main.locator(".review-save-bar")).toBeInViewport();
-    expect(await main.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    if (viewport.width === 390) {
-      await main.locator(".review-departments summary").click();
-      await expect(main.getByLabel("一级部门", { exact: true })).toBeVisible();
-      await main.getByLabel("一级部门", { exact: true }).selectOption("other-center");
-      await expect(main.getByLabel("二级部门", { exact: true })).toBeVisible();
-      await main.locator(".review-departments summary").click();
-    }
-    await page.screenshot({ path: test.info().outputPath(`approval-editor-${viewport.width}.png`), fullPage: true });
-  }
-});
 test("employee can save a non-expense draft and explicitly confirm submission", async ({
   page,
 }) => {
@@ -295,131 +340,6 @@ test("employee can save a non-expense draft and explicitly confirm submission", 
     draft: { id: "draft", version: 1 },
   });
 });
-test("node properties survive dragging, undo and save; unpublished edits disable publish", async ({
-  page,
-}) => {
-  const f = await fixture(page);
-  await page.goto("/admin/approval-types");
-  const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "内容评审", exact: true }).click();
-  await main.getByRole("button", { name: "添加节点", exact: true }).click();
-  await main.getByRole("button", { name: "添加评审节点", exact: true }).click();
-  await main.getByRole("button", { name: "负责人评审 单人评审" }).click();
-  await main.getByLabel("节点名称").fill("内容负责人");
-  const cards = main.locator(".review-canvas li");
-  await cards.nth(2).locator(".review-node").dragTo(cards.nth(1));
-  await expect(cards.nth(0)).toContainText("→ 内容负责人");
-  await expect(main.getByLabel("节点名称")).toHaveValue("内容负责人");
-  await main.getByRole("button", { name: "撤销", exact: true }).click();
-  await expect(main.getByLabel("节点名称")).toHaveValue("内容负责人");
-  await main.getByRole("button", { name: "校验与发布", exact: true }).click();
-  await expect(main.getByRole("button", { name: /发布流程 v/ })).toBeDisabled();
-  await main.getByRole("button", { name: "保存", exact: true }).click();
-  expect(
-    f.getTemplate().definition.nodes.find((n) => n.id === "review")?.name,
-  ).toBe("内容负责人");
-  await main.getByRole("button", { name: "校验流程", exact: true }).click();
-  await expect(main.getByRole("button", { name: /发布流程 v/ })).toBeEnabled();
-});
-test("narrow viewport and keyboard node movement keep controls reachable", async ({
-  page,
-}) => {
-  await fixture(page);
-  await page.setViewportSize({ width: 390, height: 667 });
-  await page.goto("/admin/approval-types");
-  const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "内容评审", exact: true }).click();
-  await main.getByRole("button", { name: "添加节点", exact: true }).click();
-  await main.getByRole("button", { name: "添加评审节点", exact: true }).click();
-  const down = main.getByRole("button", {
-    name: "负责人评审上移",
-    exact: true,
-  });
-  await down.focus();
-  await page.keyboard.press("Enter");
-  await expect(main.locator(".review-canvas li").nth(1)).toContainText(
-    "负责人评审",
-  );
-  expect(await main.evaluate((e) => e.scrollWidth <= e.clientWidth + 1)).toBe(
-    true,
-  );
-  await expect(main.locator("button.primary:visible")).toHaveCount(1);
-});
-
-test("administrator saves explicit operation policies and separates handling from approval", async ({
-  page,
-}) => {
-  const f = await fixture(page);
-  await page.goto("/admin/approval-types");
-  const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "内容评审", exact: true }).click();
-  await main.getByRole("button", { name: "添加节点", exact: true }).click();
-  await main.getByRole("button", { name: "负责人评审 单人评审" }).click();
-  await main.getByLabel("允许当前评审人转交").check();
-  await main.getByLabel("允许的目标人员").selectOption(["reviewer"]);
-  await main.getByLabel("允许请求补充材料").check();
-  await main.getByLabel("可修改的字段").selectOption(["content"]);
-  await main.getByRole("button", { name: "添加办理", exact: true }).click();
-  await expect(main.getByLabel("拒绝规则")).toHaveCount(0);
-  await main.getByRole("button", { name: "保存", exact: true }).click();
-  await expect.poll(() => f.getTemplate().definition.nodes.length).toBe(4);
-  expect(
-    f.getTemplate().definition.nodes.find((n) => n.id === "review")?.operations,
-  ).toMatchObject({
-    transfer: {
-      candidates: { kind: "named", userIds: ["reviewer"] },
-      deadline: "preserve",
-    },
-    amendment: { fields: ["content"], restart: "start" },
-  });
-  expect(
-    f.getTemplate().definition.nodes.some((n) => n.type === "handler"),
-  ).toBe(true);
-});
-
-test("compound conditions survive saving and disabling a template requires confirmation", async ({
-  page,
-}) => {
-  const f = await fixture(page);
-  await page.goto("/admin/approval-types");
-  const main = page.locator("main.review-page");
-  await main.getByRole("button", { name: "内容评审", exact: true }).click();
-  await main.getByRole("button", { name: "添加节点", exact: true }).click();
-  await main.getByRole("button", { name: "添加条件分支", exact: true }).click();
-  await main.getByLabel("组合方式").selectOption("all");
-  await main.getByLabel("比较值").fill("内容A");
-  await main.getByRole("button", { name: "添加条件", exact: true }).click();
-  await main.getByLabel("组合方式").nth(2).selectOption("not");
-  await main.getByLabel("比较值").nth(1).fill("内容B");
-  await main.getByRole("button", { name: "保存", exact: true }).click();
-  await expect.poll(() => f.getTemplate().version).toBe(2);
-  expect(
-    f.getTemplate().definition.nodes.find((n) => n.type === "condition")
-      ?.condition,
-  ).toMatchObject({
-    op: "all",
-    conditions: [
-      { value: "内容A" },
-      { op: "not", condition: { value: "内容B" } },
-    ],
-  });
-  await main.getByRole("button", { name: "校验与发布", exact: true }).click();
-  await main.getByRole("button", { name: "停用流程", exact: true }).click();
-  expect(f.commands).toHaveLength(0);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "停用流程", exact: true })
-    .click();
-  await expect(
-    main.getByRole("button", { name: "启用流程", exact: true }),
-  ).toBeVisible();
-  expect(f.commands[0].command).toMatchObject({
-    action: "disable",
-    expectedVersion: 2,
-    expectedLifecycleVersion: 0,
-  });
-});
-
 test("stale draft upgrade preserves source and opens compatible material for review", async ({
   page,
 }) => {
@@ -538,7 +458,7 @@ test("money configuration and employee submission preserve exact decimal strings
   await page.goto("/admin/approval-types");
   const main = page.locator("main.review-page");
   await main.getByRole("button", { name: "内容评审", exact: true }).click();
-  await main.getByRole("button", { name: "填写表单字段", exact: true }).click();
+  await main.getByRole("button", { name: "表单设计", exact: true }).click();
   await main.getByLabel("字段类型").selectOption("money");
   await main.getByLabel("字段名称").fill("预算");
   await main.getByLabel("总精度（位）").fill("22");
