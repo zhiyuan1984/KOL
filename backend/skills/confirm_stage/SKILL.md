@@ -8,6 +8,7 @@ output: propose_stage
 funnel: intent
 mcp: ["starry.get_collaboration"]
 required_inputs: ["collaboration_id"]
+context: {"requires":["collaboration","stage"],"prefers":["stage_tracks"]}
 actions: ["propose_stage"]
 aliases: ["记状态","推进阶段","确认阶段"]
 in_market: true
