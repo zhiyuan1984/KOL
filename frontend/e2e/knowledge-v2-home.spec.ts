@@ -50,8 +50,10 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator("[data-kbv-record]")).toHaveCount(5);
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
 
-    // 阶段：多选 chips＋「全部」；超过 8 项先折叠，展开后选中仍生效。
+    // 阶段属于高级筛选，默认折叠；展开后多选 chips 与「全部」仍生效。
     const stageRow = page.locator("[data-kb-filter='stage']");
+    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toBeHidden();
+    await stageRow.locator("summary").click();
     await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toBeVisible();
     await expect(stageRow.locator('[data-kb-stage-toggle="SETTLING"]')).toHaveCount(0);
     await stageRow.locator("[data-kb-stage-more]").click();
@@ -154,6 +156,7 @@ test.describe("知识库 v2 主页（员工端）", () => {
     await page.goto("/kb");
     const kb = page.locator('[data-kb-page="mine"]');
     await expect(kb).toBeVisible();
+    await expect(page.locator("[data-kb-detail]")).toContainText("从列表选择一条知识");
     await expect(kb.locator("[data-kbv-view]")).toHaveCount(3);
     await expect(kb.locator("[data-kbv-view='all']")).toHaveAttribute("aria-pressed", "true");
 
@@ -166,5 +169,24 @@ test.describe("知识库 v2 主页（员工端）", () => {
     await expect(page.locator("[data-fill-composer]").first()).toBeVisible();
     const filled = await filledCtaCount(page, '[data-kb-page="mine"]');
     expect(filled, `员工主页实底主 CTA 应为恰好 1 个（用于当前任务），实测 ${filled} 个`).toBe(1);
+  });
+
+  test("员工收藏优先同步接口，收藏视图只展示收藏项", async ({ page }) => {
+    await page.goto("/kb");
+    const kb = page.locator('[data-kb-page="mine"]');
+    const first = page.locator("[data-knowledge]").first();
+    const id = await first.getAttribute("data-knowledge");
+    expect(id).toBeTruthy();
+    const favorite = page.locator(`[data-kb-row-favorite='${id}']`);
+    await first.hover();
+    const wasFavorite = await favorite.getAttribute("aria-pressed") === "true";
+    if (wasFavorite) await favorite.click();
+    await expect(favorite).toHaveAttribute("aria-pressed", "false");
+    await favorite.click();
+    await expect(favorite).toHaveAttribute("aria-pressed", "true");
+    await page.locator("[data-kbv-view='favorites']").click();
+    await expect(kb.locator(`[data-knowledge='${id}']`)).toBeVisible();
+    // 清理：避免跨用例改变种子账户的收藏数据。
+    await page.request.delete(`/api/knowledge/${id}/favorite`);
   });
 });

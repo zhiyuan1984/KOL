@@ -990,6 +990,19 @@ CREATE TABLE public.knowledge_citations (
 
 
 --
+-- Name: knowledge_favorites; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.knowledge_favorites (
+    user_id text NOT NULL,
+    knowledge_id text NOT NULL,
+    saved_version bigint DEFAULT 1 NOT NULL,
+    created_at text NOT NULL,
+    updated_at text NOT NULL
+);
+
+
+--
 -- Name: knowledge_deprecations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1167,7 +1180,10 @@ CREATE TABLE public.knowledge_versions (
     tags text,
     in_market bigint,
     effective_at text,
-    expires_at text
+    expires_at text,
+    base_id text,
+    structured text,
+    source_body text
 );
 
 
@@ -2667,6 +2683,14 @@ ALTER TABLE ONLY public.knowledge_bindings
 
 ALTER TABLE ONLY public.knowledge_citations
     ADD CONSTRAINT knowledge_citations_pkey PRIMARY KEY (user_id, knowledge_id);
+
+
+--
+-- Name: knowledge_favorites knowledge_favorites_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.knowledge_favorites
+    ADD CONSTRAINT knowledge_favorites_pkey PRIMARY KEY (user_id, knowledge_id);
 
 
 --
@@ -4476,4 +4500,3 @@ ALTER TABLE ONLY public.ticket_acceptances
 --
 -- PostgreSQL database dump complete
 --
-

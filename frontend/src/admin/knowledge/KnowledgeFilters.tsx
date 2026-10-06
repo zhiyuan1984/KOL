@@ -46,11 +46,11 @@ type Props = {
 /** 长选项组使用紧凑列表；折叠时选中项始终可见。 */
 const CHIP_VISIBLE_LIMIT = 5;
 
-function FilterGroup({ label, icon, children, className = "" }: {
-  label: string; icon: string; children: ReactNode; className?: string;
+function FilterGroup({ label, icon, children, className = "", defaultOpen = true, selectedCount = 0 }: {
+  label: string; icon: string; children: ReactNode; className?: string; defaultOpen?: boolean; selectedCount?: number;
 }) {
-  return <details open className={`kbv-filter-section ${className}`}>
-    <summary><KbvIcon name={icon} /><span>{label}</span><KbvIcon name="chevron" /></summary>
+  return <details open={defaultOpen} className={`kbv-filter-section ${className}`}>
+    <summary><KbvIcon name={icon} /><span>{label}</span>{selectedCount ? <small>{selectedCount} 项</small> : null}<KbvIcon name="chevron" /></summary>
     {children}
   </details>;
 }
@@ -158,7 +158,7 @@ export default function KnowledgeFilters({
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="brand">
-          <FilterGroup label={KB_FILTER_LABEL.brand} icon="tag" >
+          <FilterGroup label={KB_FILTER_LABEL.brand} icon="tag" defaultOpen={false} selectedCount={selectedBrands.length} >
           <div className="kbv-facet-list" role="group" aria-label={KB_FILTER_LABEL.brand}>
             <FilterChip
               label="全部"
@@ -182,7 +182,7 @@ export default function KnowledgeFilters({
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="stage">
-          <FilterGroup label={KB_FILTER_LABEL.stage} icon="hierarchy" >
+          <FilterGroup label={KB_FILTER_LABEL.stage} icon="hierarchy" defaultOpen={false} selectedCount={selectedStages.length} >
           <div className="kbv-facet-list" role="group" aria-label={KB_FILTER_LABEL.stage}>
             <FilterChip
               label="全部"
@@ -217,7 +217,7 @@ export default function KnowledgeFilters({
         </section>
 
         <section className="kbv-filter-group" data-kb-filter="kind">
-          <FilterGroup label="类型" icon="file" className={kindOptions.length > CHIP_VISIBLE_LIMIT ? "kbv-filter-list" : ""}>
+          <FilterGroup label="类型" icon="file" defaultOpen={false} selectedCount={kind ? 1 : 0} className={kindOptions.length > CHIP_VISIBLE_LIMIT ? "kbv-filter-list" : ""}>
           <div className="kbv-facet-list" role="group" aria-label="类型">
             {chipList(
               kindOptions,

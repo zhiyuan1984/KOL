@@ -1395,9 +1395,17 @@ export type KnowledgeRow = {
   current_version?: number;
   published_version?: number | null;
   cited?: boolean;
+  /** 当前账号已收藏；由服务端返回，跨设备同步。 */
+  favorite?: boolean;
+  favorite_version?: number | null;
+  /** 收藏之后已有新的已发布版本。 */
+  has_newer_version?: boolean;
   deprecated?: boolean;
   deprecate_reason?: string;
   deprecate_reason_label?: string;
+  feedback_handled?: boolean;
+  feedback_handled_at?: string;
+  feedback_handle_action?: string;
   cite_count?: number;
   in_market?: number;
   intent?: string;
@@ -2805,6 +2813,10 @@ export const api = {
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/cite`, { method: "POST", body: JSON.stringify({}) }),
   unciteKnowledge: (id: string) =>
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/cite`, { method: "DELETE" }),
+  favoriteKnowledge: (id: string) =>
+    request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/favorite`, { method: "POST", body: JSON.stringify({}) }),
+  unfavoriteKnowledge: (id: string) =>
+    request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/favorite`, { method: "DELETE" }),
   deprecateKnowledge: (id: string, reason: string, note = "") =>
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/deprecate`, {
       method: "POST",

@@ -610,6 +610,9 @@ function initSchema(db: SqliteConn): void {
             in_market INTEGER,
             effective_at TEXT,
             expires_at TEXT,
+            base_id TEXT,
+            structured TEXT,
+            source_body TEXT,
             created_by TEXT,
             created_at TEXT,
             note TEXT
@@ -618,6 +621,14 @@ function initSchema(db: SqliteConn): void {
             user_id TEXT NOT NULL,
             knowledge_id TEXT NOT NULL,
             cited_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, knowledge_id)
+        );
+        CREATE TABLE IF NOT EXISTS knowledge_favorites (
+            user_id TEXT NOT NULL,
+            knowledge_id TEXT NOT NULL,
+            saved_version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
             PRIMARY KEY (user_id, knowledge_id)
         );
         CREATE TABLE IF NOT EXISTS knowledge_deprecations (
@@ -2099,6 +2110,9 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "knowledge_versions", "in_market", "INTEGER");
   add(db, "knowledge_versions", "effective_at", "TEXT");
   add(db, "knowledge_versions", "expires_at", "TEXT");
+  add(db, "knowledge_versions", "base_id", "TEXT");
+  add(db, "knowledge_versions", "structured", "TEXT");
+  add(db, "knowledge_versions", "source_body", "TEXT");
   // 知识分层（2026-10-01，DECISIONS ADR-2026-10-01 三）：历史条目归入默认族/域/库；
   // 原稿回填（不可变 source_body）；版本快照补四列（此前回滚会丢 tags/in_market/到期）。
   // 以 app_state 标记只跑一次；`structured` 保持 NULL 表示「字段由 title/subject/body 派生」（兼容现状）。
@@ -2127,7 +2141,7 @@ function migrateSchema(db: SqliteConn): void {
     );
     db.prepare("UPDATE knowledge SET base_id=? WHERE base_id IS NULL OR base_id=''").run("kbase_legacy");
     db.prepare("UPDATE knowledge SET source_body=body WHERE source_body IS NULL OR source_body=''").run();
-    for (const column of ["tags", "in_market", "effective_at", "expires_at"]) {
+    for (const column of ["tags", "in_market", "effective_at", "expires_at", "base_id", "structured", "source_body"]) {
       db.prepare(
         `UPDATE knowledge_versions SET ${column}=(SELECT k.${column} FROM knowledge k WHERE k.id=knowledge_versions.knowledge_id)
          WHERE ${column} IS NULL`,
@@ -2195,6 +2209,14 @@ function migrateSchema(db: SqliteConn): void {
             user_id TEXT NOT NULL,
             knowledge_id TEXT NOT NULL,
             cited_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, knowledge_id)
+        );
+        CREATE TABLE IF NOT EXISTS knowledge_favorites (
+            user_id TEXT NOT NULL,
+            knowledge_id TEXT NOT NULL,
+            saved_version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
             PRIMARY KEY (user_id, knowledge_id)
         );
         CREATE TABLE IF NOT EXISTS knowledge_deprecations (

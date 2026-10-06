@@ -6,6 +6,11 @@ export const KB_FILL_STASH = "kb_fill_composer";
 
 export const HIDE_REASONS = [
   {
+    code: "not_helpful",
+    label: "这条对我没帮助",
+    result: "已记录反馈，并仅对本账号隐藏；管理员可在反馈处置中跟进。",
+  },
+  {
     code: "outdated",
     label: "内容过时",
     result: "对本账号隐藏；写邮件时不再带上这份资料；已发信不受影响。",
@@ -656,6 +661,16 @@ export function kbExpiryLabel(expiresAt?: string): string {
   if (days < 0) return `已过期 ${Math.abs(days)} 天`;
   if (days === 0) return "今天到期";
   return `${days} 天后到期`;
+}
+
+/** 到期显示的语义状态；无期限或超过 30 天不显示。 */
+export function kbExpiryState(expiresAt?: string): "expired" | "soon" | null {
+  const raw = String(expiresAt || "").trim();
+  const at = new Date(raw).getTime();
+  if (!raw || Number.isNaN(at)) return null;
+  const days = Math.ceil((at - Date.now()) / 86_400_000);
+  if (days < 0) return "expired";
+  return days <= 30 ? "soon" : null;
 }
 
 /* ---- 员工端 /kb：服务端搜索、适用筛选与来源溯源（阶段 3）---- */
