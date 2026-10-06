@@ -36,33 +36,266 @@ function entryProjection(row:Row):Row {
     stage_codes:parse(row.stage_codes,[]),placeholders:parse(row.placeholders,[]),structured:parse(row.structured,{}),
     publication_label:row.review_status ? ({approved:"审批通过 · 等待发布",reviewing:"审批中",blocked:"审批受阻",awaiting_amendment:"待补充材料",rejected:"已驳回",withdrawn:"已撤回"} as Row)[row.review_status] : undefined};
 }
-export async function workspaceData(actor:string,tenant?:string) {
+export async function workspaceData(actor:string,tenant?:string,filter?:WorkspaceFilter) {
   return postgresTransaction(async db=>{
     const ctx=await workspaceContext(db,actor,tenant), ids=await owners(db,ctx.people);
-    const rows=(await db.query(`SELECT k.*,b.name AS base_name,b.kind AS base_kind,d.id AS domain_id,d.name AS domain_name,f.id AS family_id,f.name AS family_name,
-      a.review_status FROM knowledge k ${join}
-      LEFT JOIN LATERAL(SELECT i.status AS review_status FROM knowledge_publication_applications p JOIN review_instances i ON i.tenant=p.tenant AND i.id=p.instance_id
-        WHERE p.entry_id=k.id AND p.tenant=$2 AND p.status='waiting' ORDER BY p.created_at DESC LIMIT 1) a ON true
-      WHERE k.created_by=ANY($1::text[]) AND NOT EXISTS(SELECT 1 FROM knowledge_publication_applications p WHERE p.entry_id=k.id AND p.tenant<>$2)
-      ORDER BY k.updated_at DESC,k.id`,[ids,ctx.tenant])).rows.map(entryProjection);
-    const documents=(await db.query(`SELECT k.*, 'document' AS asset_type, b.name AS base_name,d.id AS domain_id,d.name AS domain_name,f.id AS family_id,f.name AS family_name,
-      COALESCE(l.version,1) AS current_version, a.review_status,a.release_status,
-      lp.review_status AS legacy_review_status,lp.publication_status AS legacy_publication_status
-      FROM knowledge_documents k ${join}
-      LEFT JOIN knowledge_document_lineage l ON l.document_id=k.id
-      LEFT JOIN knowledge_publication_bindings binding ON binding.base_id=k.base_id
-      LEFT JOIN knowledge_publications lp ON lp.document_id=k.id
-      LEFT JOIN LATERAL(SELECT i.status AS review_status,p.status AS release_status FROM knowledge_publication_applications p JOIN review_instances i ON i.tenant=p.tenant AND i.id=p.instance_id
-        WHERE p.document_id=k.id AND p.tenant=$2 ORDER BY p.created_at DESC LIMIT 1) a ON true
-      WHERE k.created_by=ANY($1::text[]) AND (binding.tenant IS NULL OR binding.tenant=$2)
-      AND NOT EXISTS(SELECT 1 FROM knowledge_publication_applications p WHERE p.document_id=k.id AND p.tenant<>$2)
-      ORDER BY k.updated_at DESC,k.id`,[ids,ctx.tenant])).rows.map(r=>({...r,kind:"document",body:"",current_version:Number(r.current_version),
-        publication_label: ({approved:"审批通过 · 等待发布",reviewing:"审批中",blocked:"审批受阻",awaiting_amendment:"待补充材料",rejected:"已驳回",withdrawn:"已撤回",failed:"发布失败",published:"已发布"} as Row)[r.release_status && r.release_status!=="waiting" ? r.release_status:r.review_status || (r.legacy_publication_status==="published" ? "published":r.legacy_review_status)]}));
+    const f=normalizeFilter(filter);
+    const base={ids,tenant:ctx.tenant};
+    // 主列表：条目与非结构化资料的对齐 UNION，服务端过滤＋分页（A）。
+    const {sql:unionSQL,params:unionParams}=buildUnion(base,f,null,e=>e?ROW_COLS:DOC_COLS);
+    const total=Number((await db.query(`SELECT COUNT(*) AS c FROM (${unionSQL}) u`,unionParams)).rows[0]?.c || 0);
+    const pageCount=Math.max(1,Math.ceil(total/f.pageSize));
+    const page=Math.min(Math.max(1,f.page),pageCount);
+    const offset=(page-1)*f.pageSize;
+    const rows=(await db.query(`SELECT * FROM (${unionSQL}) u ORDER BY u.updated_at DESC,u.id LIMIT $${unionParams.length+1} OFFSET $${unionParams.length+2}`,
+      [...unionParams,f.pageSize,offset])).rows.map(listProjection);
+    // 筛选 chips 计数：每组跳过自身筛选（DESIGN §8 数字同源），与点选后的列表同口径。
+    const facets=await facetCounts(db,base,f);
+    // 驾驶舱聚合（不限用户筛选）：状态分布＋各队列计数/最长等待。
+    const stats=await workspaceStats(db,base);
     const bases=(await db.query(`SELECT b.*,d.name AS domain_name,d.parent_id AS family_id,f.name AS family_name FROM knowledge_bases b LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id
       LEFT JOIN knowledge_publication_bindings binding ON binding.base_id=b.id WHERE binding.tenant IS NULL OR binding.tenant=$1 ORDER BY b.name,b.id`,[ctx.tenant])).rows;
     const domains=(await db.query("SELECT * FROM knowledge_domains ORDER BY sort,name,id")).rows;
-    return {tenant:ctx.tenant,rows:[...rows,...documents],bases,domains};
+    return {tenant:ctx.tenant,rows,total,page,page_size:f.pageSize,page_count:pageCount,facets,stats,bases,domains};
   },{isolation:"REPEATABLE READ"});
+}
+
+/* ---------- 服务端列表：过滤 / 分页 / 计数（A） ---------- */
+
+export type WorkspaceFilter={
+  page?:number;pageSize?:number;q?:string;
+  view?:string;kind?:string;brands?:string[];stages?:string[];
+  familyId?:string;domainId?:string;baseId?:string;
+  asset?:string;expiring?:boolean;
+};
+export type NormFilter=Required<Omit<WorkspaceFilter,"q"|"kind"|"familyId"|"domainId"|"baseId"|"asset">>
+  & {q:string;kind:string;familyId:string;domainId:string;baseId:string;asset:""|"entry"|"document"};
+const VIEW_STATUS_SQL:Record<string,string>={pending:"pending_review",published:"published",draft:"draft",disabled:"archived"};
+const SCOPE_NONE="__none__";
+
+export function parseWorkspaceFilter(query:Record<string,string|undefined>):WorkspaceFilter{
+  const num=(v:string|undefined,dflt:number,min:number,max:number)=>{
+    const n=Math.floor(Number(v));return Number.isFinite(n)?Math.min(max,Math.max(min,n)):dflt;};
+  const csv=(v:string|undefined)=>(v||"").split(",").map(s=>s.trim()).filter(Boolean);
+  const view=(query.view||"").trim();
+  const asset=(query.asset||"").trim();
+  return {
+    page:num(query.page,1,1,1000000),pageSize:num(query.page_size,20,1,100),
+    q:(query.q||"").trim().slice(0,200),
+    view:["all","pending","published","draft","disabled"].includes(view)?view:"all",
+    kind:(query.kind||"").trim(),
+    brands:csv(query.brands),stages:csv(query.stages),
+    familyId:(query.family_id||"").trim(),domainId:(query.domain_id||"").trim(),baseId:(query.base_id||"").trim(),
+    asset:asset==="entry"||asset==="document"?asset:"",
+    expiring:query.expiring==="1",
+  };
+}
+function normalizeFilter(filter?:WorkspaceFilter):NormFilter{
+  const f=parseWorkspaceFilter({
+    page:String(filter?.page ?? ""),page_size:String(filter?.pageSize ?? ""),
+    q:filter?.q,view:filter?.view,kind:filter?.kind,
+    brands:(filter?.brands||[]).join(","),stages:(filter?.stages||[]).join(","),
+    family_id:filter?.familyId,domain_id:filter?.domainId,base_id:filter?.baseId,
+    asset:filter?.asset,expiring:filter?.expiring?"1":"",
+  });
+  return f as NormFilter;
+}
+const likeEscape=(s:string)=>s.replace(/[\\%_]/g,m=>"\\"+m);
+/** 条目 projected status 的 SQL 复刻（与 entryProjection 同语义）：有在途审批→pending_review，有未发布草稿→draft。 */
+const ENTRY_STATUS_SQL=`CASE WHEN k.status<>'archived' AND (k.published_version IS NULL OR k.current_version<>k.published_version)`
+  +` THEN CASE WHEN a.review_status IS NOT NULL THEN 'pending_review' ELSE 'draft' END ELSE k.status END`;
+
+/** 某类资产的过滤 WHERE（不含 tenant 基线）。entry=true 走 knowledge，false 走 knowledge_documents。 */
+export function filterWhere(f:NormFilter,entry:boolean,from:number):{sql:string;params:any[]}{
+  const conds:string[]=[];const params:any[]=[];
+  const p=(v:any)=>{params.push(v);return `$${from+params.length-1}`;};
+  if(f.view&&f.view!=="all"){
+    const s=VIEW_STATUS_SQL[f.view];
+    if(s) conds.push(entry?`(${ENTRY_STATUS_SQL} = ${p(s)})`:`(k.status = ${p(s)})`);
+  }
+  if(f.kind) conds.push(`(k.kind = ${p(f.kind)})`);
+  if(f.brands.length) conds.push(`(k.brand IS NULL OR k.brand='' OR k.brand='*' OR k.brand = ANY(${p(f.brands)}::text[]))`);
+  if(f.stages.length) conds.push(`(COALESCE(NULLIF(k.stage_codes,''),'[]')::jsonb = '[]'::jsonb OR EXISTS`
+    +` (SELECT 1 FROM jsonb_array_elements_text(COALESCE(NULLIF(k.stage_codes,''),'[]')::jsonb) s WHERE s = ANY(${p(f.stages)}::text[])))`);
+  if(f.familyId) conds.push(f.familyId===SCOPE_NONE?`(f.id IS NULL)`:`(f.id = ${p(f.familyId)})`);
+  if(f.domainId) conds.push(f.domainId===SCOPE_NONE?`(d.id IS NULL)`:`(d.id = ${p(f.domainId)})`);
+  if(f.baseId) conds.push(f.baseId===SCOPE_NONE?`(k.base_id IS NULL)`:`(k.base_id = ${p(f.baseId)})`);
+  if(f.expiring) conds.push(entry
+    ?`(k.expires_at IS NOT NULL AND k.expires_at<>'' AND k.expires_at::timestamptz <= NOW() + INTERVAL '30 days')`
+    // knowledge_documents 无 expires_at 列：资料不参与到期筛选（与旧行为一致）。
+    :`(1=0)`);
+  const q=f.q.trim();
+  if(q){
+    // LIKE 默认转义符即反斜杠（PG 标准行为），pattern 中的 %_ 已用 likeEscape 处理。
+    const pat=`%${likeEscape(q)}%`;
+    conds.push(entry
+      ?`(k.title ILIKE ${p(pat)} OR k.body ILIKE ${p(pat)} OR k.created_by ILIKE ${p(pat)})`
+      :`(k.title ILIKE ${p(pat)} OR k.filename ILIKE ${p(pat)} OR k.created_by ILIKE ${p(pat)})`);
+  }
+  return {sql:conds.length?` AND ${conds.join(" AND ")}`:"",params};
+}
+const ENTRY_LATERAL=`LEFT JOIN LATERAL(SELECT i.status AS review_status FROM knowledge_publication_applications p`
+  +` JOIN review_instances i ON i.tenant=p.tenant AND i.id=p.instance_id`
+  +` WHERE p.entry_id=k.id AND p.tenant=$2 AND p.status='waiting' ORDER BY p.created_at DESC LIMIT 1) a ON true`;
+const CITE_JOIN=`LEFT JOIN (SELECT knowledge_id,COUNT(*) AS c FROM knowledge_citations`
+  +` WHERE cited_at<>'' AND cited_at::timestamptz >= NOW() - INTERVAL '30 days' GROUP BY knowledge_id) cc ON cc.knowledge_id=k.id`;
+/** 列表对齐列（条目/资料 UNION 用；不含 body/structured 等重字段，列表只走元数据）。 */
+export const ROW_COLS=`k.id,'entry' AS asset_type,k.title,k.kind,${ENTRY_STATUS_SQL} AS status,`
+  +`k.brand,k.lang,k.base_id,b.name AS base_name,b.kind AS base_kind,`
+  +`d.id AS domain_id,d.name AS domain_name,f.id AS family_id,f.name AS family_name,`
+  +`k.stage_codes,k.current_version,k.published_version,k.created_by,k.created_at,k.updated_at,`
+  +`k.expires_at,k.effective_at,COALESCE(cc.c,0)::int AS cite_count_30d`;
+export const DOC_COLS=`k.id,'document' AS asset_type,k.title,'document' AS kind,k.status,`
+  +`NULL::text AS brand,NULL::text AS lang,k.base_id,b.name AS base_name,'unstructured' AS base_kind,`
+  +`d.id AS domain_id,d.name AS domain_name,f.id AS family_id,f.name AS family_name,`
+  +`'[]' AS stage_codes,COALESCE(l.version,1) AS current_version,NULL::int AS published_version,`
+  // knowledge_documents 无 expires_at 列：到期治理只针对条目（与旧行为一致）。
+  +`k.created_by,k.created_at,k.updated_at,NULL::text AS expires_at,NULL::text AS effective_at,0 AS cite_count_30d`;
+const ENTRY_BASE=`FROM knowledge k ${join} ${ENTRY_LATERAL} ${CITE_JOIN}`
+  +` WHERE k.created_by=ANY($1::text[]) AND NOT EXISTS(SELECT 1 FROM knowledge_publication_applications p WHERE p.entry_id=k.id AND p.tenant<>$2)`;
+const DOC_BASE=`FROM knowledge_documents k ${join}`
+  +` LEFT JOIN knowledge_document_lineage l ON l.document_id=k.id`
+  +` LEFT JOIN knowledge_publication_bindings binding ON binding.base_id=k.base_id`
+  +` WHERE k.created_by=ANY($1::text[]) AND (binding.tenant IS NULL OR binding.tenant=$2)`
+  +` AND NOT EXISTS(SELECT 1 FROM knowledge_publication_applications p WHERE p.document_id=k.id AND p.tenant<>$2)`;
+
+/** 过滤后的条目/资料 UNION（selectList 由调用方指定对齐列）。skip 跳过某组筛选（facet 计数口径）。 */
+export function buildUnion(base:{ids:any[];tenant:string},f:NormFilter,skip:string|null,selectList:(entry:boolean)=>string){
+  const ff={...f};
+  if(skip==="view")ff.view="all";if(skip==="kind")ff.kind="";if(skip==="brand")ff.brands=[];
+  if(skip==="stage")ff.stages=[];if(skip==="family")ff.familyId="";if(skip==="domain")ff.domainId="";
+  if(skip==="base")ff.baseId="";if(skip==="asset")ff.asset="";if(skip==="expiring")ff.expiring=false;
+  // 注意：q（搜索）不参与 skip，各组计数都在搜索结果集上算，与点选 chip 后的列表同源。
+  const parts:string[]=[];const params:any[]=[base.ids,base.tenant];
+  if(ff.asset!=="document"){
+    const w=filterWhere(ff,true,params.length+1);
+    parts.push(`SELECT ${selectList(true)} ${ENTRY_BASE}${w.sql}`);
+    params.push(...w.params);
+  }
+  if(ff.asset!=="entry"){
+    const w=filterWhere(ff,false,params.length+1);
+    parts.push(`SELECT ${selectList(false)} ${DOC_BASE}${w.sql}`);
+    params.push(...w.params);
+  }
+  return {sql:parts.join(" UNION ALL ")||"SELECT NULL WHERE false",params};
+}
+/** 列表行后处理：与旧 entryProjection 对齐的轻量投影（重字段已在 SQL 层去掉）。 */
+function listProjection(row:Row):Row{
+  return {...row,
+    current_version:Number(row.current_version||0),
+    published_version:row.published_version==null?null:Number(row.published_version),
+    stage_codes:parse(row.stage_codes,[]),
+    cite_count_30d:Number(row.cite_count_30d||0)};
+}
+type FacetResult={all:number;values:Record<string,number>;unbranded?:number;empty?:number};
+export async function facetCounts(db:PoolClient,base:{ids:any[];tenant:string},f:NormFilter):Promise<Record<string,FacetResult>>{
+  const out:Record<string,FacetResult>={};
+  const count=async(skip:string|null,select:(entry:boolean)=>string,group:(alias:string)=>string)=>{
+    const {sql,params}=buildUnion(base,f,skip,select);
+    const rows=(await db.query(`SELECT ${group("u")} AS k,COUNT(*) AS c FROM (${sql}) u GROUP BY 1`,params)).rows;
+    const values:Record<string,number>={};
+    for(const r of rows)values[String(r.k)]=Number(r.c);
+    const all=Object.values(values).reduce((a,b)=>a+b,0);
+    return {all,values};
+  };
+  out.view=await count("view",e=>e?`${ENTRY_STATUS_SQL} AS status`:`k.status AS status`,u=>`${u}.status`);
+  out.kind=await count("kind",e=>e?`k.kind AS kind`:`'document' AS kind`,u=>`${u}.kind`);
+  const brand=await count("brand",
+    e=>e?`CASE WHEN k.brand IS NULL OR k.brand='' OR k.brand='*' THEN '${SCOPE_NONE}' ELSE k.brand END AS brand`:`'${SCOPE_NONE}' AS brand`,
+    u=>`${u}.brand`);
+  out.brand={all:brand.all,values:Object.fromEntries(Object.entries(brand.values).filter(([k])=>k!==SCOPE_NONE)),unbranded:brand.values[SCOPE_NONE]||0};
+  out.family=await count("family",()=>"COALESCE(f.id,'"+SCOPE_NONE+"') AS family_id",u=>`${u}.family_id`);
+  out.domain=await count("domain",()=>"COALESCE(d.id,'"+SCOPE_NONE+"') AS domain_id",u=>`${u}.domain_id`);
+  out.base=await count("base",()=>"COALESCE(k.base_id,'"+SCOPE_NONE+"') AS base_id",u=>`${u}.base_id`);
+  // 阶段：一行可属多阶段，un-nest 后按 id 去重计数；空阶段单独计数（ chips 语义：空阶段计入每个 stage chip）。
+  {
+    const {sql,params}=buildUnion(base,f,"stage",
+      e=>e?`k.id,COALESCE(NULLIF(k.stage_codes,''),'[]') AS stage_codes`:`k.id,'[]' AS stage_codes`);
+    const rows=(await db.query(`SELECT s AS k,COUNT(DISTINCT u.id) AS c FROM (${sql}) u`
+      +` CROSS JOIN LATERAL jsonb_array_elements_text(u.stage_codes::jsonb) s GROUP BY 1`,params)).rows;
+    const values:Record<string,number>={};
+    for(const r of rows)values[String(r.k)]=Number(r.c);
+    const empty=Number((await db.query(`SELECT COUNT(*) AS c FROM (${sql}) u`
+      +` WHERE COALESCE(NULLIF(u.stage_codes,''),'[]')::jsonb='[]'::jsonb`,params)).rows[0]?.c||0);
+    const all=Number((await db.query(`SELECT COUNT(*) AS c FROM (${sql}) u`,params)).rows[0]?.c||0);
+    out.stage={all,values,empty};
+  }
+  return out;
+}
+export async function workspaceStats(db:PoolClient,base:{ids:any[];tenant:string}){
+  const f:NormFilter={...parseWorkspaceFilter({}) as NormFilter,page:1,pageSize:20,q:"",kind:"",familyId:"",domainId:"",baseId:"",asset:"",view:"all",brands:[],stages:[],expiring:false};
+  const {sql:u,params}=buildUnion(base,f,null,e=>e?ENTRY_STATUS_SQL:"k.status");
+  const statusRows=(await db.query(`SELECT u.status AS k,COUNT(*) AS c FROM (${u}) u GROUP BY 1`,params)).rows;
+  const status:Record<string,number>={};
+  for(const r of statusRows)status[String(r.k)]=Number(r.c);
+  const pendingReview=await db.query(
+    `SELECT COUNT(*) AS c,MIN(k.updated_at) AS oldest FROM knowledge k ${ENTRY_LATERAL}`
+    +` WHERE k.created_by=ANY($1::text[]) AND a.review_status IS NOT NULL`
+    +` AND k.status<>'archived' AND (k.published_version IS NULL OR k.current_version<>k.published_version)`
+    +` AND NOT EXISTS(SELECT 1 FROM knowledge_publication_applications p WHERE p.entry_id=k.id AND p.tenant<>$2)`,[base.ids,base.tenant]);
+  const pendingDocs=await db.query(
+    `SELECT COUNT(*) AS c,MIN(k.updated_at) AS oldest FROM knowledge_documents k`
+    +` LEFT JOIN knowledge_publication_bindings binding ON binding.base_id=k.base_id`
+    +` WHERE k.created_by=ANY($1::text[]) AND (binding.tenant IS NULL OR binding.tenant=$2) AND k.status='pending_review'`
+    +` AND NOT EXISTS(SELECT 1 FROM knowledge_publication_applications p WHERE p.document_id=k.id AND p.tenant<>$2)`,[base.ids,base.tenant]);
+  // 到期只针对条目：knowledge_documents 无 expires_at 列（与旧行为一致）。
+  const expiring=await db.query(
+    `SELECT COUNT(*) AS c,MIN(k.expires_at) AS nearest FROM knowledge k`
+    +` WHERE k.created_by=ANY($1::text[]) AND k.expires_at IS NOT NULL AND k.expires_at<>''`
+    +` AND k.expires_at::timestamptz <= NOW() + INTERVAL '30 days'`
+    +` AND NOT EXISTS(SELECT 1 FROM knowledge_publication_applications p WHERE p.entry_id=k.id AND p.tenant<>$2)`,[base.ids,base.tenant]);
+  const waitDays=(oldest:any)=>oldest?Math.max(0,Math.ceil((Date.now()-new Date(String(oldest)).getTime())/86400000)):0;
+  return {
+    status,
+    pending_review:{count:Number(pendingReview.rows[0]?.c||0),max_wait_days:waitDays(pendingReview.rows[0]?.oldest)},
+    pending_documents:{count:Number(pendingDocs.rows[0]?.c||0),max_wait_days:waitDays(pendingDocs.rows[0]?.oldest)},
+    expiring:{count:Number(expiring.rows[0]?.c||0),nearest:expiring.rows[0]?.nearest||null},
+  };
+}
+
+/* ---------- 批量续期 / 归档（C） ---------- */
+
+export type BatchItem={id:string;asset:"entry"|"document"};
+export async function batchWorkspaceItems(actor:string,tenant:string|undefined,items:BatchItem[],action:"renew"|"archive",expiresAt?:string){
+  return postgresTransaction(async db=>{
+    const ctx=await workspaceContext(db,actor,tenant);
+    const ids=await owners(db,ctx.people);
+    const stamp=now();
+    const results:{id:string;ok:boolean;error?:string}[]=[];
+    for(const item of items.slice(0,200)){
+      try{
+        if(item.asset==="document"){
+          const row=(await db.query(`SELECT k.id FROM knowledge_documents k`
+            +` LEFT JOIN knowledge_publication_bindings binding ON binding.base_id=k.base_id`
+            +` WHERE k.id=$1 AND k.created_by=ANY($2::text[]) AND (binding.tenant IS NULL OR binding.tenant=$3)`,
+            [item.id,ids,ctx.tenant])).rows[0];
+          if(!row)fail(404,"资料不存在或不在当前组织范围");
+          if(action==="renew"){
+            // knowledge_documents 无 expires_at 列：资料不支持续期（与旧行为一致）。
+            fail(400,"非结构化资料不支持设置到期时间");
+          }else{
+            const frozen=(await db.query(`SELECT 1 FROM knowledge_publication_applications WHERE document_id=$1 AND status='waiting'`,[item.id])).rowCount;
+            if(frozen)fail(409,"审批进行中，不能归档");
+            await db.query(`UPDATE knowledge_documents SET status='archived',updated_at=$2 WHERE id=$1`,[item.id,stamp]);
+          }
+        }else{
+          await authorizeEntry(db,actor,tenant,item.id);
+          if(action==="renew"){
+            if(!expiresAt)fail(400,"续期需要 expires_at");
+            await db.query(`UPDATE knowledge SET expires_at=$2,updated_at=$3 WHERE id=$1`,[item.id,expiresAt,stamp]);
+          }else{
+            const row=(await db.query(`SELECT published_version FROM knowledge WHERE id=$1`,[item.id])).rows[0];
+            if(!row||row.published_version==null)fail(409,"仅发布过的知识可归档");
+            const frozen=(await db.query(`SELECT 1 FROM knowledge_publication_applications WHERE entry_id=$1 AND status='waiting'`,[item.id])).rowCount;
+            if(frozen)fail(409,"审批进行中，不能归档");
+            await db.query(`UPDATE knowledge SET status='archived',updated_at=$2 WHERE id=$1`,[item.id,stamp]);
+          }
+        }
+        results.push({id:item.id,ok:true});
+      }catch(e){results.push({id:item.id,ok:false,error:e instanceof Error?e.message:"操作失败"});}
+    }
+    return {results};
+  });
 }
 const snapshotFields=["title","body","subject","body_en","placeholders","stage_codes","skill_id","brand","lang","kind","status","tags","in_market","effective_at","expires_at","structured","source_body","base_id"];
 export async function writeEntryVersion(db:PoolClient,row:Row,actor:string,note:string) {

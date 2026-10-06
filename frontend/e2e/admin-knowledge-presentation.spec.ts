@@ -11,7 +11,22 @@ async function surface(page:Page,status='pending_review') {
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname,method=route.request().method();let json:any=[];
   if(path==='/api/auth/status')json={authenticated:true,account};else if(path==='/api/me')json=account;else if(path==='/api/preferences')json={theme:'light'};else if(path==='/api/health')json={ok:true};else if(path==='/api/cron/jobs')json={jobs:[]};
-  else if(path==='/api/admin/knowledge/workspace-v1')json={tenant:'company',bases,domains,rows:[...rows,{...doc,kind:'document',asset_type:'document',family_id:'ipd',domain_id:'battery'}]};
+  else if(path==='/api/admin/knowledge/workspace-v1'){
+   // 服务端分页/过滤仿真（与后端 workspace.ts 同 shape）：page/page_size/base_id。
+   const url=new URL(route.request().url());
+   const page=Math.max(1,Number(url.searchParams.get('page')||1));
+   const pageSize=Math.min(100,Math.max(1,Number(url.searchParams.get('page_size')||20)));
+   const baseId=url.searchParams.get('base_id')||'';
+   const all=[...rows,{...doc,kind:'document',asset_type:'document',family_id:'ipd',domain_id:'battery'}];
+   const filtered=baseId?(baseId==='__none__'?all.filter(r=>!r.base_id):all.filter(r=>String(r.base_id||'')===baseId)):all;
+   const pageCount=Math.max(1,Math.ceil(filtered.length/pageSize));
+   const slice=filtered.slice((page-1)*pageSize,page*pageSize);
+   const group=(key)=>{const values={};for(const r of all){const k=String(r[key]??'__none__');values[k]=(values[k]||0)+1;}return {all:all.length,values};};
+   const brandValues={},unbranded=all.filter(r=>!r.brand||r.brand==='*').length;
+   json={tenant:'company',bases,domains,rows:slice,total:filtered.length,page,page_size:pageSize,page_count:pageCount,
+    facets:{view:group('status'),kind:group('kind'),brand:{all:all.length,values:brandValues,unbranded},stage:{all:all.length,values:{},empty:all.length},family:group('family_id'),domain:group('domain_id'),base:group('base_id')},
+    stats:{status:{draft:24,pending_review:1,published:0,archived:0},pending_review:{count:0,max_wait_days:0},pending_documents:{count:1,max_wait_days:3},expiring:{count:0,nearest:null}}};
+  }
   else if(path.startsWith('/api/admin/knowledge/workspace-v1/entries')){
    const id=path.split('/')[6],row=rows.find(r=>r.id===id);
    if(method==='GET')json={row,versions:[],grants:[],refs:[],actions:{edit:true,revision:false,delete:true,submit:true}};

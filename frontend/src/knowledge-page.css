@@ -1975,3 +1975,61 @@
 @media (max-width: 600px) { .kb-governance-heading { align-items: flex-start; flex-direction: column; } .kbv-record-item { flex-direction: column; } .kbv-record-quick { opacity: 1; pointer-events: auto; padding: 0 var(--space-2) var(--space-2); } .kbadmin-queue-list > article { align-items: flex-start; flex-direction: column; } .kb-version-compare-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (pointer: coarse) { .kbv-record-quick { opacity: 1; pointer-events: auto; } .kbv-quick-action { min-height: var(--touch-hit-min); } }
 @media (prefers-reduced-motion: reduce) { .kbv-record-quick { transition: none; } }
+
+/* ── 知识治理补齐（2026-10-07，A–H）：只用既有 token，不写 hex/px 字面量 ── */
+.kbv-browser-record-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.kbv-browser-record-wrap:last-child { border-bottom: 0; }
+.kbv-browser-record-wrap .kbv-browser-record {
+  flex: 1;
+  min-width: 0;
+  border-bottom: 0;
+  padding-left: 0;
+}
+.kbv-record-check {
+  flex: 0 0 auto;
+  width: var(--space-4);
+  height: var(--space-4);
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.kbv-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: var(--ds-font-helper);
+  white-space: nowrap;
+}
+.kbv-batch-dialog {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+  font-size: var(--ds-font-helper);
+}
+.kbv-text-danger { color: var(--danger); }
+.kbv-record-cite { color: var(--text-muted); }
+.kbadmin-govern {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: var(--ds-font-helper);
+}
+.kbadmin-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--ds-font-helper);
+  color: var(--text);
+}
+.kbadmin-queue-label small { display: block; font-weight: 400; }

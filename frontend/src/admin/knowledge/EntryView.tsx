@@ -5,7 +5,6 @@ import {reviewApi} from "../../reviews/api";
 import {
   knowledgeArchiveConfirm,
   knowledgeHardDeleteConfirm,
-  knowledgePublishConfirm,
   knowledgeRollbackConfirm,
 } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
@@ -28,7 +27,6 @@ import {
   KB_BRANDS,
   KB_LANGS,
   basePath,
-  errorStatus,
   hasGrantRow,
   kbSkillNames,
   kindFields,
@@ -172,20 +170,6 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
 
   const needsApproval = row.status === "draft" || row.status === "pending_review";
   const rowVersion = Number(row.current_version || 1);
-  const approve = async (reason: string) => {
-    void reason;
-    try {
-      await api.approveKnowledge(row.id, rowVersion);
-      notify("已审批发布，员工可见性按下一次解析生效。");
-      reload();
-    } catch (cause) {
-      if (errorStatus(cause) === 409) {
-        reload();
-        throw new Error("内容已变，请刷新后重新审核");
-      }
-      throw cause;
-    }
-  };
 
   const saveEdit = (form: HTMLFormElement) => {
     const body = new FormData(form);
@@ -253,17 +237,13 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
               </button>
             ) : null}
             {needsApproval ? (
-              <button
+              <Link
                 className={editing ? "btn ghost" : "btn work"}
-                type="button"
                 data-admin-kb-approve
-                onClick={() => ask(
-                  knowledgePublishConfirm(row.title, rowVersion),
-                  approve,
-                )}
+                to={`/admin/knowledge?mode=review&assetId=${encodeURIComponent(id)}&assetType=entry`}
               >
-                {KB_ADMIN_ACTION.approve}
-              </button>
+                发起审批
+              </Link>
             ) : (
               <button
                 className={editing ? "btn ghost" : "btn work"}

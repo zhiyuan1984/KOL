@@ -1,4 +1,4 @@
-import { workspaceData, entryDetail, saveEntry, reviseEntry, removeEntryDraft,authorizeEntry } from "../knowledge/workspace.js";
+import { workspaceData, batchWorkspaceItems, parseWorkspaceFilter, entryDetail, saveEntry, reviseEntry, removeEntryDraft,authorizeEntry } from "../knowledge/workspace.js";
 import { Hono } from "hono";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -140,7 +140,13 @@ knowledgePublication.post(
     );
   },
 );
-knowledgePublication.get("/admin/knowledge/workspace-v1",async c=>c.json(await workspaceData(actor(),c.req.header("X-Review-Company"))));
+knowledgePublication.get("/admin/knowledge/workspace-v1",async c=>c.json(await workspaceData(actor(),c.req.header("X-Review-Company"),parseWorkspaceFilter(c.req.query()))));
+knowledgePublication.post("/admin/knowledge/workspace-v1/batch",async c=>{
+  const b=await c.req.json().catch(()=>({})) as {items?:{id:string;asset:"entry"|"document"}[];action?:"renew"|"archive";expires_at?:string};
+  if(b.action!=="renew"&&b.action!=="archive")throw new HttpFail(400,"action 仅支持 renew/archive");
+  if(!Array.isArray(b.items)||!b.items.length)throw new HttpFail(400,"items 不能为空");
+  return c.json(await batchWorkspaceItems(actor(),c.req.header("X-Review-Company"),b.items,b.action,b.expires_at));
+});
 knowledgePublication.get("/admin/knowledge/documents/:id",async c=>{
   const id=c.req.param("id");
   const result=await postgresTransaction(async db=>{

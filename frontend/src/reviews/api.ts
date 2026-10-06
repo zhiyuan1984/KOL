@@ -79,3 +79,13 @@ export const prepareReview = (command: ReviewCommand) =>
       reviewers?: string[];
     };
   }>("/approvals/v2/prepare", command);
+/** 知识工作区批量操作（续期 / 归档）：走统一 review 租户头。 */
+export const workspaceBatch = (
+  items: { id: string; asset: "entry" | "document" }[],
+  action: "renew" | "archive",
+  expires_at?: string,
+) =>
+  reviewApi<{ results: { id: string; ok: boolean; error?: string }[] }>(
+    "/admin/knowledge/workspace-v1/batch",
+    { items, action, expires_at },
+  );

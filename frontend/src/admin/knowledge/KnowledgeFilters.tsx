@@ -117,7 +117,7 @@ export default function KnowledgeFilters({
           <input
             type="search"
             aria-label="搜索知识"
-            placeholder="搜索标题、主题、负责人…"
+            placeholder="搜索标题、正文、负责人…"
             data-kbv-search
             value={query}
             onChange={(event) => onQuery(event.target.value)}

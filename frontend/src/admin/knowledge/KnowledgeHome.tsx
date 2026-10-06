@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect } fr
 import { brandLabel, kindLabel } from "../../knowledgeCopy";
 import { MAIN_STAGE_TABS } from "../../kolStages";
 import { stageLabel } from "../../labels";
-import { KNOWLEDGE_KIND_SPECS, errorMessage, expirySoon, useKbData, type KbAssetRow } from "./shared";
+import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow, type WsData } from "./shared";
 import EntryEditor from "./EntryEditor";
 import WorkspaceEntry from "./WorkspaceEntry";
 import { WorkspaceActionContext } from "./WorkspaceActions";
-import { reviewApi,reviewCompany } from "../../reviews/api";
+import { reviewApi,reviewCompany,workspaceBatch } from "../../reviews/api";
 import { useAccount } from "../../components/AuthGate";
 import KnowledgeFilters, { type FilterOption } from "./KnowledgeFilters";
 import LibraryPane, { type KbView } from "./LibraryPane";
@@ -39,8 +39,7 @@ const viewParam = (value: string | null): KbView | null =>
 const assetParam = (value: string | null): "" | "entry" | "document" =>
   value === "entry" || value === "document" ? value : "";
 
-/** 计数跳过哪些筛选组：计数口径＝点选该 chip 后的实际结果数（DESIGN §8 数字同源）。 */
-type Skip = { view?: boolean; kind?: boolean; brand?: boolean; stage?: boolean; scope?: "all" | "sub" | "base" };
+  /** 筛选 chips 计数全部来自服务端 facet（skip 口径见后端 buildUnion），前端只做展示映射。 */
 
 /**
  * 知识管理主页：中栏只承担筛选，右栏只承担浏览与查看。
@@ -52,12 +51,11 @@ export default function KnowledgeHome() {
   const {account}=useAccount();
   const contextKey=`knowledge.workspace:${account?.id || "current"}:${reviewCompany()}`;
   const restore=useMemo(()=>{try{return JSON.parse(sessionStorage.getItem(contextKey)||"{}");}catch{return {};}},[contextKey]);
-  const load = useCallback(()=>reviewApi<{rows:KbAssetRow[];bases:import("../../api").KnowledgeBaseRow[];domains:import("../../api").KnowledgeDomainRow[]}>("/admin/knowledge/workspace-v1"),[contextKey]);
-  const { data, error, loading, reload } = useKbData(load);
-
+  const [query, setQuery] = useState<string>(restore.query || "");
+  const [debouncedQuery, setDebouncedQuery] = useState<string>(restore.query || "");
+  useEffect(()=>{const t=setTimeout(()=>setDebouncedQuery(query),300);return ()=>clearTimeout(t);},[query]);
   const [receipt, setReceipt] = useState("");
   const [actionError, setActionError] = useState("");
-  const [query, setQuery] = useState<string>(restore.query || "");
   const [scope, setScope] = useState<KbScope>(restore.scope || EMPTY_SCOPE);
   const [brands, setBrands] = useState<string[]>(restore.brands || []);
   const [stages, setStages] = useState<string[]>(restore.stages || []);
@@ -75,6 +73,48 @@ export default function KnowledgeHome() {
   useEffect(()=>{const next=viewParam(params.get("view"));if(next)setView(next);},[params]);
   useEffect(()=>{if(params.get("asset")!==null)setAssetTypeFilter(assetParam(params.get("asset")));},[params]);
   useEffect(()=>{if(params.get("expiring")!==null)setExpiring(params.get("expiring")==="1");},[params]);
+  const notify = useCallback((message: string) => {
+    setActionError("");
+    setReceipt(message);
+  }, []);
+  const fail = useCallback((cause: unknown, fallback = "操作失败") => {
+    setReceipt("");
+    setActionError(errorMessage(cause, fallback));
+  }, []);
+
+  /** 服务端过滤＋分页：筛选/搜索/页码变化即重新请求（搜索框 300ms 防抖）。 */
+  const queryKey = useMemo(()=>{
+    const p=new URLSearchParams();
+    p.set("page",String(page));p.set("page_size",String(PAGE_SIZE));
+    const q=debouncedQuery.trim();if(q)p.set("q",q);
+    if(view!=="all")p.set("view",view);
+    if(kind)p.set("kind",kind);
+    if(brands.length)p.set("brands",brands.join(","));
+    if(stages.length)p.set("stages",stages.join(","));
+    if(scope.familyId)p.set("family_id",scope.familyId);
+    if(scope.domainId)p.set("domain_id",scope.domainId);
+    if(scope.baseId)p.set("base_id",scope.baseId);
+    if(assetTypeFilter)p.set("asset",assetTypeFilter);
+    if(expiring)p.set("expiring","1");
+    return p.toString();
+  },[page,debouncedQuery,view,kind,brands,stages,scope,assetTypeFilter,expiring]);
+  const load = useCallback(
+    ()=>reviewApi<WsData>(`/admin/knowledge/workspace-v1?${queryKey}`),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [queryKey,contextKey]);
+  const { data, error, loading, reload } = useKbData(load, [queryKey]);
+
+  const rows = data?.rows || [];
+  const total = data?.total ?? 0;
+  const pageCount = data?.page_count || 1;
+  const bases = data?.bases || [];
+  const domains = data?.domains || [];
+  const facets = data?.facets;
+  /** facet 计数读取：服务端已按 skip 口径算好，前端只做展示映射。 */
+  const fAll = (group: string) => facets?.[group]?.all ?? 0;
+  const fVal = (group: string, key: string) => facets?.[group]?.values?.[key] ?? 0;
+  // 服务端会钳制越界页码：把本地 page 同步为服务端实际页。
+  useEffect(()=>{if(data && data.page!==page)setPage(data.page);},[data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dirty,setDirty]=useState(false),dirtyRef=useRef(false);
   const onDirty=useCallback((value:boolean)=>{dirtyRef.current=value;setDirty(value);},[]);
   const blocker=useBlocker(()=>dirtyRef.current),asking=useRef(false);
@@ -104,19 +144,6 @@ export default function KnowledgeHome() {
     return()=>{window.removeEventListener("beforeunload",before);};
   },[]);
 
-  const notify = useCallback((message: string) => {
-    setActionError("");
-    setReceipt(message);
-  }, []);
-  const fail = useCallback((cause: unknown, fallback = "操作失败") => {
-    setReceipt("");
-    setActionError(errorMessage(cause, fallback));
-  }, []);
-
-  const rows = data?.rows || [];
-  const bases = data?.bases || [];
-  const domains = data?.domains || [];
-
   const pathOf = useCallback((row: KbAssetRow) => [row.family_name, row.domain_name, row.base_name]
     .map((part) => String(part || "").trim())
     .filter(Boolean)
@@ -139,66 +166,18 @@ export default function KnowledgeHome() {
     setParams(next);
   }, [params, setParams]);
 
-  const passes = useCallback((row: KbAssetRow, skip: Skip = {}) => {
-    const q = query.trim().toLowerCase();
-    const familyId = String(row.family_id || "");
-    const domainId = String(row.domain_id || "");
-    const baseId = String(row.base_id || "");
-    const rowAssetType = row.asset_type === "document" ? "document" : "entry";
-    if (assetTypeFilter && rowAssetType !== assetTypeFilter) return false;
-    if (expiring && !expirySoon(row.expires_at)) return false;
-    if (!skip.view && view !== "all" && String(row.status || "") !== VIEW_STATUS[view]) return false;
-    if (!skip.kind && kind && row.kind !== kind) return false;
-    if (skip.scope !== "all" && scope.familyId) {
-      const hit = scope.familyId === SCOPE_NONE ? !familyId : familyId === scope.familyId;
-      if (!hit) return false;
-    }
-    if (skip.scope !== "all" && skip.scope !== "sub" && scope.domainId) {
-      const hit = scope.domainId === SCOPE_NONE ? !domainId : domainId === scope.domainId;
-      if (!hit) return false;
-    }
-    if (!skip.scope && scope.baseId) {
-      const hit = scope.baseId === SCOPE_NONE ? !baseId : baseId === scope.baseId;
-      if (!hit) return false;
-    }
-    if (!skip.brand && brands.length) {
-      const brand = String(row.brand || "").trim();
-      if (brand && brand !== "*" && !brands.includes(brand)) return false;
-    }
-    if (!skip.stage && stages.length) {
-      const rowStages = row.stage_codes || [];
-      if (rowStages.length && !rowStages.some((code) => stages.includes(code))) return false;
-    }
-    if (q) {
-      const haystack = [row.title, kindLabel(row.kind), pathOf(row), row.created_by || ""].join(" ").toLowerCase();
-      if (!haystack.includes(q)) return false;
-    }
-    return true;
-  }, [query, scope, brands, stages, kind, view, pathOf, assetTypeFilter, expiring]);
-
-  const countWhere = useCallback(
-    (skip: Skip, match?: (row: KbAssetRow) => boolean) => rows.reduce(
-      (total, row) => total + (passes(row, skip) && (!match || match(row)) ? 1 : 0),
-      0,
-    ),
-    [rows, passes],
-  );
-
   const familyFacet = useMemo<FilterOption[]>(() => {
     const candidates = [
       ...domains.filter((domain) => domain.level === "family").map((domain) => ({ value: domain.id, label: domain.name })),
       { value: SCOPE_NONE, label: "未分类" },
     ];
-    const options: FilterOption[] = [{ value: "", label: "全部", count: countWhere({ scope: "all" }) }];
+    const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("family") }];
     candidates.forEach((candidate) => {
-      const count = countWhere({ scope: "all" }, (row) => {
-        const familyId = String(row.family_id || "");
-        return candidate.value === SCOPE_NONE ? !familyId : familyId === candidate.value;
-      });
+      const count = fVal("family", candidate.value);
       if (count > 0 || scope.familyId === candidate.value) options.push({ ...candidate, count });
     });
     return options;
-  }, [domains, countWhere, scope.familyId]);
+  }, [domains, facets, scope.familyId]);
 
   const domainFacet = useMemo<FilterOption[]>(() => {
     const candidates = [
@@ -212,16 +191,13 @@ export default function KnowledgeHome() {
         .map((domain) => ({ value: domain.id, label: domain.name })),
       { value: SCOPE_NONE, label: "未分类" },
     ];
-    const options: FilterOption[] = [{ value: "", label: "全部", count: countWhere({ scope: "sub" }) }];
+    const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("domain") }];
     candidates.forEach((candidate) => {
-      const count = countWhere({ scope: "sub" }, (row) => {
-        const domainId = String(row.domain_id || "");
-        return candidate.value === SCOPE_NONE ? !domainId : domainId === candidate.value;
-      });
+      const count = fVal("domain", candidate.value);
       if (count > 0 || scope.domainId === candidate.value) options.push({ ...candidate, count });
     });
     return options;
-  }, [domains, countWhere, scope.familyId, scope.domainId]);
+  }, [domains, facets, scope.familyId, scope.domainId]);
 
   const baseFacet = useMemo<FilterOption[]>(() => {
     const inScope = bases.filter((base) => {
@@ -239,78 +215,84 @@ export default function KnowledgeHome() {
       ...inScope.map((base) => ({ value: base.id, label: base.name })),
       { value: SCOPE_NONE, label: "未分类" },
     ];
-    const options: FilterOption[] = [{ value: "", label: "全部", count: countWhere({ scope: "base" }) }];
+    const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("base") }];
     candidates.forEach((candidate) => {
-      const count = countWhere({ scope: "base" }, (row) => {
-        const baseId = String(row.base_id || "");
-        return candidate.value === SCOPE_NONE ? !baseId : baseId === candidate.value;
-      });
+      const count = fVal("base", candidate.value);
       if (count > 0 || scope.baseId === candidate.value) options.push({ ...candidate, count });
     });
     return options;
-  }, [bases, countWhere, scope.domainId, scope.familyId, scope.baseId]);
+  }, [bases, facets, scope.domainId, scope.familyId, scope.baseId]);
 
   const brandCodes = useMemo(() => {
-    const values = new Set(rows.map((row) => String(row.brand || "").trim()).filter(Boolean));
-    return [...values].sort((a, b) => {
+    const values = Object.keys(facets?.brand?.values || {});
+    return values.sort((a, b) => {
       if (a === "*") return 1;
       if (b === "*") return -1;
       return brandLabel(a).localeCompare(brandLabel(b), "zh-CN");
     });
-  }, [rows]);
+  }, [facets]);
 
   const brandFacet = useMemo<FilterOption[]>(() => {
-    const options: FilterOption[] = [{ value: "", label: "全部", count: countWhere({ brand: true }) }];
+    // 未设品牌的行计入每个品牌 chip（与旧客户端口径一致）。
+    const unbranded = facets?.brand?.unbranded || 0;
+    const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("brand") }];
     brandCodes.forEach((value) => {
-      const count = countWhere({ brand: true }, (row) => {
-        const rowBrand = String(row.brand || "").trim();
-        return value === "*" ? !rowBrand || rowBrand === "*" : !rowBrand || rowBrand === "*" || rowBrand === value;
-      });
+      const count = fVal("brand", value) + unbranded;
       if (count > 0 || brands.includes(value)) options.push({ value, label: brandLabel(value) || value, count });
     });
     return options;
-  }, [brandCodes, countWhere, brands]);
+  }, [brandCodes, facets, brands]);
 
   const stageFacet = useMemo<FilterOption[]>(() => {
-    const options: FilterOption[] = [{ value: "", label: "全部", count: countWhere({ stage: true }) }];
+    // 无阶段的行计入每个阶段 chip（与旧客户端口径一致）。
+    const empty = facets?.stage?.empty || 0;
+    const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("stage") }];
     MAIN_STAGE_TABS.forEach((stage) => {
-      const count = countWhere({ stage: true }, (row) => {
-        const rowStages = row.stage_codes || [];
-        return !rowStages.length || rowStages.includes(stage.code);
-      });
+      const count = fVal("stage", stage.code) + empty;
       if (count > 0 || stages.includes(stage.code)) options.push({ value: stage.code, label: stageLabel(stage.code) || stage.code, count });
     });
     return options;
-  }, [countWhere, stages]);
+  }, [facets, stages]);
 
   const kindFacet = useMemo<FilterOption[]>(() => {
-    const options: FilterOption[] = [{ value: "", label: "全部", count: countWhere({ kind: true }) }];
+    const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("kind") }];
     KIND_OPTIONS.forEach((option) => {
-      const count = countWhere({ kind: true }, (row) => row.kind === option.value);
+      const count = fVal("kind", option.value);
       if (count > 0 || kind === option.value) options.push({ ...option, count });
     });
     return options;
-  }, [countWhere, kind]);
+  }, [facets, kind]);
 
   const viewFacet = useMemo<FilterOption[]>(() => VIEW_OPTIONS.map((option) => {
     const count = option.value === "all"
-      ? countWhere({ view: true })
-      : countWhere({ view: true }, (row) => String(row.status || "") === VIEW_STATUS[option.value as Exclude<KbView, "all">]);
+      ? fAll("view")
+      : fVal("view", VIEW_STATUS[option.value as Exclude<KbView, "all">]);
     return { value: option.value, label: option.label, count };
-  }).filter((option) => option.count > 0 || option.value === "all" || view === option.value), [countWhere, view]);
+  }).filter((option) => option.count > 0 || option.value === "all" || view === option.value), [facets, view]);
 
-  const filtered = useMemo(() => rows.filter((row) => passes(row)), [rows, passes]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const pageRows = useMemo(
-    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
-    [filtered, currentPage],
-  );
   const selectedRow=rows.find(row=>row.id===selectedId && (row.asset_type==="document" ? "document":"entry")===selectedType) || null;
   const lastFilters=useRef(JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,expiring}));
   useEffect(()=>{const current=JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,expiring});if(lastFilters.current!==current){setPage(1);lastFilters.current=current;}},[query,kind,view,scope,brands,stages,assetTypeFilter,expiring]);
-  useEffect(()=>{if(page!==currentPage)setPage(currentPage);},[page,currentPage]);
+  // 批量续期 / 归档（C）：勾选行 → 服务端批量接口。
+  const [selection,setSelection]=useState<string[]>([]);
+  useEffect(()=>{setSelection((current)=>current.filter((id)=>rows.some((row)=>row.id===id)));},[rows]);
+  const toggleSelect=useCallback((id:string)=>{
+    setSelection((current)=>current.includes(id)?current.filter((x)=>x!==id):[...current,id]);
+  },[]);
+  const runBatch=useCallback(async (action:"renew"|"archive",expiresAt?:string)=>{
+    const items=selection
+      .map((id)=>{const row=rows.find((r)=>r.id===id);return row?{id,asset:(row.asset_type==="document"?"document":"entry") as "document"|"entry"}:null;})
+      .filter((x):x is {id:string;asset:"document"|"entry"}=>Boolean(x));
+    if(!items.length)return;
+    try{
+      const result=await workspaceBatch(items,action,expiresAt);
+      const failed=result.results.filter((r)=>!r.ok);
+      if(!failed.length)notify(action==="renew"?`已续期 ${items.length} 条。`:`已归档 ${items.length} 条。`);
+      else fail(new Error(failed.map((r)=>`${r.id}：${r.error||"失败"}`).join("；")),"部分操作失败");
+      setSelection([]);
+      reload();
+    }catch(cause){fail(cause);}
+  },[selection,rows,notify,fail,reload]);
   useEffect(()=>{sessionStorage.setItem(contextKey,JSON.stringify({query,scope,brands,stages,kind,view,page,selectedId,selectedType,positions:positions.current}));},[contextKey,query,scope,brands,stages,kind,view,page,selectedId,selectedType,mode]);
   const revealCreated=(id:string,type="entry")=>{onDirty(false);switchMode("detail",id,type);reload();};
 
@@ -362,7 +344,7 @@ export default function KnowledgeHome() {
         <section className="kbv-browser kbw-workarea" aria-label="知识工作区" data-workspace-mode={mode} aria-busy={loading}>
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           <div className="kbw-body" ref={bodyRef} onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
-          {mode==="list" ? <ReviewView rows={rows} /> : null}
+          {mode==="list" ? <ReviewView stats={data?.stats} /> : null}
           {mode==="list" && (view !== "all" || assetTypeFilter || expiring) ? (
             <p className="kbv-filter-note" data-kbv-filter-note role="status">
               {/* 下钻筛选轴回显：条件与列表同源，可一键清除（DESIGN §9.2）。 */}
@@ -373,17 +355,19 @@ export default function KnowledgeHome() {
                   assetTypeFilter === "document" ? "非结构化资料" : assetTypeFilter === "entry" ? "知识条目" : "",
                   expiring ? "30 天内到期与已过期" : "",
                 ].filter(Boolean).join(" · ")}
-                （{filtered.length} 条）
+                （{total} 条）
               </span>
               <button type="button" className="kbv-text-action" data-kbv-filter-note-clear onClick={clearFilterAxis}>清除这部分筛选</button>
             </p>
           ) : null}
           {error ? <p role="alert">知识服务暂不可用，请重新加载。</p> : mode==="list" ? <>
             <LibraryPane
-              rows={pageRows} totalCount={filtered.length} page={currentPage} pageCount={pageCount} selectedId={selectedId}
-              onSelect={id=>{const row=pageRows.find(r=>r.id===id);switchMode("detail",id,row?.asset_type==="document"?"document":"entry");}}
+              rows={rows} totalCount={total} page={page} pageCount={pageCount} selectedId={selectedId}
+              onSelect={id=>{const row=rows.find(r=>r.id===id);switchMode("detail",id,row?.asset_type==="document"?"document":"entry");}}
               onPrevious={()=>setPage(p=>Math.max(1,p-1))} onNext={()=>setPage(p=>Math.min(pageCount,p+1))} loading={loading}
               onReset={resetAllFilters}
+              selection={selection} onToggleSelect={toggleSelect}
+              onBatchRenew={(ids,date)=>runBatch("renew",date)} onBatchArchive={(ids)=>runBatch("archive")}
             />
           </> : mode==="create" ? <EntryEditor bases={bases} onDirty={onDirty} onCancel={()=>switchMode("list")} onSaved={row=>{notify("草稿已保存");revealCreated(row.id);}} />
           : mode==="upload" ? <UploadDialog inline open onProgress={reload} bases={bases} onDirty={onDirty} onClose={()=>switchMode("list")} onCreated={id=>{notify("PDF 已上传并开始解析；完成后请提交发布审批");revealCreated(id,"document");}} />

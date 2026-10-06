@@ -17,6 +17,22 @@ export type KbAssetRow = KnowledgeRow & {
   ref_skills?: string[];
   effective_at?: string;
   expires_at?: string;
+  /** 近 30 天被引用次数（服务端 knowledge_citations 聚合；资料恒为 0）。 */
+  cite_count_30d?: number;
+};
+/** 服务端工作区响应的 facet/stats 口径（与后端 knowledge/workspace.ts 对齐）。 */
+export type WsFacet = { all: number; values: Record<string, number>; unbranded?: number; empty?: number };
+export type WsStats = {
+  status: Record<string, number>;
+  pending_review: { count: number; max_wait_days: number };
+  pending_documents: { count: number; max_wait_days: number };
+  expiring: { count: number; nearest: string | null };
+};
+export type WsData = {
+  tenant: string; rows: KbAssetRow[]; total: number;
+  page: number; page_size: number; page_count: number;
+  facets: Record<string, WsFacet>; stats: WsStats;
+  bases: KnowledgeBaseRow[]; domains: KnowledgeDomainRow[];
 };
 export type KbSub = (message: string) => void;
 export type KbFail = (error: unknown, fallback?: string) => void;
