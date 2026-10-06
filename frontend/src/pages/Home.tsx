@@ -761,12 +761,40 @@ export default function Home() {
     setAnalyzeUids([]);
   };
 
-  const onFillComposer = (text: string, intent?: string, label?: string) => {
+  /**
+   * 写合作邮件的上下文准备：合作对象、正式阶段、品牌与授权收发邮箱、已发布模板
+   * 一律由 Host 只读解析（`POST /api/actions/mail.prepare`），前端不自己拼 From/To。
+   * 点选技能、卡片预填与打字识别都走这一条，避免只有点选才拿得到上下文。
+   */
+  const prepareMailContext = (
+    body: string,
+    source?: { collaborationId?: string; objectRefs?: ComposerObjectRef[] },
+  ) => {
+    const refs = source?.objectRefs || objectRefs;
+    const collaboration = refs.find((ref) => ref.kind === "collaboration");
+    const kol = refs.find((ref) => ref.kind === "kol");
+    void mailCompose.prepare({
+      body,
+      collaboration_id: source?.collaborationId || collaboration?.id,
+      handle: kol?.id,
+      knowledge_id: lockedKnowledgeId || undefined,
+      object_refs: refs,
+    });
+  };
+
+  const onFillComposer = (
+    text: string,
+    intent?: string,
+    label?: string,
+    refs?: ComposerObjectRef[],
+  ) => {
     releasePreset();
     setText(text);
-    if (intent) setLockedIntent(intent);    if (label) setLockedLabel(label);
+    if (intent) setLockedIntent(intent);
+    if (label) setLockedLabel(label);
     setComposerFocused(true);
     setDraftFocus((value) => value + 1);
+    if (intent === "email_compose") prepareMailContext(text, { objectRefs: refs });
   };
 
   const boardKolsRef = useRef<Array<Record<string, unknown>>>([]);

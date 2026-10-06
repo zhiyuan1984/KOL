@@ -88,6 +88,8 @@ export type MailComposerMeta = {
   candidates: Array<{ knowledge_id: string; title: string; published_version: number }>;
   missingFields: string[];
   message?: string;
+  digest?: string;
+  mailCount?: number;
   preparedPendingApply: boolean;
   onSubjectChange: (subject: string) => void;
   onApplyPrepared: () => void;
@@ -1037,6 +1039,11 @@ export default function ComposerDock({
           {(mailCompose.from || mailCompose.to?.length) ? (
             <p className="composer-template-preview-excerpt" data-mail-compose-addresses>
               {mailCompose.from ? `发件：${mailCompose.from}` : ""}{mailCompose.from && mailCompose.to?.length ? " · " : ""}{mailCompose.to?.length ? `收件：${mailCompose.to.join("、")}` : ""}
+            </p>
+          ) : null}
+          {mailCompose.digest ? (
+            <p className="composer-template-preview-excerpt" data-mail-compose-digest>
+              最近往来{mailCompose.mailCount ? `（${mailCompose.mailCount} 封）` : ""}：{mailCompose.digest}
             </p>
           ) : null}
           {mailCompose.message ? <p className="composer-template-preview-excerpt" data-mail-compose-message>{mailCompose.message}</p> : null}

@@ -24,6 +24,7 @@ import { loadHomeFollowing, releaseFollowedKol } from "./kolSurfaceApi";
 import { sharedRead } from "./sharedRead";
 import { matchesFollowedSituation, type FollowedSituation } from "./FollowedBrief";
 import type { HomeSurface } from "./surfaceError";
+import type { ComposerObjectRef } from "../composer/types";
 
 export type FollowedKol = FollowedKolRecord;
 
@@ -56,7 +57,12 @@ export function useFollowedWorkspace(options: {
   /** 打开已有任务会话（由 Home 实现，避免 hook 依赖 Composer 状态）。 */
   openTask: (task: Task) => Promise<void>;
   /** 填充 Composer 提问框（由 Home 实现）。 */
-  onFillComposer: (text: string, intent?: string, label?: string) => void;
+  onFillComposer: (
+    text: string,
+    intent?: string,
+    label?: string,
+    refs?: ComposerObjectRef[],
+  ) => void;
   /** 路由跳转（由 Home 的 react-router navigate 传入）。 */
   navigate: (to: string, options?: { state?: Record<string, unknown> }) => void;
   /** 非 surface 错误的兜底提示（映射到 Home 的 setErr）。 */
@@ -261,7 +267,12 @@ export function useFollowedWorkspace(options: {
   const compose = useCallback(
     (card: FollowedKolCardModel) => {
       const kol = card.source;
-      onFillComposer(`写合作邮件 @${kol.handle}`, "email_compose", "写合作邮件");
+      onFillComposer(
+        `写合作邮件 @${kol.handle}`,
+        "email_compose",
+        "写合作邮件",
+        [{ kind: "kol", id: kol.handle, label: `@${kol.handle}` }],
+      );
       rememberJourney({
         kind: "kol",
         handle: kol.handle,
