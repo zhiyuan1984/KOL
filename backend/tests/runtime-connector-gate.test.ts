@@ -271,6 +271,8 @@ describe.skipIf(!hasPostgres)("运行路径的连接缺口闸门（需要 Postgr
     process.env.AUTH_MODE = "enabled";
     resetConn();
     seedAll();
+    // 新建的权威库没有连接器目录行；线上 starrykol 由参考数据灌入。
+    getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Starry KOL',1,'configured','2026-10-06') ON CONFLICT(id) DO UPDATE SET enabled=1").run();
   });
 
   async function ask(app: Hono, intent: string, text: string): Promise<string> {
