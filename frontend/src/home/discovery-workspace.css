@@ -190,6 +190,43 @@
   --ds-space-5: var(--space-3);
   padding-bottom: calc(var(--space-4, 16px) + env(safe-area-inset-bottom, 0px));
 }
+.discovery-skill-intro {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.discovery-skill-intro-head {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.discovery-skill-kicker {
+  color: var(--accent-text);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.discovery-skill-intro strong {
+  color: var(--text);
+  font-size: var(--ds-font-ui);
+  line-height: var(--ds-line-ui);
+  font-weight: 600;
+}
+.discovery-skill-intro p,
+.discovery-skill-intro ol {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-body);
+}
+.discovery-skill-intro ol {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: 1.25em;
+}
 .discovery-brief-form .ai-discovery-card {
   gap: 0;
   margin-bottom: 0;
