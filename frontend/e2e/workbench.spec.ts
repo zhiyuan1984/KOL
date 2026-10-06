@@ -3919,10 +3919,14 @@ test("task detail keeps process in center, result on right, and supports complet
     } });
   });
   await page.route("**/api/tasks/task-detail/events", (route) => route.fulfill({ json: [] }));
-  await page.route("**/api/tasks/task-detail/complete", async (route) => {
+  let completionCommand: Record<string, unknown> | null = null;
+  await page.route("**/api/tickets/task-detail/commands", async (route) => {
+    completionCommand = route.request().postDataJSON() as Record<string, unknown>;
     completed = true;
-    await route.fulfill({ json: { task: { id: "task-detail", title: "复盘合作进展", source: "ai", status: "completed", priority: "high" } } });
+    await route.fulfill({ json: { ticket_id: "task-detail", action: "complete", status: "completed", version: 2, replayed: false } });
   });
+  const dialogs: string[] = [];
+  page.on("dialog", async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); });
   await page.route("**/api/sessions/session-detail", (route) => route.fulfill({ json: {
     agent_status: "listening",
     messages: [
@@ -3945,8 +3949,10 @@ test("task detail keeps process in center, result on right, and supports complet
   await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(0);
   await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");
   await page.locator("[data-complete-task]").click();
-  await expect(page.locator("[data-task-detail]")).toContainText("任务已标记完成");
+  await expect(page.locator("[data-task-detail]")).toContainText("任务已完成验收");
   expect(completed).toBe(true);
+  expect(dialogs).toEqual([]);
+  expect(completionCommand?.acceptance_evidence).toMatchObject({ source: "employee_confirmation" });
   await page.getByRole("link", { name: "返回任务列表" }).click();
   await expect(page).toHaveURL(/\/$/);
 });
