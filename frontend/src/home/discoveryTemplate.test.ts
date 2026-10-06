@@ -13,8 +13,14 @@ import {
 } from "./discoveryTemplate";
 import { discoveryEventCopy, presentDiscoveryEvents } from "./discoveryEvents";
 import { asHomeCandidate, asHomeRun, ingestFailureKind, runCountsLabel, runFailed, runFailureReason, displayMetric, displayText } from "./discoveryHome";
+import { mergeDiscoveryKeywords } from "./DiscoverySearchCard";
 
 describe("discovery template fallback", () => {
+  it("keeps manually entered keywords when a direction adds suggestions", () => {
+    expect(mergeDiscoveryKeywords(["portable power station"], ["camping", "portable power station"]))
+      .toEqual(["portable power station", "camping"]);
+  });
+
   it("starts with 【发现任务】 and lists the confirmed conditions", () => {
     const template = fallbackDiscoveryTemplate();
     expect(template.body.startsWith(DISCOVERY_BODY_PREFIX)).toBe(true);
