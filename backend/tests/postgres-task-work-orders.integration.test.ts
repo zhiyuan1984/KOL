@@ -179,7 +179,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
 
     const dashboard = await taskWorkOrderDashboard(actor.id, false, { limit: 1 });
     expect(dashboard).toMatchObject({
-      report_version: "task-work-order-dashboard.v1",
+      report_version: "task-work-order-dashboard.v2",
       scope: "personal_authorized",
       summary: {
         tasks: { total: 2, open: 2, blocked: 1, waiting_review: 1, completed: 0 },
@@ -187,6 +187,13 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
       },
       tasks: { page: { limit: 1, total: 2 } },
     });
+    expect(dashboard).toMatchObject({
+      period: "realtime",
+      metrics: { total: 2, in_progress: 2, completion_rate: 0, overdue_rate: 0, automatic_rate: 50 },
+      comparison: null,
+    });
+    expect(dashboard.trends.total).toHaveLength(7);
+    expect(dashboard.trends.completion_rate).toHaveLength(7);
     expect(dashboard.tasks.page.next_cursor).toBeTruthy();
     expect(dashboard.by_template).toEqual(expect.arrayContaining([
       expect.objectContaining({ template_code: "quote_followup", template_version: 1, total: 3, automatic_created: 1, automatic_assigned: 1, waiting_review: 1 }),
@@ -202,7 +209,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     const response = await withTicketPrincipal(actor, () => tickets.fetch(new Request("http://test.local/task-work-orders/dashboard?limit=1")));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      report_version: "task-work-order-dashboard.v1",
+      report_version: "task-work-order-dashboard.v2",
       summary: { work_orders: { automatic_created: 2, automatic_assigned: 1 } },
       tasks: { page: { limit: 1, total: 2 } },
     });
