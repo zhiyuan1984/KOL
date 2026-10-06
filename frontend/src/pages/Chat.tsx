@@ -383,29 +383,30 @@ function humanError(message: string) {
 /** 任务异常收尾的里程碑：处理过程里没有对应的一步，必须单独留在时间流里。 */
 const ABNORMAL_MILESTONES = new Set(["run.failed", "run.stopped", "run.cancelled", "run.template_changed"]);
 
+/** 任务事件合成一条「任务进度」：每个里程碑一行、带各自的时间；整条按最新一步排进时间流。 */
 function safeEventMessages(taskId: string, events: TaskEvent[], milestonesOnly = false): Message[] {
-  return events
+  const phases = events
     .filter((event) => !/(reasoning|thought|tool|internal|think|say|stream)/i.test(String(event.type || "")))
     .filter((event) => !milestonesOnly || ABNORMAL_MILESTONES.has(String(event.type || event.event_type || "")))
-    .map((event, index) => {
-      const label = employeeProcessLabel(String(event.title || event.label || event.message || "任务进度已更新")
+    .map((event) => ({
+      label: employeeProcessLabel(String(event.title || event.label || event.message || "任务进度已更新")
         .replace(/`[^`]+`/g, "任务步骤")
-        .slice(0, 120));
-      const summary = event.summary
+        .slice(0, 120)),
+      status: event.status || "running",
+      summary: event.summary
         ? employeeProcessLabel(String(event.summary).replace(/`[^`]+`/g, "内部步骤").slice(0, 180))
-        : undefined;
-      return {
-        id: `task-event:${event.id || index}`,
-        session_id: taskId,
-        role: "assistant",
-        kind: "process_trace",
-        payload: {
-          title: "任务进度",
-          phases: [{ label, status: event.status || "running", summary, observed_at: event.created_at }],
-        },
-        created_at: event.created_at || new Date().toISOString(),
-      };
-    });
+        : undefined,
+      observed_at: event.created_at,
+    }));
+  if (!phases.length) return [];
+  return [{
+    id: `task-events:${taskId}`,
+    session_id: taskId,
+    role: "assistant",
+    kind: "process_trace",
+    payload: { title: "任务进度", phases },
+    created_at: String(phases[0].observed_at || ""),
+  }];
 }
 
 const DRAFT_SUBMIT_GUARD_MS = 500;

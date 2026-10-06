@@ -48,9 +48,10 @@ test("stopped task shows one progress block, a unified status and a retry entry"
   await expect(trace).toContainText("任务进度");
   await expect(trace).toContainText("任务已创建");
   await expect(trace).toContainText("已停止生成");
-  await expect(page.locator("[data-run-status]")).toContainText("已停止");
+  // 停止是执行结束：右栏状态退场，「已停止生成」作为里程碑留在中栏时间流里。
+  await expect(page.locator("[data-run-status]")).toHaveCount(0);
   await expect(page.locator("[data-rerun-task]")).toBeVisible();
   const workbench = page.locator("[data-workbench]");
   await expect(workbench).not.toContainText("本轮结果 · 结果");
-  await expect(workbench).toContainText("这一轮还没有结果");
+  await expect(workbench).toContainText("还没有结果");
 });

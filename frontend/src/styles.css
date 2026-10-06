@@ -15760,7 +15760,7 @@ button.today-brief-primary-btn:disabled {
   padding-bottom: calc(var(--workspace-arrow-button-size) + var(--space-4));
 }
 .home-pane[data-home-workspace] .scope-workspace-center-scroll-content { overflow-anchor: auto; }
-.scope-scroll-jump { border-radius: 999px; }
+.scope-scroll-jump { border-radius: 999px; font-size: var(--ds-font-sm); }
 @media (pointer: coarse) {
   .session-stream.conversation { padding-bottom: calc(var(--touch-hit-min) + var(--space-4)); }
 }

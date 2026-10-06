@@ -108,7 +108,7 @@ export function useStreamArtifacts(ctx: StreamArtifactContext): (message: Messag
       const index = messages.findIndex((row) => row.id === message.id);
       const draftFollows = messages.slice(index + 1).some((row) => row.kind === "email_card");
       return (
-        <>
+        <section data-compose-loop={compose ? "true" : undefined}>
           <GenericResultArtifact
             card={card}
             sessionId={ctx.sessionId}
@@ -125,7 +125,7 @@ export function useStreamArtifacts(ctx: StreamArtifactContext): (message: Messag
               onPrefill={ctx.onPrefill}
             />
           ) : null}
-        </>
+        </section>
       );
     }
     if (message.kind === "email_card") {

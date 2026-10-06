@@ -288,8 +288,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
     await expect(card.locator("pre").first()).not.toBeVisible();
     const pane = page.locator("[data-session-stream-pane]");
     await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
-    // 在底部时不出现「有新内容」提示：同一个「有新内容」只表达一次（DESIGN §10.2）。
-    await expect(page.locator("[data-session-scroll-jump]")).toHaveCount(0);
+    // 在底部时只可能出现「滚到顶部」，不出现「滚到底部」，也没有新内容条数（DESIGN §10.2）。
+    await expect(page.locator('[data-session-scroll-jump]:not([aria-label="滚到顶部"])')).toHaveCount(0);
     await expect(card.getByRole("button", { name: "确认开始采集" })).toBeInViewport();
     await pane.evaluate(el => { el.scrollTop = 0; });
     await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
@@ -301,15 +301,21 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
       content.textContent = "新增过程内容".repeat(100);
       el.append(content);
     });
-    // 看历史时新内容不打断阅读：位置不动，只在右下角提示。
+    // 看历史时新内容不打断阅读：位置不动；不在底部时右下角是「滚到底部」。
     await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
     await page.mouse.move(viewport.width / 2, viewport.height / 3);
     await page.mouse.wheel(0, 500);
     const jump = page.locator("[data-session-scroll-jump]");
-    await expect(jump).toHaveAccessibleName(/新内容/);
+    await expect(jump).toHaveAccessibleName("滚到底部");
     await jump.click();
     await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
-    await expect(page.locator("[data-session-scroll-jump]")).toHaveCount(0);
+    // 到底后同一个控件切换成「滚到顶部」，再点回到最早的记录。
+    await expect(jump).toHaveAccessibleName("滚到顶部");
+    await jump.click();
+    await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
+    await expect(jump).toHaveAccessibleName("滚到底部");
+    await jump.click();
+    await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
     const sizes = await page.locator(".session-center h3, .runtime-action-summary dt, .runtime-action-summary dd, .session-center button").evaluateAll(els =>
       [...new Set(els.map(el => getComputedStyle(el).fontSize))]);
     expect(sizes).toEqual(["13px"]);
@@ -481,9 +487,9 @@ for (const theme of ["light", "dark"]) {
       await expect(pane).toContainText("SSE版本2");
       await expect(pane).not.toContainText("SSE版本1");
       await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
-      // 流式更新同一条消息：只说「有新内容」，不谎报条数（DESIGN §10.2）。
+      // 流式更新同一条消息：上翻时不抢滚动，控件只给「滚到底部」，不报条数（DESIGN §10.2）。
       const jump = page.locator("[data-session-scroll-jump]");
-      await expect(jump).toHaveAccessibleName(/新内容，回到最新/);
+      await expect(jump).toHaveAccessibleName("滚到底部");
       await jump.click();
       await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
       emit(3);

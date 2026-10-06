@@ -103,7 +103,7 @@ test("草稿卡显示「模板：{标题} v{n}」引用芯片", async ({ page, r
   await expect(input).toHaveValue(/LiTime collab kit/);
 
   await page.locator("[data-send]").click();
-  const card = page.locator("[data-workbench] [data-kind='email-card']").first();
+  const card = page.locator("[data-session-stream-pane] [data-kind='email-card']").first();
   await expect(card).toBeVisible({ timeout: 20000 });
   const chip = card.locator("[data-draft-knowledge]");
   await expect(chip).toBeVisible();

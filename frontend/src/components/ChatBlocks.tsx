@@ -1516,9 +1516,26 @@ export function ChatThread({
         }
         const artifact = renderArtifact?.(m);
         if (artifact !== undefined) {
-          return artifact
-            ? <div key={m.id} className="stream-artifact" data-stream-entry={m.id} data-stream-kind={m.kind}>{artifact}</div>
-            : null;
+          if (!artifact) return null;
+          const shape = streamResultShape(m);
+          const risk = m.kind === "email_card" && String(m.payload.status || "") === "sent" ? undefined : messageRisk(m.kind, m.payload) || undefined;
+          // 阶段确认卡自带 L3 标注；其余卡片在时间流里统一标出风险档（L2 草稿必须标明未生效）。
+          const kicker = risk && m.kind !== "confirm_stage_card" && risk !== "L1";
+          return (
+            <div
+              key={m.id}
+              className="stream-artifact"
+              data-stream-entry={m.id}
+              data-stream-kind={m.kind}
+              data-ai-message
+              data-role="assistant"
+              data-ai-result={shape}
+              data-risk={risk}
+            >
+              {kicker ? <span className="risk-kicker">{MESSAGE_RISK_LABEL[risk]}</span> : null}
+              {artifact}
+            </div>
+          );
         }
         if (m.kind === "email_card") {
           const sent = String(m.payload.status || "") === "sent" || Boolean(m.payload.send_disabled);
@@ -1767,6 +1784,14 @@ export function ChatThread({
       })}
     </div>
   );
+}
+
+/** 时间流里卡片的成果形态（与 ThreadMessage 的 data-ai-result 同一口径）。 */
+function streamResultShape(message: Message): ResultShape | undefined {
+  if (message.kind === "task_result_card") return "task_result";
+  if (message.kind === "email_card") return String(message.payload.status || "") === "sent" ? "send" : "draft";
+  if (message.kind === "confirm_stage_card") return "stage";
+  return undefined;
 }
 
 /** 待确认、执行中与已回执的业务动作卡按提出的时刻进入时间流。 */

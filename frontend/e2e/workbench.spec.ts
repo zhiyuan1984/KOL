@@ -47,17 +47,17 @@ test.beforeEach(async ({ page, request }) => {
 /** Stub Codex (Playwright webServer sets CODEX_MODE=stub). Drafts must appear — do not skip P0. */
 async function expectDraft(page: Page) {
   await expect(
-    page.locator("[data-workbench]").locator('[data-kind="email-card"], [data-kind="task-result-card"]').first(),
+    page.locator("[data-session-stream-pane]").locator('[data-kind="email-card"], [data-kind="task-result-card"]').first(),
   ).toBeVisible({ timeout: 20000 });
 }
 
 async function openDraftTab(page: Page) {
-  const draft = page.locator('[data-workbench] [data-kind="email-card"]');
+  const draft = page.locator('[data-session-stream-pane] [data-kind="email-card"]');
   if (await draft.isVisible()) return;
-  const mail = page.locator('[data-workbench] [data-tab="mail"]');
+  const mail = page.locator('[data-session-stream-pane] [data-tab="mail"]');
   if (await mail.isVisible()) await mail.click();
   if (await draft.isVisible()) return;
-  const tab = page.locator('[data-workbench] [data-tab="draft"]');
+  const tab = page.locator('[data-session-stream-pane] [data-tab="draft"]');
   if (await tab.isVisible()) await tab.click();
 }
 
@@ -360,7 +360,7 @@ function resultCardTimeout(): number {
 }
 
 function workbenchResultCard(page: Page) {
-  return page.locator('[data-workbench] [data-kind="task-result-card"]');
+  return page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
 }
 
 function chatStream(page: Page) {
@@ -749,10 +749,10 @@ test("exception template 延期关怀 prefills home then drafts without changing
   await submitHomeComposer(page);
   await expect(page.locator('[data-kind="me"]')).toContainText("延期关怀", { timeout: 15000 });
   await expectDraft(page);
-  await expect(page.locator("[data-workbench] [data-draft-subject]")).toHaveValue("Update on the Content Timeline");
+  await expect(page.locator("[data-session-stream-pane] [data-draft-subject]")).toHaveValue("Update on the Content Timeline");
   // Constitution §4: one quiet send≠stage hint on the composer, not on the draft.
   await expect(page.locator("[data-session-send-hint]")).toHaveText("发送不等于改阶段");
-  await expect(page.locator("[data-workbench] [data-kind='email-card']")).not.toContainText("正式阶段");
+  await expect(page.locator("[data-session-stream-pane] [data-kind='email-card']")).not.toContainText("正式阶段");
 });
 
 test("home composer posts a message into a new session", async ({ page }) => {
@@ -848,10 +848,11 @@ test("pipeline review follows the common task flow with progress and a right-sid
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("识别风险");
   await expect(page.locator('[data-kind="operation-trace"]')).toContainText("读取合作记录");
   await expect(page.locator('[data-ai-result="task_result"]')).toBeVisible();
-  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("两项合作需要优先处理");
-  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("优先关注停滞合作");
-  await expect(page.locator('[data-tab="result"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(0);
+  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("两项合作需要优先处理");
+  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("优先关注停滞合作");
+  // 结果卡只在中栏时间流里出现一次；右栏是指向它的目录。
+  await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(1);
+  await expect(page.locator("[data-workbench] [data-result-index]")).toContainText("KOL 流水线复盘");
   expect(bodies[0]?.act).toBe("ask");
   expect(bodies[0]?.intent).toBe("risk_scan");
 });
@@ -943,7 +944,7 @@ test("pipeline stage CTA passes concrete stage_code into confirm_stage", async (
   expect(posted?.entities?.reason).toBeFalsy();
   expect(posted?.text || "").toContain("已回复-有兴趣");
   expect(posted?.text || "").not.toContain("下一阶段");
-  await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
 });
 
 test("pipeline skip/exception require a reason on confirm_stage handoff", async ({ page }) => {
@@ -2285,11 +2286,12 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
   await expect(page.locator("[data-kind='operation-trace']")).toContainText("正在调用系统能力");
   await expect(page.locator("[data-kind='operation-trace']")).toContainText("读取合作资料");
   await expect(page.locator("[data-kind='operation-trace']")).toContainText("生成邮件预览");
+  // 右栏只列结果目录：完整的草稿预览与发送入口在中栏时间流里，只出现一次。
   const workbench = page.locator("[data-workbench]");
   await expect(workbench).toBeVisible();
-  await expect(workbench.locator("[data-result-draft]")).toContainText("Collaboration with LiTime");
-  await expect(workbench.locator("[data-result-body]")).toContainText("we would love to collaborate");
-  await expect(workbench.locator('[data-email-action="send"]')).toHaveText("确认发送");
+  await expect(workbench.locator("[data-result-draft]")).toHaveCount(0);
+  await expect(page.locator('[data-session-stream-pane] [data-email-action="send"]')).toHaveCount(1);
+  await expect(workbench.locator("[data-result-index]")).toContainText("合作邮件草稿");
   await expectNoEngineJargon(page.locator("[data-session-stream-pane]"));
   await expectNoEngineJargon(workbench);
   await saveScreenshot(page, "employee_task_result_card.png");
@@ -2299,7 +2301,7 @@ test("记状态 to CONTENT_REVIEW queues content approval and writes after manag
   await page.goto("/pipeline");
   await proposePipelineStage(page, "母婴小课");
   await page.waitForURL(/\/s\//);
-  const card = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
+  const card = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
   await expect(card).toBeVisible({ timeout: 15000 });
   await expect(card).toContainText("内容策划");
   await pickStageChip(card, "CONTENT_REVIEW");
@@ -2355,7 +2357,7 @@ test("session page shows Agent TaskList, L3 block, and stage diff", async ({ pag
   await page.locator("[data-tasklist-scroll]").hover();
   await page.mouse.wheel(0, -120);
   await refreshed;
-  const card = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
+  const card = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
   await expect(card).toBeVisible({ timeout: 15000 });
   await expect(card).toHaveAttribute("data-risk", "L3");
   await expect(card.locator("[data-stage-diff]")).toContainText("变更前");
@@ -2380,7 +2382,7 @@ test("记状态 shows stage workbench, never a draft tab card", async ({ page, r
   await page.goto("/pipeline");
   await proposePipelineStage(page, "小美妆日记");
   await page.waitForURL(/\/s\//);
-  await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("初步接触");
   await expectSelectedStage(page.locator('[data-kind="confirm-stage-card"]'), "INTERESTED");
@@ -2434,12 +2436,12 @@ test("session 催大纲 [红人或合作] also stays on a supplement card", asyn
 
 test("地址核对: incomplete email in workbench, complete 可以出库", async ({ page, request }) => {
   await askKolSession(page, request, "col_xiaomei", "核对地址 @小美妆日记");
-  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("可以出库")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /出库|WMS|仓库/ })).toHaveCount(0);
 
   await askKolSession(page, request, "col_laozhang", "核对地址 @数码老张");
-  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("可以进入人工确认后的出库流程", { timeout: 15000 });
+  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("可以进入人工确认后的出库流程", { timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
 });
 
@@ -2447,7 +2449,7 @@ test("发货通知 without tracking shows supplement in workbench", async ({ pag
   const before = await request.get("/api/workers");
   const n0 = ((await before.json()) as unknown[]).length;
   await askKolSession(page, request, "col_xiaomei", "发货通知 @小美妆日记");
-  await expect(page.locator('[data-workbench] [data-kind="supplement-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-session-stream-pane] [data-kind="supplement-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="supplement-card"]')).toContainText("运单号");
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   const after = await request.get("/api/workers");
@@ -2466,11 +2468,11 @@ test("核对地址 shows sample facts and draft on one result page", async ({ pa
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("核对地址 @数码老张");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/寄样资料|张伟|LT-100AH/);
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("可以进入人工确认后的出库流程");
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText(/USD\s*680/);
-  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toHaveCount(0);
+  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/寄样资料|张伟|LT-100AH/);
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("可以进入人工确认后的出库流程");
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText(/USD\s*680/);
+  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toHaveCount(0);
 });
 
 test("发brief shows content facts and draft on one result page", async ({ page, request }) => {
@@ -2478,9 +2480,9 @@ test("发brief shows content facts and draft on one result page", async ({ page,
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("发brief @母婴小课");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("内容要点");
-  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible();
+  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("内容要点");
+  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible();
   await expect(page.locator("[data-draft-body]")).toBeEditable();
 });
 
@@ -2490,8 +2492,8 @@ test("写报价邮件 without amount keeps result and composer on fill-price", a
   await expect(page.locator("[data-composer-input]")).toHaveAttribute("placeholder", /写报价邮件 @数码老张 金额 \[USD\]/);
   await page.locator("[data-composer-input]").fill("写报价邮件 @数码老张");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/金额未写明|补上金额后再确认发送/);
+  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/金额未写明|补上金额后再确认发送/);
   await expect(page.locator("[data-composer-suggestions] button").first()).toHaveText("补上金额");
   await page.locator("[data-composer-suggestions] button").first().click();
   await expect(page.locator("[data-composer-input]")).toHaveValue("把金额改成 [USD]");
@@ -2503,10 +2505,10 @@ test("写一份报价邮件 shows priced letter and draft on one result page", a
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("写一份报价邮件 金额 680");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/USD\s*680|金额：USD 680/);
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
-  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible();
+  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/USD\s*680|金额：USD 680/);
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible();
   await expect(page.locator("[data-draft-subject]")).toBeVisible();
   await expect(page.locator("[data-draft-body]")).toBeEditable();
   await expect(page.locator("[data-draft-body]")).toContainText(/USD 680|680/);
@@ -2528,9 +2530,9 @@ test("写报价邮件 100美金1小时 lands USD 100 per hour in the draft", asy
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("写报价邮件 100美金1小时");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("USD 100 per hour");
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("USD 100 per hour");
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
   await expect(page.locator("[data-draft-body]")).toContainText("USD 100 per hour");
   await expect(page.locator("[data-draft-body]")).not.toContainText("one video");
 });
@@ -2546,8 +2548,8 @@ test("KOL / 写合作邮件 fills composer with USD 100 per hour draft", async (
   await expect(input).toHaveValue(/USD 100 per hour/, { timeout: 15000 });
   await expect(input).not.toHaveValue(/one video/);
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
   await expect(page.locator("[data-draft-body]")).toContainText("USD 100 per hour");
 });
 
@@ -2583,8 +2585,8 @@ test("unbound inbound stays on this thread", async ({ page }) => {
   await page.locator('[data-home] .rec[data-intent="creator_lifecycle_kanban"]').click();
   await expectHomeComposerDraft(page, "合作生命周期看板");
   await submitHomeComposer(page);
-  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toBeVisible({ timeout: 15000 });
-  await expect(page.locator('[data-workbench] [data-kind="inbound-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-session-stream-pane] [data-kind="inbound-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="inbound-card"]')).toContainText("未绑定来信");
   await expect(page.locator('[data-kind="inbound-card"]')).toContainText("vanlife.kit@example.com");
   await expect(page.locator('[data-kind="sys-msg"]')).toContainText("无法判断，请人选阶段");
@@ -2597,8 +2599,8 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
   await expectDraft(page);
   await openDraftTab(page);
-  await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
-  await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
+  await expect(page.locator("[data-session-stream-pane] [data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(page.locator('[data-session-stream-pane] [data-email-action="confirm-stage"]')).toHaveCount(0);
   await page.locator('[data-email-action="send"]').click();
   await confirmDraftSend(page);
   await expect(page.getByText(/已发送原文/).first()).toBeVisible();
@@ -2608,11 +2610,11 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
     stage_code: string;
   };
   expect(x.stage_code).toBe("INITIAL_CONTACT");
-  await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
-  await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
+  await expect(page.locator("[data-session-stream-pane] [data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(page.locator('[data-session-stream-pane] [data-email-action="confirm-stage"]')).toHaveCount(0);
 
   await askConfirmStage(page, "小美妆日记", "已回复-有兴趣");
-  const confirmCard = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
+  const confirmCard = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
   await pickStageChip(confirmCard, "INTERESTED");
   await confirmCard.locator("[data-confirm-stage]").click();
   await expect(page.getByText(/正式阶段已按你的确认更新/).first()).toBeVisible();
@@ -3648,8 +3650,8 @@ test("preview toolbar collapses, exports, shares, and opens read-only view", asy
   });
   await page.goto(`/s/${id}`);
   await expect(page.locator("[data-workbench]")).toBeVisible();
-  const draft = page.locator('[data-workbench] [data-kind="email-card"]');
-  const result = page.locator('[data-workbench] [data-kind="task-result-card"]');
+  const draft = page.locator('[data-session-stream-pane] [data-kind="email-card"]');
+  const result = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
   await expect(draft.or(result).first()).toBeVisible();
   await expect(page.getByLabel("下载 Markdown")).toBeVisible();
   await expect(page.getByLabel("下载 JSON")).toHaveCount(0);
@@ -3947,7 +3949,7 @@ test("task detail keeps process in center, result on right, and supports complet
   await expect(page.locator("[data-task-source='ai']")).toHaveText("今天推荐");
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("汇总合作状态");
   await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(0);
-  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");
+  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");
   await page.locator("[data-complete-task]").click();
   await expect(page.locator("[data-task-detail]")).toContainText("任务已完成验收");
   expect(completed).toBe(true);
@@ -4333,7 +4335,7 @@ test("generic creator profile task result stays in the standard result renderer"
     messages: [],
   } }));
   await page.goto("/s/profile-session");
-  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("内容以户外装备实测为主");
+  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("内容以户外装备实测为主");
   await expect(page.locator("[data-crawl-candidates]")).toHaveCount(0);
 });
 
@@ -4343,7 +4345,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   await input.fill("达人画像 达人 UID KOLTEST001");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
-  const profile = page.locator('[data-workbench] [data-kind="task-result-card"]');
+  const profile = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
   await expect(profile).toBeVisible({ timeout: 20000 });
   await expect(profile).toContainText("达人画像");
   await expect(profile).toContainText("画像说明");
@@ -4356,7 +4358,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   await page.locator("[data-home] [data-composer-input]").fill("达人画像 测试网红-qq-01");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
-  const qq = page.locator('[data-workbench] [data-kind="task-result-card"]');
+  const qq = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
   await expect(qq).toBeVisible({ timeout: 20000 });
   await expect(qq).toContainText("画像说明");
   await expect(qq).toContainText("测试网红-qq-01");
@@ -4370,7 +4372,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
 
   await page.locator("[data-composer-input]").fill("更新红人负责人 达人 UID KOLTEST001 负责人：王主管");
   await page.locator("[data-send]").click();
-  const owner = page.locator('[data-workbench] [data-kind="task-result-card"]').filter({ hasText: "红人负责人更新结果" });
+  const owner = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]').filter({ hasText: "红人负责人更新结果" });
   await expect(owner).toBeVisible({ timeout: 20000 });
   await expect(owner).toContainText("红人绑定 / 负责人");
   await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询达人详情");
@@ -4613,7 +4615,7 @@ test("达人库查询 starter placeholder still lists profiles", async ({ page }
   await page.goto("/");
   await page.locator("[data-home] [data-composer-input]").fill("达人库查询 [关键词]");
   await submitHomeComposer(page);
-  const card = page.locator('[data-workbench] [data-kind="task-result-card"]');
+  const card = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
   await expect(card).toBeVisible({ timeout: 20000 });
   await expect(card).toContainText("户外电源达人");
   await expect(card).not.toContainText("未找到匹配的达人画像");

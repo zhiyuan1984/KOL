@@ -78,11 +78,11 @@ test("send chrome has no stage picker; Chat header is not a lifecycle board", as
   await page.locator("[data-composer-input]").fill("写跟进邮件 @小美妆日记");
   await page.locator("[data-send]").click();
   await expect(
-    page.locator("[data-workbench]").locator('[data-kind="email-card"], [data-kind="task-result-card"]').first(),
+    page.locator("[data-session-stream-pane]").locator('[data-kind="email-card"], [data-kind="task-result-card"]').first(),
   ).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
-  await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
-  await expect(page.locator("[data-workbench] [data-kind='email-card']")).not.toContainText("确认推进阶段");
+  await expect(page.locator("[data-session-stream-pane] [data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(page.locator('[data-session-stream-pane] [data-email-action="confirm-stage"]')).toHaveCount(0);
+  await expect(page.locator("[data-session-stream-pane] [data-kind='email-card']")).not.toContainText("确认推进阶段");
   await expect(page.locator("[data-admin-confirm='draft-send']")).toHaveCount(0);
 });
 
@@ -116,14 +116,14 @@ test("draft send opens L3 confirm with object/scope/consequence; cancel does not
   await page.locator("[data-composer-input]").fill("写跟进邮件 @小美妆日记");
   await page.locator("[data-send]").click();
   await expect(page.locator("[data-admin-confirm='draft-send']")).toHaveCount(0);
-  await expect(page.locator("[data-workbench] [data-kind='email-card']")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-session-stream-pane] [data-kind='email-card']")).toBeVisible({ timeout: 20000 });
   const sendPosts: string[] = [];
   page.on("request", (req) => {
     if (req.method() === "POST" && /\/api\/actions\/mail\.send$/.test(new URL(req.url()).pathname)) {
       sendPosts.push(req.url());
     }
   });
-  await page.locator('[data-workbench] [data-email-action="send"]').click();
+  await page.locator('[data-session-stream-pane] [data-email-action="send"]').click();
   const dialog = page.locator("[data-admin-confirm='draft-send']");
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveAttribute("data-risk", "L3");
@@ -171,7 +171,7 @@ test("result draft 确认发送 also requires L3 confirm before SMTP", async ({ 
     await route.fulfill({ json: { ok: true } });
   });
   await page.goto("/s/result-send");
-  const sendBtn = page.locator("[data-workbench] [data-result-draft] [data-email-action='send']");
+  const sendBtn = page.locator("[data-session-stream-pane] [data-result-draft] [data-email-action='send']");
   await expect(sendBtn).toHaveText("确认发送");
   await sendBtn.click();
   const dialog = page.locator("[data-admin-confirm='draft-send']");
@@ -233,7 +233,7 @@ test("KolMailCard treats auto_advanced as a suggestion, not a written stage", as
     },
   }));
   await page.goto("/s/auto-adv");
-  const mail = page.locator("[data-workbench] [data-kind='kol-mail-card']");
+  const mail = page.locator("[data-session-stream-pane] [data-kind='kol-mail-card']");
   await expect(mail).toBeVisible();
   await expect(mail).not.toContainText("已按事实进入");
   await expect(mail.locator("[data-mail-suggest][data-auto-advanced='suggest']")).toContainText("建议进入 已发货");
@@ -241,7 +241,7 @@ test("KolMailCard treats auto_advanced as a suggestion, not a written stage", as
   await expect(mail).not.toContainText("已按事实进入");
   await expect(mail.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(mail.locator("[data-mail-stage-select]")).toHaveCount(0);
-  const confirm = page.locator("[data-workbench] [data-kind='confirm-stage-card']");
+  const confirm = page.locator("[data-session-stream-pane] [data-kind='confirm-stage-card']");
   await expect(confirm).toBeVisible();
   await expect(confirm.locator("[data-confirm-stage]")).toBeVisible();
   await saveScreenshot(page, "chat_auto_advanced_as_suggestion.png");

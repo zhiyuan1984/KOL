@@ -41,8 +41,11 @@ async function createAuthoredDraft(page: Page, sid: string): Promise<string> {
   await expect(card.locator("[data-draft-body]")).toHaveValue(/This exact edited body is the reviewed test draft/);
   await expect(card.locator("[data-draft-template-source]")).toContainText("第 1 版");
   await expect(page.locator('[data-session-stream-pane] [data-kind="me"]').last()).toContainText("This exact edited body is the reviewed test draft.");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card-pointer"]').last()).toBeInViewport();
-  await expect.poll(() => page.locator('[data-session-stream-pane] [data-kind="email-card-pointer"]').last().evaluate((element) => {
+  // 草稿卡出现在中栏时间流里（最新的贴着输入框上方），发送按钮可见且没有被输入框盖住。
+  const send = card.locator('[data-email-action="send"]');
+  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]').last()).toBeVisible();
+  await expect(send).toBeInViewport();
+  await expect.poll(() => send.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
     return Boolean(hit && element.contains(hit));
