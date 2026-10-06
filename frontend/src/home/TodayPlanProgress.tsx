@@ -44,7 +44,7 @@ function eventTime(event?: TaskEvent): string {
 }
 
 type StepState = "running" | "done" | "failed" | "interrupted";
-type StepKind = "step" | "think" | "tool";
+type StepKind = "step" | "think" | "tool" | "say";
 
 type PlanStep = {
   key: string;
@@ -106,6 +106,7 @@ function eventTypeOf(event: TaskEvent): string {
 function stepKindOf(type: string): StepKind {
   if (type === "run.think" || type === "run.stream") return "think";
   if (type === "run.tool") return "tool";
+  if (type === "run.say") return "say";
   return "step";
 }
 
@@ -209,7 +210,7 @@ export default function TodayPlanProgress({
       const kind = stepKindOf(type);
       // A reasoning row streams its text, so it keeps a stable title: the text
       // must not leak into the label or the row would be re-keyed every poll.
-      const label = kind === "think" ? "Codex 推理" : title || detail.slice(0, 40);
+      const label = kind === "think" ? "Codex 推理" : kind === "say" ? "说明" : title || detail.slice(0, 40);
       if (!label && !detail) continue;
       const key = String(event.item_key || "").trim() || label;
       const next: PlanStep = {
@@ -242,7 +243,8 @@ export default function TodayPlanProgress({
     setOpen(live || failed);
   }, [live, failed]);
 
-  const stepRows = steps.filter((step) => step.kind !== "think");
+  const stepRows = steps.filter((step) => step.kind !== "think" && step.kind !== "say");
+  const say = steps.find((step) => step.kind === "say");
   const thinkRows = steps.filter((step) => step.kind === "think");
   const activeThink = thinkRows.length ? thinkRows[thinkRows.length - 1] : undefined;
   const think = activeThink ? thinkTail(activeThink.detail) : { body: "", truncated: false };
@@ -430,6 +432,10 @@ export default function TodayPlanProgress({
                 </li>
               ))}
             </ol>
+          ) : null}
+
+          {say?.detail ? (
+            <p className={"today-plan-say" + (say.state === "running" ? " is-streaming" : "")} data-today-plan-say>{say.detail}</p>
           ) : null}
 
           {activeThink ? (

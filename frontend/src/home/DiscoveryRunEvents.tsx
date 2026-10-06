@@ -1,4 +1,4 @@
-import type { DiscoveryProcessStep } from "./discoveryEvents";
+import type { DiscoveryNarrative, DiscoveryProcessStep } from "./discoveryEvents";
 
 const RUN_STATE_LABEL: Record<string, string> = {
   compose: "尚未开始",
@@ -25,6 +25,7 @@ const COLLECTION_KINDS = new Set([
 export default function DiscoveryRunEvents({
   stage,
   steps,
+  narrative = null,
   inFlight,
   confirmed = true,
   crawlState = null,
@@ -34,6 +35,8 @@ export default function DiscoveryRunEvents({
 }: {
   stage: string;
   steps: DiscoveryProcessStep[];
+  /** 智能体逐字写给员工看的说明。 */
+  narrative?: DiscoveryNarrative | null;
   inFlight: boolean;
   /** 员工已确认开始采集：未确认前这一段不得声称正在采集。 */
   confirmed?: boolean;
@@ -121,6 +124,10 @@ export default function DiscoveryRunEvents({
           这次运行没有留下过程记录。
         </p>
       )}
+
+      {narrative ? (
+        <p className={"discovery-run-say" + (narrative.running ? " is-streaming" : "")} data-discovery-run-say>{narrative.body}</p>
+      ) : null}
 
       {canStop && onStop ? (
         <div className="discovery-confirm-actions">

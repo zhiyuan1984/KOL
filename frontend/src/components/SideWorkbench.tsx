@@ -1,40 +1,17 @@
-import { useRef, useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type {
-  CrawlJob,
-  EmailCard,
-  Message,
-  StartCrawlInput,
-  Task,
-  TaskEvent,
-  TaskResultCard,
-  TaskResultMetric,
-  TaskResultSection,
-} from "../api";
-import {
-  ConfirmStageArtifact,
-  DraftArtifact,
-  type DraftEdit,
-  InboundArtifact,
-  KolMailCard,
-  OverdueArtifact,
-  ResultDraftPreview,
-  storeComposerDraft,
-  SupplementArtifact,
-  taskResultCardsFrom,
-} from "./ChatBlocks";
-import Markdown from "./Markdown";
+import type { EmailCard, Message, Task, TaskResultCard } from "../api";
+import { taskResultCardsFrom } from "./ChatBlocks";
 import PanelToggleIcon from "./PanelToggleIcon";
 import { api } from "../api";
-import CrawlArtifact, { crawlCandidates } from "./CrawlArtifact";
-import { SuggestedFollowTags } from "./FollowStyleTags";
-import { fieldLabel } from "../labels";
 import { stripEngineCopy } from "../employeeCopy";
 import type { SessionMailRow } from "./AgentTaskList";
 import { taskStatusView, type TaskStatusShape } from "../runViewState";
 import { useViewMode } from "../viewMode";
-
-export type TabId = "result" | "mail" | "draft" | "stage" | "inbound" | "approval" | "overdue" | "ship";
+import { stageLabel } from "../labels";
+import { isComposeResultCard } from "./ResultArtifact";
+import { resultCardOf } from "./StreamArtifact";
+import { streamTime } from "../streamOrder";
 
 /** 形状通道的字形：⚠ 只给需要人确认的 R3 等待，✓/✕ 只在真的完成或失败时出现。 */
 const STATUS_SHAPE_GLYPH: Record<TaskStatusShape, string> = {
@@ -47,157 +24,58 @@ const STATUS_SHAPE_GLYPH: Record<TaskStatusShape, string> = {
   square: "■",
 };
 
-const TAB_LABEL: Record<TabId, string> = {
-  result: "结果",
-  mail: "邮件",
-  draft: "草稿",
-  stage: "阶段",
-  inbound: "来信",
-  approval: "审批",
-  overdue: "在途",
-  ship: "补全",
-};
+/** 结果目录的一行：指向中栏时间流里的那张卡（`data-stream-entry`）。 */
+export type ResultEntry = { id: string; kind: string; title: string; detail?: string; time: number };
 
-function lastOf(messages: Message[], kind: string): Message | undefined {
-  return [...messages].reverse().find((m) => m.kind === kind);
+function clock(ms: number): string {
+  if (!ms) return "";
+  return new Date(ms).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function messageIndex(messages: Message[], id?: string): number {
-  if (!id) return -1;
-  return messages.findIndex((message) => message.id === id);
-}
-
-function isLaterThan(messages: Message[], later?: Message, earlier?: Message): boolean {
-  if (!later || !earlier) return false;
-  return messageIndex(messages, later.id) > messageIndex(messages, earlier.id);
-}
-
-function activeSupplement(messages: Message[]): Message | undefined {
-  const ship = lastOf(messages, "supplement_card");
-  if (!ship) return undefined;
-  const compose = [...messages].reverse().find((message) => {
-    if (message.kind === "email_card") return true;
-    if (message.kind !== "task_result_card") return false;
-    return isComposeResultCard(message.payload as unknown as TaskResultCard);
-  });
-  return isLaterThan(messages, compose, ship) ? undefined : ship;
-}
-
-function afterLastUser(messages: Message[]): Message[] {
-  let start = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].kind === "me") {
-      start = i;
-      break;
-    }
-  }
-  return messages.slice(start);
-}
-
-function pickPrimaryTab(round: Message[], extras: { crawl?: boolean; focusedMail?: boolean; ship?: boolean; parsedMail?: boolean }): TabId {
-  if (extras.focusedMail) return "result";
-  if (extras.ship) return "ship";
-  for (const message of [...round].reverse()) {
-    if (message.kind === "email_card") {
-      const hasComposeResult = round.some((row) => row.kind === "task_result_card" && isComposeResultCard(row.payload as unknown as TaskResultCard));
-      return hasComposeResult ? "mail" : "draft";
-    }
-    if (message.kind === "confirm_stage_card") return "stage";
-    if (message.kind === "inbound_card" || message.kind === "kol_mail_card") return "inbound";
-    if (message.kind === "supplement_card") return "ship";
+/** 从时间流的消息里列出智能体的成果；状态与过程不进目录。 */
+export function resultEntries(messages: Message[], extra: ResultEntry[] = []): ResultEntry[] {
+  const rows: ResultEntry[] = [];
+  for (const message of messages) {
+    const payload = message.payload as Record<string, unknown>;
+    const time = streamTime(message);
+    const push = (kind: string, title: string, detail?: string) => rows.push({ id: message.id, kind, title, detail, time });
     if (message.kind === "task_result_card") {
-      return isComposeResultCard(message.payload as unknown as TaskResultCard) ? "mail" : "result";
+      const card = resultCardOf(message);
+      push("result", stripEngineCopy(String(card.title || (isComposeResultCard(card) ? "写合作邮件" : "任务结果"))), stripEngineCopy(String(card.summary || "")).slice(0, 60) || undefined);
+    } else if (message.kind === "email_card") {
+      const card = payload as unknown as EmailCard;
+      push("draft", String(card.status || "") === "sent" ? "已发送的邮件" : "邮件草稿", card.subject || "无主题");
+    } else if (message.kind === "confirm_stage_card") {
+      const proposed = String(payload.proposed_stage || "");
+      push("stage", "阶段建议", `${stageLabel(proposed) || proposed || "具体阶段"}${payload.rejected ? " · 已驳回" : payload.resolved ? " · 已写入" : " · 待确认"}`);
+    } else if (message.kind === "inbound_card") {
+      push("inbound", "未绑定来信", String(payload.subject || "无主题"));
+    } else if (message.kind === "kol_mail_card") {
+      const judgment = payload.judgment && typeof payload.judgment === "object" ? payload.judgment as { suggested_stage?: string; auto_propose?: boolean } : {};
+      if (judgment.suggested_stage || judgment.auto_propose) push("inbound", "来信 · 建议改阶段", String(payload.subject || "无主题"));
+    } else if (message.kind === "supplement_card" && Array.isArray(payload.fields) && payload.fields.length) {
+      push("ship", "待补全", String(payload.title || "补全信息"));
+    } else if (message.kind === "steps" && String(payload.title || "").includes("失联")) {
+      push("overdue", String(payload.title || "失联与延期清单"));
+    } else if (typeof payload.approval_id === "string" && payload.approval_id) {
+      push("approval", "费用审批");
+    } else if (message.kind === "assistant" && !payload.streaming) {
+      for (const card of taskResultCardsFrom(String(payload.text || ""))) {
+        push("result", stripEngineCopy(String(card.title || "任务结果")));
+      }
     }
-    if (message.kind === "steps" && String(message.payload.title || "").includes("失联")) return "overdue";
-    if (message.payload.approval_id || String(message.payload.text || "").includes("当前等待")) return "approval";
   }
-  if (extras.parsedMail) return "mail";
-  if (extras.crawl) return "result";
-  return "result";
+  return [...rows, ...extra].sort((a, b) => b.time - a.time);
 }
 
-function displayValue(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map(displayValue).filter(Boolean).join(" · ");
-  return Object.entries(value as Record<string, unknown>)
-    .map(([key, item]) => `${fieldLabel(key)}：${displayValue(item)}`)
-    .join(" · ");
-}
-
-function actionPrompt(
-  action: string | { label?: string; title?: string; description?: string; prompt?: string; href?: string },
-  index: number,
-): { label: string; prompt: string; href?: string } {
-  if (typeof action === "string") return { label: action, prompt: action };
-  const label = action.label || action.title || action.description || `建议 ${index + 1}`;
-  return { label, prompt: action.prompt || action.description || label, href: action.href };
-}
-
-/** 只从本轮（最后一次用户发言之后）的消息里抠卡片，历史轮次的结果不得冒充本轮结果。 */
-function parsedResultFromRound(round: Message[]): TaskResultCard | null {
-  const cards = round.flatMap((message) => taskResultCardsFrom(String(message.payload.text || "")));
-  if (!cards.length) return null;
-  const withDraft = [...cards].reverse().find((card) => card.subject || card.body || card.draft_id || card.draft);
-  return (withDraft || cards[cards.length - 1]) as TaskResultCard;
-}
-
-function latestResultTime(task: Task | null | undefined): string {
-  const stamp = task?.completed_at || task?.last_acted_at || task?.created_at;
-  const ms = stamp ? new Date(String(stamp)).getTime() : NaN;
-  return Number.isFinite(ms)
-    ? new Date(ms).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
-    : "";
-}
-
-function isComposeResultCard(card: TaskResultCard): boolean {
-  const title = String(card.title || "");
-  if (title === "邮件草稿" || title === "邮件已发送" || title === "写合作邮件") return true;
-  if (card.subject || card.body || card.draft_id || card.draft) return true;
-  if (card.compose_loop && typeof card.compose_loop === "object") return true;
-  const sections = Array.isArray(card.sections) ? card.sections : [];
-  return sections.some((section) => {
-    const name = String(section.title || section.heading || "");
-    if (/收发说明|预览正文|已发正文|往来依据|本封要点|建联要点|跟进要点|评估要点|报价要点|谈判要点|方案要点|合同要点|寄样资料|发货要点|测试要点|内容要点|审核要点|排期要点|发布要点|结算要点/.test(name)) return true;
-    const blob = `${name} ${JSON.stringify(section.items || [])}`;
-    return name === "摘要数据" && /发件邮箱|邮件主题|state：SENT|SYNC_SENT/.test(blob);
-  });
-}
-
-const COMPOSE_INTERMEDIATE_SECTION = /^(KOL 智能体|本阶段 SOP|生命周期|收发说明|预览正文|已发正文|往来依据|本封要点|建联要点|跟进要点)$/;
-
-function composeResultSections(card: TaskResultCard, sections: TaskResultSection[]): TaskResultSection[] {
-  if (!isComposeResultCard(card)) return sections;
-  return sections.filter((section) => {
-    const title = String(section.title || section.heading || "");
-    if (title === "摘要数据") return false;
-    return !COMPOSE_INTERMEDIATE_SECTION.test(title);
-  });
-}
-
-function composeResultSummary(card: TaskResultCard, stacked: boolean): string {
-  const summary = String(card.summary || "").trim();
-  if (!summary) return "";
-  if (stacked && /确认发送|发送不等于|发送\s*≠/.test(summary)) return "";
-  return summary;
-}
-
-function composeResultActions(
-  card: TaskResultCard,
-  actions: Array<string | { label?: string; title?: string; description?: string; prompt?: string; href?: string }>,
-): Array<string | { label?: string; title?: string; description?: string; prompt?: string; href?: string }> {
-  if (!isComposeResultCard(card)) return actions;
-  const gap = card.compose_loop && typeof card.compose_loop === "object" ? card.compose_loop.gap : null;
-  const cleaned = actions.filter((action) => {
-    const label = typeof action === "string" ? action : (action.label || action.title || action.prompt || "");
-    return !/补全发件|后再执行|记状态|费用审批|提出阶段变更/.test(label);
-  });
-  if (cleaned.length) return cleaned;
-  if (String(card.title || "") === "邮件已发送") return ["再写一封"];
-  if (gap && gap.field) {
-    return [{ label: gap.result_action || gap.label || "补全后再确认发送", prompt: gap.prompt || "", title: gap.label }];
-  }
-  return ["核对预览后回复「确认发送」"];
+/** 点目录：把中栏滚到那张卡，并短暂标出它（不靠颜色单通道，另有轮廓）。 */
+export function locateStreamEntry(id: string): void {
+  const target = document.querySelector<HTMLElement>(`[data-stream-entry="${CSS.escape(id)}"]`);
+  if (!target) return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+  target.classList.add("is-located");
+  window.setTimeout(() => target.classList.remove("is-located"), 1600);
 }
 
 function MailBodyArtifact({ mail }: { mail: SessionMailRow }) {
@@ -212,161 +90,18 @@ function MailBodyArtifact({ mail }: { mail: SessionMailRow }) {
   );
 }
 
-function ResultActions({
-  actions,
-  sessionId,
-  onPrefill,
-}: {
-  actions: Array<string | { label?: string; title?: string; description?: string; prompt?: string; href?: string }>;
-  sessionId: string;
-  onPrefill?: (text: string) => void;
-}) {
-  if (!actions.length) return null;
-  return (
-    <section className="result-actions">
-      <h3>可补全</h3>
-      <ol>
-        {actions.map((action, index) => {
-          const item = actionPrompt(action, index);
-          return (
-            <li key={index}>
-              {item.href ? (
-                <Link to={item.href}>{item.label}</Link>
-              ) : onPrefill ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    storeComposerDraft(sessionId, { text: item.prompt });
-                    onPrefill(item.prompt);
-                  }}
-                >
-                  {item.label}
-                </button>
-              ) : item.label}
-              {typeof action !== "string" && action.description && (action.label || action.title) && <small>{action.description}</small>}
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-  );
-}
-
-function GenericResultArtifact({
-  card,
-  sessionId,
-  onPrefill,
-  stacked = false,
-  collaborationId,
-  handle,
-  onRefresh,
-}: {
-  card: TaskResultCard;
-  sessionId: string;
-  onPrefill?: (text: string) => void;
-  stacked?: boolean;
-  collaborationId?: string;
-  handle?: string;
-  onRefresh?: () => void;
-}) {
-  // 右栏是成果的唯一呈现处，渲染时也走同一套员工面清洗（DESIGN §15）：模型写的引擎名与技能 id 不外泄。
-  const rawSections: TaskResultSection[] = Array.isArray(card.sections)
-    ? card.sections
-    : Object.entries(card.sections || {}).map(([title, content]) => ({
-        title,
-        content: displayValue(content),
-      }));
-  const sections = composeResultSections(card, rawSections).filter((section) => section.title !== "建议跟进标签" && section.heading !== "建议跟进标签");
-  const metrics: TaskResultMetric[] = Array.isArray(card.metrics)
-    ? card.metrics
-    : Object.entries(card.metrics || {}).map(([label, value]) => ({ label, value }));
-  const rawActions = card.recommended_actions || card.actions || [];
-  const actions = composeResultActions(
-    card,
-    card.suggested_follow_tags?.length
-      ? rawActions.filter((action) => !/打标签/.test(typeof action === "string" ? action : String(action.prompt || action.label || "")))
-      : rawActions,
-  );
-  const summary = stripEngineCopy(composeResultSummary(card, stacked));
-  const followTags = card.suggested_follow_tags || [];
-  const draftPreview = (
-    <ResultDraftPreview card={card as Record<string, unknown>} onRefresh={onRefresh} />
-  );
-  if (stacked && isComposeResultCard(card) && !summary && !metrics.length && !sections.length && !followTags.length && !card.subject && !card.body && !card.draft_id) {
-    return null;
-  }
-
-  return (
-    <article className="artifact task-result" data-kind="task-result-card">
-      <header>
-        {stacked ? null : <div className="page-kicker">任务结果</div>}
-        {stacked && isComposeResultCard(card) ? null : <h2>{stripEngineCopy(String(card.title || "分析结果"))}</h2>}
-        {summary ? <p className="task-result-summary">{summary}</p> : null}
-      </header>
-      {draftPreview}
-      {metrics.length > 0 && (
-        <dl className="result-metrics">
-          {metrics.map((metric, index) => (
-            <div key={`${metric.label || metric.name}-${index}`}>
-              <dt>{stripEngineCopy(metric.label || metric.name ? fieldLabel(String(metric.label || metric.name)) : `指标 ${index + 1}`)}</dt>
-              <dd>{stripEngineCopy(displayValue(metric.value))}</dd>
-              {(metric.detail || metric.change != null) && <small>{stripEngineCopy(metric.detail || displayValue(metric.change))}</small>}
-            </div>
-          ))}
-        </dl>
-      )}
-      {sections.map((section, index) => (
-        <section className="result-section" key={`${section.title || section.heading}-${index}`}>
-          <h3>{stripEngineCopy(String(section.title || section.heading || `详情 ${index + 1}`))}</h3>
-          {(section.content || section.body || section.summary) && <Markdown>{stripEngineCopy(String(section.content || section.body || section.summary || ""))}</Markdown>}
-          {section.items && (
-            <ul>
-              {section.items.map((item, itemIndex) => <li key={itemIndex}>{stripEngineCopy(displayValue(item))}</li>)}
-            </ul>
-          )}
-        </section>
-      ))}
-      {stacked ? null : <ResultActions actions={actions} sessionId={sessionId} onPrefill={onPrefill} />}
-      <SuggestedFollowTags
-        tags={(card.suggested_follow_tags || []).map((tag) => ({
-          id: String(tag.id || tag.label || ""),
-          label: String(tag.label || tag.id || ""),
-          reason: tag.reason,
-        }))}
-        collaborationId={collaborationId}
-        sessionId={sessionId}
-        handle={handle}
-        onPrefill={onPrefill}
-        onApplied={() => onRefresh?.()}
-      />
-    </article>
-  );
-}
-
+/**
+ * 右栏只做两件事：执行中显示当前状态；执行结束后状态文字退场，只列结果目录
+ * （标题 + 时间，点击定位到中栏时间流里的卡片）。完整的成果、过程与确认都在中栏。
+ */
 export default function SideWorkbench({
   sessionId,
   messages,
   status,
-  onRefresh,
-  onPosted,
   task,
-  crawlJob,
-  crawlEvents = [],
-  crawlBusy = false,
-  crawlError = "",
-  onStartCrawl,
-  onStopCrawl,
-  onPrefill,
-  crawlAdmin = false,
-  onRetryCrawlUpload,
-  onClearCrawlHistory,
   focusedMail = null,
-  officialStage = "",
-  collaborationId = "",
-  handle = "",
   resultExtra,
-  suppressRevisionHint = false,
-  resultOverride,
+  extraEntries = [],
   statusOverride,
   phase,
   remoteLabel,
@@ -375,26 +110,11 @@ export default function SideWorkbench({
   sessionId: string;
   messages: Message[];
   status: string;
-  onRefresh: () => void;
-  onPosted: (msgs: Message[]) => void;
   task?: Task | null;
-  crawlJob?: CrawlJob | null;
-  crawlEvents?: TaskEvent[];
-  crawlBusy?: boolean;
-  crawlError?: string;
-  onStartCrawl?: (input: StartCrawlInput) => Promise<void>;
-  onStopCrawl?: () => Promise<void>;
-  onPrefill?: (text: string) => void;
-  crawlAdmin?: boolean;
-  onRetryCrawlUpload?: () => Promise<void>;
-  onClearCrawlHistory?: () => Promise<void>;
   focusedMail?: SessionMailRow | null;
-  officialStage?: string;
-  collaborationId?: string;
-  handle?: string;
-  resultExtra?: import("react").ReactNode;
-  suppressRevisionHint?: boolean;
-  resultOverride?: TaskResultCard;
+  resultExtra?: ReactNode;
+  /** 页面自己的成果条目（例如采集候选），与消息里的成果一起进目录。 */
+  extraEntries?: ResultEntry[];
   /** 采集等子流程给出的更具体状态词，覆盖状态文案但沿用同一投影的语气与形状。 */
   statusOverride?: string;
   /** 运行中的当前阶段（来自 useRunStatus 的过程投影）。 */
@@ -404,66 +124,14 @@ export default function SideWorkbench({
   discoveryReturn?: string;
 }) {
   const { debug } = useViewMode();
-  const editing = useRef({sessionId, drafts: new Map<string, DraftEdit>()});
-  if (editing.current.sessionId !== sessionId) editing.current = {sessionId,drafts: new Map<string, DraftEdit>()};
-  const round = afterLastUser(messages);
-  const replyAnalysis = task?.skill_id === "reply_analysis" || lastOf(round,"task_result_card")?.payload.skill === "reply_analysis";
-  const draftMsg = lastOf(round, "email_card") || (replyAnalysis ? lastOf(messages,"email_card") : undefined);
-  const draft = draftMsg ? (draftMsg.payload as unknown as EmailCard) : null;
-  const stageMsg = lastOf(round, "confirm_stage_card");
-  const resultMsg = lastOf(round, "task_result_card");
-  const messageResult = resultMsg?.payload;
-  const embeddedMessageResult = messageResult && (
-    (messageResult.task_result && typeof messageResult.task_result === "object" && messageResult.task_result)
-    || (messageResult.crawl_result && typeof messageResult.crawl_result === "object" && messageResult.crawl_result)
-  );
-  const taskResult = task && ((task.task_result || task.crawl_result) as TaskResultCard | undefined);
-  const parsedResult = parsedResultFromRound(round);
-  const roundResult = resultOverride || (resultMsg
-    ? (embeddedMessageResult || messageResult) as TaskResultCard
-    : (!draft && !stageMsg ? (parsedResult || null) : null));
-  // 本轮没有结果时只回退到任务级最近一次结果，且标题必须写清它不是本轮的。
-  const result = roundResult || (!draft && !stageMsg ? taskResult || null : null);
-  const resultIsLatestOnly = !roundResult && Boolean(result);
-  const latestAt = resultIsLatestOnly ? latestResultTime(task) : "";
   const statusView = taskStatusView(task, status);
-  const revisesDraftResult = Boolean(result && (draft || isComposeResultCard(result)));
-  const candidates = crawlCandidates(crawlJob, result, messageResult, task);
-  const hasCrawlArtifact = candidates.length > 0 && !draft && !stageMsg;
-  const inboundMsg = lastOf(round, "inbound_card");
-  const shipMsg = activeSupplement(round);
-  const overdueMsg = [...round]
-    .reverse()
-    .find((m) => m.kind === "steps" && String(m.payload.title || "").includes("失联"));
-  const approvalLine = [...round].reverse().find((m) =>
-    Boolean(m.payload.approval_id) ||
-    String(m.payload.text || "").includes("当前等待")
-  );
-  const mailMsgs = (() => {
-    const fromList = (list: Message[]) => {
-      const inbound = list.filter((m) =>
-        m.kind === "kol_mail_card" && String(m.payload.direction || "inbound") !== "outbound"
-      );
-      const confirmable = inbound.filter((m) => {
-        const judgment = m.payload.judgment && typeof m.payload.judgment === "object"
-          ? m.payload.judgment as { auto_propose?: boolean; suggested_stage?: string }
-          : {};
-        return Boolean(judgment.auto_propose || judgment.suggested_stage || (Array.isArray(m.payload.targets) && m.payload.targets.length));
-      });
-      return confirmable.length ? confirmable : inbound.slice(-1);
-    };
-    const fromRound = fromList(round);
-    return fromRound.length ? fromRound : fromList(messages);
-  })();
-  const primary = pickPrimaryTab(round, {
-    crawl: hasCrawlArtifact,
-    focusedMail: Boolean(focusedMail),
-    ship: Boolean(shipMsg),
-    parsedMail: Boolean(parsedResult && isComposeResultCard(parsedResult) && !resultMsg && !draft),
-  });
-  const hasRoundResult = Boolean(
-    focusedMail || draft || stageMsg || result || hasCrawlArtifact || inboundMsg || shipMsg || overdueMsg || approvalLine || mailMsgs.length,
-  );
+  // 执行中、待人确认、失败是需要员工知道的状态；其余（已完成、待命等）结束后不再占位。
+  const showStatus = statusView.live || statusView.needsConfirm || statusView.tone === "failed";
+  const entries = resultEntries(messages, extraEntries);
+  const latestDraft = [...messages].reverse().find((message) => message.kind === "email_card");
+  const draft = latestDraft ? latestDraft.payload as unknown as EmailCard : null;
+  const latestResult = [...messages].reverse().find((message) => message.kind === "task_result_card");
+  const result = latestResult ? resultCardOf(latestResult) : (task?.task_result || task?.crawl_result) as TaskResultCard | undefined;
 
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem("ui:right-collapsed");
@@ -471,7 +139,6 @@ export default function SideWorkbench({
   });
   const [share, setShare] = useState<{ url?: string; expires_at?: string } | null>(null);
   const [toolStatus, setToolStatus] = useState("");
-  const sideRef = useRef<HTMLElement>(null);
 
   const toggle = () => {
     setCollapsed((value) => {
@@ -493,9 +160,9 @@ export default function SideWorkbench({
 
   const createShare = async () => {
     try {
-      const result = await api.shareSession(sessionId);
-      const url = result.url || (result.token ? `${location.origin}/share/${result.token}` : "");
-      setShare({ url, expires_at: result.expires_at });
+      const created = await api.shareSession(sessionId);
+      const url = created.url || (created.token ? `${location.origin}/share/${created.token}` : "");
+      setShare({ url, expires_at: created.expires_at });
       let copied = false;
       if (url && navigator.share) {
         await navigator.share({ title: "共享会话", url }).then(() => { copied = true; }).catch(() => undefined);
@@ -510,7 +177,6 @@ export default function SideWorkbench({
 
   return (
     <aside
-      ref={sideRef}
       className={"side-workbench scope-task-rail" + (collapsed ? " is-collapsed" : "")}
       data-workbench
     >
@@ -539,137 +205,49 @@ export default function SideWorkbench({
         {discoveryReturn ? <button type="button" className="icon-btn discovery-inline-toggle" data-workbench-toggle
           aria-label="收起结果" aria-expanded onClick={toggle}><PanelToggleIcon className="scope-task-rail-toggle-icon" /></button> : null}
       </div>
-      <div className="side-head">
-        {!discoveryReturn ? <div className="page-kicker">
-          {resultIsLatestOnly ? `最近一次结果${latestAt ? ` · ${latestAt}` : ""}` : `本轮结果${primary === "result" ? "" : ` · ${TAB_LABEL[primary]}`}`}
-        </div> : null}
-      </div>
-      {/* 任务状态的唯一表达处（DESIGN §8.6）：颜色 + 形状 + 文案三条通道同时变化。 */}
-      <div className="side-status" data-run-status={statusView.key} data-run-tone={statusView.tone}>
-        <i className={`status-shape is-${statusView.tone}`} aria-hidden>{STATUS_SHAPE_GLYPH[statusView.shape]}</i>
-        <span className="side-status-copy" data-agent-status={status} role="status" aria-live="polite">
-          {statusOverride || statusView.copy}
-        </span>
-        {statusView.live && phase ? <span className="side-status-phase" data-run-phase>{phase}</span> : null}
-        {statusView.live ? <span className="side-status-hint">刷新页面不会取消后台执行</span> : null}
-        {debug && remoteLabel ? (
-          <details className="execution-details side-status-debug">
-            <summary>调试细节</summary>
-            <p data-run-remote>{remoteLabel}</p>
-          </details>
-        ) : null}
-      </div>
+      {/* 执行中的状态（DESIGN §8.6）：颜色 + 形状 + 文案三条通道同时变化；结束后退场，只留结果目录。 */}
+      {showStatus ? (
+        <div className="side-status" data-run-status={statusView.key} data-run-tone={statusView.tone}>
+          <i className={`status-shape is-${statusView.tone}`} aria-hidden>{STATUS_SHAPE_GLYPH[statusView.shape]}</i>
+          <span className="side-status-copy" data-agent-status={status} role="status" aria-live="polite">
+            {statusOverride || statusView.copy}
+          </span>
+          {statusView.live && phase ? <span className="side-status-phase" data-run-phase>{phase}</span> : null}
+          {statusView.live ? <span className="side-status-hint">刷新页面不会取消后台执行；过程与结果按时间出现在中栏</span> : null}
+          {debug && remoteLabel ? (
+            <details className="execution-details side-status-debug">
+              <summary>调试细节</summary>
+              <p data-run-remote>{remoteLabel}</p>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
       {(toolStatus || share) && <div className="share-status" role="status">{toolStatus}{share?.expires_at && <> · {new Date(share.expires_at).toLocaleString()} 过期</>}{share?.url && <><input className="share-url" aria-label="分享链接" readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} /><button className="link-button" onClick={() => void navigator.clipboard.writeText(share.url || "").then(() => setToolStatus("分享链接已复制")).catch(() => setToolStatus("请手动复制链接"))}>复制链接</button></>}{share && <button className="link-button" onClick={() => void api.revokeShare(sessionId).then(() => { setShare(null); setToolStatus("分享已撤销"); }).catch((e) => setToolStatus(String(e)))}>撤销</button>}</div>}
-      {!hasRoundResult && !resultExtra && (
-        <p className="muted">这一轮还没有结果。开始一项工作后，结果会出现在这里。</p>
-      )}
       <div className="side-body" data-round-results>
         {resultExtra}
         {focusedMail ? (
-          <section data-tab="result" aria-selected={primary === "result"} data-mail-focus>
+          <section data-mail-focus>
             <MailBodyArtifact mail={focusedMail} />
           </section>
-        ) : (
-          <>
-            {hasCrawlArtifact && onStartCrawl && onStopCrawl && onPrefill && (
-              <section data-tab="result" aria-selected={primary === "result"}>
-                <CrawlArtifact
-                  job={crawlJob}
-                  events={crawlEvents}
-                  candidates={candidates}
-                  busy={crawlBusy}
-                  error={crawlError}
-                  onStart={onStartCrawl}
-                  onStop={onStopCrawl}
-                  onPrefill={onPrefill}
-                  showControls={false}
-                  isAdmin={crawlAdmin}
-                  onRetryUpload={onRetryCrawlUpload}
-                  onClearHistory={onClearCrawlHistory}
-                />
-              </section>
-            )}
-            {result && !candidates.length && (
-              <section
-                data-tab={isComposeResultCard(result) ? "mail" : "result"}
-                data-compose-loop={isComposeResultCard(result) ? "true" : undefined}
-                aria-selected={primary === "mail" || primary === "result"}
-              >
-                <GenericResultArtifact
-                  card={result}
-                  sessionId={sessionId}
-                  onPrefill={onPrefill}
-                  stacked={isComposeResultCard(result)}
-                  collaborationId={collaborationId}
-                  handle={handle}
-                  onRefresh={onRefresh}
-                />
-                {draft && isComposeResultCard(result) ? <DraftArtifact card={draft} onRefresh={onRefresh} edits={editing.current.drafts} /> : null}
-                {isComposeResultCard(result) && (!draft || Boolean(result.compose_loop?.gap?.field)) ? (
-                  <ResultActions
-                    actions={composeResultActions(result, result.recommended_actions || result.actions || [])}
-                    sessionId={sessionId}
-                    onPrefill={onPrefill}
-                  />
-                ) : null}
-              </section>
-            )}
-            {draft && !(result && isComposeResultCard(result)) && (
-              <section data-tab="draft" aria-selected={primary === "draft"}>
-                <DraftArtifact card={draft} onRefresh={onRefresh} edits={editing.current.drafts} />
-              </section>
-            )}
-            {stageMsg && (
-              <section data-tab="stage" aria-selected={primary === "stage"}>
-                <ConfirmStageArtifact payload={stageMsg.payload} sessionId={sessionId} onRefresh={onRefresh} />
-              </section>
-            )}
-            {inboundMsg && (
-              <section data-tab="inbound" aria-selected={primary === "inbound"}>
-                <InboundArtifact payload={inboundMsg.payload} onRefresh={onRefresh} />
-              </section>
-            )}
-            {mailMsgs.map((mailRow) => (
-              <section key={mailRow.id} data-tab="inbound" aria-selected={primary === "inbound"}>
-                <KolMailCard
-                  payload={mailRow.payload}
-                  sessionId={sessionId}
-                  officialStage={officialStage}
-                  onRefresh={onRefresh}
-                  createdAt={mailRow.created_at}
-                  messageId={mailRow.id}
-                  showSubject
-                />
-              </section>
-            ))}
-            {shipMsg && (
-              <section data-tab="ship" aria-selected={primary === "ship"}>
-                <SupplementArtifact payload={shipMsg.payload} sessionId={sessionId} onPosted={onPosted} />
-              </section>
-            )}
-            {overdueMsg && (
-              <section data-tab="overdue" aria-selected={primary === "overdue"}>
-                <OverdueArtifact payload={overdueMsg.payload} />
-              </section>
-            )}
-            {approvalLine && (
-              <section data-tab="approval" aria-selected={primary === "approval"}>
-                <article className="artifact">
-                  <Markdown>
-                    {`### 费用审批\n\n${String(approvalLine.payload.text || result?.summary || "请到「工作审批」处理。")}\n\n> 审批人由规则引擎计算。中间档同意不执行副作用。`}
-                  </Markdown>
-                  {typeof approvalLine.payload.approval_id === "string" && approvalLine.payload.approval_id && (
-                    <p><Link to={`/approvals?id=${String(approvalLine.payload.approval_id)}`}>打开工作审批</Link></p>
-                  )}
-                </article>
-              </section>
-            )}
-          </>
-        )}
-        {/* 只有「能改这份草稿、也能再写一封」的场景才有这句话：写邮件草稿类。 */}
-        {hasRoundResult && !suppressRevisionHint && result && revisesDraftResult && String(result.title) !== "邮件已发送" && draft?.status !== "sent" && status !== "running" && (
-          <p className="muted" data-result-revise-hint>要改这份结果，在中栏输入框说明要改哪一段。点芯片或说「再写一封」会开新任务。</p>
-        )}
+        ) : null}
+        {entries.length ? (
+          <nav className="result-index" aria-label="结果目录" data-result-index>
+            <div className="page-kicker">结果目录</div>
+            <ol>
+              {entries.map((entry) => (
+                <li key={`${entry.kind}:${entry.id}`}>
+                  <button type="button" className="result-index-item" data-result-entry={entry.id} data-result-kind={entry.kind} onClick={() => locateStreamEntry(entry.id)}>
+                    <span className="result-index-title">{entry.title}</span>
+                    {entry.detail ? <span className="result-index-detail">{entry.detail}</span> : null}
+                    {entry.time ? <time className="result-index-time" dateTime={new Date(entry.time).toISOString()}>{clock(entry.time)}</time> : null}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </nav>
+        ) : !resultExtra && !focusedMail && !showStatus ? (
+          <p className="muted" data-result-index-empty>还没有结果。智能体的过程与成果按时间出现在中栏，这里会列出成果目录。</p>
+        ) : null}
       </div>
       </>}
     </aside>

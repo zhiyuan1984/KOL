@@ -36,6 +36,7 @@ export default defineConfig({
       "../frontend/src/home/discoveryFlow.test.ts",
       "../frontend/src/home/discoveryFlowRender.test.ts",
       "../frontend/src/home/discoveryEvents.test.ts",
+      "../frontend/src/streamOrder.test.ts",
       "../frontend/src/runtimeConnectorUi.test.ts",
       "../frontend/src/admin/connector/connectorSetup.test.ts",
       "../frontend/src/admin/connector/headerNames.test.ts",

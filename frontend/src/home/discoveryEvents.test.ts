@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TaskEvent } from "../api";
 import {
   presentDiscoveryEvents,
+  presentDiscoveryNarrative,
   presentDiscoveryThink,
 } from "./discoveryEvents";
 import { THINK_TAIL_LINES, thinkTail } from "./streamText";
@@ -175,5 +176,21 @@ describe("discovery Codex think block", () => {
   it("has nothing to show before the brief worker runs", () => {
     expect(presentDiscoveryThink([event({ type: "crawl_started" })])).toBeNull();
     expect(presentDiscoveryThink([event({ type: "run.think", summary: "  " })])).toBeNull();
+  });
+});
+
+describe("discovery narrative", () => {
+  it("shows the latest streamed explanation and keeps it out of the step rows", () => {
+    const events = [
+      event({ type: "queued" }),
+      event({ type: "run.say", status: "running", summary: "正在按匹配度给候选打分" }),
+    ];
+    expect(presentDiscoveryNarrative(events)).toEqual({ body: "正在按匹配度给候选打分", running: true });
+    expect(kinds(events)).toEqual(["queued"]);
+  });
+
+  it("is null until the worker has said something", () => {
+    expect(presentDiscoveryNarrative([event({ type: "run.say", summary: " " })])).toBeNull();
+    expect(presentDiscoveryNarrative([event({ type: "run.think", summary: "先看样本" })])).toBeNull();
   });
 });

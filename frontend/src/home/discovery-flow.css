@@ -191,6 +191,15 @@
 
 .discovery-run-step[data-state="failed"] .discovery-run-step-label { color: var(--danger); }
 
+.discovery-run-say {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .discovery-run-time {
   color: var(--text-muted);
   font-size: var(--ds-font-tag);

@@ -148,6 +148,7 @@ export default function CrawlArtifact({
     (plan?.keywords || plan?.specified_ids || plan?.creator_ids || []).join("\n"),
   );
   const [validation, setValidation] = useState("");
+  const [clearConfirming, setClearConfirming] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -267,20 +268,34 @@ export default function CrawlArtifact({
                   重试上传
                 </button>
               )}
-              {onClearHistory && (
+              {onClearHistory && (clearConfirming ? (
+                <span className="crawl-clear-confirm" role="group" aria-label="确认清除远程采集历史" data-crawl-clear-confirm>
+                  <span>确认清除远程采集历史？此操作不可撤销，且不会显示或清除任何访问令牌。</span>
+                  <button
+                    type="button"
+                    className="btn ghost danger-text"
+                    disabled={busy}
+                    onClick={() => {
+                      setClearConfirming(false);
+                      void onClearHistory();
+                    }}
+                  >
+                    确认清除
+                  </button>
+                  <button type="button" className="btn ghost" disabled={busy} onClick={() => setClearConfirming(false)}>
+                    取消
+                  </button>
+                </span>
+              ) : (
                 <button
                   type="button"
                   className="btn ghost danger-text"
                   disabled={busy}
-                  onClick={() => {
-                    if (window.confirm("确认清除远程采集历史？此操作不可撤销，且不会显示或清除任何访问令牌。")) {
-                      void onClearHistory();
-                    }
-                  }}
+                  onClick={() => setClearConfirming(true)}
                 >
                   清除采集历史
                 </button>
-              )}
+              ))}
             </div>
           )}
         </section>

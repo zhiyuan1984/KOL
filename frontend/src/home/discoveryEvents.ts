@@ -121,8 +121,8 @@ function crawlStatusLabel(event: TaskEvent, count: number | null): string {
  */
 export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | null {
   const type = eventTypeOf(event);
-  // 推理单独走 think 块，不占步骤位。
-  if (type === "run.think" || type === "run.stream") return null;
+  // 推理单独走 think 块、说明单独走说明段，都不占步骤位（说明正文可能碰巧含「打分」「去重」等词）。
+  if (type === "run.think" || type === "run.stream" || type === "run.say") return null;
   const blob = eventBlob(event);
   const count = eventCount(event);
   const id = String(event.id || event.type || event.status || event.label || Math.random());
@@ -220,6 +220,21 @@ export function presentDiscoveryEvents(events: TaskEvent[]): DiscoveryProcessSte
     if (step.kind === "failed" || step.kind === "stopped") break;
   }
   return steps;
+}
+
+export type DiscoveryNarrative = { body: string; running: boolean };
+
+/** 简报 worker 先逐字写给员工看的说明（`run.say`），过程流里作为一段正文显示。 */
+export function presentDiscoveryNarrative(events: TaskEvent[]): DiscoveryNarrative | null {
+  let latest: TaskEvent | null = null;
+  for (const event of events) {
+    if (eventTypeOf(event) === "run.say" && String(event.summary || event.safe_summary || "").trim()) latest = event;
+  }
+  if (!latest) return null;
+  return {
+    body: String(latest.summary || latest.safe_summary || "").trim(),
+    running: String(latest.status || "").toLowerCase() === "running",
+  };
 }
 
 function thinkStateOf(event: TaskEvent): DiscoveryThink["state"] {

@@ -510,12 +510,23 @@ function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
   return insertSessionMessage(sid, role, kind, payload);
 }
 
+/**
+ * 原地更新的文字条目（流式回答、状态行）按「最后一次有新内容」排在时间流里：
+ * 文字变了才刷新 updated_at，只是收尾（关掉 streaming、改状态）不挪位置。
+ */
+const STREAM_TIMED_KINDS = new Set(["assistant", "job_status"]);
+
 function updateMsg(mid: string, payload: Json): void {
   const row = getConn().prepare("SELECT session_id, role, kind, created_at, payload FROM messages WHERE id=?").get(mid) as
     | { session_id: string; role: string; kind: string; created_at: string; payload: string }
     | undefined;
   if (row && (row.kind === "process_trace" || row.kind === "operation_trace")) {
     payload = traceEventPayload(JSON.parse(row.payload), payload, nowIso());
+  } else if (row && STREAM_TIMED_KINDS.has(row.kind) && typeof payload.text === "string") {
+    let prev: Json = {};
+    try { prev = JSON.parse(String(row.payload || "{}")) as Json; } catch { prev = {}; }
+    const updatedAt = payload.text !== prev.text ? nowIso() : prev.updated_at;
+    if (updatedAt) payload = { ...payload, updated_at: updatedAt };
   }
   tx((c) => {
     c.prepare("UPDATE messages SET payload = ? WHERE id = ?").run(JSON.stringify(payload), mid);

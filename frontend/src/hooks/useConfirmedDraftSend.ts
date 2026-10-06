@@ -4,9 +4,9 @@ import { randomUuid } from "../uuid";
 import { draftSendConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 
-/** Save -> current server snapshot -> human confirmation -> same version/request id. */
+/** Save -> current server snapshot -> human confirmation -> same version/request id. 确认在草稿卡里原位展开，留在时间流中。 */
 export function useConfirmedDraftSend(onRefresh?: () => void) {
-  const { ask, dialog, open } = useAdminConfirm();
+  const { ask, dialog, open } = useAdminConfirm({ inline: true });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const preparing = useRef(false);

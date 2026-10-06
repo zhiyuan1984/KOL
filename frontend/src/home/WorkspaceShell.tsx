@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import PanelToggleIcon from "../components/PanelToggleIcon";
+import StreamScrollJump from "../components/StreamScrollJump";
+import { useStreamScroll } from "../hooks/useStreamScroll";
 import ResultRail from "./workspace/ResultRail";
 import type { ResultRailViewModel } from "./workspace/result-contract";
 
@@ -56,95 +58,23 @@ export default function WorkspaceShell({
   const [railCollapsed, setRailCollapsed] = useState(() =>
     localStorage.getItem(railStorageKey) === "true"
   );
-  const anchorRef = useRef<HTMLDivElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const railRef = useRef<HTMLElement | null>(null);
-  const stickBottom = useRef(true);
   const railStickBottom = useRef(true);
-  /** 焦点在流内表单控件里：新事件不得把视口拽走（正在输入的人优先）。 */
-  const focusInForm = useRef(false);
-  const [scrollJump, setScrollJump] = useState(false);
   const [railJump, setRailJump] = useState(false);
-  const [atBottom, setAtBottom] = useState(false);
-  const followThreshold = (el: HTMLElement) => parseFloat(getComputedStyle(el).getPropertyValue("--feed-follow-threshold")) || 48;
+  // 中栏：与会话页同一套时间流滚动规则；进入模式从顶部开始，只在流式产出时贴底跟随。
+  const stream = useStreamScroll({ resetKey: pane, start: "top", follow: streamStick });
   useEffect(() => {
     if (!scrollAnchorEvent) return;
-    const onRefresh = () => {
-      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      scrollRef.current?.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
-    };
+    const onRefresh = () => stream.scrollTo("top");
     window.addEventListener(scrollAnchorEvent, onRefresh);
     return () => window.removeEventListener(scrollAnchorEvent, onRefresh);
-  }, [scrollAnchorEvent]);
-  // 每次进入一个模式都从流顶部开始；贴底状态从此刻重新计算。
+  }, [scrollAnchorEvent, stream.scrollTo]);
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = 0;
-    stickBottom.current = true;
-    focusInForm.current = false;
-    setScrollJump(Boolean(el && el.scrollHeight > el.clientHeight + 1));
-    setAtBottom(Boolean(el && el.scrollHeight - el.scrollTop - el.clientHeight <= followThreshold(el)));
     const railEl = railRef.current;
     if (railEl) railEl.scrollTop = 0;
     railStickBottom.current = true;
     setRailJump(false);
   }, [pane]);
-  // 只跟随「正在流式产出」的内容：打开历史任务从顶部看，不抢着跳到底。
-  // 开始产出时把视口贴到尾部，之后由 MutationObserver 逐段跟随。
-  const streamStickRef = useRef(streamStick);
-  useEffect(() => {
-    streamStickRef.current = streamStick;
-    if (streamStick) {
-      stickBottom.current = true;
-      setScrollJump(false);
-      const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    }
-  }, [streamStick]);
-  // 贴底自动滚动：流式进行中且用户在底部时，流里追加新内容（步骤/推理）就跟着滑到底；
-  // 用户上翻读历史时不抢滚动，只亮「回到底部」。同时监听 DOM 变化和内容尺寸变化：
-  // 推理文本在同一个节点内增长、触发换行时，ResizeObserver 才能保证滚动条跟上。
-  // 焦点在表单控件里时同样不跟随：正在填写的人不该被新事件顶走。
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const overflows = () => el.scrollHeight > el.clientHeight + 1;
-    const stickToBottom = () => {
-      if (streamStickRef.current && stickBottom.current && !focusInForm.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-      setScrollJump(overflows());
-      setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= followThreshold(el));
-    };
-    const observer = new MutationObserver(() => {
-      stickToBottom();
-    });
-    observer.observe(el, { subtree: true, childList: true, characterData: true });
-    const content = el.querySelector<HTMLElement>(".scope-workspace-center-scroll-content");
-    const resizeObserver = typeof ResizeObserver === "undefined" || !content
-      ? null
-      : new ResizeObserver(stickToBottom);
-    if (resizeObserver && content) resizeObserver.observe(content);
-    if (resizeObserver) resizeObserver.observe(el);
-    const onFocusChange = () => {
-      const active = document.activeElement as HTMLElement | null;
-      focusInForm.current = Boolean(
-        active
-        && el.contains(active)
-        && active.closest("input, textarea, select, [contenteditable='true']"),
-      );
-      if (!focusInForm.current) stickToBottom();
-    };
-    el.addEventListener("focusin", onFocusChange);
-    el.addEventListener("focusout", onFocusChange);
-    stickToBottom();
-    return () => {
-      observer.disconnect();
-      resizeObserver?.disconnect();
-      el.removeEventListener("focusin", onFocusChange);
-      el.removeEventListener("focusout", onFocusChange);
-    };
-  }, []);
   // 右栏：结果原位更新时不强制跳转，只在自己就在底部时跟随；回看历史时给「回到最新」。
   useEffect(() => {
     if (!railScrollJump) return;
@@ -170,26 +100,11 @@ export default function WorkspaceShell({
       resizeObserver?.disconnect();
     };
   }, [railScrollJump, pane]);
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= followThreshold(el);
-    stickBottom.current = isAtBottom;
-    setAtBottom(isAtBottom);
-    setScrollJump(el.scrollHeight > el.clientHeight + 1);
-  };
   const onRailScroll = () => {
     const el = railRef.current;
     if (!el) return;
     railStickBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 1;
     setRailJump(el.scrollHeight > el.clientHeight + 1);
-  };
-  const jumpToBottom = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollTo({ top: atBottom ? 0 : el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
-    stickBottom.current = !atBottom;
   };
   const jumpRailToLatest = () => {
     const el = railRef.current;
@@ -217,30 +132,16 @@ export default function WorkspaceShell({
           {centerHeader}
           <div className="scope-workspace-center-scroll-wrap">
             <div
-              ref={(node) => {
-                anchorRef.current = node;
-                scrollRef.current = node;
-              }}
+              ref={stream.ref}
               className="scope-plan-anchor scope-workspace-center-scroll"
-              onScroll={onScroll}
+              onScroll={stream.onScroll}
             >
               <div className="scope-workspace-center-scroll-content">
                 {centerScroll}
               </div>
             </div>
-            {scrollJump ? (
-              <button
-                type="button"
-                className="scope-scroll-jump"
-                data-scope-scroll-jump
-                data-tooltip={atBottom ? "滚到顶部" : "滚到底部"}
-                aria-label={atBottom ? "滚到顶部" : "滚到底部"}
-                onClick={jumpToBottom}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d={atBottom ? "M12 20V5m-7 7 7-7 7 7" : "M12 4v15m-7-7 7 7 7-7"} />
-                </svg>
-              </button>
+            {stream.canJump ? (
+              <StreamScrollJump atBottom={stream.atBottom} onClick={stream.toggle} data-scope-scroll-jump />
             ) : null}
           </div>
           {centerFooter}

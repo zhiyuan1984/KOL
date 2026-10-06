@@ -166,6 +166,7 @@ export default function DiscoveryWorkspace({
             <DiscoveryRunEvents
               stage={disc.stage}
               steps={disc.steps}
+              narrative={disc.narrative}
               inFlight={disc.inFlight}
               confirmed={disc.startPhase !== "waiting_proposal" && disc.startPhase !== "pending"}
               crawlState={disc.crawlPhase}

@@ -11,6 +11,7 @@ import {
 } from "./discoveryStart";
 import {
   presentDiscoveryEvents,
+  presentDiscoveryNarrative,
   presentDiscoveryThink,
   type DiscoveryProcessStep,
   type DiscoveryThink,
@@ -142,6 +143,7 @@ export default function useDiscovery({
   const selectableVisible = useMemo(() => visible.filter(isIngestSelectable), [visible]);
   const steps = useMemo(() => presentDiscoveryEvents(events), [events]);
   const think = useMemo(() => presentDiscoveryThink(events), [events]);
+  const narrative = useMemo(() => presentDiscoveryNarrative(events), [events]);
   const runId = activeRun?.id || activeRunId || "";
   // Failure is terminal even when a stale run detail still says `running`.
   // The process stream must not keep its active treatment after its own event
@@ -705,6 +707,7 @@ export default function useDiscovery({
     selectedPlatforms,
     steps,
     think,
+    narrative,
     failure,
     emptyKind,
     emptyMessage,

@@ -17,7 +17,7 @@ import {
   type SkillTemplate,
   type RuntimeActionView,
 } from "../api";
-import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
+import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
 import { RuntimeActions } from "../components/RuntimeActions";
 import { ReplyContextPanel } from "../mail/ReplyContextPanel";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
@@ -25,7 +25,11 @@ import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import AgentTaskList, { readTaskListWidth } from "../components/AgentTaskList";
-import SideWorkbench from "../components/SideWorkbench";
+import SideWorkbench, { type ResultEntry } from "../components/SideWorkbench";
+import { useStreamArtifacts } from "../components/StreamArtifact";
+import CrawlArtifact, { crawlCandidates } from "../components/CrawlArtifact";
+import StreamScrollJump from "../components/StreamScrollJump";
+import { useStreamScroll } from "../hooks/useStreamScroll";
 import { useAccount } from "../components/AuthGate";
 import { useViewMode } from "../viewMode";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
@@ -44,7 +48,6 @@ import { bindTemplateSessionTask } from "../skillTemplateTask";
 import { discoveryWorkspaceOf } from "../home/discoveryWorkspaceState";
 import { renderDiscoveryBody } from "../home/discoveryTemplate";
 import DiscoveryRuntimeResults from "../home/DiscoveryRuntimeResults";
-import { NO_UNREAD, newContentLabel, newContentSince, type FeedReadMark } from "../feedFollow";
 
 type RecommendedAction = {
   label?: string;
@@ -362,7 +365,7 @@ function safeCrawlOperationMessages(taskId: string, events: TaskEvent[]): Messag
     role: "assistant",
     kind: "operation_trace",
     payload: { title: "正在调用系统能力", items: [...operations.values()] },
-    created_at: new Date().toISOString(),
+    created_at: [...operations.values()].map((item) => String(item.observed_at || "")).filter(Boolean).sort().pop() || "",
   }];
 }
 
@@ -377,9 +380,13 @@ function humanError(message: string) {
   return friendlyError(message, message);
 }
 
-function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
+/** 任务异常收尾的里程碑：处理过程里没有对应的一步，必须单独留在时间流里。 */
+const ABNORMAL_MILESTONES = new Set(["run.failed", "run.stopped", "run.cancelled", "run.template_changed"]);
+
+function safeEventMessages(taskId: string, events: TaskEvent[], milestonesOnly = false): Message[] {
   return events
-    .filter((event) => !/(reasoning|thought|tool|internal)/i.test(String(event.type || "")))
+    .filter((event) => !/(reasoning|thought|tool|internal|think|say|stream)/i.test(String(event.type || "")))
+    .filter((event) => !milestonesOnly || ABNORMAL_MILESTONES.has(String(event.type || event.event_type || "")))
     .map((event, index) => {
       const label = employeeProcessLabel(String(event.title || event.label || event.message || "任务进度已更新")
         .replace(/`[^`]+`/g, "任务步骤")
@@ -402,6 +409,17 @@ function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
 }
 
 const DRAFT_SUBMIT_GUARD_MS = 500;
+
+/** 页面自己产生的条目（报错等）没有服务端时间：记下它出现的那一刻，按这个时间进时间流。 */
+function useStamp(value: unknown): string {
+  const ref = useRef<{ value: unknown; at: string }>({ value: undefined, at: "" });
+  if (value !== ref.current.value) ref.current = { value, at: value ? new Date().toISOString() : "" };
+  return ref.current.at;
+}
+
+function slotRow(slot: string, createdAt: string): Message {
+  return { id: `slot:${slot}`, session_id: "", role: "assistant", kind: "ui_slot", created_at: createdAt, payload: { slot } };
+}
 
 export default function Chat() {
   const { id } = useParams();
@@ -448,13 +466,9 @@ export default function Chat() {
   const [crawlError, setCrawlError] = useState("");
   const [crawlGeneration, setCrawlGeneration] = useState(0);
   const [focusedMail, setFocusedMail] = useState<SessionMailRow | null>(null);
-  const streamRef = useRef<HTMLDivElement>(null);
-  // 中栏只有这一条滚动轴：用户上翻读思考时，新内容不得把他拽回底部。
-  const streamStickBottomRef = useRef(true);
-  // 用户上滚读历史时记下当时的读数：新内容到达只计数、不抢滚动（DESIGN §10.2）。
-  const streamReadMarkRef = useRef<FeedReadMark | null>(null);
-  const streamItemCountRef = useRef(0);
-  const [streamUnread, setStreamUnread] = useState(NO_UNREAD);
+  // 中栏只有这一条时间流滚动轴，规则与首页工作台同一套：停在底部时跟随最新，上翻不抢。
+  const stream = useStreamScroll({ resetKey: id, start: "bottom", follow: true });
+  const [templatePickedAt, setTemplatePickedAt] = useState("");
   const stopRequestedRef = useRef(false);
   const paramTemplateKey = useRef<string | null>(null);
   const focusThread = String((location.state as { focusThread?: string } | null)?.focusThread || "");
@@ -772,8 +786,9 @@ export default function Chat() {
   // 远端执行面名称只进右栏状态的调试细节，且始终受 debug 门控（DESIGN §15）。
   const remoteLabel = debug && skillId ? REMOTE_BACKEND_LABEL[remoteForSkill(skillId)] : undefined;
   const hasVisibleTrace = messages.some((message) => message.kind === "process_trace" || message.kind === "operation_trace");
-  const timeline = task && taskEvents.length && !hasVisibleTrace
-    ? [...messages, ...safeEventMessages(task.id, taskEvents)]
+  // 处理过程已经逐步记录时，只补它表达不了的异常里程碑（失败、停止、取消、模板变化）。
+  const timeline = task && taskEvents.length
+    ? [...messages, ...safeEventMessages(task.id, taskEvents, hasVisibleTrace)]
     : messages;
   const timelineWithCrawl = task && (crawlEvents.length || crawlJob)
     ? [
@@ -782,63 +797,6 @@ export default function Chat() {
         ...safeCrawlEventMessages(task.id, crawlEvents, crawlJob),
       ]
     : timeline;
-  const streamAtBottom = (pane: HTMLDivElement) => pane.scrollHeight - pane.scrollTop - pane.clientHeight <=
-    (parseFloat(getComputedStyle(pane).getPropertyValue("--feed-follow-threshold")) || 48);
-  const onStreamScroll = () => {
-    const pane = streamRef.current;
-    if (!pane) return;
-    const atBottom = streamAtBottom(pane);
-    streamStickBottomRef.current = atBottom;
-    if (atBottom) {
-      streamReadMarkRef.current = null;
-      setStreamUnread(current => current.count === 0 && !current.grew ? current : NO_UNREAD);
-      return;
-    }
-    // 一次上滚就是明确意图：从这里开始的新内容只计数，不抢滚动。
-    if (!streamReadMarkRef.current) {
-      streamReadMarkRef.current = { items: streamItemCountRef.current, height: pane.scrollHeight };
-    }
-    const next = newContentSince(streamReadMarkRef.current, streamItemCountRef.current, pane.scrollHeight);
-    setStreamUnread(current => current.count === next.count && current.grew === next.grew ? current : next);
-  };
-  const scrollStreamToBottom = () => {
-    const pane = streamRef.current;
-    if (!pane) return;
-    streamStickBottomRef.current = true;
-    streamReadMarkRef.current = null;
-    setStreamUnread(NO_UNREAD);
-    pane.scrollTo({
-      top: pane.scrollHeight,
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-    });
-  };
-  useEffect(() => {
-    // 先记下当前的条数，下面的观察者一挂上就能用它当读数基准。
-    streamItemCountRef.current = timelineWithCrawl.length;
-  }, [timelineWithCrawl]);
-  useEffect(() => {
-    const pane = streamRef.current;
-    if (!pane) return;
-    const resize = new ResizeObserver(() => {
-      if (streamStickBottomRef.current) pane.scrollTop = pane.scrollHeight;
-      onStreamScroll();
-    });
-    resize.observe(pane);
-    for (const child of pane.children) resize.observe(child);
-    onStreamScroll();
-    return () => resize.disconnect();
-  }, [id, task, runtimeActions, sessionLoaded]);
-  useEffect(() => {
-    const pane = streamRef.current;
-    if (!pane) return;
-    // 只在用户本来就在底部时跟随新内容；上翻读过程时不抢滚动，由 onStreamScroll 计数。
-    if (streamStickBottomRef.current || streamAtBottom(pane)) {
-      pane.scrollTop = pane.scrollHeight;
-      streamStickBottomRef.current = true;
-      streamReadMarkRef.current = null;
-    }
-    onStreamScroll();
-  }, [timelineWithCrawl, crawlJob, err, submitErr]);
   useEffect(() => {
     if (!pendingRuntimeActionId) {
       focusedPendingRuntimeActionRef.current = null;
@@ -846,16 +804,10 @@ export default function Chat() {
     }
     if (focusedPendingRuntimeActionRef.current === pendingRuntimeActionId) return;
     focusedPendingRuntimeActionRef.current = pendingRuntimeActionId;
-    const frame = window.requestAnimationFrame(() => {
-      const pane = streamRef.current;
-      if (!pane) return;
-      // Keep the confirmation in the conversation flow and bring its trailing
-      // actions into view once; do not turn it into a floating overlay.
-      pane.scrollTop = pane.scrollHeight;
-      streamStickBottomRef.current = true;
-    });
+    // 待确认的动作留在时间流里：只把它带进视口一次，不做成浮层。
+    const frame = window.requestAnimationFrame(() => stream.pinToBottom());
     return () => window.cancelAnimationFrame(frame);
-  }, [pendingRuntimeActionId]);
+  }, [pendingRuntimeActionId, stream.pinToBottom]);
   const lastComposeGap = lastUnsentComposeGap(messages);
   const composerHint = String(lastComposeGap?.placeholder || journey?.composer_placeholder || "");
   const boundExpert = !discoveryEntry && id ? readBoundExpert(id) : null;
@@ -956,12 +908,6 @@ export default function Chat() {
       || mails.find((row) => String(row.id || "") === focusThread);
     if (match) setFocusedMail(match);
   }, [focusThread, journey?.mail_history]);
-  const hasRightArtifact = messages.some((message) =>
-    ["task_result_card", "email_card", "confirm_stage_card", "inbound_card", "supplement_card", "kol_mail_card"].includes(message.kind) ||
-    (message.kind === "steps" && String(message.payload.title || "").includes("失联")),
-  ) || resultCardsFromMessages(messages).length > 0
-    || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail)
-    || Boolean(kolSession && sessionMails && sessionMails.length);
   // 任务刚启动时还没有 task_result/card，但右栏仍需立即出现并展示处理中状态。
   const showRightWorkbench = Boolean(id);
 
@@ -1113,7 +1059,161 @@ export default function Chat() {
   ) : null;
 
   const contextKicker = String(task?.project || "").trim();
-  const streamUnreadLabel = newContentLabel(streamUnread);
+  const submitErrAt = useStamp(submitErr);
+  const loadErrAt = useStamp(err);
+  const crawlErrAt = useStamp(!crawlJob && crawlError ? crawlError : "");
+  const renderArtifact = useStreamArtifacts({
+    sessionId: id || "",
+    messages: timelineWithCrawl,
+    officialStage: String(journey?.stage_code || ""),
+    collaborationId: String(collaborationId || journey?.collaboration_id || ""),
+    handle: String(journey?.handle || ""),
+    onRefresh: reload,
+    onPosted: (msgs) => setMessages(msgs),
+    onPrefill: setText,
+  });
+  const crawlCandidateRows = crawlJob ? crawlCandidates(crawlJob, task) : [];
+  const crawlAt = String(crawlJob?.last_checked_at || crawlJob?.updated_at || crawlJob?.created_at || "");
+  // 页面自己的条目带时间插进同一条时间流：会话开头的上下文（无时间）排最前，
+  // 技能参数卡在选用时刻出现，采集状态跟随最近一次核对，报错在出现的那一刻。
+  const streamSlots: Message[] = [
+    ...(id && kolSession && !discoveryEntry ? [slotRow("reply-context", "")] : []),
+    ...(taskWorkspace.task ? [slotRow("task-analysis", "")] : []),
+    ...(boundExpert?.intro ? [slotRow("expert-intro", "")] : []),
+    ...(kolSession ? [slotRow("mail-digest", "")] : []),
+    ...(activeSkillTemplate && !discoveryEntry
+      ? [slotRow("skill-template", selectedTemplateSkillId ? templatePickedAt : String(task?.created_at || ""))]
+      : []),
+    ...(crawlJob ? [slotRow("crawl", crawlAt)] : []),
+    ...(!crawlJob && crawlError ? [slotRow("crawl-error", crawlErrAt)] : []),
+    ...(submitErr ? [slotRow("submit-error", submitErrAt)] : []),
+    ...(err ? [slotRow("load-error", loadErrAt)] : []),
+  ];
+  const crawlEntries: ResultEntry[] = crawlCandidateRows.length
+    ? [{ id: "slot:crawl", kind: "crawl", title: "候选创作者", detail: `${crawlCandidateRows.length} 位`, time: Date.parse(crawlAt) || 0 }]
+    : [];
+  const renderSlot = (slot: string) => {
+    if (slot === "reply-context" && id) {
+      return <ReplyContextPanel sessionId={id} analyzing={pending} onAnalyze={() => pickSuggestion({label: "分析最新邮件对草稿的影响", prompt: "分析回复：请引用当前授权邮件的 ID 和版本，解释对现有草稿的影响。延期仅作为申请，不视为已批准；保留人工稿，不发信、不改正式阶段。", intent: "reply_analysis"})} />;
+    }
+    if (slot === "task-analysis" && taskWorkspace.task) {
+      return <section className="task-analysis-summary" aria-label="当前业务任务">
+        <strong>{taskWorkspace.task.task.title}</strong><p>{taskWorkspace.task.task.goal}</p>
+        <p>任务状态：{taskWorkspace.task.task.status} · 开放工单 {taskWorkspace.task.counts.open} · 阻塞 {taskWorkspace.task.counts.blocked}</p>
+        <button className="btn ghost" type="button" disabled={pending || status === "running"} onClick={()=>pickSuggestion({label:"分析当前任务依赖",intent:"kol_analyze",prompt:"请基于本会话服务端绑定的正式 Task 和当前授权的审批/工单依赖快照，解释阻塞原因、变化影响及下一步。引用真实对象 ID 和版本，区分事实、建议及缺失依据；只分析，不建单、不派单、不审批、不外发、不改阶段。"})}>让 Agent 分析当前依赖</button>
+        <TaskCollaborationContext taskId={taskWorkspace.task.task.task_id} titles={Object.fromEntries(taskWorkspace.task.work_orders.map(order=>[order.work_order_id,order.title]))} onUnavailable={leaveUnavailableTask} />
+      </section>;
+    }
+    if (slot === "skill-template" && activeSkillTemplate) {
+      return <div className="session-skill-template" data-session-skill-template>
+        <SkillTemplateContext
+          template={activeSkillTemplate}
+          showOptionalInputs={!editableTemplateFields.length}
+        />
+        {templateParamEditor}
+      </div>;
+    }
+    if (slot === "expert-intro" && boundExpert?.intro) {
+      return <article className="expert-intro message is-assistant" data-expert-intro data-kind="expert-intro">
+        <p>{boundExpert.intro}</p>
+      </article>;
+    }
+    if (slot === "mail-digest") {
+      if (!sessionLoaded) {
+        return <section className="session-loading-status" data-session-loading role="status" aria-live="polite" aria-busy="true">
+          <span className="session-loading-dot" aria-hidden="true" />
+          <div>
+            <strong>正在打开红人合作会话</strong>
+            <p>正在读取最近往来邮件，结果会持续更新。等待期间不会发送邮件，也不会修改合作阶段。</p>
+          </div>
+        </section>;
+      }
+      if (mailDigest || mailAnalysisPending || (sessionMails && sessionMails.length)) {
+        return <ThreadMailDigest digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} onRefresh={() => reload(true, true)} />;
+      }
+      return <section className="thread-mail-digest is-empty muted" data-mail-digest data-mail-summaries role="status">
+        <strong>暂未读到往来邮件</strong>
+        <p>正在等待同步结果；你可以继续在输入框描述下一步工作。</p>
+        <button type="button" className="digest-retry" onClick={() => reload(true, true)}>刷新收取</button>
+      </section>;
+    }
+    if (slot === "crawl" && crawlJob) {
+      return <div className="stream-artifact" data-stream-entry="slot:crawl">
+        <section className="crawl-middle-status" data-crawl-middle-status={crawlJob.status}>
+          <div>
+            <strong>{CRAWL_PROGRESS[crawlJob.status] || "正在处理这项工作"}</strong>
+            <p>
+              正在同步公开创作者数据，完成后会给出建议。
+              {crawlJob.remote_task_id ? ` 采集编号 ${crawlJob.remote_task_id}` : ""}
+            </p>
+            {(crawlJob.upload_error || crawlJob.error || crawlError) && (
+              <div className="workspace-error" role="alert">
+                <strong>当前无法读取达人数据</strong>
+                <p>{humanError(String(crawlJob.upload_error || crawlJob.error || crawlError))}</p>
+              </div>
+            )}
+            {debug && (
+              <details className="execution-details">
+                <summary>查看执行详情</summary>
+                <p>
+                  采集任务编号：{crawlJob.remote_task_id || "正在分配"}
+                  {crawlJob.last_checked_at && ` · 最近检查：${new Date(crawlJob.last_checked_at).toLocaleTimeString("zh-CN")}`}
+                </p>
+              </details>
+            )}
+          </div>
+          {ACTIVE_CRAWL.has(crawlJob.status) && (
+            <button type="button" className="btn ghost" onClick={() => void stopCrawl()} disabled={crawlBusy}>
+              停止采集
+            </button>
+          )}
+        </section>
+        {crawlCandidateRows.length ? (
+          <CrawlArtifact
+            job={crawlJob}
+            events={crawlEvents}
+            candidates={crawlCandidateRows}
+            busy={crawlBusy}
+            error={crawlError}
+            onStart={startCrawl}
+            onStop={stopCrawl}
+            onPrefill={setText}
+            showControls={false}
+            isAdmin={account?.available_modes?.includes("admin") === true}
+            onRetryUpload={crawlJob.id ? retryCrawlUpload : undefined}
+            onClearHistory={clearCrawlHistory}
+          />
+        ) : null}
+      </div>;
+    }
+    if (slot === "crawl-error" && crawlError) {
+      return <div className="workspace-error composer-err" role="alert">
+        <strong>当前无法读取达人数据</strong>
+        <p>{humanError(crawlError)}</p>
+        <button type="button" className="btn ghost" onClick={() => setCrawlGeneration((value) => value + 1)}>重试</button>
+      </div>;
+    }
+    if (slot === "submit-error" && submitErr) {
+      return <div className="workspace-error" role="alert">
+        <strong>还不能开始这项工作</strong>
+        <p>{submitErr}</p>
+      </div>;
+    }
+    if (slot === "load-error" && err) {
+      return <div className="workspace-error" role="alert">
+        <strong>当前无法继续这次工作</strong>
+        <p>{humanError(err)}</p>
+        <button type="button" className="btn ghost" onClick={() => reload()}>重试</button>
+        {debug && (
+          <details className="execution-details">
+            <summary>查看详情</summary>
+            <p>{/is not valid JSON|Unexpected token|SyntaxError/i.test(err) ? humanError(err) : err}</p>
+          </details>
+        )}
+      </div>;
+    }
+    return null;
+  };
 
   return (
     <div
@@ -1260,124 +1360,24 @@ export default function Chat() {
             </>
           )}
         </header>
-        <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
-        {id && kolSession && !discoveryEntry ? <ReplyContextPanel sessionId={id} analyzing={pending} onAnalyze={() => pickSuggestion({label: "分析最新邮件对草稿的影响", prompt: "分析回复：请引用当前授权邮件的 ID 和版本，解释对现有草稿的影响。延期仅作为申请，不视为已批准；保留人工稿，不发信、不改正式阶段。", intent: "reply_analysis"})} /> : null}
-        {taskWorkspace.task ? <section className="task-analysis-summary" aria-label="当前业务任务">
-          <strong>{taskWorkspace.task.task.title}</strong><p>{taskWorkspace.task.task.goal}</p>
-          <p>任务状态：{taskWorkspace.task.task.status} · 开放工单 {taskWorkspace.task.counts.open} · 阻塞 {taskWorkspace.task.counts.blocked}</p>
-          <button className="btn ghost" type="button" disabled={pending || status === "running"} onClick={()=>pickSuggestion({label:"分析当前任务依赖",intent:"kol_analyze",prompt:"请基于本会话服务端绑定的正式 Task 和当前授权的审批/工单依赖快照，解释阻塞原因、变化影响及下一步。引用真实对象 ID 和版本，区分事实、建议及缺失依据；只分析，不建单、不派单、不审批、不外发、不改阶段。"})}>让 Agent 分析当前依赖</button>
-          <TaskCollaborationContext taskId={taskWorkspace.task.task.task_id} titles={Object.fromEntries(taskWorkspace.task.work_orders.map(order=>[order.work_order_id,order.title]))} onUnavailable={leaveUnavailableTask} />
-        </section> : null}
-        {activeSkillTemplate && !discoveryEntry ? (
-          <div className="session-skill-template" data-session-skill-template>
-            <SkillTemplateContext
-              template={activeSkillTemplate}
-              showOptionalInputs={!editableTemplateFields.length}
-            />
-            {templateParamEditor}
-          </div>
-        ) : null}
-        {boundExpert?.intro ? (
-          <article className="expert-intro message is-assistant" data-expert-intro data-kind="expert-intro">
-            <p>{boundExpert.intro}</p>
-          </article>
-        ) : null}
-        {kolSession && !sessionLoaded ? (
-          <section className="session-loading-status" data-session-loading role="status" aria-live="polite" aria-busy="true">
-            <span className="session-loading-dot" aria-hidden="true" />
-            <div>
-              <strong>正在打开红人合作会话</strong>
-              <p>正在读取最近往来邮件，结果会持续更新。等待期间不会发送邮件，也不会修改合作阶段。</p>
-            </div>
-          </section>
-        ) : kolSession && (mailDigest || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
-          <ThreadMailDigest digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} onRefresh={() => reload(true, true)} />
-        ) : kolSession ? (
-          <section className="thread-mail-digest is-empty muted" data-mail-digest data-mail-summaries role="status">
-            <strong>暂未读到往来邮件</strong>
-            <p>正在等待同步结果；你可以继续在输入框描述下一步工作。</p>
-            <button type="button" className="digest-retry" onClick={() => reload(true, true)}>刷新收取</button>
-          </section>
-        ) : null}
-        {crawlJob && (
-          <section className="crawl-middle-status" data-crawl-middle-status={crawlJob.status}>
-            <div>
-              <strong>{CRAWL_PROGRESS[crawlJob.status] || "正在处理这项工作"}</strong>
-              <p>
-                正在同步公开创作者数据，完成后会给出建议。
-                {crawlJob.remote_task_id ? ` 采集编号 ${crawlJob.remote_task_id}` : ""}
-              </p>
-              {(crawlJob.upload_error || crawlJob.error || crawlError) && (
-                <div className="workspace-error" role="alert">
-                  <strong>当前无法读取达人数据</strong>
-                  <p>{humanError(String(crawlJob.upload_error || crawlJob.error || crawlError))}</p>
-                </div>
-              )}
-              {debug && (
-                <details className="execution-details">
-                  <summary>查看执行详情</summary>
-                  <p>
-                    采集任务编号：{crawlJob.remote_task_id || "正在分配"}
-                    {crawlJob.last_checked_at && ` · 最近检查：${new Date(crawlJob.last_checked_at).toLocaleTimeString("zh-CN")}`}
-                  </p>
-                </details>
-              )}
-            </div>
-            {ACTIVE_CRAWL.has(crawlJob.status) && (
-              <button type="button" className="btn ghost" onClick={() => void stopCrawl()} disabled={crawlBusy}>
-                停止采集
-              </button>
-            )}
-          </section>
-        )}
-        {!crawlJob && crawlError && (
-          <div className="workspace-error composer-err" role="alert">
-            <strong>当前无法读取达人数据</strong>
-            <p>{humanError(crawlError)}</p>
-            <button type="button" className="btn ghost" onClick={() => setCrawlGeneration((value) => value + 1)}>重试</button>
-          </div>
-        )}
-        {submitErr && (
-          <div className="workspace-error" role="alert">
-            <strong>还不能开始这项工作</strong>
-            <p>{submitErr}</p>
-          </div>
-        )}
-        {err && (
-          <div className="workspace-error" role="alert">
-            <strong>当前无法继续这次工作</strong>
-            <p>{humanError(err)}</p>
-            <button type="button" className="btn ghost" onClick={() => reload()}>重试</button>
-            {debug && (
-              <details className="execution-details">
-                <summary>查看详情</summary>
-                <p>{/is not valid JSON|Unexpected token|SyntaxError/i.test(err) ? humanError(err) : err}</p>
-              </details>
-            )}
-          </div>
-        )}
+        <div className="session-stream conversation" ref={stream.ref} onScroll={stream.onScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
         {id && (
-          <RuntimeActions sessionId={id} onChange={setRuntimeActions}>{(actions, renderAction) => <><ChatThread
+          <RuntimeActions sessionId={id} onChange={setRuntimeActions}>{(actions, renderAction) => <ChatThread
             messages={timelineWithCrawl}
             discovery={discoveryEntry}
             actions={actions}
             renderAction={renderAction}
             officialStage={String(journey?.stage_code || "")}
             onRefresh={reload}
-          />{actions.map(action => renderAction(action.id))}</>}</RuntimeActions>
+            slots={streamSlots}
+            renderSlot={renderSlot}
+            renderArtifact={renderArtifact}
+          />}</RuntimeActions>
         )}
         </div>
-        {/* 用户在看历史时只提示不打断；同一个「有新内容」不出现第二个按钮（DESIGN §10.2）。 */}
-        {streamUnreadLabel ? <div className="session-scroll-control">
-          <button type="button" className="btn ghost" data-session-scroll-jump
-            aria-label={`${streamUnreadLabel}，回到最新`}
-            title={`${streamUnreadLabel}，回到最新`}
-            onClick={scrollStreamToBottom}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-              <path d="M5 10l7 7 7-7M12 17V4" />
-            </svg>
-            <span className="session-scroll-label" aria-live="polite">{streamUnreadLabel}</span>
-          </button>
+        {/* 时间流只有一个跳转控件：不在底部「滚到底部」，在底部「滚到顶部」（DESIGN §10.2）。 */}
+        {stream.canJump ? <div className="session-scroll-control">
+          <StreamScrollJump atBottom={stream.atBottom} onClick={stream.toggle} data-session-scroll-jump />
         </div> : null}
         <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>
           {kolSession || messages.some((message) => message.kind === "email_card") ? (
@@ -1412,6 +1412,7 @@ export default function Chat() {
             onPickSkill={pickSkill}
             onSkillTemplateChange={(template, skill) => {
               setSelectedTemplateSkillId(skill?.id || null);
+              setTemplatePickedAt(new Date().toISOString());
               setSelectedSkillTemplate(template);
               if (skill) {
                 setLockedIntent(skill.id);
@@ -1442,14 +1443,12 @@ export default function Chat() {
           sessionId={id}
           messages={messages}
           status={status}
-          onRefresh={reload}
-          onPosted={(msgs) => setMessages(msgs)}
           task={task}
           discoveryReturn={discoveryEntry ? (task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/?tab=discovery") : undefined}
-          resultOverride={discoveryExecutionResult}
           statusOverride={discoveryProgress?.label}
           phase={phase}
           remoteLabel={remoteLabel}
+          extraEntries={crawlEntries}
           resultExtra={taskWorkspace.task ? <>
             <section aria-label="任务分析依据"><p className="muted">当前依据版本：{taskWorkspace.version}</p>
               {messages.some(message=>{const payload=message.payload as Record<string,unknown>;return payload.task_context_version && (payload.task_context_stale || payload.task_context_version !== taskWorkspace.version);}) ? <p role="status">已有分析的依据已变化，请复核当前事实后重新分析。</p> : null}
@@ -1461,21 +1460,7 @@ export default function Chat() {
               text: `请基于本任务已保存的发现条件与采集 ${taskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
               intent: "crawler_collect",
             })} /> : undefined}
-          crawlJob={crawlJob}
-          crawlEvents={crawlEvents}
-          crawlBusy={crawlBusy}
-          crawlError={crawlError}
-          onStartCrawl={startCrawl}
-          onStopCrawl={stopCrawl}
-          onPrefill={setText}
-          crawlAdmin={account?.available_modes?.includes("admin") === true}
-          onRetryCrawlUpload={crawlJob?.id ? retryCrawlUpload : undefined}
-          onClearCrawlHistory={crawlJob ? clearCrawlHistory : undefined}
           focusedMail={focusedMail}
-          officialStage={String(journey?.stage_code || "")}
-          collaborationId={String(collaborationId || journey?.collaboration_id || "")}
-          handle={String(journey?.handle || "")}
-          suppressRevisionHint={Boolean(discoveryEntry)}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ADMIN_CANCEL_HINT, ADMIN_CANCEL_LABEL, type AdminConfirmCopy, type AdminConfirmFocus, type AdminConfirmTone } from "../adminConfirm";
 import { useFocusLock } from "../hooks/useFocusLock";
@@ -7,6 +7,8 @@ export type AskAdminConfirm = (copy: AdminConfirmCopy, run: (reason: string) => 
 
 type ConfirmDialogProps = AdminConfirmCopy & {
   open: boolean;
+  /** 在触发它的卡片里原位展开（时间流内确认），不弹出遮罩层。 */
+  inline?: boolean;
   busy?: boolean;
   error?: string;
   cancelLabel?: string;
@@ -22,6 +24,7 @@ function isApprovalKind(kind: string) {
 
 export function ConfirmDialog({
   open,
+  inline = false,
   kind,
   title,
   object,
@@ -57,6 +60,7 @@ export function ConfirmDialog({
   const confirmRef = useRef<HTMLButtonElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const inlineRef = useRef<HTMLElement>(null);
   const approval = isApprovalKind(kind);
   const showReason = requireReason || reasonOptional;
   const focus: AdminConfirmFocus = initialFocus || (requireReason ? "reason" : "cancel");
@@ -73,24 +77,22 @@ export function ConfirmDialog({
     onEscape: close,
     lockBody: true,
     restore: true,
+    enabled: !inline,
   });
+  // 原位确认不锁焦点、不锁页面滚动：只把它带进视口并把焦点放到默认按钮上。
+  useEffect(() => {
+    if (!open || !inline) return;
+    const frame = window.requestAnimationFrame(() => {
+      inlineRef.current?.scrollIntoView({ block: "nearest" });
+      initialRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, inline, initialRef]);
 
   if (!open || typeof document === "undefined") return null;
 
-  return createPortal(
-    <div className="admin-confirm-layer" data-admin-confirm={kind} data-risk="L3">
-      <div className="admin-confirm-backdrop" onClick={close} />
-      <div
-        ref={dialogRef}
-        className="admin-confirm"
-        role="dialog"
-        aria-modal="true"
-        aria-busy={busy || undefined}
-        aria-labelledby={titleId}
-        aria-describedby={descId}
-        data-approval-confirm={approval ? "" : undefined}
-        data-approval-confirm-decision={kind === "approval-reject" ? "reject" : kind === "approval-approve" ? "approve" : undefined}
-      >
+  const body = (
+    <>
         <h2 id={titleId}>{title}</h2>
         {person ? (
           <div id={descId} className="admin-confirm-person-card">
@@ -197,13 +199,54 @@ export function ConfirmDialog({
             {busy ? (busyLabel || "执行中…") : confirmLabel}
           </button>
         </div>
+    </>
+  );
+
+  if (inline) {
+    return (
+      <section
+        ref={inlineRef}
+        className="admin-confirm is-inline"
+        role="group"
+        aria-busy={busy || undefined}
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        data-admin-confirm={kind}
+        data-admin-confirm-inline
+        data-risk="L3"
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.stopPropagation();
+          close();
+        }}
+      >
+        {body}
+      </section>
+    );
+  }
+
+  return createPortal(
+    <div className="admin-confirm-layer" data-admin-confirm={kind} data-risk="L3">
+      <div className="admin-confirm-backdrop" onClick={close} />
+      <div
+        ref={dialogRef}
+        className="admin-confirm"
+        role="dialog"
+        aria-modal="true"
+        aria-busy={busy || undefined}
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        data-approval-confirm={approval ? "" : undefined}
+        data-approval-confirm-decision={kind === "approval-reject" ? "reject" : kind === "approval-approve" ? "approve" : undefined}
+      >
+        {body}
       </div>
     </div>,
     document.body,
   );
 }
 
-export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode; open: boolean } {
+export function useAdminConfirm({ inline = false }: { inline?: boolean } = {}): { ask: AskAdminConfirm; dialog: ReactNode; open: boolean } {
   const [pending, setPending] = useState<(AdminConfirmCopy & { run: (reason: string) => Promise<void> }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -218,6 +261,7 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode; op
   const dialog = (
     <ConfirmDialog
       open={Boolean(pending)}
+      inline={inline}
       kind={pending?.kind || "user-deactivate"}
       title={pending?.title || ""}
       object={pending?.object || ""}

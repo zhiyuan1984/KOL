@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import {
   api,
   type EmailCard,
@@ -23,6 +23,8 @@ import { useConfirmedDraftSend } from "../hooks/useConfirmedDraftSend";
 import { applyComposerDraft } from "../composer/draft";
 import { discoveryTimeline } from "../home/discoveryTimeline";
 import { stripEngineCopy } from "../employeeCopy";
+import { orderStream } from "../streamOrder";
+import { streamingNarrative } from "../../../shared/narrative";
 import type { RuntimeActionView } from "../api";
 
 type ThreadRole = "user" | "assistant" | "system";
@@ -1188,6 +1190,22 @@ export function employeeTraceLabel(raw: string, kind?: string) {
 }
 
 function employeeMessageBody(text: string, debug = false, onRefresh?: () => void) {
+  // 结构化输出的第一个字段是给员工看的说明：只显示它，结构化结果由结果条目在其产生时刻单独出现。
+  const narrative = streamingNarrative(text);
+  if (narrative !== null) {
+    const said = stripEngineCopy(narrative).trim();
+    return (
+      <>
+        {said ? <Markdown foldInternalReview={!debug}>{said}</Markdown> : <span className="muted">正在输出…</span>}
+        {debug ? (
+          <details className="execution-details">
+            <summary>调试原文</summary>
+            <pre className="inference-debug-json">{text}</pre>
+          </details>
+        ) : null}
+      </>
+    );
+  }
   if (looksLikeInferenceJson(text) || taskResultCardsFrom(text).length) {
     return <HumanizedInference text={text} debug={debug} onRefresh={onRefresh} />;
   }
@@ -1429,6 +1447,9 @@ export function ChatThread({
   discovery = false,
   actions = [],
   renderAction,
+  slots = [],
+  renderSlot,
+  renderArtifact,
 }: {
   messages: Message[];
   officialStage?: string;
@@ -1436,31 +1457,41 @@ export function ChatThread({
   discovery?: boolean;
   actions?: RuntimeActionView[];
   renderAction?: (id: string) => ReactNode;
+  /** 页面自己的条目（采集状态、错误、技能参数卡等），带时间插进同一条时间流。 */
+  slots?: Message[];
+  renderSlot?: (slot: string) => ReactNode;
+  /** 智能体产出的完整卡片；未提供时（只读分享页）按摘要行显示。 */
+  renderArtifact?: (message: Message) => ReactNode | undefined;
 }) {
   const { debug } = useViewMode();
   const hasResult = messages.some((m) =>
     ["email_card", "confirm_stage_card", "inbound_card", "supplement_card", "task_result_card", "kol_mail_card"].includes(m.kind)
     || taskResultCardsFrom(String(m.payload.text || "")).length > 0,
   );
-  const latestResultId = [...messages].reverse().find((item) => item.kind === "task_result_card")?.id;
-  const latestDraftId = [...messages].reverse().find((item) => item.kind === "email_card")?.id;
-  const hasDraftCard = Boolean(latestDraftId);
-  const latestStageReceiptId = [...messages].reverse().find((item) =>
-    /正式阶段已按你的确认更新|已提交阶段审批/.test(String(item.payload.text || "")),
-  )?.id;
-  let mailPointer = false;
+  // 所有条目按「最后一次有新内容」的时刻排进同一条时间流，最新的在输入框上方。
+  const rows = orderStream([
+    ...(discovery ? discoveryTimeline(messages, actions) : [...messages, ...actions.map(runtimeActionRow)]),
+    ...slots,
+  ]);
   return (
     <div
       className="chat conversation-content"
       data-session-stream={messages.some((item) => item.payload.streaming) ? "live" : "idle"}
       data-ai-conversation-content
     >
-      {(discovery ? discoveryTimeline(messages, actions) : messages).map((m) => {
+      {rows.map((m) => {
+        if (m.kind === "ui_slot") {
+          const node = renderSlot?.(String(m.payload.slot || ""));
+          return node ? <Fragment key={m.id}>{node}</Fragment> : null;
+        }
         if (m.kind === "discovery_history") return <ThreadMessage key={m.id} role="assistant" data-kind="discovery-history">
           <details><summary>旧任务记录</summary>{(m.payload.items as Message[]).map(item =>
             <p key={item.id} data-kind="discovery-step"><StepTime /> · <i role="img" aria-label={statusLabel(safeStatus(item.payload.status))}>{statusMark(safeStatus(item.payload.status))}</i> {employeeTraceLabel(String(item.payload.text), String(item.payload.kind || ""))}</p>)}</details>
         </ThreadMessage>;
-        if (m.kind === "discovery_action") return <div key={m.id}>{renderAction?.(String(m.payload.action_id))}</div>;
+        if (m.kind === "discovery_action") {
+          const node = renderAction?.(String(m.payload.action_id));
+          return node ? <div key={m.id} className="stream-artifact" data-stream-entry={m.id}>{node}</div> : null;
+        }
         if (m.kind === "discovery_step") {
           const status = safeStatus(m.payload.status);
           const label = employeeTraceLabel(String(m.payload.text), String(m.payload.kind || ""));
@@ -1483,39 +1514,43 @@ export function ChatThread({
             </ThreadMessage>
           );
         }
+        const artifact = renderArtifact?.(m);
+        if (artifact !== undefined) {
+          return artifact
+            ? <div key={m.id} className="stream-artifact" data-stream-entry={m.id} data-stream-kind={m.kind}>{artifact}</div>
+            : null;
+        }
         if (m.kind === "email_card") {
-          if (m.id !== latestDraftId) return null;
           const sent = String(m.payload.status || "") === "sent" || Boolean(m.payload.send_disabled);
           return (
-            <ThreadMessage key={m.id} role="assistant" result={sent ? "send" : "draft"} risk="L2" data-kind="email-card-pointer">
-              <strong>{sent ? "发送卡" : "邮件草稿"}</strong>
-              <p>{sent ? "发送结果已放入结果工作台。" : "草稿已放入结果，核对后再确认发送。"}</p>
+            <ThreadMessage key={m.id} role="assistant" result={sent ? "send" : "draft"} risk="L2" data-kind="email-card-summary" data-stream-entry={m.id}>
+              <strong>{sent ? "已发送的邮件" : "邮件草稿"}</strong>
+              <p>{String(m.payload.subject || "无主题")}</p>
             </ThreadMessage>
           );
         }
         if (m.kind === "confirm_stage_card") {
           const proposed = String(m.payload.proposed_stage || "");
-          if (m.payload.resolved || officialStageReached(officialStage, proposed)) return null;
+          const closed = Boolean(m.payload.resolved || m.payload.rejected) || officialStageReached(officialStage, proposed);
           return (
-            <ThreadMessage key={m.id} role="assistant" result="stage" risk="L3" data-kind="confirm-stage-pointer">
-              <strong>阶段卡</strong>
-              <p>请在结果中确认阶段。选定具体正式阶段后再写入，本路径不发信。</p>
+            <ThreadMessage key={m.id} role="assistant" result="stage" risk="L3" data-kind="confirm-stage-summary" data-stream-entry={m.id}>
+              <strong>阶段建议 · {stageLabel(proposed) || proposed || "具体阶段"}</strong>
+              <p>{m.payload.rejected ? "已驳回，正式阶段未改。" : closed ? "已写入正式阶段。" : "待员工确认后写入；本路径不发信。"}</p>
             </ThreadMessage>
           );
         }
         if (m.kind === "kol_mail_card") {
-          if (mailPointer) return null;
-          mailPointer = true;
+          const inbound = String(m.payload.direction || "inbound") !== "outbound";
           return (
-            <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="kol-mail-pointer">
-              <p>来信已放入结果。改阶段请走阶段确认卡。</p>
+            <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="kol-mail-summary" data-stream-entry={m.id}>
+              <p>{inbound ? "来信" : "去信"} · {String(m.payload.subject || "无主题")}</p>
             </ThreadMessage>
           );
         }
         if (m.kind === "inbound_card") {
           return (
-            <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="inbound-pointer">
-              <p>未绑定来信已放入结果。请人选，不自动合并、不会「已自动记入」。</p>
+            <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="inbound-summary" data-stream-entry={m.id}>
+              <p>未绑定来信 · {String(m.payload.subject || "无主题")}。需要人选择归属，不自动合并。</p>
             </ThreadMessage>
           );
         }
@@ -1525,9 +1560,9 @@ export function ChatThread({
           const message = String(m.payload.message || "");
           const kind = String(m.payload.clarification_kind || "");
           const fallback = intent === "content_nudge"
-            ? "催大纲需要指定红人或合作，请在结果中补全后再起箱。"
+            ? "催大纲需要指定红人或合作，请补全后再起箱。"
             : intent === "business_approval"
-              ? "还缺金额或币种，请在结果中补上。"
+              ? "还缺金额或币种，请补上。"
               : intent === "confirm_stage"
                 ? "提出阶段变更需要指定红人或合作。"
                 : kind === "direction"
@@ -1535,27 +1570,24 @@ export function ChatThread({
                   : message || "还需要补充信息后再继续。";
           const risk = kind === "direction" ? undefined : messageRisk("supplement_card", m.payload) || "L2";
           return (
-            <ThreadMessage key={m.id} role="assistant" risk={risk} data-kind="supplement" data-clarification={kind || undefined}>
+            <ThreadMessage key={m.id} role="assistant" risk={risk} data-kind="supplement" data-clarification={kind || undefined} data-stream-entry={m.id}>
               {title ? <strong>{title}</strong> : null}
               <Markdown>{message || fallback}</Markdown>
             </ThreadMessage>
           );
         }
         if (m.kind === "task_result_card") {
-            if (m.id !== latestResultId || (hasDraftCard && m.payload.skill !== "reply_analysis")) return null;
-            if (m.payload.skill === "reply_analysis") return <ThreadMessage key={m.id} role="assistant" result="task_result" risk="L1"><StreamResultCard card={m.payload} onRefresh={onRefresh} /></ThreadMessage>;
-          const risk = messageRisk("task_result_card", m.payload) || "L1";
-          const title = String(m.payload.title || "任务结果");
           return (
-            <ThreadMessage key={m.id} role="assistant" result="task_result" risk={risk} data-kind="task-result-pointer">
-              {!discovery ? <strong>{title}</strong> : null}
-              <p>{discovery ? "候选资料已更新，请在右侧查看。" : "任务结果已放入结果工作台。"}</p>
+            <ThreadMessage key={m.id} role="assistant" result="task_result" risk={messageRisk("task_result_card", m.payload) || "L1"} data-stream-entry={m.id}>
+              <StreamResultCard card={m.payload} onRefresh={onRefresh} />
             </ThreadMessage>
           );
         }
         if (m.kind === "job_status") {
           const state = String(m.payload.status || "running");
-          if (state === "done" && hasResult) return null;
+          const text = String(m.payload.text || "");
+          // 成功收尾的状态行由结果本身代替；停止、失败等里程碑始终留在流里。
+          if (state === "done" && hasResult && !/停止/.test(text)) return null;
           return (
             <ThreadMessage
               key={m.id}
@@ -1565,7 +1597,7 @@ export function ChatThread({
               data-status={state}
             >
               {state === "running" ? "⏳ " : state === "done" ? "✓ " : "⚠ "}
-              {employeeMessageBody(String(m.payload.text || ""), debug, onRefresh)}
+              {employeeMessageBody(text, debug, onRefresh)}
             </ThreadMessage>
           );
         }
@@ -1665,8 +1697,8 @@ export function ChatThread({
         if (isBoxSteps(m)) return null;
         if (isOverdueSteps(m)) {
           return (
-            <ThreadMessage key={m.id} role="assistant" result="task_result">
-              <p>失联与延期清单已放入结果。</p>
+            <ThreadMessage key={m.id} role="assistant" result="task_result" data-stream-entry={m.id}>
+              <p>{String(m.payload.title || "失联与延期清单")}</p>
             </ThreadMessage>
           );
         }
@@ -1718,9 +1750,6 @@ export function ChatThread({
         const text = String(m.payload.text || "");
         if (!text && !m.payload.streaming) return null;
         if (isDuplicateSessionChrome(text)) return null;
-        if (/正式阶段已按你的确认更新|已提交阶段审批/.test(text) && m.id !== latestStageReceiptId) {
-          return null;
-        }
         const stageReceipt = /正式阶段已按你的确认更新|已提交阶段审批/.test(text);
         return (
           <ThreadMessage
@@ -1730,6 +1759,7 @@ export function ChatThread({
             observedAt={m.created_at}
             className={m.payload.streaming ? "is-streaming" : ""}
             data-streaming={m.payload.streaming ? "true" : undefined}
+            data-stream-entry={m.id}
           >
             {text ? employeeMessageBody(text, debug, onRefresh) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
           </ThreadMessage>
@@ -1737,6 +1767,18 @@ export function ChatThread({
       })}
     </div>
   );
+}
+
+/** 待确认、执行中与已回执的业务动作卡按提出的时刻进入时间流。 */
+function runtimeActionRow(action: RuntimeActionView): Message {
+  return {
+    id: `action:${action.id}`,
+    session_id: "",
+    role: "assistant",
+    kind: "discovery_action",
+    created_at: action.created_at || "",
+    payload: { action_id: action.id },
+  };
 }
 
 export function useSessionMessages(id: string | undefined) {

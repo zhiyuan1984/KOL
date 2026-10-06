@@ -293,6 +293,14 @@
   color: var(--text-muted);
   margin-bottom: 2px;
 }
+.today-plan-say {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .today-plan-think-body {
   margin: 0;
   font-size: var(--ds-font-sm);
