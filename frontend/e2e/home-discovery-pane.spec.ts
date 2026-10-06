@@ -1035,7 +1035,10 @@ test("after submit the condition card stays read-only in place and 修改条件 
   await expect(trail).toContainText("排队");
   await expect(trail).toContainText("等待确认");
   await expect(trail).toContainText("还没有开始采集");
-  await expect(trail).not.toContainText("正在采集");
+  // 步骤标签可能来自真实事件（例如 crawl.started 就叫「正在采集」），所以看状态位而不是整块文本。
+  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("等待确认");
+  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("待确认");
+  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
   await expect(trail.locator("[data-discovery-step-time]").first()).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
   // 结果容器只在右栏；下一步计划属于中栏的人机交互。
   await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);
