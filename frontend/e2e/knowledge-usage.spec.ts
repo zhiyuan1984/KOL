@@ -79,6 +79,8 @@ test("行内只露品牌值；阶段中文标签在右栏；无适用范围写�
   await expect(rail).toContainText("通用");
 
   // 阶段筛选＝标签行：＋增加、×移除，无「全部」标签（select 选项文本不计入芯片）。
+  // 品牌与阶段按 DESIGN §20 收在「更多筛选」里，先展开再断言。
+  await kb.locator("[data-kbv-more-filters] > summary").click();
   const stageRow = kb.locator("[data-kb-filter='stage']");
   await expect(stageRow).not.toContainText("全部");
   await stageRow.locator("[data-kb-stage-add]").selectOption("INITIAL_CONTACT");

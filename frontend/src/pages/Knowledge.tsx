@@ -208,6 +208,8 @@ export default function Knowledge() {
   const [loaded, setLoaded] = useState(false);
   const [stageFilters, setStageFilters] = useState<string[]>([]);
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
+  /** §20：品牌与阶段不是常用项，收进「更多筛选」；已选中时保持展开。 */
+  const [moreOpen, setMoreOpen] = useState<boolean | null>(null);
   const [familyId, setFamilyId] = useState("");
   const [domainId, setDomainId] = useState("");
   const [baseId, setBaseId] = useState("");
@@ -408,6 +410,7 @@ export default function Knowledge() {
   };
 
   const anyFilter = scoped || Boolean(stageFilters.length || brandFilters.length || query.trim()) || view !== "all";
+  const moreActive = Boolean(brandFilters.length || stageFilters.length);
 
   const emptyCopy = useMemo(() => {
     if (view === "favorites") return "还没有收藏的知识。先把常用资料加入收藏。";
@@ -474,22 +477,37 @@ export default function Knowledge() {
                 <p className="muted" data-kb-scope-none>{KB_SCOPE_NONE}</p>
               )}
 
-              <FilterChips
-                label={KB_FILTER_LABEL.brand}
-                filterKey="brand"
-                options={brandOptions}
-                selected={brandFilters}
-                onToggle={(value) => setBrandFilters((current) => (
-                  current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
-                ))}
-                onClear={() => setBrandFilters([])}
-              />
-              <StageTags
-                selected={stageFilters}
-                onChange={setStageFilters}
-                options={stageOptions}
-                rootAttrs={{ "data-kb-filter": "stage" }}
-              />
+              {/* DESIGN §20：搜索 + 分类 + 快捷视图是常用项，品牌/阶段收进「更多筛选」；
+                  已选中时自动展开，已选数写在标题上，避免"筛了看不到条件"。 */}
+              <details
+                className="kbv-more-filters"
+                data-kbv-more-filters
+                open={moreOpen ?? moreActive}
+                onToggle={(event) => setMoreOpen(event.currentTarget.open)}
+              >
+                <summary>
+                  更多筛选
+                  {moreActive ? <small>{brandFilters.length + stageFilters.length} 项已选</small> : null}
+                </summary>
+                <div className="kbv-more-filters-body">
+                  <FilterChips
+                    label={KB_FILTER_LABEL.brand}
+                    filterKey="brand"
+                    options={brandOptions}
+                    selected={brandFilters}
+                    onToggle={(value) => setBrandFilters((current) => (
+                      current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
+                    ))}
+                    onClear={() => setBrandFilters([])}
+                  />
+                  <StageTags
+                    selected={stageFilters}
+                    onChange={setStageFilters}
+                    options={stageOptions}
+                    rootAttrs={{ "data-kb-filter": "stage" }}
+                  />
+                </div>
+              </details>
               {anyFilter ? (
                 <div className="kbv-filters">
                   <button className="kbv-link-plain" type="button" data-kb-scope-clear onClick={resetAll}>
@@ -514,12 +532,8 @@ export default function Knowledge() {
                   {item.label} <small>{counts[item.key]}</small>
                 </button>
               ))}
-            </div>
-          ) : null}
-
-          {loaded ? (
-            <div className="kbv-count">
-              <span>{visible.length} 条知识</span>
+              {/* 计数与列表同源（§8 数字同源），并入本行不再单独占一行高度。 */}
+              <span className="kbv-tabs-count" data-kbv-count>{visible.length} 条知识</span>
             </div>
           ) : null}
 

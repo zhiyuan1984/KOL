@@ -15699,6 +15699,12 @@ button.today-brief-primary-btn:disabled {
 #root .workbench :is(pre, code, .mono) {
   font-family: var(--mono) !important;
 }
+/* DESIGN §9.2／§5：数据面的统计数值是全站唯一允许的字号例外（--stat-value-font 20px）。
+   上面那条通配覆盖带 !important，页面在不反打的情况下表达不出这一档；
+   因此在 shell 层开出例外，由数值元素自己声明语义钩子——字号数值仍只有 styles.css 一处来源。 */
+#root .workbench :where([data-ds-stat-value]) { font-size: var(--stat-value-font) !important; }
+#root .workbench :where([data-ds-stat-label]) { font-size: var(--stat-label-font) !important; }
+#root .workbench :where([data-ds-stat-delta]) { font-size: var(--stat-delta-font) !important; }
 .workbench :is(h1, h2, h3, h4, h5, h6) {
   line-height: var(--ds-line-body);
   font-weight: 600;
@@ -16079,8 +16085,10 @@ button.today-brief-primary-btn:disabled {
    层次由字重/间距/分隔表达，故此处不再定义 --knowledge-font-* 自造字阶。 */
 .kbv-filter-browser {
   --knowledge-filter-width:260px;
-  --knowledge-action:var(--accent-text);
-  --knowledge-action-hover:var(--accent-hover);
+  /* 本页唯一 L1：按 DESIGN §3「主行动」用品牌主色档（§5.1 的"复用辅助蓝"已于 v3 收敛）。
+     取值只有一处来源：styles.css 的 --primary / --primary-hover。 */
+  --knowledge-action:var(--primary);
+  --knowledge-action-hover:var(--primary-hover);
 }
 
 /* Task-center dashboard v2: report-first, one unified task list. */

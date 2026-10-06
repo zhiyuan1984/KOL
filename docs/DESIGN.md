@@ -160,7 +160,7 @@ scope:
 ### 5.1 知识工作区收敛说明（v3 已收敛）
 
 v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `--ds-font-sm` + 字重 600，用字重/间距/分隔表达层次，不再独立放大字号。
-非字号 token 保留：`--knowledge-filter-width: 260px`（筛选列宽）、`--knowledge-action`（本页唯一 L1，复用辅助蓝既有色值，数值住 styles.css）。
+非字号 token 保留：`--knowledge-filter-width: 260px`（筛选列宽）、`--knowledge-action`（本页唯一 L1；**取值必须与 §3 的"主行动"一致**，即品牌主色档，数值住 styles.css）。
 
 ---
 

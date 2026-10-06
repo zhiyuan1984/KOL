@@ -1803,6 +1803,41 @@
 .kbv-page .kbv-list { display: flex; flex-direction: column; }
 .kbv-page .kbv-records { order: 4; }
 .kbv-page .kb-skill-templates { order: 5; }
+
+/* ── 员工端中栏：常用项前置，其余收进「更多筛选」（DESIGN §20）───────────── */
+/* 检索区不再是一叠分组，而是「搜索 → 分类 → 更多筛选」三段紧凑排布。 */
+.kbv-page .kbv-tools { padding: var(--space-2) var(--space-5) var(--space-3); gap: var(--space-2); }
+/* 「更多筛选」：折叠头是 L3 文字按钮形态；已选数写在标题上，展开后才占高度。 */
+.kbv-more-filters { min-width: 0; }
+.kbv-more-filters > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--btn-text-h);
+  padding: 0 var(--btn-text-pad-x);
+  border-radius: var(--radius-control);
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+  list-style: none;
+}
+.kbv-more-filters > summary::-webkit-details-marker { display: none; }
+.kbv-more-filters > summary::before { content: "▸"; color: var(--text-muted); }
+.kbv-more-filters[open] > summary::before { content: "▾"; }
+.kbv-more-filters > summary:hover { background: var(--btn-text-hover-bg); }
+.kbv-more-filters > summary:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+.kbv-more-filters > summary small { color: var(--text-muted); font-size: var(--ds-font-helper); }
+.kbv-more-filters-body { display: grid; gap: var(--space-2); padding-block: var(--space-2); }
+
+/* 计数并入快捷视图行右端（§8 数字同源），不再单独占一行。 */
+.kbv-page .kbv-tabs { align-items: center; }
+.kbv-tabs-count { margin-left: auto; color: var(--text-muted); font-size: var(--ds-font-helper); }
+
+/* 技能交互模板不是知识：让到列表之后，视觉降一档（浅底 + 辅助字号），不参与"找资料"主流程。 */
+.kbv-page .kb-skill-templates { margin: var(--space-3) var(--space-5) var(--space-4); border-radius: var(--radius-card); background: var(--bg-subtle); }
+.kbv-page .kb-skill-templates > summary { padding: var(--space-2) var(--space-3); font-size: var(--ds-font-helper); }
+.kbv-page .kb-skill-templates > summary strong { font-size: var(--ds-font-helper); font-weight: 600; color: var(--text-muted); }
+.kbv-page .kb-skill-templates > summary small { font-size: var(--ds-font-helper); }
 .kbv-record-item { position: relative; display: flex; min-width: 0; align-items: stretch; }
 .kbv-record-item .kbv-record { flex: 1; min-width: 0; }
 .kbv-record-quick { display: inline-flex; align-items: center; gap: var(--space-1); padding-right: var(--space-2); opacity: 0; pointer-events: none; transition: opacity var(--duration-control) ease; }
@@ -1846,7 +1881,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: var(--control-h-lg);
+  min-height: var(--table-row-h);
   padding: 0 var(--space-3);
   border-right: var(--focus-ring-width) solid var(--border);
   background: var(--bg-subtle);

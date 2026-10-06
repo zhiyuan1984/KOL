@@ -229,7 +229,6 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     for (const [path, view] of [
       ["/admin/knowledge/catalog", "catalog"],
       ["/admin/knowledge/bases/kbase_legacy", "base"],
-      ["/admin/knowledge/entries/kb_mail_kol", "entry"],
       ["/admin/knowledge/ingest", "ingest"],
       ["/admin/knowledge/bindings", "bindings"],
     ] as const) {
@@ -237,6 +236,12 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
       const filled = await filledCtaCount(page, `[data-admin-kb-view='${view}']`);
       expect(filled, `${view} 实底主 CTA 应为 0–1 个，实测 ${filled} 个`).toBeLessThanOrEqual(1);
     }
+
+    // 条目深链已归一化到统一工作区（子视图 'entry' 不再存在）：落到详情态，动作条同样只允许 1 个实底 L1。
+    await page.goto("/admin/knowledge/entries/kb_mail_kol");
+    await expect(page.locator('[data-workspace-mode="detail"]')).toBeVisible();
+    const detailFilled = await filledCtaCount(page, ".kbw-workarea");
+    expect(detailFilled, `条目详情实底主 CTA 应为 0–1 个，实测 ${detailFilled} 个`).toBeLessThanOrEqual(1);
   });
 
   // 员工反馈处置的 UI 随旧「待处置」视图一并退役（P2 接回新主页的详情/待办）；数据与 API 不变。

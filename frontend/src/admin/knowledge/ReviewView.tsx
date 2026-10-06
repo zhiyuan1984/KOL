@@ -108,8 +108,8 @@ export default function ReviewView({ rows }: Props) {
               to={`/admin/knowledge?view=${segment.view}`}
               style={{ flexGrow: segment.value }}
             >
-              <span>{segment.label}</span>
-              <span className="kbadmin-status-count">{segment.value}</span>
+              <span data-ds-stat-label>{segment.label}</span>
+              <span className="kbadmin-status-count" data-ds-stat-value>{segment.value}</span>
             </Link>
           ))}
         </div>

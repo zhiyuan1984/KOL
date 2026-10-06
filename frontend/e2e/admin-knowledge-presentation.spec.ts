@@ -62,3 +62,28 @@ test('browser back cancellation keeps unsaved editor mounted',async({page})=>{
 test('draft deletion confirms knowledge and version and returns to list',async({page})=>{
  const s=await surface(page);await page.locator('[data-kbv-record="text-0"]').click();await page.getByRole('button',{name:'删除草稿',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('合作知识 1 · v1');await page.getByRole('dialog').getByRole('button',{name:'删除草稿',exact:true}).click();await expect(page.locator('[data-workspace-mode="list"]')).toBeVisible();await expect(page.locator('[data-kbv-record="text-0"]')).toHaveCount(0);expect(s.calls).toEqual(['delete']);
 });
+
+test('same viewport keeps at most one filled primary action',async({page})=>{
+ const s=await surface(page);
+ const filled=()=>page.evaluate(()=>{
+  const probe=document.createElement('div');
+  probe.style.color=getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+  document.body.appendChild(probe);
+  const rgb=getComputedStyle(probe).color;probe.remove();
+  return [...document.querySelectorAll('.kbw-workarea *')].filter((node)=>{
+   const el=node as HTMLElement,cs=getComputedStyle(el);
+   return cs.backgroundColor===rgb&&cs.visibility!=='hidden'&&el.getBoundingClientRect().width>0;
+  }).length;
+ });
+ // 列表态（含治理驾驶舱）：没有实底主行动。
+ expect(await filled(),'列表态').toBeLessThanOrEqual(1);
+ await pdf(page);
+ // 资料详情：解析/提交/发布三类动作里只有当前可推进的那一个是实底（本页 L1 取 §3 的品牌主色档）。
+ // 资料详情：提交审批是唯一实底，且取 §3 的品牌主色档（filled() 按 --primary 计色，等于同时断言了颜色）。
+ // 审批面板依赖范围面板就绪后异步挂载，故用轮询等待动作条稳定，而不是瞬时取数。
+ await expect.poll(filled, { message: "资料详情实底主 CTA", timeout: 10000 }).toBe(1);
+ await page.getByRole('button',{name:'提交审批',exact:true}).first().click();
+ await expect(page.locator('[data-workspace-mode="review"]')).toBeVisible();
+ expect(await filled(),'发起审批态').toBeLessThanOrEqual(1);
+ expect(s.errors).toEqual([]);
+});

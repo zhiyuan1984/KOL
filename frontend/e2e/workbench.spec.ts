@@ -4510,11 +4510,12 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
   await expect(kb.locator(".kbv-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
   await expect(kb).not.toContainText(/Codex|Harness|MCP|发送不等于推进阶段|发送不等于改阶段|发送\s*≠|不会改阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场|我的知识库|口径与其它/);
-  // 三级分类（业务域 → 业务主题 → 知识库）联动 tab；品牌多选 / 阶段标签筛选。
+  // 三级分类（业务域 → 业务主题 → 知识库）联动 tab；品牌多选 / 阶段标签筛选收在「更多筛选」（§20）。
   await expect(kb.locator("[data-kb-scope-picker]")).toBeVisible();
   await expect(kb.locator("[data-kb-scope-family]").first()).toBeVisible();
   await expect(kb.locator("[data-kb-scope-domain]").first()).toBeVisible();
   await expect(kb.locator("[data-kb-scope-base]").first()).toBeVisible();
+  await kb.locator("[data-kbv-more-filters] > summary").click();
   await expect(kb.locator("[data-kb-filter='brand']")).toBeVisible();
   await expect(kb.locator("[data-kb-filter='stage']")).toBeVisible();
   await expect(kb.locator("[data-kb-tab]")).toHaveCount(0);
