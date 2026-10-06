@@ -412,7 +412,7 @@ Agent 会话与消息、邮件/内容草稿、协作记录、会话分享与后�
 | `id` | TEXT | 主键，非空 | 草稿 ID | 草稿唯一标识，`nid("dft")` 生成；`approvals.draft_id` 与消息卡片的 `draft_id` 都指向它。 |
 | `session_id` | TEXT | 非空 | 会话 ID | 所属会话（逻辑指向 `sessions.id`，无外键）。 |
 | `collaboration_id` | TEXT | 可空 | 合作单 ID | 逻辑指向 `collaborations.id`；来自 worker 输出或当前会话绑定的合作单。不涉及具体 KOL 的草稿（如通用回信）为空。 |
-| `skill` | TEXT | 非空 | 出草稿的技能 ID | 生成该草稿的技能目录名，如 `email_compose`、`quote_confirm`、`ship_notice`、`sop_initial_contact` 等（见 `backend/skills/`）。发送校验按它选模板与规则。 |
+| `skill` | TEXT | 非空 | 出草稿的技能 ID | 生成该草稿的技能目录名，如 `email_compose`、`quote_confirm`、`ship_notice` 等（见 `backend/skills/`）。发送校验按它选模板与规则。 |
 | `from_addr` | TEXT | 非空 | 发件邮箱 | 请求里写的发件人；写入后经 `applyAuthorizedFrom` 纠正为当前用户授权范围内的邮箱。品牌箱白名单见 `backend/src/config.ts` 的 `BRAND_MAILBOXES`。 |
 | `to_addr` | TEXT | 非空 | 收件邮箱 | 收件人。由 `resolveMailTo` 解析（优先合作单邮箱、其次是入参），取不到时写空串。发送成功后若合作单邮箱为空会回填到 `collaborations.email`。 |
 | `cc` | TEXT | 可空，默认 `''` | 抄送 | 抄送列表（逗号分隔字符串）。`quote_confirm` 且金额 < $350 时必须有内部抄送，否则 PEP 以 `missing_cc` 拒绝发送。 |
@@ -519,7 +519,7 @@ Agent 会话与消息、邮件/内容草稿、协作记录、会话分享与后�
 |---|---|---|---|---|
 | `id` | TEXT | 主键，非空 | 执行 ID | 本次 Skill 执行的唯一标识，`nid("wrk")` 生成；同时是工作箱目录名（`boxDir()/wrk_...`），也是运行时上下文里的 `runId`。 |
 | `session_id` | TEXT | 非空 | 会话 ID | 该次执行所属会话（逻辑指向 `sessions.id`，无外键）；会话被删时本行也随之删除。 |
-| `skill` | TEXT | 非空 | 技能 ID | 执行的技能目录名，如 `email_compose`、`quote_confirm`、`business_approval`、`reply_analysis`、`creator_discovery`、`sop_*` 等（见 `backend/skills/` 与 `data/skills/`）。 |
+| `skill` | TEXT | 非空 | 技能 ID | 执行的技能目录名，如 `email_compose`、`quote_confirm`、`business_approval`、`reply_analysis`、`creator_discovery`、`stage_sop` 等（见 `backend/skills/` 与 `data/skills/`）。 |
 | `profile_id` | TEXT | 可空 | Codex 配置档 ID | 本轮使用的运行配置档，由 `profileFor(skill, stage_code)` 决定。取值：`commander`、`lead`、`opportunity`、`negotiation`、`execution`、`settlement-growth`（`backend/src/profiles.ts`）。该列是后加的，历史行可能为 NULL。 |
 | `status` | TEXT | 非空 | 执行状态 | 代码写入：`done`（正常跑完）、`codex_unavailable`（Codex 不可用）、`killed`（被主动杀箱）、`waiting_approval`（等人工确认）。 |
 | `contract_log` | TEXT | 非空 | 调用契约日志 | JSON 数组字符串，记录本轮与 Codex app-server 的方法调用与结果（如 `turn/completed` 与状态）。用于排障与审计，不对外展示。 |
