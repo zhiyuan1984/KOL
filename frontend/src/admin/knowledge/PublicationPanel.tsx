@@ -11,6 +11,7 @@ import { ReviewForm } from "../../reviews/ReviewForm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { errorMessage, useKbData } from "./shared";
 import KbvIcon from "../../knowledgeIcons";
+import { randomUuid } from "../../uuid";
 
 export const stateLabel: Record<string, string> = {
   reviewing: "审批中",
@@ -181,7 +182,7 @@ export default function PublicationPanel({
         `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/prepare`,
         command,
       );
-      const key = crypto.randomUUID();
+      const key = randomUuid();
       confirm.ask(
         {
           kind: "knowledge-document-publish",
@@ -234,7 +235,7 @@ export default function PublicationPanel({
           `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/${operation}/prepare`,
           {},
         ),
-        key = crypto.randomUUID();
+        key = randomUuid();
       confirm.ask(
         {
           kind: "knowledge-document-publish",

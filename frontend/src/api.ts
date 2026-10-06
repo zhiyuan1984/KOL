@@ -26,6 +26,7 @@ export type OperationJob = {
   error_summary?: string | null;
   receipt?: Record<string, unknown> | null;
 };
+import { randomUuid } from "./uuid";
 import type {
   DeclaredMountResult,
   McpImportPreview,
@@ -2069,7 +2070,7 @@ export const api = {
   }),
   deleteFormalTicket: (id: string, body: { expected_version: number }) => request<DeleteFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: { "Idempotency-Key": `ticket-delete-${crypto.randomUUID()}` },
+    headers: { "Idempotency-Key": `ticket-delete-${randomUuid()}` },
     body: JSON.stringify(body),
   }),
   ticket: (id: string) => request<Ticket & { latest_run: TicketRun | null; summary: TicketSummary; request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}`),
@@ -2134,7 +2135,7 @@ export const api = {
       `/api/tickets/${encodeURIComponent(task.id)}/commands`,
       {
         method: "POST",
-        headers: { "Idempotency-Key": `ticket-cancel-${crypto.randomUUID()}` },
+        headers: { "Idempotency-Key": `ticket-cancel-${randomUuid()}` },
         body: JSON.stringify({
           action: "cancel",
           expected_version: Math.max(1, Number(task.data_version || 1)),
@@ -2174,7 +2175,7 @@ export const api = {
       `/api/tickets/${encodeURIComponent(task.id)}/commands`,
       {
         method: "POST",
-        headers: { "Idempotency-Key": `ticket-complete-${crypto.randomUUID()}` },
+        headers: { "Idempotency-Key": `ticket-complete-${randomUuid()}` },
         body: JSON.stringify({
           action: "complete",
           expected_version: Math.max(1, Number(task.data_version || 1)),
