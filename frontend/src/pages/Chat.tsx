@@ -827,13 +827,26 @@ export default function Chat() {
   const timeline = task && taskEvents.length
     ? [...messages, ...safeEventMessages(task.id, taskEvents, hasVisibleTrace)]
     : messages;
-  const timelineWithCrawl = task && (crawlEvents.length || crawlJob)
-    ? [
-        ...timeline,
-        ...safeCrawlOperationMessages(task.id, crawlEvents),
-        ...safeCrawlEventMessages(task.id, crawlEvents, crawlJob),
-      ]
-    : timeline;
+  // 结果只写在任务上、会话里没有结果卡时（例如任务级运行），按完成时刻把它放进时间流；
+  // 发现工作台的结果由专用面板呈现，采集作业的候选由采集条目呈现，都不重复。
+  const taskResultRows: Message[] = task && !discoveryWorkspace && !messages.some((message) => message.kind === "task_result_card")
+    && (task.task_result || (!crawlJob && task.crawl_result))
+    ? [{
+        id: `task-result:${task.id}`,
+        session_id: id || "",
+        role: "assistant",
+        kind: "task_result_card",
+        created_at: String(task.completed_at || task.last_acted_at || task.created_at || ""),
+        payload: (task.task_result || task.crawl_result) as Record<string, unknown>,
+      }]
+    : [];
+  const timelineWithCrawl = [
+    ...timeline,
+    ...taskResultRows,
+    ...(task && (crawlEvents.length || crawlJob)
+      ? [...safeCrawlOperationMessages(task.id, crawlEvents), ...safeCrawlEventMessages(task.id, crawlEvents, crawlJob)]
+      : []),
+  ];
   useEffect(() => {
     if (!pendingRuntimeActionId) {
       focusedPendingRuntimeActionRef.current = null;
@@ -1490,7 +1503,7 @@ export default function Chat() {
       {id && showRightWorkbench && (
         <SideWorkbench
           sessionId={id}
-          messages={messages}
+          messages={[...messages, ...taskResultRows]}
           status={status}
           task={task}
           discoveryReturn={discoveryEntry ? (task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/?tab=discovery") : undefined}

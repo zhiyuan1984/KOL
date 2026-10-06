@@ -3948,8 +3948,10 @@ test("task detail keeps process in center, result on right, and supports complet
   await expect(page.locator("[data-task-detail]")).not.toContainText("AI 发现");
   await expect(page.locator("[data-task-source='ai']")).toHaveText("今天推荐");
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("汇总合作状态");
-  await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(0);
+  // 结果卡在中栏时间流里完整出现一次；右栏是指向它的目录。
+  await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(1);
   await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");
+  await expect(page.locator("[data-workbench] [data-result-entry='result']")).toContainText("合作进展复盘");
   await page.locator("[data-complete-task]").click();
   await expect(page.locator("[data-task-detail]")).toContainText("任务已完成验收");
   expect(completed).toBe(true);
