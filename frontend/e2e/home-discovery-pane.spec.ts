@@ -347,7 +347,7 @@ test("modifying a condition flips pristine state and appends suggested keywords"
   await expect(followers).toHaveAttribute("data-discovery-pristine", "false");
 });
 
-test("the ask arrow and latest-control share size, with a pink ready arrow", async ({ page }) => {
+test("the ask button and latest-control are round, with a pink ready button", async ({ page }) => {
   await openDiscovery(page);
   const send = page.locator("[data-home] [data-ai-prompt-submit]");
   await expect(send).toBeEnabled();
@@ -355,19 +355,22 @@ test("the ask arrow and latest-control share size, with a pink ready arrow", asy
   expect(sendBox).not.toBeNull();
   expect(sendBox?.width).toBe(32);
   expect(sendBox?.height).toBe(32);
-  await expect(send).toHaveCSS("color", "rgb(219, 24, 96)");
-  await expect(send.locator('[data-send-arrow="ready"]')).toHaveCSS("color", "rgb(219, 24, 96)");
+  // 唯一的 L1 实底主 CTA：品牌粉实底（--primary）+ 白箭头（--primary-fg），不是粉箭头压在深底上。
+  await expect(send).toHaveCSS("background-color", "rgb(219, 24, 96)");
+  await expect(send).toHaveCSS("border-radius", "999px");
+  await expect(send.locator('[data-send-arrow="ready"]')).toHaveCSS("color", "rgb(255, 255, 255)");
 
   const jumpBox = await page.evaluate(() => {
     const probe = document.createElement("button");
     probe.className = "scope-scroll-jump";
     document.body.append(probe);
     const style = getComputedStyle(probe);
-    const box = { width: style.width, height: style.height };
+    const box = { width: style.width, height: style.height, radius: style.borderRadius };
     probe.remove();
     return box;
   });
-  expect(jumpBox).toEqual({ width: "32px", height: "32px" });
+  // 「回到最新」是正圆，不能退化成 6px 方角（DESIGN v3 §4 圆形控件）。
+  expect(jumpBox).toEqual({ width: "32px", height: "32px", radius: "999px" });
 });
 
 test("the middle column keeps ①–③ before submit and appends ④–⑥ after", async ({ page }) => {
@@ -1146,10 +1149,14 @@ test("修改条件让本次核对失效，并取消未确认的提案", async ({
   await expect(page.locator('[data-discovery-event="params"]')).toHaveAttribute("data-discovery-event-state", "ready");
   await expect(page.locator("[data-discovery-start-confirm]")).toBeEnabled();
 
-  await page.locator("[data-discovery-edit-conditions]").click();
+  // 先做一次命中检测（trial），避免流内新事件导致的布局移动把这次点击点空。
+  const editConditions = page.locator("[data-discovery-edit-conditions]");
+  await editConditions.scrollIntoViewIfNeeded();
+  await editConditions.click({ trial: true });
+  await editConditions.click();
   // 条件卡回到编辑态，旧核对立即标记失效。
+  await expect(page.locator('[data-discovery-event="conditions"]')).toHaveAttribute("data-discovery-event-state", "edit", { timeout: 10000 });
   await expect(page.locator("[data-discovery-search-card]")).toHaveAttribute("data-param-mode", "edit");
-  await expect(page.locator('[data-discovery-event="conditions"]')).toHaveAttribute("data-discovery-event-state", "edit");
   await expect(page.locator('[data-discovery-event="params"]')).toHaveAttribute("data-discovery-event-state", "stale");
   await expect(page.locator("[data-discovery-params-stale]")).toContainText("条件已修改");
   await expect(page.locator("[data-discovery-start-blocked]")).toContainText("条件已修改");
