@@ -18,7 +18,7 @@ Starry KOL 只读取管理侧保存的地址及保险柜引用，不再读取 MC
 
 `start_crawl` 只接受海外平台码 `youtube` / `instagram` / `facebook`；`xhs` / `dy` / `ks` / `bili` / `wb` / `tieba` / `zhihu` 为历史遗留码，仅供旧计划与既有快照。自动化采集测试必须只用海外码，不得把历史码当作被测场景。
 
-内置 `claw` 与其他 MCP 一样，通过管理端 `tools/list` 登记真实工具与 schema；不按环境变量或 URL 相等判断 Host 专用连接。读写工具均可挂载，L3 及风险下限目录中的工具调用只能提出待确认动作；实际执行复核当前身份、Agent→技能→连接器→工具绑定、参数快照、配置/schema 版本、业务范围和适用审批。默认连接测试只读目录，不启动采集。真实采集通过 `crawler_collect` 技能独立确认、持久执行与监控；结果读取和停止必须绑定任务 ID。未知远端结果保留不确定状态，禁止盲重试。采集和 Starry 导入是两个独立动作。凭据继续只从管理配置的保险柜引用解析。
+内置 `claw` 与其他 MCP 一样，通过管理端 `tools/list` 登记真实工具与 schema；不按环境变量或 URL 相等判断 Host 专用连接。读写工具均可挂载，L3 及风险下限目录中的工具调用只能提出待确认动作；实际执行复核当前身份、Agent→技能→连接器→工具绑定、参数快照、配置/schema 版本、业务范围和适用审批。没有专用业务门禁的写入走通用门禁（确认、复核授权、单次提交、回执不变），发信与正式阶段写入除外（见下方真实调用规则；ADR-2026-10-06「写入型工具通用放行」）。默认连接测试只读目录，不启动采集。真实采集通过 `crawler_collect` 技能独立确认、持久执行与监控；结果读取和停止必须绑定任务 ID。未知远端结果保留不确定状态，禁止盲重试。采集和 Starry 导入是两个独立动作。凭据继续只从管理配置的保险柜引用解析。
 
 入库回调使用独立的 `MEDIACRAWLER_INGEST_SECRET_REF`（组织保险柜引用），兼容显式配置的 `MEDIACRAWLER_INGEST_TOKEN`；不再回退到旧 MCP 环境令牌。回调认证与出站连接配置是独立用途。
 
@@ -34,7 +34,7 @@ Starry KOL MCP 和 `data/kol/邮箱-负责人绑定清单.md` 提供 KOL 域事�
 
 ## 真实调用规则
 
-生产 IO 只能由 Codex turn 调已授权远程 MCP；不得再包一层本地业务工具或 Host 代调作为第二真相源。`sendEmailNow` 不能由 Worker 直接调用，必须由用户确认后的 Gateway 提交。`changeLifecycleStage` 不能由 Worker/Skill 直接写，必须由 `confirm_stage` 提案后经 Host 写入。产品边以 [business-rules/stage-transitions.md](business-rules/stage-transitions.md) 为准，不由本文件改写。
+生产 IO 只能由 Codex turn 调已授权远程 MCP；不得再包一层本地业务工具或 Host 代调作为第二真相源。`sendEmailNow` 不能由 Worker 直接调用，必须由用户确认后的 Gateway 提交。`changeLifecycleStage` 不能由 Worker/Skill 直接写，必须由 `confirm_stage` 提案后经 Host 写入。通用写入门禁不替代这两条路径：二者没有注册专用门禁时，运行时连待确认动作都不提出（`runtime_host_path_required`）。产品边以 [business-rules/stage-transitions.md](business-rules/stage-transitions.md) 为准，不由本文件改写。
 
 MediaCrawler 是异步作业：`start_crawl → get_crawl_status → get_creators → upload_creators`，同一时间一个任务；不得把它伪装成同步 Skill。
 

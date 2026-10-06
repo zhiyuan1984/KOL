@@ -18,7 +18,7 @@ import { runtimeKnowledgeManifest } from '../knowledge/scopes.js';
 import { scopeDescription } from '../knowledge/scope-contract.js';
 import {isKnowledgePreview,previewManifest} from './knowledge-preview.js';
 import { proposeRuntimeAction, runtimeAction, claimRuntimeAction, finishRuntimeAction } from "./action-store.js";
-import { runtimeActionGate, runtimeToolPresentation, validateRuntimeToolScope } from "./action-gates.js";
+import { assertRuntimeActionAllowed, runtimeActionGate, runtimeToolPresentation, validateRuntimeToolScope } from "./action-gates.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 import { assertRuntimeToolArguments, RuntimeToolArgumentsInvalid } from "./tool-arguments.js";
 
@@ -442,6 +442,7 @@ export class SkillExecution {
         rejectDiscoveryHarnessTool(handle.remoteName);
         assertNoCredentialEcho(args, options.headers);
         if (!this.confirmedActionId) {
+          assertRuntimeActionAllowed(handle.connectorId, handle.remoteName);
           const action = await proposeRuntimeAction({ context: this.context, connectorId: handle.connectorId,
             tool: handle.remoteName, args, snapshot, proposalKey: snapshot });
           guardedCheck();
