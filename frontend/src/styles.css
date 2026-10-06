@@ -16163,3 +16163,64 @@ button.today-brief-primary-btn:disabled {
   .tasks-page .task-center-table td.task-center-select { display: none; }
   .task-template-filter-notice { align-items: flex-start; flex-wrap: wrap; }
 }
+
+/* Task operations redesign: Agent/system reporting remains separate from formal business work orders. */
+.tasks-page .task-operations-report {
+  margin-bottom: var(--space-4, 16px);
+  padding: var(--space-4, 16px);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, var(--bg)) 0%, var(--bg) 42%, var(--bg) 100%);
+}
+.task-operations-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4, 16px); }
+.task-operations-title { min-width: 0; }
+.task-operations-eyebrow { display: block; margin-bottom: var(--space-1, 4px); color: var(--accent-text); font-size: var(--ds-font-helper, 12px); font-weight: 700; letter-spacing: .09em; line-height: var(--lh-control, 20px); }
+.task-operations-head h2, .task-business-work-order-head h2 { margin: 0; font-size: var(--ds-font-lg, 16px); line-height: var(--lh-control, 20px); }
+.task-operations-head p, .task-business-work-order-head p { max-width: 54rem; margin: var(--space-1, 4px) 0 0; }
+.task-operations-controls { display: flex; flex: 0 0 auto; align-items: center; }
+.task-operations-status-bar { display: flex; align-items: stretch; min-height: 58px; gap: 2px; margin-top: var(--space-4, 16px); overflow: hidden; border: 1px solid var(--ds-border, var(--border)); border-radius: var(--radius-card, 8px); background: var(--bg-elevated); }
+.task-operation-status { display: grid; flex-basis: 0; min-width: 4.5rem; align-content: center; gap: 1px; padding: var(--space-2, 8px) var(--space-3, 12px); border: 0; border-inline-end: 1px solid var(--ds-border, var(--border)); background: transparent; color: var(--text); text-align: left; font: inherit; }
+.task-operation-status:last-child { border-inline-end: 0; }
+.task-operation-status b { font-size: var(--ds-font-md, 14px); font-variant-numeric: tabular-nums; line-height: var(--lh-control, 20px); }
+.task-operation-status span { color: var(--text-muted); font-size: var(--ds-font-helper, 12px); line-height: 1.25; white-space: nowrap; }
+button.task-operation-status { cursor: pointer; transition: background var(--trans-fast, 120ms ease), box-shadow var(--trans-fast, 120ms ease); }
+button.task-operation-status:hover, button.task-operation-status.is-active { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); box-shadow: inset 0 -2px 0 var(--accent); }
+.task-operation-status-completed b { color: var(--success); }
+.task-operation-status-failed b { color: var(--danger); }
+.task-operation-status-waiting b { color: var(--warning); }
+.task-operations-kpis { margin-bottom: 0; }
+.task-operations-breakdown { margin-top: var(--space-4, 16px); padding-top: var(--space-4, 16px); border-top: 1px solid var(--ds-border, var(--border)); }
+.task-operations-breakdown .split-head { align-items: flex-end; }
+.task-operations-breakdown h3 { margin: 0; font-size: var(--ds-font-sm, 13px); }
+.task-operations-breakdown .split-head p { margin: var(--space-1, 4px) 0 0; }
+.task-operations-table-wrap { overflow-x: auto; margin-top: var(--space-2, 8px); }
+.task-operations-table { width: 100%; min-width: 580px; border-collapse: collapse; font-size: var(--ds-font-sm, 13px); }
+.task-operations-table th, .task-operations-table td { padding: var(--space-2, 8px); border-bottom: 1px solid var(--ds-border, var(--border)); text-align: left; vertical-align: middle; }
+.task-operations-table th { color: var(--text-muted); font-size: var(--ds-font-helper, 12px); font-weight: 500; }
+.task-operations-table td:not(:first-child) { font-variant-numeric: tabular-nums; }
+.task-operations-table .task-sparkline { display: block; width: 72px; height: 20px; }
+.task-operations-empty { padding: var(--space-4, 16px) 0 var(--space-2, 8px); }
+.task-operations-as-of, .task-work-order-as-of { margin: var(--space-3, 12px) 0 0; font-size: var(--ds-font-helper, 12px); }
+.tasks-page .task-business-work-orders { margin-bottom: var(--space-4, 16px); padding: var(--space-4, 16px); }
+.task-business-work-order-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4, 16px); }
+.task-business-work-order-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: var(--space-2, 8px); }
+.task-business-work-order-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2, 8px); margin: var(--space-4, 16px) 0 0; }
+.task-business-work-order-summary > div { padding: var(--space-3, 12px); border: 1px solid var(--ds-border, var(--border)); border-radius: var(--radius-control, 6px); background: var(--bg-elevated); }
+.task-business-work-order-summary dt { color: var(--text-muted); font-size: var(--ds-font-helper, 12px); }
+.task-business-work-order-summary dd { margin: var(--space-1, 4px) 0 0; font-size: var(--ds-font-md, 14px); font-variant-numeric: tabular-nums; }
+.task-business-empty { display: grid; gap: var(--space-1, 4px); margin-top: var(--space-4, 16px); padding: var(--space-4, 16px); border: 1px dashed var(--ds-border, var(--border)); border-radius: var(--radius-card, 8px); background: var(--bg-elevated); }
+.task-business-empty p { max-width: 48rem; margin: 0; color: var(--text-muted); }
+.task-business-empty button { justify-self: start; margin-top: var(--space-1, 4px); }
+.task-business-work-orders .task-report-template-wrap { margin-top: var(--space-4, 16px); }
+@media (max-width: 760px) {
+  .task-operations-head, .task-business-work-order-head { flex-direction: column; }
+  .task-operations-controls, .task-operations-controls .task-period-segmented { width: 100%; }
+  .task-operations-status-bar { overflow-x: auto; }
+  .task-operation-status { min-width: 5rem; }
+  .task-business-work-order-actions { width: 100%; }
+  .task-business-work-order-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .tasks-page .task-operations-report, .tasks-page .task-business-work-orders { padding: var(--space-3, 12px); }
+  .task-business-work-order-summary { grid-template-columns: 1fr 1fr; }
+  .task-operation-status { min-width: 5.4rem; }
+}

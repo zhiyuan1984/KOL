@@ -1,10 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type AiTaskWorkOrderAggregate, type AiTaskWorkOrderDashboard, type Task, type TaskDetail, type TaskEvent } from "../api";
+import { api, type AiTaskWorkOrderAggregate, type AiTaskWorkOrderDashboard, type Task, type TaskDetail, type TaskEvent, type TaskOperationsDashboard, type TaskOperationsPeriod } from "../api";
 import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
 import { TaskCollaborationContext } from "../tasks/TaskCollaborationContext";
 import { TaskDetailDrawer } from "../tasks/TaskDetailDrawer";
-import { TaskReportHeader, type KpiFilter, type TaskReportPeriod } from "../tasks/TaskReportHeader";
+import { TaskReportHeader } from "../tasks/TaskReportHeader";
+import { TaskOperationsReport, type TaskOperationsFilter } from "../tasks/TaskOperationsReport";
 import { WorkOrderSuggestions } from "../tasks/WorkOrderSuggestions";
 import { businessTaskStatus, createTaskSearchDebouncer, isAgentTaskInProgress, sortTaskRowsByUpdatedAt } from "../tasks/taskCenterModel";
 
@@ -119,7 +120,7 @@ function canCancel(task: Task) {
 }
 
 function actionLabel(task: Task, view: View) {
-  if (view === "history") return "查看结果";
+  if (view === "history" || CLOSED.has(normalizedStatus(task))) return "查看结果";
   if (normalizedStatus(task) === "waiting_approval") return "继续处理";
   return "查看进度";
 }
@@ -143,9 +144,9 @@ export default function Tasks() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const rawPeriod = params.get("period");
-  const isPeriod = (value: string | null): value is TaskReportPeriod => ["realtime", "today", "week", "month", "year"].includes(String(value));
-  const period: TaskReportPeriod = isPeriod(rawPeriod) ? rawPeriod : "realtime";
-  const selectedStatus: TaskStatusTab = isStatusTab(params.get("status")) ? params.get("status") as TaskStatusTab : "running";
+  const isPeriod = (value: string | null): value is TaskOperationsPeriod => ["realtime", "today", "week", "month", "year"].includes(String(value));
+  const period: TaskOperationsPeriod = isPeriod(rawPeriod) ? rawPeriod : "realtime";
+  const selectedStatus: TaskStatusTab = isStatusTab(params.get("status")) ? params.get("status") as TaskStatusTab : "all";
   const view: View = selectedStatus === "all" || ACTIVE.has(selectedStatus) ? "active" : "history";
   const [rows, setRows] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,9 +156,11 @@ export default function Tasks() {
   const [periodNotice, setPeriodNotice] = useState("");
   const [selected, setSelected] = useState<TaskDetail | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [operationsDashboard, setOperationsDashboard] = useState<TaskOperationsDashboard | null>(null);
+  const [operationsDashboardLoading, setOperationsDashboardLoading] = useState(true);
+  const [operationsReportError, setOperationsReportError] = useState("");
   const [aiDashboard, setAiDashboard] = useState<AiTaskWorkOrderDashboard | null>(null);
   const [aiDashboardLoading, setAiDashboardLoading] = useState(true);
-  const [dashboardFlash, setDashboardFlash] = useState(false);
   const [expandedAiTasks, setExpandedAiTasks] = useState<Record<string, AiTaskWorkOrderAggregate>>({});
   const [selectedAiTask, setSelectedAiTask] = useState<AiTaskWorkOrderAggregate | null>(null);
   const [showAiTaskCreate, setShowAiTaskCreate] = useState(false);
@@ -172,7 +175,7 @@ export default function Tasks() {
   const [to, setTo] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedSystemTasks, setExpandedSystemTasks] = useState<Set<string>>(new Set());
-  const [kpiFilter, setKpiFilter] = useState<KpiFilter>(null);
+  const [operationsFilter, setOperationsFilter] = useState<TaskOperationsFilter>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const requestRef = useRef<Promise<void> | null>(null);
@@ -213,28 +216,6 @@ export default function Tasks() {
     }
   }, [rawPeriod, setParam]);
 
-  const legacyPeriodRange = useMemo(() => {
-    if (period === "realtime") return { from: "", to: "" };
-    const pieces = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
-    const part = (type: string) => Number(pieces.find((item) => item.type === type)?.value || 0);
-    const localDay = new Date(Date.UTC(part("year"), part("month") - 1, part("day")));
-    const date = (value: Date) => value.toISOString().slice(0, 10);
-    if (period === "today") return { from: date(localDay), to: date(localDay) };
-    if (period === "week") {
-      const monday = new Date(localDay); monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
-      const sunday = new Date(monday); sunday.setUTCDate(sunday.getUTCDate() + 6);
-      return { from: date(monday), to: date(sunday) };
-    }
-    if (period === "month") {
-      const first = new Date(Date.UTC(localDay.getUTCFullYear(), localDay.getUTCMonth(), 1));
-      const last = new Date(Date.UTC(localDay.getUTCFullYear(), localDay.getUTCMonth() + 1, 0));
-      return { from: date(first), to: date(last) };
-    }
-    const first = new Date(Date.UTC(localDay.getUTCFullYear(), 0, 1));
-    const last = new Date(Date.UTC(localDay.getUTCFullYear(), 11, 31));
-    return { from: date(first), to: date(last) };
-  }, [period]);
-
   const load = useCallback((background = false, append = false) => {
     if (requestRef.current) return requestRef.current;
     if (append && !nextCursorRef.current) return Promise.resolve();
@@ -244,7 +225,7 @@ export default function Tasks() {
       setSystemError("");
       try {
         const response = await api.taskPage({
-          view: "history", q: debouncedQuery, from: from || legacyPeriodRange.from, to: to || legacyPeriodRange.to, limit: 100,
+          view: "history", q: debouncedQuery, from: period === "realtime" ? from : undefined, to: period === "realtime" ? to : undefined, period, limit: 100,
           cursor: append ? nextCursorRef.current || undefined : undefined,
         });
         const nextRows = response.items || [];
@@ -265,9 +246,24 @@ export default function Tasks() {
     })();
     requestRef.current = request;
     return request;
-  }, [debouncedQuery, from, to, legacyPeriodRange]);
+  }, [debouncedQuery, from, to, period]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const loadOperationsDashboard = useCallback(async (background = false) => {
+    if (!background) setOperationsDashboardLoading(true);
+    setOperationsReportError("");
+    try {
+      setOperationsDashboard(await api.taskOperationsDashboard({ period, q: debouncedQuery || undefined }));
+    } catch (cause) {
+      if (!background) setOperationsDashboard(null);
+      setOperationsReportError(cause instanceof Error ? cause.message : "任务运营数据加载失败");
+    } finally {
+      if (!background) setOperationsDashboardLoading(false);
+    }
+  }, [period, debouncedQuery]);
+
+  useEffect(() => { void loadOperationsDashboard(); }, [loadOperationsDashboard]);
 
   const loadAiDashboard = useCallback(async (background = false, append = false) => {
     if (append && !businessNextCursorRef.current) return;
@@ -282,12 +278,6 @@ export default function Tasks() {
         q: debouncedQuery || undefined,
         template: selectedTemplate || undefined,
       });
-      const before = dashboardRef.current?.metrics;
-      const after = next.metrics;
-      if (background && before && after && JSON.stringify(before) !== JSON.stringify(after)) {
-        setDashboardFlash(true);
-        window.setTimeout(() => setDashboardFlash(false), 220);
-      }
       const previousItems = append ? dashboardRef.current?.tasks.items || [] : [];
       const itemsById = new Map(previousItems.map((item) => [item.task.task_id, item]));
       next.tasks.items.forEach((item) => itemsById.set(item.task.task_id, item));
@@ -309,11 +299,11 @@ export default function Tasks() {
 
   useEffect(() => {
     if (view !== "active" || period !== "realtime") return;
-    const refresh = () => { if (document.visibilityState === "visible") { void load(true); void loadAiDashboard(true); } };
+    const refresh = () => { if (document.visibilityState === "visible") { void load(true); void loadOperationsDashboard(true); void loadAiDashboard(true); } };
     const timer = window.setInterval(refresh, 4000);
     document.addEventListener("visibilitychange", refresh);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [load, loadAiDashboard, period, view]);
+  }, [load, loadOperationsDashboard, loadAiDashboard, period, view]);
 
   const clearUnavailableAiTask = useCallback(() => {
     setSelectedAiTask(null); setExpandedAiTasks({}); setError("该任务当前不可访问，已清除缓存内容。请核对归属或授权后重新读取。");
@@ -432,27 +422,27 @@ export default function Tasks() {
     if (tab === "completed") return row.status === "completed";
     return row.status === "cancelled";
   };
-  const kpiMatches = (row: UnifiedRow) => {
-    if (!kpiFilter || kpiFilter === "all") return true;
-    if (kpiFilter === "in_progress") return row.kind === "agent"
-      ? isAgentTaskInProgress(normalizedStatus(row.task))
-      : row.status === "running" || row.status === "waiting_approval";
-    if (kpiFilter === "completed") return row.status === "completed";
-    if (kpiFilter === "overdue") return Boolean(row.dueAt && new Date(row.dueAt).getTime() < Date.now() && !["completed", "cancelled"].includes(row.status));
-    if (kpiFilter === "automatic") return row.kind === "business" && row.item.counts.automatic_created > 0;
-    return row.kind === "business";
+  const operationsMatches = (row: UnifiedRow) => {
+    if (!operationsFilter) return true;
+    if (row.kind !== "agent") return false;
+    const status = normalizedStatus(row.task);
+    if (operationsFilter === "in_progress") return isAgentTaskInProgress(status);
+    if (operationsFilter === "waiting") return ["waiting", "waiting_approval", "needs_clarification", "waiting_external", "needs_review"].includes(status);
+    if (operationsFilter === "completed") return COMPLETED.has(status);
+    if (operationsFilter === "overdue") return Boolean(row.dueAt && new Date(row.dueAt).getTime() < Date.now() && !CLOSED.has(status));
+    return status === "failed";
   };
   const templateMatches = (row: UnifiedRow) => !selectedTemplate || (row.kind === "business" && (
     row.item.template_codes?.includes(selectedTemplate)
     || row.item.current_blocking_work_order?.template_code === selectedTemplate
     || row.item.next_work_order?.template_code === selectedTemplate
   ));
-  const visible = useMemo(() => unifiedRows.filter((row) => tabMatches(row, selectedStatus) && kpiMatches(row) && templateMatches(row)), [unifiedRows, selectedStatus, kpiFilter, selectedTemplate]);
+  const visible = useMemo(() => unifiedRows.filter((row) => tabMatches(row, selectedStatus) && operationsMatches(row) && templateMatches(row)), [unifiedRows, selectedStatus, operationsFilter, selectedTemplate]);
   const counts = useMemo(() => {
     const next = new Map<TaskStatusTab, number>();
-    STATUS_TABS.forEach((tab) => next.set(tab.value, unifiedRows.filter((row) => kpiMatches(row) && templateMatches(row) && tabMatches(row, tab.value)).length));
+    STATUS_TABS.forEach((tab) => next.set(tab.value, unifiedRows.filter((row) => operationsMatches(row) && templateMatches(row) && tabMatches(row, tab.value)).length));
     return next;
-  }, [unifiedRows, kpiFilter, selectedTemplate]);
+  }, [unifiedRows, operationsFilter, selectedTemplate]);
   const selectableRows = useMemo(() => visible.filter((row): row is Extract<UnifiedRow, { kind: "agent" }> => row.kind === "agent" && canSelect(row.task)), [visible]);
   const allSelected = selectableRows.length > 0 && selectableRows.every((row) => selectedIds.has(row.task.id));
   useEffect(() => { const visibleIds = new Set(selectableRows.map((row) => row.task.id)); setSelectedIds((current) => new Set([...current].filter((id) => visibleIds.has(id)))); }, [selectableRows]);
@@ -464,11 +454,16 @@ export default function Tasks() {
     catch (cause) { setError(cause instanceof Error ? cause.message : "批量取消失败"); }
     finally { setActionBusy(""); }
   };
-  const applyKpi = (filter: Exclude<KpiFilter, null>) => {
-    if (filter !== "all") setParam("status", "all");
-    setKpiFilter((current) => filter === "all" || current === filter ? null : filter);
+  const applyOperationsFilter = (filter: Exclude<TaskOperationsFilter, null>) => {
+    setParam("status", "all");
+    setSelectedTemplate(null);
+    setOperationsFilter((current) => current === filter ? null : filter);
   };
-  const applyTemplate = (templateCode: string) => setSelectedTemplate((current) => current === templateCode ? null : templateCode);
+  const clearOperationsFilter = () => setOperationsFilter(null);
+  const applyTemplate = (templateCode: string) => {
+    setOperationsFilter(null);
+    setSelectedTemplate((current) => current === templateCode ? null : templateCode);
+  };
   const exportCsv = () => {
     setExporting(true);
     const link = document.createElement("a");
@@ -479,10 +474,10 @@ export default function Tasks() {
   };
 
   return <main className="tasks-page" data-task-center>
-    <TaskReportHeader dashboard={aiDashboard} period={period} loading={aiDashboardLoading} error={reportError} flash={dashboardFlash} activeFilter={kpiFilter} activeTemplate={selectedTemplate} exporting={exporting}
+    <TaskOperationsReport dashboard={operationsDashboard} period={period} loading={operationsDashboardLoading} error={operationsReportError} activeFilter={operationsFilter}
       onPeriod={(next) => {
         const clearsManualRange = Boolean(from || to);
-        setKpiFilter(null);
+        setOperationsFilter(null);
         setSelectedTemplate(null);
         if (clearsManualRange) {
           setFrom("");
@@ -492,19 +487,21 @@ export default function Tasks() {
           setPeriodNotice("");
         }
         setParam("period", next);
-      }} onKpi={applyKpi} onTemplate={applyTemplate} onClearTemplate={() => setSelectedTemplate(null)} onRetry={() => void loadAiDashboard()} onExport={exportCsv} />
+      }} onFilter={applyOperationsFilter} onClearFilter={clearOperationsFilter} onRetry={() => void loadOperationsDashboard()} />
+    <TaskReportHeader dashboard={aiDashboard} period={period} loading={aiDashboardLoading} error={reportError} activeTemplate={selectedTemplate} exporting={exporting}
+      onTemplate={applyTemplate} onClearTemplate={() => setSelectedTemplate(null)} onRetry={() => void loadAiDashboard()} onExport={exportCsv} onCreateBusinessTask={() => setShowAiTaskCreate(true)} />
     {periodNotice ? <p className="task-period-notice muted" role="status">{periodNotice}</p> : null}
 
     <section className="panel task-center-unified-section" aria-label="任务明细">
-      <header className="task-center-system-head"><div><h2>任务明细</h2><p className="muted">Agent 任务与业务任务按同一筛选口径展示</p></div><div className="row-actions"><Link className="button button-primary task-center-create-action" to="/">新建任务</Link><button className="task-center-text-action" type="button" onClick={() => setShowAiTaskCreate(true)}>新建工单</button></div></header>
+      <header className="task-center-system-head"><div><h2>任务明细</h2><p className="muted">Agent／系统任务与业务工单；运营指标筛选仅作用于 Agent／系统任务。</p></div><div className="row-actions"><Link className="button button-primary task-center-create-action" to="/">新建任务</Link><button className="task-center-text-action" type="button" onClick={() => setShowAiTaskCreate(true)}>新建业务任务</button></div></header>
       <div className="task-center-filters" role="search" aria-label="筛选任务">
         <label className="task-filter-search"><span className="sr-only">搜索任务</span><span className="task-filter-search-wrap"><svg aria-hidden="true" viewBox="0 0 16 16" focusable="false"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg><input aria-label="搜索任务名称、内容、技能或模板" placeholder="搜索任务名称、内容、技能或模板" value={query} onChange={(event) => setQuery(event.target.value)} /></span></label>
-        <fieldset className="task-filter-date-range"><legend className="sr-only">时间范围</legend><span className="task-filter-date-label">时间范围</span><input type="date" aria-label="开始日期" value={from} onChange={(event) => setFrom(event.target.value)} /><span aria-hidden="true">至</span><input type="date" aria-label="结束日期" value={to} onChange={(event) => setTo(event.target.value)} /></fieldset>
-        <div className="task-filter-actions">{view === "active" && selectedIds.size ? <button type="button" onClick={() => void cancelSelected()} disabled={Boolean(actionBusy)}>取消选中 ({selectedIds.size})</button> : null}{(kpiFilter || selectedTemplate) ? <button type="button" onClick={() => { setKpiFilter(null); setSelectedTemplate(null); }}>清除联动筛选</button> : null}</div>
+        <fieldset className="task-filter-date-range"><legend className="sr-only">时间范围</legend><span className="task-filter-date-label">时间范围</span><input type="date" aria-label="开始日期" value={from} onChange={(event) => { setFrom(event.target.value); if (period !== "realtime") { setParam("period", "realtime"); setPeriodNotice("已切换为手动时间范围"); } }} /><span aria-hidden="true">至</span><input type="date" aria-label="结束日期" value={to} onChange={(event) => { setTo(event.target.value); if (period !== "realtime") { setParam("period", "realtime"); setPeriodNotice("已切换为手动时间范围"); } }} /></fieldset>
+        <div className="task-filter-actions">{view === "active" && selectedIds.size ? <button type="button" onClick={() => void cancelSelected()} disabled={Boolean(actionBusy)}>取消选中 ({selectedIds.size})</button> : null}{(operationsFilter || selectedTemplate) ? <button type="button" onClick={() => { setOperationsFilter(null); setSelectedTemplate(null); }}>清除联动筛选</button> : null}</div>
       </div>
       <nav className="tasks-tabs" aria-label="任务状态">{STATUS_TABS.map((tab) => <button key={tab.value} type="button" className={selectedStatus === tab.value ? "is-active" : ""} aria-pressed={selectedStatus === tab.value} onClick={() => setParam("status", tab.value)}>{tab.label}<span className="tasks-tab-count" aria-label={`${counts.get(tab.value) || 0} 个任务`}>{counts.get(tab.value) || 0}</span></button>)}</nav>
       {selectedTemplate ? <p className="task-template-filter-notice" role="status">模板筛选仅作用于业务任务，Agent 任务已隐藏。<button className="task-center-text-action" type="button" onClick={() => setSelectedTemplate(null)}>清除模板筛选</button></p> : null}
-      {loading ? <p className="muted">正在读取任务状态…</p> : systemError && rows.length === 0 && !aiDashboard ? <p className="task-center-load-error" role="alert">任务明细暂时无法读取。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : visible.length === 0 ? <section className="task-center-empty"><strong>当前没有符合条件的任务</strong><p>调整状态、筛选条件或等待任务状态变化后再试。</p></section> : <div className="task-center-table-wrap"><table className="task-center-table task-center-unified-table"><colgroup><col className="task-center-col-select" /><col className="task-center-col-type" /><col className="task-center-col-task" /><col className="task-center-col-status" /><col className="task-center-col-summary" /><col className="task-center-col-time" /><col className="task-center-col-actions" /><col className="task-center-col-fold" /></colgroup><thead><tr><th className="task-center-select">{view === "active" && selectableRows.length ? <input type="checkbox" aria-label="全选可取消任务" checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} /> : null}</th><th>类型</th><th>任务名</th><th>状态</th><th>结果摘要</th><th>更新时间</th><th>操作</th><th><span className="sr-only">展开明细</span></th></tr></thead><tbody>{visible.map((row) => {
+      {loading ? <p className="muted">正在读取任务状态…</p> : systemError && rows.length === 0 && !operationsDashboard ? <p className="task-center-load-error" role="alert">任务明细暂时无法读取。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : visible.length === 0 ? <section className="task-center-empty"><strong>当前没有符合条件的任务</strong><p>调整状态、筛选条件或等待任务状态变化后再试。</p></section> : <div className="task-center-table-wrap"><table className="task-center-table task-center-unified-table"><colgroup><col className="task-center-col-select" /><col className="task-center-col-type" /><col className="task-center-col-task" /><col className="task-center-col-status" /><col className="task-center-col-summary" /><col className="task-center-col-time" /><col className="task-center-col-actions" /><col className="task-center-col-fold" /></colgroup><thead><tr><th className="task-center-select">{view === "active" && selectableRows.length ? <input type="checkbox" aria-label="全选可取消任务" checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} /> : null}</th><th>类型</th><th>任务名</th><th>状态</th><th>结果摘要</th><th>更新时间</th><th>操作</th><th><span className="sr-only">展开明细</span></th></tr></thead><tbody>{visible.map((row) => {
         if (row.kind === "agent") {
           const task = row.task; const expanded = expandedSystemTasks.has(task.id);
           return <Fragment key={row.key}><tr><td className="task-center-select">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${row.title}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}</td><td data-label="类型" className="task-center-type-cell"><span className="task-center-agent-type">Agent 任务</span></td><td data-label="任务名" className="task-center-task-cell"><strong title={row.title}>{row.title}</strong></td><td data-label="状态"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span></td><td data-label="结果摘要" className="task-center-summary-cell"><span title={row.summary}>{row.summary}</span></td><td data-label="更新时间">{formatTime(row.updatedAt)}</td><td data-label="操作"><div className="task-center-actions"><button type="button" onClick={() => void openDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</div></td><td className="task-center-fold-cell"><button className="task-center-fold" type="button" aria-label={`${expanded ? "收起" : "展开"}${row.title}明细`} aria-expanded={expanded} onClick={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })}><TaskChevron expanded={expanded} /></button></td></tr>{expanded ? <tr className="task-center-meta-row"><td colSpan={8}><dl className="task-center-inline-meta"><div><dt>技能</dt><dd>{safeTaskText(task.skill || task.skill_id || task.task_type || task.source, "Agent 任务")}</dd></div><div><dt>创建时间</dt><dd>{formatTime(task.created_at)}</dd></div><div><dt>开始时间</dt><dd>{formatTime(task.started_at)}</dd></div></dl></td></tr> : null}</Fragment>;

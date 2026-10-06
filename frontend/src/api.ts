@@ -511,6 +511,33 @@ export type TaskListPage = {
   source_refs?: Array<Record<string, unknown>>;
 };
 
+export type TaskOperationsPeriod = "realtime" | "today" | "week" | "month" | "year";
+export type TaskOperationsMetrics = {
+  total: number;
+  in_progress: number;
+  completion_rate: number | null;
+  overdue_rate: number | null;
+  failed: number;
+  median_processing_hours: number | null;
+  overdue: number;
+  waiting: number;
+  cancelled: number;
+};
+export type TaskOperationsDashboard = {
+  report_version: "task-operations-dashboard.v1" | string;
+  period: TaskOperationsPeriod;
+  as_of: string;
+  timezone: string;
+  scope: "personal" | "organization" | string;
+  source: "legacy_agent_task_projection" | string;
+  metrics: TaskOperationsMetrics;
+  comparison: { previous: TaskOperationsMetrics; deltas: Partial<Record<"total" | "in_progress" | "completion_rate" | "overdue_rate" | "failed" | "median_processing_hours", number | null>> } | null;
+  trends: Partial<Record<"total" | "in_progress" | "completion_rate" | "overdue_rate" | "failed" | "median_processing_hours", number[]>>;
+  status_distribution: { queued: number; running: number; waiting: number; completed: number; failed: number; cancelled: number };
+  task_types: Array<{ task_type: string; title: string; total: number; in_progress: number; completed: number; failed: number; trend: number[] }>;
+  request_id?: string;
+};
+
 export type WorkbenchTaskPage = {
   items: Task[];
   page: { limit: number; next_cursor: string | null; total_estimate: number };
@@ -2013,7 +2040,7 @@ export const api = {
     });
     return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`, { signal });
   },
-  taskPage: (opts: { cursor?: string; limit?: number; view?: string; q?: string; from?: string; to?: string } = {}) => {
+  taskPage: (opts: { cursor?: string; limit?: number; view?: string; q?: string; from?: string; to?: string; period?: TaskOperationsPeriod } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<TaskListPage>(`/api/tasks?${query}`);
@@ -2031,6 +2058,11 @@ export const api = {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
+  },
+  taskOperationsDashboard: (opts: { period?: TaskOperationsPeriod; q?: string } = {}) => {
+    const query = new URLSearchParams({ period: opts.period || "realtime" });
+    if (opts.q) query.set("q", opts.q);
+    return request<TaskOperationsDashboard>(`/api/tasks/operations-dashboard?${query}`);
   },
   aiTaskWorkOrderDashboard: (opts: { limit?: number; cursor?: string; timezone?: string; period?: "realtime" | "today" | "week" | "month" | "year"; q?: string; template?: string; status?: string } = {}) => {
     const query = new URLSearchParams();

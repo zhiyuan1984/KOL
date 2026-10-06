@@ -10,6 +10,7 @@ import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { taskExecutionView } from "../tasks/execution-view.js";
 import { isSkillTemplateSnapshot } from "../tasks/skill-template.js";
+import { buildTaskOperationsDashboard, taskOperationsDashboardRanges, taskOperationsPeriod, type TaskOperationsRow } from "../tasks/operations-dashboard.js";
 import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
 import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, isTodoWorkItem, OPEN_WORK_ITEM_SQL, TODO_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, todayMembershipReasons, type TaskDefinitionIndex } from "../host/home-board.js";
 import { cachedPoll, cachedPollAsync, pollEpoch } from "../host/response-cache.js";
@@ -925,6 +926,8 @@ tasks.get("/runs/:id", (c) => {
 
 tasks.get("/tasks", async (c) => {
   const view = String(c.req.query("view") || "");
+  const requestedPeriod = c.req.query("period");
+  const reportPeriod = requestedPeriod ? taskOperationsPeriod(requestedPeriod) : null;
   const openView = view === "open" || view === "todo" || view === "active";
   const clauses: string[] = [];
   const values: unknown[] = [];
@@ -976,6 +979,12 @@ tasks.get("/tasks", async (c) => {
     clauses.push("created_at<?");
     values.push(`${to}T23:59:59.999Z`);
   }
+  if (reportPeriod && reportPeriod !== "realtime") {
+    if (from || to) throw new HttpFail(400, "period cannot be combined with manual date range");
+    const range = taskOperationsDashboardRanges(reportPeriod, new Date(), "Asia/Shanghai").current!;
+    clauses.push("((created_at>=? AND created_at<?) OR (completed_at>=? AND completed_at<?))");
+    values.push(range.start.toISOString(), range.end.toISOString(), range.start.toISOString(), range.end.toISOString());
+  }
   const countWhere = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const countValues = [...values];
   if (cursor) {
@@ -990,7 +999,7 @@ tasks.get("/tasks", async (c) => {
   const paged = !openView && (c.req.query("cursor") !== undefined || c.req.query("limit") !== undefined);
   // This endpoint is polled every few seconds by every open tab, so an
   // unchanged data window is served from the 4s in-process cache.
-  const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${c.req.query("status") || ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
+  const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${reportPeriod || ""}:${c.req.query("status") || ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
   const payload = await cachedPollAsync(cacheKey, tasksEpoch(), async () => {
     const definitions = taskDefinitionIndex();
     const total = paged || openView
@@ -1052,6 +1061,47 @@ tasks.get("/tasks", async (c) => {
       limit,
       creates_session: false,
       entry: "memory",
+    };
+  });
+  return c.json(payload);
+});
+
+/**
+ * Read-only operational dashboard for the same Agent/system-task projection
+ * used by GET /api/tasks. It deliberately remains in this router so the KPI
+ * and the task table share one authorization boundary and one source of truth.
+ */
+tasks.get("/tasks/operations-dashboard", (c) => {
+  const period = taskOperationsPeriod(c.req.query("period"));
+  const queryText = String(c.req.query("q") || "").trim().slice(0, 200);
+  const scoped = !isAdmin() || c.req.query("scope") !== "all";
+  const owner = scoped ? ownerId() : "all";
+  const clauses: string[] = [];
+  const values: unknown[] = [];
+  if (scoped) {
+    clauses.push("owner_user_id=?");
+    values.push(owner);
+  }
+  if (queryText) {
+    clauses.push("(title LIKE ? COLLATE NOCASE OR content LIKE ? COLLATE NOCASE)");
+    const like = `%${queryText.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+    values.push(like, like);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const cacheKey = `task-operations:${owner}:${period}:${queryText}`;
+  const payload = cachedPoll(cacheKey, tasksEpoch(), () => {
+    const rows = getConn().prepare(
+      `SELECT id,task_type,title,status,due_at,created_at,completed_at,updated_at
+       FROM tickets ${where}`,
+    ).all(...values) as TaskOperationsRow[];
+    const dashboard = buildTaskOperationsDashboard(rows, { period, timezone: "Asia/Shanghai", scope: scoped ? "personal" : "organization" });
+    return {
+      ...dashboard,
+      task_types: dashboard.task_types.slice(0, 8).map((item) => ({
+        ...item,
+        title: taskDefinition(item.task_type)?.title || "系统任务",
+      })),
+      ...requestMetadata(),
     };
   });
   return c.json(payload);
