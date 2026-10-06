@@ -963,17 +963,22 @@ export default function Chat() {
   // 任务刚启动时还没有 task_result/card，但右栏仍需立即出现并展示处理中状态。
   const showRightWorkbench = Boolean(id);
 
+  // 验收记录由系统按已发生的事实生成，不再要员工手写「凭证」：点击本身就是
+  // 一次明确的人工验收提交，这里只补充可回放的引用，不新增完成门槛。
+  const acceptanceEvidence = (target: Task) => ({
+    source: "employee_confirmation",
+    accepted_at: new Date().toISOString(),
+    task_title: target.title,
+    ticket_version: Math.max(1, Number(target.data_version || 1)),
+    ...(target.execution?.run_id ? { run_id: target.execution.run_id } : {}),
+  });
+
   const complete = async () => {
     if (!task || completing) return;
-    const evidence = window.prompt("请填写验收依据。任务运行成功不等于工单已完成；此内容将作为本次验收记录。");
-    if (!evidence?.trim()) {
-      setCompletion("未提交验收：需要填写验收依据后才能完成工单。");
-      return;
-    }
     setCompleting(true);
     setCompletion("");
     try {
-      const result = await api.completeTask(task, { note: evidence.trim(), source: "employee_confirmation" });
+      const result = await api.completeTask(task, acceptanceEvidence(task));
       setTask(unwrapTask(result.ticket || await api.task(task.id)));
       setCompletion("任务已完成验收");
       rememberJourney({ kind: "complete", skillId: String(task.skill_id || task.skill || ""), skillLabel: task.title });
