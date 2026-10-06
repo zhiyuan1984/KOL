@@ -343,6 +343,7 @@ export default function SideWorkbench({
   collaborationId = "",
   handle = "",
   resultExtra,
+  suppressRevisionHint = false,
   resultOverride,
   statusOverride,
   discoveryReturn,
@@ -368,6 +369,7 @@ export default function SideWorkbench({
   collaborationId?: string;
   handle?: string;
   resultExtra?: import("react").ReactNode;
+  suppressRevisionHint?: boolean;
   resultOverride?: TaskResultCard;
   statusOverride?: string;
   discoveryReturn?: string;
@@ -618,7 +620,7 @@ export default function SideWorkbench({
             )}
           </>
         )}
-        {hasRoundResult && result && String(result.title) !== "邮件已发送" && draft?.status !== "sent" && status !== "running" && (
+        {hasRoundResult && !suppressRevisionHint && result && String(result.title) !== "邮件已发送" && draft?.status !== "sent" && status !== "running" && (
           <p className="muted" data-result-revise-hint>要改这份结果，在下方说明要改哪一段。点芯片或说「再写一封」会开新任务。</p>
         )}
       </div>

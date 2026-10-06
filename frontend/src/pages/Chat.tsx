@@ -1124,7 +1124,9 @@ export default function Chat() {
               className="task-back"
               data-session-back-link
             >← 返回任务列表</Link>}
-            {discoveryEntry ? <span className="muted">{status === "running" ? "正在分析发现需求" : "AI发现"}</span>
+            {discoveryEntry ? <span className="muted">{runtimeActions.some((action) => action.state === "pending" && !action.execution)
+              ? "等待确认采集范围"
+              : status === "running" ? "正在分析发现需求" : "AI发现"}</span>
               : <RunHud status={status} view={taskView} phase={!taskView || taskView.live ? phase : undefined} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
           </div>
           {discoveryWorkspace ? (
@@ -1349,7 +1351,7 @@ export default function Chat() {
             renderAction={renderAction}
             officialStage={String(journey?.stage_code || "")}
             onRefresh={reload}
-          />{!discoveryEntry ? actions.map(action => renderAction(action.id)) : null}</>}</RuntimeActions>
+          />{actions.map(action => renderAction(action.id))}</>}</RuntimeActions>
         )}
         </div>
         {streamPosition.scrollable ? <div className="session-scroll-control">
@@ -1442,7 +1444,7 @@ export default function Chat() {
             <WorkOrderSuggestions key={taskWorkspace.task.task.task_id} taskId={taskWorkspace.task.task.task_id} onChanged={()=>taskWorkspace.refresh()} />
           </> : discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
             onRefresh={reload}
-            analyzing={pending || status === "running"} onAnalyze={taskId => void send({
+            analyzing={pending || (status === "running" && !runtimeActions.some((action) => action.state === "pending" && !action.execution))} onAnalyze={taskId => void send({
               text: `请基于本任务已保存的发现条件与采集 ${taskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
               intent: "crawler_collect",
             })} /> : undefined}
@@ -1460,6 +1462,7 @@ export default function Chat() {
           officialStage={String(journey?.stage_code || "")}
           collaborationId={String(collaborationId || journey?.collaboration_id || "")}
           handle={String(journey?.handle || "")}
+          suppressRevisionHint={Boolean(discoveryEntry)}
         />
       )}
     </div>

@@ -4700,6 +4700,9 @@ summary:focus-visible,
 .trace-list li[data-kind="reasoning"] {
   grid-template-columns: 18px minmax(0, 1fr);
 }
+.conversation-content .process-trace,
+.conversation-content .operation-trace { margin-block: var(--space-3); }
+.conversation-content .trace-list { gap: var(--space-2); }
 .trace-list li[data-kind="reasoning"] span,
 .trace-list li span.is-streaming {
   white-space: pre-wrap;
