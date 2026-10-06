@@ -22,11 +22,18 @@ import { DEMO_ADMIN } from "../src/config.js";
 import { runtimeAgentScopeContext } from "../src/contract-scope.js";
 import { createAgentBinding, revokeAgentBinding, canUseAgent } from "../src/runtime/organization-tree.js";
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
+import { QA_CONTEXT_VERSION } from "../../shared/knowledge-qa.js";
 
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let qaFetch: ReturnType<typeof vi.fn>;
+
+function qaResponse(proposal: unknown): Response {
+  return new Response(JSON.stringify({ output_text: JSON.stringify(proposal), usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } }));
+}
 
 async function request(
   method: string,
@@ -134,6 +141,15 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.KNOWLEDGE_ENGINE_MODE = "stub";
+  vi.stubEnv("OPENAI_API_KEY", "qa-test-key");
+  qaFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    const data = JSON.parse(body.input);
+    return qaResponse(body.text.format.name === "knowledge_qa_context"
+      ? { entities: [], history_summary: String(data.history_summary || "").slice(-1500) }
+      : { rewritten: data.query, resolved_entities: [], rewrote: false, reason: "问题完整" });
+  });
+  setIntentLlmFetch(qaFetch as typeof fetch);
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
   resetConn();
   seedAll();
@@ -150,10 +166,12 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  setIntentLlmFetch();
+  vi.unstubAllEnvs();
   resetConn();
   delete process.env.KNOWLEDGE_ENGINE_MODE;
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
-  fs.rmSync(tmp, { recursive: true, force: true });
+  if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("knowledge documents (P1 pipeline)", () => {
@@ -411,7 +429,9 @@ describe("knowledge documents (P1 pipeline)", () => {
     const removed = await request("DELETE", `/api/admin/knowledge/documents/${failing.id}`);
     expect(removed.status).toBe(200);
     expect((await (await request("GET", `/api/admin/knowledge/documents/${failing.id}`)).json()).detail).toBeTruthy();
-    expect((await request("GET", `/api/admin/knowledge/documents/${failing.id}`)).status).toBe(404);
+    // The tenant-aware publication guard can deliberately return 403 rather than disclose nonexistence.
+    expect([403, 404]).toContain((await request("GET", `/api/admin/knowledge/documents/${failing.id}`)).status);
+    expect(getConn().prepare("SELECT id FROM knowledge_documents WHERE id=?").get(failing.id)).toBeUndefined();
     const dir = path.join(tmp, "knowledge", "bases", String(base.id), "documents", String(failing.id));
     expect(fs.existsSync(dir)).toBe(false);
   });
@@ -433,5 +453,259 @@ describe("knowledge documents (P1 pipeline)", () => {
     }
     const allowed = await request("GET", "/api/admin/knowledge/documents");
     expect(allowed.status).toBe(200);
+  });
+});
+
+describe("admin QA realtime context P1", () => {
+  async function fixture() {
+    const base = await createUnstructuredBase("qa_context");
+    const doc = await upload(String(base.id), "产品手册.pdf", pdfBytes());
+    await waitStatus(String(doc.id), ["pending_review"]);
+    const scope = { base_id: String(base.id), doc_ids: [String(doc.id)], include_pending: true };
+    const context = { version: QA_CONTEXT_VERSION, scope, history_summary: "",
+      last_turn: { query: "介绍 LiTime 12V 100Ah", answer: "LiTime 12V 100Ah 是该型号。", entities: ["LiTime 12V 100Ah"],
+        citations: [{ document: "产品手册", document_id: String(doc.id), page: 1 }] } };
+    return { base, doc, scope, context };
+  }
+  it("RW02/FB04 passes only the accepted clean query and records separate rewrite cost", async () => {
+    const { scope, context, doc } = await fixture();
+    qaFetch.mockResolvedValueOnce(qaResponse({ rewritten: "LiTime 12V 100Ah 的规格和用途", resolved_entities: ["LiTime 12V 100Ah"], rewrote: true, reason: "唯一主语" }));
+    const spy = vi.spyOn(bridge, "runBridge");
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "它的规格和用途", ...scope, context });
+    expect(res.status, await res.text()).toBe(200);
+    const body = await res.json();
+    expect(body.rewrite).toMatchObject({ status: "applied", effective_query: "LiTime 12V 100Ah 的规格和用途" });
+    const ask = spy.mock.calls.find(([c]) => c.cmd === "ask")![0];
+    expect(ask.args[ask.args.indexOf("--question") + 1]).toBe("LiTime 12V 100Ah 的规格和用途");
+    expect(ask.args.join(" ")).not.toContain("是该型号");
+    expect((body.citations as Json[])[0]).toMatchObject({ document_id: doc.id, page: 1 });
+    expect(qaFetch).toHaveBeenCalledTimes(1);
+    const costs = getConn().prepare("SELECT source,total_tokens,agent_id FROM cost_events WHERE source='knowledge_rewrite'").all() as Json[];
+    expect(costs).toHaveLength(1);
+    expect(Number(costs[0].total_tokens)).toBe(15);
+    expect(costs[0].agent_id).toBeNull();
+  });
+  it("RW06/FB04 rejects hallucinated entities but still accounts for the call", async () => {
+    const { scope, context } = await fixture();
+    qaFetch.mockResolvedValueOnce(qaResponse({ rewritten: "不存在型号 的规格", resolved_entities: ["不存在型号"], rewrote: true, reason: "unsupported" }));
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "它呢", ...scope, context });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rewrite).toMatchObject({ status: "rejected", effective_query: "它呢" });
+    expect(String(body.answer)).toContain("它呢");
+    expect(await auditCount("knowledge.rewrite_rejected")).toBe(1);
+    expect(getConn().prepare("SELECT source FROM cost_events WHERE source='knowledge_rewrite'").all()).toHaveLength(1);
+  });
+  it("FB01 unavailable rewrite degrades once, preserving retrieval", async () => {
+    const { scope, context } = await fixture();
+    qaFetch.mockRejectedValueOnce(new Error("network failure"));
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "它呢", ...scope, context });
+    expect(res.status).toBe(200);
+    expect((await res.json()).rewrite).toMatchObject({ status: "unavailable", effective_query: "它呢" });
+    expect(qaFetch).toHaveBeenCalledTimes(1);
+    expect(await auditCount("knowledge.rewrite_unavailable")).toBe(1);
+  });
+  it("CT09 mismatched context is not used to enlarge document scope", async () => {
+    const { scope, context } = await fixture();
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "原问题", ...scope,
+      context: { ...context, scope: { ...scope, base_id: "other" } } });
+    expect(res.status).toBe(200);
+    expect((await res.json()).rewrite).toMatchObject({ status: "rejected", effective_query: "原问题" });
+    expect(qaFetch).not.toHaveBeenCalled();
+    expect(await auditCount("knowledge.rewrite_rejected")).toBe(1);
+  });
+  it("CT01 maintenance builds next-turn entities from the answer and records its own cost", async () => {
+    const { scope, context } = await fixture();
+    qaFetch.mockResolvedValueOnce(qaResponse({ entities: ["LiTime 12V 100Ah", "LiTime 12V 200Ah"], history_summary: "" }));
+    const res = await request("POST", "/api/admin/knowledge/qa-context", { scope, history_summary: "",
+      turn: { ...context.last_turn, query: "有哪些型号", answer: "LiTime 12V 100Ah、LiTime 12V 200Ah", entities: [] } });
+    expect(res.status, await res.text()).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "ready", entities: ["LiTime 12V 100Ah", "LiTime 12V 200Ah"] });
+    expect(getConn().prepare("SELECT source FROM cost_events WHERE source='knowledge_qa_context'").all()).toHaveLength(1);
+  });
+  it("CT08 failed maintenance does not turn a model error into a fake entity", async () => {
+    const { scope, context } = await fixture();
+    qaFetch.mockRejectedValueOnce(new Error("provider failed"));
+    const res = await request("POST", "/api/admin/knowledge/qa-context", { scope, turn: context.last_turn, history_summary: "旧摘要" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "degraded", entities: [], history_summary: "旧摘要" });
+    expect(await auditCount("knowledge.qa_context_unavailable")).toBe(1);
+  });
+  it("CT09/FB06 rejects out-of-scope maintenance and unauthorized requests before Luna", async () => {
+    const { scope, context } = await fixture();
+    const res = await request("POST", "/api/admin/knowledge/qa-context", { scope, history_summary: "",
+      turn: { ...context.last_turn, citations: [{ document: "other", document_id: "outside", page: 1 }] } });
+    expect(res.status).toBe(400);
+    expect(qaFetch).not.toHaveBeenCalled();
+    process.env.AUTH_MODE = "enabled";
+    for (const endpoint of ["search", "qa-context"]) {
+      expect([401, 403]).toContain((await request("POST", `/api/admin/knowledge/${endpoint}`, { query: "x", ...scope })).status);
+    }
+    expect(qaFetch).not.toHaveBeenCalled();
+  });
+  it("RG02 document changed during rewrite stops before PageIndex", async () => {
+    const { scope, doc } = await fixture();
+    qaFetch.mockImplementationOnce(async () => {
+      getConn().prepare("UPDATE knowledge_documents SET status='archived' WHERE id=?").run(doc.id);
+      return qaResponse({ rewritten: "x", resolved_entities: [], rewrote: false, reason: "完整" });
+    });
+    const spy = vi.spyOn(bridge, "runBridge");
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "x", ...scope });
+    expect(res.status).toBe(409);
+    expect(spy.mock.calls.filter(([c]) => c.cmd === "ask")).toHaveLength(0);
+  });
+  it.each(["before", "after"])("FB07 budget hard stop %s rewrite cannot fall through to PageIndex", async (phase) => {
+    const { scope } = await fixture();
+    const { companyScopeRef, upsertBudget, recordCostEvent } = await import("../src/costs.js");
+    upsertBudget({ scope: "company", scopeRef: companyScopeRef(), limitTokens: 10, actor: "sriphy" });
+    if (phase === "before") recordCostEvent({ source: "qa-test", totalTokens: 15, userId: "sriphy" });
+    const spy = vi.spyOn(bridge, "runBridge");
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "x", ...scope });
+    expect(res.status).toBe(429);
+    expect(await detailCode(res)).toBe("budget_exceeded");
+    expect(qaFetch).toHaveBeenCalledTimes(phase === "before" ? 0 : 1);
+    expect(spy.mock.calls.filter(([c]) => c.cmd === "ask")).toHaveLength(0);
+  });
+  it("FB07 rereads current admin role after the model await", async () => {
+    const { scope } = await fixture();
+    getConn().prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
+      .run(tokenDigest("qa-admin"), "sriphy", new Date(Date.now() + 60000).toISOString(), new Date().toISOString());
+    process.env.AUTH_MODE = "enabled";
+    qaFetch.mockImplementationOnce(async () => {
+      getConn().prepare("UPDATE users SET roles='[\"employee\"]' WHERE id='sriphy'").run();
+      return qaResponse({ rewritten: "x", resolved_entities: [], rewrote: false, reason: "完整" });
+    });
+    const spy = vi.spyOn(bridge, "runBridge");
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "x", ...scope }, "lingong_session=qa-admin");
+    expect(res.status, await res.text()).toBe(403);
+    expect(spy.mock.calls.filter(([c]) => c.cmd === "ask")).toHaveLength(0);
+  });
+  it("FB08 runtime retrieval does not opt into admin rewriting", async () => {
+    const { scope } = await fixture();
+    const { queryDocuments } = await import("../src/host/knowledge-documents.js");
+    const res = await queryDocuments({ query: "x", ...scope }, "sriphy");
+    expect(String(res.answer)).toContain("x");
+    expect(res.rewrite).toBeUndefined();
+    expect(qaFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("QA usage integrity", () => {
+  it.each([null, { input_tokens: 10 }])("does not turn missing or partial usage into a measured zero", async (usage) => {
+    const base = await createUnstructuredBase("usage_context");
+    const doc = await upload(String(base.id), "用量测试.pdf", pdfBytes());
+    await waitStatus(String(doc.id), ["pending_review"]);
+    qaFetch.mockResolvedValueOnce(new Response(JSON.stringify({ output_text: JSON.stringify({ rewritten: "x", resolved_entities: [], rewrote: false, reason: "完整" }), usage })));
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "x", base_id: base.id, doc_ids: [doc.id], include_pending: true });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(await auditCount("knowledge.qa_usage_unavailable")).toBe(1);
+    expect(getConn().prepare("SELECT id FROM cost_events WHERE source='knowledge_rewrite'").all()).toHaveLength(0);
+    const event = getConn().prepare("SELECT payload FROM audit_events WHERE event_type='knowledge.search' ORDER BY id DESC LIMIT 1").get() as { payload: string };
+    expect(JSON.parse(event.payload).request_id).toBe((body.rewrite as Json).request_id);
+  });
+});
+
+describe("QA organization authorization", () => {
+  async function fixture() {
+    const base = await createUnstructuredBase("org_context");
+    const doc = await upload(String(base.id), "组织授权.pdf", pdfBytes());
+    await waitStatus(String(doc.id), ["pending_review"]);
+    return { doc, scope: { base_id: String(base.id), doc_ids: [String(doc.id)], include_pending: true } };
+  }
+  it("search and maintenance both reject documents without current organization ownership", async () => {
+    const { doc, scope } = await fixture();
+    getConn().prepare("UPDATE knowledge_documents SET created_by='foreign-private-owner' WHERE id=?").run(doc.id);
+    const spy = vi.spyOn(bridge, "runBridge");
+    const search = await request("POST", "/api/admin/knowledge/search", { query: "x", ...scope });
+    const maintenance = await request("POST", "/api/admin/knowledge/qa-context", { scope, history_summary: "",
+      turn: { query: "x", answer: "x", entities: [], citations: [{ document: "组织授权", document_id: doc.id, page: 1 }] } });
+    expect(search.status).toBe(403);
+    expect(maintenance.status).toBe(403);
+    expect(qaFetch).not.toHaveBeenCalled();
+    expect(spy.mock.calls.filter(([c]) => c.cmd === "ask")).toHaveLength(0);
+  });
+  it("organization authorization changed during rewrite stops retrieval", async () => {
+    const { doc, scope } = await fixture();
+    qaFetch.mockImplementationOnce(async () => {
+      getConn().prepare("UPDATE knowledge_documents SET created_by='foreign-private-owner' WHERE id=?").run(doc.id);
+      return qaResponse({ rewritten: "x", resolved_entities: [], rewrote: false, reason: "完整" });
+    });
+    const spy = vi.spyOn(bridge, "runBridge");
+    expect((await request("POST", "/api/admin/knowledge/search", { query: "x", ...scope })).status).toBe(403);
+    expect(spy.mock.calls.filter(([c]) => c.cmd === "ask")).toHaveLength(0);
+  });
+  it("organization authorization changed during PageIndex does not return the answer", async () => {
+    const { doc, scope } = await fixture();
+    const original = bridge.runBridge;
+    vi.spyOn(bridge, "runBridge").mockImplementationOnce(async (call) => {
+      const result = await original(call);
+      getConn().prepare("UPDATE knowledge_documents SET created_by='foreign-private-owner' WHERE id=?").run(doc.id);
+      return result;
+    });
+    const res = await request("POST", "/api/admin/knowledge/search", { query: "x", ...scope });
+    expect(res.status).toBe(403);
+    expect((await res.json()).answer).toBeUndefined();
+  });
+  it("organization authorization changed during maintenance does not return entities", async () => {
+    const { doc, scope } = await fixture();
+    qaFetch.mockImplementationOnce(async () => {
+      getConn().prepare("UPDATE knowledge_documents SET created_by='foreign-private-owner' WHERE id=?").run(doc.id);
+      return qaResponse({ entities: ["产品 A"], history_summary: "" });
+    });
+    const res = await request("POST", "/api/admin/knowledge/qa-context", { scope, history_summary: "",
+      turn: { query: "产品 A", answer: "产品 A", entities: [], citations: [{ document: "组织授权", document_id: doc.id, page: 1 }] } });
+    expect(res.status).toBe(403);
+    expect((await res.json()).entities).toBeUndefined();
+  });
+});
+
+describe("QA request boundary", () => {
+  it.each([
+    null, [], {}, { query: 1, base_id: "base" }, { query: "x", base_id: [] },
+    { query: "x", base_id: "base", include_pending: "true" },
+    { query: "x", base_id: "base", doc_ids: "doc" },
+    { query: "x".repeat(16001), base_id: "base" },
+    { query: "x", base_id: "base", doc_ids: Array(257).fill("doc") },
+  ])("rejects malformed top-level input before Luna and PageIndex", async (body) => {
+    const spy = vi.spyOn(bridge, "runBridge");
+    const res = await request("POST", "/api/admin/knowledge/search", body);
+    expect(res.status).toBe(400);
+    expect(qaFetch).not.toHaveBeenCalled();
+    expect(spy.mock.calls.filter(([c]) => c.cmd === "ask")).toHaveLength(0);
+  });
+  it("returns 400 rather than 500 for malformed JSON on both QA endpoints", async () => {
+    for (const endpoint of ["search", "qa-context"]) {
+      const res = await withScopedUser(requireAdmin(), () => app.request(`/api/admin/knowledge/${endpoint}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "[invalid-json",
+      }));
+      expect(res.status).toBe(400);
+    }
+    expect(qaFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("QA maintenance budget gate", () => {
+  it.each(["before", "during"])("returns 429 for hard stop %s Luna and no maintenance payload", async (phase) => {
+    const base = await createUnstructuredBase("maintenance_budget");
+    const doc = await upload(String(base.id), "维护预算.pdf", pdfBytes());
+    await waitStatus(String(doc.id), ["pending_review"]);
+    const { companyScopeRef, upsertBudget, recordCostEvent } = await import("../src/costs.js");
+    upsertBudget({ scope: "company", scopeRef: companyScopeRef(), limitTokens: 10, actor: "sriphy" });
+    if (phase === "before") recordCostEvent({ source: "qa-test", totalTokens: 15, userId: "sriphy" });
+    else qaFetch.mockImplementationOnce(async () => {
+      recordCostEvent({ source: "qa-test-concurrent", totalTokens: 15, userId: "sriphy" });
+      return qaResponse({ entities: ["产品 A"], history_summary: "" });
+    });
+    const res = await request("POST", "/api/admin/knowledge/qa-context", {
+      scope: { base_id: base.id, doc_ids: [doc.id], include_pending: true }, history_summary: "",
+      turn: { query: "产品 A", answer: "产品 A", entities: [], citations: [{ document: "维护预算", document_id: doc.id, page: 1 }] },
+    });
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect((body.detail as Json).code).toBe("budget_exceeded");
+    expect(body.entities).toBeUndefined();
+    expect(body.history_summary).toBeUndefined();
+    expect(qaFetch).toHaveBeenCalledTimes(phase === "before" ? 0 : 1);
   });
 });

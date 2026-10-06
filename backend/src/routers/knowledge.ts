@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { dataDir } from "../config.js";
 import { startDocument, publishedDocumentSourceFile } from "../host/knowledge-documents.js";
+import { maintainAdminQaContext } from "../host/knowledge-qa.js";
 import { scopedUser } from "../auth.js";
 import { assertRuntimeSkill } from "../runtime/execution.js";
 import { hasDocumentTool, documentDependencies } from "../runtime/document-knowledge.js";
@@ -286,7 +287,17 @@ knowledge.delete("/admin/knowledge/documents/:id", async (c) => {
   }
   return c.json(deleteDocument(c.req.param("id")));
 });
-knowledge.post("/admin/knowledge/search", async (c) => c.json(await searchDocuments((await c.req.json()) as Json)));
+knowledge.post("/admin/knowledge/search", async (c) => {
+  requireAdmin();
+  const body = await c.req.json().catch(() => { throw new HttpFail(400, "试算请求必须是有效 JSON"); });
+  return c.json(await searchDocuments(body as Json, c.req.header("X-Review-Company")));
+});
+knowledge.post("/admin/knowledge/qa-context", async (c) => {
+  requireAdmin();
+  c.header("Cache-Control", "private, no-store");
+  const body = await c.req.json().catch(() => { throw new HttpFail(400, "上下文维护请求必须是有效 JSON"); });
+  return c.json(await maintainAdminQaContext(body, c.req.header("X-Review-Company")));
+});
 knowledge.get("/admin/knowledge/index-health", async (c) => c.json(await documentIndexHealth()));
 
 knowledge.get("/admin/knowledge", (c) => {

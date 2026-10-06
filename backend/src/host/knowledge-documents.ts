@@ -18,6 +18,10 @@ import { bridgeMode, chatModel, indexModel, mediaModel, runBridge, type BridgeOu
 import { recordCostEvent } from "../costs.js";
 import { intentLlmApiKey, intentLlmFetch } from "../tasks/openai-intent.js";
 import { postgresQuery } from "../postgres/pool.js";
+import type { QaRewriteDiagnostic, QaScope } from "../../../shared/knowledge-qa.js";
+import type { QaDocument } from "../knowledge/qa-contract.js";
+import { assertQaDocumentsUnchanged, authorizeQaDocuments, prepareAdminQaQuery, revalidateQaAdmin } from "./knowledge-qa.js";
+import { assertQaBudget } from "../knowledge/qa-governance.js";
 
 export const DOCUMENT_STATUSES = [
   "draft",
@@ -767,15 +771,35 @@ export async function searchDocuments(input: {
   base_id?: string;
   doc_ids?: unknown;
   include_pending?: unknown;
-}): Promise<Json> {
-  requireAdmin();
-  return queryDocuments(input, knowledgeActorId());
+  context?: unknown;
+}, tenant?: string): Promise<Json> {
+  revalidateQaAdmin();
+  if (!input || typeof input.query !== "string" || input.query.length > 16000 || typeof input.base_id !== "string"
+      || (input.include_pending !== undefined && typeof input.include_pending !== "boolean")
+      || (input.doc_ids !== undefined && (!Array.isArray(input.doc_ids) || input.doc_ids.length > 256
+        || !input.doc_ids.every((id) => typeof id === "string" && id.trim() && id.length <= 256)))) {
+    throw new HttpFail(400, { code: "knowledge_search_invalid_request", message: "试算输入类型或长度不符合约定。" });
+  }
+  const actor = knowledgeActorId();
+  let authorizedDocuments: QaDocument[] = [];
+  const revalidate = async () => {
+    revalidateQaAdmin();
+    if (authorizedDocuments.length) await authorizeQaDocuments(actor, tenant, authorizedDocuments);
+    revalidateQaAdmin();
+    assertQaBudget(actor);
+  };
+  return queryDocuments(input, actor, revalidate, (query, scope, documents) => {
+    authorizedDocuments = documents;
+    return prepareAdminQaQuery(query, scope, documents, input.context, actor, tenant);
+  });
 }
 
 /** Internal retrieval service. Callers must authorize scope before dispatch and again before returning. */
 export async function queryDocuments(input: {
   query?: string; base_id?: string; doc_ids?: unknown; include_pending?: unknown;
-}, actor: string, revalidate: () => void = () => {}): Promise<Json> {
+}, actor: string, revalidate: () => void | Promise<void> = () => {},
+  prepareQuery?: (query: string, scope: QaScope, documents: QaDocument[]) => Promise<QaRewriteDiagnostic>,
+): Promise<Json> {
   const query = String(input.query || "").trim();
   if (!query) throw new HttpFail(400, "query required");
   const baseId = String(input.base_id || "").trim();
@@ -822,10 +846,18 @@ export async function queryDocuments(input: {
   if (!engineIds.length) {
     throw new HttpFail(409, { code: "knowledge_not_indexed", message: "所选资料还没有完成索引" });
   }
-  const args = ["--library", libraryDir(baseId), "--question", query, "--chat-model", chatModel(), "--citations"];
+  const rewrite = prepareQuery ? await prepareQuery(query, { base_id: baseId, doc_ids: docIds, include_pending: includePending },
+    docs.map((d) => ({ id: String(d.id), title: String(d.title), filename: String(d.filename) }))) : undefined;
+  if (prepareQuery) {
+    await revalidate();
+    assertQaDocumentsUnchanged(docs);
+    const liveBase = getConn().prepare("SELECT status FROM knowledge_bases WHERE id=?").get(baseId) as Row | undefined;
+    if (liveBase?.status !== "active") throw new HttpFail(409, { code: "knowledge_base_archived", message: "知识库已归档" });
+  }
+  const args = ["--library", libraryDir(baseId), "--question", rewrite?.effective_query || query, "--chat-model", chatModel(), "--citations"];
   for (const engineId of engineIds) args.push("--doc-id", engineId);
   const outcome: BridgeOutcome = await runBridge({ cmd: "ask", args, timeoutMs: 10 * 60_000 });
-  revalidate();
+  await revalidate();
   for (const doc of docs) {
     const current = docRow(String(doc.id));
     if (current.status !== doc.status || current.updated_at !== doc.updated_at || engineDocIdOf(current) !== engineDocIdOf(doc)) {
@@ -865,6 +897,7 @@ export async function queryDocuments(input: {
     base_id: baseId,
     doc_ids: docs.map((doc) => String(doc.id)),
     include_pending: includePending,
+    ...(rewrite ? { request_id: rewrite.request_id, rewrite_status: rewrite.status, validation_version: "qa-host.v1" } : {}),
   });
   if (usage) {
     recordCostEvent({
@@ -880,6 +913,7 @@ export async function queryDocuments(input: {
     answer: String(outcome.answer || ""),
     citations,
     usage,
+    ...(rewrite ? { rewrite } : {}),
     engine: { mode: bridgeMode(), model: chatModel() },
     scope: {
       base_id: baseId,

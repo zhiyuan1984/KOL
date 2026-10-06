@@ -36,7 +36,8 @@ knowledgePublication.use("/admin/knowledge/documents/:id/*",async(c,next)=>{
 });
 knowledgePublication.use("/admin/knowledge/:id/*",async(c,next)=>{
   const id=c.req.param("id") || "";
-  if(!["documents","bases","domains","workspace-v1","entries","publication-v2","bindings","raw","extract","proposals"].includes(id))await postgresTransaction(db=>authorizeEntry(db,actor(),c.req.header("X-Review-Company"),id));
+  // Static trial endpoints authorize their own admin/base/document scope. They are not entry IDs.
+  if(!["documents","bases","domains","workspace-v1","entries","publication-v2","bindings","raw","extract","proposals","search","qa-context","index-health"].includes(id))await postgresTransaction(db=>authorizeEntry(db,actor(),c.req.header("X-Review-Company"),id));
   await next();
 });
 knowledgePublication.use("/admin/knowledge/:id",async(c,next)=>{
