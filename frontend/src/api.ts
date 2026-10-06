@@ -43,6 +43,7 @@ import type {
 } from "./runtimeConnectorUi.js";
 import type { MailComposeLetter } from "./mail/types.js";
 import type { ReplyContext } from "./mail/reply-context.js";
+import type { QaContext, QaMaintenanceInput, QaMaintenanceResult, QaRewriteDiagnostic } from "../../shared/knowledge-qa.js";
 
 export type SessionRow = {
   id: string;
@@ -1574,6 +1575,7 @@ export type KnowledgeSearchCitation = {
 export type KnowledgeSearchResult = {
   answer: string;
   citations: KnowledgeSearchCitation[];
+  rewrite?: QaRewriteDiagnostic;
   usage?: Record<string, unknown> | null;
   engine?: { mode: string; model: string };
   scope?: {
@@ -2982,8 +2984,10 @@ export const api = {
     ),
   adminKnowledgeDocumentDelete: (id: string) =>
     request<{ deleted: boolean }>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  adminKnowledgeSearch: (body: { query: string; base_id: string; doc_ids?: string[]; include_pending?: boolean }) =>
+  adminKnowledgeSearch: (body: { query: string; base_id: string; doc_ids?: string[]; include_pending?: boolean; context?: QaContext }) =>
     request<KnowledgeSearchResult>("/api/admin/knowledge/search", { method: "POST", body: JSON.stringify(body) }),
+  adminKnowledgeQaContext: (body: QaMaintenanceInput) =>
+    request<QaMaintenanceResult>("/api/admin/knowledge/qa-context", { method: "POST", body: JSON.stringify(body) }),
   adminKnowledgeIndexHealth: () => request<KnowledgeIndexHealth>("/api/admin/knowledge/index-health"),
   adminKnowledgeRaw: () => request<Record<string, unknown>[]>("/api/admin/knowledge/raw"),
   adminKnowledgeJobs: () => request<Record<string, unknown>[]>("/api/admin/knowledge/extract-jobs"),

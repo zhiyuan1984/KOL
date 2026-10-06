@@ -609,6 +609,17 @@ export const KB_DOC_EMPTY = {
 export const KB_DOC_TRIAL_LEAD =
   "试算直接返回 PageIndex 的答案与页级引用；未发布资料默认不参与，审批单份资料时可用「仅审核试算」。";
 
+/** 非结构化检索试算的临时多轮上下文：仅页面 state，刷新和离开页面后即失效。 */
+export const KB_DOC_QA_CONTEXT = {
+  clear: "清空上下文",
+  empty: "本页临时会话 · 尚无上下文；离开或刷新页面后不会保留。",
+  turns: (count: number) => `本页临时会话 · 已保留 ${count} 轮；离开或刷新页面后不会保留。`,
+  maintaining: "正在维护本页临时上下文；完成后才能继续提问。",
+  degraded: "上下文已降级维护；下一轮仍将使用有界摘要。",
+  compressionFailed: "上下文压缩失败：已保留明细，并使用最新 1500 字符摘要降级。",
+  maintenanceFailed: "上下文维护失败：已保留本轮明细，下一轮将按临时摘要继续。",
+} as const;
+
 export function kbDocStatusLabel(status?: string): string {
   const code = String(status || "").trim();
   return KB_DOC_STATUS_LABEL[code] || code || "—";
