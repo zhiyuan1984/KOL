@@ -5,6 +5,8 @@ import { TaskCollaborationContext } from "../tasks/TaskCollaborationContext";
 import { WorkOrderSuggestions } from "../tasks/WorkOrderSuggestions";
 import {
   api,
+  agentChoiceFromError,
+  type AgentChoiceCandidate,
   type CrawlJob,
   type Message,
   type PendingAsk,
@@ -420,6 +422,8 @@ export default function Chat() {
   const [focusDraft, setFocusDraft] = useState(false);
   const [blockSubmit, setBlockSubmit] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
+  /** 同一技能装在多个智能体上：由员工选择后用同一请求重新提交。 */
+  const [agentChoice, setAgentChoice] = useState<{ candidates: AgentChoiceCandidate[]; pending: PendingAsk } | null>(null);
   const [pending, setPending] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
   const [taskReadError, setTaskReadError] = useState("");
@@ -613,8 +617,10 @@ export default function Chat() {
         setMessages(r.messages);
         setAgentStatus(String(r.agent_status || (r.accepted ? "running" : "listening")));
       })
-      .catch(() => {
+      .catch((error) => {
         clearPending(id);
+        const candidates = agentChoiceFromError(error);
+        if (candidates && !cancelled) setAgentChoice({ candidates, pending: payload });
         if (!cancelled) reload();
       })
       .finally(() => {
@@ -676,6 +682,8 @@ export default function Chat() {
     setAgentStatus("running");
     setFocusedMail(null);
     rememberJourney({ kind: "send", skillId: String(existingTask?.skill_id || existingTask?.skill || ""), skillLabel: title || existingTask?.title });
+    setAgentChoice(null);
+    let submitted: PendingAsk | null = null;
     try {
       // 会话里打字点出写合作邮件时，会话本身就绑定了合作对象：与点选技能一样
       // 先向 Host 取一次上下文（正式阶段、授权发件箱、收件人、模板、最近往来），
@@ -709,6 +717,7 @@ export default function Chat() {
         compose_input: p.compose_input,
         skill_template_version: p.skill_template_version || submittedTemplate?.version,
       };
+      submitted = pendingAsk;
       if (!taskWorkspace.task && submittedTemplate && !["email_compose", "creator_discovery"].includes(submittedTemplate.skill_id)
         && (selectedTemplateSkillId || skillParamTouched.size)) {
         const bound = await bindTemplateSessionTask(id, pendingAsk, submittedTemplate);
@@ -719,6 +728,7 @@ export default function Chat() {
         setSkillParamTouched(new Set());
         pendingAsk = bound.pending;
       }
+      submitted = pendingAsk;
       const r = await postOnce(id, pendingAsk);
       if (stopRequestedRef.current) return;
       setMessages(r.messages || []);
@@ -732,6 +742,32 @@ export default function Chat() {
       if (intent === "email_compose") {
         mailCompose.markFailed(error instanceof Error ? error.message : "提交失败，已保留邮件草稿。");
       }
+      const candidates = agentChoiceFromError(error);
+      if (candidates && submitted) {
+        setAgentChoice({ candidates, pending: submitted });
+      } else {
+        setSubmitErr(error instanceof Error ? error.message : "还不能开始这项工作");
+      }
+    } finally {
+      setPending(false);
+      reload();
+    }
+  };
+
+  const chooseAgent = async (agentId: string) => {
+    if (!id || !agentChoice) return;
+    const pendingAsk = { ...agentChoice.pending, agent_id: agentId };
+    setAgentChoice(null);
+    setSubmitErr("");
+    setText("");
+    setPending(true);
+    setAgentStatus("running");
+    try {
+      const r = await postOnce(id, pendingAsk);
+      setMessages(r.messages || []);
+      setAgentStatus(String(r.agent_status || (r.accepted ? "running" : "listening")));
+    } catch (error) {
+      setText(pendingAsk.text);
       setSubmitErr(error instanceof Error ? error.message : "还不能开始这项工作");
     } finally {
       setPending(false);
@@ -1341,6 +1377,16 @@ export default function Chat() {
           <div className="workspace-error" role="alert">
             <strong>还不能开始这项工作</strong>
             <p>{submitErr}</p>
+          </div>
+        )}
+        {agentChoice && (
+          <div className="workspace-error" role="group" aria-label="选择智能体" data-agent-choice>
+            <strong>请选择要使用的智能体</strong>
+            <p>这个技能装配在多个智能体上，选好后按原内容提交。</p>
+            {agentChoice.candidates.map((candidate) => (
+              <button key={candidate.id} type="button" className="btn ghost" data-agent-choice-option={candidate.id} onClick={() => void chooseAgent(candidate.id)}>{candidate.name}</button>
+            ))}
+            <button type="button" className="btn ghost" onClick={() => { setText(agentChoice.pending.text); setAgentChoice(null); }}>取消</button>
           </div>
         )}
         {err && (

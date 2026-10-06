@@ -59,6 +59,7 @@ import { resetDemoRuntimeState, seedAll } from "../seed.js";
 import { STAGES, label } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
+import { skillToolProfile } from "../runtime/skill-coverage.js";
 import { buildHomeBoard } from "../host/home-board.js";
 import { listSkillResultMemories } from "../host/skill-result-memory.js";
 import { HOME_ENTRY_REGISTRY, publicEntryRegistry } from "../host/entry-registry.js";
@@ -94,7 +95,7 @@ type SkillLookup = {
 };
 
 const SKILL_LOOKUP_TTL_MS = 60_000;
-let skillDefinitionCache: { expiresAt: number; defs: SkillLookup["defs"]; cats: SkillLookup["cats"] } | null = null;
+let skillDefinitionCache: { expiresAt: number; defs: SkillLookup["defs"]; cats: SkillLookup["cats"]; source: ReturnType<typeof taskDefinitions> } | null = null;
 
 function clearSkillLookupCache(): void {
   skillDefinitionCache = null;
@@ -108,14 +109,15 @@ function skillLookup(): SkillLookup {
     const tags = String(row.tags || "");
     origins.set(String(row.skill_id), row.origin === "third_party" || (!row.origin && tags.includes("第三方")) ? "third_party" : "official");
   }
-  if (skillDefinitionCache && skillDefinitionCache.expiresAt > now) {
+  if (skillDefinitionCache && skillDefinitionCache.expiresAt > now && skillDefinitionCache.source === taskDefinitions()) {
     return { ...skillDefinitionCache, overlays: overlaySummaries(), origins };
   }
+  const source = taskDefinitions();
   const defs = new Map<string, ReturnType<typeof taskDefinition>>();
-  for (const definition of taskDefinitions()) defs.set(definition.id, definition);
+  for (const definition of source) defs.set(definition.id, definition);
   const cats = new Map<string, ReturnType<typeof skillCatalog>[number]>();
   for (const entry of skillCatalog()) cats.set(entry.id, entry);
-  skillDefinitionCache = { expiresAt: now + SKILL_LOOKUP_TTL_MS, defs, cats };
+  skillDefinitionCache = { expiresAt: now + SKILL_LOOKUP_TTL_MS, defs, cats, source };
   return { defs, cats, overlays: overlaySummaries(), origins };
 }
 
@@ -132,7 +134,8 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
   const sideEffects = definition?.side_effects || "none";
   const needsConfirmation = sideEffects !== "none" || actions.some((action) => /send|write|update|delete|decrypt|import|stage|sync/i.test(action));
   const mcpTools = definition?.mcp || [];
-  const mcpNeedsConfirmation = mcpTools.some((tool) => /send|decrypt|delete|upload|import|changeLifecycleStage/i.test(tool));
+  const toolProfile = skillToolProfile(name, mcpTools);
+  const mcpNeedsConfirmation = toolProfile.risk === "L3";
   const isAsync = name === "creator_discovery" || mcpTools.some((tool) => /start_crawl|crawl_status|crawl_logs|stop_crawl/i.test(tool));
   const executionTools = [
     // Employee surfaces describe the approved connector category, never the
@@ -140,7 +143,7 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
     ...(mcpTools.length ? [{
       kind: "mcp",
       ref: "authorized_connector",
-      risk: mcpNeedsConfirmation ? "L3" : "L1",
+      risk: toolProfile.risk || "L1",
       confirmation: mcpNeedsConfirmation ? "required" : "none",
     }] : []),
     ...actions.map((ref) => ({
@@ -171,6 +174,13 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
     funnel,
     funnel_label: stage?.label || "",
     funnel_hint: stage?.hint || "",
+    // 展示元数据来自技能 md（内置技能可经草稿→发布覆盖）；执行面与风险档读取时派生。
+    icon: definition?.icon || null,
+    badge: definition?.badge || null,
+    starter: definition?.starter || null,
+    connectors: toolProfile.connectors,
+    connectors_mounted: toolProfile.connectors_mounted,
+    risk: toolProfile.risk,
     summary: (overlay?.summary || cat?.summary || cat?.label || name).trim(),
     source: definition?.source || cat?.source || "bundled",
     origin: ctx.origins.get(name) || "official",
@@ -364,7 +374,7 @@ misc.post("/admin/skills", async (c) => {
   const created = createPublishedSkill(body);
   updateSkillLifecycleMeta(created.id, { tags: [] });
   clearSkillLookupCache();
-  return c.json({ ...skillMeta(created.id), grants: grantsForSkill(created.id) }, 201);
+  return c.json({ ...skillMeta(created.id), grants: grantsForSkill(created.id), lifecycle: skillLifecycleMeta(created.id) }, 201);
 });
 misc.post("/admin/skills/import", async (c) => {
   requirePm();

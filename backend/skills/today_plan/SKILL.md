@@ -19,6 +19,8 @@ employee_summary: 按「今日任务」面把历史记忆与新增事项整理�
 side_effects: none
 creates_session: true
 auto_ok: false
+icon: clock
+badge: "AI 助理"
 ---
 # 今日规划 today_plan
 

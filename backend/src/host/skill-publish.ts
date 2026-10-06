@@ -8,7 +8,9 @@ import { dataDir, publishedSkillsDir } from "../config.js";
 import { audit, getConn, nowIso } from "../db.js";
 import { nid } from "../ids.js";
 import {
-  ALLOWED_TASK_MCP,
+  MCP_TOOL_REFERENCE,
+  PRESENTATION_OVERLAY_FIELDS,
+  validatePresentationValue,
   TASK_FUNNELS,
   TASK_OUTPUTS,
   TASK_PROFILES,
@@ -25,6 +27,8 @@ import {
   type TaskSupports,
 } from "../tasks/registry.js";
 import { HttpFail } from "./errors.js";
+import { registeredToolCatalog } from "../runtime/skill-coverage.js";
+import { normalizePresentationPatch, pickPresentationFields, savePresentationOverlay } from "./skill-presentation.js";
 import { currentUser } from "./persona.js";
 import { clearSkillCatalogCache, skillFunnelId, type FunnelId, type SkillEntry } from "./skills-catalog.js";
 import {
@@ -60,6 +64,10 @@ export type CreateSkillInput = {
   permissions?: string[] | string;
   actions?: string[] | string;
   aliases?: string[] | string;
+  icon?: string;
+  badge?: string;
+  starter?: string;
+  result_title?: string;
   in_market?: boolean;
   body?: string;
   grant_org?: boolean; // accepted for older callers; no longer creates personnel grants
@@ -85,6 +93,10 @@ const PACK_FIELDS = [
   "permissions",
   "actions",
   "aliases",
+  "icon",
+  "badge",
+  "starter",
+  "result_title",
   "body",
 ] as const;
 
@@ -139,6 +151,10 @@ export function formatSkillMarkdown(input: {
   next_actions?: TaskNextAction[];
   memory_policy?: TaskMemoryPolicy;
   supports?: TaskSupports;
+  icon?: string;
+  badge?: string;
+  starter?: string;
+  result_title?: string;
   in_market: boolean;
   body: string;
 }): string {
@@ -161,6 +177,10 @@ export function formatSkillMarkdown(input: {
     ...(input.next_actions ? [`next_actions: ${JSON.stringify(input.next_actions)}`] : []),
     ...(input.memory_policy ? [`memory_policy: ${JSON.stringify(input.memory_policy)}`] : []),
     ...(input.supports ? [`supports: ${JSON.stringify(input.supports)}`] : []),
+    ...(input.icon ? [`icon: ${input.icon}`] : []),
+    ...(input.badge ? [`badge: ${yamlScalar(input.badge)}`] : []),
+    ...(input.starter ? [`starter: ${yamlScalar(input.starter)}`] : []),
+    ...(input.result_title ? [`result_title: ${yamlScalar(input.result_title)}`] : []),
     `in_market: ${input.in_market ? "true" : "false"}`,
   ];
   if (input.funnel) lines.push(`funnel: ${input.funnel}`);
@@ -187,6 +207,10 @@ function normalizeCreate(input: CreateSkillInput): {
   next_actions?: TaskNextAction[];
   memory_policy?: TaskMemoryPolicy;
   supports?: TaskSupports;
+  icon?: string;
+  badge?: string;
+  starter?: string;
+  result_title?: string;
   in_market: boolean;
   body: string;
 } {
@@ -207,7 +231,7 @@ function normalizeCreate(input: CreateSkillInput): {
   if (!TASK_FUNNELS.includes(funnelRaw as TaskFunnel)) throw new HttpFail(400, "unknown funnel");
   const mcp = asList(input.mcp);
   for (const tool of mcp) {
-    if (!ALLOWED_TASK_MCP.has(tool)) throw new HttpFail(400, `unapproved MCP tool ${tool}`);
+    if (!MCP_TOOL_REFERENCE.test(tool)) throw new HttpFail(400, `invalid MCP tool reference ${tool}`);
   }
   const body = String(input.body || "").trim();
   if (!body) throw new HttpFail(400, "skill body required");
@@ -219,6 +243,13 @@ function normalizeCreate(input: CreateSkillInput): {
   const resultType = input.result_type === undefined ? undefined : String(input.result_type).trim();
   const resultSchema = asJsonValue<TaskResultSchema>(input.result_schema, "result_schema");
   const actions = asList(input.actions).length ? asList(input.actions) : ["analyze"];
+  const presentation: { icon?: string; badge?: string; starter?: string; result_title?: string } = {};
+  for (const key of ["icon", "badge", "starter", "result_title"] as const) {
+    const value = input[key];
+    if (value === undefined || value === null || String(value).trim() === "") continue;
+    try { presentation[key] = validatePresentationValue(key, value, id); }
+    catch (error) { throw new HttpFail(400, error instanceof Error ? error.message : `invalid ${key}`); }
+  }
   try {
     validateDeclaredTaskContract({
       id,
@@ -253,6 +284,7 @@ function normalizeCreate(input: CreateSkillInput): {
     next_actions: nextActions,
     memory_policy: memoryPolicy,
     supports,
+    ...presentation,
     in_market: input.in_market !== false,
     body,
   };
@@ -334,6 +366,10 @@ export function updatePublishedSkill(id: string, input: UpdateSkillInput): Skill
     next_actions: input.next_actions ?? def?.next_actions,
     memory_policy: input.memory_policy ?? def?.memory_policy,
     supports: input.supports ?? def?.supports,
+    icon: input.icon ?? def?.icon,
+    badge: input.badge ?? def?.badge,
+    starter: input.starter ?? def?.starter,
+    result_title: input.result_title ?? def?.result_title,
     in_market: typeof input.in_market === "boolean" ? input.in_market : current.in_market,
     body: input.body ?? sop.body,
   });
@@ -369,9 +405,10 @@ export function getSkillDraft(id: string): SkillDraft {
 export function saveSkillDraft(id: string, patch: Record<string, unknown>): SkillDraft {
   if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
   const bundled = isBundledSkill(id);
-  const allowed = new Set<string>(bundled ? SOP_DRAFT_FIELDS : PACK_FIELDS);
+  const allowed = new Set<string>(bundled ? [...SOP_DRAFT_FIELDS, ...PRESENTATION_OVERLAY_FIELDS] : PACK_FIELDS);
   const clean = Object.fromEntries(Object.entries(patch).filter(([key, value]) => allowed.has(key) && value !== undefined));
   if (!Object.keys(clean).length) throw new HttpFail(400, "no editable skill fields supplied");
+  if (bundled) normalizePresentationPatch(id, pickPresentationFields(clean), taskDefinition(id)?.actions);
   const previous = getSkillDraft(id);
   const payload = { ...previous.patch, ...clean };
   const updatedAt = nowIso();
@@ -388,10 +425,18 @@ export function applySkillDraft(id: string): { applied: boolean } {
   if (!Object.keys(draft.patch).length) return { applied: false };
   if (isBundledSkill(id)) {
     const current = getSkillSop(id);
-    saveSkillSop(id, {
-      summary: String(draft.patch._sop_summary ?? current.summary),
-      body: String(draft.patch._sop_body ?? current.body),
-    });
+    if (draft.patch._sop_summary !== undefined || draft.patch._sop_body !== undefined) {
+      saveSkillSop(id, {
+        summary: String(draft.patch._sop_summary ?? current.summary),
+        body: String(draft.patch._sop_body ?? current.body),
+      });
+    }
+    const presentation = pickPresentationFields(draft.patch);
+    if (Object.keys(presentation).length) {
+      savePresentationOverlay(id, normalizePresentationPatch(id, presentation, taskDefinition(id)?.actions));
+      clearSkillCatalogCache();
+      activateSkillForHarness(id);
+    }
   } else {
     const packPatch = Object.fromEntries(Object.entries(draft.patch).filter(([key]) => !SOP_DRAFT_FIELDS.includes(key as typeof SOP_DRAFT_FIELDS[number])));
     if (Object.keys(packPatch).length) updatePublishedSkill(id, packPatch as UpdateSkillInput);
@@ -432,6 +477,6 @@ export function skillAdminMeta(): {
     profiles: TASK_PROFILES,
     outputs: TASK_OUTPUTS,
     funnels: TASK_FUNNELS,
-    mcp: [...ALLOWED_TASK_MCP].sort(),
+    mcp: registeredToolCatalog(),
   };
 }

@@ -16,6 +16,10 @@ employee_visible: false
 employee_quick: 已同步邮件列表、往来摘要与已授权邮箱索引
 employee_agent: 新回复理解走 AI 助理；读取敏感正文仍执行权限规则
 employee_summary: 按会话读取邮件正文与往来消息
+icon: lines
+badge: "达人库"
+starter: "读邮件会话 [会话编号]"
+result_title: "邮件会话详情"
 ---
 # 邮件会话详情
 

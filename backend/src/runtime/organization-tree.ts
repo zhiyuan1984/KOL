@@ -11,7 +11,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { getConn, nowIso, type SqliteConn } from "../db.js";
+import { HttpFail } from "../host/errors.js";
 import { agentIsPublished } from "./managed-agents.js";
+import { isPlatformAgent } from "./platform-principal.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const SEED_KEY = "org_registry_v1";
@@ -130,6 +132,16 @@ export type AgentBindingRow = {
 };
 
 /** 覆盖项：说明某人为什么获得资格，供管理端区分「直接覆盖」与「负责人继承」。 */
+export type EffectiveUserSource = {
+  via: "binding_target" | "unit_head" | "unit_member" | "ancestor_head";
+  via_unit_id: string;
+  via_unit_display_name: string | null;
+  binding_id: string;
+  binding_target_type: "organization_unit" | "person";
+  binding_target_id: string;
+  binding_target_display_name: string | null;
+};
+
 export type EffectiveUser = {
   person_ref: string;
   user_id: string | null;
@@ -138,6 +150,8 @@ export type EffectiveUser = {
   via_unit_id: string;
   via_unit_display_name: string | null;
   binding_id: string;
+  /** Every binding that covers this person (one entry per binding); `via` above is the strongest one. */
+  sources: EffectiveUserSource[];
 };
 
 export type EffectiveAgentUsers = {
@@ -570,6 +584,9 @@ export function createAgentBinding(input: {
   effective_from?: string | null;
   source?: string | null;
 }): AgentBindingRow {
+  if (isPlatformAgent(input.agent_id)) {
+    throw new HttpFail(409, { code: "platform_agent_not_bindable", message: "平台系统智能体不对应人员，不能绑定组织或人员。" });
+  }
   ensureOrganizationTree();
   const db = getConn();
   const target = input.target_id;
@@ -693,20 +710,36 @@ function computeEffectiveAgentUsers(
       orgVersion = Math.max(orgVersion, currentOrgVersion(companyId));
     }
 
-    const add = (personRef: string, via: EffectiveUser["via"], unitId: string, bindingId: string): void => {
+    const add = (personRef: string, via: EffectiveUser["via"], unitId: string, binding: AgentBindingRow): void => {
       const unit = byId.get(unitId);
       const person = people.get(personRef);
-      const candidate: EffectiveUser = {
+      const source: EffectiveUserSource = {
+        via,
+        via_unit_id: unitId,
+        via_unit_display_name: unit ? unit.display_name : null,
+        binding_id: binding.id,
+        binding_target_type: binding.target_type,
+        binding_target_id: binding.target_id,
+        binding_target_display_name: binding.target_type === "person"
+          ? people.get(binding.target_id)?.display_name || null
+          : byId.get(binding.target_id)?.display_name || null,
+      };
+      const existing = byRef.get(personRef);
+      const sources = existing?.sources || [];
+      const sameBinding = sources.findIndex((row) => row.binding_id === binding.id);
+      if (sameBinding < 0) sources.push(source);
+      else if (rank[via] < rank[sources[sameBinding].via]) sources[sameBinding] = source;
+      if (existing && rank[via] >= rank[existing.via]) return;
+      byRef.set(personRef, {
         person_ref: personRef,
         user_id: person?.user_id || null,
         display_name: person?.display_name || null,
         via,
         via_unit_id: unitId,
-        via_unit_display_name: unit ? unit.display_name : null,
-        binding_id: bindingId,
-      };
-      const existing = byRef.get(personRef);
-      if (!existing || rank[via] < rank[existing.via]) byRef.set(personRef, candidate);
+        via_unit_display_name: source.via_unit_display_name,
+        binding_id: binding.id,
+        sources,
+      });
     };
 
     for (const binding of bindings.filter((row) => row.company_id === companyId)) {
@@ -719,12 +752,12 @@ function computeEffectiveAgentUsers(
         const membership = memberships.find((row) => row.person_ref === binding.target_id)
           || (simulated?.membership && simulated.membership.company_id === companyId ? simulated.membership : undefined);
         // 绑定人员覆盖本人；本人所属单元及其各级上级单元的负责人一并覆盖（CONST-05「各级上级负责人」）。
-        add(binding.target_id, "binding_target", membership?.org_unit_id || "", binding.id);
+        add(binding.target_id, "binding_target", membership?.org_unit_id || "", binding);
         if (membership) {
           const own = byId.get(membership.org_unit_id);
-          if (own?.head_person_ref) add(own.head_person_ref, "unit_head", own.id, binding.id);
+          if (own?.head_person_ref) add(own.head_person_ref, "unit_head", own.id, binding);
           for (const unit of ascendants(units, membership.org_unit_id)) {
-            if (unit.head_person_ref) add(unit.head_person_ref, "ancestor_head", unit.id, binding.id);
+            if (unit.head_person_ref) add(unit.head_person_ref, "ancestor_head", unit.id, binding);
           }
         }
         continue;
@@ -732,17 +765,17 @@ function computeEffectiveAgentUsers(
       const unitId = binding.target_id;
       const unit = byId.get(unitId);
       if (!unit) continue;
-      if (unit.head_person_ref) add(unit.head_person_ref, "unit_head", unit.id, binding.id);
+      if (unit.head_person_ref) add(unit.head_person_ref, "unit_head", unit.id, binding);
       for (const scopeUnit of [unit, ...descendants(units, unitId)]) {
         for (const membership of memberships.filter((row) => row.org_unit_id === scopeUnit.id)) {
-          add(membership.person_ref, "unit_member", scopeUnit.id, binding.id);
+          add(membership.person_ref, "unit_member", scopeUnit.id, binding);
         }
         if (scopeUnit.id !== unit.id && scopeUnit.head_person_ref) {
-          add(scopeUnit.head_person_ref, "unit_head", scopeUnit.id, binding.id);
+          add(scopeUnit.head_person_ref, "unit_head", scopeUnit.id, binding);
         }
       }
       for (const ancestor of ascendants(units, unitId)) {
-        if (ancestor.head_person_ref) add(ancestor.head_person_ref, "ancestor_head", ancestor.id, binding.id);
+        if (ancestor.head_person_ref) add(ancestor.head_person_ref, "ancestor_head", ancestor.id, binding);
       }
     }
   }

@@ -15,6 +15,8 @@ in_market: true
 employee_visible: false
 employee_quick: 我的任务、阶段索引、已识别风险
 employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规则走后台
+badge: "达人库"
+result_title: "达人风险会话"
 ---
 # 达人风险会话
 

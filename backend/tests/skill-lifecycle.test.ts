@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
-import { clearTaskRegistryCache } from "../src/tasks/registry.js";
+import { clearTaskRegistryCache, taskDefinition } from "../src/tasks/registry.js";
+import { ensureRuntimeSchema, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
 import { dataDir, DEMO_ADMIN } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
 
@@ -139,5 +140,73 @@ describe("skill lifecycle", () => {
     expect(rollback.status, JSON.stringify(rollback.body)).toBe(200);
     const runtimeBody = fs.readFileSync(path.join(dataDir(), "published-skills", id, "SKILL.md"), "utf8");
     expect(runtimeBody).toContain("测试用");
+  });
+
+  it("reports a live bundled skill without snapshots as the bundled baseline, not unpublished", async () => {
+    await loginPm();
+    ensureRuntimeSchema();
+    const list = await request("GET", "/api/admin/skills");
+    expect(list.status).toBe(200);
+    const lifecycle = (list.body.skills as Json[]).find((s) => s.id === "creator_library_all")?.lifecycle as Json;
+    expect(lifecycle.stage).toBe("published");
+    expect(lifecycle.current_version).toBeNull();
+    expect(lifecycle.release).toEqual({ kind: "bundled_baseline" });
+
+    const created = await request("POST", "/api/admin/skills", NEW_SKILL);
+    expect((created.body.lifecycle as Json).release).toEqual({ kind: "none" });
+  });
+
+  it("bundled skills take presentation overrides through draft → publish, never runtime contract fields", async () => {
+    await loginPm();
+    ensureRuntimeSchema();
+    const id = "creator_library_all";
+    const before = taskDefinition(id)!;
+    expect(before.icon).toBe("database");
+    expect(before.badge).toBe("达人库");
+    expect((await request("PUT", `/api/admin/skills/${id}/draft`, { icon: "Not A Key" })).status).toBe(400);
+    expect((await request("PUT", `/api/admin/skills/${id}/draft`, { mcp: ["starrykol.pageKolProfiles"] })).status).toBe(400);
+    const saved = await request("PUT", `/api/admin/skills/${id}/draft`, { icon: "search", badge: "红人库", aliases: ["全部红人"] });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(taskDefinition(id)!.icon).toBe("database");
+    expect((await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing", reason: "改展示" })).status).toBe(200);
+    const published = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "published", reason: "发布展示" });
+    expect(published.status, JSON.stringify(published.body)).toBe(200);
+    const after = taskDefinition(id)!;
+    expect(after).toMatchObject({ icon: "search", badge: "红人库", aliases: ["全部红人"] });
+    expect(after.mcp).toEqual(before.mcp);
+    const list = await request("GET", "/api/admin/skills");
+    expect((list.body.skills as Json[]).find((s) => s.id === id)).toMatchObject({ icon: "search", badge: "红人库" });
+  });
+
+  it("declared tools are checked against the registered catalog at testing/publish time, not a code allowlist", async () => {
+    await loginPm();
+    ensureRuntimeSchema();
+    const id = "catalog_probe";
+    const created = await request("POST", "/api/admin/skills", { ...NEW_SKILL, id, mcp: ["starrykol.brandNewRemoteTool"] });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect((created.body.lifecycle as Json).dependencies).toEqual({
+      unregistered: ["starrykol.brandNewRemoteTool"],
+      unmounted: ["starrykol.brandNewRemoteTool"],
+    });
+    const previousMode = process.env.CODEX_MODE;
+    process.env.CODEX_MODE = "real";
+    try {
+      expect((await request("POST", `/api/admin/skills/${id}/stage`, { stage: "editing" })).status).toBe(200);
+      const unregistered = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
+      expect(unregistered.status).toBe(409);
+      expect(JSON.stringify(unregistered.body)).toContain("skill_tools_unregistered");
+
+      setToolPolicy("starrykol", "brandNewRemoteTool", { enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64) }, 0);
+      const unmounted = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
+      expect(unmounted.status).toBe(409);
+      expect(JSON.stringify(unmounted.body)).toContain("skill_tools_unmounted");
+
+      setSkillConnector(id, "starrykol", true, 0);
+      setSkillTool(id, "starrykol", "brandNewRemoteTool", true, 0);
+      const ready = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
+      expect(ready.status, JSON.stringify(ready.body)).toBe(200);
+    } finally {
+      process.env.CODEX_MODE = previousMode;
+    }
   });
 });

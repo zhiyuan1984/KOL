@@ -15,6 +15,10 @@ in_market: true
 employee_visible: false
 employee_quick: 授权档案、画像、筛选与已有摘要
 employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
+icon: database
+badge: "达人库"
+result_title: "达人库全量结果"
+next_actions: [{"action_id":"skill:creator_profile","when":"has_results","note":"查看达人画像"},{"action_id":"skill:creator_owner_update","when":"has_results","note":"更新红人负责人"},{"action_id":"skill:creator_library_query","when":"no_results","note":"换关键词再查"},{"action_id":"skill:email_compose","when":"no_results","note":"写合作邮件"}]
 ---
 # 达人库全量
 

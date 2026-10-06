@@ -15,6 +15,9 @@ in_market: true
 employee_visible: false
 employee_quick: 授权档案、画像、筛选与已有摘要
 employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
+icon: filter
+badge: "达人库"
+result_title: "达人筛选字典"
 ---
 # 达人筛选字典
 

@@ -112,6 +112,16 @@ export type AdminAgentBinding = {
   updated_at?: string;
 };
 
+export type AdminAgentAccessSource = {
+  via: "binding_target" | "unit_head" | "unit_member" | "ancestor_head";
+  via_unit_id: string;
+  via_unit_display_name: string | null;
+  binding_id: string;
+  binding_target_type: "organization_unit" | "person";
+  binding_target_id: string;
+  binding_target_display_name: string | null;
+};
+
 export type AdminAgentAccess = {
   person_ref: string;
   user_id: string | null;
@@ -120,6 +130,7 @@ export type AdminAgentAccess = {
   via_unit_id: string;
   via_unit_display_name: string | null;
   binding_id: string;
+  sources?: AdminAgentAccessSource[];
 };
 
 export type AdminAgentCoverage = {
@@ -1396,7 +1407,21 @@ export type PendingAsk = {
   compose_input?: ComposeInput;
   /** Optimistic template version; server owns and snapshots the actual DTO. */
   skill_template_version?: string;
+  /** 员工选定的智能体；同一技能装在多个智能体上时由员工选择。 */
+  agent_id?: string;
 };
+
+export type AgentChoiceCandidate = { id: string; name: string };
+
+/** 服务端要求员工在多个可用智能体中选择一个（runtime_agent_ambiguous）。 */
+export function agentChoiceFromError(error: unknown): AgentChoiceCandidate[] | null {
+  const raw = (error as { payload?: { code?: string; candidates?: unknown; detail?: unknown } } | null)?.payload;
+  const payload = (raw && typeof raw.detail === "object" && raw.detail ? raw.detail : raw) as { code?: string; candidates?: unknown } | undefined;
+  if (!payload || payload.code !== "runtime_agent_ambiguous" || !Array.isArray(payload.candidates)) return null;
+  return payload.candidates
+    .map((row) => ({ id: String((row as { id?: unknown }).id || ""), name: String((row as { name?: unknown }).name || (row as { id?: unknown }).id || "") }))
+    .filter((row) => row.id);
+}
 
 export type KnowledgeRow = {
   id: string;
@@ -2511,6 +2536,7 @@ export const api = {
         client_entry: p.client_entry,
         compose_input: p.compose_input,
         skill_template_version: p.skill_template_version,
+        agent_id: p.agent_id,
       }),
     });
     const b = (await parse(r)) as {
@@ -2524,7 +2550,11 @@ export const api = {
     };
     if (!r.ok) {
       const d = b.detail;
-      throw new Error(typeof d === "string" ? d : JSON.stringify(d || b));
+      const message = typeof d === "string" ? d : (d as { message?: string } | undefined)?.message || JSON.stringify(d || b);
+      const err = new Error(message) as Error & { payload?: unknown; status?: number };
+      err.payload = d;
+      err.status = r.status;
+      throw err;
     }
     return b as PostMessageResult;
   },

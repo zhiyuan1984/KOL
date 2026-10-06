@@ -36,3 +36,6 @@ supports: {"cancel":true,"retry":true,"resume":false}
 ## 是否改阶段
 
 不改官方阶段。
+icon: search
+badge: "平台采集"
+starter: "发现达人 [平台或关键词]"

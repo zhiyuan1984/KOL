@@ -14,6 +14,9 @@ aliases: ["生命周期看板","合作看板"]
 in_market: true
 employee_quick: 我的任务、阶段索引、已识别风险
 employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规则走后台
+icon: kanban
+badge: "达人库"
+result_title: "合作生命周期看板"
 ---
 # 合作生命周期看板
 

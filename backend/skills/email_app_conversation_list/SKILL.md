@@ -16,6 +16,8 @@ employee_visible: false
 employee_quick: 已同步邮件列表、往来摘要与已授权邮箱索引
 employee_agent: 新回复理解走 AI 助理；读取敏感正文仍执行权限规则
 employee_summary: 按关键词、风险标签或达人查询应用内邮件会话
+badge: "达人库"
+result_title: "应用邮件会话"
 ---
 # 应用邮件会话
 

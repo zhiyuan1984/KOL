@@ -79,7 +79,11 @@ export type TaskResultSchema = {
   minimum?: number;
   maximum?: number;
 };
-export type TaskNextAction = { action_id: string; when: "has_results" | "has_selection" | "always"; note?: string };
+/**
+ * 结果卡片的下一步动作。action_id 是本技能 actions 里登记的动作，或 `skill:<技能 id>`（引导到另一个技能）；
+ * note 是员工看到的动作文案。when：always / has_results / no_results / has_selection。
+ */
+export type TaskNextAction = { action_id: string; when: "has_results" | "no_results" | "has_selection" | "always"; note?: string };
 export type TaskMemoryPolicy = {
   kind: string;
   scope: "owner" | "company" | "object";
@@ -153,6 +157,12 @@ export type TaskDefinition = {
   aliases: string[];
   in_market: boolean;
   funnel?: TaskFunnel;
+  /** 展示元数据（作者声明）：图标库编号、来源徽章、填空模板。缺省时前端用通用图标/「平台内置」/标题。 */
+  icon?: string;
+  badge?: string;
+  starter?: string;
+  /** 结果卡片标题（作者声明）；缺省时用「技能名称」。 */
+  result_title?: string;
   side_effects: TaskSideEffects;
   creates_session: boolean;
   auto_ok: boolean;
@@ -160,7 +170,11 @@ export type TaskDefinition = {
   path: string;
 };
 
-export const ALLOWED_TASK_MCP = new Set([
+/**
+ * 本地 stub / Codex 箱内置 MCP 服务器实现的工具（只用于 stub 箱配置）。
+ * 这不是技能可声明工具的白名单：生产中技能声明对照已登记工具目录（runtime_tool_policies）。
+ */
+export const LOCAL_STUB_MCP_TOOLS = new Set([
   "knowledge.ask_documents",
   "claw.start_crawl",
   "claw.get_crawl_status",
@@ -201,6 +215,51 @@ export const ALLOWED_TASK_MCP = new Set([
   "kolclaw.get_budget_report",
   "kolclaw.list_creators",
 ]);
+
+/** `<连接器>.<工具>`：只校验引用格式；是否已登记、已挂载在编写/测试/发布时对照工具目录判定。 */
+export const MCP_TOOL_REFERENCE = /^[a-z][a-z0-9_-]{0,39}\.[A-Za-z][A-Za-z0-9_.-]{0,99}$/;
+
+export const SKILL_ICON_KEY = /^[a-z][a-z0-9-]{0,39}$/;
+const MAX_BADGE = 12;
+const MAX_STARTER = 300;
+
+export function validatePresentationValue(key: "icon" | "badge" | "starter" | "result_title", value: unknown, where: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${key} must be a non-empty string: ${where}`);
+  const text = value.trim();
+  if (key === "icon" && !SKILL_ICON_KEY.test(text)) throw new Error(`icon must be an icon library key: ${where}`);
+  if (key === "badge" && text.length > MAX_BADGE) throw new Error(`badge is too long: ${where}`);
+  if (key === "starter" && text.length > MAX_STARTER) throw new Error(`starter is too long: ${where}`);
+  if (key === "result_title" && text.length > 40) throw new Error(`result_title is too long: ${where}`);
+  return text;
+}
+
+function parsePresentation(values: Record<string, unknown>, file: string): Pick<TaskDefinition, "icon" | "badge" | "starter" | "result_title"> {
+  const out: Pick<TaskDefinition, "icon" | "badge" | "starter" | "result_title"> = {};
+  for (const key of ["icon", "badge", "starter", "result_title"] as const) {
+    if (values[key] !== undefined) out[key] = validatePresentationValue(key, values[key], file);
+  }
+  return out;
+}
+
+/**
+ * 内置技能的展示字段可在管理端经「草稿 → 发布」覆盖；运行契约（工具、必填、权限）仍随代码发布。
+ * 覆盖来源由 Host 注册（读库），注册前或读取失败时不覆盖——注册表本身不触碰数据库。
+ */
+export const PRESENTATION_OVERLAY_FIELDS = ["icon", "badge", "starter", "result_title", "category", "funnel", "aliases", "next_actions"] as const;
+export type PresentationOverlay = Partial<Pick<TaskDefinition, (typeof PRESENTATION_OVERLAY_FIELDS)[number]>>;
+let presentationOverlaySource: (() => ReadonlyMap<string, PresentationOverlay>) | null = null;
+
+export function setPresentationOverlaySource(source: (() => ReadonlyMap<string, PresentationOverlay>) | null): void {
+  presentationOverlaySource = source;
+  cached = null;
+}
+
+function withPresentationOverlay(definition: TaskDefinition, overlays: ReadonlyMap<string, PresentationOverlay>): TaskDefinition {
+  const overlay = definition.source === "bundled" ? overlays.get(definition.id) : undefined;
+  if (!overlay) return definition;
+  const picked = Object.fromEntries(PRESENTATION_OVERLAY_FIELDS.filter((key) => overlay[key] !== undefined).map((key) => [key, overlay[key]]));
+  return Object.freeze({ ...definition, ...picked }) as TaskDefinition;
+}
 
 const REQUIRED = [
   "id",
@@ -449,8 +508,9 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`manifest next_actions[${index}] must be an object: ${file}`);
       const row = raw as Record<string, unknown>;
       if (typeof row.action_id !== "string" || !row.action_id.trim()) throw new Error(`manifest next_actions[${index}].action_id is required: ${file}`);
-      if (registeredActions && !registeredActions.has(row.action_id)) throw new Error(`manifest next_actions[${index}].action_id is not registered in actions: ${file}`);
-      if (!( ["has_results", "has_selection", "always"] as unknown[]).includes(row.when)) throw new Error(`manifest next_actions[${index}].when is invalid: ${file}`);
+      const skillRef = /^skill:[a-z][a-z0-9_]{1,39}$/.test(row.action_id);
+      if (!skillRef && registeredActions && !registeredActions.has(row.action_id)) throw new Error(`manifest next_actions[${index}].action_id is not registered in actions: ${file}`);
+      if (!( ["has_results", "no_results", "has_selection", "always"] as unknown[]).includes(row.when)) throw new Error(`manifest next_actions[${index}].when is invalid: ${file}`);
       return Object.freeze({ action_id: row.action_id, when: row.when as TaskNextAction["when"], ...(row.note ? { note: String(row.note) } : {}) });
     });
   }
@@ -658,9 +718,10 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     }
     funnel = values.funnel as TaskFunnel;
   }
+  const presentation = parsePresentation(values, file);
   const mcp = stringArray(values.mcp, "mcp", file);
   for (const tool of mcp) {
-    if (!ALLOWED_TASK_MCP.has(tool)) throw new Error(`manifest exposes unapproved MCP tool ${tool}: ${file}`);
+    if (!MCP_TOOL_REFERENCE.test(tool)) throw new Error(`manifest has invalid MCP tool reference ${tool}: ${file}`);
   }
   const declaredContract = parseDeclaredContract(values, file);
   if (runtimeAccess === "authenticated" && (sideEffects !== "none" || mcp.length > 0 || stringArray(values.permissions, "permissions", file).length > 0)) {
@@ -694,6 +755,7 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     ) as unknown as string[],
     in_market: values.in_market === undefined ? true : values.in_market === true,
     funnel,
+    ...presentation,
     side_effects: sideEffects,
     creates_session: values.creates_session === true,
     auto_ok: values.auto_ok === true,
@@ -743,7 +805,12 @@ export function taskDefinitions(root?: string): readonly TaskDefinition[] {
     : skillFiles(root).map((entry) => ({ ...entry, source: "bundled" as const }));
   const signature = files.map((entry) => `${entry.source}:${entry.stamp}`).join("|");
   if (usingDefault && cached?.signature === signature) return cached.definitions;
-  const definitions = files.map((entry) => parseDefinition(entry.file, entry.folder, entry.source));
+  const parsed = files.map((entry) => parseDefinition(entry.file, entry.folder, entry.source));
+  let overlays: ReadonlyMap<string, PresentationOverlay> = new Map();
+  if (usingDefault && presentationOverlaySource) {
+    try { overlays = presentationOverlaySource(); } catch { overlays = new Map(); }
+  }
+  const definitions = parsed.map((definition) => withPresentationOverlay(definition, overlays));
   const ids = new Set<string>();
   for (const definition of definitions) {
     if (ids.has(definition.id)) throw new Error(`duplicate task definition id: ${definition.id}`);

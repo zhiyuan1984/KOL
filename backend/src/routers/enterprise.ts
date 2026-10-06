@@ -78,11 +78,17 @@ function safeUser(row: Row): Json {
     .get(row.id) as Row;
   const kolCount = db.prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE employee_id=? AND status='active'")
     .get(row.id) as Row;
+  const memberships = person?.person_ref
+    ? db.prepare("SELECT org_unit_id,relation FROM organization_memberships WHERE person_ref=? AND status='active' ORDER BY relation DESC, org_unit_id")
+      .all(person.person_ref) as { org_unit_id: string; relation: string }[]
+    : [];
   return {
     ...rest,
     avatar_url: avatarUrl,
     email: String(row.email || person?.email || (String(row.username).includes("@") ? row.username : "")),
     person_ref: person?.person_ref || null,
+    org_unit_ids: memberships.map((membership) => membership.org_unit_id),
+    primary_org_unit_id: memberships.find((membership) => membership.relation === "primary")?.org_unit_id || null,
     employee_no: person?.employee_no || null,
     status: row.active ? "active" : "disabled",
     roles: parseJson(row.roles, []),
@@ -301,9 +307,11 @@ enterprise.get("/admin/users/:uid/tools", (c) => {
 enterprise.patch("/admin/users/:uid", async (c) => {
   const admin = requireAdmin();
   const uid = c.req.param("uid");
-  userById(uid);
+  const before = userById(uid);
   const body = (await c.req.json()) as Json;
-  if (body.site !== undefined && String(body.site || "") &&
+  // 只有组织真的变了才校验并同步权威成员关系；原样回传的旧 site（如「深圳站」）不得清空现有组织归属。
+  const siteChanged = body.site !== undefined && String(body.site || "") !== String(before.site || "");
+  if (siteChanged && String(body.site || "") &&
       !listOrganizationUnits().some((unit) => unit.id === String(body.site) && unit.status === "active")) {
     throw new HttpFail(400, "请选择有效组织单元");
   }
@@ -327,10 +335,10 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   sets.push("updated_at=?"); values.push(nowIso(), uid);
   getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values);
   if (body.password !== undefined) getConn().prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid);
-  if (body.site !== undefined || body.name !== undefined || body.email !== undefined) {
-    const updated = userById(uid);
-    const site = String(updated.site || "");
-    if (!site || listOrganizationUnits().some((unit) => unit.id === site)) syncUserOrganization(uid, site);
+  if (siteChanged || body.name !== undefined || body.email !== undefined) {
+    const site = String(userById(uid).site || "");
+    const validUnit = Boolean(site) && listOrganizationUnits().some((unit) => unit.id === site);
+    if (validUnit || (siteChanged && !site)) syncUserOrganization(uid, site);
   }
   audit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) });
   return c.json(safeUser(userById(uid)));

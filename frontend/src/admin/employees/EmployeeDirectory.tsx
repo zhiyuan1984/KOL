@@ -19,6 +19,9 @@ export type DirectoryEmployee = Record<string, unknown> & {
   employee_no?: string | null;
   person_ref?: string | null;
   site?: string;
+  /** 权威组织归属（organization_memberships）；`site` 是旧账号字段，可能不是组织单元。 */
+  org_unit_ids?: string[];
+  primary_org_unit_id?: string | null;
   position?: string;
   manager_user_id?: string;
   brands?: string[];
@@ -60,6 +63,13 @@ function formatTime(value: unknown): string {
 function orgLabel(site: unknown, units: OrganizationUnit[]): string {
   const value = text(site);
   return units.find((unit) => unit.id === value)?.display_name || value || "未分配";
+}
+
+/** 编辑弹窗的组织初值：有效的 site 优先，否则取权威主成员关系，避免把旧字段当成「未分配」保存。 */
+function initialOrg(user: Employee | null | undefined, units: OrganizationUnit[]): string {
+  const site = text(user?.site);
+  if (site && units.some((unit) => unit.id === site)) return site;
+  return text(user?.primary_org_unit_id) || site;
 }
 
 function employeeLabel(user: Employee): string {
@@ -169,7 +179,7 @@ export function EmployeeEditDialog({
   const [name, setName] = useState(text(employee?.name));
   const [email, setEmail] = useState(userEmail(employee || { id: "" }));
   const [password, setPassword] = useState("");
-  const [site, setSite] = useState(text(employee?.site));
+  const [site, setSite] = useState(initialOrg(employee, units));
   const [position, setPosition] = useState(text(employee?.position));
   const [managerId, setManagerId] = useState(text(employee?.manager_user_id));
   const [active, setActive] = useState(employee?.active !== false);
@@ -192,7 +202,7 @@ export function EmployeeEditDialog({
       setContext(data);
       setName(text(user.name));
       setEmail(userEmail(user));
-      setSite(text(user.site));
+      setSite(initialOrg(user, units));
       setPosition(text(user.position));
       setManagerId(text(user.manager_user_id));
       setActive(user.active !== false);
@@ -278,7 +288,7 @@ export function EmployeeEditDialog({
             <label className="field">登录邮箱<input data-employee-field="email" type="email" value={email} placeholder={existing ? "未登记" : ""} onChange={(event) => setEmail(event.target.value)} /></label>
             <label className="field">{existing ? "设置新密码（留空则不变）" : "初始密码"}<input data-employee-field="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
             {existing && loadedUser?.employee_no ? <label className="field">工号<input value={loadedUser.employee_no} readOnly /></label> : null}
-            <label className="field">所属组织<select data-employee-field="organization" value={site} onChange={(event) => setSite(event.target.value)}><option value="">未分配</option>{units.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select></label>
+            <label className="field">所属组织<select data-employee-field="organization" value={site} onChange={(event) => setSite(event.target.value)}><option value="">未分配</option>{site && !units.some((unit) => unit.id === site) && <option value={site}>旧站点字段：{site}（非组织单元）</option>}{units.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select></label>
             <label className="field">岗位<input data-employee-field="position" value={position} placeholder="例如：商务拓展" onChange={(event) => setPosition(event.target.value)} /></label>
             <label className="field">直属上级<select data-employee-field="manager" value={managerId} onChange={(event) => setManagerId(event.target.value)}><option value="">未设置</option>{allEmployees.filter((candidate) => candidate.id !== employee?.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{employeeLabel(candidate)}</option>)}</select></label>
             {existing ? <label className="field">账号状态<select data-employee-field="active" value={active ? "active" : "inactive"} onChange={(event) => setActive(event.target.value === "active")}><option value="active">启用</option><option value="inactive">停用</option></select></label> : null}

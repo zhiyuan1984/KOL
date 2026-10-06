@@ -399,3 +399,19 @@
 - **影响**：`backend/src/routers/misc.ts`、`backend/tests/enterprise-auth.test.ts`（`/api/me` 头像断言）；运行时数据按环境执行重放与账号导入（本次已在隔离 PG 验证库完整演练通过：重放 → 导入后 19/19 在册人员关联、18 张真实头像就位；目标环境按同一步骤执行）。
 - **审宪记录**：需求同上 → 主责 后端专家 + UI/UX 专家 → CONST-08 / CONST-10 → 细则：TECHNOLOGY.md 前后端实施与测试登记；`organization-tree` 运行时契约为既有实现 → **符合**：只读自身信息，不涉 L2/L3 闸门；不以文档或测试冒充完成（CONST-10），以接口断言与实机核验取证 → 下一步：开发库重放 → 导入账号关联 → 登录核验。
 - **限制**：不引入读取期的邮箱回退等新关联规则（关联规则变更须由责任角色另行裁定）；员工头像的写入接口（上传 / 编辑）不存在，属另立需求；Postgres 基线与 auth-disabled / Postgres-only 部署形态的侧栏可见性按部署环境另行核实。
+
+
+## ADR-2026-10-06：技能「配好即可用」——工具对照已登记目录、展示元数据进技能文件、员工选智能体、后台作业执行身份
+
+- **状态**：已接受（用户 2026-10-06：「都采纳，执行」，含四项决定按推荐）
+- **决定者**：用户（产品发起人）；平台产品经理负责技能治理口径，后端/前端专家负责实现。
+- **背景**：「连接器绑好工具 → 技能写好 md 并挂载工具 → 智能体装配技能」本应即可工作，但 `creator_library_all` 等技能还依赖多处按技能 ID 写死的代码：技能可声明工具的代码白名单（`ALLOWED_TASK_MCP`）、前端图标/来源/漏斗/填空模板常量、结果卡片标题与下一步动作、员工有多个可用 Agent 时被直接拒绝、首页红人库同步由 Host 直连远端（违背 `07-mcp-data-contract.md`「不得 Host 代调作为第二真相源」）。
+- **决定**：
+  1. **工具声明对照已登记目录**：技能 md 的 `mcp` 只校验 `<连接器>.<工具>` 引用格式；是否可用对照 `runtime_tool_policies`（连接器 tools/list 发现、管理员已定风险档）。编写时可存草稿并标注「未登记/未挂载」；**进入测试或发布时**（真实执行模式）若有未登记或未挂载的所需工具即拦截。原白名单更名为 `LOCAL_STUB_MCP_TOOLS`，只用于本地 stub 箱配置。
+  2. **展示元数据进技能文件**：`icon`（图标库编号）、`badge`（来源徽章）、`starter`（填空模板）、`result_title`（结果卡片标题）与既有 `category`/`funnel`/`aliases`/`next_actions` 一起写在技能 md 文件头部；内置技能可在管理端经「草稿 → 发布」覆盖这些展示字段（`skill_presentation_overlays`），运行契约（工具、必填、权限）仍随代码发布。执行面（已挂载连接器，未挂载时为声明的连接器）与风险档（所需工具在目录里的最高档，受控动作下限一律 L3）**读取时派生、不存储**。
+  3. **员工选择智能体**：员工发起任务时沿用当前会话最近使用、且仍可用的智能体；同一技能装在多个可用智能体上时返回 `runtime_agent_ambiguous`（409，附候选），由员工选择后按原内容重新提交。后台调用方仍优先技能声明的运行 Agent。
+  4. **后台作业执行身份**（原规则空白，本 ADR 补齐）：设平台系统智能体 `agent:platform-sync`（不对应人员、不能绑定组织或人员、人员含管理员都不能使用）与系统主体 `system:platform-sync`（只能使用该智能体）。首页红人库同步改由它运行 `creator_library_all` 的 `listAllKolProfiles`，与员工技能执行同走「智能体 → 技能 → 连接器 → 工具」挂载与风险档闸门；后台作业不得执行需要确认的工具。凭据取连接器的组织级配置。
+- **理由**：CONST-10（不以写死的代码冒充治理配置，未挂载时如实失败）、`07-mcp-data-contract.md` §工具风险目录与 §真实调用规则（工具经 tools/list 登记、风险档分级、不得 Host 代调）、CONST-05（人员资格经 Agent 绑定；系统主体不是人员，不进入人员覆盖）。
+- **影响资产**：`backend/src/tasks/registry.ts`、`backend/src/tasks/result-presentation.ts`、`backend/src/host/skill-presentation.ts`、`backend/src/host/skill-publish.ts`、`backend/src/host/skill-lifecycle.ts`、`backend/src/host/skills-catalog.ts`、`backend/src/runtime/{skill-coverage,execution,store,managed-agents,organization-tree,platform-principal,platform-run}.ts`、`backend/src/starrykol/{service,library-sync}.ts`、`backend/src/worker/session-items.ts`、`backend/src/routers/{misc,tasks,admin-agents}.ts`、`backend/src/host/api.ts`、`backend/skills/*/SKILL.md`（迁入展示字段）、`frontend/src/skillIcons.ts`、`frontend/src/pages/{SkillCatalog,SkillHub,SkillLifecycle,SkillPresentationEditor,Chat,SimplePages}.tsx`、`frontend/src/{taskStarters,agentConfig,api}.ts`。
+- **审宪记录**：需求「连接器绑工具、技能写 md 并挂载、智能体装配技能即可工作，不应另外开发」→ 主责 平台产品经理 + 后端/前端专家 → CONST-05 / CONST-08 / CONST-09 / CONST-10 → `07-mcp-data-contract.md` §工具风险目录、§真实调用规则；TECHNOLOGY 工具风险目录 → **符合（含一处规则空白补齐：后台作业执行身份，由用户裁定）** → 下一步：类型检查、构建、PostgreSQL 测试库上跑后端用例，目标环境挂载 `creator_library_all → starrykol.listAllKolProfiles` 后核验首页红人库同步。
+- **限制**：结果卡片按技能 ID 写死的部分尚未全部迁移——`email_conversation_list`（按数据计算动作）、`creator_contact_decrypt`、写信与缺参提示等 L3/特殊流程仍在代码中；前端 `STARTERS` / `SKILL_REMOTE` / `SKILL_LABEL` 保留为拿不到目录数据的调用点兜底；红人库同步改用组织级凭据，目标环境若只有个人 Starry 令牌可用，需管理员补组织级凭据，否则同步如实失败。

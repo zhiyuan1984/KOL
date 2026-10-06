@@ -108,7 +108,7 @@ export default function BindingsView({ notify, fail }: KbFeed) {
     for (const option of SKILL_OPTIONS) seen.set(option.id, option.label);
     for (const skill of data?.skills || []) {
       const id = String(skill.id || "");
-      if (id) seen.set(id, skillLabel(id));
+      if (id) seen.set(id, String(skill.title || skill.label || skillLabel(id)));
     }
     return [...seen.entries()].map(([id, label]) => ({ id, label }));
   }, [data?.skills]);

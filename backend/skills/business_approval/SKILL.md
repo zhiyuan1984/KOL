@@ -14,6 +14,9 @@ aliases: ["申请费用","费用审批","审批路径","查看审批","催办审
 in_market: true
 employee_quick: 已授权结果、归属、备注、阶段和审批状态
 employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
+icon: approval
+badge: "平台内置"
+starter: "Expense approval [requester] [amount] [currency]"
 ---
 # Business Approval Agent / 业务审批智能体
 

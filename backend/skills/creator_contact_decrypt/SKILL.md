@@ -15,6 +15,10 @@ in_market: true
 employee_quick: 已授权结果、归属、备注、阶段和审批状态
 employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
 employee_summary: 按达人账号解密联系方式，属于敏感操作
+icon: unlock
+badge: "达人库"
+starter: "解密达人联系方式 [达人]"
+result_title: "达人联系方式"
 ---
 # 解密达人联系方式
 

@@ -14,6 +14,11 @@ aliases: ["创作者画像","红人详情","查看红人负责人"]
 in_market: true
 employee_quick: 授权档案、画像、筛选与已有摘要
 employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
+icon: person
+badge: "达人库"
+starter: "达人画像 [达人昵称或主页]"
+result_title: "达人画像"
+next_actions: [{"action_id":"skill:creator_owner_update","when":"always","note":"更新红人负责人"},{"action_id":"skill:email_compose","when":"always","note":"写合作邮件"}]
 ---
 # 达人画像 creator_profile · Lead
 

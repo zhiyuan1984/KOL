@@ -4,6 +4,7 @@ import { runtimeAgentBindingManifest } from "../contract-scope.js";
 import { HttpFail } from "../host/errors.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import type { Row } from "../types.js";
+import { PLATFORM_SYNC_AGENT, PLATFORM_SYNC_SKILLS } from "./platform-principal.js";
 
 export type HttpTool = {
   name: string;
@@ -102,6 +103,34 @@ function bootstrapWorkspacePlanner(db: ReturnType<typeof getConn>): void {
       "system:runtime-bootstrap",
       "runtime.workspace_planner.migrated",
       JSON.stringify({ agent_id: PLATFORM_PLANNER_AGENT, skills: PLATFORM_PLANNER_SKILLS, migration }),
+    );
+  });
+}
+
+/**
+ * 平台系统智能体的出厂装配（一次性迁移）：只装只读技能。已有行（含停用）一律保留，不复活。
+ * 技能本身的生命周期、连接器与工具挂载仍由管理端决定；没挂好时后台同步如实失败。
+ */
+function bootstrapPlatformSync(db: ReturnType<typeof getConn>): void {
+  const migration = "runtime.platform-sync.v1";
+  if (db.prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id=?").get(migration)) return;
+  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+  const now = nowIso();
+  txImmediate((tx) => {
+    for (const skillId of PLATFORM_SYNC_SKILLS) {
+      const definition = definitions.get(skillId);
+      if (!definition || definition.side_effects !== "none") throw new Error(`invalid platform sync skill: ${skillId}`);
+      tx.prepare(
+        `INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at)
+         SELECT ?,?,?,?,? WHERE NOT EXISTS (
+           SELECT 1 FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?
+         )`,
+      ).run(PLATFORM_SYNC_AGENT, skillId, 1, 1, now, PLATFORM_SYNC_AGENT, skillId);
+    }
+    tx.prepare("INSERT INTO runtime_bootstrap_migrations (id,applied_at) VALUES (?,?)").run(migration, now);
+    tx.prepare("INSERT INTO audit_events (ts,actor,event_type,payload) VALUES (?,?,?,?)").run(
+      now, "system:runtime-bootstrap", "runtime.platform_sync.migrated",
+      JSON.stringify({ agent_id: PLATFORM_SYNC_AGENT, skills: PLATFORM_SYNC_SKILLS, migration }),
     );
   });
 }
@@ -226,6 +255,7 @@ export function ensureRuntimeSchema(): void {
 
   bootstrapWorkspacePlanner(db);
   bootstrapAgentManifestBindings(db, "agent:kol");
+  bootstrapPlatformSync(db);
   initializedConnections.add(db);
 }
 

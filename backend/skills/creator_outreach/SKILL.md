@@ -14,6 +14,9 @@ aliases: ["生成建联话术","达人话术"]
 in_market: true
 employee_quick: 已保存的草稿、回复分析摘要
 employee_agent: 建联方案、写信、改信、理解回复走 AI 助理；发送独立确认
+icon: chat
+badge: "AI 助理"
+starter: "达人建联话术 [达人昵称或主页]"
 ---
 # 达人建联话术
 

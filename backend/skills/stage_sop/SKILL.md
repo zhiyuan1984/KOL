@@ -15,6 +15,8 @@ aliases: ["阶段SOP", "八个阶段", "本阶段SOP", "阶段资料", "阶段�
 in_market: true
 employee_quick: 已发布 SOP 的索引、适用说明
 employee_agent: 结合当前 KOL 选择做法、分析缺口及生成行动方案走 AI 助理
+icon: stage
+badge: "平台内置"
 ---
 # 八个阶段 SOP
 

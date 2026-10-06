@@ -19,6 +19,8 @@ employee_summary: 分析已选对象并建议下一步，不自动写状态；�
 side_effects: none
 creates_session: true
 auto_ok: false
+icon: insight
+badge: "AI 助理"
 ---
 # 今日对象分析 today_analyze
 

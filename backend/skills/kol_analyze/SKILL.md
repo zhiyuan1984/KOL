@@ -13,6 +13,8 @@ aliases: ["红人分析", "KOL分析"]
 in_market: true
 employee_summary: 只读分析公海或我跟进的红人，产出分析简报；不发信、不改阶段、不解密
 funnel: reach
+icon: analysis
+badge: "AI 助理"
 ---
 # 红人分析 kol_analyze · Lead
 

@@ -191,6 +191,25 @@ describe("effective Agent users", () => {
     expect(ancestorHeads).toEqual(["person:lu_haijun"]);
   });
 
+  it("绑定两个部门：两个绑定点都保留，研究院下级成员继承，且逐条列出覆盖来源", () => {
+    const agent = "agent:lead-two-units";
+    bind("organization_unit", "org:research_institute", agent);
+    bind("organization_unit", "org:digital_intelligence_center", agent);
+    expect(listAgentBindings(agent).map((row) => row.target_id).sort()).toEqual([
+      "org:digital_intelligence_center",
+      "org:research_institute",
+    ]);
+    const effective = effectiveAgentUsers(agent);
+    const yan = effective.users.find((user) => user.person_ref === "person:yan_chen");
+    expect(yan).toMatchObject({ via: "unit_member", via_unit_id: "org:ai_product" });
+    expect(yan?.sources.map((source) => source.binding_target_id).sort()).toEqual([
+      "org:digital_intelligence_center",
+      "org:research_institute",
+    ]);
+    expect(yan?.sources.every((source) => source.via === "unit_member" && source.via_unit_id === "org:ai_product")).toBe(true);
+    expect(yan?.sources.find((source) => source.binding_target_id === "org:research_institute")?.binding_target_display_name).toBe("研究院");
+  });
+
   it("绑定人员：本人 + 所属单元与各级上级负责人，不含同事", () => {
     bind("person", "person:gu_jiarui");
     const effective = effectiveAgentUsers("agent:kol");

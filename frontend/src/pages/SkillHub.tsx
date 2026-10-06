@@ -14,36 +14,9 @@ export const FUNNEL: { id: string; label: string; hint: string }[] = [
   { id: "exception", label: "异常旁路", hint: "风险扫描" },
 ];
 
-export const SKILL_FUNNEL: Record<string, string> = {
-  creator_profile: "reach",
-  creator_discovery: "reach",
-  creator_scoring: "reach",
-  creator_outreach: "reach",
-  creator_library_query: "reach",
-  creator_library_all: "reach",
-  creator_library_sync: "reach",
-  creator_status_update: "reach",
-  creator_owner_update: "reach",
-  creator_contact_decrypt: "reach",
-  creator_filter_options: "reach",
-  creator_lifecycle_kanban: "intent",
-  creator_daily_tasks: "reach",
-  confirm_stage: "intent",
-  stage_sop: "intent",
-  reply_analysis: "intent",
-  deal_memory: "biz",
-  email_compose: "biz",
-  email_conversation_read: "biz",
-  email_conversation_list: "biz",
-  email_mailbox_list: "biz",
-  email_app_conversation_list: "biz",
-  creator_risk_conversations: "exception",
-  creator_budget_report: "settle",
-  risk_scan: "exception",
-};
 
 export function skillFunnel(s: { id: string; funnel?: string }) {
-  return s.funnel || SKILL_FUNNEL[s.id] || "reach";
+  return s.funnel || "reach";
 }
 
 export function skillKind(s: { source?: string }) {
@@ -60,6 +33,14 @@ export type SkillRow = {
   /** false = 内部技能（pipeline / 定时任务 / 旅程调用），不在提问框可选清单里。 */
   employee_visible?: boolean;
   funnel?: string;
+  /** 展示元数据：来自技能 md（内置技能可经草稿→发布覆盖）。 */
+  icon?: string | null;
+  badge?: string | null;
+  starter?: string | null;
+  /** 读取时派生：执行面（已挂载的连接器，未挂载时为声明的连接器）与风险档。 */
+  connectors?: string[];
+  connectors_mounted?: boolean;
+  risk?: "L1" | "L2" | "L3" | null;
   summary?: string;
   output?: string;
   keeps_stage?: boolean;

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { canUseAgent, listAgentBindings, listOrganizationPeople } from "../src/runtime/organization-tree.js";
+import { runtimeAgentCandidates, runtimeAgentForSkill } from "../src/runtime/execution.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
@@ -321,6 +322,77 @@ describe("employee Agent sources", () => {
     expect(await viaOf("usr_member")).toBe("unit_member");
     expect(await viaOf("usr_ancestor")).toBe("ancestor_head");
     expect(await viaOf("usr_direct")).toBe("binding_target");
+  });
+
+  it("同一 Agent 绑定研究院与数字智能中心：下级成员继承，两条来源都返回", async () => {
+    const agent = await createAgent("线索智能体");
+    const agentId = String(agent.id);
+    const bulk = await call("POST", `/api/admin/agents/${agentId}/bindings/bulk-preview`, { targets: [
+      { target_type: "organization_unit", target_id: "org:research_institute" },
+      { target_type: "organization_unit", target_id: "org:digital_intelligence_center" },
+    ] });
+    expect(bulk.response.status).toBe(200);
+    const saved = await call("POST", `/api/admin/agents/${agentId}/bindings/bulk`, {
+      targets: [
+        { target_type: "organization_unit", target_id: "org:research_institute" },
+        { target_type: "organization_unit", target_id: "org:digital_intelligence_center" },
+      ],
+      org_version: bulk.json.org_version,
+    });
+    expect(saved.response.status, JSON.stringify(saved.json)).toBe(200);
+    expect(rows<{ target_id: string }>((saved.json.agent as Json).bindings).map((row) => row.target_id).sort()).toEqual([
+      "org:digital_intelligence_center",
+      "org:research_institute",
+    ]);
+    insertUser("usr_yan", "鄢棽");
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_yan", "person:yan_chen");
+    const listed = await call("GET", "/api/admin/users/usr_yan/agents");
+    const row = rows<{ id: string; sources: Array<{ via: string; binding_target_id: string }> }>(listed.json.agents).find((entry) => entry.id === agentId);
+    expect(row?.sources.map((source) => source.binding_target_id).sort()).toEqual([
+      "org:digital_intelligence_center",
+      "org:research_institute",
+    ]);
+  });
+
+  it("同一技能装在两个可用智能体上：员工发起时要求选择，并列出候选", async () => {
+    const ids: string[] = [];
+    for (const name of ["线索智能体", "研究助理"]) {
+      const agent = await createAgent(name);
+      const agentId = String(agent.id);
+      await enableSkill(agentId, "creator_library_all");
+      await call("POST", `/api/admin/agents/${agentId}/bindings`, { target_type: "organization_unit", target_id: "org:research_institute" });
+      const published = await call("PATCH", `/api/admin/agents/${agentId}`, { status: "published", expected_version: 1 });
+      expect(published.response.status, JSON.stringify(published.json)).toBe(200);
+      ids.push(agentId);
+    }
+    insertUser("usr_choice", "鄢棽");
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_choice", "person:yan_chen");
+    expect(runtimeAgentCandidates("creator_library_all", "usr_choice")).toEqual(expect.arrayContaining(ids));
+    let detail: Json = {};
+    try { runtimeAgentForSkill("creator_library_all", "usr_choice", { employeeChoice: true }); }
+    catch (error) { detail = (error as { detail?: Json }).detail || {}; }
+    expect(detail.code).toBe("runtime_agent_ambiguous");
+    expect(rows<{ id: string }>(detail.candidates).map((row) => row.id)).toEqual(expect.arrayContaining(ids));
+  });
+
+  it("编辑员工时原样回传旧 site 或只改姓名，不结束权威成员关系", async () => {
+    insertUser("usr_yan", "鄢棽", { site: "深圳站" });
+    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_yan", "person:yan_chen");
+    const activeUnits = () => (getConn().prepare(
+      "SELECT org_unit_id FROM organization_memberships WHERE person_ref='person:yan_chen' AND status='active'",
+    ).all() as Array<{ org_unit_id: string }>).map((row) => row.org_unit_id);
+    const before = activeUnits();
+    expect(before.length).toBeGreaterThan(0);
+
+    const resent = await call("PATCH", "/api/admin/users/usr_yan", { name: "鄢棽", site: "深圳站" });
+    expect(resent.response.status, JSON.stringify(resent.json)).toBe(200);
+    expect(activeUnits()).toEqual(before);
+    expect(resent.json.org_unit_ids).toEqual(before);
+
+    getConn().prepare("UPDATE users SET site=NULL WHERE id='usr_yan'").run();
+    const renamed = await call("PATCH", "/api/admin/users/usr_yan", { name: "鄢棽", site: "" });
+    expect(renamed.response.status).toBe(200);
+    expect(activeUnits()).toEqual(before);
   });
 });
 

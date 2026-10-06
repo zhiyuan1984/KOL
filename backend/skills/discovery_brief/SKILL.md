@@ -14,6 +14,8 @@ aliases: ["发现简报","discovery brief"]
 in_market: false
 employee_visible: false
 employee_summary: 采集完成后，用已过滤的候选人写一份发现简报；不入库、不建联。
+icon: document
+badge: "平台内置"
 ---
 # 发现简报 discovery_brief · Lead
 

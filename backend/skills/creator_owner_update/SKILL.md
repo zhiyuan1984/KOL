@@ -14,6 +14,10 @@ aliases: ["更新达人负责人","分配红人负责人","改红人负责人"]
 in_market: true
 employee_quick: 已授权结果、归属、备注、阶段和审批状态
 employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
+icon: person-edit
+badge: "达人库"
+starter: "更新红人负责人 [达人] [负责人]"
+result_title: "红人负责人更新结果"
 ---
 # 更新红人负责人
 

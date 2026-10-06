@@ -556,6 +556,9 @@ describe("Email MCP KOL library", () => {
     expect(data).toMatchObject({ total: 1 });
     expect(operations[0]).toMatchObject({ name: "starrykol.listAllKolProfiles", status: "done" });
     expect(emailMcpResultCard("creator_library_all", data).title).toBe("达人库全量结果");
+    // 标题与下一步动作来自技能 md（result_title / next_actions），不是按技能 ID 写死。
+    expect(emailMcpResultCard("creator_library_all", data).recommended_actions).toEqual(["查看达人画像", "更新红人负责人"]);
+    expect(emailMcpResultCard("creator_library_all", { list: [] }).recommended_actions).toEqual(["换关键词再查", "写合作邮件"]);
   });
 
   it("updates creator stage through updateKolProfile after reading detail", async () => {

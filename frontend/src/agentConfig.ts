@@ -44,7 +44,18 @@ export const SKILL_REMOTE: Record<string, RemoteBackend> = {
   deal_memory: "host",
 };
 
-export function remoteForSkill(skillId: string): RemoteBackend {
+/**
+ * 执行面以目录接口派生的 `connectors`（已挂载的连接器，未挂载时为声明的连接器）为准；
+ * 只有拿不到目录数据的调用点才回落到上面的按技能 ID 兜底表。
+ */
+export function remoteForSkill(skillId: string, connectors?: readonly string[] | null): RemoteBackend {
+  if (connectors) {
+    for (const id of connectors) {
+      const remote = CONNECTOR_REMOTE[id];
+      if (remote) return remote;
+    }
+    if (connectors.length === 0) return "host";
+  }
   if (skillId === "stage_sop") return "host";
   return SKILL_REMOTE[skillId] || "host";
 }
@@ -57,6 +68,7 @@ export const CONNECTOR_REMOTE: Record<string, RemoteBackend> = {
   enterprise_mail: "starry-kol-mcp",
   crawl: "media-crawl",
   mediacrawl: "media-crawl",
+  mediacrawler: "media-crawl",
   kolclaw: "kol-agent",
   claw: "kol-agent",
   wecom: "business-approve-agent",

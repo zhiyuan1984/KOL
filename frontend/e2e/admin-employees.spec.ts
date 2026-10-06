@@ -233,6 +233,35 @@ test("选择上级组织时包含下级组员工，不包含旁支员工", async
   }
 });
 
+test("组织筛选按权威成员关系；同一 Agent 经两个部门覆盖时两条来源都显示", async ({ page }) => {
+  const people = [{ ...employee, id: "sriphy", name: "鄢棽", site: "深圳站", org_unit_ids: ["org:ai_product"], primary_org_unit_id: "org:ai_product" }];
+  const organizationUnits = [
+    { id: "org:research_institute", display_name: "研究院", parent_id: null, level: 1 },
+    { id: "org:digital_intelligence_center", display_name: "数字智能中心", parent_id: "org:research_institute", level: 2 },
+    { id: "org:ai_product", display_name: "AI产品组", parent_id: "org:digital_intelligence_center", level: 3 },
+  ].map((unit) => ({ ...unit, company_id: "company:amperetime", status: "active" }));
+  const source = (target: string, label: string) => ({
+    via: "unit_member", via_unit_id: "org:ai_product", via_unit_display_name: "AI产品组", binding_id: `binding:agent:lead:organization_unit:${target}`,
+    binding_target_type: "organization_unit", binding_target_id: target, binding_target_display_name: label,
+  });
+  await page.route("**/api/admin/users", (route) => route.fulfill({ json: people }));
+  await page.route("**/api/admin/agents", (route) => route.fulfill({ json: { agents: [], units: organizationUnits, people: [], skills: [], bases: [] } }));
+  await page.route("**/api/admin/users/sriphy/agents", (route) => route.fulfill({ json: { agents: [{
+    id: "agent:lead", name: "线索智能体", status: "published", person_ref: "person:yan_chen", user_id: "sriphy", display_name: "鄢棽",
+    ...source("org:research_institute", "研究院"), sources: [source("org:research_institute", "研究院"), source("org:digital_intelligence_center", "数字智能中心")],
+  }] } }));
+  await page.goto("/admin");
+  const directory = page.locator("[data-admin-employees]");
+  await directory.locator('[data-employee-department="1"]').selectOption("org:research_institute");
+  await expect(directory.locator("[data-employee-row='sriphy']")).toBeVisible();
+  await directory.locator("[data-employee-row='sriphy']").getByRole("button", { name: "管理绑定", exact: true }).click();
+  const row = page.locator("[data-employee-agent='agent:lead']");
+  await expect(row.locator("[data-employee-agent-source]")).toHaveCount(2);
+  await expect(row).toContainText("绑定点：研究院");
+  await expect(row).toContainText("绑定点：数字智能中心");
+  await expect(row).toContainText("继承来源");
+});
+
 test("编辑员工统一控件高度，品牌全部支持半选，绑定失败不显示零统计", async ({ page }) => {
   let contextUnavailable = true;
   let saved: Json | undefined;

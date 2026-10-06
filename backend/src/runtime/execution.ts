@@ -13,6 +13,7 @@ import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetch
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
 import { canUseAgent, canUseSkill } from "./organization-tree.js";
 import { agentIsPublished } from "./managed-agents.js";
+import { isPlatformAgent, isPlatformPrincipal } from "./platform-principal.js";
 import { DOCUMENT_TOOL, documentDependencies, documentToolSchema, hasDocumentTool, invokeDocumentTool } from "./document-knowledge.js";
 import { runtimeKnowledgeManifest } from '../knowledge/scopes.js';
 import { scopeDescription } from '../knowledge/scope-contract.js';
@@ -98,7 +99,12 @@ function assertNoCredentialEcho(value: unknown, headers: Record<string, string> 
 }
 export function assertRuntimeSkill(context: RuntimeContext): { user: Row; binding: Row; skillVersion: string } {
   ensureRuntimeSchema();
-  const user = getConn().prepare("SELECT id,active,roles FROM users WHERE id=?").get(context.userId) as Row | undefined;
+  const platform = isPlatformPrincipal(context.userId);
+  // 平台系统主体只能用平台系统智能体；人员（含管理员）不能用平台系统智能体。
+  if (platform !== isPlatformAgent(context.agentId)) reject("runtime_agent_not_usable");
+  const user = platform
+    ? { id: context.userId, active: 1, roles: "[\"system\"]" } as Row
+    : getConn().prepare("SELECT id,active,roles FROM users WHERE id=?").get(context.userId) as Row | undefined;
   if (!user?.active) reject("runtime_identity_unavailable", 401);
   if(isKnowledgePreview(context)) {
     if(!parseRoles(user.roles).includes('admin') || requireTaskDefinition(context.skillId).mcp.some(tool=>tool!==DOCUMENT_TOOL))reject('runtime_preview_not_authorized');
@@ -112,7 +118,7 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
   if (lifecycle && lifecycle.stage !== "published") reject("runtime_skill_not_published");
   if (!lifecycle && definition.source === "published") reject("runtime_skill_not_published");
   // 人员资格锚点是「人 → Agent」使用绑定（CONST-05 / ADR-2026-10-03），不再有逐人技能授权。
-  if (!parseRoles(user.roles).includes("admin") && !canUseAgent(context.userId, context.agentId)) {
+  if (!platform && !parseRoles(user.roles).includes("admin") && !canUseAgent(context.userId, context.agentId)) {
     reject("runtime_agent_not_usable");
   }
   const skillVersion=runtimeSkillVersion(context.skillId);
@@ -131,18 +137,36 @@ export function runtimeSkillVersion(skillId:string):string {
   return runtimeHash({definition,body:fs.readFileSync(definition.path,'utf8'),sop});
 }
 
-/** Skills are reusable across Agents. Resolve only a current, published and usable assembly. */
-export function runtimeAgentForSkill(skillId: string, userId: string): string {
+/** Agents through which this person may run the skill (published, skill enabled, person covered). */
+export function runtimeAgentCandidates(skillId: string, userId: string): string[] {
   ensureRuntimeSchema();
-  const definition = requireTaskDefinition(skillId);
+  requireTaskDefinition(skillId);
   const user = getConn().prepare("SELECT active,roles FROM users WHERE id=?").get(userId) as Row | undefined;
   if (!user?.active) reject("runtime_identity_unavailable", 401);
   const admin = parseRoles(user.roles).includes("admin");
   const rows = getConn().prepare("SELECT agent_id FROM runtime_agent_skills WHERE skill_id=? AND enabled=1 ORDER BY agent_id").all(skillId) as Row[];
-  const usable = rows.map((row) => String(row.agent_id)).filter((id) => agentIsPublished(id) && (admin || canUseAgent(userId, id)));
-  if (usable.includes(definition.runtime_agent_id)) return definition.runtime_agent_id;
+  return rows.map((row) => String(row.agent_id)).filter((id) => !isPlatformAgent(id) && agentIsPublished(id) && (admin || canUseAgent(userId, id)));
+}
+
+/**
+ * Skills are reusable across Agents. Resolve only a current, published and usable assembly.
+ * Background callers keep the skill's declared runtime Agent when it is usable. Employee-initiated
+ * submissions pass `employeeChoice`: when several Agents qualify, the employee chooses — never a silent pick.
+ */
+export function runtimeAgentForSkill(skillId: string, userId: string, options: { employeeChoice?: boolean } = {}): string {
+  const definition = requireTaskDefinition(skillId);
+  const usable = runtimeAgentCandidates(skillId, userId);
+  if (!options.employeeChoice && usable.includes(definition.runtime_agent_id)) return definition.runtime_agent_id;
   if (usable.length === 1) return usable[0];
-  reject(usable.length ? "runtime_agent_ambiguous" : "runtime_agent_not_usable");
+  if (usable.length > 1) {
+    const named = usable.map((id) => {
+      let name = id;
+      try { name = String((getConn().prepare("SELECT name FROM managed_agents WHERE id=?").get(id) as Row | undefined)?.name || id); } catch { /* manifest-only agent */ }
+      return { id, name };
+    });
+    throw new HttpFail(409, { code: "runtime_agent_ambiguous", message: "这个技能装配在多个智能体上，请选择要使用的智能体。", skill_id: skillId, candidates: named });
+  }
+  reject("runtime_agent_not_usable");
 }
 /**
  * Runtime authorization for one connector. The only per-person unit is Agent
@@ -153,7 +177,7 @@ export function runtimeAgentForSkill(skillId: string, userId: string): string {
  */
 export function authorizeConnector(context: RuntimeContext, connectorId: string) {
   const skill = assertRuntimeSkill(context);
-  if (!parseRoles(skill.user.roles).includes("admin") && !canUseSkill(context.userId, context.skillId)) {
+  if (!isPlatformPrincipal(context.userId) && !parseRoles(skill.user.roles).includes("admin") && !canUseSkill(context.userId, context.skillId)) {
     reject("runtime_agent_not_usable");
   }
   const binding = getSkillConnectors(context.skillId).find((row) => row.connector_id === connectorId);

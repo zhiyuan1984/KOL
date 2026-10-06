@@ -5,7 +5,8 @@ import { codeFromLabel, mergeRemoteLibraryStage, normalizeStage, preferLaterMain
 import type { Json, Row } from "../types.js";
 import { avgPlaysOf, engagementOf, followersOf, geoOf } from "./remote-metrics.js";
 import { normalizeRiskTag, parseNicheTags } from "./remote-contract.js";
-import { executeStarryKolTask, remoteLifecycleIdFrom } from "./service.js";
+import { executeStarryKolTask, normalizeStarryKolResult, remoteLifecycleIdFrom, starryKolRows, starryKolUsesLocalDouble } from "./service.js";
+import { runPlatformSkillTool } from "../runtime/platform-run.js";
 
 export type StarryLibrarySync = {
   ok: boolean;
@@ -219,10 +220,20 @@ function persistStatus(result: StarryLibrarySync): void {
   );
 }
 
+/**
+ * 红人库全量走技能链路：由平台同步 Agent 以系统身份运行 `creator_library_all` 的 listAllKolProfiles，
+ * 受同样的装配、挂载、登记与风险档闸门约束（不再由 Host 直连远端）。stub / 测试替身仍走本地桩。
+ */
+async function fetchLibraryProfiles(): Promise<Json> {
+  if (starryKolUsesLocalDouble()) return (await executeStarryKolTask("creator_library_all", {}, "host")).data;
+  const listed = normalizeStarryKolResult(await runPlatformSkillTool("creator_library_all", "starrykol", "listAllKolProfiles", {}));
+  return { ...listed, list: starryKolRows(listed) };
+}
+
 export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
   const syncedAt = nowIso();
   try {
-    const { data } = await executeStarryKolTask("creator_library_all", {}, "host");
+    const data = await fetchLibraryProfiles();
     const profiles = listOf(data).filter((row) => kolUidOf(row) && firstString(row.kolName, row.nickname, row.name));
     const seen = new Set<string>();
     tx((db) => {

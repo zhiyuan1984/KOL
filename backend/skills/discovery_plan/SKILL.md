@@ -13,6 +13,8 @@ actions: []
 aliases: ["发现计划","discovery plan"]
 in_market: false
 employee_visible: false
+icon: idea
+badge: "平台内置"
 ---
 # 发现计划 discovery_plan · Lead
 

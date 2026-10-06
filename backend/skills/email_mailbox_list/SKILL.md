@@ -16,6 +16,9 @@ employee_visible: false
 employee_quick: 已同步邮件列表、往来摘要与已授权邮箱索引
 employee_agent: 新回复理解走 AI 助理；读取敏感正文仍执行权限规则
 employee_summary: 查询品牌邮箱的授权与同步状态
+icon: mailbox
+badge: "达人库"
+result_title: "邮箱列表"
 ---
 # 品牌邮箱列表
 

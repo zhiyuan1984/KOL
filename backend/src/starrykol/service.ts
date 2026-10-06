@@ -27,6 +27,7 @@ import {
   toLegacyStarryStage,
 } from "../stages.js";
 import { taskDefinition } from "../tasks/registry.js";
+import { declaredNextActionLabels, declaredResultTitle } from "../tasks/result-presentation.js";
 import { libraryQueryKeyword } from "../tasks/resolver.js";
 import { fieldLabel, missingFieldsMessage } from "../labels.js";
 import { mailSendReceipt } from "../host/receipt.js";
@@ -105,6 +106,16 @@ export function setStarryKolClientFactory(factory?: () => StarryKolClient): void
   clientFactory = factory || null;
 }
 export const setEmailMcpClientFactory = setStarryKolClientFactory;
+
+/** 测试替身或 stub 模式下不走真实运行时挂载链（与 call() 的判断一致）。 */
+export function starryKolUsesLocalDouble(): boolean {
+  return Boolean(clientFactory) || codexMode() === "stub";
+}
+
+/** 与卡片同口径地从 Starry 返回里取出记录行。 */
+export function starryKolRows(data: Json): Json[] {
+  return rows(data);
+}
 
 function json(value: unknown): Json {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
@@ -1046,26 +1057,9 @@ const TOOL_LABELS: Record<string, string> = {
   getEmailConversationSubjectGroups: "会话主题分组",
 };
 
+/** 结果卡片标题：技能 md 的 result_title（缺省为技能名称）。 */
 function title(task: StarryKolTask): string {
-  return {
-    email_mailbox_list: "邮箱列表",
-    email_conversation_list: "邮件会话列表",
-    email_conversation_read: "邮件会话详情",
-    email_compose: "邮件草稿",
-    email_app_conversation_list: "应用邮件会话",
-    creator_library_query: "达人库查询结果",
-    creator_library_all: "达人库全量结果",
-    creator_library_sync: "达人同步结果",
-    creator_profile: "达人画像",
-    creator_owner_update: "红人负责人更新结果",
-    creator_status_update: "达人状态更新结果",
-    creator_contact_decrypt: "达人联系方式",
-    creator_lifecycle_kanban: "合作生命周期看板",
-    creator_risk_conversations: "达人风险会话",
-    creator_filter_options: "达人筛选字典",
-    risk_scan: "超时/风险扫描",
-    reply_analysis: "回复分析",
-  }[task];
+  return declaredResultTitle(task) || task;
 }
 
 export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<Json[]> {
@@ -2147,15 +2141,12 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
       ? (data.recommended_actions as string[])
       : data.needs_input
       ? (needsKolInput ? ["补充达人 UID、负责人或联系邮箱后重试", "查询达人库"] : composeNeedsInputActions(data))
-      : task === "email_conversation_list"
+      : declaredNextActionLabels(task, { hasResults: items.length > 0 || task === "creator_profile" })
+        ?? (task === "email_conversation_list"
           ? conversationListActions(data, items)
-          : task === "creator_library_query" || task === "creator_library_all"
-            ? items.length ? ["查看达人画像", "更新红人负责人"] : ["换关键词再查", "写合作邮件"]
-          : task === "creator_profile"
-            ? ["更新红人负责人", "写合作邮件"]
           : task === "creator_contact_decrypt"
             ? ["仅在授权范围内使用联系方式", "查看达人画像"]
-          : ["复核结果并选择下一步任务"],
+          : ["复核结果并选择下一步任务"]),
     skill: task,
     profile: taskDefinition(task)?.profile || "lead",
     starrykol_data: data,

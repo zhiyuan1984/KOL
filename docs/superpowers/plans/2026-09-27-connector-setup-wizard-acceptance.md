@@ -35,7 +35,9 @@
 
 要证明的命题：「调用由**技能授权 + 技能↔工具绑定 + 内部门禁**在运行时决定；新增/移除一个 MCP 工具不需要改业务代码。」
 
-技术依据（只读可查）：`backend/src/runtime/execution.ts` 在**调用时**读 `runtime_skill_connectors` / `runtime_skill_tools` / `runtime_tool_policies`；`ALLOWED_TASK_MCP` 只用于 SKILL.md 校验与旧 stub 箱配置，治理执行路径不依赖它。
+技术依据（只读可查）：`backend/src/runtime/execution.ts` 在**调用时**读 `runtime_skill_connectors` / `runtime_skill_tools` / `runtime_tool_policies`；技能 md 的 `mcp` 声明对照已登记工具目录（原 `ALLOWED_TASK_MCP` 已更名 `LOCAL_STUB_MCP_TOOLS`，只用于旧 stub 箱配置，见 ADR-2026-10-06）。
+
+> **新技能的验收口径（2026-10-06）**：新增技能一律以真实挂载链路验收——连接器发现工具并定风险档 → 技能 md 声明所需工具并挂载 → Agent 装配技能并发布 → 员工发起。stub 模式的按技能执行分支与关键词路由只服务既有回归，**不作为新技能可用的证据**。
 
 步骤：
 1. 配置 `starrykol` 连接器（URL + 环境变量引用鉴权）→ **保存**（第 1 步）→ **测试**（第 2 步，`tools/list` 成功 → `status=verified`）；

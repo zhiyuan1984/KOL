@@ -92,7 +92,7 @@ export function Skills() {
               plusLabel={"使用 " + s.title}
               disabled={busy === s.id || s.granted === false}
               onPlus={() => void useSkill(s)}
-              badge={debug ? REMOTE_BACKEND_LABEL[remoteForSkill(s.id)] : undefined}
+              badge={debug ? REMOTE_BACKEND_LABEL[remoteForSkill(s.id, s.connectors)] : undefined}
             />
           ))}
         </div>

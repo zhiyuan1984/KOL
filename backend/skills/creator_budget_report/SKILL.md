@@ -14,6 +14,8 @@ aliases: ["达人预算","KOL预算"]
 in_market: true
 employee_quick: 已有预算报告与评分
 employee_agent: 新评分、预测、策略与报表解读走 AI 助理
+icon: budget
+badge: "达人库"
 ---
 # KOL 预算报告
 

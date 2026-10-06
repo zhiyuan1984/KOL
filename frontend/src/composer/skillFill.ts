@@ -7,6 +7,7 @@ export type FillableSkill = {
   label?: string;
   summary?: string;
   ui_template?: SkillTemplate | null;
+  starter?: string | null;
 };
 
 /**
@@ -17,5 +18,5 @@ export type FillableSkill = {
  */
 export function skillFillText(skill: FillableSkill): string {
   const label = String(skill.label || skill.title || "").trim();
-  return starterPrompt({ id: skill.id, prompt: label, title: label, ui_template: skill.ui_template });
+  return starterPrompt({ id: skill.id, prompt: label, title: label, ui_template: skill.ui_template, starter: skill.starter });
 }
