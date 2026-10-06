@@ -41,6 +41,12 @@
   min-height: 0;
   height: 100%;
   min-width: 0;
+  /* 知识域自己的结果栏占比：右栏是"看完再决定"的次要面，理想占比比全站通用
+     结果栏（--workspace-result-rail-ideal 54%）更收，否则列表只剩 400px 上下，
+     单行行式里标题与适用 chips 只能二选一（§9.1 行即内容 / §8.7 禁止静默裁切）。 */
+  --knowledge-rail-min: 320px;
+  --knowledge-rail-ideal: 44%;
+  --knowledge-rail-max: 720px;
 }
 
 .kbv :is(button, a, input, select, textarea, summary):focus-visible {
@@ -49,8 +55,8 @@
 }
 
 .kbv svg {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-md);
+  height: var(--icon-md);
   flex-shrink: 0;
   fill: none;
   stroke: currentColor;
@@ -119,8 +125,9 @@
 }
 
 .kbv-rail {
-  flex: 0 0 clamp(360px, 54%, 820px);
-  min-width: 360px;
+  /* 右栏占比取知识域自己的三档（见 `.kbv` 顶部说明），不动全站的 --workspace-result-rail-*。 */
+  flex: 0 0 clamp(var(--knowledge-rail-min), var(--knowledge-rail-ideal), var(--knowledge-rail-max));
+  min-width: var(--knowledge-rail-min);
   min-height: 0;
   border-left: 1px solid var(--border);
   display: flex;
@@ -628,7 +635,7 @@
 .kbv-dialog {
   /* §7.1：按内容量选档，不再一刀切 560px；默认 md，sm/lg 由 data-size 指定。 */
   width: var(--dialog-w-md);
-  max-width: calc(100vw - 32px);
+  max-width: calc(100vw - var(--space-4) * 2);
   max-height: var(--dialog-h-max);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -1044,10 +1051,11 @@
     overflow: hidden;
   }
 
-  /* 员工端行内优先级：标题与类型标签保持完整，先由适用 chips 裁切让位（空间不够只截 chips）。 */
-  .kbv-page .kbv-record-title,
-  .kbv-page .kbv-record-meta > span:first-child {
-    flex-shrink: 0;
+  /* 员工端行内优先级（§9.1 + §8.7 不变量 5）：长文本一律单行截断 + title 提示，
+     不靠 overflow:hidden 静默裁切——所以这里让标题可截断、保留类型标签与适用 chips 的宽度。 */
+  .kbv-page .kbv-record-meta > span:first-child,
+  .kbv-page .kbv-record-meta .kb-scope {
+    flex: 0 0 auto;
   }
 }
 
@@ -1728,8 +1736,8 @@
 }
 
 .kbv-filter-browser .kbv-document-body h2.kbv-document-title { font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); }
-.kbv-filter-browser .kbv-publication .btn.work { background: var(--accent); color: var(--accent-fg); }
-.kbv-filter-browser .kbv-publication .btn.work:hover { background: var(--accent-hover); }
+/* 本页 L1 的颜色只有一条权威规则（见下方 `#root .workbench … .btn.work` → --knowledge-action）。
+   审批面板里那两条把实底改成辅助蓝的旧覆写已删除：同视口不允许两种主行动色。 */
 @media (max-width: 1100px) and (min-width: 720px) {
   .kbv-filter-browser .kbv-workspace { grid-template-columns: var(--left-width) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 }
@@ -1741,7 +1749,6 @@
 .kbv-filter-browser .kbv-document-body { font-size: var(--ds-font-sm); }
 .kbv-filter-browser .kbv-document-path > span { background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
 .kbv-filter-browser .kbv-record-kind { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
-.kbv-filter-browser .kbv-publication .btn.work { border-color: var(--accent); }
 @media (min-width: 1101px) {
   .kbv-filter-browser .kbv-workspace { grid-template-columns: minmax(var(--left-width), 26%) minmax(0, 1fr); }
 }
@@ -1781,7 +1788,6 @@
 #root .workbench .kbv-filter-browser .btn.work { background:var(--knowledge-action);color:var(--primary-fg);border-color:var(--knowledge-action); }
 #root .workbench .kbv-filter-browser .btn.work:hover { background:var(--knowledge-action-hover); }
 #root .workbench .kbv-filter-browser .btn { min-height:var(--control-h-lg);padding:var(--space-1) var(--space-3); }
-.kbv-filter-browser .kbv-filter-actions .btn { background:transparent;color:var(--accent-text); }
 .kbv-filter-browser .kbv-search { height:var(--control-h-lg); }
 .kbv-filter-browser .kbv-browser-records { max-height:none;overflow:visible;padding:0; }
 /* §9.1 默认档：管理端列表行落到 --table-row-h，标题与元信息合成单行。 */

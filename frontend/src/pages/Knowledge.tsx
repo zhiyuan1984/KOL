@@ -605,7 +605,7 @@ export default function Knowledge() {
                     >
                       <span className="kbv-record-icon"><KbvIcon name={kbIsMail(row) ? "mail" : "file"} /></span>
                       <span className="kbv-record-copy">
-                        <span className="kbv-record-title">{row.title}</span>
+                        <span className="kbv-record-title" title={row.title}>{row.title}</span>
                         <span className="kbv-record-meta">
                           <span>{kindLabel(row.kind)}</span>
                           <ScopeChips row={row} withStage={false} compact />
