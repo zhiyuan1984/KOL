@@ -99,40 +99,6 @@ export type TaskWorkOrderCompact = Pick<WorkOrderSummary,
   "assignment_origin" | "routing_policy_code" | "primary_assignee"
 >;
 
-export type TaskWorkOrderDashboard = {
-  report_version: "task-work-order-dashboard.v1";
-  as_of: string;
-  timezone: string;
-  scope: "personal_authorized" | "organization_authorized";
-  source: "postgresql_task_work_orders";
-  summary: {
-    tasks: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
-    work_orders: TaskWorkOrderCounts;
-  };
-  by_template: Array<{
-    template_code: string;
-    template_version: number;
-    template_title: string;
-    automation_level: string;
-    total: number;
-    automatic_created: number;
-    automatic_assigned: number;
-    open: number;
-    blocked: number;
-    waiting_review: number;
-    completed: number;
-  }>;
-  tasks: {
-    items: Array<{
-      task: TaskRoot;
-      counts: TaskWorkOrderCounts;
-      current_blocking_work_order: TaskWorkOrderCompact | null;
-      next_work_order: TaskWorkOrderCompact | null;
-    }>;
-    page: { limit: number; next_cursor: string | null; total: number };
-  };
-};
-
 function text(value: unknown, field: string, max: number, required = false): string | null {
   const result = String(value ?? "").trim();
   if (!result) {
@@ -360,7 +326,74 @@ export async function listTaskWorkOrderAggregates(actorId: string, isAdmin = fal
   };
 }
 
-type DashboardOptions = { limit?: number; cursor?: string | null; timezone?: string | null };
+export type DashboardPeriod = "realtime" | "today" | "week" | "month" | "year";
+export const DASHBOARD_PERIODS: DashboardPeriod[] = ["realtime", "today", "week", "month", "year"];
+export type DashboardMetricKey = "total" | "in_progress" | "completion_rate" | "overdue_rate" | "automatic_rate" | "median_processing_hours";
+export type DashboardMetrics = Record<DashboardMetricKey, number | null> & {
+  overdue: number;
+  blocked: number;
+};
+
+export type TaskWorkOrderDashboard = {
+  report_version: "task-work-order-dashboard.v2";
+  period: DashboardPeriod;
+  as_of: string;
+  timezone: string;
+  scope: "personal_authorized" | "organization_authorized";
+  source: "postgresql_task_work_orders";
+  summary: {
+    tasks: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
+    work_orders: TaskWorkOrderCounts;
+  };
+  metrics: DashboardMetrics;
+  comparison: { previous: DashboardMetrics; deltas: Record<DashboardMetricKey, number | null> } | null;
+  trends: Record<DashboardMetricKey, number[]>;
+  by_template: Array<{
+    template_code: string;
+    template_version: number;
+    template_title: string;
+    automation_level: string;
+    total: number;
+    automatic_created: number;
+    automatic_assigned: number;
+    open: number;
+    blocked: number;
+    waiting_review: number;
+    completed: number;
+    period_completed: number;
+    trend: number[];
+  }>;
+  tasks: {
+    items: Array<{
+      task: TaskRoot;
+      counts: TaskWorkOrderCounts;
+      template_codes: string[];
+      current_blocking_work_order: TaskWorkOrderCompact | null;
+      next_work_order: TaskWorkOrderCompact | null;
+    }>;
+    page: { limit: number; next_cursor: string | null; total: number };
+  };
+};
+
+export type TaskWorkOrderDashboardExportRow = {
+  task_title: string;
+  type: "业务任务";
+  status: string;
+  template: string;
+  assignee: string;
+  created_at: string | null;
+  completed_at: string | null;
+};
+
+type DashboardOptions = {
+  limit?: number;
+  cursor?: string | null;
+  timezone?: string | null;
+  period?: string | null;
+  q?: string | null;
+  template?: string | null;
+  status?: string | null;
+};
 
 function dashboardLimit(value: number | undefined): number {
   if (value == null) return 50;
@@ -393,12 +426,198 @@ function jsonArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? value as T[] : [];
 }
 
-/**
- * PostgreSQL-native operating dashboard for the business-task → work-order
- * hierarchy. All three report sections derive from the same authorized task
- * CTE and work-order facts CTE, so a UI cannot accidentally mix scopes or
- * double-count repeated execution attempts.
- */
+export function dashboardPeriod(value?: unknown): DashboardPeriod {
+  const period = String(value ?? "realtime").trim() || "realtime";
+  if (!DASHBOARD_PERIODS.includes(period as DashboardPeriod)) {
+    throw new HttpFail(400, { code: "invalid_dashboard_period", period, supported: DASHBOARD_PERIODS });
+  }
+  return period as DashboardPeriod;
+}
+
+function dashboardText(value: unknown, max = 200): string {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+function dashboardMetric(value: unknown): DashboardMetrics {
+  const input = jsonObject<Record<string, unknown>>(value);
+  const numberOrNull = (key: DashboardMetricKey) => {
+    const raw = input[key];
+    if (raw == null || raw === "") return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const count = (key: "overdue" | "blocked") => {
+    const parsed = Number(input[key]);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  return {
+    total: numberOrNull("total") ?? 0,
+    in_progress: numberOrNull("in_progress") ?? 0,
+    completion_rate: numberOrNull("completion_rate"),
+    overdue_rate: numberOrNull("overdue_rate"),
+    automatic_rate: numberOrNull("automatic_rate"),
+    median_processing_hours: numberOrNull("median_processing_hours"),
+    overdue: count("overdue"),
+    blocked: count("blocked"),
+  };
+}
+
+function dashboardDeltas(current: DashboardMetrics, previous: DashboardMetrics): Record<DashboardMetricKey, number | null> {
+  const rateKeys = new Set<DashboardMetricKey>(["completion_rate", "overdue_rate", "automatic_rate"]);
+  return (["total", "in_progress", "completion_rate", "overdue_rate", "automatic_rate", "median_processing_hours"] as DashboardMetricKey[])
+    .reduce<Record<DashboardMetricKey, number | null>>((result, key) => {
+      const next = current[key];
+      const before = previous[key];
+      result[key] = next == null || before == null || (!rateKeys.has(key) && before === 0)
+        ? null
+        : Number((rateKeys.has(key) ? next - before : ((next - before) / before) * 100).toFixed(2));
+      return result;
+    }, {} as Record<DashboardMetricKey, number | null>);
+}
+
+function dashboardTrendPointCount(period: DashboardPeriod): number {
+  if (period === "today") return 24;
+  if (period === "week") return 7;
+  if (period === "month") return 30;
+  if (period === "year") return 12;
+  return 7;
+}
+
+function normalizedTrends(value: unknown, period: DashboardPeriod): Record<DashboardMetricKey, number[]> {
+  const expected = dashboardTrendPointCount(period);
+  const data = jsonObject<Record<string, unknown>>(value);
+  return (["total", "in_progress", "completion_rate", "overdue_rate", "automatic_rate", "median_processing_hours"] as DashboardMetricKey[])
+    .reduce<Record<DashboardMetricKey, number[]>>((result, key) => {
+      const values = jsonArray<unknown>(data[key]).map((point) => Number(point)).map((point) => Number.isFinite(point) ? point : 0);
+      result[key] = values.length === expected ? values : [...values.slice(0, expected), ...Array.from({ length: Math.max(0, expected - values.length) }, () => 0)];
+      return result;
+    }, {} as Record<DashboardMetricKey, number[]>);
+}
+
+const DASHBOARD_SCOPE_CTES = `
+  bounds AS (
+    SELECT now() AS as_of,
+      CASE $7::text
+        WHEN 'today' THEN date_trunc('day', now() AT TIME ZONE $8) AT TIME ZONE $8
+        WHEN 'week' THEN date_trunc('week', now() AT TIME ZONE $8) AT TIME ZONE $8
+        WHEN 'month' THEN date_trunc('month', now() AT TIME ZONE $8) AT TIME ZONE $8
+        WHEN 'year' THEN date_trunc('year', now() AT TIME ZONE $8) AT TIME ZONE $8
+        ELSE NULL::timestamptz
+      END AS current_start,
+      CASE $7::text
+        WHEN 'today' THEN (date_trunc('day', now() AT TIME ZONE $8) + interval '1 day') AT TIME ZONE $8
+        WHEN 'week' THEN (date_trunc('week', now() AT TIME ZONE $8) + interval '1 week') AT TIME ZONE $8
+        WHEN 'month' THEN (date_trunc('month', now() AT TIME ZONE $8) + interval '1 month') AT TIME ZONE $8
+        WHEN 'year' THEN (date_trunc('year', now() AT TIME ZONE $8) + interval '1 year') AT TIME ZONE $8
+        ELSE NULL::timestamptz
+      END AS current_end,
+      CASE $7::text
+        WHEN 'today' THEN (date_trunc('day', now() AT TIME ZONE $8) - interval '1 day') AT TIME ZONE $8
+        WHEN 'week' THEN (date_trunc('week', now() AT TIME ZONE $8) - interval '1 week') AT TIME ZONE $8
+        WHEN 'month' THEN (date_trunc('month', now() AT TIME ZONE $8) - interval '1 month') AT TIME ZONE $8
+        WHEN 'year' THEN (date_trunc('year', now() AT TIME ZONE $8) - interval '1 year') AT TIME ZONE $8
+        ELSE NULL::timestamptz
+      END AS previous_start,
+      CASE $7::text
+        WHEN 'today' THEN date_trunc('day', now() AT TIME ZONE $8) AT TIME ZONE $8
+        WHEN 'week' THEN date_trunc('week', now() AT TIME ZONE $8) AT TIME ZONE $8
+        WHEN 'month' THEN date_trunc('month', now() AT TIME ZONE $8) AT TIME ZONE $8
+        WHEN 'year' THEN date_trunc('year', now() AT TIME ZONE $8) AT TIME ZONE $8
+        ELSE NULL::timestamptz
+      END AS previous_end
+  ), authorized_task_scope AS MATERIALIZED (
+    SELECT t.id AS task_id,t.title,COALESCE(NULLIF(t.content,''),t.title) AS goal,
+      t.status,t.priority,t.due_at,t.data_version,t.created_at,t.updated_at,t.completed_at,
+      NULLIF(t.created_at,'')::timestamptz AS created_at_ts,
+      NULLIF(t.updated_at,'')::timestamptz AS updated_at_ts,
+      NULLIF(t.completed_at,'')::timestamptz AS completed_at_ts,
+      NULLIF(t.due_at,'')::timestamptz AS due_at_ts,
+      t.status NOT IN ('completed','cancelled','canceled') AS task_is_open,
+      t.status NOT IN ('completed','cancelled','canceled') AS task_is_in_progress
+    FROM tickets t
+    WHERE t.task_type=$1 AND t.profile=$2
+      AND (t.collaboration_id IS NULL OR EXISTS (
+        SELECT 1 FROM collaborations c JOIN users u ON u.id=$4 AND u.active=1
+        WHERE c.id=t.collaboration_id AND u.brands::jsonb ? c.brand
+      ))
+      AND ($3::boolean OR t.owner_user_id=$4 OR EXISTS (
+        SELECT 1 FROM work_orders access_wo JOIN work_order_assignments access_wa ON access_wa.work_order_id=access_wo.id
+        WHERE access_wo.task_id=t.id AND access_wa.principal_id=$4 AND access_wa.status='active'
+      ))
+      AND ($9::text='' OR t.title ILIKE ('%' || $9 || '%') OR COALESCE(t.content,'') ILIKE ('%' || $9 || '%') OR EXISTS (
+        SELECT 1 FROM work_orders search_wo LEFT JOIN work_order_templates search_template ON search_template.id=search_wo.template_id
+        WHERE search_wo.task_id=t.id AND (search_wo.title ILIKE ('%' || $9 || '%') OR COALESCE(search_template.title,'') ILIKE ('%' || $9 || '%'))
+      ))
+      AND ($10::text='' OR EXISTS (SELECT 1 FROM work_orders selected_template WHERE selected_template.task_id=t.id AND selected_template.template_code=$10))
+      AND ($11::text='' OR t.status=$11)
+  ), authorized_tasks AS MATERIALIZED (
+    SELECT scope.* FROM authorized_task_scope scope CROSS JOIN bounds
+    WHERE $7::text='realtime' OR (
+      (scope.created_at_ts >= bounds.current_start AND scope.created_at_ts < bounds.current_end)
+      OR (scope.updated_at_ts >= bounds.current_start AND scope.updated_at_ts < bounds.current_end)
+      OR (scope.completed_at_ts >= bounds.current_start AND scope.completed_at_ts < bounds.current_end)
+    )
+  ), previous_authorized_tasks AS MATERIALIZED (
+    SELECT scope.* FROM authorized_task_scope scope CROSS JOIN bounds
+    WHERE $7::text<>'realtime' AND (
+      (scope.created_at_ts >= bounds.previous_start AND scope.created_at_ts < bounds.previous_end)
+      OR (scope.updated_at_ts >= bounds.previous_start AND scope.updated_at_ts < bounds.previous_end)
+      OR (scope.completed_at_ts >= bounds.previous_start AND scope.completed_at_ts < bounds.previous_end)
+    )
+  ), work_order_scope AS MATERIALIZED (
+    SELECT wo.id,wo.task_id,wo.template_code,wo.template_version,COALESCE(wt.title,wo.template_code) AS template_title,
+      wo.status,wo.priority,wo.stage_code,wo.title,wo.objective,wo.due_at,COALESCE(wt.automation_level,wo.automation_level) AS automation_level,
+      wo.created_at,wo.updated_at,wo.completed_at,
+      primary_assignment.principal_id,primary_assignment.person_ref,primary_assignment.org_unit_id,primary_assignment.routing_policy_code,
+      EXISTS (SELECT 1 FROM work_order_execution_attempts attempt WHERE attempt.work_order_id=wo.id AND attempt.execution_mode='automatic' AND attempt.status='created') AS automatic_created,
+      EXISTS (
+        SELECT 1 FROM work_order_execution_attempts attempt JOIN work_order_assignments assigned ON assigned.work_order_id=attempt.work_order_id
+          AND assigned.role='primary' AND assigned.status='active' AND NULLIF(BTRIM(assigned.routing_policy_code),'') IS NOT NULL
+        WHERE attempt.work_order_id=wo.id AND attempt.execution_mode='automatic' AND attempt.status='created'
+      ) AS automatic_assigned,
+      wo.status IN ('proposed','pending_assignment','assigned','accepted','in_progress','waiting_external','waiting_approval','ready_for_acceptance','needs_review') AS is_open,
+      wo.status IN ('needs_review','pending_assignment','waiting_external','waiting_approval') AS is_blocked,
+      wo.status='needs_review' AS is_waiting_review,
+      wo.status='completed' AS is_completed
+    FROM work_orders wo
+    JOIN authorized_task_scope task ON task.task_id=wo.task_id
+    LEFT JOIN work_order_templates wt ON wt.id=wo.template_id
+    LEFT JOIN LATERAL (
+      SELECT principal_id,person_ref,org_unit_id,routing_policy_code FROM work_order_assignments
+      WHERE work_order_id=wo.id AND role='primary' AND status='active' ORDER BY effective_from DESC,id DESC LIMIT 1
+    ) primary_assignment ON true
+  ), work_order_facts AS MATERIALIZED (
+    SELECT scope.* FROM work_order_scope scope JOIN authorized_tasks task ON task.task_id=scope.task_id
+    WHERE $10::text='' OR scope.template_code=$10
+  ), previous_work_order_facts AS MATERIALIZED (
+    SELECT scope.* FROM work_order_scope scope JOIN previous_authorized_tasks task ON task.task_id=scope.task_id
+    WHERE $10::text='' OR scope.template_code=$10
+  ), task_facts AS MATERIALIZED (
+    SELECT task.*,COUNT(work_order.id)::int AS total,
+      COUNT(work_order.id) FILTER (WHERE work_order.is_open)::int AS open,
+      COUNT(work_order.id) FILTER (WHERE work_order.is_blocked)::int AS blocked,
+      COUNT(work_order.id) FILTER (WHERE work_order.is_waiting_review)::int AS waiting_review,
+      COUNT(work_order.id) FILTER (WHERE work_order.is_completed)::int AS completed,
+      COUNT(work_order.id) FILTER (WHERE work_order.automatic_created)::int AS automatic_created,
+      COUNT(work_order.id) FILTER (WHERE work_order.automatic_assigned)::int AS automatic_assigned
+    FROM authorized_tasks task LEFT JOIN work_order_facts work_order ON work_order.task_id=task.task_id
+    GROUP BY task.task_id,task.title,task.goal,task.status,task.priority,task.due_at,task.data_version,task.created_at,task.updated_at,task.completed_at,
+      task.created_at_ts,task.updated_at_ts,task.completed_at_ts,task.due_at_ts,task.task_is_open,task.task_is_in_progress
+  ), previous_task_facts AS MATERIALIZED (
+    SELECT task.*,COUNT(work_order.id)::int AS total,
+      COUNT(work_order.id) FILTER (WHERE work_order.is_open)::int AS open,
+      COUNT(work_order.id) FILTER (WHERE work_order.is_blocked)::int AS blocked,
+      COUNT(work_order.id) FILTER (WHERE work_order.is_waiting_review)::int AS waiting_review,
+      COUNT(work_order.id) FILTER (WHERE work_order.is_completed)::int AS completed,
+      COUNT(work_order.id) FILTER (WHERE work_order.automatic_created)::int AS automatic_created,
+      COUNT(work_order.id) FILTER (WHERE work_order.automatic_assigned)::int AS automatic_assigned
+    FROM previous_authorized_tasks task LEFT JOIN previous_work_order_facts work_order ON work_order.task_id=task.task_id
+    GROUP BY task.task_id,task.title,task.goal,task.status,task.priority,task.due_at,task.data_version,task.created_at,task.updated_at,task.completed_at,
+      task.created_at_ts,task.updated_at_ts,task.completed_at_ts,task.due_at_ts,task.task_is_open,task.task_is_in_progress
+  )`;
+
+/** PostgreSQL-native operating dashboard for the business-task → work-order
+ * hierarchy. Every aggregate and export starts from the same authorization CTE. */
 export async function taskWorkOrderDashboard(
   actorId: string,
   isAdmin = false,
@@ -407,183 +626,187 @@ export async function taskWorkOrderDashboard(
   const limit = dashboardLimit(options.limit);
   const offset = dashboardOffset(options.cursor);
   const timezone = String(options.timezone || "Asia/Shanghai").trim() || "Asia/Shanghai";
+  const period = dashboardPeriod(options.period);
+  const q = dashboardText(options.q);
+  const template = dashboardText(options.template, 120);
+  const status = dashboardText(options.status, 80);
+  const values = [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, limit, offset, period, timezone, q, template, status];
   const result = await postgresPool().query<{
+    as_of: Date | string;
     summary: unknown;
+    metrics: unknown;
+    previous_metrics: unknown;
+    trends: unknown;
     by_template: unknown;
     items: unknown;
     total: number | string;
   }>(
-    `WITH authorized_tasks AS MATERIALIZED (
-       SELECT t.id AS task_id,t.title,
-              COALESCE(NULLIF(t.content,''),t.title) AS goal,
-              t.status,t.priority,t.due_at,t.data_version,t.created_at,t.updated_at,
-              t.status NOT IN ('completed','cancelled') AS task_is_open
-         FROM tickets t
-        WHERE t.task_type=$1 AND t.profile=$2
-          AND (t.collaboration_id IS NULL OR EXISTS (SELECT 1 FROM collaborations c JOIN users u ON u.id=$4 AND u.active=1
-            WHERE c.id=t.collaboration_id AND u.brands::jsonb ? c.brand))
-          AND ($3::boolean OR t.owner_user_id=$4 OR EXISTS (
-            SELECT 1 FROM work_orders wo
-            JOIN work_order_assignments wa ON wa.work_order_id=wo.id
-             AND wa.principal_id=$4 AND wa.status='active'
-            WHERE wo.task_id=t.id
-          ))
-     ), work_order_facts AS MATERIALIZED (
-       SELECT wo.id,wo.task_id,wo.template_code,wo.template_version,
-              COALESCE(wt.title,wo.template_code) AS template_title,
-              wo.status,wo.priority,wo.stage_code,wo.title,wo.objective,wo.due_at,COALESCE(wt.automation_level,wo.automation_level) AS automation_level,wo.updated_at,
-              primary_assignment.principal_id,primary_assignment.person_ref,primary_assignment.org_unit_id,primary_assignment.routing_policy_code,
-              EXISTS (
-                SELECT 1 FROM work_order_execution_attempts attempt
-                 WHERE attempt.work_order_id=wo.id AND attempt.execution_mode='automatic' AND attempt.status='created'
-              ) AS automatic_created,
-              EXISTS (
-                SELECT 1 FROM work_order_execution_attempts attempt
-                JOIN work_order_assignments assigned ON assigned.work_order_id=attempt.work_order_id
-                 AND assigned.role='primary' AND assigned.status='active'
-                 AND NULLIF(BTRIM(assigned.routing_policy_code),'') IS NOT NULL
-                 WHERE attempt.work_order_id=wo.id AND attempt.execution_mode='automatic' AND attempt.status='created'
-              ) AS automatic_assigned,
-              wo.status IN ('proposed','pending_assignment','assigned','accepted','in_progress','waiting_external','waiting_approval','ready_for_acceptance','needs_review') AS is_open,
-              wo.status IN ('needs_review','pending_assignment','waiting_external','waiting_approval') AS is_blocked,
-              wo.status='needs_review' AS is_waiting_review,
-              wo.status='completed' AS is_completed
-         FROM work_orders wo
-         JOIN authorized_tasks task ON task.task_id=wo.task_id
-         LEFT JOIN work_order_templates wt ON wt.id=wo.template_id
-         LEFT JOIN LATERAL (
-           SELECT principal_id,person_ref,org_unit_id,routing_policy_code
-             FROM work_order_assignments
-            WHERE work_order_id=wo.id AND role='primary' AND status='active'
-            ORDER BY effective_from DESC,id DESC LIMIT 1
-         ) primary_assignment ON true
-     ), task_facts AS MATERIALIZED (
-       SELECT task.*,
-              COUNT(work_order.id)::int AS total,
-              COUNT(work_order.id) FILTER (WHERE work_order.is_open)::int AS open,
-              COUNT(work_order.id) FILTER (WHERE work_order.is_blocked)::int AS blocked,
-              COUNT(work_order.id) FILTER (WHERE work_order.is_waiting_review)::int AS waiting_review,
-              COUNT(work_order.id) FILTER (WHERE work_order.is_completed)::int AS completed,
-              COUNT(work_order.id) FILTER (WHERE work_order.automatic_created)::int AS automatic_created,
-              COUNT(work_order.id) FILTER (WHERE work_order.automatic_assigned)::int AS automatic_assigned
-         FROM authorized_tasks task
-         LEFT JOIN work_order_facts work_order ON work_order.task_id=task.task_id
-        GROUP BY task.task_id,task.title,task.goal,task.status,task.priority,task.due_at,task.data_version,task.created_at,task.updated_at,task.task_is_open
-     ), task_page AS MATERIALIZED (
+    `WITH ${DASHBOARD_SCOPE_CTES}, task_page AS MATERIALIZED (
        SELECT * FROM task_facts
-        ORDER BY CASE WHEN waiting_review>0 THEN 0 WHEN blocked>0 THEN 1 ELSE 2 END,
-                 due_at NULLS LAST,updated_at DESC,task_id DESC
-        LIMIT $5 OFFSET $6
+       ORDER BY CASE WHEN waiting_review>0 THEN 0 WHEN blocked>0 THEN 1 ELSE 2 END,due_at_ts NULLS LAST,updated_at_ts DESC,task_id DESC
+       LIMIT $5 OFFSET $6
      ), task_page_with_refs AS (
        SELECT page.*,blocking.work_order AS current_blocking_work_order,next_open.work_order AS next_work_order
-         FROM task_page page
-         LEFT JOIN LATERAL (
-           SELECT jsonb_build_object(
-             'work_order_id',work_order.id,'template_code',work_order.template_code,'template_version',work_order.template_version,
-             'template_title',work_order.template_title,'status',work_order.status,'stage_code',work_order.stage_code,
-             'title',work_order.title,'automation_level',work_order.automation_level,
-             'automatic_created',work_order.automatic_created,'automatic_assigned',work_order.automatic_assigned,
-             'creation_mode',CASE WHEN work_order.automatic_created THEN 'automatic' ELSE 'manual' END,
-             'assignment_origin',CASE WHEN work_order.automatic_assigned THEN 'automatic' WHEN work_order.principal_id IS NOT NULL THEN 'manual_or_unverified' ELSE 'unassigned' END,
-             'routing_policy_code',work_order.routing_policy_code,
-             'primary_assignee',CASE WHEN work_order.principal_id IS NULL THEN NULL ELSE jsonb_build_object(
-               'principal_id',work_order.principal_id,'person_ref',work_order.person_ref,'org_unit_id',work_order.org_unit_id
-             ) END
-           ) AS work_order
-             FROM work_order_facts work_order
-            WHERE work_order.task_id=page.task_id AND work_order.is_blocked
-            ORDER BY CASE work_order.status WHEN 'needs_review' THEN 0 WHEN 'pending_assignment' THEN 1 WHEN 'waiting_approval' THEN 2 ELSE 3 END,
-                     work_order.due_at NULLS LAST,work_order.id DESC
-            LIMIT 1
-         ) blocking ON true
-         LEFT JOIN LATERAL (
-           SELECT jsonb_build_object(
-             'work_order_id',work_order.id,'template_code',work_order.template_code,'template_version',work_order.template_version,
-             'template_title',work_order.template_title,'status',work_order.status,'stage_code',work_order.stage_code,
-             'title',work_order.title,'automation_level',work_order.automation_level,
-             'automatic_created',work_order.automatic_created,'automatic_assigned',work_order.automatic_assigned,
-             'creation_mode',CASE WHEN work_order.automatic_created THEN 'automatic' ELSE 'manual' END,
-             'assignment_origin',CASE WHEN work_order.automatic_assigned THEN 'automatic' WHEN work_order.principal_id IS NOT NULL THEN 'manual_or_unverified' ELSE 'unassigned' END,
-             'routing_policy_code',work_order.routing_policy_code,
-             'primary_assignee',CASE WHEN work_order.principal_id IS NULL THEN NULL ELSE jsonb_build_object(
-               'principal_id',work_order.principal_id,'person_ref',work_order.person_ref,'org_unit_id',work_order.org_unit_id
-             ) END
-           ) AS work_order
-             FROM work_order_facts work_order
-            WHERE work_order.task_id=page.task_id AND work_order.is_open
-            ORDER BY work_order.due_at NULLS LAST,work_order.updated_at DESC,work_order.id DESC
-            LIMIT 1
-         ) next_open ON true
+       FROM task_page page
+       LEFT JOIN LATERAL (
+         SELECT jsonb_build_object(
+           'work_order_id',work_order.id,'template_code',work_order.template_code,'template_version',work_order.template_version,
+           'template_title',work_order.template_title,'status',work_order.status,'stage_code',work_order.stage_code,
+           'title',work_order.title,'automation_level',work_order.automation_level,'automatic_created',work_order.automatic_created,
+           'automatic_assigned',work_order.automatic_assigned,'creation_mode',CASE WHEN work_order.automatic_created THEN 'automatic' ELSE 'manual' END,
+           'assignment_origin',CASE WHEN work_order.automatic_assigned THEN 'automatic' WHEN work_order.principal_id IS NOT NULL THEN 'manual_or_unverified' ELSE 'unassigned' END,
+           'routing_policy_code',work_order.routing_policy_code,'primary_assignee',CASE WHEN work_order.principal_id IS NULL THEN NULL ELSE jsonb_build_object(
+             'principal_id',work_order.principal_id,'person_ref',work_order.person_ref,'org_unit_id',work_order.org_unit_id) END
+         ) AS work_order FROM work_order_facts work_order
+         WHERE work_order.task_id=page.task_id AND work_order.is_blocked
+         ORDER BY CASE work_order.status WHEN 'needs_review' THEN 0 WHEN 'pending_assignment' THEN 1 WHEN 'waiting_approval' THEN 2 ELSE 3 END,work_order.due_at NULLS LAST,work_order.id DESC LIMIT 1
+       ) blocking ON true
+       LEFT JOIN LATERAL (
+         SELECT jsonb_build_object(
+           'work_order_id',work_order.id,'template_code',work_order.template_code,'template_version',work_order.template_version,
+           'template_title',work_order.template_title,'status',work_order.status,'stage_code',work_order.stage_code,
+           'title',work_order.title,'automation_level',work_order.automation_level,'automatic_created',work_order.automatic_created,
+           'automatic_assigned',work_order.automatic_assigned,'creation_mode',CASE WHEN work_order.automatic_created THEN 'automatic' ELSE 'manual' END,
+           'assignment_origin',CASE WHEN work_order.automatic_assigned THEN 'automatic' WHEN work_order.principal_id IS NOT NULL THEN 'manual_or_unverified' ELSE 'unassigned' END,
+           'routing_policy_code',work_order.routing_policy_code,'primary_assignee',CASE WHEN work_order.principal_id IS NULL THEN NULL ELSE jsonb_build_object(
+             'principal_id',work_order.principal_id,'person_ref',work_order.person_ref,'org_unit_id',work_order.org_unit_id) END
+         ) AS work_order FROM work_order_facts work_order
+         WHERE work_order.task_id=page.task_id AND work_order.is_open
+         ORDER BY work_order.due_at NULLS LAST,work_order.updated_at DESC,work_order.id DESC LIMIT 1
+       ) next_open ON true
+     ), metric_current AS (
+       SELECT jsonb_build_object(
+         'total',COUNT(*)::int,'in_progress',COUNT(*) FILTER (WHERE task_is_in_progress)::int,
+         'completion_rate',CASE WHEN COUNT(*)=0 THEN NULL ELSE ROUND((100.0*COUNT(*) FILTER (WHERE status='completed')/COUNT(*))::numeric,2) END,
+         'overdue_rate',CASE WHEN COUNT(*)=0 THEN NULL ELSE ROUND((100.0*COUNT(*) FILTER (WHERE due_at_ts<bounds.as_of AND task_is_open)/COUNT(*))::numeric,2) END,
+         'automatic_rate',CASE WHEN (SELECT COUNT(*) FROM work_order_facts)=0 THEN NULL ELSE ROUND((100.0*(SELECT COUNT(*) FILTER (WHERE automatic_created) FROM work_order_facts)/(SELECT COUNT(*) FROM work_order_facts))::numeric,2) END,
+         'median_processing_hours',(SELECT ROUND((percentile_cont(.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (completed_at_ts-created_at_ts))/3600))::numeric,2) FROM task_facts WHERE completed_at_ts IS NOT NULL),
+         'overdue',COUNT(*) FILTER (WHERE due_at_ts<bounds.as_of AND task_is_open)::int,
+         'blocked',COUNT(*) FILTER (WHERE blocked>0)::int
+       ) AS value FROM task_facts CROSS JOIN bounds
+     ), metric_previous AS (
+       SELECT jsonb_build_object(
+         'total',COUNT(*)::int,'in_progress',COUNT(*) FILTER (WHERE task_is_in_progress)::int,
+         'completion_rate',CASE WHEN COUNT(*)=0 THEN NULL ELSE ROUND((100.0*COUNT(*) FILTER (WHERE status='completed')/COUNT(*))::numeric,2) END,
+         'overdue_rate',CASE WHEN COUNT(*)=0 THEN NULL ELSE ROUND((100.0*COUNT(*) FILTER (WHERE due_at_ts<bounds.previous_end AND task_is_open)/COUNT(*))::numeric,2) END,
+         'automatic_rate',CASE WHEN (SELECT COUNT(*) FROM previous_work_order_facts)=0 THEN NULL ELSE ROUND((100.0*(SELECT COUNT(*) FILTER (WHERE automatic_created) FROM previous_work_order_facts)/(SELECT COUNT(*) FROM previous_work_order_facts))::numeric,2) END,
+         'median_processing_hours',(SELECT ROUND((percentile_cont(.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (completed_at_ts-created_at_ts))/3600))::numeric,2) FROM previous_task_facts WHERE completed_at_ts IS NOT NULL),
+         'overdue',COUNT(*) FILTER (WHERE due_at_ts<bounds.previous_end AND task_is_open)::int,
+         'blocked',COUNT(*) FILTER (WHERE blocked>0)::int
+       ) AS value FROM previous_task_facts CROSS JOIN bounds
+     ), trend_buckets AS (
+       SELECT bucket_start,CASE WHEN $7::text='today' THEN LEAST(bucket_start+interval '1 hour',bounds.current_end)
+           WHEN $7::text='year' THEN LEAST(bucket_start+interval '1 month',bounds.current_end)
+           ELSE LEAST(bucket_start+interval '1 day',COALESCE(bounds.current_end,bounds.as_of)) END AS bucket_end
+       FROM bounds CROSS JOIN LATERAL generate_series(
+         CASE WHEN $7::text='realtime' THEN (date_trunc('day',bounds.as_of AT TIME ZONE $8)-interval '6 days') AT TIME ZONE $8 ELSE bounds.current_start END,
+         CASE WHEN $7::text='realtime' THEN date_trunc('day',bounds.as_of AT TIME ZONE $8) AT TIME ZONE $8
+              WHEN $7::text='today' THEN bounds.current_end-interval '1 hour'
+              WHEN $7::text='year' THEN bounds.current_end-interval '1 month'
+              ELSE bounds.current_end-interval '1 day' END,
+         CASE WHEN $7::text='today' THEN interval '1 hour' WHEN $7::text='year' THEN interval '1 month' ELSE interval '1 day' END
+       ) AS bucket_start
+     ), trend_points AS (
+       SELECT bucket.bucket_start,
+         COUNT(task.task_id) FILTER (WHERE task.created_at_ts>=bucket.bucket_start AND task.created_at_ts<bucket.bucket_end)::int AS total,
+         COUNT(task.task_id) FILTER (WHERE task.task_is_in_progress AND task.updated_at_ts>=bucket.bucket_start AND task.updated_at_ts<bucket.bucket_end)::int AS in_progress,
+         COUNT(task.task_id) FILTER (WHERE task.completed_at_ts>=bucket.bucket_start AND task.completed_at_ts<bucket.bucket_end)::int AS completed,
+         COUNT(task.task_id) FILTER (WHERE task.task_is_open AND task.due_at_ts<bucket.bucket_end AND task.updated_at_ts>=bucket.bucket_start AND task.updated_at_ts<bucket.bucket_end)::int AS overdue,
+         COUNT(work_order.id) FILTER (WHERE work_order.automatic_created AND work_order.created_at>=bucket.bucket_start AND work_order.created_at<bucket.bucket_end)::int AS automatic,
+         (SELECT percentile_cont(.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (task_completed.completed_at_ts-task_completed.created_at_ts))/3600)
+            FROM authorized_task_scope task_completed WHERE task_completed.completed_at_ts>=bucket.bucket_start AND task_completed.completed_at_ts<bucket.bucket_end) AS median_processing_hours
+       FROM trend_buckets bucket LEFT JOIN authorized_task_scope task ON true LEFT JOIN work_order_scope work_order ON work_order.task_id=task.task_id
+       GROUP BY bucket.bucket_start,bucket.bucket_end
+     ), trend_metrics AS (
+       SELECT jsonb_build_object(
+         'total',jsonb_agg(total ORDER BY bucket_start),'in_progress',jsonb_agg(in_progress ORDER BY bucket_start),
+         'completion_rate',jsonb_agg(CASE WHEN total=0 THEN 0 ELSE ROUND((100.0*completed/total)::numeric,2) END ORDER BY bucket_start),
+         'overdue_rate',jsonb_agg(CASE WHEN total=0 THEN 0 ELSE ROUND((100.0*overdue/total)::numeric,2) END ORDER BY bucket_start),
+         'automatic_rate',jsonb_agg(CASE WHEN total=0 THEN 0 ELSE ROUND((100.0*automatic/total)::numeric,2) END ORDER BY bucket_start),
+         'median_processing_hours',jsonb_agg(COALESCE(ROUND(median_processing_hours::numeric,2),0) ORDER BY bucket_start)
+       ) AS value FROM trend_points
      )
-     SELECT
+     SELECT (SELECT as_of FROM bounds) AS as_of,
        jsonb_build_object(
-         'tasks',(SELECT jsonb_build_object(
-           'total',COUNT(*)::int,
-           'open',COUNT(*) FILTER (WHERE task_is_open)::int,
-           'blocked',COUNT(*) FILTER (WHERE blocked>0)::int,
-           'waiting_review',COUNT(*) FILTER (WHERE waiting_review>0)::int,
-           'completed',COUNT(*) FILTER (WHERE status='completed')::int
-         ) FROM task_facts),
-         'work_orders',(SELECT jsonb_build_object(
-           'total',COUNT(*)::int,
-           'open',COUNT(*) FILTER (WHERE is_open)::int,
-           'blocked',COUNT(*) FILTER (WHERE is_blocked)::int,
-           'waiting_review',COUNT(*) FILTER (WHERE is_waiting_review)::int,
-           'completed',COUNT(*) FILTER (WHERE is_completed)::int,
-           'automatic_created',COUNT(*) FILTER (WHERE automatic_created)::int,
-           'automatic_assigned',COUNT(*) FILTER (WHERE automatic_assigned)::int
-         ) FROM work_order_facts)
+         'tasks',(SELECT jsonb_build_object('total',COUNT(*)::int,'open',COUNT(*) FILTER (WHERE task_is_open)::int,'blocked',COUNT(*) FILTER (WHERE blocked>0)::int,'waiting_review',COUNT(*) FILTER (WHERE waiting_review>0)::int,'completed',COUNT(*) FILTER (WHERE status='completed')::int) FROM task_facts),
+         'work_orders',(SELECT jsonb_build_object('total',COUNT(*)::int,'open',COUNT(*) FILTER (WHERE is_open)::int,'blocked',COUNT(*) FILTER (WHERE is_blocked)::int,'waiting_review',COUNT(*) FILTER (WHERE is_waiting_review)::int,'completed',COUNT(*) FILTER (WHERE is_completed)::int,'automatic_created',COUNT(*) FILTER (WHERE automatic_created)::int,'automatic_assigned',COUNT(*) FILTER (WHERE automatic_assigned)::int) FROM work_order_facts)
        ) AS summary,
+       (SELECT value FROM metric_current) AS metrics,(SELECT value FROM metric_previous) AS previous_metrics,(SELECT value FROM trend_metrics) AS trends,
        COALESCE((SELECT jsonb_agg(jsonb_build_object(
-         'template_code',grouped.template_code,'template_version',grouped.template_version,
-         'template_title',grouped.template_title,'automation_level',grouped.automation_level,
-         'total',grouped.total,'automatic_created',grouped.automatic_created,'automatic_assigned',grouped.automatic_assigned,
-         'open',grouped.open,'blocked',grouped.blocked,'waiting_review',grouped.waiting_review,'completed',grouped.completed
-       ) ORDER BY grouped.total DESC,grouped.template_title,grouped.template_version DESC)
-       FROM (
-         SELECT template_code,template_version,template_title,automation_level,
-                COUNT(*)::int AS total,
-                COUNT(*) FILTER (WHERE automatic_created)::int AS automatic_created,
-                COUNT(*) FILTER (WHERE automatic_assigned)::int AS automatic_assigned,
-                COUNT(*) FILTER (WHERE is_open)::int AS open,
-                COUNT(*) FILTER (WHERE is_blocked)::int AS blocked,
-                COUNT(*) FILTER (WHERE is_waiting_review)::int AS waiting_review,
-                COUNT(*) FILTER (WHERE is_completed)::int AS completed
-           FROM work_order_facts
-          GROUP BY template_code,template_version,template_title,automation_level
+         'template_code',grouped.template_code,'template_version',grouped.template_version,'template_title',grouped.template_title,'automation_level',grouped.automation_level,
+         'total',grouped.total,'automatic_created',grouped.automatic_created,'automatic_assigned',grouped.automatic_assigned,'open',grouped.open,'blocked',grouped.blocked,'waiting_review',grouped.waiting_review,'completed',grouped.completed,'period_completed',grouped.completed,
+         'trend',COALESCE((SELECT jsonb_agg(daily.count ORDER BY daily.bucket_start) FROM (
+           SELECT bucket.bucket_start,COUNT(point.id)::int AS count
+           FROM bounds CROSS JOIN LATERAL generate_series(
+             (date_trunc('day',bounds.as_of AT TIME ZONE $8) AT TIME ZONE $8)-interval '6 days',
+             (date_trunc('day',bounds.as_of AT TIME ZONE $8) AT TIME ZONE $8),interval '1 day'
+           ) AS bucket(bucket_start)
+           LEFT JOIN work_order_facts point ON point.template_code=grouped.template_code AND point.template_version=grouped.template_version
+             AND point.created_at>=bucket.bucket_start AND point.created_at<bucket.bucket_start+interval '1 day'
+           GROUP BY bucket.bucket_start
+         ) daily),'[]'::jsonb)
+       ) ORDER BY grouped.total DESC,grouped.template_title,grouped.template_version DESC) FROM (
+         SELECT template_code,template_version,template_title,automation_level,COUNT(*)::int AS total,COUNT(*) FILTER (WHERE automatic_created)::int AS automatic_created,COUNT(*) FILTER (WHERE automatic_assigned)::int AS automatic_assigned,
+           COUNT(*) FILTER (WHERE is_open)::int AS open,COUNT(*) FILTER (WHERE is_blocked)::int AS blocked,COUNT(*) FILTER (WHERE is_waiting_review)::int AS waiting_review,COUNT(*) FILTER (WHERE is_completed)::int AS completed
+         FROM work_order_facts GROUP BY template_code,template_version,template_title,automation_level
        ) grouped),'[]'::jsonb) AS by_template,
        COALESCE((SELECT jsonb_agg(jsonb_build_object(
-         'task',jsonb_build_object(
-           'task_id',task_id,'title',title,'goal',goal,'status',status,'priority',priority,
-           'due_at',due_at,'data_version',data_version,'created_at',created_at,'updated_at',updated_at
-         ),
-         'counts',jsonb_build_object(
-           'total',total,'open',open,'blocked',blocked,'waiting_review',waiting_review,'completed',completed,
-           'automatic_created',automatic_created,'automatic_assigned',automatic_assigned
-         ),
-         'current_blocking_work_order',current_blocking_work_order,
-         'next_work_order',next_work_order
-       ) ORDER BY CASE WHEN waiting_review>0 THEN 0 WHEN blocked>0 THEN 1 ELSE 2 END,
-                      due_at NULLS LAST,updated_at DESC,task_id DESC)
-       FROM task_page_with_refs),'[]'::jsonb) AS items,
+         'task',jsonb_build_object('task_id',task_id,'title',title,'goal',goal,'status',status,'priority',priority,'due_at',due_at,'data_version',data_version,'created_at',created_at,'updated_at',updated_at),
+         'counts',jsonb_build_object('total',total,'open',open,'blocked',blocked,'waiting_review',waiting_review,'completed',completed,'automatic_created',automatic_created,'automatic_assigned',automatic_assigned),
+         'template_codes',COALESCE((SELECT jsonb_agg(DISTINCT work_order.template_code) FROM work_order_facts work_order WHERE work_order.task_id=task_page_with_refs.task_id),'[]'::jsonb),
+         'current_blocking_work_order',current_blocking_work_order,'next_work_order',next_work_order
+       ) ORDER BY CASE WHEN waiting_review>0 THEN 0 WHEN blocked>0 THEN 1 ELSE 2 END,due_at_ts NULLS LAST,updated_at_ts DESC,task_id DESC) FROM task_page_with_refs),'[]'::jsonb) AS items,
        (SELECT COUNT(*)::int FROM task_facts) AS total`,
-    [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, limit, offset],
+    values,
   );
-  const row = result.rows[0] || { summary: {}, by_template: [], items: [], total: 0 };
+  const row = result.rows[0] || { as_of: new Date().toISOString(), summary: {}, metrics: {}, previous_metrics: {}, trends: {}, by_template: [], items: [], total: 0 };
   const total = Number(row.total || 0);
+  const metrics = dashboardMetric(row.metrics);
+  const previous = dashboardMetric(row.previous_metrics);
   return {
-    report_version: "task-work-order-dashboard.v1",
-    as_of: new Date().toISOString(),
+    report_version: "task-work-order-dashboard.v2",
+    period,
+    as_of: new Date(row.as_of).toISOString(),
     timezone,
     scope: isAdmin ? "organization_authorized" : "personal_authorized",
     source: "postgresql_task_work_orders",
     summary: jsonObject<TaskWorkOrderDashboard["summary"]>(row.summary),
+    metrics,
+    comparison: period === "realtime" ? null : { previous, deltas: dashboardDeltas(metrics, previous) },
+    trends: normalizedTrends(row.trends, period),
     by_template: jsonArray<TaskWorkOrderDashboard["by_template"][number]>(row.by_template),
-    tasks: {
-      items: jsonArray<TaskWorkOrderDashboard["tasks"]["items"][number]>(row.items),
-      page: { limit, next_cursor: nextDashboardCursor(offset, limit, total), total },
-    },
+    tasks: { items: jsonArray<TaskWorkOrderDashboard["tasks"]["items"][number]>(row.items), page: { limit, next_cursor: nextDashboardCursor(offset, limit, total), total } },
   };
+}
+
+export async function taskWorkOrderDashboardExport(
+  actorId: string,
+  isAdmin = false,
+  options: DashboardOptions = {},
+): Promise<TaskWorkOrderDashboardExportRow[]> {
+  const period = dashboardPeriod(options.period);
+  const timezone = String(options.timezone || "Asia/Shanghai").trim() || "Asia/Shanghai";
+  const values = [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, 100, 0, period, timezone, dashboardText(options.q), dashboardText(options.template, 120), dashboardText(options.status, 80)];
+  const result = await postgresPool().query<{
+    task_title: string; status: string; template: string | null; assignee: string | null; created_at: Date | string | null; completed_at: Date | string | null;
+  }>(
+    `WITH ${DASHBOARD_SCOPE_CTES}
+     SELECT task.title AS task_title,COALESCE(work_order.status,task.status) AS status,
+       COALESCE(work_order.template_title,'') AS template,COALESCE(work_order.person_ref,work_order.principal_id,'') AS assignee,
+       task.created_at_ts AS created_at,COALESCE(work_order.completed_at,task.completed_at_ts) AS completed_at
+     FROM authorized_tasks task LEFT JOIN work_order_facts work_order ON work_order.task_id=task.task_id
+     ORDER BY task.updated_at_ts DESC,task.task_id DESC,work_order.template_title NULLS LAST`,
+    values,
+  );
+  return result.rows.map((row) => ({
+    task_title: row.task_title,
+    type: "业务任务" as const,
+    status: row.status,
+    template: row.template || "",
+    assignee: row.assignee || "",
+    created_at: row.created_at == null ? null : new Date(row.created_at).toISOString(),
+    completed_at: row.completed_at == null ? null : new Date(row.completed_at).toISOString(),
+  }));
 }
 
 /** Stable idempotency input fingerprint for the forthcoming Jev shadow judge.

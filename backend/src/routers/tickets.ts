@@ -11,7 +11,7 @@ import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
-import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, taskWorkOrderDashboard, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
+import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, taskWorkOrderDashboard, taskWorkOrderDashboardExport, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shadow.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
@@ -127,8 +127,46 @@ tickets.get("/task-work-orders/dashboard", async (c) => {
       limit: parseLimit(c.req.query("limit"), 50),
       cursor: c.req.query("cursor"),
       timezone: c.req.query("timezone") || "Asia/Shanghai",
+      period: c.req.query("period") || "realtime",
+      q: c.req.query("q"),
+      template: c.req.query("template"),
+      status: c.req.query("status"),
     })),
     ...requestMetadata(),
+  });
+});
+
+/** CSV is generated from the same authorized, period-scoped CTE as the
+ * dashboard. The browser receives a stream so a long export does not require a
+ * second JSON-shaped API contract. */
+tickets.get("/task-work-orders/dashboard/export", async (c) => {
+  const actor = requireTicketPrincipal();
+  const period = c.req.query("period") || "realtime";
+  const rows = await taskWorkOrderDashboardExport(actor.id, ticketIsAdmin(actor), {
+    timezone: c.req.query("timezone") || "Asia/Shanghai",
+    period,
+    q: c.req.query("q"),
+    template: c.req.query("template"),
+    status: c.req.query("status"),
+  });
+  const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+  const head = ["任务标题", "类型", "状态", "模板", "受理人", "创建时间", "完成时间"];
+  const lines = [head, ...rows.map((row) => [row.task_title, row.type, row.status, row.template, row.assignee, row.created_at || "", row.completed_at || ""])]
+    .map((cells) => cells.map(csvCell).join(","));
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(`\uFEFF${lines.join("\n")}\n`));
+      controller.close();
+    },
+  });
+  const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replaceAll("-", "");
+  return new Response(body, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`任务中心-${stamp}-${period}.csv`)}`,
+      "cache-control": "no-store",
+    },
   });
 });
 
