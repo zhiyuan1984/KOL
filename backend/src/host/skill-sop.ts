@@ -89,7 +89,10 @@ const RUNTIME_CONNECTOR_INSTRUCTION = `
 
 
 ## Runtime connector tools
-Only the local \`skill_runtime\` MCP server is available in this run. Call its current \`tools/list\` catalog and use only the returned aliases (for example \`rt_starrykol__pageKolProfiles_…\`). This run exposes tools, not MCP resources: do **not** call \`list_mcp_resources\`, \`resources/list\`, or any resource-discovery helper. Connector names or operation names mentioned elsewhere in this Skill describe business intent; they are **not** direct MCP servers and must never be called directly. If the needed alias is absent, state that the configured connector is unavailable and do not invent data.
+Only the local \`skill_runtime\` MCP server is available in this run. Call its current \`tools/list\` catalog and use only the returned aliases (for example \`rt_starrykol__pageKolProfiles_…\`). This run exposes tools, not MCP resources: do **not** call \`list_mcp_resources\`, \`resources/list\`, or any resource-discovery helper. Connector names or operation names mentioned elsewhere in this Skill describe business intent; they are **not** direct MCP servers and must never be called directly. If the needed alias is absent, do not invent data: tell the employee, in business language, that 「数据连接暂不可用」, and give the real next step.
+
+## Employee-facing wording
+Everything the employee reads (assistant messages, \`task_result\` titles/sections, \`recommended_actions\`, \`next_action\`, draft text) must never contain engine words: MCP, connector, \`skill_runtime\`, tool aliases (\`rt_…\`), Skill ids (such as \`creator_library_query\`), or internal schema names. Name a capability by its business meaning instead (「达人库」「邮件服务」). When a capability is missing, say that 「数据连接暂不可用」 and give the real recovery step; never state that a notification, hand-off or admin action happened when it did not.
 `;
 
 /** The worker receives this constrained supplement even when an administrator has an SOP overlay. */

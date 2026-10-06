@@ -19,7 +19,7 @@ employee_summary: 按关键词、风险标签或达人查询应用内邮件会�
 ---
 # 应用邮件会话
 
-Codex app-server 在本 Skill 的 turn 中调用 Starry KOL MCP `pageAppEmailConversations`。与品牌合作会话列表不同，这是应用侧会话查询。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 邮件服务的 `pageAppEmailConversations`。与品牌合作会话列表不同，这是应用侧会话查询。
 
 ## 禁止事项
 

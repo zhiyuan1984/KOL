@@ -1,7 +1,7 @@
 import type { Task } from "./api";
 
 /**
- * 「这一件任务现在到哪了」的统一状态：RunHud、任务徽章与右栏共用一个口径，
+ * 「这一件任务现在到哪了」的统一状态：会话右栏是它唯一的表达处（DESIGN §8.6），
  * 不再让会话 agent_status、任务 status 与最后一条事件各说各话。
  */
 export type TaskRunKey =
@@ -37,6 +37,48 @@ export const TASK_RUN_LABEL: Record<TaskRunKey, string> = {
   failed: "失败",
   completed: "已完成",
 };
+
+/** 语气 → DESIGN §3.1 的四职责色：中性 `--ds-text-dim`、执行中 `--accent`、待确认 `--warning`、完成 `--success`、失败 `--danger`。 */
+export type TaskStatusTone = "neutral" | "live" | "confirm" | "done" | "failed";
+/** 形状：颜色之外的第二条表达通道（DESIGN §1 不变量 4）。 */
+export type TaskStatusShape = "dot" | "pulse" | "alert" | "hollow" | "check" | "cross" | "square";
+
+export type TaskStatusView = TaskRunView & {
+  /** 员工面完整状态文案：脱离颜色也能读懂，并说清下一步等谁。 */
+  copy: string;
+  tone: TaskStatusTone;
+  shape: TaskStatusShape;
+  /** 需要人做高风险确认（R3）才为 true；「结果已出、等你标记完成」不算待确认。 */
+  needsConfirm: boolean;
+};
+
+/**
+ * 状态文案对照表。`awaiting_acceptance` / `result_ready` 是「等你标记完成」，
+ * 与需要人确认后才执行的高风险 `awaiting_confirm`（待确认）分开表述，
+ * 不把「待确认」挪用成「等你标记完成」；结果未出时也不谎称已有结果。
+ */
+const TASK_STATUS_PRESENTATION: Record<TaskRunKey, { copy: string; tone: TaskStatusTone; shape: TaskStatusShape }> = {
+  idle: { copy: "待命", tone: "neutral", shape: "dot" },
+  queued: { copy: "已排队 · 等待开始", tone: "neutral", shape: "dot" },
+  running: { copy: "执行中", tone: "live", shape: "pulse" },
+  awaiting_confirm: { copy: "待确认 · 需要你确认后才会执行", tone: "confirm", shape: "alert" },
+  awaiting_acceptance: { copy: "执行已结束 · 待你核对结果", tone: "neutral", shape: "hollow" },
+  result_ready: { copy: "结果已生成 · 待你标记完成", tone: "done", shape: "check" },
+  stopped: { copy: "已停止", tone: "neutral", shape: "square" },
+  cancelled: { copy: "已取消", tone: "neutral", shape: "cross" },
+  failed: { copy: "失败", tone: "failed", shape: "cross" },
+  completed: { copy: "已完成", tone: "done", shape: "check" },
+};
+
+/** 会话右栏唯一的任务状态：与运行投影共用同一个 taskRunView 口径，不另算一套。 */
+export function taskStatusView(task: Task | null | undefined, agentStatus?: string): TaskStatusView {
+  const view = taskRunView(task, agentStatus);
+  return {
+    ...view,
+    ...TASK_STATUS_PRESENTATION[view.key],
+    needsConfirm: view.key === "awaiting_confirm",
+  };
+}
 
 const TERMINAL_TASK_STATUSES = new Set(["completed", "success", "failed", "error", "stopped", "cancelled"]);
 

@@ -385,6 +385,8 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 
 中栏事件应依次表达目标与技能上下文、输入引导、条件或草稿、解析缺口、实际参数或预览、确认、执行回执、成果摘要和下一步。模型解释与服务端事实事件可以合并展示，但状态、进度、回执只能来自权威事件。没有真实结果时不得渲染候选、完成或进度。
 
+**任务状态单点在右栏**（2026-10-06 用户裁决）：任务的当前状态（运行中阶段、结果已生成、待你标记完成、失败、已取消等）只在右栏结果区上方呈现一次。中栏页头只放任务标题与当前阶段动作，不放状态徽章或状态卡；中栏事件流顶部不放结论性摘要。「待确认」只用于需要人确认的 R3 动作，不得用来表示「等你标记完成」。中栏页头固定在滚动区之外（§10.1），不随事件流滚走。
+
 同一视口当前阶段只保留一个 L1。R3 确认卡必须包含范围、参数版本、风险、确认和取消；参数变化使旧确认失效。停止、重试、导入、发送和正式状态变更使用独立动作及回执。
 
 ### 14.1 打断与回退（v3 新增）
@@ -414,6 +416,9 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 - 事件流在底部时自动跟随；用户上滚后不被新内容打断，并提供单一"有新内容"入口。
 - 待确认事项在提问框上方有明确提示并可定位到完整确认卡；确认完成后折叠为单行回执。
 - 成果只在右栏呈现一次，保留来源、版本、时间和核验状态；中栏只保留过程摘要。
+- 任务状态只在右栏出现一次；同一视口内页头、事件流与右栏不得重复或矛盾地表达同一状态。
+- 右栏只呈现本轮结果；本轮没有结果而展示较早结果时，标题必须写「最近一次结果」并带时间，不得写「本轮结果」，也不得从会话历史任意消息中拼取结果。
+- 能力不可用（数据连接未接通、工具未授权）与缺少输入是两种状态，分别给出原因与恢复入口；员工面不出现 MCP、连接器 id、工具别名或技能 id（§15）。
 - 空态区分"尚无结果""服务不可用""筛选无结果"；不以占位结果代替真实数据。
 - 新增任务类型沿用本文件 §1–§13 的 token、三轴适配、无障碍、颜色职责和滚动规则，不新增任务专用视觉体系。
 
@@ -505,6 +510,8 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 - [ ] R3 确认卡出现时进入视口？（§10.3）
 - [ ] 流式输出视口不跳动（`overflow-anchor`）？（§10.2）
 - [ ] 滚动轴总数 ≤3，页面外层无滚动？（§10.1）
+- [ ] 任务状态只在右栏出现一次，页头与事件流顶部没有状态卡或结论摘要？（§14、§16）
+- [ ] 员工面没有 MCP、连接器 id、工具别名、技能 id？模型输出的结构化卡片也经过同一清洗？（§15）
 
 ---
 
@@ -535,143 +542,74 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 
 ## 附：Token 登记表（md ↔ css 对账）
 
-> 本表由脚本从两文件实际内容生成。✅ = css 有定义；⚠️ = 缺失（需补）。当前 styles.css / design.md v3。
+> 本表由 `backend/scripts/check-design-tokens.mjs --write` 从实际内容生成，发布门禁校验表格与实际一致，请勿手改。css 列 = `frontend/src` 下 CSS 有定义；md 列 = 本文正文有引用。⚠️ = 已写入细则但样式尚未定义，属待落地项，不代表已实现。
 
 | token | css 定义 | md 引用 |
 |---|---|---|
 | `--accent` | ✅ | ✅ |
-| `--accent-fg` | ✅ | ✅ |
 | `--accent-hover` | ✅ | ✅ |
 | `--accent-text` | ✅ | ✅ |
-| `--agent-wait-hint` | ✅ | ✅ |
-| `--agent-wait-long` | ✅ | ✅ |
+| `--agent-wait-hint` | ⚠️ | ✅ |
+| `--agent-wait-long` | ⚠️ | ✅ |
 | `--badge-h` | ✅ | ✅ |
-| `--batch-bar-h` | ✅ | ✅ |
+| `--batch-bar-h` | ⚠️ | ✅ |
 | `--bg` | ✅ | ✅ |
-| `--bg-elevated` | ✅ | ✅ |
-| `--bg-subtle` | ✅ | ✅ |
+| `--bg-subtle` | ⚠️ | ✅ |
 | `--border` | ✅ | ✅ |
-| `--border-strong` | ✅ | ✅ |
 | `--btn-text-h` | ✅ | ✅ |
 | `--btn-text-hover-bg` | ✅ | ✅ |
 | `--btn-text-pad-x` | ✅ | ✅ |
-| `--cat-assistant` | ✅ | ✅ |
-| `--cat-assistant-text` | ✅ | ✅ |
-| `--cat-assistant-tile` | ✅ | ✅ |
-| `--cat-builtin` | ✅ | ✅ |
-| `--cat-builtin-text` | ✅ | ✅ |
-| `--cat-builtin-tile` | ✅ | ✅ |
-| `--cat-crawl` | ✅ | ✅ |
-| `--cat-crawl-text` | ✅ | ✅ |
-| `--cat-crawl-tile` | ✅ | ✅ |
-| `--cat-doc` | ✅ | ✅ |
-| `--cat-doc-text` | ✅ | ✅ |
-| `--cat-library` | ✅ | ✅ |
-| `--cat-library-text` | ✅ | ✅ |
-| `--cat-library-tile` | ✅ | ✅ |
-| `--cat-memory` | ✅ | ✅ |
-| `--cat-memory-text` | ✅ | ✅ |
-| `--cat-ontology` | ✅ | ✅ |
-| `--cat-ontology-text` | ✅ | ✅ |
-| `--cat-pattern` | ✅ | ✅ |
-| `--cat-pattern-text` | ✅ | ✅ |
+| `--cat-doc` | ⚠️ | ✅ |
+| `--cat-memory` | ⚠️ | ✅ |
+| `--cat-ontology` | ⚠️ | ✅ |
+| `--cat-pattern` | ⚠️ | ✅ |
 | `--chip-h` | ✅ | ✅ |
-| `--color-accent` | ✅ | ✅ |
-| `--color-accent-hover` | ✅ | ✅ |
-| `--color-ash` | ✅ | ✅ |
-| `--color-danger` | ✅ | ✅ |
-| `--color-graphite` | ✅ | ✅ |
-| `--color-hairline` | ✅ | ✅ |
-| `--color-ink` | ✅ | ✅ |
-| `--color-paper` | ✅ | ✅ |
-| `--color-primary` | ✅ | ✅ |
-| `--color-primary-hover` | ✅ | ✅ |
-| `--color-smoke` | ✅ | ✅ |
-| `--color-success` | ✅ | ✅ |
-| `--color-warning` | ✅ | ✅ |
-| `--composer-chips-max` | ✅ | ✅ |
-| `--control-h` | ✅ | ✅ |
+| `--composer-chips-max` | ⚠️ | ✅ |
 | `--control-h-form` | ✅ | ✅ |
 | `--control-h-lg` | ✅ | ✅ |
 | `--control-h-sm` | ✅ | ✅ |
-| `--cost-meter-h` | ✅ | ✅ |
+| `--cost-meter-h` | ⚠️ | ✅ |
 | `--danger` | ✅ | ✅ |
-| `--danger-bg` | ✅ | ✅ |
-| `--dialog-h-max` | ✅ | ✅ |
-| `--dialog-pad` | ✅ | ✅ |
-| `--dialog-pad-b` | ✅ | ✅ |
-| `--dialog-pad-compact` | ✅ | ✅ |
-| `--dialog-pad-compact-x` | ✅ | ✅ |
-| `--dialog-pad-compact-y` | ✅ | ✅ |
-| `--dialog-pad-t` | ✅ | ✅ |
-| `--dialog-pad-x` | ✅ | ✅ |
-| `--dialog-w-lg` | ✅ | ✅ |
-| `--dialog-w-md` | ✅ | ✅ |
+| `--dialog-h-max` | ⚠️ | ✅ |
+| `--dialog-pad` | ⚠️ | ✅ |
+| `--dialog-pad-compact` | ⚠️ | ✅ |
 | `--dialog-w-sm` | ✅ | ✅ |
-| `--drawer-pad` | ✅ | ✅ |
-| `--drawer-pad-x` | ✅ | ✅ |
-| `--drawer-pad-y` | ✅ | ✅ |
-| `--drawer-w-lg` | ✅ | ✅ |
-| `--drawer-w-md` | ✅ | ✅ |
-| `--drawer-w-sm` | ✅ | ✅ |
-| `--ds-font-helper` | ✅ | ✅ |
+| `--drawer-pad` | ⚠️ | ✅ |
+| `--drawer-w-lg` | ⚠️ | ✅ |
+| `--drawer-w-md` | ⚠️ | ✅ |
+| `--drawer-w-sm` | ⚠️ | ✅ |
 | `--ds-font-sm` | ✅ | ✅ |
-| `--ds-font-tag` | ✅ | ✅ |
-| `--ds-line-helper` | ✅ | ✅ |
-| `--ds-line-sm` | ✅ | ✅ |
-| `--feed-code-max-h` | ✅ | ✅ |
+| `--feed-code-max-h` | ⚠️ | ✅ |
 | `--feed-follow-threshold` | ✅ | ✅ |
-| `--feed-min-h` | ✅ | ✅ |
+| `--feed-min-h` | ⚠️ | ✅ |
 | `--focus-ring` | ✅ | ✅ |
-| `--font-sans` | ✅ | ✅ |
-| `--icon-md` | ✅ | ✅ |
-| `--icon-sm` | ✅ | ✅ |
 | `--knowledge-action` | ✅ | ✅ |
-| `--knowledge-action-hover` | ✅ | ✅ |
 | `--knowledge-filter-width` | ✅ | ✅ |
 | `--mono` | ✅ | ✅ |
-| `--nav-rail-w` | ✅ | ✅ |
 | `--primary` | ✅ | ✅ |
 | `--primary-fg` | ✅ | ✅ |
 | `--primary-hover` | ✅ | ✅ |
-| `--primary-text` | ✅ | ✅ |
 | `--radius-card` | ✅ | ✅ |
 | `--radius-control` | ✅ | ✅ |
 | `--radius-dialog` | ✅ | ✅ |
-| `--radius-full` | ✅ | ✅ |
 | `--scrollbar-size` | ✅ | ✅ |
-| `--scrollbar-thumb` | ✅ | ✅ |
-| `--shadow-lg` | ✅ | ✅ |
-| `--shadow-md` | ✅ | ✅ |
-| `--shadow-primary` | ✅ | ✅ |
-| `--shadow-quiet` | ✅ | ✅ |
-| `--shadow-risk-high` | ✅ | ✅ |
-| `--shadow-scroll` | ✅ | ✅ |
-| `--shadow-sm` | ✅ | ✅ |
-| `--space-1` | ✅ | ✅ |
-| `--space-2` | ✅ | ✅ |
+| `--scrollbar-thumb` | ⚠️ | ✅ |
+| `--shadow-risk-high` | ⚠️ | ✅ |
+| `--shadow-scroll` | ⚠️ | ✅ |
 | `--space-3` | ✅ | ✅ |
 | `--space-4` | ✅ | ✅ |
-| `--space-5` | ✅ | ✅ |
-| `--stat-delta-font` | ✅ | ✅ |
-| `--stat-label-font` | ✅ | ✅ |
-| `--stat-value-font` | ✅ | ✅ |
+| `--stat-delta-font` | ⚠️ | ✅ |
+| `--stat-label-font` | ⚠️ | ✅ |
+| `--stat-value-font` | ⚠️ | ✅ |
 | `--success` | ✅ | ✅ |
-| `--success-bg` | ✅ | ✅ |
-| `--surface` | ✅ | ✅ |
-| `--surface-hover` | ✅ | ✅ |
-| `--table-cell-pad-y` | ✅ | ✅ |
-| `--table-header-h` | ✅ | ✅ |
-| `--table-row-h` | ✅ | ✅ |
-| `--table-row-h-compact` | ✅ | ✅ |
-| `--table-row-h-relaxed` | ✅ | ✅ |
+| `--surface` | ⚠️ | ✅ |
+| `--table-header-h` | ⚠️ | ✅ |
+| `--table-row-h` | ⚠️ | ✅ |
+| `--table-row-h-compact` | ⚠️ | ✅ |
+| `--table-row-h-relaxed` | ⚠️ | ✅ |
 | `--text` | ✅ | ✅ |
-| `--text-faint` | ✅ | ✅ |
-| `--text-quiet` | ✅ | ✅ |
-| `--trans-fast` | ✅ | ✅ |
-| `--trans-med` | ✅ | ✅ |
+| `--text-quiet` | ⚠️ | ✅ |
 | `--warning` | ✅ | ✅ |
-| `--warning-bg` | ✅ | ✅ |
 | `--workspace-result-rail-collapsed` | ✅ | ✅ |
 | `--workspace-result-rail-ideal` | ✅ | ✅ |
 | `--workspace-result-rail-max` | ✅ | ✅ |

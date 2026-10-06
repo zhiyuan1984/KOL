@@ -50,7 +50,7 @@ const BRAND_LABEL: Record<string, string> = {
   "*": "全品牌",
 };
 
-const SKILL_LABEL: Record<string, string> = {
+export const SKILL_LABEL: Record<string, string> = {
   email_compose: "写合作邮件",
   confirm_stage: "提出阶段变更",
   reply_analysis: "回复分析",

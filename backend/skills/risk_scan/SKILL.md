@@ -17,7 +17,7 @@ employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规
 ---
 # 风险扫描 risk_scan（T8）
 
-Codex app-server 在本 Skill 的 turn 中调用 Starry KOL MCP `pageRiskConversations` 和 `summarizeRiskConversations`（截图红人风险会话接口）。同时读取本地逾期合作，列出 T8 失联与延期。不写阶段、不发信。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 达人库的 `pageRiskConversations` 和 `summarizeRiskConversations`（截图红人风险会话接口）。同时读取本地逾期合作，列出 T8 失联与延期。不写阶段、不发信。
 
 ## 禁止事项
 

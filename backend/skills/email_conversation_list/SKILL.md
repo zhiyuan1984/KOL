@@ -17,7 +17,7 @@ employee_agent: 新回复理解走 AI 助理；读取敏感正文仍执行权限
 ---
 # 邮件会话列表
 
-Codex app-server 在本 Skill 的 turn 中调用Starry KOL MCP `pageEmailConversations`。禁止裸 HTTP；远程工具由本 turn 按授权 MCP 调用。只展示会话主题、收件人和状态。空结果会标明查询关键词：这是品牌侧合作会话库，不是 Gmail / 163 收件箱；创建会话还需要收件人已有红人画像。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 邮件服务的 `pageEmailConversations`。禁止裸 HTTP；远程工具由本 turn 在已授权范围内调用。只展示会话主题、收件人和状态。空结果会标明查询关键词：这是品牌侧合作会话库，不是 Gmail / 163 收件箱；创建会话还需要收件人已有红人画像。
 
 ## 禁止事项
 

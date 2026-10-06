@@ -19,7 +19,7 @@ employee_summary: 按会话读取邮件正文与往来消息
 ---
 # 邮件会话详情
 
-Codex app-server 在本 Skill 的 turn 中调用Starry KOL MCP `getEmailConversation`。必须指定会话 ID；缺少字段时返回待补充提示，不猜测会话。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 邮件服务的 `getEmailConversation`。必须指定会话 ID；缺少字段时返回待补充提示，不猜测会话。
 
 ## 禁止事项
 

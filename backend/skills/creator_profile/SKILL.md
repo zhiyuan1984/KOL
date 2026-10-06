@@ -17,7 +17,7 @@ employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
 ---
 # 达人画像 creator_profile · Lead
 
-Codex app-server 在本 Skill 的 turn 中调用 Starry KOL MCP：`pageKolProfiles` 解析达人 UID，再 `getKolProfileDetail`（含红人负责人绑定）→ `listKolPlatformData`，并可附带该达人的 `pageEmailConversations`。没有单独的 getKolOwnerRelation 工具。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 达人库：`pageKolProfiles` 解析达人 UID，再 `getKolProfileDetail`（含红人负责人绑定）→ `listKolPlatformData`，并可附带该达人的 `pageEmailConversations`。没有单独的 getKolOwnerRelation 工具。
 
 **输出**：把事实交给 Codex app-server 写成给运营看的中文画像话术（谁是这个人、阶段、缺什么、建议怎么跟）。只使用有数据支持的字段；不得虚构受众、互动、转化或明文联系方式，也不调用 `decryptKolContact`。员工面禁止出现「这项信息」「摘要数据」或原始枚举码墙。
 

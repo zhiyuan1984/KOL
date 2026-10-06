@@ -18,7 +18,7 @@ employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
 ---
 # 达人库全量
 
-Codex app-server 在本 Skill 的 turn 中调用 Starry KOL MCP `listAllKolProfiles`。结果受账号自身范围限制。禁止裸 HTTP；远程工具由本 turn 按授权 MCP 调用。并展示红人负责人字段（若接口返回）。不调用 `decryptKolContact`。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 达人库的 `listAllKolProfiles`。结果受账号自身范围限制。禁止裸 HTTP；远程工具由本 turn 在已授权范围内调用。并展示红人负责人字段（若接口返回）。不调用 `decryptKolContact`。
 
 ## 禁止事项
 

@@ -17,7 +17,7 @@ employee_agent: 新发现分析、异步采集；正式导入独立确认
 ---
 # 达人同步入库
 
-Codex app-server 在本 Skill 的 turn 中先调用 Starry KOL MCP `pageKolProfiles` 按联系邮箱和名称查重，再调用 `addKolProfile`（`kolName` + `contactEmail`）。缺少名称或联系邮箱时返回待补充字段，不执行写入。
+Codex app-server 在本 Skill 的 turn 中先调用 Starry 达人库的 `pageKolProfiles` 按联系邮箱和名称查重，再调用 `addKolProfile`（`kolName` + `contactEmail`）。缺少名称或联系邮箱时返回待补充字段，不执行写入。
 
 ## 禁止事项
 

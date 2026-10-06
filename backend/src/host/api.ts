@@ -126,6 +126,7 @@ import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { insertSessionMessage, isSessionNotFound } from "./session-messages.js";
 import { publishSession, subscribeSession } from "./session-events.js";
 import { assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { skillConnectorGaps } from "../runtime/skill-connector-gate.js";
 import { agentForExpert, employeeExpert } from "../runtime/employee-agents.js";
 import { managedAgent } from "../runtime/managed-agents.js";
 import { isTestRuntime } from "../codex-runtime.js";
@@ -2358,6 +2359,72 @@ export function contextGapResponse(sid: string, me: Json, intent: Intent, gap: C
   return ok(sid, me, intent, { worker: null, context_gap: contextGap });
 }
 
+const CONNECTOR_GAP_CODE = "runtime_connector_unmounted";
+
+/**
+ * 员工面文案只讲业务事实与恢复入口：数据连接没接通 ≠ 缺少输入，也 ≠ 没有结果
+ * （DESIGN §16）。标题走 error_card 的 `status` 字段（前端 errorTitle 直接用可读文案，
+ * 不会把机器码渲染给员工），技能名取登记标题，不出现 MCP、连接器 id、工具别名或技能 id（§15）。
+ */
+function connectorGapCopy(skill: string, kind: "unmounted" | "unavailable"): { status: string; message: string; next_action: string } {
+  const title = taskDefinition(skill)?.title || "该技能";
+  return kind === "unmounted"
+    ? {
+        status: "数据连接尚未接通",
+        message: `“${title}”所需的数据连接尚未接通，本次没有开始处理，也没有使用缓存或虚构数据。`,
+        next_action: "请联系管理员在连接管理中为该技能完成挂载。",
+      }
+    : {
+        status: "数据连接暂不可用",
+        message: `“${title}”所需的数据连接暂时不可用，本次没有开始处理，也没有使用缓存或虚构数据。`,
+        next_action: "请联系管理员在连接管理中核对该技能的连接状态，或稍后重试。",
+      };
+}
+
+function connectorGapResult(sid: string, me: Json, intent: Intent, skill: string,
+  input: { code: string; connectorIds: string[]; kind: "unmounted" | "unavailable" }): Json {
+  const copy = connectorGapCopy(skill, input.kind);
+  const connectorGap = { code: input.code, skill_id: skill, connectors: input.connectorIds };
+  addMsg(sid, "assistant", "error_card", {
+    code: input.code,
+    status: copy.status,
+    message: copy.message,
+    next_action: copy.next_action,
+    persistent: true,
+  });
+  return ok(sid, me, intent, {
+    worker: null,
+    connector_gap: connectorGap,
+    // 带上 error：绑定任务/运行按失败收尾，不记成已完成（run 与任务都到终态）。
+    error: { ...connectorGap, ...copy, ok: false },
+  });
+}
+
+/**
+ * 声明了已登记连接器、但该连接器一个可用工具都没有时，起箱与 turn 都没有意义：
+ * 模型只能拿散文报错，员工看到的是引擎词和无来源结论（DESIGN §15、§16）。
+ * 判定只读本地治理库，不发远端请求；stub 不调真实工具，也不该被这道检查打断。
+ */
+export function connectorGapResponse(sid: string, me: Json, intent: Intent, skill: string): Json | null {
+  if (codexMode() === "stub") return null;
+  // 任务协作分析按契约不挂载任何业务工具（worker 以空目录起 turn），声明工具不代表本轮能力。
+  if (skill === KOL_ANALYZE_TASK_TYPE) return null;
+  const gaps = skillConnectorGaps(skill);
+  if (!gaps.length) return null;
+  for (const gap of gaps) {
+    audit(scopedUser()?.id || "demo", "runtime.connector_gap", {
+      skill_id: skill,
+      connector_id: gap.connector_id,
+      reason: gap.reason,
+    });
+  }
+  return connectorGapResult(sid, me, intent, skill, {
+    code: CONNECTOR_GAP_CODE,
+    connectorIds: gaps.map((gap) => gap.connector_id),
+    kind: "unmounted",
+  });
+}
+
 async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | null, text: string): Promise<Json> {
   if (intent.type === "business_approval" && isApprovalPathLookup(text)) {
     const entities = intent.extras?.entities && typeof intent.extras.entities === "object"
@@ -2497,6 +2564,8 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
   const context = workerRunContext(skill, extra, text);
   if (context && context.status !== "ready") return contextGapResponse(sid, me, intent, context);
   if (context) extra.context_resolution = context;
+  const connectorGap = connectorGapResponse(sid, me, intent, skill);
+  if (connectorGap) return connectorGap;
   const namedGate = applyNamedMailGates(sid, me, intent, col, text, composeFacts);
   if (namedGate) return namedGate;
   try {
@@ -2552,6 +2621,21 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     }
     if (e instanceof HttpFail) {
       const detail = e.detail && typeof e.detail === "object" ? e.detail as Json : {};
+      if (detail.connector_gap === true) {
+        // 运行期兜底：绑定存在、远端发现却没有给出任何工具，turn 未启动；与前置拦截同一类卡。
+        const code = String(detail.code || CONNECTOR_GAP_CODE);
+        const connectorId = String(detail.connector_id || "");
+        audit(scopedUser()?.id || "demo", "runtime.connector_gap", {
+          skill_id: skill,
+          connector_id: connectorId || null,
+          reason: code,
+        });
+        return connectorGapResult(sid, me, intent, skill, {
+          code,
+          connectorIds: connectorId ? [connectorId] : [],
+          kind: "unavailable",
+        });
+      }
       addMsg(sid, "assistant", "error_card", {
         code: String(detail.code || (isEmailMcpTask(intent.type) ? "starrykol_failed" : isKolClawTask(intent.type) ? "kolclaw_failed" : "worker_failed")),
         message: String(detail.message || e.message),

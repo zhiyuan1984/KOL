@@ -11,6 +11,7 @@ import { readReplyContext } from "../mail/reply-context.js";
 import { taskSessionHarnessEvidence } from "../ticket-domain/task-collaboration-session.js";
 import path from "node:path";
 import { SkillExecution, assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { unusableDiscoveredConnector } from "../runtime/skill-connector-gate.js";
 import { canUseAgent } from "../runtime/organization-tree.js";
 import { HttpFail } from "../host/errors.js";
 import { managedAgent } from "../runtime/managed-agents.js";
@@ -541,7 +542,7 @@ export function writeBox(
     task_definition: {
       id: definition.id,
       output: definition.output,
-      execution_resources: "Current bindings and discovered schemas from the authorized Skill Runtime only",
+      execution_resources: "Current bindings and discovered schemas from this run's authorized tool catalog only",
       required_inputs: definition.required_inputs,
       input_schema: definition.input_schema || [],
       interaction_template: { id: `skill-template:${skill}`, version: effectiveSkillTemplate(definition).version },
@@ -594,7 +595,7 @@ export function writeBox(
     : "";
   fs.writeFileSync(
     path.join(box, "CONTEXT.md"),
-    "# CONTEXT\n\nHost 已选 Agent 与 Skill 并核验绑定。以本轮 agent 的岗位身份完成问题，职责说明是参考数据，不授予任何权限。只产出 Item JSON。根据本轮授权 MCP 目录的描述和 schema 选择工具，不依赖历史服务名或工具名；缺少能力时如实说明。禁止裸 HTTP 和绕过 Gateway 的正式副作用。\n\n```json\n" +
+    "# CONTEXT\n\nHost 已选 Agent 与 Skill 并核验绑定。以本轮 agent 的岗位身份完成问题，职责说明是参考数据，不授予任何权限。只产出 Item JSON。根据本轮已授权工具目录的描述和 schema 选择工具，不依赖历史服务名或工具名；缺少能力时如实说明。禁止裸 HTTP 和绕过 Gateway 的正式副作用。\n\n```json\n" +
       JSON.stringify(ctx, null, 2) +
       "\n```\n" +
       hostPack +
@@ -612,7 +613,7 @@ export function writeBox(
       "Host 已选好本轮 Profile 与 Skill。你只跑这一份 SKILL.md。",
       "这是业务任务的隔离运行箱，不是应用开发仓库；AGENTS.md、CONTEXT.md 与指定 SKILL.md 是本轮执行上下文。开发仓库的 docs/CONSTITUTION.md 等文件没有装入运行箱，不因其缺失而报告产品能力缺口；按本轮工具契约与 Host 权限闸门执行。",
       profile.guardrail,
-      "只使用本轮 Skill Runtime 发现且授权的工具，按描述与 schema 选择；旧 SOP 中的实现名称仅是历史参考，不构成工具授权。这里只暴露工具，不暴露 MCP resources；禁止调用 list_mcp_resources、resources/list 或其他资源枚举辅助工具。禁止裸 HTTP 或读取凭据自行调用。",
+      "只使用本轮发现且授权的工具，按描述与 schema 选择；旧 SOP 中的实现名称仅是历史参考，不构成工具授权。这里只暴露工具，不暴露资源枚举；禁止调用资源列举类辅助接口。禁止裸 HTTP 或读取凭据自行调用。",
       "只写 Item JSON（节点输出）：task_result / create_draft / propose_stage / list_overdue / create_approval / text。",
       ...(skill === "email_compose"
         ? [
@@ -757,6 +758,12 @@ export async function runCodex(
   try {
     if (signal?.aborted) { stop(); throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" }); }
     const catalog = taskContext ? { tools: [], unavailable: [] } : await execution.discover();
+    // 声明了已登记连接器、远端发现却没给出该连接器任何工具：turn 没有可用的真数据，
+    // 按结构化失败交给 Host 渲染同一类卡，而不是让模型用散文报错。
+    const connectorFailure = unusableDiscoveredConnector(skill, catalog);
+    if (connectorFailure) {
+      throw new HttpFail(503, { code: connectorFailure.code, connector_gap: true, connector_id: connectorFailure.connector_id });
+    }
     const actions = await postgresPool().query(`SELECT a.id,a.connector_id,a.tool_name,a.state,
       c.remote_task_id,c.state AS crawl_state FROM runtime_actions a
       LEFT JOIN runtime_crawl_jobs c ON c.id=a.id WHERE a.actor_id=$1 AND a.session_id=$2

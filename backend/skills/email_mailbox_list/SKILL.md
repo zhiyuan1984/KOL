@@ -19,7 +19,7 @@ employee_summary: 查询品牌邮箱的授权与同步状态
 ---
 # 品牌邮箱列表
 
-Codex app-server 在本 Skill 的 turn 中调用 Starry KOL MCP `pageMailboxes` 和 `listNylasAccounts`。禁止裸 HTTP；远程工具由本 turn 按授权 MCP 调用。只展示可核验的邮箱、品牌和授权状态。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 邮件服务的 `pageMailboxes` 和 `listNylasAccounts`。禁止裸 HTTP；远程工具由本 turn 在已授权范围内调用。只展示可核验的邮箱、品牌和授权状态。
 
 ## 禁止事项
 

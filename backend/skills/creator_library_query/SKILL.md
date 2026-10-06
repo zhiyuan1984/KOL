@@ -36,7 +36,7 @@ employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
 ## 执行步骤
 
 1. 校验上述参数与当前授权范围。空条件使用默认分页；缺少可选条件不是失败。
-2. 在本 Skill 的 Codex app-server turn 中调用 Starry KOL MCP `pageKolProfiles`，按工具 schema 传入筛选及分页参数；需要统计时才调用 `getKolProfileSidebarMetrics`。禁止裸 HTTP 或未经授权的替代数据源。
+2. 在本 Skill 的 Codex app-server turn 中调用 Starry 达人库的 `pageKolProfiles`，按工具 schema 传入筛选及分页参数；需要统计时才调用 `getKolProfileSidebarMetrics`。禁止裸 HTTP 或未经授权的替代数据源。
 3. 从真实工具回执生成 `task_result`，区分有效空结果与工具失败。失败返回真实原因及重试建议，禁止输出伪造达人或一直保持“正在查询”。
 
 ## 输出

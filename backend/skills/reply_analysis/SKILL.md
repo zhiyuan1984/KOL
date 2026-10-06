@@ -18,7 +18,7 @@ employee_summary: 按阶段核对来信事实，给出阶段指针与下一步�
 ---
 # 回复分析 reply_analysis · KOL Agent SOP
 
-这是 KOL 入口上的只读分析。Codex app-server 在本 turn 中按下列顺序调用 Starry KOL MCP，并解释结果。禁止发送、禁止写入阶段、禁止企微、禁止 ingest。发送 ≠ 推进阶段。
+这是 KOL 入口上的只读分析。Codex app-server 在本 turn 中按下列顺序调用 Starry 达人库与邮件服务，并解释结果。禁止发送、禁止写入阶段、禁止企微、禁止 ingest。发送 ≠ 推进阶段。
 
 ## 工具顺序（只读）
 

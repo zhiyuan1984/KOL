@@ -18,7 +18,7 @@ employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规
 ---
 # 达人风险会话
 
-Codex app-server 在本 Skill 的 turn 中调用 Starry KOL MCP `pageRiskConversations`，并附带 `summarizeRiskConversations`。不修改会话，不推进阶段。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 达人库的 `pageRiskConversations`，并附带 `summarizeRiskConversations`。不修改会话，不推进阶段。
 
 ## 禁止事项
 

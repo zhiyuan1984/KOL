@@ -17,6 +17,7 @@
     "validate:kol-data": "node scripts/validate-kol-data.mjs",
     "validate:registry": "node scripts/validate-registry.mjs",
     "validate:contracts": "node scripts/validate-contracts.mjs",
+    "validate:design-tokens": "node scripts/check-design-tokens.mjs",
     "validate:tb-binding": "node scripts/validate-tb-binding.mjs",
     "eval:kol": "node scripts/run-kol-evals.mjs",
     "scan:redaction": "node scripts/scan-redaction.mjs",

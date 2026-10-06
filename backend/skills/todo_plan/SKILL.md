@@ -41,7 +41,7 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 5. Host 校验结构、允许动词及 `work_item_id` 全量覆盖。通过后保存待办封面与展示任务；失败时保留上一版可用展示。
 6. 前端轮询完成后重新读取待办展示任务。任务的创建、编辑、确认完成和转办仍走正式任务接口，不由本 Skill代写。
 
-本 Skill 不直接使用 MCP 或知识库。所需事实由 Host 按员工权限组包。
+本 Skill 不直接调用外部数据连接或知识库。所需事实由 Host 按员工权限组包。
 
 ### 当前范围与待裁决边界
 
@@ -102,7 +102,7 @@ Host 只补机械字段（`stats` / `source_cursor` / `increment_summary`）。�
 - 禁止发信、跟进、确认阶段、改正式状态。
 - 禁止把发现批次（无 person ID）建议为 follow。
 - 禁止把「待补阶段」写进 lead、primary、title、why、label；「处理」只允许作为 `verb=handle` 行的 label。
-- 禁止用写工具；`mcp` 为空。
+- 禁止用写工具；本技能没有声明任何数据连接。
 - 禁止把 HOST PACK 原文或任务标题列表当 brief 正文或展示行交差。
 
 ## 是否发信

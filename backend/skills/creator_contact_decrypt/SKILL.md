@@ -18,7 +18,7 @@ employee_summary: 按达人账号解密联系方式，属于敏感操作
 ---
 # 解密达人联系方式
 
-Codex app-server 在本 Skill 的 turn 中调用 Starry KOL MCP `decryptKolContact`。必须指定达人 UID。查询画像默认不解密；仅本技能显式执行。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 达人库的 `decryptKolContact`。必须指定达人 UID。查询画像默认不解密；仅本技能显式执行。
 
 ## 禁止事项
 

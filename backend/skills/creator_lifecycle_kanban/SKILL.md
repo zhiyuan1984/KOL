@@ -17,7 +17,7 @@ employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规
 ---
 # 合作生命周期看板
 
-Codex app-server 在本 Skill 的 turn 中调用 Starry KOL MCP `pageLifecycleKanban`。禁止裸 HTTP；远程工具由本 turn 按授权 MCP 调用。只展示可核验的达人、阶段和负责人。
+Codex app-server 在本 Skill 的 turn 中调用 Starry 达人库的 `pageLifecycleKanban`。禁止裸 HTTP；远程工具由本 turn 在已授权范围内调用。只展示可核验的达人、阶段和负责人。
 
 ## 禁止事项
 

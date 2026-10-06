@@ -22,6 +22,7 @@ import { MESSAGE_RISK_LABEL, messageRisk, type MessageRisk } from "../agentUx";
 import { useConfirmedDraftSend } from "../hooks/useConfirmedDraftSend";
 import { applyComposerDraft } from "../composer/draft";
 import { discoveryTimeline } from "../home/discoveryTimeline";
+import { stripEngineCopy } from "../employeeCopy";
 import type { RuntimeActionView } from "../api";
 
 type ThreadRole = "user" | "assistant" | "system";
@@ -980,8 +981,9 @@ export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, u
 }
 
 function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; onRefresh?: () => void }) {
-  const title = String(card.title || "任务结果");
-  const summary = String(card.summary || "");
+  // 卡片分支也要过员工面清洗（DESIGN §15）：推理原文里的引擎名与技能 id 不得原样落到界面。
+  const title = stripEngineCopy(String(card.title || "任务结果"));
+  const summary = stripEngineCopy(String(card.summary || ""));
   const sections = Array.isArray(card.sections) ? card.sections as Record<string, unknown>[] : [];
   return (
     <article className="stream-task-result" data-kind="task-result-card" data-stream-result>
@@ -990,8 +992,8 @@ function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; 
       {summary ? <p>{summary}</p> : null}
       <ResultDraftPreview card={card} onRefresh={onRefresh} />
       {sections.map((section, index) => {
-        const heading = String(section.title || section.heading || "");
-        const content = String(section.content || section.body || section.summary || "");
+        const heading = stripEngineCopy(String(section.title || section.heading || ""));
+        const content = stripEngineCopy(String(section.content || section.body || section.summary || ""));
         if (!heading && !content) return null;
         return (
           <section key={`${heading}-${index}`}>
@@ -1101,15 +1103,6 @@ function humanizeToolName(name: string) {
   return TOOL_LABELS[raw.toLowerCase()]
     || TOOL_LABELS[short.toLowerCase()]
     || (/[\u4e00-\u9fff]/.test(short) ? short : "");
-}
-
-function stripEngineCopy(text: string) {
-  return String(text || "")
-    .replace(/\bcrawler_collect\b/g, "候选线索整理")
-    .replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "")
-    .replace(/\b(?:MCP|Codex|Thread|Skill)\b/gi, "")
-    .replace(/[ \t]+$/gm, "")
-    .trim();
 }
 
 function isToolId(text: string) {

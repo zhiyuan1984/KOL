@@ -25,7 +25,7 @@ Codex app-server 按本 Skill 只推荐一个具体 `stage_code`。CONTEXT 列�
 - **分支流程**：跳过中间阶段，例如合同后不寄样，直接进入内容策划。
 - **异常流程**：已暂停 / 争议中 / 已流失 / 已拒绝 / 已取消。
 
-人在会话确认卡里拥有最终确认权。确认后内核闸门写本地阶段缓存，并在已绑定 `kol_uid` 时调用 Starry KOL MCP `changeLifecycleStage`。Worker / Codex 不得自己写阶段。
+人在会话确认卡里拥有最终确认权。确认后内核闸门写本地阶段缓存，并在已绑定 `kol_uid` 时调用 Starry 达人库的 `changeLifecycleStage`。Worker / Codex 不得自己写阶段。
 
 禁止 Worker 写阶段、发信或走企微审批。禁止把发送邮件当成阶段变更。管理员同样必须等人确认后才写入。自动事实写入不走 `legalTargets`，不能替人跳过或纠正。
 

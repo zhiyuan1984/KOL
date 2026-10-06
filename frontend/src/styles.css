@@ -5035,53 +5035,6 @@ summary:focus-visible,
   flex: 0 0 auto;
   white-space: nowrap;
 }
-.run-hud {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 14px;
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-tag);
-  background: var(--bg);
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-  margin-left: auto;
-  flex-shrink: 0;
-  white-space: nowrap;
-  box-shadow: none;
-}
-.run-hud-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ds-text-dim);
-  flex-shrink: 0;
-}
-.run-hud[data-run-status="running"] {
-  border-color: var(--ds-border);
-  background: var(--ds-surface);
-}
-.run-hud[data-run-status="running"] .run-hud-dot { background: var(--text); animation: breath-dot 1.6s ease-in-out infinite; }
-.run-hud[data-run-status="waiting_approval"] {
-  border-color: color-mix(in srgb, var(--warning) 40%, var(--ds-border));
-  background: color-mix(in srgb, var(--warning) 8%, var(--bg));
-}
-.run-hud[data-run-status="waiting_approval"] .run-hud-dot { background: var(--warning); animation: breath-dot 2s ease-in-out infinite; }
-.run-hud-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.run-hud-copy strong { font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); white-space: nowrap; }
-.run-hud-phase { color: var(--ds-text-dim); font-size: var(--ds-font-helper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-.run-hud-remote {
-  font-size: var(--ds-font-helper);
-  color: var(--text);
-  padding: 2px 8px;
-  border-radius: var(--ds-radius-tag);
-  background: var(--ds-surface);
-  white-space: nowrap;
-}
-.run-hud-hint { display: none; color: var(--ds-text-dim); font-size: var(--ds-font-helper); white-space: nowrap; }
-@media (min-width: 900px) {
-  .run-hud-hint { display: inline; }
-}
 @keyframes breath-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: .45; transform: scale(.78); }
@@ -7875,6 +7828,8 @@ summary:focus-visible,
   --page-gutter: clamp(16px, 2.4vw, 40px);
   --content-max: 1200px;
   --conversation-measure: 900px;
+  /* DESIGN §10.2/§10.4：「在底部」的判定阈值，跟随逻辑与新内容提示共用同一个数。 */
+  --feed-follow-threshold: 48px;
   --scrollbar-size: 6px;
   --layer-popover: 40;
   --layer-drawer: 60;
@@ -8940,14 +8895,40 @@ body {
   font-size: var(--ds-font-helper);
   line-height: var(--ds-line-helper);
 }
+/* 任务状态的唯一表达处：形状 + 文案 + 颜色三条通道同时变（DESIGN §1 不变量 4）。 */
 .side-status {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+  margin: 6px 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-section);
+  background: var(--ds-surface);
   font-size: var(--ds-font-helper);
   line-height: var(--ds-line-helper);
-  color: var(--ds-text-dim);
+  color: var(--text);
   font-family: var(--sans);
+}
+.side-status .side-status-copy { font-size: var(--ds-font-sm); }
+.side-status .side-status-phase,
+.side-status .side-status-hint { color: var(--ds-text-dim); flex-basis: 100%; }
+.side-status .side-status-debug { flex-basis: 100%; margin-top: 0; }
+.status-shape {
+  flex: 0 0 auto;
+  width: 20px;
+  text-align: center;
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-helper);
+  color: var(--ds-text-dim);
+}
+.status-shape.is-live { color: var(--accent); animation: breath-dot 1.8s ease-in-out infinite; }
+.status-shape.is-confirm { color: var(--warning); }
+.status-shape.is-done { color: var(--success); }
+.status-shape.is-failed { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .status-shape.is-live { animation: none; }
 }
 .side-tabs {
   display: flex;
@@ -9495,8 +9476,6 @@ body {
   }
   .status-dot.running,
   .status-dot.waiting_approval,
-  .run-hud,
-  .run-hud-dot,
   .remote-pill .live-dot,
   .trace-list li[data-status="running"] i,
   .team-rail li[data-state="current"],
@@ -15683,6 +15662,13 @@ button.today-brief-primary-btn:disabled {
   font-weight: 600;
 }
 .session-center { position: relative; }
+/* header 与 composer 固定在滚动区之外；矮视口下标题区先让位，既不压没 feed，也不会把输入框顶出视口（§10.1/§10.6）。 */
+.session-center > .task-detail-header {
+  max-height: 42vh;
+  overflow-y: auto;
+  overflow-x: clip;
+  scrollbar-width: thin;
+}
 .session-stream.conversation {
   flex: 1 1 0;
   overflow-anchor: auto;
@@ -15702,16 +15688,17 @@ button.today-brief-primary-btn:disabled {
   position: absolute;
   right: var(--space-4);
   bottom: var(--space-3);
-  display: grid;
-  place-items: center;
-  width: var(--workspace-arrow-button-size);
-  height: var(--workspace-arrow-button-size);
-  padding: 0;
-  border-radius: var(--radius-control);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--workspace-arrow-button-size);
+  padding: 0 var(--space-3) 0 var(--space-2);
+  border-radius: var(--radius-full);
   background: var(--bg);
   box-shadow: var(--shadow-quiet);
 }
 .session-scroll-control svg { width: var(--icon-md); height: var(--icon-md); }
+.session-scroll-control .session-scroll-label { font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); white-space: nowrap; }
 .runtime-action-card { padding: var(--space-3); margin-block: var(--space-2); }
 .runtime-action-summary { display: grid; gap: var(--space-2); margin-block: var(--space-3); }
 .runtime-action-summary > div { display: grid; gap: var(--space-1); }
@@ -15726,7 +15713,7 @@ button.today-brief-primary-btn:disabled {
 .home-pane[data-home-workspace] .scope-workspace-center-scroll-content { overflow-anchor: auto; }
 .scope-scroll-jump { border-radius: 999px; }
 @media (pointer: coarse) {
-  .session-scroll-control button { width: var(--touch-hit-min); height: var(--touch-hit-min); }
+  .session-scroll-control button { min-height: var(--touch-hit-min); padding-inline: var(--space-3); }
   .session-stream.conversation { padding-bottom: calc(var(--touch-hit-min) + var(--space-4)); }
 }
 .task-center-system-body { margin-top: var(--space-2); }

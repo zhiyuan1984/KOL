@@ -56,6 +56,7 @@ const steps = [
     : []),
   { id: "registry", cwd: backend, command: process.execPath, args: ["scripts/validate-registry.mjs", "--require-all"] },
   { id: "contracts-pilot", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs"] },
+  { id: "design-tokens", cwd: backend, command: process.execPath, args: ["scripts/check-design-tokens.mjs"] },
   ...(internal ? [] : [
     { id: "contracts-production", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs", "--production"] },
     { id: "tb-binding", cwd: backend, command: process.execPath, args: ["scripts/validate-tb-binding.mjs"] },

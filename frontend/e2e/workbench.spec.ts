@@ -4250,8 +4250,12 @@ test("quoted creator-search keywords show analysis without a right-side plan", a
   await page.locator("[data-home] [data-composer-input]").fill("搜索 Instagram“户外电源、房车露营”达人。");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
-  await expect(page.locator("[data-task-analysis-summary]")).toContainText("Instagram");
-  await expect(page.locator("[data-task-analysis-summary]")).toContainText("户外电源、房车露营");
+  // 中栏不再有「分析摘要」；解析出的平台与关键词在发现条件快照里对员工可见。
+  await expect(page.locator("[data-task-analysis-summary]")).toHaveCount(0);
+  const snapshot = page.locator("[data-discovery-condition-snapshot]");
+  await expect(snapshot).toContainText("Instagram");
+  await expect(snapshot).toContainText("户外电源");
+  await expect(snapshot).toContainText("房车露营");
   await expect(page.locator("[data-start-crawl]")).toHaveCount(0);
   await expect(page.locator("[data-workbench]")).toHaveCount(0);
   await expect(page.locator("[data-crawl-status]")).toHaveCount(0);

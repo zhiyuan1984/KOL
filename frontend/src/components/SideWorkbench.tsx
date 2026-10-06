@@ -29,11 +29,23 @@ import { api } from "../api";
 import CrawlArtifact, { crawlCandidates } from "./CrawlArtifact";
 import { SuggestedFollowTags } from "./FollowStyleTags";
 import { fieldLabel } from "../labels";
+import { stripEngineCopy } from "../employeeCopy";
 import type { SessionMailRow } from "./AgentTaskList";
-import { taskRunView } from "../runViewState";
+import { taskStatusView, type TaskStatusShape } from "../runViewState";
 import { useViewMode } from "../viewMode";
 
 export type TabId = "result" | "mail" | "draft" | "stage" | "inbound" | "approval" | "overdue" | "ship";
+
+/** 形状通道的字形：⚠ 只给需要人确认的 R3 等待，✓/✕ 只在真的完成或失败时出现。 */
+const STATUS_SHAPE_GLYPH: Record<TaskStatusShape, string> = {
+  dot: "•",
+  pulse: "•",
+  alert: "⚠",
+  hollow: "○",
+  check: "✓",
+  cross: "✕",
+  square: "■",
+};
 
 const TAB_LABEL: Record<TabId, string> = {
   result: "结果",
@@ -122,11 +134,20 @@ function actionPrompt(
   return { label, prompt: action.prompt || action.description || label, href: action.href };
 }
 
-function parsedResultFromMessages(messages: Message[]): TaskResultCard | null {
-  const cards = messages.flatMap((message) => taskResultCardsFrom(String(message.payload.text || "")));
+/** 只从本轮（最后一次用户发言之后）的消息里抠卡片，历史轮次的结果不得冒充本轮结果。 */
+function parsedResultFromRound(round: Message[]): TaskResultCard | null {
+  const cards = round.flatMap((message) => taskResultCardsFrom(String(message.payload.text || "")));
   if (!cards.length) return null;
   const withDraft = [...cards].reverse().find((card) => card.subject || card.body || card.draft_id || card.draft);
   return (withDraft || cards[cards.length - 1]) as TaskResultCard;
+}
+
+function latestResultTime(task: Task | null | undefined): string {
+  const stamp = task?.completed_at || task?.last_acted_at || task?.created_at;
+  const ms = stamp ? new Date(String(stamp)).getTime() : NaN;
+  return Number.isFinite(ms)
+    ? new Date(ms).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
 }
 
 function isComposeResultCard(card: TaskResultCard): boolean {
@@ -248,6 +269,7 @@ function GenericResultArtifact({
   handle?: string;
   onRefresh?: () => void;
 }) {
+  // 右栏是成果的唯一呈现处，渲染时也走同一套员工面清洗（DESIGN §15）：模型写的引擎名与技能 id 不外泄。
   const rawSections: TaskResultSection[] = Array.isArray(card.sections)
     ? card.sections
     : Object.entries(card.sections || {}).map(([title, content]) => ({
@@ -265,7 +287,7 @@ function GenericResultArtifact({
       ? rawActions.filter((action) => !/打标签/.test(typeof action === "string" ? action : String(action.prompt || action.label || "")))
       : rawActions,
   );
-  const summary = composeResultSummary(card, stacked);
+  const summary = stripEngineCopy(composeResultSummary(card, stacked));
   const followTags = card.suggested_follow_tags || [];
   const draftPreview = (
     <ResultDraftPreview card={card as Record<string, unknown>} onRefresh={onRefresh} />
@@ -278,7 +300,7 @@ function GenericResultArtifact({
     <article className="artifact task-result" data-kind="task-result-card">
       <header>
         {stacked ? null : <div className="page-kicker">任务结果</div>}
-        {stacked && isComposeResultCard(card) ? null : <h2>{card.title || "分析结果"}</h2>}
+        {stacked && isComposeResultCard(card) ? null : <h2>{stripEngineCopy(String(card.title || "分析结果"))}</h2>}
         {summary ? <p className="task-result-summary">{summary}</p> : null}
       </header>
       {draftPreview}
@@ -286,20 +308,20 @@ function GenericResultArtifact({
         <dl className="result-metrics">
           {metrics.map((metric, index) => (
             <div key={`${metric.label || metric.name}-${index}`}>
-              <dt>{metric.label || metric.name ? fieldLabel(String(metric.label || metric.name)) : `指标 ${index + 1}`}</dt>
-              <dd>{displayValue(metric.value)}</dd>
-              {(metric.detail || metric.change != null) && <small>{metric.detail || displayValue(metric.change)}</small>}
+              <dt>{stripEngineCopy(metric.label || metric.name ? fieldLabel(String(metric.label || metric.name)) : `指标 ${index + 1}`)}</dt>
+              <dd>{stripEngineCopy(displayValue(metric.value))}</dd>
+              {(metric.detail || metric.change != null) && <small>{stripEngineCopy(metric.detail || displayValue(metric.change))}</small>}
             </div>
           ))}
         </dl>
       )}
       {sections.map((section, index) => (
         <section className="result-section" key={`${section.title || section.heading}-${index}`}>
-          <h3>{section.title || section.heading || `详情 ${index + 1}`}</h3>
-          {(section.content || section.body || section.summary) && <Markdown>{section.content || section.body || section.summary || ""}</Markdown>}
+          <h3>{stripEngineCopy(String(section.title || section.heading || `详情 ${index + 1}`))}</h3>
+          {(section.content || section.body || section.summary) && <Markdown>{stripEngineCopy(String(section.content || section.body || section.summary || ""))}</Markdown>}
           {section.items && (
             <ul>
-              {section.items.map((item, itemIndex) => <li key={itemIndex}>{displayValue(item)}</li>)}
+              {section.items.map((item, itemIndex) => <li key={itemIndex}>{stripEngineCopy(displayValue(item))}</li>)}
             </ul>
           )}
         </section>
@@ -346,6 +368,8 @@ export default function SideWorkbench({
   suppressRevisionHint = false,
   resultOverride,
   statusOverride,
+  phase,
+  remoteLabel,
   discoveryReturn,
 }: {
   sessionId: string;
@@ -371,7 +395,12 @@ export default function SideWorkbench({
   resultExtra?: import("react").ReactNode;
   suppressRevisionHint?: boolean;
   resultOverride?: TaskResultCard;
+  /** 采集等子流程给出的更具体状态词，覆盖状态文案但沿用同一投影的语气与形状。 */
   statusOverride?: string;
+  /** 运行中的当前阶段（来自 useRunStatus 的过程投影）。 */
+  phase?: string;
+  /** 调试视图下的远端执行面名称，只出现在调试细节里。 */
+  remoteLabel?: string;
   discoveryReturn?: string;
 }) {
   const { debug } = useViewMode();
@@ -389,10 +418,16 @@ export default function SideWorkbench({
     || (messageResult.crawl_result && typeof messageResult.crawl_result === "object" && messageResult.crawl_result)
   );
   const taskResult = task && ((task.task_result || task.crawl_result) as TaskResultCard | undefined);
-  const parsedResult = parsedResultFromMessages(messages);
-  const result = resultOverride || (resultMsg
+  const parsedResult = parsedResultFromRound(round);
+  const roundResult = resultOverride || (resultMsg
     ? (embeddedMessageResult || messageResult) as TaskResultCard
-    : (!draft && !stageMsg ? (taskResult || parsedResult || null) : null));
+    : (!draft && !stageMsg ? (parsedResult || null) : null));
+  // 本轮没有结果时只回退到任务级最近一次结果，且标题必须写清它不是本轮的。
+  const result = roundResult || (!draft && !stageMsg ? taskResult || null : null);
+  const resultIsLatestOnly = !roundResult && Boolean(result);
+  const latestAt = resultIsLatestOnly ? latestResultTime(task) : "";
+  const statusView = taskStatusView(task, status);
+  const revisesDraftResult = Boolean(result && (draft || isComposeResultCard(result)));
   const candidates = crawlCandidates(crawlJob, result, messageResult, task);
   const hasCrawlArtifact = candidates.length > 0 && !draft && !stageMsg;
   const inboundMsg = lastOf(round, "inbound_card");
@@ -505,13 +540,24 @@ export default function SideWorkbench({
           aria-label="收起结果" aria-expanded onClick={toggle}><PanelToggleIcon className="scope-task-rail-toggle-icon" /></button> : null}
       </div>
       <div className="side-head">
-        {!discoveryReturn ? <div className="page-kicker">本轮结果{primary === "result" ? "" : ` · ${TAB_LABEL[primary]}`}</div> : null}
-        <div className="side-status">
-          <i className={"status-dot " + status} />
-          <span data-agent-status={status}>
-            {statusOverride || taskRunView(task, status).label}
-          </span>
-        </div>
+        {!discoveryReturn ? <div className="page-kicker">
+          {resultIsLatestOnly ? `最近一次结果${latestAt ? ` · ${latestAt}` : ""}` : `本轮结果${primary === "result" ? "" : ` · ${TAB_LABEL[primary]}`}`}
+        </div> : null}
+      </div>
+      {/* 任务状态的唯一表达处（DESIGN §8.6）：颜色 + 形状 + 文案三条通道同时变化。 */}
+      <div className="side-status" data-run-status={statusView.key} data-run-tone={statusView.tone}>
+        <i className={`status-shape is-${statusView.tone}`} aria-hidden>{STATUS_SHAPE_GLYPH[statusView.shape]}</i>
+        <span className="side-status-copy" data-agent-status={status} role="status" aria-live="polite">
+          {statusOverride || statusView.copy}
+        </span>
+        {statusView.live && phase ? <span className="side-status-phase" data-run-phase>{phase}</span> : null}
+        {statusView.live ? <span className="side-status-hint">刷新页面不会取消后台执行</span> : null}
+        {debug && remoteLabel ? (
+          <details className="execution-details side-status-debug">
+            <summary>调试细节</summary>
+            <p data-run-remote>{remoteLabel}</p>
+          </details>
+        ) : null}
       </div>
       {(toolStatus || share) && <div className="share-status" role="status">{toolStatus}{share?.expires_at && <> · {new Date(share.expires_at).toLocaleString()} 过期</>}{share?.url && <><input className="share-url" aria-label="分享链接" readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} /><button className="link-button" onClick={() => void navigator.clipboard.writeText(share.url || "").then(() => setToolStatus("分享链接已复制")).catch(() => setToolStatus("请手动复制链接"))}>复制链接</button></>}{share && <button className="link-button" onClick={() => void api.revokeShare(sessionId).then(() => { setShare(null); setToolStatus("分享已撤销"); }).catch((e) => setToolStatus(String(e)))}>撤销</button>}</div>}
       {!hasRoundResult && !resultExtra && (
@@ -620,8 +666,9 @@ export default function SideWorkbench({
             )}
           </>
         )}
-        {hasRoundResult && !suppressRevisionHint && result && String(result.title) !== "邮件已发送" && draft?.status !== "sent" && status !== "running" && (
-          <p className="muted" data-result-revise-hint>要改这份结果，在下方说明要改哪一段。点芯片或说「再写一封」会开新任务。</p>
+        {/* 只有「能改这份草稿、也能再写一封」的场景才有这句话：写邮件草稿类。 */}
+        {hasRoundResult && !suppressRevisionHint && result && revisesDraftResult && String(result.title) !== "邮件已发送" && draft?.status !== "sent" && status !== "running" && (
+          <p className="muted" data-result-revise-hint>要改这份结果，在中栏输入框说明要改哪一段。点芯片或说「再写一封」会开新任务。</p>
         )}
       </div>
       </>}

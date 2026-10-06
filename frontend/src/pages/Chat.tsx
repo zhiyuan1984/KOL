@@ -26,11 +26,8 @@ import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import AgentTaskList, { readTaskListWidth } from "../components/AgentTaskList";
 import SideWorkbench from "../components/SideWorkbench";
-import { AGENT_TASK_STATUS_LABEL, agentTaskUxStatus } from "../agentUx";
 import { useAccount } from "../components/AuthGate";
 import { useViewMode } from "../viewMode";
-import RunHud from "../components/RunHud";
-import { taskRunView } from "../runViewState";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useRunStatus } from "../hooks/useRunStatus";
 import { rememberJourney } from "../journey";
@@ -47,6 +44,7 @@ import { bindTemplateSessionTask } from "../skillTemplateTask";
 import { discoveryWorkspaceOf } from "../home/discoveryWorkspaceState";
 import { renderDiscoveryBody } from "../home/discoveryTemplate";
 import DiscoveryRuntimeResults from "../home/DiscoveryRuntimeResults";
+import { NO_UNREAD, newContentLabel, newContentSince, type FeedReadMark } from "../feedFollow";
 
 type RecommendedAction = {
   label?: string;
@@ -368,25 +366,6 @@ function safeCrawlOperationMessages(taskId: string, events: TaskEvent[]): Messag
   }];
 }
 
-function taskAnalysisSummary(task: Task, agentStatus?: string): string {
-  const entities = task.entities && typeof task.entities === "object"
-    ? task.entities as Record<string, unknown>
-    : {};
-  const platformLabels: Record<string, string> = {
-    youtube: "YouTube", instagram: "Instagram", facebook: "Facebook",
-    xhs: "小红书", dy: "抖音", ks: "快手", bili: "哔哩哔哩", wb: "微博", tieba: "贴吧", zhihu: "知乎",
-  };
-  if (String(task.task_type || task.skill) === "creator_discovery") {
-    const platform = platformLabels[String(entities.platform || "")] || String(entities.platform || "待选择平台");
-    const keywords = Array.isArray(entities.keywords) ? entities.keywords.map(String).join("、") : "待补充关键词";
-    return `已识别为达人发现任务；目标平台：${platform}；搜索主题：${keywords}。参数生成后将自动启动远程采集。`;
-  }
-  const state = taskRunView(task, agentStatus);
-  return state.live
-    ? `正在处理“${task.title}”。完整结果会放在结果工作台。`
-    : `“${task.title}”：${state.label}。请查看结果工作台中的结果、资料来源及待补充说明。`;
-}
-
 function humanError(message: string) {
   if (
     /请求失败\s*\((502|503|500)\)/.test(message) ||
@@ -472,7 +451,10 @@ export default function Chat() {
   const streamRef = useRef<HTMLDivElement>(null);
   // 中栏只有这一条滚动轴：用户上翻读思考时，新内容不得把他拽回底部。
   const streamStickBottomRef = useRef(true);
-  const [streamPosition, setStreamPosition] = useState({ scrollable: false, atBottom: true });
+  // 用户上滚读历史时记下当时的读数：新内容到达只计数、不抢滚动（DESIGN §10.2）。
+  const streamReadMarkRef = useRef<FeedReadMark | null>(null);
+  const streamItemCountRef = useRef(0);
+  const [streamUnread, setStreamUnread] = useState(NO_UNREAD);
   const stopRequestedRef = useRef(false);
   const paramTemplateKey = useRef<string | null>(null);
   const focusThread = String((location.state as { focusThread?: string } | null)?.focusThread || "");
@@ -786,8 +768,8 @@ export default function Chat() {
 
   const status: AgentRunStatus = agentStatus === "running" || pending ? "running" : (agentStatus as AgentRunStatus) || "listening";
   const { phase, task: runTask } = useRunStatus(id, messages, status);
-  const taskView = task ? taskRunView(task, status) : undefined;
   const skillId = String(task?.skill_id || task?.skill || task?.task_type || runTask?.skill_id || runTask?.skill || "");
+  // 远端执行面名称只进右栏状态的调试细节，且始终受 debug 门控（DESIGN §15）。
   const remoteLabel = debug && skillId ? REMOTE_BACKEND_LABEL[remoteForSkill(skillId)] : undefined;
   const hasVisibleTrace = messages.some((message) => message.kind === "process_trace" || message.kind === "operation_trace");
   const timeline = task && taskEvents.length && !hasVisibleTrace
@@ -805,16 +787,35 @@ export default function Chat() {
   const onStreamScroll = () => {
     const pane = streamRef.current;
     if (!pane) return;
-    streamStickBottomRef.current = streamAtBottom(pane);
-    const scrollable = pane.scrollHeight > pane.clientHeight + 1;
     const atBottom = streamAtBottom(pane);
-    // Timeline projections may be rebuilt on render. Do not schedule another
-    // render when the measured scroll position is unchanged: that loop can
-    // keep a pending route transition from committing.
-    setStreamPosition(current => current.scrollable === scrollable && current.atBottom === atBottom
-      ? current
-      : { scrollable, atBottom });
+    streamStickBottomRef.current = atBottom;
+    if (atBottom) {
+      streamReadMarkRef.current = null;
+      setStreamUnread(current => current.count === 0 && !current.grew ? current : NO_UNREAD);
+      return;
+    }
+    // 一次上滚就是明确意图：从这里开始的新内容只计数，不抢滚动。
+    if (!streamReadMarkRef.current) {
+      streamReadMarkRef.current = { items: streamItemCountRef.current, height: pane.scrollHeight };
+    }
+    const next = newContentSince(streamReadMarkRef.current, streamItemCountRef.current, pane.scrollHeight);
+    setStreamUnread(current => current.count === next.count && current.grew === next.grew ? current : next);
   };
+  const scrollStreamToBottom = () => {
+    const pane = streamRef.current;
+    if (!pane) return;
+    streamStickBottomRef.current = true;
+    streamReadMarkRef.current = null;
+    setStreamUnread(NO_UNREAD);
+    pane.scrollTo({
+      top: pane.scrollHeight,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+    });
+  };
+  useEffect(() => {
+    // 先记下当前的条数，下面的观察者一挂上就能用它当读数基准。
+    streamItemCountRef.current = timelineWithCrawl.length;
+  }, [timelineWithCrawl]);
   useEffect(() => {
     const pane = streamRef.current;
     if (!pane) return;
@@ -830,10 +831,11 @@ export default function Chat() {
   useEffect(() => {
     const pane = streamRef.current;
     if (!pane) return;
-    // 只在用户本来就在底部时跟随新内容；上翻读过程时不抢滚动。
+    // 只在用户本来就在底部时跟随新内容；上翻读过程时不抢滚动，由 onStreamScroll 计数。
     if (streamStickBottomRef.current || streamAtBottom(pane)) {
       pane.scrollTop = pane.scrollHeight;
       streamStickBottomRef.current = true;
+      streamReadMarkRef.current = null;
     }
     onStreamScroll();
   }, [timelineWithCrawl, crawlJob, err, submitErr]);
@@ -1111,6 +1113,7 @@ export default function Chat() {
   ) : null;
 
   const contextKicker = String(task?.project || "").trim();
+  const streamUnreadLabel = newContentLabel(streamUnread);
 
   return (
     <div
@@ -1133,21 +1136,19 @@ export default function Chat() {
         />
       ) : null}
       <section className="session-center">
-        <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
-        {id && kolSession && !discoveryEntry ? <ReplyContextPanel sessionId={id} analyzing={pending} onAnalyze={() => pickSuggestion({label: "分析最新邮件对草稿的影响", prompt: "分析回复：请引用当前授权邮件的 ID 和版本，解释对现有草稿的影响。延期仅作为申请，不视为已批准；保留人工稿，不发信、不改正式阶段。", intent: "reply_analysis"})} /> : null}
+        {/* 中栏三段式：header 固定顶、feed 唯一滚动、composer 固定底（DESIGN §10.1）。
+            任务状态只在右栏表达一次（§8.6），页头不再重复。 */}
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
-          <div className="session-head-row">
-            {!discoveryEntry && <Link
-              to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
-              reloadDocument={Boolean(taskWorkspace.task)}
-              className="task-back"
-              data-session-back-link
-            >← 返回任务列表</Link>}
-            {discoveryEntry ? <span className="muted">{runtimeActions.some((action) => action.state === "pending" && !action.execution)
-              ? "等待确认采集范围"
-              : status === "running" ? "正在分析发现需求" : "AI发现"}</span>
-              : <RunHud status={status} view={taskView} phase={!taskView || taskView.live ? phase : undefined} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />}
-          </div>
+          {!discoveryEntry ? (
+            <div className="session-head-row">
+              <Link
+                to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
+                reloadDocument={Boolean(taskWorkspace.task)}
+                className="task-back"
+                data-session-back-link
+              >← 返回任务列表</Link>
+            </div>
+          ) : null}
           {discoveryWorkspace ? (
             <div data-discovery-workspace data-agent-identity={discoveryWorkspace.agent_id} data-agent-profile="lead">
               <strong>线索智能体</strong>
@@ -1252,9 +1253,6 @@ export default function Chat() {
               </button>
             </div>
             <div className="task-detail-meta">
-              <span className={`task-ux-badge is-${agentTaskUxStatus(task, status === "running").toLowerCase()}`} data-task-ux-status={agentTaskUxStatus(task, status === "running")}>
-                {discoveryProgress?.label || AGENT_TASK_STATUS_LABEL[agentTaskUxStatus(task, status === "running")]}
-              </span>
               {task.priority === "high" && <span>高优先级</span>}
             </div>
             {!discoveryExecutionResult && (task.context || task.description) && <p className="task-context">{task.context || task.description}</p>}
@@ -1262,6 +1260,8 @@ export default function Chat() {
             </>
           )}
         </header>
+        <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
+        {id && kolSession && !discoveryEntry ? <ReplyContextPanel sessionId={id} analyzing={pending} onAnalyze={() => pickSuggestion({label: "分析最新邮件对草稿的影响", prompt: "分析回复：请引用当前授权邮件的 ID 和版本，解释对现有草稿的影响。延期仅作为申请，不视为已批准；保留人工稿，不发信、不改正式阶段。", intent: "reply_analysis"})} /> : null}
         {taskWorkspace.task ? <section className="task-analysis-summary" aria-label="当前业务任务">
           <strong>{taskWorkspace.task.task.title}</strong><p>{taskWorkspace.task.task.goal}</p>
           <p>任务状态：{taskWorkspace.task.task.status} · 开放工单 {taskWorkspace.task.counts.open} · 阻塞 {taskWorkspace.task.counts.blocked}</p>
@@ -1299,12 +1299,6 @@ export default function Chat() {
             <button type="button" className="digest-retry" onClick={() => reload(true, true)}>刷新收取</button>
           </section>
         ) : null}
-        {task && !discoveryEntry && (
-          <section className="task-analysis-summary" data-task-analysis-summary>
-            <strong>分析摘要</strong>
-            <p>{taskAnalysisSummary(task, status)}</p>
-          </section>
-        )}
         {crawlJob && (
           <section className="crawl-middle-status" data-crawl-middle-status={crawlJob.status}>
             <div>
@@ -1373,19 +1367,17 @@ export default function Chat() {
           />{actions.map(action => renderAction(action.id))}</>}</RuntimeActions>
         )}
         </div>
-        {streamPosition.scrollable ? <div className="session-scroll-control">
+        {/* 用户在看历史时只提示不打断；同一个「有新内容」不出现第二个按钮（DESIGN §10.2）。 */}
+        {streamUnreadLabel ? <div className="session-scroll-control">
           <button type="button" className="btn ghost" data-session-scroll-jump
-            aria-label={streamPosition.atBottom ? "滚到顶部" : "滚到底部"}
-            title={streamPosition.atBottom ? "滚到顶部" : "滚到底部"}
-            onClick={() => {
-              const pane = streamRef.current;
-              if (!pane) return;
-              streamStickBottomRef.current = !streamPosition.atBottom;
-              pane.scrollTo({ top: streamPosition.atBottom ? 0 : pane.scrollHeight,
-                behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-            }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-              <path d={streamPosition.atBottom ? "M5 14l7-7 7 7M12 7v13" : "M5 10l7 7 7-7M12 17V4"} />
-            </svg></button>
+            aria-label={`${streamUnreadLabel}，回到最新`}
+            title={`${streamUnreadLabel}，回到最新`}
+            onClick={scrollStreamToBottom}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M5 10l7 7 7-7M12 17V4" />
+            </svg>
+            <span className="session-scroll-label" aria-live="polite">{streamUnreadLabel}</span>
+          </button>
         </div> : null}
         <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>
           {kolSession || messages.some((message) => message.kind === "email_card") ? (
@@ -1456,6 +1448,8 @@ export default function Chat() {
           discoveryReturn={discoveryEntry ? (task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/?tab=discovery") : undefined}
           resultOverride={discoveryExecutionResult}
           statusOverride={discoveryProgress?.label}
+          phase={phase}
+          remoteLabel={remoteLabel}
           resultExtra={taskWorkspace.task ? <>
             <section aria-label="任务分析依据"><p className="muted">当前依据版本：{taskWorkspace.version}</p>
               {messages.some(message=>{const payload=message.payload as Record<string,unknown>;return payload.task_context_version && (payload.task_context_stale || payload.task_context_version !== taskWorkspace.version);}) ? <p role="status">已有分析的依据已变化，请复核当前事实后重新分析。</p> : null}
