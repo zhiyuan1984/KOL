@@ -24,6 +24,8 @@ export type MailComposeView = {
   candidates: EmailComposePrepareResponse["candidates"];
   missingFields: string[];
   message?: string;
+  digest?: string;
+  mailCount?: number;
   preparedPendingApply: boolean;
   onSubjectChange: (subject: string) => void;
   onApplyPrepared: () => void;
@@ -185,6 +187,8 @@ export function useMailComposeFlow({
     candidates: prepared?.candidates || [],
     missingFields: prepared?.missing_fields || [],
     message,
+    digest: prepared?.digest,
+    mailCount: prepared?.mail_count,
     preparedPendingApply: Boolean(pendingEditor),
     onSubjectChange: (next) => {
       activeRef.current = true;

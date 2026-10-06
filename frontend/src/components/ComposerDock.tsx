@@ -88,6 +88,8 @@ export type MailComposerMeta = {
   candidates: Array<{ knowledge_id: string; title: string; published_version: number }>;
   missingFields: string[];
   message?: string;
+  digest?: string;
+  mailCount?: number;
   preparedPendingApply: boolean;
   onSubjectChange: (subject: string) => void;
   onApplyPrepared: () => void;
@@ -1023,6 +1025,11 @@ export default function ComposerDock({
               {mailCompose.from ? `发件：${mailCompose.from}` : ""}{mailCompose.from && mailCompose.to?.length ? " · " : ""}{mailCompose.to?.length ? `收件：${mailCompose.to.join("、")}` : ""}
             </p>
           ) : null}
+          {mailCompose.digest ? (
+            <p className="composer-template-preview-excerpt" data-mail-compose-digest>
+              最近往来{mailCompose.mailCount ? `（${mailCompose.mailCount} 封）` : ""}：{mailCompose.digest}
+            </p>
+          ) : null}
           {mailCompose.message ? <p className="composer-template-preview-excerpt" data-mail-compose-message>{mailCompose.message}</p> : null}
           {mailCompose.missingFields.length ? <p className="composer-template-preview-excerpt" data-mail-compose-missing>待补：{mailCompose.missingFields.map((key) => ({ collaboration_id: "合作对象", stage_code: "正式阶段", brand: "品牌", from: "发件邮箱", to: "收件邮箱" }[key] || fieldLabel(key))).join("、")}</p> : null}
           {mailCompose.candidates.length ? (
@@ -1120,7 +1127,7 @@ export default function ComposerDock({
           <div className="composer-discovery-preview-copy">
             <strong>发现任务</strong>
             <span>{discoveryBrief.platforms.map((code) => platformLabel(code, discoveryCatalog?.platforms || OVERSEAS_DISCOVERY_PLATFORMS)).join(" / ") || "未选平台"} · {regionLabel(discoveryBrief.region, discoveryCatalog?.regions || DISCOVERY_REGION_OPTIONS)}</span>
-            <small>关键词：{discoveryBrief.keywords.join(", ") || "未填写"} · 粉丝 {discoveryBrief.min_followers}–{discoveryBrief.max_followers} · 均播 ≥{discoveryBrief.min_avg_plays_10} · 人数 {discoveryBrief.expect_count}</small>
+            <small>关键词：{discoveryBrief.keywords.join(", ") || "未填写"} · 粉丝 {discoveryBrief.min_followers}–{discoveryBrief.max_followers ?? "不限"} · 均播 ≥{discoveryBrief.min_avg_plays_10} · 人数 {discoveryBrief.expect_count}</small>
           </div>
           <button type="button" className="composer-discovery-edit" data-discovery-request-edit onClick={() => {
             setDiscoveryTextExpanded(true);
