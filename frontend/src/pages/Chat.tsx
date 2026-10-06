@@ -695,6 +695,20 @@ export default function Chat() {
     setFocusedMail(null);
     rememberJourney({ kind: "send", skillId: String(existingTask?.skill_id || existingTask?.skill || ""), skillLabel: title || existingTask?.title });
     try {
+      // 会话里打字点出写合作邮件时，会话本身就绑定了合作对象：与点选技能一样
+      // 先向 Host 取一次上下文（正式阶段、授权发件箱、收件人、模板、最近往来），
+      // 不要把这几个字段留给员工手填。已有准备结果时不重复请求。
+      if (intent === "email_compose" && !mailCompose.active) {
+        const boundCollabId = collaborationId || (journey?.collaboration_id ? String(journey.collaboration_id) : undefined);
+        void mailCompose.prepare({
+          body: t,
+          session_id: id,
+          collaboration_id: boundCollabId,
+          handle: journey?.handle ? String(journey.handle) : undefined,
+          knowledge_id: p.knowledge_id || lockedKnowledgeId || undefined,
+          object_refs: mailObjectRefs,
+        });
+      }
       if (intent === "email_compose") mailCompose.markSubmitting();
       let pendingAsk: PendingAsk = {
         text: t,
