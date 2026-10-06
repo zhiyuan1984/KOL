@@ -419,7 +419,14 @@ async function runStage(documentId: string, kind: "normalize" | "index"): Promis
     }
     if (controller.signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
     finishJob(String(job.id), "done");
-    if (kind === "index") setStatus(documentId, "pending_review", null);
+    if (kind === "index") {
+      setStatus(documentId, "pending_review", null);
+      // Scope has its own durable job and failure status; an unavailable model does not undo indexing.
+      try {
+        const scope=(await postgresQuery('SELECT revision,tenant FROM knowledge_document_scopes WHERE document_id=$1',[documentId]))[0];
+        if(scope){const {enqueueScope}=await import('../knowledge/scopes.js');await enqueueScope(actor,String(scope.tenant),documentId,Number(scope.revision));}
+      } catch { console.error('[knowledge-scope] scope enqueue failed; indexing complete, retry from document detail'); }
+    }
     return true;
   } catch (error) {
     if (controller.signal.aborted || errorCode(error) === "knowledge_job_cancelled") {

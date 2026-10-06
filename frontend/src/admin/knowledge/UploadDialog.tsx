@@ -1,4 +1,5 @@
 import WorkspaceActions from "./WorkspaceActions";
+import { reviewCompany } from '../../reviews/api';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type KnowledgeBaseRow } from "../../api";
 import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
@@ -34,12 +35,15 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
   const [domainId, setDomainId] = useState("");
   const [baseId, setBaseId] = useState("");
   const [error, setError] = useState("");
+  const [explanation,setExplanation]=useState('');
+  const [explanations,setExplanations]=useState<Record<string,string>>({});
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (open && !el.open) {
       setFiles([]);
+      setExplanation('');setExplanations({});
       setError("");
       setFamilyId("");
       setDomainId("");
@@ -110,7 +114,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
     let lastId="";
     try {
       for (const file of files) {
-        const result = await api.adminKnowledgeDocumentUpload(baseId, file, true);
+        const result = await api.adminKnowledgeDocumentUpload(baseId, file, true,undefined,explanations[file.name] ?? explanation,reviewCompany());
         saved += 1;
         setFiles((current) => current.filter((item) => item !== file));
         lastId=result.document.id;
@@ -142,6 +146,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
       </div>
       <div className="kbv-dialog-body">
         <p className="muted">支持批量选择或拖入文件；每个文件形成一条待整理草稿。</p>
+        <label>资料用途解释（选填，应用于本批资料）<textarea value={explanation} disabled={busy} maxLength={4000} placeholder="资料讲什么、能回答哪些问题、适用对象及已知限制。保存后可逐份修订。" onChange={e=>{setExplanation(e.target.value);onDirty?.(true);}} /></label>
         <div
           className="kbv-file-info"
           data-kbv-upload-drop
@@ -178,6 +183,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
                   <div>
                     <strong>{file.name}</strong>
                     <p className="muted">{UPLOAD_FORMATS[ext]} · {formatSize(file.size)} · 待上传</p>
+                    <details><summary>覆盖本文件的用途解释</summary><textarea aria-label={`${file.name} 的用途解释`} disabled={busy} maxLength={4000} value={explanations[file.name] ?? explanation} onChange={e=>{setExplanations(current=>({...current,[file.name]:e.target.value}));onDirty?.(true);}} /></details>
                   </div>
                   <button
                     type="button"

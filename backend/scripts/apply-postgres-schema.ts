@@ -57,6 +57,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261005_knowledge_publication", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "024_knowledge_publication.sql"), "utf8").replace(/\r\n/g, "\n")] },
   { id: "20261005_knowledge_publication_applications", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "025_knowledge_publication_applications.sql"), "utf8")] },
   { id: "20261005_knowledge_workspace", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "026_knowledge_workspace.sql"), "utf8")] },
+  { id: "20261006_knowledge_scope", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "027_knowledge_scope.sql"), "utf8")] },
   { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
   { id: "20261004_discovery_results", statements: [crawlResultSchema] },
   { id: "20261005_discovery_candidate_actions", statements: [candidateActionsSchema] },

@@ -34,7 +34,8 @@ export function publicationContext(company?: string): ReviewContext {
 async function document(id: string, tenant: string, client?: PoolClient) {
   const rows = await (client || postgresPool()).query(
     `SELECT d.*,b.status AS base_status,b.name AS base_name,k.tenant AS bound_tenant,
-      l.root_id,l.version AS document_version,l.expected_active_id
+      l.root_id,l.version AS document_version,l.expected_active_id,
+      (SELECT jsonb_build_object('revision',s.revision,'explanation',s.explanation,'state',s.state,'scope',s.scope,'fingerprint',s.fingerprint) FROM knowledge_document_scopes s WHERE s.document_id=d.id) AS knowledge_scope
       FROM knowledge_documents d JOIN knowledge_bases b ON b.id=d.base_id
       LEFT JOIN knowledge_publication_bindings k ON k.base_id=d.base_id
       LEFT JOIN knowledge_document_lineage l ON l.document_id=d.id WHERE d.id=$1`, [id]);
@@ -45,6 +46,7 @@ async function document(id: string, tenant: string, client?: PoolClient) {
 
 /** Verify actual files; a completed job or zero-valued metadata is not enough. */
 export function publicationSnapshot(doc: Row) {
+  if(doc.knowledge_scope && !['checked','published'].includes(doc.knowledge_scope.state)) fail('knowledge_scope_not_checked','请先核对文档知识范围再提交审批');
   const artifacts = decode(doc.artifacts), index = artifacts.index;
   if (!index?.doc_id || !/^[\w-]+$/.test(index.doc_id)) fail("knowledge_not_indexed", "资料尚未完成索引");
   const resolve = (p: string) => path.isAbsolute(p) ? p : path.join(dataDir(), p);
@@ -73,10 +75,13 @@ export function publicationSnapshot(doc: Row) {
   return { document_id: doc.id, base_id: doc.base_id, title: doc.title, updated_at: doc.updated_at,
     artifacts: doc.artifacts, source_path: doc.source_path, files, pages,
     engine_version: index.engine_version || "unknown", root_id: doc.root_id || doc.id,
-    document_version: Number(doc.document_version || 1), expected_active_id: doc.expected_active_id || null };
+    document_version: Number(doc.document_version || 1), expected_active_id: doc.expected_active_id || null,
+    ...(doc.knowledge_scope?{knowledge_scope:doc.knowledge_scope}:{}) };
 }
 
 function verifySnapshot(snapshot: Row, doc: Row) {
+  if(snapshot.knowledge_scope && snapshot.knowledge_scope.fingerprint!==doc.knowledge_scope?.fingerprint)
+    fail('knowledge_scope_changed','知识范围版本已变化，请重新提交审批');
   if (doc.base_id !== snapshot.base_id || doc.title !== snapshot.title || doc.source_path !== snapshot.source_path
     || doc.artifacts !== snapshot.artifacts || doc.base_status !== "active")
     fail("knowledge_material_changed", "资料或知识库已变化，需要重新申请");
@@ -211,6 +216,7 @@ export async function knowledgeReviewMaterial(instanceId: string,ctx: ReviewCont
   verifySnapshot(snapshot,await document(req.document_id,ctx.tenant));
   return {title:snapshot.title,base_id:snapshot.base_id,pages:snapshot.pages,version:snapshot.document_version,
     publication_status:req.publication_status || "unpublished",error:req.error,receipt:req.receipt,source_path:snapshot.source_path,document_id:req.document_id,
+    knowledge_scope:snapshot.knowledge_scope || null,
     management_url:ctx.admin ? `/admin/knowledge?document=${encodeURIComponent(req.document_id)}&reviewCompany=${encodeURIComponent(ctx.tenant)}` : null};
 }
 
@@ -336,6 +342,8 @@ export async function createDocumentRevision(id:string,ctx:ReviewContext) {
       await client.query(`INSERT INTO knowledge_documents(id,base_id,title,filename,media_type,mime,size_bytes,source_path,status,retry_count,created_by,created_at,updated_at)
         VALUES($1,$2,$3,$4,'pdf','application/pdf',$5,$6,'draft',0,$7,$8,$8)`,[next,old.base_id,old.title,old.filename,old.size_bytes,newSource,ctx.actor,time]);
       await client.query("INSERT INTO knowledge_document_lineage(document_id,root_id,version,expected_active_id) VALUES($1,$2,$3,$4)",[next,root,Number(max.version)+1,active?.id || null]);
+      const explanation=old.knowledge_scope?.explanation || '';
+      await client.query("INSERT INTO knowledge_document_scopes(document_id,tenant,explanation,fingerprint,updated_at) VALUES($1,$2,$3,$4,$5)",[next,ctx.tenant,explanation,digest(Buffer.from(explanation)),time]);
       await publicationAudit(client,ctx.actor,"knowledge.document.revision",{document_id:next,root_id:root,version:Number(max.version)+1,from_document_id:id});
       return {document_id:next,version:Number(max.version)+1};
     } catch(error) { fs.rmSync(folder,{recursive:true,force:true}); throw error; }

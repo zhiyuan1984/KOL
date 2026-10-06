@@ -8,6 +8,8 @@ import type { SkillCoverage } from "../runtimeConnectorUi";
 import "../admin/governance-layout.css";
 import "./skill-governance.css";
 import "./skill-governance-v2.css";
+import KnowledgeSkillWizard from '../admin/knowledge/KnowledgeSkillWizard';
+import SkillKnowledgeRange from '../admin/knowledge/SkillKnowledgeRange';
 
 const stageName = (skill: SkillRow) => skill.lifecycle?.stage_label || skill.lifecycle?.stage || "草稿";
 const STAGE_NAME: Record<string, string> = { draft: "草稿", editing: "编辑", testing: "测试", published: "已发布", disabled: "停用" };
@@ -20,6 +22,7 @@ export default function SkillLifecycleV2() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [knowledgeCreateOpen,setKnowledgeCreateOpen]=useState(false);
   const [createError, setCreateError] = useState("");
   const createKeyRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -92,16 +95,17 @@ export default function SkillLifecycleV2() {
       </div>
       <div className="governance-rail-footer"><button type="button" className="btn work" onClick={openCreate}>新增技能</button></div>
     </aside>
-    <div className="governance-main"><header className="governance-main-head"><h2>{selected?.label || "技能详情"}</h2><button type="button" className="governance-minor" onClick={() => setImportOpen(true)}>上传 SKILL.md</button></header>
+    <div className="governance-main"><header className="governance-main-head"><h2>{selected?.label || "技能详情"}</h2><button type="button" className="governance-minor" onClick={()=>setKnowledgeCreateOpen(true)}>新建知识技能</button><button type="button" className="governance-minor" onClick={() => setImportOpen(true)}>上传 SKILL.md</button></header>
       <div className="governance-scroll">
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="governance-notice" role="status">{notice}</p>}
-        {selected ? <div className="skill-v2-detail"><DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelectedId("")} /></div>
+        {selected ? <div className="skill-v2-detail">{selected.document_query && <SkillKnowledgeRange key={`range-${selected.id}`} skillId={selected.id} />}<DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelectedId("")} /></div>
           : <p className="governance-empty">选择一项技能查看详情。</p>}
       </div>
     </div>
     {importOpen && <div className="skill-governance-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setImportOpen(false); }}><section className="skill-upload-dialog" role="dialog" aria-modal="true" aria-label="上传技能"><h2>上传 SKILL.md</h2><p>导入为技能草稿；后续在 Agent 页装配。</p><input type="file" accept=".md,text/markdown" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setBusy(true); try { const result = await api.importAdminSkill(file); setImportOpen(false); setSelectedId(String(result.id)); setNotice("技能已导入为草稿。"); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "导入失败"); } finally { setBusy(false); } }} /><button type="button" className="governance-minor" disabled={busy} onClick={() => setImportOpen(false)}>关闭</button></section></div>}
     {dialog}
+    {knowledgeCreateOpen && <KnowledgeSkillWizard onClose={()=>setKnowledgeCreateOpen(false)} onCreated={id=>{setKnowledgeCreateOpen(false);setSelectedId(id);setNotice('知识技能草稿已保存。请核对知识依赖、完成真实试算后发布，再挂载到智能体。');void load();}} />}
     <AdminFormDialog
       open={createOpen}
       title="新增技能"

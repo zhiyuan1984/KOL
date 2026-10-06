@@ -24,6 +24,8 @@ export type SkillRow = {
   profile?: string;
   source?: string;
   required_inputs?: string[];
+  mcp?:string[];
+  document_query?:boolean;
   input_schema?: Array<Record<string, unknown>> | null;
   result_type?: string | null;
   result_schema?: Record<string, unknown> | null;

@@ -4,6 +4,8 @@ import { queryDocuments } from "../host/knowledge-documents.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import type { RuntimeContext } from "./execution.js";
+import { runtimeKnowledgeManifest } from '../knowledge/scopes.js';
+import {isKnowledgePreview,previewManifest} from './knowledge-preview.js';
 
 export const DOCUMENT_TOOL = "knowledge.ask_documents";
 export const documentToolSchema: Json = {
@@ -38,20 +40,29 @@ export async function invokeDocumentTool(context: RuntimeContext, args: Json, au
   const check = () => {
     authorize();
     if (!hasDocumentTool(context.skillId)) throw new HttpFail(403, { code: "runtime_document_tool_unbound" });
-    return documentDependencies(context.skillId);
+    return isKnowledgePreview(context)?[]:documentDependencies(context.skillId);
   };
-  const bases = check();
+  check();
+  const resolve=()=>isKnowledgePreview(context)?previewManifest(context):runtimeKnowledgeManifest(context.skillId,context.userId);
+  const manifest=await resolve();
+  const bases=isKnowledgePreview(context)?manifest.bases:check();
   const baseId = String(args.base_id || (bases.length === 1 ? bases[0].id : ""));
   if (!baseId || !bases.some((base) => base.id === baseId)) {
     throw new HttpFail(403, { code: "knowledge_scope_unavailable", message: "请选择技能绑定的有效知识库" });
   }
   const stamp = JSON.stringify(bases);
   const revalidate = () => {
-    if (JSON.stringify(check()) !== stamp) throw new HttpFail(409, { code: "runtime_binding_changed" });
+    authorize();
+    if (!isKnowledgePreview(context) && JSON.stringify(check()) !== stamp) throw new HttpFail(409, { code: "runtime_binding_changed" });
   };
-  const result = await queryDocuments({ query: String(args.query), base_id: baseId }, context.userId, revalidate);
+  const documents=manifest.bases.find(base=>base.id===baseId)?.documents || [];
+  if(!documents.length)throw new HttpFail(409,{code:'knowledge_no_published_documents',message:'当前技能没有此库中可访问的已发布资料，请联系知识库管理员。'});
+  const result = await queryDocuments({ query: String(args.query), base_id: baseId,doc_ids:documents.map(doc=>doc.id) }, context.userId, revalidate);
+  revalidate();
+  if((await resolve()).fingerprint!==manifest.fingerprint)
+    throw new HttpFail(409,{code:'knowledge_scope_changed',message:'资料范围已变化，请基于当前发布版本重新查询。'});
   result.citations = (result.citations as Json[]).map((citation) => ({ ...citation,
-    source_url: `/api/knowledge/documents/${encodeURIComponent(String(citation.document_id))}/file?agent_id=${encodeURIComponent(context.agentId)}&skill_id=${encodeURIComponent(context.skillId)}#page=${citation.page}`,
+    source_url: isKnowledgePreview(context)?`/api/admin/knowledge/documents/${encodeURIComponent(String(citation.document_id))}/file#page=${citation.page}`:`/api/knowledge/documents/${encodeURIComponent(String(citation.document_id))}/file?agent_id=${encodeURIComponent(context.agentId)}&skill_id=${encodeURIComponent(context.skillId)}#page=${citation.page}`,
   }));
   return { content: [{ type: "text", text: JSON.stringify(result) }], isError: false };
 }

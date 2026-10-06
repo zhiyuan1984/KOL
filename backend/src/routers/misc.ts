@@ -1,4 +1,5 @@
 import { mediaCrawlerConfigured } from "../crawl/managed-connection.js";
+import { publishKnowledgeConfig } from '../knowledge/skill-generation.js';
 import { starryKolConnectionHealth } from "../starrykol/connection.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -160,6 +161,7 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
     profile: definition?.profile || cat?.profile,
     output: definition?.output || "task_result",
     required_inputs: requiredInputs,
+    document_query: mcpTools.includes('knowledge.ask_documents'),
     input_schema: definition?.input_schema || null,
     result_type: definition?.result_type || null,
     result_schema: definition?.result_schema || null,
@@ -436,7 +438,8 @@ misc.post("/admin/skills/:id/stage", async (c) => {
   requirePm();
   const id = c.req.param("id");
   const body = (await c.req.json()) as { stage?: string; reason?: string };
-  const result = transitionSkillStage(id, String(body.stage || ""), body.reason);
+  const release=()=>transitionSkillStage(id,String(body.stage || ''),body.reason);
+  const result = (body.stage==='published'?await publishKnowledgeConfig(scopedUser()!.id,id,release):release()) as {stage:string};
   if (result.stage === "published") clearSkillLookupCache();
   return c.json({ id, ...result });
 });
@@ -460,6 +463,7 @@ misc.get("/admin/skills/:id/versions", (c) => {
 misc.post("/admin/skills/:id/versions", async (c) => {
   requirePm();
   const id = c.req.param("id");
+  if(getConn().prepare('SELECT 1 FROM skill_knowledge_configs WHERE skill_id=?').get(id))throw new HttpFail(409,'知识技能须通过真实试算和生命周期发布；不能直接发布版本。');
   const body = (await c.req.json()) as { description?: string };
   applySkillDraft(id);
   clearSkillLookupCache();
@@ -468,6 +472,7 @@ misc.post("/admin/skills/:id/versions", async (c) => {
 misc.post("/admin/skills/:id/versions/rollback", async (c) => {
   requirePm();
   const id = c.req.param("id");
+  if(getConn().prepare('SELECT 1 FROM skill_knowledge_configs WHERE skill_id=?').get(id))throw new HttpFail(409,'请将历史说明复制到待发布草稿，核对知识依赖并重新试算后发布。');
   const body = (await c.req.json()) as { version?: number };
   const result = rollbackSkillVersion(id, Number(body.version || 0));
   clearSkillLookupCache();

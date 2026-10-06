@@ -1953,6 +1953,7 @@ export function saveBinding(
   if (id && !prev) throw new HttpFail(404, "binding not found");
   const skillId = String(input.skill_id == null ? prev?.skill_id ?? "" : input.skill_id).trim();
   if (!skillId) throw new HttpFail(400, "skill_id required");
+  if(getConn().prepare('SELECT 1 FROM skill_knowledge_configs WHERE skill_id=? OR skill_id=?').get(skillId,String(prev?.skill_id || '')))throw new HttpFail(409,'知识技能的资源依赖请在技能页修改草稿并试算发布；不能从智能体页直接修改共享范围。');
   const selector = input.selector == null ? parseSelectorStored(prev?.selector) : normalizeSelector(input.selector);
   const enabled = input.enabled == null ? (Number(prev?.enabled ?? 1) ? 1 : 0) : (input.enabled ? 1 : 0);
   const note = input.note == null ? String(prev?.note ?? "") : String(input.note);
@@ -1978,6 +1979,7 @@ export function deleteBinding(id: string, actor = knowledgeActorId()): Json {
   requireAdmin();
   const row = getConn().prepare("SELECT * FROM knowledge_bindings WHERE id=?").get(id) as Row | undefined;
   if (!row) throw new HttpFail(404, "binding not found");
+  if(getConn().prepare('SELECT 1 FROM skill_knowledge_configs WHERE skill_id=?').get(String(row.skill_id)))throw new HttpFail(409,'请在技能页修改知识依赖草稿并发布。');
   tx((db) => {
     db.prepare("DELETE FROM knowledge_bindings WHERE id=?").run(id);
   });

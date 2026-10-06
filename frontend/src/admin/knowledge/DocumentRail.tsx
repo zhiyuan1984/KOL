@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
 import PublicationPanel from "./PublicationPanel";
+import KnowledgeScopePanel from './KnowledgeScopePanel';
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { KB_DOC_JOB_KIND_LABEL, KB_DOC_JOB_STATUS_LABEL, formatKbTime, kbDocProgressText,kbDocStatusLabel } from "../../knowledgeCopy";
 import KbvIcon from "../../knowledgeIcons";
@@ -20,6 +21,7 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
   const [actionError, setActionError] = useState("");
   const lock = useRef(false);
   const [replacement,setReplacement]=useState<File|null>(null);
+  const [scopeReady,setScopeReady]=useState(false);
   const doc = data?.document;
   const processing = Boolean(doc && ["uploaded", "normalizing", "indexing"].includes(doc.status));
   const progress = doc ? kbDocProgressText(doc) : "";
@@ -92,10 +94,11 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
         {processing && <p role="status" className="kbv-document-progress">{progress || "等待加工服务处理已提交的资料"} · 自动刷新中</p>}
         {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p>{mode==="edit" && <label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,application/pdf" onChange={e=>{const file=e.currentTarget.files?.[0];if(file){setReplacement(file);onDirty?.(true);}}} />{replacement && <p>{replacement.name}</p>}</label>}</>}
         {doc.status === "cancelled" && <p>加工已取消，可重试恢复；未发布资料不参与员工问答。</p>}
-        {["pending_review", "published"].includes(doc.status) && <PublicationPanel key={id} id={id} mode={mode==="review"?"review":"detail"} onInitiate={()=>onMode?.("review")} onSubmitted={()=>onMode?.("detail")} onDirty={onDirty} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}
+        {mode!=='review' && <KnowledgeScopePanel key={id} id={id} onReady={setScopeReady} onDirty={onDirty} onChanged={()=>{refresh();reload();}} />}
+        {["pending_review", "published"].includes(doc.status) && (scopeReady || mode==='review') && <PublicationPanel key={id} id={id} mode={mode==="review"?"review":"detail"} onInitiate={()=>onMode?.("review")} onSubmitted={()=>onMode?.("detail")} onDirty={onDirty} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}
         {mode!=="review" && <WorkspaceActions><div className="kbv-document-actions">
       <div className="kbv-actions">
-        {data.actions?.start && mode!=="edit" && <button className="btn work" data-kbv-doc-action="start" disabled={blocked} onClick={() => void run("start", "已提交解析，完成后待审核，不自动发布")}>{busy ? "提交中…" : "开始解析"}</button>}
+        {data.actions?.start && mode!=="edit" && <button className="btn work" data-kbv-doc-action="start" disabled={blocked} onClick={() => void run("start", "已提交解析，范围核对与审批通过后自动发布")}>{busy ? "提交中…" : "解析并提取范围"}</button>}
 
         {data.actions?.edit && mode!=="edit" && <button className="btn" disabled={blocked} onClick={()=>onMode?.("edit")}>替换草稿原件</button>}
         {mode==="edit" && <><button className="btn" disabled={blocked} onClick={()=>onMode?.("detail")}>取消编辑</button><button className="btn work" disabled={blocked || !replacement} onClick={()=>replacement && void replace(replacement)}>{busy?"保存中…":"保存"}</button></>}

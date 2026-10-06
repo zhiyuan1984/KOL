@@ -1,4 +1,5 @@
 import { knowledgePublication } from "./routers/knowledge-publication.js";
+import { knowledgeScopeRouter } from './routers/knowledge-scope.js';
 import fs from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
@@ -133,6 +134,7 @@ export function createApp(): Hono {
   app.route("/api", adminAgentsRouter);
   app.route("/api", host);
   app.route("/api", pipeline);
+  app.route("/api", knowledgeScopeRouter);
   app.route("/api", knowledgePublication);
   app.route("/api", reviews);
   app.route("/api", approvals);

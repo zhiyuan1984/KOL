@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { reviewApi, reviewCompany } from "./api";
 import { Link } from "react-router-dom";
+import type {KnowledgeScope} from '../../../shared/knowledge-scope';
+import KnowledgeScopeMaterial from './KnowledgeScopeMaterial';
 export default function KnowledgeMaterial({id}:{id:string}) {
-  const [data,setData]=useState<{title:string;pages:number;version:number;publication_status:string;error:string|null;receipt:{published_at?:string}|null;management_url?:string|null}>(),[error,setError]=useState("");
+  const [data,setData]=useState<{title:string;pages:number;version:number;publication_status:string;error:string|null;receipt:{published_at?:string}|null;management_url?:string|null;knowledge_scope?:{explanation:string;fingerprint:string;scope:KnowledgeScope}|null}>(),[error,setError]=useState("");
   const [query,setQuery]=useState(""),[busy,setBusy]=useState(false),[answer,setAnswer]=useState<{answer?:string;scope?:string;citations?:{page:number;source_url:string}[]}>();
   async function trial(){setBusy(true);setError("");setAnswer(undefined);try{
     setAnswer(await reviewApi(`/approvals/v2/instances/${id}/knowledge/trial`,{query}));
@@ -17,6 +19,7 @@ export default function KnowledgeMaterial({id}:{id:string}) {
     {error && <p role="alert">{error}</p>}
     {data && <><p>{data.title} · 资料版本 v{data.version} · {data.pages}页</p>
       <a href={`/api/approvals/v2/instances/${id}/knowledge/file?company=${encodeURIComponent(reviewCompany())}`} target="_blank" rel="noreferrer">查看本次审批 PDF 原件</a>
+      {data.knowledge_scope && <KnowledgeScopeMaterial material={data.knowledge_scope} fileUrl={`/api/approvals/v2/instances/${id}/knowledge/file?company=${encodeURIComponent(reviewCompany())}`} />}
       <details><summary>本次资料版本试算</summary><p>使用本次审批的资料版本回答问题，便于核对资料内容；不会发布或写入员工结果。</p>
         <label>试算问题<textarea maxLength={2000} value={query} onChange={e=>setQuery(e.target.value)} /></label>
         <button className="btn" disabled={busy || !query.trim()} onClick={()=>void trial()}>{busy ? "正在试算…" : "试算"}</button>

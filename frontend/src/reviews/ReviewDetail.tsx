@@ -3,6 +3,7 @@ import type { InstanceView, ReviewContext } from "./api";
 import { formatReviewValue } from "./formatReviewValue";
 import { AttachmentLinks } from "./ReviewAttachments";
 import KnowledgeMaterial from "./KnowledgeMaterial";
+import KnowledgeScopeMaterial from './KnowledgeScopeMaterial';
 import { reviewActionLabels } from "./ReviewActions";
 
 export const reviewStatusText = { reviewing: "审批中", approved: "审批已通过", rejected: "审批已驳回", withdrawn: "已撤回", blocked: "审批受阻", awaiting_amendment: "等待补充材料" };
@@ -40,6 +41,7 @@ export function ReviewDetail({ instance: i, context, actions, close, wide, toggl
       {(publication || i.definition.fields.some(f => f.type === "attachment")) && <section aria-label="审批材料"><h3>审批材料</h3>
         {publication && <><p>{publication.filename}{publication.version !== undefined && ` · 资料版本 v${publication.version}`} · 材料指纹 {publication.fingerprint.slice(0, 12)} {!publication.content && <a href={`/api/approvals/v2/instances/${encodeURIComponent(i.id)}/knowledge-source?company=${encodeURIComponent(publication.tenant)}`} target="_blank" rel="noreferrer">查看 PDF 原件</a>}</p>
           {publication.content && <><pre className="kbv-body">{publication.content.body}</pre><dl className="review-values">{Object.entries(publication.content.structured).map(([key,value]) => <div key={key}><dt>{key}</dt><dd>{formatReviewValue(value)}</dd></div>)}</dl></>}
+          {publication.knowledgeScope && <KnowledgeScopeMaterial material={publication.knowledgeScope} fileUrl={`/api/approvals/v2/instances/${encodeURIComponent(i.id)}/knowledge-source?company=${encodeURIComponent(publication.tenant)}`} />}
           <p>业务结果：{{ waiting: i.status === "approved" ? publication.releaseMode === "manual" ? "等待管理员发布" : "等待发布服务" : "等待审批后发布", published: "知识已发布", failed: "知识发布失败", rejected: "未发布（审批已驳回）", withdrawn: "未发布（已撤回）" }[publication.status]}</p>
           {publication.error && <p role="alert">{publication.error}</p>}{publication.receipt && <details><summary>发布回执</summary>{publication.receipt.id}</details>}
         </>}

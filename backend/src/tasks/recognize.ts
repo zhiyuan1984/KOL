@@ -16,7 +16,7 @@ import {
   type IntentVerdict,
 } from "./openai-intent.js";
 import { extractTaskEntities, resolveTaskIntent, type ClarificationKind, type TaskResolution } from "./resolver.js";
-import { availableAgentRoutes, currentAgentRoutes, withAgentRoutes } from "./agent-routing.js";
+import { availableKnowledgeAgentRoutes, currentAgentRoutes, withAgentRoutes } from "./agent-routing.js";
 import { runtimeAgentForSkill } from "../runtime/execution.js";
 
 export type TaskRecognition = TaskResolution & {
@@ -133,7 +133,7 @@ export async function recognizeTaskIntent(input: {
   input?: Record<string, unknown>;
 }): Promise<TaskRecognition> {
   if (scopedUser() && !currentAgentRoutes()) {
-    return withAgentRoutes(availableAgentRoutes(input.agent_id), () => recognizeTaskIntent(input), input.agent_id);
+    return withAgentRoutes(await availableKnowledgeAgentRoutes(input.agent_id), () => recognizeTaskIntent(input), input.agent_id);
   }
   const text = String(input.text || "").trim();
   let lockedType = input.task_type && taskDefinition(String(input.task_type))

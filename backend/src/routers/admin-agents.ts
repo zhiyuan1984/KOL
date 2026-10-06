@@ -14,6 +14,19 @@ import {
   listOrganizationUnits, listOrganizationMemberships, personRefForUser, previewAgentBinding, revokeAgentBinding, syncUserOrganization,
 } from "../runtime/organization-tree.js";
 import { getAgentSkills, setAgentSkill, setAgentSkills } from "../runtime/store.js";
+import {postgresTransaction} from '../postgres/pool.js';
+import {runtimeSkillVersion} from '../runtime/execution.js';
+async function confirmKnowledgeReleases(agentId:string,actor:string) {
+  const skills=getAgentSkills(agentId).filter(s=>s.enabled);
+  await postgresTransaction(async db=>{
+    for(const skill of skills){const cfg=(await db.query('SELECT published_hash,published_revision FROM skill_knowledge_configs WHERE skill_id=$1',[skill.skill_id])).rows[0];
+      if(!cfg)continue;
+      if(!cfg.published_hash || cfg.published_hash!==runtimeSkillVersion(String(skill.skill_id)))throw new HttpFail(409,'知识技能尚未完成正式发布，请先到技能页试算并发布。');
+      await db.query(`INSERT INTO agent_knowledge_skill_releases(agent_id,skill_id,skill_hash,config_revision,confirmed_by,confirmed_at) VALUES($1,$2,$3,$4,$5,$6)
+        ON CONFLICT(agent_id,skill_id) DO UPDATE SET skill_hash=EXCLUDED.skill_hash,config_revision=EXCLUDED.config_revision,confirmed_by=EXCLUDED.confirmed_by,confirmed_at=EXCLUDED.confirmed_at`,[agentId,skill.skill_id,cfg.published_hash,cfg.published_revision,actor,new Date().toISOString()]);
+    }
+  });
+}
 
 export const adminAgentsRouter = new Hono();
 
@@ -107,11 +120,13 @@ adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
   const body = await c.req.json() as {
     name?: string; description?: string; status?: "draft" | "published" | "disabled"; expected_version: number;
   };
+  if(Number(body.expected_version)!==Number(managedAgent(id).version))throw new HttpFail(409,'Agent 已变化，请刷新后重试。');
   if (body.status === "published") {
     if (!getAgentSkills(id).some((skill) => Number(skill.enabled) === 1)) {
       throw new HttpFail(409, "发布前请先装配至少一项技能");
     }
     if (!listAgentBindings(id).length) throw new HttpFail(409, "发布前请先绑定组织或人员");
+    await confirmKnowledgeReleases(id,admin.id);
   }
   const updated = updateManagedAgent(id, body);
   audit(admin.id, "admin.agent.update", { agent_id: id, status: updated.status, version: updated.version });
@@ -130,6 +145,7 @@ adminAgentsRouter.put("/admin/agents/:id/skills", async (c) => {
     expected_version: Number(row.expected_version),
   }));
   const updated = setAgentSkills(id, skills);
+  if(managedAgent(id).status==='published')await confirmKnowledgeReleases(id,admin.id);
   audit(admin.id, "admin.agent.skills", {
     agent_id: id,
     changed: skills.map((row) => ({ skill_id: row.skill_id, enabled: row.enabled })),

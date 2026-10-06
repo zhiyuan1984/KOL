@@ -2857,14 +2857,16 @@ export const api = {
   },
   adminKnowledgeDocument: (id: string) =>
     request<KnowledgeDocumentDetail>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`),
-  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false, onProgress?: (percent: number | null) => void) => {
+  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false, onProgress?: (percent: number | null) => void, explanation?: string,company?:string) => {
     const form = new FormData();
     form.append("base_id", baseId);
     form.append("draft", String(draft));
     form.append("file", file);
+    if(explanation!==undefined){form.append('scope_flow','true');form.append('explanation',explanation);}
     if (onProgress) return new Promise<{ document: KnowledgeDocumentRow }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/admin/knowledge/documents");
+      if(company)xhr.setRequestHeader('X-Review-Company',company);
       xhr.timeout = 45_000;
       xhr.upload.onprogress = event => onProgress(event.lengthComputable ? Math.round(event.loaded / event.total * 100) : null);
       xhr.onerror = () => reject(httpError(0, null, "上传连接中断，结果尚未确认；请刷新资料列表核对后再重试"));
@@ -2878,7 +2880,7 @@ export const api = {
       };
       xhr.send(form);
     });
-    return request<{ document: KnowledgeDocumentRow }>("/api/admin/knowledge/documents", { method: "POST", body: form });
+    return request<{ document: KnowledgeDocumentRow }>("/api/admin/knowledge/documents", { method: "POST", body: form,...(company?{headers:{'X-Review-Company':company}}:{}) });
   },
   adminKnowledgeDocumentAction: (id: string, action: "start" | "retry" | "cancel" | "reprocess" | "publish" | "archive") =>
     request<{ document: KnowledgeDocumentRow }>(

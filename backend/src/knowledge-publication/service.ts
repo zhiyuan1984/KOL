@@ -29,6 +29,7 @@ import {
 import { reviewIntake } from "../approval/review-rollout.js";
 import { currentTasks } from "../approval/review-operations.js";
 import { pgEnqueueExecutionJob } from "../execution-jobs/postgres-store.js";
+import { scopeSnapshot } from '../knowledge/scopes.js';
 
 type Row = Record<string, any>;
 const fail = (status: number, message: string): never => {
@@ -107,7 +108,8 @@ export async function documentMaterial(db: PoolClient, documentId: string): Prom
       : path.join(dataDir(), doc.source_path),
   );
   const lineage=(await db.query("SELECT root_id,version AS document_version,expected_active_id FROM knowledge_document_lineage WHERE document_id=$1",[documentId])).rows[0];
-  const engine = publicationSnapshot({...doc,...lineage});
+  const knowledgeScope=await scopeSnapshot(db,documentId);
+  const engine = publicationSnapshot({...doc,...lineage,knowledge_scope:knowledgeScope});
   const snapshot = {
     engine,
     documentId,
@@ -118,6 +120,7 @@ export async function documentMaterial(db: PoolClient, documentId: string): Prom
     artifacts: doc.artifacts,
     indexJobId: job.id,
     indexFinishedAt: job.finished_at,
+    knowledgeScope,
     updatedAt: doc.updated_at,
   };
   return { doc, bytes, snapshot, fingerprint: hash(snapshot) };
@@ -175,6 +178,7 @@ export async function publicationProjection(
     content: row.entry_id ? snapshot.content : undefined,
     version: snapshot.version || snapshot.engine?.document_version,
     releaseMode: row.release_mode,
+    knowledgeScope: snapshot.knowledgeScope || undefined,
     canPublish: row.status === "waiting" && row.review_status === "approved" && row.release_mode === "manual" && !row.publication_requested,
     title: snapshot.title,
     filename: snapshot.filename,
@@ -393,7 +397,7 @@ export async function preparePublication(
           (t) => p.ctx.people.find((u) => u.id === t.userId)?.name || t.userId,
         ),
         consequence:
-          "提交后本次内容、版本及发布说明冻结。审批通过后等待发布；发布前该版本不参与员工问答。",
+          "提交后本次内容、版本、知识范围及发布说明冻结。审批通过后自动发布并联动知识范围；发布前该版本不参与员工问答。",
       },
     };
   });
@@ -622,7 +626,7 @@ export async function submitPublication(
       ],
     );
     await db.query(
-      "INSERT INTO knowledge_publication_applications(tenant,instance_id,document_id,actor,snapshot,fingerprint,release_note,created_at,updated_at,entry_id,asset_key,release_mode) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,'manual')",
+      "INSERT INTO knowledge_publication_applications(tenant,instance_id,document_id,actor,snapshot,fingerprint,release_note,created_at,updated_at,entry_id,asset_key,release_mode) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,'automatic')",
       [
         ctx.tenant,
         i.id,

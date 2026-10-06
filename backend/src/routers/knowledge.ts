@@ -8,8 +8,10 @@ import { startDocument, publishedDocumentSourceFile } from "../host/knowledge-do
 import { scopedUser } from "../auth.js";
 import { assertRuntimeSkill } from "../runtime/execution.js";
 import { hasDocumentTool, documentDependencies } from "../runtime/document-knowledge.js";
+import { runtimeKnowledgeManifest,saveScope } from '../knowledge/scopes.js';
 import { requireAdmin, requireSkill,isAdmin } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
+import type {Row} from '../types.js';
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
 import {
@@ -235,12 +237,15 @@ knowledge.post("/admin/knowledge/documents", async (c) => {
   const file = body.file;
   if (!file || typeof file === "string") throw new HttpFail(400, "file required");
   const buf = Buffer.from(await (file as File).arrayBuffer());
-  return c.json(uploadDocument(
+  const result=uploadDocument(
     { name: (file as File).name || "upload.pdf", type: (file as File).type || "", buf },
     String(body.base_id || ""),
     undefined,
     { draft: body.draft === "true" },
-  ), 201);
+  );
+  // Explicit use of the new scope flow; older upload clients keep their existing contract.
+  if(body.scope_flow==='true')await saveScope(scopedUser()!.id,c.req.header('X-Review-Company'),String((result.document as Row).id),{expectedRevision:0,explanation:String(body.explanation || '')});
+  return c.json(result,201);
 });
 knowledge.get("/admin/knowledge/documents/:id", (c) => c.json(getDocumentDetail(c.req.param("id"))));
 knowledge.get("/admin/knowledge/documents/:id/file", (c) => {
@@ -249,12 +254,14 @@ knowledge.get("/admin/knowledge/documents/:id/file", (c) => {
   c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
   return c.body(new Uint8Array(fs.readFileSync(ref.path)));
 });
-knowledge.get("/knowledge/documents/:id/file", (c) => {
+knowledge.get("/knowledge/documents/:id/file", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   const skillId = String(c.req.query("skill_id") || "");
   assertRuntimeSkill({ agentId: String(c.req.query("agent_id") || ""), skillId, userId: user.id, runId: "document-source" });
   if (!hasDocumentTool(skillId)) throw new HttpFail(403, "文档查询技能未启用");
+  const manifest=await runtimeKnowledgeManifest(skillId,user.id);
+  if(!manifest.bases.some(base=>base.documents.some(doc=>doc.id===c.req.param('id')))) throw new HttpFail(403,'资料不在当前技能的有效版本范围内');
   const ref = publishedDocumentSourceFile(c.req.param("id"), documentDependencies(skillId).map((base) => String(base.id)));
   c.header("Content-Type", "application/pdf");
   c.header("X-Content-Type-Options", "nosniff");

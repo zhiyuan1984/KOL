@@ -30,6 +30,9 @@ import { Hono } from "hono";
 import { withScopedUser, type AppUser } from "../src/auth.js";
 import { knowledgePublication } from "../src/routers/knowledge-publication.js";
 import { HttpFail } from "../src/host/errors.js";
+import {saveScope,runtimeKnowledgeManifest} from '../src/knowledge/scopes.js';
+import {scopeHash} from '../src/knowledge/scope-contract.js';
+import type {KnowledgeScope} from '../../shared/knowledge-scope.js';
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL);
 describe.skipIf(!configured)(
@@ -106,6 +109,7 @@ describe.skipIf(!configured)(
         ),
       );
       await postgresPool().query(await fs.readFile(new URL("../migrations/026_knowledge_workspace.sql",import.meta.url),"utf8"));
+      await postgresPool().query(await fs.readFile(new URL('../migrations/027_knowledge_scope.sql',import.meta.url),'utf8'));
       await postgresPool().query("INSERT INTO knowledge_domains(id,code,name,level,created_at,updated_at) VALUES('domain','domain','产品规格','domain',$1,$1)",[stamp]);
       await postgresPool().query("INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,created_at,updated_at) VALUES('specs','specs','产品规格','domain','unstructured','active',$1,$1)",[stamp]);
       for (const id of ["admin", "reviewer", "reviewer-two", "outsider"]) {
@@ -208,8 +212,8 @@ describe.skipIf(!configured)(
         prepared.confirmationId,
         key,
       );
-      // Existing release contracts retain automatic mode; new workspace behavior is tested separately below.
-      if(mode==="automatic") await postgresPool().query("UPDATE knowledge_publication_applications SET release_mode='automatic' WHERE instance_id=$1",[receipt.instanceId]);
+      // Simulate only historical manual applications. All new submissions are automatic.
+      if(mode==='manual')await postgresPool().query("UPDATE knowledge_publication_applications SET release_mode='manual' WHERE instance_id=$1",[receipt.instanceId]);
       return { prepared, key, receipt };
     }
     // Same pure engine and persisted shape used by the existing generic review API.
@@ -245,7 +249,39 @@ describe.skipIf(!configured)(
         );
       });
     }
-    it("manual approval stays unpublished without a job until separately confirmed publication",async()=>{
+    const candidate=():KnowledgeScope=>({schema_version:1,summary:'资料中收录储能产品规格及使用条件',entities:[{name:'储能产品',evidence_ids:['original']}],topics:[{label:'额定参数',evidence_ids:['original']}],question_types:['overview','parameter_lookup'],limitations:['仅覆盖收录资料，不保证完整目录'],unverified_notes:[],evidence:[{id:'original',document_id:docId,original_pages:[1],text:'原文证据'}],coverage:{status:'complete',unreadable_pages:[],catalog_completeness:'unknown'}});
+    async function seedScope(state='candidate'){
+      const scope=candidate();await postgresPool().query('INSERT INTO knowledge_document_scopes(document_id,tenant,state,scope,explanation,fingerprint,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[docId,'company',state,scope,'规格与条件',scopeHash(scope),stamp]);
+    }
+    it('freezes checked scope and activates document plus scope in the same automatic publication',async()=>{
+      await seedScope();await expect(preparePublication('admin','company',docId,command())).rejects.toMatchObject({status:409});
+      const checked=await saveScope('admin','company',docId,{expectedRevision:1,checked:true,scope:candidate()});
+      const {receipt}=await submit();expect((await publicationOptions('admin','company',docId)).publication?.releaseMode).toBe('automatic');
+      await expect(saveScope('admin','company',docId,{expectedRevision:checked.revision,explanation:'改变范围'})).rejects.toMatchObject({status:409});
+      await expect(postgresPool().query("UPDATE knowledge_document_scopes SET explanation='bypass' WHERE document_id=$1",[docId])).rejects.toMatchObject({code:'23514'});
+      await decision(receipt.instanceId,'approve');
+      expect((await postgresPool().query("SELECT id FROM execution_jobs WHERE object_ref_json::jsonb->>'instanceId'=$1",[receipt.instanceId])).rowCount).toBe(1);
+      expect((await executePublication('company',receipt.instanceId)).status).toBe('published');
+      expect((await postgresPool().query('SELECT s.state,d.status FROM knowledge_document_scopes s JOIN knowledge_documents d ON d.id=s.document_id WHERE d.id=$1',[docId])).rows[0]).toEqual({state:'published',status:'published'});
+    });
+    it('rejects fabricated evidence and invalidates checked scope on source change',async()=>{
+      await seedScope();const scope=candidate();scope.topics[0].evidence_ids=['invented'];
+      await expect(saveScope('admin','company',docId,{expectedRevision:1,checked:true,scope})).rejects.toMatchObject({status:422});
+      await saveScope('admin','company',docId,{expectedRevision:1,checked:true});
+      await postgresPool().query("UPDATE knowledge_documents SET source_path=source_path || '.changed' WHERE id=$1",[docId]);
+      expect((await postgresPool().query('SELECT state,scope FROM knowledge_document_scopes WHERE document_id=$1',[docId])).rows[0]).toEqual({state:'empty',scope:null});
+    });
+    it('filters runtime ranges by current organization and fixed document versions before exposing context',async()=>{
+      await seedScope('checked');const {receipt}=await submit();await decision(receipt.instanceId,'approve');await executePublication('company',receipt.instanceId);
+      const skill=`scope_${docId.replaceAll('-','')}`;await postgresPool().query('INSERT INTO knowledge_bindings(id,skill_id,selector,enabled,created_at,updated_at) VALUES($1,$2,$3,1,$4,$4)',[randomUUID(),skill,JSON.stringify({base_ids:['specs']}),stamp]);
+      const visible=await runtimeKnowledgeManifest(skill,'reviewer');expect(visible.bases.flatMap(b=>b.documents).some(d=>d.id===docId && Boolean(d.scope))).toBe(true);
+      expect((await runtimeKnowledgeManifest(skill,'outsider')).bases).toEqual([]);
+      await postgresPool().query("INSERT INTO skill_knowledge_configs(skill_id,tenant,selector,update_policy,published_revision,published_selector,published_policy,updated_at) VALUES($1,'company',$2,'fixed_documents',1,$2,'fixed_documents',$3)",[skill,{base_ids:['specs'],document_ids:[docId]},stamp]);
+      expect((await runtimeKnowledgeManifest(skill,'reviewer')).bases.flatMap(b=>b.documents).map(d=>d.id)).toEqual([docId]);
+      await postgresPool().query("UPDATE knowledge_documents SET status='archived' WHERE id=$1",[docId]);
+      expect((await runtimeKnowledgeManifest(skill,'reviewer')).bases).toEqual([]);
+    });
+    it("historical manual approval stays unpublished without a job until separately confirmed publication",async()=>{
       const {receipt}=await submit("manual");await decision(receipt.instanceId,"approve");
       expect((await postgresPool().query("SELECT id FROM execution_jobs WHERE object_ref_json::jsonb->>'instanceId'=$1",[receipt.instanceId])).rowCount).toBe(0);
       expect((await executePublication("company",receipt.instanceId)).status).toBe("waiting");
@@ -263,9 +299,6 @@ describe.skipIf(!configured)(
       const r=await submitPublication("admin","company",ref,command(),p.confirmationId,randomUUID());
       await expect(saveEntry("admin","company",row.id,{title:"变化",expectedRevision:row.updated_at})).rejects.toThrow("冻结");
       await decision(r.instanceId,"approve");
-      expect((await executePublication("company",r.instanceId)).status).toBe("waiting");
-      const publish=await preparePublicationRecovery("admin","company",ref,"publish");
-      await recoverPublication("admin","company",ref,publish.confirmationId,randomUUID(),"publish");
       expect((await executePublication("company",r.instanceId)).status).toBe("published");
       const current=await entryDetail("admin","company",row.id);
       const draft=await reviseEntry("admin","company",row.id,current.row.updated_at);
