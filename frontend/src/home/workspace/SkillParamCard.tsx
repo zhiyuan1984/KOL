@@ -218,7 +218,22 @@ export default function SkillParamCard({
   const expectCount = fieldsByKey.get("expect_count");
   const hasCompactThresholds = compactDiscoveryLayout && mode !== "ready"
     && Boolean(minFollowers && maxFollowers && minPlays && expectCount);
-  return <section className="ai-discovery-card" data-discovery-search-card data-skill-param-card data-param-mode={mode}>
+  return <>
+    {compactDiscoveryLayout && mode === "edit" ? (
+      <section className="discovery-skill-intro" data-discovery-skill-intro aria-label="AI发现技能说明">
+        <div className="discovery-skill-intro-head">
+          <span className="discovery-skill-kicker">线索智能体 · AI发现技能</span>
+          <strong>先填写发现条件，再核对实际采集参数</strong>
+        </div>
+        <p>结果会保留来源、采集时间和无法核验的条件。</p>
+        <ol>
+          <li>填写平台、地区、方向和关键词</li>
+          <li>核对粉丝、均播与期望人数</li>
+          <li>确认后才开始异步采集</li>
+        </ol>
+      </section>
+    ) : null}
+    <section className="ai-discovery-card" data-discovery-search-card data-skill-param-card data-param-mode={mode}>
     {!hideTitle ? <header className="ai-discovery-head"><h2>{title || (mode === "ready" ? "已确认参数" : mode === "needs_input" ? "补充必要信息" : "任务参数")}</h2></header> : null}
     <div className="ai-discovery-rows">
       {fields.filter((field) => !hasCompactThresholds || !renderedCompactKeys.has(field.key)).map(renderRow)}
@@ -243,5 +258,6 @@ export default function SkillParamCard({
         </div>
       </div> : null}
     </div>
-  </section>;
+    </section>
+  </>;
 }
