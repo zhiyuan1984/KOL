@@ -15,10 +15,11 @@ const dashboard: TaskOperationsDashboard = {
 describe("TaskOperationsReport", () => {
   it("renders Agent/system source, interactive status filtering, and task-type distribution", () => {
     const html = renderToStaticMarkup(<TaskOperationsReport dashboard={dashboard} period="week" loading={false} error="" activeFilter="in_progress" onPeriod={() => undefined} onFilter={() => undefined} onClearFilter={() => undefined} onRetry={() => undefined} />);
-    expect(html).toContain("任务运营概览");
-    expect(html).toContain("Agent 与系统任务");
+    expect(html).toContain("任务运营");
+    expect(html).toContain("Agent／系统任务");
     expect(html).toContain("任务类型分布");
     expect(html).toContain("红人发现");
     expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain("<details");
   });
 });
