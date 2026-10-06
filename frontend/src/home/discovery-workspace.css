@@ -267,9 +267,9 @@
   height: var(--ds-chip-h);
   min-height: var(--ds-chip-h);
   padding-inline: 8px;
-  border-color: var(--control-border);
+  border-color: transparent;
   border-radius: var(--radius-control);
-  background: var(--bg);
+  background: var(--ds-surface);
   color: var(--text-muted);
   font-weight: 400;
   line-height: var(--lh-control-sm, 16px);
@@ -279,11 +279,11 @@
   background: var(--surface-hover);
 }
 .discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
-  color: var(--text);
-  font-weight: 400;
+  border-color: var(--ds-selected-border);
+  background: var(--ds-selected-bg);
+  box-shadow: none;
+  color: var(--accent-text);
+  font-weight: 500;
 }
 .discovery-brief-form .discovery-chip-check {
   display: inline-flex;
@@ -305,9 +305,9 @@
 .discovery-brief-form .ai-discovery-card .ai-discovery-input {
   height: var(--ds-control-h);
   padding-inline: 10px;
-  border-color: var(--control-border);
+  border-color: var(--ds-border);
   border-radius: var(--radius-control);
-  background: var(--bg);
+  background: var(--ds-surface);
   font-size: var(--ds-font-sm);
   line-height: var(--lh-control, 20px);
   color: var(--text);
@@ -317,7 +317,7 @@
   color: var(--text-muted);
 }
 .discovery-brief-form .ai-discovery-card .ai-discovery-input:hover {
-  border-color: var(--control-border-hover);
+  border-color: var(--ds-selected-border);
 }
 .discovery-brief-form .ai-discovery-text-control {
   position: relative;
