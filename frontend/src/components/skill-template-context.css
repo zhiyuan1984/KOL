@@ -6,24 +6,6 @@
   background: var(--bg);
 }
 
-/* Shared discovery entry guidance; the parameter card is also rendered from
-   the generic skill composer, so this belongs to the shared template surface. */
-.discovery-skill-intro {
-  display: grid;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--radius-card);
-  background: var(--surface);
-}
-.discovery-skill-intro-head { display: grid; gap: var(--space-1); min-width: 0; }
-.discovery-skill-kicker { color: var(--accent-text); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
-.discovery-skill-intro strong { color: var(--text); font-size: var(--ds-font-ui); line-height: var(--ds-line-ui); font-weight: 600; }
-.discovery-skill-intro p,
-.discovery-skill-intro ol { margin: 0; color: var(--text-muted); font-size: var(--ds-font-sm); line-height: var(--ds-line-body); }
-.discovery-skill-intro ol { display: grid; gap: var(--space-1); padding-left: 1.25em; }
-
 .skill-template-context {
   display: grid;
   gap: var(--ds-space-3);
@@ -35,6 +17,11 @@
   border: 0;
   background: transparent;
   padding: 0;
+}
+
+/* 平铺档里使用边界与异常与恢复不再是折叠块，与其它小节同列。 */
+.skill-template-context .skill-template-flat-section {
+  min-width: 0;
 }
 
 .skill-template-context-head,

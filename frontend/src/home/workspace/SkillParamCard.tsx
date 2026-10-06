@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import type { DiscoveryOption } from "../discoveryTemplate";
+import { useEffect, useState, type ReactNode, type Ref } from "react";
+import { DISCOVERY_DIRECTION_PACKS, keywordsForDirections, type DiscoveryDirectionCode, type DiscoveryOption } from "../discoveryTemplate";
+import KeywordChipField, { type KeywordChipFieldHandle } from "./KeywordChipField";
 
 export type SkillParamField = {
   key: string;
@@ -45,10 +46,26 @@ function sourceKey(field: SkillParamField): string {
 }
 
 function displayValue(field: SkillParamField, value: unknown, options: DiscoveryOption[]): string {
-  if (field.key === "max_followers" && value == null) return "不限";
   if (field.kind === "object" && value && typeof value === "object") return JSON.stringify(value);
   const values = Array.isArray(value) ? value.map(String) : [String(value ?? "")];
   return values.filter(Boolean).map((code) => options.find((option) => option.code === code)?.label || code).join("、") || "未填写";
+}
+
+/** 只读态的数值：千位分隔；粉丝数上限为 null 表示「不限」，不是缺省值。 */
+export function formatCompactNumber(key: string, value: unknown): string {
+  if (value === null || value === undefined || value === "") return key === "max_followers" ? "不限" : "未填写";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(number);
+}
+
+/** 上限低于下限：只提示，不阻断编辑；是否禁用提交由父方决定。上限为空 = 不限，不算越界。 */
+export function followersRangeInvalid(min: unknown, max: unknown): boolean {
+  if (max === null || max === undefined || max === "") return false;
+  const minNumber = Number(min);
+  const maxNumber = Number(max);
+  if (!Number.isFinite(minNumber) || !Number.isFinite(maxNumber)) return false;
+  return maxNumber < minNumber;
 }
 
 function valuesMatch(left: unknown, right: unknown): boolean {
@@ -73,6 +90,8 @@ export default function SkillParamCard({
   title,
   hideTitle = false,
   compactDiscoveryLayout = false,
+  keywordFieldRef,
+  footer,
   onFieldChange,
 }: {
   fields: SkillParamField[];
@@ -87,6 +106,10 @@ export default function SkillParamCard({
   hideTitle?: boolean;
   /** Keep the discovery thresholds compact without changing their API field names. */
   compactDiscoveryLayout?: boolean;
+  /** 关键词芯片控件句柄：父方在提交前调用 flushDraft()，把未回车的草稿并入有效关键词。 */
+  keywordFieldRef?: Ref<KeywordChipFieldHandle>;
+  /** 卡片底部动作行（条件卡：说明在左、主操作在右）。 */
+  footer?: ReactNode;
   onFieldChange?: (key: string, value: unknown) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>(() => Object.fromEntries(
@@ -112,17 +135,37 @@ export default function SkillParamCard({
       ? { code: option, label: option }
       : { code: option.code, label: option.label });
   };
+  const directionsField = fields.find((field) => field.key === "directions");
+  const directionOptions = directionsField ? optionsFor(directionsField) : DISCOVERY_DIRECTION_PACKS;
+  // 候选关键词取自方向包（目录给的是 string code，只用于取关键词，不参与选项判定）。
+  const keywordOptions = keywordsForDirections(
+    directionOptions.map((option) => option.code),
+    directionOptions as Array<DiscoveryOption<DiscoveryDirectionCode>>,
+  );
+  const renderReadonlyValue = (field: SkillParamField) => {
+    const value = values[field.key];
+    if (!compactDiscoveryLayout) return <output className="skill-param-readonly">{displayValue(field, value, optionsFor(field))}</output>;
+    if (field.kind === "number") return <output className="skill-param-readonly">{formatCompactNumber(field.key, value)}</output>;
+    if (field.kind === "text" && tokenFields.includes(field.key)) {
+      const words = (Array.isArray(value) ? value : []).map(String).filter((word) => word.trim());
+      if (!words.length) return <output className="skill-param-readonly">未填写</output>;
+      return <div className="discovery-keyword-static">
+        {words.map((word) => <span className="discovery-keyword-chip" data-discovery-keyword-static={word} key={word}>{word}</span>)}
+      </div>;
+    }
+    return <output className="skill-param-readonly">{displayValue(field, value, optionsFor(field))}</output>;
+  };
   const renderField = (field: SkillParamField) => {
     const value = values[field.key];
     const options = optionsFor(field);
     const invalid = Boolean(errors[field.key]);
     const isPristine = compactDiscoveryLayout && Boolean(pristineValues)
       && valuesMatch(value, pristineValues?.[field.key]);
-    if (mode === "ready") return <output className="skill-param-readonly">{displayValue(field, value, options)}</output>;
+    if (mode === "ready") return renderReadonlyValue(field);
     if (field.kind === "single" || field.kind === "multiple") {
       if (!options.length) return <span className="skill-param-error" role="status">{field.options_source ? "选项暂不可用，请稍后重试。" : "该字段尚未配置可用选项。"}</span>;
       const selected = field.kind === "multiple" ? (Array.isArray(value) ? value.map(String) : []) : [String(value || "")];
-      return <div className="ai-discovery-chips" role="group" aria-label={field.label}>
+      return <div className="ai-discovery-chips" role={field.kind === "multiple" ? "group" : "radiogroup"} aria-label={field.label}>
         {options.map((option) => {
           const pressed = selected.includes(option.code);
           const maxed = field.max != null && selected.length >= field.max;
@@ -151,6 +194,11 @@ export default function SkillParamCard({
     }
     if (field.kind === "text") {
       const tokenized = tokenFields.includes(field.key);
+      if (tokenized && compactDiscoveryLayout) {
+        return <KeywordChipField ref={keywordFieldRef} value={Array.isArray(value) ? value.map(String) : []}
+          options={keywordOptions.length ? keywordOptions : undefined} label={field.label} pristine={isPristine} invalid={invalid}
+          onChange={(words) => onFieldChange?.(field.key, words)} />;
+      }
       const draft = tokenized ? drafts[field.key] || "" : String(value || "");
       const clear = () => {
         if (tokenized) setDrafts((current) => ({ ...current, [field.key]: "" }));
@@ -178,13 +226,15 @@ export default function SkillParamCard({
       </div>;
     }
     if (field.kind === "number") {
-      const numberText = String(value ?? "");
+      const numberText = value === null || value === undefined ? "" : String(value);
       const formattedNumber = compactDiscoveryLayout && numberText !== ""
         ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(numberText))
         : numberText;
+      // 清空上限 = 不限（null）；其余字段清空保持 undefined。
+      const clearedValue = compactDiscoveryLayout && field.key === "max_followers" ? null : undefined;
       return <input className="ai-discovery-input is-number" type={compactDiscoveryLayout ? "text" : "number"} inputMode="numeric"
       aria-label={field.label} aria-invalid={invalid}
-      placeholder={field.key === "max_followers" ? "不限" : undefined}
+      placeholder={clearedValue === null ? "不限" : undefined}
       data-discovery-pristine={isPristine ? "true" : "false"}
       {...(field.key === "min_followers" ? { "data-discovery-min-followers": true }
         : field.key === "max_followers" ? { "data-discovery-max-followers": true }
@@ -194,8 +244,9 @@ export default function SkillParamCard({
       value={formattedNumber}
       onChange={(event) => {
         const next = compactDiscoveryLayout ? event.target.value.replace(/[^0-9]/g, "") : event.target.value;
-        const number = next === "" ? undefined : Number(next);
-        onFieldChange?.(field.key, number === undefined || Number.isFinite(number) ? number : next);
+        if (next === "") return onFieldChange?.(field.key, clearedValue);
+        const number = Number(next);
+        onFieldChange?.(field.key, Number.isFinite(number) ? number : next);
       }} />;
     }
     return <input className="ai-discovery-input" type="date" aria-label={field.label} aria-invalid={invalid}
@@ -218,23 +269,9 @@ export default function SkillParamCard({
   const maxFollowers = fieldsByKey.get("max_followers");
   const minPlays = fieldsByKey.get("min_avg_plays_10");
   const expectCount = fieldsByKey.get("expect_count");
-  const hasCompactThresholds = compactDiscoveryLayout && mode !== "ready"
+  const hasCompactThresholds = compactDiscoveryLayout
     && Boolean(minFollowers && maxFollowers && minPlays && expectCount);
   return <>
-    {compactDiscoveryLayout && mode === "edit" ? (
-      <section className="discovery-skill-intro" data-discovery-skill-intro aria-label="AI发现技能说明">
-        <div className="discovery-skill-intro-head">
-          <span className="discovery-skill-kicker">线索智能体 · AI发现技能</span>
-          <strong>先填写发现条件，再核对实际采集参数</strong>
-        </div>
-        <p>结果会保留来源、采集时间和无法核验的条件。</p>
-        <ol>
-          <li>填写平台、地区、方向和关键词</li>
-          <li>核对粉丝、均播与期望人数</li>
-          <li>确认后才开始异步采集</li>
-        </ol>
-      </section>
-    ) : null}
     <section className="ai-discovery-card" data-discovery-search-card data-skill-param-card data-param-mode={mode}>
     {!hideTitle ? <header className="ai-discovery-head"><h2>{title || (mode === "ready" ? "已确认参数" : mode === "needs_input" ? "补充必要信息" : "任务参数")}</h2></header> : null}
     <div className="ai-discovery-rows">
@@ -245,13 +282,14 @@ export default function SkillParamCard({
           <div className="ai-discovery-inline-field" data-skill-param="min_followers">
             <span className="sr-only">{minFollowers.label}</span>{renderField(minFollowers)}
           </div>
-          <details className="discovery-optional-upper" open={values.max_followers != null || undefined}>
-            <summary>上限：{values.max_followers == null ? "不限（可选）" : String(values.max_followers)}</summary>
-            <div className="ai-discovery-inline-field" data-skill-param="max_followers">
-              <span className="sr-only">{maxFollowers.label}</span>{renderField(maxFollowers)}
-            </div>
-          </details>
+          <span className="ai-discovery-range-separator" aria-hidden="true">—</span>
+          <div className="ai-discovery-inline-field" data-skill-param="max_followers">
+            <span className="sr-only">{maxFollowers.label}</span>{renderField(maxFollowers)}
+          </div>
         </div>
+        {mode !== "ready" ? <span className="discovery-followers-hint" data-discovery-followers-hint>上限留空即不限</span> : null}
+        {mode !== "ready" && followersRangeInvalid(values[minFollowers.key], values[maxFollowers.key])
+          ? <span className="skill-param-error" role="alert">上限低于下限</span> : null}
       </div> : null}
       {hasCompactThresholds && minPlays && expectCount ? <div className="ai-discovery-row is-metric-pair" data-skill-param-group="discovery_metrics">
         <div className="ai-discovery-inline-field" data-skill-param="min_avg_plays_10">
@@ -262,6 +300,7 @@ export default function SkillParamCard({
         </div>
       </div> : null}
     </div>
+    {footer}
     </section>
   </>;
 }

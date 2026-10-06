@@ -14,7 +14,7 @@ import {
   type TaskRunResult,
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
-import { storePending } from "../components/ChatBlocks";
+import { storePending, runPendingAsk } from "../components/ChatBlocks";
 import { stashComposerDraft } from "../composer/draft";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
@@ -531,12 +531,23 @@ export default function Home() {
   };
 
   const onDiscoveryBriefChange = (next: DiscoveryBrief) => {
+    discoveryBriefRef.current = next;
     setDiscoveryBrief(next);
     // 条件卡与提问框的条件编辑共用同一真值：芯片改了条件，正文（可编辑）同步改写。
     setDiscoveryFormBrief(next);
     setText(applyChipOverride(text.startsWith(DISCOVERY_BODY_PREFIX) ? text : `${DISCOVERY_BODY_PREFIX}\n${text}`, next));
     setLockedIntent(DISCOVERY_INTENT);
     setLockedLabel(DISCOVERY_LOCK_LABEL);
+  };
+
+  /**
+   * 条件卡底部的主操作：与提问框发送走同一条提交路径。条件卡在调用前已把未确认的
+   * 关键词草稿写回条件（onFieldChange 同步更新 ref），因此这里读 ref 而不是 state。
+   */
+  const submitDiscoveryConditions = (draft?: DiscoveryBrief) => {
+    const brief = draft || discoveryBriefRef.current || discoveryBrief || defaultDiscoveryBrief();
+    const body = renderDiscoveryBody(brief, discoveryCatalog || undefined);
+    void submitDiscovery(brief, body, discoveryVersion);
   };
 
   const onComposerText = (next: string) => {
@@ -617,8 +628,15 @@ export default function Home() {
       sessionStorage.setItem(`task:${result.session_id}`, result.task_id);
       if (result.pending) storePending(result.session_id, result.pending);
       refreshWorkbenchSessions();
-      clearDiscoveryLock();
-      nav(`/s/${result.session_id}`, { state: { discoverySession: result.session_id } });
+      // 提交后留在本页：实际参数、确认与回执都留在中栏事件流里，历史事件不清空。
+      setDiscoveryTaskId(result.task_id);
+      setDiscoverySessionId(result.session_id);
+      setDiscoveryRunId(null);
+      // 首轮分析（提出本次采集范围）由本页运行；失败时沿用提交失败那条重试入口。
+      void runPendingAsk(result.session_id).catch(() => {
+        setDiscoverySubmitFailed(true);
+        setDiscoverySubmitError("首轮分析没有跑完，可重试；不会重复创建任务。");
+      });
     } catch (error) {
       setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {
@@ -678,6 +696,10 @@ export default function Home() {
   const [discoveryVersion, setDiscoveryVersion] = useState<string>("discovery-brief.v1");
   const [discoveryTaskId, setDiscoveryTaskId] = useState<string | null>(null);
   const [discoveryRunId, setDiscoveryRunId] = useState<string | null>(null);
+  /** 正在协作的发现会话：实际采集参数、确认动作与回执按它读取。 */
+  const [discoverySessionId, setDiscoverySessionId] = useState<string | null>(null);
+  /** 条件卡表单真值的同步副本：芯片草稿在提交同一拍写回，state 可能还没重渲染。 */
+  const discoveryBriefRef = useRef<DiscoveryBrief | null>(null);
   const [entryIntent, setEntryIntent] = useState<ComposerEntryIntent>(
     initialFill?.skill_id === DISCOVERY_INTENT || discoveryEntryTab ? "discover" : "free",
   );
@@ -710,6 +732,19 @@ export default function Home() {
       setLockedLabel(DISCOVERY_LOCK_LABEL);
       setEntryIntent("discover");
       setResumedDiscoverySession(String(restored.session_id || "") || null);
+      // 恢复现场：本页接着协作这次任务，参数、确认与回执都从中栏事件流继续。
+      setDiscoveryTaskId(String(restored.id || "") || null);
+      setDiscoverySessionId(String(restored.session_id || "") || null);
+      const resumeSessionId = String(restored.session_id || "");
+      const resumeTaskId = String(restored.id || "");
+      if (resumeSessionId && resumeTaskId) {
+        // 首轮分析没跑完时（页面关闭丢了 pending 消息），按所有者与技能权限取回再运行一次。
+        void api.pendingDiscoveryWorkspace(resumeTaskId).then(({ pending }) => {
+          if (!pending) return;
+          storePending(resumeSessionId, pending);
+          return runPendingAsk(resumeSessionId);
+        }).catch(() => {});
+      }
     }).catch(() => {
       if (active) setDiscoverySubmitError("无法恢复该发现任务，请从任务中心核对访问权限。已有输入仍保留。");
     });
@@ -746,6 +781,18 @@ export default function Home() {
     setDiscoveryBrief((current) => (current ? null : current));
     setDiscoveryFormBrief((current) => (current ? null : current));
     setText((current) => (current.startsWith(DISCOVERY_BODY_PREFIX) ? "" : current));
+  }, [mode]);
+
+  // 回到 AI发现：离开页签会释放条件（避免发现条件泄漏到别的面），但本页正在协作的
+  // 那次提交要能原样回来 —— 参数、确认与回执都由服务端状态重新派生。
+  useEffect(() => {
+    if (mode !== "discovery" || discoveryBrief || !lastDiscoverySubmit || !discoveryTaskId) return;
+    setDiscoveryBrief(lastDiscoverySubmit.brief);
+    setDiscoveryFormBrief(lastDiscoverySubmit.brief);
+    setLockedIntent(DISCOVERY_INTENT);
+    setLockedLabel(DISCOVERY_LOCK_LABEL);
+    setEntryIntent("discover");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
   const setMode = (next: HomeMode) => {
@@ -2092,9 +2139,10 @@ export default function Home() {
     </div>
   );
 
-  const interactionFeedback = (
+  /** 技能说明在中栏事件流里是第一个事件；发现面不再把它重复放进反馈区。 */
+  const renderInteractionFeedback = (options?: { withSkillTemplate?: boolean }) => (
     <div className="workspace-interaction-feedback" data-workspace-interaction-feedback>
-      {skillTemplateContext}
+      {(options?.withSkillTemplate ?? true) ? skillTemplateContext : null}
       {genericParamCard}
       {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
       {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
@@ -2362,7 +2410,7 @@ export default function Home() {
                   </p>
                 </div>
               )}
-              centerSupplement={interactionFeedback}
+              centerSupplement={renderInteractionFeedback()}
               centerFooter={renderComposerDock()}
             />
           ) : null}
@@ -2377,6 +2425,10 @@ export default function Home() {
                 return Array.isArray(declared) ? declared as import("../home/workspace/SkillParamCard").SkillParamField[] : undefined;
               })()}
               onBriefChange={onDiscoveryBriefChange}
+              onSubmitConditions={submitDiscoveryConditions}
+              skillTemplate={activeSkillTemplate}
+              sessionId={discoverySessionId}
+              sessionHref={discoverySessionId ? `/s/${discoverySessionId}` : null}
               activeTaskId={discoveryTaskId}
               activeRunId={discoveryRunId}
               lastSubmit={lastDiscoverySubmit}
@@ -2386,7 +2438,7 @@ export default function Home() {
                   已恢复上次条件。<button className="btn ghost" onClick={() => nav(`/s/${resumedDiscoverySession}`)}>继续原发现任务</button>
                   <span className="muted">修改条件后提交将新建发现任务，原结果保留。</span>
                 </p> : null}
-                {interactionFeedback}
+                {renderInteractionFeedback({ withSkillTemplate: false })}
               </>}
               centerFooter={renderComposerDock()}
             />
@@ -2402,7 +2454,7 @@ export default function Home() {
               railLabel="我的红人结果"
               railToggleLabel="我的红人"
               railStorageKey="ui:home-followed-rail-collapsed"
-              interaction={interactionFeedback}
+              interaction={renderInteractionFeedback()}
               centerContent={(
                 <FollowedInteraction
                   cards={followedWorkspace.cards}
@@ -2419,7 +2471,7 @@ export default function Home() {
                     poolWorkspace.setFilter("new");
                     setMode("pool");
                   }}
-                  interaction={interactionFeedback}
+                  interaction={renderInteractionFeedback()}
                 />
               )}
               centerFooter={renderComposerDock()}
@@ -2486,7 +2538,7 @@ export default function Home() {
                   maintenanceBusy={poolWorkspace.maintenanceBusy}
                   maintenanceNotice={poolWorkspace.maintenanceNotice}
                   maintenanceError={poolWorkspace.maintenanceError}
-                  interaction={interactionFeedback}
+                  interaction={renderInteractionFeedback()}
                   templates={poolTemplateState}
                   templateNotice={poolTemplateNotice}
                   criteriaNote={discoveryBrief

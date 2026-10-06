@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TaskEvent } from "../api";
+import { api, type RuntimeActionView, type TaskEvent } from "../api";
 import { presentDiscoveryError, type DiscoveryErrorView } from "./discovery-error";
-import { discoveryStage, isCardVisible, type DiscoveryStage } from "./discoveryPhase";
+import { discoveryCardMode, discoveryStage, type DiscoveryStage } from "./discoveryPhase";
+import { discoveryParamsStale } from "./discoveryParams";
+import {
+  discoveryCrawlPhase,
+  discoveryStartAction,
+  discoveryStartPhase,
+  type DiscoveryStartPhase,
+} from "./discoveryStart";
 import {
   presentDiscoveryEvents,
   presentDiscoveryThink,
@@ -34,22 +41,29 @@ const DISCOVERY_FAILED_FALLBACK = "检索没有完成。可稍后重试。";
 export type DiscoveryIngestState = "brief_mismatch" | "cancelled" | "pending" | null;
 export type DiscoveryResultFilter = "all" | "ready" | "review" | "blocked" | "existing";
 
+/** 采集没有终态前保持轮询；取得终态后停止（避免空转）。 */
+const START_DONE: DiscoveryStartPhase[] = ["succeeded", "failed", "rejected", "cancelled", "uncertain"];
+const CRAWL_DONE = ["succeeded", "failed", "cancelled", "partial", "uncertain"];
+
 /**
- * AI发现的全部状态与副作用。视图被拆成中栏（条件卡 / 过程流）与右栏（结果区）
+ * AI发现的全部状态与副作用。视图被拆成中栏（有序事件流）与右栏（结果区）
  * 两块，请求只在这里发一次，两栏不各自取数。
  *
- * `activeTaskId` / `activeRunId` 由提交方（Home）传入：切换页签只做 memory GET，
- * 不建会话、不调模型。
+ * `activeTaskId` / `activeRunId` / `sessionId` 由提交方（Home）传入：切换页签只做
+ * memory GET，不建会话、不调模型；首次提交由 Home 唤起 pending 回合。
  */
 export default function useDiscovery({
   activeTaskId = null,
   activeRunId = null,
+  sessionId = null,
   lastSubmit = null,
   onRetrySubmit,
 }: {
   activeTaskId?: string | null;
   activeRunId?: string | null;
-  /** 每次提交都换一个身份（提交方传同一个 state 对象）：用来把条件卡收起来。 */
+  /** 正在协作的发现会话：实际采集参数与确认动作都按它读取。 */
+  sessionId?: string | null;
+  /** 每次提交都换一个身份（提交方传同一个 state 对象）：用来把条件卡转回只读。 */
   lastSubmit?: unknown;
   /** 没有 run 可重试时（提交就没成功），交回提交方重发。 */
   onRetrySubmit?: () => void;
@@ -79,8 +93,15 @@ export default function useDiscovery({
   const [ingestMissing, setIngestMissing] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(false);
   const [ingestReceipt, setIngestReceipt] = useState<HomeDiscoveryIngestResult | null>(null);
-  /** 「改条件再搜」把条件卡调回来；提交成功后再收起。 */
-  const [cardPinned, setCardPinned] = useState(false);
+  /** 「修改条件」把条件卡调回可编辑；重新提交后再回只读。 */
+  const [editingCard, setEditingCard] = useState(false);
+  /** 会话内的受控动作（start_crawl / stop_crawl）：实际参数、确认与回执的权威来源。 */
+  const [actions, setActions] = useState<RuntimeActionView[]>([]);
+  const [actionsError, setActionsError] = useState("");
+  /** 员工点击确认到服务端回执之间：立即显示「已确认，正在启动」，不重复提交。 */
+  const [confirmingStart, setConfirmingStart] = useState(false);
+  const [startError, setStartError] = useState("");
+  const [startBusy, setStartBusy] = useState(false);
   /** 发现页首屏会同时触发两次只读恢复；只有最后一次读取允许回写状态。 */
   const loadSequenceRef = useRef(0);
 
@@ -116,11 +137,24 @@ export default function useDiscovery({
     visibleCount: visible.length,
     hasRun: Boolean(activeRun),
   });
-  const cardVisible = isCardVisible(stage, cardPinned);
 
-  // 提交（哪怕后端复用了同一个 run）就把卡片收起来：那之后中栏是过程流的地盘。
+  const startAction = useMemo(() => discoveryStartAction(actions), [actions]);
+  const startPhase = discoveryStartPhase(startAction, confirmingStart);
+  const crawlPhase = discoveryCrawlPhase(startAction);
+  /** 这一页已经提交过（提交身份或本任务已有运行）。 */
+  const submitted = Boolean(lastSubmit)
+    || Boolean(activeRun && activeTaskId && activeRun.work_item_id === activeTaskId);
+  const cardMode = discoveryCardMode({ submitted, editing: editingCard });
+  const paramsStale = discoveryParamsStale({ submitted, editing: editingCard });
+  /** 右栏里的结果是否来自上一次运行（新运行尚未产出时不清空旧回执）。 */
+  const runFromAnotherTask = Boolean(
+    activeRun && activeTaskId && activeRun.work_item_id && activeRun.work_item_id !== activeTaskId,
+  );
+  const actionsSettled = START_DONE.includes(startPhase) && CRAWL_DONE.includes(String(crawlPhase));
+
+  // 提交（哪怕后端复用了同一个任务）就把卡片收回只读：那之后中栏是过程流的地盘。
   useEffect(() => {
-    if (lastSubmit) setCardPinned(false);
+    if (lastSubmit) setEditingCard(false);
   }, [lastSubmit]);
 
   const loadExisting = async (preferRunId?: string | null) => {
@@ -281,8 +315,49 @@ export default function useDiscovery({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId]);
 
+  // 任务身份在挂载之后才到（?resume= 恢复现场、任务记录点进来）：按 work_item_id 认领本次运行。
   useEffect(() => {
-    if (!activeTaskId || (activeRun?.work_item_id && activeRun.work_item_id !== activeTaskId)) {
+    if (activeRunId || !activeTaskId) return;
+    void loadExisting(null).catch(() => {
+      setEmptyKind("down");
+      setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTaskId]);
+
+  // 实际采集参数、确认与回执都来自会话的受控动作；采集取得终态后停表。
+  useEffect(() => {
+    if (!sessionId || actionsSettled) {
+      if (!sessionId) setActions([]);
+      return;
+    }
+    let cancelled = false;
+    let timer = 0;
+    const poll = async () => {
+      try {
+        const data = await api.runtimeActions(sessionId);
+        if (cancelled) return;
+        setActions(data.actions);
+        setActionsError("");
+      } catch (error) {
+        if (cancelled) return;
+        setActionsError(presentDiscoveryError(error, "读取采集动作失败，可稍后重试。").message);
+      }
+    };
+    void poll();
+    timer = window.setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, actionsSettled]);
+
+  useEffect(() => {
+    const eventsReady = Boolean(activeTaskId)
+      && (Boolean(activeRun) || startPhase !== "waiting_proposal")
+      && (!activeRun || !activeRun.work_item_id || activeRun.work_item_id === activeTaskId);
+    if (!eventsReady) {
       setPolling(false);
       return;
     }
@@ -292,7 +367,7 @@ export default function useDiscovery({
     setToast(null);
     const poll = async () => {
       try {
-        const rows = await loadTaskEvents(activeTaskId);
+        const rows = await loadTaskEvents(activeTaskId!);
         if (cancelled) return true;
         setEvents(rows);
         const next = presentDiscoveryEvents(rows);
@@ -336,7 +411,7 @@ export default function useDiscovery({
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTaskId, activeRun?.id]);
+  }, [activeTaskId, activeRun?.id, startPhase === "waiting_proposal"]);
 
   const toggleSelected = (id: string, on: boolean) => {
     setSelectedIds((current) => {
@@ -479,12 +554,93 @@ export default function useDiscovery({
     }
   };
 
+  const refreshActions = async () => {
+    if (!sessionId) return;
+    try {
+      const data = await api.runtimeActions(sessionId);
+      setActions(data.actions);
+      setActionsError("");
+    } catch (error) {
+      setActionsError(presentDiscoveryError(error, "读取采集动作失败，可稍后重试。").message);
+    }
+  };
+
   /**
-   * 重新配条件：卡片回到中栏。提交（lastSubmit 变化）时自动收起。
-   * 结果区的状态不动 —— 召回卡片不该改写上一次运行的事实。
+   * 确认开始采集：服务端待确认动作。点击后立即显示「已确认，正在启动」并移除确认
+   * 按钮（禁止重复提交）；失败只报告原因，不自动重试。
    */
-  const showCard = () => {
-    setCardPinned(true);
+  const confirmStart = async () => {
+    const action = startAction;
+    if (!action || action.state !== "pending" || action.execution || confirmingStart || startBusy) return;
+    setStartError("");
+    setConfirmingStart(true);
+    setStartBusy(true);
+    try {
+      await api.confirmRuntimeAction(action.id, action.confirmation_version);
+    } catch (error) {
+      setStartError(presentDiscoveryError(error, "确认没有完成，未发起采集。可稍后重试。").message);
+    } finally {
+      setConfirmingStart(false);
+      setStartBusy(false);
+      await refreshActions();
+    }
+  };
+
+  /** 取消未确认的提案（不执行任何外部动作）。 */
+  const cancelStart = async () => {
+    const action = startAction;
+    if (!action || action.state !== "pending" || action.execution || startBusy) return;
+    setStartError("");
+    setStartBusy(true);
+    try {
+      await api.cancelRuntimeAction(action.id);
+    } catch (error) {
+      setStartError(presentDiscoveryError(error, "取消没有完成。未发起采集。").message);
+    } finally {
+      setStartBusy(false);
+      await refreshActions();
+    }
+  };
+
+  /** 失败或结果不确定后重新核对并重试（服务端受限动作）。 */
+  const retryStart = async () => {
+    const action = startAction;
+    if (!action || startBusy) return;
+    setStartError("");
+    setStartBusy(true);
+    try {
+      await api.proposeCrawlRetry(action.id);
+    } catch (error) {
+      setStartError(presentDiscoveryError(error, "重试没有提出，请核对任务状态。").message);
+    } finally {
+      setStartBusy(false);
+      await refreshActions();
+    }
+  };
+
+  /** 停止采集（独立动作与回执，不覆盖已取得候选）。 */
+  const stopStart = async () => {
+    const action = startAction;
+    if (!action || startBusy) return;
+    setStartError("");
+    setStartBusy(true);
+    try {
+      await api.proposeCrawlStop(action.id);
+    } catch (error) {
+      setStartError(presentDiscoveryError(error, "停止申请没有提出，请核对任务状态。").message);
+    } finally {
+      setStartBusy(false);
+      await refreshActions();
+    }
+  };
+
+  /**
+   * 修改条件：条件卡回到可编辑（原位，不新建第二张卡）。上一次参数核对随之失效；
+   * 尚未确认的提案一并取消 —— 取消不执行任何外部动作。
+   */
+  const editConditions = () => {
+    setEditingCard(true);
+    if (startAction?.state === "pending" && !startAction.execution) void cancelStart();
   };
 
   const selectedPlatforms = Array.from(
@@ -493,10 +649,13 @@ export default function useDiscovery({
 
   return {
     stage,
-    cardVisible,
-    showCard,
+    cardMode,
+    editConditions,
+    submitted,
+    paramsStale,
     inFlight,
     run: activeRun,
+    runFromAnotherTask,
     runHistory,
     historyLoading,
     selectRun: selectHistoryRun,
@@ -520,6 +679,18 @@ export default function useDiscovery({
     retryBusy,
     retryRun,
     checkCollector,
+    actions,
+    actionsError,
+    reloadActions: refreshActions,
+    startAction,
+    startPhase,
+    crawlPhase,
+    startError,
+    startBusy,
+    confirmStart: () => void confirmStart(),
+    cancelStart: () => void cancelStart(),
+    retryStart: () => void retryStart(),
+    stopStart: () => void stopStart(),
     toggleSelected,
     selectAll,
     expandedIds,

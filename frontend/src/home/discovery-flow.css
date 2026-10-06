@@ -1,0 +1,276 @@
+/* AI发现 · 中栏有序事件流的样式（几何归 WorkspaceShell，这里只管内容层）。
+   事件块：一层浅灰边框、无卡片套卡片、无内部滚动条；间距走 --space-* 阶梯。 */
+
+.discovery-flow {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.discovery-event {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--space-4);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-card);
+  background: var(--canvas);
+}
+
+.discovery-event[data-discovery-event="skill"],
+.discovery-event[data-discovery-event="guidance"] {
+  background: var(--surface);
+}
+
+.discovery-event-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.discovery-event-kicker {
+  color: var(--accent-text);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.discovery-event-head strong {
+  color: var(--text);
+  font-size: var(--ds-font-ui);
+  line-height: var(--ds-line-ui);
+  font-weight: 600;
+}
+
+.discovery-event-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.discovery-event-status[data-tone="running"] { color: var(--accent-text); }
+.discovery-event-status[data-tone="ready"] { color: var(--color-success-vivid); }
+.discovery-event-status[data-tone="warning"] { color: var(--color-warning-vivid); }
+.discovery-event-status[data-tone="danger"] { color: var(--danger); }
+
+.discovery-event p,
+.discovery-event li,
+.discovery-event dd,
+.discovery-event dt,
+.discovery-event output {
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-body);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.discovery-event p.muted,
+.discovery-event .muted {
+  color: var(--text-muted);
+}
+
+/* 实际参数：紧凑清单，字段名与值左右对齐，窄容器整组换行。 */
+.discovery-params-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+}
+
+.discovery-params-list > div {
+  display: grid;
+  grid-template-columns: minmax(88px, var(--discovery-params-label-w, 104px)) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  align-items: baseline;
+}
+
+.discovery-params-list dt {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.discovery-params-list dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.discovery-params-group-title {
+  margin: var(--space-1) 0 0;
+  color: var(--text);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-weight: 600;
+}
+
+.discovery-params-state {
+  margin-left: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--ds-font-tag);
+}
+
+/* 确认卡：与参数清单同一个事件块内，主操作紧接参数。 */
+.discovery-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.discovery-confirm-actions .btn { min-height: var(--control-h); }
+
+.discovery-confirm-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--text);
+}
+
+.discovery-confirm-state[data-phase="dispatching"] .discovery-event-kicker,
+.discovery-confirm-state[data-phase="starting"] .discovery-event-kicker {
+  color: var(--accent-text);
+}
+
+.discovery-flow-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+/* 执行事件：列表行，时间右对齐；进行中与失败各有非颜色信号。 */
+.discovery-run-steps {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.discovery-run-step {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.discovery-run-mark {
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--ds-border);
+  align-self: start;
+}
+
+.discovery-run-step[data-state="done"] .discovery-run-mark { background: var(--text-muted); }
+
+.discovery-run-step[data-state="running"] .discovery-run-mark {
+  background: var(--accent);
+  animation: discovery-run-pulse 1.2s ease-in-out infinite;
+}
+
+.discovery-run-step[data-state="failed"] .discovery-run-mark { background: var(--danger); }
+
+@keyframes discovery-run-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discovery-run-step[data-state="running"] .discovery-run-mark { animation: none; }
+}
+
+.discovery-run-step[data-state="failed"] .discovery-run-step-label { color: var(--danger); }
+
+.discovery-run-time {
+  color: var(--text-muted);
+  font-size: var(--ds-font-tag);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 480px) {
+  .discovery-params-list > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .discovery-event-status { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discovery-event { scroll-behavior: auto; }
+}
+
+/* 右栏「回到最新」：与中栏同一枚控件，钉在右栏滚动视口底部；用户回看历史时
+   结果原位更新，只有这一枚入口把他带回最新。 */
+.scope-rail-jump-wrap {
+  position: sticky;
+  bottom: var(--space-3);
+  z-index: 6;
+  display: flex;
+  justify-content: flex-end;
+  padding-right: var(--space-4);
+  pointer-events: none;
+}
+
+.scope-rail-jump-wrap .scope-scroll-jump {
+  position: static;
+  pointer-events: auto;
+}
+
+/* 右栏顶部固定的当前任务状态：仍在右栏自己的滚动轴里，用户回看时给出「回到最新」。 */
+.discovery-run-status {
+  position: sticky;
+  top: 0;
+  z-index: 0;
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) calc(var(--icon-btn) + var(--space-2)) var(--space-2) 0;
+  border-bottom: 1px solid var(--ds-border);
+  background: var(--bg);
+}
+
+.discovery-run-status-kicker {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.discovery-run-status strong {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text);
+  font-size: var(--ds-font-ui);
+  line-height: var(--ds-line-ui);
+  font-weight: 600;
+}
+
+.discovery-run-status-glyph {
+  font-size: var(--ds-font-tag);
+  font-weight: 400;
+}
+
+.discovery-run-status-detail {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.discovery-run-status[data-discovery-run-status="running"] strong,
+.discovery-run-status[data-discovery-run-status="starting"] strong { color: var(--accent-text); }
+
+.discovery-run-status[data-discovery-run-status="completed"] strong { color: var(--color-success-vivid); }
+
+.discovery-run-status[data-discovery-run-status="failed"] strong,
+.discovery-run-status[data-discovery-run-status="uncertain"] strong { color: var(--danger); }
+
+.discovery-run-status[data-discovery-run-status="waiting"] strong { color: var(--color-warning-vivid); }

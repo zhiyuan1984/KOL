@@ -16,7 +16,8 @@ export default function SkillTemplateContext({
   className?: string;
   /** Parameter editors render these in a collapsed form; avoid a duplicate list. */
   showOptionalInputs?: boolean;
-  /** Flat layout: no nested card border/background, no internal scroll. */
+  /** Flat layout: no nested card border/background, no internal scroll.
+   *  AI发现 中栏事件流还要求全文默认展开：使用边界与异常与恢复不用折叠块。 */
   flat?: boolean;
 }) {
   const optionalInputs = template.inputs.filter((field) => !field.required);
@@ -28,10 +29,11 @@ export default function SkillTemplateContext({
       className={`skill-template-context ${flat ? "flat " : ""}${className}`.trim()}
       data-skill-template-context={template.id}
       data-skill-template-version={template.version}
+      data-skill-template-flat={flat ? "true" : undefined}
       aria-label={`${template.title}技能交互模板`}
     >
       <header className="skill-template-context-head">
-        <span className="skill-template-context-kicker">技能说明</span>
+        <span className="skill-template-context-kicker">{flat ? "技能交互模板 · 只读" : "技能说明"}</span>
         <strong>{template.title}</strong>
       </header>
       <div className="skill-template-context-grid">
@@ -76,16 +78,30 @@ export default function SkillTemplateContext({
         </details>
       ) : null}
       {template.constraints.length ? (
-        <details className="skill-template-constraints">
-          <summary>使用边界</summary>
-          <ul>{template.constraints.map((constraint) => <li key={constraint}>{constraint}</li>)}</ul>
-        </details>
+        flat ? (
+          <section className="skill-template-flat-section" data-skill-template-constraints>
+            <h2>使用边界</h2>
+            <ul>{template.constraints.map((constraint) => <li key={constraint}>{constraint}</li>)}</ul>
+          </section>
+        ) : (
+          <details className="skill-template-constraints">
+            <summary>使用边界</summary>
+            <ul>{template.constraints.map((constraint) => <li key={constraint}>{constraint}</li>)}</ul>
+          </details>
+        )
       ) : null}
       {template.recovery?.length ? (
-        <details className="skill-template-constraints" data-skill-template-recovery>
-          <summary>异常与恢复</summary>
-          <ul>{template.recovery.map((item) => <li key={item}>{item}</li>)}</ul>
-        </details>
+        flat ? (
+          <section className="skill-template-flat-section" data-skill-template-recovery>
+            <h2>异常与恢复</h2>
+            <ul>{template.recovery.map((item) => <li key={item}>{item}</li>)}</ul>
+          </section>
+        ) : (
+          <details className="skill-template-constraints" data-skill-template-recovery>
+            <summary>异常与恢复</summary>
+            <ul>{template.recovery.map((item) => <li key={item}>{item}</li>)}</ul>
+          </details>
+        )
       ) : null}
     </section>
   );
