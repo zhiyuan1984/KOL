@@ -53,7 +53,7 @@ export default function ReviewView({ rows, onNavigate }: Props) {
   }, []);
 
   const pendingEntries = rows.filter((row) => row.asset_type !== "document" && row.status === "pending_review");
-  const drafts = rows.filter((row) => row.asset_type !== "document" && row.status === "draft");
+  const drafts = rows.filter((row) => row.status === "draft");
   const pendingDocuments = rows.filter((row) => row.asset_type === "document" && row.status === "pending_review");
   const expiring = rows.filter((row) => row.asset_type !== "document" && expirySoon(row.expires_at));
   const unresolvedFeedback = feedback.filter((row) => !row.handled_at);
@@ -79,21 +79,17 @@ export default function ReviewView({ rows, onNavigate }: Props) {
 
   const cards = useMemo(() => [
     { target: "pending" as const, label: "待审批", value: pendingEntries.length, hint: "知识条目等待审批发布", ids: pendingEntries.map((row) => row.id) },
-    { target: "draft" as const, label: "草稿", value: drafts.length, hint: "尚未提交审批的知识条目", ids: drafts.map((row) => row.id) },
+    { target: "draft" as const, label: "草稿", value: drafts.length, hint: "尚未提交审批的条目或文件", ids: drafts.map((row) => row.id) },
     { target: "documents" as const, label: "待审资料", value: pendingDocuments.length, hint: "PDF 解析完成，等待发布审批", ids: pendingDocuments.map((row) => row.id) },
     { target: "expiry" as const, label: "30 天内到期", value: expiring.length, hint: expiring[0]?.expires_at ? kbExpiryLabel(expiring[0].expires_at) : "需要续期或归档", ids: expiring.map((row) => row.id) },
     { target: "feedback" as const, label: "员工反馈", value: unresolvedFeedback.length, hint: "尚未处置的隐藏与没帮助反馈", ids: unresolvedFeedback.map((row) => String(row.knowledge_id || "")).filter(Boolean) },
-    { target: "proposals" as const, label: "隔离提案", value: pendingProposals.length, hint: "隔离队列中的待决提案", ids: pendingProposals.map((row) => String(row.knowledge_id || "")).filter(Boolean) },
+    { target: "proposals" as const, label: "待决提案", value: pendingProposals.length, hint: "建议尚未进入正式知识库", ids: pendingProposals.map((row) => String(row.knowledge_id || "")).filter(Boolean) },
   ], [pendingEntries, drafts, pendingDocuments, expiring, unresolvedFeedback, pendingProposals]);
 
   return (
     <section className="kb-governance-dashboard" data-admin-knowledge-review data-admin-kb-dashboard aria-label="知识治理驾驶舱">
       <div className="kb-governance-heading">
-        <div>
-          <p className="page-kicker">治理驾驶舱</p>
-          <h2>优先处理需要决策的知识</h2>
-        </div>
-        <p className="muted">点击数字卡片，在当前工作区筛选对应条目。</p>
+        <h2>治理驾驶舱 <span>优先处理需要决策的知识；点击数字卡片，在当前工作区筛选对应条目。</span></h2>
       </div>
       <div className="kb-governance-grid">
         {cards.map((card) => (
@@ -106,7 +102,7 @@ export default function ReviewView({ rows, onNavigate }: Props) {
           >
             <span>{card.label}</span>
             <strong>{card.value}</strong>
-            <small>{card.hint}</small>
+            <small title={card.hint}>{card.hint}</small>
           </button>
         ))}
       </div>

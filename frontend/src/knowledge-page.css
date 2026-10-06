@@ -1804,10 +1804,10 @@ body:has(.admin-confirm-layer) #root .workbench .kbv-filter-browser .btn.work { 
 .kbv-expiry.is-expired { color: var(--danger); }
 
 /* 管理端：驾驶舱为当前工作区的筛选入口，不新增页面跳转或实底 CTA。 */
-.kb-governance-dashboard { padding: 0 0 var(--space-4); margin: 0 0 var(--space-4); border-bottom: var(--focus-ring-width) solid var(--border); }
-.kb-governance-heading { display: flex; align-items: end; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
-.kb-governance-heading :is(h2,p) { margin: 0; }
-.kb-governance-heading h2 { font-size: var(--font-section); }
+.kb-governance-dashboard { padding: 0 0 var(--space-3); margin: 0 0 var(--space-3); border-bottom: var(--focus-ring-width) solid var(--border); }
+.kb-governance-heading { margin-bottom: var(--space-2); }
+.kb-governance-heading h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0; font-size: var(--font-section); }
+.kb-governance-heading h2 span { color: var(--text-muted); font-size: var(--font-sm); font-weight: 400; }
 .kb-governance-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: var(--focus-ring-width) solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
 .kb-governance-card { display: grid; gap: var(--space-1); min-width: 0; min-height: var(--touch-hit-min); padding: var(--space-3); border: 0; border-right: var(--focus-ring-width) solid var(--border); background: var(--bg); color: var(--text); text-align: left; cursor: pointer; }
 .kb-governance-card:last-child { border-right: 0; }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect } fr
 import { brandLabel, kindLabel } from "../../knowledgeCopy";
 import { MAIN_STAGE_TABS } from "../../kolStages";
 import { stageLabel } from "../../labels";
-import { KNOWLEDGE_KIND_SPECS, errorMessage, expirySoon, useKbData, type KbAssetRow } from "./shared";
+import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
 import EntryEditor from "./EntryEditor";
 import WorkspaceEntry from "./WorkspaceEntry";
 import { WorkspaceActionContext } from "./WorkspaceActions";
@@ -33,6 +33,7 @@ const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, lab
 const SCOPE_NONE = "__none__";
 type KbScope = { familyId: string; domainId: string; baseId: string };
 const EMPTY_SCOPE: KbScope = { familyId: "", domainId: "", baseId: "" };
+type WorkspaceFilters = { query: string; scope: KbScope; brands: string[]; stages: string[]; kind: string; view: KbView; assetTypeFilter: "" | "entry" | "document" };
 
 /** 计数跳过哪些筛选组：计数口径＝点选该 chip 后的实际结果数（DESIGN §8 数字同源）。 */
 type Skip = { view?: boolean; kind?: boolean; brand?: boolean; stage?: boolean; scope?: "all" | "sub" | "base" };
@@ -60,6 +61,7 @@ export default function KnowledgeHome() {
   const [view, setView] = useState<KbView>(restore.view || "all");
   const [assetTypeFilter, setAssetTypeFilter] = useState<"" | "entry" | "document">("");
   const [governance, setGovernance] = useState<{ target: GovernanceTarget; ids: string[] } | null>(null);
+  const [governanceRestore, setGovernanceRestore] = useState<WorkspaceFilters | null>(null);
   const [page, setPage] = useState<number>(restore.page || 1);
   const [selectedId, setSelectedId] = useState<string>(params.get("assetId") || requestedDocument || restore.selectedId || "");
   const mode=params.get("mode") || (requestedDocument ? "detail":"list");
@@ -113,13 +115,21 @@ export default function KnowledgeHome() {
     .join(" / "), []);
 
   const openGovernance = useCallback((target: GovernanceTarget, ids: string[] = []) => {
+    if (!governance) setGovernanceRestore({ query, scope, brands, stages, kind, view, assetTypeFilter });
     setGovernance({ target, ids });
-    if (target === "pending") { setView("pending"); setAssetTypeFilter("entry"); }
-    else if (target === "draft") { setView("draft"); setAssetTypeFilter("entry"); }
-    else if (target === "documents") { setView("pending"); setAssetTypeFilter("document"); }
-    else { setView("all"); setAssetTypeFilter("entry"); }
+    // 数字卡片的计数来自完整工作区；点击后清除普通侧栏条件，再按卡片提供的精确 ID 集合展示，避免“卡片有数、列表为空”。
+    setQuery(""); setScope(EMPTY_SCOPE); setBrands([]); setStages([]); setKind(""); setView("all"); setAssetTypeFilter("");
     setPage(1);
-  }, []);
+  }, [governance, query, scope, brands, stages, kind, view, assetTypeFilter]);
+
+  const clearGovernance = useCallback(() => {
+    setGovernance(null);
+    if (governanceRestore) {
+      setQuery(governanceRestore.query); setScope(governanceRestore.scope); setBrands(governanceRestore.brands);
+      setStages(governanceRestore.stages); setKind(governanceRestore.kind); setView(governanceRestore.view); setAssetTypeFilter(governanceRestore.assetTypeFilter);
+    } else { setAssetTypeFilter(""); setView("all"); }
+    setGovernanceRestore(null);
+  }, [governanceRestore]);
 
   const passes = useCallback((row: KbAssetRow, skip: Skip = {}) => {
     const q = query.trim().toLowerCase();
@@ -128,8 +138,7 @@ export default function KnowledgeHome() {
     const baseId = String(row.base_id || "");
     const rowAssetType = row.asset_type === "document" ? "document" : "entry";
     if (assetTypeFilter && rowAssetType !== assetTypeFilter) return false;
-    if (governance?.target === "expiry" && !expirySoon(row.expires_at)) return false;
-    if (["feedback", "proposals"].includes(String(governance?.target || "")) && !governance?.ids.includes(row.id)) return false;
+    if (governance && !governance.ids.includes(row.id)) return false;
     if (!skip.view && view !== "all" && String(row.status || "") !== VIEW_STATUS[view]) return false;
     if (!skip.kind && kind && row.kind !== kind) return false;
     if (skip.scope !== "all" && scope.familyId) {
@@ -346,7 +355,7 @@ export default function KnowledgeHome() {
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           <div className="kbw-body" ref={bodyRef} onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
           {mode==="list" ? <ReviewView rows={rows} onNavigate={openGovernance} /> : null}
-          {mode==="list" && governance ? <p className="kb-governance-filter" data-admin-kb-dashboard-filter>当前查看：{({pending:"待审批",draft:"草稿",documents:"待审资料",expiry:"30 天内到期",feedback:"员工反馈",proposals:"隔离提案"} as Record<GovernanceTarget,string>)[governance.target]} <button type="button" className="kbv-text-action" onClick={()=>{setGovernance(null);setAssetTypeFilter("");setView("all");}}>清除治理筛选</button></p> : null}
+          {mode==="list" && governance ? <p className="kb-governance-filter" data-admin-kb-dashboard-filter>当前查看：{({pending:"待审批",draft:"草稿",documents:"待审资料",expiry:"30 天内到期",feedback:"员工反馈",proposals:"待决提案"} as Record<GovernanceTarget,string>)[governance.target]}（{governance.ids.length} 条）<button type="button" className="kbv-text-action" onClick={clearGovernance}>返回之前的筛选</button></p> : null}
           {error ? <p role="alert">知识服务暂不可用，请重新加载。</p> : mode==="list" ? <>
             <LibraryPane
               rows={pageRows} totalCount={filtered.length} page={currentPage} pageCount={pageCount} selectedId={selectedId}
