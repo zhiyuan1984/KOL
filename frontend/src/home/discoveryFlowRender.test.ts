@@ -138,6 +138,19 @@ describe("AI发现中栏事件渲染契约", () => {
     expect(html).not.toContain("已完成");
   });
 
+  it("does not claim collection before the employee confirms", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "running",
+      steps: [STEP("queued", "排队")],
+      inFlight: true,
+      confirmed: false,
+    }));
+    expect(html).toContain("data-discovery-run-unconfirmed");
+    expect(html).toContain("等待确认");
+    expect(html).not.toContain("正在采集");
+    expect(html).not.toContain("data-discovery-run-stop");
+  });
+
   it("does not claim completion without a run", () => {
     const preRun = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
       stage: "compose",

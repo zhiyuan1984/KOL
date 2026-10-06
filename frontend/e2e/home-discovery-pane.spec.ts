@@ -1030,10 +1030,12 @@ test("after submit the condition card stays read-only in place and 修改条件 
   for (const index of ["4", "5", "6"]) {
     await expect(page.locator(`[data-discovery-event-index="${index}"]`)).toBeVisible();
   }
-  // ⑥ 的步骤与时间来自 /api/tasks/:id/events。
+  // ⑥ 步骤与时间来自 /api/tasks/:id/events；未确认前不得声称正在采集。
   const trail = page.locator('[data-discovery-event="run"]');
   await expect(trail).toContainText("排队");
-  await expect(trail).toContainText("正在采集");
+  await expect(trail).toContainText("等待确认");
+  await expect(trail).toContainText("还没有开始采集");
+  await expect(trail).not.toContainText("正在采集");
   await expect(trail.locator("[data-discovery-step-time]").first()).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
   // 结果容器只在右栏；下一步计划属于中栏的人机交互。
   await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);

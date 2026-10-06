@@ -166,6 +166,7 @@ export default function DiscoveryWorkspace({
               stage={disc.stage}
               steps={disc.steps}
               inFlight={disc.inFlight}
+              confirmed={disc.startPhase !== "waiting_proposal" && disc.startPhase !== "pending"}
               stopping={disc.startBusy}
               onStop={disc.stopStart}
             />
