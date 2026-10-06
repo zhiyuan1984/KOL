@@ -90,6 +90,12 @@ export default function DiscoveryParamsCheck({
         </p>
       ) : null}
 
+      {sessionHref && !error ? (
+        <div className="discovery-confirm-actions">
+          <a className="btn ghost sm" href={sessionHref} data-discovery-open-session>在任务会话中打开</a>
+        </div>
+      ) : null}
+
       {error && (sessionHref || onRetry) ? (
         <div className="discovery-confirm-actions">
           {onRetry ? (

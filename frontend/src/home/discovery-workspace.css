@@ -64,7 +64,7 @@
 .discovery-brief-form .ai-discovery-chips {
   gap: var(--ds-chip-gap);
 }
-.discovery-brief-form .ai-discovery-card .discovery-chip {  height: var(--ds-chip-h);  min-height: var(--ds-chip-h);  padding-inline: 8px;  border-color: transparent;  border-radius: var(--radius-control);  background: var(--ds-surface);  color: var(--text-muted);
+.discovery-brief-form .ai-discovery-card .discovery-chip {  height: var(--ds-chip-h);  min-height: var(--ds-chip-h);  /* 水平内边距沿用基础档（--space-3）：两字标签在触摸模态下也要 ≥44px 命中区。 */  border-color: transparent;  border-radius: var(--radius-control);  background: var(--ds-surface);  color: var(--text-muted);
   font-weight: 400;
   line-height: var(--lh-control-sm, 16px);
 }
