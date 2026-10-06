@@ -41,6 +41,17 @@ function emitReasoning(text, raw = "raw hidden reasoning must not be shown") {
   });
 }
 
+function emitAgentMessage(item, narrative) {
+  const id = "msg_result";
+  const text = JSON.stringify(narrative ? { narrative, ...item } : item);
+  send({ method: "item/started", params: { item: { id, type: "agentMessage", text: "" } } });
+  const size = Math.max(4, Math.ceil(text.length / 6));
+  for (let i = 0; i < text.length; i += size) {
+    send({ method: "item/agentMessage/delta", params: { itemId: id, delta: text.slice(i, i + size) } });
+  }
+  send({ method: "item/completed", params: { item: { id, type: "agentMessage", text } } });
+}
+
 if (mode === "late-chatgpt") {
   setTimeout(() => {
     send({ method: "account/updated", params: { authMode: "chatgpt", planType: "plus" } });
@@ -157,10 +168,7 @@ rl.on("line", (line) => {
       };
       emitReasoning("已根据达人定位确定邮件语气与合作切入点。");
       setTimeout(() => {
-        send({
-          method: "item/completed",
-          params: { item: { type: "agentMessage", text: JSON.stringify(item) } },
-        });
+        emitAgentMessage(item, params?.outputSchema ? "已按达人定位写好首封合作邮件，请核对后再发送。" : "");
         send({ method: "turn/completed", params: { turn: { id: "turn_fake", status: "completed" } } });
       }, Number(process.env.FAKE_CODEX_DELAY || 20));
     }
@@ -179,10 +187,7 @@ rl.on("line", (line) => {
       } : { type: "text", text: "Unstructured reply" };
       emitReasoning("已汇总各能力域状态并识别停滞合作。", "raw generic reasoning must not be shown");
       setTimeout(() => {
-        send({
-          method: "item/completed",
-          params: { item: { type: "agentMessage", text: JSON.stringify(item) } },
-        });
+        emitAgentMessage(item, params?.outputSchema ? "已汇总各能力域状态，两项合作需要优先处理。" : "");
         send({ method: "turn/completed", params: { turn: { id: "turn_fake", status: "completed" } } });
       }, Number(process.env.FAKE_CODEX_DELAY || 20));
     }
@@ -203,10 +208,7 @@ rl.on("line", (line) => {
       } : { type: "text", text: "Invalid schema" };
       emitReasoning("已根据平台和关键词整理采集范围。", "raw hidden reasoning must not be shown");
       setTimeout(() => {
-        send({
-          method: "item/completed",
-          params: { item: { type: "agentMessage", text: JSON.stringify(item) } },
-        });
+        emitAgentMessage(item, params?.outputSchema ? "已整理露营方向的采集范围，请确认后启动。" : "");
         send({ method: "turn/completed", params: { turn: { id: "turn_fake", status: "completed" } } });
       }, Number(process.env.FAKE_CODEX_DELAY || 20));
     }

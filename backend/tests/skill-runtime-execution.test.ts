@@ -504,6 +504,25 @@ describe("governed Skill Runtime", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("submits a confirmed write tool that has no dedicated business gate through the generic gate", async () => {
+    // 写入型工具通用放行：没有专用门禁的工具不再一律 409，但仍须员工确认、只提交一次、留回执。
+    const update = tool("updateProfile");
+    connector("catalog_b", [update]);
+    approve("catalog_b", update, "L3", "write");
+    const fixture = fake({ "http://catalog_b.example.test/mcp": [update] });
+    const runtime = new SkillExecution(context, fixture.factory);
+    const catalog = await runtime.discover();
+    const proposed = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
+    expect((proposed.structuredContent as Json).confirmation_required).toBe(true);
+    expect(fixture.calls).toHaveLength(0);
+    const action = await runtimeAction(String((proposed.structuredContent as Json).action_id), context.userId);
+    await new SkillExecution(context, fixture.factory).confirm(action.id, action.snapshot);
+    expect(fixture.calls).toEqual([{ url: "http://catalog_b.example.test/mcp", name: "updateProfile", args: { query: "x" } }]);
+    expect((await runtimeAction(action.id, context.userId)).state).toBe("succeeded");
+    await new SkillExecution(context, fixture.factory).confirm(action.id, action.snapshot);
+    expect(fixture.calls).toHaveLength(1);
+  });
+
   it.each(["parameters", "policy", "identity"])("invalidates confirmation after %s changes", async (change) => {
     const { runtime, calls, factory } = await one();
     approve("catalog_a", tool(), "L3", "write");

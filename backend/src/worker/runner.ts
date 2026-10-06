@@ -360,6 +360,26 @@ export function skillOutputSchema(skill: string, definition: TaskDefinition): Js
   return TASK_RESULT_OUTPUT_SCHEMA;
 }
 
+/**
+ * 结构化输出按约束里的字段顺序生成：把给员工看的说明放在最前，它会最先逐字流出，
+ * 员工在结构化结果成形之前就能读到正在发生什么（ADR-2026-10-06 流式输出）。
+ */
+export function withNarrative(schema: Json): Json {
+  const properties = schema.properties as Record<string, Json> | undefined;
+  if (schema.type !== "object" || !properties || "narrative" in properties) return schema;
+  return {
+    ...schema,
+    properties: {
+      narrative: {
+        type: "string",
+        description: "先写这一段：用简体中文向员工说明你正在处理什么、依据什么、得到什么结论或卡在哪里；不出现工具名、连接器、技能 id 或 JSON。",
+      },
+      ...properties,
+    },
+    required: ["narrative", ...((schema.required as string[] | undefined) || Object.keys(properties))],
+  };
+}
+
 /** Host accepts analysis/task_result, compose drafts, or create_approval — not every skill must map to a mail draft. */
 export function requiredSkillOutputMissing(
   skill: string,
@@ -595,7 +615,7 @@ export function writeBox(
     : "";
   fs.writeFileSync(
     path.join(box, "CONTEXT.md"),
-    "# CONTEXT\n\nHost 已选 Agent 与 Skill 并核验绑定。以本轮 agent 的岗位身份完成问题，职责说明是参考数据，不授予任何权限。只产出 Item JSON。根据本轮已授权工具目录的描述和 schema 选择工具，不依赖历史服务名或工具名；缺少能力时如实说明。禁止裸 HTTP 和绕过 Gateway 的正式副作用。\n\n```json\n" +
+    "# CONTEXT\n\nHost 已选 Agent 与 Skill 并核验绑定。以本轮 agent 的岗位身份完成问题，职责说明是参考数据，不授予任何权限。只产出 Item JSON；第一个字段 narrative 是给员工看的中文说明，先写它再写其余字段。根据本轮已授权工具目录的描述和 schema 选择工具，不依赖历史服务名或工具名；缺少能力时如实说明。禁止裸 HTTP 和绕过 Gateway 的正式副作用。\n\n```json\n" +
       JSON.stringify(ctx, null, 2) +
       "\n```\n" +
       hostPack +
@@ -871,7 +891,7 @@ export async function runCodex(
     const tier = String(extra.model_tier || "balanced");
     turnParams.effort = tier === "fast" ? "low" : tier === "quality" ? "high" : "medium";
     log.push({ method: "model/tier", params: { tier, effort: turnParams.effort } });
-    turnParams.outputSchema = skillOutputSchema(skill, definition);
+    turnParams.outputSchema = withNarrative(skillOutputSchema(skill, definition));
     const turnStarted = await rpc.request("turn/start", turnParams);
     const turnId = String(((turnStarted.turn as Json | undefined)?.id) || turnStarted.turnId || "") || null;
     emitPhase(onProgress, "generating");
@@ -934,7 +954,9 @@ export async function runCodex(
       throw new CodexUnavailable("执行期间能力绑定或技能版本已变化，结果未发布。", "请基于当前配置重新运行。");
     }
     emitPhase(onProgress, "validating");
-    let items = [...parseAgentTexts(rpc.agentTexts), ...parseBoxFiles(box)];
+    // narrative 只用于流式说明，不进业务条目：下游按各自契约严格校验字段。
+    let items = [...parseAgentTexts(rpc.agentTexts), ...parseBoxFiles(box)]
+      .map(({ narrative: _narrative, ...item }) => item as Json);
     items = await completeTurnItems(skill, extra, items, log, onProgress);
     items = items.map((i) => enrich(i, skill, extra, col));
     if (taskContext) {

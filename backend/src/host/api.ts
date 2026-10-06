@@ -189,6 +189,8 @@ host.use("/sessions/:sid/*", async (c,next) => {
   await next();
 });
 const progressBySession = new Map<string, (progress: WorkerProgress) => void>();
+/** 同步执行路径（自管进度）的流式回答收尾：结束时把同一条消息的 streaming 关掉。 */
+const minimalStreamClose = new Map<string, () => void>();
 
 /** 只读的上下文解析入口沿用提交侧同一套技能授权：未授权就连上下文也不解析。 */
 export function requireTaskAccess(skill: string, agentId?: string): void {
@@ -1781,7 +1783,29 @@ function attachMinimalProgress(sid: string): void {
     active: true,
     items: [],
   });
+  let streamText = "";
+  let streamId = "";
+  let streamFlushAt = 0;
+  const flushStream = (force = false) => {
+    if (!streamText) return;
+    const now = Date.now();
+    if (!force && streamId && now - streamFlushAt < 80) return;
+    streamFlushAt = now;
+    if (!streamId) {
+      streamId = String(addMsg(sid, "assistant", "assistant", { text: streamText, streaming: true }).id);
+      return;
+    }
+    updateMsg(streamId, { text: streamText, streaming: true });
+  };
+  minimalStreamClose.set(sid, () => {
+    flushStream(true);
+    if (streamId) updateMsg(streamId, { text: streamText, streaming: false });
+  });
   progressBySession.set(sid, (progress) => {
+    if (progress.delta) {
+      streamText += progress.delta;
+      flushStream();
+    }
     if (progress.operation) {
       operationItems = upsertOperationItem(operationItems, progress.operation);
       updateMsg(String(operations.id), {
@@ -1880,7 +1904,11 @@ async function execWorker(sid: string, skill: string, text: string, extra: Json)
     }
     throw e;
   } finally {
-    if (ownedSink) progressBySession.delete(sid);
+    if (ownedSink) {
+      minimalStreamClose.get(sid)?.();
+      minimalStreamClose.delete(sid);
+      progressBySession.delete(sid);
+    }
     if (timer) clearTimeout(timer);
   }
 }

@@ -4,6 +4,7 @@
  * Only reasoning *summaries* reach safe_summary; raw reasoning_text never does.
  */
 import { upsertTaskEvent } from "../task-events.js";
+import { streamingNarrative } from "../../../shared/narrative.js";
 import {
   applyProgress,
   finishProcessItems,
@@ -62,6 +63,9 @@ export type RunTraceSink = {
 export function createRunTraceSink(input: { workItemId: string; runId: string | null }): RunTraceSink {
   let items: WorkerTraceItem[] = [];
   let operations: { id: string; name: string; label: string; status: string }[] = [];
+  let streamText = "";
+  let narrative = "";
+  let narrativeStatus = "running";
   let traceDirty = false;
   let traceHandle: ReturnType<typeof setTimeout> | null = null;
   /** Only changed rows are written: a flush re-walks every item. */
@@ -92,6 +96,7 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
         operation.name,
       );
     }
+    if (narrative) writeRow("narrative", "run.say", "说明", narrativeStatus, narrative);
   };
   const flushTrace = () => {
     traceHandle = null;
@@ -109,6 +114,14 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
     if (!traceHandle) traceHandle = setTimeout(flushTrace, TRACE_FLUSH_MS);
   };
   const onStream = (progress: WorkerProgress) => {
+    if (progress.delta) {
+      streamText += progress.delta;
+      const next = streamingNarrative(streamText);
+      if (next && next !== narrative) {
+        narrative = next;
+        scheduleTrace(false);
+      }
+    }
     if (progress.operation) {
       operations = upsertOperationItem(operations, progress.operation);
       scheduleTrace(true);
@@ -123,6 +136,7 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
   const finish = (failed: boolean) => {
     items = finishProcessItems(items, failed);
     operations = operations.map((operation) => ({ ...operation, status: failed ? "failed" : "done" }));
+    narrativeStatus = failed ? "failed" : "done";
     scheduleTrace(true);
   };
   return { onStream, finish };

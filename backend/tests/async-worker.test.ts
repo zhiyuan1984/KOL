@@ -206,6 +206,10 @@ describe("real Codex HTTP flow", () => {
     const operations = session.messages?.find((message) => message.kind === "operation_trace");
     expect(operations?.payload?.title).toBe("系统能力调用记录");
     expect(operations?.payload?.items).toEqual([]);
+    const streamed = session.messages?.find((message) => message.kind === "assistant" && typeof message.payload?.text === "string");
+    expect(streamed?.payload?.streaming).toBe(false);
+    expect(String(streamed?.payload?.text)).toContain('"narrative":"已整理露营方向的采集范围，请确认后启动。"');
+    expect(JSON.stringify(result?.payload)).not.toContain("narrative");
   });
 
   it("produces a strict crawl plan without mounting a direct supplier MCP in the planning turn", async () => {

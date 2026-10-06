@@ -1075,6 +1075,16 @@ const migrations: SchemaMigration[] = [
        CHECK (automation_level IN ('A1','A2','A3'))`,
     ],
   },
+  {
+    // 写入型工具改由 Agent 使用资格与技能绑定管人，策略不再逐个待批（ADR-2026-10-06 写入通用放行）。
+    // 早期登记时 L3 默认停用的存量行在这里一次性放行；之后新登记的策略本来就默认放行。
+    // 放行不等于免确认：L3 与风险下限目录里的工具仍只能提出待确认动作，由员工确认后提交。
+    id: "20261006_release_write_tool_policies",
+    statements: [
+      `UPDATE runtime_tool_policies SET enabled=1, version=version+1, updated_at=to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+       WHERE enabled=0`,
+    ],
+  },
 ];
 
 const { replyContextSchema } = await import("../src/mail/reply-context-schema.js");
