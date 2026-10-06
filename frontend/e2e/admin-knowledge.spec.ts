@@ -71,22 +71,36 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
   });
 
-  test("治理驾驶舱显示六类待办，并在当前工作区应用筛选", async ({ page }) => {
+  test("治理驾驶舱：状态分布条与待处置队列，下钻走带筛选的列表", async ({ page }) => {
     await page.goto("/admin/knowledge");
     const dashboard = page.locator("[data-admin-kb-dashboard]");
     await expect(dashboard).toBeVisible();
-    await expect(dashboard.locator("[data-admin-kb-dashboard-card]")).toHaveCount(6);
-    const search = page.locator("[data-kbv-search]");
-    await search.fill("筛选快照");
-    const draft = dashboard.locator("[data-admin-kb-dashboard-card='draft']");
-    const expected = await draft.locator("strong").innerText();
-    await draft.click();
-    await expect(search).toHaveValue("");
-    await expect(page.locator("[data-admin-kb-dashboard-filter]")).toContainText(`草稿（${expected} 条）`);
-    await expect(page.locator("[data-admin-kb-dashboard-filter] .kbv-text-action")).toHaveText("返回之前的筛选");
-    await page.locator("[data-admin-kb-dashboard-filter] .kbv-text-action").click();
-    await expect(page.locator("[data-admin-kb-dashboard-filter]")).toHaveCount(0);
-    await expect(search).toHaveValue("筛选快照");
+    // 生命周期状态是一条分布条（4 段），不是 6 张并列 KPI 卡（DESIGN §9.2）。
+    await expect(dashboard.locator("[data-admin-kb-status] [data-kb-status]")).toHaveCount(4);
+    // 跨对象待办用队列行（4 行）。
+    await expect(dashboard.locator("[data-admin-kb-queue] [data-kb-queue]")).toHaveCount(4);
+    // 有筛选轴的下钻是链接语义（可复制、可后退）；没有筛选轴的在页内展开。
+    await expect(dashboard.locator("[data-kb-status='draft']")).toHaveAttribute("href", "/admin/knowledge?view=draft");
+    await expect(dashboard.locator("[data-kb-status='published']")).toHaveAttribute("href", "/admin/knowledge?view=published");
+    await expect(dashboard.locator("[data-kb-queue='expiry']")).toHaveAttribute("href", "/admin/knowledge?expiring=1");
+    await expect(dashboard.locator("[data-kb-queue='documents']")).toHaveAttribute("href", "/admin/knowledge?view=pending&asset=document");
+    await expect(dashboard.locator("[data-kb-queue='feedback']")).toHaveAttribute("aria-expanded", "false");
+    expect(await dashboard.locator("[data-kb-queue='feedback']").getAttribute("href")).toBeNull();
+
+    // 点状态段 → 落到带筛选的列表：条件在 URL 上并可一键清除。
+    await dashboard.locator("[data-kb-status='draft']").click();
+    await expect(page).toHaveURL(/view=draft/);
+    await expect(page.locator("[data-kbv-filter-note]")).toContainText("草稿");
+    await page.locator("[data-kbv-filter-note-clear]").click();
+    await expect(page.locator("[data-kbv-filter-note]")).toHaveCount(0);
+    expect(page.url()).not.toContain("view=draft");
+
+    // 没有筛选轴的两行：页内展开自身列表，不假装跳转。
+    await dashboard.locator("[data-kb-queue='feedback']").click();
+    await expect(page.locator("[data-admin-kb-feedback]")).toBeVisible();
+    await expect(dashboard.locator("[data-kb-queue='feedback']")).toHaveAttribute("aria-expanded", "true");
+    await dashboard.locator("[data-kb-queue='feedback']").click();
+    await expect(page.locator("[data-admin-kb-feedback]")).toHaveCount(0);
   });
 
   test("新主页骨架：中栏筛选、右栏详情与阶段标注", async ({ page }) => {

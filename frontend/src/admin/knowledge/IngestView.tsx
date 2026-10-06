@@ -23,6 +23,9 @@ import { reviewApi } from "../../reviews/api";
 import { formatBytes, textValue, useKbData, type KbFeed, type Row } from "./shared";
 
 /** 入库：非结构化资料的 上传 → 规整 → 索引 → 待审 入口；进度与终态全部真实。 */
+/** §9.1 空单元格占位：渲染 — 并降到 --text-quiet，不留白格。 */
+const emptyCell = <span className="kb-cell-empty">—</span>;
+
 export default function IngestView({ notify, fail }: KbFeed) {
   const { ask, dialog } = useAdminConfirm();
   const location = useLocation();
@@ -190,7 +193,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
                 ) : (
                   <p className="muted">{KB_DOC_EMPTY.preview}</p>
                 )}
-                {["pending_review", "published", "archived"].includes(detail.document.status) && <PublicationPanel mode="review" id={detail.document.id} notify={notify} refreshDocument={() => { reload(); void refreshDetail(detailId); }} />}
+                {["pending_review", "published", "archived"].includes(detail.document.status) && <PublicationPanel mode="review" id={detail.document.id} ownsPrimary={false} notify={notify} refreshDocument={() => { reload(); void refreshDetail(detailId); }} />}
               </>
             )}
           </section>
@@ -299,6 +302,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
                         <button
                           className="kbadmin-title-link"
                           type="button"
+                          title={doc.title}
                           data-admin-kb-doc-detail={doc.id}
                           aria-expanded={detailId === doc.id}
                           aria-controls={`kbingest-detail-${doc.id}`}
@@ -306,19 +310,22 @@ export default function IngestView({ notify, fail }: KbFeed) {
                         >
                           {detailId === doc.id ? "▾ " : "▸ "}{doc.title}
                         </button>
-                        <p className="muted kbadmin-doc-meta">
+                        <p
+                          className="muted kbadmin-doc-meta"
+                          title={`${doc.filename} · PDF · ${formatBytes(Number(doc.size_bytes || 0))}`}
+                        >
                           {doc.filename.replace(/\.pdf$/i, "") === doc.title ? "PDF" : `${doc.filename} · PDF`} · {formatBytes(Number(doc.size_bytes || 0))}
                           {documents.some(other => other.id !== doc.id && other.base_id === doc.base_id && other.filename === doc.filename) ? " · 同名资料，详情可核对" : ""}
                         </p>
                         {doc.error ? <p className="error" data-admin-kb-doc-error>{doc.error}</p> : null}
                       </td>
-                      <td>{doc.base_name || doc.base_id}</td>
+                      <td>{doc.base_name || doc.base_id || emptyCell}</td>
                       <td>
                         <span className={chipClass} data-admin-kb-doc-status-chip={status}>{publication?.label || kbDocStatusLabel(status)}</span>
                         {["pending_review", "published", "archived"].includes(status) && !publication && <p className="muted">审批状态未获取，展开详情可重试</p>}
-                        {progress ? <p className="muted kbadmin-doc-meta" data-admin-kb-doc-progress>{progress}</p> : null}
+                        {progress ? <p className="muted kbadmin-doc-meta" title={progress} data-admin-kb-doc-progress>{progress}</p> : null}
                       </td>
-                      <td><time title={formatKbTime(doc.updated_at)}>{formatKbTime(doc.updated_at)?.replace(/^\d{4}\//, "") || "—"}</time></td>
+                      <td><time title={formatKbTime(doc.updated_at)}>{formatKbTime(doc.updated_at)?.replace(/^\d{4}\//, "") || emptyCell}</time></td>
                       <td>
                         <div className="kbadmin-row-actions">
                           {status === "draft" && <button className="kbadmin-action-link" type="button" onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "start"), "已开始解析；完成后待审核。")}>开始解析</button>}
@@ -423,14 +430,14 @@ export default function IngestView({ notify, fail }: KbFeed) {
                   const failed = status === "failed";
                   return (
                     <tr key={String(job.id)} data-admin-kb-job={String(job.id)}>
-                      <td>{rawName(String(job.raw_id || ""))}</td>
-                      <td>{rawJobStatusLabel(status) || status || "—"}</td>
+                      <td>{rawName(String(job.raw_id || "")) || emptyCell}</td>
+                      <td>{rawJobStatusLabel(status) || status || emptyCell}</td>
                       <td>
                         {job.result_knowledge_id
                           ? `已生成待审页 ${String(job.result_knowledge_id)}`
                           : textValue(job.error) || (failed ? "抽取失败" : "等待结果")}
                       </td>
-                      <td>{formatKbTime(textValue(job.created_at)) || "—"}</td>
+                      <td>{formatKbTime(textValue(job.created_at)) || emptyCell}</td>
                       <td>
                         {failed && job.raw_id ? (
                           <button

@@ -25,6 +25,9 @@ import {
 } from "./shared";
 
 /** 库详情：这个库里有哪些条目、什么状态？—— 唯一实底 CTA 是「新建条目」。 */
+/** §9.1 空单元格占位：渲染 — 并降到 --text-quiet，不留白格。 */
+const emptyCell = <span className="kb-cell-empty">—</span>;
+
 export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) {
   const { ask, dialog } = useAdminConfirm();
   const load = useCallback(async () => {
@@ -304,20 +307,21 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
                 {filtered.map((row) => {
                   const refs = kbSkillNames(row.ref_skills);
                   const count = refCounts.get(row.id) ?? refs.length;
+                  const scope = kbScopeLine(row);
                   return (
                     <tr key={row.id} data-admin-knowledge-id={row.id} data-admin-kb-status={row.status || "draft"}>
                       <td>
-                        <Link className="kbadmin-title-link" to={entryPath(row.id)}>{row.title}</Link>
-                        <p className="muted">{row.id}</p>
+                        <Link className="kbadmin-title-link" to={entryPath(row.id)} title={row.title}>{row.title}</Link>
+                        <p className="muted" title={row.id}>{row.id}</p>
                       </td>
-                      <td>{kindLabel(row.kind)}</td>
-                      <td>{statusLabel(row.status)}</td>
+                      <td>{kindLabel(row.kind) || emptyCell}</td>
+                      <td>{statusLabel(row.status) || emptyCell}</td>
                       <td>第 {row.current_version || 1} 版</td>
-                      <td>{kbScopeLine(row)}</td>
+                      <td title={scope || undefined}>{scope || emptyCell}</td>
                       <td>
                         <span className="muted" data-admin-kb-ref-count={count}>{count} 个技能</span>
                       </td>
-                      <td>{formatKbTime(row.updated_at) || "—"}</td>
+                      <td>{formatKbTime(row.updated_at) || emptyCell}</td>
                       <td>
                         <div className="kbadmin-row-actions">
                           <Link className="kbadmin-action-link" to={entryPath(row.id)}>{KB_ADMIN_ACTION.viewDetail}</Link>

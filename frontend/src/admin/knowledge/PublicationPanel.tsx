@@ -28,11 +28,14 @@ export default function PublicationPanel({
   id,
   notify,
   refreshDocument,
-  assetType = "document", mode = "detail", onInitiate, onSubmitted, onDirty,
+  assetType = "document", mode = "detail", ownsPrimary = true, onInitiate, onSubmitted, onDirty,
 }: {
   id: string;
   assetType?: "entry" | "document";
   mode?: "detail" | "review";
+  /** 本视口唯一的实底 L1 是否由本面板承担：资料页动作条为 true，
+      表格行内/详情行内联渲染、或资料侧另有主行动时为 false（全部降为 L3 文字按钮）。 */
+  ownsPrimary?: boolean;
   onInitiate?: () => void;
   onSubmitted?: () => void;
   onDirty?: (dirty:boolean) => void;
@@ -225,6 +228,27 @@ export default function PublicationPanel({
   };
   const blocked =
     busy || confirm.open || loading || Boolean(error) || uploadBusy;
+  // 本视口唯一的实底 L1（DESIGN §1 不变量 1 / §4.2）：发布 / 恢复发布 / 提交审批里
+  // 只有「当前状态唯一可推进」的那个保持实底，其余降为 L3 文字按钮；
+  // 内联渲染或确认弹窗打开时全部降级。审批与权限判定逻辑不变，只改强调级别。
+  const recoverable = Boolean(
+    waiting && p?.reviewStatus === "approved" && p.job
+    && ["failed", "uncertain", "cancelled"].includes(p.job.status),
+  );
+  const canPublish = Boolean(p?.canPublish) && !recoverable;
+  const canInitiate = mode === "detail" && Boolean(data) && !waiting && p?.status !== "published" && data?.submission?.allowed !== false;
+  const canSubmit = mode === "review" && Boolean(data) && !waiting && p?.status !== "published";
+  const primaryCta: "recovery" | "publish" | "submit" | "initiate" | null = !ownsPrimary || confirm.open
+    ? null
+    : recoverable
+      ? "recovery"
+      : canPublish
+        ? "publish"
+        : canSubmit
+          ? "submit"
+          : canInitiate
+            ? "initiate"
+            : null;
   const recover = async (operation: "publish" | "recovery" = "recovery") => {
     if (lock.current) return;
     lock.current = true;
@@ -264,7 +288,7 @@ export default function PublicationPanel({
       lock.current = false;
     }
   };
-  if(data?.legacy) return <LegacyPublicationPanel id={id} updatedAt={data.legacy.updatedAt} reload={refreshDocument} mode={mode} onInitiate={onInitiate} onSubmitted={onSubmitted} onDirty={onDirty} />;
+  if(data?.legacy) return <LegacyPublicationPanel id={id} updatedAt={data.legacy.updatedAt} reload={refreshDocument} mode={mode} ownsPrimary={ownsPrimary} onInitiate={onInitiate} onSubmitted={onSubmitted} onDirty={onDirty} />;
   return (
     <section
       className="kbv-publication"
@@ -348,14 +372,14 @@ export default function PublicationPanel({
           >
             查看审批记录与处理入口 →
           </Link>
-          {p.canPublish && <WorkspaceActions><button className={confirm.open ? "btn":"btn work"} disabled={blocked} onClick={()=>void recover("publish")}>{busy ? "处理中…":"发布"}</button></WorkspaceActions>}
+          {p.canPublish && <WorkspaceActions><button className={primaryCta === "publish" ? "btn work" : "kbv-text-action"} disabled={blocked} onClick={()=>void recover("publish")}>{busy ? "处理中…":"发布"}</button></WorkspaceActions>}
           {waiting &&
             p.reviewStatus === "approved" &&
             p.job &&
             ["failed", "uncertain", "cancelled"].includes(p.job.status) &&
             (
               <WorkspaceActions><button
-                className={confirm.open ? "btn" : "btn work"}
+                className={primaryCta === "recovery" ? "btn work" : "kbv-text-action"}
                 disabled={blocked}
                 onClick={() => void recover()}
               >
@@ -365,7 +389,7 @@ export default function PublicationPanel({
         </div>
       )}
       {data && !p && <p role="status">{data.submission?.allowed===false?data.submission.reason:"待提交审批"}</p>}
-      {mode === "detail" && data && !waiting && p?.status !== "published" && data.submission?.allowed!==false && <WorkspaceActions><button className="btn work" disabled={blocked || !data.intake.allowed} onClick={onInitiate}>提交审批</button></WorkspaceActions>}
+      {mode === "detail" && data && !waiting && p?.status !== "published" && data.submission?.allowed!==false && <WorkspaceActions><button className={primaryCta === "initiate" ? "btn work" : "kbv-text-action"} disabled={blocked || !data.intake.allowed} onClick={onInitiate}>提交审批</button></WorkspaceActions>}
       {mode === "review" && data && !waiting && p?.status !== "published" && (
         <>
           {!data.intake.allowed && <p role="alert">{data.intake.reason}</p>}
@@ -447,7 +471,7 @@ export default function PublicationPanel({
               )}
               {(<WorkspaceActions><button
                     type="button"
-                    className={confirm.open ? "btn" : "btn work"}
+                    className={primaryCta === "submit" ? "btn work" : "kbv-text-action"}
                     data-kbv-doc-action="submit"
                     data-risk="L3"
                     disabled={

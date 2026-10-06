@@ -68,6 +68,13 @@ function RecordRow({ row, selected, onSelect }: {
         ? "is-disabled"
         : "is-draft";
   const expiry = row.asset_type === "document" ? null : kbExpiryState(row.expires_at);
+  const kindText = row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind);
+  const statusText = row.publication_label
+    || (row.asset_type === "document" ? kbDocStatusLabel(status) : statusLabel(status));
+  const expiryText = expiry ? kbExpiryLabel(row.expires_at) : "";
+  const dateText = row.updated_at ? kbDateOnly(row.updated_at) : "";
+  // 单行行式下元信息会被裁切，完整值由 title 兜底（DESIGN §9.1 长文本规则）。
+  const metaTitle = [kindText, statusText, expiryText, dateText].filter(Boolean).join(" · ");
 
   return (
     <button
@@ -78,11 +85,11 @@ function RecordRow({ row, selected, onSelect }: {
       onClick={() => onSelect(row.id)}
     >
       <span className="kbv-record-heading"><span className="kbv-record-icon"><KbvIcon name={row.asset_type === "document" ? "pdf" : "book"} /></span><span className="kbv-record-title" title={row.title}>{row.title}</span></span>
-      <span className="kbv-browser-record-meta">
-        <span className="kbv-record-kind">{row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind)}</span>
-        <span className={`kbv-status ${statusClass}`}>{row.asset_type === "document" ? row.publication_label || kbDocStatusLabel(status) : row.publication_label || statusLabel(status)}</span>
-        {expiry ? <span className={`kbv-expiry is-${expiry}`} data-kbv-expiry={expiry}>{kbExpiryLabel(row.expires_at)}</span> : null}
-        {row.updated_at ? <span className="kbv-record-date">{kbDateOnly(row.updated_at)}</span> : null}
+      <span className="kbv-browser-record-meta" title={metaTitle}>
+        <span className="kbv-record-kind">{kindText}</span>
+        <span className={`kbv-status ${statusClass}`}>{statusText}</span>
+        {expiry ? <span className={`kbv-expiry is-${expiry}`} data-kbv-expiry={expiry}>{expiryText}</span> : null}
+        {dateText ? <span className="kbv-record-date">{dateText}</span> : null}
       </span>
     </button>
   );

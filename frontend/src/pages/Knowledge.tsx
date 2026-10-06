@@ -77,10 +77,15 @@ function Hinted({
   }, [open, onClose]);
 
   return (
-    <span className={"kb-action" + (open ? " has-tip" : "")} onMouseEnter={() => onOpen(id)}>
+    // 说明是信息不是装饰：指针悬停与键盘/触摸聚焦都能打开（DESIGN §11 输入模态）。
+    <span
+      className={"kb-action" + (open ? " has-tip" : "")}
+      onMouseEnter={() => onOpen(id)}
+      onFocus={() => onOpen(id)}
+    >
       {children}
       {open && (
-        <span className="kb-tip" role="tooltip" data-kb-tip={id}>
+        <span className="kb-tip" role="tooltip" id={`kb-tip-${id}`} data-kb-tip={id}>
           <span>{hint}</span>
           <button
             type="button"
@@ -533,7 +538,7 @@ export default function Knowledge() {
                 {skillTemplatesError ? (
                   <p className="error" role="alert">
                     无法加载技能交互模板：{skillTemplatesError}
-                    <button className="btn row-action" type="button" onClick={() => void loadSkillTemplates()}>重试</button>
+                    <button className="kbv-text-action row-action" type="button" onClick={() => void loadSkillTemplates()}>重试</button>
                   </p>
                 ) : null}
                 {!skillTemplatesLoading && !skillTemplatesError && !visibleSkillTemplates.length ? (
@@ -551,7 +556,7 @@ export default function Knowledge() {
                         <SkillTemplateContext template={template} />
                       </details>
                       <button
-                        className="btn row-action"
+                        className="kbv-text-action row-action"
                         type="button"
                         data-kb-skill-template-ask={template.skill_id}
                         onClick={() => askWithSkillTemplate(template)}

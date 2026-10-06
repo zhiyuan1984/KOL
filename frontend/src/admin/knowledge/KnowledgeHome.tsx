@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect } fr
 import { brandLabel, kindLabel } from "../../knowledgeCopy";
 import { MAIN_STAGE_TABS } from "../../kolStages";
 import { stageLabel } from "../../labels";
-import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow } from "./shared";
+import { KNOWLEDGE_KIND_SPECS, errorMessage, expirySoon, useKbData, type KbAssetRow } from "./shared";
 import EntryEditor from "./EntryEditor";
 import WorkspaceEntry from "./WorkspaceEntry";
 import { WorkspaceActionContext } from "./WorkspaceActions";
@@ -12,7 +12,7 @@ import KnowledgeFilters, { type FilterOption } from "./KnowledgeFilters";
 import LibraryPane, { type KbView } from "./LibraryPane";
 import UploadDialog from "./UploadDialog";
 import DocumentRail from "./DocumentRail";
-import ReviewView, { type GovernanceTarget } from "./ReviewView";
+import ReviewView from "./ReviewView";
 import { useSearchParams,useBlocker } from "react-router-dom";
 
 const PAGE_SIZE = 20;
@@ -33,7 +33,11 @@ const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, lab
 const SCOPE_NONE = "__none__";
 type KbScope = { familyId: string; domainId: string; baseId: string };
 const EMPTY_SCOPE: KbScope = { familyId: "", domainId: "", baseId: "" };
-type WorkspaceFilters = { query: string; scope: KbScope; brands: string[]; stages: string[]; kind: string; view: KbView; assetTypeFilter: "" | "entry" | "document" };
+/** 驾驶舱下钻的 URL 轴：状态、资产类型、到期。只认合法值，其余忽略。 */
+const viewParam = (value: string | null): KbView | null =>
+  VIEW_OPTIONS.some((option) => option.value === value) ? (value as KbView) : null;
+const assetParam = (value: string | null): "" | "entry" | "document" =>
+  value === "entry" || value === "document" ? value : "";
 
 /** 计数跳过哪些筛选组：计数口径＝点选该 chip 后的实际结果数（DESIGN §8 数字同源）。 */
 type Skip = { view?: boolean; kind?: boolean; brand?: boolean; stage?: boolean; scope?: "all" | "sub" | "base" };
@@ -58,15 +62,19 @@ export default function KnowledgeHome() {
   const [brands, setBrands] = useState<string[]>(restore.brands || []);
   const [stages, setStages] = useState<string[]>(restore.stages || []);
   const [kind, setKind] = useState<string>(restore.kind || "");
-  const [view, setView] = useState<KbView>(restore.view || "all");
-  const [assetTypeFilter, setAssetTypeFilter] = useState<"" | "entry" | "document">("");
-  const [governance, setGovernance] = useState<{ target: GovernanceTarget; ids: string[] } | null>(null);
-  const [governanceRestore, setGovernanceRestore] = useState<WorkspaceFilters | null>(null);
+  const [view, setView] = useState<KbView>(viewParam(params.get("view")) || restore.view || "all");
+  const [assetTypeFilter, setAssetTypeFilter] = useState<"" | "entry" | "document">(assetParam(params.get("asset")));
+  /** `?expiring=1`：驾驶舱「30 天内到期」的下钻筛选轴（与卡片计数同一口径）。 */
+  const [expiring, setExpiring] = useState<boolean>(params.get("expiring") === "1");
   const [page, setPage] = useState<number>(restore.page || 1);
   const [selectedId, setSelectedId] = useState<string>(params.get("assetId") || requestedDocument || restore.selectedId || "");
   const mode=params.get("mode") || (requestedDocument ? "detail":"list");
   const selectedType=params.get("assetType") || (requestedDocument ? "document":restore.selectedType || "entry");
   useEffect(()=>{const id=params.get("assetId") || params.get("document");if(id!==null)setSelectedId(id);},[params]);
+  // 下钻轴以 URL 为准：链接可复制、可后退，回来时筛选条件不丢。
+  useEffect(()=>{const next=viewParam(params.get("view"));if(next)setView(next);},[params]);
+  useEffect(()=>{if(params.get("asset")!==null)setAssetTypeFilter(assetParam(params.get("asset")));},[params]);
+  useEffect(()=>{if(params.get("expiring")!==null)setExpiring(params.get("expiring")==="1");},[params]);
   const [dirty,setDirty]=useState(false),dirtyRef=useRef(false);
   const onDirty=useCallback((value:boolean)=>{dirtyRef.current=value;setDirty(value);},[]);
   const blocker=useBlocker(()=>dirtyRef.current),asking=useRef(false);
@@ -114,22 +122,13 @@ export default function KnowledgeHome() {
     .filter(Boolean)
     .join(" / "), []);
 
-  const openGovernance = useCallback((target: GovernanceTarget, ids: string[] = []) => {
-    if (!governance) setGovernanceRestore({ query, scope, brands, stages, kind, view, assetTypeFilter });
-    setGovernance({ target, ids });
-    // 数字卡片的计数来自完整工作区；点击后清除普通侧栏条件，再按卡片提供的精确 ID 集合展示，避免“卡片有数、列表为空”。
-    setQuery(""); setScope(EMPTY_SCOPE); setBrands([]); setStages([]); setKind(""); setView("all"); setAssetTypeFilter("");
-    setPage(1);
-  }, [governance, query, scope, brands, stages, kind, view, assetTypeFilter]);
-
-  const clearGovernance = useCallback(() => {
-    setGovernance(null);
-    if (governanceRestore) {
-      setQuery(governanceRestore.query); setScope(governanceRestore.scope); setBrands(governanceRestore.brands);
-      setStages(governanceRestore.stages); setKind(governanceRestore.kind); setView(governanceRestore.view); setAssetTypeFilter(governanceRestore.assetTypeFilter);
-    } else { setAssetTypeFilter(""); setView("all"); }
-    setGovernanceRestore(null);
-  }, [governanceRestore]);
+  /** 清掉驾驶舱带来的下钻轴（状态 / 资产类型 / 到期），用户自己的搜索与范围筛选不动。 */
+  const clearFilterAxis = useCallback(() => {
+    setView("all"); setAssetTypeFilter(""); setExpiring(false);
+    const next = new URLSearchParams(params);
+    next.delete("view"); next.delete("asset"); next.delete("expiring");
+    setParams(next);
+  }, [params, setParams]);
 
   const passes = useCallback((row: KbAssetRow, skip: Skip = {}) => {
     const q = query.trim().toLowerCase();
@@ -138,7 +137,7 @@ export default function KnowledgeHome() {
     const baseId = String(row.base_id || "");
     const rowAssetType = row.asset_type === "document" ? "document" : "entry";
     if (assetTypeFilter && rowAssetType !== assetTypeFilter) return false;
-    if (governance && !governance.ids.includes(row.id)) return false;
+    if (expiring && !expirySoon(row.expires_at)) return false;
     if (!skip.view && view !== "all" && String(row.status || "") !== VIEW_STATUS[view]) return false;
     if (!skip.kind && kind && row.kind !== kind) return false;
     if (skip.scope !== "all" && scope.familyId) {
@@ -166,7 +165,7 @@ export default function KnowledgeHome() {
       if (!haystack.includes(q)) return false;
     }
     return true;
-  }, [query, scope, brands, stages, kind, view, pathOf, assetTypeFilter, governance]);
+  }, [query, scope, brands, stages, kind, view, pathOf, assetTypeFilter, expiring]);
 
   const countWhere = useCallback(
     (skip: Skip, match?: (row: KbAssetRow) => boolean) => rows.reduce(
@@ -300,8 +299,8 @@ export default function KnowledgeHome() {
     [filtered, currentPage],
   );
   const selectedRow=rows.find(row=>row.id===selectedId && (row.asset_type==="document" ? "document":"entry")===selectedType) || null;
-  const lastFilters=useRef(JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,governance}));
-  useEffect(()=>{const current=JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,governance});if(lastFilters.current!==current){setPage(1);lastFilters.current=current;}},[query,kind,view,scope,brands,stages,assetTypeFilter,governance]);
+  const lastFilters=useRef(JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,expiring}));
+  useEffect(()=>{const current=JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,expiring});if(lastFilters.current!==current){setPage(1);lastFilters.current=current;}},[query,kind,view,scope,brands,stages,assetTypeFilter,expiring]);
   useEffect(()=>{if(page!==currentPage)setPage(currentPage);},[page,currentPage]);
   useEffect(()=>{sessionStorage.setItem(contextKey,JSON.stringify({query,scope,brands,stages,kind,view,page,selectedId,selectedType,positions:positions.current}));},[contextKey,query,scope,brands,stages,kind,view,page,selectedId,selectedType,mode]);
   const revealCreated=(id:string,type="entry")=>{onDirty(false);switchMode("detail",id,type);reload();};
@@ -354,8 +353,22 @@ export default function KnowledgeHome() {
         <section className="kbv-browser kbw-workarea" aria-label="知识工作区" data-workspace-mode={mode} aria-busy={loading}>
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           <div className="kbw-body" ref={bodyRef} onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
-          {mode==="list" ? <ReviewView rows={rows} onNavigate={openGovernance} /> : null}
-          {mode==="list" && governance ? <p className="kb-governance-filter" data-admin-kb-dashboard-filter>当前查看：{({pending:"待审批",draft:"草稿",documents:"待审资料",expiry:"30 天内到期",feedback:"员工反馈",proposals:"待决提案"} as Record<GovernanceTarget,string>)[governance.target]}（{governance.ids.length} 条）<button type="button" className="kbv-text-action" onClick={clearGovernance}>返回之前的筛选</button></p> : null}
+          {mode==="list" ? <ReviewView rows={rows} /> : null}
+          {mode==="list" && (view !== "all" || assetTypeFilter || expiring) ? (
+            <p className="kbv-filter-note" data-kbv-filter-note role="status">
+              {/* 下钻筛选轴回显：条件与列表同源，可一键清除（DESIGN §9.2）。 */}
+              <span>
+                当前查看：
+                {[
+                  view !== "all" ? VIEW_OPTIONS.find((option) => option.value === view)?.label : "",
+                  assetTypeFilter === "document" ? "非结构化资料" : assetTypeFilter === "entry" ? "知识条目" : "",
+                  expiring ? "30 天内到期与已过期" : "",
+                ].filter(Boolean).join(" · ")}
+                （{filtered.length} 条）
+              </span>
+              <button type="button" className="kbv-text-action" data-kbv-filter-note-clear onClick={clearFilterAxis}>清除这部分筛选</button>
+            </p>
+          ) : null}
           {error ? <p role="alert">知识服务暂不可用，请重新加载。</p> : mode==="list" ? <>
             <LibraryPane
               rows={pageRows} totalCount={filtered.length} page={currentPage} pageCount={pageCount} selectedId={selectedId}
@@ -368,7 +381,8 @@ export default function KnowledgeHome() {
           : <WorkspaceEntry key={selectedId} id={selectedId} bases={bases} mode={mode} onMode={next=>switchMode(next)} onDirty={onDirty} onSaved={reload} notify={notify} />
           : <p className="kbv-empty">知识不存在，请返回列表。</p>}
           </div>
-          {mode!=="list" && <footer className="kbw-action-bar" ref={setActionTarget} />}
+          {/* 动作条：本视口唯一的实底 L1 由内部组件按当前状态指定，其余动作用 L3 文字按钮。 */}
+          {mode!=="list" && <footer className="kbw-action-bar" aria-label="当前阶段动作" ref={setActionTarget} />}
         </section>
         </WorkspaceActionContext.Provider>
       </div>

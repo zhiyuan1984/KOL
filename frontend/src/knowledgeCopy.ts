@@ -673,6 +673,36 @@ export function kbExpiryState(expiresAt?: string): "expired" | "soon" | null {
   return days <= 30 ? "soon" : null;
 }
 
+/**
+ * 知识资产生命周期分布（口径与工作区 `view` 一致）：管理端驾驶舱状态条的唯一来源。
+ * 状态是同一总量的分解，因此只提供这种"分段 + 合计"的读法，不再拆成互不相干的指标。
+ */
+export function kbStatusCounts(rows: Array<{ status?: string }>): {
+  draft: number; pending: number; published: number; archived: number; total: number;
+} {
+  const counts = { draft: 0, pending: 0, published: 0, archived: 0, total: rows.length };
+  for (const row of rows) {
+    const status = String(row.status || "draft");
+    if (status === "pending_review") counts.pending += 1;
+    else if (status === "published") counts.published += 1;
+    else if (status === "archived") counts.archived += 1;
+    else counts.draft += 1;
+  }
+  return counts;
+}
+
+/** 状态分布条分段：段宽按计数成比例，点击即工作区状态筛选（DESIGN §9.2）。 */
+export function kbStatusSegments(counts: ReturnType<typeof kbStatusCounts>): Array<{
+  key: "draft" | "pending" | "published" | "archived"; label: string; value: number; view: string;
+}> {
+  return [
+    { key: "draft", label: "草稿", value: counts.draft, view: "draft" },
+    { key: "pending", label: "待审批", value: counts.pending, view: "pending" },
+    { key: "published", label: "已发布", value: counts.published, view: "published" },
+    { key: "archived", label: "已停用", value: counts.archived, view: "disabled" },
+  ];
+}
+
 /* ---- 员工端 /kb：服务端搜索、适用筛选与来源溯源（阶段 3）---- */
 
 export const KB_SEARCH_LABEL = "搜索资料";

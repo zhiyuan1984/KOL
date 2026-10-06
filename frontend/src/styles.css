@@ -86,7 +86,9 @@
   --control-h-sm: 24px;
   --control-h: 28px;
   --control-h-lg: 32px;
-  --chip-h: 26px;
+  /* 筛选 chips 高度（docs/DESIGN.md §4.1 尺寸表）。触摸模态只扩大命中区
+     （--touch-hit-min 44px），不同步放大视觉控件。 */
+  --chip-h: 28px;
   /* 图标只有两档（docs/ui-ux-rules.md 规则 17）：控件内 14、标识砖内 18。
      技能目录页此前把这两档定义在页面级，工作台右栏等其它表面取不到值，
      故在此登记为全局 token；页面级重复定义同样合法。 */
@@ -125,6 +127,38 @@
   --btn-text-hover-bg: color-mix(in srgb, var(--accent) 8%, transparent);
   --radius-card: 8px;
   --surface-hover: color-mix(in srgb, var(--text) 10%, var(--bg));
+
+  /* ── 数据面（data-grid）与弹窗：docs/DESIGN.md §9.1 / §9.2 / §7.1 ────────
+     这批 token 此前只在 DESIGN 的登记表里，styles.css 没有定义，页面写
+     `var(--table-row-h)` 取到空值后行高落回内容高度。数值口径以 §9.1 表为准。 */
+  --table-row-h-relaxed: 52px;   /* 含双行内容/对象卡的行 */
+  --table-row-h: 44px;           /* 中台数据面默认档 */
+  --table-row-h-compact: 32px;   /* 行数 >50 / 用户显式切换 */
+  --table-cell-pad-y: 12px;      /* 默认档单元格上下 padding */
+  --table-header-h: 36px;        /* 表头：字重 500 + --text-quiet + --bg-subtle + sticky */
+  --stat-value-font: 20px;       /* §9.2 KPI 数值，数据面唯一允许的字号例外 */
+  --stat-label-font: 12px;       /* §9.2 指标名 */
+  --stat-delta-font: 12px;       /* §9.2 环比 */
+  --dialog-h-max: 88dvh;         /* §7.1 弹窗高度上限（向导类另用 --dialog-h-wizard） */
+
+  /* 表面两档：--surface = 当前卡片底色档（= --bg，§12 的 surface 档）；
+     --bg-subtle = 表头 sticky 底色 / 展开行 / 悬停反馈的淡底档。
+     淡底取「3% 正文色压在画布上」（浅 #f8f8f8 / 深 #1e2023），而不是直接复用 --bg-elevated：
+     #f1f1f1 会让坐在它上面的 --text-quiet 只剩 4.0:1，违反 §1 不变量 4（见下）。 */
+  --surface: var(--bg);
+  --bg-subtle: color-mix(in srgb, var(--text) 3%, var(--bg));
+  /* 辅助文字再弱一档（§3.1 任务-待办、§9.1 表头与空单元格 `—`）。
+     口径：在不变量 4（13px 正文 ≥4.5:1）允许范围内取最弱的一档。
+     --text-muted #6b6b6b 对白 5.33:1；本档 = 95% --text-muted + 5% 画布
+     = #727272，对白 4.81:1、压在 --bg-subtle 上 4.53:1；再弱一档（94%）在淡底上只剩 4.40:1。
+     深色下随 --text-muted / --bg 自动提亮（#9da3ad 一类，对深画布 >6:1）。 */
+  --text-quiet: color-mix(in srgb, var(--text-muted) 95%, var(--bg));
+
+  /* 状态色的「文字档」（§3 状态职责）：--warning / --danger 当 13px 正文色时
+     对比度不足（--warning 白底 3.62:1）。派生方式与 --primary-text / --accent-text
+     一致：浅色压暗到 4.5:1 以上；深色在下方主题块里翻转派生方向。 */
+  --warning-text: color-mix(in srgb, var(--warning) 84%, #000000); /* #c54703：对白 4.91:1，压在 --bg-subtle 上 4.62:1 */
+  --danger-text: color-mix(in srgb, var(--danger) 84%, #000000);   /* #a53232：对白 6.77:1，压在 --bg-subtle 上 6.37:1 */
   /* 焦点环：shadcn 的 focus-visible 契约。环色沿用既有的 --focus-ring（单一来源），
      此处只补环宽与偏移两个 token。 */
   --focus-ring-width: 2px;
@@ -339,6 +373,11 @@
   --cat-builtin-text: var(--cat-builtin);
   --chrome-2: #23262c;
   --sidebar-thumb: #5a616b;
+  /* 状态色文字档在深色下翻转派生方向（同 --primary-text）：
+     --danger #c43c3c 对深画布只有 3.40:1，需提亮到 #de9494（7.35:1）；
+     --warning #ea5504 本身 4.86:1 已达标，直接沿用。 */
+  --warning-text: var(--warning);
+  --danger-text: color-mix(in srgb, var(--danger) 55%, #ffffff);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -372,6 +411,9 @@
     --cat-builtin-text: var(--cat-builtin);
     --chrome-2: #23262c;
     --sidebar-thumb: #5a616b;
+    /* 同 :root[data-theme="dark"]：状态色文字档翻转派生方向。 */
+    --warning-text: var(--warning);
+    --danger-text: color-mix(in srgb, var(--danger) 55%, #ffffff);
   }
 }
 
@@ -16032,11 +16074,10 @@ button.today-brief-primary-btn:disabled {
   .review-template-table th, .review-template-table td { padding-inline:var(--space-1); }
 }
 @container (max-width:479px) { .review-branches { grid-template-columns:minmax(0,1fr); } }
-/* DESIGN §5.1: knowledge workspace only; global navigation is unchanged. */
+/* DESIGN §5.1: knowledge workspace only; global navigation is unchanged.
+   字号例外（v2 的 18px 标题）已在 v3 删除：知识工作区字号统一走 --ds-font-sm，
+   层次由字重/间距/分隔表达，故此处不再定义 --knowledge-font-* 自造字阶。 */
 .kbv-filter-browser {
-  --knowledge-font-title:18px;
-  --knowledge-font-body:14px;
-  --knowledge-font-meta:13px;
   --knowledge-filter-width:260px;
   --knowledge-action:var(--accent-text);
   --knowledge-action-hover:var(--accent-hover);

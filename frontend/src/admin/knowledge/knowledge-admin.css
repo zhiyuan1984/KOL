@@ -14,7 +14,7 @@
   padding: 0;
   margin: 0;
   font: inherit;
-  font-size: var(--font-ui);
+  font-size: var(--ds-font-sm);
   color: var(--accent-text);
   text-decoration: underline;
   text-underline-offset: var(--focus-ring-offset);
@@ -135,7 +135,7 @@
   padding: var(--space-2) var(--space-3);
   background: var(--canvas);
   border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
   line-height: var(--leading-body);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -169,12 +169,12 @@
   align-items: center;
   gap: var(--space-2);
   margin: 0 0 var(--space-1);
-  font-size: var(--font-meta);
+  font-size: var(--ds-font-sm);
   color: var(--muted);
 }
 
 .kbadmin-diff-state {
-  font-size: var(--font-xs);
+  font-size: var(--ds-font-sm);
   color: var(--text-muted);
 }
 
@@ -190,7 +190,7 @@
   background: var(--canvas);
   border-radius: var(--radius-sm);
   font-family: var(--mono);
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
   overflow-x: auto;
 }
 
@@ -248,7 +248,7 @@
 
 .kbadmin-col h3 {
   margin: 0 0 var(--space-2);
-  font-size: var(--font-meta);
+  font-size: var(--ds-font-sm);
   color: var(--muted);
 }
 
@@ -263,7 +263,7 @@
   border-radius: var(--ds-radius-tag);
   background: color-mix(in srgb, var(--warning) 12%, var(--bg));
   color: var(--text);
-  font-size: var(--font-xs);
+  font-size: var(--ds-font-sm);
 }
 
 .kbadmin-reason-row {
@@ -288,7 +288,7 @@
 
 .kbadmin-handled {
   color: var(--text);
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
 }
 
 .kbadmin-actionbar {
@@ -336,7 +336,7 @@
 
 .kbadmin-tree-empty {
   margin: var(--space-1) 0 0;
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
 }
 
 .kbadmin-level,
@@ -354,14 +354,14 @@
 
 .kbadmin-structured legend {
   padding: 0 var(--space-1);
-  font-size: var(--font-meta);
+  font-size: var(--ds-font-sm);
   color: var(--text-muted);
 }
 
 .kbadmin-field-hint {
   display: block;
   margin-top: var(--space-1);
-  font-size: var(--font-xs);
+  font-size: var(--ds-font-sm);
 }
 
 /* 反馈处置：折叠区内的动作，仍是链接式。 */
@@ -392,7 +392,7 @@
   margin: var(--space-2) 0 0;
   padding-left: var(--space-4);
   color: var(--text);
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
 }
 
 .kbadmin-doc-jobs li + li {
@@ -407,7 +407,7 @@
 .kbadmin-trial-citations {
   margin: var(--space-2) 0 0;
   padding-left: var(--space-4);
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
 }
 
 .kbadmin-inline-check {
@@ -427,7 +427,7 @@
 
 .kbadmin-file-name {
   color: var(--muted);
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
   overflow-wrap: anywhere;
 }
 
@@ -437,7 +437,7 @@
 
 .kbadmin-doc-meta {
   margin: var(--space-1) 0 0;
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
 }
 
 .kbadmin-trial-result {
@@ -451,7 +451,7 @@
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: var(--font-body);
+  font-size: var(--ds-font-sm);
   line-height: var(--leading-body);
   color: var(--text);
 }
@@ -462,7 +462,7 @@
   padding: 0;
   display: grid;
   gap: var(--space-1);
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
 }
 
 .kbadmin-trial-citations li {
@@ -477,12 +477,12 @@
   border-radius: var(--ds-radius-tag);
   background: var(--canvas);
   color: var(--muted);
-  font-size: var(--font-xs);
+  font-size: var(--ds-font-sm);
 }
 
 .kbadmin-trial-usage {
   margin: var(--space-2) 0 0;
-  font-size: var(--font-xs);
+  font-size: var(--ds-font-sm);
 }
 
 /* ── 管理端知识模块视觉 v2（2026-10-02，作用域 .admin-kb）────────────
@@ -495,13 +495,13 @@
 
 /* 标题升一档、导语与计数降为辅助级（层级靠字号+字重，不靠更多容器） */
 .admin-kb .admin-section-head h2 {
-  font-size: var(--font-section);
+  font-size: var(--ds-font-sm);
 }
 .admin-kb .admin-section-head .muted {
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
 }
 .admin-kb .admin-section-head > span[role="status"] {
-  font-size: var(--font-xs);
+  font-size: var(--ds-font-sm);
   white-space: nowrap;
 }
 
@@ -542,16 +542,16 @@
   gap: var(--space-3);
 }
 .admin-kb .admin-row strong {
-  font-size: var(--font-body);
+  font-size: var(--ds-font-sm);
   font-weight: 600;
 }
 .admin-kb .admin-row .muted {
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
 }
 
 /* 行内动作：保持链接可识别，但把下划线降噪、悬停恢复 */
 .admin-kb .kbadmin-action-link {
-  font-size: var(--font-sm);
+  font-size: var(--ds-font-sm);
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
 }
 .admin-kb .kbadmin-action-link:hover {
@@ -559,7 +559,7 @@
   text-decoration-thickness: var(--focus-ring-width);
 }
 .admin-kb .kbadmin-title-link {
-  font-size: var(--font-body);
+  font-size: var(--ds-font-sm);
 }
 
 /* CTA 不换行：页头动作按钮在窄处也不折行 */
@@ -602,7 +602,7 @@
 .kbingest-worktable { min-width: 0; }
 .kbingest-worktable > p { padding: var(--space-3); margin: 0; }
 .kbingest-worktable .admin-table { width: 100%; table-layout: fixed; }
-.kbingest-worktable .admin-table th { position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.kbingest-worktable .admin-table th { position: sticky; top: 0; background: var(--bg-subtle); z-index: 1; }
 .kbingest-worktable .admin-table th:first-child { width: 40%; }
 .kbingest-worktable .admin-table th:nth-child(2) { width: 10%; }
 .kbingest-worktable .admin-table th:nth-child(3) { width: 20%; }
@@ -642,3 +642,50 @@
 .kbingest-worktable .admin-table-wrap { overflow: visible; }
 
 .kbingest-detail-row .kbv-publication .btn.work { background: transparent; color: var(--accent-text); border: 1px solid var(--border); }
+
+/* ── §9.1 数据表（入库表 / 条目治理表）──────────────────────────────────
+   表头：--table-header-h 36px、字重 500、文字 --text-quiet、底 --bg-subtle、sticky；
+   行：默认档 --table-row-h 44px，长文本列单行截断（完整值由单元格 title 兜底），
+   空单元格渲染 — 并降到 --text-quiet。只作用于知识治理的两张表（.admin-kb 域）。 */
+.admin-kb .admin-table th,
+.kbingest-worktable .admin-table th {
+  height: var(--table-header-h);
+  padding: 0 var(--space-2);
+  color: var(--text-quiet);
+  font-weight: 500;
+  background: var(--bg-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+}
+/* 固定列宽后截断才真正生效：入库表自带列宽，这里只补条目治理表与技能绑定表。 */
+.admin-kb .admin-table[data-admin-kb-entries-table],
+.admin-kb .admin-table[data-admin-kb-bindings-table] { table-layout: fixed; }
+.admin-kb .admin-table[data-admin-kb-entries-table] th:first-child { width: 34%; }
+.admin-kb .admin-table[data-admin-kb-bindings-table] th:first-child { width: 26%; }
+.admin-kb .admin-table[data-admin-kb-bindings-table] th:nth-child(2) { width: 30%; }
+.admin-kb .admin-table[data-admin-kb-entries-table] th:last-child,
+.admin-kb .admin-table[data-admin-kb-bindings-table] th:last-child { width: 150px; }
+
+/* ≤860px 时入库表切成块级卡片（knowledge-admin.css 上方的 860 断点），
+   行高与截断只在真正的表格布局下生效。 */
+@media (min-width: 861px) {
+  .admin-kb .admin-table td,
+  .kbingest-worktable .admin-table td {
+    height: var(--table-row-h);
+    padding: var(--table-cell-pad-y) var(--space-2);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  /* 单元格内的辅助信息与主值同排一行：禁止换行把行撑成两行高（§9.1）。 */
+  .admin-kb .admin-table td > p,
+  .kbingest-worktable .admin-table td > p { display: inline; margin: 0 0 0 var(--space-2); }
+  /* 操作列可能有弹出层（入库「更多」），不裁切；其余列单行截断。 */
+  .admin-kb .admin-table td:not(:last-child),
+  .kbingest-worktable .admin-table td:not(:last-child) { overflow: hidden; text-overflow: ellipsis; }
+  .kbingest-worktable .admin-table td:last-child .kbadmin-row-actions { flex-wrap: nowrap; }
+}
+
+/* 空单元格占位：渲染 — 而不是留白格造成「缺数据」误读（§9.1）。 */
+.kb-cell-empty { color: var(--text-quiet); }
