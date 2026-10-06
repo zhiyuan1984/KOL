@@ -47,7 +47,8 @@ export function resultEntries(messages: Message[], extra: ResultEntry[] = []): R
       push("draft", String(card.status || "") === "sent" ? "已发送的邮件" : "邮件草稿", card.subject || "无主题");
     } else if (message.kind === "confirm_stage_card") {
       const proposed = String(payload.proposed_stage || "");
-      push("stage", "阶段建议", `${stageLabel(proposed) || proposed || "具体阶段"}${payload.rejected ? " · 已驳回" : payload.resolved ? " · 已写入" : " · 待确认"}`);
+      const written = String(payload.current_stage || "") === proposed;
+      push("stage", "阶段建议", `${stageLabel(proposed) || proposed || "具体阶段"}${payload.rejected ? " · 已驳回" : written ? " · 已写入" : payload.resolved ? " · 已关闭" : " · 待确认"}`);
     } else if (message.kind === "inbound_card") {
       push("inbound", "未绑定来信", String(payload.subject || "无主题"));
     } else if (message.kind === "kol_mail_card") {

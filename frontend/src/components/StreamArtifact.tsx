@@ -144,8 +144,13 @@ export function useStreamArtifacts(ctx: StreamArtifactContext): (message: Messag
       const proposed = String(payload.proposed_stage || "");
       const label = stageLabel(proposed) || proposed || "具体阶段";
       if (payload.rejected) return <SupersededNote title={`阶段建议 · ${label} · 已驳回，正式阶段未改`} />;
-      if (payload.resolved || officialStageReached(ctx.officialStage, proposed)) {
+      if (String(payload.current_stage || "") === proposed || officialStageReached(ctx.officialStage, proposed)) {
         return <SupersededNote title={`阶段建议 · ${label} · 已写入正式阶段`} />;
+      }
+      // Host 写入任何正式阶段后会关闭同会话里所有待确认的阶段卡；关闭不等于写入了这张卡建议的阶段。
+      if (payload.resolved) {
+        const now = stageLabel(String(payload.current_stage || ""), String(payload.current_label || "")) || String(payload.current_label || "");
+        return <SupersededNote title={`阶段建议 · ${label} · 已关闭${now ? `，正式阶段现为 ${now}` : ""}`} />;
       }
       if (message.id !== latestStageId) return <SupersededNote title={`早先的阶段建议 · ${label}（已被新的建议替代）`} />;
       return <ConfirmStageArtifact payload={payload} sessionId={ctx.sessionId} onRefresh={ctx.onRefresh} />;
