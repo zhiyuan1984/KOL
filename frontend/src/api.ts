@@ -1327,6 +1327,8 @@ export type EmailComposePrepareResponse = {
   missing_fields: string[];
   candidates: Array<{ knowledge_id: string; title: string; published_version: number }>;
   context_version?: string;
+  digest?: string;
+  mail_count?: number;
 };
 
 export type DraftSendSnapshot = { from: string; to: string; cc: string; subject: string; body: string };

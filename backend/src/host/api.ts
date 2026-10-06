@@ -229,6 +229,10 @@ type ComposePrepare = {
   missing_fields: string[];
   candidates: Json[];
   context_version?: string;
+  /** 最近往来摘要（来自 composeContextForCollaboration），仅在已有合作时填充 */
+  digest?: string;
+  /** 最近往来条目数 */
+  mail_count?: number;
 };
 
 function composeContextVersion(input: Json): string {
@@ -512,6 +516,7 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
   }
   const missingFields = [...missing];
   const contextVersion = mailComposeContextVersion(row, template);
+  const mailContext = composeContextForCollaboration(String(row.id));
   return c.json(prepareReply({
     status: missingFields.length ? "needs_fields" : "ready",
     ...(missingFields.length ? { message: "请补齐模板中的必填字段。" } : {}),
@@ -527,6 +532,8 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     missing_fields: missingFields,
     candidates: [],
     context_version: contextVersion,
+    digest: mailContext.text || undefined,
+    mail_count: mailContext.mail_count || undefined,
   }));
 };
 

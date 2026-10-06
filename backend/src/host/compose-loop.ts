@@ -207,14 +207,16 @@ export function composeContextForCollaboration(collaborationId: string | null | 
   digest: ThreadDigest | null;
   memory: string[];
   text: string;
+  mail_count: number;
 } {
-  if (!collaborationId) return { digest: null, memory: [], text: "" };
+  if (!collaborationId) return { digest: null, memory: [], text: "", mail_count: 0 };
   const rows = mailHistoryRows(collaborationId);
   const digest = threadDigestOf(rows, readThreadDigest(collaborationId));
   return {
     digest,
     memory: mailMemoryLines(rows),
     text: digest.text || "",
+    mail_count: digest.mail_count,
   };
 }
 
