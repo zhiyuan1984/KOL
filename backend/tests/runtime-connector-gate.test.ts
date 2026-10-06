@@ -306,8 +306,17 @@ describe.skipIf(!hasPostgres)("运行路径的连接缺口闸门（需要 Postgr
       next_action: "请联系管理员在连接管理中为该技能完成挂载。",
     });
     expectBusinessCopy(card);
-    const serialized = JSON.stringify(messages);
-    for (const word of ["skill_runtime", "starrykol", "creator_library_query", "rt_"]) {
+    // 只看员工可见字段；skill_id、code 这类机器字段前端不渲染，不算外泄。
+    const visible: string[] = [];
+    const collect = (value: unknown, key = ""): void => {
+      if (typeof value === "string") {
+        if (["text", "title", "label", "summary", "message", "status", "next_action", "body"].includes(key)) visible.push(value);
+      } else if (Array.isArray(value)) value.forEach((item) => collect(item, key));
+      else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) collect(v, k);
+    };
+    messages.forEach((message) => collect(message.payload));
+    const serialized = visible.join("\n");
+    for (const word of ["MCP", "skill_runtime", "starrykol", "creator_library_query", "rt_"]) {
       expect(serialized, word).not.toContain(word);
     }
     // 未起箱：没有箱内步骤，也没有任务结果。
