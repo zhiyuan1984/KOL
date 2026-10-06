@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, type ExecutionJob, type ExecutionOutboxHealth, type ExecutionWorker, type SchedulingRule, type SchedulingRuleEffectivenessRawReport, type SchedulingRuleEvaluation } from "../api";
+import { randomUuid } from "../uuid";
 
 function time(value?: string | null): string {
   if (!value) return "—";
@@ -114,7 +115,7 @@ export default function AdminScheduling() {
     }
   };
 
-  const operationKey = (prefix: string) => `${prefix}-${typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+  const operationKey = (prefix: string) => `${prefix}-${randomUuid()}`;
   const proposedAction = ruleForm.rule_type === "ticket_escalation"
     ? "escalation_suggestion"
     : ruleForm.rule_type === "ticket_candidate" ? "candidate_ticket" : "assignment_suggestion";

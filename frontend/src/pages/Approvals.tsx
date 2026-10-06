@@ -5,6 +5,7 @@ import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import { approvalStatusLabel, friendlyError, stripApprovalRecordIds } from "../labels";
+import { randomUuid } from "../uuid";
 
 type PathNode = { name: string; role: string; state?: string; state_label?: string };
 type Receipts = {
@@ -109,8 +110,7 @@ function parseBox(raw: string | null): Box {
 }
 
 function newIdempotencyKey() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return `idem_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
+  return randomUuid();
 }
 
 function isStaleError(error: unknown): boolean {

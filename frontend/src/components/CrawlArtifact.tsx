@@ -8,6 +8,7 @@ import type {
   StartCrawlInput,
   TaskEvent,
 } from "../api";
+import { randomUuid } from "../uuid";
 
 const PLATFORMS: Array<{ value: CrawlPlatform; label: string }> = [
   { value: "youtube", label: "YouTube" },
@@ -184,7 +185,7 @@ export default function CrawlArtifact({
       ...(mode === "search" ? { keywords: values } : {}),
       ...(mode === "detail" ? { specified_ids: values } : {}),
       ...(mode === "creator" ? { creator_ids: values } : {}),
-      idempotency_key: crypto.randomUUID(),
+      idempotency_key: randomUuid(),
     });
   };
 

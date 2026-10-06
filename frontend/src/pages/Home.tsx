@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { randomUuid } from "../uuid";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
@@ -608,8 +609,7 @@ export default function Home() {
     try {
       const fingerprint = JSON.stringify({ brief, body, version });
       if (discoveryRequest.current?.fingerprint !== fingerprint) {
-        const requestId = typeof crypto.randomUUID === "function" ? crypto.randomUUID()
-          : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+        const requestId = randomUuid();
         discoveryRequest.current = { fingerprint, id: requestId };
       }
       const result = await api.createDiscoveryWorkspace({ brief, text: body, version, request_id: discoveryRequest.current.id });

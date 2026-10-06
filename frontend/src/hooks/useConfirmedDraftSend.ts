@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { api } from "../api";
+import { randomUuid } from "../uuid";
 import { draftSendConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 
@@ -22,7 +23,7 @@ export function useConfirmedDraftSend(onRefresh?: () => void) {
       const version = view.action.confirmation_version;
       if (!view.action.enabled || !version) throw new Error(view.action.disabled_reason || "此草稿当前不能发送，请核对最新结果。");
       if (attempt.current?.draftId !== draftId || attempt.current.version !== version) {
-        attempt.current = { draftId, version, requestId: typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("") };
+        attempt.current = { draftId, version, requestId: randomUuid() };
       }
       const confirmed = { ...attempt.current };
       ask(draftSendConfirm(view.snapshot, view.reply_context), async () => {
