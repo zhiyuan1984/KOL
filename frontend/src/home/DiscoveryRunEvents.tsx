@@ -7,15 +7,28 @@ const RUN_STATE_LABEL: Record<string, string> = {
   failure: "失败",
 };
 
+/** 采集作业仍在推进的远端状态（`runtime_crawl_jobs.state`）。 */
+const CRAWL_ACTIVE = new Set(["queued", "starting", "running", "stopping", "crawling", "uploading", "analyzing"]);
+/** 过程行里能证明「这次真的采过」的步骤。 */
+const COLLECTION_KINDS = new Set([
+  "queued", "search", "collecting", "received", "deduped", "analyzing", "collect_done", "scoring", "briefing", "ranked",
+]);
+
 /**
  * ⑥ 采集执行：中栏保留过程事件（排队、搜索、接收、去重、打分、排出候选、
  * 失败、停止），右栏持续更新结果。事件来自 Host 的真实进度，不伪造完成。
+ *
+ * 状态以采集作业本身为准：交付任务（harness）还在跑，不等于远端在采集。
+ * 没有采集作业、也没有采集步骤时，这里只能说「尚未开始」——不能因为前端的
+ * 轮询标志就说「进行中」（否则会出现上面写执行失败、下面写进行中的矛盾）。
  */
 export default function DiscoveryRunEvents({
   stage,
   steps,
   inFlight,
   confirmed = true,
+  crawlState = null,
+  canStop = false,
   onStop,
   stopping,
 }: {
@@ -24,21 +37,40 @@ export default function DiscoveryRunEvents({
   inFlight: boolean;
   /** 员工已确认开始采集：未确认前这一段不得声称正在采集。 */
   confirmed?: boolean;
+  /** 采集作业自己的状态（`runtime_crawl_jobs.state`），没有作业时为 null。 */
+  crawlState?: string | null;
+  /** 采集真的在跑：只有这时才给「申请停止采集」。 */
+  canStop?: boolean;
   onStop?: () => void;
   stopping?: boolean;
 }) {
   const failed = steps.some((step) => step.kind === "failed");
   const stopped = steps.some((step) => step.kind === "stopped");
-  /** 已提交但还没有任何运行事件：这一步还没开始，不写成「没有过程记录」。 */
-  const preRun = stage === "compose" && !inFlight && !steps.length;
+  const crawl = String(crawlState || "").toLowerCase();
+  const crawlActive = CRAWL_ACTIVE.has(crawl);
+  /** 这次真的发生过采集：有采集作业，或有采集步骤。 */
+  const collected = Boolean(crawl) || stage === "success" || stage === "failure"
+    || steps.some((step) => COLLECTION_KINDS.has(step.kind));
   const title = !confirmed ? "等待确认"
-    : preRun ? "尚未开始"
-      : stage === "running" ? RUN_STATE_LABEL.running
-        : stage === "failure" ? RUN_STATE_LABEL.failure
-          : stage === "success" ? RUN_STATE_LABEL.success
-            : RUN_STATE_LABEL.compose;
+    : failed || crawl === "failed" ? RUN_STATE_LABEL.failure
+      : stopped || crawl === "cancelled" ? "已停止"
+        : crawl === "succeeded" ? RUN_STATE_LABEL.success
+          : crawlActive ? RUN_STATE_LABEL.running
+            : !collected ? RUN_STATE_LABEL.compose
+              : stage === "running" ? RUN_STATE_LABEL.running
+                : stage === "success" ? RUN_STATE_LABEL.success : RUN_STATE_LABEL.compose;
+  const status = !confirmed ? "待确认"
+    : failed ? "失败"
+      : stopped || crawl === "cancelled" ? "已停止"
+        : crawl === "failed" ? "失败"
+          : crawl === "succeeded" ? RUN_STATE_LABEL.success
+            : crawlActive ? "进行中"
+              : !collected ? "未开始"
+                : inFlight ? "进行中" : "已结束";
   const tone = !confirmed ? "idle"
-    : failed ? "danger" : stage === "running" ? "running" : stage === "success" ? "ready" : "idle";
+    : failed || crawl === "failed" ? "danger"
+      : crawlActive || stage === "running" ? "running"
+        : crawl === "succeeded" || stage === "success" ? "ready" : "idle";
   return (
     <section
       className="discovery-event"
@@ -51,7 +83,7 @@ export default function DiscoveryRunEvents({
         <span className="discovery-event-kicker">采集执行</span>
         <strong data-discovery-run-title>{title}</strong>
         <span className="discovery-event-status" data-tone={tone} data-discovery-run-status>
-          {!confirmed ? "待确认" : failed ? "失败" : stopped ? "已停止" : inFlight ? "进行中" : steps.length ? "已结束" : ""}
+          {status}
         </span>
       </header>
 
@@ -76,13 +108,13 @@ export default function DiscoveryRunEvents({
             </li>
           ))}
         </ol>
-      ) : !confirmed ? null : inFlight ? (
-        <p className="muted" role="status" aria-busy="true" data-discovery-run-waiting>
-          正在按已确认的条件检索红人线索。不会发信、不会改阶段、不会编造结果。
-        </p>
-      ) : preRun ? (
+      ) : !confirmed ? null : !collected ? (
         <p className="muted" data-discovery-run-pending>
           确认开始采集后，这里会按真实事件显示排队、搜索、接收、去重与排序。
+        </p>
+      ) : inFlight ? (
+        <p className="muted" role="status" aria-busy="true" data-discovery-run-waiting>
+          正在按已确认的条件检索红人线索。不会发信、不会改阶段、不会编造结果。
         </p>
       ) : (
         <p className="muted" data-discovery-run-empty>
@@ -90,7 +122,7 @@ export default function DiscoveryRunEvents({
         </p>
       )}
 
-      {confirmed && inFlight && onStop ? (
+      {canStop && onStop ? (
         <div className="discovery-confirm-actions">
           <button type="button" className="btn text" data-discovery-run-stop disabled={Boolean(stopping)} onClick={onStop}>
             {stopping ? "正在申请停止…" : "申请停止采集"}

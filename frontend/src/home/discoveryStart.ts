@@ -20,7 +20,21 @@ export type DiscoveryStartPhase =
 export function discoveryStartAction(actions: RuntimeActionView[]): RuntimeActionView | null {
   const starts = actions.filter((action) => action.operation === "start_crawl");
   if (!starts.length) return null;
-  return starts[starts.length - 1];
+  // GET /api/queries/runtime.actions 是 ORDER BY created_at DESC（最新在前），
+  // 所以不能取数组末尾：那是最旧的一条。曾经如此，「核对后重试」提出的新提案
+  // 永远不出现在确认卡上，按钮看起来完全无效。按时间取最新；没有时间戳时
+  // 沿用「数组最后一条」的旧约定（stub 与历史数据可能不带时间）。
+  let newest = starts[starts.length - 1];
+  let newestAt = Number.NaN;
+  for (const item of starts) {
+    const at = Date.parse(String(item.created_at || ""));
+    if (!Number.isFinite(at)) continue;
+    if (!Number.isFinite(newestAt) || at > newestAt) {
+      newestAt = at;
+      newest = item;
+    }
+  }
+  return newest;
 }
 
 export function discoveryStartPhase(

@@ -9,6 +9,7 @@ export default function DiscoveryConfirmCard({
   phase,
   error,
   blockedReason,
+  reason,
   sessionHref,
   onConfirm,
   onCancel,
@@ -21,6 +22,8 @@ export default function DiscoveryConfirmCard({
   error: string;
   /** 例如「条件已修改，重新核对后才能确认采集」。 */
   blockedReason: string;
+  /** 服务端给出的执行结论（例如「采集未启动 · 已有任务占用」的原因）。 */
+  reason?: string;
   sessionHref?: string | null;
   onConfirm?: () => void;
   onCancel?: () => void;
@@ -76,6 +79,11 @@ export default function DiscoveryConfirmCard({
 
       {blockedReason ? (
         <p className="discovery-flow-note" role="status" data-discovery-start-blocked>{blockedReason}</p>
+      ) : null}
+
+      {/* 执行失败／未执行时给出服务端的真实结论：光写「执行失败」等于让员工猜。 */}
+      {reason && !blockedReason ? (
+        <p className="muted" role="status" data-discovery-start-reason>{reason}</p>
       ) : null}
 
       {error ? <p role="alert" data-discovery-start-error>{error}</p> : null}

@@ -99,6 +99,35 @@ describe("discovery process stream", () => {
     ])?.body).toBe("先核对候选");
   });
 
+  it("never turns the delivery task's own start into a collection milestone", () => {
+    // 线上取证（task_events）：`run.started` 的 safe_summary 是技能 id `crawler_collect`。
+    // 早先整条 blob 匹配 /crawl|采集/，于是员工还没确认就出现一条「正在采集」，
+    // 时间戳还是提交时刻（图 1：等待确认的采集块里躺着 19:33:49 的「正在采集」）。
+    const events = [
+      event({ type: "run.started", status: "running", label: "任务开始处理", safe_summary: "crawler_collect" }),
+      event({ type: "run.progress", status: "running", label: "加载任务规则" }),
+      event({ type: "run.progress", status: "running", label: "整理结果" }),
+      event({ type: "run.completed", status: "completed", label: "结果已生成" }),
+    ];
+    expect(labels(events)).toEqual(["任务开始处理", "加载任务规则", "整理结果"]);
+    expect(kinds(events)).not.toContain("collecting");
+  });
+
+  it("takes 正在采集 only from crawl-scoped events", () => {
+    // 只有采集服务自己的事件（crawl.* / claw.*）才是远端事实；run.* 是交付任务的准备过程。
+    expect(kinds([event({ type: "crawl_started", label: "发现采集已开始" })])).toEqual(["collecting"]);
+    expect(kinds([event({ type: "run.started", label: "任务开始处理", safe_summary: "crawler_collect" })]))
+      .toEqual(["step"]);
+    expect(kinds([event({ type: "queued", summary: "发现采集已排队" })])).toEqual(["queued"]);
+  });
+
+  it("keeps the pre-run trail from claiming the task finished", () => {
+    // 交付任务自己收尾（run.completed）不是采集结果，过程流不留「已生成结果」这一行。
+    expect(labels([event({ type: "run.completed", label: "结果已生成" })])).toEqual([]);
+    expect(labels([event({ type: "run.failed", label: "执行失败", message: "未生成结果" })]))
+      .toEqual(["失败原因：未生成结果"]);
+  });
+
   it("folds the repeated steps the backend writes per tick", () => {
     const events = [
       event({ type: "crawl.progress" }),

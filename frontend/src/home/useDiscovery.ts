@@ -44,6 +44,23 @@ export type DiscoveryResultFilter = "all" | "ready" | "review" | "blocked" | "ex
 /** 采集没有终态前保持轮询；取得终态后停止（避免空转）。 */
 const START_DONE: DiscoveryStartPhase[] = ["succeeded", "failed", "rejected", "cancelled", "uncertain"];
 const CRAWL_DONE = ["succeeded", "failed", "cancelled", "partial", "uncertain"];
+/** 这些相位必须在确认卡上给出服务端的真实原因，而不是只有「执行失败」四个字。 */
+const START_REASON_PHASES = new Set<DiscoveryStartPhase>(["failed", "rejected", "uncertain", "cancelled"]);
+
+/**
+ * 交付任务（harness）自己是否已经收尾：`run.completed` / `run.failed` 之后不会再有
+ * 新的 `run.*` 行（采集事件仍可能到，由调用方用 crawlPending 兜住）。早先过程流只在
+ * 出现失败步骤或「已排出候选」时停表，于是采集从未发起时前端一直轮询、阶段一直是
+ * running，⑥ 采集执行永远写着「正在采集 / 进行中」。
+ */
+function lifecycleSettled(rows: TaskEvent[]): boolean {
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const type = String(rows[i].type || rows[i].event_type || "").toLowerCase();
+    if (type === "run.completed" || type === "run.failed") return true;
+    if (/^run\./.test(type)) return false;
+  }
+  return false;
+}
 
 /**
  * AI发现的全部状态与副作用。视图被拆成中栏（有序事件流）与右栏（结果区）
@@ -141,6 +158,18 @@ export default function useDiscovery({
   const startAction = useMemo(() => discoveryStartAction(actions), [actions]);
   const startPhase = discoveryStartPhase(startAction, confirmingStart);
   const crawlPhase = discoveryCrawlPhase(startAction);
+  /** 采集作业仍在推进：服务端 runtime.crawl.stop 只接受 running / stopping，前端按同一口径给入口。 */
+  const crawlRunning = ["running", "stopping"].includes(String(crawlPhase || ""));
+  /** 还在等回执：确认已提交但没落定，或采集作业没到终态。这期间过程流还会增长。 */
+  const crawlPending = ["dispatching", "starting", "running"].includes(startPhase)
+    || (Boolean(startAction?.crawl) && !CRAWL_DONE.includes(String(crawlPhase || "")));
+  /**
+   * 服务端给出的执行结论（`progress`）。执行失败／未执行时把它显示出来：
+   * 只写「执行失败」而把「已有任务占用采集服务、本次并未启动」留在服务端，等于让员工猜。
+   */
+  const startReason = START_REASON_PHASES.has(startPhase)
+    ? String(startAction?.progress?.summary || "").trim()
+    : "";
   /** 这一页已经提交过（提交身份或本任务已有运行）。 */
   const submitted = Boolean(lastSubmit)
     || Boolean(activeRun && activeTaskId && activeRun.work_item_id === activeTaskId);
@@ -383,6 +412,11 @@ export default function useDiscovery({
           await loadExisting(activeRunId);
           return true;
         }
+        // 交付任务收尾且没有待落定的确认或采集：过程流不会再增长。
+        if (!crawlPending && lifecycleSettled(rows)) {
+          setPolling(false);
+          return true;
+        }
       } catch (error) {
         if (cancelled) return true;
         if (isMissingEndpoint(error)) {
@@ -411,7 +445,7 @@ export default function useDiscovery({
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTaskId, activeRun?.id, startPhase === "waiting_proposal"]);
+  }, [activeTaskId, activeRun?.id, startPhase, crawlPhase]);
 
   const toggleSelected = (id: string, on: boolean) => {
     setSelectedIds((current) => {
@@ -685,6 +719,8 @@ export default function useDiscovery({
     startAction,
     startPhase,
     crawlPhase,
+    crawlRunning,
+    startReason,
     startError,
     startBusy,
     confirmStart: () => void confirmStart(),

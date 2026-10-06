@@ -169,4 +169,61 @@ describe("AI发现中栏事件渲染契约", () => {
     expect(settled).toContain("data-discovery-run-empty");
     expect(settled).toContain("没有留下过程记录");
   });
+
+  it("offers the stop action only while the crawl itself is running", () => {
+    const running = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "running",
+      steps: [STEP("collecting", "正在采集")],
+      inFlight: true,
+      crawlState: "running",
+      canStop: true,
+      onStop: () => {},
+    }));
+    expect(running).toContain("data-discovery-run-stop");
+    expect(running).toContain("进行中");
+
+    // 交付任务在跑（polling 为真）、但确认被服务端拒了，采集从未启动：
+    // 不给停止入口，也不再声称进行中（图 2：上面写着执行失败，下面写着进行中）。
+    const neverStarted = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "running",
+      steps: [STEP("step", "任务开始处理")],
+      inFlight: true,
+      canStop: false,
+      onStop: () => {},
+    }));
+    expect(neverStarted).not.toContain("data-discovery-run-stop");
+    expect(neverStarted).toContain("尚未开始");
+    expect(neverStarted).toContain("未开始");
+    expect(neverStarted).not.toContain("进行中");
+    expect(neverStarted).not.toContain("已结束");
+  });
+
+  it("reads the collection state from the crawl job, not from the harness run", () => {
+    const succeeded = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "success",
+      steps: [STEP("collect_done", "采集完成")],
+      inFlight: false,
+      crawlState: "succeeded",
+    }));
+    expect(succeeded).toContain("已完成");
+
+    const stopped = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "running",
+      steps: [STEP("stopped", "采集已停止")],
+      inFlight: false,
+      crawlState: "cancelled",
+    }));
+    expect(stopped).toContain("已停止");
+  });
+
+  it("names the reason the start did not run instead of a bare 执行失败", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryConfirmCard, {
+      phase: "failed",
+      error: "",
+      blockedReason: "",
+      reason: "此前采集仍占用采集服务，本次启动未执行。请先核对已有任务的终态，再重新核对并确认启动。",
+    }));
+    expect(html).toContain("data-discovery-start-reason");
+    expect(html).toContain("本次启动未执行");
+  });
 });

@@ -1328,3 +1328,106 @@ test("service-down and filtered empty states stay honest", async ({ page }) => {
   await page.locator("[data-discovery-plan-action='connection']").click();
   await expect(page.locator("[data-discovery-plan-connection='ok']")).toContainText("采集服务：已连接");
 });
+
+/**
+ * 线上取证回归（2026-10-06 19:33–19:36 的真实会话）：
+ * - task_events 里 `run.started` 的 safe_summary 是技能 id `crawler_collect`，
+ *   早先被整条 blob 匹配 /crawl|采集/，于是员工还没确认就出现一条「正在采集」；
+ * - 交付任务收尾（run.completed）后过程流没有停表，⑥ 一直写「正在采集 / 进行中」，
+ *   与 ⑤ 的「执行失败」自相矛盾；
+ * - runtime.actions 是 created_at DESC，确认卡取的却是最旧一条，
+ *   于是「核对后重试」提出的新提案永远不显示，按钮看起来完全无效。
+ */
+const PREP_STREAM = [
+  { type: "run.started", status: "running", label: "任务开始处理", safe_summary: "crawler_collect", created_at: "2026-10-06T11:33:49.984Z" },
+  { type: "run.progress", status: "running", label: "加载任务规则", created_at: "2026-10-06T11:33:53.244Z" },
+  { type: "run.progress", status: "running", label: "整理结果", created_at: "2026-10-06T11:33:56.486Z" },
+  { type: "run.progress", status: "running", label: "校验输出", created_at: "2026-10-06T11:34:06.450Z" },
+  { type: "run.completed", status: "completed", label: "结果已生成", created_at: "2026-10-06T11:34:06.539Z" },
+];
+
+function rejectedBusyAction() {
+  return {
+    ...runtimeAction("rejected"),
+    error_code: "runtime_probe_crawl_busy",
+    execution: { id: "exec_disc_e2e", status: "failed", error_code: "runtime_probe_crawl_busy" },
+    progress: {
+      state: "rejected",
+      label: "采集未启动 · 已有任务占用",
+      summary: "此前采集仍占用采集服务，本次启动未执行。请先核对已有任务的终态，再重新核对并确认启动。",
+      replace_result: true,
+      result: { type: "task_result", title: "采集未启动 · 已有任务占用", summary: "", sections: [], metrics: [], recommended_actions: [] },
+    },
+    created_at: "2026-10-06T11:34:03.005Z",
+  };
+}
+
+test("the preparation trail never claims a collection before the employee confirms", async ({ page }) => {
+  await stubNoRuns(page);
+  await stubRuntimeActions(page, () => [{ ...runtimeAction("pending"), created_at: "2026-10-06T11:34:03.005Z" }]);
+  await stubDiscoverySubmit(page);
+  await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => route.fulfill({ json: { events: PREP_STREAM } }));
+
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+
+  const trail = page.locator('[data-discovery-event="run"]');
+  // 提交与准备阶段的记录如实转写（图 1 里那条 19:33:49「正在采集」就是这个事件）。
+  await expect(trail).toContainText("任务开始处理");
+  await expect(trail).toContainText("加载任务规则");
+  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("等待确认");
+  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("待确认");
+  await expect(trail).not.toContainText("正在采集");
+  await expect(trail).not.toContainText("进行中");
+  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
+  await expect(trail.locator('[data-discovery-step="collecting"]')).toHaveCount(0);
+});
+
+test("a confirm the server refused reads 未开始 in ⑥ instead of 进行中", async ({ page }) => {
+  await stubNoRuns(page);
+  await stubRuntimeActions(page, () => [rejectedBusyAction()]);
+  await stubDiscoverySubmit(page);
+  await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => route.fulfill({ json: { events: PREP_STREAM } }));
+
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+
+  // ⑤ 给出服务端结论与原因，不是光秃秃的「执行失败」。
+  const confirm = page.locator('[data-discovery-event="confirm"]');
+  await expect(confirm).toContainText("执行失败");
+  await expect(confirm.locator("[data-discovery-start-reason]")).toContainText("本次启动未执行");
+  await expect(confirm.locator("[data-discovery-start-retry]")).toBeEnabled();
+
+  // ⑥ 与 ⑤ 必须一致：采集从未启动，就不能写「正在采集 / 进行中」，也不能给停止入口。
+  const trail = page.locator('[data-discovery-event="run"]');
+  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("尚未开始");
+  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("未开始");
+  await expect(trail).not.toContainText("进行中");
+  await expect(trail).not.toContainText("已结束");
+  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
+});
+
+test("the newest proposal wins, so 核对后重试 shows a fresh 待确认 card", async ({ page }) => {
+  await stubNoRuns(page);
+  // 服务端 ORDER BY created_at DESC：最新在前。旧的一条已经失败，新的一条是刚提出的提案。
+  await stubRuntimeActions(page, () => [
+    { ...runtimeAction("pending"), id: "act_fresh", created_at: "2026-10-06T11:35:56.702Z", progress: null },
+    rejectedBusyAction(),
+  ]);
+  await stubDiscoverySubmit(page);
+  await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => route.fulfill({ json: { events: PREP_STREAM } }));
+  let retryPosts = 0;
+  await page.route("**/api/actions/runtime.crawl.retry", (route) => {
+    retryPosts += 1;
+    void route.fulfill({ json: { state: "pending" } });
+  });
+
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+
+  const confirm = page.locator('[data-discovery-event="confirm"]');
+  await expect(confirm).toContainText("待确认");
+  await expect(confirm.locator("[data-discovery-start-confirm]")).toBeEnabled();
+  await expect(confirm).not.toContainText("执行失败");
+  expect(retryPosts).toBe(0);
+});

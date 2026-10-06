@@ -153,6 +153,7 @@ export default function DiscoveryWorkspace({
               phase={disc.startPhase}
               error={disc.startError}
               blockedReason={disc.paramsStale ? "条件已修改，重新核对后才能确认采集。" : ""}
+              reason={disc.startReason}
               sessionHref={sessionHref}
               busy={disc.startBusy}
               onConfirm={disc.confirmStart}
@@ -167,6 +168,8 @@ export default function DiscoveryWorkspace({
               steps={disc.steps}
               inFlight={disc.inFlight}
               confirmed={disc.startPhase !== "waiting_proposal" && disc.startPhase !== "pending"}
+              crawlState={disc.crawlPhase}
+              canStop={disc.crawlRunning}
               stopping={disc.startBusy}
               onStop={disc.stopStart}
             />

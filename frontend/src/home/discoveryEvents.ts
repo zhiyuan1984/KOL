@@ -36,6 +36,25 @@ export type DiscoveryThink = {
 
 const FAILED_TYPES = /fail|error|cancel/;
 
+/**
+ * 只有采集服务自己的事件（`crawl.*` / `claw.*`）才是「正在采集」的依据。
+ * 交付任务（harness）的 `run.*` 承载的是准备过程，它的 safe_summary 常是技能 id
+ * （`crawler_collect`）：整条 blob 匹配 /crawl|采集/ 会把 `run.started`（「任务开始处理」）
+ * 写成「正在采集」，于是在员工确认之前，采集块就开始宣称远端在采集。
+ */
+const CRAWL_SCOPED = /^(crawl|claw)([._-]|$)/;
+/** 交付任务自己的过程行 → 过程状态行；如实转写它的标签，不冒充采集进度。 */
+const PREP_LABEL: Record<string, string> = {
+  "run.pending": "任务已加入队列",
+  "run.queued": "任务已加入队列",
+  "run.started": "任务开始处理",
+  "run.progress": "任务处理中",
+  "run.phase": "任务处理中",
+};
+const PREP_QUEUED = new Set(["run.pending", "run.queued"]);
+/** 交付任务自己的终态事件（`run.completed` / `run.failed`）不占过程行：它不是采集结果。 */
+const PREP_TERMINAL = new Set(["run.completed", "run.failed"]);
+
 function eventBlob(event: TaskEvent): string {
   return [
     event.type,
@@ -159,7 +178,7 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
   if (/queue|排队/.test(blob)) {
     return { id, kind: "queued", label: "排队" };
   }
-  if (/crawl|采集/.test(blob)) {
+  if (CRAWL_SCOPED.test(type)) {
     return { id, kind: "collecting", label: collectingLabel(count) };
   }
   if (/receiv|已收到|raw_count|got_\d|collected/.test(blob)) {
@@ -172,6 +191,13 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
   if (/search|keyword|开始搜索/.test(blob)) {
     return { id, kind: "search", label: "开始搜索关键词" };
   }
+  // 交付任务自己的准备过程：照它的原文显示。run.completed / run.failed 是这一轮
+  // 任务的收尾（不是采集结果），只用于判断过程流是否还会增长，不进过程行。
+  if (PREP_LABEL[type]) {
+    const label = String(event.label || event.title || "").trim();
+    return { id, kind: PREP_QUEUED.has(type) ? "queued" : "step", label: label || PREP_LABEL[type] };
+  }
+  if (PREP_TERMINAL.has(type)) return null;
   if (type === "run.step") {
     const label = String(event.label || event.title || "").trim();
     return { id, kind: "step", label: label || "处理中" };

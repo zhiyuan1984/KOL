@@ -29,6 +29,16 @@ describe("discovery start phase", () => {
     expect(discoveryStartAction([first, second])?.id).toBe("act_2");
   });
 
+  it("picks the newest proposal when the server answers newest-first", () => {
+    // GET /api/queries/runtime.actions 是 ORDER BY created_at DESC（最新在前）。
+    // 早先取 starts[length-1] 拿到的其实是最旧的一条：员工点「核对后重试」后
+    // 服务端确实提出了新提案，确认卡却一直显示那条旧动作，按钮看着完全无效（图 2/图 3）。
+    const stale = action({ id: "act_stale", state: "rejected", created_at: "2026-10-06T11:34:03.000Z" });
+    const fresh = action({ id: "act_fresh", state: "pending", created_at: "2026-10-06T11:35:56.000Z" });
+    expect(discoveryStartAction([fresh, stale])?.id).toBe("act_fresh");
+    expect(discoveryStartAction([stale, fresh])?.id).toBe("act_fresh");
+  });
+
   it("waits for the proposal before anything is confirmed", () => {
     expect(discoveryStartPhase(null, false)).toBe("waiting_proposal");
   });
