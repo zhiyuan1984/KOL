@@ -50,6 +50,18 @@ export default function SkillTemplateContext({
           <h2>输出说明</h2>
           <p>{outputTitle}</p>
         </section>
+        {template.evidence?.length ? (
+          <section data-skill-template-evidence>
+            <h2>结果依据</h2>
+            <ul>{template.evidence.map((item) => <li key={item}>{item}</li>)}</ul>
+          </section>
+        ) : null}
+        {template.decisions?.length ? (
+          <section data-skill-template-decisions>
+            <h2>需要你决定</h2>
+            <ul>{template.decisions.map((item) => <li key={item}>{item}</li>)}</ul>
+          </section>
+        ) : null}
       </div>
       {noRequiredInputs ? <p className="skill-template-no-required" data-skill-template-no-required>{NO_REQUIRED_INPUTS_COPY}</p> : null}
       {showOptionalInputs && optionalInputs.length ? (
@@ -64,6 +76,12 @@ export default function SkillTemplateContext({
         <details className="skill-template-constraints">
           <summary>使用边界</summary>
           <ul>{template.constraints.map((constraint) => <li key={constraint}>{constraint}</li>)}</ul>
+        </details>
+      ) : null}
+      {template.recovery?.length ? (
+        <details className="skill-template-constraints" data-skill-template-recovery>
+          <summary>异常与恢复</summary>
+          <ul>{template.recovery.map((item) => <li key={item}>{item}</li>)}</ul>
         </details>
       ) : null}
     </section>

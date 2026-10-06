@@ -76,6 +76,9 @@ export type TaskInteraction = {
   steps: string[];
   output_title: string;
   constraints: string[];
+  evidence?: string[];
+  decisions?: string[];
+  recovery?: string[];
 };
 
 export type TaskDefinition = {
@@ -489,7 +492,7 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
       throw new Error(`manifest interaction must be an object: ${file}`);
     }
     const raw = values.interaction as Record<string, unknown>;
-    if (Object.keys(raw).some((key) => !["purpose", "steps", "output_title", "constraints"].includes(key))) {
+    if (Object.keys(raw).some((key) => !["purpose", "steps", "output_title", "constraints", "evidence", "decisions", "recovery"].includes(key))) {
       throw new Error(`manifest interaction contains an unsupported field: ${file}`);
     }
     for (const key of ["purpose", "output_title"] as const) {
@@ -499,13 +502,20 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     }
     const steps = stringArray(raw.steps, "interaction.steps", file);
     const constraints = stringArray(raw.constraints, "interaction.constraints", file);
+    const evidence = raw.evidence === undefined ? [] : stringArray(raw.evidence, "interaction.evidence", file);
+    const decisions = raw.decisions === undefined ? [] : stringArray(raw.decisions, "interaction.decisions", file);
+    const recovery = raw.recovery === undefined ? [] : stringArray(raw.recovery, "interaction.recovery", file);
     if (!steps.length || steps.length > 12 || constraints.length > 12
       || [...steps, ...constraints].some((text) => text.length > 1000)) {
       throw new Error(`manifest interaction steps/constraints exceed bounds or steps are missing: ${file}`);
     }
     // No second list of inputs in the template: it must reuse the execution schema.
     if (!Array.isArray(values.input_schema)) throw new Error(`manifest interaction requires input_schema: ${file}`);
-    interaction = Object.freeze({ purpose: String(raw.purpose), steps, output_title: String(raw.output_title), constraints });
+    if ([...evidence, ...decisions, ...recovery].length > 18
+      || [...evidence, ...decisions, ...recovery].some((text) => text.length > 1000)) {
+      throw new Error(`manifest interaction evidence/decisions/recovery exceed bounds: ${file}`);
+    }
+    interaction = Object.freeze({ purpose: String(raw.purpose), steps, output_title: String(raw.output_title), constraints, evidence, decisions, recovery });
   }
   for (const field of REQUIRED) {
     if (!(field in values)) throw new Error(`manifest missing ${field}: ${file}`);
