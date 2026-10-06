@@ -39,6 +39,7 @@ export default function PlusMenu({
   expertId,
   experts,
   expertsLoaded,
+  knowledgeLoaded,
 }: {
   open: boolean;
   onClose: () => void;
@@ -55,6 +56,8 @@ export default function PlusMenu({
   expertId: string;
   experts: Expert[];
   expertsLoaded: boolean;
+  /** 技能与数字员工同批加载，知识库单独加载；未到达前分组显示加载中，菜单不会先窄后宽。 */
+  knowledgeLoaded: boolean;
 }) {
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -120,7 +123,16 @@ export default function PlusMenu({
         })),
       ],
     });
-    // 技能还在异步加载时不要留一个空分组（连「查看全部技能」也一起省掉）。
+    // 技能加载完成但为空时不留空分组（连「查看全部技能」也一起省掉）；加载中则先占好分组，
+    // 写明正在加载，避免菜单先只有「文件」再长高。
+    const loadingRow = (id: string, icon: MenuKind, label: string): PlusRow => ({
+      key: `${id}-loading`,
+      icon,
+      label,
+      disabled: true,
+      attrs: { "data-composer-menu-loading": id },
+      run: () => undefined,
+    });
     const skillRows = [...recentSkills, ...rest].map(skillRow);
     if (skillRows.length) {
       next.push({
@@ -134,6 +146,8 @@ export default function PlusMenu({
           </Link>
         ),
       });
+    } else if (!expertsLoaded) {
+      next.push({ id: "skills", label: "技能", rows: [loadingRow("skills", "skills", "正在加载技能…")] });
     }
     if (knowledgeLibs.length) {
       next.push({
@@ -148,8 +162,12 @@ export default function PlusMenu({
           run: () => onPickKb(row),
         })),
       });
+    } else if (!knowledgeLoaded) {
+      next.push({ id: "kb", label: "知识库", rows: [loadingRow("kb", "kb", "正在加载知识库…")] });
     }
-    if (expertsLoaded) {
+    if (!expertsLoaded) {
+      next.push({ id: "experts", label: "数字员工", rows: [loadingRow("experts", "expert", "正在加载数字员工…")] });
+    } else {
       next.push({
         id: "experts",
         label: "数字员工",
@@ -180,6 +198,7 @@ export default function PlusMenu({
     experts,
     expertsLoaded,
     knowledgeLibs,
+    knowledgeLoaded,
     onPickExpert,
     onPickKb,
     onPickSkill,

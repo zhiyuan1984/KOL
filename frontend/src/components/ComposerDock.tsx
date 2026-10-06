@@ -268,14 +268,37 @@ export default function ComposerDock({
   }, [objectChipSignature]);
 
   // 技能目录由添加菜单或 @ / / 候选触发；预填文本和已知意图无需预读整份目录。
-  const catalogsNeeded = plusOpen
-    || picker
-    || Boolean(triggerQuery(value, value.length));
+  // 指针移到「+」上就预取，菜单打开时已有数据；每次打开或出现候选仍刷新一次，
+  // 但不打断在途请求，刷新期间继续展示上一份数据。
+  const catalogTriggered = picker || Boolean(triggerQuery(value, value.length));
+  const [catalogRefresh, setCatalogRefresh] = useState(0);
+  const [menuRefresh, setMenuRefresh] = useState(0);
+  const catalogInFlight = useRef(false);
+  const menuInFlight = useRef(false);
+  const [knowledgeLoaded, setKnowledgeLoaded] = useState(false);
+
+  const prefetchMenu = () => {
+    setCatalogRefresh((n) => n || 1);
+    setMenuRefresh((n) => n || 1);
+  };
+
+  const togglePlus = () => {
+    if (!plusOpen) {
+      if (!catalogInFlight.current) setCatalogRefresh((n) => n + 1);
+      if (!menuInFlight.current) setMenuRefresh((n) => n + 1);
+    }
+    setPlusOpen(!plusOpen);
+  };
 
   useEffect(() => {
-    if (!catalogsNeeded) return;
+    if (catalogTriggered && !catalogInFlight.current) setCatalogRefresh((n) => n + 1);
+  }, [catalogTriggered]);
+
+  useEffect(() => {
+    if (!catalogRefresh) return;
     let cancelled = false;
     const controller = new AbortController();
+    catalogInFlight.current = true;
     const load = async () => {
       const [[mine, market], expertRows] = await Promise.all([
         Promise.all([
@@ -313,14 +336,20 @@ export default function ComposerDock({
         setExperts([]);
         setExpertsLoaded(true);
       }
+    }).finally(() => {
+      if (!cancelled) catalogInFlight.current = false;
     });
     api.skillTemplates(controller.signal).then((rows) => {
       if (!cancelled && Array.isArray(rows)) setSkillTemplates(rows);
     }).catch(() => {
       if (!cancelled) setSkillTemplates([]);
     });
-    return () => { cancelled = true; controller.abort(); };
-  }, [catalogsNeeded]);
+    return () => {
+      cancelled = true;
+      catalogInFlight.current = false;
+      controller.abort();
+    };
+  }, [catalogRefresh]);
 
   const mailTemplatesNeeded = plusOpen || Boolean(lockedKnowledgeId)
     || lockedLabel === "写合作邮件" || value.includes("写合作邮件");
@@ -340,10 +369,11 @@ export default function ComposerDock({
   }, [mailTemplatesNeeded]);
 
   useEffect(() => {
-    if (!plusOpen) return;
+    if (!menuRefresh) return;
     let cancelled = false;
     const controller = new AbortController();
-    Promise.all([
+    menuInFlight.current = true;
+    const knowledge = Promise.all([
       fetch("/api/knowledge", { signal: controller.signal }).then((r) => r.ok ? r.json() : []),
       fetch("/api/knowledge/market", { signal: controller.signal }).then((r) => r.ok ? r.json() : []).catch(() => []),
     ]).then(([mine, market]) => {
@@ -362,14 +392,28 @@ export default function ComposerDock({
         });
       }
       setKnowledgeLibs([...map.values()]);
+      setKnowledgeLoaded(true);
     }).catch(() => {
-      if (!cancelled) setKnowledgeLibs([]);
+      if (!cancelled) {
+        setKnowledgeLibs([]);
+        setKnowledgeLoaded(true);
+      }
+    });
+    const recent = fetch("/api/files/recent?limit=12", { signal: controller.signal })
+      .then((r) => r.ok ? r.json() : [])
+      .then((fileRows) => {
+        if (!cancelled && Array.isArray(fileRows)) setRecentFiles(fileRows);
+      })
+      .catch(() => undefined);
+    void Promise.allSettled([knowledge, recent]).then(() => {
+      if (!cancelled) menuInFlight.current = false;
     });
     return () => {
       cancelled = true;
+      menuInFlight.current = false;
       controller.abort();
     };
-  }, [plusOpen]);
+  }, [menuRefresh]);
 
   useEffect(() => {
     if (!selectedSkillId) return;
@@ -400,18 +444,6 @@ export default function ComposerDock({
     lockSourceRef.current = "auto";
     onKnowledgeChangeRef.current?.(picked);
   }, [lockedKnowledgeId, lockedLabel, templates, stageCode, value]);
-
-  useEffect(() => {
-    if (!plusOpen) return;
-    const controller = new AbortController();
-    fetch("/api/files/recent?limit=12", { signal: controller.signal })
-      .then((r) => r.ok ? r.json() : [])
-      .then((fileRows) => {
-        if (Array.isArray(fileRows)) setRecentFiles(fileRows);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [plusOpen]);
 
   useEffect(() => {
     if (!plusOpen) return;
@@ -1258,7 +1290,9 @@ export default function ComposerDock({
               title="添加资料"
               disabled={busy || running}
               aria-expanded={plusOpen}
-              onClick={() => setPlusOpen((v) => !v)}
+              onPointerEnter={prefetchMenu}
+              onFocus={prefetchMenu}
+              onClick={togglePlus}
             >
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
                 <path
@@ -1298,6 +1332,7 @@ export default function ComposerDock({
               expertId={expertId}
               experts={experts}
               expertsLoaded={expertsLoaded}
+              knowledgeLoaded={knowledgeLoaded}
             />
           </div>
           {discoveryLocked && onClearDiscoveryLock ? (

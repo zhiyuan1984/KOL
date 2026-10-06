@@ -258,6 +258,71 @@ test("session PromptInput stays at the thread foot with the same tokens", async 
   await page.keyboard.press("Escape");
 });
 
+const MENU_CATALOG_PATHS = ["/api/skills", "/api/skills/market", "/api/experts", "/api/knowledge", "/api/knowledge/market"];
+
+async function holdMenuCatalogs(page: Page) {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route((url) => MENU_CATALOG_PATHS.includes(url.pathname), async (route) => {
+    await gate;
+    await route.continue();
+  });
+  return () => release();
+}
+
+test("+ menu opens once with every group even while catalogs are still loading", async ({ page }) => {
+  const release = await holdMenuCatalogs(page);
+  await page.goto("/");
+  const plus = page.locator("[data-home] [data-attach]");
+  await expect(plus).toBeVisible();
+
+  await plus.click();
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  await expect(menu).toBeVisible();
+  await expect(plus).toHaveAttribute("aria-expanded", "true");
+  const sections = menu.locator("[data-menu-section]");
+  await expect(sections).toHaveCount(4);
+  expect(await sections.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-menu-section"))))
+    .toEqual(["文件", "技能", "知识库", "数字员工"]);
+  await expect(menu.locator('[data-composer-menu-loading="skills"]')).toHaveText(/正在加载技能/);
+  await expect(menu.locator('[data-composer-menu-loading="skills"]')).toBeDisabled();
+  await expect(menu.locator('[data-composer-menu-loading="kb"]')).toHaveText(/正在加载知识库/);
+  await expect(menu.locator('[data-composer-menu-loading="experts"]')).toHaveText(/正在加载数字员工/);
+
+  release();
+  await expect(menu.locator("[data-composer-menu-loading]")).toHaveCount(0);
+  await expect(menu.locator('[data-skill-option="email_compose"]')).toBeVisible();
+  await expect(menu.locator("[data-expert-option], [data-expert-empty]").first()).toBeVisible();
+});
+
+test("+ menu prefetches on hover so the first open already shows the full catalog", async ({ page }) => {
+  await page.goto("/");
+  const plus = page.locator("[data-home] [data-attach]");
+  await expect(plus).toBeVisible();
+  const prefetched = MENU_CATALOG_PATHS.map((path) => page
+    .waitForResponse((response) => new URL(response.url()).pathname === path)
+    .then((response) => response.finished()));
+  await plus.hover();
+  await Promise.all(prefetched);
+
+  await plus.click();
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  await expect(menu).toBeVisible();
+  const first = await menu.evaluate((el) => ({
+    loading: el.querySelectorAll("[data-composer-menu-loading]").length,
+    skills: el.querySelectorAll("[data-skill-option]").length,
+  }));
+  expect(first.skills).toBeGreaterThan(0);
+  expect(first.loading).toBe(0);
+
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await plus.click();
+  await expect(menu).toBeVisible();
+  expect(await menu.locator("[data-skill-option]").count()).toBeGreaterThan(0);
+  await expect(menu.locator("[data-composer-menu-loading]")).toHaveCount(0);
+});
+
 test("settings fields keep a MASTER focus ring and login error-summary uses defined tokens", async ({ page }) => {
   await page.goto("/settings");
   const input = page.locator(".field input").first();

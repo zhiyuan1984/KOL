@@ -128,7 +128,7 @@
 |---|---|---|---|
 | ChipRail | [`frontend/src/composer/ChipRail.tsx`](../frontend/src/composer/ChipRail.tsx) | 提问框上方的芯片轨道：逐条展示已附加的技能、知识库、专家、项目与附件，支持移除该芯片或把它插回正文光标处。 | —（无直接接口） |
 | ModelTierControl | [`frontend/src/composer/ModelTierControl.tsx`](../frontend/src/composer/ModelTierControl.tsx) | 工具栏里的回答档位选择器：在快速、均衡、高质量三档间切换，并把档位写入本地偏好供提问框随提交带上。 | —（无直接接口） |
-| PlusMenu | [`frontend/src/composer/PlusMenu.tsx`](../frontend/src/composer/PlusMenu.tsx) | 提问框「＋」菜单：按文件、技能、知识库、数字员工分组检索并选取本次提问要加入的资料；数字员工来自项目真实目录（无可执行智能体时显示空状态），写技能按后端回执要求标注需确认，项目分组不再展示。 | —（无直接接口） |
+| PlusMenu | [`frontend/src/composer/PlusMenu.tsx`](../frontend/src/composer/PlusMenu.tsx) | 提问框「＋」菜单：按文件、技能、知识库、数字员工分组检索并选取本次提问要加入的资料；数字员工来自项目真实目录（无可执行智能体时显示空状态），写技能按后端回执要求标注需确认，项目分组不再展示；技能、知识库、数字员工尚未加载完成时分组照常出现并显示「正在加载…」占位行，菜单一次出完整结构。 | —（无直接接口） |
 
 ### 2.4 `home/` 首页工作台组件
 
@@ -460,7 +460,7 @@
 | VersionDiff | [`frontend/src/components/VersionDiff.tsx`](../frontend/src/components/VersionDiff.tsx) | 只读版本对比：逐项对照标题、主题、品牌、语言、适用阶段，并对中英文正文做行级 diff 标注增删行。 | 左右两个版本对象由父组件以 props 传入，本组件不取数；每侧正文最多对比前 400 行。 |
 | ChipRail | [`frontend/src/composer/ChipRail.tsx`](../frontend/src/composer/ChipRail.tsx) | 提问框上方的芯片轨道：逐条展示已附加的技能、知识库、专家、项目与附件，支持移除该芯片或把它插回正文光标处。 | 纯受控展示组件：chips 数组与 onRemove/onInsert 回调都由 ComposerDock 传入，组件自身不调用任何接口；附件芯片的「已上传」与体积文案只取自传入数据。 |
 | ModelTierControl | [`frontend/src/composer/ModelTierControl.tsx`](../frontend/src/composer/ModelTierControl.tsx) | 工具栏里的回答档位选择器：在快速、均衡、高质量三档间切换，并把档位写入本地偏好供提问框随提交带上。 | 无接口调用：档位经 localStorage 读写并用 MODEL_TIER_EVENT 广播给提问框；面板内「更多设置…」链接跳转 /settings?tab=preferences。 |
-| PlusMenu | [`frontend/src/composer/PlusMenu.tsx`](../frontend/src/composer/PlusMenu.tsx) | 提问框「＋」菜单：按文件、技能、知识库、数字员工分组检索并选取本次提问要加入的资料；数字员工来自项目真实目录（无可执行智能体时显示空状态），写技能按后端回执要求标注需确认，项目分组不再展示。 | 无接口调用：技能、知识库、最近文件、已选技能与数字员工均由 ComposerDock 经 props 传入（数字员工来自 /api/experts），仅从 localStorage 读取最近使用技能；「查看全部技能」链接跳转 /skills。 |
+| PlusMenu | [`frontend/src/composer/PlusMenu.tsx`](../frontend/src/composer/PlusMenu.tsx) | 提问框「＋」菜单：按文件、技能、知识库、数字员工分组检索并选取本次提问要加入的资料；数字员工来自项目真实目录（无可执行智能体时显示空状态），写技能按后端回执要求标注需确认，项目分组不再展示；技能、知识库、数字员工尚未加载完成时分组照常出现并显示「正在加载…」占位行，菜单一次出完整结构。 | 无接口调用：技能、知识库、最近文件、已选技能与数字员工均由 ComposerDock 经 props 传入（数字员工来自 /api/experts），仅从 localStorage 读取最近使用技能；「查看全部技能」链接跳转 /skills。 |
 | BoardRow | [`frontend/src/home/BoardRow.tsx`](../frontend/src/home/BoardRow.tsx) | 统一任务表格行：显示序号、优先级、标题、why 说明与状态/风险标签，并提供打开任务和编辑入口。 | 单行任务由 TaskBoard 经 props 传入；打开与编辑只上抛 onAct/onEdit 回调，由页面决定后续接口。 |
 | ClaimFollowConfirm | [`frontend/src/home/ClaimFollowConfirm.tsx`](../frontend/src/home/ClaimFollowConfirm.tsx) | 公海对象行内的 L3 领取确认条：说明领取只建立我的跟进、不发信也不改阶段，并提供确认、取消与失败提示。 | 纯 props 驱动：card/busy/error 与 onConfirm/onCancel 由 PoolPane 再向上由 Home 传入；领取上游为 kolSurfaceApi.claimPoolKol（ POST /api/kols/${encodeURIComponent(kolUid)}/claim ）。本文件不调接口。 |
 | DiscoveryAiSummary | [`frontend/src/home/DiscoveryAiSummary.tsx`](../frontend/src/home/DiscoveryAiSummary.tsx) | 右栏 AI 摘要：用真实运行状态给出标题、状态、原始与入围计数及主要结论，失败时提供重试与技术详情。 | run、failure、emptyKind/emptyMessage 与 connection 均由 DiscoveryResultPane 传入（run 来自 GET /api/home/discovery/runs/${runId}，连接状态来自 GET /api/discovery/connection）；重试与「检查采集服务」只触发父级回调。本文件不取数，结论文案全部由已有运行/候选状态推导，技术详情点开才显示。 |
