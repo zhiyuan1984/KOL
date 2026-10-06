@@ -19,7 +19,7 @@ describe("skillFillText", () => {
   });
 
   it("falls back to the label for a skill without a registered starter", () => {
-    expect(skillFillText({ id: "sop_published", title: "已发布阶段 SOP" })).toBe("已发布阶段 SOP");
+    expect(skillFillText({ id: "stage_sop", title: "阶段 SOP" })).toBe("阶段 SOP");
   });
 
   it("prefers a skill template starter over the legacy registry", () => {

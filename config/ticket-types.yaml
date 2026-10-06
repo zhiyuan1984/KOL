@@ -42,13 +42,7 @@
           "kol_analyze",
           "creator_risk_conversations",
           "creator_scoring",
-          "stage_sop",
-          "sop_initial_contact",
-          "sop_interested",
-          "sop_evaluating",
-          "sop_negotiating",
-          "sop_quote_pending",
-          "sop_plan_pending"
+          "stage_sop"
         ]
       },
       "clauses": ["BIZ-05", "BIZ-06", "BIZ-16"],
@@ -59,17 +53,7 @@
       "name": "履约交付工单",
       "desc": "合同、寄样、测试、内容与结算全链的履约交付工作（阶段 SOP 覆盖段）。",
       "match": {
-        "task_type": [
-          "sop_contracting",
-          "sop_sample_pending",
-          "sop_shipped",
-          "sop_testing",
-          "sop_content_planning",
-          "sop_content_review",
-          "sop_publish_pending",
-          "sop_published",
-          "sop_settling"
-        ]
+        "task_type": []
       },
       "clauses": ["BIZ-08", "BIZ-09", "BIZ-15"],
       "source_ref": "Skill 清单 §二（内容/寄样/结算族技能）；stage-transitions §1"

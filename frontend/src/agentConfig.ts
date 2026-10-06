@@ -45,7 +45,7 @@ export const SKILL_REMOTE: Record<string, RemoteBackend> = {
 };
 
 export function remoteForSkill(skillId: string): RemoteBackend {
-  if (skillId.startsWith("sop_") || skillId === "stage_sop") return "host";
+  if (skillId === "stage_sop") return "host";
   return SKILL_REMOTE[skillId] || "host";
 }
 

@@ -763,7 +763,7 @@ test.describe("技能详情列（第四栏）", () => {
     // 页面里不再有手抄的入口口径表：两段文字必须**逐字**来自技能文件（经接口带出）。
     type SkillJson = { id: string; employee_quick?: string | null; employee_agent?: string | null };
     const rows = (await (await page.request.get("/api/skills")).json()) as SkillJson[];
-    const probes = ["creator_library_all", "creator_outreach", "sop_settling"];
+    const probes = ["creator_library_all", "creator_outreach", "stage_sop"];
     const sectionValue = (label: string) =>
       page.locator("[data-skill-detail]")
         .locator(".skill-detail-section", { hasText: label })

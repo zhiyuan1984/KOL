@@ -24,10 +24,10 @@ import { judgeCollaborationStage, type StageJudgmentInput } from "../stage-judgm
 import { requireTaskDefinition } from "../tasks/registry.js";
 import { planningHarnessMount } from "../host/today-plan-context.js";
 import { expenseFactsFromWorkerItem, hintRequesterFromOrg, readExpenseFactsFromText } from "../approval/plan.js";
-import { isSopSkill, isStageSopSkill } from "../sops.js";
+import { isStageSopSkill } from "../sops.js";
 import { isEmailMcpTask } from "../starrykol/service.js";
 import { isKolClawTask } from "../kolclaw/service.js";
-import { collectDealMemoryItems, collectSopItems, collectStageSopItems, completeTurnItems } from "./session-items.js";
+import { collectDealMemoryItems, collectStageSopItems, completeTurnItems } from "./session-items.js";
 import type { WorkerProgress } from "./progress.js";
 
 function attachmentNames(value: unknown): string[] {
@@ -420,7 +420,6 @@ async function produceItems(
   if (isStageSopSkill(skill)) {
     return collectStageSopItems(String(extra.stage_code || extra.stage || col.stage_code || "INITIAL_CONTACT"), String(handle || col.handle || extra.handle || ""));
   }
-  if (isSopSkill(skill)) return collectSopItems(skill);
   if (isEmailMcpTask(skill) || isKolClawTask(skill)) {
     return completeTurnItems(skill, extra, [], log, onProgress);
   }

@@ -47,10 +47,11 @@ afterEach(() => {
 });
 
 describe("manifest task registry", () => {
-  it("loads complete, unique and read-only definitions including 15 SOPs", () => {
+  it("loads complete, unique and read-only definitions without the retired per-stage SOPs", () => {
     const definitions = taskDefinitions();
     expect(definitions.length).toBe(SKILL_CATALOG.length);
-    expect(definitions.filter((row) => row.id.startsWith("sop_"))).toHaveLength(15);
+    expect(definitions.filter((row) => row.id.startsWith("sop_"))).toHaveLength(0);
+    expect(definitions.some((row) => row.id === "stage_sop")).toBe(true);
     expect(new Set(definitions.map((definition) => definition.id)).size).toBe(definitions.length);
     for (const definition of definitions) {
       expect(path.basename(path.dirname(definition.path))).toBe(definition.id);

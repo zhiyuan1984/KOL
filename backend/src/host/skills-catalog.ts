@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import { getConn } from "../db.js";
-import { sopFunnelId, SOP_PACKS } from "../sops.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 
 export type FunnelId = "reach" | "intent" | "biz" | "sample" | "content" | "settle" | "exception";
@@ -48,7 +47,6 @@ const FUNNEL_BY_ID: Record<string, FunnelId> = {
   creator_risk_conversations: "exception",
   creator_budget_report: "settle",
   risk_scan: "exception",
-  ...Object.fromEntries(SOP_PACKS.map((pack) => [pack.skill_id, sopFunnelId(pack.stage_code)])),
 };
 
 export function skillFunnelId(id: string, category?: string, funnel?: string): FunnelId {

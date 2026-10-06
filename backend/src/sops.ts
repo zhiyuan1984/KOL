@@ -6,7 +6,6 @@ export const SOP_VERSION = "2026-09-08.1";
 export type SopPack = {
   sop_id: string;
   version: string;
-  skill_id: string;
   stage_code: string;
   stage_label: string;
   domain: CapabilityDomain | null;
@@ -101,7 +100,6 @@ export const SOP_PACKS: SopPack[] = MAIN_STAGES.map((stage) => {
   return {
     sop_id: stage.code,
     version: SOP_VERSION,
-    skill_id: `sop_${stage.code.toLowerCase()}`,
     stage_code: stage.code,
     stage_label: stage.label,
     domain: stage.domain,
@@ -114,16 +112,8 @@ export const SOP_PACKS: SopPack[] = MAIN_STAGES.map((stage) => {
   };
 });
 
-export function sopPackBySkill(skillId: string): SopPack | undefined {
-  return SOP_PACKS.find((row) => row.skill_id === skillId);
-}
-
 export function sopPackByStage(stageCode: string): SopPack | undefined {
   return SOP_PACKS.find((row) => row.stage_code === stageCode);
-}
-
-export function isSopSkill(value: string | null | undefined): boolean {
-  return Boolean(value && sopPackBySkill(value));
 }
 
 export const SOP_PHASES = [
@@ -305,16 +295,7 @@ export function isStageSopSkill(value: string | null | undefined): boolean {
 }
 
 export function isSopDisplaySkill(value: string | null | undefined): boolean {
-  return isSopSkill(value) || isStageSopSkill(value);
-}
-
-export function sopFunnelId(stageCode: string): "reach" | "intent" | "biz" | "sample" | "content" | "settle" {
-  if (stageCode === "INITIAL_CONTACT") return "reach";
-  if (stageCode === "INTERESTED" || stageCode === "EVALUATING") return "intent";
-  if (stageCode === "QUOTE_PENDING" || stageCode === "NEGOTIATING" || stageCode === "PLAN_PENDING" || stageCode === "CONTRACTING") return "biz";
-  if (stageCode === "SAMPLE_PENDING" || stageCode === "SHIPPED" || stageCode === "TESTING") return "sample";
-  if (stageCode === "SETTLING") return "settle";
-  return "content";
+  return isStageSopSkill(value);
 }
 
 export function profileForDomain(domain: CapabilityDomain | null): "lead" | "opportunity" | "negotiation" | "execution" | "settlement-growth" {
