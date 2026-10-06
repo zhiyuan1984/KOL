@@ -18,13 +18,14 @@ export function KpiCard({ label, value, delta = null, deltaUnit = "%", trend, re
   const hasDelta = !realtime && delta != null && Number.isFinite(delta);
   const deltaUp = (delta || 0) > 0;
   const good = invertedGood ? !deltaUp : deltaUp;
-  const deltaText = !hasDelta ? "—" : `${deltaUp ? "▲" : "▼"} ${Math.abs(delta || 0).toFixed(deltaUnit === "pp" ? 1 : 0)}${deltaUnit}`;
-  return <article className={`task-kpi-card${active ? " is-active" : ""}${flash ? " is-flashing" : ""}`}>
-    <button type="button" className="task-kpi-button" onClick={onClick} aria-pressed={Boolean(active)}>
-      <span className="task-kpi-label">{label}</span>{alert ? <i className="task-kpi-alert" aria-label="存在异常" /> : null}
-      <strong>{value}</strong>
-      <span className={`task-kpi-delta${hasDelta ? (good ? " is-good" : " is-bad") : ""}`}>{realtime ? "4 秒前更新" : deltaText}</span>
-      <Sparkline values={trend} label={`${label}趋势`} />
-    </button>
+  const deltaText = !hasDelta ? "—" : `${deltaUp ? "▲" : "▼"} ${Math.abs(delta || 0).toFixed(deltaUnit === "pp" || deltaUnit === "h" ? 1 : 0)}${deltaUnit}`;
+  const content = <>
+    <span className="task-kpi-label">{label}</span>{alert ? <i className="task-kpi-alert" aria-label="存在异常" /> : null}
+    <strong>{value}</strong>
+    <span className={`task-kpi-delta${hasDelta ? (good ? " is-good" : " is-bad") : ""}`}>{realtime ? "4 秒前更新" : deltaText}</span>
+    <Sparkline values={trend} label={`${label}趋势`} />
+  </>;
+  return <article className={`task-kpi-card${onClick ? " is-interactive" : ""}${active && onClick ? " is-active" : ""}${flash ? " is-flashing" : ""}`}>
+    {onClick ? <button type="button" className="task-kpi-button" onClick={onClick} aria-pressed={Boolean(active)}>{content}</button> : <div className="task-kpi-content">{content}</div>}
   </article>;
 }

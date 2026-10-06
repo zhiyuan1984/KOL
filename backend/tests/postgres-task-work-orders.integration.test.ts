@@ -179,7 +179,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
 
     const dashboard = await taskWorkOrderDashboard(actor.id, false, { limit: 1 });
     expect(dashboard).toMatchObject({
-      report_version: "task-work-order-dashboard.v2",
+      report_version: "task-work-order-dashboard.v2.1",
       scope: "personal_authorized",
       summary: {
         tasks: { total: 2, open: 2, blocked: 1, waiting_review: 1, completed: 0 },
@@ -209,10 +209,59 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     const response = await withTicketPrincipal(actor, () => tickets.fetch(new Request("http://test.local/task-work-orders/dashboard?limit=1")));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      report_version: "task-work-order-dashboard.v2",
+      report_version: "task-work-order-dashboard.v2.1",
       summary: { work_orders: { automatic_created: 2, automatic_assigned: 1 } },
       tasks: { page: { limit: 1, total: 2 } },
     });
+  });
+
+  it("uses creation or completion time for a period, derives duration from completions, and scopes template completions", async () => {
+    const actor = await syncWorkbenchTicketPrincipal({
+      id: "u-dashboard-period", username: "dashboard_period", name: "Dashboard Period", email: "dashboard-period@example.test", roles: ["employee"], active: true,
+    });
+    const created = await createTaskRootPostgres(actor.id, { title: "本期处理中", goal: "按创建时间计入", idempotency_key: "period-created" });
+    const completed = await createTaskRootPostgres(actor.id, { title: "本期完成", goal: "按完成时间计入", idempotency_key: "period-completed" });
+    const updatedOnly = await createTaskRootPostgres(actor.id, { title: "仅本期更新", goal: "不应因更新时间计入", idempotency_key: "period-updated" });
+    const queued = await createTaskRootPostgres(actor.id, { title: "本期待启动", goal: "不应计入进行中", idempotency_key: "period-queued" });
+    const waiting = await createTaskRootPostgres(actor.id, { title: "本期等待确认", goal: "应计入进行中", idempotency_key: "period-waiting" });
+    await postgresPool().query(
+      `UPDATE tickets
+       SET created_at=(now()-interval '2 days')::text, updated_at=(now()-interval '2 days')::text, completed_at=now()::text, status='completed'
+       WHERE id=$1`,
+      [completed.task_id],
+    );
+    await postgresPool().query(
+      `UPDATE tickets
+       SET created_at=(now()-interval '2 days')::text, updated_at=(now()-interval '2 days')::text, status='in_progress'
+       WHERE id=$1`,
+      [updatedOnly.task_id],
+    );
+    await postgresPool().query("UPDATE tickets SET status='in_progress' WHERE id=$1", [created.task_id]);
+    await postgresPool().query("UPDATE tickets SET status='queued' WHERE id=$1", [queued.task_id]);
+    await postgresPool().query("UPDATE tickets SET status='waiting' WHERE id=$1", [waiting.task_id]);
+    await postgresPool().query(
+      `INSERT INTO work_order_templates
+       (id,template_code,version,title,description,status,automation_level,created_by)
+       VALUES ('tpl-period-v1','period_scope',1,'周期范围','验证周期完成数','published','A1',$1)`,
+      [actor.id],
+    );
+    await postgresPool().query(
+      `INSERT INTO work_orders
+       (id,task_id,template_id,template_code,template_version,status,priority,title,objective,automation_level,created_by,created_at,updated_at,completed_at)
+       VALUES
+        ('wo-period-current',$2,'tpl-period-v1','period_scope',1,'completed','normal','本期完成工单','按完成时间计入','A1',$1,now()-interval '2 days',now()-interval '2 days',now()),
+        ('wo-period-old',$2,'tpl-period-v1','period_scope',1,'completed','normal','历史完成工单','不应计入本期完成','A1',$1,now()-interval '3 days',now()-interval '3 days',now()-interval '2 days')`,
+      [actor.id, completed.task_id],
+    );
+
+    const dashboard = await taskWorkOrderDashboard(actor.id, false, { period: "today", limit: 20 });
+    expect(dashboard.metrics).toMatchObject({ total: 4, in_progress: 2 });
+    expect(dashboard.tasks.items.map((item) => item.task.task_id)).toEqual(expect.arrayContaining([created.task_id, completed.task_id, queued.task_id, waiting.task_id]));
+    expect(dashboard.tasks.items.map((item) => item.task.task_id)).not.toContain(updatedOnly.task_id);
+    expect(dashboard.metrics.median_processing_hours).toBeGreaterThan(24);
+    expect(dashboard.by_template).toEqual(expect.arrayContaining([
+      expect.objectContaining({ template_code: "period_scope", completed: 2, period_completed: 1 }),
+    ]));
   });
 
   it("records a bounded Jev shadow recommendation without creating, assigning, staging, or completing anything", async () => {

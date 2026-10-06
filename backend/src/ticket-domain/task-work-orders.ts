@@ -335,7 +335,7 @@ export type DashboardMetrics = Record<DashboardMetricKey, number | null> & {
 };
 
 export type TaskWorkOrderDashboard = {
-  report_version: "task-work-order-dashboard.v2";
+  report_version: "task-work-order-dashboard.v2.1";
   period: DashboardPeriod;
   as_of: string;
   timezone: string;
@@ -462,20 +462,21 @@ function dashboardMetric(value: unknown): DashboardMetrics {
   };
 }
 
-function dashboardDeltas(current: DashboardMetrics, previous: DashboardMetrics): Record<DashboardMetricKey, number | null> {
+export function dashboardDeltas(current: DashboardMetrics, previous: DashboardMetrics): Record<DashboardMetricKey, number | null> {
   const rateKeys = new Set<DashboardMetricKey>(["completion_rate", "overdue_rate", "automatic_rate"]);
   return (["total", "in_progress", "completion_rate", "overdue_rate", "automatic_rate", "median_processing_hours"] as DashboardMetricKey[])
     .reduce<Record<DashboardMetricKey, number | null>>((result, key) => {
       const next = current[key];
       const before = previous[key];
-      result[key] = next == null || before == null || (!rateKeys.has(key) && before === 0)
+      const duration = key === "median_processing_hours";
+      result[key] = next == null || before == null || (!rateKeys.has(key) && !duration && before === 0)
         ? null
-        : Number((rateKeys.has(key) ? next - before : ((next - before) / before) * 100).toFixed(2));
+        : Number((duration ? next - before : rateKeys.has(key) ? next - before : ((next - before) / before) * 100).toFixed(duration ? 1 : 2));
       return result;
     }, {} as Record<DashboardMetricKey, number | null>);
 }
 
-function dashboardTrendPointCount(period: DashboardPeriod): number {
+export function dashboardTrendPointCount(period: DashboardPeriod): number {
   if (period === "today") return 24;
   if (period === "week") return 7;
   if (period === "month") return 30;
@@ -533,7 +534,8 @@ const DASHBOARD_SCOPE_CTES = `
       NULLIF(t.completed_at,'')::timestamptz AS completed_at_ts,
       NULLIF(t.due_at,'')::timestamptz AS due_at_ts,
       t.status NOT IN ('completed','cancelled','canceled') AS task_is_open,
-      t.status NOT IN ('completed','cancelled','canceled') AS task_is_in_progress
+      t.status NOT IN ('completed','cancelled','canceled')
+        AND t.status NOT IN ('open','queued','pending') AS task_is_in_progress
     FROM tickets t
     WHERE t.task_type=$1 AND t.profile=$2
       AND (t.collaboration_id IS NULL OR EXISTS (
@@ -554,20 +556,27 @@ const DASHBOARD_SCOPE_CTES = `
     SELECT scope.* FROM authorized_task_scope scope CROSS JOIN bounds
     WHERE $7::text='realtime' OR (
       (scope.created_at_ts >= bounds.current_start AND scope.created_at_ts < bounds.current_end)
-      OR (scope.updated_at_ts >= bounds.current_start AND scope.updated_at_ts < bounds.current_end)
       OR (scope.completed_at_ts >= bounds.current_start AND scope.completed_at_ts < bounds.current_end)
     )
   ), previous_authorized_tasks AS MATERIALIZED (
     SELECT scope.* FROM authorized_task_scope scope CROSS JOIN bounds
     WHERE $7::text<>'realtime' AND (
       (scope.created_at_ts >= bounds.previous_start AND scope.created_at_ts < bounds.previous_end)
-      OR (scope.updated_at_ts >= bounds.previous_start AND scope.updated_at_ts < bounds.previous_end)
       OR (scope.completed_at_ts >= bounds.previous_start AND scope.completed_at_ts < bounds.previous_end)
     )
+  ), current_completed_tasks AS MATERIALIZED (
+    SELECT scope.* FROM authorized_task_scope scope CROSS JOIN bounds
+    WHERE scope.completed_at_ts IS NOT NULL AND ($7::text='realtime' OR (
+      scope.completed_at_ts >= bounds.current_start AND scope.completed_at_ts < bounds.current_end
+    ))
+  ), previous_completed_tasks AS MATERIALIZED (
+    SELECT scope.* FROM authorized_task_scope scope CROSS JOIN bounds
+    WHERE scope.completed_at_ts IS NOT NULL AND $7::text<>'realtime'
+      AND scope.completed_at_ts >= bounds.previous_start AND scope.completed_at_ts < bounds.previous_end
   ), work_order_scope AS MATERIALIZED (
     SELECT wo.id,wo.task_id,wo.template_code,wo.template_version,COALESCE(wt.title,wo.template_code) AS template_title,
       wo.status,wo.priority,wo.stage_code,wo.title,wo.objective,wo.due_at,COALESCE(wt.automation_level,wo.automation_level) AS automation_level,
-      wo.created_at,wo.updated_at,wo.completed_at,
+      wo.created_at,wo.updated_at,wo.completed_at,wo.completed_at AS completed_at_ts,
       primary_assignment.principal_id,primary_assignment.person_ref,primary_assignment.org_unit_id,primary_assignment.routing_policy_code,
       EXISTS (SELECT 1 FROM work_order_execution_attempts attempt WHERE attempt.work_order_id=wo.id AND attempt.execution_mode='automatic' AND attempt.status='created') AS automatic_created,
       EXISTS (
@@ -680,7 +689,7 @@ export async function taskWorkOrderDashboard(
          'completion_rate',CASE WHEN COUNT(*)=0 THEN NULL ELSE ROUND((100.0*COUNT(*) FILTER (WHERE status='completed')/COUNT(*))::numeric,2) END,
          'overdue_rate',CASE WHEN COUNT(*)=0 THEN NULL ELSE ROUND((100.0*COUNT(*) FILTER (WHERE due_at_ts<bounds.as_of AND task_is_open)/COUNT(*))::numeric,2) END,
          'automatic_rate',CASE WHEN (SELECT COUNT(*) FROM work_order_facts)=0 THEN NULL ELSE ROUND((100.0*(SELECT COUNT(*) FILTER (WHERE automatic_created) FROM work_order_facts)/(SELECT COUNT(*) FROM work_order_facts))::numeric,2) END,
-         'median_processing_hours',(SELECT ROUND((percentile_cont(.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (completed_at_ts-created_at_ts))/3600))::numeric,2) FROM task_facts WHERE completed_at_ts IS NOT NULL),
+         'median_processing_hours',(SELECT ROUND((percentile_cont(.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (completed_at_ts-created_at_ts))/3600))::numeric,2) FROM current_completed_tasks),
          'overdue',COUNT(*) FILTER (WHERE due_at_ts<bounds.as_of AND task_is_open)::int,
          'blocked',COUNT(*) FILTER (WHERE blocked>0)::int
        ) AS value FROM task_facts CROSS JOIN bounds
@@ -690,7 +699,7 @@ export async function taskWorkOrderDashboard(
          'completion_rate',CASE WHEN COUNT(*)=0 THEN NULL ELSE ROUND((100.0*COUNT(*) FILTER (WHERE status='completed')/COUNT(*))::numeric,2) END,
          'overdue_rate',CASE WHEN COUNT(*)=0 THEN NULL ELSE ROUND((100.0*COUNT(*) FILTER (WHERE due_at_ts<bounds.previous_end AND task_is_open)/COUNT(*))::numeric,2) END,
          'automatic_rate',CASE WHEN (SELECT COUNT(*) FROM previous_work_order_facts)=0 THEN NULL ELSE ROUND((100.0*(SELECT COUNT(*) FILTER (WHERE automatic_created) FROM previous_work_order_facts)/(SELECT COUNT(*) FROM previous_work_order_facts))::numeric,2) END,
-         'median_processing_hours',(SELECT ROUND((percentile_cont(.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (completed_at_ts-created_at_ts))/3600))::numeric,2) FROM previous_task_facts WHERE completed_at_ts IS NOT NULL),
+         'median_processing_hours',(SELECT ROUND((percentile_cont(.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (completed_at_ts-created_at_ts))/3600))::numeric,2) FROM previous_completed_tasks),
          'overdue',COUNT(*) FILTER (WHERE due_at_ts<bounds.previous_end AND task_is_open)::int,
          'blocked',COUNT(*) FILTER (WHERE blocked>0)::int
        ) AS value FROM previous_task_facts CROSS JOIN bounds
@@ -707,22 +716,35 @@ export async function taskWorkOrderDashboard(
          CASE WHEN $7::text='today' THEN interval '1 hour' WHEN $7::text='year' THEN interval '1 month' ELSE interval '1 day' END
        ) AS bucket_start
      ), trend_points AS (
-       SELECT bucket.bucket_start,
-         COUNT(task.task_id) FILTER (WHERE task.created_at_ts>=bucket.bucket_start AND task.created_at_ts<bucket.bucket_end)::int AS total,
-         COUNT(task.task_id) FILTER (WHERE task.task_is_in_progress AND task.updated_at_ts>=bucket.bucket_start AND task.updated_at_ts<bucket.bucket_end)::int AS in_progress,
-         COUNT(task.task_id) FILTER (WHERE task.completed_at_ts>=bucket.bucket_start AND task.completed_at_ts<bucket.bucket_end)::int AS completed,
-         COUNT(task.task_id) FILTER (WHERE task.task_is_open AND task.due_at_ts<bucket.bucket_end AND task.updated_at_ts>=bucket.bucket_start AND task.updated_at_ts<bucket.bucket_end)::int AS overdue,
-         COUNT(work_order.id) FILTER (WHERE work_order.automatic_created AND work_order.created_at>=bucket.bucket_start AND work_order.created_at<bucket.bucket_end)::int AS automatic,
+       SELECT bucket.bucket_start,bucket.bucket_end,
+         (SELECT COUNT(*)::int FROM authorized_task_scope task
+           WHERE (task.created_at_ts>=bucket.bucket_start AND task.created_at_ts<bucket.bucket_end)
+              OR (task.completed_at_ts>=bucket.bucket_start AND task.completed_at_ts<bucket.bucket_end)) AS total,
+         (SELECT COUNT(*)::int FROM authorized_task_scope task
+           WHERE task.task_is_in_progress AND (
+             (task.created_at_ts>=bucket.bucket_start AND task.created_at_ts<bucket.bucket_end)
+             OR (task.completed_at_ts>=bucket.bucket_start AND task.completed_at_ts<bucket.bucket_end)
+           )) AS in_progress,
+         (SELECT COUNT(*)::int FROM authorized_task_scope task
+           WHERE task.completed_at_ts>=bucket.bucket_start AND task.completed_at_ts<bucket.bucket_end) AS completed,
+         (SELECT COUNT(*)::int FROM authorized_task_scope task
+           WHERE task.task_is_open AND task.created_at_ts<bucket.bucket_end
+             AND task.due_at_ts<bucket.bucket_end
+             AND (task.completed_at_ts IS NULL OR task.completed_at_ts>=bucket.bucket_end)) AS overdue,
+         (SELECT COUNT(*)::int FROM work_order_facts work_order
+           WHERE work_order.automatic_created AND work_order.created_at>=bucket.bucket_start AND work_order.created_at<bucket.bucket_end) AS automatic,
+         (SELECT COUNT(*)::int FROM work_order_facts work_order
+           WHERE work_order.created_at>=bucket.bucket_start AND work_order.created_at<bucket.bucket_end) AS created_work_orders,
          (SELECT percentile_cont(.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (task_completed.completed_at_ts-task_completed.created_at_ts))/3600)
-            FROM authorized_task_scope task_completed WHERE task_completed.completed_at_ts>=bucket.bucket_start AND task_completed.completed_at_ts<bucket.bucket_end) AS median_processing_hours
-       FROM trend_buckets bucket LEFT JOIN authorized_task_scope task ON true LEFT JOIN work_order_scope work_order ON work_order.task_id=task.task_id
-       GROUP BY bucket.bucket_start,bucket.bucket_end
+            FROM authorized_task_scope task_completed
+           WHERE task_completed.completed_at_ts>=bucket.bucket_start AND task_completed.completed_at_ts<bucket.bucket_end) AS median_processing_hours
+       FROM trend_buckets bucket
      ), trend_metrics AS (
        SELECT jsonb_build_object(
          'total',jsonb_agg(total ORDER BY bucket_start),'in_progress',jsonb_agg(in_progress ORDER BY bucket_start),
          'completion_rate',jsonb_agg(CASE WHEN total=0 THEN 0 ELSE ROUND((100.0*completed/total)::numeric,2) END ORDER BY bucket_start),
          'overdue_rate',jsonb_agg(CASE WHEN total=0 THEN 0 ELSE ROUND((100.0*overdue/total)::numeric,2) END ORDER BY bucket_start),
-         'automatic_rate',jsonb_agg(CASE WHEN total=0 THEN 0 ELSE ROUND((100.0*automatic/total)::numeric,2) END ORDER BY bucket_start),
+         'automatic_rate',jsonb_agg(CASE WHEN created_work_orders=0 THEN 0 ELSE ROUND((100.0*automatic/created_work_orders)::numeric,2) END ORDER BY bucket_start),
          'median_processing_hours',jsonb_agg(COALESCE(ROUND(median_processing_hours::numeric,2),0) ORDER BY bucket_start)
        ) AS value FROM trend_points
      )
@@ -734,20 +756,18 @@ export async function taskWorkOrderDashboard(
        (SELECT value FROM metric_current) AS metrics,(SELECT value FROM metric_previous) AS previous_metrics,(SELECT value FROM trend_metrics) AS trends,
        COALESCE((SELECT jsonb_agg(jsonb_build_object(
          'template_code',grouped.template_code,'template_version',grouped.template_version,'template_title',grouped.template_title,'automation_level',grouped.automation_level,
-         'total',grouped.total,'automatic_created',grouped.automatic_created,'automatic_assigned',grouped.automatic_assigned,'open',grouped.open,'blocked',grouped.blocked,'waiting_review',grouped.waiting_review,'completed',grouped.completed,'period_completed',grouped.completed,
+         'total',grouped.total,'automatic_created',grouped.automatic_created,'automatic_assigned',grouped.automatic_assigned,'open',grouped.open,'blocked',grouped.blocked,'waiting_review',grouped.waiting_review,'completed',grouped.completed,'period_completed',grouped.period_completed,
          'trend',COALESCE((SELECT jsonb_agg(daily.count ORDER BY daily.bucket_start) FROM (
            SELECT bucket.bucket_start,COUNT(point.id)::int AS count
-           FROM bounds CROSS JOIN LATERAL generate_series(
-             (date_trunc('day',bounds.as_of AT TIME ZONE $8) AT TIME ZONE $8)-interval '6 days',
-             (date_trunc('day',bounds.as_of AT TIME ZONE $8) AT TIME ZONE $8),interval '1 day'
-           ) AS bucket(bucket_start)
+           FROM trend_buckets bucket
            LEFT JOIN work_order_facts point ON point.template_code=grouped.template_code AND point.template_version=grouped.template_version
-             AND point.created_at>=bucket.bucket_start AND point.created_at<bucket.bucket_start+interval '1 day'
+             AND point.created_at>=bucket.bucket_start AND point.created_at<bucket.bucket_end
            GROUP BY bucket.bucket_start
          ) daily),'[]'::jsonb)
        ) ORDER BY grouped.total DESC,grouped.template_title,grouped.template_version DESC) FROM (
          SELECT template_code,template_version,template_title,automation_level,COUNT(*)::int AS total,COUNT(*) FILTER (WHERE automatic_created)::int AS automatic_created,COUNT(*) FILTER (WHERE automatic_assigned)::int AS automatic_assigned,
-           COUNT(*) FILTER (WHERE is_open)::int AS open,COUNT(*) FILTER (WHERE is_blocked)::int AS blocked,COUNT(*) FILTER (WHERE is_waiting_review)::int AS waiting_review,COUNT(*) FILTER (WHERE is_completed)::int AS completed
+           COUNT(*) FILTER (WHERE is_open)::int AS open,COUNT(*) FILTER (WHERE is_blocked)::int AS blocked,COUNT(*) FILTER (WHERE is_waiting_review)::int AS waiting_review,COUNT(*) FILTER (WHERE is_completed)::int AS completed,
+           COUNT(*) FILTER (WHERE is_completed AND ($7::text='realtime' OR (completed_at_ts >= (SELECT current_start FROM bounds) AND completed_at_ts < (SELECT current_end FROM bounds))))::int AS period_completed
          FROM work_order_facts GROUP BY template_code,template_version,template_title,automation_level
        ) grouped),'[]'::jsonb) AS by_template,
        COALESCE((SELECT jsonb_agg(jsonb_build_object(
@@ -764,7 +784,7 @@ export async function taskWorkOrderDashboard(
   const metrics = dashboardMetric(row.metrics);
   const previous = dashboardMetric(row.previous_metrics);
   return {
-    report_version: "task-work-order-dashboard.v2",
+    report_version: "task-work-order-dashboard.v2.1",
     period,
     as_of: new Date(row.as_of).toISOString(),
     timezone,

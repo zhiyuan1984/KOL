@@ -38,6 +38,8 @@ export default defineConfig({
       "../frontend/src/home/discoveryEvents.test.ts",
       "../frontend/src/streamOrder.test.ts",
       "../frontend/src/runtimeConnectorUi.test.ts",
+      "../frontend/src/tasks/taskCenterModel.test.ts",
+      "../frontend/src/tasks/KpiCard.test.tsx",
       "../frontend/src/admin/connector/connectorSetup.test.ts",
       "../frontend/src/admin/connector/headerNames.test.ts",
       "../frontend/src/admin/connector/wizardSteps.test.ts",

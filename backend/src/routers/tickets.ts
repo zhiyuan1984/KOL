@@ -65,6 +65,19 @@ function parseLimit(raw: string | undefined, fallback = 50): number {
   return Math.min(200, Math.floor(n));
 }
 
+export function businessTaskExportStatusLabel(status: unknown): string {
+  const key = String(status || "").toLowerCase();
+  const labels: Record<string, string> = {
+    open: "待启动", queued: "排队中", pending: "排队中", proposed: "待确认",
+    pending_assignment: "待分派", assigned: "已分派", accepted: "已受理",
+    running: "进行中", in_progress: "处理中", waiting: "等待中",
+    waiting_external: "等待外部", waiting_approval: "等待确认", blocked: "已阻塞",
+    ready_for_review: "待复核", ready_for_acceptance: "待验收", needs_review: "待复核",
+    completed: "已完成", cancelled: "已取消", canceled: "已取消",
+  };
+  return labels[key] || (key || "未知");
+}
+
 function parseRuleVersion(raw: string | undefined): number {
   const version = Number(raw);
   if (!Number.isInteger(version) || version < 1) throw new HttpFail(400, "invalid rule version");
@@ -150,8 +163,8 @@ tickets.get("/task-work-orders/dashboard/export", async (c) => {
     status: c.req.query("status"),
   });
   const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  const head = ["任务标题", "类型", "状态", "模板", "受理人", "创建时间", "完成时间"];
-  const lines = [head, ...rows.map((row) => [row.task_title, row.type, row.status, row.template, row.assignee, row.created_at || "", row.completed_at || ""])]
+  const head = ["业务任务标题", "类型", "业务任务状态", "模板", "受理人", "创建时间", "完成时间"];
+  const lines = [head, ...rows.map((row) => [row.task_title, row.type, businessTaskExportStatusLabel(row.status), row.template, row.assignee, row.created_at || "", row.completed_at || ""])]
     .map((cells) => cells.map(csvCell).join(","));
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
@@ -164,7 +177,7 @@ tickets.get("/task-work-orders/dashboard/export", async (c) => {
   return new Response(body, {
     headers: {
       "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`任务中心-${stamp}-${period}.csv`)}`,
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`业务任务-${stamp}-${period}.csv`)}`,
       "cache-control": "no-store",
     },
   });

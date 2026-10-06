@@ -16142,3 +16142,24 @@ button.today-brief-primary-btn:disabled {
 @media (max-width: 760px) { .tasks-page .task-report-head, .task-report-actions { align-items: flex-start; flex-wrap: wrap; } .task-period-segmented { width: 100%; overflow-x: auto; } .task-period-segmented button { flex: 1 0 auto; } .task-report-kpis, .task-report-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 480px) { .task-report-kpis, .task-report-skeleton { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .task-kpi-card, .task-report-skeleton span { transition: none; animation: none; } .task-kpi-card:hover { transform: none; } }
+
+/* Task center: distinguish static metrics from actionable KPI filters. */
+.task-kpi-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  grid-template-areas: "label line" "value line" "delta line";
+  width: 100%;
+  min-height: 92px;
+  padding: var(--space-3, 12px);
+}
+.task-kpi-content strong { grid-area: value; margin: 2px 0; font-size: 1.45rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.task-kpi-card:not(.is-interactive):hover { transform: none; box-shadow: none; }
+.task-kpi-card.is-interactive:hover, .task-kpi-card.is-interactive.is-active { transform: translateY(-1px); box-shadow: var(--shadow-quiet); }
+.task-kpi-card.is-interactive.is-active { border-color: var(--accent); }
+.task-template-filter-notice { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) 0; color: var(--text-muted); font-size: var(--ds-font-sm); }
+.task-report-template-table tbody tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.tasks-page .task-center-select { width: 40px; text-align: center; }
+@media (max-width: 760px) {
+  .tasks-page .task-center-table td.task-center-select { display: none; }
+  .task-template-filter-notice { align-items: flex-start; flex-wrap: wrap; }
+}

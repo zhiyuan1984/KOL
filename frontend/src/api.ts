@@ -681,7 +681,7 @@ export type AiTaskWorkOrderList = {
 };
 
 export type AiTaskWorkOrderDashboard = {
-  report_version: "task-work-order-dashboard.v1" | "task-work-order-dashboard.v2" | string;
+  report_version: "task-work-order-dashboard.v1" | "task-work-order-dashboard.v2" | "task-work-order-dashboard.v2.1" | string;
   period?: "realtime" | "today" | "week" | "month" | "year";
   as_of: string;
   timezone: string;
