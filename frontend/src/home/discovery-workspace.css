@@ -5,7 +5,7 @@
 /* 条件卡落在中栏（≈470–520px），不是整页宽：成对的两项改纵排、标签列收窄，
    关键词与数值行照旧换行。卡片的 data-* 契约与整页形态完全一致。 */
 .scope-workspace-center .ai-discovery-card {
-  --ds-label-w: 96px;
+  --ds-label-w: 88px;
 }
 .scope-workspace-center .ai-discovery-rows.is-pair {
   grid-template-columns: minmax(0, 1fr);
@@ -20,7 +20,7 @@
   - 均播与期望人数都是短数字阈值，因此同列展示。
   保留原字段的 data-skill-param / API key，布局变化不改变提交语义。
 */
-.discovery-brief-form {  --ds-label-w: 96px;
+.discovery-brief-form {  --ds-label-w: 88px;
   --ds-row-gap: var(--space-3);
   --ds-control-h: var(--control-h-form);
   --ds-chip-h: var(--chip-h);
@@ -39,7 +39,7 @@
 .discovery-brief-form .ai-discovery-row {
   grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
   align-items: center;
-  column-gap: 12px;
+  column-gap: var(--space-2);
 }
 .discovery-brief-form .ai-discovery-label,
 .discovery-brief-form .ai-discovery-card .discovery-chip {
@@ -106,7 +106,7 @@
 .discovery-brief-form .ai-discovery-text-control .ai-discovery-input {
   width: 100%;
 }
-.discovery-brief-form .ai-discovery-text-control.is-keyword-control .ai-discovery-input {  flex: 1 1 7rem;  width: auto;  min-width: 0;  height: var(--ds-token-h);  padding: 0;  border: 0;  background: transparent;  box-shadow: none;}
+.discovery-brief-form .ai-discovery-text-control.is-keyword-control .ai-discovery-input {  flex: 1 1 7rem;  width: auto;  min-width: 6rem;  height: var(--ds-token-h);  padding: 0;  border: 0;  background: transparent;  box-shadow: none;}
 /* 关键词芯片：控件本身是可换行的容器（一层描边、随内容增高、无内部滚动条），   芯片在前、输入位在后；清空按钮钉在右上角，不参与换行。 */.discovery-brief-form .ai-discovery-text-control.is-keyword-control {  display: flex;  flex-wrap: wrap;  align-items: center;  gap: var(--ds-chip-gap);  min-height: var(--ds-control-h);  padding: 0 calc(var(--space-1) + var(--space-5)) 0 var(--space-2);  border: 1px solid var(--ds-border);  border-radius: var(--radius-control);  background: var(--ds-surface);}
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control:hover {  border-color: var(--ds-selected-border);}
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control:focus-within {  border-color: var(--ds-selected-border);  box-shadow: 0 0 0 3px var(--ds-selected-bg);}
@@ -147,7 +147,7 @@
 }
 .discovery-brief-form .ai-discovery-range-control {
   display: grid;
-  grid-template-columns: minmax(96px, 132px) 12px minmax(96px, 132px);
+  grid-template-columns: minmax(72px, 132px) 12px minmax(72px, 132px);
   justify-content: start;
   align-items: center;
   gap: 6px;
@@ -164,20 +164,19 @@
 /* 两个短阈值在同一行；更长、通常需要千位分隔的均播获得更多弹性宽度。 */
 .discovery-brief-form .ai-discovery-row.is-metric-pair {
   display: grid;
-  grid-template-columns: 228px 144px;
-  justify-content: start;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   align-items: center;
-  column-gap: 10px;
+  column-gap: var(--space-2);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field {
   display: grid;
-  grid-template-columns: var(--ds-label-w) 120px;
+  grid-template-columns: minmax(0, auto) minmax(64px, 96px);
   align-items: center;
-  gap: 12px;
+  gap: var(--space-2);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field {
-  grid-template-columns: auto 68px;
-  gap: 6px;
+  grid-template-columns: minmax(0, auto) minmax(56px, 80px);
+  gap: var(--space-1);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-label {
   white-space: nowrap;
