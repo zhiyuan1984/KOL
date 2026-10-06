@@ -15,6 +15,9 @@ export type SkillTemplate = {
   starter: string;
   output: { type: string; title: string };
   constraints: string[];
+  evidence: string[];
+  decisions: string[];
+  recovery: string[];
   source: "skill";
   read_only: true;
 };
@@ -36,6 +39,9 @@ export function skillTemplate(definition: TaskDefinition, runtimeRevision?: stri
     starter: [definition.title, ...required.map((field) => `${field.label}：[${field.label}]`)].join("\n"),
     output: { type: definition.result_type || definition.output, title: definition.interaction?.output_title || "任务结果" },
     constraints: definition.interaction?.constraints || [],
+    evidence: definition.interaction?.evidence || [],
+    decisions: definition.interaction?.decisions || [],
+    recovery: definition.interaction?.recovery || [],
     source: "skill" as const,
     read_only: true as const,
   };
