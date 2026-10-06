@@ -27,6 +27,25 @@ const REGISTERED_INPUT_OPTION_SOURCES = new Set([
   "api:/home/discovery/template#regions",
   "api:/home/discovery/template#directions",
 ]);
+/**
+ * 上下文键目录（docs/superpowers/specs/2026-10-06-context-resolution-design.md §已登记上下文键）。
+ * 技能声明「需要哪几片当前世界」，Host 用统一来源链解析；键不得自创，未登记即拒绝加载
+ * —— 与 input_schema.options_source 同一处置。
+ */
+export const TASK_CONTEXT_KEYS = [
+  "collaboration",
+  "stage",
+  "stage_tracks",
+  "mailbox",
+  "mail_thread",
+  "mail_template",
+  "message",
+  "conversation",
+  "creator",
+  "creator_filter",
+  "risk_scope",
+] as const;
+export type TaskContextKey = (typeof TASK_CONTEXT_KEYS)[number];
 /** Only result types with a Host-owned validator may opt into automatic memory writes. */
 const REGISTERED_SKILL_RESULT_MEMORY_WRITERS = new Set([
   "creator_discovery|discovery_candidates|skill_result|owner|on_complete",
@@ -69,6 +88,16 @@ export type TaskMemoryPolicy = {
 };
 export type TaskSupports = { cancel: boolean; retry: boolean; resume: boolean };
 export type TaskRuntimeAccess = "granted" | "authenticated";
+
+/**
+ * 技能的上下文需求声明。`requires` 解析失败即 needs_context（不建箱、不启动 turn）；
+ * `prefers` 失败不阻塞，但要如实标注未取到。空 `requires` 是「本技能不依赖当前世界」
+ * 的显式声明，不是缺省值 —— 未声明整个 context 的技能保持现状并记为待补。
+ */
+export type TaskContext = {
+  requires: TaskContextKey[];
+  prefers: TaskContextKey[];
+};
 
 /** Human-facing half of the same published Skill; never executable instructions. */
 export type TaskInteraction = {
@@ -117,6 +146,8 @@ export type TaskDefinition = {
   next_actions?: TaskNextAction[];
   memory_policy?: TaskMemoryPolicy;
   supports?: TaskSupports;
+  /** 这一步的当前世界需求（合作/阶段/发件箱/会话…）。见并发规格 2026-10-06。 */
+  context?: TaskContext;
   permissions: string[];
   actions: string[];
   aliases: string[];
@@ -336,7 +367,7 @@ export function validateTaskResultSchema(schema: TaskResultSchema, value: unknow
 
 function parseDeclaredContract(values: Record<string, unknown>, file: string): Pick<
   TaskDefinition,
-  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports"
+  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context"
 > {
   let inputSchema: TaskInputField[] | undefined;
   if (values.input_schema !== undefined) {
@@ -467,6 +498,38 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
     supports = Object.freeze({ cancel: row.cancel as boolean, retry: row.retry as boolean, resume: row.resume as boolean });
   }
 
+  let context: TaskContext | undefined;
+  if (values.context !== undefined) {
+    if (!values.context || typeof values.context !== "object" || Array.isArray(values.context)) {
+      throw new Error(`manifest context must be an object: ${file}`);
+    }
+    const row = values.context as Record<string, unknown>;
+    if (Object.keys(row).some((key) => !["requires", "prefers"].includes(key))) {
+      throw new Error(`manifest context contains an unsupported field: ${file}`);
+    }
+    const readKeys = (field: "requires" | "prefers"): TaskContextKey[] => {
+      const raw = row[field];
+      if (raw === undefined) return [];
+      if (!Array.isArray(raw)) throw new Error(`manifest context.${field} must be an array: ${file}`);
+      const keys = raw.map((item) => String(item || "").trim());
+      for (const key of keys) {
+        if (!TASK_CONTEXT_KEYS.includes(key as TaskContextKey)) {
+          throw new Error(`manifest context.${field} has an unregistered key ${key}: ${file}`);
+        }
+      }
+      if (new Set(keys).size !== keys.length) throw new Error(`manifest context.${field} has duplicate keys: ${file}`);
+      return keys as TaskContextKey[];
+    };
+    const requires = readKeys("requires");
+    const prefers = readKeys("prefers");
+    const both = requires.filter((key) => prefers.includes(key));
+    if (both.length) {
+      // requires 已经管住解析失败即拦截；同时列进 prefers 会让缺口呈现自相矛盾。
+      throw new Error(`manifest context key listed in both requires and prefers (${both.join(", ")}): ${file}`);
+    }
+    context = Object.freeze({ requires, prefers });
+  }
+
   return {
     ...(inputSchema ? { input_schema: Object.freeze(inputSchema) as unknown as TaskInputField[] } : {}),
     ...(resultType ? { result_type: resultType } : {}),
@@ -474,12 +537,13 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
     ...(nextActions ? { next_actions: Object.freeze(nextActions) as unknown as TaskNextAction[] } : {}),
     ...(memoryPolicy ? { memory_policy: memoryPolicy } : {}),
     ...(supports ? { supports } : {}),
+    ...(context ? { context } : {}),
   };
 }
 
 export function validateDeclaredTaskContract(values: Record<string, unknown>): Pick<
   TaskDefinition,
-  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports"
+  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context"
 > {
   return parseDeclaredContract(values, "<skill contract>");
 }

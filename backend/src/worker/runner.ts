@@ -21,7 +21,8 @@ import { BRAND_MAILBOXES, boxDir, codexMode, codexTurnTimeout } from "../config.
 import { audit, getConn, tx } from "../db.js";
 import { nid } from "../ids.js";
 import { profileFor } from "../profiles.js";
-import { groupedStageTracks } from "../stages.js";
+import { BY_CODE, groupedStageTracks, label, normalizeStage } from "../stages.js";
+import { sopExceptionByStage } from "../sops.js";
 import type { Json, Row, WorkerResult } from "../types.js";
 import { writeAttachmentContext } from "../host/attachments.js";
 import { restoreOfficialCollaborationStage } from "../starrykol/library-sync.js";
@@ -467,7 +468,52 @@ function overdueSnapshot(): Row[] {
     .all() as Row[];
 }
 
-function writeBox(
+/**
+ * 运行箱里的阶段事实，取值口径与 host/kol-journey.ts 的 journeyPayload 同源：正式阶段归一化后
+ * 取 BY_CODE 的 advancementMode，异常取 sops.ts 的异常表。技能据此分辨「发信即可」与「发信 ≠ 推进」。
+ */
+export function collaborationContext(col: Row | null): Json | null {
+  if (!col) return null;
+  const stage = normalizeStage(String(col.stage_code || ""));
+  const exception = sopExceptionByStage(stage);
+  return {
+    id: col.id,
+    handle: col.handle,
+    display_name: col.display_name,
+    brand: col.brand,
+    email: col.email,
+    mailbox_from: col.mailbox_from,
+    stage_code: stage,
+    stage_label: label(stage),
+    stage_version: Number(col.stage_version || 0),
+    advancement_mode: BY_CODE[stage]?.advancementMode || null,
+    exception: Boolean(exception),
+    exception_kind: exception?.kind || null,
+    stage_tracks: groupedStageTracks(stage),
+    platform: col.platform,
+    followers: col.followers,
+    notes: col.notes,
+  };
+}
+
+/** 技能声明过的那几片上下文；未声明 key 不进箱（Host 与前端都不替技能多取数）。 */
+export function declaredContext(extra: Json): Json | null {
+  const resolution = extra.context_resolution;
+  if (!resolution || typeof resolution !== "object" || Array.isArray(resolution)) return null;
+  const row = resolution as Json;
+  const resolved = row.resolved && typeof row.resolved === "object" && !Array.isArray(row.resolved)
+    ? row.resolved as Json
+    : {};
+  return {
+    status: String(row.status || ""),
+    resolved,
+    sources: row.sources && typeof row.sources === "object" ? row.sources : {},
+    missing: Array.isArray(row.missing) ? row.missing : [],
+    context_version: String(row.context_version || ""),
+  };
+}
+
+export function writeBox(
   wid: string,
   definition: TaskDefinition,
   prompt: string,
@@ -486,6 +532,9 @@ function writeBox(
   const profile = profileFor(skill, col?.stage_code as string | undefined);
   const route = composeRouteFacts({ col, extra, boundMailbox: boundMailboxEmail() });
   const agent = managedAgent(agentScope.agent_id);
+  const safeExtra = workerSafeExtra(extra);
+  const context = declaredContext(safeExtra);
+  delete safeExtra.context_resolution;
   const ctx = {
     agent: { id: agent.id, name: agent.name, description: agent.description, version: agent.version },
     skill,
@@ -502,22 +551,9 @@ function writeBox(
     task_run_id: extra.task_run_id || null,
     profile,
     prompt,
-    extra: workerSafeExtra(extra),
-    collaboration: col
-      ? {
-          id: col.id,
-          handle: col.handle,
-          display_name: col.display_name,
-          brand: col.brand,
-          email: col.email,
-          mailbox_from: col.mailbox_from,
-          stage_code: col.stage_code,
-          stage_tracks: groupedStageTracks(String(col.stage_code || "")),
-          platform: col.platform,
-          followers: col.followers,
-          notes: col.notes,
-        }
-      : null,
+    extra: safeExtra,
+    collaboration: collaborationContext(col),
+    context,
     compose_route: skill === "email_compose"
       ? {
           from: route.from,

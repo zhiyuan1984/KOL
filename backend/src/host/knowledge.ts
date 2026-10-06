@@ -40,12 +40,15 @@ export const KNOWLEDGE_SKIP_REASONS = [
   "missing",
 ] as const;
 export const DEPRECATE_REASONS = {
+  not_helpful: "这条对我没帮助",
   outdated: "内容过时",
   brand_mismatch: "品牌用不上",
   pep_risk: "发出去容易被拦",
 } as const;
 
 const DEPRECATE_REASON_ALIASES: Record<string, keyof typeof DEPRECATE_REASONS> = {
+  not_helpful: "not_helpful",
+  这条对我没帮助: "not_helpful",
   outdated: "outdated",
   brand_mismatch: "brand_mismatch",
   pep_risk: "pep_risk",
@@ -63,7 +66,7 @@ export type DeprecateReason = keyof typeof DEPRECATE_REASONS;
 
 export function mapDeprecateReason(raw: string): DeprecateReason {
   const mapped = DEPRECATE_REASON_ALIASES[String(raw || "").trim()];
-  if (!mapped) throw new HttpFail(400, "隐藏原因须为 内容过时 / 品牌用不上 / 发出去容易被拦");
+  if (!mapped) throw new HttpFail(400, "隐藏原因须为 这条对我没帮助 / 内容过时 / 品牌用不上 / 发出去容易被拦");
   return mapped;
 }
 
@@ -443,8 +446,8 @@ function defaultStructuredBaseId(): string {
 function writeVersion(db: ReturnType<typeof getConn>, row: Row, note: string, actor: string): void {
   db.prepare(
     `INSERT INTO knowledge_versions
-     (id,knowledge_id,version,title,body,subject,body_en,placeholders,stage_codes,skill_id,brand,lang,kind,status,tags,in_market,effective_at,expires_at,created_by,created_at,note)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     (id,knowledge_id,version,title,body,subject,body_en,placeholders,stage_codes,skill_id,brand,lang,kind,status,tags,in_market,effective_at,expires_at,base_id,structured,source_body,created_by,created_at,note)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     nid("kv"),
     row.id,
@@ -464,6 +467,9 @@ function writeVersion(db: ReturnType<typeof getConn>, row: Row, note: string, ac
     row.in_market == null ? 1 : Number(row.in_market),
     row.effective_at == null ? null : String(row.effective_at),
     row.expires_at == null ? null : String(row.expires_at),
+    row.base_id == null ? null : String(row.base_id),
+    row.structured == null ? null : String(row.structured),
+    row.source_body == null ? null : String(row.source_body),
     actor,
     nowIso(),
     note,
@@ -474,14 +480,19 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
   const cited = row.viewer_cited == null
     ? Boolean(getConn().prepare("SELECT 1 FROM knowledge_citations WHERE user_id=? AND knowledge_id=?").get(userId, row.id))
     : Boolean(row.viewer_cited);
+  const favoriteVersion = row.viewer_favorite_version == null
+    ? Number((getConn().prepare("SELECT saved_version FROM knowledge_favorites WHERE user_id=? AND knowledge_id=?").get(userId, row.id) as Row | undefined)?.saved_version || 0)
+    : Number(row.viewer_favorite_version || 0);
   const dep = row.viewer_deprecate_reason == null
     ? getConn()
-      .prepare("SELECT reason, reason_note, deprecated_at FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?")
-      .get(userId, row.id) as { reason: string; reason_note: string; deprecated_at: string } | undefined
+      .prepare("SELECT reason, reason_note, deprecated_at, handled_at, handle_action FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?")
+      .get(userId, row.id) as { reason: string; reason_note: string; deprecated_at: string; handled_at?: string; handle_action?: string } | undefined
     : {
         reason: String(row.viewer_deprecate_reason || ""),
         reason_note: String(row.viewer_deprecate_note || ""),
         deprecated_at: String(row.viewer_deprecated_at || ""),
+        handled_at: String(row.viewer_feedback_handled_at || ""),
+        handle_action: String(row.viewer_feedback_handle_action || ""),
       };
   const citeCount = row.cite_count == null
     ? (getConn().prepare("SELECT COUNT(*) AS c FROM knowledge_citations WHERE knowledge_id=?").get(row.id) as { c: number }).c
@@ -531,11 +542,17 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
     updated_at: row.updated_at || "",
     cited,
     enabled: cited,
+    favorite: favoriteVersion > 0,
+    favorite_version: favoriteVersion || null,
+    has_newer_version: favoriteVersion > 0 && Number(row.published_version || (row.status === "published" ? row.current_version : 0)) > favoriteVersion,
     deprecated: Boolean(dep),
     deprecate_reason: dep?.reason || "",
     deprecate_reason_label: dep?.reason ? DEPRECATE_REASONS[dep.reason as DeprecateReason] || dep.reason : "",
     deprecate_note: dep?.reason_note || "",
     deprecated_at: dep?.deprecated_at || "",
+    feedback_handled: Boolean(dep?.handled_at),
+    feedback_handled_at: dep?.handled_at || "",
+    feedback_handle_action: dep?.handle_action || "",
     cite_count: citeCount,
     effective_at: row.effective_at || "",
     expires_at: row.expires_at || "",
@@ -558,8 +575,13 @@ function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean, ef
   );
   const deprecated = new Map(
     (getConn().prepare(
-      `SELECT knowledge_id,reason,reason_note,deprecated_at FROM knowledge_deprecations WHERE user_id=? AND knowledge_id IN (${placeholders})`,
+      `SELECT knowledge_id,reason,reason_note,deprecated_at,handled_at,handle_action FROM knowledge_deprecations WHERE user_id=? AND knowledge_id IN (${placeholders})`,
     ).all(userId, ...ids) as Row[]).map((row) => [String(row.knowledge_id), row]),
+  );
+  const favorites = new Map(
+    (getConn().prepare(
+      `SELECT knowledge_id,saved_version FROM knowledge_favorites WHERE user_id=? AND knowledge_id IN (${placeholders})`,
+    ).all(userId, ...ids) as Row[]).map((row) => [String(row.knowledge_id), Number(row.saved_version || 0)]),
   );
   const counts = new Map(
     (getConn().prepare(
@@ -576,6 +598,9 @@ function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean, ef
       viewer_deprecate_reason: dep ? String(dep.reason || "") : undefined,
       viewer_deprecate_note: dep ? String(dep.reason_note || "") : undefined,
       viewer_deprecated_at: dep ? String(dep.deprecated_at || "") : undefined,
+      viewer_feedback_handled_at: dep ? String(dep.handled_at || "") : undefined,
+      viewer_feedback_handle_action: dep ? String(dep.handle_action || "") : undefined,
+      viewer_favorite_version: favorites.get(String(row.id)) || 0,
       cite_count: counts.get(String(row.id)) || 0,
     }, userId);
   });
@@ -712,6 +737,30 @@ export function uncite(knowledgeId: string, userId = knowledgeActorId()): Json {
     db.prepare("DELETE FROM knowledge_citations WHERE user_id=? AND knowledge_id=?").run(userId, knowledgeId);
   });
   audit(userId, "knowledge.uncite", { knowledge_id: knowledgeId });
+  return publicKnowledge(knowledgeRow(knowledgeId), userId);
+}
+
+/** 收藏是账号级数据；保存当前已发布版本，用来提示后续发布的新版本。 */
+export function favorite(knowledgeId: string, userId = knowledgeActorId()): Json {
+  const row = knowledgeRow(knowledgeId);
+  if (String(row.status) !== "published") throw new HttpFail(403, "未发布知识不能收藏");
+  const version = Number(row.published_version || row.current_version || 1);
+  const stamp = nowIso();
+  tx((db) => {
+    db.prepare(
+      "INSERT OR REPLACE INTO knowledge_favorites (user_id,knowledge_id,saved_version,created_at,updated_at) VALUES (?,?,?,?,?)",
+    ).run(userId, knowledgeId, version, stamp, stamp);
+  });
+  audit(userId, "knowledge.favorite", { knowledge_id: knowledgeId, version });
+  return publicKnowledge(knowledgeRow(knowledgeId), userId);
+}
+
+export function unfavorite(knowledgeId: string, userId = knowledgeActorId()): Json {
+  knowledgeRow(knowledgeId);
+  tx((db) => {
+    db.prepare("DELETE FROM knowledge_favorites WHERE user_id=? AND knowledge_id=?").run(userId, knowledgeId);
+  });
+  audit(userId, "knowledge.unfavorite", { knowledge_id: knowledgeId });
   return publicKnowledge(knowledgeRow(knowledgeId), userId);
 }
 
@@ -986,6 +1035,7 @@ export function hardDeleteKnowledge(id: string, actor = knowledgeActorId()): Jso
   tx((db) => {
     db.prepare("DELETE FROM knowledge_versions WHERE knowledge_id=?").run(id);
     db.prepare("DELETE FROM knowledge_citations WHERE knowledge_id=?").run(id);
+    db.prepare("DELETE FROM knowledge_favorites WHERE knowledge_id=?").run(id);
     db.prepare("DELETE FROM knowledge_deprecations WHERE knowledge_id=?").run(id);
     db.prepare("DELETE FROM knowledge WHERE id=?").run(id);
   });
@@ -1567,6 +1617,15 @@ export function resolveApplicableMailTemplates(opts: {
     const [rightBrand, rightStage] = rank(right);
     return leftBrand - rightBrand || leftStage - rightStage || left.id.localeCompare(right.id);
   });
+}
+
+/** 同等适用的候选并列返回，由调用方或人来选；任何一方都不得从多个里取第一只。 */
+export function preparedTemplateChoice(templates: UsableTemplate[], stage: string, brand: string): UsableTemplate[] {
+  if (!templates.length) return [];
+  const score = (template: UsableTemplate) =>
+    (template.brand === brand ? 0 : 2) + (template.stage_codes.includes(stage) ? 0 : 1);
+  const best = Math.min(...templates.map(score));
+  return templates.filter((template) => score(template) === best);
 }
 
 export function leftoverPlaceholders(text: string): string[] {

@@ -19,7 +19,7 @@ describe("today task board presentation", () => {
     expect(model).toContain("const byPriority = taskPriorityRank(a) - taskPriorityRank(b);");
   });
 
-  it("opens an existing task page without replacing the task action", () => {
+  it("opens a task detail rail without replacing the explicit task action", () => {
     const board = read("TaskBoard.tsx");
     const row = read("BoardRow.tsx");
     const scope = read("ScopeWorkspace.tsx");
@@ -27,10 +27,13 @@ describe("today task board presentation", () => {
     expect(board).toContain("onOpen={onOpen}");
     expect(row).toContain("(onOpen || onAct)(task)");
     expect(row).toContain('data-home-entry={opensTask ? "open-task" : "acknowledge-task"}');
-    expect(row).not.toContain("data-board-status");
+    expect(row).toContain("data-board-status");
+    expect(row).toContain("task-board-chip is-");
     expect(scope).toContain("onOpen?: (task: Task) => void;");
-    expect(home).toContain("const sessionId = taskSessionId(current);");
-    expect(home).toContain("task.runs");
+    expect(scope).toContain("<TaskDetailRail");
+    expect(home).toContain("setDetailTask(current);");
+    expect(home).toContain("const startTaskExecution = async");
+    expect(home).not.toContain("const sessionId = taskSessionId(current);");
     expect(home).toContain("onOpen={(task) => void openTask(task)}");
   });
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type WorkOrderSuggestion } from "../api";
+import { randomUuid } from "../uuid";
 
 const reasons: Record<string, string> = {
   source_event_already_adopted: "该事件已进入正式工单",
@@ -90,11 +91,11 @@ export function WorkOrderSuggestions({ taskId, onChanged }: { taskId: string; on
       {item.blockers.length ? <p>{item.blockers.map(code => reasons[code] || "执行条件未满足，请核对当前规则").join("；")}</p> : null}
       {item.execution_receipt ? <p>执行回执：{item.execution_receipt.id} · {item.execution_receipt.status === "merged" ? "依据已合并" : "已创建工单"}</p> : null}
       {item.actions.includes("create") ? <button className="btn ghost sm" type="button" disabled={busy || !!pending} onClick={() => {
-        setNotice(""); setPending({ suggestion: item, action: "create", key: `adopt:${crypto.randomUUID()}` });
+        setNotice(""); setPending({ suggestion: item, action: "create", key: `adopt:${randomUuid()}` });
       }}>采纳建单建议</button> : null}
       {item.actions.includes("merge") ? item.candidates.map(target => <p key={target.id}>
         {target.title} · 当前版本 {target.version} <button className="btn ghost sm" type="button" disabled={busy || !!pending} onClick={() => {
-          setNotice(""); setPending({ suggestion: item, action: "merge", target: target.id, key: `adopt:${crypto.randomUUID()}` });
+          setNotice(""); setPending({ suggestion: item, action: "merge", target: target.id, key: `adopt:${randomUuid()}` });
         }}>合并到此工单</button>
       </p>) : null}
     </li>)}</ol> : items ? <p className="muted">暂无可查看的工单建议。</p> : !error ? <p role="status">正在读取当前建议…</p> : null}

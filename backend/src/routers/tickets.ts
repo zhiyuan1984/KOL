@@ -6,11 +6,12 @@ import { transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
 import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
 import { addTicketCollaboratorPostgres, removeTicketCollaboratorPostgres } from "../ticket-domain/collaborate-ticket.js";
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
+import { deleteFormalTicketPostgres, type FormalTicketDeleteInput } from "../ticket-domain/delete-ticket.js";
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
 import { organizationTicketRawCountReport, organizationTicketStageRawReport, personalTicketRawCountReport } from "../ticket-domain/reports.js";
-import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, taskWorkOrderDashboard, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
+import { createTaskRootPostgres, listTaskWorkOrderAggregates, taskWorkOrderAggregate, taskWorkOrderDashboard, taskWorkOrderDashboardExport, type TaskRootInput } from "../ticket-domain/task-work-orders.js";
 import { recordWorkOrderShadowDecision } from "../ticket-domain/work-order-shadow.js";
 import { createWorkOrderTemplateDraft, disableWorkOrderTemplate, listWorkOrderTemplates, publishWorkOrderTemplate, type WorkOrderTemplateInput } from "../ticket-domain/work-order-template-governance.js";
 import { listWorkOrderAutomationReleases, setWorkOrderAutomationRelease } from "../ticket-domain/work-order-automation-release.js";
@@ -96,7 +97,7 @@ tickets.get("/tickets", async (c) => {
     view: c.req.query("view"), cursor: c.req.query("cursor"), limit: c.req.query("limit"),
     status: c.req.query("status"), priority: c.req.query("priority"), category: c.req.query("category"),
     stage: c.req.query("stage"), org_unit: c.req.query("org_unit"), assignee: c.req.query("assignee"),
-    due: c.req.query("due"), q: c.req.query("q"), from: c.req.query("from"), to: c.req.query("to"),
+    task_id: c.req.query("task_id"), due: c.req.query("due"), q: c.req.query("q"), from: c.req.query("from"), to: c.req.query("to"),
   });
   return c.json({ ...page, ...requestMetadata() });
 });
@@ -126,8 +127,46 @@ tickets.get("/task-work-orders/dashboard", async (c) => {
       limit: parseLimit(c.req.query("limit"), 50),
       cursor: c.req.query("cursor"),
       timezone: c.req.query("timezone") || "Asia/Shanghai",
+      period: c.req.query("period") || "realtime",
+      q: c.req.query("q"),
+      template: c.req.query("template"),
+      status: c.req.query("status"),
     })),
     ...requestMetadata(),
+  });
+});
+
+/** CSV is generated from the same authorized, period-scoped CTE as the
+ * dashboard. The browser receives a stream so a long export does not require a
+ * second JSON-shaped API contract. */
+tickets.get("/task-work-orders/dashboard/export", async (c) => {
+  const actor = requireTicketPrincipal();
+  const period = c.req.query("period") || "realtime";
+  const rows = await taskWorkOrderDashboardExport(actor.id, ticketIsAdmin(actor), {
+    timezone: c.req.query("timezone") || "Asia/Shanghai",
+    period,
+    q: c.req.query("q"),
+    template: c.req.query("template"),
+    status: c.req.query("status"),
+  });
+  const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+  const head = ["任务标题", "类型", "状态", "模板", "受理人", "创建时间", "完成时间"];
+  const lines = [head, ...rows.map((row) => [row.task_title, row.type, row.status, row.template, row.assignee, row.created_at || "", row.completed_at || ""])]
+    .map((cells) => cells.map(csvCell).join(","));
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(`\uFEFF${lines.join("\n")}\n`));
+      controller.close();
+    },
+  });
+  const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replaceAll("-", "");
+  return new Response(body, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`任务中心-${stamp}-${period}.csv`)}`,
+      "cache-control": "no-store",
+    },
   });
 });
 
@@ -424,6 +463,21 @@ tickets.patch("/tickets/:id", async (c) => {
   const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
   const result = await editFormalTicketPostgres(ticket.id, ownerId(), { ...body, idempotency_key: idempotencyKey });
   return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
+});
+
+/** Pending human-created tickets can be removed from the operational center.
+ * The domain command retains immutable audit evidence and hides the ticket from
+ * all normal reads instead of cascading historical lifecycle facts. */
+tickets.delete("/tickets/:id", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
+  if (!ticket.allowed_actions.includes("edit")) throw new HttpFail(409, { code: "ticket_delete_not_allowed" });
+  const body = await c.req.json().catch(() => ({})) as Partial<FormalTicketDeleteInput>;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const result = await deleteFormalTicketPostgres(ticket.id, ownerId(), {
+    expected_version: Number(body.expected_version),
+    idempotency_key: idempotencyKey,
+  });
+  return c.json({ ticket_id: result.ticket_id, deleted: true, ...requestMetadata() });
 });
 
 tickets.post("/tickets/:id/commands", async (c) => {

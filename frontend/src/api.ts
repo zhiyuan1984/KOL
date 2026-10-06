@@ -26,6 +26,7 @@ export type OperationJob = {
   error_summary?: string | null;
   receipt?: Record<string, unknown> | null;
 };
+import { randomUuid } from "./uuid";
 import type {
   DeclaredMountResult,
   McpImportPreview,
@@ -513,6 +514,8 @@ export type WorkbenchTaskPage = {
 /** Target ticket read-model. `Task` remains the compatibility projection during migration. */
 export type Ticket = Task & {
   ticket_id: string;
+  /** Parent task when a formal ticket is created from the Today/Todo detail rail. */
+  task_id?: string | null;
   data_version?: number;
   missing_fields: string[];
   allowed_actions: string[];
@@ -667,7 +670,8 @@ export type AiTaskWorkOrderList = {
 };
 
 export type AiTaskWorkOrderDashboard = {
-  report_version: "task-work-order-dashboard.v1" | string;
+  report_version: "task-work-order-dashboard.v1" | "task-work-order-dashboard.v2" | string;
+  period?: "realtime" | "today" | "week" | "month" | "year";
   as_of: string;
   timezone: string;
   scope: "personal_authorized" | "organization_authorized" | string;
@@ -688,16 +692,34 @@ export type AiTaskWorkOrderDashboard = {
     blocked: number;
     waiting_review: number;
     completed: number;
+    period_completed?: number;
+    trend?: number[];
   }>;
   tasks: {
     items: Array<{
       task: AiTaskRoot;
       counts: AiTaskWorkOrderCounts;
+      template_codes?: string[];
       current_blocking_work_order: AiTaskWorkOrderCompact | null;
       next_work_order: AiTaskWorkOrderCompact | null;
     }>;
     page: { limit: number; next_cursor: string | null; total: number };
   };
+  metrics?: {
+    total: number;
+    in_progress: number;
+    completion_rate: number | null;
+    overdue_rate: number | null;
+    automatic_rate: number | null;
+    median_processing_hours: number | null;
+    overdue: number;
+    blocked: number;
+  };
+  comparison?: {
+    previous: NonNullable<AiTaskWorkOrderDashboard["metrics"]>;
+    deltas: Partial<Record<"total" | "in_progress" | "completion_rate" | "overdue_rate" | "automatic_rate" | "median_processing_hours", number | null>>;
+  } | null;
+  trends?: Partial<Record<"total" | "in_progress" | "completion_rate" | "overdue_rate" | "automatic_rate" | "median_processing_hours", number[]>>;
   request_id: string;
 };
 
@@ -838,6 +860,7 @@ export type TicketFormBootstrap = {
 export type CreateFormalTicketInput = {
   title: string;
   goal: string;
+  task_id?: string;
   business_category: "kol" | "marketing" | "operations" | "data" | "general";
   stage_group?: string;
   stage_code?: string;
@@ -882,6 +905,13 @@ export type EditFormalTicketResult = {
   event_id: string;
   replayed: boolean;
   ticket: Ticket;
+  request_id: string;
+  as_of: string;
+};
+
+export type DeleteFormalTicketResult = {
+  ticket_id: string;
+  deleted: true;
   request_id: string;
   as_of: string;
 };
@@ -1385,9 +1415,17 @@ export type KnowledgeRow = {
   current_version?: number;
   published_version?: number | null;
   cited?: boolean;
+  /** 当前账号已收藏；由服务端返回，跨设备同步。 */
+  favorite?: boolean;
+  favorite_version?: number | null;
+  /** 收藏之后已有新的已发布版本。 */
+  has_newer_version?: boolean;
   deprecated?: boolean;
   deprecate_reason?: string;
   deprecate_reason_label?: string;
+  feedback_handled?: boolean;
+  feedback_handled_at?: string;
+  feedback_handle_action?: string;
   cite_count?: number;
   in_market?: number;
   intent?: string;
@@ -1963,18 +2001,29 @@ export const api = {
   },
   tickets: (opts: {
     cursor?: string; limit?: number; view?: "authorized" | "created" | "assigned" | "watching" | "completed";
-    status?: string; priority?: string; category?: string; stage?: string; org_unit?: string; assignee?: string; due?: "all" | "overdue" | "none"; q?: string; from?: string; to?: string;
+    task_id?: string; status?: string; priority?: string; category?: string; stage?: string; org_unit?: string; assignee?: string; due?: "all" | "overdue" | "none"; q?: string; from?: string; to?: string;
   } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
   },
-  aiTaskWorkOrderDashboard: (opts: { limit?: number; cursor?: string; timezone?: string } = {}) => {
+  aiTaskWorkOrderDashboard: (opts: { limit?: number; cursor?: string; timezone?: string; period?: "realtime" | "today" | "week" | "month" | "year"; q?: string; template?: string; status?: string } = {}) => {
     const query = new URLSearchParams();
     if (opts.limit != null) query.set("limit", String(Math.max(1, Math.min(100, Math.floor(opts.limit)))));
     if (opts.cursor) query.set("cursor", opts.cursor);
+    if (opts.period) query.set("period", opts.period);
+    if (opts.q) query.set("q", opts.q);
+    if (opts.template) query.set("template", opts.template);
+    if (opts.status) query.set("status", opts.status);
     query.set("timezone", opts.timezone || "Asia/Shanghai");
     return request<AiTaskWorkOrderDashboard>(`/api/task-work-orders/dashboard?${query}`);
+  },
+  aiTaskWorkOrderDashboardExportUrl: (opts: { timezone?: string; period?: "realtime" | "today" | "week" | "month" | "year"; q?: string; template?: string; status?: string } = {}) => {
+    const query = new URLSearchParams({ timezone: opts.timezone || "Asia/Shanghai", period: opts.period || "realtime" });
+    if (opts.q) query.set("q", opts.q);
+    if (opts.template) query.set("template", opts.template);
+    if (opts.status) query.set("status", opts.status);
+    return `/api/task-work-orders/dashboard/export?${query}`;
   },
   aiTaskWorkOrders: (limit = 50) => request<AiTaskWorkOrderList>(`/api/task-work-orders?limit=${Math.max(1, Math.min(100, Math.floor(limit)))}`),
   createAiTaskWorkOrderRoot: (body: { title: string; goal?: string; priority?: "important_urgent" | "important" | "urgent" | "normal" | "low"; due_at?: string; idempotency_key: string }) => request<{ task: AiTaskRoot; request_id: string; as_of: string; schema_version: string }>("/api/task-work-orders/tasks", {
@@ -2017,6 +2066,11 @@ export const api = {
   editFormalTicket: (id: string, body: EditFormalTicketInput) => request<EditFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "Idempotency-Key": body.idempotency_key },
+    body: JSON.stringify(body),
+  }),
+  deleteFormalTicket: (id: string, body: { expected_version: number }) => request<DeleteFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { "Idempotency-Key": `ticket-delete-${randomUuid()}` },
     body: JSON.stringify(body),
   }),
   ticket: (id: string) => request<Ticket & { latest_run: TicketRun | null; summary: TicketSummary; request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}`),
@@ -2081,7 +2135,7 @@ export const api = {
       `/api/tickets/${encodeURIComponent(task.id)}/commands`,
       {
         method: "POST",
-        headers: { "Idempotency-Key": `ticket-cancel-${crypto.randomUUID()}` },
+        headers: { "Idempotency-Key": `ticket-cancel-${randomUuid()}` },
         body: JSON.stringify({
           action: "cancel",
           expected_version: Math.max(1, Number(task.data_version || 1)),
@@ -2121,7 +2175,7 @@ export const api = {
       `/api/tickets/${encodeURIComponent(task.id)}/commands`,
       {
         method: "POST",
-        headers: { "Idempotency-Key": `ticket-complete-${crypto.randomUUID()}` },
+        headers: { "Idempotency-Key": `ticket-complete-${randomUuid()}` },
         body: JSON.stringify({
           action: "complete",
           expected_version: Math.max(1, Number(task.data_version || 1)),
@@ -2790,6 +2844,10 @@ export const api = {
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/cite`, { method: "POST", body: JSON.stringify({}) }),
   unciteKnowledge: (id: string) =>
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/cite`, { method: "DELETE" }),
+  favoriteKnowledge: (id: string) =>
+    request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/favorite`, { method: "POST", body: JSON.stringify({}) }),
+  unfavoriteKnowledge: (id: string) =>
+    request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/favorite`, { method: "DELETE" }),
   deprecateKnowledge: (id: string, reason: string, note = "") =>
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/deprecate`, {
       method: "POST",

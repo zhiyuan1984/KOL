@@ -747,12 +747,16 @@ describe("host contracts", () => {
     for (const rec of recs) {
       const [, data] = await ask(String(rec.prompt), String(rec.intent));
       const messages = data.messages as Json[];
-      if (rec.id === "confirm_stage") {
-        expect((data.worker as Json)?.skill, String(rec.id)).toBe("confirm_stage");
-        expect(messages.some((message) => ["confirm_stage_card", "supplement_card"].includes(String(message.kind))), `${rec.id}: artifact`).toBe(true);
+      // P2.1：confirm_stage / stage_sop 声明了 context.requires=[collaboration, stage]。首页推荐不带
+      // 合作对象，按设计不再起箱，只出结构化缺口卡（带合作对象的路径见 ask(..., "confirm_stage", "col_xiaomei")）。
+      if (rec.id === "confirm_stage" || rec.id === "stage_sop") {
+        expect(data.worker ?? null, `${rec.id}: no turn without declared context`).toBeNull();
+        expect(messages.some((message) => message.kind === "supplement_card"), `${rec.id}: context gap card`).toBe(true);
+        expect(messages.some((message) => ["confirm_stage_card", "task_result_card"].includes(String(message.kind))),
+          `${rec.id}: no result without context`).toBe(false);
         continue;
       }
-      if (rec.id === "deal_memory" || rec.id === "stage_sop" || String(rec.id).startsWith("sop_")) {
+      if (rec.id === "deal_memory" || String(rec.id).startsWith("sop_")) {
         expect((data.worker as Json)?.skill, String(rec.id)).toBe(rec.id);
         expect(messages.some((message) => message.kind === "task_result_card"), `${rec.id}: artifact`).toBe(true);
         continue;

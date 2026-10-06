@@ -39,6 +39,7 @@ import {
   createDomain,
   createKnowledge,
   deprecate,
+  favorite,
   editBase,
   editDomain,
   listBases,
@@ -64,6 +65,7 @@ import {
   storeUploadRaw,
   transferBrand,
   uncite,
+  unfavorite,
   deleteBinding,
   getKnowledgeVersion,
   grantsForKnowledge,
@@ -197,6 +199,8 @@ knowledge.get("/knowledge", (c) => {
 
 knowledge.post("/knowledge/:id/cite", (c) => c.json(cite(c.req.param("id"))));
 knowledge.delete("/knowledge/:id/cite", (c) => c.json(uncite(c.req.param("id"))));
+knowledge.post("/knowledge/:id/favorite", (c) => c.json(favorite(c.req.param("id"))));
+knowledge.delete("/knowledge/:id/favorite", (c) => c.json(unfavorite(c.req.param("id"))));
 knowledge.post("/knowledge/:id/deprecate", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Json;
   return c.json(deprecate(

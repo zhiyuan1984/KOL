@@ -10,6 +10,7 @@ import {
   type Task,
 } from "../api";
 import { crawlCandidates } from "../components/CrawlArtifact";
+import { randomUuid } from "../uuid";
 import { DiscoveryFollowConfirm } from "../home/DiscoveryFollowConfirm";
 import {
   followCandidate,
@@ -224,7 +225,7 @@ export default function AgentCrawler({
       ...(mode === "search" ? { keywords: values } : {}),
       ...(mode === "detail" ? { specified_ids: values } : {}),
       ...(mode === "creator" ? { creator_ids: values } : {}),
-      idempotency_key: crypto.randomUUID(),
+      idempotency_key: randomUuid(),
     };
     try {
       const created = unwrapTask(await api.createTask({

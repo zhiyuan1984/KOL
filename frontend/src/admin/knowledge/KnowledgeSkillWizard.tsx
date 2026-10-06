@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
+import { randomUuid } from "../../uuid";
 import {AdminFormDialog} from '../../components/AdminFormDialog';
 import {reviewApi,reviewCompany} from '../../reviews/api';
 import type {KnowledgeScope} from '../../../../shared/knowledge-scope';
@@ -15,7 +16,7 @@ export default function KnowledgeSkillWizard({onClose,onCreated}:{onClose:()=>vo
   useEffect(()=>{let live=true;reviewApi<{documents:Document[]}>('/admin/knowledge/scope-catalog').then(data=>{if(live)setDocuments(data.documents);}).catch(e=>{if(live)setError(e.message);});return()=>{live=false;};},[]);
   const running=Boolean(job && ['queued','running','retrying'].includes(job.status));
   useEffect(()=>{if(!running || !job)return;let live=true;const timer=setInterval(()=>{reviewApi<Job>(`/admin/skills/knowledge-drafts/jobs/${job.id}`).then(next=>{if(!live)return;setJob(next);if(next.result)setBody(next.result.body);if(next.error_summary)setError(next.error_summary);}).catch(e=>{if(live)setError(e.message);});},2500);return()=>{live=false;clearInterval(timer);};},[job?.id,running]);
-  async function generate(){setBusy(true);setError('');try{const result=await reviewApi<{jobId:string}>('/admin/skills/knowledge-drafts/generate',{id,title,purpose,base_ids:bases,update_policy:policy,request_id:crypto.randomUUID(),...(policy==='fixed_documents'?{document_ids:fixed}:{})});sessionStorage.setItem(storageKey,result.jobId);setJob({id:result.jobId,status:'queued'});}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
+  async function generate(){setBusy(true);setError('');try{const result=await reviewApi<{jobId:string}>('/admin/skills/knowledge-drafts/generate',{id,title,purpose,base_ids:bases,update_policy:policy,request_id:randomUuid(),...(policy==='fixed_documents'?{document_ids:fixed}:{})});sessionStorage.setItem(storageKey,result.jobId);setJob({id:result.jobId,status:'queued'});}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   async function save(){if(!job)return;setBusy(true);setError('');try{const result=await reviewApi<{id:string}>(`/admin/skills/knowledge-drafts/jobs/${job.id}/accept`,{body});sessionStorage.removeItem(storageKey);onCreated(result.id);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   const baseRows=[...new Map(documents.map(d=>[d.base_id,{id:d.base_id,name:d.name}])).values()];
   const generated=job?.status==='succeeded';

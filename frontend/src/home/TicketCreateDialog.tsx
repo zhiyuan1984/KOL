@@ -6,6 +6,7 @@ import {
   type TicketAssigneeCandidate,
   type TicketFormBootstrap,
 } from "../api";
+import { randomUuid } from "../uuid";
 import "./ticket-create-dialog.css";
 
 const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -25,7 +26,7 @@ const PRIORITY_OPTIONS: Array<{ value: CreateFormalTicketInput["priority"]; labe
 ];
 
 function newIdempotencyKey() {
-  return `ticket-form-${crypto.randomUUID()}`;
+  return `ticket-form-${randomUuid()}`;
 }
 
 function localDueDateTime(value: string) {
@@ -41,10 +42,13 @@ function matchingAssignees(bootstrap: TicketFormBootstrap | null, unitId: string
 
 export default function TicketCreateDialog({
   open,
+  taskId,
   onClose,
   onCreated,
 }: {
   open: boolean;
+  /** 从任务明细创建时预填关联任务；独立工单中心不传。 */
+  taskId?: string;
   onClose: () => void;
   onCreated: (ticketId: string) => void;
 }) {
@@ -154,6 +158,7 @@ export default function TicketCreateDialog({
       const result = await api.createFormalTicket({
         title: title.trim(),
         goal: goal.trim(),
+        task_id: taskId || undefined,
         business_category: category,
         priority,
         stage_group: stageGroup.trim() || undefined,

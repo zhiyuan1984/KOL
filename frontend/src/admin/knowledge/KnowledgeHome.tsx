@@ -12,6 +12,7 @@ import KnowledgeFilters, { type FilterOption } from "./KnowledgeFilters";
 import LibraryPane, { type KbView } from "./LibraryPane";
 import UploadDialog from "./UploadDialog";
 import DocumentRail from "./DocumentRail";
+import ReviewView, { type GovernanceTarget } from "./ReviewView";
 import { useSearchParams,useBlocker } from "react-router-dom";
 
 const PAGE_SIZE = 20;
@@ -32,6 +33,7 @@ const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, lab
 const SCOPE_NONE = "__none__";
 type KbScope = { familyId: string; domainId: string; baseId: string };
 const EMPTY_SCOPE: KbScope = { familyId: "", domainId: "", baseId: "" };
+type WorkspaceFilters = { query: string; scope: KbScope; brands: string[]; stages: string[]; kind: string; view: KbView; assetTypeFilter: "" | "entry" | "document" };
 
 /** 计数跳过哪些筛选组：计数口径＝点选该 chip 后的实际结果数（DESIGN §8 数字同源）。 */
 type Skip = { view?: boolean; kind?: boolean; brand?: boolean; stage?: boolean; scope?: "all" | "sub" | "base" };
@@ -57,6 +59,9 @@ export default function KnowledgeHome() {
   const [stages, setStages] = useState<string[]>(restore.stages || []);
   const [kind, setKind] = useState<string>(restore.kind || "");
   const [view, setView] = useState<KbView>(restore.view || "all");
+  const [assetTypeFilter, setAssetTypeFilter] = useState<"" | "entry" | "document">("");
+  const [governance, setGovernance] = useState<{ target: GovernanceTarget; ids: string[] } | null>(null);
+  const [governanceRestore, setGovernanceRestore] = useState<WorkspaceFilters | null>(null);
   const [page, setPage] = useState<number>(restore.page || 1);
   const [selectedId, setSelectedId] = useState<string>(params.get("assetId") || requestedDocument || restore.selectedId || "");
   const mode=params.get("mode") || (requestedDocument ? "detail":"list");
@@ -73,6 +78,8 @@ export default function KnowledgeHome() {
   },[blocker,onDirty]);
   const [actionTarget,setActionTarget]=useState<HTMLElement|null>(null);
   const bodyRef=useRef<HTMLDivElement>(null),positions=useRef<Record<string,number>>(restore.positions || {});
+  // 工作区状态机：list 只浏览/筛选；detail 可进入 edit 或 review；create/upload 完成后回 detail。
+  // 所有离开可编辑态的迁移收敛到这里，先执行 dirty guard 再写 URL 状态。
   const switchMode=(next:string,id=selectedId,type=selectedType)=>{
     if(dirtyRef.current && !window.confirm("当前有未保存内容，放弃修改并离开？"))return;
     onDirty(false);setSelectedId(id);
@@ -107,11 +114,31 @@ export default function KnowledgeHome() {
     .filter(Boolean)
     .join(" / "), []);
 
+  const openGovernance = useCallback((target: GovernanceTarget, ids: string[] = []) => {
+    if (!governance) setGovernanceRestore({ query, scope, brands, stages, kind, view, assetTypeFilter });
+    setGovernance({ target, ids });
+    // 数字卡片的计数来自完整工作区；点击后清除普通侧栏条件，再按卡片提供的精确 ID 集合展示，避免“卡片有数、列表为空”。
+    setQuery(""); setScope(EMPTY_SCOPE); setBrands([]); setStages([]); setKind(""); setView("all"); setAssetTypeFilter("");
+    setPage(1);
+  }, [governance, query, scope, brands, stages, kind, view, assetTypeFilter]);
+
+  const clearGovernance = useCallback(() => {
+    setGovernance(null);
+    if (governanceRestore) {
+      setQuery(governanceRestore.query); setScope(governanceRestore.scope); setBrands(governanceRestore.brands);
+      setStages(governanceRestore.stages); setKind(governanceRestore.kind); setView(governanceRestore.view); setAssetTypeFilter(governanceRestore.assetTypeFilter);
+    } else { setAssetTypeFilter(""); setView("all"); }
+    setGovernanceRestore(null);
+  }, [governanceRestore]);
+
   const passes = useCallback((row: KbAssetRow, skip: Skip = {}) => {
     const q = query.trim().toLowerCase();
     const familyId = String(row.family_id || "");
     const domainId = String(row.domain_id || "");
     const baseId = String(row.base_id || "");
+    const rowAssetType = row.asset_type === "document" ? "document" : "entry";
+    if (assetTypeFilter && rowAssetType !== assetTypeFilter) return false;
+    if (governance && !governance.ids.includes(row.id)) return false;
     if (!skip.view && view !== "all" && String(row.status || "") !== VIEW_STATUS[view]) return false;
     if (!skip.kind && kind && row.kind !== kind) return false;
     if (skip.scope !== "all" && scope.familyId) {
@@ -139,7 +166,7 @@ export default function KnowledgeHome() {
       if (!haystack.includes(q)) return false;
     }
     return true;
-  }, [query, scope, brands, stages, kind, view, pathOf]);
+  }, [query, scope, brands, stages, kind, view, pathOf, assetTypeFilter, governance]);
 
   const countWhere = useCallback(
     (skip: Skip, match?: (row: KbAssetRow) => boolean) => rows.reduce(
@@ -273,8 +300,8 @@ export default function KnowledgeHome() {
     [filtered, currentPage],
   );
   const selectedRow=rows.find(row=>row.id===selectedId && (row.asset_type==="document" ? "document":"entry")===selectedType) || null;
-  const lastFilters=useRef(JSON.stringify({query,kind,view,scope,brands,stages}));
-  useEffect(()=>{const current=JSON.stringify({query,kind,view,scope,brands,stages});if(lastFilters.current!==current){setPage(1);lastFilters.current=current;}},[query,kind,view,scope,brands,stages]);
+  const lastFilters=useRef(JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,governance}));
+  useEffect(()=>{const current=JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,governance});if(lastFilters.current!==current){setPage(1);lastFilters.current=current;}},[query,kind,view,scope,brands,stages,assetTypeFilter,governance]);
   useEffect(()=>{if(page!==currentPage)setPage(currentPage);},[page,currentPage]);
   useEffect(()=>{sessionStorage.setItem(contextKey,JSON.stringify({query,scope,brands,stages,kind,view,page,selectedId,selectedType,positions:positions.current}));},[contextKey,query,scope,brands,stages,kind,view,page,selectedId,selectedType,mode]);
   const revealCreated=(id:string,type="entry")=>{onDirty(false);switchMode("detail",id,type);reload();};
@@ -327,12 +354,16 @@ export default function KnowledgeHome() {
         <section className="kbv-browser kbw-workarea" aria-label="知识工作区" data-workspace-mode={mode} aria-busy={loading}>
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           <div className="kbw-body" ref={bodyRef} onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
-          {error ? <p role="alert">知识服务暂不可用，请重新加载。</p> : mode==="list" ? <LibraryPane
-            rows={pageRows} totalCount={filtered.length} page={currentPage} pageCount={pageCount} selectedId={selectedId}
-            onSelect={id=>{const row=pageRows.find(r=>r.id===id);switchMode("detail",id,row?.asset_type==="document"?"document":"entry");}}
-            onPrevious={()=>setPage(p=>Math.max(1,p-1))} onNext={()=>setPage(p=>Math.min(pageCount,p+1))} loading={loading}
-          /> : mode==="create" ? <EntryEditor bases={bases} onDirty={onDirty} onCancel={()=>switchMode("list")} onSaved={row=>{notify("草稿已保存");revealCreated(row.id);}} />
-          : mode==="upload" ? <UploadDialog inline open onProgress={reload} bases={bases} onDirty={onDirty} onClose={()=>switchMode("list")} onCreated={id=>{notify("PDF 草稿已保存，尚未解析或发布");revealCreated(id,"document");}} />
+          {mode==="list" ? <ReviewView rows={rows} onNavigate={openGovernance} /> : null}
+          {mode==="list" && governance ? <p className="kb-governance-filter" data-admin-kb-dashboard-filter>当前查看：{({pending:"待审批",draft:"草稿",documents:"待审资料",expiry:"30 天内到期",feedback:"员工反馈",proposals:"待决提案"} as Record<GovernanceTarget,string>)[governance.target]}（{governance.ids.length} 条）<button type="button" className="kbv-text-action" onClick={clearGovernance}>返回之前的筛选</button></p> : null}
+          {error ? <p role="alert">知识服务暂不可用，请重新加载。</p> : mode==="list" ? <>
+            <LibraryPane
+              rows={pageRows} totalCount={filtered.length} page={currentPage} pageCount={pageCount} selectedId={selectedId}
+              onSelect={id=>{const row=pageRows.find(r=>r.id===id);switchMode("detail",id,row?.asset_type==="document"?"document":"entry");}}
+              onPrevious={()=>setPage(p=>Math.max(1,p-1))} onNext={()=>setPage(p=>Math.min(pageCount,p+1))} loading={loading}
+            />
+          </> : mode==="create" ? <EntryEditor bases={bases} onDirty={onDirty} onCancel={()=>switchMode("list")} onSaved={row=>{notify("草稿已保存");revealCreated(row.id);}} />
+          : mode==="upload" ? <UploadDialog inline open onProgress={reload} bases={bases} onDirty={onDirty} onClose={()=>switchMode("list")} onCreated={id=>{notify("PDF 已上传并开始解析；完成后请提交发布审批");revealCreated(id,"document");}} />
           : selectedId ? selectedType==="document" ? <DocumentRail key={selectedId} id={selectedId} path={selectedRow ? pathOf(selectedRow):""} mode={mode} onMode={next=>switchMode(next)} onRevision={id=>{revealCreated(id,"document");}} onDirty={onDirty} notify={notify} fail={fail} reload={reload} />
           : <WorkspaceEntry key={selectedId} id={selectedId} bases={bases} mode={mode} onMode={next=>switchMode(next)} onDirty={onDirty} onSaved={reload} notify={notify} />
           : <p className="kbv-empty">知识不存在，请返回列表。</p>}

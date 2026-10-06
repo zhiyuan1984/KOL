@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, type Task, type Ticket } from "../api";
+import { randomUuid } from "../uuid";
 import "./ticket-create-dialog.css";
 
 const PRIORITIES = [
@@ -61,7 +62,7 @@ export default function TicketEditDialog({
     try {
       const result = await api.editFormalTicket(ticket.id, {
         expected_version: expectedVersion,
-        idempotency_key: `ticket-edit-${crypto.randomUUID()}`,
+        idempotency_key: `ticket-edit-${randomUuid()}`,
         title: title.trim(),
         goal: goal.trim() || null,
         priority: priority as "important_urgent" | "important" | "urgent" | "normal" | "low",
