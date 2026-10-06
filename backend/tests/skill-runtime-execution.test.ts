@@ -116,11 +116,16 @@ describe("discovery workspace persistence and result isolation", () => {
     expect(replay).toMatchObject({ task_id: first.task_id, session_id: first.session_id });
     expect([first.duplicate, replay.duplicate].sort()).toEqual([false, true]);
     const row = (await postgresPool().query("SELECT input FROM tickets WHERE id=$1", [first.task_id])).rows[0];
-    expect(JSON.parse(row.input).discovery_workspace).toMatchObject({ brief, agent_id: context.agentId, profile: "lead" });
+    expect(JSON.parse(row.input)).toMatchObject({ agent_id: context.agentId, discovery_workspace: { brief, agent_id: context.agentId, profile: "lead" } });
+    expect(first.pending).toMatchObject({ agent_id: context.agentId });
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM task_runs WHERE work_item_id=$1", [first.task_id])).rows[0].n).toBe(1);
     expect(await withScopedUser(owner, () => pendingDiscoveryWorkspace(String(first.task_id)))).toMatchObject({ pending: first.pending });
     await expect(withScopedUser({ ...owner, id: "another-owner" }, () => pendingDiscoveryWorkspace(String(first.task_id))))
       .rejects.toMatchObject(denied("discovery_task_not_found"));
+    await postgresPool().query("UPDATE task_runs SET status='failed' WHERE work_item_id=$1", [first.task_id]);
+    await postgresPool().query("UPDATE tickets SET status='failed' WHERE id=$1", [first.task_id]);
+    expect(await withScopedUser(owner, () => pendingDiscoveryWorkspace(String(first.task_id))))
+      .toMatchObject({ pending: { agent_id: context.agentId } });
     await postgresPool().query("UPDATE task_runs SET status='running' WHERE work_item_id=$1", [first.task_id]);
     expect(await withScopedUser(owner, () => pendingDiscoveryWorkspace(String(first.task_id)))).toEqual({ pending: null });
     await expect(withScopedUser(owner, () => createDiscoveryWorkspace(null))).rejects.toMatchObject(denied("discovery_brief_invalid"));

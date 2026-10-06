@@ -45,7 +45,10 @@ export async function createDiscoveryWorkspace(inputBody: unknown): Promise<Json
   const workspace = { kind: "discovery", version: 1, agent_id: agentId, profile: "lead", brief,
     template, template_version: template.version, brief_version: String(body.version || "discovery-brief.v1"),
     return_to: "/?tab=discovery", submitted_text: body.text };
-  const input = { prompt: body.text, _skill_template: template, discovery_workspace: workspace };
+  // Keep the resolved agent on both the workspace and task input. The message route
+  // resolves bound runs from input, so this prevents it from reopening an employee
+  // choice after the durable workspace has already selected an eligible agent.
+  const input = { prompt: body.text, agent_id: agentId, _skill_template: template, discovery_workspace: workspace };
   const entities = { discovery_brief: brief };
   return postgresTransaction(async client => {
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [taskId]);
@@ -68,8 +71,8 @@ export async function createDiscoveryWorkspace(inputBody: unknown): Promise<Json
     }
     const run = (await client.query("SELECT status FROM task_runs WHERE id=$1", [runId])).rows[0];
     return { task_id: taskId, session_id: sessionId, duplicate: Boolean(found),
-      pending: run?.status === "pending" ? { text: body.text, intent: "crawler_collect", task_type: "crawler_collect",
-        work_item_id: taskId, run_id: runId, entities } : null };
+      pending: ["pending", "failed"].includes(String(run?.status)) ? { text: body.text, intent: "crawler_collect", task_type: "crawler_collect",
+        work_item_id: taskId, run_id: runId, agent_id: agentId, entities } : null };
   });
 }
 
@@ -84,6 +87,9 @@ export async function pendingDiscoveryWorkspace(taskId: string): Promise<Json> {
   const workspace = JSON.parse(row.input).discovery_workspace;
   if (workspace?.kind !== "discovery") throw new HttpFail(404, { code: "discovery_task_not_found" });
   assertRuntimeSkill({ agentId: workspace.agent_id, skillId: "crawler_collect", userId: user.id, runId: row.run_id });
-  return { pending: row.status === "pending" && row.task_status === "pending" ? { text: workspace.submitted_text, intent: "crawler_collect",
-    task_type: "crawler_collect", work_item_id: taskId, run_id: row.run_id, entities: { discovery_brief: workspace.brief } } : null };
+  const retryable = ["pending", "failed"].includes(String(row.status))
+    && ["pending", "failed"].includes(String(row.task_status));
+  return { pending: retryable ? { text: workspace.submitted_text, intent: "crawler_collect",
+    task_type: "crawler_collect", work_item_id: taskId, run_id: row.run_id, agent_id: workspace.agent_id,
+    entities: { discovery_brief: workspace.brief } } : null };
 }

@@ -320,6 +320,13 @@ function isTransientDiscoveryDispatchError(error: unknown): boolean {
   return !Number.isFinite(status) || status === 0 || status >= 500;
 }
 
+function discoveryDispatchFailureMessage(error: unknown): string {
+  const reason = error instanceof Error ? error.message.trim().replace(/[。.!！]+$/, "") : "";
+  return reason
+    ? `首轮分析没有跑完：${reason}。可重试；不会重复创建任务。`
+    : "首轮分析没有跑完，可重试；不会重复创建任务。";
+}
+
 /**
  * A workspace is committed before its first analysis is dispatched. During a
  * brief service restart, use the durable task/run as the source of truth:
@@ -680,9 +687,9 @@ export default function Home() {
       // 已被服务端接收的回合不再重复发送。
       try {
         await dispatchDiscoveryPendingAnalysis(result.task_id, result.session_id);
-      } catch {
+      } catch (error) {
         setDiscoverySubmitFailed(true);
-        setDiscoverySubmitError("首轮分析没有跑完，可重试；不会重复创建任务。");
+        setDiscoverySubmitError(discoveryDispatchFailureMessage(error));
       }
     } catch (error) {
       setDiscoverySubmitFailed(true);
@@ -714,9 +721,9 @@ export default function Home() {
         }
         storePending(discoverySessionId, pending);
         await dispatchDiscoveryPendingAnalysis(discoveryTaskId, discoverySessionId);
-      } catch {
+      } catch (error) {
         setDiscoverySubmitFailed(true);
-        setDiscoverySubmitError("首轮分析没有跑完，可重试；不会重复创建任务。");
+        setDiscoverySubmitError(discoveryDispatchFailureMessage(error));
       } finally {
         setBusy(false);
         setIntakeRunning(false);
