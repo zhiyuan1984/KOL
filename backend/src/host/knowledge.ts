@@ -1569,6 +1569,15 @@ export function resolveApplicableMailTemplates(opts: {
   });
 }
 
+/** 同等适用的候选并列返回，由调用方或人来选；任何一方都不得从多个里取第一只。 */
+export function preparedTemplateChoice(templates: UsableTemplate[], stage: string, brand: string): UsableTemplate[] {
+  if (!templates.length) return [];
+  const score = (template: UsableTemplate) =>
+    (template.brand === brand ? 0 : 2) + (template.stage_codes.includes(stage) ? 0 : 1);
+  const best = Math.min(...templates.map(score));
+  return templates.filter((template) => score(template) === best);
+}
+
 export function leftoverPlaceholders(text: string): string[] {
   return [...String(text || "").matchAll(PLACEHOLDER_RE)].map((m) => m[0]);
 }

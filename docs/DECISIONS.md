@@ -2,6 +2,23 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-06：技能上下文解析层（context 契约与来源优先级链）
+
+- **状态**：已接受（P0 规格 + P1 解析层已实施；P2 逐类迁移中）。
+- **背景**：平台 50 个技能中，只有 `email_compose` 有实时上下文准备机制——它独占 `POST /api/actions/mail.prepare`，且该入口第一行就硬校验 `skill_id === "email_compose"`（`host/api.ts`），是全后端唯一的上下文准备动作。其余技能在上下文缺失时系统**永不追问**：缺口可见性取决于是否声明 `required_inputs`，而空数组让 `missing()` 恒返回空（`tasks/resolver.ts`），45 个技能因此静默。ADR-2026-09-23 已正确诊断「`required_inputs` 只是字符串数组，无类型、无标签、无选项来源」并给出 `input_schema` 契约化方案，但它把上下文建模为**「员工必须提供的参数」**而非**「系统应当解析的当前世界」**：`input_schema` 是表单形状，`prefill` 只有「文本抽取」一条来源，于是碰到 `email_compose` 这类强上下文技能时只能手写专用解析器。既有 `object_refs` 管道已随提交载荷传递，但全后端仅 `mail.prepare` 一个消费者。
+- **决定**：
+  1. 新增技能**上下文契约** `context`，与 `input_schema` 并列住在 SKILL.md frontmatter（沿用 ADR-2026-09-23 单一事实源决定，不建第二注册表）。`requires` 解析失败即 `needs_context`（不建箱、不启动 turn）；`prefers` 失败不阻塞但如实标注。空 `requires` 是「本技能不依赖当前世界」的显式声明，未声明 `context` 的技能保持现状并记为待补，不批量伪造。
+  2. 上下文键目录**登记制**（`collaboration` / `stage` / `stage_tracks` / `mailbox` / `mail_thread` / `mail_template` / `message` / `conversation` / `creator` / `creator_filter` / `risk_scope`），键不得自创，未登记键在加载期拒绝，与 `input_schema.options_source` 同一处置。
+  3. 统一**来源优先级链**：显式载荷 → UI 选中态（`object_refs`）→ 会话绑定 → 文本抽取 → 账号绑定 → 对象事实 → 记忆。显式载荷优先于一切；第 1 级与第 3 级冲突时不静默取其一；账号绑定只在品牌与范围核对通过时使用；任何一步都不得从多候选中取第一只（BIZ-04）。
+  4. 新增只读入口 `POST /api/actions/context.resolve`，返回统一信封（`resolved` / `sources` 逐键来源档 / `missing` / `candidates` / `context_version`）。`mail.prepare` **保留为它的第一个消费者**，路由、请求体、响应字段与文案逐字不变。
+  5. 缺口呈现沿用既有卡片形状与 DESIGN.md §8.8「空态诚实」三分；`needs_context`（系统没解析出事实）与 `needs_input`（人没给值）是两种状态，不得合并。
+- **理由**：ADR-2026-09-23 的三条判断（契约化、Host 前置解析避免烧 turn、缺口必须诚实）成立且继续有效，但需要补上「上下文」这一层，否则每接一个强上下文技能就要再写一个专用解析器。本决定把 `email_compose` 的既有实现提炼为通用层，不改其行为（用 22 例既有定向用例锁回归），新增能力面向后续技能。
+- **影响资产**：`docs/superpowers/specs/2026-10-06-context-resolution-design.md`（目标规格）；`backend/src/tasks/registry.ts`（`TASK_CONTEXT_KEYS` / `TaskContext` / 契约校验）；`backend/src/host/context-resolve.ts`（解析层，新增）；`backend/src/host/context-operations.ts`（只读入口，新增）；`backend/src/host/api.ts`（`prepareMail` 改为消费者；`preparedCollaboration` / `collaborationRefs` / `composeContextVersion` 提炼进解析层）；`backend/src/host/knowledge.ts`（`preparedTemplateChoice` 移入并导出）；`backend/src/app.ts`（挂载入口）；`backend/src/worker/runner.ts`（运行箱补齐阶段事实与声明式上下文投影）；`backend/skills/{confirm_stage,stage_sop}/SKILL.md`（P2.1 声明 context）；`backend/tests/context-resolve.test.ts`（新增）。
+- **生效版本**：法条先行。P1 解析层已实施并有用例证据；P2.1 阶段类已迁移；P2.2–P2.4 与 P3 按实施登记表推进，**不得把设计文档或机制落地报告为全部技能已完成迁移**。
+- **审宪记录**：需求「KOL 智能体的邮件类、达人类、阶段类等技能都做到实时感知上下文」→ 主责 智能体产品经理（入口与记忆）、平台产品经理（技能声明）、架构师（解析层）；UI/UX 专家（缺口呈现）、KOL 业务专家（事实口径）会签 → CONST-03（确定的状态规则由程序执行，不靠模型自觉）、CONST-04（前端不重写规则）、CONST-05（确认与回执不放松）、CONST-08（先审宪）、CONST-09（不偷改法）、CONST-10（不得用文档冒充完成）→ 基本法 PROD-AGENT-01（入口决定路径）、PROD-AGENT-02（快捷指令声明名称/输入/结果/权限/失败处理）、PROD-AGENT-03（只追问影响当前任务的必要信息；已明确的授权与选择应复用）、PROD-AGENT-09（可靠协作与重新核验）、TECH-BE-01/04、BIZ-04、DESIGN.md §8.8、07-mcp-data-contract → **符合**：只改善「执行前拿到什么」，不新增闸门、不放松确认与回执、不改阶段或权限判定；`context` 住既有单一事实源；未声明技能保持现状 → 下一步：P2 按业务痛感逐类迁移，每阶段附类型检查、定向测试与真机走查证据。
+- **限制**：① 本决定不解决远端 MCP 工具 schema 的不确定性——真实可用的筛选参数需运行时 `execution.discover()` 从远端获取，仓库内只有 mock 与确定性分支。② 现行 `starrykol/service.ts` 的 `needs_input` 确定性兜底在生产**不可达**（非 stub 模式直接抛 `CodexUnavailable`），迁移后的行为需真机验证，不能只凭单测。③ 闸门目前只在 Host 意图路径生效；直接调 `runWorker`/`runCodex` 的旁路（compose 预览、today-plan、home-discovery）未加闸门（这些路径当前不跑阶段类技能）。④ 前端缺口卡按 `fields` 渲染输入框，其提交逻辑对阶段类缺口的文案仍无意义，属既有缺陷，待 UI/UX 专家按 §8.8 收口。⑤ 15 个 `sop_*` 的技能族废止（SKILL-RETIRE-2026-10-03）与代码内仍在的静态阶段渲染之间的一致性处理留待 P3 裁决。
+
+
 ## ADR-2026-10-06：DESIGN.md v3 升级与风险分级命名 R1/R2/R3
 
 - **状态**：已接受；用户作为产品发起人确认升级视觉唯一来源。

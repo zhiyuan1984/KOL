@@ -7,7 +7,6 @@ import { starryKolMcpConfigured } from "../starrykol/connection.js";
  * 确定性分支（阶段门、报价矩阵、From、考试、Cc、fingerprint）在 Host + PEP。
  * 发信 / 企微 / confirm-stage 只调 Gateway，不自己打带 secret 的 HTTP。
  */
-import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { requireConnector, requireSkill, requireStageWrite, scopedUser, authDisabled, isAdmin } from "../auth.js";
 import { translateDraftInternal, stubInternalZh } from "../starrykol/translate-zh.js";
@@ -57,6 +56,7 @@ import {
   type WorkerTraceItem,
 } from "../worker/progress.js";
 import { sanitizeAttachments } from "./attachments.js";
+import { contextKeyLabel, contextVersion as composeContextVersion, openContext, resolveContext, type ContextResolution } from "./context-resolve.js";
 import { HostReject, HttpFail } from "./errors.js";
 import { classify, resolveCollab, collabById } from "./intent.js";
 import { bindCollaborationEmail, firstEmail, resolveMailTo } from "./mail-to.js";
@@ -166,7 +166,6 @@ import {
   leftoverPlaceholders,
   mailTemplatePayload,
   recordFailedSession,
-  resolveApplicableMailTemplates,
   resolveMailTemplate,
   workerSafeExtra,
   type UsableTemplate,
@@ -190,7 +189,8 @@ host.use("/sessions/:sid/*", async (c,next) => {
 });
 const progressBySession = new Map<string, (progress: WorkerProgress) => void>();
 
-function requireTaskAccess(skill: string, agentId?: string): void {
+/** 只读的上下文解析入口沿用提交侧同一套技能授权：未授权就连上下文也不解析。 */
+export function requireTaskAccess(skill: string, agentId?: string): void {
   const definition = taskDefinition(skill);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
   if (codexMode() !== "stub") {
@@ -215,7 +215,8 @@ function requireTaskAccess(skill: string, agentId?: string): void {
   }
 }
 
-function sessionRow(sid: string): Row {
+/** 会话绑定（来源链第 3 级）读的那一行；入口自行校验访问权。 */
+export function sessionRow(sid: string): Row {
   return { ...assertSessionAccess(sid) };
 }
 
@@ -234,10 +235,6 @@ type ComposePrepare = {
   /** 最近往来条目数 */
   mail_count?: number;
 };
-
-function composeContextVersion(input: Json): string {
-  return createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 24);
-}
 
 function stringValues(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -267,53 +264,6 @@ function prepareReply(partial: Omit<ComposePrepare, "skill_id">): ComposePrepare
   return { skill_id: "email_compose", ...partial };
 }
 
-function collaborationRefs(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.flatMap((value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-    const ref = value as Json;
-    const kind = String(ref.kind || ref.type || "").toLowerCase();
-    if (!["collaboration", "collab", "kol", "creator", "object"].includes(kind)) return [];
-    const id = String(ref.id || ref.collaboration_id || "").trim();
-    return id ? [id] : [];
-  });
-}
-
-function preparedCollaboration(body: Json, session: Row | null): { row: Row | null; ambiguous: boolean; conflict: boolean } {
-  const requested = String(body.collaboration_id || "").trim();
-  const sessionId = String(session?.collaboration_id || "").trim();
-  if (sessionId && requested && sessionId !== requested) return { row: null, ambiguous: false, conflict: true };
-  const ids = [...new Set([sessionId, requested, ...collaborationRefs(body.object_refs)].filter(Boolean))];
-  const rows = new Map<string, Row>();
-  for (const id of ids) {
-    const direct = collabById(id);
-    if (direct) rows.set(String(direct.id), direct);
-    else {
-      for (const candidate of scopedCollaborationSearch(id)) {
-        if (String(candidate.handle || "") === id || String(candidate.id || "") === id) {
-          const full = collabById(String(candidate.id));
-          if (full) rows.set(String(full.id), full);
-        }
-      }
-    }
-  }
-  if (!rows.size) {
-    const handle = String(body.handle || "").trim();
-    if (handle) {
-      const found = scopedCollaborationSearch(handle)
-        .filter((candidate) => String(candidate.handle || "") === handle || String(candidate.id || "") === handle);
-      for (const candidate of found) {
-        const full = collabById(String(candidate.id));
-        if (full) rows.set(String(full.id), full);
-      }
-    }
-  }
-  if (rows.size !== 1) return { row: null, ambiguous: rows.size > 1, conflict: false };
-  const row = [...rows.values()][0];
-  assertCollaborationInScope(String(row.id));
-  return { row, ambiguous: false, conflict: false };
-}
-
 /**
  * 未指定发件箱时的默认发件箱：当前用户挂载的 Starry 邮箱 → 合作记录 mailbox_from
  * → 当前品牌唯一授权箱；核对不过就留空，交给岗位补。规则只此一处（compose-sender）。
@@ -328,14 +278,6 @@ function mailComposeContextVersion(row: Row, template: UsableTemplate): string {
     brand: String(row.brand || ""), from: preparedSender(row), to: firstEmail(row.email),
     knowledge_id: template.id, published_version: template.version,
   });
-}
-
-function preparedTemplateChoice(templates: UsableTemplate[], stage: string, brand: string): UsableTemplate[] {
-  if (!templates.length) return [];
-  const score = (template: UsableTemplate) =>
-    (template.brand === brand ? 0 : 2) + (template.stage_codes.includes(stage) ? 0 : 1);
-  const best = Math.min(...templates.map(score));
-  return templates.filter((template) => score(template) === best);
 }
 
 type ComposeInput = {
@@ -434,7 +376,9 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
   requireTaskAccess("email_compose");
   const sessionId = String(body.session_id || "").trim();
   const session = sessionId ? sessionRow(sessionId) : null;
-  const selected = preparedCollaboration(body, session);
+  // 上下文一律走解析层（合作对象/阶段/模板/发件箱/往来摘要）；邮件自己的状态与文案仍由本动作判定。
+  const resolved = openContext({ skillId: "email_compose", body, session, text: String(body.text || "") });
+  const selected = resolved.collaboration();
   if (selected.conflict) {
     throw new HttpFail(409, { code: "collaboration_conflict", message: "会话已绑定其他合作对象，不能由请求覆盖" });
   }
@@ -471,12 +415,8 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     scene: stageMailSpec(stage).kind,
     brand,
   };
-  const templates = resolveApplicableMailTemplates({
-    knowledgeId: String(body.knowledge_id || "").trim() || null,
-    skillId: "email_compose",
-    stageCode: stage,
-    brand,
-  });
+  const templateFacts = resolved.mailTemplate();
+  const templates = templateFacts?.templates || [];
   if (!templates.length) {
     return c.json(prepareReply({
       status: "needs_template",
@@ -487,7 +427,7 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
       context_version: composeContextVersion({ collaboration_id: row.id, stage, brand }),
     }));
   }
-  const choices = preparedTemplateChoice(templates, stage, brand);
+  const choices = templateFacts?.choices || [];
   if (choices.length !== 1) {
     return c.json(prepareReply({
       status: "needs_template",
@@ -516,7 +456,7 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
   }
   const missingFields = [...missing];
   const contextVersion = mailComposeContextVersion(row, template);
-  const mailContext = composeContextForCollaboration(String(row.id));
+  const mailContext = resolved.mailThread();
   return c.json(prepareReply({
     status: missingFields.length ? "needs_fields" : "ready",
     ...(missingFields.length ? { message: "请补齐模板中的必填字段。" } : {}),
@@ -532,8 +472,8 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     missing_fields: missingFields,
     candidates: [],
     context_version: contextVersion,
-    digest: mailContext.text || undefined,
-    mail_count: mailContext.mail_count || undefined,
+    digest: mailContext?.text || undefined,
+    mail_count: mailContext?.mail_count || undefined,
   }));
 };
 
@@ -2380,6 +2320,44 @@ function applyNamedMailGates(
   return null;
 }
 
+/**
+ * 只给声明过 `context` 的技能解析当前世界；未声明者保持现状，不解析也不拦。
+ * `requires` 未满足即不出结果（与 mail.prepare 的 needs_context 同口径），`prefers` 未满足不阻塞。
+ */
+export function workerRunContext(skill: string, extra: Json, text: string): ContextResolution | null {
+  if (!taskDefinition(skill)?.context) return null;
+  return resolveContext({ skillId: skill, body: extra, text });
+}
+
+export function contextGapResponse(sid: string, me: Json, intent: Intent, gap: ContextResolution): Json {
+  const contextGap = {
+    status: gap.status,
+    skill_id: gap.skill_id,
+    missing: gap.missing,
+    candidates: gap.candidates,
+    context_version: gap.context_version,
+  };
+  // 缺口卡只列拦下来的 requires；prefers 未满足不算缺口。
+  const required = gap.missing.filter((entry) => entry.tier === "requires");
+  const missing = required.length ? required : gap.missing;
+  const fields = missing.map((entry) => ({
+    key: entry.key,
+    label: contextKeyLabel(entry.key),
+    required: entry.tier === "requires",
+    value: "",
+  }));
+  addMsg(sid, "assistant", "supplement_card", {
+    intent: intent.skill || intent.type || "",
+    title: `补全${fields.map((field) => field.label).join("、")}`,
+    handle: intent.handle || "",
+    collaboration_id: intent.collaboration_id || null,
+    fields,
+    message: `${missing.map((entry) => `${entry.reason}（${entry.key}）`).join("；")}。本次未起箱。`,
+    context_gap: contextGap,
+  });
+  return ok(sid, me, intent, { worker: null, context_gap: contextGap });
+}
+
 async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | null, text: string): Promise<Json> {
   if (intent.type === "business_approval" && isApprovalPathLookup(text)) {
     const entities = intent.extras?.entities && typeof intent.extras.entities === "object"
@@ -2515,10 +2493,14 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     compose_facts: composeFacts,
     entities: extra.entities as Json,
   };
+  const skill = String(intent.skill || intent.type || "creator_discovery");
+  const context = workerRunContext(skill, extra, text);
+  if (context && context.status !== "ready") return contextGapResponse(sid, me, intent, context);
+  if (context) extra.context_resolution = context;
   const namedGate = applyNamedMailGates(sid, me, intent, col, text, composeFacts);
   if (namedGate) return namedGate;
   try {
-    const wr = await execWorker(sid, intent.skill || intent.type || "creator_discovery", text, workerSafeExtra(extra));
+    const wr = await execWorker(sid, skill, text, workerSafeExtra(extra));
     const mapped = await mapWorker(sid, me, intent, wr);
     if (!mapped.draft && composeInput && mailTemplate) {
       const route = composeRouteFacts({ col, extra, boundMailbox: boundMailboxEmail() });

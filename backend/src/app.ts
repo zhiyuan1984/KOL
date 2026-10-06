@@ -40,6 +40,7 @@ import { homeDiscovery } from "./routers/home-discovery.js";
 import { cron } from "./routers/cron.js";
 import { kolMemory } from "./routers/kol-memory.js";
 import { mailOperations, mailJobScopes } from "./mail/operations.js";
+import { contextOperations } from "./host/context-operations.js";
 import { operationRouter } from "./runtime/operations.js";
 import { runtimeActionOperations } from "./runtime/action-operations.js";
 import "./crawl/runtime-gates.js";
@@ -145,7 +146,7 @@ export function createApp(): Hono {
   app.route("/api", homeDiscovery);
   app.route("/api", cron);
   app.route("/api", kolMemory);
-  app.route("/api", operationRouter([...mailOperations, ...runtimeActionOperations]));
+  app.route("/api", operationRouter([...mailOperations, ...runtimeActionOperations, ...contextOperations]));
   app.route("/api", operationJobsRouter(mailJobScopes));
   app.route("/api", homeToday);
   app.route("/api", workReport);

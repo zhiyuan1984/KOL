@@ -8,6 +8,7 @@ output: task_result
 funnel: intent
 mcp: []
 required_inputs: []
+context: {"requires":["collaboration","stage"],"prefers":["stage_tracks"]}
 permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["阶段SOP", "八个阶段", "本阶段SOP", "阶段资料", "阶段资料包", "异常SOP", "异常流程", "八阶段异常"]
