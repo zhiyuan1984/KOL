@@ -38,6 +38,7 @@ export default function PlusMenu({
   selectedSkillIds,
   expertId,
   experts,
+  expertsLoaded,
 }: {
   open: boolean;
   onClose: () => void;
@@ -53,6 +54,7 @@ export default function PlusMenu({
   selectedSkillIds: string[];
   expertId: string;
   experts: Expert[];
+  expertsLoaded: boolean;
 }) {
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -147,25 +149,36 @@ export default function PlusMenu({
         })),
       });
     }
-    if (experts.length) {
+    if (expertsLoaded) {
       next.push({
         id: "experts",
         label: "数字员工",
-        rows: experts.map((expert) => ({
-          key: expert.id,
-          icon: "expert" as MenuKind,
-          label: expertRoleCopy(expert),
-          hint: expert.id === DEFAULT_EXPERT_ID ? "默认岗位" : (expert.mission || "为这次提问指定岗位"),
-          selected: expert.id === expertId,
-          attrs: { "data-expert-option": expert.id, "aria-pressed": expert.id === expertId ? "true" : "false" },
-          run: () => onPickExpert(expert.id),
-        })),
+        rows: experts.length
+          ? experts.map((expert) => ({
+            key: expert.id,
+            icon: "expert" as MenuKind,
+            label: expertRoleCopy(expert),
+            hint: expert.id === DEFAULT_EXPERT_ID ? "默认岗位" : (expert.mission || "为这次提问指定岗位"),
+            selected: expert.id === expertId,
+            attrs: { "data-expert-option": expert.id, "aria-pressed": expert.id === expertId ? "true" : "false" },
+            run: () => onPickExpert(expert.id),
+          }))
+          : [{
+            key: "experts-empty",
+            icon: "expert" as MenuKind,
+            label: "暂无可用的数字员工",
+            hint: "当前账号没有已发布且具备执行资格的智能体",
+            disabled: true,
+            attrs: { "data-expert-empty": "true" },
+            run: () => undefined,
+          }],
       });
     }
     return next;
   }, [
     expertId,
     experts,
+    expertsLoaded,
     knowledgeLibs,
     onPickExpert,
     onPickKb,

@@ -610,6 +610,8 @@ test("composer plus menu exposes recent files and published skills without proje
   // 「项目」分组已置空：+ 菜单不再展示任何项目选项。
   await expect(menu.locator("[data-project-option]")).toHaveCount(0);
   await expect(menu.locator('[data-menu-section="数字员工"]')).toBeVisible();
+  // 数字员工来自 /api/experts；无可执行智能体时也必须显示空状态而不是整组消失。
+  await expect(menu.locator("[data-expert-option], [data-expert-empty]").first()).toBeVisible();
   expect(bodies).toEqual([]);
 });
 

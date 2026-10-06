@@ -224,6 +224,7 @@ export default function ComposerDock({
   const [knowledgeLibs, setKnowledgeLibs] = useState<KnowledgeLib[]>([]);
   const [recentFiles, setRecentFiles] = useState<(AttachmentRef & { available?: boolean })[]>([]);
   const [experts, setExperts] = useState<Expert[]>([]);
+  const [expertsLoaded, setExpertsLoaded] = useState(false);
   const [picker, setPicker] = useState(false);
   const [query, setQuery] = useState("");
   const [atStart, setAtStart] = useState(0);
@@ -304,11 +305,13 @@ export default function ComposerDock({
       }
       setSkills([...map.values()]);
       setExperts(expertRows);
+      setExpertsLoaded(true);
     };
     load().catch(() => {
       if (!cancelled) {
         setSkills([]);
         setExperts([]);
+        setExpertsLoaded(true);
       }
     });
     api.skillTemplates(controller.signal).then((rows) => {
@@ -1294,6 +1297,7 @@ export default function ComposerDock({
               selectedSkillIds={skillChips.map((chip) => chip.id)}
               expertId={expertId}
               experts={experts}
+              expertsLoaded={expertsLoaded}
             />
           </div>
           {discoveryLocked && onClearDiscoveryLock ? (
