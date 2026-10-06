@@ -17,6 +17,7 @@ import {
   brandLabel,
   formatKbTime,
   kbBaseKindLabel,
+  kbExpiryLabel,
   kindLabel,
   skillLabel,
   statusLabel,
@@ -237,7 +238,7 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
         <div className="admin-section-head">
           <div>
             <h2>{row.title}</h2>
-            <p className="muted">{row.id} · {kindLabel(row.kind)} · {statusLabel(row.status)} · 第 {rowVersion} 版</p>
+            <p className="muted">{kindLabel(row.kind)} · {statusLabel(row.status)} · 第 {rowVersion} 版</p>
           </div>
           <div className="kbadmin-primary-slot" data-admin-kb-primary={needsApproval ? "approve" : "edit"}>
             {needsApproval ? (
@@ -299,7 +300,7 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
           <div><dt>更新</dt><dd>{formatKbTime(row.updated_at) || "—"}</dd></div>
           <div><dt>创建</dt><dd>{row.created_by || "—"} · {formatKbTime(row.created_at) || "—"}</dd></div>
           <div><dt>审批</dt><dd>{row.approved_at ? `${textValue((row as unknown as Row).approved_by) || "—"} · ${formatKbTime(row.approved_at)}` : "尚未审批"}</dd></div>
-          <div><dt>到期</dt><dd>{textValue(row.expires_at) || "未设置"}</dd></div>
+          <div><dt>到期</dt><dd>{kbExpiryLabel(row.expires_at) || "未设置"}</dd></div>
         </dl>
 
         <h3 className="kb-subhead">结构化字段</h3>
@@ -380,8 +381,10 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
         ) : null}
 
         <div className="admin-actions kbadmin-secondary-actions">
+          {/* §4.2：同一工具栏内 L2 ≤2 个，且禁止"一排三个描边按钮"。
+              归档是本行的唯一 L2；彻底删除与"复制到 X"（每个品牌一个，行内重复）一律 L3 文字按钮。 */}
           <button
-            className="btn ghost"
+            className="btn"
             type="button"
             data-kb-archive={row.id}
             disabled={row.status !== "published"}
@@ -393,7 +396,7 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
             {KB_ADMIN_ACTION.archive}
           </button>
           <button
-            className="btn danger"
+            className="kbadmin-action-link kbadmin-action-danger"
             type="button"
             data-kb-hard-delete={row.id}
             disabled={row.status !== "draft"}
@@ -407,7 +410,7 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
           {row.kind === "mail_template" ? KB_BRANDS.filter((brand) => brand !== row.brand).map((brand) => (
             <button
               key={brand}
-              className="btn ghost sm"
+              className="kbadmin-action-link"
               type="button"
               onClick={() => void run(
                 () => api.transferKnowledgeBrand(row.id, brand),
@@ -571,8 +574,8 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
           <ul className="kbadmin-ref-list">
             {(data?.refs || []).map((skill) => (
               <li key={skill}>
+                {/* §15：只用业务名；技能 id 已在 key 与后端契约里，不再打印给人看。 */}
                 <strong>{skillLabel(skill)}</strong>
-                <span className="muted"> {skill}</span>
               </li>
             ))}
           </ul>

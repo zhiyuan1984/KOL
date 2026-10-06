@@ -118,6 +118,7 @@ export default function CreateKnowledgeDialog({ open, onClose, bases, onCreated 
     <dialog
       ref={ref}
       className="kbv-dialog"
+      data-size="md"
       data-kbv-create-dialog
       onClose={onClose}
       onClick={(event) => {

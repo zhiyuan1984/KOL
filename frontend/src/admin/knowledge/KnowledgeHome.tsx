@@ -130,6 +130,15 @@ export default function KnowledgeHome() {
     setParams(next);
   }, [params, setParams]);
 
+  /** 空态恢复动作（§9.3）：清掉全部筛选条件，含 URL 上的下钻轴。 */
+  const resetAllFilters = useCallback(() => {
+    setQuery(""); setScope(EMPTY_SCOPE); setBrands([]); setStages([]); setKind("");
+    setView("all"); setAssetTypeFilter(""); setExpiring(false);
+    const next = new URLSearchParams(params);
+    ["view", "asset", "expiring", "mode", "assetId", "assetType", "document"].forEach((key) => next.delete(key));
+    setParams(next);
+  }, [params, setParams]);
+
   const passes = useCallback((row: KbAssetRow, skip: Skip = {}) => {
     const q = query.trim().toLowerCase();
     const familyId = String(row.family_id || "");
@@ -374,6 +383,7 @@ export default function KnowledgeHome() {
               rows={pageRows} totalCount={filtered.length} page={currentPage} pageCount={pageCount} selectedId={selectedId}
               onSelect={id=>{const row=pageRows.find(r=>r.id===id);switchMode("detail",id,row?.asset_type==="document"?"document":"entry");}}
               onPrevious={()=>setPage(p=>Math.max(1,p-1))} onNext={()=>setPage(p=>Math.min(pageCount,p+1))} loading={loading}
+              onReset={resetAllFilters}
             />
           </> : mode==="create" ? <EntryEditor bases={bases} onDirty={onDirty} onCancel={()=>switchMode("list")} onSaved={row=>{notify("草稿已保存");revealCreated(row.id);}} />
           : mode==="upload" ? <UploadDialog inline open onProgress={reload} bases={bases} onDirty={onDirty} onClose={()=>switchMode("list")} onCreated={id=>{notify("PDF 已上传并开始解析；完成后请提交发布审批");revealCreated(id,"document");}} />

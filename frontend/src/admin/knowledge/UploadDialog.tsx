@@ -4,17 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type KnowledgeBaseRow } from "../../api";
 import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
 import KbvIcon from "../../knowledgeIcons";
+import { formatBytes } from "./shared";
 
 /** PDF 上传即进入规整与索引，完成后留在待审资料队列。 */
 const UPLOAD_FORMATS: Record<string, string> = { pdf: "PDF 文档" };
 
 const ACCEPT = Object.keys(UPLOAD_FORMATS).map((ext) => `.${ext}`).join(",");
-
-function formatSize(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1048576) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / 1048576).toFixed(1)} MB`;
-}
 
 type Props = {
   open: boolean;
@@ -132,6 +127,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
     <Container
       ref={inline?undefined:ref as never}
       className={inline?"kbw-upload":"kbv-dialog"}
+      data-size="lg"
       data-kbv-upload-dialog
       onClose={() => { if (!busy) onClose(); }}
       onClick={(event) => {
@@ -182,7 +178,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
                 <div className="kbv-file-row" key={`${file.name}-${index}`}>
                   <div>
                     <strong>{file.name}</strong>
-                    <p className="muted">{UPLOAD_FORMATS[ext]} · {formatSize(file.size)} · 待上传</p>
+                    <p className="muted">{UPLOAD_FORMATS[ext]} · {formatBytes(file.size)} · 待上传</p>
                     <details><summary>覆盖本文件的用途解释</summary><textarea aria-label={`${file.name} 的用途解释`} disabled={busy} maxLength={4000} value={explanations[file.name] ?? explanation} onChange={e=>{setExplanations(current=>({...current,[file.name]:e.target.value}));onDirty?.(true);}} /></details>
                   </div>
                   <button

@@ -626,20 +626,21 @@
 /* ── 弹窗 ─────────────────────────────────────────────────────────── */
 
 .kbv-dialog {
-  width: var(--dialog-w-form);
+  /* §7.1：按内容量选档，不再一刀切 560px；默认 md，sm/lg 由 data-size 指定。 */
+  width: var(--dialog-w-md);
   max-width: calc(100vw - 32px);
   max-height: var(--dialog-h-max);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--bg);
   color: var(--text);
-  padding: var(--spacing-20);
+  padding: var(--dialog-pad-t) var(--dialog-pad-x) var(--dialog-pad-b);
   overflow: auto;
 }
 
-.kbv-dialog[data-size="browse"] {
-  width: var(--dialog-w-browse);
-}
+.kbv-dialog[data-size="sm"] { width: var(--dialog-w-sm); }
+.kbv-dialog[data-size="md"] { width: var(--dialog-w-md); }
+.kbv-dialog[data-size="lg"] { width: var(--dialog-w-lg); }
 
 .kbv-dialog::backdrop {
   background: color-mix(in srgb, var(--text) 28%, transparent);
@@ -900,12 +901,26 @@
   }
 }
 
+/* §4.1：触摸模态只扩大命中区（≥ --touch-hit-min），不同步放大视觉控件。
+   与下方 `.kbv-filter-browser .kbv-chip` 同一手法：控件仍按 chip/control 档绘制，
+   可点区域用伪元素外扩；有自身 ::after 的（如 tab 的下划线指示条）不在此列。 */
 @media (pointer: coarse) {
-  .kbv button,
-  .kbv a,
-  .kbv select,
-  .kbv summary {
-    min-height: 44px;
+  .kbv-quick-action,
+  .kbv-text-action,
+  .kbv-link-plain,
+  .kbv-more-filters > summary {
+    position: relative;
+  }
+  .kbv-quick-action::after,
+  .kbv-text-action::after,
+  .kbv-link-plain::after,
+  .kbv-more-filters > summary::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 50%;
+    height: var(--touch-hit-min);
+    transform: translateY(-50%);
   }
 }
 
@@ -991,6 +1006,8 @@
 
   .kbv .kbv-record-meta {
     margin-top: 0;
+    /* 既有策略：标题与类型保持完整，空间不够由适用 chips 让位。
+       该策略与 §8.7（禁止静默裁切）冲突，取舍权在设计责任角色——本批不动，已登记。 */
     flex-wrap: nowrap;
     overflow: hidden;
     min-width: 0;
@@ -1020,7 +1037,7 @@
     white-space: nowrap;
   }
 
-  /* chips 容器（.kb-scope 自带 wrap）在单行行式内不换行，超出由 meta 裁切。 */
+  /* chips 容器（.kb-scope 自带 wrap）在单行行式内不换行，超出由 meta 裁切（待裁决，见上）。 */
   .kbv .kbv-record-meta .kb-scope {
     flex-wrap: nowrap;
     min-width: 0;

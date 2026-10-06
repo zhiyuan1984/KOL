@@ -312,7 +312,6 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
                     <tr key={row.id} data-admin-knowledge-id={row.id} data-admin-kb-status={row.status || "draft"}>
                       <td>
                         <Link className="kbadmin-title-link" to={entryPath(row.id)} title={row.title}>{row.title}</Link>
-                        <p className="muted" title={row.id}>{row.id}</p>
                       </td>
                       <td>{kindLabel(row.kind) || emptyCell}</td>
                       <td>{statusLabel(row.status) || emptyCell}</td>

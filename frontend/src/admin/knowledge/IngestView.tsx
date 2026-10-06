@@ -433,8 +433,9 @@ export default function IngestView({ notify, fail }: KbFeed) {
                       <td>{rawName(String(job.raw_id || "")) || emptyCell}</td>
                       <td>{rawJobStatusLabel(status) || status || emptyCell}</td>
                       <td>
+                        {/* §15：待审页的内部 ID 不进正文行；有结果就说结果，要追溯走 data-admin-kb-job 与详情。 */}
                         {job.result_knowledge_id
-                          ? `已生成待审页 ${String(job.result_knowledge_id)}`
+                          ? "已生成待审页"
                           : textValue(job.error) || (failed ? "抽取失败" : "等待结果")}
                       </td>
                       <td>{formatKbTime(textValue(job.created_at)) || emptyCell}</td>

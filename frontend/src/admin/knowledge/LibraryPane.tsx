@@ -14,11 +14,13 @@ type Props = {
   onPrevious: () => void;
   onNext: () => void;
   loading: boolean;
+  /** 空态的恢复动作（§9.3 动作内联）：一键清掉当前筛选条件。 */
+  onReset?: () => void;
 };
 
 /** 右栏浏览区：平面分页列表；点击条目在工作区原位进入详情。 */
 export default function LibraryPane({
-  rows, totalCount, page, pageCount, selectedId, onSelect, onPrevious, onNext, loading,
+  rows, totalCount, page, pageCount, selectedId, onSelect, onPrevious, onNext, loading, onReset,
 }: Props) {
   return (
     <section className="kbv-browser-list" aria-label="知识浏览" data-kbv-list>
@@ -37,6 +39,7 @@ export default function LibraryPane({
         <div className="kbv-empty" data-kbv-empty>
           <h3>没有匹配的知识</h3>
           <p>请调整左侧筛选条件后重试。</p>
+          {onReset ? <button type="button" className="kbv-text-action" data-kbv-empty-reset onClick={onReset}>清除筛选条件</button> : null}
         </div>
       ) : (
         <div className="kbv-browser-records" data-kbv-records>

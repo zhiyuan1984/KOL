@@ -357,14 +357,21 @@ export default function PublicationPanel({
             <p role="alert">{p.blockedReason || p.error || p.job?.error}</p>
           )}
           <p>
-            审批材料：{p.filename} · 版本 {p.fingerprint.slice(0, 12)}
+            审批材料：{p.filename}
           </p>
           {p.releaseNote && <p>发布说明：{p.releaseNote}</p>}
-          {p.receipt && <p>回执 {p.receipt.id}</p>}
-          {p.job && (
-            <p>
-              发布进度：{jobLabel[p.job.status] || p.job.status} · {p.job.id}
-            </p>
+          {/* §15：回执号、版本指纹、发布作业号等机器标识不进正文行，收进可追溯详情。 */}
+          {(p.receipt || p.job || p.fingerprint) && (
+            <details className="kbv-admin-tech" data-admin-kb-tech>
+              <summary>处理详情</summary>
+              {p.fingerprint ? <p>版本指纹 {p.fingerprint}</p> : null}
+              {p.receipt ? <p>回执 {p.receipt.id}</p> : null}
+              {p.job ? (
+                <p>
+                  发布进度：{jobLabel[p.job.status] || p.job.status} · {p.job.id}
+                </p>
+              ) : null}
+            </details>
           )}
           <Link
             className="kbv-link-plain"

@@ -157,7 +157,7 @@ export default function DetailRail({ row, path, baseKind, notify, fail, reload }
         </div>
       </footer>
 
-      <dialog ref={moreRef} className="kbv-dialog" data-kbv-more-dialog onClose={() => setMoreOpen(false)} onClick={(event) => { if (event.target === moreRef.current) closeMore(); }}>
+      <dialog ref={moreRef} className="kbv-dialog" data-size="sm" data-kbv-more-dialog onClose={() => setMoreOpen(false)} onClick={(event) => { if (event.target === moreRef.current) closeMore(); }}>
         <div className="kbv-dialog-head">
           <h2>知识维护</h2>
           <button type="button" className="btn ghost" aria-label="关闭" onClick={closeMore}><KbvIcon name="close" /></button>

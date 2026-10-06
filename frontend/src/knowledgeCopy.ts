@@ -317,16 +317,6 @@ export function kbStatusLabel(row: Pick<KnowledgeRow, "deprecated" | "status">) 
   return statusLabel(row.status);
 }
 
-export function kbScopeLine(row: Pick<KnowledgeRow, "stage_codes" | "brand" | "kind">) {
-  const stages = (row.stage_codes || []).map((code) => stageLabel(code)).filter(Boolean);
-  const brand = row.brand ? brandLabel(row.brand) : "";
-  const parts: string[] = [];
-  if (brand) parts.push(`品牌 ${brand}`);
-  if (stages.length) parts.push(`阶段 ${stages.join(" / ")}`);
-  if (!parts.length) return "";
-  return `适用：${parts.join(" · ")}`;
-}
-
 export function kbSummary(row: Pick<KnowledgeRow, "kind" | "subject" | "body_en" | "body" | "title">) {
   const raw = kbIsMail(row)
     ? (row.subject || templateBodyExcerpt(row.body_en || row.body, 90))

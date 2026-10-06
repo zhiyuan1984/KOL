@@ -632,8 +632,12 @@ export default function Knowledge() {
 
           {err && <p className="error">{err}</p>}
           {loaded && !rows.length && !keyword ? <p className="kbv-empty">暂无已发布资料。</p> : null}
+          {/* §9.3 空态紧凑且动作内联：条件类空态直接给出恢复动作，不留一句话让人自己找。 */}
           {loaded && (rows.length > 0 || !!keyword) && !visible.length ? (
-            <p className="kbv-empty" data-kb-empty>{emptyCopy}</p>
+            <p className="kbv-empty" data-kb-empty>
+              {emptyCopy}
+              {anyFilter ? <button type="button" className="kbv-text-action" data-kb-empty-reset onClick={resetAll}>{KB_SCOPE_CLEAR}</button> : null}
+            </p>
           ) : null}
         </section>
 
@@ -668,7 +672,6 @@ export default function Knowledge() {
               </div>
 
               <div className="kbv-rail-body">
-                <p className="kb-result">打开全文，不会把资料发出去。</p>
                 <section className="kb-provenance" data-kb-provenance aria-label={KB_PROVENANCE_TITLE}>
                   <p className="kb-provenance-title">{KB_PROVENANCE_TITLE}</p>
                   <dl className="kb-provenance-grid">

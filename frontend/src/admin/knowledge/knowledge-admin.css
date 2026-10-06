@@ -6,26 +6,29 @@
   margin-top: 0;
 }
 
-/* 行内动作：链接式，不抢该视口唯一的实底主 CTA。 */
+/* 行内动作：§4.2 的 L3 文字按钮——无边框、无底色、hover 才出下划线；
+   判定规则里"每行都出现"的动作一律 L3，所以这里不做常驻下划线（那是 L4 外链语义）。 */
 .kbadmin-action-link {
   appearance: none;
   border: 0;
   background: none;
-  padding: 0;
   margin: 0;
+  padding: 0 var(--btn-text-pad-x);
   font: inherit;
   font-size: var(--ds-font-sm);
   color: var(--accent-text);
-  text-decoration: underline;
-  text-underline-offset: var(--focus-ring-offset);
+  text-decoration: none;
+  border-radius: var(--radius-control);
   cursor: pointer;
-  min-height: var(--hit-min);
+  min-height: var(--btn-text-h);
   display: inline-flex;
   align-items: center;
 }
 
-.kbadmin-action-link:hover {
-  text-decoration-thickness: var(--focus-ring-width);
+.kbadmin-action-link:hover:not(:disabled) {
+  background: var(--btn-text-hover-bg);
+  text-decoration: underline;
+  text-underline-offset: var(--focus-ring-offset);
 }
 
 .kbadmin-action-link:focus-visible {
@@ -37,10 +40,11 @@
   color: var(--text-muted);
   cursor: not-allowed;
   text-decoration: none;
+  background: none;
 }
 
 .kbadmin-action-danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .kbadmin-title-link {
@@ -103,8 +107,19 @@
 
 .kbadmin-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--ds-control-w)), 1fr));
+  /* §19：字段按信息组排 2 列（窄容器收 1 列），不做 auto-fit 铺满——
+     宽屏铺到 5 列会让视线横向跳、值一长就换行。 */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2) var(--space-3);
+}
+
+@container (min-width: 720px) {
+  .kbadmin-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 弹窗不在工作区容器里（无 container 祖先），按视口宽给同一档。 */
+@media (min-width: 720px) {
+  .kbv-dialog .kbadmin-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .kbadmin-upload {
@@ -549,14 +564,9 @@
   font-size: var(--ds-font-sm);
 }
 
-/* 行内动作：保持链接可识别，但把下划线降噪、悬停恢复 */
+/* 行内动作统一为 L3（§4.2）：以下划线只在 hover 出现为准，不再保留常驻下划线。 */
 .admin-kb .kbadmin-action-link {
   font-size: var(--ds-font-sm);
-  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
-}
-.admin-kb .kbadmin-action-link:hover {
-  text-decoration-color: currentColor;
-  text-decoration-thickness: var(--focus-ring-width);
 }
 .admin-kb .kbadmin-title-link {
   font-size: var(--ds-font-sm);

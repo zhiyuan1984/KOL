@@ -8,7 +8,7 @@ import KnowledgeScopePanel from './KnowledgeScopePanel';
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { KB_DOC_JOB_KIND_LABEL, KB_DOC_JOB_STATUS_LABEL, formatKbTime, kbDocProgressText,kbDocStatusLabel } from "../../knowledgeCopy";
 import KbvIcon from "../../knowledgeIcons";
-import { errorMessage, useKbData } from "./shared";
+import { errorMessage, formatBytes, useKbData } from "./shared";
 
 export default function DocumentRail({ id, path, reload, notify,mode="detail",onMode,onRevision,onDirty }: {
   mode?:string;onMode?:(mode:"detail"|"edit"|"review")=>void;onRevision?:(id:string)=>void;onDirty?:(dirty:boolean)=>void;
@@ -98,7 +98,7 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
       {doc && data && <>
         <h2 className="kbv-document-title">{doc.title}</h2>
         <span className="kbv-status">{doc.publication_label || kbDocStatusLabel(doc.status)} · v{doc.current_version || 1}</span>
-        {mode!=="review" && <dl className="kbw-properties"><div><dt>维护人</dt><dd>{doc.created_by || "未记录"}</dd></div><div><dt>文件大小</dt><dd>{doc.size_bytes} B</dd></div><div><dt>创建时间</dt><dd>{formatKbTime(doc.created_at)}</dd></div><div><dt>更新时间</dt><dd>{formatKbTime(doc.updated_at)}</dd></div>{doc.published_at && <div><dt>发布时间</dt><dd>{formatKbTime(doc.published_at)}</dd></div>}</dl>}
+        {mode!=="review" && <dl className="kbw-properties"><div><dt>维护人</dt><dd>{doc.created_by || "未记录"}</dd></div><div><dt>文件大小</dt><dd>{doc.size_bytes ? formatBytes(Number(doc.size_bytes)) : "—"}</dd></div><div><dt>创建时间</dt><dd>{formatKbTime(doc.created_at)}</dd></div><div><dt>更新时间</dt><dd>{formatKbTime(doc.updated_at)}</dd></div>{doc.published_at && <div><dt>发布时间</dt><dd>{formatKbTime(doc.published_at)}</dd></div>}</dl>}
         {path && <div className="kbv-document-path" aria-label="资料分类">{path.split(" / ").map((part, index) => <span key={`${index}-${part}`}>{part}</span>)}</div>}
         {mode!=="review" && <section className="kbv-document-source">
           <h3>非结构化 PDF</h3>
