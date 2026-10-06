@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TaskEvent, TodayBrief } from "../api";
+import type { Task, TaskEvent, TodayBrief } from "../api";
 import { thinkTail } from "./streamText";
 import {
   effectivePlanPhase,
   formatTodayPlanElapsed,
+  planStartEvent,
   todayPlanEventLabels,
   type PlanScope,
   type TodayPlanPhase,
@@ -141,6 +142,8 @@ export default function TodayPlanProgress({
   events,
   candidates,
   plannedTasks,
+  currentRows = [],
+  taskCatalog = [],
   brief,
   previousBrief,
   previousEvents,
@@ -150,6 +153,10 @@ export default function TodayPlanProgress({
   events?: TaskEvent[] | null;
   candidates?: number | null;
   plannedTasks?: number | null;
+  /** Current visible rows define the new plan's task-id set. */
+  currentRows?: Task[];
+  /** Broader task memory supplies a title/status for removed or completed rows. */
+  taskCatalog?: Task[];
   /** 本轮简报：`reasoning` 是模型写给员工的业务分析，随里程碑一起展示。 */
   brief?: TodayBrief | null;
   /** The version before this one, folded to a single row. */
@@ -166,6 +173,7 @@ export default function TodayPlanProgress({
   const elapsed = usePlanningElapsed(live);
   const labels = todayPlanEventLabels(events);
   const [previousOpen, setPreviousOpen] = useState(false);
+  const [previousFullOpen, setPreviousFullOpen] = useState(false);
   const hasTerminalFailure = (events || []).some((event) => {
     const type = eventTypeOf(event);
     return type === "run.failed" || type === "failed";
@@ -269,12 +277,41 @@ export default function TodayPlanProgress({
     const last = (previousEvents || [])[previousEvents ? previousEvents.length - 1 : 0];
     return last ? eventTime(last) : "";
   })();
-  const previousTasks = Number(previousBrief?.stats?.unfinished);
+  const previousLayout = Array.isArray(previousBrief?.todo_layout) ? previousBrief!.todo_layout : [];
+  const currentLayout = Array.isArray(brief?.todo_layout) ? brief!.todo_layout : [];
+  const previousTasks = previousLayout.length || Number(previousBrief?.stats?.unfinished);
+  const planDiff = useMemo(() => {
+    type DiffKind = "added" | "removed" | "completed" | "changed";
+    type DiffRow = { id: string; title: string; kind: DiffKind };
+    const prior = new Map(previousLayout.map((item) => [String(item.work_item_id), item]));
+    const current = new Map(currentLayout.map((item) => [String(item.work_item_id), item]));
+    const currentIds = new Set(currentRows.map((task) => task.id));
+    const catalog = new Map([...taskCatalog, ...currentRows].map((task) => [task.id, task]));
+    const titleFor = (id: string) => catalog.get(id)?.title || `任务 ${id}`;
+    const rows: DiffRow[] = [];
+    for (const task of currentRows) {
+      if (!prior.has(task.id)) rows.push({ id: task.id, title: task.title, kind: "added" });
+    }
+    for (const [id, priorItem] of prior) {
+      if (!currentIds.has(id)) {
+        const status = String(catalog.get(id)?.status || "").toLowerCase();
+        rows.push({ id, title: titleFor(id), kind: ["completed", "done"].includes(status) ? "completed" : "removed" });
+        continue;
+      }
+      const currentItem = current.get(id);
+      if (currentItem && (currentItem.rank !== priorItem.rank || String(currentItem.why || "") !== String(priorItem.why || ""))) {
+        rows.push({ id, title: titleFor(id), kind: "changed" });
+      }
+    }
+    return rows;
+  }, [currentLayout, currentRows, previousLayout, taskCatalog]);
   const hasPrevious = Boolean(previousBrief) || previousSteps.length > 0;
 
   if (!status && !steps.length && !hasPrevious) return null;
 
-  const title = failed ? "规划失败" : live ? "规划中" : "规划完成";
+  const successTime = (finishedAt || formatClock(new Date())).slice(0, 5);
+  const successTaskCount = plannedTasks ?? currentRows.length;
+  const failureReason = employeeFailureReason(failedStep?.detail || status || "本轮规划未完成，现有任务清单仍可用。");
   return (
     <section
       className={"today-plan" + (live ? " is-live" : "")}
@@ -290,7 +327,10 @@ export default function TodayPlanProgress({
             type="button"
             className="today-plan-previous-head"
             aria-expanded={previousOpen}
-            onClick={() => setPreviousOpen((value) => !value)}
+            onClick={() => setPreviousOpen((value) => {
+              if (value) setPreviousFullOpen(false);
+              return !value;
+            })}
           >
             <span className="today-plan-previous-label">上一版计划</span>
             {previousStamp ? <time>{previousStamp}</time> : null}
@@ -303,54 +343,63 @@ export default function TodayPlanProgress({
           </button>
           {previousOpen ? (
             <div className="today-plan-previous-body">
-              {previousBrief?.lead ? <p className="today-plan-previous-lead">{previousBrief.lead}</p> : null}
-              {previousSteps.length ? (
-                <ol className="today-plan-previous-steps">
-                {previousSteps.map((step, index) => (
-                  <li key={`${step.label}-${index}`}>
-                    <span>{step.label}</span>
-                    {step.time ? <time>{step.time}</time> : null}
-                  </li>
-                ))}
-                </ol>
+              {planDiff.length ? (
+                <ul className="today-plan-diff" data-today-plan-diff>
+                  {planDiff.map((item) => {
+                    const mark = item.kind === "added" ? "＋" : item.kind === "removed" ? "－" : item.kind === "completed" ? "✓" : "~";
+                    const label = item.kind === "added" ? "新增" : item.kind === "removed" ? "删除" : item.kind === "completed" ? "已完成" : "内容变化";
+                    return <li key={`${item.kind}-${item.id}`} className={`is-${item.kind}`}><span aria-label={label}>{mark}</span><strong title={item.title}>{item.title}</strong></li>;
+                  })}
+                </ul>
+              ) : <p className="today-plan-diff-empty">本次计划任务未发生变化。</p>}
+              <button type="button" className="today-plan-previous-full" aria-expanded={previousFullOpen} onClick={() => setPreviousFullOpen((value) => !value)}>
+                {previousFullOpen ? "收起完整上一版" : "查看完整上一版"}
+              </button>
+              {previousFullOpen ? (
+                <div className="today-plan-previous-full-body">
+                  {previousBrief?.lead ? <p className="today-plan-previous-lead">{previousBrief.lead}</p> : null}
+                  {previousSteps.length ? (
+                    <ol className="today-plan-previous-steps">
+                    {previousSteps.map((step, index) => (
+                      <li key={`${step.label}-${index}`}>
+                        <span>{step.label}</span>
+                        {step.time ? <time>{step.time}</time> : null}
+                      </li>
+                    ))}
+                    </ol>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           ) : null}
         </div>
       ) : null}
-      <header className={"today-plan-head" + (live ? " is-live" : " is-settled")}>
-        <div className="today-plan-head-main">
-          <LucasAvatar phase={displayPhase} />
-          <strong className="today-plan-title">{title}</strong>
-          {status ? <span className="today-plan-lead" data-today-plan-lead>{status}</span> : null}
-          {elapsed != null ? (
-            <span className="today-plan-elapsed" data-today-plan-elapsed={elapsed} aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}>
-              {formatTodayPlanElapsed(elapsed)}
-            </span>
-          ) : null}
-        </div>
-        {!live && (candidates != null && candidates > 0 || finishedAt || steps.length) ? (
-          <div className="today-plan-head-meta">
-            {candidates != null && candidates > 0 ? (
-              <span className="today-plan-meta">· 分析 {candidates} 项候选任务</span>
-            ) : null}
-            {finishedAt ? <time className="today-plan-finished">{finishedAt}</time> : null}
-            {steps.length ? (
-              <button
-                type="button"
-                className="today-plan-toggle"
-                aria-expanded={open}
-                onClick={() => setOpen((value) => !value)}
-              >
-                {open ? "收起过程" : "查看过程"}
-                <span aria-hidden className={"today-plan-chevron" + (open ? "" : " is-down")}>⌄</span>
-              </button>
+      {live ? (
+        <header className="today-plan-head is-live">
+          <div className="today-plan-head-main">
+            <LucasAvatar phase={displayPhase} />
+            <strong className="today-plan-title">规划中</strong>
+            {status ? <span className="today-plan-lead" data-today-plan-lead>{status}</span> : null}
+            {elapsed != null ? (
+              <span className="today-plan-elapsed" data-today-plan-elapsed={elapsed} aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}>
+                {formatTodayPlanElapsed(elapsed)}
+              </span>
             ) : null}
           </div>
-        ) : null}
-      </header>
+        </header>
+      ) : failed ? (
+        <section className="today-plan-failure" data-today-plan-failure>
+          <div><strong>本轮规划未完成</strong><p>{failureReason}</p></div>
+          <button type="button" onClick={() => window.dispatchEvent(new Event(planStartEvent(scope)))}>重新规划</button>
+        </section>
+      ) : (
+        <header className="today-plan-success" data-today-plan-success>
+          <strong>✓ 今日计划 · {successTaskCount} 项任务</strong>
+          <span>{successTime} 生成 · 来源已核验</span>
+        </header>
+      )}
 
-      {open ? (
+      {open && live ? (
         <>
           {steps.length ? (
             <ol className="today-plan-steps" data-today-plan-steps>

@@ -58,6 +58,16 @@ const migrations: SchemaMigration[] = [
   { id: "20261005_knowledge_publication_applications", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "025_knowledge_publication_applications.sql"), "utf8")] },
   { id: "20261005_knowledge_workspace", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "026_knowledge_workspace.sql"), "utf8")] },
   { id: "20261006_knowledge_scope", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "027_knowledge_scope.sql"), "utf8")] },
+  {
+    // Task-detail formal tickets are a scoped child projection of an existing
+    // workbench task. Deletion is soft to preserve immutable lifecycle facts.
+    id: "20261006_task_detail_ticket_links",
+    statements: [
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS task_id TEXT",
+      "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS deleted_at TEXT",
+      "CREATE INDEX IF NOT EXISTS tickets_task_detail_open_idx ON tickets(task_id,updated_at DESC) WHERE deleted_at IS NULL",
+    ],
+  },
   { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
   { id: "20261004_discovery_results", statements: [crawlResultSchema] },
   { id: "20261005_discovery_candidate_actions", statements: [candidateActionsSchema] },
@@ -138,7 +148,7 @@ const migrations: SchemaMigration[] = [
       `CREATE TABLE IF NOT EXISTS tickets (
         id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, task_type TEXT NOT NULL, title TEXT NOT NULL,
         source TEXT NOT NULL DEFAULT 'manual', status TEXT NOT NULL DEFAULT 'pending', priority TEXT NOT NULL DEFAULT 'normal',
-        skill TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '', project_id TEXT, collaboration_id TEXT, session_id TEXT,
+        skill TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '', project_id TEXT, collaboration_id TEXT, session_id TEXT, task_id TEXT, deleted_at TEXT,
         due_at TEXT, last_acted_at TEXT, acknowledged_at TEXT, promoted_at TEXT, dismissed_at TEXT, started_at TEXT, completed_at TEXT,
         input JSONB NOT NULL DEFAULT '{}'::jsonb, entities JSONB NOT NULL DEFAULT '{}'::jsonb, data_version INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'general', channel TEXT NOT NULL DEFAULT 'human',

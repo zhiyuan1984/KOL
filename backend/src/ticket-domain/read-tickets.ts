@@ -5,6 +5,7 @@ export type TicketCenterView = "authorized" | "created" | "assigned" | "watching
 
 export type NativeTicketListItem = {
   id: string;
+  task_id: string | null;
   title: string;
   goal: string | null;
   status: string;
@@ -112,7 +113,7 @@ export async function listNativeTickets(userId: string, query: Record<string, st
   const limit = parseLimit(query.limit);
   const cursor = decodeCursor(query.cursor);
   const params: unknown[] = [userId];
-  const where: string[] = ["t.task_type='manual_ticket'", "t.profile='ticket-workbench'"];
+  const where: string[] = ["t.task_type='manual_ticket'", "t.profile='ticket-workbench'", "t.deleted_at IS NULL"];
 
   const relation = {
     created: "t.owner_user_id=$1",
@@ -122,6 +123,13 @@ export async function listNativeTickets(userId: string, query: Record<string, st
     authorized: "(t.owner_user_id=$1 OR pa.assignee_user_id=$1 OR EXISTS (SELECT 1 FROM ticket_assignments ca WHERE ca.ticket_id=t.id AND ca.role='collaborator' AND ca.status='active' AND ca.assignee_user_id=$1) OR EXISTS (SELECT 1 FROM ticket_watchers tw WHERE tw.ticket_id=t.id AND tw.watcher_user_id=$1 AND tw.status='active'))",
   } as const;
   where.push(relation[view]);
+
+  const taskId = String(query.task_id || "").trim();
+  if (taskId) {
+    if (taskId.length > 200) throw new HttpFail(400, { code: "invalid_task_id" });
+    params.push(taskId);
+    where.push(`t.task_id=$${params.length}`);
+  }
 
   const statuses = parseCsv(query.status, STATUS, "status");
   if (statuses.length) { params.push(statuses); where.push(`t.status = ANY($${params.length}::text[])`); }
@@ -148,7 +156,7 @@ export async function listNativeTickets(userId: string, query: Record<string, st
   params.push(limit + 1);
 
   const result = await postgresPool().query<TicketRow>(
-    `SELECT t.id,t.title,t.goal,t.status,t.priority,t.business_category,t.stage_group,t.stage_code,t.due_at,t.no_due_reason,
+    `SELECT t.id,t.task_id,t.title,t.goal,t.status,t.priority,t.business_category,t.stage_group,t.stage_code,t.due_at,t.no_due_reason,
             t.data_version,t.created_at,t.updated_at,t.owner_user_id,
             pa.assignee_person_ref,pa.assignee_user_id,pa.org_unit_id AS assignee_org_unit_id,
             tos.company_id,tos.org_version,ta.accepted_at
@@ -190,7 +198,7 @@ export async function listNativeTickets(userId: string, query: Record<string, st
 export async function nativeTicketById(userId: string, ticketId: string) {
   const pool = postgresPool();
   const result = await pool.query<TicketRow>(
-    `SELECT t.id,t.title,t.goal,t.status,t.priority,t.business_category,t.stage_group,t.stage_code,t.due_at,t.no_due_reason,
+    `SELECT t.id,t.task_id,t.title,t.goal,t.status,t.priority,t.business_category,t.stage_group,t.stage_code,t.due_at,t.no_due_reason,
             t.data_version,t.created_at,t.updated_at,t.owner_user_id,
             pa.assignee_person_ref,pa.assignee_user_id,pa.org_unit_id AS assignee_org_unit_id,
             tos.company_id,tos.org_version,ta.accepted_at
@@ -201,7 +209,7 @@ export async function nativeTicketById(userId: string, ticketId: string) {
      ) pa ON true
      LEFT JOIN ticket_org_scopes tos ON tos.ticket_id=t.id
      LEFT JOIN ticket_acceptances ta ON ta.ticket_id=t.id
-     WHERE t.id=$1 AND t.task_type='manual_ticket' AND t.profile='ticket-workbench'
+     WHERE t.id=$1 AND t.task_type='manual_ticket' AND t.profile='ticket-workbench' AND t.deleted_at IS NULL
        AND (t.owner_user_id=$2 OR pa.assignee_user_id=$2 OR EXISTS (
          SELECT 1 FROM ticket_assignments ca WHERE ca.ticket_id=t.id AND ca.role='collaborator' AND ca.status='active' AND ca.assignee_user_id=$2
        ) OR EXISTS (

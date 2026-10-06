@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
 import PlanSummary from "./PlanSummary";
 import TaskBoard from "./TaskBoard";
+import TaskDetailRail, { type TaskDetailFocus } from "./TaskDetailRail";
 import TodayPlanProgress from "./TodayPlanProgress";
 import WorkspaceShell from "./WorkspaceShell";
 import { whyLine } from "./homeModel";
@@ -22,22 +23,36 @@ function candidateCount(brief?: TodayBrief | null): number | null {
   return null;
 }
 
+function taskSessionId(task: Task): string {
+  const direct = String(task.session_id || "").trim();
+  if (direct) return direct;
+  const runs = Array.isArray(task.runs) ? task.runs as Array<Record<string, unknown>> : [];
+  for (const run of [...runs].reverse()) {
+    const sessionId = String(run.session_id || "").trim();
+    if (sessionId) return sessionId;
+  }
+  return "";
+}
+
 /**
  * One workspace per plan scope: header (title / stats) → Codex stream →
  * summary → task rail. 今日任务 and 我的待办 render this same component, so the
  * only differences left are the scope config (copy, storage key, cache key) and
  * the data client behind usePlanScope.
- *
- * The geometry lives in WorkspaceShell — AI发现 composes the same shell, so a
- * fix to the two-column workspace reaches all three panes.
  */
 export default function ScopeWorkspace({
   scope,
   rows,
+  taskCatalog = [],
   busy,
   onAct,
   onOpen,
   onEdit,
+  selectedTask = null,
+  detailFocus,
+  detailFocusToken,
+  onCloseDetail,
+  onStartExecution,
   notice = "",
   brief,
   phase = "idle",
@@ -52,10 +67,17 @@ export default function ScopeWorkspace({
 }: {
   scope: PlanScope;
   rows: Task[];
+  /** Full memory is used only to name a removed/completed task in the plan diff. */
+  taskCatalog?: Task[];
   busy: boolean;
   onAct: (task: Task) => void;
   onOpen?: (task: Task) => void;
   onEdit?: (task: Task) => void;
+  selectedTask?: Task | null;
+  detailFocus?: TaskDetailFocus;
+  detailFocusToken?: number;
+  onCloseDetail?: () => void;
+  onStartExecution?: (task: Task) => Promise<void> | void;
   /** A data fact (e.g. the todo dedupe feedback). Today leaves it empty. */
   notice?: string;
   brief?: TodayBrief | null;
@@ -81,6 +103,7 @@ export default function ScopeWorkspace({
   );
   const loading = memoryPending || (phase === "loading-memory" && !stamped.length);
   const hasStream = Boolean(brief) || Boolean((events || []).length);
+  const selectedAvailable = Boolean(selectedTask && stamped.some((task) => task.id === selectedTask.id));
   return (
     <WorkspaceShell
       pane={scope}
@@ -113,6 +136,8 @@ export default function ScopeWorkspace({
             brief={brief}
             candidates={candidateCount(brief)}
             plannedTasks={stamped.length}
+            currentRows={stamped}
+            taskCatalog={taskCatalog}
             previousBrief={previousBrief}
             previousEvents={previousEvents}
             scope={scope}
@@ -127,7 +152,18 @@ export default function ScopeWorkspace({
         </>
       )}
       centerFooter={centerFooter}
-      rail={(
+      rail={selectedTask ? (
+        <TaskDetailRail
+          task={selectedTask}
+          sessionId={taskSessionId(selectedTask)}
+          available={selectedAvailable}
+          focus={detailFocus}
+          focusToken={detailFocusToken}
+          starting={busy}
+          onClose={() => onCloseDetail?.()}
+          onStartExecution={(task) => onStartExecution?.(task)}
+        />
+      ) : (
         <TaskBoard
           title={cfg.boardTitle}
           scope={scope}

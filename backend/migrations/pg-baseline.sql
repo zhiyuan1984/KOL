@@ -2161,6 +2161,8 @@ CREATE TABLE public.tickets (
     project_id text,
     collaboration_id text,
     session_id text,
+    task_id text,
+    deleted_at text,
     due_at text,
     started_at text,
     completed_at text,
@@ -4474,5 +4476,4 @@ ALTER TABLE ONLY public.ticket_acceptances
 --
 -- PostgreSQL database dump complete
 --
-
 

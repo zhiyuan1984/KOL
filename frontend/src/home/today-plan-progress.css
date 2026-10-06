@@ -108,6 +108,31 @@
 .today-plan.is-live .today-plan-lead {
   color: var(--plan-accent);
 }
+.today-plan-success {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+}
+.today-plan-success strong { font-size: var(--ds-font-sm); font-weight: 600; white-space: nowrap; }
+.today-plan-success span { min-width: 0; overflow: hidden; color: var(--ds-text-dim); font-size: var(--ds-font-helper); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.today-plan-failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--ds-radius-input);
+  background: color-mix(in srgb, var(--danger) 4%, var(--bg));
+}
+.today-plan-failure div { min-width: 0; }
+.today-plan-failure strong { font-size: var(--ds-font-sm); font-weight: 600; }
+.today-plan-failure p { margin: 3px 0 0; color: var(--ds-text-dim); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
+.today-plan-failure button { flex: 0 0 auto; min-height: var(--hit-min); border: 1px solid #DB1860; border-radius: var(--ds-radius-input); background: #DB1860; color: #fff; font: inherit; font-size: var(--ds-font-sm); padding: 0 10px; cursor: pointer; }
+.today-plan-failure button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .today-plan-meta {
   flex: 0 0 auto;
   max-width: 100%;
@@ -357,8 +382,37 @@
   white-space: nowrap;
 }
 .today-plan-previous-body {
-  padding: 0 0 4px 2px;
+  display: grid;
+  gap: 7px;
+  padding: 2px 0 4px 2px;
 }
+.today-plan-diff {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.today-plan-diff li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--ds-font-helper);
+}
+.today-plan-diff li > span { flex: 0 0 12px; font-weight: 600; text-align: center; }
+.today-plan-diff li > strong { min-width: 0; overflow: hidden; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.today-plan-diff .is-added > span { color: var(--color-success-vivid); }
+.today-plan-diff .is-removed { color: var(--ds-text-dim); }
+.today-plan-diff .is-completed > span { color: var(--color-success-vivid); }
+.today-plan-diff .is-changed > span { color: var(--accent-text); }
+.today-plan-diff-empty { margin: 0; color: var(--ds-text-dim); font-size: var(--ds-font-helper); }
+.today-plan-previous-full { width: fit-content; border: 0; background: transparent; color: var(--accent-text); font: inherit; font-size: var(--ds-font-helper); padding: 0; cursor: pointer; }
+.today-plan-previous-full:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.today-plan-previous-full:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.today-plan-previous-full-body { display: grid; gap: 6px; }
+.today-plan-previous-full-body .today-plan-previous-lead { margin-bottom: 0; }
+.today-plan-previous-full-body .today-plan-previous-steps { margin: 0; }
 .today-plan-previous-lead {
   margin: 0 0 6px;
   font-size: var(--ds-font-sm);

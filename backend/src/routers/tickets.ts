@@ -6,6 +6,7 @@ import { transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
 import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
 import { addTicketCollaboratorPostgres, removeTicketCollaboratorPostgres } from "../ticket-domain/collaborate-ticket.js";
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
+import { deleteFormalTicketPostgres, type FormalTicketDeleteInput } from "../ticket-domain/delete-ticket.js";
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
 import { bindTicketAccountToOrganizationPerson, ticketAccountOrganizationBindingOptions, ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
@@ -96,7 +97,7 @@ tickets.get("/tickets", async (c) => {
     view: c.req.query("view"), cursor: c.req.query("cursor"), limit: c.req.query("limit"),
     status: c.req.query("status"), priority: c.req.query("priority"), category: c.req.query("category"),
     stage: c.req.query("stage"), org_unit: c.req.query("org_unit"), assignee: c.req.query("assignee"),
-    due: c.req.query("due"), q: c.req.query("q"), from: c.req.query("from"), to: c.req.query("to"),
+    task_id: c.req.query("task_id"), due: c.req.query("due"), q: c.req.query("q"), from: c.req.query("from"), to: c.req.query("to"),
   });
   return c.json({ ...page, ...requestMetadata() });
 });
@@ -424,6 +425,21 @@ tickets.patch("/tickets/:id", async (c) => {
   const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
   const result = await editFormalTicketPostgres(ticket.id, ownerId(), { ...body, idempotency_key: idempotencyKey });
   return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
+});
+
+/** Pending human-created tickets can be removed from the operational center.
+ * The domain command retains immutable audit evidence and hides the ticket from
+ * all normal reads instead of cascading historical lifecycle facts. */
+tickets.delete("/tickets/:id", async (c) => {
+  const ticket = await nativeTicketById(ownerId(), c.req.param("id"));
+  if (!ticket.allowed_actions.includes("edit")) throw new HttpFail(409, { code: "ticket_delete_not_allowed" });
+  const body = await c.req.json().catch(() => ({})) as Partial<FormalTicketDeleteInput>;
+  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "").trim();
+  const result = await deleteFormalTicketPostgres(ticket.id, ownerId(), {
+    expected_version: Number(body.expected_version),
+    idempotency_key: idempotencyKey,
+  });
+  return c.json({ ticket_id: result.ticket_id, deleted: true, ...requestMetadata() });
 });
 
 tickets.post("/tickets/:id/commands", async (c) => {
