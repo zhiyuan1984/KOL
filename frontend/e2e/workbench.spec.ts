@@ -565,7 +565,7 @@ test("skills page 使用 on email_compose starts ask with intent email_compose",
   expect(bodies[0]?.act).toBe("ask");
 });
 
-test("composer plus menu exposes projects, recent files, and published skills", async ({ page }) => {
+test("composer plus menu exposes recent files and published skills without projects", async ({ page }) => {
   const bodies: Record<string, unknown>[] = [];
   page.on("request", (request) => {
     if (request.url().includes("/messages") && request.method() === "POST") {
@@ -607,8 +607,9 @@ test("composer plus menu exposes projects, recent files, and published skills", 
   await expect(skillItem).toBeVisible();
   await menu.locator("[data-composer-menu-search]").fill("");
 
-  await menu.locator('[data-project-option="col_xiaomei"]').click();
-  await expect(page.locator('[data-project-id="col_xiaomei"]')).toContainText("小美妆日记");
+  // 「项目」分组已置空：+ 菜单不再展示任何项目选项。
+  await expect(menu.locator("[data-project-option]")).toHaveCount(0);
+  await expect(menu.locator('[data-menu-section="数字员工"]')).toBeVisible();
   expect(bodies).toEqual([]);
 });
 

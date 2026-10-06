@@ -6,6 +6,7 @@ import { expertChipLabel, isWriteSkill, labelOfSkill, type CatalogSkill } from "
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import ModelTierControl from "../composer/ModelTierControl";
 import PlusMenu from "../composer/PlusMenu";
+import { fetchExperts, type Expert } from "../experts";
 import { pushRecentSkill } from "../composer/recents";
 import {
   clientEntryFor,
@@ -221,8 +222,8 @@ export default function ComposerDock({
   const [selectedSkillTemplate, setSelectedSkillTemplate] = useState<SkillTemplate | null>(null);
   const [templates, setTemplates] = useState<KnowledgeRow[]>([]);
   const [knowledgeLibs, setKnowledgeLibs] = useState<KnowledgeLib[]>([]);
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [recentFiles, setRecentFiles] = useState<(AttachmentRef & { available?: boolean })[]>([]);
+  const [experts, setExperts] = useState<Expert[]>([]);
   const [picker, setPicker] = useState(false);
   const [query, setQuery] = useState("");
   const [atStart, setAtStart] = useState(0);
@@ -269,21 +270,20 @@ export default function ComposerDock({
   const catalogsNeeded = plusOpen
     || picker
     || Boolean(triggerQuery(value, value.length));
-  const [catalogsEngaged, setCatalogsEngaged] = useState(false);
-  useEffect(() => {
-    if (catalogsNeeded && !catalogsEngaged) setCatalogsEngaged(true);
-  }, [catalogsNeeded, catalogsEngaged]);
 
   useEffect(() => {
-    if (!catalogsEngaged) return;
+    if (!catalogsNeeded) return;
     let cancelled = false;
     const controller = new AbortController();
     const load = async () => {
-      const [mine, market] = await Promise.all([
-        fetch("/api/skills", { signal: controller.signal }).then((r) => r.json() as Promise<SkillOption[]>),
-        fetch("/api/skills/market", { signal: controller.signal })
-          .then((r) => r.json() as Promise<SkillOption[]>)
-          .catch(() => [] as SkillOption[]),
+      const [[mine, market], expertRows] = await Promise.all([
+        Promise.all([
+          fetch("/api/skills", { signal: controller.signal, cache: "no-store" }).then((r) => r.json() as Promise<SkillOption[]>),
+          fetch("/api/skills/market", { signal: controller.signal, cache: "no-store" })
+            .then((r) => r.json() as Promise<SkillOption[]>)
+            .catch(() => [] as SkillOption[]),
+        ]),
+        fetchExperts().catch(() => [] as Expert[]),
       ]);
       if (cancelled) return;
       const map = new Map<string, SkillOption>();
@@ -303,9 +303,13 @@ export default function ComposerDock({
         });
       }
       setSkills([...map.values()]);
+      setExperts(expertRows);
     };
     load().catch(() => {
-      if (!cancelled) setSkills([]);
+      if (!cancelled) {
+        setSkills([]);
+        setExperts([]);
+      }
     });
     api.skillTemplates(controller.signal).then((rows) => {
       if (!cancelled && Array.isArray(rows)) setSkillTemplates(rows);
@@ -313,7 +317,7 @@ export default function ComposerDock({
       if (!cancelled) setSkillTemplates([]);
     });
     return () => { cancelled = true; controller.abort(); };
-  }, [catalogsEngaged]);
+  }, [catalogsNeeded]);
 
   const mailTemplatesNeeded = plusOpen || Boolean(lockedKnowledgeId)
     || lockedLabel === "写合作邮件" || value.includes("写合作邮件");
@@ -397,13 +401,12 @@ export default function ComposerDock({
   useEffect(() => {
     if (!plusOpen) return;
     const controller = new AbortController();
-    void Promise.all([
-      fetch("/api/projects", { signal: controller.signal }).then((r) => r.ok ? r.json() : []),
-      fetch("/api/files/recent?limit=12", { signal: controller.signal }).then((r) => r.ok ? r.json() : []),
-    ]).then(([projectRows, fileRows]) => {
-      if (Array.isArray(projectRows)) setProjects(projectRows);
-      if (Array.isArray(fileRows)) setRecentFiles(fileRows);
-    }).catch(() => undefined);
+    fetch("/api/files/recent?limit=12", { signal: controller.signal })
+      .then((r) => r.ok ? r.json() : [])
+      .then((fileRows) => {
+        if (Array.isArray(fileRows)) setRecentFiles(fileRows);
+      })
+      .catch(() => undefined);
     return () => controller.abort();
   }, [plusOpen]);
 
@@ -544,7 +547,7 @@ export default function ComposerDock({
       chips.push(chip);
     }
     if (expertId !== DEFAULT_EXPERT_ID) {
-      chips.push({ kind: "expert", id: expertId, label: expertChipLabel(expertId) });
+      chips.push({ kind: "expert", id: expertId, label: expertChipLabel(expertId, experts) });
     }
     chips.push(...connectorChips);
     for (const file of attachments) {
@@ -1284,19 +1287,13 @@ export default function ComposerDock({
                 closePlus();
                 focusEditor();
               }}
-              onPickProject={(project) => {
-                setSelectedProject(project);
-                mailCompose?.onContextChange(project.id, value);
-                closePlus();
-                focusEditor();
-              }}
               onReuseFile={reuseRecentFile}
               skills={skills}
               knowledgeLibs={knowledgeLibs}
               recentFiles={recentFiles}
-              projects={projects}
               selectedSkillIds={skillChips.map((chip) => chip.id)}
               expertId={expertId}
+              experts={experts}
             />
           </div>
           {discoveryLocked && onClearDiscoveryLock ? (

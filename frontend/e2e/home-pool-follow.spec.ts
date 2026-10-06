@@ -437,6 +437,7 @@ test("pool first paint reads only what the pool needs", async ({ page }) => {
     "/api/knowledge/market",
     "/api/knowledge/composer",
     "/api/knowledge/skill-templates",
+    "/api/experts",
     "/api/projects",
     "/api/files/recent",
   ]) {
@@ -453,7 +454,7 @@ test("pool first paint reads only what the pool needs", async ({ page }) => {
 });
 test("switching to pool does not fetch unopened attachment directories", async ({ page }) => {
   const paths = new Set<string>();
-  const directories = ["/api/knowledge/composer", "/api/knowledge", "/api/knowledge/market", "/api/projects", "/api/files/recent"];
+  const directories = ["/api/knowledge/composer", "/api/knowledge", "/api/knowledge/market", "/api/experts", "/api/files/recent"];
   page.on("request", (request) => {
     const path = new URL(request.url()).pathname;
     if (directories.includes(path)) paths.add(path);

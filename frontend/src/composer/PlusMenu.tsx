@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { AttachmentRef } from "../api";
-import { DIGITAL_EMPLOYEES, SKILL_GROUPS, isWriteSkill, labelOfSkill, skillGroupOf, type CatalogSkill, type SkillGroupId } from "./catalog";
+import { SKILL_GROUPS, isWriteSkill, labelOfSkill, skillGroupOf, type CatalogSkill, type SkillGroupId } from "./catalog";
+import { expertRoleCopy, type Expert } from "../experts";
 import { readRecentSkills } from "./recents";
 import { DEFAULT_EXPERT_ID, type KnowledgeLib } from "./types";
-
-type ProjectOption = { id: string; label: string; handle?: string; description?: string };
 
 type PlusRow = {
   key: string;
@@ -32,14 +31,13 @@ export default function PlusMenu({
   onPickSkill,
   onPickKb,
   onPickExpert,
-  onPickProject,
   onReuseFile,
   skills,
   knowledgeLibs,
   recentFiles,
-  projects,
   selectedSkillIds,
   expertId,
+  experts,
 }: {
   open: boolean;
   onClose: () => void;
@@ -48,14 +46,13 @@ export default function PlusMenu({
   onPickSkill: (skill: CatalogSkill) => void;
   onPickKb: (row: KnowledgeLib) => void;
   onPickExpert: (id: string) => void;
-  onPickProject: (project: ProjectOption) => void;
   onReuseFile: (file: AttachmentRef & { available?: boolean }) => void;
   skills: CatalogSkill[];
   knowledgeLibs: KnowledgeLib[];
   recentFiles: (AttachmentRef & { available?: boolean })[];
-  projects: ProjectOption[];
   selectedSkillIds: string[];
   expertId: string;
+  experts: Expert[];
 }) {
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -150,45 +147,32 @@ export default function PlusMenu({
         })),
       });
     }
-    next.push({
-      id: "experts",
-      label: "数字员工",
-      rows: DIGITAL_EMPLOYEES.map((row) => ({
-        key: `expert:${row.id}`,
-        icon: "expert" as MenuKind,
-        label: row.label,
-        hint: row.id === DEFAULT_EXPERT_ID ? "默认岗位" : "为这次提问指定岗位",
-        selected: row.id === expertId,
-        attrs: { "data-expert-option": row.id, "aria-pressed": row.id === expertId ? "true" : "false" },
-        run: () => onPickExpert(row.id),
-      })),
-    });
-    if (projects.length) {
+    if (experts.length) {
       next.push({
-        id: "projects",
-        label: "项目",
-        rows: projects.map((project) => ({
-          key: `project:${project.id}`,
-          icon: "project" as MenuKind,
-          label: project.label,
-          hint: project.description,
-          attrs: { "data-project-option": project.id },
-          run: () => onPickProject(project),
+        id: "experts",
+        label: "数字员工",
+        rows: experts.map((expert) => ({
+          key: expert.id,
+          icon: "expert" as MenuKind,
+          label: expertRoleCopy(expert),
+          hint: expert.id === DEFAULT_EXPERT_ID ? "默认岗位" : (expert.mission || "为这次提问指定岗位"),
+          selected: expert.id === expertId,
+          attrs: { "data-expert-option": expert.id, "aria-pressed": expert.id === expertId ? "true" : "false" },
+          run: () => onPickExpert(expert.id),
         })),
       });
     }
     return next;
   }, [
     expertId,
+    experts,
     knowledgeLibs,
     onPickExpert,
     onPickKb,
-    onPickProject,
     onPickSkill,
     onReuseFile,
     onUploadFile,
     onUploadImage,
-    projects,
     recentFiles,
     selectedSkillIds,
     skills,
@@ -328,13 +312,12 @@ function rowHaystack(row: PlusRow) {
   return `${row.label} ${row.hint || ""} ${row.badge || ""} ${row.extra || ""}`.toLowerCase();
 }
 
-type MenuKind = "upload" | "image" | "project" | "recent" | "skills" | "kb" | "expert";
+type MenuKind = "upload" | "image" | "recent" | "skills" | "kb" | "expert";
 
 function MenuIcon({ kind }: { kind: MenuKind }) {
   const paths: Record<MenuKind, string> = {
     upload: "M12 16V5m0 0-4 4m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4",
     image: "M5 6.5h14v11H5z M8 10.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M6.5 16l4-4 3 3 2-2 4 3",
-    project: "M3.5 7.5h6l1.5 2h9v9a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2zM3.5 7.5v-1a2 2 0 0 1 2-2h4",
     recent: "M5 6.5h11a2 2 0 0 1 2 2v11H7a2 2 0 0 1-2-2zm7 3v4l3 2",
     skills: "M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z",
     kb: "M5 5.5A2.5 2.5 0 0 1 7.5 3H12v16H7.5A2.5 2.5 0 0 0 5 21.5z M19 5.5A2.5 2.5 0 0 0 16.5 3H13v16h3.5a2.5 2.5 0 0 1 2.5 2.5z",
