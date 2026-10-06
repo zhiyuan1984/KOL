@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, type AiTaskWorkOrderList, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport, type WorkOrderAutomationRelease, type WorkOrderTemplate } from "../api";
 import { useAccount } from "../components/AuthGate";
+import { randomUuid } from "../uuid";
 
 function time(value: string | null | undefined): string {
   if (!value) return "—";
@@ -88,7 +89,7 @@ function AdminWorkOrdersContent() {
   };
 
   const unboundAccounts = (options?.accounts || []).filter((item) => !item.bound_person_ref);
-  const idempotency = () => `wot-${crypto.randomUUID()}`;
+  const idempotency = () => `wot-${randomUuid()}`;
 
   const createTemplate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

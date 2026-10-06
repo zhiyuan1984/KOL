@@ -1880,6 +1880,31 @@ export function clearPending(sessionId: string): void {
   sessionStorage.removeItem(`pending:${sessionId}`);
 }
 
+/** 同一份 pending 只允许运行一次：取走即清，避免页内与会话页各跑一轮。 */
+const pendingRuns = new Map<string, Promise<unknown>>();
+
+/**
+ * 运行一次已排队的 pending 回合（首页发现工作台提交后由本页接管）。
+ * 返回 null 表示这份 pending 已经被取走（或本来就为空）。
+ */
+export function runPendingAsk(
+  sessionId: string,
+): Promise<{ text: string } | null> {
+  const payload = takePending(sessionId);
+  if (!payload) return Promise.resolve(null);
+  clearPending(sessionId);
+  const key = `${sessionId}:${payload.text || ""}`;
+  const existing = pendingRuns.get(key);
+  if (existing) return existing as Promise<{ text: string } | null>;
+  const run = api.postMessage(sessionId, payload)
+    .then(() => ({ text: payload.text }))
+    .finally(() => {
+      pendingRuns.delete(key);
+    });
+  pendingRuns.set(key, run);
+  return run;
+}
+
 export type ComposerDraft = {
   text: string;
   intent?: string;

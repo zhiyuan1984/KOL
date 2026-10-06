@@ -137,16 +137,18 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await page.locator('[data-skill-param="region"] [data-discovery-chip="na"]').click();
   const workspaceSaved = page.waitForResponse(response => response.request().method() === "POST"
     && new URL(response.url()).pathname === "/api/home/discovery/workspace");
-  const initialTask = page.waitForResponse(response => response.request().method() === "GET"
-    && /^\/api\/tasks\/(?:by-session\/)?(?:wi|ses)_discovery_/.test(new URL(response.url()).pathname));
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
   const savedResponse = await workspaceSaved;
   expect(savedResponse.ok(), await savedResponse.text()).toBeTruthy();
   const savedWorkspace = await savedResponse.json();
   const readsWorkspaceTask = (response: import("@playwright/test").Response) => response.request().method() === "GET"
     && [`/api/tasks/${savedWorkspace.task_id}`, `/api/tasks/by-session/${savedWorkspace.session_id}`].includes(new URL(response.url()).pathname);
+  // 新流程：提交后留在 AI发现 面核对实际参数、再确认采集，不跳转；任务会话由常驻入口打开。
+  await expect(page).toHaveURL(/tab=discovery/);
+  await expect(page.locator('[data-discovery-event="params"]')).toBeVisible();
+  const initialTask = page.waitForResponse(response => response.request().method() === "GET" && readsWorkspaceTask(response));
+  await page.locator("[data-discovery-open-session]").first().click();
   const initialTaskResponse = await initialTask;
-  expect(readsWorkspaceTask(initialTaskResponse)).toBe(true);
   expect(initialTaskResponse.ok()).toBeTruthy();
   await expect(page).toHaveURL(/\/s\/[^/]+$/);
   const sessionUrl = page.url();

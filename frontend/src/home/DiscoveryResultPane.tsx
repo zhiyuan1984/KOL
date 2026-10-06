@@ -1,16 +1,17 @@
 import { Link } from "react-router-dom";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
-import { platformLabel } from "./discoveryTemplate";
+import DiscoveryRuntimeResults from "./DiscoveryRuntimeResults";
+import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
 import type { DiscoveryState } from "./useDiscovery";
 
 /**
- * Right rail: a compact result sequence — conversion status, result details,
- * then the next plan. The run summary and interaction context live in the
- * middle column. It consumes useDiscovery state only; reads, polling, writes,
- * and L3 confirmation all remain in the hook and existing confirmation flow.
+ * Right rail: 当前任务状态 + 采集回执与候选 + 结果明细与入库确认。
+ * 状态与成果只在这里表达一次（中栏只保留过程事件）：中栏事件流里的状态属于事件
+ * 本身，右栏顶部固定的是「这个任务现在到哪了」。reads、polling、writes 与 L3
+ * 确认仍然都在 hook 和既有确认流程里。
  */
-export default function DiscoveryResultPane({ state }: { state: DiscoveryState }) {
+export default function DiscoveryResultPane({ state, brief }: { state: DiscoveryState; brief: DiscoveryBrief }) {
   const {
     run,
     runId,
@@ -24,6 +25,11 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     selectedPlatforms,
     inFlight,
     stage,
+    startPhase,
+    crawlPhase,
+    submitted,
+    runFromAnotherTask,
+    actions,
     failure,
     emptyKind,
     emptyMessage,
@@ -56,6 +62,33 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
   const allSelectableShown = selectableVisible.length > 0
     && selectableVisible.every((candidate) => selectedIds.includes(candidate.id));
 
+  // 右栏顶部固定的当前任务状态：文案 + 图形 + 字重，不只靠颜色（DESIGN §1 不变量 4）。
+  // 以会话动作的相位为准；`stage === "running"` 只表示「任务在动」（可能只是在等确认），
+  // 所以它只作兜底，不能盖掉「待确认」。
+  const railStatus = failure || startPhase === "failed"
+    ? { key: "failed", glyph: "⚠", label: "失败", detail: "保留已取得的结果；可核对原因后重试。" }
+    : startPhase === "uncertain"
+      ? { key: "uncertain", glyph: "⚠", label: "结果待核实", detail: "不重复提交；先核对任务状态。" }
+      : crawlPhase === "running" || startPhase === "running"
+        ? { key: "running", glyph: "▶", label: "采集中", detail: "候选到达后原位更新，不打断阅读。" }
+        : startPhase === "dispatching" || startPhase === "starting"
+          ? { key: "starting", glyph: "▶", label: "启动中", detail: "已确认，正在启动采集。" }
+          : startPhase === "succeeded" || crawlPhase === "succeeded"
+            ? { key: "completed", glyph: "✓", label: "已完成", detail: "候选与来源已就绪；入库是独立动作。" }
+            : startPhase === "cancelled" || crawlPhase === "cancelled" || startPhase === "rejected"
+              ? { key: "stopped", glyph: "■", label: "已停止", detail: "只保留已取得的候选。" }
+              : startPhase === "pending"
+                ? { key: "waiting", glyph: "·", label: "待确认", detail: "确认前不会发起采集。" }
+                : startPhase === "waiting_proposal"
+                  ? (submitted
+                    ? { key: "preparing", glyph: "·", label: "准备中", detail: "正在整理本次采集范围。" }
+                    : { key: "idle", glyph: "·", label: "未开始", detail: "提交条件后，结果会保存在这里。" })
+                  : stage === "running"
+                    ? { key: "running", glyph: "▶", label: "采集中", detail: "候选到达后原位更新，不打断阅读。" }
+                    : stage === "success"
+                      ? { key: "completed", glyph: "✓", label: "已完成", detail: "候选与来源已就绪；入库是独立动作。" }
+                      : { key: "idle", glyph: "·", label: "未开始", detail: "提交条件后，结果会保存在这里。" };
+
   return (
     <div
       className="discovery-panel"
@@ -64,6 +97,22 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
       data-discovery-stage={stage}
       data-discovery-running={inFlight ? "true" : undefined}
     >
+      <header className="discovery-run-status" data-discovery-run-status={railStatus.key}>
+        <span className="discovery-run-status-kicker">当前任务</span>
+        <strong data-discovery-run-status-label>
+          <span aria-hidden="true" className="discovery-run-status-glyph">{railStatus.glyph}</span>{railStatus.label}
+        </strong>
+        <span className="discovery-run-status-detail" data-discovery-run-status-detail>{railStatus.detail}</span>
+      </header>
+
+      {runFromAnotherTask ? (
+        <p className="discovery-flow-note" data-discovery-previous-run>
+          下面的结果仍来自上一次运行；本次运行产出后会原位更新，不覆盖旧回执。
+        </p>
+      ) : null}
+
+      <DiscoveryRuntimeResults actions={actions} brief={brief} />
+
       {approvalState === "brief_mismatch" ? (
         <section className="task-empty" data-discovery-brief-mismatch role="alert">
           <strong>确认已作废</strong>

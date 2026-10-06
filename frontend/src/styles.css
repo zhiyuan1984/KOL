@@ -13345,22 +13345,23 @@ button.today-brief-primary-btn:disabled {
   width: max-content;
   max-width: 100%;
   align-items: center;
-  gap: var(--home-mode-tab-gap);
+  gap: var(--space-1);
   min-width: 0;
   padding: 0 2px 8px;
 }
 .home-quick-tasks button {
   flex: 0 0 auto;
   width: auto;
-  height: var(--home-chip-h);
   min-width: 0;
-  padding: 0 var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border: none;
   border-radius: var(--radius-control);
   background: var(--chrome);
   color: var(--text);
   font: inherit;
   font-size: var(--ds-font-helper);
+  /* 必须在 font: inherit 之后：芯片按内容收缩成 26px 高（4 + 18 + 4），字号字重不变。 */
+  line-height: var(--ds-line-helper);
   white-space: nowrap;
   cursor: pointer;
   display: inline-flex;

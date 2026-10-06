@@ -20,6 +20,7 @@ export default function WorkspaceShell({
   resultIdle = false,
   focusResults = false,
   streamStick = false,
+  railScrollJump = false,
   resultView,
   scrollAnchorEvent,
   centerHeader,
@@ -41,6 +42,8 @@ export default function WorkspaceShell({
   focusResults?: boolean;
   /** 中栏正在流式产出（发现运行中 / 计划生成中）：新内容贴底跟随。 */
   streamStick?: boolean;
+  /** 右栏是持续更新的结果面：回看时保持位置，提供「回到最新」入口。 */
+  railScrollJump?: boolean;
   /** Optional normalized metadata/history/action slots; domain children remain mode-specific. */
   resultView?: ResultRailViewModel;
   /** 可选：该事件触发时把中栏滚动锚点带回顶部（今日/待办的计划刷新）。 */
@@ -55,8 +58,13 @@ export default function WorkspaceShell({
   );
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const railRef = useRef<HTMLElement | null>(null);
   const stickBottom = useRef(true);
+  const railStickBottom = useRef(true);
+  /** 焦点在流内表单控件里：新事件不得把视口拽走（正在输入的人优先）。 */
+  const focusInForm = useRef(false);
   const [scrollJump, setScrollJump] = useState(false);
+  const [railJump, setRailJump] = useState(false);
   const [atBottom, setAtBottom] = useState(false);
   const followThreshold = (el: HTMLElement) => parseFloat(getComputedStyle(el).getPropertyValue("--feed-follow-threshold")) || 48;
   useEffect(() => {
@@ -73,8 +81,13 @@ export default function WorkspaceShell({
     const el = scrollRef.current;
     if (el) el.scrollTop = 0;
     stickBottom.current = true;
+    focusInForm.current = false;
     setScrollJump(Boolean(el && el.scrollHeight > el.clientHeight + 1));
     setAtBottom(Boolean(el && el.scrollHeight - el.scrollTop - el.clientHeight <= followThreshold(el)));
+    const railEl = railRef.current;
+    if (railEl) railEl.scrollTop = 0;
+    railStickBottom.current = true;
+    setRailJump(false);
   }, [pane]);
   // 只跟随「正在流式产出」的内容：打开历史任务从顶部看，不抢着跳到底。
   // 开始产出时把视口贴到尾部，之后由 MutationObserver 逐段跟随。
@@ -91,12 +104,13 @@ export default function WorkspaceShell({
   // 贴底自动滚动：流式进行中且用户在底部时，流里追加新内容（步骤/推理）就跟着滑到底；
   // 用户上翻读历史时不抢滚动，只亮「回到底部」。同时监听 DOM 变化和内容尺寸变化：
   // 推理文本在同一个节点内增长、触发换行时，ResizeObserver 才能保证滚动条跟上。
+  // 焦点在表单控件里时同样不跟随：正在填写的人不该被新事件顶走。
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const overflows = () => el.scrollHeight > el.clientHeight + 1;
     const stickToBottom = () => {
-      if (streamStickRef.current && stickBottom.current) {
+      if (streamStickRef.current && stickBottom.current && !focusInForm.current) {
         el.scrollTop = el.scrollHeight;
       }
       setScrollJump(overflows());
@@ -112,12 +126,50 @@ export default function WorkspaceShell({
       : new ResizeObserver(stickToBottom);
     if (resizeObserver && content) resizeObserver.observe(content);
     if (resizeObserver) resizeObserver.observe(el);
+    const onFocusChange = () => {
+      const active = document.activeElement as HTMLElement | null;
+      focusInForm.current = Boolean(
+        active
+        && el.contains(active)
+        && active.closest("input, textarea, select, [contenteditable='true']"),
+      );
+      if (!focusInForm.current) stickToBottom();
+    };
+    el.addEventListener("focusin", onFocusChange);
+    el.addEventListener("focusout", onFocusChange);
     stickToBottom();
     return () => {
       observer.disconnect();
       resizeObserver?.disconnect();
+      el.removeEventListener("focusin", onFocusChange);
+      el.removeEventListener("focusout", onFocusChange);
     };
   }, []);
+  // 右栏：结果原位更新时不强制跳转，只在自己就在底部时跟随；回看历史时给「回到最新」。
+  useEffect(() => {
+    if (!railScrollJump) return;
+    const el = railRef.current;
+    if (!el) return;
+    const follow = () => {
+      if (railStickBottom.current) {
+        el.scrollTop = el.scrollHeight;
+      } else {
+        setRailJump(el.scrollHeight > el.clientHeight + 1);
+      }
+    };
+    const observer = new MutationObserver(follow);
+    observer.observe(el, { subtree: true, childList: true, characterData: true });
+    const body = el.querySelector<HTMLElement>(".scope-task-rail-body");
+    const resizeObserver = typeof ResizeObserver === "undefined" || !body
+      ? null
+      : new ResizeObserver(follow);
+    if (resizeObserver && body) resizeObserver.observe(body);
+    follow();
+    return () => {
+      observer.disconnect();
+      resizeObserver?.disconnect();
+    };
+  }, [railScrollJump, pane]);
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
@@ -126,12 +178,26 @@ export default function WorkspaceShell({
     setAtBottom(isAtBottom);
     setScrollJump(el.scrollHeight > el.clientHeight + 1);
   };
+  const onRailScroll = () => {
+    const el = railRef.current;
+    if (!el) return;
+    railStickBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 1;
+    setRailJump(el.scrollHeight > el.clientHeight + 1);
+  };
   const jumpToBottom = () => {
     const el = scrollRef.current;
     if (!el) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollTo({ top: atBottom ? 0 : el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
     stickBottom.current = !atBottom;
+  };
+  const jumpRailToLatest = () => {
+    const el = railRef.current;
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+    railStickBottom.current = true;
+    setRailJump(false);
   };
   const toggleRail = () => {
     setRailCollapsed((current) => {
@@ -182,9 +248,11 @@ export default function WorkspaceShell({
       </div>
 
       {!focusResults ? <aside
+        ref={railRef}
         className={"scope-task-rail" + (railCollapsed ? " is-collapsed" : "")}
         data-scope-task-rail
         aria-label={railLabel}
+        onScroll={railScrollJump ? onRailScroll : undefined}
       >
         <button
           type="button"
@@ -201,6 +269,23 @@ export default function WorkspaceShell({
         <div className="scope-task-rail-body" data-scope-rail-body>
           <ResultRail pane={pane} view={resultView}>{rail}</ResultRail>
         </div>
+        {railScrollJump && railJump ? (
+          <div className="scope-rail-jump-wrap">
+            <button
+              type="button"
+              className="scope-scroll-jump"
+              data-scope-rail-jump
+              data-tooltip="回到最新"
+              aria-label="回到最新"
+              onClick={jumpRailToLatest}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M12 4v15" />
+                <path d="m5.5 12.5 6.5 6.5 6.5-6.5" />
+              </svg>
+            </button>
+          </div>
+        ) : null}
       </aside> : null}
     </section>
   );
