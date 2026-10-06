@@ -15,7 +15,7 @@ import {
   type TaskRunResult,
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
-import { storePending, runPendingAsk } from "../components/ChatBlocks";
+import { clearPending, storePending, runPendingAsk } from "../components/ChatBlocks";
 import { stashComposerDraft } from "../composer/draft";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
@@ -307,6 +307,49 @@ function isPresetStarterText(value: string): boolean {
   return trimmed === presetStarter("creator_daily_tasks")
     || trimmed === presetStarter("todo_plan")
     || value.startsWith(DISCOVERY_BODY_PREFIX);
+}
+
+const DISCOVERY_PENDING_RETRY_DELAYS = [0, 500, 1_000, 2_000, 3_000] as const;
+
+function waitForDiscoveryRetry(delay: number): Promise<void> {
+  return delay ? new Promise((resolve) => window.setTimeout(resolve, delay)) : Promise.resolve();
+}
+
+function isTransientDiscoveryDispatchError(error: unknown): boolean {
+  const status = Number((error as { status?: unknown } | null)?.status);
+  return !Number.isFinite(status) || status === 0 || status >= 500;
+}
+
+/**
+ * A workspace is committed before its first analysis is dispatched. During a
+ * brief service restart, use the durable task/run as the source of truth:
+ * retry only while it remains pending, and treat a no-longer-pending run as
+ * already accepted instead of sending a duplicate message.
+ */
+async function dispatchDiscoveryPendingAnalysis(taskId: string, sessionId: string): Promise<{ text: string } | null> {
+  let lastError: unknown = null;
+  for (const delay of DISCOVERY_PENDING_RETRY_DELAYS) {
+    await waitForDiscoveryRetry(delay);
+    try {
+      const dispatched = await runPendingAsk(sessionId);
+      if (dispatched) return dispatched;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientDiscoveryDispatchError(error)) throw error;
+    }
+    try {
+      const { pending } = await api.pendingDiscoveryWorkspace(taskId);
+      if (!pending) {
+        clearPending(sessionId);
+        return null;
+      }
+      storePending(sessionId, pending);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientDiscoveryDispatchError(error)) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("首轮分析暂时不可用");
 }
 
 export default function Home() {
@@ -633,11 +676,14 @@ export default function Home() {
       setDiscoveryTaskId(result.task_id);
       setDiscoverySessionId(result.session_id);
       setDiscoveryRunId(null);
-      // 首轮分析（提出本次采集范围）由本页运行；失败时沿用提交失败那条重试入口。
-      void runPendingAsk(result.session_id).catch(() => {
+      // 工作区先持久化，再投递首轮分析。短暂服务重启时按同一 task/run 恢复，
+      // 已被服务端接收的回合不再重复发送。
+      try {
+        await dispatchDiscoveryPendingAnalysis(result.task_id, result.session_id);
+      } catch {
         setDiscoverySubmitFailed(true);
         setDiscoverySubmitError("首轮分析没有跑完，可重试；不会重复创建任务。");
-      });
+      }
     } catch (error) {
       setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {
@@ -652,6 +698,31 @@ export default function Home() {
   };
 
   const retryDiscoveryRun = async () => {
+    if (discoveryTaskId && discoverySessionId) {
+      setDiscoverySubmitFailed(false);
+      setDiscoverySubmitError("");
+      setBusy(true);
+      setIntakeRunning(true);
+      intakeCancelled.current = false;
+      try {
+        const { pending } = await api.pendingDiscoveryWorkspace(discoveryTaskId);
+        if (!pending) {
+          // 服务端已接收或已完成；不要用浏览器缓存的旧 payload 再投递。
+          clearPending(discoverySessionId);
+          refreshWorkbenchSessions();
+          return;
+        }
+        storePending(discoverySessionId, pending);
+        await dispatchDiscoveryPendingAnalysis(discoveryTaskId, discoverySessionId);
+      } catch {
+        setDiscoverySubmitFailed(true);
+        setDiscoverySubmitError("首轮分析没有跑完，可重试；不会重复创建任务。");
+      } finally {
+        setBusy(false);
+        setIntakeRunning(false);
+      }
+      return;
+    }
     if (!lastDiscoverySubmit) {
       await openDiscoveryTemplate();
       return;

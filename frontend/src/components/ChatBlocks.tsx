@@ -1939,10 +1939,8 @@ export function takePending(sessionId: string): PendingAsk | null {
 export function clearPending(sessionId: string): void {
   sessionStorage.removeItem(`pending:${sessionId}`);
 }
-
-/** 同一份 pending 只允许运行一次：取走即清，避免页内与会话页各跑一轮。 */
+/** 同一份 pending 只允许运行一次：服务确认接收后才清，避免页内与会话页各跑一轮。 */
 const pendingRuns = new Map<string, Promise<unknown>>();
-
 /**
  * 运行一次已排队的 pending 回合（首页发现工作台提交后由本页接管）。
  * 返回 null 表示这份 pending 已经被取走（或本来就为空）。
@@ -1958,6 +1956,12 @@ export function runPendingAsk(
   if (existing) return existing as Promise<{ text: string } | null>;
   const run = api.postMessage(sessionId, payload)
     .then(() => ({ text: payload.text }))
+    .catch((error) => {
+      // 请求中断时，服务端可能尚未收到这轮消息。保留原 payload，供同页或恢复现场
+      // 按同一个 run_id 安全重试；若此时已有更新的 pending，则绝不覆盖它。
+      if (!takePending(sessionId)) storePending(sessionId, payload);
+      throw error;
+    })
     .finally(() => {
       pendingRuns.delete(key);
     });

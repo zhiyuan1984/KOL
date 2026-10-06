@@ -800,6 +800,40 @@ test("a 502 on submit offers 重试, and retrying resubmits", async ({ page }) =
   await expect(page.locator("[data-home] .composer-err")).toHaveCount(0);
 });
 
+test("a transient first-analysis dispatch recovers without creating a second workspace", async ({ page }) => {
+  let workspacePosts = 0;
+  let messagePosts = 0;
+  let pendingReads = 0;
+  await stubNoRuns(page);
+  await page.route("**/api/home/discovery/workspace", (route) => {
+    workspacePosts += 1;
+    return route.fulfill({ json: WORKSPACE_ACCEPTED });
+  });
+  await page.route(`**/api/sessions/${DISCOVERY_SESSION_ID}/messages`, (route) => {
+    messagePosts += 1;
+    if (messagePosts === 1) {
+      return route.fulfill({
+        status: 502,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "服务正在重启" }),
+      });
+    }
+    return route.fulfill({ json: { messages: [], agent_status: "running", accepted: true } });
+  });
+  await page.route(`**/api/home/discovery/workspace/${DISCOVERY_TASK_ID}/pending`, (route) => {
+    pendingReads += 1;
+    return route.fulfill({ json: { pending: DISCOVERY_PENDING } });
+  });
+
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+
+  await expect.poll(() => messagePosts).toBe(2);
+  expect(workspacePosts).toBe(1);
+  expect(pendingReads).toBeGreaterThan(0);
+  await expect(page.locator("[data-home] [data-home-discovery-submit-error]")).toHaveCount(0);
+});
+
 test("▪ during a discovery submit aborts the client side and posts no cancel", async ({ page }) => {
   const gate: { release?: () => void } = {};
   const held = new Promise<void>((resolve) => { gate.release = resolve; });
