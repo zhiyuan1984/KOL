@@ -26,7 +26,7 @@ export type OperationJob = {
   error_summary?: string | null;
   receipt?: Record<string, unknown> | null;
 };
-import { randomUuid } from "./uuid";
+import { randomUuid } from "./uuid.js";
 import type {
   DeclaredMountResult,
   McpImportPreview,
