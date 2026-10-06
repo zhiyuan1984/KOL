@@ -1,4 +1,4 @@
-import { kbDateOnly, kbDocStatusLabel, kindLabel, statusLabel } from "../../knowledgeCopy";
+import { kbDateOnly, kbDocStatusLabel, kbExpiryLabel, kbExpiryState, kindLabel, statusLabel } from "../../knowledgeCopy";
 import type { KbAssetRow } from "./shared";
 import KbvIcon from "../../knowledgeIcons";
 
@@ -67,6 +67,7 @@ function RecordRow({ row, selected, onSelect }: {
       : status === "archived"
         ? "is-disabled"
         : "is-draft";
+  const expiry = row.asset_type === "document" ? null : kbExpiryState(row.expires_at);
 
   return (
     <button
@@ -80,6 +81,7 @@ function RecordRow({ row, selected, onSelect }: {
       <span className="kbv-browser-record-meta">
         <span className="kbv-record-kind">{row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind)}</span>
         <span className={`kbv-status ${statusClass}`}>{row.asset_type === "document" ? row.publication_label || kbDocStatusLabel(status) : row.publication_label || statusLabel(status)}</span>
+        {expiry ? <span className={`kbv-expiry is-${expiry}`} data-kbv-expiry={expiry}>{kbExpiryLabel(row.expires_at)}</span> : null}
         {row.updated_at ? <span className="kbv-record-date">{kbDateOnly(row.updated_at)}</span> : null}
       </span>
     </button>

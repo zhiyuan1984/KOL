@@ -3,12 +3,12 @@ import { groupSkills, isWriteSkill, matchesSkillQuery, skillGroupOf } from "./ca
 
 describe("composer skill catalog", () => {
   it("marks write skills as needing confirmation", () => {
-    expect(isWriteSkill({ id: "email_compose", title: "写合作邮件" })).toBe(true);
-    expect(isWriteSkill({ id: "creator_contact_decrypt", title: "解密达人联系方式" })).toBe(true);
-    expect(isWriteSkill({ id: "confirm_stage", title: "提出阶段变更" })).toBe(true);
-    expect(isWriteSkill({ id: "creator_library_sync", title: "达人同步入库" })).toBe(true);
-    expect(isWriteSkill({ id: "creator_owner_update", title: "更新红人负责人" })).toBe(true);
-    expect(isWriteSkill({ id: "creator_profile", title: "达人画像" })).toBe(false);
+    expect(isWriteSkill({ id: "email_compose", title: "写合作邮件", execution: { receipt_required: true } })).toBe(true);
+    expect(isWriteSkill({ id: "creator_contact_decrypt", title: "解密达人联系方式", execution: { receipt_required: false, tools: [{ confirmation: "required" }] } })).toBe(true);
+    expect(isWriteSkill({ id: "confirm_stage", title: "提出阶段变更", execution: { receipt_required: true } })).toBe(true);
+    expect(isWriteSkill({ id: "creator_library_sync", title: "达人同步入库", execution: { receipt_required: true } })).toBe(true);
+    expect(isWriteSkill({ id: "creator_owner_update", title: "更新红人负责人", execution: { receipt_required: true } })).toBe(true);
+    expect(isWriteSkill({ id: "creator_profile", title: "达人画像", execution: { receipt_required: false } })).toBe(false);
   });
 
   it("groups skills into the locked IA buckets", () => {

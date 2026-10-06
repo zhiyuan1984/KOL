@@ -5,7 +5,7 @@ import { api, type KnowledgeBaseRow } from "../../api";
 import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
 import KbvIcon from "../../knowledgeIcons";
 
-/** PDF 原件保存为草稿；解析与发布是后续独立动作。 */
+/** PDF 上传即进入规整与索引，完成后留在待审资料队列。 */
 const UPLOAD_FORMATS: Record<string, string> = { pdf: "PDF 文档" };
 
 const ACCEPT = Object.keys(UPLOAD_FORMATS).map((ext) => `.${ext}`).join(",");
@@ -114,7 +114,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
     let lastId="";
     try {
       for (const file of files) {
-        const result = await api.adminKnowledgeDocumentUpload(baseId, file, true,undefined,explanations[file.name] ?? explanation,reviewCompany());
+        const result = await api.adminKnowledgeDocumentUpload(baseId, file, false,undefined,explanations[file.name] ?? explanation,reviewCompany());
         saved += 1;
         setFiles((current) => current.filter((item) => item !== file));
         lastId=result.document.id;
@@ -145,7 +145,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
         </button>
       </div>
       <div className="kbv-dialog-body">
-        <p className="muted">支持批量选择或拖入文件；每个文件形成一条待整理草稿。</p>
+        <p className="muted">支持批量选择或拖入文件；上传后会自动规整与建立索引，完成后进入待审资料。</p>
         <label>资料用途解释（选填，应用于本批资料）<textarea value={explanation} disabled={busy} maxLength={4000} placeholder="资料讲什么、能回答哪些问题、适用对象及已知限制。保存后可逐份修订。" onChange={e=>{setExplanation(e.target.value);onDirty?.(true);}} /></label>
         <div
           className="kbv-file-info"
@@ -172,7 +172,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
             />
           </label>
           <p className="muted">支持 PDF；归属必须为非结构化知识库。</p>
-          <p className="muted">保存草稿仅保存原件，不开始解析，也不发布。</p>
+          <p className="muted">上传会开始解析；解析完成后仍需提交发布审批，不会自动对员工生效。</p>
         </div>
         {files.length ? (
           <div data-kbv-upload-queue>
@@ -235,7 +235,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
           disabled={busy || !baseId || !files.length}
           onClick={() => void submit()}
         >
-          {busy ? "保存中…" : "保存草稿"}
+          {busy ? "上传并解析中…" : "上传并开始解析"}
         </button>
       </div></WorkspaceActions>
     </Container>

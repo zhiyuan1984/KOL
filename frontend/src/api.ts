@@ -513,6 +513,8 @@ export type WorkbenchTaskPage = {
 /** Target ticket read-model. `Task` remains the compatibility projection during migration. */
 export type Ticket = Task & {
   ticket_id: string;
+  /** Parent task when a formal ticket is created from the Today/Todo detail rail. */
+  task_id?: string | null;
   data_version?: number;
   missing_fields: string[];
   allowed_actions: string[];
@@ -857,6 +859,7 @@ export type TicketFormBootstrap = {
 export type CreateFormalTicketInput = {
   title: string;
   goal: string;
+  task_id?: string;
   business_category: "kol" | "marketing" | "operations" | "data" | "general";
   stage_group?: string;
   stage_code?: string;
@@ -901,6 +904,13 @@ export type EditFormalTicketResult = {
   event_id: string;
   replayed: boolean;
   ticket: Ticket;
+  request_id: string;
+  as_of: string;
+};
+
+export type DeleteFormalTicketResult = {
+  ticket_id: string;
+  deleted: true;
   request_id: string;
   as_of: string;
 };
@@ -1404,9 +1414,17 @@ export type KnowledgeRow = {
   current_version?: number;
   published_version?: number | null;
   cited?: boolean;
+  /** 当前账号已收藏；由服务端返回，跨设备同步。 */
+  favorite?: boolean;
+  favorite_version?: number | null;
+  /** 收藏之后已有新的已发布版本。 */
+  has_newer_version?: boolean;
   deprecated?: boolean;
   deprecate_reason?: string;
   deprecate_reason_label?: string;
+  feedback_handled?: boolean;
+  feedback_handled_at?: string;
+  feedback_handle_action?: string;
   cite_count?: number;
   in_market?: number;
   intent?: string;
@@ -1982,7 +2000,7 @@ export const api = {
   },
   tickets: (opts: {
     cursor?: string; limit?: number; view?: "authorized" | "created" | "assigned" | "watching" | "completed";
-    status?: string; priority?: string; category?: string; stage?: string; org_unit?: string; assignee?: string; due?: "all" | "overdue" | "none"; q?: string; from?: string; to?: string;
+    task_id?: string; status?: string; priority?: string; category?: string; stage?: string; org_unit?: string; assignee?: string; due?: "all" | "overdue" | "none"; q?: string; from?: string; to?: string;
   } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
@@ -2047,6 +2065,11 @@ export const api = {
   editFormalTicket: (id: string, body: EditFormalTicketInput) => request<EditFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "Idempotency-Key": body.idempotency_key },
+    body: JSON.stringify(body),
+  }),
+  deleteFormalTicket: (id: string, body: { expected_version: number }) => request<DeleteFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { "Idempotency-Key": `ticket-delete-${crypto.randomUUID()}` },
     body: JSON.stringify(body),
   }),
   ticket: (id: string) => request<Ticket & { latest_run: TicketRun | null; summary: TicketSummary; request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}`),
@@ -2820,6 +2843,10 @@ export const api = {
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/cite`, { method: "POST", body: JSON.stringify({}) }),
   unciteKnowledge: (id: string) =>
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/cite`, { method: "DELETE" }),
+  favoriteKnowledge: (id: string) =>
+    request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/favorite`, { method: "POST", body: JSON.stringify({}) }),
+  unfavoriteKnowledge: (id: string) =>
+    request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/favorite`, { method: "DELETE" }),
   deprecateKnowledge: (id: string, reason: string, note = "") =>
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/deprecate`, {
       method: "POST",

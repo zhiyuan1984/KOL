@@ -71,6 +71,17 @@ test.describe("知识治理管理端（/admin/knowledge）", () => {
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
   });
 
+  test("治理驾驶舱显示六类待办，并在当前工作区应用筛选", async ({ page }) => {
+    await page.goto("/admin/knowledge");
+    const dashboard = page.locator("[data-admin-kb-dashboard]");
+    await expect(dashboard).toBeVisible();
+    await expect(dashboard.locator("[data-admin-kb-dashboard-card]")).toHaveCount(6);
+    await dashboard.locator("[data-admin-kb-dashboard-card='draft']").click();
+    await expect(page.locator("[data-admin-kb-dashboard-filter]")).toContainText("草稿");
+    await page.locator("[data-admin-kb-dashboard-filter] .kbv-text-action").click();
+    await expect(page.locator("[data-admin-kb-dashboard-filter]")).toHaveCount(0);
+  });
+
   test("新主页骨架：中栏筛选、右栏详情与阶段标注", async ({ page }) => {
     await page.goto("/admin/knowledge");
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();

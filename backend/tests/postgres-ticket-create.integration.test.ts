@@ -64,7 +64,7 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       );
       CREATE TABLE IF NOT EXISTS tickets (
         id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, task_type TEXT NOT NULL, title TEXT NOT NULL, source TEXT NOT NULL,
-        status TEXT NOT NULL, priority TEXT NOT NULL, skill TEXT NOT NULL, profile TEXT NOT NULL, due_at TEXT, input JSONB NOT NULL,
+        status TEXT NOT NULL, priority TEXT NOT NULL, skill TEXT NOT NULL, profile TEXT NOT NULL, task_id TEXT, deleted_at TEXT, due_at TEXT, input JSONB NOT NULL,
         entities JSONB NOT NULL, data_version INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         kind TEXT, channel TEXT, requester_type TEXT, requester_id TEXT, goal TEXT, next_action TEXT, business_category TEXT,
         stage_group TEXT, stage_code TEXT, ticket_timezone TEXT, no_due_reason TEXT, acceptance_criteria JSONB
@@ -307,5 +307,23 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     })));
     expect(collaboratorApi.status).toBe(200);
     expect(await collaboratorApi.json()).toMatchObject({ action: "add_collaborator", version: 6, ticket: { allowed_actions: expect.arrayContaining(["collaborate"]), assignments: expect.arrayContaining([expect.objectContaining({ role: "collaborator", status: "active" })]) } });
+
+    const child = await createFormalTicketPostgres("u-creator", {
+      ...command,
+      title: "补齐复盘归档证据",
+      task_id: first.ticket_id,
+      idempotency_key: "native-ticket-task-child-create-0001",
+    });
+    const scoped = await listNativeTickets("u-creator", { view: "created", task_id: first.ticket_id, limit: "10" });
+    expect(scoped.items).toEqual([expect.objectContaining({ ticket_id: child.ticket_id, task_id: first.ticket_id })]);
+    const deleted = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request(`http://test.local/tickets/${child.ticket_id}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json", "Idempotency-Key": "native-ticket-task-child-delete-0001" },
+      body: JSON.stringify({ expected_version: 1 }),
+    })));
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toMatchObject({ ticket_id: child.ticket_id, deleted: true });
+    expect((await listNativeTickets("u-creator", { view: "created", task_id: first.ticket_id, limit: "10" })).items).toEqual([]);
+    await expect(nativeTicketById("u-creator", child.ticket_id)).rejects.toMatchObject({ status: 404 });
   });
 });

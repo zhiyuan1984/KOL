@@ -12,19 +12,6 @@ export const SKILL_GROUPS = [
 
 export type SkillGroupId = (typeof SKILL_GROUPS)[number]["id"];
 
-const WRITE_SKILL_IDS = new Set([
-  "creator_contact_decrypt",
-  "email_compose",
-  "confirm_stage",
-  "creator_library_sync",
-  "creator_owner_update",
-  "creator_status_update",
-  "email_send",
-  "stage_mail",
-]);
-
-const WRITE_SKILL_HINT = /decrypt|contact_decrypt|write.?mail|email_compose|confirm_stage|propose.?stage|sync.?ingest|library_sync|owner_update|status_update|发信|写合作|阶段变更|同步入库|更新负责人/;
-
 const GROUP_MATCHERS: Record<Exclude<SkillGroupId, "other">, RegExp> = {
   discover: /discover|discovery|crawl|采集|发现/,
   profile: /profile|scoring|portrait|画像|评分|评估/,
@@ -43,6 +30,11 @@ export type CatalogSkill = {
   granted?: boolean;
   /** false = 内部技能（只被 pipeline / 定时任务 / 旅程调用），不进员工可选清单。 */
   employee_visible?: boolean;
+  /** 后端返回的执行元数据；receipt_required 或工具级 confirmation 决定是否为写操作。 */
+  execution?: {
+    receipt_required?: boolean;
+    tools?: { confirmation?: string }[];
+  };
 };
 
 export function labelOfSkill(skill: CatalogSkill): string {
@@ -50,8 +42,9 @@ export function labelOfSkill(skill: CatalogSkill): string {
 }
 
 export function isWriteSkill(skill: CatalogSkill): boolean {
-  if (WRITE_SKILL_IDS.has(skill.id)) return true;
-  return WRITE_SKILL_HINT.test(`${skill.id} ${labelOfSkill(skill)}`);
+  if (skill.execution?.receipt_required) return true;
+  // MCP 工具自身要求确认时，receipt_required 可能仍为 false；两者取并集。
+  return Boolean(skill.execution?.tools?.some((tool) => tool.confirmation === "required"));
 }
 
 export function skillGroupOf(skill: CatalogSkill): SkillGroupId {
