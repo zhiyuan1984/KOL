@@ -9,8 +9,9 @@ import { seedAll } from "../src/seed.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.js";
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
+import * as todayPlanContext from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
-import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot, executeClaimedPlanningJob } from "../src/host/today-plan-run.js";
+import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot, executeClaimedPlanningJob, executeTodayPlanRun } from "../src/host/today-plan-run.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 import { runtimeClaimExecutionJobById } from "../src/execution-jobs/runtime-store.js";
 import type { WorkerResult } from "../src/types.js";
@@ -381,6 +382,37 @@ describe("today_plan harness", () => {
     expect(JSON.stringify(harness.tools || [])).not.toMatch(/follow|send|confirm-stage|confirm_stage/i);
     expect(JSON.stringify(harness.skills || [])).not.toMatch(/follow|send|confirm-stage|confirm_stage/i);
     expect(taskDefinition("today_plan")?.mcp || []).toEqual([]);
+  });
+
+  it("marks the parent plan failed when planning context setup throws", async () => {
+    const now = nowIso();
+    const sessionId = "ses_preflight_failure";
+    const workItemId = "tsk_preflight_failure";
+    const runId = "run_preflight_failure";
+    getConn().prepare(
+      "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
+    ).run(sessionId, "规划", now, now, "today_plan", 0, owner(), "platform:workspace-planner");
+    insertWorkItem({ id: workItemId, title: "规划", task_type: "today_plan", status: "running", source: "planning", session_id: sessionId });
+    getConn().prepare(
+      "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
+    ).run(runId, workItemId, sessionId, "running", "{}", "{}", now, now);
+    const pack = packTodayPlanContext(owner());
+    vi.spyOn(todayPlanContext, "planningRunInput").mockImplementation(() => {
+      throw new Error("skill registry preflight failed");
+    });
+
+    const result = await executeTodayPlanRun({ owner: owner(), workItemId, sessionId, runId, pack });
+
+    expect(result).toEqual({ ok: false, reason: "skill registry preflight failed" });
+    expect(getConn().prepare("SELECT status FROM tickets WHERE id=?").get(workItemId)).toMatchObject({ status: "failed" });
+    expect(getConn().prepare("SELECT status,error FROM task_runs WHERE id=?").get(runId)).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("skill registry preflight failed"),
+    });
+    expect(getConn().prepare("SELECT status,label FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT 1").get(workItemId)).toMatchObject({
+      status: "failed",
+      label: PLAN_EMPLOYEE_EVENTS.today.failed,
+    });
   });
 
   it("keeps switch-tab as memory with creates_session=false", async () => {

@@ -65,8 +65,10 @@ fi
 mv "$ROOT/frontend/dist.new" "$ROOT/frontend/dist"
 echo "dist 已替换（上一版在 frontend/dist.prev；回滚：mv frontend/dist.prev frontend/dist && sudo systemctl restart lingong）"
 
-echo "重启 lingong.service"
-sudo -n systemctl restart lingong
+echo "重启 lingong、Outbox 与执行 Worker 服务"
+# 后端、发布器和执行 Worker 都以常驻 Node 进程加载仓库源码。只重启
+# lingong 会使 Worker 继续执行旧代码，而新技能清单可能已采用新契约。
+sudo -n systemctl restart lingong lingong-outbox lingong-execution-worker@1 lingong-execution-worker@2
 
 for _ in $(seq 1 60); do
   version_body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/version" 2>/dev/null || true)"

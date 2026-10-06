@@ -288,12 +288,15 @@ export async function executeTodayPlanRun(input: {
 }): Promise<{ ok: true; receipt: Json } | { ok: false; reason: string }> {
   const scope = input.scope ?? "today";
   const copy = PLAN_EMPLOYEE_EVENTS[scope];
-  const extra = planningRunInput(input.pack, {
-    work_item_id: input.workItemId,
-    task_run_id: input.runId,
-  }, scope);
   const trace = createRunTraceSink({ workItemId: input.workItemId, runId: input.runId });
   try {
+    // Building the harness validates the live skill registry. Treat failures in
+    // that preflight like any other planning failure, instead of leaving the
+    // parent run in "running" while the durable execution job is already failed.
+    const extra = planningRunInput(input.pack, {
+      work_item_id: input.workItemId,
+      task_run_id: input.runId,
+    }, scope);
     // Producer mode is persisted with the accepted job. UI copy must describe
     // the selected producer, never infer "AI planning" from a fast host view.
     const fastMode = (input.producer || "deterministic_organize") === "deterministic_organize";
