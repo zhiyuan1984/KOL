@@ -396,7 +396,7 @@ enterprise.post("/admin/connectors", async (c) => {
   if (!label || label.length > 120 || !purpose || purpose.length > 280) {
     throw new HttpFail(400, { code: "managed_connector_label_and_purpose_required" });
   }
-  // 接入类型由创建入口决定（DESIGN.md §连接器控制台）；无运行时配置的草稿也保持自己的分类。
+  // 接入类型由创建入口决定（DESIGN.md §7.2 连接器设置向导）；无运行时配置的草稿也保持自己的分类。
   const declaredProtocol = body.protocol === undefined ? null : String(body.protocol);
   if (declaredProtocol !== null && declaredProtocol !== "mcp" && declaredProtocol !== "http") {
     throw new HttpFail(400, { code: "managed_connector_protocol_invalid" });

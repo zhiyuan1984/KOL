@@ -2,6 +2,20 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-06：DESIGN.md v3 升级与风险分级命名 R1/R2/R3
+
+- **状态**：已接受；用户作为产品发起人确认升级视觉唯一来源。
+- **背景**：`DESIGN.md` v2 beta 是「约束型」spec，只规定不许做什么，对「应该长什么样」的构造性 token 不足；同时 v2 的「行动分级 L1/L2/L3」与 v3 新增的「视觉强调四级 L1/L2/L3/L4」同名，造成规约与实现两层语义冲突。
+- **决定**：
+  1. 视觉唯一来源 `DESIGN.md` 升级到 v3（LLM 可执行版），适用范围由「员工端全部工作台表面」扩展到「员工端工作台 + 中台 2B 数据面」。
+  2. 风险分级命名由 L1/L2/L3 改为 **R1/R2/R3**（R1 只读直接执行；R2 草稿必须标注；R3 外发、导入、删除、解密、正式写入执行前必须确认并留回执），避免与视觉强调四级混淆。
+  3. 新增视觉强调四级（L1 实底主 CTA / L2 默认描边按钮 / L3 文字按钮 / L4 链接按钮）、表格密度三档、KPI 统计区、抽屉三档、表单规范、高级筛选、批量操作、权限/脱敏、导出/审计、流式输出排版、引用溯源等构造性 token。
+  4. 不变量 6 由「同一信息只出现一次」修订为「同一信息不重复渲染，但允许汇总层/明细层分层呈现」。
+- **理由**：补全构造性 token 使 LLM 可直接按数值实现；R 命名消除与视觉强调四级的冲突；中台 2B 数据面（数据表、统计区、筛选、批量操作、审计）需要高密度视觉规范；分层呈现规则与汇总/明细业务场景一致。
+- **影响资产**：`docs/CONSTITUTION.md`（修订记录、重建记录、CONST-05 风险命名）；根 `AGENTS.md` §3/§4；`docs/AGENTS.md` §5；`docs/TECHNOLOGY.md` TECH-TEST-04（E2E 分层执行原则）；`docs/db-data-dictionary.md` 工具风险档位描述；`backend/src/routers/enterprise.ts` 失效锚点；`frontend/src/admin/connector/*.{tsx,css}` 失效锚点；`frontend/src/styles.css`（企业版 token 落地）；`docs/frontend-component-inventory.md`、`docs/product/task-collaboration-workbench-design.md`、`docs/superpowers/specs/2026-10-04-admin-agents-workspace-redesign.md` 等旧命名/旧不变量 6 转述点。
+- **生效版本**：宪法 v2.3（2026-10-06 修订）；法条先行，视觉 token 落地与页面迁移按实施登记表推进，不得把文档修订报告为全部界面已迁移完成。
+- **审宪记录**：需求「DESIGN.md 升 v3、风险分级改名 R1/R2/R3、适用范围扩展、补构造性 token」→ 主责 用户（产品方向/修宪）、UI/UX 专家（视觉细则）、平台产品经理（适用范围）、前端专家（token 落地）→ CONST-04（UI/UX 职责）、CONST-08（先审宪）、CONST-09（设计 token 属实施细则、数值只住 DESIGN.md 与 styles.css）、CONST-10（不得用文档冒充完成）→ 基本法 `DESIGN.md`（实施细则）→ **符合**：只改视觉细则命名与构造性 token，不改权限、审批、阶段、确认/回执等业务规则；R1/R2/R3 与 L1/L2/L3/L4 职责不重叠 → 下一步：落地 `frontend/src/styles.css` 企业版 token、迁移受影响页面、重跑类型检查与 E2E 分层脚本。
+
 ## ADR-2026-10-05：发现候选直接归属及任务页展示
 
 - **状态**：已接受，用户已确认详细设计、排他归属与成功后导航。

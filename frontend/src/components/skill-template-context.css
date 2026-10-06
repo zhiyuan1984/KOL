@@ -30,6 +30,13 @@
   padding: var(--ds-space-3);
 }
 
+/* 平铺排版：不套第二层卡片，无内部滚动（design.md v3 §17 / DiscoverySkillEvent） */
+.skill-template-context.flat {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
 .skill-template-context-head,
 .kb-skill-templates-head,
 .kb-skill-template-row,

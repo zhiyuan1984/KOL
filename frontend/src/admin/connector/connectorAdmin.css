@@ -1683,7 +1683,7 @@
 }
 
 /* ── 连接器设置向导（弹窗内四步）────────────────────────────────────────────
-   元素与数值唯一来源 docs/DESIGN.md §连接器控制台「设置向导」；改这里的数值前先改 DESIGN.md。 */
+   元素与数值唯一来源 docs/DESIGN.md §7.2 连接器设置向导；改这里的数值前先改 DESIGN.md。 */
 .connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-body {
   gap: var(--wizard-gap);
 }

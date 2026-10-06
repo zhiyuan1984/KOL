@@ -1388,7 +1388,7 @@ KOL 往来邮件主线、会话线与已读标记。
 | `acknowledged_at` | TEXT | 可空 | 首次确认时间 | ISO 8601；`acknowledge` 时 `COALESCE` 写入（只记首次）；同时把 `pending`/`queued` 推进为 `in_progress`。 |
 | `content` | TEXT | 非空，默认 `''` | 任务内容 | 补充正文，创建时取 `body.content` 截断 2000 字符；`PATCH` 可改写（同样 2000 字符上限）。 |
 | `start_date` | TEXT | 可空 | 开始日期 | `YYYY-MM-DD`（10 字符）；创建时默认当天，`PATCH` 可改或置 NULL。用于「今天任务」判定（`datePartOf(start_date) === today`）。 |
-| `risk_level` | TEXT | 非空，默认 `'none'` | 风险等级 | 枚举：`none`、`low`、`medium`、`high`（`TASK_RISK_LEVELS`）。创建与 `PATCH` 均校验；`high` 会让任务进「高风险」项（`isHighRiskWorkItem`），影响首页置顶。读取时会回退非法值为 `none`。这是任务展示风险，与工具 L1/L2/L3 分档不是同一套取值。 |
+| `risk_level` | TEXT | 非空，默认 `'none'` | 风险等级 | 枚举：`none`、`low`、`medium`、`high`（`TASK_RISK_LEVELS`）。创建与 `PATCH` 均校验；`high` 会让任务进「高风险」项（`isHighRiskWorkItem`），影响首页置顶。读取时会回退非法值为 `none`。这是任务展示风险，与工具 R1/R2/R3 风险分级不是同一套取值。 |
 
 ### task_runs — 任务运行（一次执行尝试）
 
@@ -1664,7 +1664,7 @@ KOL 往来邮件主线、会话线与已读标记。
 - **主键 / 唯一约束**：`PRIMARY KEY (skill_id, connector_id, tool_name)`；`CHECK (enabled IN (0,1))`、`CHECK (version >= 0)`；外键 `connector_id → connectors(id) ON DELETE CASCADE`。
 - **关键索引**：复合主键的隐式索引；无其它显式索引。
 - **写入方**：`backend/src/runtime/store.ts` 的 `setSkillTool()`（`versionedUpsert()` 乐观并发；写入前强制要求父级 Skill→Connector 绑定为启用状态，且 `runtime_tool_policies` 中已有该工具策略，否则 409）；HTTP 入口 `backend/src/routers/skill-runtime.ts` 的 `PUT /admin/runtime/skills/:skillId/tools/:connectorId/:toolName` 与 `mountDeclaredTools()`（按技能声明逐条挂载，已启用行保持不变）。
-- **备注**：`connectorInUseBySkill()` 用本表（`t.enabled=1`）联 `runtime_skill_connectors`（`c.enabled=1`）判断连接器是否被启用技能使用，是连接器禁用的前置闸门；工具风险分级（L1/L2/L3）不存本表，存 `runtime_tool_policies`。
+- **备注**：`connectorInUseBySkill()` 用本表（`t.enabled=1`）联 `runtime_skill_connectors`（`c.enabled=1`）判断连接器是否被启用技能使用，是连接器禁用的前置闸门；工具风险分级（R1/R2/R3）不存本表，存 `runtime_tool_policies`。
 
 | 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
 |---|---|---|---|---|
@@ -2744,7 +2744,7 @@ KOL 往来邮件主线、会话线与已读标记。
 | 枚举家族 | 定义位置 | 主要出现的列 |
 |---|---|---|
 | 合作阶段（15 个主节点 + `exception`） | [stage-transitions.json](../config/stage-transitions.json)、[stage-transitions.md](./business-rules/stage-transitions.md) | `collaborations.stage_code`、`stage_transitions.from_stage` / `to_stage`、`starry_stage_writes.stage_code`、`drafts.proposed_stage` / `official_stage`、`knowledge.stage_codes` |
-| 工具风险档位 L1 / L2 / L3 | [07-mcp-data-contract.md](./07-mcp-data-contract.md) | `work_items.risk_level`、`runtime_tool_policies.risk`（L1 只读直接执行；L2 草稿必须标注；L3 外发/导入/删除/解密执行前必须确认并留回执） |
+| 工具风险档位 R1 / R2 / R3 | [07-mcp-data-contract.md](./07-mcp-data-contract.md) | `work_items.risk_level`、`runtime_tool_policies.risk`（R1 只读直接执行；R2 草稿必须标注；R3 外发/导入/删除/解密执行前必须确认并留回执） |
 | 数据范围与访问档（公司 / 组织 / 品牌 / 区域 / 读写） | [org-permissions.md](./org-permissions.md) | `user_connector_grants.access`、`knowledge_grants.scope` / `scope_id`、`connector_tool_grants.scope_type` / `scope_value`、`runtime_connector_scope_policies.mode`、`runtime_connector_scope_bindings.node_id`、`runtime_tool_scope_bindings.node_id`、`runtime_tool_global_scopes` |
 | 应用层业务字典（`data_dictionary` 接口返回的枚举，如主平台、商务语言、邮箱品牌归属） | [domain-objects.md](./domain-objects.md) §2 | 不落在本库固定列上，由接口按请求返回；不要在页面或库表里另立一份取值 |
 | 审批状态与类型 | [BUSINESS.md](./BUSINESS.md)、[org-permissions.md](./org-permissions.md) | `approvals.status` / `kind`、`approval_idempotency`、`approval_role_bindings.role` |

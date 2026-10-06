@@ -10,11 +10,14 @@ export default function SkillTemplateContext({
   template,
   className = "",
   showOptionalInputs = true,
+  flat = false,
 }: {
   template: SkillTemplate;
   className?: string;
   /** Parameter editors render these in a collapsed form; avoid a duplicate list. */
   showOptionalInputs?: boolean;
+  /** Flat layout: no nested card border/background, no internal scroll. */
+  flat?: boolean;
 }) {
   const optionalInputs = template.inputs.filter((field) => !field.required);
   const outputTitle = String(template.output?.title || template.output?.type || "任务结果").trim();
@@ -22,7 +25,7 @@ export default function SkillTemplateContext({
 
   return (
     <section
-      className={`skill-template-context ${className}`.trim()}
+      className={`skill-template-context ${flat ? "flat " : ""}${className}`.trim()}
       data-skill-template-context={template.id}
       data-skill-template-version={template.version}
       aria-label={`${template.title}技能交互模板`}

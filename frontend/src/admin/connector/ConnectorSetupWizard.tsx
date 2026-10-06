@@ -64,7 +64,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const [createdId, setCreatedId] = useState<string | null>(null);
   const id = createdId ?? card?.id ?? null;
 
-  // Creation fields (docs/DESIGN.md §连接器控制台): name / transport / URL / secrets / icon.
+  // Creation fields (docs/DESIGN.md §7.2 连接器设置向导): name / transport / URL / secrets / icon.
   const [label, setLabel] = useState("");
   const [transport, setTransport] = useState<RuntimeConnectorTransport>("streamable-http");
   const [purpose, setPurpose] = useState("");

@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4177",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "test:e2e:changed": "node scripts/select-e2e.mjs",
     "test:e2e:runtime": "playwright test --config=playwright.runtime.config.ts",
     "test:e2e:release": "playwright test e2e/home-followed-legacy-projection.spec.ts e2e/home-followed-focus.spec.ts e2e/home-surface-failure.spec.ts e2e/home-followed-rail-layout.spec.ts e2e/review-workflow.spec.ts e2e/discovery-presentation.spec.ts --project=chromium && npm run test:e2e:runtime"
   },

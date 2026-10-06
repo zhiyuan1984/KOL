@@ -426,7 +426,7 @@ export function secretKeysProblem(rows: HeaderRow[]): string {
   return "";
 }
 
-/** HTTP API creation collects the name, icon, notes and secrets only (docs/DESIGN.md §连接器控制台). */
+/** HTTP API creation collects the name, icon, notes and secrets only (docs/DESIGN.md §7.2 连接器设置向导). */
 export function ApiConfigPanel({ onClose, onDone }: { onClose: () => void; onDone: (message: string) => void }) {
   const [label, setLabel] = useState("");
   const [purpose, setPurpose] = useState("");
