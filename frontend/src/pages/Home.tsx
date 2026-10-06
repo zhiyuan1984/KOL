@@ -1680,6 +1680,23 @@ export default function Home() {
         || resolution.entities?.handle
         || resolution.entities?.collaboration_id,
       );
+      // 打字路径：识别出 email_compose 且已有明确合作对象时，立即向 Host 取一次
+      // 上下文（合作阶段、授权发件箱、收件人、模板、最近往来），让发件箱与收件人
+      // 和点选路径一样自动带出，而不是留三个空字段让人手填。
+      if (resolution.task_type === "email_compose" && !mailCompose.active) {
+        const typedHandle = String(resolution.entities?.handle || "").trim();
+        const typedCollab = String(p.collaboration_id || resolution.entities?.collaboration_id || "").trim();
+        if (typedHandle || typedCollab) {
+          prepareMailContext(intakeText, {
+            collaborationId: typedCollab || undefined,
+            objectRefs: [
+              ...(typedCollab ? [{ kind: "collaboration", id: typedCollab }] : []),
+              ...(typedHandle ? [{ kind: "kol", id: typedHandle, label: `@${typedHandle}` }] : []),
+              ...(p.object_refs || []),
+            ],
+          });
+        }
+      }
       // First-touch / unlabeled compose stays on home. A bound @红人 already
       // has From/To in Host, so open the session instead of blocking on the
       // intake card.
