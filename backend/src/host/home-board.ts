@@ -761,7 +761,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
 
   for (const definition of definitions.values()) {
     if (picked.length >= MAX_RECOMMENDED_TASKS) break;
-    if (!definition.in_market || definition.id.startsWith("sop_")) continue;
+    if (!definition.in_market) continue;
     const id = `rec-catalog-${definition.id}`;
     if (seen.has(id)) continue;
     seen.add(id);

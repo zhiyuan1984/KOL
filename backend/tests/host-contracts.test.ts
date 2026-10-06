@@ -756,7 +756,7 @@ describe("host contracts", () => {
           `${rec.id}: no result without context`).toBe(false);
         continue;
       }
-      if (rec.id === "deal_memory" || String(rec.id).startsWith("sop_")) {
+      if (rec.id === "deal_memory") {
         expect((data.worker as Json)?.skill, String(rec.id)).toBe(rec.id);
         expect(messages.some((message) => message.kind === "task_result_card"), `${rec.id}: artifact`).toBe(true);
         continue;

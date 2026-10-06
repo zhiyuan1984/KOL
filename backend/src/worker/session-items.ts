@@ -4,8 +4,7 @@
  */
 import { scopedUser } from "../auth.js";
 import { executeKolClawTask, isKolClawTask, kolClawResultCard, type KolClawTask } from "../kolclaw/service.js";
-import { eightPhaseWalkItems, exceptionFlowItems, isExceptionStage, phaseSopSummary, profileForDomain, sopPackBySkill, sopPackByStage, stageSopView } from "../sops.js";
-import { label } from "../stages.js";
+import { eightPhaseWalkItems, isExceptionStage, phaseSopSummary, profileForDomain, sopPackByStage, stageSopView } from "../sops.js";
 import {
   composePayloadFromItem,
   emailMcpResultCard,
@@ -268,50 +267,6 @@ function sopTrackItems(stageCode: string) {
   return stageSopView(stageCode).track.map((phase) => (
     `${phase.current ? "▶ " : ""}${phase.label}：${phase.official_labels.join(" / ")}`
   ));
-}
-
-export function collectSopItems(skill: string): Json[] {
-  const pack = sopPackBySkill(skill);
-  if (!pack) {
-    return [{
-      type: "task_result",
-      skill,
-      title: "SOP 缺失",
-      summary: `未找到 SOP ${skill}。`,
-    }];
-  }
-  return [{
-    type: "task_result",
-    skill: pack.skill_id,
-    profile: profileForDomain(pack.domain),
-    title: pack.stage_label,
-    summary: `${pack.stage_label} · ${pack.version}`,
-    sections: [
-      { title: "八个阶段", items: sopTrackItems(pack.stage_code) },
-      { title: "输入", items: pack.inputs },
-      { title: "证据", items: pack.evidence },
-      { title: "完成条件", items: pack.completion },
-      {
-        title: "当前步骤",
-        body: pack.next_action,
-        items: [
-          `推进方式：${pack.advancement_mode}`,
-          `下一步正式阶段：${pack.next_stage ? label(pack.next_stage) : "终态"}`,
-          "本卡片只展示 SOP，不发送、不修改阶段",
-        ],
-      },
-      { title: "异常流程", items: exceptionFlowItems() },
-    ],
-    recommended_actions: sopRecommendedActions(pack.stage_code),
-    sop_id: pack.sop_id,
-    version: pack.version,
-    stage: pack.stage_code,
-    domain: pack.domain,
-    advancement_mode: pack.advancement_mode,
-    current_step: pack.next_action,
-    next_step: pack.next_stage,
-    phases: stageSopView(pack.stage_code).track,
-  }];
 }
 
 export function collectStageSopItems(stageCode: string, handle = ""): Json[] {

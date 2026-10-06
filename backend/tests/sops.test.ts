@@ -3,40 +3,36 @@ import { MAIN_STAGES } from "../src/stages.js";
 import {
   exceptionFlowItems,
   isExceptionStage,
-  isSopSkill,
   isStageSopSkill,
   SOP_EXCEPTIONS,
   SOP_PACKS,
   SOP_PHASES,
   SOP_VERSION,
-  sopPackBySkill,
   sopPackByStage,
   sopPhaseByStage,
   stageSopView,
 } from "../src/sops.js";
-import { matchSkillId, SKILL_CATALOG } from "../src/host/skills-catalog.js";
+import { matchSkillId } from "../src/host/skills-catalog.js";
 import { taskDefinitions } from "../src/tasks/registry.js";
-import { collectSopItems, collectStageSopItems } from "../src/worker/session-items.js";
+import { collectStageSopItems } from "../src/worker/session-items.js";
 
 describe("15 SOP packs", () => {
-  it("maps one versioned pack and skill per main stage", () => {
+  it("maps one versioned pack per main stage without per-stage skills", () => {
     expect(SOP_PACKS).toHaveLength(15);
     expect(MAIN_STAGES).toHaveLength(15);
     expect(SOP_PACKS.map((row) => row.sop_id)).toEqual(MAIN_STAGES.map((row) => row.code));
     for (const pack of SOP_PACKS) {
       expect(pack.version).toBe(SOP_VERSION);
-      expect(pack.skill_id).toBe(`sop_${pack.stage_code.toLowerCase()}`);
-      expect(isSopSkill(pack.skill_id)).toBe(true);
-      expect(sopPackBySkill(pack.skill_id)?.inputs.length).toBeGreaterThan(0);
-      expect(taskDefinitions().some((row) => row.id === pack.skill_id)).toBe(true);
-      expect(SKILL_CATALOG.some((row) => row.id === pack.skill_id)).toBe(true);
+      expect(pack).not.toHaveProperty("skill_id");
+      expect(pack.inputs.length).toBeGreaterThan(0);
+      expect(taskDefinitions().some((row) => row.id === `sop_${pack.stage_code.toLowerCase()}`)).toBe(false);
     }
   });
 
-  it("does not steal journey phrases that are not SOP aliases", () => {
+  it("retires per-stage SOP skill names and leaves them unbound", () => {
     expect(matchSkillId("初步接触")).toBeNull();
-    expect(matchSkillId("初步接触SOP")).toBe("sop_initial_contact");
-    expect(isSopSkill("email_compose")).toBe(false);
+    expect(matchSkillId("初步接触SOP")).toBeNull();
+    expect(taskDefinitions().some((row) => row.id.startsWith("sop_"))).toBe(false);
   });
 });
 
@@ -89,15 +85,6 @@ describe("eight SOP phases", () => {
     expect(matchSkillId("八个阶段")).toBe("stage_sop");
     expect(taskDefinitions().some((row) => row.id === "stage_sop")).toBe(true);
   });
-
-  it("keeps per-stage SOP cards and adds the eight-phase track", () => {
-    const items = collectSopItems("sop_initial_contact");
-    const titles = (items[0].sections as { title: string }[]).map((section) => section.title);
-    expect(titles[0]).toBe("八个阶段");
-    expect(titles).toContain("输入");
-    expect(titles).toContain("异常流程");
-    expect(items[0].phases).toHaveLength(8);
-  });
 });
 
 describe("eight-phase exception flow", () => {
@@ -132,9 +119,6 @@ describe("eight-phase exception flow", () => {
   });
 
   it("SOP 建议下一步 names this stage's letter", () => {
-    expect(collectSopItems("sop_quote_pending")[0].recommended_actions).toEqual([
-      "写报价邮件", "提出阶段变更", "阶段SOP",
-    ]);
     expect(collectStageSopItems("QUOTE_PENDING", "数码老张")[0].recommended_actions).toEqual([
       "写报价邮件 @数码老张", "记状态 @数码老张",
     ]);

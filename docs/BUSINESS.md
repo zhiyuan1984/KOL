@@ -187,7 +187,7 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 | creator_discovery、creator_library_sync | 已有发现批次与同步结果 | 新发现分析、异步采集；正式导入独立确认 |
 | creator_outreach、email_compose、reply_analysis | 已保存的草稿、回复分析摘要 | 建联方案、写信、改信、理解回复走 Agent；发送独立确认 |
 | creator_contact_decrypt、creator_owner_update、creator_status_update、confirm_stage、business_approval | 已授权结果、归属、备注、阶段和审批状态 | 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段 |
-| stage_sop；sop_initial_contact、sop_interested、sop_evaluating、sop_quote_pending、sop_negotiating、sop_plan_pending、sop_contracting、sop_sample_pending、sop_shipped、sop_testing、sop_content_planning、sop_content_review、sop_publish_pending、sop_published、sop_settling | 已发布 SOP 的索引、适用说明 | 结合当前 KOL 选择做法、分析缺口及生成行动方案走 Agent |
+| stage_sop | 已发布 SOP 的索引、适用说明 | 结合当前 KOL 选择做法、分析缺口及生成行动方案走 Agent |
 
 ## 旧 spec 条款映射
 
