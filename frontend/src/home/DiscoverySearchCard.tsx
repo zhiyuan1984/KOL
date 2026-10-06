@@ -72,7 +72,7 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema, 
       onFieldChange={update}
       footer={onSubmit ? <div className="discovery-card-foot">
         <p className="discovery-card-note" data-discovery-card-note>地区、粉丝与均播用于候选核对，不是远端采集数量限制。</p>
-        {mode === "edit" ? <button type="button" className="btn row-action sm" data-discovery-card-submit
+        {mode === "edit" ? <button type="button" className="btn" data-discovery-card-submit
           disabled={submitting} aria-busy={submitting || undefined} onClick={submit}>{submitting ? "提交中…" : submitLabel || "提交条件，核对参数"}</button> : null}
       </div> : undefined} />
   </div>;

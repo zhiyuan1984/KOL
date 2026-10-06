@@ -163,21 +163,21 @@
 
 /* 两个短阈值在同一行；更长、通常需要千位分隔的均播获得更多弹性宽度。 */
 .discovery-brief-form .ai-discovery-row.is-metric-pair {
-  display: flex;
-  flex-wrap: wrap;
-  /* 两组按内容排布：均播输入框右边不再留一段等分空白；放不下时整组换行。 */
+  display: grid;
+  /* 两组等分整行：输入框填满各自一栏，均播右边不再留出等分空白。 */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  gap: var(--space-2) var(--space-3);
+  column-gap: var(--space-3);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field {
   display: grid;
-  grid-template-columns: var(--ds-label-w) minmax(0, 88px);
+  grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field {
-  grid-template-columns: max-content minmax(0, 76px);
-  gap: var(--space-1);
+  grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
+  gap: var(--space-2);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-label {
   white-space: nowrap;
