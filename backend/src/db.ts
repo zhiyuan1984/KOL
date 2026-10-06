@@ -631,6 +631,32 @@ function initSchema(db: SqliteConn): void {
             updated_at TEXT NOT NULL,
             PRIMARY KEY (user_id, knowledge_id)
         );
+        -- 与 PG 迁移 027 对齐（sqlite 只读：技能发布闸门与运行时装配做存在性/哈希读取）。
+        CREATE TABLE IF NOT EXISTS skill_knowledge_configs (
+            skill_id TEXT PRIMARY KEY,
+            tenant TEXT NOT NULL DEFAULT '',
+            revision INTEGER NOT NULL DEFAULT 1,
+            selector TEXT NOT NULL DEFAULT '{}',
+            update_policy TEXT NOT NULL DEFAULT 'follow_published',
+            published_revision INTEGER,
+            published_selector TEXT,
+            published_policy TEXT,
+            generation_hash TEXT,
+            generation_job_id TEXT,
+            published_hash TEXT,
+            test_job_id TEXT,
+            test_signature TEXT,
+            updated_at TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS agent_knowledge_skill_releases (
+            agent_id TEXT NOT NULL,
+            skill_id TEXT NOT NULL,
+            skill_hash TEXT NOT NULL,
+            config_revision INTEGER NOT NULL,
+            confirmed_by TEXT NOT NULL,
+            confirmed_at TEXT NOT NULL,
+            PRIMARY KEY (agent_id, skill_id)
+        );
         CREATE TABLE IF NOT EXISTS knowledge_deprecations (
             user_id TEXT NOT NULL,
             knowledge_id TEXT NOT NULL,
@@ -2218,6 +2244,32 @@ function migrateSchema(db: SqliteConn): void {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (user_id, knowledge_id)
+        );
+        -- 与 PG 迁移 027 对齐（sqlite 只读：技能发布闸门与运行时装配做存在性/哈希读取）。
+        CREATE TABLE IF NOT EXISTS skill_knowledge_configs (
+            skill_id TEXT PRIMARY KEY,
+            tenant TEXT NOT NULL DEFAULT '',
+            revision INTEGER NOT NULL DEFAULT 1,
+            selector TEXT NOT NULL DEFAULT '{}',
+            update_policy TEXT NOT NULL DEFAULT 'follow_published',
+            published_revision INTEGER,
+            published_selector TEXT,
+            published_policy TEXT,
+            generation_hash TEXT,
+            generation_job_id TEXT,
+            published_hash TEXT,
+            test_job_id TEXT,
+            test_signature TEXT,
+            updated_at TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS agent_knowledge_skill_releases (
+            agent_id TEXT NOT NULL,
+            skill_id TEXT NOT NULL,
+            skill_hash TEXT NOT NULL,
+            config_revision INTEGER NOT NULL,
+            confirmed_by TEXT NOT NULL,
+            confirmed_at TEXT NOT NULL,
+            PRIMARY KEY (agent_id, skill_id)
         );
         CREATE TABLE IF NOT EXISTS knowledge_deprecations (
             user_id TEXT NOT NULL,

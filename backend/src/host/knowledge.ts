@@ -6,14 +6,14 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { authDisabled, requireAdmin, scopedUser } from "../auth.js";
+import { authDisabled, isAdmin, requireAdmin, scopedUser } from "../auth.js";
 import { BRAND_MAILBOXES, DEMO_USER, dataDir } from "../config.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { HttpFail } from "./errors.js";
 import { pickComposeTemplate } from "./compose-loop.js";
-import { currentUser } from "./persona.js";
+import { currentUser, personaAccess } from "./persona.js";
 import { departmentHeadAccessForUser } from "../contract-scope.js";
 import { directory, memberScopeIds } from "./grants.js";
 import { knowledgeKindSpec, validateStructuredFields } from "../knowledge-kinds.js";
@@ -786,8 +786,31 @@ export function undeprecate(knowledgeId: string, userId = knowledgeActorId()): J
   return publicKnowledge(knowledgeRow(knowledgeId), userId);
 }
 
+/** 员工侧「可见的已发布条目」：与 listPublishedForOps 同口径（发布 + 有效已发布版本 + 授权/品牌）。 */
+function employeeVisible(row: Row): boolean {
+  if (String(row.status) !== "published") return false;
+  try {
+    publishedSnapshot(row);
+  } catch (error) {
+    if (error instanceof HttpFail) return false;
+    throw error;
+  }
+  return canSeeKnowledge(row) && brandMatched(row);
+}
+
+/**
+ * 版本历史是治理视图：管理侧身份（真实会话 roles 含 admin；演示模式按 persona，与前端 viewMode 同口径）
+ * 可读任意状态；员工只能读「已发布且对自己可见」的条目，其余按详情路由的 404 口径拒绝。
+ */
+function canReadVersionHistory(row: Row): boolean {
+  if (isAdmin()) return true;
+  if (authDisabled() && personaAccess().roles.includes("admin")) return true;
+  return employeeVisible(row);
+}
+
 export function listVersions(knowledgeId: string): Json[] {
-  knowledgeRow(knowledgeId);
+  const row = knowledgeRow(knowledgeId);
+  if (!canReadVersionHistory(row)) throw new HttpFail(404, "知识不存在或不可访问");
   return getConn()
     .prepare("SELECT * FROM knowledge_versions WHERE knowledge_id=? ORDER BY version")
     .all(knowledgeId) as Json[];

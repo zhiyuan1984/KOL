@@ -53,7 +53,23 @@ export function resetDemoRuntimeState(): void {
   const sqlite = databaseEngine() === "sqlite";
   conn.prepare("DELETE FROM starry_stage_writes").run();
   if (sqlite) {
-    conn.prepare("DELETE FROM task_events").run();
+    // 任务生命周期事件是事实账本：重置演示数据时临时移除不可变触发器再重建（仿 business_events）。
+    conn.exec("DROP TRIGGER IF EXISTS task_events_lifecycle_no_update");
+    conn.exec("DROP TRIGGER IF EXISTS task_events_lifecycle_no_delete");
+    try {
+      conn.prepare("DELETE FROM task_events").run();
+    } finally {
+      conn.exec(`
+        CREATE TRIGGER IF NOT EXISTS task_events_lifecycle_no_update
+        BEFORE UPDATE ON task_events
+        WHEN OLD.event_class='lifecycle'
+        BEGIN SELECT RAISE(ABORT, 'lifecycle task event is immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS task_events_lifecycle_no_delete
+        BEFORE DELETE ON task_events
+        WHEN OLD.event_class='lifecycle'
+        BEGIN SELECT RAISE(ABORT, 'lifecycle task event is immutable'); END;
+      `);
+    }
   } else {
     // PostgreSQL 的不可变触发器先临时禁用；sqlite 的 DROP TRIGGER（不带表名）PG 不接受。
     conn.exec("ALTER TABLE task_events DISABLE TRIGGER USER");
@@ -165,6 +181,12 @@ function stripLegacyDemoData(): void {
     conn.prepare("DELETE FROM approvals WHERE id=?").run(row.id);
   }
   for (const id of DEMO_WORK_ITEM_IDS) {
+    // 生命周期事件不可变（task_events.work_item_id → tickets 级联删除同样被拒）：
+    // 带证据的演示任务保留现状，显式重置走 /demo/reset。
+    const frozen = conn.prepare(
+      "SELECT 1 FROM task_events WHERE work_item_id=? AND event_class='lifecycle' LIMIT 1",
+    ).get(id);
+    if (frozen) continue;
     conn.prepare("DELETE FROM task_events WHERE work_item_id=?").run(id);
     conn.prepare("DELETE FROM tickets WHERE id=?").run(id);
   }

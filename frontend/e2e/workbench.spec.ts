@@ -4516,7 +4516,7 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   await expect(followup).not.toContainText("unboxing angle");
   await expect(kb.getByRole("button", { name: /停用/ })).toHaveCount(0);
 
-  // 行选中 → 右栏常显详情：摘要、全文与动作（用于当前任务 / 收藏 / 反馈 · 隐藏）。
+  // 行选中 → 右栏常显详情：摘要、全文与动作（带入工作草稿 / 收藏 / 反馈 · 隐藏）。
   await followup.click();
   const rail = page.locator('[data-kb-preview="kb_mail_followup"]');
   await expect(rail).toBeVisible();
@@ -4524,7 +4524,7 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   await expect(rail.locator("[data-kb-preview-body]")).toContainText("Just a quick follow-up");
   await expect(rail.locator("[data-kb-preview-body]")).toContainText("LiTime collab kit");
   await expect(rail.locator("[data-kb-preview-body]")).toContainText("Happy to share the spec sheet");
-  await expect(rail.getByRole("button", { name: "用于当前任务" })).toBeVisible();
+  await expect(rail.getByRole("button", { name: "带入工作草稿" })).toBeVisible();
   await expect(rail.getByRole("button", { name: "反馈 / 隐藏" })).toBeVisible();
 
   await rail.getByRole("button", { name: "收藏" }).click();
