@@ -449,7 +449,7 @@ misc.post("/admin/skills/:id/stage", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as { stage?: string; reason?: string };
   const release=()=>transitionSkillStage(id,String(body.stage || ''),body.reason);
-  const result = (body.stage==='published'?await publishKnowledgeConfig(scopedUser()!.id,id,release):release()) as {stage:string};
+  const result = (body.stage==='published'?await publishKnowledgeConfig(currentUser().id,id,release):release()) as {stage:string};
   if (result.stage === "published") clearSkillLookupCache();
   return c.json({ id, ...result });
 });
