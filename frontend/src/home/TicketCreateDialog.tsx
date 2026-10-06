@@ -41,10 +41,13 @@ function matchingAssignees(bootstrap: TicketFormBootstrap | null, unitId: string
 
 export default function TicketCreateDialog({
   open,
+  taskId,
   onClose,
   onCreated,
 }: {
   open: boolean;
+  /** 从任务明细创建时预填关联任务；独立工单中心不传。 */
+  taskId?: string;
   onClose: () => void;
   onCreated: (ticketId: string) => void;
 }) {
@@ -154,6 +157,7 @@ export default function TicketCreateDialog({
       const result = await api.createFormalTicket({
         title: title.trim(),
         goal: goal.trim(),
+        task_id: taskId || undefined,
         business_category: category,
         priority,
         stage_group: stageGroup.trim() || undefined,

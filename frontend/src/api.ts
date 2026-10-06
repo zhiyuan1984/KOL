@@ -513,6 +513,8 @@ export type WorkbenchTaskPage = {
 /** Target ticket read-model. `Task` remains the compatibility projection during migration. */
 export type Ticket = Task & {
   ticket_id: string;
+  /** Parent task when a formal ticket is created from the Today/Todo detail rail. */
+  task_id?: string | null;
   data_version?: number;
   missing_fields: string[];
   allowed_actions: string[];
@@ -838,6 +840,7 @@ export type TicketFormBootstrap = {
 export type CreateFormalTicketInput = {
   title: string;
   goal: string;
+  task_id?: string;
   business_category: "kol" | "marketing" | "operations" | "data" | "general";
   stage_group?: string;
   stage_code?: string;
@@ -882,6 +885,13 @@ export type EditFormalTicketResult = {
   event_id: string;
   replayed: boolean;
   ticket: Ticket;
+  request_id: string;
+  as_of: string;
+};
+
+export type DeleteFormalTicketResult = {
+  ticket_id: string;
+  deleted: true;
   request_id: string;
   as_of: string;
 };
@@ -1963,7 +1973,7 @@ export const api = {
   },
   tickets: (opts: {
     cursor?: string; limit?: number; view?: "authorized" | "created" | "assigned" | "watching" | "completed";
-    status?: string; priority?: string; category?: string; stage?: string; org_unit?: string; assignee?: string; due?: "all" | "overdue" | "none"; q?: string; from?: string; to?: string;
+    task_id?: string; status?: string; priority?: string; category?: string; stage?: string; org_unit?: string; assignee?: string; due?: "all" | "overdue" | "none"; q?: string; from?: string; to?: string;
   } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
@@ -2017,6 +2027,11 @@ export const api = {
   editFormalTicket: (id: string, body: EditFormalTicketInput) => request<EditFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "Idempotency-Key": body.idempotency_key },
+    body: JSON.stringify(body),
+  }),
+  deleteFormalTicket: (id: string, body: { expected_version: number }) => request<DeleteFormalTicketResult>(`/api/tickets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { "Idempotency-Key": `ticket-delete-${crypto.randomUUID()}` },
     body: JSON.stringify(body),
   }),
   ticket: (id: string) => request<Ticket & { latest_run: TicketRun | null; summary: TicketSummary; request_id: string; as_of: string }>(`/api/tickets/${encodeURIComponent(id)}`),

@@ -20,6 +20,7 @@ type BasisRefInput = {
 export type FormalTicketCreateInput = {
   title?: unknown;
   goal?: unknown;
+  task_id?: unknown;
   business_category?: unknown;
   stage_group?: unknown;
   stage_code?: unknown;
@@ -98,6 +99,7 @@ function parseInput(input: FormalTicketCreateInput) {
   if (!BUSINESS_CATEGORIES.has(businessCategory)) throw new HttpFail(422, { code: "business_category_invalid" });
   const stageGroup = text(input.stage_group, "stage_group", false, 120);
   const stageCode = text(input.stage_code, "stage_code", false, 120);
+  const taskId = text(input.task_id, "task_id", false, 200);
   const priority = text(input.priority, "priority", false, 80) || "normal";
   if (!PRIORITIES.has(priority)) throw new HttpFail(422, { code: "priority_invalid" });
   const dueAt = dateTime(input.due_at);
@@ -110,7 +112,7 @@ function parseInput(input: FormalTicketCreateInput) {
   const idempotencyKey = text(input.idempotency_key, "idempotency_key", true, 200)!;
   if (idempotencyKey.length < 8) throw new HttpFail(422, { code: "idempotency_key_invalid" });
   return {
-    title, goal, businessCategory, stageGroup, stageCode, priority, dueAt, noDueReason, assigneePersonRef,
+    title, goal, taskId, businessCategory, stageGroup, stageCode, priority, dueAt, noDueReason, assigneePersonRef,
     assigneeUnitId, crossGroupReason, timezone, idempotencyKey, acceptanceCriteria: criteria(input.acceptance_criteria), basisRefs: basisRefs(input.basis_refs),
   };
 }
@@ -151,6 +153,11 @@ export async function createFormalTicketPostgres(actorUserId: string, raw: Forma
       return { ...replay.rows[0].response_json, replayed: true };
     }
 
+    // `task_id` is a cross-projection workbench identity. Compatibility-mode
+    // task rows may still live outside the formal PostgreSQL ticket aggregate,
+    // so do not require a same-table parent row here; the relation is scoped by
+    // the creator and only ever read back through that creator's authorization.
+
     // The registry projection was seeded before the SERIALIZABLE command
     // transaction. Do not run a second writer transaction from inside it.
     const creator = await postgresCreatorOrgContext(actorUserId, { ensureSeed: false });
@@ -185,11 +192,11 @@ export async function createFormalTicketPostgres(actorUserId: string, raw: Forma
     };
     await client.query(
       `INSERT INTO tickets
-       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,due_at,input,entities,data_version,created_at,updated_at,
+       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,task_id,due_at,input,entities,data_version,created_at,updated_at,
         kind,channel,requester_type,requester_id,goal,next_action,business_category,stage_group,stage_code,ticket_timezone,no_due_reason,acceptance_criteria)
-       VALUES ($1,$2,'manual_ticket',$3,'manual','pending',$4,'ticket_form','ticket-workbench',$5,$6,$7,1,$8,$8,
-         'general','human','human',$2,$9,NULL,$10,$11,$12,$13,$14,$15)`,
-      [ticketId, actorUserId, input.title, input.priority, input.dueAt, JSON.stringify(ticketInput), JSON.stringify({}), now,
+       VALUES ($1,$2,'manual_ticket',$3,'manual','pending',$4,'ticket_form','ticket-workbench',$5,$6,$7,$8,1,$9,$9,
+         'general','human','human',$2,$10,NULL,$11,$12,$13,$14,$15,$16)`,
+      [ticketId, actorUserId, input.title, input.priority, input.taskId, input.dueAt, JSON.stringify(ticketInput), JSON.stringify({}), now,
         input.goal, input.businessCategory, input.stageGroup, input.stageCode, input.timezone, input.noDueReason, JSON.stringify(input.acceptanceCriteria)],
     );
     await client.query(
@@ -238,6 +245,7 @@ export async function createFormalTicketPostgres(actorUserId: string, raw: Forma
         nid("tae"), ticketId, actorUserId,
         JSON.stringify({
           idempotency_key: input.idempotencyKey,
+          task_id: input.taskId,
           assignee_person_ref: input.assigneePersonRef,
           assignee_unit_id: input.assigneeUnitId,
           organization_version: creator.org_version,

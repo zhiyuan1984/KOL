@@ -165,6 +165,7 @@ export default function TaskBoard({
             <tr>
               <th className="task-board-cell-index">#</th>
               <th>任务标题</th>
+              <th className="task-board-cell-status">状态</th>
               <th>操作</th>
             </tr>
           </thead>
