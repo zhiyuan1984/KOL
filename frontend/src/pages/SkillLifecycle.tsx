@@ -14,6 +14,7 @@ import {
 } from "../adminConfirm";
 import { errorMessage, implementationLabel, type SkillCoverage, type SkillCoverageRow } from "../runtimeConnectorUi";
 import "./skill-governance.css";
+import { SkillPresentationEditor } from "./SkillPresentationEditor";
 
 export type SkillRow = {
   id: string;
@@ -21,6 +22,11 @@ export type SkillRow = {
   title: string;
   description: string;
   category?: string;
+  funnel?: string;
+  aliases?: string[];
+  icon?: string | null;
+  badge?: string | null;
+  starter?: string | null;
   profile?: string;
   source?: string;
   required_inputs?: string[];
@@ -41,9 +47,17 @@ export type SkillRow = {
     business_stage: string | null;
     tags: string[];
     current_version: number | null;
+    release?: { kind: "versioned"; version: number } | { kind: "bundled_baseline" } | { kind: "none" };
+    dependencies?: { unregistered: string[]; unmounted: string[] };
     test_summary: { total: number; pass_rate: number | null; failing: number; last_run_at: string | null };
   };
 };
+
+function releaseLabel(lifecycle: SkillRow["lifecycle"], form: "short" | "long"): string {
+  if (lifecycle?.current_version) return `v${lifecycle.current_version}`;
+  if (lifecycle?.release?.kind === "bundled_baseline") return form === "short" ? "内置基线" : "内置基线（随平台发布，尚无版本快照）";
+  return form === "short" ? "未发布" : "尚无已发布版本";
+}
 
 const STAGES = [
   { id: "draft", label: "新建草稿", hint: "填写基础信息" },
@@ -254,7 +268,7 @@ export default function SkillLifecycle() {
               </span>
               <span className="skill-governance-row-description">{s.description || "暂无说明"}</span>
               <span className="skill-governance-row-status"><StageDot stage={s.lifecycle?.stage || "draft"} />{s.lifecycle?.stage_label || "未配置阶段"}</span>
-              <span className="skill-governance-row-version">{s.lifecycle?.current_version ? `v${s.lifecycle.current_version}` : "未发布"}</span>
+              <span className="skill-governance-row-version">{releaseLabel(s.lifecycle, "short")}</span>
               <span className="skill-governance-row-open" aria-hidden>›</span>
             </button>
           );
@@ -555,7 +569,7 @@ export function DetailPanel(props: {
         <div className="skill-detail-heading">
           <div className="skill-detail-kicker"><span className={`skill-origin-tag${official ? " is-official" : " is-third-party"}`}>{official ? "官方技能" : "第三方技能"}</span><span className="skill-stage-label"><StageDot stage={lc?.stage || "draft"} />{lc?.stage_label || "未配置阶段"}</span></div>
           <h2 id="skill-detail-title">{skill.label}</h2>
-          <p><code>{skill.id}</code>{lc?.current_version ? ` · v${lc.current_version}` : " · 尚无已发布版本"}</p>
+          <p><code>{skill.id}</code>{` · ${releaseLabel(lc, "long")}`}</p>
         </div>
         <div className="skill-detail-actions">
           <details className="skill-action-menu">
@@ -569,6 +583,11 @@ export function DetailPanel(props: {
         </div>
       </header>
       <div className="skill-detail-description">{skill.description || "暂无技能说明。"}</div>
+      {(lc?.dependencies?.unregistered.length || lc?.dependencies?.unmounted.length) ? <p className="skill-governance-notice" role="note" data-skill-dependency-issues>
+        {lc.dependencies.unregistered.length ? `所需工具未登记：${lc.dependencies.unregistered.join("、")}。` : ""}
+        {lc.dependencies.unmounted.length ? `所需工具未挂载：${lc.dependencies.unmounted.join("、")}。` : ""}
+        可以先保存草稿；进入测试或发布前需要登记并挂载。
+      </p> : null}
       <nav className="skill-detail-tabs" aria-label="技能详情分类">
         {([
           ["overview", "概览与配置"],
@@ -589,12 +608,13 @@ export function DetailPanel(props: {
               <div className="skill-contract-actions"><button type="button" className="skill-governance-primary" disabled={contentBusy || !bodyText.trim() || !summaryText.trim()} onClick={() => void saveSkillContent()}>{contentBusy ? "保存中…" : "保存草稿"}</button><span role="status">{contentNotice || `来源：${official ? "官方" : "第三方"} · 未发布草稿不会改变员工当前使用的版本。`}</span></div>
             </>}
           </section>
+          <SkillPresentationEditor skill={skill} onSaved={onChanged} />
           <section className="skill-detail-card">
             <h3>核心信息</h3>
             <div className="skill-detail-fields">
               <Field label="技能名称" value={skill.label} />
               <Field label="Key" value={skill.id} />
-              <Field label="当前版本" value={lc?.current_version ? `v${lc.current_version}` : "—"} />
+              <Field label="当前版本" value={lc?.current_version || lc?.release?.kind === "bundled_baseline" ? releaseLabel(lc, "short") : "—"} />
               <Field label="技能类型" value={skill.profile || "—"} />
               <Field label="业务阶段" value={lc?.business_stage || "—"} />
               <Field label="负责人" value={lc?.owner || "未设置"} />

@@ -14,6 +14,10 @@ aliases: ["邮件会话","查询邮件会话","查收件会话","查收件箱","
 in_market: true
 employee_quick: 已同步邮件列表、往来摘要与已授权邮箱索引
 employee_agent: 新回复理解走 AI 助理；读取敏感正文仍执行权限规则
+icon: mail-list
+badge: "达人库"
+starter: "邮件会话 [关键词或红人]"
+result_title: "邮件会话列表"
 ---
 # 邮件会话列表
 

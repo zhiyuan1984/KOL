@@ -3,6 +3,7 @@ import { taskDefinitions } from "../tasks/registry.js";
 import type { Row } from "../types.js";
 import { ensureRuntimeSchema, listSkillConnectorBindings, listSkillToolBindings } from "./store.js";
 import { DOCUMENT_TOOL, documentDependencies } from "./document-knowledge.js";
+import { runtimeRequiresGate } from "../gateway/runtime-policy.js";
 
 /** 技能声明的 MCP 工具：`<connector>.<tool>`，无前缀的条目照原样保留连接器为空。 */
 export type DeclaredTool = { connector_id: string; tool_name: string; declared_as: string };
@@ -30,6 +31,68 @@ export function parseDeclaredMcp(entries: readonly string[]): DeclaredTool[] {
 }
 
 export type ToolMountState = "mounted" | "available" | "blocked_by_policy" | "unregistered" | "unknown_connector";
+
+/**
+ * 「所需工具」只对照已登记的工具目录：连接器存在，且该工具经 tools/list 发现并由管理员定了风险档
+ * （runtime_tool_policies 有行）。文档问答由平台内置，视为已登记。没有代码白名单。
+ */
+export function unregisteredDeclaredTools(mcp: readonly string[]): DeclaredTool[] {
+  ensureRuntimeSchema();
+  const connectors = new Set(rows("SELECT id FROM connectors").map((row) => String(row.id)));
+  return parseDeclaredMcp(mcp).filter((tool) => {
+    if (tool.declared_as === DOCUMENT_TOOL) return false;
+    if (!tool.connector_id || !connectors.has(tool.connector_id)) return true;
+    return !rows("SELECT 1 FROM runtime_tool_policies WHERE connector_id=? AND tool_name=?", tool.connector_id, tool.tool_name).length;
+  });
+}
+
+/** 已声明但没有挂上（技能→连接器、技能→工具两层都要启用）的工具；文档问答走知识绑定，不在此列。 */
+export function unmountedDeclaredTools(skillId: string, mcp: readonly string[]): DeclaredTool[] {
+  ensureRuntimeSchema();
+  const connectors = new Set(listSkillConnectorBindings().filter((row) => row.skill_id === skillId && Number(row.enabled) === 1)
+    .map((row) => String(row.connector_id)));
+  const tools = new Set(listSkillToolBindings().filter((row) => row.skill_id === skillId && Number(row.enabled) === 1)
+    .map((row) => keyOf(String(row.connector_id), String(row.tool_name))));
+  return parseDeclaredMcp(mcp).filter((tool) => tool.declared_as !== DOCUMENT_TOOL
+    && !(connectors.has(tool.connector_id) && tools.has(keyOf(tool.connector_id, tool.tool_name))));
+}
+
+/** 可供技能声明的工具：已登记目录 + 平台内置文档问答。 */
+export function registeredToolCatalog(): string[] {
+  ensureRuntimeSchema();
+  const listed = rows("SELECT connector_id,tool_name FROM runtime_tool_policies ORDER BY connector_id,tool_name")
+    .map((row) => `${row.connector_id}.${row.tool_name}`);
+  return [...new Set([DOCUMENT_TOOL, ...listed])];
+}
+
+const RISK_ORDER = { L1: 1, L2: 2, L3: 3 } as const;
+
+/**
+ * 读取时派生、不存储：执行面＝已挂载的连接器（尚未挂载时退回声明的连接器）；
+ * 风险档＝所需工具在目录里的最高档，受控动作下限（发送/改阶段/解密/导入/采集）一律 L3。
+ * 未登记的工具没有档位，沿用按名称识别受控动作的兜底判断。
+ */
+export function skillToolProfile(skillId: string, mcp: readonly string[]): {
+  connectors: string[];
+  connectors_mounted: boolean;
+  risk: "L1" | "L2" | "L3" | null;
+} {
+  ensureRuntimeSchema();
+  const declared = parseDeclaredMcp(mcp).filter((tool) => tool.declared_as !== DOCUMENT_TOOL);
+  const mounted = [...new Set(listSkillConnectorBindings()
+    .filter((row) => row.skill_id === skillId && Number(row.enabled) === 1).map((row) => String(row.connector_id)))];
+  const declaredConnectors = [...new Set(declared.map((tool) => tool.connector_id).filter(Boolean))];
+  let risk: "L1" | "L2" | "L3" | null = mcp.includes(DOCUMENT_TOOL) ? "L1" : null;
+  for (const tool of declared) {
+    const policy = rows("SELECT risk FROM runtime_tool_policies WHERE connector_id=? AND tool_name=?", tool.connector_id, tool.tool_name)[0];
+    const level: "L1" | "L2" | "L3" = runtimeRequiresGate(tool.tool_name)
+      ? "L3"
+      : policy ? (String(policy.risk) as "L1" | "L2" | "L3")
+        : /send|decrypt|delete|upload|import|changeLifecycleStage/i.test(tool.tool_name) ? "L3" : "L1";
+    if (!risk || RISK_ORDER[level] > RISK_ORDER[risk]) risk = level;
+  }
+  return { connectors: mounted.length ? mounted : declaredConnectors, connectors_mounted: mounted.length > 0, risk };
+}
 
 export type CoverageTool = {
   connector_id: string;

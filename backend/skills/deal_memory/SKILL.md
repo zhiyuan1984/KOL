@@ -14,6 +14,9 @@ aliases: ["交易记忆","谈判纪要"]
 in_market: true
 employee_quick: 明确内容的记忆记录、修改、查询
 employee_agent: 修改远端正式档案备注是业务写入，不能与本地记忆混为一谈
+icon: document
+badge: "达人库"
+starter: "Deal Memory [红人或合作]"
 ---
 # Deal Memory deal_memory · Negotiation
 

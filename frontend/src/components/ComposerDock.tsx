@@ -706,7 +706,7 @@ export default function ComposerDock({
     // Keep the skill visible as an actionable, editable starter just like the
     // skill catalog does; preserve any text the user has already entered.
     const template = selectSkillTemplate(s);
-    const nextText = rest.trim() || starterPrompt({ id: s.id, title: s.title, ui_template: template });
+    const nextText = rest.trim() || starterPrompt({ id: s.id, title: s.title, ui_template: template, starter: s.starter });
     if (nextText !== value) onChange(nextText);
     setSkillChips((current) => {
       if (current.some((chip) => chip.id === s.id)) return current;

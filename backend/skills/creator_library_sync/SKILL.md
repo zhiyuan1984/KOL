@@ -14,6 +14,9 @@ aliases: ["添加达人","同步达人"]
 in_market: true
 employee_quick: 已有发现批次与同步结果
 employee_agent: 新发现分析、异步采集；正式导入独立确认
+badge: "达人库"
+starter: "达人同步入库 [达人昵称或主页]"
+result_title: "达人同步结果"
 ---
 # 达人同步入库
 

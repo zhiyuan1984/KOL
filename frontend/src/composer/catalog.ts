@@ -25,6 +25,8 @@ export type CatalogSkill = {
   label?: string;
   /** Authorized SKILL.md projection used for this employee-facing interaction. */
   ui_template?: SkillTemplate | null;
+  /** SKILL.md `starter`：填空模板。 */
+  starter?: string | null;
   aliases?: string[];
   in_market?: boolean;
   granted?: boolean;

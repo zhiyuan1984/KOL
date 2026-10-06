@@ -14,44 +14,10 @@ export const FUNNEL_STAGES: { id: FunnelId; label: string; hint: string }[] = [
   { id: "exception", label: "异常旁路", hint: "风险扫描" },
 ];
 
-const FUNNEL_BY_ID: Record<string, FunnelId> = {
-  creator_profile: "reach",
-  creator_discovery: "reach",
-  discovery_brief: "reach",
-  discovery_plan: "reach",
-  creator_scoring: "reach",
-  kol_analyze: "reach",
-  creator_outreach: "reach",
-  creator_library_query: "reach",
-  creator_library_all: "reach",
-  creator_library_sync: "reach",
-  creator_status_update: "reach",
-  creator_owner_update: "reach",
-  creator_contact_decrypt: "reach",
-  creator_filter_options: "reach",
-  creator_lifecycle_kanban: "intent",
-  creator_daily_tasks: "reach",
-  today_plan: "reach",
-  today_analyze: "reach",
-  todo_plan: "reach",
-  confirm_stage: "intent",
-  stage_sop: "intent",
-  reply_analysis: "intent",
-  business_approval: "biz",
-  deal_memory: "biz",
-  email_compose: "biz",
-  email_conversation_read: "biz",
-  email_conversation_list: "biz",
-  email_mailbox_list: "biz",
-  email_app_conversation_list: "biz",
-  creator_risk_conversations: "exception",
-  creator_budget_report: "settle",
-  risk_scan: "exception",
-};
 
 export function skillFunnelId(id: string, category?: string, funnel?: string): FunnelId {
+  // 漏斗由技能 md 声明；只有没声明时才按分类推断（新建技能表单的默认值）。
   if (funnel && FUNNEL_STAGES.some((stage) => stage.id === funnel)) return funnel as FunnelId;
-  if (FUNNEL_BY_ID[id]) return FUNNEL_BY_ID[id];
   const c = category || "";
   if (/结算|归因|增长|预算/.test(c)) return "settle";
   if (/内容|大纲/.test(c)) return "content";

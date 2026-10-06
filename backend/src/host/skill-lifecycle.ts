@@ -4,18 +4,28 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { dataDir, publishedSkillsDir } from "../config.js";
+import { dataDir, publishedSkillsDir, codexMode } from "../config.js";
 import { audit, getConn, nowIso } from "../db.js";
 import { nid } from "../ids.js";
+import { unmountedDeclaredTools, unregisteredDeclaredTools } from "../runtime/skill-coverage.js";
+import { taskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
 import { HttpFail } from "./errors.js";
 import { currentUser } from "./persona.js";
-import { activateSkillForHarness, applySkillDraft, deletePublishedSkill } from "./skill-publish.js";
+import { activateSkillForHarness, applySkillDraft, deletePublishedSkill, getSkillDraft } from "./skill-publish.js";
 import { catalogSkill, isBundledSkill, overlayRow, packagedSkillDir } from "./skill-sop.js";
 
 export const SKILL_STAGES = ["draft", "editing", "testing", "published", "disabled"] as const;
 export type SkillStage = (typeof SKILL_STAGES)[number];
 export type SkillOrigin = "official" | "third_party";
+/**
+ * What employees run today. A bundled skill that is live but has never been
+ * snapshotted runs its packaged SKILL.md; that is a real release, not "unpublished".
+ */
+export type SkillRelease =
+  | { kind: "versioned"; version: number }
+  | { kind: "bundled_baseline" }
+  | { kind: "none" };
 
 export const SKILL_STAGE_LABELS: Record<SkillStage, string> = {
   draft: "新建草稿",
@@ -60,6 +70,45 @@ function currentStage(id: string): SkillStage {
   return SKILL_STAGES.includes(stage) ? stage : "draft";
 }
 
+/** 待发布的「所需工具」：有草稿改动时以草稿为准（发布会应用草稿），否则取现行技能声明。 */
+function pendingDeclaredTools(id: string): string[] {
+  const drafted = getSkillDraft(id).patch.mcp;
+  if (Array.isArray(drafted)) return drafted.map(String);
+  if (typeof drafted === "string") return drafted.split(/[,，]/).map((tool) => tool.trim()).filter(Boolean);
+  return [...(taskDefinition(id)?.mcp || [])];
+}
+
+export function skillDependencyIssues(id: string): { unregistered: string[]; unmounted: string[] } {
+  const tools = pendingDeclaredTools(id);
+  return {
+    unregistered: unregisteredDeclaredTools(tools).map((tool) => tool.declared_as),
+    unmounted: unmountedDeclaredTools(id, tools).map((tool) => tool.declared_as),
+  };
+}
+
+/**
+ * 进入测试或发布前：所需工具必须已登记并已挂载，宁可拦住不放行。
+ * stub 模式不走挂载链（执行由本地桩完成），因此只在真实执行模式下拦截。
+ */
+function assertDeclaredToolsReady(id: string): void {
+  if (codexMode() === "stub") return;
+  const issues = skillDependencyIssues(id);
+  if (issues.unregistered.length) {
+    throw new HttpFail(409, {
+      code: "skill_tools_unregistered",
+      message: `所需工具尚未登记：${issues.unregistered.join("、")}。请先在连接器里发现工具并确定风险档。`,
+      tools: issues.unregistered,
+    });
+  }
+  if (issues.unmounted.length) {
+    throw new HttpFail(409, {
+      code: "skill_tools_unmounted",
+      message: `所需工具尚未挂载到本技能：${issues.unmounted.join("、")}。请在「工具与知识」里挂载后再继续。`,
+      tools: issues.unmounted,
+    });
+  }
+}
+
 export function skillLifecycleMeta(id: string): {
   stage: SkillStage;
   stage_label: string;
@@ -68,6 +117,9 @@ export function skillLifecycleMeta(id: string): {
   business_stage: string | null;
   tags: string[];
   current_version: number | null;
+  release: SkillRelease;
+  /** 读取时派生：所需工具里未登记 / 未挂载的项（编写时提示，进入测试或发布时拦截）。 */
+  dependencies: { unregistered: string[]; unmounted: string[] };
   test_summary: { total: number; pass_rate: number | null; failing: number; last_run_at: string | null };
 } {
   requireSkill(id);
@@ -96,6 +148,12 @@ export function skillLifecycleMeta(id: string): {
     business_stage: row?.business_stage || null,
     tags,
     current_version: version.v ?? null,
+    release: version.v
+      ? { kind: "versioned", version: version.v }
+      : stage === "published" && isBundledSkill(id)
+        ? { kind: "bundled_baseline" }
+        : { kind: "none" },
+    dependencies: skillDependencyIssues(id),
     test_summary: {
       total: tests.n,
       pass_rate: lastRuns.length ? Math.round(((lastRuns.length - failing) / lastRuns.length) * 1000) / 10 : null,
@@ -137,6 +195,7 @@ export function transitionSkillStage(id: string, toStage: string, reason?: strin
   if (from !== "draft" && to === "disabled" && !String(reason || "").trim()) {
     throw new HttpFail(400, "reason required to disable a published skill");
   }
+  if (to === "testing" || to === "published") assertDeclaredToolsReady(id);
   if (to === "published") applySkillDraft(id);
   const conn = getConn();
   const operator = currentUser().handle;

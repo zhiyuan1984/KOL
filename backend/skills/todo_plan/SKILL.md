@@ -19,6 +19,7 @@ employee_summary: 按「我的待办」面把待办记忆与新增事项整理�
 side_effects: none
 creates_session: true
 auto_ok: false
+starter: "整理我的待办任务，结合优先级、期限、当前状态和最新增量，生成待办摘要、排序原因和下一步行动。"
 ---
 # 待办规划 todo_plan
 

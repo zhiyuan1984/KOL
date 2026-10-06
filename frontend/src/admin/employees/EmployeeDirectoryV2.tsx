@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, type AdminAgentRow, type AdminAgentsResponse, type AdminBindingPreview, type AdminEmployeeAgent } from "../../api";
+import { api, type AdminAgentAccessSource, type AdminAgentRow, type AdminAgentsResponse, type AdminBindingPreview, type AdminEmployeeAgent } from "../../api";
 import { EmployeeEditDialog, type DirectoryEmployee } from "./EmployeeDirectory";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { agentBindingRevokeConfirm, userDeactivateConfirm } from "../../adminConfirm";
@@ -9,19 +9,24 @@ import "../governance-layout.css";
 import "./employee-directory.css";
 
 type Employee = DirectoryEmployee;
+/** 平台系统智能体不对应人员，员工页不提供绑定。 */
+const PLATFORM_SYNC_AGENT = "agent:platform-sync";
 const label = (employee: Employee) => String(employee.name || employee.email || employee.username || employee.id);
 const email = (employee: Employee) => String(employee.email || (String(employee.username || "").includes("@") ? employee.username : "") || "未登记邮箱");
 const names = (employee: Employee) => Array.isArray(employee.brands) ? employee.brands : [];
 /** 管理目录的组织筛选包含该组织的全部下级；这里只决定列表呈现，不计算使用授权。 */
-function belongsToOrganization(site: string | undefined, selectedId: string, parents: Map<string, string | null>): boolean {
-  let current = site || "";
-  const visited = new Set<string>();
-  while (current && !visited.has(current)) {
-    if (current === selectedId) return true;
-    visited.add(current);
-    current = parents.get(current) || "";
-  }
-  return false;
+function belongsToOrganization(employee: Employee, selectedId: string, parents: Map<string, string | null>): boolean {
+  const starts = employee.org_unit_ids?.length ? employee.org_unit_ids : [employee.site || ""];
+  return starts.some((start) => {
+    let current = start;
+    const visited = new Set<string>();
+    while (current && !visited.has(current)) {
+      if (current === selectedId) return true;
+      visited.add(current);
+      current = parents.get(current) || "";
+    }
+    return false;
+  });
 }
 const VIA_LABEL: Record<AdminEmployeeAgent["via"], string> = {
   binding_target: "直接绑定",
@@ -30,6 +35,17 @@ const VIA_LABEL: Record<AdminEmployeeAgent["via"], string> = {
   ancestor_head: "上级负责人",
 };
 const agentStatus = (status: AdminAgentRow["status"]) => status === "published" ? "已发布" : status === "disabled" ? "已停用" : "草稿";
+/** 一个 Agent 可能经多个绑定点覆盖同一人；逐条列出，不只显示优先级最高的那条。 */
+const accessSources = (row: AdminEmployeeAgent): AdminAgentAccessSource[] => row.sources?.length ? row.sources : [{
+  via: row.via, via_unit_id: row.via_unit_id, via_unit_display_name: row.via_unit_display_name, binding_id: row.binding_id,
+  binding_target_type: row.via === "binding_target" ? "person" : "organization_unit", binding_target_id: "", binding_target_display_name: null,
+}];
+const sourceText = (source: AdminAgentAccessSource) => {
+  const unit = source.via_unit_display_name ? ` · ${source.via_unit_display_name}` : "";
+  const point = source.binding_target_type === "organization_unit" && source.binding_target_id && source.binding_target_id !== source.via_unit_id
+    ? `（绑定点：${source.binding_target_display_name || source.binding_target_id}）` : "";
+  return `${VIA_LABEL[source.via] || source.via}${unit}${point}`;
+};
 
 function EmployeeBindingDialog({
   employee,
@@ -104,11 +120,11 @@ function EmployeeBindingDialog({
     } catch (cause) { setBindError(cause instanceof Error ? cause.message : "绑定失败"); }
     finally { setBindBusy(false); }
   };
-  const revoke = async (row: AdminEmployeeAgent) => {
-    setRevokeBusyId(row.binding_id);
+  const revoke = async (row: AdminEmployeeAgent, bindingId: string) => {
+    setRevokeBusyId(bindingId);
     setLoadError("");
     try {
-      const revokePreview = await api.adminAgentRevokePreview(row.id, row.binding_id);
+      const revokePreview = await api.adminAgentRevokePreview(row.id, bindingId);
       const removed = revokePreview.removed.map((entry) => entry.display_name || entry.person_ref);
       ask(agentBindingRevokeConfirm({
         agentName: row.name,
@@ -116,7 +132,7 @@ function EmployeeBindingDialog({
         targetLabel: `人员 · ${row.display_name || label(employee)}`,
         removed,
       }), async (reason) => {
-        await api.adminAgentUnbind(row.id, row.binding_id, reason || "管理侧员工页撤销");
+        await api.adminAgentUnbind(row.id, bindingId, reason || "管理侧员工页撤销");
         setStatus("直接绑定已撤销；覆盖范围已按组织树重算。");
         await loadRows();
         onChanged();
@@ -149,9 +165,9 @@ function EmployeeBindingDialog({
             <h3>可用 Agent 与来源</h3>
             {!rows && !loadError && <p className="muted">正在读取…</p>}
             {rows && !rows.length && <p className="muted">该员工当前没有可用的 Agent。</p>}
-            {rows && rows.length > 0 && <div className="employee-binding-list"><ul>{rows.map((row) => <li key={`${row.id}:${row.binding_id}`} data-employee-agent={row.id}>
-              <div><strong>{row.name}</strong><p>{agentStatus(row.status)} · {VIA_LABEL[row.via] || row.via}{row.via_unit_display_name ? ` · ${row.via_unit_display_name}` : ""}</p></div>
-              {row.via === "binding_target" ? <button type="button" className="governance-minor" disabled={Boolean(revokeBusyId) || bindBusy} onClick={() => void revoke(row)}>{revokeBusyId === row.binding_id ? "读取中…" : "撤销"}</button> : <span>继承来源</span>}
+            {rows && rows.length > 0 && <div className="employee-binding-list"><ul>{rows.map((row) => <li key={row.id} data-employee-agent={row.id}>
+              <div><strong>{row.name}</strong><p>{agentStatus(row.status)}</p>{accessSources(row).map((source) => <p key={source.binding_id} data-employee-agent-source={source.binding_id}>{sourceText(source)}</p>)}</div>
+              {accessSources(row).some((source) => source.via === "binding_target") ? <button type="button" className="governance-minor" disabled={Boolean(revokeBusyId) || bindBusy} onClick={() => void revoke(row, accessSources(row).find((source) => source.via === "binding_target")!.binding_id)}>{revokeBusyId ? "读取中…" : "撤销"}</button> : <span>继承来源</span>}
             </li>)}</ul></div>}
           </section>
           <section className="employee-form-section">
@@ -201,9 +217,9 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   const units = useMemo(() => data?.units || [], [data]);
   const unitParents = useMemo(() => new Map(units.map((unit) => [unit.id, unit.parent_id])), [units]);
   const brands = useMemo(() => [...new Set(users.flatMap(names))].sort(), [users]);
-  const orgs = useMemo(() => units.filter((unit) => users.some((user) => belongsToOrganization(user.site, unit.id, unitParents))), [units, users, unitParents]);
+  const orgs = useMemo(() => units.filter((unit) => users.some((user) => belongsToOrganization(user, unit.id, unitParents))), [units, users, unitParents]);
   const org = departments[2] || departments[1] || departments[0];
-  const people = users.filter((user) => !org || belongsToOrganization(user.site, org, unitParents));
+  const people = users.filter((user) => !org || belongsToOrganization(user, org, unitParents));
   const changeDepartment = (index: number, value: string) => {
     setDepartments((current) => {
       const next = current.map((id, position) => position === index ? value : position > index ? "" : id);
@@ -220,7 +236,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   const visible = useMemo(() => users.filter((user) => {
     const search = query.trim().toLowerCase();
     if (search && ![label(user), email(user), String(user.position || ""), String(user.employee_no || "")].join(" ").toLowerCase().includes(search)) return false;
-    if (org && !belongsToOrganization(user.site, org, unitParents)) return false;
+    if (org && !belongsToOrganization(user, org, unitParents)) return false;
     if (person && user.id !== person) return false;
     if (brand && !names(user).includes(brand)) return false;
     if (account === "active" && user.active === false) return false;
@@ -296,7 +312,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
       </div>
     </div>
     {editing !== undefined && <EmployeeEditDialog key={editing?.id || "new"} employee={editing} allEmployees={users} units={units.map((unit) => ({ ...unit, type: "", parent: unit.parent_id, level: unit.level }))} brands={brands} onClose={() => setEditing(undefined)} onSaved={() => { onReload(); void reload(); }} />}
-    {managing && <EmployeeBindingDialog key={managing.id} employee={managing} agents={data?.agents || []} agentsLoading={!data} onClose={() => setManaging(null)} onChanged={() => { void reload(); onReload(); }} />}
+    {managing && <EmployeeBindingDialog key={managing.id} employee={managing} agents={(data?.agents || []).filter((agent) => agent.id !== PLATFORM_SYNC_AGENT)} agentsLoading={!data} onClose={() => setManaging(null)} onChanged={() => { void reload(); onReload(); }} />}
     {dialog}
   </section>;
 }

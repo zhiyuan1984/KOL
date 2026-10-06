@@ -14,6 +14,10 @@ aliases: ["写邮件","邮件草稿","发送测试邮件","写报价信","写报
 in_market: true
 employee_quick: 已保存的草稿、回复分析摘要
 employee_agent: 建联方案、写信、改信、理解回复走 AI 助理；发送独立确认
+icon: mail-edit
+badge: "达人库"
+starter: "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]"
+result_title: "邮件草稿"
 ---
 # 写合作邮件
 

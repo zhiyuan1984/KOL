@@ -3,6 +3,7 @@
  * Host only maps these items to UI. Dispatch must not call Starry / SOP / stage shortcuts.
  */
 import { scopedUser } from "../auth.js";
+import { declaredNextActionLabels, declaredResultTitle } from "../tasks/result-presentation.js";
 import { executeKolClawTask, isKolClawTask, kolClawResultCard, type KolClawTask } from "../kolclaw/service.js";
 import { eightPhaseWalkItems, isExceptionStage, phaseSopSummary, profileForDomain, sopPackByStage, stageSopView } from "../sops.js";
 import {
@@ -406,11 +407,19 @@ function hasReadSkillOutput(items: Json[]): boolean {
   });
 }
 
+/** 结果卡片标题来自技能 md 的 result_title（缺省为技能名称）。 */
 function readSkillTitle(skill: string): string {
-  if (skill === "reply_analysis") return "回复分析";
-  if (skill === "creator_profile") return "达人画像";
-  if (skill === "risk_scan") return "超时/风险扫描";
-  return "任务结果";
+  return declaredResultTitle(skill) || "任务结果";
+}
+
+/** 模型产出的结果卡没给下一步动作时，补上技能 md 声明的 next_actions。 */
+function withDeclaredNextActions(skill: string, items: Json[]): Json[] {
+  return items.map((item) => {
+    if (item.type !== "task_result" || (Array.isArray(item.recommended_actions) && item.recommended_actions.length)) return item;
+    const hasResults = Array.isArray(item.sections) && (item.sections as Json[]).some((section) => Array.isArray(section.items) && section.items.length > 0 || String(section.body || "").trim());
+    const labels = declaredNextActionLabels(String(item.skill || skill), { hasResults });
+    return labels?.length ? { ...item, recommended_actions: labels } : item;
+  });
 }
 
 function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
@@ -659,5 +668,5 @@ export async function completeTurnItems(
     log.push({ method: "mcp/kolclaw", params: { task: skill, operations: operations.length } });
     return items;
   }
-  return existing;
+  return withDeclaredNextActions(skill, existing);
 }

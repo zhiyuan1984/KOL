@@ -16,6 +16,9 @@ employee_quick: 已授权结果、归属、备注、阶段和审批状态
 employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
 employee_summary: 按阶段规则提出阶段变更，等你确认后再写入
 permissions: ["starrykol:read"]
+icon: check
+badge: "平台内置"
+starter: "提出阶段变更 [红人] 到 [目标阶段]"
 ---
 # 阶段变更建议 confirm_stage · Opportunity
 

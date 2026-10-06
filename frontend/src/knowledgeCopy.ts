@@ -562,7 +562,9 @@ export const KB_DOC_STATUS_LABEL: Record<string, string> = {
   uploaded: "排队中（待加工）",
   normalizing: "规整中",
   indexing: "建索引中",
-  pending_review: "待审批",
+  /* 与条目侧的 `pending_review`（＝已提交待审批）不是同一件事：文档到这里只是"解析完成，
+     还没提交审批"。同一个枚举值在两条流水线里语义不同，故各保留固定文案（§3.1）。 */
+  pending_review: "待提交审批",
   published: "已发布",
   archived: "已停用",
   failed: "失败",

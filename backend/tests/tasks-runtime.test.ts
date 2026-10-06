@@ -12,7 +12,7 @@ import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
 import { profileFor } from "../src/profiles.js";
 import { seedAll } from "../src/seed.js";
 import { resolveTaskIntent, stubResolveTaskIntent } from "../src/tasks/resolver.js";
-import { ALLOWED_TASK_MCP, taskDefinitions } from "../src/tasks/registry.js";
+import { MCP_TOOL_REFERENCE, taskDefinitions } from "../src/tasks/registry.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
@@ -59,7 +59,7 @@ describe("manifest task registry", () => {
       expect(definition.description).toBeTruthy();
       expect(definition.permissions).toBeInstanceOf(Array);
       expect(definition.actions).toBeInstanceOf(Array);
-      expect(definition.mcp.every((tool) => ALLOWED_TASK_MCP.has(tool))).toBe(true);
+      expect(definition.mcp.every((tool) => MCP_TOOL_REFERENCE.test(tool))).toBe(true);
       expect(definition.mcp.some((tool) => /send|ingest|confirm_stage/.test(tool))).toBe(false);
     }
   });

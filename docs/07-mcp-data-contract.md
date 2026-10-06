@@ -32,6 +32,8 @@ Starry KOL MCP 和 `data/kol/邮箱-负责人绑定清单.md` 提供 KOL 域事�
 
 每个工具标记 `read_only`、`draft`、`reversible_write`、`external_side_effect`、`destructive`、`requires_confirmation`、`requires_admin`、`idempotent`。画像读取、邮件读取、爬虫状态为 L1；草稿/预览为 L2；`sendEmailNow`、`changeLifecycleStage`、联系方式解密、导入和删除按 L3/敏感动作闸门处理。
 
+技能 md 的 `mcp` 声明对照**已登记工具目录**（连接器 tools/list 发现、管理员已定风险档），不设代码白名单；所需工具未登记或未挂载时，技能可存草稿，但不能进入测试或发布。平台后台作业只能由平台系统智能体 `agent:platform-sync` 以系统主体运行已装配技能里的只读工具，走同一挂载与风险档闸门，不能执行需要确认的工具（ADR-2026-10-06）。
+
 ## 真实调用规则
 
 生产 IO 只能由 Codex turn 调已授权远程 MCP；不得再包一层本地业务工具或 Host 代调作为第二真相源。`sendEmailNow` 不能由 Worker 直接调用，必须由用户确认后的 Gateway 提交。`changeLifecycleStage` 不能由 Worker/Skill 直接写，必须由 `confirm_stage` 提案后经 Host 写入。通用写入门禁不替代这两条路径：二者没有注册专用门禁时，运行时连待确认动作都不提出（`runtime_host_path_required`）。产品边以 [business-rules/stage-transitions.md](business-rules/stage-transitions.md) 为准，不由本文件改写。

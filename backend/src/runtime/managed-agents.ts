@@ -1,6 +1,7 @@
 import { getConn, nowIso, onConnReset } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
+import { PLATFORM_SYNC_AGENT } from "./platform-principal.js";
 
 export type ManagedAgent = {
   id: string;
@@ -33,6 +34,7 @@ export function ensureManagedAgents(): void {
     VALUES (?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING`);
   seed.run("agent:kol", "KOL 智能体", "KOL 合作与跟进能力", "published", 1, now, now);
   seed.run("agent:workspace-planner", "工作规划 Agent", "工作计划、待办与分析", "published", 1, now, now);
+  seed.run(PLATFORM_SYNC_AGENT, "平台同步 Agent", "平台后台作业：只读同步，不对应人员；人员不能使用或绑定", "published", 1, now, now);
   ready = true;
 }
 

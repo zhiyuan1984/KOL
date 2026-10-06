@@ -13,14 +13,14 @@ import {
   mcpDir,
 } from "../src/config.js";
 import type { Json } from "../src/types.js";
-import { ALLOWED_TASK_MCP } from "../src/tasks/registry.js";
+import { LOCAL_STUB_MCP_TOOLS } from "../src/tasks/registry.js";
 
 function toolsForServer(allowlist: readonly string[], server: string): string[] {
   const prefix = `${server}.`;
   return allowlist.filter((name) => name.startsWith(prefix)).map((name) => name.slice(prefix.length));
 }
 
-export function mcpServerSpecs(allowlist: readonly string[] = [...ALLOWED_TASK_MCP]): Json {
+export function mcpServerSpecs(allowlist: readonly string[] = [...LOCAL_STUB_MCP_TOOLS]): Json {
   const tsxCli = path.join(BACKEND_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
   const db = dbPath();
   const starry = path.join(mcpDir(), "starry-server.ts");

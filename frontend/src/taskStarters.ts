@@ -3,7 +3,8 @@ import { templateStarter } from "./skillTemplate";
 
 /**
  * Fill-in copy shown in the home composer when a task template is chosen.
- * Read-only skills keep their catalog title. Write skills include [placeholders].
+ * The source of truth is the skill's `starter` field in SKILL.md (catalog API).
+ * This table is only a fallback for call sites that hold a bare skill id without catalog data.
  */
 const STARTERS: Record<string, string> = {
   email_compose: "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]",
@@ -35,7 +36,7 @@ const STARTERS: Record<string, string> = {
   content_nudge: "催大纲 [红人或合作]",
 };
 
-export function starterPrompt(definition: Pick<TaskDefinition, "id" | "prompt" | "title" | "ui_template">): string {
+export function starterPrompt(definition: Pick<TaskDefinition, "id" | "prompt" | "title" | "ui_template"> & { starter?: string | null }): string {
   if (definition.ui_template) return templateStarter(definition.ui_template);
-  return STARTERS[definition.id] || definition.prompt || definition.title;
+  return definition.starter || STARTERS[definition.id] || definition.prompt || definition.title;
 }

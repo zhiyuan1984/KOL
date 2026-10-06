@@ -125,7 +125,7 @@ import { isSafeSkillResultForMemory, persistValidatedSkillResult } from "./skill
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { insertSessionMessage, isSessionNotFound } from "./session-messages.js";
 import { publishSession, subscribeSession } from "./session-events.js";
-import { assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { assertRuntimeSkill, runtimeAgentCandidates, runtimeAgentForSkill } from "../runtime/execution.js";
 import { skillConnectorGaps } from "../runtime/skill-connector-gate.js";
 import { agentForExpert, employeeExpert } from "../runtime/employee-agents.js";
 import { managedAgent } from "../runtime/managed-agents.js";
@@ -490,6 +490,20 @@ function collabDisplay(id: unknown): string {
   if (handle) return `@${handle}`;
   const name = String(row?.display_name || "").trim();
   return name || "该合作";
+}
+
+/**
+ * 当前会话最近一次使用的智能体：若它仍可让此人运行该技能，就沿用它，不重新询问。
+ */
+function sessionAgentDefault(sid: string, skillId: string, userId: string): string | undefined {
+  if (!userId || !skillId) return undefined;
+  const row = getConn().prepare(
+    "SELECT payload FROM messages WHERE session_id=? AND kind='agent_identity' ORDER BY created_at DESC, id DESC LIMIT 1",
+  ).get(sid) as { payload?: string } | undefined;
+  let agentId = "";
+  try { agentId = String((JSON.parse(String(row?.payload || "{}")) as Json).agent_id || ""); } catch { agentId = ""; }
+  if (!agentId) return undefined;
+  try { return runtimeAgentCandidates(skillId, userId).includes(agentId) ? agentId : undefined; } catch { return undefined; }
 }
 
 function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
@@ -3894,7 +3908,10 @@ host.post("/sessions/:sid/messages", async (c) => {
   let selectedAgent: string | undefined;
   let agent: ReturnType<typeof managedAgent> | null = null;
   try {
-    selectedAgent = unscopedFixture ? undefined : String(body.agent_id || intent.extras?.agent_id || runtimeAgentForSkill(intent.skill || intent.type, scopedUser()?.id || ""));
+    const skillForAgent = intent.skill || intent.type;
+    selectedAgent = unscopedFixture ? undefined : String(body.agent_id || intent.extras?.agent_id
+      || sessionAgentDefault(sid, skillForAgent, scopedUser()?.id || "")
+      || runtimeAgentForSkill(skillForAgent, scopedUser()?.id || "", { employeeChoice: true }));
     if (selectedAgent) assertRuntimeSkill({ agentId: selectedAgent, skillId: intent.skill || intent.type,
       userId: scopedUser()?.id || "", runId: "submission", sessionId: sid });
     agent = selectedAgent ? managedAgent(selectedAgent) : null;

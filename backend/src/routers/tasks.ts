@@ -398,7 +398,7 @@ function createWorkItem(body: Json, source: string): Json {
   requireSkill(definition.id);
   const input = taskInput(body);
   if (!(isTestRuntime() && codexMode() === "stub" && !scopedUser() && !input.agent_id)) {
-    input.agent_id = String(input.agent_id || runtimeAgentForSkill(definition.id, ownerId()));
+    input.agent_id = String(input.agent_id || runtimeAgentForSkill(definition.id, ownerId(), { employeeChoice: true }));
     assertRuntimeSkill({ agentId: String(input.agent_id), skillId: definition.id, userId: ownerId(), runId: "task-submission" });
   }
   const template = skillTemplate(definition);
@@ -1424,7 +1424,7 @@ tasks.post("/tasks/:id/run", async (c) => {
   const runText = String(body.text || storedInput.prompt || item.title);
   if (storedInput.agent_id && (runInput as Json).agent_id !== storedInput.agent_id) throw new HttpFail(409, "任务已绑定其他智能体");
   if (!(isTestRuntime() && codexMode() === "stub" && !scopedUser() && !(runInput as Json).agent_id)) {
-    const runAgentId = String((runInput as Json).agent_id || runtimeAgentForSkill(definition.id, ownerId()));
+    const runAgentId = String((runInput as Json).agent_id || storedInput.agent_id || runtimeAgentForSkill(definition.id, ownerId(), { employeeChoice: true }));
     assertRuntimeSkill({ agentId: runAgentId, skillId: definition.id, userId: ownerId(), runId: "task-run" });
     (runInput as Json).agent_id = runAgentId;
   }

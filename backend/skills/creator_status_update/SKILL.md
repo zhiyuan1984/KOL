@@ -14,6 +14,10 @@ aliases: ["更新达人状态","记录达人跟进"]
 in_market: true
 employee_quick: 已授权结果、归属、备注、阶段和审批状态
 employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
+icon: refresh
+badge: "达人库"
+starter: "达人状态更新 [达人] [新状态]"
+result_title: "达人状态更新结果"
 ---
 # 达人状态更新
 

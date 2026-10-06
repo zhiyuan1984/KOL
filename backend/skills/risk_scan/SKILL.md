@@ -14,6 +14,9 @@ aliases: ["风险扫描","超时扫描","失联扫描","扫描在途风险","T8"
 in_market: true
 employee_quick: 我的任务、阶段索引、已识别风险
 employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规则走后台
+icon: warning
+badge: "平台内置"
+result_title: "超时/风险扫描"
 ---
 # 风险扫描 risk_scan（T8）
 

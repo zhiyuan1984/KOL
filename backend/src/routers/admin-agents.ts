@@ -15,6 +15,7 @@ import {
 } from "../runtime/organization-tree.js";
 import { getAgentSkills, setAgentSkill, setAgentSkills } from "../runtime/store.js";
 import {postgresTransaction} from '../postgres/pool.js';
+import { isPlatformAgent } from "../runtime/platform-principal.js";
 import {runtimeSkillVersion} from '../runtime/execution.js';
 async function confirmKnowledgeReleases(agentId:string,actor:string) {
   const skills=getAgentSkills(agentId).filter(s=>s.enabled);
@@ -125,7 +126,8 @@ adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
     if (!getAgentSkills(id).some((skill) => Number(skill.enabled) === 1)) {
       throw new HttpFail(409, "发布前请先装配至少一项技能");
     }
-    if (!listAgentBindings(id).length) throw new HttpFail(409, "发布前请先绑定组织或人员");
+    // 平台系统智能体不对应人员，没有绑定点；其余 Agent 发布前必须绑定组织或人员。
+    if (!listAgentBindings(id).length && !isPlatformAgent(id)) throw new HttpFail(409, "发布前请先绑定组织或人员");
     await confirmKnowledgeReleases(id,admin.id);
   }
   const updated = updateManagedAgent(id, body);
