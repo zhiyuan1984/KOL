@@ -119,6 +119,10 @@
      `--radius: 0.5rem`（rounded-lg），--radius-control 取 `calc(0.5rem - 2px)`（rounded-md）。
      数值口径见 docs/DESIGN.md 员工端实施细则 §控件尺寸（唯一数值来源）。 */
   --radius-control: 6px;
+  /* L3 文字按钮（docs/DESIGN.md §4 视觉强调四级） */
+  --btn-text-h: 28px;
+  --btn-text-pad-x: 8px;
+  --btn-text-hover-bg: color-mix(in srgb, var(--accent) 8%, transparent);
   --radius-card: 8px;
   --surface-hover: color-mix(in srgb, var(--text) 10%, var(--bg));
   /* 焦点环：shadcn 的 focus-visible 契约。环色沿用既有的 --focus-ring（单一来源），
@@ -6307,6 +6311,21 @@ summary:focus-visible,
 .admin-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .btn.sm,
 .btn.ghost.sm { padding: 6px 10px; font-size: var(--font-sm); min-height: 36px; }
+/* L3 文字按钮：无边框、无底色，行内次级动作与「查看更多/收起」的默认档。
+   该用文字按钮的地方出现描边按钮视为 bug（docs/DESIGN.md §1 不变量 8）。 */
+.btn.text {
+  height: var(--btn-text-h);
+  min-height: var(--btn-text-h);
+  padding: 0 var(--btn-text-pad-x);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  box-shadow: none;
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+}
+.btn.text:hover:not(:disabled) { background: var(--btn-text-hover-bg); }
+.btn.text:disabled { background: transparent; color: var(--text-muted); }
 .admin-shell .btn {
   min-height: var(--control-h-lg);
   padding: var(--space-1) var(--space-3);
@@ -15705,7 +15724,7 @@ button.today-brief-primary-btn:disabled {
   padding-bottom: calc(var(--workspace-arrow-button-size) + var(--space-4));
 }
 .home-pane[data-home-workspace] .scope-workspace-center-scroll-content { overflow-anchor: auto; }
-.scope-scroll-jump { border-radius: var(--radius-control); }
+.scope-scroll-jump { border-radius: 999px; }
 @media (pointer: coarse) {
   .session-scroll-control button { width: var(--touch-hit-min); height: var(--touch-hit-min); }
   .session-stream.conversation { padding-bottom: calc(var(--touch-hit-min) + var(--space-4)); }

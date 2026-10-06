@@ -93,7 +93,7 @@ export default function DiscoveryConfirmCard({
           </button>
           <button
             type="button"
-            className="btn ghost sm"
+            className="btn text"
             data-discovery-start-cancel
             disabled={Boolean(busy)}
             onClick={onCancel}
@@ -105,21 +105,21 @@ export default function DiscoveryConfirmCard({
 
       {phase === "running" && onStop ? (
         <div className="discovery-confirm-actions">
-          <button type="button" className="btn ghost sm" data-discovery-start-stop disabled={Boolean(busy)} onClick={onStop}>
+          <button type="button" className="btn text" data-discovery-start-stop disabled={Boolean(busy)} onClick={onStop}>
             申请停止采集
           </button>
-          {sessionHref ? <a className="btn ghost sm" href={sessionHref} data-discovery-open-session>在任务会话中打开</a> : null}
+          {sessionHref ? <a className="link-button" href={sessionHref} data-discovery-open-session>在任务会话中打开</a> : null}
         </div>
       ) : null}
 
       {(phase === "failed" || phase === "uncertain" || phase === "cancelled" || phase === "rejected") ? (
         <div className="discovery-confirm-actions">
           {onRetry ? (
-            <button type="button" className="btn row-action sm" data-discovery-start-retry disabled={Boolean(busy)} onClick={onRetry}>
+            <button type="button" className="btn text" data-discovery-start-retry disabled={Boolean(busy)} onClick={onRetry}>
               核对后重试
             </button>
           ) : null}
-          {sessionHref ? <a className="btn ghost sm" href={sessionHref} data-discovery-open-session>在任务会话中打开</a> : null}
+          {sessionHref ? <a className="link-button" href={sessionHref} data-discovery-open-session>在任务会话中打开</a> : null}
         </div>
       ) : null}
     </section>

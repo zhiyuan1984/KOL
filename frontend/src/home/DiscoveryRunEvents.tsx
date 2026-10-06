@@ -92,7 +92,7 @@ export default function DiscoveryRunEvents({
 
       {confirmed && inFlight && onStop ? (
         <div className="discovery-confirm-actions">
-          <button type="button" className="btn ghost sm" data-discovery-run-stop disabled={Boolean(stopping)} onClick={onStop}>
+          <button type="button" className="btn text" data-discovery-run-stop disabled={Boolean(stopping)} onClick={onStop}>
             {stopping ? "正在申请停止…" : "申请停止采集"}
           </button>
         </div>

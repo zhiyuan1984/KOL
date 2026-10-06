@@ -92,19 +92,19 @@ export default function DiscoveryParamsCheck({
 
       {sessionHref && !error ? (
         <div className="discovery-confirm-actions">
-          <a className="btn ghost sm" href={sessionHref} data-discovery-open-session>在任务会话中打开</a>
+          <a className="link-button" href={sessionHref} data-discovery-open-session>在任务会话中打开</a>
         </div>
       ) : null}
 
       {error && (sessionHref || onRetry) ? (
         <div className="discovery-confirm-actions">
           {onRetry ? (
-            <button type="button" className="btn row-action sm" data-discovery-params-retry onClick={onRetry}>
+            <button type="button" className="btn text" data-discovery-params-retry onClick={onRetry}>
               重新读取参数
             </button>
           ) : null}
           {sessionHref ? (
-            <a className="btn ghost sm" href={sessionHref} data-discovery-open-session>在任务会话中打开</a>
+            <a className="link-button" href={sessionHref} data-discovery-open-session>在任务会话中打开</a>
           ) : null}
         </div>
       ) : null}

@@ -163,21 +163,21 @@
 
 /* 两个短阈值在同一行；更长、通常需要千位分隔的均播获得更多弹性宽度。 */
 .discovery-brief-form .ai-discovery-row.is-metric-pair {
-  display: grid;
-  /* 两格等分并随可用宽度收缩；标签列与其它行同宽，保证控件左缘在同一条轴上。 */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  /* 两组按内容排布：均播输入框右边不再留一段等分空白；放不下时整组换行。 */
   align-items: center;
-  column-gap: var(--space-2);
+  gap: var(--space-2) var(--space-3);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field {
   display: grid;
-  grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
+  grid-template-columns: var(--ds-label-w) minmax(0, 88px);
   align-items: center;
   gap: var(--space-2);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field {
-  grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
-  gap: var(--space-2);
+  grid-template-columns: max-content minmax(0, 76px);
+  gap: var(--space-1);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-label {
   white-space: nowrap;
@@ -186,7 +186,13 @@
 /* 固定 Composer 覆盖中栏时，焦点和最后一项永远留在其上方的安全区域。 */
 /* 条件卡底部一行：说明在左、主操作在右，窄屏自然换行。 */.discovery-brief-form .discovery-card-foot {  display: flex;  flex-wrap: wrap;  align-items: center;  justify-content: space-between;  gap: var(--space-2) var(--space-3);  margin-top: var(--space-3);  padding-top: var(--space-3);  border-top: 1px solid var(--ds-border);}
 .discovery-brief-form .discovery-card-note {  flex: 1 1 16rem;  min-width: 0;  margin: 0;  color: var(--ds-text-dim);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);}
-.discovery-brief-form .discovery-card-foot .btn {  flex: 0 0 auto;}
+.discovery-brief-form .discovery-card-foot .btn {
+  flex: 0 0 auto;
+  /* L2 次级提交：控件高与圆角向工作台对齐（docs/DESIGN.md §4）。 */
+  min-height: var(--control-h-lg);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-control);
+}
 /* 粉丝区间：上限留空说明与越界提示都落在控件那一列，只提示、不拦编辑。 */.discovery-brief-form .discovery-followers-hint {  grid-column: 2;  color: var(--ds-text-dim);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);}
 .discovery-brief-form .ai-discovery-row.is-follower-range > .skill-param-error {  grid-column: 2;}
 .scope-workspace[data-home-pane="discovery"] .scope-workspace-center-scroll {

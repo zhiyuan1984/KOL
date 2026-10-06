@@ -118,7 +118,7 @@ export default function DiscoveryWorkspace({
                 <span className="discovery-event-status">
                   <button
                     type="button"
-                    className="btn ghost sm"
+                    className="btn text"
                     data-discovery-edit-conditions
                     onClick={editConditions}
                   >

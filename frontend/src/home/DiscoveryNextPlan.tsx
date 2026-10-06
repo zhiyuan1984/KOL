@@ -168,7 +168,7 @@ export default function DiscoveryNextPlan({
             {item.actionLabel && item.action ? (
               <button
                 type="button"
-                className="btn ghost sm"
+                className="btn text"
                 data-discovery-plan-action={item.id}
                 disabled={item.id === "connection" && checkingConnection}
                 aria-busy={item.id === "connection" && checkingConnection}
