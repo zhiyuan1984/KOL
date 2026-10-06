@@ -393,6 +393,9 @@ export type SkillTemplate = {
   starter: string;
   output: { type: string; title: string };
   constraints: string[];
+  evidence?: string[];
+  decisions?: string[];
+  recovery?: string[];
   source: "skill";
   read_only: true;
 };
