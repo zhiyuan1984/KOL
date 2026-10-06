@@ -484,8 +484,9 @@ describe("governed Skill Runtime", () => {
     const catalog = await runtime.discover();
     expect(catalog.tools).toHaveLength(1);
     expect(catalog.tools[0].exposed.annotations).toMatchObject({ readOnlyHint: false });
-    expect((await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" })).structuredContent)
-      .toMatchObject({ status: "pending" });
+    // 发信只走发送确认网关：通用门禁连待确认动作都不提出，更不会触达远端。
+    await expect(runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" }))
+      .rejects.toThrow(/runtime_host_path_required/);
     expect(fixture.calls).toHaveLength(0);
   });
 
