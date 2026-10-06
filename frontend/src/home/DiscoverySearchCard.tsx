@@ -49,20 +49,7 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema }
     }
     onChange(next);
   };
-  return <div className="discovery-brief-form">
-    <section className="discovery-skill-intro" data-discovery-skill-intro aria-label="AI发现技能说明">
-      <div className="discovery-skill-intro-head">
-        <span className="discovery-skill-kicker">线索智能体 · AI发现技能</span>
-        <strong>先填写发现条件，再核对实际采集参数</strong>
-      </div>
-      <p>我会按你确认的平台和关键词寻找候选，结果会保留来源、采集时间和无法核验的条件。</p>
-      <ol>
-        <li>填写平台、地区、方向和关键词</li>
-        <li>核对粉丝、均播与期望人数</li>
-        <li>确认后才开始异步采集</li>
-      </ol>
-    </section>
-    <SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
+  return <div className="discovery-brief-form"><SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
       values={brief as unknown as Record<string, unknown>} optionSets={options}
       tokenFields={TOKEN_FIELDS} pristineValues={PRISTINE_DISCOVERY_VALUES}
       hideTitle compactDiscoveryLayout onFieldChange={update} />
