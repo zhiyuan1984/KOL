@@ -184,6 +184,22 @@ export function listDomains(): Json[] {
     .all() as Json[];
 }
 
+/** 用户侧只读分类目录：名称与管理端同读 knowledge_domains / knowledge_bases 主数据。 */
+export function publicKnowledgeTaxonomy(): { domains: Json[]; bases: Json[] } {
+  const domains = getConn()
+    .prepare(
+      `SELECT ${DOMAIN_COLUMNS} FROM knowledge_domains
+        WHERE status='active'
+        ORDER BY CASE level WHEN 'family' THEN 0 ELSE 1 END, sort, name, code`,
+    )
+    .all() as Json[];
+  const bases = getConn()
+    .prepare(`${BASE_SELECT} WHERE b.status='active' ORDER BY f.sort, f.name, d.sort, d.name, b.name, b.code`)
+    .all()
+    .map((row) => baseView(row as Row)) as Json[];
+  return { domains, bases };
+}
+
 export function createDomain(input: {
   code?: string;
   name?: string;

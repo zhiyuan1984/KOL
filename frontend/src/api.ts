@@ -2894,6 +2894,8 @@ export const api = {
     const qs = params.toString();
     return request<KnowledgeRow[]>(qs ? `/api/knowledge?${qs}` : "/api/knowledge");
   },
+  /** 用户侧与管理端共用的知识分类主数据，只读且不承载权限。 */
+  knowledgeTaxonomy: () => request<{ domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] }>("/api/knowledge/taxonomy"),
   kbMarket: () => request<KnowledgeRow[]>("/api/knowledge/market"),
   /** Authorized, read-only projection of published SKILL.md interaction contracts. */
   skillTemplates: (signal?: AbortSignal) => request<SkillTemplate[]>("/api/knowledge/skill-templates", { signal }),

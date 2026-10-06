@@ -2175,6 +2175,15 @@ function migrateSchema(db: SqliteConn): void {
     }
     db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES ('knowledge_taxonomy_v1','done')").run();
   }
+  // 2026-10-07：知识分类展示名由管理端主数据统一修订；保留 code/id，避免破坏引用。
+  if (!db.prepare("SELECT value FROM app_state WHERE key='knowledge_taxonomy_labels_v1'").get()) {
+    db.prepare("UPDATE knowledge_domains SET name=? WHERE code=? AND level='family'").run("产品与解决方案", "ipd");
+    db.prepare("UPDATE knowledge_domains SET name=? WHERE code=? AND level='family'").run("品牌与用户增长中心", "ipms");
+    db.prepare("UPDATE knowledge_domains SET name=? WHERE code=? AND level='domain'").run("产品管理", "ipd_battery");
+    db.prepare("UPDATE knowledge_domains SET name=? WHERE code=? AND level='domain'").run("推广", "marketing");
+    db.prepare("UPDATE knowledge_bases SET name=? WHERE code=?").run("电池", "ipd_battery_product_specs");
+    db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES ('knowledge_taxonomy_labels_v1','done')").run();
+  }
   add(db, "knowledge_deprecations", "handled_at", "TEXT");
   add(db, "knowledge_deprecations", "handled_by", "TEXT");
   add(db, "knowledge_deprecations", "handle_action", "TEXT");

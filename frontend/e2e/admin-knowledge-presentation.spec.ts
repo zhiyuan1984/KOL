@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 async function surface(page:Page,status='pending_review') {
  const account={id:'admin',name:'管理员',available_modes:['admin','employee']};
- const bases=[{id:'structured',code:'legacy',name:'历史知识',kind:'structured',status:'active'},{id:'specs',name:'产品规格',kind:'unstructured',status:'active',family_id:'ipd',family_name:'IPD',domain_id:'battery',domain_name:'电池'}];
- const domains=[{id:'ipd',name:'IPD',level:'family'},{id:'battery',name:'电池',level:'domain',parent_id:'ipd'}];
+ const bases=[{id:'structured',code:'legacy',name:'历史知识',kind:'structured',status:'active'},{id:'specs',name:'电池',kind:'unstructured',status:'active',family_id:'ipd',family_name:'产品与解决方案',domain_id:'battery',domain_name:'产品管理'}];
+ const domains=[{id:'ipd',name:'产品与解决方案',level:'family'},{id:'battery',name:'产品管理',level:'domain',parent_id:'ipd'}];
  let rows:any[]=Array.from({length:24},(_,i)=>({id:`text-${i}`,title:`合作知识 ${i+1}`,body:'知识正文',kind:'policy',base_id:'structured',status:'draft',current_version:1,brand:'*',lang:'en',stage_codes:[],structured:{},created_by:'admin',updated_at:'2026-10-05T01:00:00Z'}));
  let doc:any={id:'pdf',base_id:'specs',title:'NETC 产品规格书',filename:'NETC.pdf',media_type:'pdf',size_bytes:2000,status,retry_count:0,created_by:'admin',created_at:'2026-10-05T01:00:00Z',updated_at:'2026-10-05T02:00:00Z',error:status==='failed'?'索引服务不可用':''};
  let publication:any=null,failSave=false,failSubmit=false;const calls:string[]=[],errors:string[]=[];

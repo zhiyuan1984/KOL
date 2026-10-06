@@ -44,6 +44,7 @@ import {
   editDomain,
   listBases,
   listDomains,
+  publicKnowledgeTaxonomy,
   deprecateStats,
   mapDeprecateReason,
   editKnowledge,
@@ -170,6 +171,7 @@ knowledge.get("/knowledge/skill-templates/:skillId", (c) => {
 knowledge.get("/knowledge/composer", (c) => c.json(composerItems()));
 knowledge.get("/knowledge/market", (c) => c.json(listMarket()));
 knowledge.get("/knowledge/question-templates", (c) => c.json(questionTemplates()));
+knowledge.get("/knowledge/taxonomy", (c) => c.json(publicKnowledgeTaxonomy()));
 knowledge.get("/knowledge/:id/versions", (c) => c.json(listVersions(c.req.param("id"))));
 knowledge.get("/knowledge/:id", (c) => {
   const row = knowledgeRow(c.req.param("id"));

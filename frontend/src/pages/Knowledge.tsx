@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type KnowledgeRow, type SkillTemplate } from "../api";
+import { api, type KnowledgeBaseRow, type KnowledgeDomainRow, type KnowledgeRow, type SkillTemplate } from "../api";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
 import FilterChips from "../components/FilterChips";
@@ -157,41 +157,33 @@ function KnowledgeDocumentBody({ row }: { row: KnowledgeRow }) {
   </div>;
 }
 
-/** 从可见行里归纳分类选项（带计数）：只列出你确实看得到的业务域 / 业务主题 / 知识库。 */
+/** 分类名称来自管理端主数据；计数仍按用户当前可见知识行计算。 */
 function collectScope(
   rows: KnowledgeRow[],
+  taxonomy: { domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] },
   level: "family" | "domain" | "base",
   parentId: string,
 ): ScopeOption[] {
-  const seen = new Map<string, { name: string; count: number }>();
+  const count = new Map<string, number>();
   for (const row of rows) {
-    let id = "";
-    let name = "";
-    if (level === "family") {
-      id = String(row.family_id || "");
-      name = row.family_name || id;
-    } else if (level === "domain") {
-      if (parentId && row.family_id !== parentId) continue;
-      id = String(row.domain_id || "");
-      name = row.domain_name || id;
-    } else {
-      if (parentId && row.domain_id !== parentId) continue;
-      id = String(row.base_id || "");
-      name = row.base_name || id;
-    }
-    if (!id) continue;
-    const item = seen.get(id) || { name, count: 0 };
-    item.count += 1;
-    seen.set(id, item);
+    const id = level === "family" ? row.family_id : level === "domain" ? row.domain_id : row.base_id;
+    if (id) count.set(String(id), (count.get(String(id)) || 0) + 1);
   }
-  return [...seen.entries()]
-    .map(([id, item]) => ({ id, name: item.name, count: item.count }))
+  const options = level === "base"
+    ? taxonomy.bases
+      .filter((base) => !parentId || String(base.domain_id) === parentId)
+      .map((base) => ({ id: String(base.id), name: String(base.name), count: count.get(String(base.id)) || 0 }))
+    : taxonomy.domains
+      .filter((domain) => domain.level === level && (level === "family" || !parentId || String(domain.parent_id || "") === parentId))
+      .map((domain) => ({ id: String(domain.id), name: String(domain.name), count: count.get(String(domain.id)) || 0 }));
+  return options
     .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
 }
 
 /** 员工端知识库（IA v2）：三级分类 tab＋筛选标签＋中栏列表＋右栏同页详情。 */
 export default function Knowledge() {
   const [rows, setRows] = useState<KnowledgeRow[]>([]);
+  const [taxonomy, setTaxonomy] = useState<{ domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] }>({ domains: [], bases: [] });
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
   const [skillTemplatesLoading, setSkillTemplatesLoading] = useState(true);
   const [skillTemplatesError, setSkillTemplatesError] = useState("");
@@ -230,6 +222,12 @@ export default function Knowledge() {
 
   useEffect(reload, [reload]);
 
+  useEffect(() => {
+    api.knowledgeTaxonomy()
+      .then(setTaxonomy)
+      .catch((e) => setErr(e instanceof Error ? e.message : "无法加载知识分类"));
+  }, []);
+
   const loadSkillTemplates = useCallback(async () => {
     setSkillTemplatesLoading(true);
     setSkillTemplatesError("");
@@ -252,9 +250,9 @@ export default function Knowledge() {
     return () => clearTimeout(timer);
   }, [keyword, query]);
 
-  const familyOptions = useMemo(() => collectScope(rows, "family", ""), [rows]);
-  const domainOptions = useMemo(() => collectScope(rows, "domain", familyId), [rows, familyId]);
-  const baseOptions = useMemo(() => collectScope(rows, "base", domainId), [rows, domainId]);
+  const familyOptions = useMemo(() => collectScope(rows, taxonomy, "family", ""), [rows, taxonomy]);
+  const domainOptions = useMemo(() => collectScope(rows, taxonomy, "domain", familyId), [rows, taxonomy, familyId]);
+  const baseOptions = useMemo(() => collectScope(rows, taxonomy, "base", domainId), [rows, taxonomy, domainId]);
   const hasTaxonomy = familyOptions.length > 0 || baseOptions.length > 0;
   const scoped = Boolean(familyId || domainId || baseId);
 
