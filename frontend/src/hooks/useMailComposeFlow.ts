@@ -73,7 +73,8 @@ export function useMailComposeFlow({
     setPendingEditor(null);
     setPrepared(response);
     setMessage(response.message || "已准备邮件草稿，可继续编辑。");
-    setPhase("editing");
+    // 提交已在进行时不得把状态退回 editing：prepare 可能与 markSubmitting 并发。
+    setPhase((current) => current === "submitting" ? current : "editing");
     onPrepared?.(response);
   }, [onApplyBody, onPrepared]);
 
@@ -120,13 +121,13 @@ export function useMailComposeFlow({
         }
       } else {
         setMessage(response.message || "请补充邮件所需信息后继续。");
-        setPhase("editing");
+        setPhase((current) => current === "submitting" ? current : "editing");
         onPrepared?.(response);
       }
       return response;
     } catch (error) {
       if (nextController.signal.aborted || sequence !== requestSequence.current) return null;
-      setPhase("editing");
+      setPhase((current) => current === "submitting" ? current : "editing");
       setMessage(error instanceof Error ? error.message : "暂时无法准备邮件模板，可重试。");
       return null;
     }
