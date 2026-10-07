@@ -1,4 +1,3 @@
-import { Fragment } from "react";
 import type { FollowedKolCardModel } from "../followedKolCard";
 import { sortByFollowedBriefPriority, type FollowBriefPriority } from "./kolContract";
 
@@ -88,83 +87,4 @@ export function briefingForFollowed(cards: FollowedKolCardModel[]) {
     cta: "查看详情",
     priority: "other" as const,
   };
-}
-
-export default function FollowedBrief({
-  cards,
-  busy,
-  situation = "",
-  onSituation,
-  onPrimary,
-}: {
-  cards: FollowedKolCardModel[];
-  busy?: boolean;
-  situation?: FollowedSituation | "";
-  onSituation?: (value: FollowedSituation | "") => void;
-  onPrimary: (card: FollowedKolCardModel) => void;
-}) {
-  if (!cards.length) return null;
-  const brief = briefingForFollowed(cards);
-  const primary = brief.primary;
-  const counts = brief.counts;
-  return (
-    <section className="followed-brief" data-followed-brief data-brief-priority={brief.priority} aria-label="跟进简报">
-      <p className="followed-brief-lead">{brief.lead}</p>
-      <p className="followed-brief-stats">
-        <span className="followed-brief-stat">{counts.total} 位在跟</span>
-        {FOLLOWED_SITUATIONS.map(({ key, label }) => {
-          const count = counts[key];
-          const active = situation === key;
-          return (
-            <Fragment key={key}>
-              <span className="followed-brief-sep" aria-hidden>·</span>
-              {count > 0 && onSituation ? (
-                <button
-                  type="button"
-                  className="followed-brief-stat-action"
-                  data-followed-situation={key}
-                  aria-pressed={active}
-                  onClick={() => onSituation(active ? "" : key)}
-                >
-                  {count} 位{label}
-                </button>
-              ) : (
-                <span className="followed-brief-stat" data-followed-situation={key} data-count={count}>
-                  {count} 位{label}
-                </span>
-              )}
-            </Fragment>
-          );
-        })}
-        {situation ? (
-          <button
-            type="button"
-            className="followed-brief-stat-action is-clear"
-            data-followed-situation-clear
-            onClick={() => onSituation?.("")}
-          >
-            显示全部
-          </button>
-        ) : null}
-      </p>
-      {primary ? (
-        <div className="followed-brief-primary" data-followed-primary={primary.id}>
-          <p className="followed-brief-kicker">现在先看这一位</p>
-          <p className="followed-brief-title">{primary.identity.display}</p>
-          <p className="followed-brief-meta">
-            {[primary.current_state.stage_label, primary.latest_fact.summary].filter(Boolean).join(" · ")}
-          </p>
-          <button
-            type="button"
-            className="btn ghost sm"
-            data-followed-primary-cta
-            disabled={busy}
-            onClick={() => onPrimary(primary)}
-          >
-            {brief.cta}
-          </button>
-        </div>
-      ) : null}
-    </section>
-  );
 }

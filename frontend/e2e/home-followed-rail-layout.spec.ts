@@ -362,3 +362,27 @@ test("我的红人右栏与今日任务、公海共用 DESIGN 记录的工作台
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   }
 });
+
+test("筛选后右栏显示「共 N 位」，未筛选时不与中栏总数重复", async ({ page }) => {
+  await stubBoard(page);
+  await page.route("**/api/home/following", (route) => route.fulfill({
+    json: followingEnvelope([row(1), row(2), row(3)]),
+  }));
+  await openFollowed(page);
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+
+  // 未筛选：右栏不渲染计数，中栏总数唯一。
+  await expect(page.locator("[data-followed-rail-count]")).toHaveCount(0);
+  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 3 位");
+
+  // 搜索缩小到 1 位：右栏出现筛选结果计数。
+  await page.locator("[data-followed-object-search]").fill("红人2");
+  await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
+  await expect(page.locator('[data-followed-kol="红人1"]')).toHaveCount(0);
+  await expect(page.locator("[data-followed-rail-count]")).toHaveText("共 1 位");
+
+  // 清空搜索：计数消失，不与中栏重复。
+  await page.locator("[data-followed-object-search]").fill("");
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+  await expect(page.locator("[data-followed-rail-count]")).toHaveCount(0);
+});

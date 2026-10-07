@@ -3,10 +3,19 @@ import type { FollowedKolCardModel } from "../followedKolCard";
 import { FOLLOWED_LIFECYCLE_GROUPS } from "../followedKolCard";
 import {
   briefingForFollowed,
+  followedBriefPriority,
   matchesFollowedSituation,
   type FollowedSituation,
 } from "./FollowedBrief";
+import { sortByFollowedBriefPriority, type FollowBriefPriority } from "./kolContract";
 import type { FollowListCompleteness } from "./useFollowedWorkspace";
+
+/** 「先看谁」一句话原因：注意力触发器，不是画像描述。 */
+const PRIORITY_REASONS: Record<Exclude<FollowBriefPriority, "other">, string> = {
+  refused: "已拒信，先停，不要再发",
+  near_14d: "临近 14 天未联系",
+  interested: "已表达合作意向",
+};
 
 export default function FollowedInteraction({
   cards,
@@ -16,6 +25,7 @@ export default function FollowedInteraction({
   selectedCount,
   onStageFilter,
   onSituation,
+  onPrimary,
   publicPoolNewCount,
   onOpenPublicPoolNew,
   interaction,
@@ -27,6 +37,7 @@ export default function FollowedInteraction({
   selectedCount: number;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
+  onPrimary: (card: FollowedKolCardModel) => void;
   publicPoolNewCount: number | null;
   onOpenPublicPoolNew: () => void;
   interaction?: ReactNode;
@@ -38,15 +49,20 @@ export default function FollowedInteraction({
   const interestedCount = cards.filter((card) => matchesFollowedSituation(card, "interested")).length;
   const refusedCount = cards.filter((card) => matchesFollowedSituation(card, "refused")).length;
 
+  /** 注意力队列：按简报优先级排序，取前 3 位需要先处理的对象。 */
+  const priorityQueue = sortByFollowedBriefPriority(
+    cards.map((card) => ({ card, brief_priority: followedBriefPriority(card) })),
+  )
+    .filter((row) => row.brief_priority !== "other")
+    .slice(0, 3);
+
   const intro = (
     <section className="followed-interaction-intro" aria-label="当前跟进概览">
-      <div>
-        <p>{summaryReady
-          ? "数量来自当前已授权名单"
-          : cards.length
-            ? `${cards.length} 位已加载 · 正在核对最新数据…`
-            : "正在核对当前已授权名单…"}</p>
-      </div>
+      <p>{summaryReady
+        ? "名单来自当前已授权邮箱"
+        : cards.length
+          ? `${cards.length} 位已加载 · 正在核对最新数据…`
+          : "正在核对当前已授权名单…"}</p>
       {selectedCount ? <span className="followed-selection-note">已选择 {selectedCount} 位，可在下方继续提问</span> : null}
     </section>
   );
@@ -99,9 +115,16 @@ export default function FollowedInteraction({
           <h2 id="followed-lifecycle-title">合作生命周期</h2>
           {selectedGroup ? (
             <button type="button" className="followed-inline-clear" data-followed-stage-clear onClick={() => onStageFilter("")}>查看全部</button>
-          ) : <span>选择阶段查看对象</span>}
+          ) : <span>选择一段查看该阶段对象</span>}
         </div>
-        <div className="followed-lifecycle-grid" data-followed-lifecycle-grid>
+        {/* 分布条（DESIGN §9.2）：同一对象生命周期状态的分段表达，分段宽度按计数成比例。
+            用的是 6 折叠分组，不是 15 正式阶段作主筛（IA §5）。 */}
+        <div
+          className="followed-distribution"
+          data-followed-lifecycle-grid
+          role="group"
+          aria-label="按合作阶段分布筛选"
+        >
           {FOLLOWED_LIFECYCLE_GROUPS.map((group) => {
             const count = cards.filter((card) =>
               (group.stageCodes as readonly string[]).includes(card.current_state.stage_code || ""),
@@ -111,18 +134,47 @@ export default function FollowedInteraction({
               <button
                 key={group.id}
                 type="button"
-                className={active ? "is-active" : ""}
+                className={"followed-dist-seg" + (active ? " is-active" : "")}
                 data-followed-stage-group={group.id}
                 aria-pressed={active}
+                style={{ flexGrow: Math.max(count, 0.5), flexBasis: 0 }}
+                title={`${group.label} ${count} 位，点击筛选`}
                 onClick={() => onStageFilter(active ? "" : `group:${group.id}`)}
               >
-                <span>{group.label}</span>
-                <strong>{count}</strong>
+                <span className="followed-dist-label">{group.label}</span>
+                <strong className="followed-dist-count">{count}</strong>
               </button>
             );
           })}
         </div>
       </section>
+
+      {priorityQueue.length ? (
+        <section className="followed-priority" aria-labelledby="followed-priority-title">
+          <div className="followed-section-heading">
+            <h2 id="followed-priority-title">先看谁</h2>
+            <span>按需要你先处理的顺序</span>
+          </div>
+          <ul className="followed-priority-list">
+            {priorityQueue.map(({ card, brief_priority }) => (
+              <li key={card.id} className="followed-priority-row" data-followed-priority={brief_priority}>
+                <div className="followed-priority-main">
+                  <strong className="followed-priority-name">{card.identity.display}</strong>
+                  <span className="followed-priority-reason">{PRIORITY_REASONS[brief_priority as Exclude<FollowBriefPriority, "other">]}</span>
+                </div>
+                <button
+                  type="button"
+                  className="followed-priority-cta"
+                  data-followed-priority-view={card.id}
+                  onClick={() => onPrimary(card)}
+                >
+                  查看
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="followed-next-step" aria-labelledby="followed-next-title">
         <div className="followed-section-heading">
