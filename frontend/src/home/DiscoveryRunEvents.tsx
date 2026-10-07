@@ -18,6 +18,10 @@ const COLLECTION_KINDS = new Set([
  * ⑥ 采集执行：中栏保留过程事件（排队、搜索、接收、去重、打分、排出候选、
  * 失败、停止），右栏持续更新结果。事件来自 Host 的真实进度，不伪造完成。
  *
+ * 挂载即代表已确认：父级（DiscoveryWorkspace）只在员工点确认之后才渲染这一段，
+ * 未确认前连空壳都不展示。`confirmed` 属性作为组件级兜底契约保留：即使被无条件
+ * 挂载，也不得声称正在采集（CONST-03 等待诚实；单测覆盖）。
+ *
  * 状态以采集作业本身为准：交付任务（harness）还在跑，不等于远端在采集。
  * 没有采集作业、也没有采集步骤时，这里只能说「尚未开始」——不能因为前端的
  * 轮询标志就说「进行中」（否则会出现上面写执行失败、下面写进行中的矛盾）。
@@ -38,7 +42,7 @@ export default function DiscoveryRunEvents({
   /** 智能体逐字写给员工看的说明。 */
   narrative?: DiscoveryNarrative | null;
   inFlight: boolean;
-  /** 员工已确认开始采集：未确认前这一段不得声称正在采集。 */
+  /** 员工已确认开始采集：未确认前这一段不得声称正在采集（父级已做挂载门控，此为兜底契约）。 */
   confirmed?: boolean;
   /** 采集作业自己的状态（`runtime_crawl_jobs.state`），没有作业时为 null。 */
   crawlState?: string | null;

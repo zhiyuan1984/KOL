@@ -75,6 +75,10 @@ export default function DiscoveryWorkspace({
   }), [brief, disc.startAction, catalog]);
   const editConditions = onEditConditions || disc.editConditions;
   const flowStarted = disc.submitted || Boolean(disc.startAction);
+  // 未确认前不挂载「采集执行」段：没解锁就没有可看的执行内容，空壳占位
+  // （标题"等待确认"+正文"还没有开始采集"）只会让人误以为执行已就绪。
+  // 员工点确认后该段才出现；CONST-03 等待诚实。
+  const startConfirmed = disc.startPhase !== "waiting_proposal" && disc.startPhase !== "pending";
   return (
     <WorkspaceShell
       pane="discovery"
@@ -162,13 +166,12 @@ export default function DiscoveryWorkspace({
               onStop={disc.stopStart}
             />
           ) : null}
-          {flowStarted ? (
+          {flowStarted && startConfirmed ? (
             <DiscoveryRunEvents
               stage={disc.stage}
               steps={disc.steps}
               narrative={disc.narrative}
               inFlight={disc.inFlight}
-              confirmed={disc.startPhase !== "waiting_proposal" && disc.startPhase !== "pending"}
               crawlState={disc.crawlPhase}
               canStop={disc.crawlRunning}
               stopping={disc.startBusy}
