@@ -27,7 +27,7 @@ async function mockTodayBrief(page: import("@playwright/test").Page, body: Recor
   });
 }
 
-test("entering today lists memory without planning; 启动今日任务 starts the run", async ({ page }) => {
+test("entering today lists memory without planning; 生成今日安排 starts the run", async ({ page }) => {
   const todos = [
     {
       id: "tsk_due",
@@ -82,9 +82,9 @@ test("entering today lists memory without planning; 启动今日任务 starts th
   await taskRailToggle.click();
   await expect(taskRail).not.toHaveClass(/is-collapsed/);
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
-  // 进入今日只读记忆：没有 POST，计划按钮停在可点的「启动今日任务」。
+  // 进入今日只读记忆：没有 POST，计划按钮停在可点的「生成今日安排」。
   const startPlan = page.locator('[data-home-entry="plan-today"]');
-  await expect(startPlan).toHaveText("启动今日任务");
+  await expect(startPlan).toHaveText("生成今日安排");
   await expect(startPlan).toBeEnabled();
   await expect(page.locator('[data-home-pane="today"]')).not.toHaveText(/^正在为你规划今天$/);
   await page.waitForTimeout(1500);
@@ -94,7 +94,7 @@ test("entering today lists memory without planning; 启动今日任务 starts th
   await startPlan.click();
   await expect.poll(() => posts.length, { timeout: 30000 }).toBe(1);
   await expect(page.locator("[data-today-plan-phase]")).toBeVisible();
-  await expect(page.locator("[data-today-plan-phase]")).toHaveText(/Lucas 正在读取今天的任务|Lucas 正在规划今天的任务|Lucas 已完成规划/);
+  await expect(page.locator("[data-today-plan-phase]")).toHaveText(/Lucas 正在读取今天的任务|Lucas 正在整理今日安排|今日安排已整理|本次整理已完成/);
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
 });
 
@@ -136,7 +136,7 @@ test("a terminal event immediately settles the planning header and leaves one ac
   await page.locator('[data-home-entry="plan-today"]').click();
   const progress = page.locator("[data-today-plan-phase]");
   await expect(progress).toHaveAttribute("data-today-plan-phase", "failed");
-  await expect(progress.locator(".today-plan-title")).toHaveText("规划失败");
+  await expect(progress.locator(".today-plan-title")).toHaveText("整理未完成");
   await expect(progress.locator("[data-today-plan-elapsed]")).toHaveCount(0);
   await expect(progress.locator('[data-today-plan-state="interrupted"]')).toHaveCount(1);
   await expect(progress.locator('[data-today-plan-state="failed"]')).toHaveCount(1);
@@ -286,10 +286,8 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
-  // 今日行集合：高优先 ∪ 今天起始/到期 ∪ 逾期 ∪ 进行中 ∪ 审批 ∪ 高风险 —— 共 7 行。
-  // 任务板默认只渲染前 5 行（COLLAPSED_ROWS），所以先断言集合大小，再展开看具体行。
+  // 今日行集合：高优先 ∪ 今天起始/到期 ∪ 逾期 ∪ 进行中 ∪ 审批 ∪ 高风险 —— 共 7 行，完整列表直接可见。
   await expect(page.locator("[data-today-list]")).toHaveAttribute("data-list-total", "7");
-  await page.locator(".task-board-expand").click();
   await expect(page.locator("[data-today-todo]")).toHaveCount(7);
   // 状态文案是展示状态（后端 display_status_label 优先，缺省按日期/状态推导）：
   // 失败 / 延期 / 临期 / 进行中 —— 不再是旧分桶词（高风险/已逾期/今天到期）。
@@ -322,7 +320,6 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
 
   await page.goto("/");
   await expect(page.locator("[data-today-list]")).toBeVisible();
-  await page.locator(".task-board-expand").click();
   await page.locator('[data-today-todo="tsk_approval"] [data-today-todo-act]').click();
   await expect.poll(() => writes).toEqual(["/api/tasks/tsk_high/acknowledge", "/api/tasks/tsk_approval/acknowledge"]);
   await expect(page).toHaveURL(/\/approvals\/apr_quote/);

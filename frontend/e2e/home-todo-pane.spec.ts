@@ -179,7 +179,7 @@ test("todo entry locks todo_plan without planning; composer submit starts the ru
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
   await expect(page.locator("[data-todo-list]")).toBeVisible();
   const startPlan = page.locator('[data-home-entry="plan-todo"]');
-  await expect(startPlan).toHaveText("启动待办任务");
+  await expect(startPlan).toHaveText("整理待办");
   await expect(startPlan).toBeEnabled();
   await expect(page.locator('[data-skill-chip="todo_plan"]')).toHaveCount(0);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/整理我的待办任务/);

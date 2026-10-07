@@ -14,11 +14,14 @@
 }
 .task-board-head {
   display: grid;
-  grid-template-columns: auto minmax(0, auto) auto minmax(180px, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-width: 0;
 }
+.task-board-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.task-board-heading h2 { margin: 0; color: var(--ds-text-strong); font-size: var(--ds-font-section); font-weight: 600; }
+.task-board-scope-note { color: var(--ds-text-muted); font-size: var(--ds-font-helper); }
 .task-board-head-icon {
   flex: 0 0 auto;
   width: 24px;
@@ -43,7 +46,7 @@
 .task-board-tools {
   margin-left: auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -69,6 +72,19 @@
 .task-board-search::placeholder {
   color: var(--ds-text-muted);
 }
+.task-board-refresh {
+  min-height: var(--control-h-lg);
+  padding: 0 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-input);
+  background: var(--bg);
+  color: var(--ds-text-dim);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  cursor: pointer;
+}
+.task-board-refresh:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-text); }
+.task-board-refresh:disabled { opacity: .55; cursor: progress; }
 /* The ask box owns the single filled primary CTA in the pane, so the rail's
    start action stays an outline (docs/DESIGN.md §不变量 1). */
 .task-board-plan-btn {
@@ -129,6 +145,47 @@
   gap: var(--home-chip-gap);
   margin: 14px 0 12px;
 }
+.task-board-tab {
+  min-height: var(--hit-min);
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ds-text-dim);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.task-board-tab:hover { color: var(--accent-text); }
+.task-board-tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.task-board-tab:focus-visible,
+.task-board-refresh:focus-visible,
+.task-board-attention-filter:focus-visible,
+.task-board-clear-filter:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.task-board-attention {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: -4px 0 8px;
+  min-width: 0;
+}
+.task-board-attention-filter,
+.task-board-clear-filter {
+  min-height: var(--hit-min);
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ds-text-dim);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  cursor: pointer;
+}
+.task-board-attention-filter:hover,
+.task-board-clear-filter:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
+.task-board-attention-filter[aria-pressed="true"] { color: var(--accent-text); font-weight: 600; }
+.task-board-result-count { margin-left: auto; color: var(--ds-text-muted); font-size: var(--ds-font-helper); font-variant-numeric: tabular-nums; }
 /* 筛选项只出文字（§5.1「不给筛选触发项加图标」）：宽度随内容，5 项在右栏最小
    宽度里也排得下一行，不再换行。触摸模态由 styles.css 的 (pointer: coarse) 扩命中区。 */
 .task-board-pill {
@@ -171,10 +228,8 @@
   min-width: 0;
   overflow: visible;
 }
-.task-board-table th:nth-child(3),
-.task-board-table td:nth-child(3) { width: 68px; }
-.task-board-table th:nth-child(4),
-.task-board-table td:nth-child(4) { width: var(--workspace-task-actions-col); }
+.task-board-table th:last-child,
+.task-board-table td:last-child { width: var(--workspace-task-actions-col); }
 .task-board-table-scroll:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -271,8 +326,9 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  min-height: 14px;
-  overflow: hidden;
+  min-height: var(--lh-control);
+  overflow: visible;
+  flex-wrap: wrap;
 }
 .task-board-why {
   margin: 0;
@@ -316,6 +372,12 @@
 /* 等审批：与 task-ux-badge.is-pending_approve 同一先例，用 --warning 图形档；
    状态另有"等审批"文字，不只靠颜色（不变量 4）。 */
 .task-board-status.is-approval i { background: var(--warning); }
+.task-board-row-state { display: inline-flex; align-items: center; color: var(--ds-text-dim); font-size: var(--ds-font-tag); white-space: nowrap; }
+.task-board-row-state[data-state="failed"],
+.task-board-row-state[data-state="overdue"],
+.task-board-execution-failed { color: var(--danger); }
+.task-board-execution-failed { font-size: var(--ds-font-tag); overflow-wrap: anywhere; }
+.task-board-panel { min-width: 0; }
 .task-board-cell-actions {
   width: var(--workspace-task-actions-col);
   white-space: normal;
@@ -572,7 +634,7 @@
   grid-column: 1 / -1;
   width: 100%;
   margin: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   justify-content: start;
 }
 .scope-task-rail .task-board-search {

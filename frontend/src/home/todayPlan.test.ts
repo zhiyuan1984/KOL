@@ -148,13 +148,13 @@ describe("today plan three-phase copy", () => {
   it("locks the four product strings", () => {
     expect(TODAY_PLAN_PHASE_COPY).toEqual({
       "loading-memory": "正在读取当前任务",
-      planning: "Lucas正在高效为你规划今天的任务",
-      refreshed: "已按本轮规划刷新",
-      failed: "规划失败，仍可按下面任务操作",
+      planning: "Lucas正在整理今天的任务安排",
+      refreshed: "已按本次整理更新",
+      failed: "整理未完成，仍可按下面任务操作",
     });
     expect(todayPlanStatusCopy("idle")).toBe("");
     expect(todayPlanStatusCopy("loading-memory")).toBe("正在读取当前任务");
-    expect(todayPlanStatusCopy("planning")).toBe("Lucas正在高效为你规划今天的任务");
+    expect(todayPlanStatusCopy("planning")).toBe("Lucas正在整理今天的任务安排");
   });
 
   it("drops today_plan rows from the memory list", () => {
@@ -672,9 +672,9 @@ describe("todo scope wiring", () => {
     expect(planCacheKey("todo")).toBe("lingong:todo-plan-cache");
     expect(planStartEvent("today")).toBe("lingong:today-plan-start");
     expect(planStartEvent("todo")).toBe("lingong:todo-plan-start");
-    expect(SCOPE_CONFIG.today.boardIdleLabel).toBe("启动今日任务");
-    expect(SCOPE_CONFIG.todo.boardIdleLabel).toBe("启动待办任务");
-    expect(SCOPE_CONFIG.todo.boardAgainLabel).toBe("重新生成待办计划");
+    expect(SCOPE_CONFIG.today.boardIdleLabel).toBe("生成今日安排");
+    expect(SCOPE_CONFIG.todo.boardIdleLabel).toBe("整理待办");
+    expect(SCOPE_CONFIG.todo.boardAgainLabel).toBe("整理待办");
   });
 
   it("keeps every pane string in SCOPE_CONFIG so the two tabs cannot drift", () => {

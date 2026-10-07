@@ -11200,9 +11200,9 @@ button.today-brief-primary-btn:disabled {
   background: var(--bg-elevated);
 }
 :root[data-theme="dark"] .task-board-open {
-  background: var(--bg);
-  border-color: var(--border);
-  color: var(--text);
+  background: transparent;
+  border: 0;
+  color: var(--accent-text);
 }
 :root[data-theme="dark"] .task-board-edit {
   background: var(--bg);
@@ -12473,7 +12473,10 @@ button.today-brief-primary-btn:disabled {
   }
   /* 首页快捷入口、任务筛选与任务操作：触摸模态只扩命中区至 44px。 */
   .home-quick-tasks button,
-  .task-board-pill,
+  .task-board-tab,
+  .task-board-attention-filter,
+  .task-board-refresh,
+  .task-board-clear-filter,
   .task-board-open,
   .task-board-edit {
     min-height: 44px;

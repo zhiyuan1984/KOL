@@ -1725,10 +1725,7 @@ test("home todo lists all later items without folding or 已入队 copy", async 
   await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({ json: todos }));
   await page.goto("/");
   await openHomeTodo(page);
-  // 行数超过共享任务板折叠阈值 5 时先折叠；展开后再断言全部 9 行（保持行数精确）。
-  const expand = page.locator(".task-board-expand");
-  await expect(expand).toHaveText(/查看全部 9 项任务/);
-  await expand.click();
+  // 待办清单不折叠前五项，完整 9 行直接可见。
   await expect(page.locator("[data-today-todo]")).toHaveCount(9);
   // 原 waiting/later 分桶计数与 [data-todo-md]「后续」文案：分桶容器移除，改断言 9 行全部是「未开始」chip 且无「等待中」文案。
   await expect(page.locator('[data-today-todo] [data-board-status="not_started"]')).toHaveCount(9);

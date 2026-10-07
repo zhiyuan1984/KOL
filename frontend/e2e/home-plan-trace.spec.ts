@@ -198,7 +198,7 @@ test("a failed run shows the failed step and its reason instead of a green check
   // A settled failed run stays open: the reason must be readable without a
   // second click. The toggle still folds and reopens the step list.
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-phase", "failed");
-  await expect(page.locator("[data-today-plan-phase]")).toContainText("规划失败");
+  await expect(page.locator("[data-today-plan-phase]")).toContainText("整理未完成");
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "true");
   await page.locator(".today-plan-toggle").click();
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "false");
@@ -252,21 +252,20 @@ test("a settled run collapses to one line and expands on demand", async ({ page 
   await expect(stream).toHaveAttribute("data-today-plan-open", "false");
   // Collapsed: one line, no step list.
   await expect(page.locator("[data-today-plan-steps]")).toHaveCount(0);
-  await expect(stream).toContainText("Lucas 已完成规划");
-  await expect(stream).toContainText("分析");
+  await expect(stream).toContainText("今日安排已整理");
+  await expect(stream).toContainText("整理");
   const collapsedHeight = (await stream.boundingBox())!.height;
   expect(collapsedHeight).toBeLessThan(80);
 
   // The summary is light text, and never a business action button.
   const summary = page.locator("[data-today-brief]");
   await expect(summary).toContainText("今天先恢复采集");
-  await expect(summary).toContainText("2 项任务");
   await expect(page.locator("[data-today-primary]")).toHaveCount(0);
 
   await page.locator(".today-plan-toggle").click();
   await expect(stream).toHaveAttribute("data-today-plan-open", "true");
   await expect(page.locator("[data-today-plan-steps]")).toBeVisible();
-  await expect(page.locator(".today-plan-toggle")).toContainText("收起过程");
+  await expect(page.locator(".today-plan-toggle")).toContainText("收起执行详情");
 });
 
 test("the previous version folds to one row and the row keeps no duplicate priority", async ({ page }) => {

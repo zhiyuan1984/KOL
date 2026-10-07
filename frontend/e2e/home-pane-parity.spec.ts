@@ -71,13 +71,13 @@ test("today and todo render the same workspace skeleton", async ({ page }) => {
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
   const today = await skeletonCounts(page);
-  await expect(page.locator('[data-home-pane="today"] [data-home-entry="plan-today"]')).toHaveText("启动今日任务");
+  await expect(page.locator('[data-home-pane="today"] [data-home-entry="plan-today"]')).toHaveText("生成今日安排");
 
   await page.locator('[data-home-mode="todo"]').click();
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
   await expect(page.locator("[data-todo-list]")).toBeVisible();
   const todo = await skeletonCounts(page);
-  await expect(page.locator('[data-home-pane="todo"] [data-home-entry="plan-todo"]')).toHaveText("启动待办任务");
+  await expect(page.locator('[data-home-pane="todo"] [data-home-entry="plan-todo"]')).toHaveText("整理待办");
 
   expect(todo).toEqual(today);
   for (const [index, count] of today.entries()) {

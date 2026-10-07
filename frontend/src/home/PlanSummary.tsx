@@ -11,6 +11,11 @@ function stageSourceLabel(brief?: TodayBrief | null): string {
   const source = String(brief?.stats?.stage_counts_source || "");
   return source === "starry_local_mirror" ? "合作阶段（Starry 镜像）" : "合作阶段快照";
 }
+function snapshotTime(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 /**
  * 计划摘要（今日/待办共用）。阶段数量与任务/异常数量分别呈现；同一份阶段
  * 文案绝不同时作为 section 正文和统计行重复输出。
@@ -48,18 +53,24 @@ export default function PlanSummary({ brief, label = "今日计划摘要", snaps
   ].filter(Boolean).join(" · ");
   // 来源状态与中栏 success banner 调用同一函数：同一快照，同一说法。
   const sourceStatus = planSourceStatus(snapshot);
+  const generatedAt = snapshotTime(snapshot?.generated_at);
   return (
     <section className="today-plan-summary" data-today-brief>
-      <span className="today-plan-summary-label">{label}</span>
+      <div className="today-plan-summary-heading">
+        <span className="today-plan-summary-label">{label}</span>
+        {generatedAt ? <span className="today-plan-summary-time">整理于 {generatedAt}</span> : null}
+      </div>
       {lead ? <p className="today-plan-summary-lead" data-today-lead>{lead}</p> : null}
-      {note && !noteDuplicatesStageText ? <p className="today-plan-summary-note" data-today-sections>{note}</p> : null}
-      {stageText ? <p className="today-plan-summary-stats" data-today-stage-counts>{stageSourceLabel(brief)} · {stageText}</p> : null}
       {stats ? <p className="today-plan-summary-stats">{stats}</p> : null}
-      {sourceStatus ? (
-        <p className="today-plan-summary-stats" data-plan-snapshot-status>
-          {sourceStatus}
-          {snapshot?.producer === "deterministic_organize" ? " · 确定性整理" : snapshot?.producer === "agent_plan" ? " · Agent 规划" : ""}
-        </p>
+      {(note && !noteDuplicatesStageText) || stageText || snapshot ? (
+        <details className="today-plan-summary-details">
+          <summary>查看整理依据与来源</summary>
+          {note && !noteDuplicatesStageText ? <p className="today-plan-summary-note" data-today-sections>{note}</p> : null}
+          {stageText ? <p className="today-plan-summary-stats" data-today-stage-counts>{stageSourceLabel(brief)}（人数）· {stageText}</p> : null}
+          {snapshot?.producer ? <p className="today-plan-summary-stats">整理方式：{snapshot.producer === "deterministic_organize" ? "规则整理" : snapshot.producer === "agent_plan" ? "Agent 整理" : snapshot.producer}</p> : null}
+          {snapshot?.source_revision ? <p className="today-plan-summary-stats">数据版本：{snapshot.source_revision}</p> : null}
+          {snapshot ? <p className="today-plan-summary-stats" data-plan-snapshot-status>{sourceStatus}</p> : null}
+        </details>
       ) : null}
     </section>
   );

@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 /**
  * Entering 新工作任务 reads memory only. The thinking run starts from
- * 启动今日任务 / 启动待办任务 and nowhere else: not on page entry, not on a tab
+ * 生成今日安排 / 整理待办 and nowhere else: not on page entry, not on a tab
  * switch, not on coming back from another page.
  */
 // No /api/demo/reset here: this spec stubs every endpoint it reads, and the
@@ -66,14 +66,14 @@ async function waitForPlanCache(page: Page) {
     .toBe(true);
 }
 
-test("entering 新工作任务 posts no plan; 启动今日任务 posts exactly one", async ({ page }) => {
+test("entering 新工作任务 posts no plan; 生成今日安排 posts exactly one", async ({ page }) => {
   const planPosts: string[] = [];
   const briefGate = await stubPlanEndpoints(page, planPosts);
 
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   const start = page.locator('[data-home-entry="plan-today"]');
-  await expect(start).toHaveText("启动今日任务");
+  await expect(start).toHaveText("生成今日安排");
   // Give the old behaviour time to fire; entry must stay memory-only.
   await page.waitForTimeout(3000);
   expect(planPosts).toEqual([]);
@@ -101,7 +101,7 @@ test("a stale cache re-reads memory and still posts no plan", async ({ page }) =
 
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
-  await expect(page.locator('[data-home-entry="plan-today"]')).toHaveText("启动今日任务");
+  await expect(page.locator('[data-home-entry="plan-today"]')).toHaveText("生成今日安排");
   briefGate.release();
 
   // Age the cached memory, then re-enter Home. Aging can only cost a memory read;

@@ -22,6 +22,7 @@ export default function WorkspaceShell({
   resultIdle = false,
   focusResults = false,
   streamStick = false,
+  preserveRailPosition = false,
   railScrollJump = false,
   resultView,
   scrollAnchorEvent,
@@ -44,6 +45,8 @@ export default function WorkspaceShell({
   focusResults?: boolean;
   /** 中栏正在流式产出（发现运行中 / 计划生成中）：新内容贴底跟随。 */
   streamStick?: boolean;
+  /** 今日/待办切换或重新渲染时保留右栏阅读位置。 */
+  preserveRailPosition?: boolean;
   /** 右栏是持续更新的结果面：回看时保持位置，提供「回到最新」入口。 */
   railScrollJump?: boolean;
   /** Optional normalized metadata/history/action slots; domain children remain mode-specific. */
@@ -71,10 +74,16 @@ export default function WorkspaceShell({
   }, [scrollAnchorEvent, stream.scrollTo]);
   useEffect(() => {
     const railEl = railRef.current;
-    if (railEl) railEl.scrollTop = 0;
+    if (railEl) {
+      let savedPosition = 0;
+      if (preserveRailPosition) {
+        try { savedPosition = Number(sessionStorage.getItem(`ui:home-${pane}-rail-scroll`) || 0) || 0; } catch { /* Storage is optional. */ }
+      }
+      railEl.scrollTop = savedPosition;
+    }
     railStickBottom.current = true;
     setRailJump(false);
-  }, [pane]);
+  }, [pane, preserveRailPosition]);
   // 右栏：结果原位更新时不强制跳转，只在自己就在底部时跟随；回看历史时给「回到最新」。
   useEffect(() => {
     if (!railScrollJump) return;
@@ -103,6 +112,9 @@ export default function WorkspaceShell({
   const onRailScroll = () => {
     const el = railRef.current;
     if (!el) return;
+    if (preserveRailPosition) {
+      try { sessionStorage.setItem(`ui:home-${pane}-rail-scroll`, String(el.scrollTop)); } catch { /* Storage is optional. */ }
+    }
     railStickBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 1;
     setRailJump(el.scrollHeight > el.clientHeight + 1);
   };
@@ -153,7 +165,7 @@ export default function WorkspaceShell({
         className={"scope-task-rail" + (railCollapsed ? " is-collapsed" : "")}
         data-scope-task-rail
         aria-label={railLabel}
-        onScroll={railScrollJump ? onRailScroll : undefined}
+        onScroll={railScrollJump || preserveRailPosition ? onRailScroll : undefined}
       >
         <button
           type="button"

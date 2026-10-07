@@ -1,6 +1,10 @@
 import type { Task } from "../api";
+import { lastSafeSummary } from "../waitStatus";
 import {
+  dueDayDiff,
+  isClosedTask,
   isDisplayOnlyTask,
+  displayStatusLabel,
   taskActionLabel,
   taskDisplayStatus,
 } from "./homeModel";
@@ -71,6 +75,15 @@ export default function BoardRow({
   const opensTask = Boolean(onOpen) && ["open", "open_task", "view", "view_task"].includes(verb);
   const risk = riskChip(task);
   const status = boardStatus(task);
+  const executionFailed = task.execution?.status === "failed";
+  const executionNote = executionFailed ? lastSafeSummary(task) : "";
+  const taskFailed = task.status === "failed" || task.display_status === "failed";
+  const dueDiff = dueDayDiff(task.due_at);
+  const dueTime = task.due_at ? new Date(task.due_at) : null;
+  const dueLabel = dueTime && !Number.isNaN(dueTime.getTime())
+    ? dueTime.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
+    : "";
+  const statusLabel = displayStatusLabel(task);
   const editable = Boolean(onEdit) && verb !== "edit" && !isDisplayOnlyTask(task);
   return (
     <tr
@@ -96,16 +109,16 @@ export default function BoardRow({
               {task.title}
             </button>
           </div>
-          {(why || risk) ? (
+          {(why || risk || statusLabel || executionFailed || dueLabel) ? (
             <div className="task-board-meta">
               {why ? <p className="task-board-why" title={why}>{why}</p> : null}
               {risk ? <span className={`task-board-chip is-${risk.toLowerCase()}`} data-risk-level={task.risk_level}>{risk}</span> : null}
+              {statusLabel ? <span className="task-board-row-state" data-state={taskFailed ? "failed" : !isClosedTask(task) && dueDiff != null && dueDiff < 0 ? "overdue" : "default"}>任务状态：{statusLabel}</span> : null}
+              {dueLabel ? <span className="task-board-row-state">到期 {dueLabel}</span> : null}
+              {executionFailed ? <span className="task-board-execution-failed">上次执行失败{executionNote ? `：${executionNote}` : " · 原因待核对"}{task.status === "pending" || task.status === "waiting" ? " · 任务仍待处理" : ""}</span> : null}
             </div>
           ) : null}
         </div>
-      </td>
-      <td className="task-board-cell-status">
-        <span className={`task-board-status is-${status.tone}`}><i aria-hidden />{status.label}</span>
       </td>
       <td className="task-board-cell-actions">
         <div className="task-board-actions">

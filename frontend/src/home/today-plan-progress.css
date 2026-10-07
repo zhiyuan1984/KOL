@@ -141,8 +141,7 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
-.today-plan-elapsed,
-.today-plan-finished {
+.today-plan-elapsed {
   flex: 0 0 auto;
   margin-left: auto;
   font-size: var(--ds-font-helper);
@@ -150,9 +149,6 @@
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
   white-space: nowrap;
-}
-.today-plan-finished + .today-plan-toggle {
-  margin-left: auto;
 }
 .today-plan-toggle {
   flex: 0 0 auto;
@@ -168,9 +164,6 @@
   gap: 3px;
   padding: 4px 2px;
   border-radius: var(--ds-radius-input);
-}
-.today-plan-head-meta .today-plan-finished {
-  margin-left: 0;
 }
 .today-plan-head-meta .today-plan-toggle {
   margin-left: 0;
@@ -457,31 +450,48 @@
    button: the actionable line belongs to the task row. */
 .today-plan-summary {
   display: block;
-  margin: 0 0 var(--space-4, 16px);
-  padding-top: var(--space-3, 12px);
-  border-top: 1px solid var(--border);
+  margin: 0 0 var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--ds-border);
+}
+.today-plan-summary-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 .today-plan-summary-label {
-  display: block;
+  display: inline;
   font-size: var(--ds-font-helper);
   font-weight: 600;
   color: var(--text-muted);
-  margin-bottom: 4px;
+  margin: 0;
+}
+.today-plan-summary-time {
+  color: var(--ds-text-muted);
+  font-size: var(--ds-font-helper);
 }
 .today-plan-summary-lead {
   margin: 0;
-  font-size: var(--ds-font-body);
-  line-height: 1.55;
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
   color: var(--text);
 }
+.today-plan-summary-details { margin-top: var(--space-1); }
+.today-plan-summary-details summary {
+  width: fit-content;
+  color: var(--accent-text);
+  font-size: var(--ds-font-helper);
+  cursor: pointer;
+}
 .today-plan-summary-note {
-  margin: 6px 0 0;
+  margin: var(--space-1) 0 0;
   font-size: var(--ds-font-sm);
   line-height: 1.55;
   color: var(--text-muted);
 }
 .today-plan-summary-stats {
-  margin: 8px 0 0;
+  margin: var(--space-1) 0 0;
   font-size: var(--ds-font-helper);
   color: var(--text-muted);
 }

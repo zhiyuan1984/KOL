@@ -111,18 +111,19 @@ export default function ScopeWorkspace({
   );
   return (
     <WorkspaceShell
+      key={scope}
       pane={scope}
       railLabel={cfg.railLabel}
       railToggleLabel={cfg.railToggleLabel}
       railStorageKey={cfg.railStorageKey}
       railBadge={stamped.length}
+      preserveRailPosition
       streamStick={phase === "loading-memory" || phase === "planning"}
       resultView={{
         resultType: cfg.resultType,
         status: phase === "failed" ? "failed" : phase === "planning" || phase === "loading-memory"
           ? "running" : hasStream ? "completed" : stamped.length ? "ready" : "idle",
-        updatedAt: snapshot?.generated_at || undefined,
-        freshness: snapshot?.stale_reason ? "stale" : brief ? "current" : "unknown",
+        freshness: "unknown",
       }}
       scrollAnchorEvent={TODAY_PLAN_REFRESH_EVENT}
       centerHeader={(
@@ -170,6 +171,7 @@ export default function ScopeWorkspace({
         />
       ) : (
         <TaskBoard
+          key={scope}
           title={cfg.boardTitle}
           scope={scope}
           rows={stamped}
