@@ -107,7 +107,11 @@ import { calculateApprovalPlan, expenseFactsFromWorkerItem, hintRequesterFromOrg
 import { isSkillGranted } from "./grants.js";
 import { currentFingerprint } from "./fingerprint.js";
 import { allowedFromMailboxes, authorizedSenderBrand, brandOfMailbox, enforceSend, PepFail, resolveAuthorizedFrom } from "./pep.js";
-import { collaborationBrand, composeSenderFor } from "./compose-sender.js";
+import { collaborationBrand, composeSenderFor, type ComposeSender } from "./compose-sender.js";
+import { composeRecipientFor } from "./compose-recipient.js";
+import { mailboxBindings } from "./mail-memory.js";
+import { readPersonDigest } from "./mail-memory-job.js";
+import { normalizeEmail } from "./identity.js";
 import { currentUser } from "./persona.js";
 import { boundMailboxEmail } from "./starry-bind.js";
 import { assertSessionAccess } from "../routers/enterprise.js";
@@ -237,6 +241,12 @@ type ComposePrepare = {
   digest?: string;
   /** 最近往来条目数 */
   mail_count?: number;
+  /** 收发件来源的人话标签（ADR-2026-10-07）：如「你挂载的默认邮箱」「最近往来 · 10-06」 */
+  sources?: { from?: string; to?: string };
+  /** 发件箱候选：挂了多只又没有默认时让人选 */
+  sender_candidates?: Array<{ email: string; label: string }>;
+  /** 收件人候选：最近往来最多 5 个 */
+  recipient_candidates?: Array<{ email: string; label: string; last_at?: string | null }>;
 };
 
 function stringValues(value: unknown): Record<string, string> {
@@ -265,6 +275,37 @@ function templateCandidate(template: UsableTemplate): Json {
 
 function prepareReply(partial: Omit<ComposePrepare, "skill_id">): ComposePrepare {
   return { skill_id: "email_compose", ...partial };
+}
+
+/** 本人挂载的邮箱集合（小写归一）：通讯页选中的邮箱必须在其中。 */
+function isOwnMailbox(email: string): boolean {
+  const target = normalizeEmail(email);
+  if (!target) return false;
+  try {
+    return mailboxBindings().some((binding) => normalizeEmail(String(binding.mailbox || "")) === target);
+  } catch {
+    return false;
+  }
+}
+
+function firstNonEmpty(...values: unknown[]): string {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+/** 发件箱来源的人话标签，前端直接展示。 */
+function senderSourceLabel(sender: ComposeSender): string {
+  switch (sender.source) {
+    case "explicit": return "口令里指定的";
+    case "selected": return "通讯页选中的邮箱";
+    case "user_binding": return "你挂载的默认邮箱";
+    case "collaboration": return "合作记录里的发件箱";
+    case "brand_unique": return "品牌唯一授权邮箱";
+    default: return "暂无发件箱";
+  }
 }
 
 /**
@@ -380,26 +421,104 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
   const sessionId = String(body.session_id || "").trim();
   const session = sessionId ? sessionRow(sessionId) : null;
   // 上下文一律走解析层（合作对象/阶段/模板/发件箱/往来摘要）；邮件自己的状态与文案仍由本动作判定。
-  const resolved = openContext({ skillId: "email_compose", body, session, text: String(body.text || "") });
+  let resolved = openContext({ skillId: "email_compose", body, session, text: String(body.text || "") });
   const selected = resolved.collaboration();
   if (selected.conflict) {
     throw new HttpFail(409, { code: "collaboration_conflict", message: "会话已绑定其他合作对象，不能由请求覆盖" });
   }
-  if (!selected.row) {
+
+  // 收发件不依赖合作对象（ADR-2026-10-07）：先解析发件箱与收件人。
+  const requestedMailbox = String(body.mailbox || "").trim();
+  if (requestedMailbox && !isOwnMailbox(requestedMailbox)) {
+    throw new HttpFail(400, { code: "mailbox_not_mounted", message: "选中的邮箱不是本人挂载的邮箱" });
+  }
+  const sender = composeSenderFor({
+    collaboration: selected.row,
+    requested: String(body.from || ""),
+    selectedMailbox: requestedMailbox || null,
+  });
+  const extracted = extractTaskEntities(String(body.text || ""));
+  const toList = Array.isArray(extracted.to) ? extracted.to : [];
+  const explicitTo = firstNonEmpty(
+    body.to, body.recipient,
+    toList[0], typeof extracted.email === "string" ? extracted.email : "",
+  );
+  const conversationId = String(body.conversation_id || body.thread_id || "").trim();
+  let recipient = composeRecipientFor({
+    mailbox: sender.from,
+    collaboration: selected.row,
+    conversationId: conversationId || null,
+    explicitTo: explicitTo || null,
+  });
+  if (recipient.error) {
+    throw new HttpFail(400, { code: recipient.error.code, message: recipient.error.message });
+  }
+
+  // 往来匹配采用合作：收件人来自选中会话或最近往来，且该收件邮箱在权限范围内
+  // 只匹配到唯一合作时，采用这个合作来套阶段模板和往来摘要；多个候选不猜，
+  // 匹配不到就不猜阶段（ADR-2026-10-07）。
+  let row = selected.row;
+  let adoptedFromMemory = false;
+  if (!row && (recipient.source === "conversation" || recipient.source === "memory") && recipient.to) {
+    const scope = inboundVisibleSql();
+    const matches = getConn().prepare(
+      `SELECT * FROM collaborations WHERE lower(email) = lower(?) AND ${scope.sql}`,
+    ).all(recipient.to, ...scope.params) as Row[];
+    if (matches.length === 1) {
+      const adopted = { ...(matches[0] as Row) };
+      row = adopted;
+      adoptedFromMemory = true;
+      // 采用后按显式合作对象重新走解析层，阶段/模板/往来摘要都按该合作取。
+      resolved = openContext({
+        skillId: "email_compose",
+        body: { ...body, collaboration_id: String(adopted.id) },
+        session,
+        text: String(body.text || ""),
+      });
+      recipient = composeRecipientFor({
+        mailbox: sender.from,
+        collaboration: row,
+        conversationId: conversationId || null,
+        explicitTo: explicitTo || null,
+      });
+    }
+  }
+
+  const from = sender.from;
+  const resolvedTo = recipient.to;
+  const sources = { from: senderSourceLabel(sender), to: recipient.label };
+  const senderCandidates = sender.candidates;
+  const recipientCandidates = recipient.candidates;
+
+  if (!row) {
     const sceneHint = String(body.scene_hint || "").trim();
+    let digest: string | undefined;
+    let mailCount: number | undefined;
+    if (from && resolvedTo) {
+      const personDigest = readPersonDigest(from, resolvedTo);
+      if (personDigest) {
+        digest = personDigest.text || undefined;
+        mailCount = personDigest.mail_count || undefined;
+      }
+    }
     return c.json(prepareReply({
       status: "needs_context",
       message: selected.ambiguous
         ? "请选择单个红人或合作对象。"
-        : sceneHint === "first_touch"
-          ? "首封场景尚未建立正式合作阶段；请选择单个红人并补充授权发件信息。"
-          : "请选择红人或补充收件信息。",
+        : !resolvedTo
+          ? "已带出收发件；暂无该发件箱的收件人，请补充收件信息。"
+          : "已带出收发件；该收件人尚无正式合作阶段，未套阶段模板。",
       context: sceneHint === "first_touch" ? { scene: "first_touch", stage_source: "scene_hint" } : {},
+      editor: { from, to: resolvedTo ? [resolvedTo] : [], subject: "", body: "" },
+      sources,
+      sender_candidates: senderCandidates,
+      recipient_candidates: recipientCandidates,
       missing_fields: ["collaboration_id"],
       candidates: [],
+      digest,
+      mail_count: mailCount,
     }));
   }
-  const row = selected.row;
   const stage = String(row.stage_code || "").trim();
   const brand = String(row.brand || "").trim();
   if (!stage || !brand || !BY_CODE[stage]) {
@@ -415,16 +534,28 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     collaboration_id: row.id,
     stage_code: stage,
     stage_source: "collaboration",
+    ...(adoptedFromMemory ? { collaboration_source: "memory_match" } : {}),
     scene: stageMailSpec(stage).kind,
     brand,
   };
   const templateFacts = resolved.mailTemplate();
   const templates = templateFacts?.templates || [];
+  // 无模板时也要带回 editor/sources/候选：首封可提交草稿，前端可编辑主题正文。
+  const noTemplateEditor = {
+    from,
+    to: resolvedTo ? [resolvedTo] : [],
+    subject: "",
+    body: "",
+  };
   if (!templates.length) {
     return c.json(prepareReply({
       status: "needs_template",
       message: "暂无已启用的适用模板。",
       context,
+      editor: noTemplateEditor,
+      sources,
+      sender_candidates: senderCandidates,
+      recipient_candidates: recipientCandidates,
       missing_fields: [],
       candidates: [],
       context_version: composeContextVersion({ collaboration_id: row.id, stage, brand }),
@@ -436,14 +567,18 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
       status: "needs_template",
       message: "有多个同等适用的模板，请选择其一。",
       context,
+      editor: noTemplateEditor,
+      sources,
+      sender_candidates: senderCandidates,
+      recipient_candidates: recipientCandidates,
       missing_fields: [],
       candidates: choices.map(templateCandidate),
       context_version: composeContextVersion({ collaboration_id: row.id, stage, brand, candidates: choices.map((item) => [item.id, item.version]) }),
     }));
   }
   const template = choices[0];
-  const from = preparedSender(row);
-  const to = firstEmail(row.email);
+  // 有合作时：收件人优先走来源链（该红人最近往来 > 合作记录邮箱），发件箱沿用上面的解析。
+  const to = recipient.to || firstEmail(row.email);
   const values = {
     ...stringValues(body.variables),
     handle: String(row.handle || row.display_name || ""),
@@ -472,6 +607,9 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
       source: "knowledge",
     },
     editor: { from, to: to ? [to] : [], subject: compiled.subject, body: compiled.body },
+    sources: { from: senderSourceLabel(sender), to: recipient.label },
+    sender_candidates: senderCandidates,
+    recipient_candidates: recipientCandidates,
     missing_fields: missingFields,
     candidates: [],
     context_version: contextVersion,

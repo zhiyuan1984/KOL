@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { DEMO_USER } from "../src/config.js";
 import { requireTaskDefinition, taskDefinition, validateDeclaredTaskContract } from "../src/tasks/registry.js";
 import { getConn, nowIso, resetConn } from "../src/db.js";
 import { approveKnowledge, cite, createKnowledge, knowledgeRow, workerSafeExtra } from "../src/host/knowledge.js";
@@ -537,5 +538,86 @@ describe("POST /api/actions/mail.prepare 行为回归", () => {
     getConn().prepare("UPDATE collaborations SET brand='' WHERE id='col_xiaomei'").run();
     const response = await prepare();
     expect(response.body).toMatchObject({ status: "needs_context", missing_fields: ["brand"] });
+  });
+});
+
+describe("收发件解析不再依赖合作对象（ADR-2026-10-07）", () => {
+  function bindDefaultMailbox(email: string): void {
+    const conn = getConn();
+    const now = new Date().toISOString();
+    conn.prepare(
+      `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x",
+      JSON.stringify(["employee", "admin"]), JSON.stringify(["LT"]), DEMO_USER.site, 1, now, now,
+    );
+    conn.prepare("DELETE FROM user_starry_bindings WHERE user_id=?").run(DEMO_USER.id);
+    conn.prepare(
+      `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)
+       VALUES (?,?,1,'connected',?)`,
+    ).run(DEMO_USER.id, email, now);
+    conn.prepare(
+      `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
+       VALUES (?,?,?,?,'active')`,
+    ).run(email, "LT", DEMO_USER.name, "personal");
+  }
+
+  function insertThread(input: { id: string; mailbox: string; conversation_id: string; peer_email: string; last_at: string }): void {
+    const now = new Date().toISOString();
+    getConn().prepare(
+      `INSERT INTO kol_mail_threads (id, conversation_id, subject, mailbox, last_at, created_at, updated_at, peer_email, match_state)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    ).run(input.id, input.conversation_id, "t", input.mailbox, input.last_at, now, now, input.peer_email, "unbound");
+  }
+
+  it("mailbox 不依赖 collaboration：无合作时也能解析出挂载的默认邮箱", () => {
+    bindDefaultMailbox("ctx@litime.com");
+    const session = openContext({ skillId: "email_compose", body: {} });
+    const mailbox = session.mailbox();
+    expect(mailbox?.from).toBe("ctx@litime.com");
+  });
+
+  it("recipient 逐档回退：口令写明 > 选中会话 > 最近往来", () => {
+    bindDefaultMailbox("ctx@litime.com");
+    insertThread({ id: "th_c1", mailbox: "ctx@litime.com", conversation_id: "conv_c1", peer_email: "mem@gmail.com", last_at: "2026-10-06T10:00:00.000Z" });
+    insertThread({ id: "th_c2", mailbox: "ctx@litime.com", conversation_id: "conv_c2", peer_email: "conv@gmail.com", last_at: "2026-10-05T10:00:00.000Z" });
+
+    const byMemory = openContext({ skillId: "email_compose", body: {} });
+    expect(byMemory.recipient()?.to).toBe("mem@gmail.com");
+    expect(byMemory.recipient()?.source).toBe("memory");
+
+    const byConversation = openContext({ skillId: "email_compose", body: { conversation_id: "conv_c2" } });
+    expect(byConversation.recipient()?.to).toBe("conv@gmail.com");
+    expect(byConversation.recipient()?.source).toBe("conversation");
+
+    const byExplicit = openContext({
+      skillId: "email_compose",
+      body: {},
+      text: "写合作邮件 收件邮箱：boss@brand.com",
+    });
+    expect(byExplicit.recipient()?.to).toBe("boss@brand.com");
+    expect(byExplicit.recipient()?.source).toBe("explicit");
+  });
+
+  it("无合作时 mail_thread 走收件人的人摘要，不再直接失败", () => {
+    bindDefaultMailbox("ctx@litime.com");
+    insertThread({ id: "th_c3", mailbox: "ctx@litime.com", conversation_id: "conv_c3", peer_email: "mem@gmail.com", last_at: "2026-10-06T10:00:00.000Z" });
+    getConn().prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES (?,?)").run(
+      "mail_person_digest:ctx@litime.com:mem@gmail.com",
+      JSON.stringify({ text: "人摘要", source: "memory", mail_count: 2, fingerprint: "fp" }),
+    );
+    const session = openContext({ skillId: "email_compose", body: {} });
+    const thread = session.mailThread();
+    expect(thread?.text).toBe("人摘要");
+    expect(thread?.mail_count).toBe(2);
+  });
+
+  it("resolution 信封里 recipient 键可被声明为 prefers 且带出来源", () => {
+    bindDefaultMailbox("ctx@litime.com");
+    insertThread({ id: "th_c4", mailbox: "ctx@litime.com", conversation_id: "conv_c4", peer_email: "mem@gmail.com", last_at: "2026-10-06T10:00:00.000Z" });
+    const resolution = openContext({ skillId: "email_compose", body: {}, prefers: ["recipient"] }).resolution();
+    expect((resolution.resolved.recipient as { to: string }).to).toBe("mem@gmail.com");
+    expect(resolution.sources.recipient).toBe("memory");
   });
 });

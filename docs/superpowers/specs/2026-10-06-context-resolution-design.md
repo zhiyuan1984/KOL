@@ -59,8 +59,9 @@ context: {"requires":["collaboration","stage"],"prefers":["stage_tracks"]}
 | `collaboration` | 合作对象行（id / handle / brand / email / mailbox_from / stage_code） | 显式载荷 → UI 选中 → 会话绑定 → 文本 `@handle` |
 | `stage` | 正式 `stage_code`、`stage_version`、`advancement_mode`、是否异常 | 合作对象行 + 阶段图 |
 | `stage_tracks` | 三轨与 `legalTargets` | 阶段图（`stages.ts` / `groupedStageTracks`） |
-| `mailbox` | 授权发件箱（`from` / `send_from` / 来源档） | `compose-sender.ts` 单一规则 |
-| `mail_thread` | 最近往来摘要与条目数 | `composeContextForCollaboration` |
+| `mailbox` | 授权发件箱（`from` / `send_from` / 来源档） | `compose-sender.ts` 单一规则（ADR-2026-10-07：解开与 collaboration 的硬依赖；不依赖合作也可解析） |
+| `recipient` | 授权收件人（`to` / `send_to` / 来源档） | `compose-recipient.ts` 单一规则（ADR-2026-10-07 登记；不依赖合作也可解析） |
+| `mail_thread` | 最近往来摘要与条目数 | `composeContextForCollaboration`（有合作时）；无合作时 `mail_thread` 独立解析收件人的人摘要（ADR-2026-10-07） |
 | `mail_template` | 适用且已发布的邮件模板快照 | 知识库解析器 |
 | `message` | 当前邮件消息（id / 正文 / 方向 / 时间） | 显式载荷 → UI 选中 → `object_refs` |
 | `conversation` | 当前邮件会话 | 显式载荷 → UI 选中 → 文本抽取 |

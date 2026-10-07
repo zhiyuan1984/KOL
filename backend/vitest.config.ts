@@ -25,6 +25,7 @@ export default defineConfig({
       "../frontend/src/home/poolView.test.ts",
       "../frontend/src/layout/sidebarNav.test.ts",
       "../frontend/src/composer/catalog.test.ts",
+      "../frontend/src/composer/addresses.test.ts",
       "../frontend/src/composer/draft.test.ts",
       "../frontend/src/composer/recents.test.ts",
       "../frontend/src/composer/skillFill.test.ts",
