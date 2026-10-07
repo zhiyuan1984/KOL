@@ -123,17 +123,36 @@ async function queueStart() {
   } finally { runtime.close(); }
 }
 
-it.each(["starting", "running", "uncertain"])("persists a pre-dispatch busy rejection as a terminal failed job when the existing crawl is %s", async state => {
+it.each(["starting", "running", "uncertain"])("enqueues the confirm instead of rejecting when the existing crawl is %s", async state => {
   const { action, id } = await queueStart();
   await postgresPool().query(`INSERT INTO runtime_crawl_jobs(id,instance_key,actor_id,context_json,config_version,args_json,remote_task_id,state)
     VALUES('existing-crawl',$1,$2,$3,1,$4,'fixture-existing',$5)`, [runtimeHash(url), context.userId, JSON.stringify(context), JSON.stringify({ platforms: ["youtube"] }), state]);
-  expect(await completedWorker(id)).toMatchObject({ result: { outcome: "failed" } });
-  expect(await runtimeAction(action.id, context.userId)).toMatchObject({ state: "rejected", error_code: "runtime_probe_crawl_busy" });
-  expect(await pgExecutionJobById(id)).toMatchObject({ status: "failed", error_code: "runtime_probe_crawl_busy", attempts: 1, next_attempt_at: null, lease_owner: null });
+  expect(await completedWorker(id)).toMatchObject({ result: { outcome: "processed" } });
+  // 请求被接受（action succeeded），采集任务进入排队，未触碰远端。
+  const saved = await runtimeAction(action.id, context.userId);
+  expect(saved).toMatchObject({ state: "succeeded" });
+  expect(JSON.stringify(saved.receipt_json)).toContain("\"queued\":true");
+  expect(await pgExecutionJobById(id)).toMatchObject({ status: "succeeded", attempts: 1 });
   expect(await completedWorker(id)).toEqual({ result: null });
   expect(calls).toEqual([]);
-  expect((await postgresPool().query("SELECT id,state FROM runtime_crawl_jobs")).rows).toEqual([{ id: "existing-crawl", state }]);
-  expect((await postgresPool().query("SELECT count(*)::int AS n FROM execution_outbox WHERE event_type='execution_job.retry_scheduled'")).rows[0].n).toBe(0);
+  const rows = (await postgresPool().query("SELECT id,state FROM runtime_crawl_jobs")).rows;
+  expect(rows).toHaveLength(2);
+  expect(rows).toEqual(expect.arrayContaining([{ id: "existing-crawl", state }, { id: action.id, state: "queued" }]));
+});
+
+it("rejects with runtime_probe_crawl_busy only when the queue is full", async () => {
+  const { action, id } = await queueStart();
+  const instanceKey = runtimeHash(url);
+  for (let i = 0; i < 20; i += 1) {
+    await postgresPool().query(`INSERT INTO runtime_crawl_jobs(id,instance_key,actor_id,context_json,config_version,args_json,state)
+      VALUES($1,$2,$3,$4,1,$5,'queued')`,
+      [`queued-${i}`, instanceKey, context.userId, JSON.stringify(context), JSON.stringify({ platforms: ["youtube"] })]);
+  }
+  expect(await completedWorker(id)).toMatchObject({ result: { outcome: "failed" } });
+  expect(await runtimeAction(action.id, context.userId)).toMatchObject({ state: "rejected", error_code: "runtime_probe_crawl_busy" });
+  expect(await pgExecutionJobById(id)).toMatchObject({ status: "failed", error_code: "runtime_probe_crawl_busy", attempts: 1 });
+  expect(calls).toEqual([]);
+  expect((await postgresPool().query("SELECT count(*)::int AS n FROM runtime_crawl_jobs WHERE state='queued'")).rows[0].n).toBe(20);
 });
 
 it("keeps an error response uncertain even when its text looks like a local busy rejection", async () => {

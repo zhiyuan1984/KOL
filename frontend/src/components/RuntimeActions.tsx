@@ -70,6 +70,15 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
     } catch { setError("无法提出操作，请刷新核对任务状态和当前权限。"); }
     finally { setBusy(null); }
   }
+  async function dequeue(action: RuntimeActionView) {
+    setBusy(action.id); setError("");
+    try {
+      await api.dequeueCrawl(action.id);
+      const updated = (await api.runtimeActions(sessionId)).actions;
+      setActions(updated); changeRef.current?.(updated);
+    } catch { setError("无法取消排队，请刷新核对任务状态。"); }
+    finally { setBusy(null); }
+  }
   const render = (id: string) => {
     const action = actions.find(row => row.id === id);
     if (!action) return null;
@@ -99,6 +108,9 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
         {action.crawl.state === "running" ? <p>正在采集公开资料。{action.crawl.status_json ? "采集服务仍在更新结果。" : "采集服务尚未提供详细进度。"}</p> : null}
         {debug && action.crawl.status_json ? <details><summary>技术进度</summary><pre>{JSON.stringify(action.crawl.status_json, null, 2)}</pre></details> : null}
         {action.crawl.state === "running" ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, true)}>申请停止采集</button> : null}
+        {action.crawl.state === "queued" ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void dequeue(action)}>取消排队</button> : null}
+        {action.crawl.state === "uncertain" ? <><button className="btn ghost" disabled={Boolean(busy)} onClick={() => void dequeue(action)}>取消等待</button>
+          <p className="muted">远端状态未知，取消只释放本地占位，远端任务可能仍在运行。</p></> : null}
         {!action.can_retry && !action.progress && ["failed", "cancelled"].includes(action.crawl.state) ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, false)}>重新核对并重试</button> : null}
       </div> : null}
       {action.can_retry ? <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void crawlAction(action, false)}>重新核对并重试</button> : null}

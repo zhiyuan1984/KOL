@@ -284,9 +284,11 @@ describe("governed Skill Runtime", () => {
     expect(remoteCalls).toBe(1);
     const second = await runtime.invoke(startAlias, { ...args, keywords: "outdoor" });
     const secondAction = await runtimeAction(String((second.structuredContent as Json).action_id), context.userId);
-    await expect(new SkillExecution(crawlContext, factory).confirm(secondAction.id, secondAction.snapshot))
-      .rejects.toMatchObject(denied("runtime_probe_crawl_busy"));
+    // 忙时不再拒绝：第二次确认进入排队，不触碰远端（单任务不变量由出队保证）。
+    const queuedReceipt = await new SkillExecution(crawlContext, factory).confirm(secondAction.id, secondAction.snapshot);
+    expect(queuedReceipt).toMatchObject({ queued: true, queue_position: 1 });
     expect(remoteCalls).toBe(1);
+    expect((await postgresPool().query("SELECT state FROM runtime_crawl_jobs WHERE id=$1", [secondAction.id])).rows[0].state).toBe("queued");
     const statusAlias = String(catalog.tools.find((item) => item.remoteName === "get_crawl_status")!.exposed.name);
     await expect(runtime.invoke(statusAlias, { task_id: "someone-elses-task" })).rejects.toMatchObject(denied("runtime_crawl_scope_denied"));
     const monitor = (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='crawler.monitor'")).rows[0];
@@ -304,13 +306,16 @@ describe("governed Skill Runtime", () => {
       const app = new Hono();
       app.route("/api", operationRouter(runtimeActionOperations));
       const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
+      // 终态出队后第二个任务仍在排队（starter 已派发但尚未跑，无远端调用）；
+      // 这里直接取消它，验证超时的第一个任务可重试、重新确认后能直发。
+      await postgresPool().query("UPDATE runtime_crawl_jobs SET state='cancelled', error_code='queue_cancelled_by_user' WHERE id=$1", [secondAction.id]);
       const response = await withScopedUser(owner, () => app.request("/api/actions/runtime.crawl.retry", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: secondAction.id }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: action.id }),
       }));
       expect(response.status).toBe(200);
       const retry = await response.json();
       const retryAction = await runtimeAction(String(retry.structuredContent.action_id), context.userId);
-      expect(retryAction).toMatchObject({ state: "pending", args_json: { ...args, keywords: "outdoor" } });
+      expect(retryAction).toMatchObject({ state: "pending", args_json: { ...args, keywords: "camping" } });
       expect(retryAction.context_json.originRunId).toBe(crawlContext.runId);
       expect(remoteCalls).toBe(2); // start and its scoped status read, no retry dispatch yet
       await new SkillExecution(retryAction.context_json, factory).confirm(retryAction.id, retryAction.snapshot);

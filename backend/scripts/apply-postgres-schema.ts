@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { Client } from "pg";
 import { reviewSchema } from "../src/approval/review-schema.js";
-import { runtimeActionSchema } from "../src/runtime/action-schema.js";
+import { crawlQueueStateMigration, runtimeActionSchema } from "../src/runtime/action-schema.js";
 import { crawlResultSchema } from "../src/crawl/result-schema.js";
 import { candidateActionsSchema } from "../src/crawl/candidate-actions-schema.js";
 import { runtimeActionEventSchema } from "../src/runtime/action-event-schema.js";
@@ -60,6 +60,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261006_knowledge_scope", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "027_knowledge_scope.sql"), "utf8")] },
   { id: "20261006_knowledge_favorites", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "028_knowledge_favorites.sql"), "utf8")] },
   { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
+  { id: "20261007_crawl_queue_state", statements: crawlQueueStateMigration },
   { id: "20261004_discovery_results", statements: [crawlResultSchema] },
   { id: "20261005_discovery_candidate_actions", statements: [candidateActionsSchema] },
   { id: "20261005_runtime_action_events", statements: [runtimeActionEventSchema] },

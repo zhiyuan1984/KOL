@@ -10,6 +10,7 @@ import { pgEnqueueExecutionJob, pgExecutionJobPublic } from "../execution-jobs/p
 import { enqueueCrawlResults } from "../crawl/results.js";
 import { canRetryRuntimeCrawl, runtimeActionProgress } from "./action-progress.js";
 import { runtimeCandidateViews } from "../crawl/candidate-actions.js";
+import { crawlQueuePosition, drainCrawlQueue } from "../crawl/runtime-gates.js";
 
 function actor(): string {
   const user = scopedUser();
@@ -21,8 +22,13 @@ async function view(action: RuntimeAction) {
   let blocked: string | null = null;
   try { if (action.state === "pending") await runtimeActionGate(action.connector_id, action.tool_name).validate(action.context_json, action.args_json); }
   catch { blocked = "此动作仍需业务范围或审批校验，请使用对应业务操作入口。"; }
-  const crawl = (await postgresPool().query(`SELECT id,remote_task_id,state,status_json,error_code,result_state,result_json,result_error FROM runtime_crawl_jobs
+  const crawl = (await postgresPool().query(`SELECT id,remote_task_id,state,status_json,error_code,result_state,result_json,result_error,
+    instance_key,created_at FROM runtime_crawl_jobs
     WHERE id=$1 AND actor_id=$2`, [action.id, action.actor_id])).rows[0] || null;
+  if (crawl?.state === "queued" && crawl.instance_key) {
+    try { crawl.queue_position = await crawlQueuePosition(String(crawl.instance_key), String(crawl.id)); }
+    catch { /* 位置查询失败不影响主流程 */ }
+  }
   const execution = (await postgresPool().query(`SELECT id,status,error_code FROM execution_jobs WHERE idempotency_key=$1 AND actor_ref=$2`,
     [`runtime-confirm:${action.id}`, action.actor_id])).rows[0] || null;
   const events = (await postgresPool().query("SELECT sequence::text,source,state,recorded_at FROM runtime_action_events WHERE action_id=$1 ORDER BY sequence", [action.id])).rows;
@@ -57,6 +63,20 @@ export const runtimeActionOperations: Operation[] = [
       if (!tool) throw new HttpFail(403, { code: "runtime_tool_not_granted" });
       return c.json(await runtime.invoke(String(tool.exposed.name), { task_id: crawl.remote_task_id }));
     } finally { runtime.close(); }
+  } },
+  { id: "runtime.crawl.dequeue", kind: "action", async handle(c, input) {
+    const action = await runtimeAction(String(input.action_id || ""), actor());
+    if (action.connector_id !== "claw" || action.tool_name !== "start_crawl") throw new HttpFail(409, { code: "runtime_crawl_not_queued" });
+    // R2 级：取消自己的排队任务，直接执行+审计（PROD-AGENT-09 要求提供取消入口）。
+    // uncertain 也允许取消：远端状态未知，取消只释放本地占位/排队，远端任务可能仍在运行，前端需提示。
+    const updated = await postgresPool().query<{ instance_key: string }>(`UPDATE runtime_crawl_jobs
+      SET state='cancelled', error_code=CASE WHEN state='uncertain' THEN 'uncertain_cancelled_by_user' ELSE 'queue_cancelled_by_user' END,
+      updated_at=now() WHERE id=$1 AND actor_id=$2 AND state IN ('queued','uncertain') RETURNING instance_key`,
+      [action.id, actor()]);
+    if (!updated.rows.length) throw new HttpFail(409, { code: "runtime_crawl_not_queued" });
+    // uncertain 占位被释放后，尝试出队下一个（queued 取消不占位，drain 是无害的 no-op）。
+    try { await drainCrawlQueue(String(updated.rows[0].instance_key)); } catch { /* 出队失败不影响取消本身 */ }
+    return c.json(await view(await runtimeAction(action.id, actor())));
   } },
   { id: "runtime.crawl.retry", kind: "action", async handle(c, input) {
     const action = await runtimeAction(String(input.action_id || ""), actor());

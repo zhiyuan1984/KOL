@@ -56,6 +56,45 @@ test("confirmation replaces stale discovery results and restores a busy rejectio
   await page.unrouteAll({ behavior: "wait" });
 });
 
+test("queued crawl shows position and supports dequeue", async ({ page, request }) => {
+  const response = await request.post("/api/home/discovery/workspace", { data: {
+    request_id: `queue-dequeue-${Date.now()}`, text: "发现露营候选", brief: {
+      platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"],
+      min_followers: 10000, max_followers: 2000000, min_avg_plays_10: 5000, expect_count: 30,
+    },
+  } });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const saved = await response.json();
+  let dequeued = false;
+  const queuedSummary = "已加入采集排队，前面还有 2 个任务，轮到时自动开始。无需重复确认。";
+  await page.route("**/api/queries/runtime.actions?*", route => route.fulfill({ json: { actions: [{
+    id: "queue-action", run_id: "queue-worker", skill_id: "crawler_collect", operation: "start_crawl",
+    arguments: { keywords: "camping" }, state: "succeeded", risk: "L3", confirmation_version: "snapshot",
+    execution: null, can_retry: false, error_code: null, blocked_reason: null, receipt: null,
+    crawl: dequeued
+      ? { id: "queue-action", remote_task_id: null, state: "cancelled", status_json: null, error_code: "queue_cancelled_by_user" }
+      : { id: "queue-action", remote_task_id: null, state: "queued", status_json: null, error_code: null, queue_position: 3 },
+    progress: { label: "已确认，等待执行", summary: dequeued ? "本次动作已取消；已取得的回执和候选仍保留。" : queuedSummary,
+      state: dequeued ? "cancelled" : "queued", replace_result: true,
+      result: { type: "task_result", title: "已确认，等待执行", summary: queuedSummary, sections: [], metrics: [], recommended_actions: [] } },
+  }] } }));
+  let dequeueCalls = 0;
+  await page.route("**/api/actions/runtime.crawl.dequeue", async route => {
+    dequeueCalls += 1;
+    dequeued = true;
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto(`/s/${saved.session_id}`);
+  const actions = page.locator("[data-runtime-actions]");
+  await expect(actions).toContainText("前面还有 2 个任务");
+  await expect(actions.getByRole("button", { name: "取消排队" })).toBeVisible();
+  await actions.getByRole("button", { name: "取消排队" }).click();
+  await expect(actions).toContainText("已取消");
+  await expect(actions.getByRole("button", { name: "取消排队" })).toHaveCount(0);
+  expect(dequeueCalls).toBe(1);
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 test("uses saved candidates for analysis and distinguishes sampled views from latest ten", async ({ page, request }, testInfo) => {
   const response = await request.post("/api/home/discovery/workspace", { data: {
     request_id: `candidate-context-${Date.now()}`, text: "发现北美露营候选", brief: {

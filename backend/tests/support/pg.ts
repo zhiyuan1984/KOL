@@ -41,8 +41,9 @@ export async function freshTestDatabase(): Promise<string> {
   created.push(name);
   process.env.DATABASE_URL = urlWithDatabase(name);
   const { postgresPool } = await import("../../src/postgres/pool.js");
-  const { runtimeActionSchema } = await import("../../src/runtime/action-schema.js");
+  const { runtimeActionSchema, crawlQueueStateMigration } = await import("../../src/runtime/action-schema.js");
   await postgresPool().query(runtimeActionSchema);
+  for (const statement of crawlQueueStateMigration) await postgresPool().query(statement);
   const { crawlResultSchema } = await import("../../src/crawl/result-schema.js");
   await postgresPool().query(crawlResultSchema);
   const { replyContextSchema } = await import("../../src/mail/reply-context-schema.js");

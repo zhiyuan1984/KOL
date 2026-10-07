@@ -35,3 +35,13 @@ CREATE TABLE IF NOT EXISTS runtime_crawl_jobs (
 CREATE UNIQUE INDEX IF NOT EXISTS runtime_crawl_instance_active ON runtime_crawl_jobs(instance_key)
   WHERE state IN ('starting','running','stopping','uncertain');
 `;
+
+/**
+ * 增量迁移 20261007_crawl_queue_state 的语句体。
+ * 注意：不要直接改上面的 runtimeActionSchema 常量——20261004_runtime_actions 已在生产执行，
+ * 常量变化会触发 checksum mismatch 导致部署失败。CHECK 变更只走增量迁移。
+ */
+export const crawlQueueStateMigration: string[] = [
+  "ALTER TABLE runtime_crawl_jobs DROP CONSTRAINT IF EXISTS runtime_crawl_jobs_state_check",
+  "ALTER TABLE runtime_crawl_jobs ADD CONSTRAINT runtime_crawl_jobs_state_check CHECK (state IN ('starting','running','stopping','succeeded','failed','cancelled','uncertain','queued'))",
+];

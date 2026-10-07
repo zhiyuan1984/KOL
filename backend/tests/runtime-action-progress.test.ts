@@ -34,3 +34,24 @@ describe("durable confirmation progress", () => {
     expect(JSON.stringify(progress.result)).toContain("owned-task");
   });
 });
+
+describe("crawl queue copy", () => {
+  const action = { state: "succeeded", error_code: null };
+  it("shows queue position ahead count for a queued crawl", () => {
+    const progress = runtimeActionProgress(action, { state: "queued", queue_position: 3 }, null);
+    expect(progress).toMatchObject({ state: "queued", label: "已确认，等待执行" });
+    expect(progress.summary).toContain("前面还有 2 个任务");
+    expect(progress.summary).toContain("轮到时自动开始");
+  });
+  it("shows head-of-queue copy when position is 1", () => {
+    const progress = runtimeActionProgress(action, { state: "queued", queue_position: 1 }, null);
+    expect(progress.summary).toContain("已排在队首");
+  });
+  it("falls back to generic queued copy without a position", () => {
+    const progress = runtimeActionProgress(action, { state: "queued" }, null);
+    expect(progress.summary).toContain("正在等待后台执行");
+  });
+  it("keeps queued crawls out of the retry path", () => {
+    expect(canRetryRuntimeCrawl(action, { state: "queued" })).toBe(false);
+  });
+});
