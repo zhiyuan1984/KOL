@@ -22,7 +22,7 @@ import { readPersonDigest } from "./mail-memory-job.js";
 import { collabById } from "./intent.js";
 import { assertCollaborationInScope, brandScope, scopedCollaborationSearch } from "./inbound-scope.js";
 import { preparedTemplateChoice, resolveApplicableMailTemplates, type UsableTemplate } from "./knowledge.js";
-import { conversationRowOf, currentMailbox, findMailThread, mailboxBindings } from "./mail-memory.js";
+import { conversationRowOf, currentMailbox, findMailItem, findMailThread, mailboxBindings, messageRowOf } from "./mail-memory.js";
 import { normalizeEmail } from "./identity.js";
 import type { ThreadDigest } from "./mail-summary.js";
 
@@ -136,6 +136,8 @@ export type ContextSession = {
   mailThread(): MailThreadFact | null;
   mailTemplate(): MailTemplateFact | null;
   creator(): CreatorFact | null;
+  conversation(): Json | null;
+  message(): Json | null;
   recipient(): ComposeRecipient | null;
   resolution(requires?: readonly TaskContextKey[], prefers?: readonly TaskContextKey[]): ContextResolution;
 };
@@ -544,8 +546,29 @@ export function openContext(input: ContextResolveInput): ContextSession {
       return { ok: true, source: RECIPIENT_SOURCE[recipient.source] };
     },
     message() {
-      // TODO(P2.3)：当前邮件（kol_mail_items）的来源链还没登记，先如实报未解析，不猜。
-      return failed("context", "当前邮件的解析器尚未登记（P2.3 接通当前会话/当前邮件）");
+      // 当前选中的邮件（kol_mail_items）：显式 message_id → object_refs → 文本抽取。
+      // 必须归属本人挂载邮箱下的会话，否则拒绝，不降级读别的邮件。
+      const asked: Array<[string, ContextSource]> = [];
+      const explicit = firstString(body.message_id, body.messageId, body.id);
+      if (explicit) asked.push([explicit, "explicit"]);
+      for (const id of objectRefIds(body.object_refs, ["message", "mail_message", "mail_item"])) asked.push([id, "object_refs"]);
+      const fromText = firstString(entities().messageId, entities().message_id);
+      if (fromText) asked.push([fromText, "text"]);
+      if (!asked.length) return failed("input", "没有给定邮件，请从通讯页选中一封邮件");
+      const found = new Map<string, ContextSource>();
+      for (const [id, source] of asked) {
+        const item = findMailItem(id);
+        if (item && !found.has(String(item.id))) found.set(String(item.id), source);
+      }
+      if (!found.size) return failed("context", "找不到这封邮件，或它不在你的邮箱范围内");
+      if (found.size > 1) {
+        return failed("context", "匹配到多封邮件，需要先选定其中一封",
+          [...found.keys()].map((id) => ({ key: "message", id, label: id })));
+      }
+      const [id, source] = [...found.entries()][0];
+      const item = findMailItem(id);
+      facts.message = item ? messageRowOf(item) as unknown as Json : null;
+      return { ok: true, source };
     },
     creator_filter() {
       // TODO(P2.4)：达人库筛选态与字典来源还没登记，先如实报未解析，不猜。
@@ -666,6 +689,14 @@ export function openContext(input: ContextResolveInput): ContextSession {
     creator: () => {
       read("creator");
       return facts.creator;
+    },
+    conversation: () => {
+      read("conversation");
+      return facts.conversation;
+    },
+    message: () => {
+      read("message");
+      return facts.message;
     },
     recipient: () => {
       read("recipient");

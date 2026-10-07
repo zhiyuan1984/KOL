@@ -8,6 +8,7 @@ output: task_result
 funnel: reach
 mcp: ["starrykol.decryptKolContact"]
 required_inputs: []
+context: {"requires":["creator"],"prefers":[]}
 permissions: ["starrykol:write"]
 actions: ["analyze"]
 aliases: ["解密联系方式","解密红人联系方式"]

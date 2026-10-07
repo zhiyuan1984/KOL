@@ -8,6 +8,7 @@ output: task_result
 funnel: reach
 mcp: ["kolclaw.analyze_creator", "kolclaw.analyze_creators"]
 required_inputs: []
+context: {"requires":["creator"],"prefers":[]}
 permissions: ["kolclaw:read"]
 actions: ["analyze"]
 aliases: ["创作者评分"]
