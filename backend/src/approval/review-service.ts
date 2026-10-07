@@ -495,6 +495,15 @@ export class ReviewService {
     }
     return { items, nextCursor: encode() };
   }
+  badgeCount() {
+    const rows = this.db.prepare(
+      "SELECT i.payload FROM review_instances i JOIN review_participants p ON p.tenant=i.tenant AND p.instance_id=i.id WHERE i.tenant=? AND p.user_id=?",
+    ).all(this.ctx.tenant, this.ctx.actor) as Row[];
+    return rows.reduce((count, row) => {
+      const instance = normalizeTasks(JSON.parse(row.payload));
+      return count + (this.actions(instance).some((action) => ["approve", "complete", "resubmit"].includes(action)) ? 1 : 0);
+    }, 0);
+  }
   instance(id: string): ReviewInstance {
     const row = this.db
       .prepare(
@@ -1031,6 +1040,11 @@ export class ReviewService {
     return {
       name: i.title,
       version: i.version,
+      actionLabel: command.action === "complete"
+        ? i.definition.nodes.find((node) => node.id === i.currentNode)?.type === "consult"
+          ? "提交意见"
+          : "完成办理"
+        : undefined,
       consequence:
         command.action === "approve" && i.definition.subjectType === "knowledge_publication"
           ? "本次批准将留痕；全部审核通过后系统会自动发布被冻结的资料版本。发布结果另有回执。"

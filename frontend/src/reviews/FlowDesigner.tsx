@@ -14,12 +14,14 @@ function continuation(n: ReviewNode) {
 }
 export function FlowDesigner({ definition, onChange, people, issues = [], target, onIssue }: { definition: ReviewDefinition; onChange: (d: ReviewDefinition) => void; people: ReviewContext["people"]; issues?: ReviewIssue[]; target?: ReviewIssue; onIssue?: (issue: ReviewIssue) => void }) {
   const [selected, setSelected] = useState(definition.nodes.find(n => n.type === "start")?.id || ""), [notice, setNotice] = useState("");
+  const [propertiesOpen, setPropertiesOpen] = useState(false), [peopleQuery, setPeopleQuery] = useState("");
   const [insertion, setInsertion] = useState<{ source: string; edge: "next" | "otherwise" }>();
   const properties = useRef<HTMLElement>(null);
   const focusedTarget = useRef<ReviewIssue | undefined>(undefined);
   const nodes = definition.nodes, n = nodes.find(n => n.id === selected), sequence = reviewSequence(definition), linear = Boolean(sequence);
   useEffect(() => {
     if (!target?.target?.id || focusedTarget.current === target) return;
+    setPropertiesOpen(true);
     if (selected !== target.target.id) { setSelected(target.target.id); return; }
     const frame = requestAnimationFrame(() => {
       focusedTarget.current = target;
@@ -63,15 +65,15 @@ export function FlowDesigner({ definition, onChange, people, issues = [], target
   function renderNode(id: string | undefined): ReactNode {
     const node = nodes.find(n => n.id === id);
     if (!node) return <li className="review-error">连接目标不存在，请在右侧修复路径。</li>;
-    if (seen.has(node.id)) return <li className="review-merge"><button type="button" onClick={() => setSelected(node.id)}>汇合 / 引用：{node.name}</button></li>;
+    if (seen.has(node.id)) return <li className="review-merge"><button type="button" onClick={() => setSelected(node.id)}>继续至：{node.name}</button></li>;
     seen.add(node.id);
     const terminal = ["start", "end"].includes(node.type), index = sequence?.findIndex(n => n.id === node.id) ?? -1;
     const problems = issues.filter(x => x.target?.id === node.id);
     return <li key={node.id} data-node-id={node.id} className={`review-graph-step${selected === node.id ? " is-selected" : ""}${terminal ? " is-terminal" : ""}${node.type === "condition" ? " is-branch" : ""}`}>
-      <button type="button" className="review-node" aria-pressed={selected === node.id} draggable={linear && !terminal} onDragStart={e => e.dataTransfer.setData("text/plain", node.id)} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (linear) onChange(moveReviewStep(definition, e.dataTransfer.getData("text/plain"), index)); }} onClick={() => setSelected(node.id)}>
-        <strong>{node.name}</strong>{!terminal && <><span>{node.type === "review" ? modes[node.mode || "single"] : kinds.find(k => k[0] === node.type)?.[1]}</span>{node.type !== "condition" && <small>{assignee(node)}</small>}<small>{problems.length ? `待配置：${problems[0].message}` : "配置状态以检查结果为准"}</small></>}
+      <button type="button" className="review-node" aria-pressed={selected === node.id} draggable={linear && !terminal} onDragStart={e => e.dataTransfer.setData("text/plain", node.id)} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (linear) onChange(moveReviewStep(definition, e.dataTransfer.getData("text/plain"), index)); }} onClick={() => { setSelected(node.id); setPropertiesOpen(true); }}>
+        <strong>{node.name}</strong>{!terminal && <><span>{node.type === "review" ? modes[node.mode || "single"] : kinds.find(k => k[0] === node.type)?.[1]}</span>{node.type !== "condition" && <small>{assignee(node)}</small>}{!!problems.length && <small>待配置：{problems[0].message}</small>}</>}
       </button>
-      {!!problems.length && <button type="button" onClick={() => { setSelected(node.id); onIssue?.({ ...problems[0] }); }}>定位缺项</button>}
+      {!!problems.length && <button type="button" onClick={() => { setSelected(node.id); setPropertiesOpen(true); onIssue?.({ ...problems[0] }); }}>定位缺项</button>}
       {linear && !terminal && <div className="review-node-move"><button type="button" disabled={index <= 1} aria-label={`${node.name}上移`} onClick={() => onChange(moveReviewStep(definition, node.id, index - 1))}>↑</button><button type="button" disabled={index >= nodes.length - 2} aria-label={`${node.name}下移`} onClick={() => onChange(moveReviewStep(definition, node.id, index + 1))}>↓</button></div>}
       {node.type === "condition" ? <><p className="review-muted">{node.next === node.otherwise ? "两条路径当前相同，可在各路径添加步骤。" : "按条件选择一条路径。"}</p><div className="review-branches">{(["next", "otherwise"] as const).map(edge => <section key={edge} aria-label={edge === "next" ? "条件满足路径" : "条件不满足路径"}>{connector(node, edge)}<ol>{renderNode(node[edge])}</ol></section>)}</div></> : node.type !== "end" && <>{connector(node, "next")}<ol>{renderNode(node.next)}</ol></>}
     </li>;
@@ -79,8 +81,8 @@ export function FlowDesigner({ definition, onChange, people, issues = [], target
   const start = nodes.find(n => n.type === "start");
   const graph = start ? renderNode(start.id) : <li>尚无发起步骤。</li>;
   const unreachable = nodes.filter(n => !seen.has(n.id));
-  return (<div className="review-designer"><section aria-label="流程画布"><h2>评审步骤</h2><p className="review-muted">在连接处添加步骤；{linear ? "拖动或上下移动会同步调整执行顺序。" : "分支按实际路径执行，汇合引用同一个步骤。"}</p>{notice && <p role="status">{notice}</p>}<ol className="review-canvas">{graph}</ol>{!!unreachable.length && <section aria-label="未连接步骤"><h3>未连接步骤（需修复）</h3>{unreachable.map(node => <button key={node.id} onClick={() => setSelected(node.id)}>{node.name}</button>)}</section>}</section>
-      <section aria-label="步骤配置" className="review-form" ref={properties}>
+  return (<div className={`review-designer${propertiesOpen ? " is-properties-open" : ""}`}><section aria-label="流程画布"><header className="review-flow-head"><div><h2>评审步骤</h2><p className="review-muted">在连接处添加步骤；{linear ? "拖动或上下移动会同步调整执行顺序。" : "条件分支按表单规则选择路径。"}</p></div><button type="button" className="review-property-toggle" aria-expanded={propertiesOpen} aria-controls="review-step-properties" onClick={() => setPropertiesOpen(value => !value)}>{propertiesOpen ? "收起步骤配置" : "打开步骤配置"}</button></header>{notice && <p role="status">{notice}</p>}<ol className="review-canvas">{graph}</ol>{!!unreachable.length && <section aria-label="未连接步骤"><h3>未连接步骤（需修复）</h3>{unreachable.map(node => <button key={node.id} onClick={() => { setSelected(node.id); setPropertiesOpen(true); }}>{node.name}</button>)}</section>}</section>
+      <section id="review-step-properties" aria-label="步骤配置" className="review-form review-properties-panel" ref={properties}>
         {n ? (
           <>
             <h3>步骤信息</h3>
@@ -172,7 +174,8 @@ export function FlowDesigner({ definition, onChange, people, issues = [], target
                 {n.assignee?.kind === "named" && (
                   <fieldset>
                     <legend>选择人员</legend>
-                    {people.map((p) => (
+                    <label className="review-people-search">搜索已授权候选人<input value={peopleQuery} onChange={event => setPeopleQuery(event.target.value)} placeholder="输入姓名" /></label>
+                    {people.filter(person => !peopleQuery.trim() || person.name.toLocaleLowerCase().includes(peopleQuery.trim().toLocaleLowerCase())).map((p) => (
                       <label className="review-check" key={p.id}>
                         <input
                           type="checkbox"
@@ -289,13 +292,13 @@ export function FlowDesigner({ definition, onChange, people, issues = [], target
             )}
             {n.type === "condition" && n.next !== n.otherwise && <p className="review-muted">此分支通往不同路径；删除前请将两条路径汇合至同一步骤，避免丢失路径。</p>}
             {!["start", "end"].includes(n.type) && (
-              <button
+          <button
                 type="button"
                 disabled={!n.next || (n.type === "condition" && n.next !== n.otherwise)}
                 onClick={() => {
                   onChange(deleteReviewStep(definition, n.id));
                   setSelected(nodes.find(x => x.type === "start")?.id || "");
-                  setNotice("步骤已删除，前后路径已连接，可在顶部撤销。");
+                setNotice("步骤已删除，前后路径已连接，可撤销。");
                 }}
               >
                 删除步骤（自动连接前后路径）

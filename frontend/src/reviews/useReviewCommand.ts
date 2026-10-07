@@ -35,13 +35,13 @@ export function useReviewCommand(after: (receipt: { id: string; resourceId: stri
       confirm.ask(
         {
           kind: "review-command",
-          title: `确认${labels[command.action]}`,
+          title: `确认${prepared.summary.actionLabel || labels[command.action]}`,
           object: prepared.summary.name,
           scope: prepared.summary.scope || "当前组织内的流程参与人",
           ruleVersion: String(prepared.summary.version),
           consequence: prepared.summary.consequence,
           change: prepared.summary.configuration || ("reason" in command ? command.reason : undefined),
-          confirmLabel: labels[command.action],
+          confirmLabel: prepared.summary.actionLabel || labels[command.action],
           confirmTone: ["reject", "withdraw"].includes(command.action)
             ? "danger"
             : "primary",

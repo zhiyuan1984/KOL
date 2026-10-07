@@ -13,21 +13,23 @@ function describeCondition(condition: ReviewCondition, definition: ReviewDefinit
   if (condition.op === "not") return `不满足（${describeCondition(condition.condition, definition)}）`;
   return `（${condition.conditions.map(c => describeCondition(c, definition)).join(condition.op === "all" ? "，且 " : "，或 ")}）`;
 }
-export function ReviewPublishPanel({ definition, context, issues, checkState, onCheck, onIssue, values, onValues, requester, onRequester, result, trialState, onTrial, template }: {
+export function ReviewPublishPanel({ definition, context, issues, checkState, onCheck, onIssue, values, onValues, requester, onRequester, result, trialState, onTrial, template, showDiff }: {
   definition: ReviewDefinition; context?: ReviewContext; issues: ReviewIssue[];
   checkState: string; onCheck: () => void; onIssue: (issue: ReviewIssue) => void;
   values: Record<string, unknown>; onValues: (values: Record<string, unknown>) => void;
   requester: string; onRequester: (id: string) => void;
   result?: ReviewSimulation; trialState: string; onTrial: () => void;
-  template?: { id: string; version: number };
+  template?: { id: string; version: number; publishedVersion?: number | null; enabled?: boolean };
+  showDiff?: boolean;
 }) {
   const groups = [["basic", "基本信息与归属"], ["form", "表单配置"], ["flow", "步骤连接与人员规则"]];
   const checked = checkState === "passed" || checkState === "issues";
   const dynamic = definition.nodes.filter(n => n.type === "condition" || n.assignee?.kind === "manager");
   return <div className="review-publish-grid">
-    <section aria-label="配置检查" className="review-form">
+      <section aria-label="配置检查" className="review-form">
       <div className="review-section-head"><h2>配置检查</h2><button type="button" onClick={onCheck}>重新检查</button></div>
       <p role="status">{checkState === "checking" ? "正在检查当前配置…" : checkState === "stale" ? "配置已修改，需重新检查" : checkState === "failed" ? "检查服务暂不可用，请重试" : checked ? issues.length ? `还有 ${issues.length} 项配置问题` : "配置检查通过" : "尚未检查"}</p>
+      <p className="review-publish-impact">{template?.publishedVersion ? `当前发布版 v${template.publishedVersion}${template.enabled === false ? "（已停用）" : "（供后续新申请使用）"}。发布新版本后，已有申请继续使用其创建时的流程版本。` : "当前尚无发布版本。发布后仅供后续新申请使用；已有申请保持创建时的流程版本。"}</p>
       {groups.map(([step, label]) => {
         const problems = issues.filter(x => issueStep(x) === step);
         return <section key={step} className="review-check-group"><h3>{label} · {checked ? problems.length ? "有问题" : "✓ 已通过" : "待检查"}</h3>
@@ -35,11 +37,12 @@ export function ReviewPublishPanel({ definition, context, issues, checkState, on
         </section>;
       })}
       {!!dynamic.length && <div className="review-muted"><strong>建议验证的路径与人员</strong><ul>{dynamic.map(n => <li key={n.id}>{n.name}：{n.type === "condition" ? "分别验证条件满足与不满足的路径" : "按不同测试发起人验证组织负责人"}</li>)}</ul><p>试运行可选；一个样例通过仅说明本次输入可解析，不代表全部路径和员工均已验证。</p></div>}
-      {template && <details><summary>相对发布版的变更</summary><PublishChanges id={template.id} version={template.version} /></details>}
+      {template && showDiff && <details><summary>相对发布版的变更</summary><PublishChanges id={template.id} version={template.version} /></details>}
       <details><summary>功能说明</summary><p>支持表单、条件分支、评审、抄送、征询和办理。转交、加签、补充材料和超时按已配置规则执行。路径试运行不验证实际决定、办理、通知、附件授权或超时执行。</p></details>
     </section>
-    <section aria-label="路径试运行" className="review-form">
-      <h2>路径试运行（可选）</h2>
+    <details className="review-trial-section">
+      <summary>路径试运行（可选）</summary>
+      <section aria-label="路径试运行" className="review-form">
       <p className="review-muted">选择一位员工，查看其发起时会匹配的分支和处理人。不会创建正式申请。</p>
       <label>测试发起人<select value={requester} onChange={e => onRequester(e.target.value)}><option value="">请选择员工</option>{context?.people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <ReviewForm fields={definition.fields} values={values} onChange={onValues} preview />
@@ -59,6 +62,7 @@ export function ReviewPublishPanel({ definition, context, issues, checkState, on
           {entry.blockedReason && <p className="review-error">{entry.blockedReason}</p>}
         </li>)}</ol>
       </section>}
-    </section>
+      </section>
+    </details>
   </div>;
 }

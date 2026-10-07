@@ -16,6 +16,7 @@ export function ReviewDetail({ instance: i, context, actions, close, wide, toggl
   const person = (id: string) => context?.people.find(p => p.id === id)?.name || id;
   const publication = i.knowledgePublication;
   const rounds = [...new Set(i.tasks.map(t => t.round || 1))].sort((a, b) => b - a);
+  const currentOwners = i.tasks.filter(task => task.nodeId === i.currentNode && ["pending", "waiting"].includes(task.status)).map(task => person(task.userId));
   const renderRound = (round: number) => <ol className="review-steps-list">{i.tasks.filter(t => (t.round || 1) === round).map((t, index) => <li key={t.id || index} data-current={t.status === "pending" || undefined}>
     <details open={t.status === "pending" || undefined}>
       <summary><strong>{i.definition.nodes.find(n => n.id === t.nodeId)?.name || "审批步骤"}</strong><span>{person(t.userId)}</span><span>{taskText[t.status]}</span></summary>
@@ -26,7 +27,7 @@ export function ReviewDetail({ instance: i, context, actions, close, wide, toggl
   </li>)}</ol>;
   return <section className="review-detail" aria-label="申请详情">
     <header className="review-detail-head">
-      <div><h2>{i.title}</h2><p><span data-review-status={i.status}>{reviewStatusText[i.status]}</span> · 流程版本 v{i.templateVersion}</p></div>
+      <div><h2>{i.title}</h2><p><span data-review-status={i.status}>{reviewStatusText[i.status]}</span> · 流程版本 v{i.templateVersion}</p><p className="review-current-owner">当前责任：{currentOwners.length ? currentOwners.join("、") : "当前无需处理"}{i.status === "awaiting_amendment" && ` · 等待 ${person(i.requester)} 补充材料`}</p></div>
       <button onClick={toggleWide} aria-pressed={wide}>{wide ? "恢复列表与详情" : "展开宽视图"}</button>
       <button onClick={close}>返回列表</button>
     </header>

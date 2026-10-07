@@ -11,6 +11,7 @@ import { ANALYZE_WORK_EVENT, kolAnalyzeInFlight, unwrapTaskRows, type AnalyzeWor
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
 import { ADMIN_NAV_GROUPS, adminTabOf } from "./adminNav";
+import { reviewApi } from "../reviews/api";
 
 function Ico({ path }: { path: string }) {
   return (
@@ -31,7 +32,7 @@ export default function Workbench() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [analyzeItems, setAnalyzeItems] = useState<AnalyzeWorkItem[]>([]);
-  const [approvalCount, setApprovalCount] = useState(0);
+  const [approvalCount, setApprovalCount] = useState<number>();
   const [cronAlertCount, setCronAlertCount] = useState(0);
   const [mailUnread, setMailUnread] = useState(0);
   const { account } = useAccount();
@@ -132,9 +133,9 @@ export default function Workbench() {
     // 首屏让位：这些 badge 与首屏内容无关，延后到首帧之后再发。
     const cancel = scheduleShellRead(() => {
       api.me().then(setMe).catch(() => setMe(null));
-      api.approvalBadge()
+      reviewApi<{ count: number }>("/approvals/v2/badge")
         .then((row) => setApprovalCount(Number(row.count) || 0))
-        .catch(() => setApprovalCount(0));
+        .catch(() => setApprovalCount(undefined));
       api.cronJobs()
         .then((data) => {
           const alerts = data.alerts || {};
@@ -329,7 +330,7 @@ export default function Workbench() {
           <NavLink to="/approvals" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="approvals" onClick={() => setMobileOpen(false)}>
             <Ico path="M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 4v3h6V4" />
             <span className="sidebar-label">审批</span>
-            {approvalCount > 0 && <span className="nav-badge warn">{approvalCount}</span>}
+            {(approvalCount || 0) > 0 && <span className="nav-badge warn">{approvalCount}</span>}
           </NavLink>
           <NavLink to="/exam" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="exam" onClick={() => setMobileOpen(false)}>
             <Ico path="M3 9l9-5 9 5-9 5z M7 12v5c3 2 7 2 10 0v-5 M21 9v6" />
