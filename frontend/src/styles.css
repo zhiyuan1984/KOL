@@ -11485,8 +11485,7 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
-/* 口径组（全部 / 常用 / 最近使用 / 推荐）与阶段组（建联 → 内容发布）是两类控件：
-   容器承担成组控件的可见边界（shadcn TabsList ×2 的写法），竖线随筛选条整高。 */
+/* 使用范围与业务场景是两组可组合筛选；分隔线只区分筛选用途，不表示阶段递进。 */
 .skill-tabs-list[data-kind="stage"] {
   align-self: stretch;
   padding-left: var(--space-4);
@@ -11920,7 +11919,7 @@ button.today-brief-primary-btn:disabled {
    骨架三段式：`.skill-detail-head` / `.skill-detail-body` / `.skill-detail-footer`。 */
 .skill-detail-pane {
   grid-area: pane;
-  width: clamp(320px, 26vw, 400px);
+  width: clamp(var(--workspace-result-rail-min), 26vw, 420px);
   border-left: 1px solid var(--border);
   background: var(--bg);
   overflow: hidden;

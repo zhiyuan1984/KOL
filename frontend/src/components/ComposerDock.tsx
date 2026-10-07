@@ -238,6 +238,7 @@ export default function ComposerDock({
   const [kbChips, setKbChips] = useState<ComposerChip[]>([]);
   const [connectorChips, setConnectorChips] = useState<ComposerChip[]>([]);
   const [expertId, setExpertId] = useState(DEFAULT_EXPERT_ID);
+  const [pendingAgentSkillId, setPendingAgentSkillId] = useState("");
   const [dragging, setDragging] = useState(false);
   const [modelTier, setModelTier] = useState(readModelTier);
   const [focused, setFocused] = useState(false);
@@ -246,6 +247,14 @@ export default function ComposerDock({
   const [dismissedObjectChipKeys, setDismissedObjectChipKeys] = useState<string[]>([]);
   const { debug } = useViewMode();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const skillChipsRef = useRef(skillChips);
+  skillChipsRef.current = skillChips;
+  const kbChipsRef = useRef(kbChips);
+  kbChipsRef.current = kbChips;
+  const connectorChipsRef = useRef(connectorChips);
+  connectorChipsRef.current = connectorChips;
   const selectionRef = useRef({ start: value.length, end: value.length });
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -480,6 +489,15 @@ export default function ComposerDock({
   }, []);
 
   useEffect(() => {
+    if (!pendingAgentSkillId || !expertsLoaded) return;
+    const compatible = experts.filter((expert) => expert.skill_ids.includes(pendingAgentSkillId));
+    if (compatible.length && !compatible.some((expert) => expert.id === expertId)) {
+      setExpertId(compatible[0].id);
+    }
+    setPendingAgentSkillId("");
+  }, [pendingAgentSkillId, expertsLoaded, experts, expertId]);
+
+  useEffect(() => {
     if (!skills.length) return;
     refreshAt(value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -503,11 +521,32 @@ export default function ComposerDock({
 
   useEffect(() => {
     const apply = (draft: ComposerDraftStash) => {
-      if (draft.text) onChange(draft.text);
+      const merging = draft.apply_mode === "merge";
+      const mergedText = [valueRef.current.trim(), draft.text.trim()].filter(Boolean).join("\n\n");
+      const nextText = merging ? mergedText : draft.text;
+      if (draft.text) {
+        onChange(nextText);
+        valueRef.current = nextText;
+      }
       if (draft.chips?.length) {
-        setSkillChips(draft.chips.filter((chip) => chip.kind === "skill"));
-        setKbChips(draft.chips.filter((chip) => chip.kind === "kb"));
-        setConnectorChips(draft.chips.filter((chip) => chip.kind === "connector"));
+        const mergeUnique = (current: ComposerChip[], incoming: ComposerChip[]) => {
+          const byKey = new Map(current.map((chip) => [`${chip.kind}:${chip.id}`, chip]));
+          for (const chip of incoming) byKey.set(`${chip.kind}:${chip.id}`, chip);
+          return [...byKey.values()];
+        };
+        const incomingSkills = draft.chips.filter((chip) => chip.kind === "skill");
+        const incomingKnowledge = draft.chips.filter((chip) => chip.kind === "kb");
+        const incomingConnectors = draft.chips.filter((chip) => chip.kind === "connector");
+        const nextSkills = merging ? mergeUnique(skillChipsRef.current, incomingSkills) : incomingSkills;
+        const nextKnowledge = merging ? mergeUnique(kbChipsRef.current, incomingKnowledge) : incomingKnowledge;
+        const nextConnectors = merging ? mergeUnique(connectorChipsRef.current, incomingConnectors) : incomingConnectors;
+        if (merging && incomingSkills[0]?.kind === "skill") setPendingAgentSkillId(incomingSkills[0].id);
+        setSkillChips(nextSkills);
+        setKbChips(nextKnowledge);
+        setConnectorChips(nextConnectors);
+        skillChipsRef.current = nextSkills;
+        kbChipsRef.current = nextKnowledge;
+        connectorChipsRef.current = nextConnectors;
         const expert = draft.chips.find((chip) => chip.kind === "expert");
         if (expert) setExpertId(expert.id);
       }
@@ -528,7 +567,7 @@ export default function ComposerDock({
       }
       // A draft that carries [待补参数] is a form, not a finished sentence: put the
       // caret on the first gap so「补完参数后由你发送」is one keystroke away.
-      const gap = draft.text ? draft.text.match(/\[[^\]]+\]/) : null;
+      const gap = nextText ? nextText.match(/\[[^\]]+\]/) : null;
       requestAnimationFrame(() => {
         const node = inputRef.current;
         if (!node) return;

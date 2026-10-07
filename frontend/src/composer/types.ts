@@ -63,6 +63,8 @@ export type ComposerChip =
 
 export type ComposerDraftStash = {
   text: string;
+  /** Append this context to the current composer without replacing employee work. */
+  apply_mode?: "merge" | "replace";
   intent?: ComposerEntryIntent;
   chips?: ComposerChip[];
   attachments?: AttachmentRef[];

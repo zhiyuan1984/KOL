@@ -31,7 +31,6 @@ import {
   deletePublishedSkill,
   getSkillDraft,
   saveSkillDraft,
-  applySkillDraft,
   skillAdminMeta,
   updatePublishedSkill,
 } from "../host/skill-publish.js";
@@ -41,7 +40,6 @@ import {
   listSkillTestRuns,
   listSkillTests,
   listSkillVersions,
-  publishSkillVersion,
   recordSkillTestRun,
   rollbackSkillVersion,
   skillLifecycleMeta,
@@ -305,10 +303,6 @@ misc.put("/skills/:id/sop", async (c) => {
   } else {
     saveSkillDraft(id, { description: body.summary, body: body.body });
   }
-  if (skillLifecycleMeta(id).origin === "third_party") {
-    setSkillOrigin(id, "official");
-    clearSkillLookupCache();
-  }
   const live = getSkillSop(id);
   const draft = getSkillDraft(id);
   return c.json({ ...live, summary: String(draft.patch._sop_summary ?? draft.patch.description ?? live.summary), body: String(draft.patch._sop_body ?? draft.patch.body ?? live.body), draft: true, updated_at: draft.updated_at });
@@ -321,10 +315,6 @@ misc.delete("/skills/:id/sop", (c) => {
   const body = readBundledSkill(id);
   if (isBundledSkill(id)) saveSkillDraft(id, { _sop_summary: summary, _sop_body: body });
   else saveSkillDraft(id, { description: summary, body });
-  if (skillLifecycleMeta(id).origin === "third_party") {
-    setSkillOrigin(id, "official");
-    clearSkillLookupCache();
-  }
   return c.json({ id, summary, body, draft: true, reset_to_packaged: true });
 });
 misc.get("/admin/skills", (c) => {
@@ -362,10 +352,6 @@ misc.put("/admin/skills/:id/draft", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as Record<string, unknown>;
   const result = saveSkillDraft(id, body);
-  if (Object.keys(body).some((key) => key !== "in_market") && skillLifecycleMeta(id).origin === "third_party") {
-    setSkillOrigin(id, "official");
-    clearSkillLookupCache();
-  }
   return c.json({ ...result, lifecycle: skillLifecycleMeta(id) });
 });
 misc.post("/admin/skills", async (c) => {
@@ -422,10 +408,6 @@ misc.patch("/admin/skills/:id", async (c) => {
   let updated = skillMeta(id);
   if (Object.keys(draftPatch).length) {
     saveSkillDraft(id, draftPatch);
-    if (skillLifecycleMeta(id).origin === "third_party") {
-      setSkillOrigin(id, "official");
-      clearSkillLookupCache();
-    }
   }
   if (typeof in_market === "boolean") {
     const changed = updatePublishedSkill(id, { in_market });
@@ -473,11 +455,16 @@ misc.get("/admin/skills/:id/versions", (c) => {
 misc.post("/admin/skills/:id/versions", async (c) => {
   requirePm();
   const id = c.req.param("id");
-  if(getConn().prepare('SELECT 1 FROM skill_knowledge_configs WHERE skill_id=?').get(id))throw new HttpFail(409,'知识技能须通过真实试算和生命周期发布；不能直接发布版本。');
   const body = (await c.req.json()) as { description?: string };
-  applySkillDraft(id);
+  if (skillLifecycleMeta(id).stage !== "testing") {
+    throw new HttpFail(409, "技能必须处于测试阶段才能发布新版本");
+  }
+  const result = await publishKnowledgeConfig(scopedUser()!.id, id, () => {
+    const stage = transitionSkillStage(id, "published", body.description);
+    return { ...stage, version: skillLifecycleMeta(id).current_version };
+  }) as { stage: string; version: number | null };
   clearSkillLookupCache();
-  return c.json({ id, ...publishSkillVersion(id, body.description) });
+  return c.json({ id, ...result });
 });
 misc.post("/admin/skills/:id/versions/rollback", async (c) => {
   requirePm();

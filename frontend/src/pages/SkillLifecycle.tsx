@@ -9,7 +9,6 @@ import { useAdminConfirm } from "../components/ConfirmDialog";
 import {
   skillLifecyclePublishConfirm,
   skillStageConfirm,
-  skillVersionPublishConfirm,
   skillVersionRollbackConfirm,
 } from "../adminConfirm";
 import { errorMessage, implementationLabel, type SkillCoverage, type SkillCoverageRow } from "../runtimeConnectorUi";
@@ -385,9 +384,10 @@ export function DetailPanel(props: {
   coverageRow: SkillCoverageRow | null;
   onStage: (stage: string, needReason?: boolean) => void;
   onChanged: () => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
+  onClose?: () => void;
   metricsDays: number;
   onMetricsDays: (d: number) => void;
-  onClose: () => void;
 }) {
   const { skill, onStage, onChanged } = props;
   const lc = skill.lifecycle;
@@ -414,6 +414,8 @@ export function DetailPanel(props: {
   const [contractText, setContractText] = useState(() => JSON.stringify(skillContract(skill), null, 2));
   const [contractError, setContractError] = useState("");
   const [contractBusy, setContractBusy] = useState(false);
+  const [contentDirty, setContentDirty] = useState(false);
+  const [contractDirty, setContractDirty] = useState(false);
   const maxTrend = Math.max(1, ...(metrics?.trend.map((t) => t.n) || [1]));
 
   useEffect(() => {
@@ -428,11 +430,17 @@ export function DetailPanel(props: {
       const contractPatch = Object.fromEntries(Object.entries(draft.patch).filter(([key]) => contractKeys.has(key)));
       setContractText(JSON.stringify({ ...skillContract(skill), ...contractPatch }, null, 2));
       setContentNotice(draft.updated_at ? "有未发布草稿；员工仍使用当前已发布版本。" : "");
+      setContentDirty(false);
+      setContractDirty(false);
     }).catch((cause) => {
       if (active) setContentNotice(cause instanceof Error ? cause.message : "无法读取技能内容");
     }).finally(() => { if (active) setContentLoading(false); });
     return () => { active = false; };
   }, [skill.id, skill.title, skill.label, skill.description]);
+
+  useEffect(() => {
+    props.onDirtyChange?.(contentDirty || contractDirty);
+  }, [contentDirty, contractDirty, props.onDirtyChange]);
 
   const reloadAll = useCallback(async () => {
     const [v, t, m] = await Promise.all([
@@ -448,13 +456,6 @@ export function DetailPanel(props: {
   useEffect(() => {
     void reloadAll();
   }, [reloadAll]);
-
-  function publishVersion() {
-    ask(skillVersionPublishConfirm(skill.label, skill.id), async (description) => {
-      await api.publishSkillVersion(skill.id, description || undefined);
-      await Promise.all([reloadAll(), onChanged()]);
-    });
-  }
 
   async function saveContract() {
     let value: Record<string, unknown>;
@@ -478,6 +479,7 @@ export function DetailPanel(props: {
         supports: value.supports && typeof value.supports === "object" ? value.supports as Record<string, boolean> : { cancel: false, retry: false, resume: false },
       });
       await onChanged();
+      setContractDirty(false);
       setContractError("运行契约已保存为未发布草稿；员工继续使用当前版本。");
     } catch (error) {
       setContractError(String(error instanceof Error ? error.message : error));
@@ -550,9 +552,10 @@ export function DetailPanel(props: {
         setContentNotice("说明已保存为未发布草稿；内置技能的名称与元数据保持只读。");
       } else {
         await api.saveAdminSkillDraft(skill.id, { title: titleText, description: summaryText, body: bodyText });
-        setContentNotice(lc?.origin === "third_party" ? "草稿已保存；来源已从第三方转为官方，发布前员工仍使用现行版本。" : "技能内容已保存为未发布草稿。");
+        setContentNotice(lc?.origin === "third_party" ? "草稿已保存；原始来源仍标记为第三方，员工仍使用当前生效版本。" : "技能内容已保存为未发布草稿。");
       }
       await onChanged();
+      setContentDirty(false);
     } catch (cause) {
       setContentNotice(cause instanceof Error ? cause.message : "保存技能内容失败");
     } finally {
@@ -569,17 +572,16 @@ export function DetailPanel(props: {
         <div className="skill-detail-heading">
           <div className="skill-detail-kicker"><span className={`skill-origin-tag${official ? " is-official" : " is-third-party"}`}>{official ? "官方技能" : "第三方技能"}</span><span className="skill-stage-label"><StageDot stage={lc?.stage || "draft"} />{lc?.stage_label || "未配置阶段"}</span></div>
           <h2 id="skill-detail-title">{skill.label}</h2>
-          <p><code>{skill.id}</code>{` · ${releaseLabel(lc, "long")}`}</p>
+          <p><code>{skill.id}</code>{` · ${releaseLabel(lc, "long")}`}{lc?.origin === "third_party" ? " · 原始来源：第三方" : " · 来源：官方"}{contentNotice.includes("未发布草稿") || contentNotice.includes("草稿已保存") ? " · 有未发布草稿" : ""}{contentDirty || contractDirty ? " · 有未保存修改" : ""}</p>
         </div>
         <div className="skill-detail-actions">
           <details className="skill-action-menu">
             <summary className="skill-governance-secondary">更多操作</summary>
             <div className="skill-action-menu-items">
-              <button type="button" onClick={() => void publishVersion()}>发布草稿并生成版本</button>
               {stageActions.map((action) => <button type="button" key={action.stage} onClick={() => onStage(action.stage, action.needReason)}>{action.label}</button>)}
             </div>
           </details>
-          <button type="button" className="skill-governance-icon" aria-label="关闭技能详情" onClick={props.onClose}>×</button>
+          {props.onClose && <button type="button" className="skill-governance-icon" aria-label="关闭技能详情" onClick={props.onClose}>×</button>}
         </div>
       </header>
       <div className="skill-detail-description">{skill.description || "暂无技能说明。"}</div>
@@ -590,21 +592,21 @@ export function DetailPanel(props: {
       </p> : null}
       <nav className="skill-detail-tabs" aria-label="技能详情分类">
         {([
-          ["overview", "概览与配置"],
-          ["dependencies", "工具与知识"],
-          ["access", "Agent 引用"],
-          ["release", "测试与版本"],
+          ["overview", "技能内容"],
+          ["dependencies", "执行依赖"],
+          ["access", "引用与运行"],
+          ["release", "验证与发布"],
         ] as const).map(([id, label]) => <button type="button" key={id} aria-current={activeTab === id ? "page" : undefined} onClick={() => setActiveTab(id)}>{label}</button>)}
       </nav>
 
       <div className="skill-detail-content">
         {activeTab === "overview" && <div className="skill-detail-stack">
           <section className="skill-detail-card" aria-labelledby="skill-markdown-heading">
-            <div className="skill-section-head"><div><h3 id="skill-markdown-heading">技能内容</h3><p>{skill.source === "bundled" ? "内置技能名称不可改；保存后先形成未发布草稿。" : "保存后先形成未发布草稿；编辑第三方内容会将来源转为官方。"}</p></div></div>
+            <div className="skill-section-head"><div><h3 id="skill-markdown-heading">技能内容</h3><p>{skill.source === "bundled" ? "内置技能名称不可改；保存后先形成未发布草稿。" : "编辑内容先形成组织草稿；第三方原始来源标记保持不变。"}</p></div></div>
             {contentLoading ? <p className="muted">正在读取技能内容…</p> : <>
-              <label className="skill-content-field">技能名称<input value={titleText} disabled={skill.source === "bundled"} onChange={(event) => setTitleText(event.target.value)} /></label>
-              <label className="skill-content-field">简介<input value={summaryText} onChange={(event) => setSummaryText(event.target.value)} maxLength={200} /></label>
-              <label className="skill-content-field">技能说明（Markdown）<textarea value={bodyText} onChange={(event) => setBodyText(event.target.value)} rows={14} spellCheck={false} /></label>
+              <label className="skill-content-field">技能名称<input value={titleText} disabled={skill.source === "bundled"} onChange={(event) => { setTitleText(event.target.value); setContentDirty(true); }} /></label>
+              <label className="skill-content-field">简介<input value={summaryText} onChange={(event) => { setSummaryText(event.target.value); setContentDirty(true); }} maxLength={200} /></label>
+              <label className="skill-content-field">技能说明（Markdown）<textarea value={bodyText} onChange={(event) => { setBodyText(event.target.value); setContentDirty(true); }} rows={14} spellCheck={false} /></label>
               <div className="skill-contract-actions"><button type="button" className="skill-governance-primary" disabled={contentBusy || !bodyText.trim() || !summaryText.trim()} onClick={() => void saveSkillContent()}>{contentBusy ? "保存中…" : "保存草稿"}</button><span role="status">{contentNotice || `来源：${official ? "官方" : "第三方"} · 未发布草稿不会改变员工当前使用的版本。`}</span></div>
             </>}
           </section>
@@ -636,14 +638,14 @@ export function DetailPanel(props: {
               }}>设置负责人</button>
             </div>
           </section>
-          <section className="skill-detail-card" aria-labelledby="skill-contract-heading">
-            <div className="skill-section-head"><div><h3 id="skill-contract-heading">运行契约</h3><p>{skill.source === "bundled" ? "内置技能的运行契约随平台代码维护，此处只读。" : "输入字段、结果类型、动作、记忆策略和异步能力；修改先存为草稿。"}</p></div></div>
-            <textarea aria-label="技能参数与运行契约 JSON" value={contractText} onChange={(event) => setContractText(event.target.value)} rows={10} spellCheck={false} readOnly={skill.source === "bundled"} />
-            {skill.source !== "bundled" && <div className="skill-contract-actions"><button type="button" className="skill-governance-primary" disabled={contractBusy} onClick={() => void saveContract()}>{contractBusy ? "保存中…" : "保存契约草稿"}</button><span role="status">{contractError || "未发布草稿不会改变员工当前使用的版本。"}</span></div>}
-          </section>
         </div>}
 
         {activeTab === "dependencies" && <div className="skill-detail-stack">
+          <section className="skill-detail-card" aria-labelledby="skill-contract-heading">
+            <div className="skill-section-head"><div><h3 id="skill-contract-heading">运行契约</h3><p>{skill.source === "bundled" ? "内置技能的运行契约随平台代码维护，此处只读。" : "输入字段、结果类型、动作、记忆策略和异步能力；修改先存为草稿。"}</p></div></div>
+            <textarea aria-label="技能参数与运行契约 JSON" value={contractText} onChange={(event) => { setContractText(event.target.value); setContractDirty(true); }} rows={10} spellCheck={false} readOnly={skill.source === "bundled"} />
+            {skill.source !== "bundled" && <div className="skill-contract-actions"><button type="button" className="skill-governance-primary" disabled={contractBusy} onClick={() => void saveContract()}>{contractBusy ? "保存中…" : "保存契约草稿"}</button><span role="status">{contractError || "未发布草稿不会改变员工当前使用的版本。"}</span></div>}
+          </section>
           <SkillDeclaredDependencies skillId={skill.id} row={props.coverageRow} onMounted={onChanged} />
           <section className="skill-detail-card" aria-labelledby="skill-tools-heading">
             <div className="skill-section-head"><div><h3 id="skill-tools-heading">MCP / API 工具</h3><p>技能内依赖。工具风险与执行边界由平台治理，不向人员单独授权。</p></div></div>
@@ -651,7 +653,6 @@ export function DetailPanel(props: {
           </section>
           <SkillTemplatePreview skillId={skill.id} />
           <SkillKnowledgeBindings skillId={skill.id} />
-          <PublishedAgentUsage skillId={skill.id} />
         </div>}
 
         {activeTab === "access" && <PublishedAgentUsage skillId={skill.id} />}
@@ -660,9 +661,10 @@ export function DetailPanel(props: {
           <p className="skill-governance-notice" role="note">当前发布接口由产品经理直接确认；审批单与审批状态接口尚未接入，此页不会展示“审批通过”。</p>
           <div className="skill-release-grid">
             <section className="skill-detail-card">
-              <div className="skill-section-head"><div><h3>测试验证</h3><p>用例 {lc?.test_summary.total ?? 0} · 通过率 {lc?.test_summary.pass_rate ?? "—"}% · 未通过 {lc?.test_summary.failing ?? 0}</p></div></div>
+              <div className="skill-section-head"><div><h3>人工验收记录</h3><p>人工登记 {lc?.test_summary.total ?? 0} 项 · 登记通过率 {lc?.test_summary.pass_rate ?? "—"}% · 未通过 {lc?.test_summary.failing ?? 0}</p></div></div>
+              <p className="muted">此处只登记人工检查结果，不会自动执行技能。</p>
               <div className="skill-test-create"><input className="skill-inline-input" placeholder="新增用例名称" value={newTest} onChange={(event) => setNewTest(event.target.value)} /><button type="button" className="skill-governance-secondary" onClick={() => void addTest()}>添加用例</button></div>
-              <div className="skill-test-list">{tests.map((test) => <div className="skill-test-row" key={String(test.id)}><span>{String(test.name)}</span><button type="button" onClick={() => void recordResult(String(test.id), true)}>通过</button><button type="button" onClick={() => void recordResult(String(test.id), false)}>未通过</button><button type="button" onClick={async () => { await api.deleteSkillTest(skill.id, String(test.id)); await reloadAll(); }}>删除</button></div>)}{!tests.length && <p className="muted">暂无测试用例</p>}</div>
+              <div className="skill-test-list">{tests.map((test) => <div className="skill-test-row" key={String(test.id)}><span>{String(test.name)}</span><button type="button" onClick={() => void recordResult(String(test.id), true)}>登记人工通过</button><button type="button" onClick={() => void recordResult(String(test.id), false)}>登记人工未通过</button><button type="button" onClick={async () => { await api.deleteSkillTest(skill.id, String(test.id)); await reloadAll(); }}>删除</button></div>)}{!tests.length && <p className="muted">暂无人工验收记录</p>}</div>
             </section>
             <section className="skill-detail-card">
               <div className="skill-section-head"><div><h3>运行监控</h3><p>来自实际运行记录</p></div><select aria-label="运行监控时间范围" value={props.metricsDays} onChange={(event) => props.onMetricsDays(Number(event.target.value))}><option value={7}>近 7 天</option><option value={30}>近 30 天</option><option value={90}>近 90 天</option></select></div>
@@ -670,7 +672,7 @@ export function DetailPanel(props: {
             </section>
           </div>
           <section className="skill-detail-card">
-            <div className="skill-section-head"><div><h3>版本记录</h3><p>发布会应用待发布草稿；员工使用此版本，历史版本可回滚。</p></div><button type="button" className="skill-governance-secondary" onClick={() => void publishVersion()}>发布草稿并生成版本</button></div>
+            <div className="skill-section-head"><div><h3>版本记录</h3><p>发布动作位于详情操作区；员工使用当前生效版本，历史版本可回滚。</p></div></div>
             <div className="skill-version-list">{versions.map((version) => <div className="skill-version-row" key={String(version.id)}><strong>v{String(version.version)}</strong><span>{String(version.status)}</span><span>{String(version.description || "—")}</span><button type="button" className="skill-governance-secondary" onClick={() => void rollback(Number(version.version))}>回滚</button></div>)}{!versions.length && <p className="muted">尚无版本记录</p>}</div>
           </section>
         </div>}

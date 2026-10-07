@@ -16,6 +16,7 @@ const STAGE_NAME: Record<string, string> = { draft: "草稿", editing: "编辑",
 export default function SkillLifecycleV2() {
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [selectedId, setSelectedId] = useState("");
+  const detailDirtyRef = useRef(false);
   const [query, setQuery] = useState("");
   const [origin, setOrigin] = useState<"all" | "official" | "third_party">("all");
   const [stage, setStage] = useState("all");
@@ -70,6 +71,12 @@ export default function SkillLifecycleV2() {
     finally { setBusy(false); }
   };
   const openCreate = () => { setDocumentQuery(false); setId(""); setTitle(""); setBody(""); setCreateError(""); setCreateOpen(true); };
+  const selectSkill = (id: string) => {
+    if (id === selectedId) return;
+    if (detailDirtyRef.current && !window.confirm("当前技能有未保存修改。切换前会丢失这些修改，仍要切换吗？")) return;
+    detailDirtyRef.current = false;
+    setSelectedId(id);
+  };
   const moveStage = (next: string, needReason?: boolean) => {
     if (!selected) return;
     ask(
@@ -91,15 +98,15 @@ export default function SkillLifecycleV2() {
         <div className="governance-filter-group"><strong>来源</strong><div className="governance-filter-options">{([["all", "全部"], ["official", "官方"], ["third_party", "第三方"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={origin === key} onClick={() => setOrigin(key)}>{label}</button>)}</div></div>
         <div className="governance-filter-group"><strong>阶段</strong><div className="governance-filter-options">{([["all", "全部"], ["draft", "草稿"], ["editing", "编辑"], ["testing", "测试"], ["published", "已发布"], ["disabled", "停用"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={stage === key} onClick={() => setStage(key)}>{label}</button>)}</div></div>
         <h2 className="governance-subheading">技能列表</h2>
-        <div className="governance-list">{visible.map((skill) => <button type="button" key={skill.id} className={`governance-list-row skill-v2-row${selectedId === skill.id ? " is-selected" : ""}`} onClick={() => setSelectedId(skill.id)}><strong>{skill.label}</strong><span className="muted">{skill.category || "未分类"}</span><span>{stageName(skill)}</span></button>)}{!visible.length && <p className="governance-empty">没有符合条件的技能。</p>}</div>
+        <div className="governance-list">{visible.map((skill) => <button type="button" key={skill.id} className={`governance-list-row skill-v2-row${selectedId === skill.id ? " is-selected" : ""}`} onClick={() => selectSkill(skill.id)}><strong>{skill.label}</strong><span className="muted">{skill.category || "未分类"}</span><span>{stageName(skill)}</span></button>)}{!visible.length && <p className="governance-empty">没有符合条件的技能。</p>}</div>
       </div>
       <div className="governance-rail-footer"><button type="button" className="btn work" onClick={openCreate}>新增技能</button></div>
     </aside>
-    <div className="governance-main"><header className="governance-main-head"><h2>{selected?.label || "技能详情"}</h2><button type="button" className="governance-minor" onClick={()=>setKnowledgeCreateOpen(true)}>新建知识技能</button><button type="button" className="governance-minor" onClick={() => setImportOpen(true)}>上传 SKILL.md</button></header>
+    <div className="governance-main"><header className="governance-main-head"><h2>技能资产</h2><button type="button" className="governance-minor" onClick={()=>setKnowledgeCreateOpen(true)}>新建知识技能</button><button type="button" className="governance-minor" onClick={() => setImportOpen(true)}>上传 SKILL.md</button></header>
       <div className="governance-scroll">
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="governance-notice" role="status">{notice}</p>}
-        {selected ? <div className="skill-v2-detail">{selected.document_query && <SkillKnowledgeRange key={`range-${selected.id}`} skillId={selected.id} />}<DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelectedId("")} /></div>
+        {selected ? <div className="skill-v2-detail">{selected.document_query && <SkillKnowledgeRange key={`range-${selected.id}`} skillId={selected.id} />}<DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} onDirtyChange={(dirty) => { detailDirtyRef.current = dirty; }} metricsDays={metricsDays} onMetricsDays={setMetricsDays} /></div>
           : <p className="governance-empty">选择一项技能查看详情。</p>}
       </div>
     </div>
@@ -118,7 +125,7 @@ export default function SkillLifecycleV2() {
     >
       <label>技能 Key（snake_case）<input ref={createKeyRef} type="text" value={id} onChange={(event) => setId(event.target.value)} /></label>
       <label>名称<input type="text" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-      <label><input type="checkbox" checked={documentQuery} onChange={(event) => setDocumentQuery(event.target.checked)} />非结构化文档问答（L1 只读；知识库在 Agent 页绑定）</label>
+      <label><input type="checkbox" checked={documentQuery} onChange={(event) => setDocumentQuery(event.target.checked)} />非结构化文档问答（R1 只读；知识库在 Agent 页绑定）</label>
       <label>说明（Markdown）<textarea value={body} onChange={(event) => setBody(event.target.value)} /></label>
     </AdminFormDialog>
   </section>;
