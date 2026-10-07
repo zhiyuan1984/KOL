@@ -1,12 +1,8 @@
 import type { TodayBrief } from "../api";
-import type { PlanSnapshotInfo } from "./todayPlan";
+import { planSourceStatus, type PlanSnapshotInfo } from "./todayPlan";
 function isPolicySection(section: { title?: string; body?: string }): boolean {
   const blob = `${section.title || ""}${section.body || ""}`;
   return /原则|缺一条就整轮|关闭的任务不会再出现/.test(blob);
-}
-function statOf(brief: TodayBrief | null | undefined, key: string): number {
-  const value = Number(brief?.stats?.[key]);
-  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 function normalizedCopy(value: string): string {
   return value.replace(/\s+/g, "").replace(/[·、,，。；;]/g, "").trim();
@@ -18,18 +14,25 @@ function stageSourceLabel(brief?: TodayBrief | null): string {
 /**
  * 计划摘要（今日/待办共用）。阶段数量与任务/异常数量分别呈现；同一份阶段
  * 文案绝不同时作为 section 正文和统计行重复输出。
+ *
+ * 任务数与异常数一律从当前列表行派生 —— 摘要里的数字必须和用户眼前的
+ * 任务表一致，规划时刻的 stats 快照只讲阶段分布，不讲"有几项任务"。
  */
-export default function PlanSummary({ brief, label = "今日计划摘要", snapshot }: {
+export default function PlanSummary({ brief, label = "今日计划摘要", snapshot, taskCount = 0, exceptionCount = 0 }: {
   brief?: TodayBrief | null;
   label?: string;
   snapshot?: PlanSnapshotInfo;
+  /** 当前列表行数：页面上"任务数"的唯一口径。 */
+  taskCount?: number;
+  /** 当前列表中 status=failed 的行数。 */
+  exceptionCount?: number;
 }) {
   const sections = (Array.isArray(brief?.sections) ? brief.sections : []).filter((section) => !isPolicySection(section));
   const lead = String(brief?.lead || "").trim();
   const note = String(sections[0]?.body || "").trim();
   if (!brief || (!lead && !note)) return null;
-  const tasks = statOf(brief, "unfinished");
-  const anomalies = statOf(brief, "failed_runs") + statOf(brief, "discovery_anomalies");
+  const tasks = taskCount;
+  const anomalies = exceptionCount;
   const rawStageCounts = brief.stage_counts || brief.stats?.stage_counts;
   const stageCounts = rawStageCounts && typeof rawStageCounts === "object" ? rawStageCounts : null;
   const stageText = stageCounts ? [
@@ -43,9 +46,8 @@ export default function PlanSummary({ brief, label = "今日计划摘要", snaps
     tasks ? `${tasks} 项任务` : "",
     anomalies ? `${anomalies} 项异常需优先处理` : "",
   ].filter(Boolean).join(" · ");
-  const sourceStatus = snapshot?.stale_reason === "source_lookup_failed"
-    ? "来源暂时无法核验，正在显示上次可用计划"
-    : snapshot?.stale_reason ? "来源已变化，正在显示上次可用计划" : "来源已核验";
+  // 来源状态与中栏 success banner 调用同一函数：同一快照，同一说法。
+  const sourceStatus = planSourceStatus(snapshot);
   return (
     <section className="today-plan-summary" data-today-brief>
       <span className="today-plan-summary-label">{label}</span>
@@ -53,10 +55,10 @@ export default function PlanSummary({ brief, label = "今日计划摘要", snaps
       {note && !noteDuplicatesStageText ? <p className="today-plan-summary-note" data-today-sections>{note}</p> : null}
       {stageText ? <p className="today-plan-summary-stats" data-today-stage-counts>{stageSourceLabel(brief)} · {stageText}</p> : null}
       {stats ? <p className="today-plan-summary-stats">{stats}</p> : null}
-      {snapshot?.generated_at ? (
+      {sourceStatus ? (
         <p className="today-plan-summary-stats" data-plan-snapshot-status>
           {sourceStatus}
-          {snapshot.producer === "deterministic_organize" ? " · 确定性整理" : snapshot.producer === "agent_plan" ? " · Agent 规划" : ""}
+          {snapshot?.producer === "deterministic_organize" ? " · 确定性整理" : snapshot?.producer === "agent_plan" ? " · Agent 规划" : ""}
         </p>
       ) : null}
     </section>

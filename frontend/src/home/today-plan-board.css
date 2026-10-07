@@ -313,6 +313,9 @@
 .task-board-status i { width: 6px; height: 6px; border-radius: 50%; background: #9AA0A6; }
 .task-board-status.is-running i { background: #2F7CF6; }
 .task-board-status.is-completed i { background: #22A06B; }
+/* 等审批：与 task-ux-badge.is-pending_approve 同一先例，用 --warning 图形档；
+   状态另有"等审批"文字，不只靠颜色（不变量 4）。 */
+.task-board-status.is-approval i { background: var(--warning); }
 .task-board-cell-actions {
   width: var(--workspace-task-actions-col);
   white-space: normal;

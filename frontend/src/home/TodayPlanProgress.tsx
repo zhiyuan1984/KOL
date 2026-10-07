@@ -2,11 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
 import { thinkTail } from "./streamText";
 import {
+  SCOPE_CONFIG,
   effectivePlanPhase,
   formatTodayPlanElapsed,
+  planGeneratedLabel,
+  planSourceStatus,
   planStartEvent,
   todayPlanEventLabels,
   type PlanScope,
+  type PlanSnapshotInfo,
   type TodayPlanPhase,
 } from "./todayPlan";
 import "./today-plan-progress.css";
@@ -67,7 +71,6 @@ export function lucasPlanCopy(
   phase: TodayPlanPhase,
   scope: PlanScope,
   candidates?: number | null,
-  plannedTasks?: number | null,
   failureReason?: string,
 ): string {
   const target = scope === "todo" ? "待办任务" : "今天的任务";
@@ -84,9 +87,7 @@ export function lucasPlanCopy(
       ? "本轮规划超时，现有任务清单仍可用"
       : "本轮规划未完成，现有任务清单仍可用";
   }
-  return plannedTasks != null && plannedTasks > 0
-    ? `Lucas 已完成规划，共生成 ${plannedTasks} 项任务`
-    : "Lucas 已完成规划";
+  return "Lucas 已完成规划";
 }
 
 function LucasAvatar({ phase, size = 16 }: { phase: TodayPlanPhase; size?: number }) {
@@ -142,18 +143,17 @@ export default function TodayPlanProgress({
   phase = "idle",
   events,
   candidates,
-  plannedTasks,
   currentRows = [],
   taskCatalog = [],
   brief,
   previousBrief,
   previousEvents,
+  snapshot,
   scope = "today",
 }: {
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
   candidates?: number | null;
-  plannedTasks?: number | null;
   /** Current visible rows define the new plan's task-id set. */
   currentRows?: Task[];
   /** Broader task memory supplies a title/status for removed or completed rows. */
@@ -163,6 +163,7 @@ export default function TodayPlanProgress({
   /** The version before this one, folded to a single row. */
   previousBrief?: TodayBrief | null;
   previousEvents?: TaskEvent[] | null;
+  snapshot?: PlanSnapshotInfo | null;
   scope?: PlanScope;
 }) {
   // The event trace is durable while `phase` is client-side and may lag one poll.
@@ -263,7 +264,7 @@ export default function TodayPlanProgress({
   );
   const failedStep = [...steps].reverse().find((step) => step.state === "failed");
   const displayPhase: TodayPlanPhase = resolvedPhase === "idle" && steps.length ? "refreshed" : resolvedPhase;
-  const status = lucasPlanCopy(displayPhase, scope, candidates, plannedTasks, failedStep?.detail);
+  const status = lucasPlanCopy(displayPhase, scope, candidates, failedStep?.detail);
 
   // The previous version stays reachable but never competes with the current one.
   const previousSteps = useMemo(() => {
@@ -281,7 +282,9 @@ export default function TodayPlanProgress({
   })();
   const previousLayout = Array.isArray(previousBrief?.todo_layout) ? previousBrief!.todo_layout : [];
   const currentLayout = Array.isArray(brief?.todo_layout) ? brief!.todo_layout : [];
-  const previousTasks = previousLayout.length || Number(previousBrief?.stats?.unfinished);
+  // 与 diff 的 prior 集合同一口径：去重后的上一版任务 id 数。
+  const previousTasks = new Set(previousLayout.map((item) => String(item.work_item_id))).size
+    || Number(previousBrief?.stats?.unfinished);
   const planDiff = useMemo(() => {
     type DiffKind = "added" | "removed" | "completed" | "changed";
     type DiffRow = { id: string; title: string; kind: DiffKind };
@@ -311,8 +314,12 @@ export default function TodayPlanProgress({
 
   if (!status && !steps.length && !hasPrevious) return null;
 
-  const successTime = (finishedAt || formatClock(new Date())).slice(0, 5);
-  const successTaskCount = plannedTasks ?? currentRows.length;
+  // 成功态只讲状态，不报任务数：数字的唯一出口是右栏任务表，摘要里再说一遍。
+  // 时间与来源都以 snapshot 为准，和右栏摘要调用同一函数，永不各说各话。
+  const planNoun = SCOPE_CONFIG[scope].planNoun;
+  const generatedLabel = planGeneratedLabel(snapshot, finishedAt);
+  const sourceStatus = planSourceStatus(snapshot);
+  const successMeta = [generatedLabel ? `${generatedLabel} 生成` : "", sourceStatus].filter(Boolean).join(" · ");
   const failureReason = employeeFailureReason(failedStep?.detail || status || "本轮规划未完成，现有任务清单仍可用。");
   return (
     <section
@@ -396,8 +403,8 @@ export default function TodayPlanProgress({
         </section>
       ) : (
         <header className="today-plan-success" data-today-plan-success>
-          <strong>✓ 今日计划 · {successTaskCount} 项任务</strong>
-          <span>{successTime} 生成 · 来源已核验</span>
+          <strong>✓ {planNoun}</strong>
+          {successMeta ? <span>{successMeta}</span> : null}
         </header>
       )}
 

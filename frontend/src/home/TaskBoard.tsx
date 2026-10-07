@@ -45,7 +45,9 @@ export function planButtonState(phase: TodayPlanPhase, scope: TaskBoardScope = "
   const copy = SCOPE_CONFIG[scope];
   if (phase === "loading-memory") return { label: "正在启动…", busy: true, state: "starting" };
   if (phase === "planning") return { label: "正在规划…", busy: true, state: "planning" };
-  if (phase === "refreshed" || phase === "failed") return { label: copy.boardAgainLabel, busy: false, state: "again" };
+  // 失败后按钮说"重新规划"：和中栏失败卡是同一个动作，不要装作从零"生成"。
+  if (phase === "failed") return { label: copy.boardRetryLabel, busy: false, state: "again" };
+  if (phase === "refreshed") return { label: copy.boardAgainLabel, busy: false, state: "again" };
   return { label: copy.boardIdleLabel, busy: false, state: "idle" };
 }
 

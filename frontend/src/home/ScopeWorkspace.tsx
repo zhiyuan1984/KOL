@@ -104,6 +104,11 @@ export default function ScopeWorkspace({
   const loading = memoryPending || (phase === "loading-memory" && !stamped.length);
   const hasStream = Boolean(brief) || Boolean((events || []).length);
   const selectedAvailable = Boolean(selectedTask && stamped.some((task) => task.id === selectedTask.id));
+  // 摘要里的任务数/异常数必须和用户眼前的任务表一致：从当前行派生，不用规划快照。
+  const exceptionCount = useMemo(
+    () => stamped.filter((task) => String(task.status || "").trim().toLowerCase() === "failed").length,
+    [stamped],
+  );
   return (
     <WorkspaceShell
       pane={scope}
@@ -135,11 +140,11 @@ export default function ScopeWorkspace({
             events={events}
             brief={brief}
             candidates={candidateCount(brief)}
-            plannedTasks={stamped.length}
             currentRows={stamped}
             taskCatalog={taskCatalog}
             previousBrief={previousBrief}
             previousEvents={previousEvents}
+            snapshot={snapshot}
             scope={scope}
           />
           {centerSupplement}
@@ -174,7 +179,7 @@ export default function ScopeWorkspace({
           onOpen={onOpen}
           onEdit={onEdit}
           planPhase={phase === "idle" && hasStream ? "refreshed" : phase}
-          summary={<PlanSummary brief={brief} label={cfg.planSummaryLabel} snapshot={snapshot} />}
+          summary={<PlanSummary brief={brief} label={cfg.planSummaryLabel} snapshot={snapshot} taskCount={stamped.length} exceptionCount={exceptionCount} />}
         />
       )}
     />

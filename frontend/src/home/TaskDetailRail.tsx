@@ -18,12 +18,14 @@ type TaskDetailRailProps = {
   onStartExecution: (task: Task) => Promise<void> | void;
 };
 
-type DetailStatus = { label: "待处理" | "进行中" | "已完成"; tone: "pending" | "running" | "completed" };
+type DetailStatus = { label: "待处理" | "进行中" | "已完成" | "等审批"; tone: "pending" | "running" | "completed" | "approval" };
 
 export function taskDetailStatus(task: Task): DetailStatus {
   const status = String(task.status || "").trim().toLowerCase();
   if (["completed", "done"].includes(status)) return { label: "已完成", tone: "completed" };
-  if (["running", "in_progress", "queued", "waiting", "waiting_approval"].includes(status)) return { label: "进行中", tone: "running" };
+  // 与列表 BoardRow.boardStatus 同一映射：等审批是独立状态，不吞进"进行中"。
+  if (status === "waiting_approval") return { label: "等审批", tone: "approval" };
+  if (["running", "in_progress", "queued", "waiting"].includes(status)) return { label: "进行中", tone: "running" };
   return { label: "待处理", tone: "pending" };
 }
 

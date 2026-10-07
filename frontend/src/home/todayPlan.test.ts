@@ -15,6 +15,8 @@ import {
   memoryTasksOf,
   planCacheKey,
   planCompletedFromEvents,
+  planGeneratedLabel,
+  planSourceStatus,
   planStartEvent,
   restorePlanCache,
   runTodayPlanRefresh,
@@ -23,6 +25,7 @@ import {
   todayPlanEventLabels,
   todayPlanFailedFromBrief,
   todayPlanStatusCopy,
+  type PlanSnapshotInfo,
   type TodayPlanClient,
   type TodayPlanStep,
 } from "./todayPlan";
@@ -737,5 +740,38 @@ describe("todo scope wiring", () => {
     expect(final.tasks?.map((row) => row.id)).toEqual(["tsk_todo"]);
     expect(todayPlanEventLabels(final.events)).toEqual(["已读取待办任务记忆", "待办规划已完成"]);
     expect(steps.map((step) => step.phase)).toEqual(expect.arrayContaining(["loading-memory", "planning", "refreshed"]));
+  });
+});
+
+describe("plan provenance copy (single source of truth)", () => {
+  const fresh: PlanSnapshotInfo = {
+    plan_id: "p1", status: "completed", producer: "agent_plan",
+    source_revision: "r1", generated_at: "2026-10-07T08:12:05+08:00",
+  };
+  it("maps the three freshness states to one wording each", () => {
+    expect(planSourceStatus(fresh)).toBe("来源已核验");
+    expect(planSourceStatus({ ...fresh, stale_reason: "source_changed" }))
+      .toBe("来源已变化，正在显示上次可用计划");
+    expect(planSourceStatus({ ...fresh, stale_reason: "source_lookup_failed" }))
+      .toBe("来源暂时无法核验，正在显示上次可用计划");
+  });
+  it("makes no claim without a snapshot", () => {
+    expect(planSourceStatus(undefined)).toBe("");
+    expect(planSourceStatus(null)).toBe("");
+    expect(planSourceStatus({ ...fresh, generated_at: "" })).toBe("");
+  });
+  it("prefers snapshot.generated_at and never falls back to the current time", () => {
+    expect(planGeneratedLabel(fresh, "09:00")).toBe("08:12");
+    // no snapshot and no events: empty, not "now"
+    expect(planGeneratedLabel(undefined, "")).toBe("");
+    expect(planGeneratedLabel(undefined)).toBe("");
+    // event time only when there is no snapshot
+    expect(planGeneratedLabel(undefined, "08:05:11")).toBe("08:05");
+  });
+  it("gives each scope its own plan noun (no 今日计划 on the todo page)", () => {
+    expect(SCOPE_CONFIG.today.planNoun).toBe("今日计划");
+    expect(SCOPE_CONFIG.todo.planNoun).toBe("我的待办");
+    expect(SCOPE_CONFIG.today.boardRetryLabel).toBe("重新规划今日计划");
+    expect(SCOPE_CONFIG.todo.boardRetryLabel).toBe("重新规划待办计划");
   });
 });

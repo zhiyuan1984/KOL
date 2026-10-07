@@ -68,6 +68,10 @@ export interface FrontendScopeConfig {
   /** Board plan button labels: idle names the action, again names the re-run. */
   boardIdleLabel: string;
   boardAgainLabel: string;
+  /** Board plan button label after a failed run: names the retry, not a fresh start. */
+  boardRetryLabel: string;
+  /** Noun used by the plan status line ("今日计划" / "我的待办"). */
+  planNoun: string;
   /** Workspace center header. */
   heroTitle: string;
   /** Right-rail board title. */
@@ -97,6 +101,8 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     startEvent: TODAY_PLAN_START_EVENT,
     boardIdleLabel: "启动今日任务",
     boardAgainLabel: "生成今日计划",
+    boardRetryLabel: "重新规划今日计划",
+    planNoun: "今日计划",
     heroTitle: "今天有什么工作要处理？",
     boardTitle: "今日工作计划",
     railLabel: "今日任务表",
@@ -120,6 +126,8 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     startEvent: TODO_PLAN_START_EVENT,
     boardIdleLabel: "启动待办任务",
     boardAgainLabel: "重新生成待办计划",
+    boardRetryLabel: "重新规划待办计划",
+    planNoun: "我的待办",
     heroTitle: "我的待办",
     boardTitle: "我的待办",
     railLabel: "待办任务表",
@@ -245,6 +253,34 @@ export function formatTodayPlanElapsed(totalSeconds: number): string {
   const minutes = Math.floor(safe / 60);
   const seconds = safe % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+/**
+ * Single source of truth for the plan provenance line. Every surface that talks
+ * about the plan's freshness (center status banner, rail summary) must call this
+ * — a hardcoded "来源已核验" next to a stale snapshot is how the page ends up
+ * contradicting itself. No snapshot → no claim.
+ */
+export function planSourceStatus(snapshot?: PlanSnapshotInfo | null): string {
+  if (!snapshot?.generated_at) return "";
+  if (snapshot.stale_reason === "source_lookup_failed") return "来源暂时无法核验，正在显示上次可用计划";
+  if (snapshot.stale_reason) return "来源已变化，正在显示上次可用计划";
+  return "来源已核验";
+}
+
+/**
+ * The plan's real generation clock: snapshot.generated_at first, a caller
+ * fallback (e.g. the last event time) second, and never "now" — rendering the
+ * current time as the generation time is what makes a stale cached plan read as
+ * freshly generated on re-entry.
+ */
+export function planGeneratedLabel(snapshot?: PlanSnapshotInfo | null, fallback = ""): string {
+  const raw = String(snapshot?.generated_at || "").trim() || String(fallback || "").trim();
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw.slice(0, 5);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 export function todayPlanEventLabels(events: TaskEvent[] | null | undefined): string[] {

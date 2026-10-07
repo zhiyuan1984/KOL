@@ -3,12 +3,14 @@ import {
   isDisplayOnlyTask,
   taskActionLabel,
   taskDisplayStatus,
-  taskPriorityRank,
 } from "./homeModel";
 
 function BoardTaskIcon({ task }: { task: Task }) {
   const type = String(task.task_type || task.skill || "");
-  const risk = type === "risk_scan" || taskPriorityRank(task) <= 1;
+  // 风险信号只认 risk_level（与 R chip 同源）与任务语义（risk_scan 本身就是风险扫描）：
+  // 优先级高低归筛选 pills 与排序管，图标不再用 priority rank 另起一套风险体系，
+  // 避免"有图标无 chip / 有 chip 无图标"。
+  const risk = type === "risk_scan" || riskChip(task) === "R1";
   const search = /discovery|analyze|library_query/.test(type);
   return (
     <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -23,13 +25,15 @@ function BoardTaskIcon({ task }: { task: Task }) {
   );
 }
 
-type BoardStatus = { label: "待处理" | "进行中" | "已完成"; tone: "pending" | "running" | "completed" };
+type BoardStatus = { label: "待处理" | "进行中" | "已完成" | "等审批"; tone: "pending" | "running" | "completed" | "approval" };
 
 export function boardStatus(task: Task): BoardStatus {
   const direct = String(task.status || "").trim().toLowerCase();
   const status = direct || String(taskDisplayStatus(task)?.code || "").toLowerCase();
   if (["completed", "done"].includes(status)) return { label: "已完成", tone: "completed" };
-  if (["running", "in_progress", "queued", "waiting", "waiting_approval"].includes(status)) return { label: "进行中", tone: "running" };
+  // 等审批是独立状态：不要把它吞进"进行中"，用户分不清"在跑"和"在等我批"。
+  if (status === "waiting_approval") return { label: "等审批", tone: "approval" };
+  if (["running", "in_progress", "queued", "waiting"].includes(status)) return { label: "进行中", tone: "running" };
   return { label: "待处理", tone: "pending" };
 }
 

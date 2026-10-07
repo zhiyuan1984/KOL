@@ -24,6 +24,8 @@
 .task-detail-status.is-running i { background: #2F7CF6; }
 .task-status-dot.is-completed,
 .task-detail-status.is-completed i { background: #22A06B; }
+.task-status-dot.is-approval,
+.task-detail-status.is-approval i { background: var(--warning); }
 .task-detail-close { width: var(--icon-btn); height: var(--icon-btn); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--ds-text-dim); font: inherit; font-size: 20px; line-height: 1; cursor: pointer; }
 .task-detail-close:hover { background: var(--surface-hover); color: var(--text); }
 .task-detail-close:focus-visible,
