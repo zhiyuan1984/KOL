@@ -11,6 +11,7 @@ export type RuntimeActionView = {
   can_retry?: boolean;
   progress?: { state: string; label: string; summary: string; replace_result: boolean; result: TaskResultCard } | null;
   crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null;
+    queue_position?: number | null;
     result_state?: string; result_error?: string | null; result_json?: { task_id: string; complete: boolean; captured_at: string; candidates: Array<{
       id: string; name: string; platform: string; source_url: string | null; followers: number | null; avg_views_10: number | null; region: string | null;
         sampled_views_count?: number; sampled_views_avg?: number | null;
@@ -2000,6 +2001,7 @@ export const api = {
   cancelRuntimeAction: (id: string) => request("/api/actions/runtime.cancel", { method: "POST", body: JSON.stringify({ action_id: id }) }),
   proposeCrawlStop: (id: string) => request("/api/actions/runtime.crawl.stop", { method: "POST", body: JSON.stringify({ action_id: id }) }),
   proposeCrawlRetry: (id: string) => request("/api/actions/runtime.crawl.retry", { method: "POST", body: JSON.stringify({ action_id: id }) }),
+  dequeueCrawl: (id: string) => request("/api/actions/runtime.crawl.dequeue", { method: "POST", body: JSON.stringify({ action_id: id }) }),
   get: (path: string) => request<unknown>(path),
   post: (path: string, body?: unknown) =>
     request<unknown>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
