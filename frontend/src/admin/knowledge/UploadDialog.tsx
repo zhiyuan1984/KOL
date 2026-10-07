@@ -6,8 +6,13 @@ import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
 import KbvIcon from "../../knowledgeIcons";
 import { formatBytes } from "./shared";
 
-/** PDF 上传即进入规整与索引，完成后留在待审资料队列。 */
-const UPLOAD_FORMATS: Record<string, string> = { pdf: "PDF 文档" };
+/** PDF / 图片 / 音视频上传即进入规整与索引，完成后留在待审资料队列。 */
+const UPLOAD_FORMATS: Record<string, string> = {
+  pdf: "PDF 文档",
+  png: "图片 PNG", jpg: "图片 JPG", jpeg: "图片 JPEG", gif: "图片 GIF", webp: "图片 WebP",
+  mp3: "音频 MP3", wav: "音频 WAV", m4a: "音频 M4A", aac: "音频 AAC", flac: "音频 FLAC", ogg: "音频 OGG", opus: "音频 OPUS",
+  mp4: "视频 MP4", mov: "视频 MOV", webm: "视频 WebM", mkv: "视频 MKV",
+};
 
 const ACCEPT = Object.keys(UPLOAD_FORMATS).map((ext) => `.${ext}`).join(",");
 

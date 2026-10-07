@@ -1097,13 +1097,27 @@ migrations.push({ id: "20261005_work_order_human_adoption", statements: [workOrd
 const { taskCollaborationSessionSchema } = await import("../src/ticket-domain/task-collaboration-session.js");
 migrations.push({ id: "20261005_task_collaboration_sessions", statements: [taskCollaborationSessionSchema] });
 migrations.push({
-  // Keep this appended migration separate from historical bootstrap records:
-  // production validates their checksums before applying newer releases.
-  id: "20261006_task_detail_ticket_links",
+  // 技能 / 模型能力注册表（2026-10-07）：索引而非仓库。
+  id: "20261007_capability_registry",
   statements: [
-    "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS task_id TEXT",
-    "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS deleted_at TEXT",
-    "CREATE INDEX IF NOT EXISTS tickets_task_detail_open_idx ON tickets(task_id,updated_at DESC) WHERE deleted_at IS NULL",
+    `CREATE TABLE IF NOT EXISTS capability_registry (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      origin TEXT NOT NULL DEFAULT 'manual',
+      capability TEXT NOT NULL DEFAULT '{}',
+      constraints TEXT NOT NULL DEFAULT '{}',
+      version TEXT,
+      version_pinned TEXT,
+      stats TEXT NOT NULL DEFAULT '{}',
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(kind, ref_id)
+    )`,
+    "CREATE INDEX IF NOT EXISTS capability_registry_kind_status ON capability_registry(kind, status)",
   ],
 });
 

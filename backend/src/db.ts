@@ -591,6 +591,27 @@ function initSchema(db: SqliteConn): void {
             ON knowledge_document_jobs(document_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS knowledge_document_jobs_status
             ON knowledge_document_jobs(status);
+        -- 技能 / 模型能力注册表（2026-10-07）：索引而非仓库，只登记能力画像与调用统计。
+        -- 设计：docs/superpowers/specs/2026-10-07-media-transcribe-capability-registry-design.md §2。
+        CREATE TABLE IF NOT EXISTS capability_registry (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            ref_id TEXT NOT NULL,
+            origin TEXT NOT NULL DEFAULT 'manual',
+            capability TEXT NOT NULL DEFAULT '{}',
+            constraints TEXT NOT NULL DEFAULT '{}',
+            version TEXT,
+            version_pinned TEXT,
+            stats TEXT NOT NULL DEFAULT '{}',
+            notes TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(kind, ref_id)
+        );
+        CREATE INDEX IF NOT EXISTS capability_registry_kind_status
+            ON capability_registry(kind, status);
         CREATE TABLE IF NOT EXISTS knowledge_versions (
             id TEXT PRIMARY KEY,
             knowledge_id TEXT NOT NULL,

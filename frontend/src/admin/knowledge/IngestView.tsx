@@ -247,7 +247,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
                 ref={fileRef}
                 type="file"
                 hidden
-                accept=".pdf,application/pdf"
+                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv,application/pdf"
                 data-admin-kb-doc-file
                 onChange={(event) => setFile(event.target.files?.[0] || null)}
               />

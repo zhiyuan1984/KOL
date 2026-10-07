@@ -16,12 +16,8 @@ import { HttpFail } from "./errors.js";
 import { knowledgeActorId } from "./knowledge.js";
 import { bridgeMode, chatModel, indexModel, mediaModel, runBridge, type BridgeOutcome } from "../knowledge-bridge.js";
 import { recordCostEvent } from "../costs.js";
+import { recordCapabilityCall } from "../capability/registry.js";
 import { intentLlmApiKey, intentLlmFetch } from "../tasks/openai-intent.js";
-import {
-  rewriteQuestion,
-  sanitizeSessionContext,
-  validateRewrite,
-} from "../knowledge/rewriter.js";
 import { postgresQuery } from "../postgres/pool.js";
 
 export const DOCUMENT_STATUSES = [
@@ -38,8 +34,47 @@ export const DOCUMENT_STATUSES = [
 
 export const DOCUMENT_MEDIA_TYPES = ["pdf", "pptx", "image", "audio", "video"] as const;
 
-/** P1 只接入 PDF；其余格式在 P2 开放（上传即拒绝，页面文案写明）。 */
-const P1_ACCEPTED_EXTS = new Set([".pdf"]);
+/** P1 接入：PDF / 图片 / 音视频；PPTX 仍在后续批次（上传即拒绝，页面文案写明）。 */
+const ACCEPTED_MEDIA: Record<string, { media: "pdf" | "image" | "audio" | "video"; mime: string }> = {
+  ".pdf": { media: "pdf", mime: "application/pdf" },
+  ".png": { media: "image", mime: "image/png" },
+  ".jpg": { media: "image", mime: "image/jpeg" },
+  ".jpeg": { media: "image", mime: "image/jpeg" },
+  ".gif": { media: "image", mime: "image/gif" },
+  ".webp": { media: "image", mime: "image/webp" },
+  ".mp3": { media: "audio", mime: "audio/mpeg" },
+  ".wav": { media: "audio", mime: "audio/wav" },
+  ".m4a": { media: "audio", mime: "audio/mp4" },
+  ".aac": { media: "audio", mime: "audio/aac" },
+  ".flac": { media: "audio", mime: "audio/flac" },
+  ".ogg": { media: "audio", mime: "audio/ogg" },
+  ".opus": { media: "audio", mime: "audio/opus" },
+  ".mp4": { media: "video", mime: "video/mp4" },
+  ".mov": { media: "video", mime: "video/quicktime" },
+  ".webm": { media: "video", mime: "video/webm" },
+  ".mkv": { media: "video", mime: "video/x-matroska" },
+};
+
+/** 按类型做魔数校验；音视频容器格式多，仅校验扩展名，ffmpeg 在转写时做真实校验。 */
+function validateMediaMagic(buf: Buffer, media: "pdf" | "image" | "audio" | "video"): void {
+  const head = buf.subarray(0, 16);
+  if (media === "pdf") {
+    if (!buf.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
+      throw new HttpFail(400, { code: "knowledge_invalid_pdf", message: "文件不是有效的 PDF" });
+    }
+    return;
+  }
+  if (media === "image") {
+    const isPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+    const isJpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+    const isGif = head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46;
+    const isWebp = head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46
+      && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50;
+    if (!(isPng || isJpeg || isGif || isWebp)) {
+      throw new HttpFail(400, { code: "knowledge_invalid_image", message: "文件不是有效的图片" });
+    }
+  }
+}
 
 function errorMessage(error: unknown): string {
   if (error instanceof HttpFail) {
@@ -270,16 +305,15 @@ export function uploadDocument(
   }
   const filename = sanitizeName(file.name || "upload.pdf");
   const ext = path.extname(filename).toLowerCase();
-  if (!P1_ACCEPTED_EXTS.has(ext)) {
+  const spec = ACCEPTED_MEDIA[ext];
+  if (!spec) {
     throw new HttpFail(400, {
       code: "knowledge_format_not_implemented",
-      message: "本阶段先接入 PDF；音视频、PPTX 与图片将在后续批次开放",
+      message: "本阶段先接入 PDF / 图片 / 音视频；PPTX 将在后续批次开放",
     });
   }
+  validateMediaMagic(file.buf, spec.media);
   const maxBytes = Number(process.env.KNOWLEDGE_DOC_MAX_BYTES || 536870912);
-  if (!file.buf.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
-    throw new HttpFail(400, { code: "knowledge_invalid_pdf", message: "文件不是有效的 PDF" });
-  }
   if (file.buf.length > maxBytes) {
     throw new HttpFail(413, { code: "knowledge_document_too_large", message: `单个文件不得超过 ${Math.floor(maxBytes / 1048576)} MiB` });
   }
@@ -296,12 +330,12 @@ export function uploadDocument(
        (id,base_id,title,filename,media_type,mime,size_bytes,source_path,status,error,retry_count,artifacts,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
-      id, String(base.id), title, filename, "pdf", "application/pdf", file.buf.length,
+      id, String(base.id), title, filename, spec.media, file.type || spec.mime, file.buf.length,
       storePath(sourcePath), options.draft ? "draft" : "uploaded", null, 0, null, actor, now, now,
     );
     if (!options.draft) insertQueuedJob(db, id, "normalize", actor);
   });
-  audit(actor, "knowledge.document.upload", { document_id: id, base_id: String(base.id), filename });
+  audit(actor, "knowledge.document.upload", { document_id: id, base_id: String(base.id), filename, media_type: spec.media });
   if (!options.draft) enqueueDocument(id, "normalize");
   return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
 }
@@ -472,7 +506,7 @@ function pdfHasTextLayer(filePath: string, buf: Buffer): boolean {
 
 type VisionRow = { text: string; inputTokens: number | null; outputTokens: number | null };
 
-async function ocrImageWithVision(imagePath: string, pageNo: number): Promise<VisionRow> {
+async function ocrImageWithVision(imagePath: string, pageNo: number, mime = "image/png"): Promise<VisionRow> {
   const key = intentLlmApiKey();
   if (!key) throw new HttpFail(503, { code: "knowledge_index_unavailable", message: "缺少模型凭据：无法进行扫描件 OCR" });
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -486,7 +520,7 @@ async function ocrImageWithVision(imagePath: string, pageNo: number): Promise<Vi
         role: "user",
         content: [
           { type: "text", text: `第 ${pageNo} 页。请逐字转写本页文本，保留标题与列表结构；不要总结、不要编造；识别不到文本时只回复「本页无可识别文本」。` },
-          { type: "image_url", image_url: { url: `data:image/png;base64,${data}` } },
+          { type: "image_url", image_url: { url: `data:${mime};base64,${data}` } },
         ],
       }],
     }),
@@ -504,6 +538,243 @@ async function ocrImageWithVision(imagePath: string, pageNo: number): Promise<Vi
   };
 }
 
+type NormalizeCtx = { dir: string; sourcePath: string; normalized: string; started: string };
+
+function fmtHMS(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(Math.floor(s / 3600))}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}`;
+}
+
+/** stub 引擎的规整：沿用直拷；音视频可用 STUB_MEDIA_SEGMENTS=N 模拟分段进度。 */
+async function stubNormalizeStage(doc: Row, jobId: string, signal: AbortSignal, ctx: NormalizeCtx, buf: Buffer): Promise<void> {
+  const { dir, sourcePath, normalized, started } = ctx;
+  const delay = Number(process.env.KNOWLEDGE_STUB_NORMALIZE_MS || 0);
+  const sleep = async () => {
+    if (Number.isFinite(delay) && delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+  };
+  const mediaType = String(doc.media_type || "");
+  const segMatch = /STUB_MEDIA_SEGMENTS=(\d+)/.exec(buf.toString("latin1"));
+  if ((mediaType === "audio" || mediaType === "video") && segMatch) {
+    const total = Math.max(1, parseInt(segMatch[1], 10));
+    updateJobProgress(jobId, 0, total, { mode: "media-transcribe" });
+    for (let i = 1; i <= total; i += 1) {
+      if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
+      await sleep();
+      updateJobProgress(jobId, i, total, { mode: "media-transcribe" });
+    }
+    const transcriptPath = path.join(dir, "transcript.md");
+    fs.writeFileSync(transcriptPath, `# ${doc.title} · 全文转写稿（stub）\n\n共 ${total} 段。\n`);
+    const extractedPath = path.join(dir, "extracted.md");
+    fs.writeFileSync(extractedPath, `# ${doc.title} · 转写摘要（stub）\n\n共 ${total} 段。\n`);
+    const make = await runBridge({ cmd: "make-pdf", args: ["--text", extractedPath, "--out", normalized], signal });
+    if (!make.ok) throw new HttpFail(502, { code: String(make.code || "knowledge_normalize_failed"), message: String(make.message || "规整稿生成失败") });
+    mergeArtifacts(String(doc.id), {
+      normalize: {
+        mode: "media-transcribe", model: "stub", segments: total,
+        transcript_path: storePath(transcriptPath), extracted_path: storePath(extractedPath),
+        normalized_path: storePath(normalized), finished_at: started,
+      },
+    });
+    return;
+  }
+  await sleep();
+  if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
+  updateJobProgress(jobId, 1, 1, { mode: "stub" });
+  fs.copyFileSync(sourcePath, normalized);
+  mergeArtifacts(String(doc.id), {
+    normalize: { mode: "stub", normalized_path: storePath(normalized), finished_at: started },
+  });
+}
+
+/** 单图：视觉模型直接 OCR → 文本型 PDF（= scanned-ocr 的单页特例）。 */
+async function ocrSingleImageStage(doc: Row, jobId: string, signal: AbortSignal, ctx: NormalizeCtx): Promise<void> {
+  const { dir, sourcePath, normalized, started } = ctx;
+  updateJobProgress(jobId, 0, 1, { mode: "image-ocr" });
+  if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
+  const mime = String(doc.mime || "");
+  const row = await ocrImageWithVision(sourcePath, 1, mime.startsWith("image/") ? mime : "image/png");
+  const markdown = `## 图片内容\n\n${row.text || "（本页无可识别文本）"}\n`;
+  const extractedPath = path.join(dir, "extracted.md");
+  fs.writeFileSync(extractedPath, markdown);
+  const make = await runBridge({ cmd: "make-pdf", args: ["--text", extractedPath, "--out", normalized], signal });
+  if (!make.ok) throw new HttpFail(502, { code: String(make.code || "knowledge_normalize_failed"), message: String(make.message || "规整稿生成失败") });
+  updateJobProgress(jobId, 1, 1, { mode: "image-ocr" });
+  const inputTokens = row.inputTokens ?? 0;
+  const outputTokens = row.outputTokens ?? 0;
+  if (row.inputTokens != null || row.outputTokens != null) {
+    recordCostEvent({
+      source: "knowledge_normalize",
+      userId: String(doc.created_by || "") || undefined,
+      model: mediaModel(),
+      inputTokens,
+      outputTokens,
+      raw: JSON.stringify({ mode: "image-ocr" }).slice(0, 500),
+    });
+  }
+  recordCapabilityCall({ kind: "model", ref_id: mediaModel(), ok: true, inputTokens, outputTokens });
+  mergeArtifacts(String(doc.id), {
+    normalize: {
+      mode: "image-ocr", model: mediaModel(), pages: 1,
+      extracted_path: storePath(extractedPath),
+      normalized_path: storePath(normalized), finished_at: started,
+    },
+  });
+}
+
+type SegmentTranscript = { text: string; summary: string; inputTokens: number | null; outputTokens: number | null };
+
+/** 单段音频转写：转写文本 + 一句话摘要；模型不支持音频输入时给稳定错误码。 */
+async function transcribeAudioSegment(segPath: string, segIndex: number, total: number, segmentSeconds: number): Promise<SegmentTranscript> {
+  const key = intentLlmApiKey();
+  if (!key) throw new HttpFail(503, { code: "knowledge_index_unavailable", message: "缺少模型凭据：无法转写音视频" });
+  const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  const data = fs.readFileSync(segPath).toString("base64");
+  const response = await intentLlmFetch()(`${base}/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: mediaModel(),
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: `这是第 ${segIndex}/${total} 段音频（约 ${segmentSeconds} 秒）。请做两件事：1）逐字转写全部语音内容，不总结、不编造；无语音内容只回复【静音】。2）最后另起一行，以"摘要："开头给出本段一句话摘要。` },
+          { type: "input_audio", input_audio: { data, format: "mp3" } },
+        ],
+      }],
+    }),
+  });
+  if (!response.ok) {
+    throw new HttpFail(502, { code: "knowledge_transcribe_unsupported", message: `转写调用失败（HTTP ${response.status}）：模型或网关可能不支持音频输入` });
+  }
+  const payload = (await response.json()) as Json;
+  const choices = Array.isArray(payload.choices) ? payload.choices as Json[] : [];
+  const content = String(((choices[0]?.message || {}) as Json).content || "").trim();
+  const usage = (payload.usage || {}) as Json;
+  let summary = "";
+  const bodyLines: string[] = [];
+  for (const line of content.split("\n")) {
+    const m = line.match(/^摘要：(.*)$/);
+    if (m) summary = m[1].trim();
+    else bodyLines.push(line);
+  }
+  const text = bodyLines.join("\n").trim();
+  return {
+    text: text === "【静音】" ? "" : text,
+    summary,
+    inputTokens: Number.isFinite(Number(usage.prompt_tokens)) ? Number(usage.prompt_tokens) : null,
+    outputTokens: Number.isFinite(Number(usage.completion_tokens)) ? Number(usage.completion_tokens) : null,
+  };
+}
+
+type SegmentManifest = { fingerprint: string; segment_seconds: number; files: string[] };
+
+/**
+ * 音视频转写：ffmpeg 抽音轨切分 → 逐段转写 → transcript.md 留档 →
+ * 摘要+全文进文本型 PDF → 复用 indexStage。
+ * 进度 = 真实段数；已完成段落缓存可断点续跑；每段之间检查取消。
+ */
+async function transcribeMediaStage(doc: Row, jobId: string, signal: AbortSignal, ctx: NormalizeCtx): Promise<void> {
+  const { dir, sourcePath, normalized, started } = ctx;
+  if (!tryExec("ffmpeg", ["-version"])) {
+    throw new HttpFail(503, { code: "knowledge_transcribe_unavailable", message: "缺少 ffmpeg：无法切分音视频，请联系管理员安装后重试" });
+  }
+  const segmentSeconds = Math.max(60, Math.floor(Number(process.env.KNOWLEDGE_MEDIA_SEGMENT_SECONDS || 600)));
+  const segmentsDir = path.join(dir, "segments");
+  const manifestPath = path.join(segmentsDir, "manifest.json");
+  const stat = fs.statSync(sourcePath);
+  const fingerprint = `${stat.size}:${Math.floor(stat.mtimeMs)}`;
+  let manifest: SegmentManifest | null = null;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as SegmentManifest;
+  } catch {
+    manifest = null;
+  }
+  let segFiles: string[];
+  if (manifest && manifest.fingerprint === fingerprint && manifest.segment_seconds === segmentSeconds
+      && Array.isArray(manifest.files) && manifest.files.length) {
+    segFiles = manifest.files.filter((f) => fs.existsSync(path.join(segmentsDir, f)));
+  } else {
+    segFiles = [];
+  }
+  if (!segFiles.length) {
+    fs.rmSync(segmentsDir, { recursive: true, force: true });
+    fs.mkdirSync(segmentsDir, { recursive: true });
+    tryExec("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-y", "-i", sourcePath,
+      "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k",
+      "-f", "segment", "-segment_time", String(segmentSeconds),
+      path.join(segmentsDir, "seg-%03d.mp3"),
+    ]);
+    segFiles = fs.readdirSync(segmentsDir).filter((f) => f.endsWith(".mp3")).sort();
+    if (!segFiles.length) {
+      throw new HttpFail(502, { code: "knowledge_transcribe_failed", message: "音视频切分失败（ffmpeg 未产出分段）" });
+    }
+    manifest = { fingerprint, segment_seconds: segmentSeconds, files: segFiles };
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  }
+  const total = segFiles.length;
+  updateJobProgress(jobId, 0, total, { mode: "media-transcribe" });
+  const startedAt = Date.now();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let tokensKnown = false;
+  const transcripts: string[] = [];
+  const summaries: string[] = [];
+  for (let i = 0; i < total; i += 1) {
+    if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
+    const segName = segFiles[i];
+    const cachePath = path.join(segmentsDir, `${segName}.json`);
+    let cached: SegmentTranscript | null = null;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(cachePath, "utf8")) as SegmentTranscript;
+      if (parsed && typeof parsed.text === "string") cached = parsed;
+    } catch {
+      cached = null;
+    }
+    if (!cached) {
+      cached = await transcribeAudioSegment(path.join(segmentsDir, segName), i + 1, total, segmentSeconds);
+      fs.writeFileSync(cachePath, JSON.stringify(cached));
+    }
+    if (cached.inputTokens != null) { inputTokens += cached.inputTokens; tokensKnown = true; }
+    if (cached.outputTokens != null) { outputTokens += cached.outputTokens; tokensKnown = true; }
+    transcripts.push(`## [${fmtHMS(i * segmentSeconds)}–${fmtHMS((i + 1) * segmentSeconds)}] 第 ${i + 1}/${total} 段\n\n${cached.text || "【静音】"}`);
+    summaries.push(`- 第 ${i + 1} 段：${cached.summary || "（无摘要）"}`);
+    updateJobProgress(jobId, i + 1, total, { mode: "media-transcribe" });
+  }
+  const title = String(doc.title || doc.filename || "音视频资料");
+  const header = `> 来源：${doc.filename}；模型：${mediaModel()}；转写时间：${started}`;
+  const transcriptPath = path.join(dir, "transcript.md");
+  fs.writeFileSync(transcriptPath, `# ${title} · 全文转写稿\n\n${header}\n\n${transcripts.join("\n\n")}\n`);
+  const extractedPath = path.join(dir, "extracted.md");
+  fs.writeFileSync(extractedPath, `# ${title} · 转写摘要\n\n${header}\n\n## 总摘要\n\n${summaries.join("\n")}\n\n## 分段转写\n\n${transcripts.join("\n\n")}\n`);
+  const make = await runBridge({ cmd: "make-pdf", args: ["--text", extractedPath, "--out", normalized], signal });
+  if (!make.ok) throw new HttpFail(502, { code: String(make.code || "knowledge_normalize_failed"), message: String(make.message || "规整稿生成失败") });
+  if (tokensKnown) {
+    recordCostEvent({
+      source: "knowledge_normalize",
+      userId: String(doc.created_by || "") || undefined,
+      model: mediaModel(),
+      inputTokens,
+      outputTokens,
+      raw: JSON.stringify({ segments: total }).slice(0, 500),
+    });
+  }
+  recordCapabilityCall({
+    kind: "model", ref_id: mediaModel(), ok: true,
+    latencyMs: Date.now() - startedAt,
+    inputTokens: tokensKnown ? inputTokens : null,
+    outputTokens: tokensKnown ? outputTokens : null,
+  });
+  mergeArtifacts(String(doc.id), {
+    normalize: {
+      mode: "media-transcribe", model: mediaModel(), segments: total, segment_seconds: segmentSeconds,
+      transcript_path: storePath(transcriptPath), extracted_path: storePath(extractedPath),
+      normalized_path: storePath(normalized), finished_at: started,
+    },
+  });
+}
+
 async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Promise<void> {
   const dir = docDirOf(doc);
   const sourcePath = resolveStorePath(String(doc.source_path || ""));
@@ -513,15 +784,18 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
     throw new HttpFail(502, { code: "knowledge_normalize_failed", message: "stub：规整失败（测试标记）" });
   }
   const started = nowIso();
+  const ctx: NormalizeCtx = { dir, sourcePath, normalized, started };
   if (bridgeMode() === "stub") {
-    const delay = Number(process.env.KNOWLEDGE_STUB_NORMALIZE_MS || 0);
-    if (Number.isFinite(delay) && delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-    if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
-    updateJobProgress(jobId, 1, 1, { mode: "stub" });
-    fs.copyFileSync(sourcePath, normalized);
-    mergeArtifacts(String(doc.id), {
-      normalize: { mode: "stub", normalized_path: storePath(normalized), finished_at: started },
-    });
+    await stubNormalizeStage(doc, jobId, signal, ctx, buf);
+    return;
+  }
+  const mediaType = String(doc.media_type || "");
+  if (mediaType === "audio" || mediaType === "video") {
+    await transcribeMediaStage(doc, jobId, signal, ctx);
+    return;
+  }
+  if (mediaType === "image") {
+    await ocrSingleImageStage(doc, jobId, signal, ctx);
     return;
   }
   if (pdfHasTextLayer(sourcePath, buf)) {
@@ -567,6 +841,11 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
       raw: JSON.stringify({ pages }).slice(0, 500),
     });
   }
+  recordCapabilityCall({
+    kind: "model", ref_id: mediaModel(), ok: true,
+    inputTokens: tokensKnown ? inputTokens : null,
+    outputTokens: tokensKnown ? outputTokens : null,
+  });
   mergeArtifacts(String(doc.id), {
     normalize: {
       mode: "scanned-ocr",
@@ -618,6 +897,13 @@ async function indexStage(doc: Row, jobId: string, signal: AbortSignal): Promise
       raw: JSON.stringify(usage).slice(0, 500),
     });
   }
+  recordCapabilityCall({
+    kind: "model",
+    ref_id: indexModel(),
+    ok: true,
+    inputTokens: usage && Number.isFinite(Number(usage.input_tokens)) ? Number(usage.input_tokens) : null,
+    outputTokens: usage && Number.isFinite(Number(usage.output_tokens)) ? Number(usage.output_tokens) : null,
+  });
   // 库级引擎绑定（external_ref 单值，写入一次）。
   const base = getConn().prepare("SELECT external_ref FROM knowledge_bases WHERE id=?").get(String(doc.base_id)) as Row | undefined;
   const hasRef = base?.external_ref != null && String(base.external_ref) !== "" && String(base.external_ref) !== "null";
@@ -780,8 +1066,6 @@ export async function searchDocuments(input: {
 /** Internal retrieval service. Callers must authorize scope before dispatch and again before returning. */
 export async function queryDocuments(input: {
   query?: string; base_id?: string; doc_ids?: unknown; include_pending?: unknown;
-  /** 实时上下文 P1：试算面板传来的会话上文（上一轮问答明细 + 历史摘要），不传则跳过改写。 */
-  last_turn?: unknown; history_summary?: unknown;
 }, actor: string, revalidate: () => void = () => {}): Promise<Json> {
   const query = String(input.query || "").trim();
   if (!query) throw new HttpFail(400, "query required");
@@ -829,52 +1113,7 @@ export async function queryDocuments(input: {
   if (!engineIds.length) {
     throw new HttpFail(409, { code: "knowledge_not_indexed", message: "所选资料还没有完成索引" });
   }
-  // 实时上下文 P1（线①）：有上文时先过 Luna 改写器，再过 Host 校验；任一环节失败
-  // 回退原问题直查。D1：历史摘要只进改写器输入，不进 PageIndex 的问题。
-  let askQuestion = query;
-  let rewriteMeta: { rewrote: boolean; resolved_entities: string[]; reason?: string; used_question: string } | null = null;
-  const session = sanitizeSessionContext({ last_turn: input.last_turn, history_summary: input.history_summary });
-  if (session.last_turn) {
-    try {
-      const rewrite = await rewriteQuestion({
-        query,
-        last_turn: session.last_turn,
-        history_summary: session.history_summary,
-        scope: { base_id: baseId, doc_ids: docIds },
-      });
-      const verdict = validateRewrite(rewrite, {
-        query,
-        last_turn: session.last_turn,
-        history_summary: session.history_summary,
-      });
-      if (verdict.ok && rewrite.rewrote) {
-        askQuestion = rewrite.rewritten;
-        rewriteMeta = {
-          rewrote: true,
-          resolved_entities: rewrite.resolved_entities,
-          reason: rewrite.reason,
-          used_question: askQuestion,
-        };
-      } else if (verdict.ok) {
-        rewriteMeta = { rewrote: false, resolved_entities: [], used_question: query };
-      } else {
-        audit(actor, "knowledge.rewrite_rejected", {
-          base_id: baseId,
-          reason: verdict.reason || "",
-          rewritten: rewrite.rewritten.slice(0, 500),
-          resolved_entities: rewrite.resolved_entities,
-        });
-        rewriteMeta = { rewrote: false, resolved_entities: [], reason: verdict.reason, used_question: query };
-      }
-    } catch (error) {
-      audit(actor, "knowledge.rewrite_unavailable", {
-        base_id: baseId,
-        reason: error instanceof Error ? error.message : "改写服务调用失败。",
-      });
-      rewriteMeta = { rewrote: false, resolved_entities: [], used_question: query };
-    }
-  }
-  const args = ["--library", libraryDir(baseId), "--question", askQuestion, "--chat-model", chatModel(), "--citations"];
+  const args = ["--library", libraryDir(baseId), "--question", query, "--chat-model", chatModel(), "--citations"];
   for (const engineId of engineIds) args.push("--doc-id", engineId);
   const outcome: BridgeOutcome = await runBridge({ cmd: "ask", args, timeoutMs: 10 * 60_000 });
   revalidate();
@@ -928,11 +1167,17 @@ export async function queryDocuments(input: {
       raw: JSON.stringify(usage).slice(0, 2000),
     });
   }
+  recordCapabilityCall({
+    kind: "model",
+    ref_id: chatModel(),
+    ok: true,
+    inputTokens: usage ? (skipCountsFromUsage(usage)?.input_tokens as number | null) ?? null : null,
+    outputTokens: usage ? (skipCountsFromUsage(usage)?.output_tokens as number | null) ?? null : null,
+  });
   return {
     answer: String(outcome.answer || ""),
     citations,
     usage,
-    rewrite: rewriteMeta,
     engine: { mode: bridgeMode(), model: chatModel() },
     scope: {
       base_id: baseId,

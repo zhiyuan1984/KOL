@@ -34,6 +34,7 @@ import { tickets } from "./routers/tickets.js";
 import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "./ticket-domain/auth.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
+import { capabilityRouter } from "./routers/capability.js";
 import { experts } from "./routers/experts.js";
 import { discovery } from "./routers/discovery.js";
 import { homeDiscovery } from "./routers/home-discovery.js";
@@ -141,6 +142,7 @@ export function createApp(): Hono {
   app.route("/api", approvals);
   app.route("/api", approvalTypes);
   app.route("/api", knowledge);
+  app.route("/api", capabilityRouter);
   app.route("/api", experts);
   app.route("/api", discovery);
   app.route("/api", homeDiscovery);

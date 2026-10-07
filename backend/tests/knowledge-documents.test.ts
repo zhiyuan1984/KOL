@@ -237,7 +237,7 @@ describe("knowledge documents (P1 pipeline)", () => {
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "runtime_agent_not_usable" } });
     } finally { runtime.close(); process.env.AUTH_MODE = "disabled"; }
   });
-  it("accepts only PDF uploads into an active unstructured base", async () => {
+  it("accepts PDF/image/audio/video uploads; rejects pptx and bad magic", async () => {
     const structuredFamily = (await (await request("POST", "/api/admin/knowledge/domains", {
       code: "s_fam", name: "族", level: "family",
     })).json()).domain as Json;
@@ -269,6 +269,57 @@ describe("knowledge documents (P1 pipeline)", () => {
     const res3 = await request("POST", "/api/admin/knowledge/documents", form3);
     expect(res3.status).toBe(400);
     expect(await detailCode(res3)).toBe("knowledge_base_missing");
+
+    const pngMagic = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)]);
+    const form4 = new FormData();
+    form4.append("base_id", String(base.id));
+    form4.append("file", new File([blobPart(pngMagic)], "shot.png", { type: "image/png" }));
+    const res4 = await request("POST", "/api/admin/knowledge/documents", form4);
+    expect(res4.status).toBe(201);
+    expect(String(((await res4.json()).document as Json).media_type)).toBe("image");
+
+    const form5 = new FormData();
+    form5.append("base_id", String(base.id));
+    form5.append("file", new File([blobPart(pdfBytes())], "fake.png", { type: "image/png" }));
+    const res5 = await request("POST", "/api/admin/knowledge/documents", form5);
+    expect(res5.status).toBe(400);
+    expect(await detailCode(res5)).toBe("knowledge_invalid_image");
+
+    const mp3Magic = Buffer.concat([Buffer.from("ID3"), Buffer.alloc(128)]);
+    const form6 = new FormData();
+    form6.append("base_id", String(base.id));
+    form6.append("file", new File([blobPart(mp3Magic)], "talk.mp3", { type: "audio/mpeg" }));
+    const res6 = await request("POST", "/api/admin/knowledge/documents", form6);
+    expect(res6.status).toBe(201);
+    expect(String(((await res6.json()).document as Json).media_type)).toBe("audio");
+  });
+
+  it("transcribes audio with real segment progress in stub mode", async () => {
+    const base = await createUnstructuredBase();
+    const bytes = Buffer.concat([Buffer.from("ID3"), Buffer.from("STUB_MEDIA_SEGMENTS=3")]);
+    const doc = await upload(String(base.id), "访谈.mp3", bytes);
+    expect(String(doc.media_type)).toBe("audio");
+    const done = await waitStatus(String(doc.id), ["pending_review"]);
+    const artifacts = done.artifacts as Json;
+    const normalize = artifacts.normalize as Json;
+    expect(String(normalize.mode)).toBe("media-transcribe");
+    expect(Number(normalize.segments)).toBe(3);
+    expect(String(normalize.transcript_path)).toContain("transcript.md");
+    const body = await docDetail(String(doc.id));
+    const jobs = body.jobs as Json[];
+    const normalizeJob = jobs.find((job) => String(job.kind) === "normalize") as Json;
+    expect(Number(normalizeJob.progress_total)).toBe(3);
+    expect(Number(normalizeJob.progress_done)).toBe(3);
+  });
+
+  it("accepts image upload and reaches pending_review in stub mode", async () => {
+    const base = await createUnstructuredBase();
+    const pngMagic = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)]);
+    const doc = await upload(String(base.id), "shot.png", pngMagic);
+    expect(String(doc.media_type)).toBe("image");
+    const done = await waitStatus(String(doc.id), ["pending_review"]);
+    const normalize = (done.artifacts as Json).normalize as Json;
+    expect(String(normalize.mode)).toBe("stub");
   });
 
   it("runs normalize then index with real jobs, artifacts and a base-level engine binding", async () => {
