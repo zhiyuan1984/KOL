@@ -178,6 +178,8 @@ function gradeSnapshot(items: Json[], answers: Record<string, string>, passScore
       id,
       prompt: String(item.prompt || ""),
       kind: String(item.kind || "true_false"),
+      options: Array.isArray(item.options) ? item.options : [],
+      answer: String(item.answer || ""),
       chosen,
       correct,
     };

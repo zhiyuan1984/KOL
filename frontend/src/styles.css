@@ -7060,6 +7060,302 @@ summary:focus-visible,
 .exam-question legend { font-weight: 600; }
 .exam-question p { margin: 0 0 var(--space-2); }
 .admin-exams .chip-row { margin-bottom: var(--space-3); }
+
+/* ---- 考试改版（2026-10-08）：状态 chip / KPI / 左右布局 / 答题进度 / 复盘 ---- */
+
+/* 状态 chip：20px 描边、12px/500、方角 4px；状态同时用文案表达（§24.6） */
+.exam-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.exam-chip[data-tone="quiet"] { color: var(--text-quiet); border-color: var(--border); }
+.exam-chip[data-tone="accent"] { color: var(--accent-text); border-color: var(--accent); }
+.exam-chip[data-tone="success"] { color: var(--success); border-color: var(--success); }
+.exam-chip[data-tone="warning"] { color: var(--warning); border-color: var(--warning); }
+.exam-chip[data-tone="danger"] { color: var(--danger); border-color: var(--danger); }
+
+/* 管理侧页头：标题 + 右侧唯一 L1 */
+.exam-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.exam-page-head .btn { flex-shrink: 0; }
+
+/* KPI 统计条（§9.2）：4 卡等分，全部可点击下钻 */
+.exam-kpi {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.exam-kpi-card {
+  display: grid;
+  gap: var(--space-1);
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  text-align: left;
+  cursor: pointer;
+}
+.exam-kpi-card:hover { border-color: var(--accent); }
+.exam-kpi-value { font-size: 20px; font-weight: 600; color: var(--text); line-height: 1.2; }
+.exam-kpi-label { font-size: 12px; color: var(--text-quiet); }
+
+/* 管理侧主区：左考试列表 + 右详情（§24.2；≤1100px 堆叠） */
+.exam-manage {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .exam-manage { grid-template-columns: minmax(0, 1fr); }
+}
+.exam-side-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.exam-side-head h2 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; }
+.exam-side-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.exam-side-row {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.exam-side-list li:first-child .exam-side-row { border-top: 0; }
+.exam-side-row:hover { background: var(--surface-hover); }
+.exam-side-row[data-selected="true"] {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.exam-side-title { font-size: var(--ds-font-sm); font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.exam-side-meta { display: flex; align-items: center; gap: var(--space-2); font-size: 12px; flex-wrap: wrap; }
+
+/* 右详情：标题 + Tab */
+.exam-detail-head h2 { margin: 0 0 var(--space-1); font-size: var(--ds-font-sm); font-weight: 600; }
+.exam-detail-head .muted { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: 0 0 var(--space-2); }
+.exam-tabs {
+  display: flex;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-3);
+}
+.exam-tab {
+  height: 36px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-quiet);
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+}
+.exam-tab[data-selected="true"] {
+  color: var(--accent-text);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.exam-tabpane { display: grid; gap: var(--space-4); }
+.exam-block { display: grid; gap: var(--space-2); align-content: start; }
+.exam-block > h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; }
+.exam-block .muted { margin: 0; }
+.exam-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.exam-block-head h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; }
+.exam-batch { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.exam-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+/* 试题行：选择框 + 内容 + L3 操作（三段式 §24.6）
+   注：用 .admin-row.exam-item-row 双类提升特异性，覆盖旧 .admin-row 的 flex 规则 */
+.admin-row.exam-item-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: start;
+  justify-content: stretch;
+}
+.exam-item-check { margin-top: 2px; }
+.exam-item-main { display: grid; gap: var(--space-1); min-width: 0; }
+.exam-item-prompt { margin: 0; font-size: var(--ds-font-sm); color: var(--text); overflow-wrap: anywhere; }
+.exam-item-main .muted { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: 0; font-size: 12px; }
+.exam-item-index { min-width: 20px; text-align: right; font-size: 12px; padding-top: 2px; }
+
+/* 知识多选（>8 项降级为带搜索的紧凑列表，§4.1） */
+.exam-search { max-width: 18rem; margin-bottom: var(--space-2); }
+.exam-knowledge-list {
+  display: grid;
+  gap: var(--space-1);
+  max-height: 192px;
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  margin-bottom: var(--space-2);
+}
+
+/* 发布区：R3 前置校验原因 */
+.exam-publish { border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.exam-block-reason {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning);
+}
+
+/* 分配 */
+.exam-assign-form { max-width: 28rem; }
+.admin-row.exam-assign-row { display: block; }
+
+/* 成绩：通过率分布条 + 筛选 + 明细表 */
+.exam-dist { display: grid; gap: var(--space-2); }
+.exam-dist-bar { display: flex; gap: var(--space-1); }
+.exam-dist-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.exam-dist-seg[data-tone="success"] {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+.exam-dist-seg[data-tone="danger"] {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.exam-dist-seg[aria-pressed="true"] { font-weight: 600; box-shadow: inset 0 0 0 1px currentColor; }
+.exam-score-filters { margin-bottom: 0; }
+.exam-score-filters .btn.text[data-selected="true"] {
+  color: var(--accent-text);
+  font-weight: 600;
+  background: var(--btn-text-hover-bg);
+}
+
+/* 紧凑空态（§9.3）：左对齐、无 hero */
+.exam-empty-compact { padding: var(--space-3) 0; }
+.exam-empty-compact .muted { margin: 0 0 var(--space-2); }
+
+/* ---- 员工侧 ---- */
+
+/* 待办汇总条（不变量 6：汇总层） */
+.exam-summary { margin: 0; font-size: var(--ds-font-sm); color: var(--text); font-weight: 500; }
+
+/* 紧凑列表行（三段式 §24.6）：标题+元信息 | 状态 chip | L3 操作 */
+.exam-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+.exam-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.exam-rows .exam-row:first-child { border-top: 0; }
+.exam-row-main { display: grid; gap: 2px; min-width: 0; }
+.exam-row-title { font-size: var(--ds-font-sm); font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.exam-row-meta { font-size: 12px; }
+
+/* 答题页：sticky 进度头 */
+.exam-take-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding: var(--space-2) 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.exam-progress { display: flex; align-items: center; gap: var(--space-2); }
+.exam-progress-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  overflow: hidden;
+}
+.exam-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}
+
+/* 选项：radio 列表行（非 checkbox chip，避免多选语义混淆） */
+.exam-options { display: grid; gap: var(--space-2); }
+.exam-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+}
+.exam-option:hover { background: var(--surface-hover); }
+.exam-option[data-checked="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.exam-option input { margin: 0; }
+
+/* 答题页：sticky 提交栏（关键操作区无滚动遮挡，不变量 5） */
+.exam-submit-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+/* 结果复盘 */
+.exam-result h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--ds-font-sm); font-weight: 600; }
+.exam-result h3 { margin: var(--space-2) 0 0; font-size: var(--ds-font-sm); font-weight: 600; }
+.exam-review { list-style: none; margin: 0; padding: 0; display: grid; }
+.exam-review-row { display: grid; gap: var(--space-1); padding: 10px 0; border-top: 1px solid var(--border); }
+.exam-review-row:first-child { border-top: 0; }
+.exam-review-prompt { margin: 0; font-size: var(--ds-font-sm); color: var(--text); overflow-wrap: anywhere; }
+.exam-review-row .muted { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: 0; font-size: 12px; }
 .connector-use-page {
   max-width: 40rem;
   gap: var(--space-5);
