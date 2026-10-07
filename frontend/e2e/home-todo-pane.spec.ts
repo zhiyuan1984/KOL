@@ -91,7 +91,13 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   }));
   await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: todos, page: { next_cursor: null } } }));
+  await page.route("**/api/workbench/tasks**", (route) => {
+    const view = new URL(route.request().url()).searchParams.get("view");
+    const items = view === "todo"
+      ? todos.filter((row) => ["tsk_queued", "tsk_ai_open"].includes(row.id))
+      : todos.filter((row) => row.id !== "tsk_done");
+    return route.fulfill({ json: { items, page: { next_cursor: null } } });
+  });
   await page.route("**/api/tasks**", async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();

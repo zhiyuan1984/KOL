@@ -52,8 +52,8 @@ test("settled plan shows the business analysis and a single completion time", as
   const stream = page.locator("[data-today-plan-phase]");
   await expect(stream).toBeVisible({ timeout: 20000 });
 
-  // 完成行是终态：卡片收口成「整理完成」，计时器不再跳。
-  await expect(stream).toContainText("整理完成");
+  // 完成行收口为计划名称，计时器不再跳。
+  await expect(stream.locator("[data-today-plan-success]")).toContainText("今日计划");
   await expect(stream).toHaveAttribute("data-today-plan-open", "false");
   await expect(stream.locator("[data-today-plan-elapsed]")).toHaveCount(0);
 

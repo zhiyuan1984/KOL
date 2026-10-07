@@ -190,7 +190,7 @@ test("a failed run shows the failed step and its reason instead of a green check
   // A settled failed run stays open: the reason must be readable without a
   // second click. The toggle still folds and reopens the step list.
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-phase", "failed");
-  await expect(page.locator("[data-today-plan-phase]")).toContainText("整理未完成");
+  await expect(page.locator("[data-today-plan-phase]")).toContainText("本轮规划未完成");
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "true");
   await page.locator(".today-plan-toggle").click();
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "false");
@@ -239,7 +239,7 @@ test("a settled run collapses to one line and expands on demand", async ({ page 
   await expect(stream).toHaveAttribute("data-today-plan-open", "false");
   // Collapsed: one line, no step list.
   await expect(page.locator("[data-today-plan-steps]")).toHaveCount(0);
-  await expect(stream).toContainText("今日安排已整理");
+  await expect(stream.locator("[data-today-plan-success]")).toContainText("今日计划");
   await expect(stream).toContainText("整理");
   const collapsedHeight = (await stream.boundingBox())!.height;
   expect(collapsedHeight).toBeLessThan(80);
@@ -302,6 +302,7 @@ test("the previous version folds to one row and the row keeps no duplicate prior
   const collapsed = (await previous.boundingBox())!.height;
   expect(collapsed).toBeLessThan(48);
   await previous.locator("button").click();
+  await page.locator(".today-plan-previous-full").click();
   await expect(page.locator(".today-plan-previous-body")).toContainText("上一版先把报价邮件发出去");
 
   // 任务行不再重复：优先级只出现一次，来源列已删，勾选列已删。

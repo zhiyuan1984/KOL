@@ -69,7 +69,7 @@ test("entering today lists memory without planning; 生成今日安排 starts th
   await taskRailToggle.click();
   await expect(taskRail).toHaveClass(/is-collapsed/);
   await expect(taskRailToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(taskRailToggle).toContainText("今日任务");
+  await expect(taskRailToggle).toHaveAttribute("aria-label", "展开今日任务表");
   await taskRailToggle.click();
   await expect(taskRail).not.toHaveClass(/is-collapsed/);
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
@@ -127,7 +127,7 @@ test("a terminal event immediately settles the planning header and leaves one ac
   await page.locator('[data-home-entry="plan-today"]').click();
   const progress = page.locator("[data-today-plan-phase]");
   await expect(progress).toHaveAttribute("data-today-plan-phase", "failed");
-  await expect(progress.locator(".today-plan-title")).toHaveText("整理未完成");
+  await expect(progress.locator(".today-plan-failure strong")).toHaveText("本轮规划未完成");
   await expect(progress.locator("[data-today-plan-elapsed]")).toHaveCount(0);
   await expect(progress.locator('[data-today-plan-state="interrupted"]')).toHaveCount(1);
   await expect(progress.locator('[data-today-plan-state="failed"]')).toHaveCount(1);
@@ -284,7 +284,7 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   // 状态文案是展示状态（后端 display_status_label 优先，缺省按日期/状态推导）：
   // 失败 / 延期 / 临期 / 进行中 —— 不再是旧分桶词（高风险/已逾期/今天到期）。
   await expect(page.locator('[data-today-todo="tsk_high"]')).toContainText("失败");
-  await expect(page.locator('[data-today-todo="tsk_high"] [data-risk-level]')).toHaveText("风险高");
+  await expect(page.locator('[data-today-todo="tsk_high"] [data-risk-level]')).toHaveText("R1");
   await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toContainText("失败");
   await expect(page.locator('[data-today-todo="tsk_overdue"]')).toContainText("延期");
   await expect(page.locator('[data-today-todo="tsk_ai_overdue"]')).toContainText("延期");
