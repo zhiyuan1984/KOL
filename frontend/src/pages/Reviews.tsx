@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import type { ReviewTemplate, ReviewDraft } from "../../../shared/review";
 import {
   reviewApi,
@@ -14,9 +14,7 @@ import "../reviews/reviews.css";
 import { ReviewDetail, reviewStatusText as statusText } from "../reviews/ReviewDetail";
 import { UpgradeDraft } from "../reviews/ReviewChanges";
 import { ReviewOrganization } from "../reviews/ReviewOrganization";
-import { formatReviewValue } from "../reviews/formatReviewValue";
 export default function Reviews() {
-  const navigate = useNavigate();
   const { id } = useParams(),
     [context, setContext] = useState<ReviewContext>(),
     [templates, setTemplates] = useState<ReviewTemplate[]>([]),
@@ -209,7 +207,7 @@ export default function Reviews() {
     setReason("");
     try {
       const detail = await reviewApi<InstanceView>(`/approvals/v2/instances/${i.id}`);
-      if (request === detailRequest.current) { setSelected(detail); navigate(`/reviews/${encodeURIComponent(i.id)}`); }
+      if (request === detailRequest.current) setSelected(detail);
     } catch (e) {
       if (request === detailRequest.current) setError((e as Error).message);
     } finally {
@@ -298,9 +296,6 @@ export default function Reviews() {
               <select
                 value={templateId}
                 onChange={(e) => {
-                  const nextId = e.target.value;
-                  const hasMaterials = Boolean(title.trim() || Object.keys(values).length);
-                  if (nextId !== templateId && hasMaterials && !window.confirm("切换审批流程会清空当前表单内容。当前草稿已自动保存；确认切换吗？")) { e.target.value = templateId; return; }
                   setTemplateId(e.target.value);
                   setValues({});
                   setDraft(undefined);
@@ -388,8 +383,8 @@ export default function Reviews() {
                         {saved.title || "未命名草稿"}
                       </button>
                       <details>
-                        <summary>查看已保存材料</summary>
-                        <dl className="review-values">{templates.find(t => t.id === saved.templateId)?.definition.fields.map(field => <div key={field.id}><dt>{field.label}</dt><dd>{formatReviewValue(saved.values[field.id])}</dd></div>)}</dl>
+                        <summary>查看已保存原材料</summary>
+                        <pre>{JSON.stringify(saved.values, null, 2)}</pre>
                       </details>
                       <span>
                         v{saved.version} ·{" "}
@@ -457,7 +452,7 @@ export default function Reviews() {
           </div>
           <span className="review-muted">本页 {instances.length} 条 · 按发起时间排序</span>
         </section>
-        {selected && <ReviewDetail instance={selected} context={context} wide={wide} toggleWide={() => setWide(!wide)} close={() => { ++detailRequest.current; setDetailLoading(false); setSelected(undefined); setWide(false); navigate("/approvals"); }} actions={selected.allowedActions.length > 0 ? <ReviewActions key={`${selected.id}:${selected.round || 1}`} instance={selected} people={context?.people || []} reason={reason} setReason={setReason} busy={command.busy} run={command.run} /> : null} />}
+        {selected && <ReviewDetail instance={selected} context={context} wide={wide} toggleWide={() => setWide(!wide)} close={() => { ++detailRequest.current; setDetailLoading(false); setSelected(undefined); setWide(false); }} actions={selected.allowedActions.length > 0 ? <ReviewActions key={`${selected.id}:${selected.round || 1}`} instance={selected} people={context?.people || []} reason={reason} setReason={setReason} busy={command.busy} run={command.run} /> : null} />}
         </div>
       )}
       {command.dialog}

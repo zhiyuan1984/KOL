@@ -73,9 +73,6 @@ reviews.get("/approvals/v2/instance-page", (c) =>
     }),
   ),
 );
-reviews.get("/approvals/v2/badge", (c) =>
-  c.json({ count: service(c.req.header("X-Review-Company")).badgeCount() }),
-);
 reviews.get("/approvals/v2/drafts/:id/upgrade", (c) =>
   c.json(
     service(c.req.header("X-Review-Company")).draftUpgrade(c.req.param("id")),

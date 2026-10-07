@@ -298,7 +298,7 @@ test.describe("技能目录页（/skills）", () => {
   test("「查看全部」深链真正生效（tab 读 URL）", async ({ page }) => {
     await page.goto("/skills?tab=frequent");
     await page.locator("[data-skill-catalog]").waitFor();
-    await expect(page.locator(".skill-tab.on")).toHaveText("常选");
+    await expect(page.locator(".skill-tab.on")).toHaveText("常用");
     await expect(page.locator(".skill-tab.on")).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -530,17 +530,17 @@ test.describe("技能目录页（/skills）", () => {
       expect(text, `员工表面出现禁词「${banned}」`).not.toContain(banned);
     }
 
-    // 本页自己渲染的这几个小节（使用步骤 / 执行边界 / 权限与确认 / 异步执行 / 回执）
+    // 本页自己渲染的这几个小节（使用步骤 / 执行边界 / 调用工具 / 所需权限 / 异步执行 / 回执）
     // 由页面做词表翻译：它们**一个字英文都不该有**——有就说明引擎 id 又漏出来了。
     const latin = await page.evaluate(() => {
-      const wanted = new Set(["使用步骤", "执行边界", "权限与确认", "异步执行", "回执"]);
+      const wanted = new Set(["使用步骤", "执行边界", "调用工具", "所需权限", "异步执行", "回执"]);
       const out: string[] = [];
       for (const sec of document.querySelectorAll<HTMLElement>("[data-skill-detail] .skill-detail-section")) {
         const h = sec.querySelector("h4")?.textContent?.trim() || "";
         if (!wanted.has(h)) continue;
-        // R1 / R2 / R3 是**要求可见**的分档标识（根 AGENTS.md §4），允许出现；
+        // L1 / L2 / L3 是**要求可见**的分档标识（根 AGENTS.md §4），允许出现；
         // 除此之外这段文字里不该再有任何英文（引擎 id / 契约字段 / 厂商名）。
-        const body = (sec.textContent || "").replace(h, "").replace(/R[123]/g, "").trim();
+        const body = (sec.textContent || "").replace(h, "").replace(/L[123]/g, "").trim();
         if (/[A-Za-z]/.test(body)) out.push(`${h}: ${body.slice(0, 60)}`);
       }
       return out;
@@ -742,8 +742,7 @@ test.describe("技能详情列（第四栏）", () => {
     );
     expect(ids.length, "至少要有若干技能才能验证").toBeGreaterThan(0);
     for (const id of ids.slice(0, 6)) {
-      // 全部场景列表中的同一技能只应出现一次。
-      expect(await page.locator(`.skill-row[data-skill-id="${id}"]`).count()).toBe(1);
+      // 同一技能可能同时出现在「常用技能」与所属分组，取第一行。
       await page.locator(`.skill-row[data-skill-id="${id}"] .skill-row-name`).first().click();
       const detail = page.locator("[data-skill-detail]");
       await expect(detail, `${id} 的详情未展开`).toBeVisible();
@@ -932,21 +931,21 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
     await ready(page);
     const frequent = page.locator(".skill-group-frequent");
     await expect(frequent.locator("h2")).toHaveText("推荐技能");
-    await expect(frequent.locator(".skill-group-hint")).toContainText("从平台技能中选出的常见起点");
+    await expect(frequent.locator(".skill-group-hint")).toContainText("按你所在阶段挑的几项");
     expect(await frequent.locator(".skill-row-star").count(), "没有使用记录时不该逐行打★").toBe(0);
     // 深链也要跟着走：没有记录时「查看全部」应落到「推荐」，而不是空的「常用」。
-    expect(await frequent.locator(".skill-group-more").getAttribute("href")).toBe("/skills?mode=recommend&stage=all");
+    expect(await frequent.locator(".skill-group-more").getAttribute("href")).toBe("/skills?tab=recommend");
   });
 
-  test("有选用记录时才展示「常选技能」", async ({ page }) => {
+  test("有使用记录时才叫「常用技能」", async ({ page }) => {
     await page.addInitScript(() => {
       try { localStorage.setItem("skill:usage", JSON.stringify({ creator_outreach: 2 })); } catch { /* ignore */ }
     });
     await ready(page);
     const frequent = page.locator(".skill-group-frequent");
-    await expect(frequent.locator("h2")).toHaveText("常选技能");
-    await expect(frequent.locator(".skill-group-hint")).toContainText("按你选用的次数排序");
-    expect(await frequent.locator(".skill-group-more").getAttribute("href")).toBe("/skills?mode=frequent&stage=all");
+    await expect(frequent.locator("h2")).toHaveText("常用技能");
+    await expect(frequent.locator(".skill-group-hint")).toContainText("你经常使用的技能");
+    expect(await frequent.locator(".skill-group-more").getAttribute("href")).toBe("/skills?tab=frequent");
   });
 
   test("键盘路径：Tab 从行名直接到下一行行名（序列里没有行内动作），右栏 CTA 仍在 Tab 顺序内", async ({ page }) => {

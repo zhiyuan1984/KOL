@@ -77,7 +77,6 @@ export const prepareReview = (command: ReviewCommand) =>
       scope?: string;
       configuration?: string;
       reviewers?: string[];
-      actionLabel?: string;
     };
   }>("/approvals/v2/prepare", command);
 /** 知识工作区批量操作（续期 / 归档）：走统一 review 租户头。 */

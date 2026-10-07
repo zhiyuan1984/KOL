@@ -21,19 +21,21 @@ const GROUPS: { id: string; label: string; hint: string; funnel: string[] }[] = 
   { id: "exception", label: "异常旁路", hint: "风险扫描与异常处理", funnel: ["exception"] },
 ];
 
-// 两组筛选彼此独立：使用范围与业务场景可组合选择。
+// 筛选条分两类（shadcn TabsList ×2）：
+//   mode  = 取数口径（全部 / 常用 / 最近 / 推荐），彼此并列；
+//   stage = 业务阶段漏斗（建联 → 意向 → 报价 → 寄样 → 成交 → 内容），有先后递进关系，
+//           渲染时用 › 分隔，把这层递进显式表达出来（此前只是一排等权胶囊）。
 const TABS: { id: string; label: string; kind: "mode" | "stage" }[] = [
   { id: "all", label: "全部", kind: "mode" },
-  { id: "frequent", label: "常选", kind: "mode" },
-  { id: "recent", label: "最近选用", kind: "mode" },
+  { id: "frequent", label: "常用", kind: "mode" },
+  { id: "recent", label: "最近使用", kind: "mode" },
   { id: "recommend", label: "推荐", kind: "mode" },
-  { id: "all", label: "全部场景", kind: "stage" },
   { id: "reach", label: "建联", kind: "stage" },
   { id: "intent", label: "意向", kind: "stage" },
-  { id: "biz", label: "报价与寄样", kind: "stage" },
-  { id: "settle", label: "成交与沉淀", kind: "stage" },
+  { id: "biz", label: "报价", kind: "stage" },
+  { id: "sample", label: "寄样", kind: "stage" },
+  { id: "settle", label: "成交", kind: "stage" },
   { id: "content", label: "内容发布", kind: "stage" },
-  { id: "exception", label: "异常", kind: "stage" },
 ];
 
 const USAGE_KEY = "skill:usage";
@@ -142,9 +144,11 @@ function skillOriginLabel(skill: SkillRow): string {
 }
 
 /**
- * 员工只看到本技能的业务风险提示，不展示底层工具明细。
+ * 工具风险档只区分「只读」与「需确认」两档。
+ * 细分 L2（草稿）/ L3（敏感写入）须按 `docs/07-mcp-data-contract.md` 的工具风险目录逐条登记后再拆，
+ * **不得按技能名猜**（AGENTS.md「凭文件名猜法律层级」禁令）。
  */
-const RISK_LABEL: Record<"read" | "write", string> = { read: "R1 · 只读", write: "R3 · 执行前确认" };
+const RISK_LABEL: Record<"read" | "write", string> = { read: "只读", write: "需确认" };
 
 /* 员工向词表：员工表面不摊引擎词（specs/UX-EMPLOYEE.md §员工禁词：MCP / Codex / Thread /
    英文 Skill 时序 / 原始堆栈）。下面四张表把接口返回的 id 翻成业务语言；查不到时回落到
@@ -279,7 +283,7 @@ function SkillCard({
 }) {
   const tier = isWriteSkill(skill) ? "write" : "read";
   const isAsync = ASYNC_SKILL_IDS.has(skill.id);
-  // 只读是默认态；需要确认的技能用风险文案标记。异步用独立状态标签。
+  // 规则 10「只标例外」：只读是默认态，不标注。文字标记只留 L3「需确认」；异步不再挂文字标签
   // （2026-09-23 UI/UX 裁定），改由图标砖虚线边框承担形状信号 —— 本页动作是「填入输入框」，
   // 不执行作业，执行面契约未变（docs/07-mcp-data-contract.md）。
   const marks: { cls: string; text: string }[] = [];
@@ -621,11 +625,43 @@ function SkillDetail({
 
         {execution && (
           <details className="skill-execution-details">
-            <summary>查看执行边界</summary>
+            <summary>查看调用关系与安全边界</summary>
+            {/* 调用工具 / 所需权限条目化：一行一个（名称 + 风险档 chip），不再堆成长段。 */}
             <div className="skill-detail-section">
-              <h4>权限与确认</h4>
-              <p className="skill-detail-value">执行时会按当前 Agent 资格、业务数据范围和动作风险校验；需要确认的正式操作会单独展示对象、范围与回执。</p>
+              <h4>调用工具</h4>
+              {execution.tools?.length ? (
+                <div className="skill-execution-list">
+                  {execution.tools.map((tool, index) => (
+                    <div className="skill-execution-row" key={`${tool.ref}-${index}`}>
+                      <span className="skill-execution-row-name">{toolLabel(tool.ref || "", tool.kind)}</span>
+                      <span className={"skill-mark" + (tool.risk === "L3" ? " is-write" : "")}>
+                        {tool.risk === "L3" ? "L3 · 执行前确认" : "L1 · 只读"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="skill-detail-value">这项技能当前不直接调用外部工具。</p>}
             </div>
+            {execution.permissions?.length ? (
+              <div className="skill-detail-section">
+                <h4>所需权限</h4>
+                <div className="skill-execution-list">
+                  {execution.permissions.map((permission) => {
+                    const write = permission.endsWith(":write");
+                    return (
+                      <div className="skill-execution-row" key={permission}>
+                        <span className="skill-execution-row-name">
+                          {PERMISSION_LABEL[permission] || (write ? "业务数据写入" : "业务数据读取")}
+                        </span>
+                        <span className={"skill-mark" + (write ? " is-write" : "")}>
+                          {write ? "L3 · 执行前确认" : "L1 · 只读"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
             {execution.async?.enabled && (
               <div className="skill-detail-section">
                 <h4>异步执行</h4>
@@ -684,11 +720,8 @@ export function SkillCatalog() {
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | "official" | "third_party">("all");
-  // 使用范围与业务场景分别保存；旧 tab 深链继续按原含义解析。
-  const initialParams = new URLSearchParams(location.search);
-  const legacyTab = initialParams.get("tab") || "all";
-  const [mode, setMode] = useState(() => initialParams.get("mode") || (["frequent", "recent", "recommend"].includes(legacyTab) ? legacyTab : "all"));
-  const [businessStage, setBusinessStage] = useState(() => initialParams.get("stage") || (GROUPS.some((group) => group.id === legacyTab) ? legacyTab : "all"));
+  // tab 与 URL 同步：`/skills?tab=frequent` 这类深链（「查看全部」链接）必须真正生效。
+  const [tab, setTab] = useState(() => new URLSearchParams(location.search).get("tab") || "all");
   const [selectedSkill, setSelectedSkill] = useState<SkillRow | null>(null);
   const [usage, setUsage] = useState<Record<string, number>>(() => loadUsage());
   const [recent, setRecent] = useState<string[]>(() => loadRecent());
@@ -705,10 +738,7 @@ export function SkillCatalog() {
   };
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const legacy = params.get("tab") || "all";
-    setMode(params.get("mode") || (["frequent", "recent", "recommend"].includes(legacy) ? legacy : "all"));
-    setBusinessStage(params.get("stage") || (GROUPS.some((group) => group.id === legacy) ? legacy : "all"));
+    setTab(new URLSearchParams(location.search).get("tab") || "all");
   }, [location.search]);
 
   useEffect(() => {
@@ -739,16 +769,14 @@ export function SkillCatalog() {
   const filteredSkills = useMemo(() => {
     let list = skills;
 
-    if (mode === "frequent") {
+    if (tab === "frequent") {
       list = list.filter((s) => (usage[s.id] || 0) > 0).sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
-    } else if (mode === "recent") {
+    } else if (tab === "recent") {
       list = recent.map((id) => skills.find((s) => s.id === id)).filter(Boolean) as SkillRow[];
-    } else if (mode === "recommend") {
+    } else if (tab === "recommend") {
       list = list.filter((s) => RECOMMENDED_IDS.includes(s.id));
-    }
-    if (businessStage !== "all") {
-      const group = GROUPS.find((item) => item.id === businessStage);
-      if (group) list = list.filter((s) => group.funnel.includes(s.funnel || ""));
+    } else if (tab !== "all") {
+      list = list.filter((s) => s.funnel === tab);
     }
 
     if (sourceFilter !== "all") list = list.filter((skill) => skillOrigin(skill) === sourceFilter);
@@ -763,7 +791,7 @@ export function SkillCatalog() {
     }
 
     return list;
-  }, [skills, mode, businessStage, q, usage, recent, sourceFilter]);
+  }, [skills, tab, q, usage, recent, sourceFilter]);
 
   const frequentSkills = useMemo(() => {
     const used = skills
@@ -784,15 +812,14 @@ export function SkillCatalog() {
 
   const groupedSkills = useMemo(() => {
     const groups: Record<string, SkillRow[]> = {};
-    const featuredIds = new Set(mode === "all" && businessStage === "all" && !q ? frequentSkills.map((skill) => skill.id) : []);
     for (const group of GROUPS) {
-      groups[group.id] = filteredSkills.filter((s) => group.funnel.includes(s.funnel || "") && !featuredIds.has(s.id));
+      groups[group.id] = filteredSkills.filter((s) => group.funnel.includes(s.funnel || ""));
     }
     return groups;
-  }, [filteredSkills, frequentSkills, mode, businessStage, q]);
+  }, [filteredSkills]);
 
   // 「使用」＝ 只把技能挂到工作台 Composer 上：用户还能补完 Prompt 再自己发送。
-  // 不提供「直接开新会话」——部分技能需要先填参数，且外发属 R3，不能由「使用技能」一步完成
+  // 不提供「直接开新会话」——部分技能需要先填参数，且外发属 L3，不能由「使用技能」一步完成
   // （docs/DESIGN.md 员工端实施细则 §不变量 2）。
   const useSkill = (skill: SkillRow) => {
     recordUsage(skill.id);
@@ -800,7 +827,6 @@ export function SkillCatalog() {
     setRecent(loadRecent());
     rememberJourney({ kind: "skill", skillId: skill.id, skillLabel: skill.label || skill.title });
     applyComposerDraft({
-      apply_mode: "merge",
       text: skillFillText(skill),
       skill_template: skill.ui_template,
       chips: [{
@@ -834,7 +860,8 @@ export function SkillCatalog() {
       )}
 
       <div className="skill-catalog-main">
-        {/* 栏 2：技能目录。顶部是「技能目录 + N 项」（吸顶），下面是两组独立筛选。
+        {/* 栏 2：技能目录。顶部是「技能目录 + N 项」（吸顶），下面是两个成组控件容器
+            （shadcn `TabsList` ×2：口径 / 阶段，容器承担成组控件的可见边界）。
             ≥1280 时这一栏是左栏（纵向）；1024–1279 折成栏 3 顶部的横向筛选条。 */}
         <div className="skill-tabs" role="group" aria-label="技能筛选">
           {/* 页头整条删除（2026-09-23）：标题 + 计数只是这一栏的栏头，横跨三栏的一行
@@ -845,13 +872,16 @@ export function SkillCatalog() {
           </div>
           {(["mode", "stage"] as const).map((kind) => (
             <div key={kind} className="skill-tabs-list" data-kind={kind}>
-              {TABS.filter((t) => t.kind === kind).map((t) => (
-                <Fragment key={`${t.kind}:${t.id}`}>
+              {TABS.filter((t) => t.kind === kind).map((t, i) => (
+                <Fragment key={t.id}>
+                  {kind === "stage" && i > 0 && (
+                    <span className="skill-tab-sep" aria-hidden>›</span>
+                  )}
                   <button
                     type="button"
-                    className={`skill-tab${(kind === "mode" ? mode : businessStage) === t.id ? " on" : ""}`}
-                    aria-pressed={(kind === "mode" ? mode : businessStage) === t.id}
-                    onClick={() => kind === "mode" ? setMode(t.id) : setBusinessStage(t.id)}
+                    className={`skill-tab${tab === t.id ? " on" : ""}`}
+                    aria-pressed={tab === t.id}
+                    onClick={() => setTab(t.id)}
                   >
                     {t.label}
                   </button>
@@ -911,16 +941,16 @@ export function SkillCatalog() {
             ))}
           </div>
 
-          {mode === "all" && businessStage === "all" && !q && (
+          {tab === "all" && !q && (
             <section className="skill-group skill-group-frequent">
               <div className="skill-group-header">
                 <span className="skill-group-icon skill-group-icon-star" aria-hidden>★</span>
-                <h2>{hasUsage ? "常选技能" : "推荐技能"}</h2>
+                <h2>{hasUsage ? "常用技能" : "推荐技能"}</h2>
                 <span className="skill-group-hint">
-                  {hasUsage ? "按你选用的次数排序" : "从平台技能中选出的常见起点"}
+                  {hasUsage ? "你经常使用的技能，点击即可快速调用" : "按你所在阶段挑的几项，先试这些"}
                 </span>
                 <Link
-                  to={hasUsage ? "/skills?mode=frequent&stage=all" : "/skills?mode=recommend&stage=all"}
+                  to={hasUsage ? "/skills?tab=frequent" : "/skills?tab=recommend"}
                   className="skill-group-more"
                 >
                   查看全部
@@ -952,7 +982,7 @@ export function SkillCatalog() {
                   <h2>{group.label}</h2>
                   {/* hint 只在与组名有增量信息时才输出（同义的提示是噪声）。 */}
                   {group.hint && <span className="skill-group-hint">{group.hint}</span>}
-                  <Link to={`/skills?mode=${mode}&stage=${group.id}`} className="skill-group-more">查看全部</Link>
+                  <Link to={`/skills?tab=${group.id}`} className="skill-group-more">查看全部</Link>
                 </div>
                 <div className="skill-list">
                   {groupSkills.map((s) => (
@@ -977,8 +1007,7 @@ export function SkillCatalog() {
                 className="skill-btn skill-btn-outline"
                 onClick={() => {
                   setQ("");
-                  setMode("all");
-                  setBusinessStage("all");
+                  setTab("all");
                   nav("/skills");
                 }}
               >

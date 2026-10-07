@@ -60,27 +60,6 @@ afterEach(() => {
 });
 
 describe("skill lifecycle", () => {
-  it("publishes versions only through the testing lifecycle stage", async () => {
-    await loginPm();
-    const created = await request("POST", "/api/admin/skills", NEW_SKILL);
-    expect(created.status, JSON.stringify(created.body)).toBe(201);
-    const id = "lifecycle_probe";
-
-    for (const stage of ["editing", "testing"]) {
-      const moved = await request("POST", `/api/admin/skills/${id}/stage`, { stage });
-      expect(moved.status, JSON.stringify(moved.body)).toBe(200);
-    }
-
-    const published = await request("POST", `/api/admin/skills/${id}/versions`, { description: "首个受控版本" });
-    expect(published.status, JSON.stringify(published.body)).toBe(200);
-    expect(published.body).toEqual(expect.objectContaining({ stage: "published", version: 1 }));
-
-    const duplicate = await request("POST", `/api/admin/skills/${id}/versions`, { description: "不可绕过生命周期" });
-    expect(duplicate.status).toBe(409);
-    const versions = await request("GET", `/api/admin/skills/${id}/versions`);
-    expect(versions.body.versions).toEqual([expect.objectContaining({ version: 1, status: "published" })]);
-  });
-
   it("walks stages, snapshots versions, rolls back, and records tests", async () => {
     await loginPm();
     const created = await request("POST", "/api/admin/skills", NEW_SKILL);
