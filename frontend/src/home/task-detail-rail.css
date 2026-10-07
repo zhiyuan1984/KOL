@@ -16,6 +16,7 @@
   align-items: center;
 }
 .task-detail-head { justify-content: space-between; gap: 8px; min-width: 0; min-height: 28px; }
+.scope-task-rail .task-detail-head { padding-right: calc(var(--icon-btn) + var(--space-2)); }
 .task-detail-heading { min-width: 0; gap: 6px; }
 .task-detail-heading strong { overflow: hidden; font-size: var(--ds-font-section); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .task-status-dot,
@@ -53,7 +54,8 @@
 .task-detail-empty-icon { display: inline-grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--ds-border); border-radius: 50%; color: var(--ds-text-muted); }
 .task-detail-empty strong { color: var(--text); font-size: var(--ds-font-sm); }
 .task-detail-empty p { margin: 0; line-height: var(--ds-line-helper); }
-.task-detail-start { min-height: var(--hit-min); border: 1px solid #DB1860; border-radius: var(--ds-radius-input); background: #DB1860; color: #fff; font: inherit; font-size: var(--ds-font-sm); padding: 0 10px; cursor: pointer; }
+.task-detail-start { min-height: var(--btn-text-h); border: 0; border-radius: var(--radius-control); background: none; color: var(--accent-text); font: inherit; font-size: var(--ds-font-sm); padding: 0 var(--btn-text-pad-x); cursor: pointer; }
+.task-detail-start:hover { background: var(--btn-text-hover-bg); }
 .task-detail-start:disabled { cursor: progress; opacity: .7; }
 .task-detail-session-link,
 .task-detail-new-ticket { width: fit-content; border: 0; background: transparent; color: var(--accent-text); font: inherit; font-size: var(--ds-font-sm); text-decoration: none; cursor: pointer; padding: 0; }
