@@ -85,7 +85,7 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
     const pending = action.state === "pending" && !action.execution;
     return <article className="artifact runtime-action-card" key={action.id} data-runtime-action={action.id}>
       <header className="runtime-action-heading"><strong>{pending && action.operation === "start_crawl" ? "请确认本次采集范围" : actionLabel(action)}</strong>
-        {pending ? <span className="muted">需要确认（L3）· 确认后{action.operation === "start_crawl" ? "启动外部采集" : "执行以上操作"}</span> : null}</header>
+        {pending ? <span className="muted">需要确认（{action.risk.replace(/^L([123])$/, "R$1")}）· 确认后{action.operation === "start_crawl" ? "启动外部采集" : "执行以上操作"}</span> : null}</header>
       {action.created_at ? <time dateTime={action.created_at}>{new Date(action.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</time> : null}
       {action.progress && action.progress.state !== "pending" ? <p role="status">{action.progress.summary}</p> : null}
       <details className="runtime-action-scope" open={action.state === "pending" && !action.execution}>

@@ -105,7 +105,7 @@ test("keeps empty candidates distinct from failed reading, and retries only the 
 
 test.describe("short touch confirmation", () => {
   test.use({ viewport: { width: 390, height: 589 }, hasTouch: true });
-  test("reaches the L3 scope and confirms once through the extended touch target", async ({ page, request }, info) => {
+  test("reaches the R3 scope and confirms once through the extended touch target", async ({ page, request }, info) => {
     const response = await request.post("/api/sessions", { data: { title: "Isolated touch confirmation" } });
     expect(response.ok()).toBeTruthy();
     const session = await response.json();
@@ -124,7 +124,7 @@ test.describe("short touch confirmation", () => {
     await page.goto(`/s/${session.id}`);
     const actions = page.locator("[data-runtime-actions]");
     await expect(actions).toContainText("请确认本次采集范围");
-    await expect(actions).toContainText("需要确认（L3）");
+    await expect(actions).toContainText("需要确认（R3）");
     await expect(actions.locator(".runtime-action-summary")).toContainText("采集评论回复关闭");
     await expect(actions.locator(".runtime-action-summary")).toContainText("关键词fixture-only");
     await expect(actions.locator("pre")).toHaveCount(0);

@@ -333,7 +333,7 @@ test("submitted collection is compact and steps show only recorded times", async
   await page.goto(`/s/${task.session_id}`);
   const card = page.locator('.runtime-action-card');
   await expect(card).toContainText('采集请求已提交');
-  await expect(card).not.toContainText('需要确认（L3）');
+  await expect(card).not.toContainText('需要确认（R3）');
   await expect(card).not.toContainText('已取得回执');
   await expect(card.locator('.runtime-action-scope .runtime-action-summary')).not.toBeVisible();
   await expect(card.getByText('查看操作记录')).toBeVisible();
@@ -443,7 +443,7 @@ for (const theme of ["light", "dark"]) {
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     const actions = page.getByRole("region", { name: "任务执行记录" });
     await expect(actions).toBeVisible();
-    await expect(actions).toContainText("需要确认（L3）");
+    await expect(actions).toContainText("需要确认（R3）");
     await expect(actions.getByRole("button", { name: "确认开始采集", exact: true })).toBeEnabled();
     for (const button of await actions.getByRole("button").all()) await expect(button).toHaveAccessibleName(/\S/);
     await actions.getByText("旧任务记录", { exact: true }).click();
