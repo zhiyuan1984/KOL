@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { DISCOVERY_START_COPY, type DiscoveryStartPhase } from "./discoveryStart";
+import { discoveryBriefRecap } from "./discoveryParams";
+import type { DiscoveryBrief } from "./discoveryTemplate";
 
 /**
  * ⑤ 确认开始采集：紧接实际参数清单。点击后原地变成「已确认，正在启动」并移除
@@ -11,6 +13,9 @@ export default function DiscoveryConfirmCard({
   blockedReason,
   reason,
   sessionHref,
+  brief,
+  missingParams,
+  onGotoParams,
   onConfirm,
   onCancel,
   onRetry,
@@ -25,6 +30,11 @@ export default function DiscoveryConfirmCard({
   /** 服务端给出的执行结论（例如「采集未启动 · 已有任务占用」的原因）。 */
   reason?: string;
   sessionHref?: string | null;
+  /** 一句话业务复述的数据源（pending 相位用）。 */
+  brief?: DiscoveryBrief | null;
+  /** 必填参数缺失（waiting_proposal 相位用）：不再空转"整理中"，直接给行动指引。 */
+  missingParams?: string[];
+  onGotoParams?: () => void;
   onConfirm?: () => void;
   onCancel?: () => void;
   onRetry?: () => void;
@@ -46,6 +56,10 @@ export default function DiscoveryConfirmCard({
   }, [phase]);
 
   const copy = DISCOVERY_START_COPY[phase];
+  /** 参数缺失时标题不再说"正在整理"，直接点出问题。 */
+  const headline = phase === "waiting_proposal" && missingParams && missingParams.length
+    ? "参数还没选齐"
+    : copy.label;
   const tone = phase === "pending" ? "warning"
     : phase === "failed" || phase === "uncertain" ? "danger"
       : phase === "running" || phase === "dispatching" || phase === "starting" ? "running"
@@ -61,8 +75,8 @@ export default function DiscoveryConfirmCard({
       aria-label="确认开始采集"
     >
       <header className="discovery-event-head">
-        <span className="discovery-event-kicker">R3 · 确认开始采集</span>
-        <strong>{copy.label}</strong>
+        <span className="discovery-event-kicker">确认开始采集</span>
+        <strong>{headline}</strong>
         <span className="discovery-event-status" data-tone={tone} data-discovery-start-status>
           {phase === "pending" ? "等待你确认" : phase === "dispatching" || phase === "starting" ? "已确认" : ""}
         </span>
@@ -74,8 +88,22 @@ export default function DiscoveryConfirmCard({
         role="status"
         data-discovery-start-detail
       >
-        {copy.detail}
+        {phase === "pending" && brief ? (
+          <><strong data-discovery-start-recap>{discoveryBriefRecap(brief)}</strong>。{copy.detail}</>
+        ) : phase === "waiting_proposal" && missingParams && missingParams.length ? (
+          <>还差{missingParams.join("、")}没选，线索智能体整理不出采集范围；选好后点「重新提交」。</>
+        ) : (
+          copy.detail
+        )}
       </p>
+
+      {phase === "waiting_proposal" && missingParams && missingParams.length && onGotoParams ? (
+        <div className="discovery-confirm-actions">
+          <button type="button" className="btn work sm" data-discovery-start-goto-params onClick={onGotoParams}>
+            去选参数
+          </button>
+        </div>
+      ) : null}
 
       {blockedReason ? (
         <p className="discovery-flow-note" role="status" data-discovery-start-blocked>{blockedReason}</p>

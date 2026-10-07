@@ -1,4 +1,5 @@
 import type { DiscoveryNarrative, DiscoveryProcessStep } from "./discoveryEvents";
+import { BIZ_PHASES, discoveryBizPhaseIndex } from "./discoveryBizPhase";
 
 const RUN_STATE_LABEL: Record<string, string> = {
   compose: "尚未开始",
@@ -36,6 +37,7 @@ export default function DiscoveryRunEvents({
   canStop = false,
   onStop,
   stopping,
+  foundCount,
 }: {
   stage: string;
   steps: DiscoveryProcessStep[];
@@ -50,6 +52,8 @@ export default function DiscoveryRunEvents({
   canStop?: boolean;
   onStop?: () => void;
   stopping?: boolean;
+  /** 搜索中找到的候选数（随轮询增长），用于"搜索中（已找到 N 个）"。 */
+  foundCount?: number;
 }) {
   const failed = steps.some((step) => step.kind === "failed");
   const stopped = steps.some((step) => step.kind === "stopped");
@@ -100,34 +104,53 @@ export default function DiscoveryRunEvents({
         </p>
       ) : null}
 
-      {steps.length ? (
-        <ol className="discovery-run-steps" data-discovery-run-steps role="status" aria-busy={confirmed && inFlight || undefined}>
-          {steps.map((step) => (
-            <li
-              key={step.id}
-              className="discovery-run-step"
-              data-discovery-step={step.kind}
-              data-state={step.kind === "failed" ? "failed" : confirmed && inFlight && step === steps[steps.length - 1] ? "running" : "done"}
-            >
-              <span className="discovery-run-mark" aria-hidden="true" />
-              <span className="discovery-run-step-label">{step.label}</span>
-              {step.time ? <span className="discovery-run-time" data-discovery-step-time>{step.time}</span> : null}
-            </li>
-          ))}
-        </ol>
-      ) : !confirmed ? null : !collected ? (
-        <p className="muted" data-discovery-run-pending>
-          确认开始采集后，这里会按真实事件显示排队、搜索、接收、去重与排序。
-        </p>
-      ) : inFlight ? (
-        <p className="muted" role="status" aria-busy="true" data-discovery-run-waiting>
-          正在按已确认的条件检索红人线索。不会发信、不会改阶段、不会编造结果。
-        </p>
-      ) : (
-        <p className="muted" data-discovery-run-empty>
-          这次运行没有留下过程记录。
-        </p>
-      )}
+      {(() => {
+        if (!confirmed) return null;
+        const bizIndex = discoveryBizPhaseIndex({ steps, crawlState, stage });
+        return (
+          <>
+            <ol className="discovery-run-steps" data-discovery-biz-phases role="status" aria-busy={inFlight || undefined}>
+              {BIZ_PHASES.map((phase, i) => {
+                const done = i < bizIndex || (bizIndex === 3 && i === 3 && !failed);
+                const state = failed && i === bizIndex ? "failed" : done ? "done" : i === bizIndex ? "running" : undefined;
+                const label = phase.id === "searching" && typeof foundCount === "number"
+                  ? `搜索中（已找到 ${foundCount} 个）`
+                  : phase.label;
+                return (
+                  <li
+                    key={phase.id}
+                    className="discovery-run-step"
+                    data-discovery-biz-phase={phase.id}
+                    data-state={state}
+                  >
+                    <span className="discovery-run-mark" aria-hidden="true" />
+                    <span className="discovery-run-step-label">{i + 1}、{label}</span>
+                  </li>
+                );
+              })}
+            </ol>
+            {steps.length ? (
+              <details className="discovery-run-details" data-discovery-run-details>
+                <summary>详情</summary>
+                <ol className="discovery-run-steps" data-discovery-run-steps>
+                  {steps.map((step) => (
+                    <li
+                      key={step.id}
+                      className="discovery-run-step"
+                      data-discovery-step={step.kind}
+                      data-state={step.kind === "failed" ? "failed" : "done"}
+                    >
+                      <span className="discovery-run-mark" aria-hidden="true" />
+                      <span className="discovery-run-step-label">{step.label}</span>
+                      {step.time ? <span className="discovery-run-time" data-discovery-step-time>{step.time}</span> : null}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            ) : null}
+          </>
+        );
+      })()}
 
       {narrative ? (
         <p className={"discovery-run-say" + (narrative.running ? " is-streaming" : "")} data-discovery-run-say>{narrative.body}</p>

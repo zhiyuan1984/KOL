@@ -157,7 +157,8 @@ describe("AI发现中栏事件渲染契约", () => {
       steps: [],
       inFlight: false,
     }));
-    expect(preRun).toContain("data-discovery-run-pending");
+    // 业务四段替代了原来的"尚未开始"占位段：停在①理解需求。
+    expect(preRun).toContain('data-discovery-biz-phase="understand"');
     expect(preRun).toContain("尚未开始");
     expect(preRun).not.toContain("已完成");
 
@@ -166,8 +167,9 @@ describe("AI发现中栏事件渲染契约", () => {
       steps: [],
       inFlight: false,
     }));
-    expect(settled).toContain("data-discovery-run-empty");
-    expect(settled).toContain("没有留下过程记录");
+    // 完成态四段全 done，不再转圈。
+    expect(settled).toContain('data-discovery-biz-phase="done"');
+    expect(settled).toContain("已完成");
   });
 
   it("offers the stop action only while the crawl itself is running", () => {
@@ -225,5 +227,70 @@ describe("AI发现中栏事件渲染契约", () => {
     }));
     expect(html).toContain("data-discovery-start-reason");
     expect(html).toContain("本次启动未执行");
+  });
+
+  it("renders the four business stages with a live found count", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "running",
+      steps: [STEP("collecting", "正在采集")],
+      inFlight: true,
+      crawlState: "running",
+      foundCount: 12,
+    }));
+    expect(html).toContain('data-discovery-biz-phase="understand"');
+    expect(html).toContain('data-discovery-biz-phase="searching"');
+    expect(html).toContain('data-discovery-biz-phase="scoring"');
+    expect(html).toContain('data-discovery-biz-phase="done"');
+    expect(html).toContain("搜索中（已找到 12 个）");
+    // 内部阶段（任务开始处理/校验输出…）不再平铺，收到详情折叠里。
+    expect(html).not.toContain("校验输出");
+  });
+
+  it("keeps raw process steps in a collapsed details block", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "running",
+      steps: [STEP("step", "校验输出"), STEP("received", "已收到 40 条")],
+      inFlight: true,
+      crawlState: "running",
+    }));
+    expect(html).toContain("data-discovery-run-details");
+    expect(html).toContain("校验输出");
+    expect(html).toContain("已收到 40 条");
+  });
+
+  it("tells the employee which params are missing instead of spinning", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryConfirmCard, {
+      phase: "waiting_proposal",
+      error: "",
+      blockedReason: "",
+      missingParams: ["方向"],
+      onGotoParams: () => {},
+    }));
+    expect(html).toContain("参数还没选齐");
+    expect(html).toContain("还差方向没选");
+    expect(html).toContain("data-discovery-start-goto-params");
+    expect(html).not.toContain("正在整理采集范围");
+  });
+
+  it("recaps the brief in one business sentence without the R3 prefix", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryConfirmCard, {
+      phase: "pending",
+      error: "",
+      blockedReason: "",
+      brief: {
+        platforms: ["youtube"],
+        region: "global_en",
+        directions: ["portable_power"],
+        keywords: ["portable power station"],
+        min_followers: 100000,
+        max_followers: null,
+        min_avg_plays_10: 0,
+        expect_count: 50,
+      },
+    }));
+    expect(html).toContain("data-discovery-start-recap");
+    expect(html).toContain("将在 YouTube");
+    expect(html).toContain("户外能源");
+    expect(html).not.toContain("R3 ·");
   });
 });

@@ -75,6 +75,18 @@ export default function DiscoveryWorkspace({
   }), [brief, disc.startAction, catalog]);
   const editConditions = onEditConditions || disc.editConditions;
   const flowStarted = disc.submitted || Boolean(disc.startAction);
+  /** 必填参数缺失检测：方向/关键词/平台任一未选，确认卡不再空转"整理中"，直接给行动指引。 */
+  const missingParams = useMemo(() => {
+    const missing: string[] = [];
+    if (!brief.platforms.length) missing.push("平台");
+    if (!brief.directions.length) missing.push("方向");
+    if (!brief.keywords.length) missing.push("关键词");
+    return missing;
+  }, [brief]);
+  const gotoParams = () => {
+    document.querySelector('[data-discovery-event="conditions"]')
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
   // 未确认前不挂载「采集执行」段：没解锁就没有可看的执行内容，空壳占位
   // （标题"等待确认"+正文"还没有开始采集"）只会让人误以为执行已就绪。
   // 员工点确认后该段才出现；CONST-03 等待诚实。
@@ -160,9 +172,12 @@ export default function DiscoveryWorkspace({
               reason={disc.startReason}
               sessionHref={sessionHref}
               busy={disc.startBusy}
+              brief={brief}
+              missingParams={missingParams}
+              onGotoParams={gotoParams}
               onConfirm={disc.confirmStart}
               onCancel={disc.cancelStart}
-              onRetry={disc.retryStart}
+              onRetry={disc.startAction?.can_retry ? disc.retryStart : undefined}
               onStop={disc.stopStart}
             />
           ) : null}
@@ -173,6 +188,7 @@ export default function DiscoveryWorkspace({
               narrative={disc.narrative}
               inFlight={disc.inFlight}
               crawlState={disc.crawlPhase}
+              foundCount={disc.visible.length}
               canStop={disc.crawlRunning}
               stopping={disc.startBusy}
               onStop={disc.stopStart}

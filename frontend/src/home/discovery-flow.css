@@ -191,6 +191,15 @@
 
 .discovery-run-step[data-state="failed"] .discovery-run-step-label { color: var(--danger); }
 
+/* 业务四段下的原始过程折叠：默认收起，不打扰只关心进度的业务方。 */
+.discovery-run-details { margin-top: var(--space-2); }
+.discovery-run-details > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  width: fit-content;
+}
+.discovery-run-details .discovery-run-steps { margin-top: var(--space-2); }
+
 .discovery-run-say {
   margin: 0;
   font-size: var(--ds-font-sm);

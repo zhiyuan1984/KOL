@@ -129,3 +129,19 @@ export function discoveryParamCheck(input: {
 export function discoveryParamsStale(input: { submitted: boolean; editing: boolean }): boolean {
   return input.submitted && input.editing;
 }
+
+/**
+ * 确认卡上的一句话业务复述（替代技术参数清单）：
+ * "将在 YouTube 按'户外电源'找粉丝 10,000–不限 的英语区红人"。
+ * 三段缺一时降级，不编造没有的限定。
+ */
+export function discoveryBriefRecap(brief: DiscoveryBrief, catalog?: DiscoveryParamCatalog): string {
+  const platforms = brief.platforms.map((code) => platformLabelOf(code, catalog?.platforms)).join("、") || "全平台";
+  const subject = brief.directions.map((code) => directionLabelOf(code, catalog?.directions)).join("、")
+    || brief.keywords.join("、")
+    || "已提交条件";
+  const minF = brief.min_followers.toLocaleString("en-US");
+  const maxF = brief.max_followers === null ? "–不限" : `–${brief.max_followers.toLocaleString("en-US")}`;
+  const region = regionLabelOf(brief.region, catalog?.regions);
+  return `将在 ${platforms} 按"${subject}"找粉丝 ${minF}${maxF} 的${region}红人`;
+}

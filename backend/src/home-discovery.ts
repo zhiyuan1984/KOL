@@ -409,6 +409,33 @@ function libraryHits(candidates: Row[]): Json[] {
  * it carries the only copy of why/band/fit (see `briefRanking`), so a missing entry
  * must leave those keys null rather than empty strings.
  */
+/** 紧凑数字：125000 → "12.5万"。只用于入选理由兜底，不做精确值展示。 */
+function compactMetric(value: number): string {
+  if (value >= 10000) return `${Number((value / 10000).toFixed(1))}万`;
+  if (value >= 1000) return `${Number((value / 1000).toFixed(1))}k`;
+  return String(Math.round(value));
+}
+
+/**
+ * 入选理由兜底：agent 没给 why 时，用可复核信号拼一句话。
+ * 只陈述采集到的事实（匹配到的关键词、粉丝数、均播），不推断"为什么好"。
+ * 实在没有信号就返回 null，前端按"暂无足够内容证据"展示，不编造。
+ */
+function fallbackMatchReason(input: {
+  matchedKeywords: string[];
+  followers: number | null;
+  avgViews10: number | null;
+}): string | null {
+  const parts: string[] = [];
+  const keywords = input.matchedKeywords.filter(Boolean).slice(0, 3);
+  if (keywords.length) parts.push(`内容匹配${keywords.join("、")}`);
+  const metrics: string[] = [];
+  if (input.followers != null && Number.isFinite(input.followers)) metrics.push(`粉丝 ${compactMetric(input.followers)}`);
+  if (input.avgViews10 != null && Number.isFinite(input.avgViews10)) metrics.push(`近10条均播 ${compactMetric(input.avgViews10)}`);
+  if (metrics.length) parts.push(metrics.join("，"));
+  return parts.length ? parts.join("；") : null;
+}
+
 function publicCandidate(row: Row, ranking?: Json | null): Json {
   const payload = parseJson(row.payload);
   const signals = parseJson(row.signals);
@@ -429,7 +456,11 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
     : alreadyInPool || alreadyInLibrary ? "pool" : "not_in_library";
   const scoreDetails = objectOf(payload.score_details);
   const why = asStringList(ranking?.why);
-  const matchReason = why.length ? why.join(" · ") : null;
+  const matchReason = why.length ? why.join(" · ") : fallbackMatchReason({
+    matchedKeywords: asStringList(payload.matched_keywords),
+    followers: followersPresent ? Number(row.followers || 0) : null,
+    avgViews10: views.length ? avgViews10(row) : null,
+  });
   const contactEmail = candidateContactEmail(row) || null;
   // This is an explainable pre-flight projection only. The L3 gateway repeats
   // every authority, version, de-duplication and source-batch check before it
