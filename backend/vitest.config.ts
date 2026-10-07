@@ -43,6 +43,7 @@ export default defineConfig({
       "../frontend/src/tasks/KpiCard.test.tsx",
       "../frontend/src/tasks/Sparkline.test.tsx",
       "../frontend/src/tasks/TaskOperationsReport.test.tsx",
+      "../frontend/src/pages/adminWorkReportModel.test.ts",
       "../frontend/src/admin/connector/connectorSetup.test.ts",
       "../frontend/src/admin/connector/headerNames.test.ts",
       "../frontend/src/admin/connector/wizardSteps.test.ts",

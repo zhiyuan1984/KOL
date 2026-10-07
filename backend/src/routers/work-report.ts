@@ -25,6 +25,7 @@ const EXCEPTION_STATUSES = ["failed", "cancelled"];
 type ReportFilters = {
   date: string;
   timezone: string;
+  period: "day" | "week" | "month";
   owner: string | null;
   kind: string | null;
   team: string | null;
@@ -43,7 +44,7 @@ function jsonObject(value: unknown): Record<string, unknown> {
   }
 }
 
-function parseDate(value: string): { year: number; month: number; day: number } {
+export function parseDate(value: string): { year: number; month: number; day: number } {
   const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!matched) throw new HttpFail(400, "date must be YYYY-MM-DD");
   const year = Number(matched[1]);
@@ -92,7 +93,7 @@ function dateAtTimezone(value: Date, timezone: string): string {
 }
 
 /** Convert a local midnight in an IANA zone into an ISO instant without a date library. */
-function zonedMidnightIso(date: string, timezone: string): string {
+export function zonedMidnightIso(date: string, timezone: string): string {
   const { year, month, day } = parseDate(date);
   const desiredWallClock = Date.UTC(year, month - 1, day, 0, 0, 0);
   let instant = desiredWallClock;
@@ -111,6 +112,56 @@ function nextDate(date: string): string {
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
 }
 
+function addDaysIso(instantIso: string, days: number): string {
+  return new Date(new Date(instantIso).getTime() + days * 86400000).toISOString();
+}
+
+/** 0=Monday .. 6=Sunday, evaluated in the report timezone. */
+function weekdayIndexInTimezone(instantIso: string, timezone: string): number {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(new Date(instantIso));
+  const index = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday);
+  if (index < 0) throw new HttpFail(400, "invalid timezone");
+  return index;
+}
+
+function monthStart(date: string, timezone: string): string {
+  const { year, month } = parseDate(date);
+  return zonedMidnightIso(`${year}-${String(month).padStart(2, "0")}-01`, timezone);
+}
+
+/**
+ * Report window for day/week/month. Week is the natural Monday-Sunday week
+ * containing `date`; month is the natural calendar month. Only the window
+ * changes; all caliber definitions stay the same.
+ */
+export function periodRange(date: string, timezone: string, period: "day" | "week" | "month"): { start: string; end: string } {
+  if (period === "week") {
+    const dayStart = zonedMidnightIso(date, timezone);
+    const weekStart = addDaysIso(dayStart, -weekdayIndexInTimezone(dayStart, timezone));
+    return { start: weekStart, end: addDaysIso(weekStart, 7) };
+  }
+  if (period === "month") {
+    const start = monthStart(date, timezone);
+    const { year, month } = parseDate(date);
+    const next = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+    return { start, end: zonedMidnightIso(`${next.year}-${String(next.month).padStart(2, "0")}-01`, timezone) };
+  }
+  return { start: zonedMidnightIso(date, timezone), end: zonedMidnightIso(nextDate(date), timezone) };
+}
+
+/** The window immediately before the current one, used for period-over-period delta. */
+export function previousPeriodRange(date: string, timezone: string, period: "day" | "week" | "month"): { start: string; end: string } {
+  const current = periodRange(date, timezone, period);
+  if (period === "week") return { start: addDaysIso(current.start, -7), end: current.start };
+  if (period === "month") {
+    const { year, month } = parseDate(date);
+    const prev = month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+    const prevStart = zonedMidnightIso(`${prev.year}-${String(prev.month).padStart(2, "0")}-01`, timezone);
+    return { start: prevStart, end: current.start };
+  }
+  return { start: addDaysIso(current.start, -1), end: current.start };
+}
+
 function boundedQuery(value: string | undefined, name: string): string | null {
   const result = String(value || "").trim();
   if (!result) return null;
@@ -123,14 +174,21 @@ function reportFilters(query: (name: string) => string | undefined): ReportFilte
   formatter(timezone);
   const date = String(query("date") || dateAtTimezone(new Date(), timezone)).trim();
   parseDate(date);
+  const periodRaw = String(query("period") || "day").trim().toLowerCase();
+  if (periodRaw !== "day" && periodRaw !== "week" && periodRaw !== "month") {
+    throw new HttpFail(400, "period must be day, week, or month");
+  }
+  const period = periodRaw as "day" | "week" | "month";
+  const { start, end } = periodRange(date, timezone, period);
   return {
     date,
     timezone,
+    period,
     owner: boundedQuery(query("owner"), "owner"),
     kind: boundedQuery(query("kind"), "kind"),
     team: boundedQuery(query("team"), "team"),
-    start: zonedMidnightIso(date, timezone),
-    end: zonedMidnightIso(nextDate(date), timezone),
+    start,
+    end,
   };
 }
 
@@ -194,7 +252,7 @@ function statusRows(filters: ReportFilters): Map<string, { responsible: number; 
   }]));
 }
 
-function acceptanceRows(filters: ReportFilters): Map<string, { accepted: number; last_accepted_at: string | null }> {
+function acceptanceRows(filters: ReportFilters, start: string = filters.start, end: string = filters.end): Map<string, { accepted: number; last_accepted_at: string | null }> {
   const scope = listScope("t", filters, "a.owner_user_id_at_acceptance");
   const rows = getConn().prepare(
     `SELECT a.owner_user_id_at_acceptance AS owner_id, COUNT(DISTINCT a.ticket_id) AS accepted, MAX(a.accepted_at) AS last_accepted_at
@@ -202,14 +260,14 @@ function acceptanceRows(filters: ReportFilters): Map<string, { accepted: number;
        JOIN tickets t ON t.id=a.ticket_id
      ${where(scope, [FORMAL_TICKET_SQL, "a.accepted_at>=?", "a.accepted_at<?"])}
       GROUP BY a.owner_user_id_at_acceptance`,
-  ).all(filters.start, filters.end, ...scope.values) as Row[];
+  ).all(start, end, ...scope.values) as Row[];
   return new Map(rows.map((row) => [String(row.owner_id), {
     accepted: number(row.accepted),
     last_accepted_at: row.last_accepted_at ? String(row.last_accepted_at) : null,
   }]));
 }
 
-function legacyAcceptedCount(filters: ReportFilters): number {
+function legacyAcceptedCount(filters: ReportFilters, start: string = filters.start, end: string = filters.end): number {
   const scope = listScope("t", filters, "t.owner_user_id");
   const row = getConn().prepare(
     `SELECT COUNT(DISTINCT e.work_item_id) AS count
@@ -217,8 +275,51 @@ function legacyAcceptedCount(filters: ReportFilters): number {
        JOIN tickets t ON t.id=e.work_item_id
        LEFT JOIN ticket_acceptances a ON a.ticket_id=e.work_item_id
       ${where(scope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=?", "e.time<?"])}`,
-  ).get(filters.start, filters.end, ...scope.values) as Row | undefined;
+  ).get(start, end, ...scope.values) as Row | undefined;
   return number(row?.count);
+}
+
+/** Total accepted (attributed + legacy) inside an explicit window; same caliber as summary.accepted. */
+function acceptedTotal(filters: ReportFilters, start: string, end: string): number {
+  const attributed = acceptanceRows(filters, start, end);
+  const legacy = legacyAcceptedCount(filters, start, end);
+  return [...attributed.values()].reduce((sum, row) => sum + row.accepted, 0) + legacy;
+}
+
+/**
+ * Accepted tickets grouped by ticket kind (top 8). Attributed and legacy
+ * acceptances are merged so the segments sum to summary.accepted. The active
+ * kind filter is intentionally ignored here: this is the breakdown axis.
+ */
+function acceptedByKind(filters: ReportFilters): Array<{ kind: string; count: number }> {
+  const unkinded: ReportFilters = { ...filters, kind: null };
+  const db = getConn();
+  const attributedScope = listScope("t", unkinded, "a.owner_user_id_at_acceptance");
+  const attributed = db.prepare(
+    `SELECT t.kind AS kind, COUNT(DISTINCT a.ticket_id) AS count
+       FROM ticket_acceptances a
+       JOIN tickets t ON t.id=a.ticket_id
+      ${where(attributedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=?", "a.accepted_at<?"])}
+      GROUP BY t.kind`,
+  ).all(filters.start, filters.end, ...attributedScope.values) as Row[];
+  const legacyScope = listScope("t", unkinded, "t.owner_user_id");
+  const legacy = db.prepare(
+    `SELECT t.kind AS kind, COUNT(DISTINCT e.work_item_id) AS count
+       FROM task_events e
+       JOIN tickets t ON t.id=e.work_item_id
+       LEFT JOIN ticket_acceptances a ON a.ticket_id=e.work_item_id
+      ${where(legacyScope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=?", "e.time<?"])}
+      GROUP BY t.kind`,
+  ).all(filters.start, filters.end, ...legacyScope.values) as Row[];
+  const merged = new Map<string, number>();
+  for (const row of [...attributed, ...legacy]) {
+    const kind = String(row.kind || "general");
+    merged.set(kind, (merged.get(kind) || 0) + number(row.count));
+  }
+  return [...merged.entries()]
+    .map(([kind, count]) => ({ kind, count }))
+    .sort((left, right) => right.count - left.count || (left.kind < right.kind ? -1 : 1))
+    .slice(0, 8);
 }
 
 function currentStatusCounts(filters: ReportFilters): { processing: number; waiting: number; exception: number } {
@@ -332,21 +433,24 @@ function reportResponse(filters: ReportFilters) {
   const legacyAccepted = legacyAcceptedCount(filters);
   const totals = currentStatusCounts(filters);
   const process = blockedAndActivity(filters);
+  const previous = previousPeriodRange(filters.date, filters.timezone, filters.period);
   return {
     report_version: REPORT_VERSION,
     as_of: nowIso(),
     data_cutoff_at: nowIso(),
-    period: { date: filters.date, timezone: filters.timezone, start: filters.start, end: filters.end },
+    period: { date: filters.date, timezone: filters.timezone, period: filters.period, start: filters.start, end: filters.end },
     filters: { owner: filters.owner, kind: filters.kind, team: filters.team },
     filter_options: filterOptions(),
     summary: {
       accepted: [...accepted.values()].reduce((sum, row) => sum + row.accepted, 0) + legacyAccepted,
       accepted_attributed: [...accepted.values()].reduce((sum, row) => sum + row.accepted, 0),
       accepted_unattributed: legacyAccepted,
+      previous_accepted: acceptedTotal(filters, previous.start, previous.end),
       processing: totals.processing,
       waiting: totals.waiting,
       exception: totals.exception,
     },
+    accepted_by_kind: acceptedByKind(filters),
     employees: usersForReport(filters, status, accepted),
     process,
     attribution: {
@@ -380,9 +484,10 @@ function ticketListRow(row: Row, extra: Record<string, unknown> = {}): Record<st
   };
 }
 
-function ticketRows(view: string, filters: ReportFilters, limit: number) {
+function ticketRows(view: string, filters: ReportFilters, limit: number, offset = 0) {
   const db = getConn();
   if (view === "accepted") {
+    // 双源合并排序：各自多取 offset 行，保证合并后 [offset, offset+limit) 窗口正确。
     const acceptedScope = listScope("t", filters, "a.owner_user_id_at_acceptance");
     const attributed = db.prepare(
       `SELECT t.id AS ticket_id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,
@@ -396,7 +501,7 @@ function ticketRows(view: string, filters: ReportFilters, limit: number) {
          ${where(acceptedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=?", "a.accepted_at<?"])}
         ORDER BY a.accepted_at DESC,a.ticket_id DESC
         LIMIT ?`,
-    ).all(filters.start, filters.end, ...acceptedScope.values, limit) as Row[];
+    ).all(filters.start, filters.end, ...acceptedScope.values, limit + offset) as Row[];
     const currentScope = listScope("t", filters, "t.owner_user_id");
     const legacy = db.prepare(
       `SELECT t.id AS ticket_id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,u.name AS owner_name,
@@ -409,7 +514,7 @@ function ticketRows(view: string, filters: ReportFilters, limit: number) {
         GROUP BY t.id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,u.name
         ORDER BY accepted_at DESC,t.id DESC
         LIMIT ?`,
-    ).all(filters.start, filters.end, ...currentScope.values, limit) as Row[];
+    ).all(filters.start, filters.end, ...currentScope.values, limit + offset) as Row[];
     const rows = [
       ...attributed.map((row) => ticketListRow(row, {
         accepted_at: String(row.accepted_at),
@@ -427,7 +532,8 @@ function ticketRows(view: string, filters: ReportFilters, limit: number) {
         accepted_by_user_id: null,
         accepted_by_name: null,
       })),
-    ].sort((left, right) => String(right.accepted_at).localeCompare(String(left.accepted_at))).slice(0, limit);
+    ].sort((left, right) => String(right.accepted_at).localeCompare(String(left.accepted_at)))
+      .slice(offset, offset + limit);
     return rows;
   }
   const statuses = view === "processing" ? PROCESSING_STATUSES : view === "waiting" ? WAITING_STATUSES : EXCEPTION_STATUSES;
@@ -437,9 +543,39 @@ function ticketRows(view: string, filters: ReportFilters, limit: number) {
        FROM tickets t LEFT JOIN users u ON u.id=t.owner_user_id
        ${where(scope, [FORMAL_TICKET_SQL, `t.status IN (${placeholders(statuses)})`])}
       ORDER BY COALESCE(NULLIF(t.due_at,''),t.updated_at) ASC,t.id ASC
-      LIMIT ?`,
-  ).all(...statuses, ...scope.values, limit) as Row[];
+      LIMIT ? OFFSET ?`,
+  ).all(...statuses, ...scope.values, limit, offset) as Row[];
   return rows.map((row) => ticketListRow(row));
+}
+
+/** 明细总数（与 ticketRows 同一过滤口径，用于分页器）。 */
+function ticketTotal(view: string, filters: ReportFilters): number {
+  const db = getConn();
+  if (view === "accepted") {
+    const acceptedScope = listScope("t", filters, "a.owner_user_id_at_acceptance");
+    const attributed = db.prepare(
+      `SELECT COUNT(DISTINCT a.ticket_id) AS count
+         FROM ticket_acceptances a
+         JOIN tickets t ON t.id=a.ticket_id
+         ${where(acceptedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=?", "a.accepted_at<?"])}`,
+    ).get(filters.start, filters.end, ...acceptedScope.values) as Row | undefined;
+    const currentScope = listScope("t", filters, "t.owner_user_id");
+    const legacy = db.prepare(
+      `SELECT COUNT(DISTINCT e.work_item_id) AS count
+         FROM task_events e
+         JOIN tickets t ON t.id=e.work_item_id
+         LEFT JOIN ticket_acceptances a ON a.ticket_id=e.work_item_id
+         ${where(currentScope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=?", "e.time<?"])}`,
+    ).get(filters.start, filters.end, ...currentScope.values) as Row | undefined;
+    return number(attributed?.count) + number(legacy?.count);
+  }
+  const statuses = view === "processing" ? PROCESSING_STATUSES : view === "waiting" ? WAITING_STATUSES : EXCEPTION_STATUSES;
+  const scope = listScope("t", filters, "t.owner_user_id");
+  const row = db.prepare(
+    `SELECT COUNT(*) AS count FROM tickets t
+       ${where(scope, [FORMAL_TICKET_SQL, `t.status IN (${placeholders(statuses)})`])}`,
+  ).get(...statuses, ...scope.values) as Row | undefined;
+  return number(row?.count);
 }
 
 function ticketDetail(ticketId: string) {
@@ -544,10 +680,16 @@ workReport.get("/admin/work-report/tickets", (c) => {
   }
   const rawLimit = Number(c.req.query("limit") || 50);
   const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, MAX_REPORT_ROWS) : 50;
+  const rawOffset = Number(c.req.query("offset") || 0);
+  const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
   const filters = reportFilters((name) => c.req.query(name));
+  const total = ticketTotal(view, filters);
   return c.json({
     view,
-    items: ticketRows(view, filters, limit),
+    items: ticketRows(view, filters, limit, offset),
+    total,
+    limit,
+    offset,
     period: { date: filters.date, timezone: filters.timezone, start: filters.start, end: filters.end },
     filters: { owner: filters.owner, kind: filters.kind, team: filters.team },
     as_of: nowIso(),

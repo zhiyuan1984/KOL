@@ -1129,6 +1129,8 @@ export type AdminAuditEvent = {
 
 export type WorkReportView = "accepted" | "processing" | "waiting" | "exception";
 
+export type WorkReportPeriod = "day" | "week" | "month";
+
 export type AdminWorkReportTicket = {
   ticket_id: string;
   title: string;
@@ -1150,14 +1152,15 @@ export type AdminWorkReport = {
   report_version: string;
   as_of: string;
   data_cutoff_at: string;
-  period: { date: string; timezone: string; start: string; end: string };
+  period: { date: string; timezone: string; period: WorkReportPeriod; start: string; end: string };
   filters: { owner: string | null; kind: string | null; team: string | null };
   filter_options: {
     owners: Array<{ id: string; name: string; username: string }>;
     kinds: Array<{ id: string; count: number }>;
     teams: Array<{ id: string; name: string }>;
   };
-  summary: { accepted: number; accepted_attributed: number; accepted_unattributed: number; processing: number; waiting: number; exception: number };
+  summary: { accepted: number; accepted_attributed: number; accepted_unattributed: number; previous_accepted: number; processing: number; waiting: number; exception: number };
+  accepted_by_kind: Array<{ kind: string; count: number }>;
   employees: Array<{ user_id: string; name: string; username: string | null; site: string | null; responsible: number; processing: number; waiting: number; earliest_waiting_at: string | null; accepted: number; last_accepted_at: string | null }>;
   process: {
     blockers: Array<{ kind: "blocker"; ticket_id: string; title: string; status: string; owner_user_id: string; owner_name: string | null; due_at: string | null; occurred_at: string; ticket_kind: string }>;
@@ -3208,15 +3211,16 @@ export const api = {
     }>("/api/admin/scheduling/events/evaluate", {
       method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body),
     }),
-  adminWorkReport: (opts: { date?: string; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
+  adminWorkReport: (opts: { date?: string; period?: WorkReportPeriod; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, value); });
     return request<AdminWorkReport>(`/api/admin/work-report${query.size ? `?${query}` : ""}`);
   },
-  adminWorkReportTickets: (view: WorkReportView, opts: { date?: string; timezone?: string; owner?: string; kind?: string; team?: string } = {}) => {
+  adminWorkReportTickets: (view: WorkReportView, opts: { date?: string; period?: WorkReportPeriod; timezone?: string; owner?: string; kind?: string; team?: string; limit?: number; offset?: number } = {}) => {
     const query = new URLSearchParams({ view });
-    Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, value); });
-    return request<{ view: WorkReportView; items: AdminWorkReportTicket[]; as_of: string; source_refs: Array<Record<string, unknown>> }>(`/api/admin/work-report/tickets?${query}`);
+    Object.entries(opts).forEach(([key, value]) => { if (value) query.set(key, String(value)); });
+    if (typeof opts.offset === "number") query.set("offset", String(Math.max(0, Math.floor(opts.offset))));
+    return request<{ view: WorkReportView; items: AdminWorkReportTicket[]; total: number; limit: number; offset: number; as_of: string; source_refs: Array<Record<string, unknown>> }>(`/api/admin/work-report/tickets?${query}`);
   },
   adminWorkReportTicket: (id: string) =>
     request<AdminWorkReportDetail>(`/api/admin/work-report/tickets/${encodeURIComponent(id)}`),

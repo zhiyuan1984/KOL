@@ -128,4 +128,77 @@ describe("admin daily work report", () => {
     const blocked = await request("GET", "/api/admin/work-report", undefined, { Cookie: String(cookie) });
     expect(blocked.status, blocked.text).toBe(403);
   });
+
+  it("supports week and month windows with previous-period deltas", async () => {
+    insertUser("usr_owner", "负责员工", ["employee"]);
+    insertTicket("tkt_this_week", "usr_owner", "completed", "本周验收");
+    insertTicket("tkt_last_week", "usr_owner", "completed", "上周验收");
+    const accept = (id: string, at: string) => getConn().prepare(
+      `INSERT INTO ticket_acceptances (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    ).run(id, `tev_${id}`, at, "usr_owner", "usr_owner", JSON.stringify({}), "ticket-acceptance.v1", at);
+    accept("tkt_this_week", "2026-10-06T02:00:00.000Z");
+    accept("tkt_last_week", "2026-10-03T02:00:00.000Z");
+
+    const week = await request("GET", "/api/admin/work-report?date=2026-10-08&period=week");
+    expect(week.status, week.text).toBe(200);
+    expect(week.body.period).toMatchObject({ period: "week", start: "2026-10-04T16:00:00.000Z", end: "2026-10-11T16:00:00.000Z" });
+    const weekSummary = week.body.summary as { accepted: number; previous_accepted: number };
+    expect(weekSummary.accepted).toBe(1);
+    expect(weekSummary.previous_accepted).toBe(1);
+    const kinds = week.body.accepted_by_kind as Array<{ kind: string; count: number }>;
+    expect(kinds.reduce((sum, row) => sum + row.count, 0)).toBe(weekSummary.accepted);
+
+    const month = await request("GET", "/api/admin/work-report?date=2026-10-08&period=month");
+    expect(month.status, month.text).toBe(200);
+    expect(month.body.period).toMatchObject({ period: "month", start: "2026-09-30T16:00:00.000Z", end: "2026-10-31T16:00:00.000Z" });
+    expect(month.body.summary).toMatchObject({ accepted: 2, previous_accepted: 0 });
+  });
+
+  it("rejects an unknown period value", async () => {
+    const bad = await request("GET", "/api/admin/work-report?period=quarter");
+    expect(bad.status, bad.text).toBe(400);
+  });
+
+  it("paginates ticket detail views with offset and total", async () => {
+    insertUser("usr_owner", "负责员工", ["employee"]);
+    for (let index = 1; index <= 5; index += 1) {
+      insertTicket(`tkt_w${index}`, "usr_owner", "waiting", `等待工单${index}`);
+    }
+    const first = await request("GET", "/api/admin/work-report/tickets?view=waiting&limit=2&offset=0");
+    expect(first.status, first.text).toBe(200);
+    expect(first.body).toMatchObject({ view: "waiting", total: 5, limit: 2, offset: 0 });
+    expect((first.body.items as unknown[]).length).toBe(2);
+    const second = await request("GET", "/api/admin/work-report/tickets?view=waiting&limit=2&offset=2");
+    expect(second.status, second.text).toBe(200);
+    expect(second.body).toMatchObject({ total: 5, offset: 2 });
+    expect((second.body.items as unknown[]).length).toBe(2);
+    const tail = await request("GET", "/api/admin/work-report/tickets?view=waiting&limit=2&offset=4");
+    expect(tail.status, tail.text).toBe(200);
+    expect((tail.body.items as unknown[]).length).toBe(1);
+    const invalid = await request("GET", "/api/admin/work-report/tickets?view=waiting&limit=2&offset=-3");
+    expect(invalid.status, invalid.text).toBe(200);
+    expect(invalid.body).toMatchObject({ offset: 0 });
+  });
+
+  it("paginates the merged accepted view across attributed and legacy rows", async () => {
+    insertUser("usr_owner", "负责员工", ["employee"]);
+    const today = nowIso().slice(0, 10);
+    const accept = (id: string, hour: string) => {
+      const at = `${today}T${hour}:00:00.000Z`;
+      insertTicket(id, "usr_owner", "completed", id);
+      getConn().prepare(
+        `INSERT INTO ticket_acceptances (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+      ).run(id, `tev_${id}`, at, "usr_owner", "usr_owner", JSON.stringify({}), "ticket-acceptance.v1", at);
+    };
+    accept("tkt_a1", "06");
+    accept("tkt_a2", "07");
+    accept("tkt_a3", "08");
+    const page = await request("GET", `/api/admin/work-report/tickets?view=accepted&date=${today}&timezone=UTC&limit=2&offset=1`);
+    expect(page.status, page.text).toBe(200);
+    expect(page.body).toMatchObject({ view: "accepted", total: 3, limit: 2, offset: 1 });
+    const items = page.body.items as Array<{ ticket_id: string }>;
+    expect(items.map((item) => item.ticket_id)).toEqual(["tkt_a2", "tkt_a1"]);
+  });
 });
