@@ -17,6 +17,11 @@ import { knowledgeActorId } from "./knowledge.js";
 import { bridgeMode, chatModel, indexModel, mediaModel, runBridge, type BridgeOutcome } from "../knowledge-bridge.js";
 import { recordCostEvent } from "../costs.js";
 import { intentLlmApiKey, intentLlmFetch } from "../tasks/openai-intent.js";
+import {
+  rewriteQuestion,
+  sanitizeSessionContext,
+  validateRewrite,
+} from "../knowledge/rewriter.js";
 import { postgresQuery } from "../postgres/pool.js";
 
 export const DOCUMENT_STATUSES = [
@@ -775,6 +780,8 @@ export async function searchDocuments(input: {
 /** Internal retrieval service. Callers must authorize scope before dispatch and again before returning. */
 export async function queryDocuments(input: {
   query?: string; base_id?: string; doc_ids?: unknown; include_pending?: unknown;
+  /** 实时上下文 P1：试算面板传来的会话上文（上一轮问答明细 + 历史摘要），不传则跳过改写。 */
+  last_turn?: unknown; history_summary?: unknown;
 }, actor: string, revalidate: () => void = () => {}): Promise<Json> {
   const query = String(input.query || "").trim();
   if (!query) throw new HttpFail(400, "query required");
@@ -822,7 +829,52 @@ export async function queryDocuments(input: {
   if (!engineIds.length) {
     throw new HttpFail(409, { code: "knowledge_not_indexed", message: "所选资料还没有完成索引" });
   }
-  const args = ["--library", libraryDir(baseId), "--question", query, "--chat-model", chatModel(), "--citations"];
+  // 实时上下文 P1（线①）：有上文时先过 Luna 改写器，再过 Host 校验；任一环节失败
+  // 回退原问题直查。D1：历史摘要只进改写器输入，不进 PageIndex 的问题。
+  let askQuestion = query;
+  let rewriteMeta: { rewrote: boolean; resolved_entities: string[]; reason?: string; used_question: string } | null = null;
+  const session = sanitizeSessionContext({ last_turn: input.last_turn, history_summary: input.history_summary });
+  if (session.last_turn) {
+    try {
+      const rewrite = await rewriteQuestion({
+        query,
+        last_turn: session.last_turn,
+        history_summary: session.history_summary,
+        scope: { base_id: baseId, doc_ids: docIds },
+      });
+      const verdict = validateRewrite(rewrite, {
+        query,
+        last_turn: session.last_turn,
+        history_summary: session.history_summary,
+      });
+      if (verdict.ok && rewrite.rewrote) {
+        askQuestion = rewrite.rewritten;
+        rewriteMeta = {
+          rewrote: true,
+          resolved_entities: rewrite.resolved_entities,
+          reason: rewrite.reason,
+          used_question: askQuestion,
+        };
+      } else if (verdict.ok) {
+        rewriteMeta = { rewrote: false, resolved_entities: [], used_question: query };
+      } else {
+        audit(actor, "knowledge.rewrite_rejected", {
+          base_id: baseId,
+          reason: verdict.reason || "",
+          rewritten: rewrite.rewritten.slice(0, 500),
+          resolved_entities: rewrite.resolved_entities,
+        });
+        rewriteMeta = { rewrote: false, resolved_entities: [], reason: verdict.reason, used_question: query };
+      }
+    } catch (error) {
+      audit(actor, "knowledge.rewrite_unavailable", {
+        base_id: baseId,
+        reason: error instanceof Error ? error.message : "改写服务调用失败。",
+      });
+      rewriteMeta = { rewrote: false, resolved_entities: [], used_question: query };
+    }
+  }
+  const args = ["--library", libraryDir(baseId), "--question", askQuestion, "--chat-model", chatModel(), "--citations"];
   for (const engineId of engineIds) args.push("--doc-id", engineId);
   const outcome: BridgeOutcome = await runBridge({ cmd: "ask", args, timeoutMs: 10 * 60_000 });
   revalidate();
@@ -880,6 +932,7 @@ export async function queryDocuments(input: {
     answer: String(outcome.answer || ""),
     citations,
     usage,
+    rewrite: rewriteMeta,
     engine: { mode: bridgeMode(), model: chatModel() },
     scope: {
       base_id: baseId,

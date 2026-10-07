@@ -1613,10 +1613,25 @@ export type KnowledgeSearchCitation = {
   title: string;
 };
 
+/** 试算面板上一轮问答明细（实时上下文 P1：前端 state 会话，后端只读不落库）。 */
+export type KnowledgeTrialLastTurn = {
+  query: string;
+  answer: string;
+  entities: string[];
+  citations: Array<{ document?: string; title?: string }>;
+};
+
 export type KnowledgeSearchResult = {
   answer: string;
   citations: KnowledgeSearchCitation[];
   usage?: Record<string, unknown> | null;
+  /** 改写器元信息：是否改写、消解出的实体、实际喂给 PageIndex 的问题。 */
+  rewrite?: {
+    rewrote: boolean;
+    resolved_entities: string[];
+    reason?: string;
+    used_question?: string;
+  } | null;
   engine?: { mode: string; model: string };
   scope?: {
     base_id: string;
@@ -3032,7 +3047,7 @@ export const api = {
     ),
   adminKnowledgeDocumentDelete: (id: string) =>
     request<{ deleted: boolean }>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  adminKnowledgeSearch: (body: { query: string; base_id: string; doc_ids?: string[]; include_pending?: boolean }) =>
+  adminKnowledgeSearch: (body: { query: string; base_id: string; doc_ids?: string[]; include_pending?: boolean; last_turn?: KnowledgeTrialLastTurn | null; history_summary?: string }) =>
     request<KnowledgeSearchResult>("/api/admin/knowledge/search", { method: "POST", body: JSON.stringify(body) }),
   adminKnowledgeIndexHealth: () => request<KnowledgeIndexHealth>("/api/admin/knowledge/index-health"),
   adminKnowledgeRaw: () => request<Record<string, unknown>[]>("/api/admin/knowledge/raw"),
