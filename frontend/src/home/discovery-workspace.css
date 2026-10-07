@@ -72,7 +72,7 @@
   border-color: var(--control-border-hover);
   background: var(--surface-hover);
 }
-.discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"] {  border-color: var(--ds-selected-border);  background: var(--ds-selected-bg);  box-shadow: none;  color: var(--accent-text);  font-weight: 500;}
+.discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"] {  border-color: var(--ds-selected-border);  background: var(--ds-selected-bg);  box-shadow: none;  color: var(--text);  font-weight: 500;}
 .discovery-brief-form .discovery-chip-check {
   display: inline-flex;
   align-items: center;
@@ -111,14 +111,14 @@
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control:hover {  border-color: var(--ds-selected-border);}
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control:focus-within {  border-color: var(--ds-selected-border);  box-shadow: 0 0 0 3px var(--ds-selected-bg);}
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control .ai-discovery-input:focus-visible {  outline: none;  box-shadow: none;}
-.discovery-brief-form .discovery-keyword-chip {  display: inline-flex;  align-items: center;  gap: var(--space-1);  max-width: 100%;  height: var(--ds-token-h);  padding: 0 var(--space-1) 0 var(--space-2);  border: 1px solid var(--ds-selected-border);  border-radius: var(--radius-control);  background: var(--ds-selected-bg);  color: var(--accent-text);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);  overflow-wrap: anywhere;}
+.discovery-brief-form .discovery-keyword-chip {  display: inline-flex;  align-items: center;  gap: var(--space-1);  max-width: 100%;  height: var(--ds-token-h);  padding: 0 var(--space-1) 0 var(--space-2);  border: 1px solid var(--ds-selected-border);  border-radius: var(--radius-control);  background: var(--ds-selected-bg);  color: var(--text);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);  overflow-wrap: anywhere;}
 .discovery-brief-form .discovery-keyword-chip .chip-x {  display: inline-flex;  align-items: center;  justify-content: center;  width: var(--control-h-sm);  height: 100%;  padding: 0;  border: 0;  border-radius: var(--radius-control);  background: transparent;  color: inherit;  cursor: pointer;  font: inherit;  font-size: var(--ds-font-sm);  line-height: 1;}
 .discovery-brief-form .discovery-keyword-chip .chip-x:hover {  background: var(--surface-hover);}
 .discovery-brief-form .discovery-keyword-chip .chip-x:focus-visible {  outline: 2px solid var(--focus-ring);  outline-offset: 1px;}
 /* 只读态：同样的芯片外观，没有删除按钮。 */.discovery-brief-form .discovery-keyword-static {  display: flex;  flex-wrap: wrap;  gap: var(--ds-chip-gap);  min-width: 0;}
 /* 候选浮层：只有它自己滚动，不撑高芯片容器。 */.discovery-brief-form .discovery-keyword-options {  position: absolute;  top: calc(100% + var(--space-1));  left: 0;  right: 0;  z-index: 5;  display: flex;  flex-direction: column;  gap: var(--space-1);  max-height: 40vh;  overflow-y: auto;  margin: 0;  padding: var(--space-1);  border: 1px solid var(--ds-border);  border-radius: var(--radius-control);  background: var(--canvas);  box-shadow: var(--shadow-quiet);  list-style: none;}
 .discovery-brief-form .discovery-keyword-option {  padding: var(--space-1) var(--space-2);  border-radius: var(--radius-control);  color: var(--text);  cursor: pointer;  font-size: var(--ds-font-sm);  line-height: var(--ds-line-sm);  overflow-wrap: anywhere;}
-.discovery-brief-form .discovery-keyword-option:hover,.discovery-brief-form .discovery-keyword-option.is-active {  background: var(--ds-selected-bg);  color: var(--accent-text);}
+.discovery-brief-form .discovery-keyword-option:hover,.discovery-brief-form .discovery-keyword-option.is-active {  background: var(--ds-selected-bg);  color: var(--text);}
 .discovery-brief-form .discovery-keyword-clear {  position: absolute;  top: var(--space-1);  right: var(--space-1);  display: inline-flex;  align-items: center;  justify-content: center;  width: var(--control-h-sm);  height: var(--control-h-sm);  padding: 0;  border: 0;  border-radius: var(--radius-control);  background: transparent;  color: var(--text-muted);  cursor: pointer;  font: inherit;  font-size: var(--ds-font-sm);  line-height: 1;}
 .discovery-brief-form .discovery-keyword-clear:hover {  background: var(--surface-hover);  color: var(--text);}
 .discovery-brief-form .discovery-keyword-clear:focus-visible {  outline: 2px solid var(--focus-ring);  outline-offset: 1px;}

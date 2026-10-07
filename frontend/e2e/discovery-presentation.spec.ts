@@ -194,23 +194,26 @@ async function intercept(page: Page, taskDelay = 0, settled = false, themeOrCand
   return errors;
 }
 
-test("submitted discovery keeps its own layout while task loading is delayed", async ({ page }) => {
+test("submitted discovery stays in its workspace while task loading is delayed", async ({ page }) => {
   const errors = await intercept(page, 1600);
   await page.goto("/?tab=discovery");
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
-  const seen: string[] = [];
-  await page.exposeFunction("recordChrome", (text: string) => seen.push(text));
+  const seen: boolean[] = [];
+  await page.exposeFunction("recordChrome", (genericTaskChrome: boolean) => seen.push(genericTaskChrome));
   await page.evaluate(() => {
     new MutationObserver(() => {
-      const text = document.querySelector("[data-session-back-link]")?.textContent;
-      if (text) void (window as unknown as { recordChrome(text: string): Promise<void> }).recordChrome(text);
+      const genericTaskChrome = Boolean(document.querySelector("[data-complete-task], [data-skill-template-context]"));
+      void (window as unknown as { recordChrome(genericTaskChrome: boolean): Promise<void> }).recordChrome(genericTaskChrome);
     }).observe(document.body, { childList: true, subtree: true });
   });
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
-  await expect(page).toHaveURL(/\/s\/presentation-session$/);
-  await expect(page.locator("[data-discovery-workspace][data-agent-identity]")).toBeVisible({ timeout: 15000 });
+  // Home keeps conditions, actual parameters and confirmation in the same event flow.
+  await expect(page).toHaveURL(/\/\?tab=discovery$/);
+  await expect(page.locator('[data-scope-workspace="discovery"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-event="conditions"]')).toHaveAttribute("data-discovery-event-state", "readonly");
+  await expect(page.getByRole("button", { name: "确认开始采集" })).toBeVisible({ timeout: 15000 });
   expect(seen.length).toBeGreaterThan(0);
-  expect(seen.every(text => text.replace(/\s/g, "").includes("返回AI发现"))).toBeTruthy();
+  expect(seen.every(genericTaskChrome => !genericTaskChrome)).toBeTruthy();
   await expect(page.locator("[data-complete-task], [data-skill-template-context]")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -393,12 +396,14 @@ test('right return and sidebar navigation remain usable on a task', async ({ pag
 test('unlimited upper followers remains optional and candidate cards fit the right pane', async ({ page }) => {
   await intercept(page, 0, true, true);
   await page.goto('/?tab=discovery');
-  const upper = page.locator('.discovery-optional-upper');
-  await expect(upper).toContainText('上限：不限');
-  await upper.locator('summary').click();
-  await expect(page.locator('[data-discovery-max-followers]')).toHaveValue('');
-  await page.locator('[data-discovery-max-followers]').fill('5000000');
-  await page.locator('[data-discovery-max-followers]').fill('');
+  const upper = page.locator('[data-discovery-max-followers]');
+  await expect(page.getByRole('group', { name: '粉丝数范围', exact: true }).first()).toBeVisible();
+  await expect(upper).toBeVisible();
+  await expect(upper).toHaveValue('');
+  await upper.fill('5000000');
+  await expect(upper).toHaveValue('5000000');
+  await upper.fill('');
+  await expect(upper).toHaveValue('');
   await page.goto(`/s/${task.session_id}`);
   const bounds = await page.locator('.runtime-action-card').evaluate(el => {
     const pane = document.querySelector('.conversation-content')!.getBoundingClientRect();
