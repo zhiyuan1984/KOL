@@ -89,6 +89,9 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
       workbench: { open: todos.filter((row) => row.status !== "completed"), today: [], todo: todos },
     },
   }));
+  await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: todos, page: { next_cursor: null } } }));
   await page.route("**/api/tasks**", async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
@@ -159,20 +162,18 @@ test("todo entry locks todo_plan without planning; composer submit starts the ru
     status: "pending",
   }];
   const planPosts: string[] = [];
-  // A todo plan counts as running only after /todo-brief/plan was posted; reading
-  // the brief on entry must not look like a run that is already in flight.
+  // A todo plan counts as running only after the canonical plan-run endpoint is posted.
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: todos, page: { next_cursor: null } } }));
   let planning = false;
   await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/todo-brief**", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
-      planPosts.push(url.pathname);
-      planning = true;
-      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_todo_plan", task_type: "todo_plan" } });
-      return;
-    }
-    await route.fulfill({ json: { planning, brief: null, events: [], creates_session: false, calls_model: false } });
+  await page.route("**/api/workbench/plan-runs", async (route) => {
+    planPosts.push(new URL(route.request().url()).pathname);
+    planning = true;
+    await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_todo_plan", task_type: "todo_plan" } });
   });
+  await page.route("**/api/workbench/plan", (route) => route.fulfill({
+    json: { planning, brief: null, events: [], creates_session: false, calls_model: false },
+  }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: todos } }));
 
   await page.goto("/?tab=todo");

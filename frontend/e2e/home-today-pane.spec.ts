@@ -13,18 +13,13 @@ function dayIso(offset: number) {
 }
 
 async function mockTodayBrief(page: import("@playwright/test").Page, body: Record<string, unknown> = {}) {
-  // 今日面板的行来自服务端展示记忆（GET /api/home/today-tasks）。不 stub 它会落到
-  // 真实 demo 数据，被测的内存任务就永远不出现在列表里 —— 这里固定为空，让被测
-  // memory 成为唯一来源（空 items 时前端回落到 memory 列表）。
+  // 计划任务来自分页工作台投影；固定为空，避免读到真实 demo 数据。
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/today-brief**", async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false, ...body } });
-      return;
-    }
-    await route.fulfill({ json: { planning: true, work_item_id: "tsk_plan", session_id: "ses_plan", run_id: "run_plan" } });
-  });
+  await page.route("**/api/workbench/plan", (route) => route.fulfill({
+    json: { planning: false, brief: null, events: [], creates_session: false, ...body },
+  }));
 }
 
 test("entering today lists memory without planning; 生成今日安排 starts the run", async ({ page }) => {
@@ -42,22 +37,18 @@ test("entering today lists memory without planning; 生成今日安排 starts th
   // 否则第二次读到的 planning 会让人以为已有计划在跑，于是附着而不是启动。
   let planning = false;
   const posts: string[] = [];
-  // 同 mockTodayBrief：今日面板的行来自服务端展示记忆，不 stub 会落到真实 demo 数据。
+  // 同 mockTodayBrief：固定分页投影，避免读到真实 demo 数据。
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: todos, page: { next_cursor: null } } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/today-brief**", async (route) => {
-    const method = route.request().method();
-    const url = new URL(route.request().url());
-    if (method === "POST" && url.pathname.endsWith("/plan")) {
-      posts.push(url.pathname);
-      planning = true;
-      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan", creates_session: true } });
-      return;
-    }
-    await route.fulfill({
-      json: { planning, brief: null, events: [], creates_session: false, calls_model: false },
-    });
+  await page.route("**/api/workbench/plan-runs", async (route) => {
+    posts.push(new URL(route.request().url()).pathname);
+    planning = true;
+    await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan", creates_session: true } });
   });
+  await page.route("**/api/workbench/plan", (route) => route.fulfill({
+    json: { planning, brief: null, events: [], creates_session: false, calls_model: false },
+  }));
   await page.route("**/api/tasks**", async (route) => {
     if (route.request().method() === "GET") {
       await route.fulfill({ json: { view: "open", tasks: todos } });
@@ -101,6 +92,7 @@ test("entering today lists memory without planning; 生成今日安排 starts th
 test("a terminal event immediately settles the planning header and leaves one actionable failure", async ({ page }) => {
   let started = false;
   const todos = [{ id: "tsk_due", title: "写报价确认邮件", source: "manual", status: "waiting", due_at: dayIso(0) }];
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: todos, page: { next_cursor: null } } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/tasks**", async (route) => {
@@ -110,12 +102,11 @@ test("a terminal event immediately settles the planning header and leaves one ac
     }
     await route.continue();
   });
-  await page.route("**/api/home/today-brief**", async (route) => {
-    if (route.request().method() === "POST") {
-      started = true;
-      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan" } });
-      return;
-    }
+  await page.route("**/api/workbench/plan-runs", async (route) => {
+    started = true;
+    await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan" } });
+  });
+  await page.route("**/api/workbench/plan", async (route) => {
     await route.fulfill({
       json: started
         ? {
@@ -251,6 +242,7 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   ];
   const writes: string[] = [];
   await mockTodayBrief(page);
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: todos, page: { next_cursor: null } } }));
   await page.route("**/api/home/board", (route) => route.fulfill({
     json: { kols: [], tabs: [], tasks: todos, workbench: { today: todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)), todo: todos, recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }] } },
   }));

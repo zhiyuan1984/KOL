@@ -48,18 +48,11 @@ const TRACE = [
 ];
 
 async function mockPlanningTrace(page: Page) {
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/todo-brief**", (route) =>
-    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false } }));
-  await page.route("**/api/home/today-brief**", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
-      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan", creates_session: true } });
-      return;
-    }
-    await route.fulfill({ json: { planning: true, brief: null, events: TRACE, creates_session: false, calls_model: false } });
-  });
+  await page.route("**/api/workbench/plan-runs", (route) => route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan", creates_session: true } }));
+  await page.route("**/api/workbench/plan", (route) => route.fulfill({ json: { planning: true, brief: null, events: TRACE, creates_session: false, calls_model: false } }));
 }
 
 test("thinking stream renders the harness trace with per-row state, not a canned list", async ({ page }) => {
@@ -113,6 +106,10 @@ test("the ask box is a footer and the workspace has exactly one scroll container
       })),
     },
   }));
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: {
+    items: Array.from({ length: 30 }, (_, i) => ({ id: `tsk_${i}`, title: `任务 ${i}`, source: "manual", status: "pending", due_at: new Date().toISOString() })),
+    page: { next_cursor: null },
+  } }));
 
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1264, height: 600 }]) {
     await page.setViewportSize(viewport);
@@ -169,16 +166,11 @@ test("the ask box is a footer and the workspace has exactly one scroll container
 });
 
 test("a failed run shows the failed step and its reason instead of a green check", async ({ page }) => {
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/todo-brief**", (route) =>
-    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false } }));
-  await page.route("**/api/home/today-brief**", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
-      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan", creates_session: true } });
-      return;
-    }
+  await page.route("**/api/workbench/plan-runs", (route) => route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan", creates_session: true } }));
+  await page.route("**/api/workbench/plan", async (route) => {
     await route.fulfill({
       json: {
         planning: false,
@@ -220,16 +212,11 @@ test("a failed run shows the failed step and its reason instead of a green check
 });
 
 test("a settled run collapses to one line and expands on demand", async ({ page }) => {
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/todo-brief**", (route) =>
-    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false } }));
-  await page.route("**/api/home/today-brief**", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
-      await route.fulfill({ json: { planning: true, attached: true, work_item_id: "tsk_plan" } });
-      return;
-    }
+  await page.route("**/api/workbench/plan-runs", (route) => route.fulfill({ json: { planning: true, attached: true, work_item_id: "tsk_plan" } }));
+  await page.route("**/api/workbench/plan", async (route) => {
     await route.fulfill({
       json: {
         planning: false,
@@ -269,30 +256,23 @@ test("a settled run collapses to one line and expands on demand", async ({ page 
 });
 
 test("the previous version folds to one row and the row keeps no duplicate priority", async ({ page }) => {
+  const previousTask = {
+    id: "tsk_1",
+    title: "恢复美妆护肤类 YouTube 达人采集",
+    source: "manual",
+    status: "failed",
+    due_at: new Date().toISOString(),
+    priority: "high",
+    layout_why: "采集失败，本轮集中出现多项同类异常。",
+    display_verb: "retry",
+  };
   await page.route("**/api/tasks**", (route) => route.fulfill({
-    json: {
-      view: "open",
-      tasks: [{
-        id: "tsk_1",
-        title: "恢复美妆护肤类 YouTube 达人采集",
-        source: "manual",
-        status: "failed",
-        due_at: new Date().toISOString(),
-        priority: "high",
-        layout_why: "采集失败，本轮集中出现多项同类异常。",
-        display_verb: "retry",
-      }],
-    },
+    json: { view: "open", tasks: [previousTask] },
   }));
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: [previousTask], page: { next_cursor: null } } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/todo-brief**", (route) =>
-    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false } }));
-  await page.route("**/api/home/today-brief**", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
-      await route.fulfill({ json: { planning: true, attached: true, work_item_id: "tsk_plan" } });
-      return;
-    }
+  await page.route("**/api/workbench/plan-runs", (route) => route.fulfill({ json: { planning: true, attached: true, work_item_id: "tsk_plan" } }));
+  await page.route("**/api/workbench/plan", async (route) => {
     await route.fulfill({
       json: {
         planning: false,

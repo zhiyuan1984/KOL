@@ -33,18 +33,15 @@ function deferredGate() {
 async function stubPlanEndpoints(page: Page, planPosts: string[], lead = "缓存内的今日结论") {
   const briefGate = deferredGate();
   await stubSlowChromeRequests(page);
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/todo-brief**", (route) =>
-    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false, calls_model: false } }));
-  await page.route("**/api/home/today-brief**", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
-      planPosts.push(url.pathname);
-      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan" } });
-      return;
-    }
+  await page.route("**/api/workbench/plan-runs", async (route) => {
+    planPosts.push(new URL(route.request().url()).pathname);
+    await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan" } });
+  });
+  await page.route("**/api/workbench/plan", async (route) => {
     await briefGate.gate;
     await route.fulfill({
       json: {

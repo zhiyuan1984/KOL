@@ -7,11 +7,10 @@ import { expect, test } from "@playwright/test";
  * - 完成行是终态：标题/计时器必须收口，不能出现「正在整理 + ✓ 今日规划已完成」同框。
  */
 test("settled plan shows the business analysis and a single completion time", async ({ page }) => {
+  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/todo-brief**", (route) =>
-    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false } }));
-  await page.route("**/api/home/today-brief**", (route) => route.fulfill({
+  await page.route("**/api/workbench/plan", (route) => route.fulfill({
     json: {
       planning: false,
       brief: {
