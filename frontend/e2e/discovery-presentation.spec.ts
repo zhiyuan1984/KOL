@@ -401,7 +401,7 @@ test('unlimited upper followers remains optional and candidate cards fit the rig
   await expect(upper).toBeVisible();
   await expect(upper).toHaveValue('');
   await upper.fill('5000000');
-  await expect(upper).toHaveValue('5000000');
+  await expect(upper).toHaveValue('5,000,000');
   await upper.fill('');
   await expect(upper).toHaveValue('');
   await page.goto(`/s/${task.session_id}`);
