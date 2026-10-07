@@ -15,6 +15,6 @@ export function Sparkline({ values = [], label = "趋势", className = "" }: Spa
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   }).join(" ");
   return <svg className={`task-sparkline ${className}`.trim()} viewBox="0 0 48 16" role="img" aria-label={label} preserveAspectRatio="none">
-    <polyline points={points} fill="none" vectorEffect="non-scaling-stroke" />
+    <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
   </svg>;
 }
