@@ -218,6 +218,47 @@ test("submitted discovery stays in its workspace while task loading is delayed",
   expect(errors).toEqual([]);
 });
 
+test("focused stream links remain reachable during live content growth", async ({ page }) => {
+  await intercept(page);
+  let releaseAnalysis!: () => void;
+  let analysisStarted!: () => void;
+  const held = new Promise<void>(resolve => { releaseAnalysis = resolve; });
+  const started = new Promise<void>(resolve => { analysisStarted = resolve; });
+  const pending = { text: "分析本次发现条件", intent: "crawler_collect", work_item_id: task.id, run_id: "focus-run" };
+  await page.route("**/api/home/discovery/workspace", route => route.fulfill({ json: {
+    task_id: task.id, session_id: task.session_id, pending,
+  } }));
+  await page.route(`**/api/sessions/${task.session_id}/messages`, async route => {
+    analysisStarted();
+    await held;
+    await route.fulfill({ status: 202, json: { accepted: true, messages: [], agent_status: "listening" } });
+  });
+  try {
+    await page.goto("/?tab=discovery");
+    await page.locator("[data-home] [data-ai-prompt-submit]").click();
+    await started;
+    const stream = page.locator(".scope-workspace-center-scroll");
+    const link = page.locator("[data-discovery-open-session]").first();
+    await expect(link).toHaveAttribute("href", `/s/${task.session_id}`);
+    await stream.evaluate(el => {
+      for (let i = 0; i < 40; i++) { const row = document.createElement("p"); row.textContent = `布局回归内容 ${i}`; el.append(row); }
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect.poll(() => stream.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
+    await link.focus();
+    await expect(link).toBeFocused();
+    await expect(link).toBeInViewport();
+    const top = await link.evaluate(el => el.getBoundingClientRect().top);
+    await stream.evaluate(el => { const row = document.createElement("p"); row.textContent = "新增布局内容".repeat(100); el.append(row); });
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    expect(Math.abs(await link.evaluate(el => el.getBoundingClientRect().top) - top)).toBeLessThanOrEqual(1);
+    await expect(link).toBeInViewport();
+  } finally {
+    releaseAnalysis();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
 test("Home uses one directional jump control without covering the composer", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 589 });
   await page.emulateMedia({ reducedMotion: "reduce" });
