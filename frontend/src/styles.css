@@ -10137,6 +10137,25 @@ body {
 .cron-field-label { color: var(--text-muted); font-size: var(--ds-font-helper); }
 .cron-status { display: flex; align-items: center; gap: var(--space-1); }
 .cron-running-state { padding-inline-start: var(--space-1); border-inline-start: 1px solid var(--border); font-size: var(--ds-font-helper); }
+.cron-status { flex-wrap: wrap; row-gap: var(--space-1); }
+/* 终端运行状态强提醒：图标 + 文案 + 状态色三者缺一不可（DESIGN.md §3.1、不变量 4），不只靠颜色。 */
+.cron-attention {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--chip-h);
+  padding-inline: var(--space-1);
+  border-radius: var(--radius-chip-square);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cron-attention[data-attention="danger"] { color: var(--danger-text); background: color-mix(in srgb, var(--danger) 12%, var(--bg)); }
+.cron-attention[data-attention="warning"] { color: var(--warning-text); background: color-mix(in srgb, var(--warning) 12%, var(--bg)); }
+.cron-attention-icon { display: inline-flex; }
+.cron-attention-link { font-size: var(--ds-font-helper); white-space: nowrap; }
+.cron-timeline-item { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
 .cron-empty { display: flex; align-items: center; gap: var(--space-2); padding-block: var(--space-3); }
 .cron-empty p { margin: 0; }
 .cron-row-actions { display: flex; gap: var(--space-1); }
@@ -10155,6 +10174,11 @@ body {
 .cron-row :is(button, a, input, select):focus-visible,
 .cron-toolbar :is(button, a, input, select):focus-visible,
 .cron-editor :is(button, a, input, select):focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+.cron-template-form { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
+.cron-template-form > label { display: grid; gap: var(--space-1); font-size: var(--ds-font-sm); }
+.cron-template-form input, .cron-template-form select, .cron-template-form textarea { max-width: 30rem; }
+.cron-template-form :is(button, a, input, select, textarea):focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+.cron-template-actions { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .cron-hero { display: grid; gap: var(--space-2); }
 .cron-hero h1 {
   margin: 0;

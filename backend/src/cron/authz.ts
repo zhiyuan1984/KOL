@@ -25,18 +25,17 @@ export function assertCanMutateJob(job: Row, viewer = ticketPrincipal()): Ticket
 }
 
 /** Only handlers whose side-effect contract is published may run. The two
- * current formal-ticket scanners are native read-only projections. */
+ * formal-ticket scanners are native read-only projections; discovery-search
+ * enqueues a crawl demand into the PG crawl queue (ADR-2026-10-08). */
 export function assertHandlerGates(handlerKey: string): void {
-  if (handlerKey === "discovery-search") {
-    throw new HttpFail(409, { code: "not_enabled", message: "发现搜索未启用" });
-  }
   // ownership-release/mail-memory-increment/ai-task are quarantined by their
   // handler contracts and return needs_takeover; no legacy privilege is used.
+  void handlerKey;
 }
 
 export function assertJobRunnable(job: Row): void {
   const status = String(job.status);
-  if (status === "disabled" || String(job.handler_key) === "discovery-search") {
+  if (status === "disabled") {
     throw new HttpFail(409, { code: "not_enabled", message: "该作业未启用" });
   }
   if (status === "draft") throw new HttpFail(409, { code: "not_published", message: "作业尚未发布" });

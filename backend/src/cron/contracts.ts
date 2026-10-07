@@ -1,12 +1,76 @@
 import { humanFrequency } from "./schedule.js";
 import { handlerContract, isCronHandlerKey } from "./handlers.js";
+import { HttpFail } from "../host/errors.js";
 import type { Json, Row } from "../types.js";
 
 export const SYSTEM_EXECUTE_AS = "system";
 export const DEFAULT_EXPERT = "expert:kol";
 
-/** Only PostgreSQL-native read-only system jobs remain publishable by default.
- * Business writers stay disabled until their domain repository is migrated. */
+/** 发现搜索的系统模板：由管理员在定时任务上配置（PATCH condition.system_template），
+ *  前端模板编辑 UI 另案叠加。本次后端接口已支持。 */
+export type DiscoverySystemTemplate = {
+  platform: string;
+  keywords: string[];
+  filters: Json;
+  dedup: { dedup_by: string };
+};
+
+const TEMPLATE_PLATFORMS = ["youtube", "instagram", "facebook"];
+
+export const DEFAULT_DISCOVERY_SYSTEM_TEMPLATE: DiscoverySystemTemplate = {
+  platform: "youtube",
+  keywords: [],
+  filters: {},
+  dedup: { dedup_by: "platform_creator_id" },
+};
+
+/** 校验并规整系统发现模板。keywords 为空合法（handler 届时如实 skipped，不伪造运行）。 */
+export function normalizeSystemTemplate(value: unknown): DiscoverySystemTemplate {
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const platform = String(raw.platform || DEFAULT_DISCOVERY_SYSTEM_TEMPLATE.platform).toLowerCase();
+  if (!TEMPLATE_PLATFORMS.includes(platform)) {
+    throw new HttpFail(400, {
+      code: "invalid_template_platform",
+      message: "系统发现模板的平台仅支持 youtube / instagram / facebook",
+    });
+  }
+  const keywords = Array.isArray(raw.keywords)
+    ? raw.keywords.map((keyword) => String(keyword).trim()).filter(Boolean).slice(0, 20)
+    : [];
+  const filtersRaw =
+    raw.filters && typeof raw.filters === "object" && !Array.isArray(raw.filters)
+      ? (raw.filters as Record<string, unknown>)
+      : {};
+  // 采集参数白名单之外的过滤项（地域、粉丝阈值等）是采集后的筛选口径，不在此配置。
+  const unsupported = Object.keys(filtersRaw).find((key) => key !== "max_notes_count");
+  if (unsupported) {
+    throw new HttpFail(400, {
+      code: "invalid_template_filter",
+      message: `系统发现模板不支持过滤项：${unsupported}`,
+    });
+  }
+  const maxNotes = filtersRaw.max_notes_count;
+  if (
+    maxNotes !== undefined &&
+    (!Number.isSafeInteger(maxNotes) || Number(maxNotes) < 1 || Number(maxNotes) > 10000)
+  ) {
+    throw new HttpFail(400, { code: "invalid_template_filter", message: "max_notes_count 须为 1–10000 的整数" });
+  }
+  const dedupRaw =
+    raw.dedup && typeof raw.dedup === "object" && !Array.isArray(raw.dedup)
+      ? (raw.dedup as Record<string, unknown>)
+      : {};
+  return {
+    platform,
+    keywords,
+    filters: maxNotes !== undefined ? { max_notes_count: maxNotes } : {},
+    dedup: { dedup_by: String(dedupRaw.dedup_by || "platform_creator_id") },
+  };
+}
+
+/** 系统作业种子。discovery-search 可发布（ADR-2026-10-08 废除「禁止从定时作业调用采集器」）；
+ *  种子默认 disabled：管理员配置好 system_template.keywords 后再发布启用。 */
 export const SYSTEM_JOBS: Array<{
   id: string;
   job_key: string;
@@ -20,7 +84,7 @@ export const SYSTEM_JOBS: Array<{
   { id: "cjob_overdue_scan", job_key: "overdue-scan", title: "失联与延期扫描", handler_key: "overdue-scan", cron_expr: "0 8 * * *", status: "published", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { overdue: true } },
   { id: "cjob_daily_task_snapshot", job_key: "daily-task-snapshot", title: "每日待办快照", handler_key: "daily-task-snapshot", cron_expr: "15 7 * * *", status: "published", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { buckets: ["greet", "follow", "quote", "negotiate"] } },
   { id: "cjob_ownership_release", job_key: "ownership-release", title: "14 天无互动回公海", handler_key: "ownership-release", cron_expr: "30 3 * * *", status: "disabled", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { idle_days: 14, require_correspondence_timestamp: true, enabled: false, reason: "postgres_repository_pending" } },
-  { id: "cjob_discovery_search", job_key: "discovery-search", title: "发现搜索", handler_key: "discovery-search", cron_expr: "0 6 * * *", status: "disabled", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { enabled: false, reason: "not_enabled_no_live_crawler" } },
+  { id: "cjob_discovery_search", job_key: "discovery-search", title: "发现搜索", handler_key: "discovery-search", cron_expr: "0 6 * * *", status: "disabled", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { system_template: { platform: "youtube", keywords: [], filters: {}, dedup: { dedup_by: "platform_creator_id" } } } },
   { id: "cjob_mail_memory_increment", job_key: "mail-memory-increment", title: "邮件记忆增量", handler_key: "mail-memory-increment", cron_expr: "*/10 * * * *", status: "disabled", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { memory_kinds: ["translation", "summary", "digest", "person_digest"], enabled: false, reason: "postgres_repository_pending" } },
 ];
 

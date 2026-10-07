@@ -118,6 +118,22 @@ export async function pgEnsureSystemCronJobs(from = new Date()): Promise<void> {
           JSON.stringify(DEFAULT_RETRY), JSON.stringify(DEFAULT_TAKEOVER), next, now],
       );
     }
+    // 既有库回填：discovery-search 的旧条件（含 enabled:false / not_enabled_no_live_crawler
+    // 门禁）原地升级为 system_template 结构；已配置的模板一律保留，状态列不动。
+    const discoverySeed = SYSTEM_JOBS.find((seed) => seed.job_key === "discovery-search");
+    if (discoverySeed) {
+      await client.query(
+        `UPDATE cron_jobs
+            SET condition_json = jsonb_build_object('system_template',
+                  COALESCE(condition_json->'system_template', $2::jsonb)),
+                updated_at = $3
+           WHERE id = $1
+             AND (NOT (condition_json ? 'system_template')
+                  OR condition_json ? 'enabled'
+                  OR condition_json ? 'reason')`,
+        [discoverySeed.id, JSON.stringify((discoverySeed.condition as { system_template: unknown }).system_template), now],
+      );
+    }
   });
 }
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, type CronJob, type CronRun } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import type { ComposerChip, ComposerDraftStash, ComposerObjectRef, ComposerScope } from "../composer/types";
+import { useViewMode } from "../viewMode";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "needs_takeover"]);
 type ScheduleKind = "recurring" | "interval" | "once";
@@ -28,6 +29,14 @@ const statusLabel = (status?: string | null) => ({
 
 const runLabel = (run: CronRun) => run.status === "succeeded" && run.receipt?.handler_key === "ai-task"
   ? "已提交" : statusLabel(run.status);
+
+/** 终端运行状态里需要强提醒的两种：图标 + 文字 + 色块，三者缺一不可（DESIGN.md §3.1、不变量 4）。 */
+const RUN_ATTENTION: Record<string, { tone: "danger" | "warning"; label: string }> = {
+  failed: { tone: "danger", label: "运行失败" },
+  needs_takeover: { tone: "warning", label: "待接管" },
+};
+const runAttention = (status?: string | null) =>
+  (status && RUN_ATTENTION[status]) || null;
 
 function timeLabel(value?: string | null, timeZone?: string): string {
   if (!value) return "—";
@@ -115,12 +124,141 @@ function receiptText(run?: CronRun | null): string {
     return `问候 ${counts.greet || 0} · 跟进 ${counts.follow || 0} · 报价 ${counts.quote || 0} · 谈判 ${counts.negotiate || 0}`;
   }
   if (receipt.handler_key === "ownership-release") return `已释放 ${Number(receipt.released_count || 0)} 条，跳过 ${Number(receipt.skipped_count || 0)} 条。`;
-  if (receipt.handler_key === "discovery-search") return "发现搜索未启用。";
+  if (receipt.handler_key === "discovery-search") {
+    if (receipt.crawl_job_id) return `采集需求 ${String(receipt.crawl_job_id)} 已进入排队${receipt.queue_position != null ? `（第 ${Number(receipt.queue_position)} 位）` : ""}。${String(receipt.note || "候选由采集流水线回填，不自动创建合作或认领。")}`;
+    return String(receipt.reason || "本次未提交采集。");
+  }
   return JSON.stringify(receipt, null, 2);
+}
+
+function RunAttentionBadge({ status, jobKey }: { status?: string | null; jobKey: string }) {
+  const attention = runAttention(status);
+  if (!attention) return null;
+  return (
+    <>
+      <span className="cron-attention" data-attention={attention.tone} role="status">
+        <span className="cron-attention-icon" aria-hidden="true">⚠</span>
+        {attention.label}
+      </span>
+      <Link className="link-button cron-attention-link" to={`/cron/${jobKey}#cron-receipt`}>查看回执</Link>
+    </>
+  );
+}
+
+const TEMPLATE_PLATFORMS = [
+  { value: "youtube", label: "YouTube" },
+  { value: "instagram", label: "Instagram" },
+  { value: "facebook", label: "Facebook" },
+];
+
+type SystemTemplate = {
+  platform: string;
+  keywords: string[];
+  filters: Record<string, unknown>;
+};
+
+function readSystemTemplate(job: CronJob): SystemTemplate {
+  const raw = ((job.condition || {}) as Record<string, unknown>).system_template as Record<string, unknown> | undefined;
+  const keywords = Array.isArray(raw?.keywords)
+    ? (raw.keywords as unknown[]).map((keyword) => String(keyword).trim()).filter(Boolean)
+    : [];
+  const filters = raw?.filters && typeof raw.filters === "object" && !Array.isArray(raw.filters)
+    ? (raw.filters as Record<string, unknown>)
+    : {};
+  return { platform: String(raw?.platform || "youtube").toLowerCase(), keywords, filters };
+}
+
+/** 发现搜索的系统发现模板：仅管理员可配。关键词为空时定时触发会如实 skipped，不伪造运行。 */
+function DiscoveryTemplateEditor({ job, admin, onSaved }: {
+  job: CronJob; admin: boolean; onSaved: (job: CronJob) => void;
+}) {
+  const [platform, setPlatform] = useState(() => readSystemTemplate(job).platform);
+  const [keywordsText, setKeywordsText] = useState(() => readSystemTemplate(job).keywords.join("\n"));
+  const [maxNotes, setMaxNotes] = useState(() => {
+    const value = readSystemTemplate(job).filters.max_notes_count;
+    return value != null ? String(value) : "";
+  });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const template = readSystemTemplate(job);
+    setPlatform(template.platform);
+    setKeywordsText(template.keywords.join("\n"));
+    setMaxNotes(template.filters.max_notes_count != null ? String(template.filters.max_notes_count) : "");
+    setMessage("");
+  }, [job.id]);
+
+  const keywords = useMemo(
+    () => keywordsText.split(/[\n,，、]/).map((part) => part.trim()).filter(Boolean).slice(0, 20),
+    [keywordsText],
+  );
+
+  if (!admin) {
+    const template = readSystemTemplate(job);
+    return (
+      <div className="cron-contract muted" data-discovery-template>
+        <h3>系统发现模板</h3>
+        <p>平台：{TEMPLATE_PLATFORMS.find((item) => item.value === template.platform)?.label || template.platform} · 关键词 {template.keywords.length} 个{template.keywords.length > 0 && `（${template.keywords.slice(0, 5).join("、")}${template.keywords.length > 5 ? "…" : ""}）`}</p>
+        <p>仅管理员可修改模板。</p>
+      </div>
+    );
+  }
+
+  const save = async () => {
+    const filters: Record<string, unknown> = {};
+    const count = Number(maxNotes);
+    if (maxNotes.trim() !== "") {
+      if (!Number.isFinite(count) || count <= 0) { setMessage("每次采集笔记数上限须为正整数。"); return; }
+      filters.max_notes_count = Math.floor(count);
+    }
+    setSaving(true);
+    setMessage("");
+    try {
+      const condition = {
+        ...((job.condition || {}) as Record<string, unknown>),
+        system_template: { platform, keywords, filters, dedup: { dedup_by: "platform_creator_id" } },
+      };
+      const result = await api.patchCronJob(job.id, { condition });
+      onSaved(result.job);
+      setMessage("已保存，下次定时触发时按新模板执行。");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="cron-contract" data-discovery-template>
+      <h3>系统发现模板</h3>
+      <p className="muted">每天定时按此模板提交采集需求，只产候选，不自动创建合作或认领。关键词为空时将如实跳过，不伪造运行。</p>
+      <div className="cron-template-form">
+        <label>平台
+          <select value={platform} onChange={(event) => setPlatform(event.target.value)}>
+            {TEMPLATE_PLATFORMS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </label>
+        <label>关键词（每行一个，最多 20 个）
+          <textarea value={keywordsText} rows={4} placeholder={"美妆\n护肤\nskincare"} onChange={(event) => setKeywordsText(event.target.value)} />
+        </label>
+        <label>每次采集笔记数上限（可选）
+          <input type="number" min={1} value={maxNotes} placeholder="不填则不限" onChange={(event) => setMaxNotes(event.target.value)} />
+        </label>
+      </div>
+      <div className="cron-template-actions">
+        <button type="button" className="btn primary" disabled={saving} onClick={() => void save()}>
+          {saving ? "保存中…" : "保存模板"}
+        </button>
+        {message && <span className="muted" role="status">{message}</span>}
+      </div>
+    </div>
+  );
 }
 
 export default function Cron() {
   const { jobId } = useParams();
+  const location = useLocation();
   const nav = useNavigate();
   const isNew = jobId === "new";
   const [jobs, setJobs] = useState<CronJob[]>([]);
@@ -131,6 +269,7 @@ export default function Cron() {
   const [error, setError] = useState("");
   const [rowError, setRowError] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
+  const { admin } = useViewMode();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [editing, setEditing] = useState(false);
@@ -190,6 +329,12 @@ export default function Cron() {
     });
     return () => { cancelled = true; };
   }, [jobId, isNew]);
+
+  useEffect(() => {
+    if (location.hash !== "#cron-receipt" || !detail) return;
+    const target = document.querySelector("[data-cron-receipt-panel]") || document.querySelector("[data-cron-timeline]");
+    target?.scrollIntoView({ block: "start" });
+  }, [detail, runs, location.hash]);
 
   useEffect(() => {
     if (!activeRun?.id || TERMINAL.has(activeRun.status)) return;
@@ -305,7 +450,9 @@ export default function Cron() {
               <strong>{job.title}</strong>
               <span className="muted">{job.frequency} · {job.execute_identity}</span>
             </Link>
-            <span className="cron-status" data-status={job.status}><span className="cron-field-label">计划</span>{jobStatusLabel(job.status)}{job.active_run_status && <span className="cron-running-state">运行：{statusLabel(job.active_run_status)}</span>}</span>
+            <span className="cron-status" data-status={job.status}><span className="cron-field-label">计划</span>{jobStatusLabel(job.status)}{runAttention(job.last_terminal_status)
+              ? <RunAttentionBadge status={job.last_terminal_status} jobKey={job.job_key || job.id} />
+              : (job.active_run_status && <span className="cron-running-state">运行：{statusLabel(job.active_run_status)}</span>)}</span>
             <span className="cron-next"><span className="cron-field-label">下次运行 · {job.timezone || "时区未指定"}</span>{job.status === "published" ? <><strong>{relativeTime(job.next_run_at)}</strong><small>{timeLabel(job.next_run_at, job.timezone)}</small></> : <small>—</small>}<small><span className="cron-field-label">最近运行</span>{job.handler_key === "ai-task" && job.last_terminal_status === "succeeded" ? "已提交" : statusLabel(job.last_terminal_status)}</small></span>
             <div className="cron-row-actions">
               <button type="button" className="btn ghost" data-cron-pause disabled={busy === job.id || !["published", "paused"].includes(job.status)} onClick={() => void toggle(job)}>{job.status === "paused" ? "开启计划" : "暂停计划"}</button>
@@ -374,7 +521,14 @@ export default function Cron() {
             <p>{selected.enabled === false ? "该作业未启用。" : "系统作业按已发布条件执行。"} · 专家 {selected.capability_expert_id}</p>
             <p>重试 {String(selected.retry_policy?.max_attempts || 1)} 次 · 超时后 {String(selected.takeover_policy?.action || "needs_takeover")}</p>
           </div>}
-          {activeRun && activeRun.job_id === selected.id && <article className="cron-receipt" data-cron-receipt-panel>
+          {selected.handler_key === "discovery-search" && (
+            <DiscoveryTemplateEditor
+              job={selected}
+              admin={admin}
+              onSaved={(job) => { updateRow(job); setDetail(job); }}
+            />
+          )}
+          {activeRun && activeRun.job_id === selected.id && <article className="cron-receipt" data-cron-receipt-panel id="cron-receipt">
             <h3>最近执行</h3><p className="muted">{runLabel(activeRun)} · {timeLabel(activeRun.finished_at || activeRun.started_at)}</p>
             {refreshError && !TERMINAL.has(activeRun.status) && <p className="error" role="status">运行状态暂时无法刷新，当前显示的可能是旧状态。<button type="button" className="link-button" onClick={() => void refreshRun(activeRun)}>重试</button></p>}
             <pre>{receiptText(activeRun)}</pre>
@@ -385,12 +539,21 @@ export default function Cron() {
           <div className="cron-timeline" data-cron-timeline>
             <h3>运行记录</h3>
             {runs.length === 0 && <p className="muted">还没有运行记录。</p>}
-            <ol>{runs.map((run) => <li key={run.id}>
-              <button type="button" className="link-button" data-cron-run={run.id} data-cron-run-status={run.status} onClick={() => setActiveRun(run)}>
-                {runLabel(run)} · {run.trigger === "manual" ? "手动" : "定时"} · {timeLabel(run.scheduled_for, selected.timezone)}
-              </button>
-              {run.session_id && <> · <Link to={`/s/${run.session_id}`}>查看执行</Link></>}
-            </li>)}</ol>
+            <ol>{runs.map((run) => {
+              const attention = runAttention(run.status);
+              return (
+                <li key={run.id} className="cron-timeline-item">
+                  {attention && <span className="cron-attention" data-attention={attention.tone}>
+                    <span className="cron-attention-icon" aria-hidden="true">⚠</span>
+                    {attention.label}
+                  </span>}
+                  <button type="button" className="link-button" data-cron-run={run.id} data-cron-run-status={run.status} onClick={() => setActiveRun(run)}>
+                    {runLabel(run)} · {run.trigger === "manual" ? "手动" : "定时"} · {timeLabel(run.scheduled_for, selected.timezone)}
+                  </button>
+                  {run.session_id && <> · <Link to={`/s/${run.session_id}`}>查看执行</Link></>}
+                </li>
+              );
+            })}</ol>
           </div>
         </>}
         {error && <p className="error" role="alert">{error}</p>}

@@ -8,6 +8,9 @@ import { postgresPool } from "../postgres/pool.js";
 import { label } from "../stages.js";
 import type { TicketPrincipal } from "../ticket-domain/auth.js";
 import type { Json, Row } from "../types.js";
+import { HttpFail } from "../host/errors.js";
+import { enqueueSystemCrawl } from "../crawl/runtime-gates.js";
+import { cronJson, normalizeSystemTemplate } from "./contracts.js";
 
 export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment" | "ai-task";
 
@@ -137,11 +140,70 @@ function ownershipRelease(): CronHandlerResult { return migrationTakeover("owner
 function mailMemoryIncrement(): CronHandlerResult { return migrationTakeover("mail-memory-increment", "邮件记忆增量"); }
 function aiTask(): CronHandlerResult { return migrationTakeover("ai-task", "AI 定时任务"); }
 
-function discoverySearch(): CronHandlerResult {
-  return {
-    status: "skipped", error_code: "not_enabled", error_summary: "发现搜索未启用：禁止从定时作业调用采集器，也不伪造运行结果",
-    receipt: { handler_key: "discovery-search", side_effect: "none", created_session: false, enabled: false, wrote_candidates: false, created_collaboration: false, called_crawler: false, reason: "not_enabled" },
-  };
+/**
+ * 发现搜索（ADR-2026-10-08）：按系统模板生成一次采集需求，写入 PG 采集排队。
+ * - 只产候选：绝不自动创建 Collaboration、不做排他认领（BIZ-05 铁律）；
+ * - 不抢占：只入队，启动由 drainCrawlQueue 按 FIFO 决定；
+ * - 回执诚实：模板未配置 / 队列满 / 采集能力不可用时记 skipped 并写明原因，不伪造运行。
+ */
+async function discoverySearch(ctx: CronHandlerContext): Promise<CronHandlerResult> {
+  const condition = cronJson(ctx.job.condition_json);
+  const template = normalizeSystemTemplate(condition.system_template);
+  if (!template.keywords.length) {
+    return {
+      status: "skipped",
+      error_code: "template_not_configured",
+      error_summary: "系统发现模板未配置关键词，本次未提交采集。",
+      receipt: {
+        handler_key: "discovery-search", side_effect: "none", created_session: false,
+        wrote_candidates: false, created_collaboration: false, called_crawler: false,
+        reason: "template_not_configured",
+      },
+    };
+  }
+  try {
+    const enqueued = await enqueueSystemCrawl({
+      platform: template.platform,
+      keywords: template.keywords,
+      filters: template.filters,
+      cronJobId: String(ctx.job.id),
+      cronRunId: String(ctx.run.id),
+    });
+    return {
+      status: "succeeded",
+      receipt: {
+        handler_key: "discovery-search", side_effect: "enqueue", created_session: false,
+        crawl_job_id: enqueued.crawlJobId, queue_position: enqueued.queuePosition,
+        duplicate: enqueued.duplicate,
+        wrote_candidates: false, created_collaboration: false, called_crawler: true,
+        note: "采集需求已进入 PG 采集排队；候选由采集流水线回填，不自动创建合作或认领。",
+      },
+    };
+  } catch (error) {
+    const code = String((error as { detail?: { code?: string } })?.detail?.code || "");
+    if (
+      code === "crawl_queue_full" ||
+      code === "crawl_capability_unavailable" ||
+      code === "runtime_connector_disabled" ||
+      code === "runtime_connector_not_configured"
+    ) {
+      const summary =
+        code === "crawl_queue_full"
+          ? "采集排队已满（20），本次未提交；不抢占已有任务。"
+          : "采集能力不可用（MediaCrawler 连接器未配置或未启用），本次未提交。";
+      return {
+        status: "skipped",
+        error_code: code,
+        error_summary: summary,
+        receipt: {
+          handler_key: "discovery-search", side_effect: "none", created_session: false,
+          wrote_candidates: false, created_collaboration: false, called_crawler: false,
+          reason: code,
+        },
+      };
+    }
+    throw error;
+  }
 }
 
 export const CRON_HANDLERS: Record<CronHandlerKey, CronHandler> = {
@@ -162,7 +224,7 @@ export function handlerContract(key: string): Json {
     "overdue-scan": { title: "失联与延期扫描", execute_as: "system", side_effect: "read", source: "postgresql_formal_tickets", creates_session: false },
     "daily-task-snapshot": { title: "每日待办快照", execute_as: "system", side_effect: "read", source: "postgresql_formal_tickets", creates_session: false },
     "ownership-release": { title: "14 天无互动回公海", execute_as: "system", side_effect: "none", migration_state: "blocked_pending_native_repository", creates_session: false },
-    "discovery-search": { title: "发现搜索", execute_as: "system", side_effect: "none", enabled: false, creates_session: false },
+    "discovery-search": { title: "发现搜索", execute_as: "system", side_effect: "enqueue", source: "system_template", creates_session: false },
     "mail-memory-increment": { title: "邮件记忆增量", execute_as: "system", side_effect: "none", migration_state: "blocked_pending_native_repository", creates_session: false },
   };
   return contracts[key] || { title: key, creates_session: false };

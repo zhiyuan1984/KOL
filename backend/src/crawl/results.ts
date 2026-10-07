@@ -2,6 +2,8 @@ import { HttpFail } from "../host/errors.js";
 import { normalizeMcpContent } from "../mcp/remote.js";
 import { postgresPool } from "../postgres/pool.js";
 import { authorizeConnector, runtimeErrorCode, SkillExecution, type RuntimeContext } from "../runtime/execution.js";
+import { isPlatformPrincipal } from "../runtime/platform-principal.js";
+import { authorizeBackgroundCrawl, backgroundToolRuntime, type BackgroundToolInvoker } from "./background-crawl.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPayload } from "../execution-jobs/postgres-store.js";
 import { registerExecutionHandler } from "../execution-jobs/handlers.js";
 import type { Json } from "../types.js";
@@ -38,7 +40,8 @@ export function candidateView(value: Json, platform: string): Json {
 }
 
 export async function collectCrawlResults(executionJob: ClaimedExecutionJob, checkpoint: () => Promise<void>,
-  createRuntime = (context: RuntimeContext) => new SkillExecution(context)): Promise<Json> {
+  createRuntime: (context: RuntimeContext) => SkillExecution | BackgroundToolInvoker = (context) =>
+    isPlatformPrincipal(context.userId) ? backgroundToolRuntime(context) : new SkillExecution(context)): Promise<Json> {
   const id = String(pgExecutionJobPayload(executionJob).crawl_id);
   const job = (await postgresPool().query("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [id])).rows[0];
   if (!job || !["succeeded", "cancelled"].includes(job.state)) return { state: "not_ready" };
@@ -83,7 +86,8 @@ export async function collectCrawlResults(executionJob: ClaimedExecutionJob, che
     }
     if (total !== null && complete && total !== candidates.length) fail("crawl_result_pagination_invalid");
     await checkpoint();
-    authorizeConnector(job.context_json, "claw");
+    if (isPlatformPrincipal(job.context_json?.userId)) authorizeBackgroundCrawl(job.context_json);
+    else authorizeConnector(job.context_json, "claw");
     const result = { schema: "crawl_candidates/v1", task_id: job.remote_task_id, platform,
       captured_at: new Date().toISOString(), complete, total, candidates, collection_state: job.state };
     await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state=$2,result_json=$3,result_error=NULL,updated_at=now() WHERE id=$1",

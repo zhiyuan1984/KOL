@@ -3,13 +3,22 @@ import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
 import { normalizeMcpContent } from "../mcp/remote.js";
 import { registerRuntimeActionGate, registerRuntimeToolScope, registerRuntimeToolPresentation } from "../runtime/action-gates.js";
-import { START_FIELDS, crawlToolPresentation } from "./tool-contract.js";
+import { crawlToolPresentation } from "./tool-contract.js";
 import { enqueueCrawlResults } from "./results.js";
 import { authorizeConnector, createConfiguredClient, runtimeHash, SkillExecution, type RuntimeContext } from "../runtime/execution.js";
 import type { RuntimeRemote } from "../runtime/execution.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../mcp/remote.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPayload } from "../execution-jobs/postgres-store.js";
 import { registerExecutionHandler } from "../execution-jobs/handlers.js";
+import { isPlatformPrincipal, PLATFORM_PRINCIPAL } from "../runtime/platform-principal.js";
+import {
+  assertBackgroundCrawlArgs,
+  assertCrawlConnectorAvailable,
+  authorizeBackgroundCrawl,
+  backgroundCrawlContext,
+  backgroundToolRuntime,
+  type BackgroundToolInvoker,
+} from "./background-crawl.js";
 import type { Json } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 
@@ -85,15 +94,61 @@ export async function crawlQueuePosition(instanceKey: string, jobId: string): Pr
 function validateStart(context: RuntimeContext, args: Json): void {
   authorizeConnector(context, "claw");
   if (context.skillId !== "crawler_collect") fail("runtime_collection_skill_required");
-  if (!Array.isArray(args.platforms) || args.platforms.length !== 1 || !["youtube", "instagram", "facebook"].includes(String(args.platforms[0]))) fail("runtime_crawl_platform_invalid");
-  if (!["search", "detail", "creator"].includes(String(args.crawler_type))) fail("runtime_crawl_mode_invalid");
-  // Additional remote switches may enable uploads or broaden scope; only reviewed fields are accepted.
-  if (Object.keys(args).some((key) => !START_FIELDS.includes(key))) fail("runtime_crawl_scope_invalid");
-  if (args.max_notes_count !== undefined && (!Number.isSafeInteger(args.max_notes_count)
-    || Number(args.max_notes_count) < 1 || Number(args.max_notes_count) > 10000)) fail("runtime_crawl_scope_invalid");
-  if (["enable_comments", "enable_sub_comments"].some(key => args[key] !== undefined && args[key] !== false)) fail("runtime_crawl_scope_invalid");
-  const required = args.crawler_type === "search" ? "keywords" : args.crawler_type === "detail" ? "specified_ids" : "creator_ids";
-  if (typeof args[required] !== "string" || !String(args[required]).trim()) fail("runtime_crawl_input_required");
+  assertBackgroundCrawlArgs(args);
+}
+
+/** 后台默认执行器：平台主体走直调通道，员工走 SkillExecution（与既有测试接缝兼容）。 */
+function defaultToolRuntime(context: RuntimeContext): SkillExecution | BackgroundToolInvoker {
+  return isPlatformPrincipal(context.userId) ? backgroundToolRuntime(context) : new SkillExecution(context);
+}
+
+/**
+ * 后台采集需求入队（供定时任务等后台调用方）：PG 原生，复用现有采集排队。
+ * - 幂等：crawl job id 由调用方引用确定性派生，重复提交返回已有记录；
+ * - 不抢占：只写入 queued，实际启动由 drainCrawlQueue 按 FIFO 决定；
+ * - 队列满（默认 20）时抛 409 crawl_queue_full，由调用方如实记 skipped。
+ */
+export async function enqueueSystemCrawl(input: {
+  platform: string;
+  keywords: string[];
+  filters?: Json;
+  cronJobId: string;
+  cronRunId: string;
+}): Promise<{ crawlJobId: string; queuePosition: number; duplicate: boolean }> {
+  const filters = input.filters && typeof input.filters === "object" && !Array.isArray(input.filters)
+    ? (input.filters as Json)
+    : {};
+  const args: Json = {
+    platforms: [String(input.platform).toLowerCase()],
+    crawler_type: "search",
+    keywords: input.keywords.map(String).join(","),
+    ...filters,
+  };
+  assertBackgroundCrawlArgs(args);
+  const { configuration } = assertCrawlConnectorAvailable();
+  const url = configuration.config.url;
+  if (!url) {
+    throw new HttpFail(503, { code: "crawl_capability_unavailable", message: "采集连接器未配置服务地址。" });
+  }
+  const instanceKey = runtimeHash(url);
+  const crawlJobId = `crawl_cron_${input.cronJobId}_${input.cronRunId}`;
+  const context = backgroundCrawlContext(`cron:${input.cronJobId}:${input.cronRunId}`);
+  const duplicate = await withCrawlerInstanceKeyLock(instanceKey, async () => {
+    const existing = await postgresPool().query("SELECT id FROM runtime_crawl_jobs WHERE id=$1", [crawlJobId]);
+    if (existing.rows.length) return true;
+    const depth = await queueDepth(instanceKey);
+    if (depth >= CRAWLER_QUEUE_MAX_DEPTH) fail("crawl_queue_full");
+    await postgresPool().query(
+      `INSERT INTO runtime_crawl_jobs (id,instance_key,actor_id,context_json,config_version,args_json,state)
+       VALUES ($1,$2,$3,$4,$5,$6,'queued')`,
+      [crawlJobId, instanceKey, PLATFORM_PRINCIPAL, JSON.stringify(context), configuration.version, JSON.stringify(args)],
+    );
+    await ensureSweepScheduled(instanceKey, PLATFORM_PRINCIPAL);
+    return false;
+  });
+  if (!duplicate) await drainCrawlQueue(instanceKey);
+  const queuePosition = await crawlQueuePosition(instanceKey, crawlJobId);
+  return { crawlJobId, queuePosition, duplicate };
 }
 async function ownedTask(context: RuntimeContext, args: Json): Promise<Crawl> {
   authorizeConnector(context, "claw");
@@ -208,9 +263,10 @@ registerRuntimeToolScope("claw", async (context, tool, args) => {
 
 type RemoteCrawlTerminal = "succeeded" | "failed" | "cancelled" | null;
 
-/** 查询远端任务状态并判定终态。抽出供 monitor 与 reconcile 共用（createRuntime 是测试接缝）。 */
+/** 查询远端任务状态并判定终态。抽出供 monitor 与 reconcile 共用（createRuntime 是测试接缝；
+ *  平台主体默认走后台直调通道，不经过技能装配发现）。 */
 async function fetchRemoteCrawlStatus(job: Crawl,
-  createRuntime: (context: RuntimeContext) => SkillExecution
+  createRuntime: (context: RuntimeContext) => SkillExecution | BackgroundToolInvoker = defaultToolRuntime
 ): Promise<{ terminal: RemoteCrawlTerminal; value: string; status: Json }> {
   const runtime = createRuntime(job.context_json);
   try {
@@ -233,11 +289,15 @@ async function fetchRemoteCrawlStatus(job: Crawl,
 }
 
 /** 直调连接器 MCP 工具（start_crawl / stop_crawl），绕过 SkillExecution 的确认流程。
- *  后台 handler 调用前必须已完成 validateStart + authorizeConnector（用户在入队时已确认，
- *  出队只是履约，不应再次弹窗确认）。 */
+ *  后台 handler 调用前必须已完成参数校验 + 调用方授权：员工路径是 validateStart +
+ *  authorizeConnector（用户在入队时已确认，出队只是履约，不应再次弹窗确认）；
+ *  平台主体路径是 assertBackgroundCrawlArgs + authorizeBackgroundCrawl（见 background-crawl.ts，
+ *  授权依据 ADR-2026-10-08）。 */
 async function callRemoteCrawlTool(context: RuntimeContext, tool: "start_crawl" | "stop_crawl", args: Json,
   mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options)): Promise<Json> {
-  const auth = authorizeConnector(context, "claw");
+  const auth = isPlatformPrincipal(context.userId)
+    ? authorizeBackgroundCrawl(context)
+    : authorizeConnector(context, "claw");
   const client = createConfiguredClient(context, auth.configuration.config, mcpFactory);
   try {
     const raw = await client.callToolRaw(tool, args);
@@ -315,7 +375,7 @@ export async function drainCrawlQueue(instanceKey: string): Promise<void> {
 }
 
 export async function monitorRuntimeCrawl(executionJob: ClaimedExecutionJob, checkpoint: () => Promise<void>,
-  createRuntime = (context: RuntimeContext) => new SkillExecution(context)): Promise<Json> {
+  createRuntime: (context: RuntimeContext) => SkillExecution | BackgroundToolInvoker = defaultToolRuntime): Promise<Json> {
   const payload = pgExecutionJobPayload(executionJob);
   const job = (await postgresPool().query<Crawl>("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [payload.crawl_id])).rows[0];
   if (!job || !["starting", "running", "stopping"].includes(job.state)) return { state: job?.state || "not_found" };
@@ -367,8 +427,14 @@ async function starterHandler(executionJob: ClaimedExecutionJob, checkpoint: () 
   const context = job.context_json as RuntimeContext;
   const args = job.args_json as Json;
   try {
-    validateStart(context, args);
-    authorizeConnector(context, "claw");
+    if (isPlatformPrincipal(context.userId)) {
+      // 后台采集需求（平台主体）：免「技能装配在可用 Agent 上」的人员资格校验，
+      // 参数口径与连接器「已启用 + 已配置」仍在出队时重验（PROD-AGENT-09）。
+      assertBackgroundCrawlArgs(args);
+      authorizeBackgroundCrawl(context);
+    } else {
+      validateStart(context, args);
+    }
   } catch {
     await postgresPool().query(`UPDATE runtime_crawl_jobs SET state='cancelled', error_code='queue_start_rejected',
       updated_at=now() WHERE id=$1 AND state='queued'`, [job.id]);
@@ -428,7 +494,7 @@ async function reconcileHandler(executionJob: ClaimedExecutionJob, checkpoint: (
   }
   try {
     await checkpoint();
-    const { terminal, status } = await fetchRemoteCrawlStatus(job, (context) => new SkillExecution(context));
+    const { terminal, status } = await fetchRemoteCrawlStatus(job, defaultToolRuntime);
     if (!terminal) {
       await enqueueReconcile(job.id, job.actor_id);
       return { state: "uncertain", reason: "remote_still_active" };

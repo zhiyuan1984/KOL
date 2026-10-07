@@ -6,6 +6,7 @@ import { assertHandlerGates, assertCanMutateJob, assertCanSeeJob, assertJobRunna
 import { handlerContract, isCronHandlerKey } from "../cron/handlers.js";
 import { nextScheduledAt, type ScheduleWindow } from "../cron/schedule.js";
 import { DEFAULT_EXPERT } from "../cron/contracts.js";
+import { normalizeSystemTemplate } from "../cron/contracts.js";
 import {
   pgCreateCronJob,
   pgCronJobById,
@@ -46,6 +47,9 @@ function parseJson(raw: unknown): Json {
 
 function validateCondition(handlerKey: string, value: unknown): Json {
   const condition = value && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
+  if (handlerKey === "discovery-search") {
+    return { ...condition, system_template: normalizeSystemTemplate(condition.system_template) };
+  }
   if (handlerKey !== "ai-task") return condition;
   const composer = condition.composer && typeof condition.composer === "object" ? condition.composer as Json : {};
   if (!String(composer.text || "").trim()) throw new HttpFail(400, "请填写任务内容");
@@ -120,7 +124,9 @@ cron.post("/cron/jobs", async (c) => {
   const body = parseBody(await c.req.json().catch(() => ({})));
   const handlerKey = String(body.handler_key || "");
   if (!isCronHandlerKey(handlerKey)) throw new HttpFail(400, { code: "unknown_handler", message: "只能使用已登记的 handler" });
-  if (handlerKey === "discovery-search") throw new HttpFail(409, { code: "not_enabled", message: "发现搜索未启用" });
+  if (handlerKey === "discovery-search" && !ticketIsAdmin(user)) {
+    throw new HttpFail(403, { code: "admin_required", message: "发现搜索定时作业占用公共采集排队，仅管理员可创建" });
+  }
   assertHandlerGates(handlerKey);
   const cronExpr = String(body.cron_expr || "0 8 * * *");
   const timezone = String(body.timezone || "Asia/Shanghai");
@@ -161,7 +167,6 @@ cron.patch("/cron/jobs/:id", async (c) => {
   }
   const status = body.status != null ? String(body.status) : String(job.status);
   if (!["draft", "published", "paused", "disabled"].includes(status)) throw new HttpFail(400, { code: "invalid_status", message: "status 无效" });
-  if (system && String(job.handler_key) === "discovery-search" && status === "published") throw new HttpFail(409, { code: "not_enabled", message: "发现搜索未启用" });
   let cronExpr = String(job.cron_expr);
   let timezone = String(job.timezone || "Asia/Shanghai");
   let scope = parseJson(job.scope_json);
@@ -171,8 +176,20 @@ cron.patch("/cron/jobs/:id", async (c) => {
   if (body.timezone != null) { timezone = String(body.timezone); bump = true; }
   if (body.scope != null) { scope = body.scope as Json; bump = true; }
   if (body.condition != null) {
-    if (system) throw new HttpFail(403, { code: "legal_field_readonly", message: "系统作业条件只读" });
-    condition = validateCondition(String(job.handler_key), body.condition);
+    if (system) {
+      // 系统作业条件只读，唯一例外：discovery-search 的 system_template 允许管理员读写
+      //（前端模板编辑 UI 另案叠加；此处先开放接口）。
+      if (String(job.handler_key) !== "discovery-search") {
+        throw new HttpFail(403, { code: "legal_field_readonly", message: "系统作业条件只读" });
+      }
+      const incoming = body.condition as Record<string, unknown>;
+      condition = {
+        ...condition,
+        system_template: normalizeSystemTemplate(incoming.system_template),
+      };
+    } else {
+      condition = validateCondition(String(job.handler_key), body.condition);
+    }
     bump = true;
   }
   let nextRun = job.next_run_at ? new Date(job.next_run_at as string | Date).toISOString() : null;
