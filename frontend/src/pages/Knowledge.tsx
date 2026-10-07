@@ -183,6 +183,7 @@ function collectScope(
 /** 员工端知识库（IA v2）：三级分类 tab＋筛选标签＋中栏列表＋右栏同页详情。 */
 export default function Knowledge() {
   const [rows, setRows] = useState<KnowledgeRow[]>([]);
+  const [displayLimit, setDisplayLimit] = useState(5);
   const [taxonomy, setTaxonomy] = useState<{ domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] }>({ domains: [], bases: [] });
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
   const [skillTemplatesLoading, setSkillTemplatesLoading] = useState(true);
@@ -220,7 +221,7 @@ export default function Knowledge() {
       .finally(() => setLoaded(true));
   }, [keyword]);
 
-  useEffect(reload, [reload]);
+  useEffect(() => { setDisplayLimit(5); void reload(); }, [reload]);
 
   useEffect(() => {
     api.knowledgeTaxonomy()
@@ -319,11 +320,12 @@ export default function Knowledge() {
     recent: scopedVisible.filter((row) => recentIds.includes(row.id)).length,
   }), [scopedVisible, favorites, recentIds]);
 
-  const visible = useMemo(() => {
+  const filteredVisible = useMemo(() => {
     if (view === "favorites") return scopedVisible.filter((row) => favorites.includes(row.id));
     if (view === "recent") return scopedVisible.filter((row) => recentIds.includes(row.id));
     return scopedVisible;
   }, [scopedVisible, view, favorites, recentIds]);
+  const visible = useMemo(() => filteredVisible.slice(0, displayLimit), [filteredVisible, displayLimit]);
 
   const selectedRow = useMemo(
     () => visible.find((row) => row.id === selectedId) || null,
@@ -531,7 +533,7 @@ export default function Knowledge() {
                 </button>
               ))}
               {/* 计数与列表同源（§8 数字同源），并入本行不再单独占一行高度。 */}
-              <span className="kbv-tabs-count" data-kbv-count>{visible.length} 条知识</span>
+              <span className="kbv-tabs-count" data-kbv-count>{filteredVisible.length} 条知识</span>
             </div>
           ) : null}
 
@@ -626,6 +628,14 @@ export default function Knowledge() {
                 );
               })}
             </div>
+          ) : null}
+          {loaded && filteredVisible.length > visible.length ? (
+            <button type="button" className="kbv-load-more" onClick={() => setDisplayLimit((value) => Math.min(value + 5, filteredVisible.length))}>
+              加载更多（5条）
+            </button>
+          ) : null}
+          {loaded && displayLimit > 5 && visible.length === filteredVisible.length ? (
+            <button type="button" className="kbv-load-more" onClick={() => setDisplayLimit(5)}>收起到前5条</button>
           ) : null}
 
           {err && <p className="error">{err}</p>}

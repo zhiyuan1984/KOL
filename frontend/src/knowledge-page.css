@@ -2033,3 +2033,19 @@
   color: var(--text);
 }
 .kbadmin-queue-label small { display: block; font-weight: 400; }
+
+/* 2026-10 知识区统一视觉：字号统一 13px；滚动仍可用但不显示滚动条。 */
+.kbv-page, .kbv-filter-browser,
+.kbv-page :is(button, input, select, textarea, summary),
+.kbv-filter-browser :is(button, input, select, textarea, summary) { font-size: 13px; }
+.kbv-page :is(.kbv-records, .kbv-rail-body, .kbv-workspace),
+.kbv-filter-browser :is(.kbv-browser, .kbw-body, .kbv-filter-scroll) { scrollbar-width: none; }
+.kbv-page :is(.kbv-records, .kbv-rail-body, .kbv-workspace)::-webkit-scrollbar,
+.kbv-filter-browser :is(.kbv-browser, .kbw-body, .kbv-filter-scroll)::-webkit-scrollbar { display: none; }
+.kbv-load-more { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); margin: var(--space-3) auto; padding: var(--space-2) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-elevated); color: var(--accent-text); cursor: pointer; font: inherit; }
+.kbv-load-more::before { content: "＋"; font-size: 16px; line-height: 1; }
+.kbv-load-more:hover { background: var(--btn-text-hover-bg); }
+.kbadmin-knowledge-graph { margin-top: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-elevated); font-size: 13px; }
+.kbadmin-graph-path { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-3); line-height: 1.7; }
+.kbadmin-graph-path > span, .kbadmin-graph-path > strong { padding: var(--space-1) var(--space-2); border-radius: var(--radius-control); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+.kbadmin-graph-path > b { color: var(--accent-text); }

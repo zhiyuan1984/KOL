@@ -33,6 +33,7 @@ export type WsData = {
   page: number; page_size: number; page_count: number;
   facets: Record<string, WsFacet>; stats: WsStats;
   bases: KnowledgeBaseRow[]; domains: KnowledgeDomainRow[];
+  governance?: { family_name?: string; domain_name?: string; base_id: string; base_name: string; document_count: number; scoped_document_count: number; skill_count: number; agent_count: number } | null;
 };
 export type KbSub = (message: string) => void;
 export type KbFail = (error: unknown, fallback?: string) => void;

@@ -7,6 +7,7 @@ import { type Row, type WsStats } from "./shared";
 type Props = {
   /** 服务端驾驶舱聚合（stats）；未加载时为 undefined，驾驶舱显示加载态。 */
   stats?: WsStats;
+  governance?: { family_name?: string; domain_name?: string; base_name: string; document_count: number; scoped_document_count: number; skill_count: number; agent_count: number } | null;
 };
 
 type FeedbackRow = {
@@ -41,7 +42,7 @@ const feedbackKey = (row: FeedbackRow) => `${row.user_id || ""}::${row.knowledge
  * 有筛选轴的下钻写成链接（可复制、可后退），没有筛选轴的（反馈、提案）在页内展开自身列表。
  * 计数与最长等待来自服务端 stats（workspace-v1），与点选下钻后的列表同源。
  */
-export default function ReviewView({ stats }: Props) {
+export default function ReviewView({ stats, governance }: Props) {
   const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
   const [proposals, setProposals] = useState<Row[]>([]);
   const [feedbackNotice, setFeedbackNotice] = useState("");
@@ -196,6 +197,16 @@ export default function ReviewView({ stats }: Props) {
           </button>
         )))}
       </nav>
+
+      {governance ? (
+        <section className="kbadmin-knowledge-graph" aria-label="产品知识关系图" data-kb-knowledge-graph>
+          <div className="kbadmin-status-head"><h3>产品知识关系图</h3><span className="muted">管理端主数据与发布投影</span></div>
+          <div className="kbadmin-graph-path">
+            <span>{governance.family_name || "未分类"}</span><b>→</b><span>{governance.domain_name || "未分类"}</span><b>→</b><strong>{governance.base_name}</strong>
+            <b>→</b><span>文档 {governance.document_count}（范围 {governance.scoped_document_count}）</span><b>→</b><span>技能 {governance.skill_count}</span><b>→</b><span>Agent {governance.agent_count}</span>
+          </div>
+        </section>
+      ) : null}
 
       {/* 治理子视图入口（D）：分类 / 绑定 / 加工 / 索引健康 ранее只靠直达 URL。 */}
       <nav className="kbadmin-govern" data-admin-kb-govern aria-label="知识治理">

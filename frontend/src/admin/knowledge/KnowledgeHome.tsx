@@ -344,7 +344,7 @@ export default function KnowledgeHome() {
         <section className="kbv-browser kbw-workarea" aria-label="知识工作区" data-workspace-mode={mode} aria-busy={loading}>
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           <div className="kbw-body" ref={bodyRef} onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
-          {mode==="list" ? <ReviewView stats={data?.stats} /> : null}
+          {mode==="list" ? <ReviewView stats={data?.stats} governance={data?.governance} /> : null}
           {mode==="list" && (view !== "all" || assetTypeFilter || expiring) ? (
             <p className="kbv-filter-note" data-kbv-filter-note role="status">
               {/* 下钻筛选轴回显：条件与列表同源，可一键清除（DESIGN §9.2）。 */}

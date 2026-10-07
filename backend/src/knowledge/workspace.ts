@@ -56,7 +56,21 @@ export async function workspaceData(actor:string,tenant?:string,filter?:Workspac
     const bases=(await db.query(`SELECT b.*,d.name AS domain_name,d.parent_id AS family_id,f.name AS family_name FROM knowledge_bases b LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id
       LEFT JOIN knowledge_publication_bindings binding ON binding.base_id=b.id WHERE binding.tenant IS NULL OR binding.tenant=$1 ORDER BY b.name,b.id`,[ctx.tenant])).rows;
     const domains=(await db.query("SELECT * FROM knowledge_domains ORDER BY sort,name,id")).rows;
-    return {tenant:ctx.tenant,rows,total,page,page_size:f.pageSize,page_count:pageCount,facets,stats,bases,domains};
+    const governance=(await db.query(`SELECT f.name AS family_name,d.name AS domain_name,b.id AS base_id,b.name AS base_name,
+      COUNT(DISTINCT doc.id)::int AS document_count,
+      COUNT(DISTINCT CASE WHEN scope.state='published' THEN doc.id END)::int AS scoped_document_count,
+      COUNT(DISTINCT bind.skill_id)::int AS skill_count,
+      COUNT(DISTINCT ras.agent_id)::int AS agent_count
+      FROM knowledge_bases b
+      LEFT JOIN knowledge_domains d ON d.id=b.domain_id
+      LEFT JOIN knowledge_domains f ON f.id=d.parent_id
+      LEFT JOIN knowledge_documents doc ON doc.base_id=b.id AND doc.status='published'
+      LEFT JOIN knowledge_document_scopes scope ON scope.document_id=doc.id
+      LEFT JOIN knowledge_bindings bind ON doc.id IS NOT NULL AND bind.selector::jsonb->'ids' ? doc.id AND bind.enabled=1
+      LEFT JOIN runtime_agent_skills ras ON ras.skill_id=bind.skill_id AND ras.enabled=1
+      WHERE b.status='active' AND b.id='kbase_546516e4dbc4'
+      GROUP BY f.name,d.name,b.id,b.name`)).rows[0] || null;
+    return {tenant:ctx.tenant,rows,total,page,page_size:f.pageSize,page_count:pageCount,facets,stats,bases,domains,governance};
   },{isolation:"REPEATABLE READ"});
 }
 
