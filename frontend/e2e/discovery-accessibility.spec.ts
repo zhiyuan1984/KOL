@@ -22,11 +22,12 @@ async function touchHitArea(control: Locator) {
   // Measure actual hit testing, including transparent target extensions.
   await expect.poll(() => control.evaluate(element => {
     const rect = element.getBoundingClientRect();
-    return [-21.5, 0, 21.5].every(x => [-21.5, 0, 21.5].every(y => {
+    const misses = [-21.5, 0, 21.5].flatMap(x => [-21.5, 0, 21.5].flatMap(y => {
       const hit = document.elementFromPoint(rect.x + rect.width / 2 + x, rect.y + rect.height / 2 + y);
-      return !!hit && element.contains(hit);
+      return hit && element.contains(hit) ? [] : [{ x, y, hit: hit?.tagName, className: hit?.className, text: hit?.textContent?.slice(0, 80) }];
     }));
-  })).toBe(true);
+    return { control: element.textContent, rect: rect.toJSON(), misses };
+  })).toMatchObject({ misses: [] });
 }
 
 for (const width of [820, 390]) test.describe(`touch targets ${width}`, () => {
