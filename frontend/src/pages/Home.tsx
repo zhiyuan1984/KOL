@@ -2540,7 +2540,6 @@ export default function Home() {
                   selectedCount={selectedKolIds.length}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
-                  onPrimary={followedWorkspace.openDetails}
                   publicPoolNewCount={poolWorkspace.poolLoaded ? poolWorkspace.newCount : null}
                   onOpenPublicPoolNew={() => {
                     poolWorkspace.setQuery("");
@@ -2558,6 +2557,8 @@ export default function Home() {
                   allCards={followedWorkspace.cards}
                   kolQuery={followedWorkspace.query}
                   sort={followedWorkspace.sort}
+                  stageFilter={followedWorkspace.stageFilter}
+                  situation={followedWorkspace.situation}
                   selectedKolIds={selectedKolIds}
                   hoveredKolId={followedWorkspace.hoveredId}
                   focusedKolId={followedWorkspace.focusedId}
@@ -2570,6 +2571,8 @@ export default function Home() {
                   onReload={() => void followedWorkspace.loadSurface()}
                   onQuery={followedWorkspace.setQuery}
                   onSort={followedWorkspace.setSort}
+                  onStageFilter={followedWorkspace.setStageFilter}
+                  onSituation={followedWorkspace.setSituation}
                   onHover={followedWorkspace.setHoveredId}
                   onFocus={followedWorkspace.setFocusedId}
                   onToggleSelect={toggleSelectedKol}

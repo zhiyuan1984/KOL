@@ -7,6 +7,7 @@ profile: lead
 output: kol_analyze_brief
 mcp: ["starrykol.pageKolProfiles", "starrykol.getKolProfileDetail"]
 required_inputs: ["kol_uids"]
+context: {"requires":["creator"],"prefers":[]}
 permissions: ["starrykol:read"]
 actions: ["claim_follow", "compose_draft", "confirm_send", "confirm_stage", "open_thread", "release_follow", "handoff", "retry_sync", "none"]
 aliases: ["红人分析", "KOL分析"]

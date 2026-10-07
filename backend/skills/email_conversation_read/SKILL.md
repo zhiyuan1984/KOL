@@ -8,6 +8,7 @@ output: task_result
 funnel: biz
 mcp: ["starrykol.getEmailConversation"]
 required_inputs: []
+context: {"requires":["conversation"],"prefers":[]}
 permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["读取邮件会话","查看邮件会话"]

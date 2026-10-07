@@ -8,6 +8,7 @@ output: task_result
 funnel: reach
 mcp: ["starrykol.getKolProfileDetail", "starrykol.updateKolProfile"]
 required_inputs: []
+context: {"requires":["creator"],"prefers":[]}
 permissions: ["starrykol:write"]
 actions: ["update"]
 aliases: ["更新达人状态","记录达人跟进"]
