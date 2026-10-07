@@ -32,15 +32,15 @@ export const PLAN_SCOPES: readonly PlanScope[] = ["today", "todo"];
 const PLAN_PHASE_COPY: Record<PlanScope, { "loading-memory": string; planning: string; refreshed: string; failed: string }> = {
   today: {
     "loading-memory": "正在读取当前任务",
-    planning: "Lucas正在高效为你规划今天的任务",
-    refreshed: "已按本轮规划刷新",
-    failed: "规划失败，仍可按下面任务操作",
+    planning: "Lucas正在整理今天的任务安排",
+    refreshed: "已按本次整理更新",
+    failed: "整理未完成，仍可按下面任务操作",
   },
   todo: {
     "loading-memory": "正在读取待办任务",
-    planning: "Lucas正在高效为你规划待办任务",
-    refreshed: "已按本轮规划刷新",
-    failed: "待办规划失败，仍可按下面任务操作",
+    planning: "Lucas正在整理待办事项",
+    refreshed: "已按本次整理更新",
+    failed: "整理未完成，现有待办仍可操作",
   },
 };
 
@@ -99,7 +99,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     scope: "today",
     cacheKey: TODAY_PLAN_CACHE_KEY,
     startEvent: TODAY_PLAN_START_EVENT,
-    boardIdleLabel: "启动今日任务",
+    boardIdleLabel: "生成今日安排",
     boardAgainLabel: "整理今日任务",
     boardRetryLabel: "重新规划今日计划",
     planNoun: "今日计划",

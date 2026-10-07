@@ -761,7 +761,9 @@ describe("plan provenance copy (single source of truth)", () => {
     expect(planSourceStatus({ ...fresh, generated_at: "" })).toBe("");
   });
   it("prefers snapshot.generated_at and never falls back to the current time", () => {
-    expect(planGeneratedLabel(fresh, "09:00")).toBe("08:12");
+    const generatedAt = new Date(String(fresh.generated_at));
+    const localTime = `${String(generatedAt.getHours()).padStart(2, "0")}:${String(generatedAt.getMinutes()).padStart(2, "0")}`;
+    expect(planGeneratedLabel(fresh, "09:00")).toBe(localTime);
     // no snapshot and no events: empty, not "now"
     expect(planGeneratedLabel(undefined, "")).toBe("");
     expect(planGeneratedLabel(undefined)).toBe("");
