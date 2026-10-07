@@ -68,7 +68,6 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
   card: PoolKol; selected: boolean; claimBusy: boolean; claimTarget: boolean; claimError?: string | null;
   claimed: boolean; onSelect: (on: boolean) => void; onClaim: () => void; onConfirm: () => void; onCancel: () => void;
 }) {
-  const intro = [card.direction, card.style].filter(Boolean).join(" · ") || card.region;
   // 评分只依据公开资料：缺项要点名，别让「未评分」变成一句没有信息量的话。
   const missingPublicMetrics = [
     card.metrics.followers ? null : "粉丝数",
@@ -87,6 +86,11 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
   const stage = card.public_stage?.label || "未首次建联";
   const highPotential = isHighPoolScore(card.assessment?.potential_score, card.assessment?.potential_confidence);
   const highRisk = isHighPoolScore(card.assessment?.risk_score, card.assessment?.risk_confidence);
+  // meta 行：方向/地区 · 入库时间（次要上下文；主页与评分占位保持相邻，见 e2e 断言）。
+  const contextBits = [
+    [card.direction, card.style].filter(Boolean).join(" · ") || card.region,
+    ingested(card.ingested_at),
+  ].filter((bit): bit is string => Boolean(bit));
 
   return <article className="pool-kol-row" data-pool-kol={card.kol_uid} data-pool-card data-kol-work-card data-selected={selected || undefined} data-claimed={claimed || undefined} data-pool-quality={metrics.length ? "ready" : "partial"}>
     <label className="pool-row-select"><input type="checkbox" data-pool-select={card.kol_uid} checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span className="sr-only">选择 {card.identity.display}</span></label>
@@ -96,19 +100,18 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
         <span className="pool-row-status" data-public-stage data-stage-code={card.public_stage?.code || undefined} data-overdue={isPoolOverdue(card) || undefined} data-stage-label>{stage}</span>
         {highPotential && <span className="pool-jev-badge is-potential" data-jev-potential title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.potential_confidence || 0) * 100)}%`}>高潜 {card.assessment?.potential_score}</span>}
         {highRisk && <span className="pool-jev-badge is-risk" data-jev-risk title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.risk_confidence || 0) * 100)}%`}>高风险 {card.assessment?.risk_score}</span>}</div>
+      <div className="pool-row-decision" data-pool-metrics>
+        {card.identity.platform && <span data-kol-chip="platform">{card.identity.platform}</span>}
+        {metrics.length ? metrics.map((metric) => <span key={metric.key} data-pool-metric={metric.key}><FactIcon type={metric.key} />{metric.label} <b>{metric.value}</b></span>) : <span className="pool-row-missing-data">公开指标待补充</span>}
+      </div>
       <div className="pool-row-meta" data-kol-scope>
-        {card.identity.platform && <span data-kol-chip="platform">{card.identity.platform}</span>}<span>在库</span>
+        {contextBits.map((bit, index) => <span key={index}>{bit}</span>)}
         {card.identity.profile_url && <a className="pool-profile-link" href={card.identity.profile_url} target="_blank" rel="noopener noreferrer" aria-label={`打开 ${card.identity.display} 的平台主页`} title={`打开 ${card.identity.display} 的平台主页`}>主页 <ExternalLinkIcon /></a>}
         <PoolScore card={card} />
         {scorePlaceholder && (
           <span className="pool-row-score is-missing" data-pool-score="missing" data-pool-score-state={scorePlaceholder.state} title={scorePlaceholder.title}>{scorePlaceholder.label}</span>
         )}
       </div>
-      <div className="pool-row-facts">
-        <span className="pool-row-metrics" data-pool-metrics>{metrics.length ? metrics.map((metric) => <span key={metric.key} data-pool-metric={metric.key}><FactIcon type={metric.key} />{metric.label} <b>{metric.value}</b></span>) : <span className="pool-row-missing-data">公开指标待补充</span>}</span>
-        <span className="pool-row-ingested" data-pool-ingested><FactIcon type="ingested" />{ingested(card.ingested_at)}</span>
-      </div>
-      {intro && <p className="pool-row-intro" data-pool-public-fields title={intro}>{intro}</p>}
       {claimTarget && <ClaimFollowConfirm card={card} busy={claimBusy} error={claimError} onConfirm={onConfirm} onCancel={onCancel} />}
     </div>
     <div className="pool-row-actions"><button type="button" className="pool-claim-button" data-pool-claim data-home-entry="claim-kol" disabled={claimBusy || claimed} onClick={onClaim}>{claimed ? "已领取 ✓" : claimBusy ? "正在领取…" : "领取跟进"}</button></div>

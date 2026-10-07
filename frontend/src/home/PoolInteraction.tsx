@@ -43,7 +43,7 @@ export default function PoolInteraction({
 }: {
   totalCount: number;
   selectedCount: number;
-  maintenanceBusy?: "avatars" | "jev" | "cleanup" | null;
+  maintenanceBusy?: "jev" | null;
   maintenanceNotice?: string | null;
   maintenanceError?: string | null;
   interaction?: ReactNode;

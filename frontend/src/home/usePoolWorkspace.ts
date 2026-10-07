@@ -3,10 +3,7 @@ import type { HomeSurface } from "./surfaceError";
 import {
   assessPoolWithJev,
   claimPoolKol,
-  cleanupPoolMissingHomepage,
-  enrichPoolAvatars,
   loadHomePool,
-  previewPoolCleanup,
   releaseFollowedKol,
   syncHomePoolIndex,
 } from "./kolSurfaceApi";
@@ -101,10 +98,10 @@ export function usePoolWorkspace(options: {
   const [syncError, setSyncError] = useState<string | null>(null);
   /** 同步完成后的如实回执（含「其中 N 条缺公开指标」），只在员工点了同步后出现。 */
   const [syncNotice, setSyncNotice] = useState("");
-  const [maintenanceBusy, setMaintenanceBusy] = useState<"avatars" | "jev" | "cleanup" | null>(null);
+  /** 公海员工面只保留 Jev 评分一种维护动作；头像补全/无主页清理是治理面，不在员工面装配（使用≠治理）。 */
+  const [maintenanceBusy, setMaintenanceBusy] = useState<"jev" | null>(null);
   const [maintenanceNotice, setMaintenanceNotice] = useState<string | null>(null);
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
-  const [cleanupPreview, setCleanupPreview] = useState<{ candidateCount: number; protectedActiveFollows: number } | null>(null);
   const removalTimerRef = useRef<number | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
@@ -180,24 +177,8 @@ export function usePoolWorkspace(options: {
     }
   }, [syncBusy, loadSurface]);
 
-  const enrichAvatars = useCallback(async () => {
-    if (maintenanceBusy) return;
-    setMaintenanceBusy("avatars");
-    setMaintenanceError(null);
-    setMaintenanceNotice(null);
-    try {
-      const result = await enrichPoolAvatars();
-      await loadSurface(true);
-      setMaintenanceNotice(result.message);
-    } catch (err) {
-      setMaintenanceError(err instanceof Error ? err.message : "公开头像补全失败，请稍后重试");
-    } finally {
-      setMaintenanceBusy(null);
-    }
-  }, [maintenanceBusy, loadSurface]);
-
   const assessWithJev = useCallback(async (kolUids?: string[], criteria?: Record<string, unknown> | null) => {
-    if (maintenanceBusy) throw new Error("已有评分或维护任务正在进行，请稍后重试");
+    if (maintenanceBusy) throw new Error("评分正在进行，请稍后重试");
     setMaintenanceBusy("jev");
     setMaintenanceError(null);
     setMaintenanceNotice(null);
@@ -215,47 +196,6 @@ export function usePoolWorkspace(options: {
       setMaintenanceBusy(null);
     }
   }, [loadSurface, maintenanceBusy]);
-
-  const requestCleanupPreview = useCallback(async () => {
-    if (maintenanceBusy) return;
-    setMaintenanceBusy("cleanup");
-    setMaintenanceError(null);
-    setMaintenanceNotice(null);
-    try {
-      const preview = await previewPoolCleanup();
-      setCleanupPreview(preview);
-      setMaintenanceNotice(preview.candidateCount
-        ? `检测到 ${preview.candidateCount} 条无主页公海档案，待确认删除。`
-        : "没有可清理的无主页公海档案。");
-    } catch (err) {
-      setMaintenanceError(err instanceof Error ? err.message : "无主页档案预览失败");
-    } finally {
-      setMaintenanceBusy(null);
-    }
-  }, [maintenanceBusy]);
-
-  const confirmCleanup = useCallback(async () => {
-    if (!cleanupPreview || maintenanceBusy) return;
-    setMaintenanceBusy("cleanup");
-    setMaintenanceError(null);
-    try {
-      const result = await cleanupPoolMissingHomepage(cleanupPreview.candidateCount);
-      await loadSurface(true);
-      setCleanupPreview(null);
-      setMaintenanceNotice(`已删除 ${result.deleted} 条无主页公海档案。`);
-    } catch (err) {
-      setMaintenanceError(err instanceof Error ? err.message : "无主页档案清理失败，请重新预览");
-      setCleanupPreview(null);
-    } finally {
-      setMaintenanceBusy(null);
-    }
-  }, [cleanupPreview, maintenanceBusy, loadSurface]);
-
-  const cancelCleanup = useCallback(() => {
-    if (maintenanceBusy) return;
-    setCleanupPreview(null);
-    setMaintenanceNotice(null);
-  }, [maintenanceBusy]);
 
   const requestClaim = useCallback((card: PoolKol) => {
     setClaimError(null);
@@ -356,12 +296,7 @@ export function usePoolWorkspace(options: {
     maintenanceBusy,
     maintenanceNotice,
     maintenanceError,
-    cleanupPreview,
-    enrichAvatars,
     assessWithJev,
-    requestCleanupPreview,
-    confirmCleanup,
-    cancelCleanup,
     claimTarget,
     claimBusy,
     claimError,
