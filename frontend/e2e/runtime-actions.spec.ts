@@ -190,8 +190,10 @@ test("home discovery submits to the lead agent without calling the retired crawl
   // 新流程：提交后留在 AI发现 面核对实际参数、再确认采集，不跳转；任务会话由常驻入口打开。
   await expect(page).toHaveURL(/tab=discovery/);
   await expect(page.locator('[data-discovery-event="params"]')).toBeVisible();
+  const openSession = page.locator("[data-discovery-open-session]").first();
+  await expect(openSession).toHaveAttribute("href", `/s/${savedWorkspace.session_id}`);
   const initialTask = page.waitForResponse(response => response.request().method() === "GET" && readsWorkspaceTask(response));
-  await page.locator("[data-discovery-open-session]").first().click();
+  await openSession.click();
   const initialTaskResponse = await initialTask;
   expect(initialTaskResponse.ok()).toBeTruthy();
   await expect(page).toHaveURL(/\/s\/[^/]+$/);

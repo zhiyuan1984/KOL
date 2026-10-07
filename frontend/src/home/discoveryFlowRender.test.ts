@@ -4,9 +4,40 @@ import { renderToStaticMarkup } from "react-dom/server";
 import DiscoveryConfirmCard from "./DiscoveryConfirmCard";
 import DiscoveryParamsCheck from "./DiscoveryParamsCheck";
 import DiscoveryRunEvents from "./DiscoveryRunEvents";
+import DiscoveryRuntimeResults from "./DiscoveryRuntimeResults";
+import { defaultDiscoveryBrief } from "./discoveryTemplate";
 import DiscoverySkillEvent, { DiscoveryGuidanceEvent } from "./DiscoverySkillEvent";
 import type { DiscoveryProcessStep } from "./discoveryEvents";
-import type { SkillTemplate } from "../api";
+import type { RuntimeActionView, SkillTemplate } from "../api";
+
+describe("discovery result placeholder honesty", () => {
+  const startAction: RuntimeActionView = {
+    id: "result-placeholder", skill_id: "crawler_collect", operation: "start_crawl",
+    arguments: {}, state: "pending", risk: "L3", confirmation_version: "v1",
+    blocked_reason: null, receipt: null, error_code: null,
+  };
+  const render = (actions: RuntimeActionView[]) => renderToStaticMarkup(createElement(DiscoveryRuntimeResults, {
+    actions, brief: defaultDiscoveryBrief(),
+  }));
+
+  it("requests confirmation only before an attempt exists", () => {
+    expect(render([])).toContain("确认采集范围后");
+    expect(render([startAction])).toContain("确认采集范围后");
+  });
+
+  it.each(["queued", "rejected", "failed", "cancelled"])("does not request confirmation again after %s", state => {
+    const html = render([{ ...startAction, state }]);
+    expect(html).toContain("尚未取得候选资料");
+    expect(html).toContain("执行状态与恢复入口见中栏");
+    expect(html).not.toContain("确认采集范围后");
+  });
+
+  it("uses the execution receipt even when the action remains pending", () => {
+    const html = render([{ ...startAction, execution: { id: "accepted", status: "queued", error_code: null } }]);
+    expect(html).toContain("尚未取得候选资料");
+    expect(html).not.toContain("确认采集范围后");
+  });
+});
 
 const TEMPLATE: SkillTemplate = {
   id: "skill-template:crawler_collect",

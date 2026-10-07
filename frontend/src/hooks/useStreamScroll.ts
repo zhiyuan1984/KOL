@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 /**
  * 中栏时间流的统一滚动规则（会话页与首页工作台同一套，DESIGN §10.2）：
  * - 只有一条滚动轴；停在底部时，新内容自动跟随，最新的始终贴着输入框上方。
- * - 员工一旦上翻，就不再抢滚动；焦点在流内表单里时同样不跟随。
+ * - 员工一旦上翻，就不再抢滚动；焦点在流内交互控件上时同样不跟随。
  * - 内容超过一屏时给一个切换按钮：不在底部 →「滚到底部」，在底部 →「滚到顶部」。
  *
  * `follow` 为 false 时（首页没有在产出的模式）不跟随；它从 false 变 true 的那一刻
@@ -20,7 +20,7 @@ export function useStreamScroll({
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const stick = useRef(start === "bottom");
-  const focusInForm = useRef(false);
+  const focusInControl = useRef(false);
   const followRef = useRef(follow);
   followRef.current = follow;
   const [overflow, setOverflow] = useState(false);
@@ -41,7 +41,7 @@ export function useStreamScroll({
 
   useLayoutEffect(() => {
     const el = ref.current;
-    focusInForm.current = false;
+    focusInControl.current = false;
     if (!el) return;
     if (start === "bottom") {
       el.scrollTop = el.scrollHeight;
@@ -73,7 +73,7 @@ export function useStreamScroll({
       for (const child of Array.from(el.children)) resize.observe(child);
     };
     function track() {
-      if (followRef.current && stick.current && !focusInForm.current && el) el.scrollTop = el.scrollHeight;
+      if (followRef.current && stick.current && !focusInControl.current && el) el.scrollTop = el.scrollHeight;
       measure();
     }
     const mutation = new MutationObserver(() => {
@@ -85,8 +85,11 @@ export function useStreamScroll({
     watchChildren();
     const onFocusChange = () => {
       const active = document.activeElement as HTMLElement | null;
-      focusInForm.current = Boolean(active && el.contains(active) && active.closest("input, textarea, select, [contenteditable='true']"));
-      if (!focusInForm.current) track();
+      // Mouse down focuses a link/button before mouse up activates it. Scrolling
+      // here can move that target away and lose the click during a live update.
+      focusInControl.current = Boolean(active && el.contains(active)
+        && active.closest("input, textarea, select, button, a[href], [role='button'], [contenteditable='true']"));
+      if (!focusInControl.current) track();
     };
     el.addEventListener("focusin", onFocusChange);
     el.addEventListener("focusout", onFocusChange);
