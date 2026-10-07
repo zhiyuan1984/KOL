@@ -1347,6 +1347,9 @@
   font-size: var(--ds-font-helper);
 }
 
+/* 表头全选框：与计数文案行内对齐。 */
+.kbv-list-head-select { display: inline-flex; align-items: center; gap: var(--space-2); }
+
 .kbv-pagination {
   display: flex;
   align-items: center;
@@ -1387,8 +1390,10 @@
 }
 
 .kbv-browser-record .kbv-record-title {
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
 }
 
 .kbv-browser-record-meta {
@@ -1396,6 +1401,8 @@
   gap: var(--space-2);
   align-items: baseline;
   color: var(--text-muted);
+  flex: 0 0 auto;
+  overflow: hidden;
   font-size: var(--ds-font-helper);
   white-space: nowrap;
 }
@@ -1699,13 +1706,10 @@
 .kbv-filter-browser .kbv-filter-block .kbv-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 10%, var(--bg)); text-decoration: none; }
 .kbv-filter-browser .kbv-browser { overflow-y: auto; }
 .kbv-filter-browser .kbv-browser-records { max-height: none; overflow: visible; gap: var(--space-1); }
-/* §9.1 默认档：管理端列表行 92px → 44px。标题与元信息合成单行（column → row），
-   标题与元信息各自单行截断，完整值由行上的 title 兜底（LibraryPane）。 */
-.kbv-filter-browser .kbv-browser-record { flex-direction: row; align-items: center; min-height: var(--table-row-h); border-bottom: 0; gap: var(--space-2); }
 .kbv-filter-browser .kbv-browser-record[aria-current="true"] { box-shadow: none; }
 .kbv-filter-browser .kbv-record-heading { flex: 1 1 auto; min-width: 0; }
 .kbv-filter-browser .kbv-record-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.kbv-filter-browser .kbv-browser-record-meta { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; white-space: nowrap; padding: 0; align-items: center; font-weight: 400; overflow: hidden; }
+.kbv-filter-browser .kbv-browser-record-meta { flex: 0 0 auto; min-width: 0; flex-wrap: nowrap; white-space: nowrap; padding: 0; align-items: center; font-weight: 400; overflow: hidden; max-width: 60%; }
 .kbv-filter-browser .kbv-record-icon { color: var(--accent-text); }
 .kbv-filter-browser .kbv-admin-detail { flex: 1 0 auto; overflow: visible; border-width: 1px; }
 .kbv-filter-browser .kbv-document-body { flex: none; overflow: visible; padding: var(--space-5); font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); }
@@ -1720,8 +1724,8 @@
 .kbv-filter-browser .kbv-document-history { margin-top: var(--space-3); font-size: var(--ds-font-sm); }
 .kbv-filter-browser .kbv-document-links { margin-top: var(--space-3); }
 @container (max-width: 719px) {
-  .kbv-filter-browser .kbv-browser-record { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
-  .kbv-filter-browser .kbv-browser-record-meta { justify-content: flex-start; padding-left: calc(var(--icon-md) + var(--space-2)); flex-wrap: wrap; }
+  .kbv-filter-browser .kbv-browser-record { display: flex; flex-direction: row; align-items: center; gap: var(--space-2); }
+  .kbv-filter-browser .kbv-browser-record-meta { justify-content: flex-end; padding-left: 0; flex-wrap: nowrap; white-space: nowrap; overflow: hidden; }
 }
 @media (max-height: 700px) {
   .kbv-filter-browser .kbv-document-body { padding: var(--space-3) var(--space-4); }
@@ -1790,9 +1794,13 @@
 #root .workbench .kbv-filter-browser .btn { min-height:var(--control-h-lg);padding:var(--space-1) var(--space-3); }
 .kbv-filter-browser .kbv-search { height:var(--control-h-lg); }
 .kbv-filter-browser .kbv-browser-records { max-height:none;overflow:visible;padding:0; }
-/* §9.1 默认档：管理端列表行落到 --table-row-h，标题与元信息合成单行。 */
-.kbv-filter-browser .kbv-browser-record { display:flex;flex-direction:row;align-items:center;gap:var(--space-2);padding:var(--space-1) var(--space-2);border-radius:var(--radius-control);min-height:var(--table-row-h); }
+/* §9.1：管理端列表行 36px（2026-10-07 从 44px 收紧）。标题与元信息合成单行。 */
+.kbv-filter-browser .kbv-browser-record { display:flex;flex-direction:row;align-items:center;gap:var(--space-2);padding:var(--space-1) var(--space-2);border-radius:var(--radius-control);min-height:var(--kb-admin-row-h);border-bottom:0; }
 .kbv-filter-browser .kbv-browser-record-meta { justify-content:flex-end;padding-left:0; }
+/* 列表内状态 chip 收紧到 20px，避免撑高 36px 行。 */
+.kbv-filter-browser .kbv-browser-record-meta .kbv-chip { min-height: 20px; padding: 0 var(--space-1); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
+/* 列表内类型标签去掉上下 padding，避免撑高 36px 行。 */
+.kbv-filter-browser .kbv-record-kind { padding-top: 0; padding-bottom: 0; }
 .kbv-filter-browser .kbv-record-title { display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;overflow-wrap:normal; }
 .kbv-filter-browser .kbv-browser-record-date,.kbv-record-kind { color:var(--text-muted); }
 .kbv-filter-browser .kbv-browser-list { border:0;padding:0;margin:0; }
@@ -1983,6 +1991,7 @@
   gap: var(--space-2);
   padding-left: var(--space-4);
   border-bottom: 1px solid var(--border);
+  min-width: 0;
 }
 .kbv-browser-record-wrap:last-child { border-bottom: 0; }
 .kbv-browser-record-wrap .kbv-browser-record {

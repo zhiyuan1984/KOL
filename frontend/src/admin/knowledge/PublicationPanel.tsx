@@ -81,7 +81,7 @@ export default function PublicationPanel({
     [actionError, setActionError] = useState("");
   const confirm = useAdminConfirm(),
     lock = useRef(false);
-  const template = data?.templates.find((t) => t.id === templateId);
+  const template = data?.templates?.find((t) => t.id === templateId);
   const p = data?.publication;
   const waiting = p?.status === "waiting";
   useEffect(()=>{onDirty?.(mode==="review" && Boolean(releaseNote || Object.keys(values).length));},[mode,releaseNote,values,onDirty]);
@@ -396,10 +396,10 @@ export default function PublicationPanel({
         </div>
       )}
       {data && !p && <p role="status">{data.submission?.allowed===false?data.submission.reason:"待提交审批"}</p>}
-      {mode === "detail" && data && !waiting && p?.status !== "published" && data.submission?.allowed!==false && <WorkspaceActions><button className={primaryCta === "initiate" ? "btn work" : "kbv-text-action"} disabled={blocked || !data.intake.allowed} onClick={onInitiate}>提交审批</button></WorkspaceActions>}
+      {mode === "detail" && data && !waiting && p?.status !== "published" && data.submission?.allowed!==false && <WorkspaceActions><button className={primaryCta === "initiate" ? "btn work" : "kbv-text-action"} disabled={blocked || !data.intake?.allowed} onClick={onInitiate}>提交审批</button></WorkspaceActions>}
       {mode === "review" && data && !waiting && p?.status !== "published" && (
         <>
-          {!data.intake.allowed && <p role="alert">{data.intake.reason}</p>}
+          {!data.intake?.allowed && <p role="alert">{data.intake?.reason}</p>}
           {data.submission?.allowed===false && <p role="alert">{data.submission.reason}</p>}
           {!data.templates.length ? (
             <div className="kbv-document-notice" role="alert">
@@ -486,7 +486,7 @@ export default function PublicationPanel({
                       checking ||
                       !check?.allowed ||
                       !template ||
-                      !data.intake.allowed
+                      !data.intake?.allowed
                       || data.submission?.allowed===false
                     }
                     onClick={() => void submit()}

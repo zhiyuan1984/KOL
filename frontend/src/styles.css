@@ -134,6 +134,7 @@
   --table-row-h-relaxed: 52px;   /* 含双行内容/对象卡的行 */
   --table-row-h: 44px;           /* 中台数据面默认档 */
   --table-row-h-compact: 32px;   /* 行数 >50 / 用户显式切换 */
+  --kb-admin-row-h: 36px;        /* 管理端知识列表行（2026-10-07 收紧：44px → 36px） */
   --table-cell-pad-y: 12px;      /* 默认档单元格上下 padding */
   --table-header-h: 36px;        /* 表头：字重 500 + --text-quiet + --bg-subtle + sticky */
   --stat-value-font: 20px;       /* §9.2 KPI 数值，数据面唯一允许的字号例外 */

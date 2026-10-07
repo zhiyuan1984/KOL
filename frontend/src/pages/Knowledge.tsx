@@ -13,8 +13,6 @@ import {
   KB_EMPTY_SEARCH,
   KB_EMPTY_SCOPE,
   KB_FILTER_LABEL,
-  KB_LEAD,
-  KB_LOADING,
   KB_PROVENANCE_LABEL,
   KB_PROVENANCE_TITLE,
   KB_SCOPE_CLEAR,
@@ -423,18 +421,6 @@ export default function Knowledge() {
 
   return (
     <section className="kbv kbv-page" data-kb-page="mine" data-kb-v2="home">
-      <header className="kbv-top" data-kbv-top>
-        <div className="kbv-heading">
-          <h1>知识库</h1>
-          {loaded
-            ? <span className="kbv-lead">{KB_LEAD}</span>
-            : <span className="kbv-lead" data-kb-loading>{KB_LOADING}</span>}
-        </div>
-        <div className="kbv-actions">
-          <small className="muted kbv-top-note">仅展示已发布、且在你的范围内可见的知识</small>
-        </div>
-      </header>
-
       <div className="kbv-workspace">
         <section className="kbv-list" aria-label="知识列表" data-kbv-list>
           {loaded ? (
@@ -649,8 +635,8 @@ export default function Knowledge() {
           ) : null}
         </section>
 
+        {selectedRow ? (
         <aside className="kbv-rail" aria-label="知识详情" data-kb-detail>
-          {selectedRow ? (
             <div className="kbv-rail-inner" data-kb-preview={selectedRow.id}>
               <div className="kbv-rail-head">
                 <div className="kbv-title-row">
@@ -801,10 +787,8 @@ export default function Knowledge() {
                 </div>
               </footer>
             </div>
-          ) : (
-            <p className="kbv-empty">{loaded ? "从列表选择一条知识，查看内容与来源。" : KB_LOADING}</p>
-          )}
         </aside>
+        ) : null}
       </div>
     </section>
   );

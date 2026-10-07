@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { kbDateOnly, kbDocStatusLabel, kbExpiryLabel, kbExpiryState, kindLabel, statusLabel } from "../../knowledgeCopy";
 import type { KbAssetRow } from "./shared";
 import KbvIcon from "../../knowledgeIcons";
@@ -33,11 +33,39 @@ export default function LibraryPane({
   const renewDateRef = useRef<HTMLInputElement>(null);
   const selected = selection || [];
   const batchable = Boolean(onToggleSelect && (onBatchRenew || onBatchArchive) && selected.length > 0);
+  // 全选：只作用于当前页可见行。
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  const allChecked = rows.length > 0 && rows.every((row) => selected.includes(row.id));
+  const someChecked = !allChecked && rows.some((row) => selected.includes(row.id));
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someChecked;
+  }, [someChecked]);
+  const toggleSelectAll = () => {
+    if (!onToggleSelect) return;
+    if (allChecked) {
+      rows.forEach((row) => { if (selected.includes(row.id)) onToggleSelect(row.id); });
+    } else {
+      rows.forEach((row) => { if (!selected.includes(row.id)) onToggleSelect(row.id); });
+    }
+  };
 
   return (
     <section className="kbv-browser-list" aria-label="知识浏览" data-kbv-list>
       <header className="kbv-browser-list-head">
-        <span data-kbv-count>{totalCount} 条知识{loading && rows.length > 0 ? "（更新中…）" : ""}</span>
+        <span className="kbv-list-head-select">
+          {onToggleSelect && rows.length > 0 ? (
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              className="kbv-record-check"
+              aria-label="全选本页"
+              title="全选本页"
+              checked={allChecked}
+              onChange={toggleSelectAll}
+            />
+          ) : null}
+          <span data-kbv-count>{totalCount} 条知识{loading && rows.length > 0 ? "（更新中…）" : ""}</span>
+        </span>
         {batchable ? (
           <div className="kbv-batch-bar" data-kbv-batch role="toolbar" aria-label="批量操作">
             <span>已选 {selected.length} 条</span>
@@ -119,8 +147,10 @@ function RecordRow({ row, selected, checked, onToggleSelect, onSelect }: {
   const expiryText = expiry ? kbExpiryLabel(row.expires_at) : "";
   const dateText = row.updated_at ? kbDateOnly(row.updated_at) : "";
   const citeCount = Number(row.cite_count_30d || 0);
+  // 密度：引用与到期二选一——有到期风险时显示到期，否则显示引用；都有时到期优先。
+  const showCite = !expiry && citeCount > 0;
   // 单行行式下元信息会被裁切，完整值由 title 兜底（DESIGN §9.1 长文本规则）。
-  const metaTitle = [kindText, statusText, expiryText, dateText].filter(Boolean).join(" · ");
+  const metaTitle = [kindText, statusText, showCite ? `引用 ${citeCount} 次（近30天）` : "", expiryText, dateText].filter(Boolean).join(" · ");
 
   return (
     <div className="kbv-browser-record-wrap" data-kbv-record-wrap={row.id}>
@@ -141,7 +171,7 @@ function RecordRow({ row, selected, checked, onToggleSelect, onSelect }: {
         <span className="kbv-browser-record-meta" title={metaTitle}>
           <span className="kbv-record-kind">{kindText}</span>
           <span className={`kbv-status ${statusClass}`}>{statusText}</span>
-          {citeCount > 0 ? <span className="kbv-record-cite" data-kbv-cite={row.id} title="近 30 天被引用次数">引用 {citeCount} 次</span> : null}
+          {showCite ? <span className="kbv-record-cite" data-kbv-cite={row.id} title="近 30 天被引用次数">引用 {citeCount} 次</span> : null}
           {expiry ? <span className={`kbv-expiry is-${expiry}`} data-kbv-expiry={expiry}>{expiryText}</span> : null}
           {dateText ? <span className="kbv-record-date">{dateText}</span> : null}
         </span>
