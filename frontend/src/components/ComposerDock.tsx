@@ -2,6 +2,7 @@ import { fieldLabel } from "../labels";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type ComposeInput, type KnowledgeRow, type SkillTemplate } from "../api";
 import ChipRail from "../composer/ChipRail";
+import { mergeSubjectIntoText } from "../composer/addresses";
 import { expertChipLabel, isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import ModelTierControl from "../composer/ModelTierControl";
@@ -91,10 +92,16 @@ export type MailComposerMeta = {
   message?: string;
   digest?: string;
   mailCount?: number;
+  fromSource?: string;
+  toSource?: string;
+  senderCandidates: Array<{ email: string; label: string; last_at?: string | null }>;
+  recipientCandidates: Array<{ email: string; label: string; last_at?: string | null }>;
   preparedPendingApply: boolean;
   onSubjectChange: (subject: string) => void;
   onApplyPrepared: () => void;
   onSelectCandidate: (knowledgeId: string) => void;
+  onSelectSender: (email: string) => void;
+  onSelectRecipient: (email: string) => void;
   onContextChange: (collaborationId: string | undefined, body: string) => void;
   composeInput: (body: string) => ComposeInput | undefined;
 };
@@ -886,7 +893,7 @@ export default function ComposerDock({
   );
   const busy = disabled || uploading;
   const mailBlocked = Boolean(mailCompose?.active && (
-    mailCompose.phase === "preparing" || !mailCompose.knowledgeId || !mailCompose.subject.trim()
+    mailCompose.phase === "preparing" || (mailCompose.knowledgeId ? !mailCompose.subject.trim() : false)
   ));
   const sendDisabled = !running && (busy || !canSend || discoveryBlocked || mailBlocked);
   const workspace = variant === "workspace";
@@ -925,6 +932,10 @@ export default function ComposerDock({
       || attachments.map((a) => a.name).join("、")
       || [...railSkillLabels, ...(lockedForSubmit ? [lockedForSubmit.label] : [])].join("、")
       || "";
+    // 首封（没套模板）：提交前把主题栏合并进口令文本，缺项由服务端校验。
+    const submitText = mailCompose?.active && !mailCompose.knowledgeId
+      ? mergeSubjectIntoText(text, mailCompose.subject)
+      : text;
     const scope: ComposerScope = {
       skills: [...railSkillIds, ...(lockedForSubmit ? [lockedForSubmit.id] : [])],
       knowledge_bases: railChips.filter((chip) => chip.kind === "kb").map((chip) => chip.id),
@@ -939,7 +950,7 @@ export default function ComposerDock({
       intent: entryIntent,
     };
     onSubmit({
-      text,
+      text: submitText,
       intent: mailCompose?.active ? "email_compose" : intent,
       collaboration_id: mailCompose?.collaborationId || selectedProject?.id,
       knowledge_id: mailCompose?.knowledgeId || lockedKnowledgeId || kbChips[0]?.id || undefined,
@@ -1074,10 +1085,44 @@ export default function ComposerDock({
             {mailCompose.templateSource ? <span>来源：知识库</span> : null}
             {mailCompose.knowledgeVersion ? <span data-mail-template-version>发布版 v{mailCompose.knowledgeVersion}</span> : null}
           </div>
-          {(mailCompose.from || mailCompose.to?.length) ? (
-            <p className="composer-template-preview-excerpt" data-mail-compose-addresses>
-              {mailCompose.from ? `发件：${mailCompose.from}` : ""}{mailCompose.from && mailCompose.to?.length ? " · " : ""}{mailCompose.to?.length ? `收件：${mailCompose.to.join("、")}` : ""}
-            </p>
+          <p className="composer-template-preview-excerpt" data-mail-compose-addresses>
+            {mailCompose.from ? `发件：${mailCompose.from}` : "发件：待选"}
+            {mailCompose.fromSource ? `（${mailCompose.fromSource}）` : ""}
+            {" · "}
+            {mailCompose.to?.length ? `收件：${mailCompose.to.join("、")}` : "收件：待补"}
+            {mailCompose.toSource ? `（${mailCompose.toSource}）` : ""}
+          </p>
+          {mailCompose.senderCandidates.length ? (
+            <div className="composer-mail-candidates" data-mail-compose-sender-candidates>
+              <span className="composer-mail-candidates-label">发件箱候选：</span>
+              {mailCompose.senderCandidates.map((candidate) => (
+                <button
+                  key={candidate.email}
+                  type="button"
+                  className="btn ghost sm"
+                  data-mail-compose-sender-candidate={candidate.email}
+                  onClick={() => mailCompose.onSelectSender(candidate.email)}
+                >
+                  {candidate.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {mailCompose.recipientCandidates.length ? (
+            <div className="composer-mail-candidates" data-mail-compose-recipient-candidates>
+              <span className="composer-mail-candidates-label">收件人候选：</span>
+              {mailCompose.recipientCandidates.map((candidate) => (
+                <button
+                  key={candidate.email}
+                  type="button"
+                  className="btn ghost sm"
+                  data-mail-compose-recipient-candidate={candidate.email}
+                  onClick={() => mailCompose.onSelectRecipient(candidate.email)}
+                >
+                  {candidate.label}
+                </button>
+              ))}
+            </div>
           ) : null}
           {mailCompose.digest ? (
             <p className="composer-template-preview-excerpt" data-mail-compose-digest>

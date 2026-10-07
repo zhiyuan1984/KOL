@@ -44,6 +44,7 @@ export const TASK_CONTEXT_KEYS = [
   "creator",
   "creator_filter",
   "risk_scope",
+  "recipient",
 ] as const;
 export type TaskContextKey = (typeof TASK_CONTEXT_KEYS)[number];
 /** Only result types with a Host-owned validator may opt into automatic memory writes. */

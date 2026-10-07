@@ -26,10 +26,16 @@ export type MailComposeView = {
   message?: string;
   digest?: string;
   mailCount?: number;
+  fromSource?: string;
+  toSource?: string;
+  senderCandidates: Array<{ email: string; label: string; last_at?: string | null }>;
+  recipientCandidates: Array<{ email: string; label: string; last_at?: string | null }>;
   preparedPendingApply: boolean;
   onSubjectChange: (subject: string) => void;
   onApplyPrepared: () => void;
   onSelectCandidate: (knowledgeId: string) => void;
+  onSelectSender: (email: string) => void;
+  onSelectRecipient: (email: string) => void;
   onContextChange: (collaborationId: string | undefined, body: string) => void;
 };
 
@@ -48,9 +54,15 @@ type PreparedEditor = NonNullable<EmailComposePrepareResponse["editor"]>;
 export function useMailComposeFlow({
   onApplyBody,
   onPrepared,
+  onApplyAddresses,
 }: {
   onApplyBody: (body: string) => void;
   onPrepared?: (response: EmailComposePrepareResponse) => void;
+  /**
+   * 拿到收发件地址就调用：调用方只替换输入框里的 [发件邮箱]/[收件邮箱] 占位符，
+   * 不动人已经写的内容。无合作的 needs_context 也会带回地址。
+   */
+  onApplyAddresses?: (from: string, to: string[]) => void;
 }) {
   const [phase, setPhase] = useState<MailComposePhase>("idle");
   const [subject, setSubject] = useState("");
@@ -102,11 +114,19 @@ export function useMailComposeFlow({
         scene_hint: input.scene_hint,
         variables: input.variables,
         object_refs: input.object_refs,
+        mailbox: input.mailbox,
+        conversation_id: input.conversation_id,
+        to: input.to,
       }, nextController.signal);
       if (sequence !== requestSequence.current || nextController.signal.aborted || !activeRef.current) return response;
 
       setPrepared(response);
       const editor = response.editor;
+      // 收发件地址一到就交给调用方做占位符替换（只换 [发件邮箱]/[收件邮箱]）；
+      // 无合作的 needs_context 也会带回地址，同样替换。
+      if (editor && (editor.from || editor.to.length) && onApplyAddresses) {
+        onApplyAddresses(editor.from, editor.to);
+      }
       if (editor && (response.status === "ready" || response.status === "needs_fields")) {
         // A user may have typed while the deterministic prepare request was in
         // flight. Keep that body authoritative and offer an explicit apply.
@@ -190,6 +210,10 @@ export function useMailComposeFlow({
     message,
     digest: prepared?.digest,
     mailCount: prepared?.mail_count,
+    fromSource: prepared?.sources?.from,
+    toSource: prepared?.sources?.to,
+    senderCandidates: prepared?.sender_candidates || [],
+    recipientCandidates: prepared?.recipient_candidates || [],
     preparedPendingApply: Boolean(pendingEditor),
     onSubjectChange: (next) => {
       activeRef.current = true;
@@ -208,6 +232,18 @@ export function useMailComposeFlow({
       const previous = lastPrepareInput.current;
       if (!previous || !knowledgeId) return;
       void prepare({ ...previous, knowledge_id: knowledgeId });
+    },
+    onSelectSender: (email) => {
+      const previous = lastPrepareInput.current;
+      if (!previous || !email) return;
+      // 发件箱候选：按「通讯页选中」档重新解析。
+      void prepare({ ...previous, mailbox: email });
+    },
+    onSelectRecipient: (email) => {
+      const previous = lastPrepareInput.current;
+      if (!previous || !email) return;
+      // 收件人候选：按「口令写明」档重新解析（服务端第 1 档）。
+      void prepare({ ...previous, to: email });
     },
   };
 

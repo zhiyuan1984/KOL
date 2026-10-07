@@ -17,10 +17,13 @@ import { extractTaskEntities } from "../tasks/resolver.js";
 import type { Json, Row } from "../types.js";
 import { composeContextForCollaboration } from "./compose-loop.js";
 import { composeSenderFor, type ComposeSender, type ComposeSenderSource } from "./compose-sender.js";
+import { composeRecipientFor, type ComposeRecipient, type ComposeRecipientSource } from "./compose-recipient.js";
+import { readPersonDigest } from "./mail-memory-job.js";
 import { collabById } from "./intent.js";
 import { assertCollaborationInScope, brandScope, scopedCollaborationSearch } from "./inbound-scope.js";
 import { preparedTemplateChoice, resolveApplicableMailTemplates, type UsableTemplate } from "./knowledge.js";
-import { conversationRowOf, currentMailbox, findMailThread } from "./mail-memory.js";
+import { conversationRowOf, currentMailbox, findMailThread, mailboxBindings } from "./mail-memory.js";
+import { normalizeEmail } from "./identity.js";
 import type { ThreadDigest } from "./mail-summary.js";
 
 export type ContextSource = "explicit" | "object_refs" | "session" | "text" | "account_binding" | "object_fact" | "memory";
@@ -53,6 +56,7 @@ export const CONTEXT_KEY_LABEL: Record<TaskContextKey, string> = {
   creator: "达人",
   creator_filter: "达人库筛选",
   risk_scope: "风险范围",
+  recipient: "收件人",
 };
 
 export function contextKeyLabel(key: string): string {
@@ -94,6 +98,7 @@ export type ContextFacts = {
   mail_template: MailTemplateFact | null;
   creator: CreatorFact | null;
   conversation: Json | null;
+  recipient: ComposeRecipient | null;
   message: Json | null;
   creator_filter: Json | null;
   risk_scope: Json | null;
@@ -131,6 +136,7 @@ export type ContextSession = {
   mailThread(): MailThreadFact | null;
   mailTemplate(): MailTemplateFact | null;
   creator(): CreatorFact | null;
+  recipient(): ComposeRecipient | null;
   resolution(requires?: readonly TaskContextKey[], prefers?: readonly TaskContextKey[]): ContextResolution;
 };
 
@@ -168,6 +174,7 @@ const KEY_ORDER: readonly TaskContextKey[] = [
   "mail_thread",
   "mail_template",
   "conversation",
+  "recipient",
   "message",
   "creator_filter",
   "risk_scope",
@@ -177,17 +184,28 @@ const KEY_ORDER: readonly TaskContextKey[] = [
 const KEY_DEPENDS: Partial<Record<TaskContextKey, readonly TaskContextKey[]>> = {
   stage: ["collaboration"],
   stage_tracks: ["stage"],
-  mailbox: ["collaboration"],
-  mail_thread: ["collaboration"],
   mail_template: ["collaboration", "stage"],
+  // mailbox / mail_thread 不再依赖 collaboration：发件箱是"你是谁"的事实，
+  // 往来摘要可以走收件人的人摘要。ADR-2026-10-07。
+  recipient: ["mailbox", "conversation"],
 };
 
 const MAILBOX_SOURCE: Record<ComposeSenderSource, ContextSource> = {
   explicit: "explicit",
+  selected: "object_refs",
   user_binding: "account_binding",
   collaboration: "object_fact",
   brand_unique: "object_fact",
   none: "object_fact",
+};
+
+const RECIPIENT_SOURCE: Record<ComposeRecipientSource, ContextSource> = {
+  explicit: "explicit",
+  conversation: "object_refs",
+  kol_recent: "memory",
+  kol_record: "object_fact",
+  memory: "memory",
+  none: "memory",
 };
 
 function objectRefIds(raw: unknown, kinds: readonly string[]): string[] {
@@ -248,6 +266,7 @@ const PUBLIC_VALUE: Record<TaskContextKey, (facts: ContextFacts) => unknown> = {
     : null),
   creator: (facts) => facts.creator,
   conversation: (facts) => facts.conversation,
+  recipient: (facts) => facts.recipient,
   message: (facts) => facts.message,
   creator_filter: (facts) => facts.creator_filter,
   risk_scope: (facts) => facts.risk_scope,
@@ -267,6 +286,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
     mail_template: null,
     creator: null,
     conversation: null,
+    recipient: null,
     message: null,
     creator_filter: null,
     risk_scope: null,
@@ -404,11 +424,21 @@ export function openContext(input: ContextResolveInput): ContextSession {
     },
     mailbox() {
       read("collaboration");
-      const requested = firstString(body.mailbox, body.mailbox_from, body.from);
-      const sender = composeSenderFor({ collaboration: facts.collaboration, requested });
+      // 发件箱不依赖合作对象：body.mailbox 是通讯页选中的邮箱（第 2 档），
+      // body.from 是口令里明确指定的（第 1 档）。
+      const sender = composeSenderFor({
+        collaboration: facts.collaboration,
+        requested: firstString(body.from),
+        selectedMailbox: firstString(body.mailbox, body.mailbox_from),
+      });
       if (!sender.send_from) {
         facts.mailbox = null;
-        return requested
+        if (sender.candidates.length) {
+          return failed("input", "挂载了多个邮箱但没有默认发件箱，请先选定一个", sender.candidates.map((c) => ({
+            key: "mailbox", id: c.email, label: c.label,
+          })));
+        }
+        return firstString(body.from, body.mailbox, body.mailbox_from)
           ? failed("input", "指定的发件箱未通过品牌与范围核对，需要重新选择")
           : failed("context", "没有可用的授权发件箱");
       }
@@ -417,10 +447,25 @@ export function openContext(input: ContextResolveInput): ContextSession {
     },
     mail_thread() {
       const collaboration = read("collaboration");
-      if (!collaboration.ok || !facts.collaboration) return dependencyFailed(collaboration, "缺少合作对象，无法读取往来摘要");
-      const thread = composeContextForCollaboration(String(facts.collaboration.id));
-      facts.mail_thread = thread;
-      if (!thread.text && !thread.mail_count) return failed("context", "该合作暂无往来邮件");
+      if (collaboration.ok && facts.collaboration) {
+        const thread = composeContextForCollaboration(String(facts.collaboration.id));
+        facts.mail_thread = thread;
+        if (!thread.text && !thread.mail_count) return failed("context", "该合作暂无往来邮件");
+        return { ok: true, source: "memory" };
+      }
+      // 无合作对象时：走收件人的人摘要（发件箱 + 最近往来对方）。
+      const recipient = read("recipient");
+      if (!recipient.ok || !facts.recipient?.to) {
+        return dependencyFailed(recipient, "缺少收件人，无法读取往来摘要");
+      }
+      const mailbox = read("mailbox");
+      const from = facts.mailbox?.from || "";
+      if (!mailbox.ok || !from) return dependencyFailed(mailbox, "缺少发件箱，无法读取往来摘要");
+      const digest = readPersonDigest(from, facts.recipient.to);
+      if (!digest || (!digest.text && !digest.mail_count)) {
+        return failed("context", "该收件人暂无往来摘要");
+      }
+      facts.mail_thread = { digest, memory: [], text: digest.text, mail_count: digest.mail_count };
       return { ok: true, source: "memory" };
     },
     mail_template() {
@@ -443,7 +488,15 @@ export function openContext(input: ContextResolveInput): ContextSession {
       return { ok: true, source: knowledgeId ? "explicit" : "object_fact" };
     },
     conversation() {
-      const mailbox = currentMailbox();
+      // 通讯页选中的邮箱下查会话（须属本人挂载）；没选时沿用默认邮箱。
+      const selected = firstString(body.mailbox, body.mailbox_from);
+      if (selected) {
+        const owned = mailboxBindings().some(
+          (binding) => normalizeEmail(String(binding.mailbox || "")) === normalizeEmail(selected),
+        );
+        if (!owned) return failed("blocked", "选中的邮箱不是本人挂载的邮箱");
+      }
+      const mailbox = selected ? normalizeEmail(selected) : currentMailbox();
       if (!mailbox) return failed("context", "当前账号没有已挂载的邮箱，无法解析邮件会话");
       const asked: Array<[string, ContextSource]> = [];
       const explicit = firstString(body.conversation_id, body.thread_id);
@@ -466,6 +519,29 @@ export function openContext(input: ContextResolveInput): ContextSession {
       const thread = findMailThread(id, mailbox);
       facts.conversation = thread ? conversationRowOf(thread) as unknown as Json : null;
       return { ok: true, source };
+    },
+    recipient() {
+      // 收件人来源链（compose-recipient.ts）：口令写明 → 通讯页选中会话 →
+      // 已选红人最近往来 → 合作记录邮箱 → 当前发件箱最近真实往来。
+      const mailboxResult = read("mailbox");
+      read("conversation");
+      const found = entities();
+      const toList = Array.isArray(found.to) ? found.to : [];
+      const explicitTo = firstString(
+        body.to,
+        body.recipient,
+        toList[0],
+        typeof found.email === "string" ? found.email : "",
+      );
+      const recipient = composeRecipientFor({
+        mailbox: mailboxResult.ok && facts.mailbox ? facts.mailbox.from : "",
+        collaboration: facts.collaboration,
+        conversationId: firstString(body.conversation_id, body.thread_id) || null,
+        explicitTo: explicitTo || null,
+      });
+      if (recipient.error) return failed("blocked", recipient.error.message);
+      facts.recipient = recipient;
+      return { ok: true, source: RECIPIENT_SOURCE[recipient.source] };
     },
     message() {
       // TODO(P2.3)：当前邮件（kol_mail_items）的来源链还没登记，先如实报未解析，不猜。
@@ -590,6 +666,10 @@ export function openContext(input: ContextResolveInput): ContextSession {
     creator: () => {
       read("creator");
       return facts.creator;
+    },
+    recipient: () => {
+      read("recipient");
+      return facts.recipient;
     },
     resolution,
   };

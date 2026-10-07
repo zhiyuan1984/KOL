@@ -4,6 +4,8 @@ import { api, type OperationJob } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
 import { applyComposerDraft, takeComposerDraftStash } from "../composer/draft";
+import { applyAddressesToText } from "../composer/addresses";
+import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
 import type { ComposerDraftStash } from "../composer/types";
 import { isMissingEndpoint } from "../home/discoveryHome";
 import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, syncMailboxMail } from "../mail/client";
@@ -183,6 +185,18 @@ export default function Mail() {
   const [lettersMore, setLettersMore] = useState(false);
   const [memoryBusy, setMemoryBusy] = useState<"summary" | "translation" | null>(null);
   const [composerText, setComposerText] = useState("");
+  const mailCompose = useMailComposeFlow({
+    onApplyBody: setComposerText,
+    onApplyAddresses: (from, to) => {
+      setComposerText((current) => applyAddressesToText(current, from, to[0] || ""));
+    },
+  });
+  /** 通讯页写信上下文：点邮件任务、切换邮箱、切换会话时带上，收发件取所选。 */
+  const mailContextOf = () => ({
+    mailbox: workspace?.box.mailbox || boxParam || undefined,
+    conversation_id: selectedConversation?.conversation_id || undefined,
+    collaboration_id: selectedConversation?.collaboration_id || undefined,
+  });
   // A deep link that names a mail (?c=&m=) opens on the detail pane: at ≤1100px
   // the switcher would otherwise stop on 列表 while the left column already
   // highlights the linked mail. A later manual pane choice is never overridden.
@@ -732,6 +746,7 @@ export default function Mail() {
         scope: payload.scope,
         object_refs: payload.object_refs,
         client_entry: payload.client_entry,
+        compose_input: payload.compose_input,
       });
       const created = recognized.task;
       if (intakeCancelled.current) {
@@ -769,7 +784,35 @@ export default function Mail() {
       chips: [{ kind: "skill", id: "email_compose", label: letter.chip }],
     });
     setNotice("");
+    // 通讯页写信：收发件取当前选中的邮箱与会话（ADR-2026-10-07）。
+    const ctx = mailContextOf();
+    void mailCompose.prepare({
+      body: letter.prompt,
+      mailbox: ctx.mailbox,
+      conversation_id: ctx.conversation_id,
+      collaboration_id: ctx.collaboration_id,
+    });
   };
+
+  // 切换邮箱或会话时，如果正在写合作邮件，按新的选中重取收发件。
+  const mailContextKey = `${workspace?.box.mailbox || boxParam || ""}\u0000${selectedConversation?.conversation_id || ""}`;
+  const mailContextKeyRef = useRef("");
+  useEffect(() => {
+    if (!mailCompose.active) {
+      mailContextKeyRef.current = mailContextKey;
+      return;
+    }
+    if (mailContextKeyRef.current === mailContextKey) return;
+    mailContextKeyRef.current = mailContextKey;
+    const ctx = mailContextOf();
+    void mailCompose.prepare({
+      body: composerText,
+      mailbox: ctx.mailbox,
+      conversation_id: ctx.conversation_id,
+      collaboration_id: ctx.collaboration_id,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mailContextKey, mailCompose.active]);
 
   const starredOf = (row: MailConversation | null | undefined): boolean => {
     if (!row) return false;
@@ -1042,6 +1085,7 @@ export default function Mail() {
                 running={busy}
                 onStop={stopIntake}
                 contextChips={composerChips}
+                mailCompose={mailCompose}
               />
             </div>
           </section>

@@ -1384,13 +1384,21 @@ export type EmailComposePrepareRequest = {
   scene_hint?: string;
   variables?: Record<string, unknown>;
   object_refs?: Array<{ kind: string; id: string; label?: string }>;
+  /** 通讯页选中的邮箱（发件）；必须是本人挂载 */
+  mailbox?: string;
+  /** 通讯页选中的会话 */
+  conversation_id?: string;
+  /** 口令里写明的收件人（服务端第 1 档） */
+  to?: string;
 };
+
+export type AddressCandidate = { email: string; label: string; last_at?: string | null };
 
 export type EmailComposePrepareResponse = {
   status: "ready" | "needs_context" | "needs_template" | "needs_fields" | "blocked";
   skill_id: "email_compose";
   message?: string;
-  context: { collaboration_id?: string; stage_code?: string; stage_source?: string; scene?: string; brand?: string };
+  context: { collaboration_id?: string; stage_code?: string; stage_source?: string; collaboration_source?: string; scene?: string; brand?: string };
   template?: { knowledge_id: string; published_version: number; template_id?: string; title: string; source: "knowledge" };
   editor?: { from: string; to: string[]; subject: string; body: string };
   missing_fields: string[];
@@ -1398,6 +1406,12 @@ export type EmailComposePrepareResponse = {
   context_version?: string;
   digest?: string;
   mail_count?: number;
+  /** 收发件来源的人话标签，如「你挂载的默认邮箱」「最近往来 · 10-06」 */
+  sources?: { from?: string; to?: string };
+  /** 发件箱候选：挂了多只又没有默认时让人选 */
+  sender_candidates?: AddressCandidate[];
+  /** 收件人候选：最近往来最多 5 个 */
+  recipient_candidates?: AddressCandidate[];
 };
 
 export type DraftSendSnapshot = { from: string; to: string; cc: string; subject: string; body: string };

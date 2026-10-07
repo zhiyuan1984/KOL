@@ -24,6 +24,7 @@ import { RuntimeActions } from "../components/RuntimeActions";
 import { ReplyContextPanel } from "../mail/ReplyContextPanel";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
+import { applyAddressesToText } from "../composer/addresses";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import AgentTaskList, { readTaskListWidth } from "../components/AgentTaskList";
@@ -482,6 +483,9 @@ export default function Chat() {
   );
   const mailCompose = useMailComposeFlow({
     onApplyBody: setText,
+    onApplyAddresses: (from, to) => {
+      setText((current) => applyAddressesToText(current, from, to[0] || ""));
+    },
     onPrepared: (response) => {
       if (!response.template) return;
       setLockedIntent("email_compose");

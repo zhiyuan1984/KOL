@@ -289,10 +289,10 @@ export function findMailThread(id: string, mailbox?: string): Row | undefined {
   if (!raw) return undefined;
   const box = mailbox === undefined ? currentMailbox() : mailbox;
   const byId = getConn().prepare("SELECT * FROM kol_mail_threads WHERE id=?").get(raw) as Row | undefined;
-  if (byId && (!box || String(byId.mailbox || "") === box)) return byId;
+  if (byId && (!box || String(byId.mailbox || "").toLowerCase() === String(box).toLowerCase())) return byId;
   if (box) {
     return getConn().prepare(
-      "SELECT * FROM kol_mail_threads WHERE conversation_id=? AND mailbox=?",
+      "SELECT * FROM kol_mail_threads WHERE conversation_id=? AND lower(mailbox)=lower(?)",
     ).get(raw, box) as Row | undefined;
   }
   return getConn().prepare(

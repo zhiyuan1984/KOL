@@ -16,6 +16,7 @@ import {
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { clearPending, storePending, runPendingAsk } from "../components/ChatBlocks";
+import { applyAddressesToText } from "../composer/addresses";
 import { stashComposerDraft } from "../composer/draft";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
@@ -426,6 +427,9 @@ export default function Home() {
   const [enqueueNotice, setEnqueueNotice] = useState("");
   const mailCompose = useMailComposeFlow({
     onApplyBody: setText,
+    onApplyAddresses: (from, to) => {
+      setText((current) => applyAddressesToText(current, from, to[0] || ""));
+    },
     onPrepared: (response) => {
       if (!response.template) return;
       setLockedIntent("email_compose");
@@ -640,8 +644,11 @@ export default function Home() {
     }
     const collaboration = objectRefs.find((ref) => ref.kind === "collaboration");
     const kol = objectRefs.find((ref) => ref.kind === "kol");
+    // 没改过的 starter 视为空正文：prepare 拿到空正文时可直接套用模板，
+    // 而不是把占位符文本当成用户已编辑内容。
+    const starterUntouched = isPresetStarterText(text);
     void mailCompose.prepare({
-      body: ctx.rest,
+      body: starterUntouched ? "" : ctx.rest,
       collaboration_id: ctx.collaborationId || collaboration?.id,
       handle: kol?.id,
       knowledge_id: lockedKnowledgeId || undefined,
@@ -1232,6 +1239,10 @@ export default function Home() {
     setBlockSubmit(true);
     window.setTimeout(() => setBlockSubmit(false), 500);
     rememberJourney({ kind: "skill", skillId: definition.skill_id || definition.id, skillLabel: definition.title });
+    // 技能卡点选也触发 prepare：无合作时照样带出收发件（ADR-2026-10-07）。
+    if ((definition.skill_id || definition.id) === "email_compose") {
+      prepareMailContext(starterPrompt(definition), {});
+    }
   };
 
   const onRecommend = (rec: RecommendedTask) => {
@@ -1788,22 +1799,20 @@ export default function Home() {
         || resolution.entities?.handle
         || resolution.entities?.collaboration_id,
       );
-      // 打字路径：识别出 email_compose 且已有明确合作对象时，立即向 Host 取一次
-      // 上下文（合作阶段、授权发件箱、收件人、模板、最近往来），让发件箱与收件人
-      // 和点选路径一样自动带出，而不是留三个空字段让人手填。
+      // 打字路径：识别出 email_compose 就立即向 Host 取一次上下文
+      // （合作阶段、授权发件箱、收件人、模板、最近往来）。无合作对象时
+      // 照样带出收发件（ADR-2026-10-07），不再要求先有 @红人。
       if (resolution.task_type === "email_compose" && !mailCompose.active) {
         const typedHandle = String(resolution.entities?.handle || "").trim();
         const typedCollab = String(p.collaboration_id || resolution.entities?.collaboration_id || "").trim();
-        if (typedHandle || typedCollab) {
-          prepareMailContext(intakeText, {
-            collaborationId: typedCollab || undefined,
-            objectRefs: [
-              ...(typedCollab ? [{ kind: "collaboration", id: typedCollab }] : []),
-              ...(typedHandle ? [{ kind: "kol", id: typedHandle, label: `@${typedHandle}` }] : []),
-              ...(p.object_refs || []),
-            ],
-          });
-        }
+        prepareMailContext(intakeText, {
+          collaborationId: typedCollab || undefined,
+          objectRefs: [
+            ...(typedCollab ? [{ kind: "collaboration", id: typedCollab }] : []),
+            ...(typedHandle ? [{ kind: "kol", id: typedHandle, label: `@${typedHandle}` }] : []),
+            ...(p.object_refs || []),
+          ],
+        });
       }
       // First-touch / unlabeled compose stays on home. A bound @红人 already
       // has From/To in Host, so open the session instead of blocking on the
