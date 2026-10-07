@@ -1,8 +1,8 @@
-# 视觉 Token 实施细则（LLM 可执行版）v3.1
+# 视觉 Token 实施细则（LLM 可执行版）v3.2
 
 ```yaml
-version: v3.1
-name: design-spec-v3.1
+version: v3.2
+name: design-spec-v3.2
 style-baseline: data-dense-dashboard + data-grid
 description: 员工端工作台与中台 2B 数据面的视觉 token 与布局实施细则。LLM 实现时唯一数值来源。
   颜色只给"职责→token"映射，hex 住 frontend/src/styles.css（根 AGENTS.md §3）；
@@ -23,6 +23,7 @@ scope:
 > ② **§2.1 全局密度切换标为预留/未决策**，不作为实现依据、不进自检清单；
 > ③ **§9.4 加载阈值拆分为独立 token** `--infinite-load-threshold`，不再复用 `--feed-follow-threshold`；
 > ④ **Token 登记表以 style-v1.2.css 为基准重跑对账**，零缺失。
+> 修订记录（2026-10-07 v3.2）：补充工作台搜索、业务 Tab、分类筛选、任务列表行与 CTA 的视觉 token 和交互态，基于 `ffdc5210` 工作台评审；不改变业务语义与既有风险闸门。
 
 ---
 ## 0. 给 LLM 的阅读指引
@@ -151,6 +152,33 @@ scope:
 - L3 在紧凑行内（表格行、feed 行）可用 `--control-h-sm`（24px）档，padding-x 收至 4px。
 - 危险动作（删除、撤销）用 L3 + `--danger` 文字，不得做成 L1 实底红（除非该视口无其他 L1 且为最终确认）。
 - **禁止**：把 L3/L4 升级为 L1/L2 "为了显眼"；一排三个描边按钮（该用 L2+L3+L3）。
+
+### 4.3 工作台搜索、Tab 与分类筛选
+
+工作台工具行采用紧凑搜索框与动作水平对齐；搜索框不因剩余空间无限扩张。尺寸、边框、圆角和焦点使用以下 token：
+
+| token | 值 | 用途 |
+|---|---:|---|
+| `--workspace-search-max-w` | `18rem` | 工作台搜索框最大宽度；可在工具行收缩，窄屏占满可用宽度 |
+| `--workspace-search-pad-x` | `10px` | 搜索文本与图标的水平内边距 |
+| `--workspace-tab-h` | `36px` | 指针/键盘下一级业务 Tab 的视觉高度；触摸命中区至少 `44px` |
+| `--workspace-tab-indicator-h` | `2px` | Tab 选中下划线 |
+| `--workspace-tab-gap` | `16px` | 同级业务 Tab 间距 |
+| `--filter-tab-h` | `28px` | 工作台分类筛选项的视觉高度；触摸命中区至少 `44px` |
+
+- **搜索框**：高 `--control-h-lg`，圆角 `--radius-control`，底色 `--bg`，边框 `--border`；如带搜索图标，图标与输入文字共用一条基线。占位文字用 `--text-quiet`。聚焦时边框与 `focus-visible` 外环使用 `--focus-ring`；清空只清除查询，不触发刷新或计划生成。窄屏可以满宽，宽屏不超过 `--workspace-search-max-w`。
+- **一级业务 Tab**（如“今日任务 / 我的待办 / AI 发现 / 公海 / 我的红人”）：共享细基线；未选中项透明无边框，选中项以文字字重和下划线表达，使用辅助色，不使用独立圆角底块或主行动色。计数是弱化附属信息，不单独形成控件。
+- **分类筛选**（如“全部 / 重要紧急 / 重要 / 紧急 / 一般”）：是筛选按钮组，不冒充页面导航 Tab；视觉沿用紧凑的文字项与选中下划线，数量附属于标签。点击筛选只改变当前列表结果，不生成计划、不重置搜索词或列表滚动位置；显示全量计数时应明确计数范围。
+- Tab 语义按控件职责实现：页面切换使用 `tablist` / `tab` / `tabpanel`、`aria-selected`、方向键切换及 Home/End 首末项定位；筛选使用原生按钮和 `aria-pressed`，支持 Tab 聚焦及 Enter/Space 激活，不为筛选组虚构 Tab 语义。两者都必须有可见 `:focus-visible` 和禁用态。
+- 搜索输入、Tab 切换、筛选和按钮 hover/focus 状态使用 `--duration-control`；`prefers-reduced-motion` 下取消过渡。触摸输入只扩展命中区，不扩大可见控件。
+
+### 4.4 CTA 按钮状态
+
+CTA 仍按 §4.2 L1–L4 分级。一个视口最多一个 L1；“生成/整理计划”只有在它是该视口唯一主要提交动作时才用 L1。重复出现在列表每行的“打开/编辑/重试”使用 L3；分类筛选不是 CTA。
+
+- 默认、hover、`focus-visible`、pressed、disabled、busy 状态要有可辨识反馈；焦点统一走 `--focus-ring`，禁用态不响应 hover，busy 态保留原位尺寸并显示真实等待文案/状态。
+- L1 hover 使用 `--primary-hover`；L2 hover 使用 `--surface-hover`；L3 hover 使用 `--btn-text-hover-bg`。状态色仅用于状态或危险动作，不把失败/删除做成品牌主 CTA。
+- 按钮使用原生 `button`，由 `disabled` / `aria-busy` 表达不可用和进行中；图标按钮必须有可访问名称。R3 动作继续执行确认与回执，不因视觉样式变化而简化。
 
 ---
 ## 5. 文字层级与字号
@@ -377,7 +405,6 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 ### 9.3 列表与空态
 - **空态紧凑**：左对齐、内容字号、`--space-3` 级内边距、动作内联；禁止 hero 空态。
 - **右栏列表行即内容**：行 grid `min-width: 0`、工具栏可换行、次要字段进展开层或详情抽屉；禁止整栏 `overflow-x: hidden` 兜底。
-- 文本 `pre-wrap` + `overflow-wrap` 防越界。
 
 #### 9.3.1 列表三档密度
 | 密度档 | 行高 token | 上下内边距 | 适用场景 |
@@ -388,6 +415,22 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 - 列表行高对齐 8px 栅格；与表格密度档位语义一致，全局切换同步生效。
 - 长文本单行截断 + tooltip；禁止换行撑高行高；多行内容放入展开区。
 - 空单元格渲染 `—`（`--text-quiet`），规则同 §9.1 数据表。
+
+#### 9.3.2 工作台任务列表行
+
+| token | 值 | 用途 |
+|---|---:|---|
+| `--workspace-list-row-h` | `44px` | 单行任务的最小高度 |
+| `--workspace-list-row-h-relaxed` | `52px` | 任务标题与一条辅助信息并列/换行时的最小高度 |
+| `--workspace-list-cell-pad-x` | `8px` | 行内单元格水平留白 |
+| `--workspace-list-divider` | `--border` | 相邻行之间的细分隔线 |
+
+- 列表使用连续行与细分隔线，不使用卡片套卡片。标题列 `minmax(0,1fr)`，状态和操作列按内容固定；标题最多两行，溢出可在原位展开或查看完整标题，不能只靠相同省略号区分记录。
+- 标准行控制在 `--workspace-list-row-h`；存在第二条辅助信息时使用 `--workspace-list-row-h-relaxed`。文本沿用 `--ds-font-sm`，标题以字重区分，执行结果、来源和补充说明作为弱化第二层；不要为增加密度缩小字号。
+- 行 hover 使用 `--bg-subtle`；键盘选中/打开行使用 `--focus-ring` 焦点轮廓或明确选中标记。待处理、执行中、失败、逾期等状态在状态列以状态点/图形与文字共同表达，不给整行铺状态色。
+- 行内主操作使用 L3 文字按钮；编辑等次级动作继续弱化。失败状态先显示失败环节与恢复入口；重试不得暗示或重复执行未经核对的外部副作用。
+- 过滤结果为空时区分“无数据”与“无匹配结果”；加载时保留真实等待状态与恢复入口。完整列表在自身滚动区浏览，不用固定五行折叠隐藏其余记录。
+- 文本 `pre-wrap` + `overflow-wrap` 防越界。
 
 ### 9.4 无限加载（Infinite‑Load）
 > 适用边界：

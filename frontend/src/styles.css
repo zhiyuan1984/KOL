@@ -107,6 +107,17 @@
   --workspace-task-priority-col: 72px;
   --workspace-task-actions-col: 156px;
   --workspace-task-action-h: 20px;
+  /* Search, tab, task-row and CTA tokens — canonical values in docs/DESIGN.md §4.3–4.4 / §9.3.1. */
+  --workspace-search-max-w: 18rem;
+  --workspace-search-pad-x: 10px;
+  --workspace-tab-h: 36px;
+  --workspace-tab-indicator-h: 2px;
+  --workspace-tab-gap: 16px;
+  --filter-tab-h: 28px;
+  --workspace-list-row-h: 44px;
+  --workspace-list-row-h-relaxed: 52px;
+  --workspace-list-cell-pad-x: 8px;
+  --workspace-list-divider: var(--border);
   /* 中栏「查看最新」与提问框发送箭头共享同一视觉尺寸。 */
   --workspace-arrow-button-size: 32px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
@@ -11491,8 +11502,7 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
-/* 口径组（全部 / 常用 / 最近使用 / 推荐）与阶段组（建联 → 内容发布）是两类控件：
-   容器承担成组控件的可见边界（shadcn TabsList ×2 的写法），竖线随筛选条整高。 */
+/* 使用范围与业务场景是两组可组合筛选；分隔线只区分筛选用途，不表示阶段递进。 */
 .skill-tabs-list[data-kind="stage"] {
   align-self: stretch;
   padding-left: var(--space-4);
@@ -11926,7 +11936,7 @@ button.today-brief-primary-btn:disabled {
    骨架三段式：`.skill-detail-head` / `.skill-detail-body` / `.skill-detail-footer`。 */
 .skill-detail-pane {
   grid-area: pane;
-  width: clamp(320px, 26vw, 400px);
+  width: clamp(var(--workspace-result-rail-min), 26vw, 420px);
   border-left: 1px solid var(--border);
   background: var(--bg);
   overflow: hidden;
@@ -16408,7 +16418,245 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   .task-kpi-card:hover { transition: none; transform: none; }
 }
 
-/* ==========================================================================
+/* Workbench search, navigation tabs, category filters, rows and CTAs.
+   Tokens and interaction contract: docs/DESIGN.md §4.3–4.4 / §9.3.1. */
+.task-board .task-board-head .task-board-tools .task-board-search {
+  box-sizing: border-box;
+  width: min(100%, var(--workspace-search-max-w));
+  max-width: var(--workspace-search-max-w);
+  min-width: 0;
+  height: var(--control-h-lg);
+  min-height: var(--control-h-lg);
+  padding-inline: var(--workspace-search-pad-x);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  transition: border-color var(--duration-control), background-color var(--duration-control),
+    box-shadow var(--duration-control);
+}
+.task-board .task-board-head .task-board-tools .task-board-search::placeholder {
+  color: var(--text-quiet);
+}
+.task-board .task-board-head .task-board-tools .task-board-search:hover:not(:disabled) {
+  border-color: var(--control-border-hover);
+}
+.task-board .task-board-head .task-board-tools .task-board-search:focus-visible {
+  border-color: var(--focus-ring);
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  background: var(--bg);
+}
+
+.home-mode-tabs,
+.home-tabs {
+  gap: var(--space-2) var(--workspace-tab-gap);
+}
+.home-mode-tabs button[role="tab"],
+.home-tabs button[role="tab"] {
+  position: relative;
+  box-sizing: border-box;
+  min-height: var(--workspace-tab-h);
+  padding: 0 0 var(--space-2);
+  border: 0;
+  border-bottom: var(--workspace-tab-indicator-h) solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-quiet);
+  font-size: var(--ds-font-sm);
+  font-weight: 400;
+  transition: color var(--duration-control), border-color var(--duration-control);
+}
+.home-mode-tabs button[role="tab"]:hover:not(:disabled),
+.home-tabs button[role="tab"]:hover:not(:disabled) {
+  color: var(--text);
+}
+.home-mode-tabs button[role="tab"][aria-selected="true"],
+.home-tabs button[role="tab"][aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+.home-mode-tabs button[role="tab"]:focus-visible,
+.home-tabs button[role="tab"]:focus-visible {
+  z-index: 1;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.home-mode-tabs button[role="tab"]:disabled,
+.home-tabs button[role="tab"]:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.home-mode-count { color: var(--text-quiet); font-weight: 400; }
+
+.task-board .task-board-filters {
+  gap: var(--space-2);
+  margin-block: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+.task-board .task-board-filters .task-board-pill {
+  position: relative;
+  box-sizing: border-box;
+  height: var(--filter-tab-h);
+  min-height: var(--filter-tab-h);
+  padding: 0 var(--space-1) var(--space-1);
+  border: 0;
+  border-bottom: var(--workspace-tab-indicator-h) solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-quiet);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  font-weight: 400;
+  transition: color var(--duration-control), border-color var(--duration-control),
+    background-color var(--duration-control);
+}
+.task-board .task-board-filters .task-board-pill:hover:not(:disabled) {
+  color: var(--text);
+  background: transparent;
+}
+.task-board .task-board-filters .task-board-pill[aria-pressed="true"] {
+  border-bottom-color: var(--accent);
+  background: transparent;
+  color: var(--accent-text);
+  font-weight: 500;
+}
+.task-board .task-board-filters .task-board-pill:focus-visible {
+  z-index: 1;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.task-board .task-board-filters .task-board-pill:active:not(:disabled) {
+  color: var(--accent-text);
+}
+.task-board .task-board-filters .task-board-pill:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.task-board .task-board-table > tbody > tr.task-board-row > td {
+  height: var(--workspace-list-row-h);
+  padding-inline: var(--workspace-list-cell-pad-x);
+  border-bottom-color: var(--workspace-list-divider);
+  transition: background-color var(--duration-control);
+}
+.task-board .task-board-table > tbody > tr.task-board-row:has(.task-board-meta) > td {
+  height: var(--workspace-list-row-h-relaxed);
+}
+.task-board .task-board-table .task-board-title {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  font-weight: 500;
+  line-height: var(--lh-control-sm);
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.task-board .task-board-table .task-board-title:hover:not(:disabled) {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+.task-board .task-board-table .task-board-meta {
+  min-height: 0;
+  line-height: var(--ds-line-helper);
+}
+.task-board .task-board-table .task-board-why {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+.task-board .task-board-table > tbody > tr.task-board-row:hover > td,
+.task-board .task-board-table > tbody > tr.task-board-row:focus-within > td {
+  background: var(--bg-subtle);
+}
+.task-board .task-board-table .task-board-open,
+.task-board .task-board-table .task-board-edit,
+.task-board .task-board-table .task-board-retry {
+  min-height: var(--control-h-sm);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  padding-inline: var(--space-1);
+  transition: background-color var(--duration-control), color var(--duration-control);
+}
+.task-board .task-board-table .task-board-open:hover:not(:disabled),
+.task-board .task-board-table .task-board-edit:hover:not(:disabled),
+.task-board .task-board-table .task-board-retry:hover:not(:disabled) {
+  background: var(--btn-text-hover-bg);
+}
+.task-board .task-board-table .task-board-open:focus-visible,
+.task-board .task-board-table .task-board-edit:focus-visible,
+.task-board .task-board-table .task-board-retry:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.task-board .task-board-plan-btn {
+  min-height: var(--control-h-lg);
+  border-color: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  transition: background-color var(--duration-control), border-color var(--duration-control),
+    color var(--duration-control), box-shadow var(--duration-control);
+}
+.task-board .task-board-plan-btn:hover:not(:disabled) {
+  border-color: var(--control-border-hover);
+  background: var(--surface-hover);
+}
+.task-board .task-board-plan-btn:active:not(:disabled) {
+  background: var(--surface-hover);
+}
+.task-board .task-board-plan-btn:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.task-board .task-board-plan-btn:disabled,
+.task-board .task-board-table button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .task-board .task-board-head .task-board-tools .task-board-search {
+    width: 100%;
+    max-width: none;
+  }
+}
+@media (pointer: coarse) {
+  .home-mode-tabs button[role="tab"],
+  .home-tabs button[role="tab"],
+  .task-board .task-board-filters .task-board-pill {
+    position: relative;
+  }
+  :is(.home-mode-tabs button[role="tab"], .home-tabs button[role="tab"],
+    .task-board .task-board-filters .task-board-pill)::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--touch-hit-min));
+    height: max(100%, var(--touch-hit-min));
+    transform: translate(-50%, -50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-board .task-board-head .task-board-tools .task-board-search,
+  .home-mode-tabs button[role="tab"],
+  .home-tabs button[role="tab"],
+  .task-board .task-board-filters .task-board-pill,
+  .task-board .task-board-table > tbody > tr.task-board-row > td,
+  .task-board .task-board-table button,
+  .task-board .task-board-plan-btn {
+    transition: none;
+  }
+}
 /* ==========================================================================
  * §3.12 AI 发现旧模型候选卡片（DiscoveryRuntimeCandidate）
  * 自足布局：不依赖宿主作用域类，不依赖已下线的 pool-* 行样式。
