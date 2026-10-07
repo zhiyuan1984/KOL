@@ -459,7 +459,7 @@ misc.post("/admin/skills/:id/versions", async (c) => {
   if (skillLifecycleMeta(id).stage !== "testing") {
     throw new HttpFail(409, "技能必须处于测试阶段才能发布新版本");
   }
-  const result = await publishKnowledgeConfig(scopedUser()!.id, id, () => {
+  const result = await publishKnowledgeConfig(currentUser().id, id, () => {
     const stage = transitionSkillStage(id, "published", body.description);
     return { ...stage, version: skillLifecycleMeta(id).current_version };
   }) as { stage: string; version: number | null };
