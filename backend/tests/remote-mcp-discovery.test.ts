@@ -8,8 +8,10 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   isInitializeRequest,
+  ErrorCode,
+  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
-import { RemoteMcpClient } from "../src/mcp/remote.js";
+import { RemoteMcpClient, annotateRemoteFailure } from "../src/mcp/remote.js";
 import { runtimeErrorCode } from "../src/runtime/execution.js";
 import { probeMediaCrawlerStart } from "../src/runtime/mediacrawler-probe.js";
 
@@ -284,6 +286,20 @@ describe("RemoteMcpClient discovery proxy", () => {
     expect(failure!.remoteStatus).toBe(401);
     expect(runtimeErrorCode(failure)).toBe("runtime_remote_unauthorized");
     await client.close();
+  });
+
+  it("classifies a dropped MCP connection during discovery as unreachable, not a generic remote failure", () => {
+    // SDK 1.30.0 rejects every in-flight request with McpError(ConnectionClosed)
+    // when the transport closes mid-call (shared/protocol.js). This is the exact
+    // shape a confirm-time tools/list re-discovery produces when the gateway
+    // drops the stream, and it previously fell through to runtime_remote_failed.
+    const dropped = new McpError(ErrorCode.ConnectionClosed, "Connection closed");
+    const annotated = annotateRemoteFailure(dropped) as { remoteKind?: string };
+    expect(annotated.remoteKind).toBe("unreachable");
+    expect(runtimeErrorCode(annotated)).toBe("runtime_remote_unreachable");
+    // An already-annotated error keeps its first classification.
+    const again = annotateRemoteFailure(annotated) as { remoteKind?: string };
+    expect(again.remoteKind).toBe("unreachable");
   });
 
   it("probes a MediaCrawler Host endpoint using start_crawl then stop_crawl, without tools/list", async () => {

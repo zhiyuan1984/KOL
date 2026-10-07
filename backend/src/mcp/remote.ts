@@ -102,6 +102,16 @@ export function annotateRemoteFailure(error: unknown): unknown {
     annotated.remoteStatus = status;
     return annotated;
   }
+  if (error instanceof McpError && error.code === ErrorCode.ConnectionClosed) {
+    // The SDK rejects every in-flight request with ConnectionClosed (-32000)
+    // when the transport drops mid-call, e.g. a tools/list re-discovery while
+    // a confirm is being dispatched. Without this branch it fell through to
+    // the generic runtime_remote_failed code and the user saw a misleading
+    // "remote never ran" message. It is actionable the same way as an
+    // unreachable endpoint: retry once the remote side is reachable again.
+    annotated.remoteKind = "unreachable";
+    return annotated;
+  }
   if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
     annotated.remoteKind = "timeout";
     return annotated;
