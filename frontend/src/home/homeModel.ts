@@ -181,6 +181,14 @@ export function isClosedTask(task: Task) {
   return closedStatuses.has(String(task.status || ""));
 }
 
+/** One presentation predicate for the summary and the actionable exception filter. */
+export function isTaskException(task: Task) {
+  return !isClosedTask(task) && (
+    task.status === "failed" || task.display_status === "failed"
+    || task.execution?.status === "failed" || Boolean(task.last_error)
+  );
+}
+
 export function isPlanningTask(task: Task) {
   const type = String(task.task_type || task.skill || "");
   return PLANNING_TASK_TYPES_SET.has(type) || task.source === "planning";

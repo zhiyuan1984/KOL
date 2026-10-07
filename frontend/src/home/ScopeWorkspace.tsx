@@ -5,7 +5,7 @@ import TaskBoard from "./TaskBoard";
 import TaskDetailRail, { type TaskDetailFocus } from "./TaskDetailRail";
 import TodayPlanProgress from "./TodayPlanProgress";
 import WorkspaceShell from "./WorkspaceShell";
-import { whyLine } from "./homeModel";
+import { isTaskException, whyLine } from "./homeModel";
 import {
   SCOPE_CONFIG,
   TODAY_PLAN_REFRESH_EVENT,
@@ -106,7 +106,7 @@ export default function ScopeWorkspace({
   const selectedAvailable = Boolean(selectedTask && stamped.some((task) => task.id === selectedTask.id));
   // 摘要里的任务数/异常数必须和用户眼前的任务表一致：从当前行派生，不用规划快照。
   const exceptionCount = useMemo(
-    () => stamped.filter((task) => String(task.status || "").trim().toLowerCase() === "failed").length,
+    () => stamped.filter(isTaskException).length,
     [stamped],
   );
   return (

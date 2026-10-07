@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Task } from "../api";
 import {
   isOpenTask,
+  isTaskException,
   isTodayActionableTodo,
   isTodoTask,
   openBucket,
@@ -28,6 +29,14 @@ import { groupDisplayTasks, projectDisplayTasks } from "./displayTasks";
 function task(partial: Partial<Task> & Pick<Task, "id" | "title">): Task {
   return { source: "manual", status: "pending", ...partial };
 }
+
+it("counts only open exceptions using task and execution state together", () => {
+  expect(isTaskException(task({ id: "failed", title: "x", status: "failed" }))).toBe(true);
+  expect(isTaskException(task({ id: "attempt", title: "x", execution: { status: "failed" } }))).toBe(true);
+  expect(isTaskException(task({ id: "error", title: "x", last_error: "来源读取失败" }))).toBe(true);
+  expect(isTaskException(task({ id: "normal", title: "x" }))).toBe(false);
+  expect(isTaskException(task({ id: "closed", title: "x", status: "completed", execution: { status: "failed" }, last_error: "历史失败" }))).toBe(false);
+});
 
 describe("today pane buckets", () => {
   it("keeps parseHomeMode default and drops queued / open-with-no-due", async () => {

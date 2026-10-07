@@ -29,7 +29,7 @@ export default function PlanSummary({ brief, label = "今日计划摘要", snaps
   snapshot?: PlanSnapshotInfo;
   /** 当前列表行数：页面上"任务数"的唯一口径。 */
   taskCount?: number;
-  /** 当前列表中 status=failed 的行数。 */
+  /** 当前列表中符合任务板异常筛选口径的行数。 */
   exceptionCount?: number;
 }) {
   const sections = (Array.isArray(brief?.sections) ? brief.sections : []).filter((section) => !isPolicySection(section));

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Task } from "../api";
 import BoardRow from "./BoardRow";
-import { dueDayDiff, isClosedTask, taskPriorityRank } from "./homeModel";
+import { dueDayDiff, isClosedTask, isTaskException, taskPriorityRank } from "./homeModel";
 import { planStartEvent, SCOPE_CONFIG, TODAY_PLAN_REFRESH_EVENT, type PlanScope, type TodayPlanPhase } from "./todayPlan";
 import "./today-plan-board.css";
 
@@ -41,14 +41,10 @@ function matchesBoardFilter(task: Task, filter: BoardFilter): boolean {
   return rank >= 3;
 }
 
-function isException(task: Task): boolean {
-  return !isClosedTask(task) && (task.status === "failed" || task.display_status === "failed" || task.execution?.status === "failed" || Boolean(task.last_error));
-}
-
 function matchesAttentionFilter(task: Task, filter: AttentionFilter): boolean {
   if (filter === "all") return true;
   if (isClosedTask(task)) return false;
-  if (filter === "exception") return isException(task);
+  if (filter === "exception") return isTaskException(task);
   const dayDiff = dueDayDiff(task.due_at);
   return filter === "overdue" ? dayDiff != null && dayDiff < 0 : dayDiff === 0;
 }

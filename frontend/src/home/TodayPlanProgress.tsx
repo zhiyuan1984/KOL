@@ -408,7 +408,13 @@ export default function TodayPlanProgress({
         </header>
       )}
 
-      {open && live ? (
+      {!live && steps.length > 0 ? (
+        <button type="button" className="today-plan-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+          {open ? "收起执行详情" : "查看执行详情"}
+        </button>
+      ) : null}
+
+      {open ? (
         <>
           {steps.length ? (
             <ol className="today-plan-steps" data-today-plan-steps>
@@ -466,7 +472,7 @@ export default function TodayPlanProgress({
       {analysis.length ? (
         <section className="today-plan-analysis" data-today-plan-analysis>
           <span className="today-plan-analysis-label">
-            Codex 业务分析{finishedAt ? ` · ${finishedAt}` : ""}
+            本次判断与依据
           </span>
           <ul className="today-plan-analysis-list">
             {analysis.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}

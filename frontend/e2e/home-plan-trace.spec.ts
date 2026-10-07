@@ -240,7 +240,7 @@ test("a settled run collapses to one line and expands on demand", async ({ page 
   // Collapsed: one line, no step list.
   await expect(page.locator("[data-today-plan-steps]")).toHaveCount(0);
   await expect(stream.locator("[data-today-plan-success]")).toContainText("今日计划");
-  await expect(stream).toContainText("整理");
+  await expect(stream).toContainText("生成");
   const collapsedHeight = (await stream.boundingBox())!.height;
   expect(collapsedHeight).toBeLessThan(80);
 
@@ -308,7 +308,7 @@ test("the previous version folds to one row and the row keeps no duplicate prior
   // 任务行不再重复：优先级只出现一次，来源列已删，勾选列已删。
   const row = page.locator('[data-today-todo="tsk_1"]');
   await expect(row.locator("[data-priority-label]")).toHaveCount(0);
-  await expect(row.locator("[data-board-status]")).toHaveCount(1);
+  await expect(row.locator(".task-board-row-state[data-state]")).toHaveCount(1);
   await expect(row.locator(".task-board-source-note")).toHaveCount(0);
   await expect(page.locator(".task-board-table thead")).not.toContainText("来源");
   await expect(page.locator(".task-board-check, .task-board-cell-check")).toHaveCount(0);

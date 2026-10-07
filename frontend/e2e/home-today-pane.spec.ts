@@ -85,7 +85,8 @@ test("entering today lists memory without planning; 生成今日安排 starts th
   await startPlan.click();
   await expect.poll(() => posts.length, { timeout: 30000 }).toBe(1);
   await expect(page.locator("[data-today-plan-phase]")).toBeVisible();
-  await expect(page.locator("[data-today-plan-phase]")).toHaveText(/Lucas 正在读取今天的任务|Lucas 正在整理今日安排|今日安排已整理|本次整理已完成/);
+  await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-phase", "planning");
+  await expect(page.locator("[data-today-plan-phase]")).toContainText("Lucas 正在规划今天的任务");
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
 });
 
@@ -242,7 +243,12 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   ];
   const writes: string[] = [];
   await mockTodayBrief(page);
-  await page.route("**/api/workbench/tasks**", (route) => route.fulfill({ json: { items: todos, page: { next_cursor: null } } }));
+  await page.route("**/api/workbench/tasks**", (route) => {
+    const view = new URL(route.request().url()).searchParams.get("view");
+    const items = view === "today" ? todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)) : todos;
+    return route.fulfill({ json: { items, page: { next_cursor: null } } });
+  });
+  await page.route("**/api/tickets?**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/home/board", (route) => route.fulfill({
     json: { kols: [], tabs: [], tasks: todos, workbench: { today: todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)), todo: todos, recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }] } },
   }));
@@ -261,6 +267,10 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
       await route.fulfill({
         json: { ...row, last_acted_at: new Date().toISOString(), acknowledged_at: new Date().toISOString(), creates_session: false, entry: "command" },
       });
+      return;
+    }
+    if (method === "GET" && /^\/api\/tasks\/[^/]+\/events$/.test(url.pathname)) {
+      await route.fulfill({ json: { events: [] } });
       return;
     }
     const detail = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
@@ -284,7 +294,7 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   // 状态文案是展示状态（后端 display_status_label 优先，缺省按日期/状态推导）：
   // 失败 / 延期 / 临期 / 进行中 —— 不再是旧分桶词（高风险/已逾期/今天到期）。
   await expect(page.locator('[data-today-todo="tsk_high"]')).toContainText("失败");
-  await expect(page.locator('[data-today-todo="tsk_high"] [data-risk-level]')).toHaveText("R1");
+  await expect(page.locator('[data-today-todo="tsk_high"] [data-risk-level]')).toHaveText("R3");
   await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toContainText("失败");
   await expect(page.locator('[data-today-todo="tsk_overdue"]')).toContainText("延期");
   await expect(page.locator('[data-today-todo="tsk_ai_overdue"]')).toContainText("延期");
@@ -307,12 +317,14 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("诱饵");
 
   await page.locator('[data-today-todo="tsk_high"] [data-today-todo-act]').click();
-  await expect.poll(() => writes).toEqual(["/api/tasks/tsk_high/acknowledge"]);
-  await expect(page).toHaveURL(/\/s\/ses_high/);
+  await expect(page.locator('[data-task-detail-rail="tsk_high"]')).toBeVisible();
+  await expect(page.locator(".task-detail-session-link")).toHaveAttribute("href", "/s/ses_high");
+  expect(writes).toEqual([]);
+  await page.getByRole("button", { name: "关闭任务明细" }).click();
 
   await page.goto("/");
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await page.locator('[data-today-todo="tsk_approval"] [data-today-todo-act]').click();
-  await expect.poll(() => writes).toEqual(["/api/tasks/tsk_high/acknowledge", "/api/tasks/tsk_approval/acknowledge"]);
+  await expect.poll(() => writes).toEqual(["/api/tasks/tsk_approval/acknowledge"]);
   await expect(page).toHaveURL(/\/approvals\/apr_quote/);
 });

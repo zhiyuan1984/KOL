@@ -131,7 +131,8 @@
 .today-plan-failure div { min-width: 0; }
 .today-plan-failure strong { font-size: var(--ds-font-sm); font-weight: 600; }
 .today-plan-failure p { margin: 3px 0 0; color: var(--ds-text-dim); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
-.today-plan-failure button { flex: 0 0 auto; min-height: var(--hit-min); border: 1px solid #DB1860; border-radius: var(--ds-radius-input); background: #DB1860; color: #fff; font: inherit; font-size: var(--ds-font-sm); padding: 0 10px; cursor: pointer; }
+.today-plan-failure button { flex: 0 0 auto; min-height: var(--btn-text-h); border: 0; border-radius: var(--radius-control); background: none; color: var(--accent-text); font: inherit; font-size: var(--ds-font-sm); padding: 0 var(--btn-text-pad-x); cursor: pointer; }
+.today-plan-failure button:hover { background: var(--btn-text-hover-bg); }
 .today-plan-failure button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .today-plan-meta {
   flex: 0 0 auto;
@@ -162,7 +163,8 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 4px 2px;
+  min-height: var(--btn-text-h);
+  padding: 0 var(--btn-text-pad-x);
   border-radius: var(--ds-radius-input);
 }
 .today-plan-head-meta .today-plan-toggle {
@@ -172,7 +174,9 @@
 }
 .today-plan-toggle:hover {
   color: var(--plan-accent);
+  background: var(--btn-text-hover-bg);
 }
+.today-plan-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .today-plan-chevron {
   display: inline-block;
   font-size: var(--ds-font-helper);

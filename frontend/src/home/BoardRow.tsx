@@ -14,7 +14,7 @@ function BoardTaskIcon({ task }: { task: Task }) {
   // 风险信号只认 risk_level（与 R chip 同源）与任务语义（risk_scan 本身就是风险扫描）：
   // 优先级高低归筛选 pills 与排序管，图标不再用 priority rank 另起一套风险体系，
   // 避免"有图标无 chip / 有 chip 无图标"。
-  const risk = type === "risk_scan" || riskChip(task) === "R1";
+  const risk = type === "risk_scan" || riskChip(task) === "R3";
   const search = /discovery|analyze|library_query/.test(type);
   return (
     <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -43,9 +43,9 @@ export function boardStatus(task: Task): BoardStatus {
 
 export function riskChip(task: Task): "R1" | "R2" | "R3" | "" {
   const risk = String(task.risk_level || "").trim().toLowerCase();
-  if (risk === "high") return "R1";
+  if (risk === "high") return "R3";
   if (risk === "medium") return "R2";
-  if (risk === "low") return "R3";
+  if (risk === "low") return "R1";
   return "";
 }
 
@@ -83,7 +83,9 @@ export default function BoardRow({
   const dueLabel = dueTime && !Number.isNaN(dueTime.getTime())
     ? dueTime.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
     : "";
-  const statusLabel = displayStatusLabel(task);
+  const statusLabel = executionFailed && task.status === "pending" && !task.display_status_label
+    ? "待处理"
+    : displayStatusLabel(task);
   const editable = Boolean(onEdit) && verb !== "edit" && !isDisplayOnlyTask(task);
   return (
     <tr
@@ -112,7 +114,7 @@ export default function BoardRow({
           {(why || risk || statusLabel || executionFailed || dueLabel) ? (
             <div className="task-board-meta">
               {why ? <p className="task-board-why" title={why}>{why}</p> : null}
-              {risk ? <span className={`task-board-chip is-${risk.toLowerCase()}`} data-risk-level={task.risk_level}>{risk}</span> : null}
+              {risk ? <span className={`task-board-chip is-${risk.toLowerCase()}`} data-risk-level={task.risk_level} title={`任务风险：${task.risk_level === "high" ? "高" : task.risk_level === "medium" ? "中" : "低"}（${risk}）`}>{risk}</span> : null}
               {statusLabel ? <span className="task-board-row-state" data-state={taskFailed ? "failed" : !isClosedTask(task) && dueDiff != null && dueDiff < 0 ? "overdue" : "default"}>任务状态：{statusLabel}</span> : null}
               {dueLabel ? <span className="task-board-row-state">到期 {dueLabel}</span> : null}
               {executionFailed ? <span className="task-board-execution-failed">上次执行失败{executionNote ? `：${executionNote}` : " · 原因待核对"}{task.status === "pending" || task.status === "waiting" ? " · 任务仍待处理" : ""}</span> : null}

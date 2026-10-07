@@ -93,11 +93,12 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/workbench/tasks**", (route) => {
     const view = new URL(route.request().url()).searchParams.get("view");
-    const items = view === "todo"
-      ? todos.filter((row) => ["tsk_queued", "tsk_ai_open"].includes(row.id))
+    const items = view === "today"
+      ? todos.filter((row) => !["tsk_queued", "tsk_ai_open", "tsk_done"].includes(row.id))
       : todos.filter((row) => row.id !== "tsk_done");
     return route.fulfill({ json: { items, page: { next_cursor: null } } });
   });
+  await page.route("**/api/tickets?**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/tasks**", async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
@@ -121,6 +122,10 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
       });
       return;
     }
+    if (method === "GET" && /^\/api\/tasks\/[^/]+\/events$/.test(url.pathname)) {
+      await route.fulfill({ json: { events: [] } });
+      return;
+    }
     const detail = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
     if (method === "GET" && detail) {
       const id = decodeURIComponent(detail[1]);
@@ -134,16 +139,15 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   await expect(page).toHaveURL(/[?&]tab=todo/);
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
   await expect(page.locator("[data-todo-list]")).toBeVisible();
-  // 今日相关行（失败/今天到期/进行中/等审批）改造后归今日面板；待办面板只剩 2 行（原 7 行的分桶集合已拆分）。
-  await expect(page.locator("[data-today-todo]")).toHaveCount(2);
-  // 原 tsk_ai_failed「高风险」桶行现在归今日面板，待办面板不再渲染该行。
-  await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toHaveCount(0);
+  // 待办是全部未结责任，包含今日相关行；今日只是其中的子集。
+  await expect(page.locator("[data-today-todo]")).toHaveCount(7);
+  await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toBeVisible();
   // 分桶容器与「后续」文案随分桶分组移除；状态 chip 用 taskDisplayStatus 派生标签。
   await expect(page.locator('[data-today-todo="tsk_queued"]')).toBeVisible();
-  await expect(page.locator('[data-today-todo="tsk_queued"] [data-board-status]')).toHaveText("未开始");
+  await expect(page.locator('[data-today-todo="tsk_queued"] .task-board-row-state[data-state]')).toHaveText("任务状态：未开始");
   await expect(page.locator('[data-today-todo="tsk_queued"] [data-today-todo-act]')).toHaveText("打开");
   await expect(page.locator('[data-today-todo="tsk_ai_open"]')).toBeVisible();
-  await expect(page.locator('[data-today-todo="tsk_ai_open"] [data-board-status]')).toHaveText("未开始");
+  await expect(page.locator('[data-today-todo="tsk_ai_open"] .task-board-row-state[data-state]')).toHaveText("任务状态：未开始");
   await expect(page.locator('[data-today-todo="tsk_done"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("今天推荐");
@@ -155,9 +159,50 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
 
   // 待办筛选已改为共享任务板的优先级筛选（全部/重要且紧急/…），原 later/all 过滤按钮移除。
   await page.locator('[data-today-todo="tsk_queued"] [data-today-todo-act]').click();
-  await expect.poll(() => writes).toEqual(["/api/tasks/tsk_queued/acknowledge"]);
+  await expect(page.locator('[data-task-detail-rail="tsk_queued"]')).toBeVisible();
+  expect(writes).toEqual([]);
   await expect(page).toHaveURL(/[?&]tab=todo/);
   expect(sessionPosts).toEqual([]);
+});
+
+test("exception summary and filter agree; refreshing data does not plan", async ({ page }) => {
+  const todos = [
+    { id: "tsk_attempt_failed", title: "待重新核对报价", status: "pending", source: "manual", execution: { status: "failed" }, last_error: "来源读取超时" },
+    { id: "tsk_normal", title: "准备下周资料", status: "pending", source: "manual" },
+  ];
+  let reads = 0;
+  const planPosts: string[] = [];
+  await page.route("**/api/workbench/tasks**", (route) => {
+    reads += 1;
+    return route.fulfill({ json: { items: todos, page: { next_cursor: null } } });
+  });
+  await page.route("**/api/workbench/plan", (route) => route.fulfill({ json: {
+    planning: false, events: [], generated_at: new Date().toISOString(),
+    brief: { lead: "核对上次失败的任务。", stats: { unfinished: 99, failed_runs: 9 } },
+  } }));
+  await page.route("**/api/workbench/plan-runs", (route) => {
+    planPosts.push(route.request().method());
+    return route.fulfill({ json: { planning: true, work_item_id: "unexpected" } });
+  });
+  await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.goto("/?tab=todo");
+  await expect(page.locator("[data-today-todo]")).toHaveCount(2);
+  await expect(page.locator("[data-today-brief] > .today-plan-summary-stats")).toHaveText("2 项任务 · 1 项异常需优先处理");
+  const exception = page.locator('[data-attention-filter="exception"]');
+  await expect(exception).toHaveText("异常 1");
+  await exception.click();
+  await expect(exception).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-today-todo]")).toHaveCount(1);
+  await expect(page.locator('[data-today-todo="tsk_attempt_failed"]')).toContainText("上次执行失败");
+  await expect(page.locator('[data-today-todo="tsk_attempt_failed"]')).toContainText("任务状态：待处理");
+  await page.getByRole("button", { name: "清除筛选" }).click();
+  await expect(page.locator("[data-today-todo]")).toHaveCount(2);
+  const before = reads;
+  await page.getByRole("button", { name: "刷新任务数据" }).click();
+  await expect.poll(() => reads).toBeGreaterThan(before);
+  await expect(page.locator("[data-today-todo]")).toHaveCount(2);
+  expect(planPosts).toEqual([]);
 });
 
 test("todo entry locks todo_plan without planning; composer submit starts the run", async ({ page }) => {

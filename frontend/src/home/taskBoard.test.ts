@@ -61,13 +61,17 @@ describe("today/todo consistency fixes", () => {
     const { planButtonState } = await import("./TaskBoard");
     expect(planButtonState("failed", "today").label).toBe("重新规划今日计划");
     expect(planButtonState("failed", "todo").label).toBe("重新规划待办计划");
-    expect(planButtonState("refreshed", "today").label).toBe("生成今日计划");
+    expect(planButtonState("refreshed", "today").label).toBe("整理今日任务");
   });
 
-  it("keeps risk icon and R chip on the same risk_level source", () => {
+  it("maps task severity low/medium/high to R1/R2/R3 without using priority", async () => {
+    const { riskChip } = await import("./BoardRow");
+    for (const [risk_level, expected] of [["low", "R1"], ["medium", "R2"], ["high", "R3"], ["none", ""], ["unknown", ""]]) {
+      expect(riskChip({ id: "t", title: "x", risk_level, priority: "high" } as never)).toBe(expected);
+    }
     const row = read("BoardRow.tsx");
     // icon risk no longer derives from priority rank (a second risk system)
     expect(row).not.toContain("taskPriorityRank(task) <=");
-    expect(row).toContain('riskChip(task) === "R1"');
+    expect(row).toContain('riskChip(task) === "R3"');
   });
 });
