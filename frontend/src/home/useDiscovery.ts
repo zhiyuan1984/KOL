@@ -94,6 +94,12 @@ export default function useDiscovery({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
+  /**
+   * 行内「跟进」标记的候选：分拣意图（这条我要跟），不是排他认领。
+   * 新模型后端禁止从发现路径直接创建 Collaboration（403），真正的认领
+   * 发生在公海；标记会同时把该行加入入库选择，入库后去公海认领。
+   */
+  const [followUpIds, setFollowUpIds] = useState<string[]>([]);
   const [resultFilter, setResultFilter] = useState<DiscoveryResultFilter>("all");
   /** 「查看详情」展开的行；只影响本地展示，不发请求。 */
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
@@ -139,6 +145,10 @@ export default function useDiscovery({
   const selected = useMemo(
     () => available.filter((row) => selectedIds.includes(row.id)),
     [available, selectedIds],
+  );
+  const followUpCount = useMemo(
+    () => available.filter((row) => followUpIds.includes(row.id)).length,
+    [available, followUpIds],
   );
   const selectableVisible = useMemo(() => visible.filter(isIngestSelectable), [visible]);
   const steps = useMemo(() => presentDiscoveryEvents(events), [events]);
@@ -220,6 +230,7 @@ export default function useDiscovery({
     if (activeRun?.id !== chosen.id) {
       setSelectedIds([]);
       setIgnoredIds([]);
+      setFollowUpIds([]);
       setResultFilter("all");
       setExpandedIds([]);
       setApprovalState(null);
@@ -456,6 +467,17 @@ export default function useDiscovery({
     });
   };
 
+  const toggleFollowUp = (id: string, on: boolean) => {
+    setFollowUpIds((current) => {
+      if (on) return current.includes(id) ? current : [...current, id];
+      return current.filter((item) => item !== id);
+    });
+    if (on) {
+      const row = candidates.find((item) => item.id === id);
+      if (row && isIngestSelectable(row)) toggleSelected(id, true);
+    }
+  };
+
   const selectAll = (on: boolean) => {
     const ids = new Set(selectableVisible.map((row) => row.id));
     setSelectedIds((current) => on
@@ -514,6 +536,7 @@ export default function useDiscovery({
           : row
       )));
       setSelectedIds((current) => current.filter((id) => !ingestedIds.has(id)));
+      setFollowUpIds((current) => current.filter((id) => !ingestedIds.has(id)));
       setIngestReceipt(result);
       if (result.failed.length) {
         setIngestError(
@@ -735,6 +758,9 @@ export default function useDiscovery({
     expandedIds,
     toggleExpanded,
     ignoreCandidate,
+    followUpIds,
+    toggleFollowUp,
+    followUpCount,
     ingestOpen,
     ingestBusy,
     ingestError,

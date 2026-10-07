@@ -32,10 +32,11 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
     && (brief.max_followers == null || row.followers <= brief.max_followers);
   const followerVerified = row.followers_evidence?.state === "source_recorded";
   const source = row.source_url && /^https?:\/\//i.test(row.source_url) ? row.source_url : undefined;
-  return <article className="pool-kol-row discovery-runtime-candidate" data-kol-work-card data-discovery-candidate={row.id}>
-    <PoolAvatar card={{ kol_uid: row.id, identity: { display: row.name, platform: row.platform, avatar_url: row.avatar_url || undefined }, metrics: {} }} />
+  return <article className="discovery-runtime-candidate" data-kol-work-card data-discovery-candidate={row.id}>
     <div className="pool-row-content">
-      <div className="pool-row-heading"><strong className="pool-row-name">{row.name}</strong>
+      <div className="pool-row-heading">
+        <PoolAvatar card={{ kol_uid: row.id, identity: { display: row.name, platform: row.platform, avatar_url: row.avatar_url || undefined }, metrics: {} }} />
+        <strong className="pool-row-name">{row.name}</strong>
         <span className="pool-row-status">{row.followed ? "已跟进" : row.in_pool ? "已加入公海" : row.ignored ? "已忽略" : "候选"}</span></div>
       <div className="pool-row-meta"><span>{platformLabel(row.platform)}</span>
         {source ? <a className="pool-profile-link" href={source} target="_blank" rel="noopener noreferrer">主页 ↗</a> : <span>主页未提供</span>}</div>
@@ -53,12 +54,11 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
       </details>
       <div className="pool-row-actions discovery-candidate-actions">
         {row.ignored ? <button type="button" className="pool-claim-button" disabled={busy || !snapshot} onClick={() => void command("restore")}>恢复考虑</button> : <>
-          <button type="button" className="pool-claim-button" title="点击即确认归你跟进，其他员工受排他跟进规则限制（L3）" disabled={busy || !snapshot} onClick={() => void command("follow")}>{busy ? "处理中…" : "跟进"}</button>
-          <button type="button" className="pool-claim-button" disabled={busy || !snapshot} onClick={() => void command("ignore")}>忽略</button>
+          <button type="button" className="pool-claim-button is-quiet" title="点击即确认归你跟进，其他员工受排他跟进规则限制（L3）" disabled={busy || !snapshot} onClick={() => void command("follow")}>{busy ? "处理中…" : "跟进"}</button>
+          <button type="button" className="pool-claim-button is-quiet" disabled={busy || !snapshot} onClick={() => void command("ignore")}>忽略</button>
           <button type="button" className="pool-claim-button" disabled={busy || !snapshot || row.followed} title={row.followed ? "已归你跟进，回公海是独立动作" : undefined} onClick={() => row.in_pool ? nav("/?tab=pool") : setConfirm(true)}>加入公海</button>
         </>}
       </div>
-      {!row.ignored && !row.followed ? <p className="muted discovery-follow-impact">跟进：点击即确认归你跟进（L3）</p> : null}
       {!snapshot ? <p role="status">此历史结果缺少资料版本，请刷新核对后操作。</p> : null}
       {error && !confirm ? <p role="alert">{error}</p> : null}
     </div>

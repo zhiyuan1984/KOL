@@ -16401,3 +16401,103 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   .task-kpi-card,
   .task-kpi-card:hover { transition: none; transform: none; }
 }
+
+/* ==========================================================================
+/* ==========================================================================
+ * §3.12 AI 发现旧模型候选卡片（DiscoveryRuntimeCandidate）
+ * 自足布局：不依赖宿主作用域类，不依赖已下线的 pool-* 行样式。
+ * 密度整改（design-spec-v3 组合规则缺口复盘，只复用已有 token）：
+ * - compact 档：12px 内边距，弱化容器（边框分隔，无厚重阴影）。
+ * - 头部单行：24px 头像 + 13px/500 标题 + 20px 状态 chip。
+ * - 元信息 12px 弱化色横向紧凑；评估说明 12px 更弱色，最多两行截断。
+ * - 单卡最多 1 个 L2 描边按钮（加入公海），其余 L3 文字按钮；
+ *   重复的语义提示文字已去掉（按钮本身承载语义）。
+ * ========================================================================== */
+.discovery-runtime-candidate {
+  /* 块级纵排：头像收进标题行内，下方内容全宽排列，消除头像列下方的留白。 */
+  display: block;
+  padding: var(--space-2); margin-block: var(--space-2);
+  border: 1px solid var(--border); border-radius: var(--radius-card);
+  background: var(--color-paper); box-sizing: border-box;
+}
+.discovery-runtime-candidate .pool-row-avatar {
+  flex: 0 0 auto; width: 24px; height: 24px; overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius-full);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--color-ash); color: var(--text-quiet);
+  font-size: var(--ds-font-helper); font-weight: 600; object-fit: cover;
+}
+.discovery-runtime-candidate .pool-row-content { flex: 1 1 auto; min-width: 0; display: grid; gap: var(--space-1); }
+/* 头部单行：标题 + 状态 chip */
+.discovery-runtime-candidate .pool-row-heading { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.discovery-runtime-candidate .pool-row-name {
+  font-size: var(--ds-font-sm); font-weight: 500; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.discovery-runtime-candidate .pool-row-status {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 var(--space-2);
+  font-size: var(--ds-font-helper); font-weight: 500; line-height: 1; white-space: nowrap;
+  color: var(--text-quiet); border: 1px solid var(--border);
+  border-radius: var(--radius-control); background: transparent;
+}
+/* 元信息：12px 弱化色，横向紧凑（行内流式，不做 flex 容器避免文本碎片换行） */
+.discovery-runtime-candidate .pool-row-meta { display: block; font-size: var(--ds-font-helper); color: var(--text-quiet); }
+.discovery-runtime-candidate .pool-profile-link { color: var(--accent); }
+.discovery-runtime-candidate .pool-profile-link:hover { color: var(--color-accent-hover); }
+.discovery-runtime-candidate .pool-row-facts { display: inline; font-size: var(--ds-font-helper); color: var(--text-quiet); }
+.discovery-runtime-candidate .pool-row-facts b { color: var(--text); font-weight: 500; }
+.discovery-runtime-candidate .pool-row-metrics { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); }
+.discovery-runtime-candidate .pool-row-intro { font-size: var(--ds-font-helper); color: var(--text-quiet); overflow-wrap: anywhere; }
+/* 评估说明：12px 更弱色，最多两行，超出截断 */
+.discovery-runtime-candidate .discovery-candidate-fit {
+  margin: 0; font-size: var(--ds-font-helper); color: var(--text-faint);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.discovery-runtime-candidate p { margin-block: var(--space-1); overflow-wrap: anywhere; }
+/* 资料与筛选依据：L3 文字按钮 */
+.discovery-runtime-candidate details { font-size: var(--ds-font-helper); color: var(--text-quiet); }
+.discovery-runtime-candidate summary {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 var(--space-1);
+  color: var(--text-quiet); font-size: var(--ds-font-helper); cursor: pointer; list-style: none;
+}
+.discovery-runtime-candidate summary:hover { color: var(--text); }
+.discovery-runtime-candidate summary::-webkit-details-marker { display: none; }
+/* 操作区：最多 1 个 L2（加入公海），其余 L3 文字按钮 */
+.discovery-candidate-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin-top: var(--space-1);
+  /* 中和旧 720px 媒体查询的 grid-column: 3（会把单列 grid 撑成三列） */
+  grid-column: auto;
+}
+.discovery-candidate-actions .pool-claim-button {
+  height: 28px; padding: 0 var(--space-3); background: transparent;
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  color: var(--accent); font-size: var(--ds-font-helper); font-weight: 500;
+  cursor: pointer; white-space: nowrap;
+}
+.discovery-candidate-actions .pool-claim-button:hover:not(:disabled) { border-color: var(--accent); }
+.discovery-candidate-actions .pool-claim-button:disabled { opacity: .5; cursor: not-allowed; }
+.discovery-candidate-actions .pool-claim-button.is-quiet {
+  height: 24px; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-control);
+  color: var(--text-quiet); font-weight: 400;
+}
+.discovery-candidate-actions .pool-claim-button.is-quiet:hover:not(:disabled) { color: var(--text); border: 0; }
+/* ── §3.12 遗留覆盖：中和复活旧规则 ──
+ * 旧 styles.css 里残留的 float/clear 布局与 .is-discovery-task 高优先级
+ * （0,3,0）覆盖会破坏本块的 flex 紧凑布局，这里显式中和。只复用已有 token。 */
+.discovery-runtime-candidate .pool-row-avatar { float: none; }
+.discovery-runtime-candidate .pool-row-facts,
+.discovery-runtime-candidate .pool-row-intro { clear: none; }
+.discovery-runtime-candidate details { margin-top: 0; }
+.is-discovery-task .discovery-runtime-candidate { display: block; padding: var(--space-2); margin-block: var(--space-2); }
+.is-discovery-task .discovery-candidate-actions { gap: var(--space-1); }
+/* 旧 0,3,0 规则把全部按钮去了边框；这里按 4.2/24.6 恢复：单 L2 描边主按钮 */
+.is-discovery-task .discovery-runtime-candidate .discovery-candidate-actions .pool-claim-button {
+  border: 1px solid var(--border);
+  padding: 0 var(--space-3);
+  color: var(--accent);
+}
+.is-discovery-task .discovery-runtime-candidate .discovery-candidate-actions .pool-claim-button.is-quiet {
+  border: 0;
+  padding: 0 var(--space-1);
+  color: var(--text-quiet);
+}

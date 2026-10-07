@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
-import DiscoveryRuntimeResults from "./DiscoveryRuntimeResults";
 import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
 import type { DiscoveryState } from "./useDiscovery";
 
@@ -23,13 +22,15 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
     selectableVisible,
     selectedIds,
     selectedPlatforms,
+    followUpIds,
+    toggleFollowUp,
+    followUpCount,
     inFlight,
     stage,
     startPhase,
     crawlPhase,
     submitted,
     runFromAnotherTask,
-    actions,
     failure,
     emptyKind,
     emptyMessage,
@@ -111,8 +112,6 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
         </p>
       ) : null}
 
-      <DiscoveryRuntimeResults actions={actions} brief={brief} />
-
       {approvalState === "brief_mismatch" ? (
         <section className="task-empty" data-discovery-brief-mismatch role="alert">
           <strong>确认已作废</strong>
@@ -165,7 +164,7 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
           </div>
 
           <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
-            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人`}</span>
+            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 待跟进 ${followUpCount} 人` : ""}`}</span>
             <label className="discovery-candidate-select">
               <input
                 type="checkbox"
@@ -194,10 +193,13 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
                 <li key={candidate.id}>
                   <DiscoveryLeadRow
                     candidate={candidate}
+                    brief={brief}
                     selected={selectedIds.includes(candidate.id)}
                     expanded={expandedIds.includes(candidate.id)}
+                    followUp={followUpIds.includes(candidate.id)}
                     onToggleSelect={(on) => toggleSelected(candidate.id, on)}
                     onToggleExpand={() => toggleExpanded(candidate.id)}
+                    onToggleFollowUp={(on) => toggleFollowUp(candidate.id, on)}
                     onIgnore={() => ignoreCandidate(candidate.id)}
                   />
                 </li>

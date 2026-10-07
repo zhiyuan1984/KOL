@@ -1,5 +1,6 @@
 import { displayMetric, type HomeDiscoveryCandidate } from "./discoveryHome";
 import {
+  briefFitText,
   collectedAtMinute,
   confidenceLabel,
   ingestReadinessLabel,
@@ -16,7 +17,7 @@ import {
   sourceState,
   viewFollowerPercent,
 } from "./discoveryLeadFields";
-import { platformLabel } from "./discoveryTemplate";
+import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
 
 function CartoonAvatar() {
   return (
@@ -35,17 +36,25 @@ function CartoonAvatar() {
  */
 export default function DiscoveryLeadRow({
   candidate,
+  brief,
   selected,
   expanded,
+  followUp,
   onToggleSelect,
   onToggleExpand,
+  onToggleFollowUp,
   onIgnore,
 }: {
   candidate: HomeDiscoveryCandidate;
+  /** 本次 brief 门槛：只用于前端算门槛符合度，不发请求。 */
+  brief: DiscoveryBrief;
   selected: boolean;
   expanded: boolean;
+  /** 行内「跟进」标记态：分拣意图，真正的排他认领在公海完成。 */
+  followUp: boolean;
   onToggleSelect: (on: boolean) => void;
   onToggleExpand: () => void;
+  onToggleFollowUp: (on: boolean) => void;
   onIgnore: () => void;
 }) {
   const source = sourceState(candidate);
@@ -107,6 +116,9 @@ export default function DiscoveryLeadRow({
           {candidate.in_library ? (
             <span className="discovery-chip discovery-chip-soft" data-discovery-in-library>已在库</span>
           ) : null}
+          {followUp ? (
+            <span className="discovery-lead-tag is-followup" data-lead-followup>待跟进</span>
+          ) : null}
           <span className="discovery-lead-tag" data-lead-score>
             {score == null ? `推荐分 ${MISSING_TEXT}` : `推荐分 ${score}`}
           </span>
@@ -117,8 +129,8 @@ export default function DiscoveryLeadRow({
             {readiness}
           </span>
         </p>
-        <p className="discovery-lead-meta" data-discovery-candidate-meta>
-          {`账号 ${candidate.platformCreatorId || MISSING_TEXT} · 粉丝 ${displayMetric(candidate.followers)}`
+        <p className="discovery-lead-meta" data-discovery-candidate-meta data-lead-fit>
+          {`${briefFitText(candidate, brief)} · 账号 ${candidate.platformCreatorId || MISSING_TEXT} · 粉丝 ${displayMetric(candidate.followers)}`
             + ` · 近10均播 ${displayMetric(plays)}${note ? ` · ${note}` : ""}`
             + ` · 播放/粉丝比 ${viewFollowerPercent(candidate)}`}
         </p>
@@ -164,6 +176,18 @@ export default function DiscoveryLeadRow({
         >
           {expanded ? "收起" : "查看详情"}
         </button>
+        {selectable ? (
+          <button
+            type="button"
+            className="discovery-follow-quiet"
+            data-discovery-followup={candidate.id}
+            aria-pressed={followUp}
+            title="标记为待跟进并自动加入入库选择；入库后去公海认领"
+            onClick={() => onToggleFollowUp(!followUp)}
+          >
+            {followUp ? "取消跟进" : "跟进"}
+          </button>
+        ) : null}
         <button
           type="button"
           className="discovery-follow-quiet"

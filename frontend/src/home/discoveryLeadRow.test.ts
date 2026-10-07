@@ -37,13 +37,30 @@ const candidate: HomeDiscoveryCandidate = {
   status: "suggested",
 };
 
-function render(overrides: Partial<HomeDiscoveryCandidate> = {}): string {
+const brief = {
+  platforms: ["youtube"],
+  region: "global_en",
+  directions: [],
+  keywords: ["camping"],
+  min_followers: 10_000,
+  max_followers: null,
+  min_avg_plays_10: 5_000,
+  expect_count: 30,
+};
+
+function render(
+  overrides: Partial<HomeDiscoveryCandidate> = {},
+  props: { followUp?: boolean } = {},
+): string {
   return renderToStaticMarkup(createElement(DiscoveryLeadRow, {
     candidate: { ...candidate, ...overrides },
+    brief,
     selected: false,
     expanded: false,
+    followUp: props.followUp ?? false,
     onToggleSelect: () => undefined,
     onToggleExpand: () => undefined,
+    onToggleFollowUp: () => undefined,
     onIgnore: () => undefined,
   }));
 }
@@ -74,6 +91,39 @@ describe("discovery lead row", () => {
     expect(html).toContain('data-discovery-source="c1"');
     expect(html).toContain('href="https://youtube.com/@CleanGlow"');
     expect(html).toContain("看来源");
+  });
+
+  it("offers per-row follow-up triage on selectable candidates", () => {
+    const html = render();
+    expect(html).toContain('data-discovery-followup="c1"');
+    expect(html).toContain("跟进");
+    expect(html).not.toContain("data-lead-followup");
+    const marked = render({}, { followUp: true });
+    expect(marked).toContain("data-lead-followup");
+    expect(marked).toContain("待跟进");
+    expect(marked).toContain("取消跟进");
+    expect(marked).toContain('aria-pressed="true"');
+  });
+
+  it("hides the follow-up action when the candidate cannot be ingested", () => {
+    const html = render({ ingestReadiness: "needs_contact" });
+    expect(html).not.toContain("data-discovery-followup");
+    const existing = render({ ingestReadiness: "already_in_library" });
+    expect(existing).not.toContain("data-discovery-followup");
+  });
+
+  it("renders the brief-fit decision line from thresholds", () => {
+    const html = render();
+    expect(html).toContain("data-lead-fit");
+    // 153000 粉丝 ≥ 10000，8000 均播 ≥ 5000
+    expect(html).toContain("粉丝符合门槛(≥10,000)");
+    expect(html).toContain("均播符合门槛(≥5,000)");
+    const low = render({ followers: 5000, avg_plays_10: 1000 });
+    expect(low).toContain("粉丝不符合门槛(≥10,000)");
+    expect(low).toContain("均播低于门槛(≥5,000)");
+    const missing = render({ followers: null, avg_plays_10: null });
+    expect(missing).toContain("粉丝无法核验");
+    expect(missing).toContain("近10条资料不足");
   });
 
   it("marks missing-contact candidates as non-selectable with the Host reason", () => {

@@ -702,6 +702,49 @@ const WORKSPACE_ACCEPTED = {
   pending: DISCOVERY_PENDING,
 };
 
+/**
+ * 新模型（结果明细单决策面）的运行与候选：右栏候选只从 home-discovery runs 来，
+ * 不再读 runtime actions 的 result_json。
+ */
+function homeRunFixture() {
+  return {
+    id: "run_disc_e2e",
+    work_item_id: DISCOVERY_TASK_ID,
+    status: "succeeded",
+    brief_version: 1,
+    created_at: "2026-10-06T09:00:00.000Z",
+  };
+}
+
+function homeCandidateFixture() {
+  return {
+    id: "cand_e2e",
+    nickname: "E2E 候选",
+    platform: "youtube",
+    platform_creator_id: "e2e-1",
+    followers: 12000,
+    avg_plays_10: 8000,
+    ingest_readiness: "ready",
+    match_reason: "名称含 camping",
+  };
+}
+
+async function stubRunsWithCandidate(page: Page) {
+  await page.route("**/api/home/discovery/runs**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/candidates")) {
+      void route.fulfill({ json: { run_id: "run_disc_e2e", candidates: [homeCandidateFixture()] } });
+      return;
+    }
+    if (/\/runs\/[^/]+$/.test(path)) {
+      void route.fulfill({ json: { run: homeRunFixture() } });
+      return;
+    }
+    void route.fulfill({ json: { runs: [homeRunFixture()] } });
+  });
+  await page.route("**/api/tasks/**/events", (route) => route.fulfill({ json: { events: [] } }));
+}
+
 test("send on the discovery path shows ▪ and clears the box before the request resolves", async ({ page }) => {
   const gate: { release?: () => void } = {};
   const held = new Promise<void>((resolve) => { gate.release = resolve; });
@@ -1099,7 +1142,7 @@ test("页内确认闭环：确认只发一次，随后右栏状态与中栏执�
   const held = new Promise<void>((resolve) => { gate.release = resolve; });
   const confirmBodies: unknown[] = [];
   let actions: unknown[] = [runtimeAction("pending")];
-  await stubNoRuns(page);
+  await stubRunsWithCandidate(page);
   await stubRuntimeActions(page, () => actions);
   await stubDiscoverySubmit(page);
   await page.route("**/api/actions/runtime.confirm", async (route) => {
@@ -1155,9 +1198,15 @@ test("页内确认闭环：确认只发一次，随后右栏状态与中栏执�
   // 服务端接着走：右栏状态头、回执与候选，以及中栏执行事件同步更新。
   await expect(page.locator('[data-scope-task-rail] [data-discovery-run-status="running"]')).toBeVisible();
   await expect(page.locator("[data-scope-task-rail] [data-discovery-run-status-label]")).toContainText("采集中");
-  const results = page.locator("[data-discovery-results]");
-  await expect(results).toContainText("1 位候选");
-  await expect(results).toContainText("Runtime 候选");
+  // 右栏候选是单决策面（结果明细）：只从 home-discovery runs 读，不再读旧卡片区。
+  const leads = page.locator("[data-discovery-candidates]");
+  await expect(leads).toContainText("E2E 候选");
+  await expect(page.locator("[data-discovery-result-filters]")).toContainText("全部 1");
+  // 行内跟进：标记待跟进并自动加入入库选择。
+  const lead = page.locator('[data-candidate-id="cand_e2e"]');
+  await lead.getByRole("button", { name: "跟进", exact: true }).click();
+  await expect(lead).toContainText("待跟进");
+  await expect(page.locator("[data-discovery-selected-count]")).toContainText("已选 1 人 · 待跟进 1 人");
   events = [{ type: "queued" }, { type: "crawl.started" }];
   const trail = page.locator('[data-discovery-event="run"]');
   await expect(trail.locator("[data-discovery-run-steps]")).toContainText("排队");
