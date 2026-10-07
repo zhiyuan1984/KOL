@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import "./followed.css";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
 import {
   followedBulkCtaLabel,
@@ -6,11 +7,19 @@ import {
   type FollowedKolCardModel,
 } from "../followedKolCard";
 import type { StarryBinding } from "../api";
-import type { FollowedSituation } from "./FollowedBrief";
 import { selectAllChecked, selectAllLabel } from "./kolContract";
 import type { KolSortMode } from "../followedKolCard";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
+
+/** 无限加载每批条数（DESIGN §9.4 模式 A：data-dense-dashboard 查找+浏览混合场景）。 */
+const FOLLOWED_PAGE_SIZE = 20;
+
+const SORT_OPTIONS: { key: KolSortMode; label: string }[] = [
+  { key: "followers", label: "粉丝数" },
+  { key: "time", label: "时间" },
+  { key: "score", label: "潜力" },
+];
 
 /** 与公海同一支搜索图标：框内左侧内联，命中区仍是整个输入框。 */
 function SearchIcon() {
@@ -88,8 +97,6 @@ export default function FollowedPane({
   allCards,
   kolQuery,
   sort,
-  stageFilter,
-  situation,
   selectedKolIds,
   hoveredKolId,
   focusedKolId,
@@ -101,8 +108,6 @@ export default function FollowedPane({
   listError,
   onQuery,
   onSort,
-  onStageFilter,
-  onSituation,
   onHover,
   onFocus,
   onToggleSelect,
@@ -124,8 +129,6 @@ export default function FollowedPane({
   allCards: FollowedKolCardModel[];
   kolQuery: string;
   sort: KolSortMode;
-  stageFilter: string;
-  situation: FollowedSituation | "";
   selectedKolIds: string[];
   hoveredKolId: string | null;
   focusedKolId: string | null;
@@ -138,8 +141,6 @@ export default function FollowedPane({
   listError?: string;
   onQuery: (value: string) => void;
   onSort: (value: KolSortMode) => void;
-  onStageFilter: (value: string) => void;
-  onSituation: (value: FollowedSituation | "") => void;
   onHover: (id: string | null) => void;
   onFocus: (id: string | null) => void;
   onToggleSelect: (id: string, on: boolean) => void;
@@ -166,13 +167,43 @@ export default function FollowedPane({
   const slowLoading = useSlowWait(loading);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
 
+  /**
+   * 无限加载（模式 A，DESIGN §9.4）：筛选/排序变化时重置为首批，触底追加。
+   * 滚动容器在 WorkspaceShell 上层，observer 以 viewport 为 root，
+   * bottom rootMargin = --infinite-load-threshold（48px）。
+   * 前端切片为同步渲染，不伪造「加载中」等待（不变量 3）。
+   */
+  const [visibleCount, setVisibleCount] = useState(FOLLOWED_PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    setVisibleCount(FOLLOWED_PAGE_SIZE);
+  }, [kolQuery, sort, visibleKols.length]);
+  const hasMore = visibleCount < visibleKols.length;
+  const renderedKols = hasMore ? visibleKols.slice(0, visibleCount) : visibleKols;
+  useEffect(() => {
+    if (!hasMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((count) => Math.min(count + FOLLOWED_PAGE_SIZE, visibleKols.length));
+        }
+      },
+      { root: null, rootMargin: "0px 0px 48px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, visibleKols.length]);
+
   return (
     <section
       className="recommend-work followed-kol-pane is-result-rail"
       data-lifecycle-overview
     >
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
-        {/* 顶部工具行只保留搜索、排序和批量动作；总数放在中栏当前概览之后。 */}
+        {/* 顶部工具行只保留搜索、排序和批量动作；总数放在中栏当前概览。
+            筛选后右栏显示「共 N 位」（筛选结果数），未筛选时不渲染，避免与中栏总数重复（不变量 6）。 */}
         {allCards.length ? <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <div className="followed-object-look" data-followed-object-look>
             <label className="followed-object-search">
@@ -187,24 +218,18 @@ export default function FollowedPane({
               />
             </label>
             <div className="followed-object-sort" data-followed-sort role="group" aria-label="跟进对象排序">
-              <button
-                type="button"
-                className="followed-sort-option"
-                data-followed-sort-option="followers"
-                aria-pressed={sort === "followers"}
-                onClick={() => onSort("followers")}
-              >
-                粉丝数 <SortIcon />
-              </button>
-              <button
-                type="button"
-                className="followed-sort-option"
-                data-followed-sort-option="time"
-                aria-pressed={sort === "time"}
-                onClick={() => onSort("time")}
-              >
-                时间 <SortIcon />
-              </button>
+              {SORT_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className="followed-sort-option"
+                  data-followed-sort-option={option.key}
+                  aria-pressed={sort === option.key}
+                  onClick={() => onSort(option.key)}
+                >
+                  {option.label} <SortIcon />
+                </button>
+              ))}
             </div>
           </div>
           <div className="followed-object-batch" data-followed-object-batch>
@@ -247,6 +272,12 @@ export default function FollowedPane({
           <p className="muted" data-followed-reconciling role="status" aria-live="polite">正在核对历史协作数据…</p>
         ) : null}
 
+        {/* 筛选结果计数：只在筛选/搜索缩小了名单时出现；未筛选时中栏总数已覆盖，不重复（不变量 6）。 */}
+        {allCards.length > 0 && visibleKols.length > 0 && visibleKols.length < allCards.length ? (
+          <p className="followed-rail-count" data-followed-rail-count>
+            共 {visibleKols.length} 位
+          </p>
+        ) : null}
         {visibleKols.length ? (
           <>
             {listError ? (
@@ -260,7 +291,7 @@ export default function FollowedPane({
               </div>
             ) : null}
             <div className="followed-kol-list" data-followed-kol-list data-followed-origin="collaboration">
-              {visibleKols.map((card) => (
+              {renderedKols.map((card) => (
                 <FollowedKolWorkCard
                   key={card.id}
                   card={card}
@@ -287,12 +318,19 @@ export default function FollowedPane({
                 />
               ))}
             </div>
+            {hasMore ? (
+              <div ref={sentinelRef} data-followed-infinite-sentinel aria-hidden="true" />
+            ) : (
+              <p className="followed-infinite-footer" data-followed-infinite-end role="status">
+                已加载全部
+              </p>
+            )}
           </>
         ) : (
           <div
             className="task-empty"
             data-follow-empty={queryDown ? "down" : followEmptyKind}
-            data-empty-kind={loading ? "loading" : allCards.length && (kolQuery || stageFilter) ? "filter-empty" : queryDown ? "service-down" : "no-data"}
+            data-empty-kind={loading ? "loading" : allCards.length && !visibleKols.length ? "filter-empty" : queryDown ? "service-down" : "no-data"}
             role={loading ? "status" : undefined}
           >
             <strong>{empty.title}</strong>

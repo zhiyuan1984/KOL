@@ -104,7 +104,7 @@ function recentThreads(mailbox: string, limit: number): ThreadPeer[] {
   const rows = getConn().prepare(
     `SELECT id, peer_email, last_from, collaboration_id, last_at
        FROM kol_mail_threads
-      WHERE mailbox=?
+      WHERE lower(mailbox)=lower(?)
       ORDER BY last_at DESC NULLS LAST, updated_at DESC
       LIMIT ?`,
   ).all(mailbox, limit) as Row[];

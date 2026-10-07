@@ -71,6 +71,18 @@ function mountedMailboxSet(user: Persona): Set<string> {
   return set;
 }
 
+/** 绑定邮箱的品牌：mailbox_owners 有登记就带上，没有不阻塞。 */
+function brandForMailbox(email: string): string {
+  try {
+    const owner = getConn().prepare(
+      "SELECT brand FROM mailbox_owners WHERE lower(email)=lower(?)",
+    ).get(email) as Row | undefined;
+    return String(owner?.brand || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 const emptySender = (): ComposeSender => ({ from: "", send_from: "", brand: "", source: "none", candidates: [] });
 
 export function composeSenderFor(input: {
@@ -104,11 +116,12 @@ export function composeSenderFor(input: {
     return { from: selected, send_from: "", brand: "", source: "selected", candidates: [] };
   }
 
-  // 第 3 档：本人挂载的默认邮箱。
+  // 第 3 档：本人挂载的默认邮箱。绑定即授权：用户在绑定 UI 上明确绑定的邮箱
+  // 直接采用，不强求它是品牌邮箱（个人企业邮箱如 @amperetime.com 不在 BRAND_MAILBOXES 里）。
+  // 品牌能查到就带上，查不到不阻塞发件箱填充。
   const def = defaultBoundMailbox(user);
   if (def) {
-    const owned = authorizedSenderBrand(def, user, brand);
-    if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "user_binding", candidates: [] };
+    return { from: def, send_from: def, brand: brandForMailbox(def), source: "user_binding", candidates: [] };
   }
 
   // 挂了多只又没有默认：不取第一只，返回候选让人选。
@@ -119,11 +132,18 @@ export function composeSenderFor(input: {
       candidates: mounted.sort().map((email) => ({ email, label: email })),
     };
   }
-  // 只挂了一只但上面没过品牌核对（或品牌为空）：沿用它走后面的兜底，而不是静默丢弃。
-  const fallbackBound = mounted.length === 1 ? mounted[0] : normalizeEmail(boundMailboxEmail() || "");
+  // 只挂了一只：同样绑定即授权，直接采用。
+  if (mounted.length === 1) {
+    return { from: mounted[0], send_from: mounted[0], brand: brandForMailbox(mounted[0]), source: "user_binding", candidates: [] };
+  }
+  // 兜底：legacy 单绑定。
+  const legacy = normalizeEmail(boundMailboxEmail() || "");
+  if (legacy) {
+    return { from: legacy, send_from: legacy, brand: brandForMailbox(legacy), source: "user_binding", candidates: [] };
+  }
 
   // 第 4 档：合作记录的 mailbox_from。
-  const from = fallbackBound || String(col?.mailbox_from || "").trim();
+  const from = String(col?.mailbox_from || "").trim();
   const resolved = resolveAuthorizedFrom(from, user, brand);
   const brandAllowed = resolved.allowed.filter((row) => row.brand === brand);
   if (resolved.matched) {

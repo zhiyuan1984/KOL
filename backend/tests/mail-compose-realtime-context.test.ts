@@ -310,4 +310,29 @@ describe("无合作对象时的收发件准备", () => {
     expect(editor.to).toEqual(["solo@gmail.com"]);
     expect(response.body.sources).toBeTruthy();
   });
+
+  it("k. 绑定的个人企业邮箱（非品牌邮箱、无 mailbox_owners 登记）直接作为发件箱", async () => {
+    // 复现生产问题：用户绑定 larry.zhao@amperetime.com（非品牌邮箱），
+    // 发件箱不应因品牌核对失败而留空。绑定即授权。
+    const conn = getConn();
+    const now = new Date().toISOString();
+    conn.prepare(
+      `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x",
+      JSON.stringify(["employee", "admin"]), JSON.stringify(["LT"]), DEMO_USER.site, 1, now, now,
+    );
+    // 只绑个人邮箱，不写 mailbox_owners（模拟真实绑定：非品牌域名无品牌登记）
+    conn.prepare(
+      `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)
+       VALUES (?,?,1,'connected',?)`,
+    ).run(DEMO_USER.id, "larry.zhao@amperetime.com", now);
+
+    const response = await prepareNoCollab();
+    expect(response.status, response.text).toBe(200);
+    const editor = response.body.editor as Json;
+    expect(String(editor.from)).toBe("larry.zhao@amperetime.com");
+    expect(String((response.body.sources as Json).from || "")).toContain("挂载");
+  });
 });

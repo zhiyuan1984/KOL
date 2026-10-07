@@ -505,9 +505,13 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
       status: "needs_context",
       message: selected.ambiguous
         ? "请选择单个红人或合作对象。"
-        : !resolvedTo
-          ? "已带出收发件；暂无该发件箱的收件人，请补充收件信息。"
-          : "已带出收发件；该收件人尚无正式合作阶段，未套阶段模板。",
+        : !from && !resolvedTo
+          ? "暂无发件箱，请先绑定邮箱；收件人请补充收件信息。"
+          : !from
+            ? "暂无发件箱，请先绑定邮箱。"
+            : !resolvedTo
+              ? "已带出发件箱；暂无该发件箱的收件人，请补充收件信息。"
+              : "已带出收发件；该收件人尚无正式合作阶段，未套阶段模板。",
       context: sceneHint === "first_touch" ? { scene: "first_touch", stage_source: "scene_hint" } : {},
       editor: { from, to: resolvedTo ? [resolvedTo] : [], subject: "", body: "" },
       sources,

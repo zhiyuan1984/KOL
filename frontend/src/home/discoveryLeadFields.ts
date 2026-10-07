@@ -229,3 +229,33 @@ export function scoreParts(candidate: HomeDiscoveryCandidate | null | undefined)
   }
   return parts.length ? parts.join(" · ") : MISSING_TEXT;
 }
+
+/**
+ * 门槛符合度（分拣决策行）：粉丝 / 近10条均播相对本次 brief 门槛的结论。
+ * 纯前端计算，不碰后端；缺数时如实说"无法核验/资料不足"，不编造。
+ */
+export function briefFitText(
+  candidate: HomeDiscoveryCandidate | null | undefined,
+  brief: { min_followers: number; max_followers: number | null; min_avg_plays_10: number } | null | undefined,
+): string {
+  if (!candidate || !brief) return "";
+  const parts: string[] = [];
+  const followers = candidate.followers;
+  if (followers == null) {
+    parts.push("粉丝无法核验");
+  } else {
+    const ok = followers >= brief.min_followers
+      && (brief.max_followers == null || followers <= brief.max_followers);
+    const range = `≥${brief.min_followers.toLocaleString()}`
+      + (brief.max_followers == null ? "" : `–${brief.max_followers.toLocaleString()}`);
+    parts.push(`粉丝${ok ? "符合" : "不符合"}门槛(${range})`);
+  }
+  const plays = candidate.avg_plays_10;
+  if (plays == null) {
+    parts.push("近10条资料不足");
+  } else {
+    const ok = plays >= brief.min_avg_plays_10;
+    parts.push(`均播${ok ? "符合" : "低于"}门槛(≥${brief.min_avg_plays_10.toLocaleString()})`);
+  }
+  return parts.join(" · ");
+}

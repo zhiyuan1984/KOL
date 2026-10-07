@@ -1,0 +1,418 @@
+/**
+ * 「我的红人」面样式（Home lifecycle 模式）。
+ * 数值 token 全部来自 frontend/src/styles.css :root（docs/DESIGN.md v3.1 唯一数值来源），
+ * 本文件不写 hex/px 数值。本文件只管 followed 面的组件样式，不碰 WorkspaceShell 几何。
+ */
+
+/* ============ 中栏：行动面板 ============ */
+.followed-interaction {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
+}
+
+.followed-interaction-intro p {
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  color: var(--text-quiet);
+}
+
+.followed-selection-note {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: var(--ds-font-xs);
+  color: var(--accent-text);
+}
+
+.followed-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.followed-section-heading h2 {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.followed-section-heading > span {
+  font-size: var(--ds-font-xs);
+  color: var(--text-quiet);
+  white-space: nowrap;
+}
+
+/* L3 文字按钮：行内次级动作 */
+.followed-inline-clear,
+.followed-priority-cta,
+.followed-sort-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--btn-text-h);
+  padding: 0 var(--btn-text-pad-x);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.followed-inline-clear:hover,
+.followed-priority-cta:hover,
+.followed-sort-option:hover {
+  background: var(--btn-text-hover-bg);
+}
+
+.followed-inline-clear:focus-visible,
+.followed-priority-cta:focus-visible,
+.followed-sort-option:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.followed-decision-lead {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.followed-overview-count {
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  color: var(--text-quiet);
+}
+
+/* ============ 生命周期分布条（DESIGN §9.2） ============ */
+.followed-distribution {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  min-width: 0;
+}
+
+.followed-dist-seg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 60px;
+  padding: var(--space-2) 4px;
+  border: 0;
+  border-radius: var(--radius-chip-square);
+  background: transparent;
+  cursor: pointer;
+  color: var(--text);
+  min-height: 48px;
+}
+
+.followed-dist-seg:hover {
+  background: var(--surface-hover);
+}
+
+.followed-dist-seg.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.followed-dist-label {
+  font-size: var(--ds-font-xs);
+  color: var(--text-quiet);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.followed-dist-seg.is-active .followed-dist-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.followed-dist-count {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* ============ 先看谁：注意力队列 ============ */
+.followed-priority-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.followed-priority-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  min-width: 0;
+}
+
+.followed-priority-row[data-followed-priority="refused"] {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.followed-priority-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.followed-priority-name {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.followed-priority-reason {
+  font-size: var(--ds-font-xs);
+  color: var(--text-quiet);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ 建议先做：情境筛选入口 ============ */
+.followed-next-step ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 2px;
+}
+
+.followed-next-step li::marker {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+
+.followed-next-step li button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.followed-next-step li button:hover {
+  background: var(--btn-text-hover-bg);
+  color: var(--accent-text);
+}
+
+.followed-next-step li button.is-active {
+  color: var(--accent-text);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ============ 右栏：排序（L3 文字按钮组） ============ */
+.followed-object-sort {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.followed-sort-option {
+  color: var(--text-quiet);
+}
+
+.followed-sort-option:hover {
+  color: var(--text);
+}
+
+.followed-sort-option[aria-pressed="true"] {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.followed-sort-option .followed-sort-icon {
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ============ 卡片：CTA 与标记收敛 ============ */
+
+/* 主 CTA：L3 文字按钮（DESIGN §24.6），置于标题行右端 */
+.followed-kol-card .kol-cta-primary {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.followed-kol-card .kol-cta-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--btn-text-h);
+  padding: 0 var(--btn-text-pad-x);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.followed-kol-card .kol-cta-main:hover {
+  background: var(--btn-text-hover-bg);
+}
+
+.followed-kol-card .kol-cta-main:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.followed-kol-card .kol-cta-main:disabled {
+  color: var(--text-quiet);
+  cursor: default;
+  background: transparent;
+}
+
+/* 被强调时（hover / 键盘焦点）变实底：键盘用户必须看得见焦点在哪张卡。
+   同一时刻最多一张卡被强调，仍满足「单视口单个实底主 CTA」。 */
+.followed-kol-card .kol-cta-main.is-emphasized:not(:disabled) {
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.followed-kol-card .kol-cta-main.is-emphasized:not(:disabled):hover {
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.followed-kol-card .kol-cta-main .kol-ico {
+  width: 14px;
+  height: 14px;
+}
+
+/* 阶段 badge 保留辅助色淡底：它是卡片的主状态锚点，属 DESIGN §3
+   辅助色「信息性标记」职责。刻意不用中性灰——全灰卡片视觉饱和度过低，
+   用户扫读时找不到状态锚点。 */
+.followed-kol-card .kol-stage-badge {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.followed-kol-card .kol-stage-badge .kol-stage,
+.followed-kol-card .kol-stage-badge [data-stage-label] {
+  color: var(--accent-text);
+}
+
+/* 卡片纵向收紧：band 间距 12px → 8px，提升信息密度 */
+.followed-kol-card {
+  gap: var(--space-2);
+}
+
+/* v3：卡片底色纯白。42% --bg-elevated 的灰底显脏（qiyou 反馈）；
+   hover / 选中保留 3% accent 淡底反馈。 */
+.followed-kol-column .followed-kol-card {
+  background: var(--bg);
+}
+
+.followed-kol-column .followed-kol-card:hover,
+.followed-kol-column .followed-kol-card[data-selected] {
+  background: color-mix(in srgb, var(--accent) 3%, var(--bg));
+}
+
+/* v3：band 内边距收紧。fact 8px → 4px，recommend 8px → 4px。 */
+.followed-kol-column .followed-kol-card .kol-band-fact {
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+.followed-kol-column .followed-kol-card .kol-band-recommend {
+  padding-top: var(--space-1);
+}
+
+/* 建议行：headline 与弱化 why 同行 */
+.followed-kol-card .kol-why-inline {
+  font-weight: 400;
+  color: var(--text-quiet);
+}
+
+/* 倒计时警告：文案 + 颜色 + 图标三通道（不变量 4） */
+.followed-kol-card .kol-chip.is-countdown-warn {
+  color: var(--warning-text);
+  font-weight: 500;
+}
+
+.followed-kol-card .kol-chip.is-countdown-warn .kol-ico {
+  width: 12px;
+  height: 12px;
+}
+
+/* 详情/互动：L4 链接语义；回公海：L3 + 危险色（DESIGN §4.2） */
+.followed-kol-card .kol-cta-link {
+  color: var(--accent-text);
+}
+
+.followed-kol-card .kol-cta-link:hover,
+.followed-kol-card .kol-cta-link:focus-visible {
+  color: var(--accent-text);
+}
+
+.followed-kol-card .kol-cta-link.is-danger {
+  color: var(--danger-text);
+}
+
+.followed-kol-card .kol-cta-link.is-danger:hover,
+.followed-kol-card .kol-cta-link.is-danger:focus-visible {
+  color: var(--danger-text);
+}
+
+/* ============ 右栏筛选结果计数（仅筛选后出现，DESIGN §9.4.4） ============ */
+.followed-rail-count {
+  margin: 0 0 var(--space-1);
+  font-size: var(--ds-font-xs);
+  color: var(--text-quiet);
+}
+
+/* ============ 无限加载 footer（DESIGN §9.4.2） ============ */
+.followed-infinite-footer {
+  margin: var(--space-3) 0 0;
+  text-align: center;
+  font-size: var(--ds-font-sm);
+  color: var(--text-quiet);
+}
+
+[data-followed-infinite-sentinel] {
+  height: 1px;
+  min-height: 1px;
+}

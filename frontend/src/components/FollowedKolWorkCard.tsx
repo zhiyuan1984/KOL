@@ -24,21 +24,17 @@ function primaryKind(kind: RecommendedKind): string | undefined {
   return kind;
 }
 
-function workCtaClass(opts: {
-  kind: RecommendedKind;
-  emphasized: boolean;
-  demoteDraft: boolean;
-}): string {
-  const draftQuiet = opts.kind === "compose" && opts.demoteDraft;
-  const filled = opts.emphasized && !draftQuiet;
-  return [
-    "btn",
-    filled ? "work" : "ghost",
-    "sm",
-    "kol-cta-btn",
-    "kol-cta-work",
-    draftQuiet ? "is-draft-quiet" : "",
-  ].filter(Boolean).join(" ");
+/**
+ * 主 CTA 统一 L3 文字按钮（DESIGN §24.6：行内重复出现的动作一律 L3）。
+ * 强调靠 data-cta-emphasis 属性（hover/focus 单张卡）驱动：默认 L3 文字按钮，
+ * 被强调时（hover / 键盘焦点）变实底，保证键盘用户看得见焦点位置
+ * （仓库硬契约 e8f3b50a「实底 CTA 跟住焦点」，e2e home-followed-focus 覆盖）。
+ * `kol-cta-work` 是该契约的标记类，勿删。
+ */
+function workCtaClass(emphasized: boolean): string {
+  return ["kol-cta-main", "kol-cta-work", emphasized ? "is-emphasized" : ""]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** 箭头不再是文本字符：label 结尾的「→」拆出来交给统一 SVG 图标。 */
@@ -156,35 +152,57 @@ export default function FollowedKolWorkCard({
   const primary = primaryKind(rec.kind);
   const showConfirm = rec.kind === "confirm-stage" && rec.can_write_stage && Boolean(rec.target_stage_label);
   const showCompose = rec.kind === "compose" || rec.kind === "confirm-send";
-  const demoteDraft = rec.kind === "compose" && showConfirm;
   const emphasized = ctaEmphasis === "strong";
   const showMail = Boolean(fact.thread_id);
-  const days = card.current_state.days_in_stage;
   const stageLabel = formatStageBadge(card.current_state.stage_label);
   const fallbackAvatar = FALLBACK_AVATARS[stableAvatarIndex(card.source.kol_uid || card.id)];
   const avatarSource = card.identity.avatar_url && !avatarFailed ? card.identity.avatar_url : fallbackAvatar;
   const factSourceLabel = fact.thread_id ? "邮件摘要" : fact.kind === "confirmed" ? "任务记录" : "互动记录";
-  const profileMetrics = [
-    card.source.followers ? `粉丝 ${card.source.followers}` : "",
-    card.source.avg_plays ? `均播 ${card.source.avg_plays}` : "",
-    card.source.engagement ? `${card.source.engagement_source === "view_follower_proxy" ? "互动参考" : "互动"} ${card.source.engagement}` : "",
-  ].filter(Boolean);
-  const potentialScore = card.source.potential_score == null ? null : Number(card.source.potential_score);
-  const potentialConfidence = card.source.potential_confidence == null ? null : Math.round(Number(card.source.potential_confidence) * 100);
   const hasEvidence = card.evidence.kind !== "none" && Boolean(card.evidence.label);
+  /** 14 日保鲜期倒计时：用户心智是「剩几天」，不是「已过几天」的统计。 */
+  const daysSince = card.source.days_since_interaction;
+  const hasTimer = card.source.countdown !== false
+    && (card.source.release_due_at || card.source.last_interaction_at);
+  const timerChip = !hasTimer
+    ? { id: "countdown", label: "尚未有效往来", tone: undefined as "warn" | undefined }
+    : daysSince != null && Number.isFinite(Number(daysSince))
+      ? (() => {
+        const remain = 14 - Number(daysSince);
+        return remain > 0
+          ? {
+            id: "countdown",
+            label: `剩 ${remain} 天`,
+            tone: (remain <= 3 ? "warn" : undefined) as "warn" | undefined,
+            title: `14 天无有效互动将自动回公海${card.source.last_interaction_at ? ` · 上次互动 ${formatFactTime(card.source.last_interaction_at)}` : ""}`,
+          }
+          : {
+            id: "countdown",
+            label: `已过 ${Number(daysSince)} 天`,
+            tone: "warn" as const,
+            title: "已超过 14 天无有效互动，请核对",
+          };
+      })()
+    : card.source.last_interaction_at
+      ? { id: "countdown", label: `上次互动 ${formatFactTime(card.source.last_interaction_at)}`, tone: undefined as "warn" | undefined }
+      : { id: "countdown", label: "尚未有效往来", tone: undefined as "warn" | undefined };
   const refused = /拒绝|拒信/.test(`${stageLabel} ${card.identity.display}`);
   const marker = RISK_MARKER_ORDER
     .map((id) => card.risk.chips.find((chip) => chip.id === id))
     .find((chip) => chip && !(chip.id === "refused" && refused));
   const quietRisk = card.risk.chips.filter((chip) => chip.id !== marker?.id && chip.id !== "near-14d" && chip.id !== "refused");
+  /**
+   * 元信息行只保留扫读必需：平台 · 粉丝 · 地区 · 产品 · 倒计时 · 未读。
+   * 品牌/负责人/停留天数进详情（本页是「我的红人」，负责人恒为本人）。
+   */
   const meta = [
     card.identity.platform ? { id: "platform", label: card.identity.platform } : null,
-    card.scope.brand ? { id: "brand", label: card.scope.brand } : null,
+    card.source.followers ? { id: "followers", label: `粉丝 ${card.source.followers}` } : null,
     card.scope.region ? { id: "region", label: card.scope.region } : null,
-    card.scope.owner ? { id: "owner", label: card.scope.owner } : null,
+    card.scope.product ? { id: "product", label: card.scope.product } : null,
+    timerChip,
     ...quietRisk,
     card.unread_count > 0 ? { id: "unread", label: `未读 ${card.unread_count}` } : null,
-  ].filter(Boolean) as { id: string; label: string }[];
+  ].filter(Boolean) as { id: string; label: string; tone?: "warn"; title?: string }[];
 
   return (
     <article
@@ -259,53 +277,78 @@ export default function FollowedKolWorkCard({
                 {marker.label}
               </span>
             ) : null}
-            {days != null && days > 0 ? (
-              <span className="kol-stage-stay" data-days-in-stage={days} data-kol-chip="stay">
-                停留 {days} 天
-              </span>
-            ) : null}
-          </div>
-          {meta.length ? (
-            <span className="kol-chip-row" data-kol-scope>
-              {meta.map((chip) => (
-                <span
-                  key={chip.id + chip.label}
-                  className={
-                    "kol-chip"
-                    + (chip.id === "unread" ? " is-unread" : "")
-                    + (chip.id === "unread" && marker ? " is-quiet" : "")
-                  }
-                  data-kol-chip={chip.id}
-                  data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
-                  title={chip.label}
+            <div className="kol-cta-primary">
+              {showCompose ? (
+                <button
+                  type="button"
+                  className={workCtaClass(emphasized)}
+                  data-kol-primary-action={primary}
+                  data-cta-role={rec.kind === "compose" ? "draft" : "send"}
+                  data-cta-visual="text"
+                  onClick={onCompose || onPrimary}
                 >
-                  {chip.label}
-                </span>
-              ))}
-            </span>
-          ) : null}
-          {profileMetrics.length || potentialScore != null ? (
-            <p className="kol-profile-metrics" data-kol-profile-metrics>
-              {profileMetrics.map((metric) => <span key={metric}>{metric}</span>)}
-              {potentialScore != null ? <strong data-jev-potential-score title={potentialConfidence == null ? "Jev 概率加权排序分" : `Jev 概率加权排序分 · 置信度 ${potentialConfidence}%`}>潜力排序 {potentialScore}{potentialConfidence == null ? "" : ` · ${potentialConfidence}%`}</strong> : null}
-            </p>
-          ) : null}
-          {card.scope.product ? (
-            <p className="kol-product-meta" data-kol-product>合作产品：{card.scope.product}</p>
-          ) : null}
-          {card.source.countdown !== false && (card.source.release_due_at || card.source.last_interaction_at) ? (
-            <p className="kol-mail-meta" data-release-timer data-release-scheduler="false">
-              14 日跟进
-              {card.source.last_interaction_at ? ` · 上次互动 ${formatFactTime(card.source.last_interaction_at)}` : ""}
-              {card.source.days_since_interaction != null ? ` · 已过 ${card.source.days_since_interaction} 天` : ""}
-            </p>
-          ) : (
-            <p className="kol-mail-meta" data-release-timer data-release-scheduler="false" data-clock-none>
-              尚未有效往来
-            </p>
-          )}
+                  <span>{ctaText(rec.label)}</span>
+                  {ctaHasArrow(rec.label) ? <IconArrow /> : null}
+                </button>
+              ) : null}
+              {showConfirm ? (
+                <button
+                  type="button"
+                  className={workCtaClass(emphasized)}
+                  data-kol-primary-action="confirm-stage"
+                  data-cta-role="stage"
+                  data-cta-visual="text"
+                  data-confirm-enter-stage
+                  data-confirm-stage-priority="primary"
+                  data-target-stage={rec.target_stage_code}
+                  data-confirm-stage-busy={actionBusy ? "true" : undefined}
+                  disabled={actionBusy}
+                  onClick={onConfirmStage || onPrimary}
+                >
+                  <span>{actionBusy ? "正在打开…" : ctaText(rec.label)}</span>
+                  {!actionBusy && ctaHasArrow(rec.label) ? <IconArrow /> : null}
+                </button>
+              ) : null}
+              {primary && !showCompose && !showConfirm ? (
+                <button
+                  type="button"
+                  className={workCtaClass(emphasized)}
+                  data-kol-primary-action={primary}
+                  data-cta-role="other"
+                  data-cta-visual="text"
+                  disabled={actionBusy}
+                  onClick={onPrimary}
+                >
+                  <span>{actionBusy ? "正在打开…" : ctaText(rec.label)}</span>
+                  {!actionBusy && ctaHasArrow(rec.label) ? <IconArrow /> : null}
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
+      {/* 元信息独立成行：整行左对齐，不再挤在 identity-main 的 flex 行内 */}
+      {meta.length ? (
+        <div className="kol-chip-row" data-kol-scope>
+          {meta.map((chip) => (
+            <span
+              key={chip.id + chip.label}
+              className={
+                "kol-chip"
+                + (chip.id === "unread" ? " is-unread" : "")
+                + (chip.id === "unread" && marker ? " is-quiet" : "")
+                + (chip.tone === "warn" ? " is-countdown-warn" : "")
+              }
+              data-kol-chip={chip.id}
+              data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
+              title={chip.title || chip.label}
+            >
+              {chip.id === "countdown" && chip.tone === "warn" ? <IconAlert /> : null}
+              {chip.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <div className="kol-split" data-kol-split>
         <div className="kol-band kol-band-fact" data-kol-band="fact">
@@ -325,11 +368,8 @@ export default function FollowedKolWorkCard({
           >
             <p className="kol-suggestion">
               {rec.kind === "insufficient" ? <IconInfo /> : null}
-              {headline}
-            </p>
-            <p className="kol-ai-why">
-              <span className="kol-split-kicker">来源</span>
-              {rec.why ? <span className="kol-judgment" data-action-why>{rec.why}</span> : null}
+              <span>{headline}</span>
+              {rec.why ? <span className="kol-why-inline" data-action-why>· {rec.why}</span> : null}
             </p>
           </div>
           <div className="kol-band kol-band-actions" data-kol-band="cta">
@@ -368,59 +408,13 @@ export default function FollowedKolWorkCard({
               {onRelease ? (
                 <button
                   type="button"
-                  className="kol-cta-link"
+                  className="kol-cta-link is-danger"
                   data-release-follow
                   data-home-entry="release-follow"
+                  title="解除跟进关系，该红人将回到公海"
                   onClick={onRelease}
                 >
                   回公海
-                </button>
-              ) : null}
-            </div>
-            <div className="kol-cta-primary">
-              {showCompose ? (
-                <button
-                  type="button"
-                  className={workCtaClass({ kind: rec.kind, emphasized, demoteDraft })}
-                  data-kol-primary-action={primary}
-                  data-cta-role={rec.kind === "compose" ? "draft" : "send"}
-                  data-cta-visual={emphasized && !demoteDraft ? "filled" : "ghost"}
-                  onClick={onCompose || onPrimary}
-                >
-                  <span>{ctaText(rec.label)}</span>
-                  {ctaHasArrow(rec.label) ? <IconArrow /> : null}
-                </button>
-              ) : null}
-              {showConfirm ? (
-                <button
-                  type="button"
-                  className={workCtaClass({ kind: "confirm-stage", emphasized, demoteDraft: false })}
-                  data-kol-primary-action="confirm-stage"
-                  data-cta-role="stage"
-                  data-cta-visual={emphasized ? "filled" : "ghost"}
-                  data-confirm-enter-stage
-                  data-confirm-stage-priority="primary"
-                  data-target-stage={rec.target_stage_code}
-                  data-confirm-stage-busy={actionBusy ? "true" : undefined}
-                  disabled={actionBusy}
-                  onClick={onConfirmStage || onPrimary}
-                >
-                  <span>{actionBusy ? "正在打开…" : ctaText(rec.label)}</span>
-                  {!actionBusy && ctaHasArrow(rec.label) ? <IconArrow /> : null}
-                </button>
-              ) : null}
-              {primary && !showCompose && !showConfirm ? (
-                <button
-                  type="button"
-                  className={workCtaClass({ kind: rec.kind, emphasized, demoteDraft: false })}
-                  data-kol-primary-action={primary}
-                  data-cta-role="other"
-                  data-cta-visual={emphasized ? "filled" : "ghost"}
-                  disabled={actionBusy}
-                  onClick={onPrimary}
-                >
-                  <span>{actionBusy ? "正在打开…" : ctaText(rec.label)}</span>
-                  {!actionBusy && ctaHasArrow(rec.label) ? <IconArrow /> : null}
                 </button>
               ) : null}
             </div>
