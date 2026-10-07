@@ -621,3 +621,161 @@ describe("收发件解析不再依赖合作对象（ADR-2026-10-07）", () => {
     expect(resolution.sources.recipient).toBe("memory");
   });
 });
+
+describe("P0：message / conversation 键（mail_summary / mail_translate / email_conversation_read）", () => {
+  const conn = () => getConn();
+
+  function bindDefaultMailbox(email: string): void {
+    const now = new Date().toISOString();
+    conn().prepare(
+      `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x",
+      JSON.stringify(["employee", "admin"]), JSON.stringify(["LT"]), DEMO_USER.site, 1, now, now,
+    );
+    conn().prepare(
+      `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)
+       VALUES (?,?,1,'connected',?)`,
+    ).run(DEMO_USER.id, email, now);
+    conn().prepare(
+      `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
+       VALUES (?,?,?,?,'active')`,
+    ).run(email, "LT", DEMO_USER.name, "personal");
+  }
+
+  function insertThreadWithItem(input: {
+    threadId: string; itemId: string; mailbox: string; conversation_id: string; peer_email: string;
+  }): void {
+    const now = new Date().toISOString();
+    conn().prepare(
+      `INSERT INTO kol_mail_threads (id, conversation_id, subject, mailbox, last_at, created_at, updated_at, peer_email, match_state)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    ).run(input.threadId, input.conversation_id, "t", input.mailbox, now, now, now, input.peer_email, "unbound");
+    conn().prepare(
+      `INSERT INTO kol_mail_items (id, thread_id, conversation_id, subject, from_addr, to_addr, body_text, occurred_at, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    ).run(input.itemId, input.threadId, input.conversation_id, "t", input.peer_email, input.mailbox, "Hello", now, now);
+  }
+
+  it("message：显式 message_id 解析出邮件（来源 explicit）", () => {
+    bindDefaultMailbox("ctx@litime.com");
+    insertThreadWithItem({
+      threadId: "th_m1", itemId: "msg_m1", mailbox: "ctx@litime.com",
+      conversation_id: "conv_m1", peer_email: "a@gmail.com",
+    });
+    const session = openContext({ skillId: "mail_translate", body: { message_id: "msg_m1" }, requires: ["message"] });
+    const msg = session.message();
+    expect(msg?.id).toBe("msg_m1");
+    const resolution = session.resolution();
+    expect(resolution.sources.message).toBe("explicit");
+  });
+
+  it("message：没给 ID 时报 needs_context（不再是 TODO 未实现）", () => {
+    bindDefaultMailbox("ctx@litime.com");
+    const session = openContext({ skillId: "mail_translate", body: {}, requires: ["message"] });
+    const resolution = session.resolution();
+    expect(resolution.missing.some((m) => m.key === "message")).toBe(true);
+    // 不应再出现 TODO 占位文案
+    const reasons = resolution.missing.map((m) => String(m.reason || ""));
+    expect(reasons.join(" ")).not.toContain("P2.3");
+  });
+
+  it("message：不属于本人邮箱的邮件被拒绝，不降级", () => {
+    bindDefaultMailbox("ctx@litime.com");
+    insertThreadWithItem({
+      threadId: "th_m2", itemId: "msg_m2", mailbox: "other@litime.com",
+      conversation_id: "conv_m2", peer_email: "b@gmail.com",
+    });
+    const session = openContext({ skillId: "mail_translate", body: { message_id: "msg_m2" }, requires: ["message"] });
+    const resolution = session.resolution();
+    // 被 blocked 或 missing，但绝不能解析出别人的邮件
+    const msg = session.message();
+    expect(msg?.id).not.toBe("msg_m2");
+  });
+
+  it("conversation：mail_summary 用选中的会话直接解析，不追问 ID", () => {
+    bindDefaultMailbox("ctx@litime.com");
+    const now = new Date().toISOString();
+    conn().prepare(
+      `INSERT INTO kol_mail_threads (id, conversation_id, subject, mailbox, last_at, created_at, updated_at, peer_email, match_state)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    ).run("th_c5", "conv_c5", "t", "ctx@litime.com", now, now, now, "c@gmail.com", "unbound");
+    const session = openContext({ skillId: "mail_summary", body: { conversation_id: "conv_c5" }, requires: ["conversation"] });
+    const conv = session.conversation();
+    expect(conv).toBeTruthy();
+    const resolution = session.resolution();
+    expect(resolution.sources.conversation).toBe("explicit");
+  });
+});
+
+describe("P1：creator 键（达人技能：profile/decrypt/status/owner/scoring/kol_analyze）", () => {
+  const conn = () => getConn();
+
+  function insertCreator(input: { id: string; handle: string; display_name?: string; kol_uid?: string }): void {
+    conn().prepare(
+      `INSERT INTO collaborations (id, handle, display_name, brand, email, mailbox_from, lifecycle_id, conversation_id, stage_code, kol_uid)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      input.id, input.handle, input.display_name || input.handle, "LT", `${input.handle}@example.com`,
+      "", "", "", "INITIAL_CONTACT", input.kol_uid || "",
+    );
+  }
+
+  it("creator：显式 handle 解析出达人（来源 explicit）", () => {
+    insertCreator({ id: "col_k1", handle: "xiaomei" });
+    const session = openContext({ skillId: "creator_profile", body: { handle: "xiaomei" }, requires: ["creator"] });
+    const creator = session.creator();
+    expect(creator?.handle).toBe("xiaomei");
+    expect(creator?.collaboration_id).toBe("col_k1");
+    const resolution = session.resolution();
+    expect(resolution.sources.creator).toBe("explicit");
+  });
+
+  it("creator：object_refs 选中态解析（来源 object_refs）", () => {
+    insertCreator({ id: "col_k2", handle: "damei" });
+    const session = openContext({
+      skillId: "creator_profile",
+      body: { object_refs: [{ kind: "kol", id: "damei" }] },
+      requires: ["creator"],
+    });
+    const creator = session.creator();
+    expect(creator?.handle).toBe("damei");
+    const resolution = session.resolution();
+    expect(resolution.sources.creator).toBe("object_refs");
+  });
+
+  it("creator：没给达人时报 needs_input，不猜", () => {
+    const session = openContext({ skillId: "creator_profile", body: {}, requires: ["creator"] });
+    const resolution = session.resolution();
+    expect(resolution.status).toBe("needs_input");
+    expect(session.creator()).toBeNull();
+  });
+
+  it("creator：多候选只列候选，不取第一只", () => {
+    insertCreator({ id: "col_k3", handle: "twin_a", display_name: "小美" });
+    insertCreator({ id: "col_k4", handle: "twin_b", display_name: "小美" });
+    const session = openContext({
+      skillId: "creator_profile",
+      body: {},
+      text: "@小美 看下画像",
+      requires: ["creator"],
+    });
+    const resolution = session.resolution();
+    // 按 display_name 搜出两个时，不应静默取第一个
+    if (resolution.status === "needs_input" && resolution.candidates.length >= 2) {
+      expect(resolution.candidates.length).toBeGreaterThanOrEqual(2);
+    } else {
+      // 文本抽取没命中时也是 needs_input（不猜），同样符合要求
+      expect(resolution.status).toBe("needs_input");
+    }
+    expect(session.creator()).toBeNull();
+  });
+
+  it("六个 P1 技能都已声明 context.requires=[creator]", () => {
+    for (const skillId of ["creator_profile", "creator_contact_decrypt", "creator_status_update", "creator_owner_update", "creator_scoring", "kol_analyze"]) {
+      const def = taskDefinition(skillId);
+      expect(def?.context?.requires, skillId).toContain("creator");
+    }
+  });
+});

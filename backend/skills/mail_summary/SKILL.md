@@ -8,6 +8,7 @@ output: task_result
 funnel: biz
 mcp: []
 required_inputs: ["conversation_id"]
+context: {"requires":["conversation"],"prefers":[]}
 input_schema: [{"key":"conversation_id","label":"邮件会话","kind":"text","required":true,"reason":"由通讯页当前选中的会话提供，不猜测会话。","prefill":"entities.conversation_id"}]
 interaction: {"purpose":"根据当前选中的邮件会话，提炼往来中的合作进展、关键约定、待办与风险，生成供运营阅读的中文摘要。","steps":["确认当前选中的邮件会话及其授权范围。","读取本地已同步的会话正文，不扩大邮箱或会话范围。","通过本技能生成摘要并写回本地邮件记忆，在右栏展示最新结果。"],"output_title":"往来摘要与生成状态","constraints":["只处理当前选中的会话。","摘要不能替代阶段变更或发送确认。","正文不可写入外发草稿。"]}
 permissions: []

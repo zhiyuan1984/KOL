@@ -8,6 +8,7 @@ output: task_result
 funnel: reach
 mcp: ["starrykol.pageKolProfiles", "starrykol.getKolProfileDetail", "starrykol.listKolPlatformData", "starrykol.pageEmailConversations"]
 required_inputs: []
+context: {"requires":["creator"],"prefers":[]}
 permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["创作者画像","红人详情","查看红人负责人"]

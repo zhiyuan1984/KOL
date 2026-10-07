@@ -8,6 +8,7 @@ output: task_result
 funnel: biz
 mcp: ["starrykol.translateEmailToChinese"]
 required_inputs: ["message_id"]
+context: {"requires":["message"],"prefers":[]}
 input_schema: [{"key":"message_id","label":"邮件消息","kind":"text","required":true,"reason":"由通讯页当前选中的邮件提供，不猜测消息。","prefill":"entities.message_id"}]
 interaction: {"purpose":"将当前选中的英文邮件正文翻译为供运营阅读的中文内部译稿。","steps":["确认当前选中的邮件消息及其授权范围。","读取本地已同步的正文，不扩大邮箱或会话范围。","通过本技能生成中文译稿并写回本地邮件记忆，在右栏展示最新结果。"],"output_title":"中文译稿与生成状态","constraints":["只处理当前选中的邮件。","译稿仅供内部阅读，不进入外发正文。","正文不可写入发送草稿。"]}
 permissions: ["starrykol:read"]

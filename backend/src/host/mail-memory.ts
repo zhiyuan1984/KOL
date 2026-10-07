@@ -300,6 +300,37 @@ export function findMailThread(id: string, mailbox?: string): Row | undefined {
   ).get(raw) as Row | undefined;
 }
 
+/**
+ * 按 ID 找邮件（kol_mail_items），并核对归属：邮件所在会话的 mailbox 必须是本人挂载的，
+ * 否则返回 undefined（不降级、不猜）。
+ */
+export function findMailItem(id: string): Row | undefined {
+  const raw = String(id || "").trim();
+  if (!raw) return undefined;
+  const item = getConn().prepare("SELECT * FROM kol_mail_items WHERE id=?").get(raw) as Row | undefined;
+  if (!item) return undefined;
+  // 核对：item → thread → mailbox 必须在本人挂载范围内。
+  const threadId = String(item.thread_id || "");
+  const convId = String(item.conversation_id || "");
+  let thread: Row | undefined;
+  if (threadId) {
+    thread = getConn().prepare("SELECT * FROM kol_mail_threads WHERE id=?").get(threadId) as Row | undefined;
+  }
+  if (!thread && convId) {
+    thread = getConn().prepare(
+      "SELECT * FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
+    ).get(convId) as Row | undefined;
+  }
+  if (!thread) return undefined;
+  const mailbox = String(thread.mailbox || "");
+  if (!mailbox) return undefined;
+  const owned = mailboxBindings().some(
+    (binding) => String(binding.mailbox || "").toLowerCase() === mailbox.toLowerCase(),
+  );
+  if (!owned) return undefined;
+  return item;
+}
+
 export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
   const userId = safeEmployeeId();
