@@ -18,16 +18,24 @@ async function fullyVisible(control: Locator) {
   }
 }
 async function touchHitArea(control: Locator) {
-  await control.scrollIntoViewIfNeeded();
   // Measure actual hit testing, including transparent target extensions.
-  await expect.poll(() => control.evaluate(element => {
+  const measure = () => control.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const misses = [-21.5, 0, 21.5].flatMap(x => [-21.5, 0, 21.5].flatMap(y => {
       const hit = document.elementFromPoint(rect.x + rect.width / 2 + x, rect.y + rect.height / 2 + y);
       return hit && element.contains(hit) ? [] : [{ x, y, hit: hit?.tagName, className: hit?.className, text: hit?.textContent?.slice(0, 80) }];
     }));
     return { control: element.textContent, rect: rect.toJSON(), misses };
-  })).toMatchObject({ misses: [] });
+  });
+  try {
+    await expect.poll(async () => {
+      // The asynchronously loaded skill description can move the condition card.
+      await control.scrollIntoViewIfNeeded();
+      return measure();
+    }).toMatchObject({ misses: [] });
+  } catch (error) {
+    throw new Error(`Touch target geometry: ${JSON.stringify(await measure())}`, { cause: error });
+  }
 }
 
 for (const width of [820, 390]) test.describe(`touch targets ${width}`, () => {
