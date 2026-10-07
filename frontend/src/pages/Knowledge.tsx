@@ -541,7 +541,7 @@ export default function Knowledge() {
             <details className="kb-skill-templates" data-kb-skill-templates>
               <summary className="kb-skill-templates-head">
                 <span>
-                  <span className="page-kicker">已发布技能</span>
+                  <span className="page-kicker">可用技能</span>
                   <strong id="kb-skill-template-title">技能交互模板</strong>
                   <small>查看功能、预计步骤和输入条件；用于提问只打开草稿，不会自动执行。</small>
                 </span>
@@ -556,13 +556,13 @@ export default function Knowledge() {
                   </p>
                 ) : null}
                 {!skillTemplatesLoading && !skillTemplatesError && !visibleSkillTemplates.length ? (
-                  <p className="muted">{query.trim() ? "没有匹配的技能交互模板。" : "暂无已发布技能交互模板。"}</p>
+                  <p className="muted">{query.trim() ? "没有匹配的技能交互模板。" : "暂无可用技能交互模板。"}</p>
                 ) : null}
                 {visibleSkillTemplates.map((template) => (
                   <article className="kb-skill-template-row" key={template.id} data-skill-template={template.id}>
                     <div className="kb-skill-template-summary">
                       <strong>{template.title}</strong>
-                      <span>{template.description || "按已发布技能契约处理你的请求。"}</span>
+                      <span>{template.description || "按可用技能处理你的请求。"}</span>
                     </div>
                     <div className="kb-skill-template-actions">
                       <details data-kb-skill-template-preview={template.id}>

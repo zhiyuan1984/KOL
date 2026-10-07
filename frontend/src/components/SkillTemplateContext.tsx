@@ -39,7 +39,7 @@ export default function SkillTemplateContext({
       <div className="skill-template-context-grid">
         <section>
           <h2>功能</h2>
-          <p>{template.description || "按已发布技能契约处理你的请求。"}</p>
+          <p>{template.description || "按可用技能处理你的请求。"}</p>
         </section>
         <section>
           <h2>预计执行步骤</h2>
