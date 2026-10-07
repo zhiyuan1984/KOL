@@ -6,7 +6,7 @@ import { applyComposerDraft } from "../composer/draft";
 import { skillFillText } from "../composer/skillFill";
 import { RECOMMENDED_SKILL_IDS as RECOMMENDED_IDS } from "../composer/recommended";
 import { rememberJourney } from "../journey";
-import { skillKind, type SkillRow } from "./SkillHub";
+import { type SkillRow } from "./SkillHub";
 import { DEFAULT_SKILL_ICON, SKILL_ICON_LIBRARY } from "../skillIcons";
 
 // 分组配置
@@ -137,10 +137,6 @@ function skillSource(skill: Pick<SkillRow, "badge">): string {
 
 function skillOrigin(skill: SkillRow): "official" | "third_party" {
   return skill.origin === "third_party" ? "third_party" : "official";
-}
-
-function skillOriginLabel(skill: SkillRow): string {
-  return skillOrigin(skill) === "third_party" ? "第三方" : "官方";
 }
 
 /**
@@ -314,7 +310,10 @@ function SkillCard({
         <span className="skill-row-name-text">{skill.title}</span>
         {isFrequent && <span className="skill-row-star" aria-hidden>★</span>}
       </button>
-      <p className="skill-row-desc">{skill.summary || skill.title}</p>
+      {/* 描述缺失或与标题相同时不渲染：同一信息不重复出现（不变量 6）。 */}
+      {skill.summary && skill.summary !== skill.title && (
+        <p className="skill-row-desc">{skill.summary}</p>
+      )}
       {marks.length > 0 && (
         <div className="skill-row-marks">
           {marks.map((m) => (
@@ -399,8 +398,10 @@ function useEmployeeDoc(id: string): string {
  * 说明书正文：只认服务端约定好的 Markdown 子集（`###` 小标题 / `-` 列表 / 段落）。
  * 一行一段 —— 服务端的白名单就是按段抽的，这里不合并、不再做二次猜测，也不解析 HTML。
  */
-function EmployeeDoc({ text }: { text: string }) {
-  const blocks: { kind: "heading" | "list" | "paragraph"; lines: string[] }[] = [];
+type DocBlock = { kind: "heading" | "list" | "paragraph"; lines: string[] };
+
+function parseDocBlocks(text: string): DocBlock[] {
+  const blocks: DocBlock[] = [];
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
@@ -411,9 +412,15 @@ function EmployeeDoc({ text }: { text: string }) {
       else blocks.push({ kind: "list", lines: [line.slice(2).trim()] });
     } else blocks.push({ kind: "paragraph", lines: [line] });
   }
+  return blocks;
+}
+
+function EmployeeDoc({ text, maxBlocks }: { text: string; maxBlocks?: number }) {
+  const blocks = parseDocBlocks(text);
+  const shown = maxBlocks === undefined ? blocks : blocks.slice(0, maxBlocks);
   return (
     <>
-      {blocks.map((block, index) => {
+      {shown.map((block, index) => {
         if (block.kind === "heading") {
           return <p className="skill-doc-heading" key={index}>{block.lines[0]}</p>;
         }
@@ -428,6 +435,48 @@ function EmployeeDoc({ text }: { text: string }) {
       })}
     </>
   );
+}
+
+/**
+ * 装配 Agent（只读投影）：该技能经由哪些数字员工可用。
+ * 后端 `GET /api/skills/:id/agents` 只返回调用者有资格使用的已发布 Agent（id＋name），
+ * 拿不到就保持空数组 —— 调用处据"未加载"不渲染整节，不拿空壳冒充。
+ * 依据 IA §2#4：技能面回答"当前有资格使用的 Agent 装配了哪项能力"。
+ */
+function useSkillAgents(id: string): { agents: Array<{ id: string; name: string }>; loaded: boolean } {
+  const [state, setState] = useState<{ id: string; agents: Array<{ id: string; name: string }> }>({ id: "", agents: [] });
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    setLoaded(false);
+    api.skillAgents(id)
+      .then((data: unknown) => {
+        const agents = (data as { agents?: unknown } | null)?.agents;
+        if (alive) {
+          setState({
+            id,
+            agents: Array.isArray(agents)
+              ? agents.filter((a): a is { id: string; name: string } =>
+                  typeof a === "object" && a !== null
+                  && typeof (a as { id: unknown }).id === "string"
+                  && typeof (a as { name: unknown }).name === "string")
+              : [],
+          });
+          setLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setState({ id, agents: [] });
+          setLoaded(true);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+  return state.id === id ? { agents: state.agents, loaded } : { agents: [], loaded: false };
 }
 
 /** 一行提示：前缀一个小图标（走本页图标阶梯的 --icon-sm），替代原先的大块浅底 callout。 */
@@ -461,6 +510,13 @@ function SkillDetail({
   // 说明书：选中时按 id 拉一次；拉不到、或后端在技能文件里找不到 `## 员工口径` 小节的正文，
   // 都得到空串 —— 那一节整节不渲染，不做 loading 假动作、也不拿空壳冒充说明书。
   const doc = useEmployeeDoc(skill?.id || "");
+  // 装配 Agent：选中时按 id 拉一次（只读投影，只含调用者有资格使用的已发布 Agent）。
+  const { agents, loaded: agentsLoaded } = useSkillAgents(skill?.id || "");
+  // 说明书默认折叠：详情正文按决策顺序排，说明书是参考材料，首屏只给前两段。
+  const [docOpen, setDocOpen] = useState(false);
+  useEffect(() => {
+    setDocOpen(false);
+  }, [skill?.id]);
 
   if (!skill) {
     return (
@@ -527,9 +583,11 @@ function SkillDetail({
           </button>
         </div>
 
+        {/* 只标例外：来源只在第三方时标注（官方是默认态）；「自建/技能」是治理语言，不进员工面。 */}
         <div className="skill-detail-marks">
-          <span className="skill-detail-chip is-kind">{skillKind(skill)}</span>
-          <span className="skill-detail-chip is-source">{skillOriginLabel(skill)}</span>
+          {skillOrigin(skill) === "third_party" && (
+            <span className="skill-detail-chip is-source">第三方</span>
+          )}
           <span className={"skill-mark is-" + tier}>{RISK_LABEL[tier]}</span>
           {isAsync && <span className="skill-mark is-async">异步 · 可取消</span>}
           {/* 内部技能：由 pipeline / 定时任务 / 旅程调用，不在提问框的可选清单里出现。 */}
@@ -539,8 +597,25 @@ function SkillDetail({
 
       <div className="skill-detail-body">
 
-        {/* 段落次序按员工的决策顺序排：先回答「我自己能查到什么 / 哪些要找人」，
-            再是「我要准备什么 / 能拿到什么 / 怎么用」，最后是能力边界与调用关系。 */}
+        {/* 段落次序按员工的决策顺序排：先回答「经由哪个数字员工能用 / 我自己能查到什么 /
+            哪些要找人」，再是「我要准备什么 / 能拿到什么 / 怎么用」，最后是能力边界与调用关系。 */}
+        {/* 装配 Agent：IA §2#4 要求技能面回答"当前有资格使用的 Agent 装配了哪项能力"。
+            未加载完成时不渲染整节，不拿空壳占位。 */}
+        {agentsLoaded && (
+          <div className="skill-detail-section">
+            <h4>可经由以下数字员工使用</h4>
+            {agents.length > 0 ? (
+              <div className="skill-detail-tags">
+                {agents.map((a) => (
+                  <span key={a.id} className="skill-detail-chip is-agent">{a.name}</span>
+                ))}
+              </div>
+            ) : (
+              <p className="skill-detail-value muted">暂无数字员工装配此技能</p>
+            )}
+          </div>
+        )}
+
         {quick && (
           <div className="skill-detail-section">
             <h4>可以直接查到</h4>
@@ -606,20 +681,31 @@ function SkillDetail({
         )}
 
         {/* 说明书：正文来自该技能 SKILL.md 的 `## 员工口径` 小节（服务端已按白名单整段滤掉
-            含引擎系统词 / JSON 片段 / 英文 snake_case id 的段落）。为空则整节不渲染。 */}
-        {doc && (
+            含引擎系统词 / JSON 片段 / 英文 snake_case id 的段落）。为空则整节不渲染。
+            默认折叠只给前两段：正文是参考材料，不挤占决策信息的首屏（L3 文字按钮展开）。 */}
+        {(doc || examples.length > 0) && (
           <div className="skill-detail-section">
             <h4>说明书</h4>
-            <EmployeeDoc text={doc} />
-          </div>
-        )}
-
-        {examples.length > 0 && (
-          <div className="skill-detail-section">
-            <h4>示例</h4>
-            <ul className="skill-detail-examples">
-              {examples.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}
-            </ul>
+            {doc && <EmployeeDoc text={doc} maxBlocks={docOpen ? undefined : 2} />}
+            {docOpen && examples.length > 0 && (
+              <>
+                <h4 className="skill-doc-subhead">示例</h4>
+                <ul className="skill-detail-examples">
+                  {examples.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}
+                </ul>
+              </>
+            )}
+            {/* 折叠态藏起了内容（正文超两段，或示例被收起）才给展开入口。 */}
+            {(doc ? parseDocBlocks(doc).length > 2 : false) || examples.length > 0 ? (
+              <button
+                type="button"
+                className="skill-text-btn"
+                aria-expanded={docOpen}
+                onClick={() => setDocOpen((v) => !v)}
+              >
+                {docOpen ? "收起说明书" : "展开说明书"}
+              </button>
+            ) : null}
           </div>
         )}
 
@@ -634,8 +720,10 @@ function SkillDetail({
                   {execution.tools.map((tool, index) => (
                     <div className="skill-execution-row" key={`${tool.ref}-${index}`}>
                       <span className="skill-execution-row-name">{toolLabel(tool.ref || "", tool.kind)}</span>
+                      {/* 线值仍是工具风险目录的 `L1`/`L3`（`docs/07-mcp-data-contract.md` 数据契约）；
+                          展示名按 DESIGN.md v3 翻成 R1/R3 —— 只改展示，不改契约。 */}
                       <span className={"skill-mark" + (tool.risk === "L3" ? " is-write" : "")}>
-                        {tool.risk === "L3" ? "L3 · 执行前确认" : "L1 · 只读"}
+                        {tool.risk === "L3" ? "R3 · 执行前确认" : "R1 · 只读"}
                       </span>
                     </div>
                   ))}
@@ -654,7 +742,7 @@ function SkillDetail({
                           {PERMISSION_LABEL[permission] || (write ? "业务数据写入" : "业务数据读取")}
                         </span>
                         <span className={"skill-mark" + (write ? " is-write" : "")}>
-                          {write ? "L3 · 执行前确认" : "L1 · 只读"}
+                          {write ? "R3 · 执行前确认" : "R1 · 只读"}
                         </span>
                       </div>
                     );
@@ -698,11 +786,17 @@ function SkillDetail({
 
       <div className="skill-detail-footer">
         {/* 本视口唯一的实底主 CTA（docs/DESIGN.md §不变量 1）。动作名与列表行统一为「填入输入框」；
-            「新建会话」已按 §不变量 2（先补参数再外发）移除。 */}
+            「新建会话」已按 §不变量 2（先补参数再外发）移除。
+            内部技能不在提问框可选清单里：即使经深链进入，CTA 也保持禁用并说明去向。 */}
         <button
           type="button"
           className="skill-btn skill-btn-primary skill-btn-large"
-          title="把这项技能填进输入框，补完参数后由你发送"
+          title={
+            skill.employee_visible === false
+              ? "内部技能仅供流程调用，不在提问框的可选清单中"
+              : "把这项技能填进输入框，补完参数后由你发送"
+          }
+          disabled={skill.employee_visible === false}
           onClick={() => onInsert(skill)}
         >
           填入输入框
@@ -719,7 +813,6 @@ export function SkillCatalog() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<"all" | "official" | "third_party">("all");
   // tab 与 URL 同步：`/skills?tab=frequent` 这类深链（「查看全部」链接）必须真正生效。
   const [tab, setTab] = useState(() => new URLSearchParams(location.search).get("tab") || "all");
   const [selectedSkill, setSelectedSkill] = useState<SkillRow | null>(null);
@@ -737,6 +830,19 @@ export function SkillCatalog() {
     setDetailOpen(true);
   };
 
+  // `/` 聚焦搜索（工作台惯例）：输入框内按键不劫持。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/") return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   useEffect(() => {
     setTab(new URLSearchParams(location.search).get("tab") || "all");
   }, [location.search]);
@@ -753,33 +859,39 @@ export function SkillCatalog() {
       .finally(() => setLoading(false));
   }, [reloadKey]);
 
+  // 内部技能（employee_visible=false）：由 pipeline / 定时任务 / 旅程调用，
+  // 不在提问框的可选清单里出现 —— 目录默认过滤，不把不可用的能力递到员工手里。
+  const visibleSkills = useMemo(
+    () => skills.filter((s) => s.employee_visible !== false),
+    [skills],
+  );
+  const hiddenInternalCount = skills.length - visibleSkills.length;
+
   // 默认预览：优先选中达人建联话术，其次常用技能第一个
   useEffect(() => {
-    if (skills.length > 0 && !selectedSkill) {
-      const preferred = skills.find((s) => s.id === DEFAULT_SKILL_ID);
+    if (visibleSkills.length > 0 && !selectedSkill) {
+      const preferred = visibleSkills.find((s) => s.id === DEFAULT_SKILL_ID);
       if (preferred) {
         setSelectedSkill(preferred);
         return;
       }
-      const frequent = skills.filter((s) => RECOMMENDED_IDS.includes(s.id));
-      setSelectedSkill(frequent[0] || skills[0]);
+      const frequent = visibleSkills.filter((s) => RECOMMENDED_IDS.includes(s.id));
+      setSelectedSkill(frequent[0] || visibleSkills[0]);
     }
-  }, [skills, selectedSkill]);
+  }, [visibleSkills, selectedSkill]);
 
   const filteredSkills = useMemo(() => {
-    let list = skills;
+    let list = visibleSkills;
 
     if (tab === "frequent") {
       list = list.filter((s) => (usage[s.id] || 0) > 0).sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
     } else if (tab === "recent") {
-      list = recent.map((id) => skills.find((s) => s.id === id)).filter(Boolean) as SkillRow[];
+      list = recent.map((id) => visibleSkills.find((s) => s.id === id)).filter(Boolean) as SkillRow[];
     } else if (tab === "recommend") {
       list = list.filter((s) => RECOMMENDED_IDS.includes(s.id));
     } else if (tab !== "all") {
       list = list.filter((s) => s.funnel === tab);
     }
-
-    if (sourceFilter !== "all") list = list.filter((skill) => skillOrigin(skill) === sourceFilter);
 
     const needle = q.trim().toLowerCase();
     if (needle) {
@@ -791,24 +903,7 @@ export function SkillCatalog() {
     }
 
     return list;
-  }, [skills, tab, q, usage, recent, sourceFilter]);
-
-  const frequentSkills = useMemo(() => {
-    const used = skills
-      .filter((s) => (usage[s.id] || 0) > 0 && (sourceFilter === "all" || skillOrigin(s) === sourceFilter))
-      .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
-    if (used.length >= 4) return used.slice(0, 4);
-    const recommended = skills.filter((s) => RECOMMENDED_IDS.includes(s.id) && (sourceFilter === "all" || skillOrigin(s) === sourceFilter));
-    const seen = new Set(used.map((s) => s.id));
-    return [...used, ...recommended.filter((s) => !seen.has(s.id))].slice(0, 4);
-  }, [skills, usage, sourceFilter]);
-
-  // 有使用记录才叫「常用技能」；没有记录时那几行是推荐补的，标题与星标都得照实说
-  // （不得把推荐说成"你经常使用"：根 AGENTS.md §4）。
-  const hasUsage = useMemo(
-    () => frequentSkills.some((s) => (usage[s.id] || 0) > 0),
-    [frequentSkills, usage],
-  );
+  }, [visibleSkills, tab, q, usage, recent]);
 
   const groupedSkills = useMemo(() => {
     const groups: Record<string, SkillRow[]> = {};
@@ -822,6 +917,8 @@ export function SkillCatalog() {
   // 不提供「直接开新会话」——部分技能需要先填参数，且外发属 L3，不能由「使用技能」一步完成
   // （docs/DESIGN.md 员工端实施细则 §不变量 2）。
   const useSkill = (skill: SkillRow) => {
+    // 内部技能不在提问框的可选清单：即使 CTA 被绕过也不填入（纵深防御）。
+    if (skill.employee_visible === false) return;
     recordUsage(skill.id);
     setUsage(loadUsage());
     setRecent(loadRecent());
@@ -907,6 +1004,7 @@ export function SkillCatalog() {
                 className="skill-search"
                 placeholder="搜索技能 / SOP / 场景"
                 aria-label="搜索技能 / SOP / 场景"
+                title="按 / 快速聚焦搜索"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -926,49 +1024,6 @@ export function SkillCatalog() {
               )}
             </label>
           </div>
-          <div className="skill-origin-filter" role="group" aria-label="按来源筛选技能">
-            <span>来源</span>
-            {([['all', '全部'], ['official', '官方'], ['third_party', '第三方']] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={sourceFilter === value}
-                className={sourceFilter === value ? "is-active" : ""}
-                onClick={() => setSourceFilter(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {tab === "all" && !q && (
-            <section className="skill-group skill-group-frequent">
-              <div className="skill-group-header">
-                <span className="skill-group-icon skill-group-icon-star" aria-hidden>★</span>
-                <h2>{hasUsage ? "常用技能" : "推荐技能"}</h2>
-                <span className="skill-group-hint">
-                  {hasUsage ? "你经常使用的技能，点击即可快速调用" : "按你所在阶段挑的几项，先试这些"}
-                </span>
-                <Link
-                  to={hasUsage ? "/skills?tab=frequent" : "/skills?tab=recommend"}
-                  className="skill-group-more"
-                >
-                  查看全部
-                </Link>
-              </div>
-              <div className="skill-list">
-                {frequentSkills.map((s) => (
-                  <SkillCard
-                    key={s.id}
-                    skill={s}
-                    onSelect={selectSkill}
-                    isFrequent={false}
-                    selected={selectedSkill?.id === s.id}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
 
           {GROUPS.map((group) => {
             const groupSkills = groupedSkills[group.id] || [];
@@ -982,7 +1037,10 @@ export function SkillCatalog() {
                   <h2>{group.label}</h2>
                   {/* hint 只在与组名有增量信息时才输出（同义的提示是噪声）。 */}
                   {group.hint && <span className="skill-group-hint">{group.hint}</span>}
-                  <Link to={`/skills?tab=${group.id}`} className="skill-group-more">查看全部</Link>
+                  {/* 深链进来时（tab 已是本组）不再渲染指向自己的「查看全部」。 */}
+                  {tab !== group.id && (
+                    <Link to={`/skills?tab=${group.id}`} className="skill-group-more">查看全部</Link>
+                  )}
                 </div>
                 <div className="skill-list">
                   {groupSkills.map((s) => (
@@ -998,6 +1056,13 @@ export function SkillCatalog() {
               </section>
             );
           })}
+
+          {/* 内部技能不进目录：照实说明数量与去向（CONST-10 实施诚实），不在此渲染它们。 */}
+          {!loading && hiddenInternalCount > 0 && (
+            <p className="skill-internal-note">
+              {hiddenInternalCount} 项内部技能仅供流程调用，已从目录隐藏
+            </p>
+          )}
 
           {!loading && filteredSkills.length === 0 && (
             <div className="skill-state">

@@ -17,7 +17,8 @@ import { currentUser, setPersona } from "../host/persona.js";
 import { personaAccess } from "../host/persona-key.js";
 import { login, logout, requirePm, isProductManager } from "../host/auth.js";
 import { directory, grantsForSkill, setSkillGrants, visibleSkillIds } from "../host/grants.js";
-import { avatarUrlForUser, visibleSkillIdsForUser } from "../runtime/organization-tree.js";
+import { avatarUrlForUser, canUseAgent, visibleSkillIdsForUser } from "../runtime/organization-tree.js";
+import { ensureManagedAgents } from "../runtime/managed-agents.js";
 import { FUNNEL_STAGES, SOP_POLICY, skillCatalog, skillEmployeeDoc } from "../host/skills-catalog.js";
 import {
   effectiveSkillTemplate,
@@ -273,6 +274,28 @@ misc.get("/skills/:id", (c) => {
   // `employee_doc`：该技能 `## 员工口径` 小节的正文（已过白名单）。没有这一节就是空串，
   // 前端据此整节不渲染 —— 不把 SKILL.md 原文发出去，也不拿空壳冒充说明书。
   return c.json({ ...skillMeta(id), ...sop, employee_doc: skillEmployeeDoc(id) });
+});
+misc.get("/skills/:id/agents", (c) => {
+  const id = c.req.param("id");
+  // 未知技能直接 404；lifecycle 非 published 的技能对员工不可见，404 不泄漏存在性。
+  if (!taskDefinition(id)) throw new HttpFail(404, "skill not found");
+  if (!employeeVisibleSkill(id)) throw new HttpFail(404, "skill not found");
+  ensureManagedAgents();
+  const rows = getConn().prepare(`
+    SELECT ma.id AS id, ma.name AS name
+    FROM managed_agents ma
+    JOIN runtime_agent_skills ras ON ras.agent_id = ma.id
+    WHERE ras.skill_id = ? AND ras.enabled = 1 AND ma.status = 'published'
+    ORDER BY ma.created_at, ma.id
+  `).all(id) as Array<{ id: string; name: string }>;
+  // 取数前校验（CONST-05）：只返回调用者有资格使用的 Agent；管理员 / 鉴权关闭沿用直通口径。
+  // 只暴露 id 与 name —— 绑定目标、组织树、版本等治理信息不泄漏（使用 ≠ 治理）。
+  const privileged = authDisabled() || isAdmin();
+  const userId = scopedUser()?.id || null;
+  const agents = rows
+    .filter((row) => privileged || canUseAgent(userId, row.id))
+    .map((row) => ({ id: row.id, name: row.name }));
+  return c.json({ agents });
 });
 misc.get("/skills/:id/memories", (c) => {
   const skillId = c.req.param("id");

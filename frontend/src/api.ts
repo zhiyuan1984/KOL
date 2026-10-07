@@ -2776,6 +2776,9 @@ export const api = {
     }),
   skills: () => request<Array<Record<string, unknown>>>("/api/skills"),
   skill: (id: string) => fetch(`/api/skills/${encodeURIComponent(id)}`).then((r) => r.json()),
+  /** 员工面：该技能经由哪些数字员工可用（只读；仅返回调用者有资格使用的已发布 Agent）。 */
+  skillAgents: (id: string): Promise<{ agents: Array<{ id: string; name: string }> }> =>
+    fetch(`/api/skills/${encodeURIComponent(id)}/agents`).then((r) => r.json()),
   saveSkillSop: async (id: string, body: { summary: string; body: string }) => {
     const r = await fetch(`/api/skills/${encodeURIComponent(id)}/sop`, {
       method: "PUT",
