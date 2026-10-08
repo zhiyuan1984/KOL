@@ -645,7 +645,15 @@ async function transcribeAudioSegment(segPath: string, segIndex: number, total: 
     }),
   });
   if (!response.ok) {
-    throw new HttpFail(502, { code: "knowledge_transcribe_unsupported", message: `转写调用失败（HTTP ${response.status}）：模型或网关可能不支持音频输入` });
+    // 网关的错误原文是定位"模型不支持音频"的关键证据（如指出具体哪个模型/参数被拒），截断后带入作业错误。
+    let gatewayDetail = "";
+    try {
+      gatewayDetail = (await response.text()).replace(/\s+/g, " ").trim().slice(0, 500);
+    } catch {
+      gatewayDetail = "";
+    }
+    const reason = gatewayDetail ? `；网关返回：${gatewayDetail}` : "";
+    throw new HttpFail(502, { code: "knowledge_transcribe_unsupported", message: `转写调用失败（HTTP ${response.status}）：模型或网关可能不支持音频输入，请检查 KNOWLEDGE_MEDIA_MODEL 是否为支持音频输入的模型${reason}` });
   }
   const payload = (await response.json()) as Json;
   const choices = Array.isArray(payload.choices) ? payload.choices as Json[] : [];
