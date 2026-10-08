@@ -1,5 +1,6 @@
 import type { DiscoveryNarrative, DiscoveryProcessStep } from "./discoveryEvents";
 import { BIZ_PHASES, discoveryBizPhaseIndex } from "./discoveryBizPhase";
+import DiscoveryAvatar from "./DiscoveryAvatar";
 
 const RUN_STATE_LABEL: Record<string, string> = {
   compose: "尚未开始",
@@ -91,6 +92,7 @@ export default function DiscoveryRunEvents({
       aria-label="采集执行"
     >
       <header className="discovery-event-head">
+        {crawlActive || stage === "running" ? <DiscoveryAvatar active size="sm" /> : null}
         <span className="discovery-event-kicker">采集执行</span>
         <strong data-discovery-run-title>{title}</strong>
         <span className="discovery-event-status" data-tone={tone} data-discovery-run-status>

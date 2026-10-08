@@ -1,5 +1,6 @@
 import type { DiscoveryParamItem } from "./discoveryParams";
 import type { DiscoveryStartPhase } from "./discoveryStart";
+import DiscoveryAvatar from "./DiscoveryAvatar";
 
 /**
  * ④ 核对实际参数：本次真正提交给采集服务的参数（来自待确认动作 arguments），
@@ -36,6 +37,7 @@ export default function DiscoveryParamsCheck({
       aria-label="实际采集参数"
     >
       <header className="discovery-event-head">
+        {waiting ? <DiscoveryAvatar active size="sm" /> : null}
         <span className="discovery-event-kicker">实际采集参数</span>
         <strong>本次执行参数与采集后核对项</strong>
         <span className="discovery-event-status" data-tone={tone} data-discovery-params-status>
