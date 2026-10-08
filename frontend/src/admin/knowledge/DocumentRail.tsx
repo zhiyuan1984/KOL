@@ -23,6 +23,7 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
   const [replacement,setReplacement]=useState<File|null>(null);
   const [scopeReady,setScopeReady]=useState(false);
   const doc = data?.document;
+  const mediaLabel = ({ pdf: "PDF", image: "图片", audio: "音频", video: "视频", pptx: "演示文稿" } as Record<string,string>)[doc?.media_type || ""] || "资料";
   const processing = Boolean(doc && ["uploaded", "normalizing", "indexing"].includes(doc.status));
   const progress = doc ? kbDocProgressText(doc) : "";
   const previousStatus = useRef<string | undefined>(undefined);
@@ -101,13 +102,13 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
         {mode!=="review" && <dl className="kbw-properties"><div><dt>维护人</dt><dd>{doc.created_by || "未记录"}</dd></div><div><dt>文件大小</dt><dd>{doc.size_bytes ? formatBytes(Number(doc.size_bytes)) : "—"}</dd></div><div><dt>创建时间</dt><dd>{formatKbTime(doc.created_at)}</dd></div><div><dt>更新时间</dt><dd>{formatKbTime(doc.updated_at)}</dd></div>{doc.published_at && <div><dt>发布时间</dt><dd>{formatKbTime(doc.published_at)}</dd></div>}</dl>}
         {path && <div className="kbv-document-path" aria-label="资料分类">{path.split(" / ").map((part, index) => <span key={`${index}-${part}`}>{part}</span>)}</div>}
         {mode!=="review" && <section className="kbv-document-source">
-          <h3>非结构化 PDF</h3>
+          <h3>非结构化{mediaLabel === "PDF" ? " PDF" : mediaLabel}</h3>
           <p>{doc.filename}</p>
-          <a className="kbv-link-plain" href={`/api/admin/knowledge/documents/${encodeURIComponent(id)}/file${reviewCompany()?"?company="+encodeURIComponent(reviewCompany()):""}`} target="_blank" rel="noreferrer"><KbvIcon name="file" />查看 PDF 原件<span className="sr-only">（新窗口打开）</span></a>
+          <a className="kbv-link-plain" href={`/api/admin/knowledge/documents/${encodeURIComponent(id)}/file${reviewCompany()?"?company="+encodeURIComponent(reviewCompany()):""}`} target="_blank" rel="noreferrer"><KbvIcon name="file" />查看{mediaLabel === "PDF" ? " PDF " : mediaLabel}原件<span className="sr-only">（新窗口打开）</span></a>
         </section>}
         {doc.error && <div className="kbv-document-notice" role="alert"><KbvIcon name="status" /><span>{doc.error}</span><button className="kbv-text-action" disabled={blocked} onClick={refresh}>重新检查</button></div>}
         {processing && <p role="status" className="kbv-document-progress">{progress || "等待加工服务处理已提交的资料"} · 自动刷新中</p>}
-        {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p>{mode==="edit" && <label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,application/pdf" onChange={e=>{const file=e.currentTarget.files?.[0];if(file){setReplacement(file);onDirty?.(true);}}} />{replacement && <p>{replacement.name}</p>}</label>}</>}
+        {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p>{mode==="edit" && <label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv" onChange={e=>{const file=e.currentTarget.files?.[0];if(file){setReplacement(file);onDirty?.(true);}}} />{replacement && <p>{replacement.name}</p>}</label>}</>}
         {doc.status === "cancelled" && <p>加工已取消，可重试恢复；未发布资料不参与员工问答。</p>}
         {mode!=='review' && <KnowledgeScopePanel key={id} id={id} onReady={setScopeReady} onDirty={onDirty} onChanged={()=>{refresh();reload();}} />}
         {["pending_review", "published"].includes(doc.status) && (scopeReady || mode==='review') && <PublicationPanel key={id} id={id} mode={mode==="review"?"review":"detail"} ownsPrimary={mode!=="edit"} onInitiate={()=>onMode?.("review")} onSubmitted={()=>onMode?.("detail")} onDirty={onDirty} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}

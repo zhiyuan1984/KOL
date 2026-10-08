@@ -130,7 +130,7 @@ knowledge.post("/admin/knowledge/documents/:id/revision", async c =>
   c.json(await createDocumentRevision(c.req.param("id"),publicationContext(c.req.header("X-Review-Company"))),201));
 knowledge.put("/admin/knowledge/documents/:id/draft-file",async c=>{
   requireAdmin();const b=await c.req.parseBody(),file=b.file;
-  if(!file || typeof file==="string" || Array.isArray(file)) throw new HttpFail(422,"请选择PDF原件");
+  if(!file || typeof file==="string" || Array.isArray(file)) throw new HttpFail(422,"请选择资料原件");
   return c.json(await replaceDraftDocument(c.req.param("id"),{name:file.name,bytes:Buffer.from(await file.arrayBuffer())},String(b.updated_at || ""),publicationContext(c.req.header("X-Review-Company"))));
 });
 knowledge.get("/approvals/v2/instances/:id/knowledge", async c => {

@@ -14,7 +14,7 @@ import { registerExecutionHandler } from "../execution-jobs/handlers.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import type { ReviewCommand } from "../../../shared/review.js";
 import { ensureOrganizationTree } from "../runtime/organization-tree.js";
-import { queryDocuments } from "../host/knowledge-documents.js";
+import { queryDocuments, validateDocumentFile } from "../host/knowledge-documents.js";
 
 type Row = Record<string, any>;
 const fail = (code: string, message: string, status = 409): never => { throw new HttpFail(status, { code, message }); };
@@ -307,20 +307,18 @@ export async function retryPublication(id:string,ctx:ReviewContext) {
 
 export async function replaceDraftDocument(id:string,file:{name:string;bytes:Buffer},updatedAt:string,ctx:ReviewContext) {
   requireAdmin();
-  if(!file.name.toLowerCase().endsWith(".pdf") || !file.bytes.subarray(0,1024).includes(Buffer.from("%PDF-")))
-    fail("knowledge_invalid_pdf","请选择有效的PDF原件",422);
-  if(file.bytes.length>Number(process.env.KNOWLEDGE_DOC_MAX_BYTES || 536870912)) fail("knowledge_document_too_large","文件超过知识资料大小限制",413);
+  const spec=validateDocumentFile({name:path.basename(file.name),buf:file.bytes});
   return postgresTransaction(async client=>{
     await client.query("SELECT id FROM knowledge_documents WHERE id=$1 FOR UPDATE",[id]);
     const doc=await document(id,ctx.tenant,client);
     if(doc.status!=="draft" || doc.updated_at!==updatedAt) fail("knowledge_draft_changed","仅可替换当前未解析草稿，请刷新");
     const source=path.isAbsolute(doc.source_path) ? doc.source_path : path.join(dataDir(),doc.source_path);
-    const filePath=path.join(path.dirname(source),`source-${randomUUID()}.pdf`);
+    const filePath=path.join(path.dirname(source),`source-${randomUUID()}${spec.ext}`);
     fs.writeFileSync(filePath,file.bytes);
     try{
-      await client.query("UPDATE knowledge_documents SET source_path=$2,filename=$3,title=$4,size_bytes=$5,updated_at=$6 WHERE id=$1",
-        [id,filePath,path.basename(file.name),path.basename(file.name).replace(/\.pdf$/i,""),file.bytes.length,stamp()]);
-      await publicationAudit(client,ctx.actor,"knowledge.document.draft.replace",{document_id:id,filename:path.basename(file.name),sha256:digest(file.bytes)});
+      await client.query("UPDATE knowledge_documents SET source_path=$2,filename=$3,title=$4,size_bytes=$5,updated_at=$6,media_type=$7,mime=$8 WHERE id=$1",
+        [id,filePath,spec.filename,spec.filename.slice(0,-spec.ext.length),file.bytes.length,stamp(),spec.media,spec.mime]);
+      await publicationAudit(client,ctx.actor,"knowledge.document.draft.replace",{document_id:id,filename:spec.filename,media_type:spec.media,sha256:digest(file.bytes)});
       return {saved:true};
     }catch(error){fs.rmSync(filePath,{force:true});throw error;}
   });
@@ -335,12 +333,13 @@ export async function createDocumentRevision(id:string,ctx:ReviewContext) {
     const active=(await client.query(`SELECT d.id FROM knowledge_documents d LEFT JOIN knowledge_document_lineage l ON l.document_id=d.id
       WHERE (d.id=$1 OR l.root_id=$1) AND d.status='published'`,[root])).rows[0];
     const next=`kdoc_${randomUUID()}`, source=path.isAbsolute(old.source_path) ? old.source_path : path.join(dataDir(),old.source_path);
-    const folder=path.join(path.dirname(path.dirname(source)),next), newSource=path.join(folder,"source.pdf");
+    const ext=path.extname(String(old.filename)).toLowerCase() || path.extname(source).toLowerCase();
+    const folder=path.join(path.dirname(path.dirname(source)),next), newSource=path.join(folder,`source${ext}`);
     fs.mkdirSync(folder,{recursive:true});fs.copyFileSync(source,newSource);
     try {
       const time=stamp();
       await client.query(`INSERT INTO knowledge_documents(id,base_id,title,filename,media_type,mime,size_bytes,source_path,status,retry_count,created_by,created_at,updated_at)
-        VALUES($1,$2,$3,$4,'pdf','application/pdf',$5,$6,'draft',0,$7,$8,$8)`,[next,old.base_id,old.title,old.filename,old.size_bytes,newSource,ctx.actor,time]);
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,'draft',0,$9,$10,$10)`,[next,old.base_id,old.title,old.filename,old.media_type,old.mime,old.size_bytes,newSource,ctx.actor,time]);
       await client.query("INSERT INTO knowledge_document_lineage(document_id,root_id,version,expected_active_id) VALUES($1,$2,$3,$4)",[next,root,Number(max.version)+1,active?.id || null]);
       const explanation=old.knowledge_scope?.explanation || '';
       await client.query("INSERT INTO knowledge_document_scopes(document_id,tenant,explanation,fingerprint,updated_at) VALUES($1,$2,$3,$4,$5)",[next,ctx.tenant,explanation,digest(Buffer.from(explanation)),time]);

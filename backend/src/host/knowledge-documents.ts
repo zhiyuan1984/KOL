@@ -136,6 +136,25 @@ function normalizedPathOf(doc: Row): string {
   return path.join(docDirOf(doc), "normalized.pdf");
 }
 
+/** Cheap structural guard, not a full parser: never submit renamed media to a PDF engine. */
+function normalizedPdfExists(doc: Row): boolean {
+  const file = normalizedPathOf(doc);
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, "r");
+    const size = fs.fstatSync(fd).size;
+    const head = Buffer.alloc(Math.min(size, 1024));
+    const tail = Buffer.alloc(Math.min(size, 1024));
+    fs.readSync(fd, head, 0, head.length, 0);
+    fs.readSync(fd, tail, 0, tail.length, Math.max(0, size - tail.length));
+    return head.includes(Buffer.from("%PDF-")) && tail.includes(Buffer.from("%%EOF"));
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 function artifactsOf(doc: Row): Json {
   try {
     const parsed = doc.artifacts ? JSON.parse(String(doc.artifacts)) : {};
@@ -288,6 +307,25 @@ function sanitizeName(name: string): string {
   return name.replace(/[^\w.\u4e00-\u9fff-]+/g, "_") || "upload.pdf";
 }
 
+/** Initial upload and draft replacement share the same format and size contract. */
+export function validateDocumentFile(file: { name: string; buf: Buffer }) {
+  const filename = sanitizeName(file.name || "upload.pdf");
+  const ext = path.extname(filename).toLowerCase();
+  const spec = ACCEPTED_MEDIA[ext];
+  if (!spec) {
+    throw new HttpFail(400, {
+      code: "knowledge_format_not_implemented",
+      message: "本阶段先接入 PDF / 图片 / 音视频；PPTX 将在后续批次开放",
+    });
+  }
+  validateMediaMagic(file.buf, spec.media);
+  const maxBytes = Number(process.env.KNOWLEDGE_DOC_MAX_BYTES || 536870912);
+  if (file.buf.length > maxBytes) {
+    throw new HttpFail(413, { code: "knowledge_document_too_large", message: `单个文件不得超过 ${Math.floor(maxBytes / 1048576)} MiB` });
+  }
+  return { filename, ext, ...spec };
+}
+
 export function uploadDocument(
   file: { name: string; type: string; buf: Buffer },
   baseId: string,
@@ -303,20 +341,7 @@ export function uploadDocument(
   if (String(base.status) !== "active") {
     throw new HttpFail(400, { code: "knowledge_base_archived", message: "知识库已归档，不能上传资料" });
   }
-  const filename = sanitizeName(file.name || "upload.pdf");
-  const ext = path.extname(filename).toLowerCase();
-  const spec = ACCEPTED_MEDIA[ext];
-  if (!spec) {
-    throw new HttpFail(400, {
-      code: "knowledge_format_not_implemented",
-      message: "本阶段先接入 PDF / 图片 / 音视频；PPTX 将在后续批次开放",
-    });
-  }
-  validateMediaMagic(file.buf, spec.media);
-  const maxBytes = Number(process.env.KNOWLEDGE_DOC_MAX_BYTES || 536870912);
-  if (file.buf.length > maxBytes) {
-    throw new HttpFail(413, { code: "knowledge_document_too_large", message: `单个文件不得超过 ${Math.floor(maxBytes / 1048576)} MiB` });
-  }
+  const { filename, ext, ...spec } = validateDocumentFile(file);
   const id = nid("kdoc");
   const now = nowIso();
   const dir = documentDir(id, String(base.id));
@@ -330,7 +355,7 @@ export function uploadDocument(
        (id,base_id,title,filename,media_type,mime,size_bytes,source_path,status,error,retry_count,artifacts,created_by,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
-      id, String(base.id), title, filename, spec.media, file.type || spec.mime, file.buf.length,
+      id, String(base.id), title, filename, spec.media, spec.mime, file.buf.length,
       storePath(sourcePath), options.draft ? "draft" : "uploaded", null, 0, null, actor, now, now,
     );
     if (!options.draft) insertQueuedJob(db, id, "normalize", actor);
@@ -494,6 +519,7 @@ function tryExec(cmd: string, args: string[]): string | null {
 
 /** 文本层检测：优先 pdftotext；工具缺失时用与既有 extractPdfText 同源的粗检。 */
 function pdfHasTextLayer(filePath: string, buf: Buffer): boolean {
+  validateMediaMagic(buf, "pdf");
   const text = tryExec("pdftotext", ["-layout", "-nopgbrk", filePath, "-"]);
   if (text != null && text.replace(/\s+/g, "").length >= 40) return true;
   if (text == null) {
@@ -875,6 +901,9 @@ async function indexStage(doc: Row, jobId: string, signal: AbortSignal): Promise
     // 规整稿缺失（人工清理/异常）：回到规整阶段重跑。
     throw new HttpFail(409, { code: "knowledge_normalized_missing", message: "规整稿缺失，请重新加工" });
   }
+  if (bridgeMode() !== "stub" && !normalizedPdfExists(doc)) {
+    throw new HttpFail(409, { code: "knowledge_normalized_invalid", message: "规整稿不是有效的 PDF，请重试加工以重新规整原件" });
+  }
   updateJobProgress(jobId, 0, 0, { note: "建索引（无细分进度）" });
   const library = libraryDir(String(doc.base_id));
   const outcome = await runBridge({
@@ -938,7 +967,7 @@ export function retryDocument(id: string, actor = knowledgeActorId()): Json {
   const last = latestJobOf(id);
   let startStage: "normalize" | "index" = "normalize";
   if (last && String(last.kind) === "index") startStage = "index";
-  if (startStage === "index" && !fs.existsSync(normalizedPathOf(doc))) startStage = "normalize";
+  if (startStage === "index" && !normalizedPdfExists(doc)) startStage = "normalize";
   tx((db) => {
     db.prepare("UPDATE knowledge_documents SET status='uploaded', error=NULL, retry_count=retry_count+1, updated_at=? WHERE id=?")
       .run(nowIso(), id);
@@ -1047,7 +1076,7 @@ function sourceFileRef(doc: Row): { path: string; name: string; mime: string } {
   return {
     path: file,
     name: String(doc.filename || "source.pdf"),
-    mime: "application/pdf",
+    mime: ACCEPTED_MEDIA[path.extname(String(doc.filename || file)).toLowerCase()]?.mime || String(doc.mime || "application/octet-stream"),
   };
 }
 

@@ -12,7 +12,7 @@ import { reviewContextForActor } from "../src/approval/review-access.js";
 import { ReviewService } from "../src/approval/review-service.js";
 import { knowledgeReviewDefinition, type ReviewCommand } from "../../shared/review.js";
 import { validateDefinition } from "../src/approval/review-engine.js";
-import { uploadDocument,getDocumentDetail,startDocument,publishDocument,queryDocuments,deleteDocument } from "../src/host/knowledge-documents.js";
+import { uploadDocument,getDocumentDetail,startDocument,publishDocument,queryDocuments,deleteDocument,documentSourceFile,retryDocument } from "../src/host/knowledge-documents.js";
 import { publicationState,bindPublication,preparePublication,checkPublication,guardKnowledgeReview,createDocumentRevision,
   replaceDraftDocument,knowledgeReviewMaterial,knowledgeReviewTrial,publicationSnapshot,retryPublication,publishApprovedDocument } from "../src/knowledge/publication.js";
 import { postgresQuery } from "../src/postgres/pool.js";
@@ -210,6 +210,81 @@ describe("knowledge publication through real review instances and PostgreSQL out
     const r=txImmediate(db=>new ReviewService(db,ctx()).execute(p.command,p.confirmationId,randomUUID()));
     await approve(String(r.resourceId));expect((await execute(String(r.resourceId)))?.outcome).toBe("processed");
     expect((getDocumentDetail(f.id).document as any).status).toBe("archived");expect((getDocumentDetail(draft.id).document as any).status).toBe("published");
+  });
+  it.each([
+    ["movie.mp4", "video", "video/mp4", Buffer.from("fake container STUB_MEDIA_SEGMENTS=1")],
+    ["speech.mp3", "audio", "audio/mpeg", Buffer.from("fake audio STUB_MEDIA_SEGMENTS=1")],
+    ["scan.png", "image", "image/png", Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a])],
+    ["specs.pdf", "pdf", "application/pdf", Buffer.from("%PDF-1.4\nspecs\n%%EOF")],
+  ])("inherits %s media metadata and bytes when creating v2",async(name,media,mime,bytes)=>{
+    const f=await fixture(true);
+    const original=(uploadDocument({name:String(name),type:String(mime),buf:bytes as Buffer},f.base,"sriphy",{draft:true}).document as any);
+    const revision=await createDocumentRevision(original.id,ctx());
+    const draft=getDocumentDetail(revision.document_id).document as any;
+    expect(revision.version).toBe(2);
+    expect(draft).toMatchObject({filename:name,media_type:media,mime,status:"draft"});
+    expect(getDocumentDetail(revision.document_id).jobs).toEqual([]);
+    const file=documentSourceFile(revision.document_id);
+    expect(path.extname(file.path)).toBe(path.extname(String(name)));
+    expect(file.mime).toBe(mime);
+    expect(fs.readFileSync(file.path)).toEqual(bytes);
+    expect((getDocumentDetail(original.id).document as any).status).toBe("draft");
+    if(media==="video" || media==="audio"){
+      startDocument(revision.document_id);
+      const ready=await waitReady(revision.document_id);
+      expect(ready.artifacts.normalize.mode).toBe("media-transcribe");
+      expect(fs.readFileSync(path.join(path.dirname(file.path),"normalized.pdf")).subarray(0,5).toString()).toBe("%PDF-");
+    }
+  });
+  it("updates draft media metadata on replacement and retains size and stale-version guards",async()=>{
+    const f=await fixture(true),before=getDocumentDetail(f.id).document as any;
+    const bytes=Buffer.from("replacement video STUB_MEDIA_SEGMENTS=1");
+    await replaceDraftDocument(f.id,{name:"updated.mp4",bytes},before.updated_at,ctx());
+    const saved=getDocumentDetail(f.id).document as any;
+    expect(saved).toMatchObject({filename:"updated.mp4",media_type:"video",mime:"video/mp4",status:"draft"});
+    expect(documentSourceFile(f.id).mime).toBe("video/mp4");
+    expect(fs.readFileSync(documentSourceFile(f.id).path)).toEqual(bytes);
+    expect(getDocumentDetail(f.id).jobs).toEqual([]);
+    await expect(replaceDraftDocument(f.id,{name:"stale.mp4",bytes},"outdated",ctx())).rejects.toMatchObject({status:409});
+    const previousMax=process.env.KNOWLEDGE_DOC_MAX_BYTES;
+    try{
+      process.env.KNOWLEDGE_DOC_MAX_BYTES="1";
+      await expect(replaceDraftDocument(f.id,{name:"large.mp4",bytes},saved.updated_at,ctx())).rejects.toMatchObject({status:413});
+    }finally{
+      if(previousMax===undefined)delete process.env.KNOWLEDGE_DOC_MAX_BYTES;
+      else process.env.KNOWLEDGE_DOC_MAX_BYTES=previousMax;
+    }
+    startDocument(f.id);await waitReady(f.id);
+  });
+  it("restarts normalization rather than re-indexing a renamed MP4 cached as normalized.pdf",async()=>{
+    const f=await fixture(true);
+    const doc=(uploadDocument({name:"retry.mp4",type:"video/mp4",buf:Buffer.from("STUB_MEDIA_SEGMENTS=1")},f.base,"sriphy",{draft:true}).document as any);
+    const normalized=path.join(path.dirname(documentSourceFile(doc.id).path),"normalized.pdf");
+    fs.writeFileSync(normalized,Buffer.from("renamed mp4"));
+    getConn().prepare("UPDATE knowledge_documents SET status='failed',artifacts=? WHERE id=?").run(JSON.stringify({normalize:{mode:"text-passthrough"}}),doc.id);
+    const time=new Date().toISOString();
+    getConn().prepare("INSERT INTO knowledge_document_jobs(id,document_id,kind,status,progress_done,progress_total,attempt,created_by,created_at,finished_at) VALUES(?,?,'index','failed',0,0,1,'sriphy',?,?)").run(`kdjob_${randomUUID()}`,doc.id,time,time);
+    retryDocument(doc.id);
+    const ready=await waitReady(doc.id);
+    expect(ready.artifacts.normalize.mode).toBe("media-transcribe");
+    expect(ready.retry_count).toBe(1);
+    expect(fs.readFileSync(normalized).subarray(0,5).toString()).toBe("%PDF-");
+    expect((getDocumentDetail(doc.id).jobs as any[]).some(j=>j.kind==="normalize" && j.status==="done")).toBe(true);
+  });
+  it("rejects mislabeled non-PDF bytes before the text-passthrough heuristic",async()=>{
+    const f=await fixture(true),file=documentSourceFile(f.id).path;
+    fs.writeFileSync(file,Buffer.from("ftypmp4 "+"(not PDF text)".repeat(20)));
+    process.env.KNOWLEDGE_ENGINE_MODE="real";
+    startDocument(f.id);
+    for(let i=0;i<100;i++){
+      const current=getDocumentDetail(f.id).document as any;
+      if(current.status==="failed")break;
+      await new Promise(r=>setTimeout(r,10));
+    }
+    const failed=getDocumentDetail(f.id);
+    expect((failed.document as any).status).toBe("failed");
+    expect((failed.document as any).error).toContain("有效的 PDF");
+    expect((failed.jobs as any[]).every(j=>j.kind!=="index")).toBe(true);
   });
   it("requires human review and protects the system material field in workflow definitions",()=>{
     const d=knowledgeReviewDefinition();d.nodes=d.nodes.filter(n=>n.type!=="review");expect(validateDefinition(d).length).toBeGreaterThan(0);
