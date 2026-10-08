@@ -101,7 +101,7 @@ describe("business_approval create_approval schema", () => {
   it("is Codex-strict so proposal output is not rejected as invalid_json_schema", () => {
     const schema = skillOutputSchema("business_approval", requireTaskDefinition("business_approval"));
     expectCodexStrictSchema(schema);
-    expect((schema.properties as Json).type).toEqual({ type: "string", enum: ["create_approval"] });
+    expect((schema.properties as Json).type).toEqual({ type: "string", enum: ["review_draft", "create_approval", "task_result"] });
     expect((schema.properties as Json).amount).toEqual({ type: ["number", "null"] });
     expect((schema.properties as Json).needs).toEqual({ type: "array", items: { type: "string" } });
     expect((schema.properties as Json).fx).toMatchObject({ type: "object", additionalProperties: false });

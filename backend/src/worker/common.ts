@@ -12,7 +12,8 @@ export const FORBIDDEN_ITEM_TYPES = ["send_mail", "wecom_send", "confirm_stage",
 
 export function approvalBoxGuardrails(): string[] {
   return [
-    "费用档与汇率必须用 Codex 内置网络搜索技能 web_search / $web-search。读 approval-policy.md。",
+    "优先匹配 CONTEXT.approval_templates 中当前公司已发布流程，输出 review_draft；只能写草稿，不得提交或批准。",
+    "费用制度仅采用公司现行有效制度，公开搜索不能替代公司制度。需要汇率时用 Codex 内置网络搜索技能。读 approval-policy.md。",
     "禁止用训练记忆或 Host TypeScript 常数表。改档改汇率只改技能说明。",
     "create_approval 必须带本轮搜索出处：fx、policy（source_url 或原文摘录）、amount_cny、chain。",
     "链上人名必须来自本轮组织绑定。禁止裸 HTTP 爬虫。",

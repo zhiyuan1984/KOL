@@ -1,5 +1,7 @@
-import type { ReviewCondition, ReviewDefinition, ReviewIssue, ReviewSimulation } from "../../../shared/review";
-import type { ReviewContext } from "./api";
+import { useEffect, useState } from "react";
+import type { ReviewChoices as Choices, ReviewCondition, ReviewDefinition, ReviewIssue, ReviewSimulation } from "../../../shared/review";
+import { reviewApi, type ReviewContext } from "./api";
+import { ReviewChoices } from "./ReviewChoices";
 import { ReviewForm } from "./ReviewForm";
 import { PublishChanges } from "./ReviewChanges";
 
@@ -13,14 +15,23 @@ function describeCondition(condition: ReviewCondition, definition: ReviewDefinit
   if (condition.op === "not") return `不满足（${describeCondition(condition.condition, definition)}）`;
   return `（${condition.conditions.map(c => describeCondition(c, definition)).join(condition.op === "all" ? "，且 " : "，或 ")}）`;
 }
-export function ReviewPublishPanel({ definition, context, issues, checkState, onCheck, onIssue, values, onValues, requester, onRequester, result, trialState, onTrial, template }: {
+export function ReviewPublishPanel({ definition, context, issues, checkState, onCheck, onIssue, values, onValues, requester, onRequester, result, trialState, onTrial, template, choices, onChoices }: {
   definition: ReviewDefinition; context?: ReviewContext; issues: ReviewIssue[];
   checkState: string; onCheck: () => void; onIssue: (issue: ReviewIssue) => void;
   values: Record<string, unknown>; onValues: (values: Record<string, unknown>) => void;
   requester: string; onRequester: (id: string) => void;
   result?: ReviewSimulation; trialState: string; onTrial: () => void;
   template?: { id: string; version: number };
+  choices: Choices; onChoices: (value: Choices) => void;
 }) {
+  const [candidates, setCandidates] = useState<Choices>({}), [candidateError, setCandidateError] = useState("");
+  const signature = JSON.stringify(definition);
+  useEffect(() => {
+    let active = true; setCandidates({}); setCandidateError("");
+    if (requester && definition.nodes.some(n => n.assignee?.kind === "requester_choice"))
+      void reviewApi<Choices>("/admin/approval-types/v2/choice-options", { definition, requester }).then(result => { if (active) setCandidates(result); }).catch(e => { if (active) setCandidateError(e.message); });
+    return () => { active = false; };
+  }, [requester, signature]);
   const groups = [["basic", "基本信息与归属"], ["form", "表单配置"], ["flow", "步骤连接与人员规则"]];
   const checked = checkState === "passed" || checkState === "issues";
   const dynamic = definition.nodes.filter(n => n.type === "condition" || n.assignee?.kind === "manager");
@@ -43,6 +54,8 @@ export function ReviewPublishPanel({ definition, context, issues, checkState, on
       <p className="review-muted">选择一位员工，查看其发起时会匹配的分支和处理人。不会创建正式申请。</p>
       <label>测试发起人<select value={requester} onChange={e => onRequester(e.target.value)}><option value="">请选择员工</option>{context?.people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <ReviewForm fields={definition.fields} values={values} onChange={onValues} preview />
+      <ReviewChoices definition={definition} candidates={candidates} people={context?.people || []} values={choices} onChange={onChoices} />
+      {candidateError && <p role="alert">{candidateError}</p>}
       {definition.fields.filter(f => f.type === "attachment").map(f => <label className="review-check" key={f.id}><input type="checkbox" checked={Array.isArray(values[f.id]) && (values[f.id] as string[]).length > 0} onChange={e => onValues({ ...values, [f.id]: e.target.checked ? ["preview-attachment"] : [] })} />{f.label}：测试为已提供附件（不上传文件，正式附件权限另行校验）</label>)}
       <button type="button" disabled={!checked || issues.length > 0 || !requester} onClick={onTrial}>开始试运行</button>
       {!checked && <small>完成当前配置检查后可试运行。</small>}

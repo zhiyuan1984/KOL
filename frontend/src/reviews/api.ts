@@ -1,6 +1,7 @@
 import type { KnowledgePublication } from "../../../shared/knowledge-publication";
-import type { ReviewCommand, ReviewInstance, ReviewOrganizationContext } from "../../../shared/review";
+import type { ReviewCommand, ReviewInstance, ReviewOrganizationContext, ReviewProgress } from "../../../shared/review";
 export type InstanceView = ReviewInstance & {
+  progress?: ReviewProgress;
   allowedActions: string[];
   knowledgePublication?: KnowledgePublication | null;
   candidates?: { transfer: string[]; countersign: string[] };

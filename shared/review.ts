@@ -29,10 +29,14 @@ export type ReviewCondition =
   | { op: "all"; conditions: ReviewCondition[] }
   | { op: "any"; conditions: ReviewCondition[] }
   | { op: "not"; condition: ReviewCondition };
-export type ReviewAssignee =
+export type ReviewAssigneeRule =
   | { kind: "named"; userIds: string[] }
   | { kind: "manager" }
   | { kind: "role"; role: string };
+export type ReviewAssignee = ReviewAssigneeRule
+  | { kind: "requester_choice"; candidates: ReviewAssigneeRule };
+export type ReviewChoices = Record<string, string[]>;
+export type ReviewSource = { type: "collaboration"; id: string; version: string; label: string; snapshot: { handle: string; brand: string; stage: string; notes: string } };
 export type ReviewOperations = {
   transfer?: { candidates: ReviewAssignee; deadline: "preserve" | "reset" };
   countersign?: { candidates: ReviewAssignee };
@@ -93,6 +97,7 @@ export type ReviewTask = {
   dueAt?: string;
 };
 export type ReviewInstance = {
+  source?: ReviewSource;
   id: string;
   templateId: string;
   templateVersion: number;
@@ -101,6 +106,7 @@ export type ReviewInstance = {
   title: string;
   definition: ReviewDefinition;
   values: Record<string, unknown>;
+  selectedApprovers?: ReviewChoices;
   currentNode: string;
   status:
     | "reviewing"
@@ -117,6 +123,7 @@ export type ReviewInstance = {
   updatedAt: string;
 };
 export type ReviewTemplate = {
+  choiceCandidates?: ReviewChoices;
   /** Content comparison, independent of draft version increments. */
   hasUnpublishedChanges?: boolean;
   enabled?: boolean;
@@ -128,21 +135,25 @@ export type ReviewTemplate = {
   updatedAt: string;
 };
 export type ReviewDraft = {
+  source?: ReviewSource;
   id: string;
   version: number;
   templateId: string;
   templateVersion: number;
   title: string;
   values: Record<string, unknown>;
+  selectedApprovers?: ReviewChoices;
   updatedAt: string;
 };
 export type ReviewCommand =
   | {
       action: "submit";
+      source?: ReviewSource;
       templateId: string;
       templateVersion: number;
       title: string;
       values: Record<string, unknown>;
+      selectedApprovers?: ReviewChoices;
       draft?: { id: string; version: number };
     }
   | {
@@ -202,6 +213,17 @@ export type ReviewSimulation = {
   path?: string[];
   tasks: ReviewTask[];
   trace: ReviewTraceStep[];
+};
+export type ReviewStarter = { id: string; name: string; description: string; definition: ReviewDefinition };
+export type ReviewPreview = {
+  summary: { name: string; version: number; consequence: string; reviewers?: string[] };
+  trace: ReviewTraceStep[];
+  blockedReason?: string;
+};
+export type ReviewProgress = {
+  approval: "pending" | "approved" | "rejected" | "withdrawn";
+  fulfillment: "none" | "pending" | "handling" | "completed" | "cancelled";
+  currentResponsibility: string;
 };
 export function emptyReviewDefinition(): ReviewDefinition {
   return {

@@ -1,4 +1,6 @@
-import { reviewResolver } from "./review-resolver.js";
+import { reviewResolver, reviewCandidates } from "./review-resolver.js";
+import { reviewProgress } from "./review-progress.js";
+import { checkedReviewSource } from "./review-source.js";
 import { reviewIntake } from "./review-rollout.js";
 import { definitionDiff } from "./review-diff.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -15,6 +17,8 @@ import type {
   ReviewOrganizationContext,
   ReviewIssue,
   ReviewTraceStep,
+  ReviewChoices,
+  ReviewSource,
 } from "../../../shared/review.js";
 import {
   REVIEW_ACTIONS,
@@ -225,6 +229,7 @@ export class ReviewService {
       templateVersion: targetVersion,
       title: preview.source.title,
       values: preview.values,
+      source: preview.source.source,
     });
   }
   publishDiff(id: string) {
@@ -248,6 +253,9 @@ export class ReviewService {
     templateVersion: number;
     title: string;
     values: Record<string, unknown>;
+    selectedApprovers?: ReviewChoices;
+    creationKey?: string;
+    source?: ReviewSource;
   }): ReviewDraft {
     const d = this.definition(input.templateId, input.templateVersion);
     const issues = validateValues(
@@ -259,13 +267,32 @@ export class ReviewService {
     if (issues.length)
       throw new HttpFail(422, { message: "草稿数据格式错误", issues });
     this.checkAttachments(d, input.values);
+    this.checkChoices(d, input.selectedApprovers);
+    const source = checkedReviewSource(this.db, this.ctx.actor, input.source);
+    if (input.id) {
+      const previous = this.drafts().find(draft => draft.id === input.id);
+      if (previous?.source && (!source || source.id !== previous.source.id || source.version !== previous.source.version)) fail(409, "来源绑定不可在草稿保存时移除或替换，请重新从业务对象发起");
+    }
+    if (input.creationKey !== undefined && (typeof input.creationKey !== "string" || input.creationKey.length < 8 || input.creationKey.length > 200)) fail(422, "无效的草稿创建标识");
+    const createdId = input.creationKey ? hash({ tenant: this.ctx.tenant, actor: this.ctx.actor, creationKey: input.creationKey }) : randomUUID();
+    if (!input.id && input.creationKey) {
+      const existing = this.drafts().find(draft => draft.id === createdId);
+      if (existing) {
+        if (existing.templateId !== input.templateId || existing.templateVersion !== input.templateVersion || existing.title !== input.title
+          || canonical(existing.values) !== canonical(input.values) || canonical(existing.selectedApprovers || {}) !== canonical(input.selectedApprovers || {}) || canonical(existing.source || null) !== canonical(source || null))
+          fail(409, "此创建请求已保存其他内容，请恢复已有草稿再修改");
+        return existing;
+      }
+    }
     const draft: ReviewDraft = {
-      id: input.id || randomUUID(),
+      ...(source ? { source } : {}),
+      id: input.id || createdId,
       version: (input.id ? input.version || 0 : 0) + 1,
       templateId: input.templateId,
       templateVersion: input.templateVersion,
       title: input.title,
       values: input.values,
+      ...(input.selectedApprovers ? { selectedApprovers: input.selectedApprovers } : {}),
       updatedAt: this.now,
     };
     if (input.id) {
@@ -301,6 +328,28 @@ export class ReviewService {
     return draft;
   }
   private resolve = (node: ReviewNode, requester: string, task?: ReviewTask) => reviewResolver(this.ctx)(node, requester, task);
+  private instanceResolver(i: ReviewInstance) { return reviewResolver(this.ctx, i.selectedApprovers); }
+  private choiceCandidates(d: ReviewDefinition, requester = this.ctx.actor): ReviewChoices {
+    return Object.fromEntries(d.nodes.filter(n => n.assignee?.kind === "requester_choice").map(n => [n.id,
+      n.assignee?.kind === "requester_choice" ? reviewCandidates(this.ctx, n.assignee.candidates, requester).filter(id => id !== requester) : [],
+    ]));
+  }
+  simulationCandidates(definition: ReviewDefinition, requester: string) {
+    this.admin();
+    if (!this.ctx.people.some(p => p.id === requester)) fail(422, "测试发起人不在当前公司范围内");
+    if (validateDefinition(definition).length) fail(422, "请先修正流程配置");
+    return this.choiceCandidates(definition, requester);
+  }
+  private checkChoices(d: ReviewDefinition, choices: ReviewChoices = {}, requester = this.ctx.actor) {
+    if (!choices || typeof choices !== "object" || Array.isArray(choices)) fail(422, "审批人选择格式错误");
+    const pools = this.choiceCandidates(d, requester);
+    for (const [id, users] of Object.entries(choices)) {
+      const node = d.nodes.find(n => n.id === id);
+      if (!Object.hasOwn(pools, id) || !Array.isArray(users) || users.length > 100 || new Set(users).size !== users.length
+        || users.some(user => typeof user !== "string" || !pools[id].includes(user)) || (node?.mode === "single" && users.length > 1))
+        fail(422, "审批人不在已发布候选范围内，或与节点审批方式不符");
+    }
+  }
   templates(admin = false): ReviewTemplate[] {
     if (admin) this.admin();
     const rows = this.db
@@ -318,6 +367,7 @@ export class ReviewService {
       enabled: r.enabled === 1,
       lifecycleVersion: r.lifecycle_version,
       definition: JSON.parse(r.definition),
+      ...(!admin ? { choiceCandidates: this.choiceCandidates(JSON.parse(r.definition)) } : {}),
       updatedAt: r.updated_at,
     }));
   }
@@ -392,6 +442,15 @@ export class ReviewService {
     this.event(id, "draft.saved", result.version, { name: definition.name });
     return result;
   }
+  copyTemplate(id: string, expectedVersion: number, source: "draft" | "published", creationKey: string): ReviewTemplate {
+    this.admin();
+    const t = this.template(id);
+    if (t.version !== expectedVersion) fail(409, "来源流程已变化，请刷新后重新复制");
+    if (!["draft", "published"].includes(source)) fail(422, "请选择复制草稿或已发布版本");
+    if (source === "published" && !t.published_version) fail(409, "来源流程尚未发布");
+    const definition = source === "published" ? this.definition(id, t.published_version) : JSON.parse(t.definition) as ReviewDefinition;
+    return this.saveTemplate(undefined, undefined, { ...definition, name: `${definition.name.slice(0, 110)}（副本）` }, creationKey);
+  }
   private template(id: string) {
     const r = this.db
       .prepare(
@@ -437,7 +496,7 @@ export class ReviewService {
       limit < 1 ||
       limit > 100 ||
       q.length > 120 ||
-      !["all", "mine", "todo"].includes(filter)
+      !["all", "mine", "todo", "done"].includes(filter)
     )
       fail(422, "列表参数无效");
     let cursor: { createdAt: string; id: string } | undefined;
@@ -480,6 +539,7 @@ export class ReviewService {
             i.title.toLocaleLowerCase().includes(q) ||
             i.definition.name.toLocaleLowerCase().includes(q)) &&
           (filter === "all" ||
+            (filter === "done" && i.tasks.some(t => t.userId === this.ctx.actor && ["approved", "rejected", "completed", "transferred"].includes(t.status))) ||
             (filter === "mine" && i.requester === this.ctx.actor) ||
             (filter === "todo" &&
               actions.some((a) =>
@@ -524,7 +584,7 @@ export class ReviewService {
       i.status === "reviewing" &&
       node &&
       task &&
-      this.resolve(node, i.requester, task).includes(this.ctx.actor) &&
+      this.instanceResolver(i)(node, i.requester, task).includes(this.ctx.actor) &&
       (node.type !== "review" || i.requester !== this.ctx.actor) &&
       i.tasks.some(
         (t) =>
@@ -554,10 +614,11 @@ export class ReviewService {
         (t) =>
           t.nodeId === i.currentNode &&
           ["pending", "waiting"].includes(t.status) &&
-          !(node ? this.resolve(node, i.requester, t) : []).includes(t.userId),
+          !(node ? this.instanceResolver(i)(node, i.requester, t) : []).includes(t.userId),
       );
     return {
       ...i,
+      progress: reviewProgress(i),
       allowedActions: this.actions(i),
       candidates: {
         transfer: this.candidates(i, "transfer"),
@@ -801,6 +862,11 @@ export class ReviewService {
               message: "评审人为空、不在有效组织内，或单人节点解析到多人",
             });
         }
+      for (const n of d.nodes || []) {
+        if (n.assignee?.kind === "requester_choice" && n.assignee.candidates.kind !== "manager"
+          && !reviewCandidates(this.ctx, n.assignee.candidates, this.ctx.actor).length)
+          issues.push({ path: `nodes.${n.id}.assignee`, message: "选人候选范围为空或不在当前有效组织内" });
+      }
       for (const n of d.nodes)
         if (n.type === "review")
           for (const policy of [
@@ -839,6 +905,7 @@ export class ReviewService {
     definition: ReviewDefinition,
     values: Record<string, unknown>,
     requester = this.ctx.actor,
+    selectedApprovers: ReviewChoices = {},
   ) {
     this.admin();
     const issues = this.configurationIssues(definition);
@@ -846,6 +913,10 @@ export class ReviewService {
     if (issues.length) return { issues, status: "invalid", tasks: [], trace: [] };
     if (!this.ctx.people.some((p) => p.id === requester))
       fail(422, "测试发起人不在当前组织");
+    this.checkChoices(definition, selectedApprovers, requester);
+    return this.tracePath(definition, values, requester, selectedApprovers);
+  }
+  private tracePath(definition: ReviewDefinition, values: Record<string, unknown>, requester: string, selectedApprovers: ReviewChoices = {}) {
     const i = this.newInstance(
       "preview",
       0,
@@ -853,12 +924,13 @@ export class ReviewService {
       values,
       "试运行",
       requester,
+      selectedApprovers,
     );
     const trace: ReviewTraceStep[] = [];
     advanceReview(
       i,
       definition.nodes.find((n) => n.type === "start")!.id,
-      this.resolve,
+      this.instanceResolver(i),
       this.now,
       trace,
     );
@@ -873,19 +945,26 @@ export class ReviewService {
       advanceReview(
         i,
         definition.nodes.find((n) => n.id === i.currentNode)!.next!,
-        this.resolve,
+        this.instanceResolver(i),
         this.now,
         trace,
       );
     }
     return {
       trace,
-      issues,
+      issues: [],
       status: i.status,
       blockedReason: i.blockedReason,
       path,
       tasks: i.tasks,
     };
+  }
+  submissionPreview(command: Extract<ReviewCommand, { action: "submit" }>) {
+    if (command.action !== "submit") fail(422, "路径预览只接受申请草稿");
+    const summary = this.check(command);
+    const definition = this.definition(command.templateId, command.templateVersion);
+    const path = this.tracePath(definition, command.values, this.ctx.actor, command.selectedApprovers);
+    return { summary, trace: path.trace, blockedReason: path.blockedReason };
   }
   private check(command: ReviewCommand) {
     if (
@@ -937,24 +1016,28 @@ export class ReviewService {
       };
     }
     if (command.action === "submit") {
+      checkedReviewSource(this.db, this.ctx.actor, command.source);
       const intake = reviewIntake(this.ctx.tenant);
       if (!intake.allowed) fail(409, intake.reason);
       if (command.draft) {
         const row = this.db
           .prepare(
-            "SELECT version FROM review_drafts WHERE tenant=? AND id=? AND actor=?",
+            "SELECT version,payload FROM review_drafts WHERE tenant=? AND id=? AND actor=?",
           )
           .get(this.ctx.tenant, command.draft.id, this.ctx.actor) as
           | Row
           | undefined;
         if (!row || row.version !== command.draft.version)
           fail(409, "个人草稿已变化，请重新加载");
+        const originalSource = JSON.parse(row!.payload).source as ReviewSource | undefined;
+        if (originalSource && (!command.source || originalSource.id !== command.source.id || originalSource.version !== command.source.version)) fail(409, "申请必须保留个人草稿绑定的来源材料版本");
       }
       const t = this.template(command.templateId);
       if (t.enabled !== 1) fail(409, "流程已停用，不能发起新申请");
       if (command.templateVersion !== t.published_version)
         fail(409, "流程已更新，请重新填写并确认");
       const d = this.definition(command.templateId, command.templateVersion);
+      this.checkChoices(d, command.selectedApprovers);
       const issues = validateValues(d, command.values);
       if (!issues.length) this.checkAttachments(d, command.values);
       if (
@@ -972,14 +1055,18 @@ export class ReviewService {
         command.values,
         command.title,
         this.ctx.actor,
+        command.selectedApprovers,
       );
       advanceReview(
         preview,
         d.nodes.find((n) => n.type === "start")!.id,
-        this.resolve,
+        this.instanceResolver(preview),
         this.now,
       );
       if (preview.status === "blocked") fail(422, preview.blockedReason!);
+      const path = this.tracePath(d, command.values, this.ctx.actor, command.selectedApprovers);
+      const unselected = path.trace.find(step => step.blockedReason && d.nodes.find(n => n.id === step.nodeId)?.assignee?.kind === "requester_choice");
+      if (unselected) fail(422, `请为「${d.nodes.find(n => n.id === unselected.nodeId)?.name}」选择发布范围内的审批人`);
       return {
         name: command.title,
         version: command.templateVersion,
@@ -987,7 +1074,8 @@ export class ReviewService {
           d.subjectType === "knowledge_publication"
             ? "提交后冻结此资料版本；审批通过后将自动发布到指定知识库，供获准使用该库的技能检索。"
             : "提交后材料冻结，评审人可查看本申请。评审通过不会自动触发外发或业务阶段变更。",
-        reviewers: preview.tasks.map((t) => t.userId),
+        configuration: `申请材料：${d.fields.map(f => f.label).join("、") || "无附加字段"}；处理路径：${path.trace.filter(step => step.userIds).map(step => `${d.nodes.find(n => n.id === step.nodeId)?.name}（${(step.userIds || []).map(id => this.ctx.people.find(p => p.id === id)?.name || id).join("、")}）`).join(" → ")}`,
+        reviewers: [...new Set(path.trace.flatMap(step => step.userIds || []))].map(id => this.ctx.people.find(p => p.id === id)?.name || id),
         evidence: hash(d),
       };
     }
@@ -1198,11 +1286,13 @@ export class ReviewService {
           command.values,
           command.title,
           this.ctx.actor,
+          command.selectedApprovers,
         );
+        i.source = checkedReviewSource(this.db, this.ctx.actor, command.source);
         advanceReview(
           i,
           d.nodes.find((n) => n.type === "start")!.id,
-          this.resolve,
+          this.instanceResolver(i),
           this.now,
         );
         this.db
@@ -1256,7 +1346,7 @@ export class ReviewService {
               t.status = "cancelled";
           });
         } else if (command.action === "retry")
-          advanceReview(i, i.currentNode, this.resolve, this.now);
+          advanceReview(i, i.currentNode, this.instanceResolver(i), this.now);
         else if (
           [
             "transfer",
@@ -1270,7 +1360,7 @@ export class ReviewService {
             i,
             command,
             this.ctx.actor,
-            this.resolve,
+            this.instanceResolver(i),
             this.now,
           );
         else
@@ -1279,7 +1369,7 @@ export class ReviewService {
             this.ctx.actor,
             command.action as "approve" | "reject",
             command.reason,
-            this.resolve,
+            this.instanceResolver(i),
             this.now,
           );
         i.version++;
@@ -1368,6 +1458,7 @@ export class ReviewService {
     values: Record<string, unknown>,
     title: string,
     requester: string,
+    selectedApprovers?: ReviewChoices,
   ): ReviewInstance {
     return {
       id: randomUUID(),
@@ -1379,6 +1470,7 @@ export class ReviewService {
       title: title.trim(),
       definition,
       values,
+      ...(selectedApprovers ? { selectedApprovers } : {}),
       currentNode: "",
       status: "reviewing",
       tasks: [],

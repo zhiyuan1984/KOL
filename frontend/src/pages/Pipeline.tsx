@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { useAdminConfirm } from "../components/ConfirmDialog";
@@ -461,6 +461,7 @@ export default function Pipeline() {
                   {selected.owner_name ? <span className="pipeline-owner">{selected.owner_name}</span> : null}
                 </div>
               </div>
+              <Link className="btn ghost" to={`/approvals?sourceId=${encodeURIComponent(selected.id)}`}>发起审批</Link>
               <button
                 ref={closeBtnRef}
                 type="button"

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { validateDefinition, validatePublicationNames } from "../../backend/src/approval/review-engine";
+import { reviewStarters } from "../../backend/src/approval/review-starters";
 import { emptyReviewDefinition } from "../../shared/review";
 
 /** Browser interaction fixtures only; authenticated persistence is tested in review-api.test.ts. */
@@ -70,6 +71,7 @@ async function fixture(page: Page) {
       }
       return route.fulfill({ json: drafts });
     }
+    if (p === "preview") return route.fulfill({ json: { summary: { name: template.definition.name, version: template.version, consequence: "审批通过后不会自动外发或推进阶段。" }, trace: template.definition.nodes.map(n => ({ nodeId: n.id, type: n.type, ...(n.type === "review" ? { userIds: ["reviewer"] } : {}) })) } });
     if (p === "prepare")
       return route.fulfill({
         json: {
@@ -100,6 +102,9 @@ async function fixture(page: Page) {
   });
   await page.route("**/api/admin/approval-types/v2/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/starters")) return route.fulfill({ json: reviewStarters() });
+    if (path.endsWith("/copy")) { const b = route.request().postDataJSON(); requests.push({ path: "copy", body: b }); return route.fulfill({ json: { ...template, id: "copied", version: 1, publishedVersion: null, definition: { ...template.definition, name: template.definition.name + "（副本）" } } }); }
+    if (path.endsWith("/choice-options")) return route.fulfill({ json: { review: ["reviewer"] } });
     if (path.endsWith("/diff"))
       return route.fulfill({ json: { publishedVersion: 1, changes: [] } });
     if (path.endsWith("/validate")) {
@@ -131,6 +136,7 @@ async function openEditor(page: Page) {
   await page.goto("/admin/approval-types");
   const main = page.locator("main.review-page");
   await main.getByRole("button", { name: "内容评审", exact: true }).click();
+  await main.getByRole("button", { name: "编辑流程", exact: true }).click();
   return main;
 }
 async function addStep(page: Page, name: string, source = "负责人评审") {
@@ -138,6 +144,62 @@ async function addStep(page: Page, name: string, source = "负责人评审") {
   await main.getByRole("button", { name: `在${source}之后添加步骤`, exact: true }).click();
   await main.getByRole("button", { name: new RegExp(`^${name}`) }).filter({ has: page.locator("strong") }).click();
 }
+test("admin picks a starter or copies a published version without publishing it", async ({ page }) => {
+  const f = await fixture(page); await page.goto("/admin/approval-types");
+  const main = page.locator("main.review-page");
+  await expect(main.getByRole("region", { name: "流程摘要" })).toBeVisible();
+  await main.getByRole("button", { name: "新建流程", exact: true }).click();
+  await main.getByRole("button", { name: /^通用事项审批/ }).click();
+  await expect(main.getByLabel("流程名称")).toHaveValue("通用事项审批");
+  expect(f.commands).toHaveLength(0); expect(f.requests).toHaveLength(0);
+  await page.reload();
+  await main.getByRole("button", { name: "复制流程", exact: true }).click();
+  await expect(main.getByLabel("流程名称")).toHaveValue("内容评审（副本）");
+  expect(f.requests.find(r => r.path === "copy")?.body.source).toBe("published");
+  expect(f.commands).toHaveLength(0);
+});
+test("employee uses published candidates, read-only preview, and explicit R3 confirmation", async ({ page }) => {
+  const f = await fixture(page); const t = f.getTemplate();
+  t.definition.nodes[1].assignee = { kind: "requester_choice", candidates: { kind: "manager" } };
+  await page.route("**/api/approvals/v2/templates", route => route.fulfill({ json: [{ ...t, choiceCandidates: { review: ["reviewer"] } }] }));
+  await page.goto("/approvals"); const main = page.locator("main.review-page");
+  await main.getByRole("button", { name: "发起审批", exact: true }).click();
+  await main.getByLabel("申请标题").fill("核对选择"); await main.getByLabel("稿件内容").fill("材料 A");
+  const chooser = main.getByLabel("负责人评审的审批人");
+  await expect(chooser.locator("option")).toHaveCount(2); await chooser.selectOption("reviewer");
+  await main.getByRole("button", { name: "核对申请与路径", exact: true }).click();
+  await expect(main.getByRole("complementary", { name: "申请核对" })).toContainText("测试负责人");
+  expect(f.commands).toHaveLength(0);
+  await main.getByLabel("稿件内容").fill("材料 B");
+  await expect(main.getByRole("complementary", { name: "申请核对" })).toContainText("修改材料或选人后需重新核对");
+  await main.getByRole("button", { name: "提交审批", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "确认提交审批" });
+  await expect(dialog).toContainText("R3"); expect(f.commands).toHaveLength(0);
+  await expect(main.locator("button.primary:visible")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "提交审批", exact: true }).click();
+  expect(f.commands[0].command.selectedApprovers).toEqual({ review: ["reviewer"] });
+});
+for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 480 }]) test(`draft restore keeps material and accessible submission at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  await fixture(page);
+  await page.route("**/api/approvals/v2/drafts", route => route.fulfill({ json: [{ id: "restored", version: 1, templateId: "template", templateVersion: 1, title: "待补申请", values: { content: "原材料" }, updatedAt: "2026-10-09" }] }));
+  await page.setViewportSize(viewport); await page.goto("/approvals?draft=restored");
+  const main = page.locator("main.review-page");
+  await expect(main.getByLabel("申请标题")).toHaveValue("待补申请");
+  await expect(main.getByLabel("稿件内容")).toHaveValue("原材料");
+  await expect(main.getByRole("button", { name: "提交审批", exact: true })).toBeInViewport();
+  await expect(main.locator("button.primary:visible")).toHaveCount(1);
+  expect(await main.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+});
+test("business entry freezes the read source in the same employee draft", async ({ page }) => {
+  const f = await fixture(page);
+  const source = { type: "collaboration", id: "source", label: "来源红人", version: "abcdef123456789", snapshot: { handle: "source-kol", brand: "品牌", stage: "S01", notes: "授权材料" } };
+  await page.route("**/api/approvals/v2/source/collaboration/source", route => route.fulfill({ json: source }));
+  await page.goto("/approvals?sourceId=source");
+  const main = page.locator("main.review-page"); await expect(main).toContainText("来源：来源红人");
+  await main.getByLabel("稿件内容").fill("申请材料"); await main.getByRole("button", { name: "提交审批", exact: true }).click();
+  await page.getByRole("dialog", { name: "确认提交审批" }).getByRole("button", { name: "提交审批", exact: true }).click();
+  expect(f.commands[0].command.source).toEqual(source);
+});
 
 for (const subject of ["", "?subject=knowledge_publication"]) test(`authoring automatically saves and checks before explicit publication ${subject || "general"}`, async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true }));
@@ -145,6 +207,7 @@ for (const subject of ["", "?subject=knowledge_publication"]) test(`authoring au
   await page.goto(`/admin/approval-types${subject}`);
   const main = page.locator("main.review-page");
   await main.getByRole("button", { name: "新建流程", exact: true }).click();
+  await main.getByRole("button", { name: "空白创建", exact: true }).click();
   await expect(main.getByRole("button", { name: "基本信息", exact: true })).toContainText("待完善");
   await main.getByLabel("流程名称").fill("新流程");
   await main.getByRole("button", { name: "下一步：表单设计", exact: true }).click();
@@ -182,6 +245,7 @@ for (const subject of ["", "?subject=knowledge_publication"]) test(`authoring au
 test("authoring failed autosave keeps content and does not check; recovered create uses the same key", async ({ page }) => {
   const f = await fixture(page); await page.goto("/admin/approval-types");
   const main = page.locator("main.review-page"); await main.getByRole("button", { name: "新建流程", exact: true }).click();
+  await main.getByRole("button", { name: "空白创建", exact: true }).click();
   await main.getByLabel("流程名称").fill("保留草稿");
   const keys: string[] = []; let fail = true;
   await page.route("**/api/admin/approval-types/v2/templates", async route => {
@@ -461,6 +525,7 @@ test("money configuration and employee submission preserve exact decimal strings
   await page.goto("/admin/approval-types");
   const main = page.locator("main.review-page");
   await main.getByRole("button", { name: "内容评审", exact: true }).click();
+  await main.getByRole("button", { name: "编辑流程", exact: true }).click();
   await main.getByRole("button", { name: "表单设计", exact: true }).click();
   await main.getByLabel("字段类型").selectOption("money");
   await main.getByLabel("字段名称").fill("预算");

@@ -220,8 +220,18 @@ export function validateDefinition(input: unknown): ReviewIssue[] {
           (n.reject === "all_reject" && n.mode !== "any"))
       )
         add(`${p}.reject`, "全部拒绝仅适用于或签");
-      if (!["named", "manager", "role"].includes(n.assignee?.kind || ""))
+      if (!["named", "manager", "role", "requester_choice"].includes(n.assignee?.kind || ""))
         add(`${p}.assignee`, "请选择权威组织人员、角色或直属负责人");
+      if (n.assignee?.kind === "requester_choice") {
+        const a = n.assignee.candidates;
+        if (n.type !== "review" || d.subjectType === "knowledge_publication")
+          add(`${p}.assignee`, "发起人选人仅用于普通审批节点；知识发布须使用管理侧确定的审批规则");
+        if (!a || !["named", "manager", "role"].includes(a.kind)
+          || (a.kind === "role" && (typeof a.role !== "string" || !a.role.trim()))
+          || (a.kind === "named" && (!Array.isArray(a.userIds) || !a.userIds.length || a.userIds.length > 100
+            || a.userIds.some(id => typeof id !== "string" || !id) || new Set(a.userIds).size !== a.userIds.length)))
+          add(`${p}.assignee`, "发起人选人须配置明确的组织人员、角色或负责人候选范围");
+      }
       if (
         n.assignee?.kind === "role" &&
         (typeof n.assignee.role !== "string" || !n.assignee.role.trim())

@@ -49,6 +49,7 @@ export function FlowDesigner({ definition, onChange, people, issues = [], target
     if (!node.assignee) return "人员来源：尚未设置";
     if (node.assignee.kind === "manager") return "处理人：发起人所在组织负责人 · 按发起人解析";
     if (node.assignee.kind === "role") return `处理角色：${node.assignee.role || "尚未设置"}`;
+    if (node.assignee.kind === "requester_choice") return "发起人在已发布候选范围内选择审批人";
     return `处理人：${node.assignee.userIds.map(id => people.find(p => p.id === id)?.name || id).join("、") || "尚未设置"}`;
   }
   function connector(node: ReviewNode, edge: "next" | "otherwise") {
@@ -136,6 +137,8 @@ export function FlowDesigner({ definition, onChange, people, issues = [], target
                         assignee:
                           e.target.value === "manager"
                             ? { kind: "manager" }
+                            : e.target.value === "requester_choice"
+                              ? { kind: "requester_choice", candidates: { kind: "manager" } }
                             : e.target.value === "role"
                               ? { kind: "role", role: "" }
                               : { kind: "named", userIds: [] },
@@ -145,8 +148,15 @@ export function FlowDesigner({ definition, onChange, people, issues = [], target
                     <option value="manager">发起人所在组织负责人</option>
                     <option value="named">指定组织人员</option>
                     <option value="role">已授权评审角色</option>
+                    {n.type === "review" && definition.subjectType !== "knowledge_publication" && <option value="requester_choice">发起人在限定范围内选择</option>}
                   </select>
                 </label>
+                {n.assignee?.kind === "requester_choice" && <fieldset><legend>发起人可选范围</legend><p className="review-muted">员工不能修改必经节点，也不能选择本人或范围外人员。单人节点选一人，多人节点按配置方式处理。</p>
+                  <label>候选范围来源<select value={n.assignee.candidates.kind} onChange={e => update({ assignee: { kind: "requester_choice", candidates: e.target.value === "manager" ? { kind: "manager" } : e.target.value === "role" ? { kind: "role", role: "" } : { kind: "named", userIds: [] } } })}>
+                    <option value="manager">发起人所在组织负责人</option><option value="named">指定组织人员</option><option value="role">已授权评审角色</option></select></label>
+                  {n.assignee.candidates.kind === "role" && <label>候选审批角色<select value={n.assignee.candidates.role} onChange={e => update({ assignee: { kind: "requester_choice", candidates: { kind: "role", role: e.target.value } } })}><option value="">请选择</option>{[...new Set(people.flatMap(p => p.roles || []))].map(role => <option key={role}>{role}</option>)}</select></label>}
+                  {n.assignee.candidates.kind === "named" && <label>允许员工选择的人员<select multiple value={n.assignee.candidates.userIds} onChange={e => update({ assignee: { kind: "requester_choice", candidates: { kind: "named", userIds: Array.from(e.target.selectedOptions).map(o => o.value) } } })}>{people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
+                </fieldset>}
                 {n.assignee?.kind === "role" && (
                   <label>
                     评审角色

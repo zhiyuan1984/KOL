@@ -25,6 +25,7 @@ import { replySendView, bindReplySend } from "../mail/reply-send.js";
 import { confirmStarryStage } from "../gateway/starry.js";
 import { createWorkApproval, listApprovals } from "../gateway/wecom.js";
 import { nid } from "../ids.js";
+import { saveAssistantReviewDraft } from "../approval/review-assistant.js";
 import { stageHeadline } from "../sops.js";
 import {
   BY_CODE,
@@ -2356,6 +2357,22 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
     c.prepare("UPDATE sessions SET title = ? WHERE id = ?").run(intent.raw.slice(0, 24), sid);
   });
   if (intent.type === "business_approval" || wr.skill === "business_approval") {
+    const proposal = wr.items.find(row => row.type === "review_draft");
+    if (proposal) {
+      const actor = scopedUser();
+      if (!actor || wr.skill !== "business_approval") throw new HttpFail(403, "当前身份不可保存审批草稿");
+      const company = (intent.extras?.entities as Json | undefined)?.review_company;
+      const saved = tx(db => saveAssistantReviewDraft(db, actor.id, proposal, `worker:${wr.worker_id}`, typeof company === "string" ? company : undefined));
+      const href = `/approvals?draft=${encodeURIComponent(saved.draft.id)}&reviewCompany=${encodeURIComponent(saved.company)}&session=${encodeURIComponent(sid)}`;
+      addMsg(sid, "assistant", "task_result_card", { type: "task_result", title: "审批申请草稿", summary: "R2 草稿已保存，尚未提交。请打开核对材料、审批人和通过后的后果。",
+        sections: [{ title: "待补充与核对", items: Array.isArray(proposal.needs) ? proposal.needs.map(String) : [] }], recommended_actions: [{ label: "核对申请草稿", href }], skill: "business_approval", persistent: true });
+      return ok(sid, me, intent, { worker, review_draft: saved.draft });
+    }
+    if ((intent.extras?.entities as Json | undefined)?.review_draft_only) {
+      const result = wr.items.find(row => row.type === "task_result");
+      addMsg(sid, "assistant", "task_result_card", result || { type: "task_result", title: "申请草稿尚未形成", summary: "未匹配可用的已发布流程。请在审批中心选择流程并补齐材料。", recommended_actions: [{ label: "打开审批中心", href: "/approvals" }] });
+      return ok(sid, me, intent, { worker });
+    }
     const created = wr.items.find((row) => row.type === "create_approval") || {};
     const result = wr.items.find((row) => row.type === "task_result") || {};
     const item = { ...result, ...created };
@@ -2621,7 +2638,7 @@ export function connectorGapResponse(sid: string, me: Json, intent: Intent, skil
 }
 
 async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | null, text: string): Promise<Json> {
-  if (intent.type === "business_approval" && isApprovalPathLookup(text)) {
+  if (intent.type === "business_approval" && !(intent.extras?.entities as Json | undefined)?.review_draft_only && isApprovalPathLookup(text)) {
     const entities = intent.extras?.entities && typeof intent.extras.entities === "object"
       ? intent.extras.entities as Json
       : {};
@@ -2686,6 +2703,8 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
   });
   const extra: Json = {
     handle: col?.handle || intent.handle,
+    review_company: (intent.extras?.entities as Json | undefined)?.review_company,
+    review_draft_only: (intent.extras?.entities as Json | undefined)?.review_draft_only,
     agent_id: intent.extras?.agent_id,
     stage_code: col?.stage_code,
     stage: col?.stage_code,
@@ -2807,11 +2826,11 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     return mapped;
   } catch (e) {
     if (e instanceof BudgetBlocked) {
-      if (intent.type === "business_approval") return handleExpenseApproval(sid, me, intent, text);
+      if (intent.type === "business_approval" && !(intent.extras?.entities as Json | undefined)?.review_draft_only) return handleExpenseApproval(sid, me, intent, text);
       return unavailableOk(sid, me, intent, e);
     }
     if (e instanceof CodexUnavailable) {
-      if (intent.type === "business_approval") return handleExpenseApproval(sid, me, intent, text);
+      if (intent.type === "business_approval" && !(intent.extras?.entities as Json | undefined)?.review_draft_only) return handleExpenseApproval(sid, me, intent, text);
       return unavailableOk(sid, me, intent, e);
     }
     if (e instanceof HttpFail) {

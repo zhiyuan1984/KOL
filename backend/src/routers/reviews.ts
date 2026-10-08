@@ -17,6 +17,8 @@ import {
 } from "../approval/review-service.js";
 
 import { guardKnowledgeReview } from "../knowledge/publication.js";
+import { reviewStarters } from "../approval/review-starters.js";
+import { collaborationReviewSource } from "../approval/review-source.js";
 
 export function reviewContext(
   db: SqliteConn,
@@ -171,7 +173,7 @@ reviews.get("/approvals/v2/context", (c) => {
         "handler",
       ],
       modes: ["single", "all", "any", "sequential"],
-      assignees: ["named", "manager", "role"],
+      assignees: ["named", "manager", "role", "requester_choice"],
       externalExecution: false,
       attachments: true,
       timeoutEscalation: true,
@@ -187,6 +189,19 @@ reviews.get("/approvals/v2/context", (c) => {
 reviews.get("/approvals/v2/templates", (c) =>
   c.json(service(c.req.header("X-Review-Company")).templates()),
 );
+reviews.get("/approvals/v2/source/collaboration/:id", (c) => {
+  const s = service(c.req.header("X-Review-Company"));
+  return c.json(collaborationReviewSource(getConn(), s.ctx.actor, c.req.param("id")));
+});
+reviews.post("/approvals/v2/preview", async (c) => {
+  const b = await body(c);
+  await guardKnowledgeReview(b, reviewContext(getConn(), c.req.header("X-Review-Company")));
+  return c.json(service(c.req.header("X-Review-Company")).submissionPreview(b));
+});
+reviews.post("/admin/approval-types/v2/choice-options", async (c) => {
+  const b = await body(c);
+  return c.json(service(c.req.header("X-Review-Company")).simulationCandidates(b.definition, b.requester));
+});
 reviews.get("/approvals/v2/instances", (c) => {
   const s = service(c.req.header("X-Review-Company"));
   return c.json(s.instances().map((i) => s.project(i)));
@@ -240,6 +255,15 @@ reviews.post("/approvals/v2/commands", async (c) => {
 reviews.get("/admin/approval-types/v2/templates", (c) =>
   c.json(service(c.req.header("X-Review-Company")).templates(true)),
 );
+reviews.get("/admin/approval-types/v2/starters", c => {
+  service(c.req.header("X-Review-Company")).templates(true);
+  return c.json(reviewStarters());
+});
+reviews.post("/admin/approval-types/v2/templates/:id/copy", async c => {
+  const b = await body(c);
+  if (typeof b.creationKey !== "string") throw new HttpFail(422, "缺少复制请求标识");
+  return c.json(reviewTx(db => service(c.req.header("X-Review-Company"), db).copyTemplate(c.req.param("id"), b.expectedVersion, b.source, b.creationKey)));
+});
 reviews.post("/admin/approval-types/v2/templates", async (c) => {
   const b = await body(c);
   return c.json(
@@ -278,6 +302,7 @@ reviews.post("/admin/approval-types/v2/simulate", async (c) => {
       b.definition,
       b.values,
       b.requester,
+      b.selectedApprovers,
     ),
   );
 });

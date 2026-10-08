@@ -15,6 +15,7 @@ import { approvals } from "../src/routers/approvals.js";
 import { HttpFail } from "../src/host/errors.js";
 import { emptyReviewDefinition } from "../../shared/review.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { saveAssistantReviewDraft, reviewAssistantContext } from "../src/approval/review-assistant.js";
 
 let app: Hono, tmp: string;
 const original = {
@@ -27,9 +28,10 @@ function req(
   url: string,
   body?: unknown,
   extra: Record<string, string> = {},
+  method?: string,
 ) {
   return app.request(`http://localhost/api${url}`, {
-    method: body === undefined ? "GET" : "POST",
+    method: method || (body === undefined ? "GET" : "POST"),
     headers: {
       ...(actor ? { cookie: `lingong_session=test-${actor}` } : {}),
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
@@ -138,6 +140,109 @@ async function publish(definition = emptyReviewDefinition()) {
   ).toBe(200);
   return t;
 }
+async function executeReview(actor: string, command: unknown, key: string) {
+  const prepared = await req(actor, "/approvals/v2/prepare", command);
+  expect(prepared.status).toBe(200);
+  const p = await prepared.json();
+  const response = await req(actor, "/approvals/v2/commands", { command, confirmationId: p.confirmationId, idempotencyKey: key });
+  expect(response.status).toBe(200);
+  return response.json();
+}
+describe("approval optimization boundaries on PostgreSQL", () => {
+  it("offers admin-only starters and copies either version into an independent unpublished draft", async () => {
+    expect((await req("employee", "/admin/approval-types/v2/starters")).status).toBe(403);
+    expect(await (await req("admin", "/admin/approval-types/v2/starters")).json()).toHaveLength(6);
+    const t = await publish();
+    const changed = { ...t.definition, name: "新草稿内容" };
+    expect((await req("admin", `/admin/approval-types/v2/templates/${t.id}`, { expectedVersion: 1, definition: changed }, {}, "PUT")).status).toBe(200);
+    for (const source of ["draft", "published"]) {
+      const body = { expectedVersion: 2, source, creationKey: `copy-${source}-request-key` };
+      const r = await req("admin", `/admin/approval-types/v2/templates/${t.id}/copy`, body);
+      expect(r.status).toBe(200); const copied = await r.json();
+      expect(copied.id).not.toBe(t.id); expect(copied.publishedVersion).toBeNull(); expect(copied.version).toBe(1);
+      expect(copied.definition.name).toContain(source === "draft" ? changed.name : t.definition.name);
+      expect((await (await req("admin", `/admin/approval-types/v2/templates/${t.id}/copy`, body)).json()).id).toBe(copied.id);
+    }
+    expect((await req("admin", `/admin/approval-types/v2/templates/${t.id}/copy`, { expectedVersion: 1, source: "draft", creationKey: "stale-copy-key" })).status).toBe(409);
+  });
+  it("previews choices without writes and rechecks authority after the confirmation", async () => {
+    const d = emptyReviewDefinition(); d.nodes[1].assignee = { kind: "requester_choice", candidates: { kind: "manager" } };
+    const t = await publish(d);
+    const templates = await (await req("employee", "/approvals/v2/templates")).json();
+    expect(templates[0].choiceCandidates).toEqual({ review: ["review-reviewer"] });
+    const command = { action: "submit", templateId: t.id, templateVersion: 1, title: "选择人员", values: {}, selectedApprovers: { review: ["review-reviewer"] } };
+    const counts = () => ["review_instances", "review_notifications", "review_confirmations"].map(table => getConn().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get());
+    const before = counts();
+    const preview = await req("employee", "/approvals/v2/preview", command);
+    expect(preview.status).toBe(200); expect((await preview.json()).trace[1].userIds).toEqual(["review-reviewer"]); expect(counts()).toEqual(before);
+    for (const selectedApprovers of [{ review: ["review-outsider"] }, { review: ["review-employee"] }, { start: ["review-reviewer"] }, { review: ["review-reviewer", "review-reviewer"] }])
+      expect((await req("employee", "/approvals/v2/preview", { ...command, selectedApprovers })).status).toBe(422);
+    const confirm = await (await req("employee", "/approvals/v2/prepare", command)).json();
+    getConn().prepare("UPDATE organization_memberships SET status='inactive' WHERE id='review-membership:reviewer'").run();
+    const result = await req("employee", "/approvals/v2/commands", { command, confirmationId: confirm.confirmationId, idempotencyKey: "revoked-selected-reviewer" });
+    expect([409, 422]).toContain(result.status);
+    expect(getConn().prepare("SELECT COUNT(*) AS count FROM review_instances").get()).toMatchObject({ count: 0 });
+  });
+  it("replays an employee draft create and keeps choices in the immutable old instance", async () => {
+    const d = emptyReviewDefinition(); d.nodes[1].assignee = { kind: "requester_choice", candidates: { kind: "manager" } };
+    const t = await publish(d);
+    const body = { templateId: t.id, templateVersion: 1, title: "草稿", values: {}, selectedApprovers: { review: ["review-reviewer"] }, creationKey: "employee-draft-create" };
+    const saved = await (await req("employee", "/approvals/v2/drafts", body)).json();
+    expect(await (await req("employee", "/approvals/v2/drafts", body)).json()).toEqual(saved);
+    expect((await req("employee", "/approvals/v2/drafts", { ...body, title: "不同内容" })).status).toBe(409);
+    const receipt = await executeReview("employee", { ...body, action: "submit", draft: { id: saved.id, version: saved.version } }, "choice-submit");
+    const changed = { ...d, name: "下一版本" }; changed.nodes = d.nodes.map(n => n.id === "review" ? { ...n, assignee: { kind: "named" as const, userIds: ["review-admin"] } } : n);
+    await req("admin", `/admin/approval-types/v2/templates/${t.id}`, { expectedVersion: 1, definition: changed }, {}, "PUT");
+    await executeReview("admin", { action: "publish", templateId: t.id, expectedVersion: 2 }, "publish-next-version");
+    const i = await (await req("employee", `/approvals/v2/instances/${receipt.resourceId}`)).json();
+    expect(i.templateVersion).toBe(1); expect(i.selectedApprovers).toEqual(body.selectedApprovers); expect(i.definition.name).toBe(d.name);
+  });
+  it("reports approval and handling separately, keeps evidence, and includes personal done tasks", async () => {
+    const d = emptyReviewDefinition(); d.nodes[1].next = "handler";
+    d.nodes.push({ id: "handler", type: "handler", name: "登记执行证据", assignee: { kind: "named", userIds: ["review-reviewer"] }, mode: "single", next: "end" });
+    const t = await publish(d);
+    const r = await executeReview("employee", { action: "submit", templateId: t.id, templateVersion: 1, title: "后续办理", values: {} }, "handling-submit");
+    await executeReview("reviewer", { action: "approve", instanceId: r.resourceId, expectedVersion: 1, reason: "同意事项" }, "handling-approve");
+    let i = await (await req("employee", `/approvals/v2/instances/${r.resourceId}`)).json();
+    expect(i.progress).toMatchObject({ approval: "approved", fulfillment: "handling" });
+    expect((await (await req("reviewer", "/approvals/v2/instance-page?filter=done")).json()).items.map((x: any) => x.id)).toContain(r.resourceId);
+    expect((await req("reviewer", "/approvals/v2/prepare", { action: "complete", instanceId: r.resourceId, expectedVersion: 2, reason: "" })).status).toBe(422);
+    await executeReview("reviewer", { action: "complete", instanceId: r.resourceId, expectedVersion: 2, reason: "登记编号 TEST-42，完成资料存档" }, "handling-complete");
+    i = await (await req("employee", `/approvals/v2/instances/${r.resourceId}`)).json();
+    expect(i.progress).toMatchObject({ approval: "approved", fulfillment: "completed" });
+    expect(i.tasks.find((task: any) => task.duty === "handler").reason).toContain("TEST-42");
+  });
+  it("lets AI save only current-company published drafts with no formal instance", async () => {
+    const t = await publish(); const db = getConn();
+    const proposal = { template_id: t.id, template_version: 1, title: "AI草稿", values_json: "{}" };
+    const draft = txImmediate(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:test-review-draft"));
+    expect(draft.draft.title).toBe("AI草稿");
+    expect(txImmediate(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:test-review-draft")).draft.id).toBe(draft.draft.id);
+    expect(reviewAssistantContext(db, "review-outsider").templates).toEqual([]);
+    expect(() => saveAssistantReviewDraft(db, "review-outsider", proposal, "worker:cross-company")).toThrow();
+    expect(() => saveAssistantReviewDraft(db, "review-employee", { ...proposal, values_json: "[]" }, "worker:bad-values")).toThrow();
+    expect(db.prepare("SELECT COUNT(*) AS count FROM review_instances").get()).toMatchObject({ count: 0 });
+    await executeReview("admin", { action: "disable", templateId: t.id, expectedVersion: 1, expectedLifecycleVersion: 0 }, "disable-ai-template");
+    expect(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:disabled-template")).toThrow();
+  });
+  it("freezes a scoped business source and rejects changed or inaccessible material", async () => {
+    const db = getConn();
+    db.prepare("INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,notes) VALUES(?,?,?,?,?,?,?,?,?,?)").run("review-source", "source-kol", "来源对象", "test-brand", "test@example.com", "test@example.com", "lifecycle", "conversation", "S01", "原始备注");
+    db.prepare("UPDATE users SET brands=? WHERE id='review-employee'").run(JSON.stringify(["test-brand"]));
+    const source = await (await req("employee", "/approvals/v2/source/collaboration/review-source")).json();
+    expect(source.snapshot.notes).toBe("原始备注");
+    expect((await req("outsider", "/approvals/v2/source/collaboration/review-source")).status).toBe(404);
+    const t = await publish(); const command = { action: "submit", templateId: t.id, templateVersion: 1, title: "来源申请", values: {}, source };
+    const prepared = await (await req("employee", "/approvals/v2/prepare", command)).json();
+    db.prepare("UPDATE collaborations SET notes='新材料' WHERE id='review-source'").run();
+    expect((await req("employee", "/approvals/v2/commands", { command, confirmationId: prepared.confirmationId, idempotencyKey: "changed-source-submit" })).status).toBe(409);
+    const updated = await (await req("employee", "/approvals/v2/source/collaboration/review-source")).json();
+    const r = await executeReview("employee", { ...command, source: updated }, "updated-source-submit");
+    db.prepare("UPDATE collaborations SET notes='后续变化' WHERE id='review-source'").run();
+    const i = await (await req("reviewer", `/approvals/v2/instances/${r.resourceId}`)).json();
+    expect(i.source.snapshot.notes).toBe("新材料"); expect(i.source.version).toBe(updated.version);
+  });
+});
 describe("review API with actual session authentication and organization storage", () => {
   it("checks static people and operation candidates before publication, with stable issue targets", async () => {
     const definition = emptyReviewDefinition();

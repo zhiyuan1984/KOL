@@ -34,6 +34,7 @@ export function ReviewActions({
   const [more, setMore] = useState(false);
   const secondary = ["transfer", "countersign", "request_amendment", "retry"];
   const primary = i.allowedActions.find(a => ["approve", "resubmit", "complete"].includes(a));
+  const handling = i.definition.nodes.find(n => n.id === i.currentNode)?.type === "handler";
   return (
     <fieldset className="review-form review-action-form" disabled={busy || uploadBusy}>
       {i.allowedActions.includes("resubmit") && (
@@ -50,7 +51,7 @@ export function ReviewActions({
         </div>
       )}
       <label>
-        处理意见（驳回、撤回和补充操作必填）
+        {handling ? "办理结果与完成证据（必填）" : "处理意见（驳回、撤回和补充操作必填）"}
         <textarea
           maxLength={2000}
           value={reason}
@@ -114,7 +115,7 @@ export function ReviewActions({
                 });
             }}
           >
-            {reviewActionLabels[action]}
+            {action === "complete" ? handling ? "完成办理" : "提交意见" : reviewActionLabels[action]}
           </button>
         ))}
         {i.allowedActions.some(a => secondary.includes(a)) && <button type="button" aria-expanded={more} onClick={() => setMore(!more)}>{more ? "收起更多操作" : "更多操作"}</button>}

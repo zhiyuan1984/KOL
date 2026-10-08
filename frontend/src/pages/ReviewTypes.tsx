@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { emptyReviewDefinition, knowledgeReviewDefinition, type ReviewDefinition, type ReviewTemplate, type ReviewIssue, type ReviewSimulation } from "../../../shared/review";
+import { emptyReviewDefinition, knowledgeReviewDefinition, type ReviewDefinition, type ReviewTemplate, type ReviewIssue, type ReviewSimulation, type ReviewChoices } from "../../../shared/review";
 import { ReviewAuthorOrganization } from "../reviews/ReviewAuthorOrganization";
 import { ReviewLeaveDialog } from "../reviews/ReviewLeaveDialog";
 import { ReviewFieldsEditor } from "../reviews/ReviewFieldsEditor";
@@ -10,6 +10,7 @@ import { reviewApi, type ReviewContext } from "../reviews/api";
 import { useReviewCommand } from "../reviews/useReviewCommand";
 import { randomUuid } from "../uuid";
 import { useFocusLock } from "../hooks/useFocusLock";
+import { ReviewTemplateBrowser } from "../reviews/ReviewTemplateBrowser";
 import "../reviews/reviews.css";
 type History = {
   past: ReviewDefinition[];
@@ -46,6 +47,8 @@ export default function ReviewTypes() {
   const navigate = useNavigate();
   const [context, setContext] = useState<ReviewContext>(), [list, setList] = useState<ReviewTemplate[]>([]), [active, setActive] = useState<ReviewTemplate>();
   const [editing, setEditing] = useState(false), [tab, setTab] = useState("basic"), [error, setError] = useState(""), [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [trialChoices, setTrialChoices] = useState<ReviewChoices>({});
   const [operation, setOperation] = useState(""), [saveFailed, setSaveFailed] = useState(false), [checkState, setCheckState] = useState("idle"), [trialState, setTrialState] = useState("idle");
   const [issues, setIssues] = useState<ReviewIssue[]>([]), [checkedDefinition, setCheckedDefinition] = useState(""), [validatedVersion, setValidatedVersion] = useState<number>();
   const [values, setValues] = useState<Record<string, unknown>>({}), [requester, setRequester] = useState(""), [result, setResult] = useState<ReviewSimulation>();
@@ -82,11 +85,24 @@ export default function ReviewTypes() {
   }
   function edit(next: ReviewDefinition) { invalidate(); dispatch({ type: "edit", value: next }); }
   function historyAction(type: "undo" | "redo") { invalidate(); dispatch({ type }); }
-  function open(t?: ReviewTemplate) {
+  function open(t?: ReviewTemplate, starter?: ReviewDefinition) {
+    setCreating(false); setTrialChoices({});
     revision.current++; allowLeave.current = false; pendingCreation.current = undefined; activeRef.current = t; setActive(t);
-    const definition = t?.definition || (new URLSearchParams(window.location.search).get("subject") === "knowledge_publication" ? knowledgeReviewDefinition() : { ...emptyReviewDefinition(), name: "" });
+    const definition = t?.definition || starter || (new URLSearchParams(window.location.search).get("subject") === "knowledge_publication" ? knowledgeReviewDefinition() : { ...emptyReviewDefinition(), name: "" });
     dispatch({ type: "reset", value: { ...definition, ...(!t && context?.organization?.defaultUnitId ? { organizationUnitId: context.organization.defaultUnitId } : {}) } });
     setEditing(true); setTab("basic"); setIssues([]); setCheckState("idle"); setCheckedDefinition(""); setValidatedVersion(undefined); setResult(undefined); setTrialState("idle"); setValues({}); setRequester(context?.actor || ""); setTarget(undefined); setError(""); setSaveFailed(false);
+  }
+  const pendingCopy = useRef<{ signature: string; key: string } | undefined>(undefined);
+  async function copy(t: ReviewTemplate, source: "draft" | "published") {
+    await perform(async () => {
+      setOperation("copying");
+      const signature = `${t.id}:${t.version}:${source}`;
+      if (pendingCopy.current?.signature !== signature) pendingCopy.current = { signature, key: randomUuid() };
+      try {
+        const saved = await reviewApi<ReviewTemplate>(`/admin/approval-types/v2/templates/${t.id}/copy`, { expectedVersion: t.version, source, creationKey: pendingCopy.current.key });
+        pendingCopy.current = undefined; adopt(saved); open(saved);
+      } catch (e) { setError((e as Error).message); }
+    });
   }
   function adopt(saved: ReviewTemplate) {
     activeRef.current = saved; setActive(saved); setList(rows => [saved, ...rows.filter(t => t.id !== saved.id)]);
@@ -170,7 +186,7 @@ export default function ReviewTypes() {
   function back() {
     requestLeave(() => { const returnTo = new URLSearchParams(window.location.search).get("returnTo");
       if (returnTo?.startsWith("/admin/knowledge?")) navigate(returnTo);
-      else if (editing) { revision.current++; setEditing(false); } else if (window.history.state?.idx > 0) navigate(-1); else navigate("/admin");
+      else if (creating) setCreating(false); else if (editing) { revision.current++; setEditing(false); } else if (window.history.state?.idx > 0) navigate(-1); else navigate("/admin");
       allowLeave.current = false;
     });
   }
@@ -192,23 +208,20 @@ export default function ReviewTypes() {
   return <main className={`review-page review-author-page${editing ? " is-editing" : ""}`} aria-busy={locked || undefined}>
     <ReviewAuthorOrganization context={context} unitId={editing ? d.organizationUnitId : context?.organization?.defaultUnitId} onUnitChange={id => editing && edit({ ...d, organizationUnitId: id })} onCompanyChange={id => id !== context?.tenant && setCompanyTarget(id)} onBack={back} disabled={locked} editing={editing} saved={Boolean(active)} />
     <header className="review-toolbar review-author-toolbar"><h1>{editing ? active ? "编辑评审流程" : "新建评审流程" : "评审流程"}</h1>
-      {editing ? <><span className="review-muted">{d.name || "未命名流程"} · 草稿</span><div className="review-author-tools"><button disabled={locked || !history.past.length} onClick={() => historyAction("undo")}>撤销</button><button disabled={locked || !history.future.length} onClick={() => historyAction("redo")}>重做</button><button disabled={locked || !dirty} onClick={() => void perform(async () => { await saveSnapshot(); })}>{saveFailed ? "重试保存" : active ? "保存" : "保存草稿"}</button></div></> : <button className="primary" disabled={loading || !context?.admin} onClick={() => open()}>新建流程</button>}
+      {editing ? <><span className="review-muted">{d.name || "未命名流程"} · 草稿</span><div className="review-author-tools"><button disabled={locked || !history.past.length} onClick={() => historyAction("undo")}>撤销</button><button disabled={locked || !history.future.length} onClick={() => historyAction("redo")}>重做</button><button disabled={locked || !dirty} onClick={() => void perform(async () => { await saveSnapshot(); })}>{saveFailed ? "重试保存" : active ? "保存" : "保存草稿"}</button></div></> : !creating && <button className={command.busy ? "" : "primary"} disabled={loading || locked || !context?.admin} onClick={() => setCreating(true)}>新建流程</button>}
     </header>
     {!leaving && (error || command.error) && <p role="alert" className="review-error">{error || command.error}</p>}
     {command.receipt && <p role="status">{command.receipt}</p>}
-    {loading ? <p role="status">正在加载当前组织的流程…</p> : !editing ? <div className="review-editor">
-      <p>设置员工填写的表单和评审步骤，发布后员工即可使用。</p>
-      {!list.length ? <p>当前组织还没有评审流程。</p> : <table className="review-template-table"><thead><tr><th>流程名称</th><th>草稿版本</th><th>已发布版本</th><th>版本关系</th><th>操作</th></tr></thead><tbody>{list.map(t => <tr key={t.id}><td><button onClick={() => open(t)}>{t.definition.name || "未命名流程"}</button></td><td>v{t.version}</td><td>{t.publishedVersion ? `v${t.publishedVersion}${t.enabled === false ? " · 已停用" : ""}` : "未发布"}</td><td>{!t.publishedVersion ? "未发布" : t.version === t.publishedVersion || t.hasUnpublishedChanges === false ? "与发布版一致" : t.hasUnpublishedChanges ? "有未发布修改" : "内容关系待检查"}</td><td>{t.publishedVersion && <button disabled={locked} onClick={() => command.run({ action: t.enabled === false ? "enable" : "disable", templateId: t.id, expectedVersion: t.version, expectedLifecycleVersion: t.lifecycleVersion || 0 })}>{t.enabled === false ? "启用流程" : "停用流程"}</button>}</td></tr>)}</tbody></table>}
-    </div> : <>
+    {loading ? <p role="status">正在加载当前组织的流程…</p> : !editing ? <ReviewTemplateBrowser list={list} context={context} busy={locked} creating={creating} onCancel={() => setCreating(false)} onCreate={definition => open(undefined, definition)} onEdit={open} onCopy={(t, source) => void copy(t, source)} onToggle={t => command.run({ action: t.enabled === false ? "enable" : "disable", templateId: t.id, expectedVersion: t.version, expectedLifecycleVersion: t.lifecycleVersion || 0 })} /> : <>
       <nav className="review-steps" aria-label="流程配置步骤">{steps.map(([id, label], index) => <button key={id} aria-label={label} disabled={locked} aria-current={tab === id ? "step" : undefined} aria-controls="review-editor-content" onClick={() => go(id)}><span className="review-step-heading"><span className="review-step-number" aria-hidden="true">{index + 1}</span>{label}</span><small>{id === "publish" ? checkState === "stale" ? "需重新检查" : validatedVersion === active?.version && validatedVersion !== undefined ? "已完成" : "待完善" : status(id)}{id === "form" ? ` · ${d.fields.length} 个字段` : id === "flow" ? ` · ${d.nodes.filter(n => !["start", "end"].includes(n.type)).length} 个步骤` : ""}</small></button>)}</nav>
       {checkState === "stale" && tab !== "publish" && <p role="status" className="review-muted">配置已修改，需重新检查</p>}
       <fieldset disabled={locked} className="review-editor" id="review-editor-content" aria-label={steps[stepIndex][1]}>
         {tab === "basic" && <div className="review-form review-basic-form"><p className="review-muted">为流程命名，并说明员工在什么情况下发起。发起说明可选。</p>{d.subjectType === "knowledge_publication" && <p>人工审核通过后发布被冻结的资料版本；原件变化须重新申请。</p>}<label>流程名称<input placeholder="例如：内容方案评审" maxLength={120} value={d.name} onChange={e => edit({ ...d, name: e.target.value })} /></label><label>发起说明<textarea rows={3} maxLength={2000} value={d.description} onChange={e => edit({ ...d, description: e.target.value })} /></label></div>}
         {tab === "form" && <ReviewFieldsEditor definition={d} onChange={edit} target={target} />}
         {tab === "flow" && <FlowDesigner definition={d} onChange={edit} people={context?.people || []} issues={checked ? issues : []} target={target} onIssue={locate} />}
-        {tab === "publish" && <ReviewPublishPanel definition={d} context={context} issues={issues} checkState={checkState} onCheck={() => go("publish")} onIssue={locate} values={values} onValues={v => { setValues(v); setResult(undefined); setTrialState(trialState === "idle" ? "idle" : "stale"); }} requester={requester} onRequester={id => { setRequester(id); setResult(undefined); setTrialState(trialState === "idle" ? "idle" : "stale"); }} result={result} trialState={trialState} template={!dirty ? active : undefined} onTrial={() => void perform(async () => {
+        {tab === "publish" && <ReviewPublishPanel definition={d} context={context} issues={issues} checkState={checkState} onCheck={() => go("publish")} onIssue={locate} values={values} onValues={v => { setValues(v); setResult(undefined); setTrialState(trialState === "idle" ? "idle" : "stale"); }} choices={trialChoices} onChoices={v => { setTrialChoices(v); setResult(undefined); setTrialState("stale"); }} requester={requester} onRequester={id => { setRequester(id); setTrialChoices({}); setResult(undefined); setTrialState(trialState === "idle" ? "idle" : "stale"); }} result={result} trialState={trialState} template={!dirty ? active : undefined} onTrial={() => void perform(async () => {
           const token = revision.current; setOperation("trial"); setTrialState("running");
-          try { const trial = await reviewApi<ReviewSimulation>("/admin/approval-types/v2/simulate", { definition: d, values, requester }); if (token === revision.current && mounted.current) { setResult(trial); setTrialState("done"); } }
+          try { const trial = await reviewApi<ReviewSimulation>("/admin/approval-types/v2/simulate", { definition: d, values, requester, selectedApprovers: trialChoices }); if (token === revision.current && mounted.current) { setResult(trial); setTrialState("done"); } }
           catch (e) { setError((e as Error).message); setTrialState("failed"); }
         })} />}
       </fieldset>

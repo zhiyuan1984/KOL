@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import { discoveryResultContext } from "../crawl/context.js";
 import { discoveryCandidateContext } from "./discovery-context.js";
+import { reviewAssistantContext } from "../approval/review-assistant.js";
 import { readReplyContext } from "../mail/reply-context.js";
 import { taskSessionHarnessEvidence } from "../ticket-domain/task-collaboration-session.js";
 import path from "node:path";
@@ -150,6 +151,15 @@ const COMPOSE_OUTPUT_SCHEMA: Json = codexStrictObject({
   keep_stage: { type: ["boolean", "null"] },
   official_stage: { type: ["string", "null"] },
   template_id: { type: ["string", "null"] },
+});
+// A flat tagged object keeps Codex's strict schema contract and legacy outputs.
+const REVIEW_OUTPUT_SCHEMA: Json = codexStrictObject({
+  ...(APPROVAL_OUTPUT_SCHEMA.properties as Record<string, Json>),
+  ...(TASK_RESULT_OUTPUT_SCHEMA.properties as Record<string, Json>),
+  type: { type: "string", enum: ["review_draft", "create_approval", "task_result"] },
+  template_id: { type: ["string", "null"] },
+  template_version: { type: ["integer", "null"] },
+  values_json: { type: ["string", "null"] },
 });
 const PROPOSE_STAGE_OUTPUT_SCHEMA: Json = {
   type: "object",
@@ -352,7 +362,7 @@ export function skillOutputSchema(skill: string, definition: TaskDefinition): Js
   if (definition.output === "propose_stage") return PROPOSE_STAGE_OUTPUT_SCHEMA;
   if (definition.output === "kol_analyze_brief" || skill === KOL_ANALYZE_TASK_TYPE) return KOL_ANALYZE_OUTPUT_SCHEMA;
   if (definition.output === "today_brief") return TODAY_BRIEF_OUTPUT_SCHEMA;
-  if (skill === "business_approval") return APPROVAL_OUTPUT_SCHEMA;
+  if (skill === "business_approval") return REVIEW_OUTPUT_SCHEMA;
   if (skill === "email_compose") return COMPOSE_OUTPUT_SCHEMA;
   // discovery_brief reads its payload from `task_result.brief`, which the generic
   // schema below forbids — without this branch the brief can never validate.
@@ -402,7 +412,7 @@ export function requiredSkillOutputMissing(
   }
   if (definition.output === "task_result" && !items.some((item) => item.type === "task_result")) {
     if (skill === "email_compose" && items.some((item) => item.type === "create_draft")) return null;
-    if (skill === "business_approval" && items.some((item) => item.type === "create_approval")) return null;
+    if (skill === "business_approval" && items.some((item) => ["create_approval", "review_draft"].includes(String(item.type)))) return null;
     return {
       message: "生成服务已结束，但没有产出结构化任务结果。",
       next: "请重试一次；如果仍失败，请检查对应 Skill 的输出约束。",
@@ -554,6 +564,11 @@ export function writeBox(
   const route = composeRouteFacts({ col, extra, boundMailbox: boundMailboxEmail() });
   const agent = managedAgent(agentScope.agent_id);
   const safeExtra = workerSafeExtra(extra);
+  let approvalTemplates: unknown = null;
+  if (skill === "business_approval" && scopedUser()) {
+    try { approvalTemplates = reviewAssistantContext(getConn(), scopedUser()!.id, typeof extra.review_company === "string" ? extra.review_company : undefined); }
+    catch (error) { if (!(error instanceof HttpFail)) throw error; approvalTemplates = { templates: [], unavailable_reason: error.detail }; }
+  }
   const context = declaredContext(safeExtra);
   delete safeExtra.context_resolution;
   const ctx = {
@@ -573,6 +588,7 @@ export function writeBox(
     profile,
     prompt,
     extra: safeExtra,
+    approval_templates: approvalTemplates,
     collaboration: collaborationContext(col),
     context,
     compose_route: skill === "email_compose"
