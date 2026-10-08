@@ -478,8 +478,10 @@ describe("task CRUD and run flow", () => {
 
   it("accepts explicit mail collaboration and target stage without a 422", async () => {
     getConn().prepare(
-      `INSERT INTO collaborations (id, handle, display_name, brand, platform, stage_code)
-       VALUES ('col_mail_stage', 'mailstagekol', 'Mail Stage KOL', 'LT', 'youtube', 'QUOTE_PENDING')`,
+      `INSERT INTO collaborations
+       (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id, conversation_id, stage_code)
+       VALUES ('col_mail_stage', 'mailstagekol', 'Mail Stage KOL', 'LT', 'youtube',
+               'kol@example.com', 'larry.zhao@amperetime.com', 'lc_mail_stage', 'conv_mail_stage', 'QUOTE_PENDING')`,
     ).run();
     const created = await request("POST", "/api/tasks/from-text", {
       text: "提出阶段变更 @mailstagekol 到 商务谈判",
