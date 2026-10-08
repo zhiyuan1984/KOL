@@ -3750,6 +3750,16 @@ export const api = {
     }>("/api/queries/mail.compose-catalog"),
   mailPerson: (box: string, p: string) =>
     request<Record<string, unknown>>(`/api/queries/mail.person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
+  /** 合作红人当前阶段（通讯页阶段变更用，只读，按会话查）。 */
+  mailCollaborationStage: (conversationId: string) =>
+    request<{
+      collaboration_id?: string | null;
+      found?: boolean;
+      handle?: string;
+      display_name?: string;
+      stage_code?: string;
+      stage_label?: string;
+    }>(`/api/queries/mail.collaboration-stage?conversation_id=${encodeURIComponent(conversationId)}`),
   runMailSkill: (skillId: "mail_summary" | "mail_translate", body: { box?: string; conversation_id?: string; message_id?: string }) =>
     request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/skills/${encodeURIComponent(skillId)}/execute`, {
       method: "POST",

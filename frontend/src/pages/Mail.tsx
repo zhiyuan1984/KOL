@@ -22,6 +22,8 @@ import { formatMailTime } from "../mail/format";
 import { firstConversationOf, groupByPeer } from "../mail/groups";
 import { selectedConversationOf, selectedMessageOf, timelineOf } from "../mail/selection";
 import { occurredAtMs } from "../mail-time";
+import { pipelineStageTargets, type PipelineStageTarget } from "../stageTargets";
+import { stageLabel } from "../labels";
 import {
   MAIL_ANALYZE_PREFILL_PREFIX,
   MAIL_ANALYZE_UNBOUND_COPY,
@@ -183,6 +185,16 @@ export default function Mail() {
   const [expandedId, setExpandedId] = useState("");
   const [letters, setLetters] = useState<MailComposeLetter[]>([]);
   const [lettersMore, setLettersMore] = useState(false);
+  /** 选中会话绑定的合作红人当前阶段（阶段变更上下文，只读）。 */
+  const [kolStage, setKolStage] = useState<{
+    collaboration_id: string;
+    handle: string;
+    display_name: string;
+    stage_code: string;
+    stage_label: string;
+  } | null>(null);
+  /** 用户为阶段变更挑选的目标阶段（"" = 未选）。 */
+  const [stageTarget, setStageTarget] = useState("");
   const [memoryBusy, setMemoryBusy] = useState<"summary" | "translation" | null>(null);
   const [composerText, setComposerText] = useState("");
   const mailCompose = useMailComposeFlow({
@@ -393,6 +405,38 @@ export default function Mail() {
     appliedPeerRef.current = peerParam;
     setExpandedPeer(peerParam.toLowerCase());
   }, [peerParam, focusId, conversations]);
+
+  useEffect(() => {
+    const conversationId = selectedConversation?.conversation_id || "";
+    const collaborationId = selectedConversation?.collaboration_id || "";
+    setStageTarget("");
+    if (!conversationId || !collaborationId) {
+      setKolStage(null);
+      return;
+    }
+    let cancelled = false;
+    void api.mailCollaborationStage(conversationId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res?.found && res.collaboration_id) {
+          setKolStage({
+            collaboration_id: String(res.collaboration_id),
+            handle: String(res.handle || selectedConversation?.handle || ""),
+            display_name: String(res.display_name || ""),
+            stage_code: String(res.stage_code || ""),
+            stage_label: String(res.stage_label || stageLabel(res.stage_code)),
+          });
+        } else {
+          setKolStage(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setKolStage(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConversation?.conversation_id, selectedConversation?.collaboration_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const mailbox = workspace?.box.mailbox || boxParam;
@@ -704,6 +748,22 @@ export default function Mail() {
     setNotice(INTAKE_STOPPED_COPY);
   };
 
+  /**
+   * 阶段变更提交绑定：提问框文本是阶段变更模板且当前选中了绑定红人时，
+   * 显式带上合作与目标阶段，避免只靠 @handle 解析导致 422。
+   */
+  const stageChangeBinding = useMemo(() => {
+    if (!kolStage) return null;
+    if (!composerText.trim().startsWith("提出阶段变更")) return null;
+    const handle = kolStage.handle || kolStage.display_name;
+    if (!handle) return null;
+    return {
+      collaboration_id: kolStage.collaboration_id,
+      handle,
+      targetCode: stageTarget,
+    };
+  }, [kolStage, composerText, stageTarget]);
+
   const submitComposer = async (payload: ComposerSubmit) => {
     const text = String(payload.text || "").trim();
     if (!text || busy) return;
@@ -741,8 +801,20 @@ export default function Mail() {
         attachments: payload.attachments,
         model_tier: payload.model_tier,
         knowledge_id: payload.knowledge_id,
-        collaboration_id: payload.collaboration_id,
-        entities: payload.entities,
+        // 通讯页阶段变更：文本里已有 @红人，再显式带上合作绑定，
+        // 避免 handle 歧义导致 422 needs_clarification。
+        collaboration_id: payload.collaboration_id || stageChangeBinding?.collaboration_id,
+        entities: {
+          ...(payload.entities || {}),
+          ...(stageChangeBinding
+            ? {
+                handle: stageChangeBinding.handle,
+                ...(stageChangeBinding.targetCode
+                  ? { stage_code: stageChangeBinding.targetCode, proposed_stage: stageChangeBinding.targetCode }
+                  : {}),
+              }
+            : {}),
+        },
         scope: payload.scope,
         object_refs: payload.object_refs,
         client_entry: payload.client_entry,
@@ -791,6 +863,65 @@ export default function Mail() {
       mailbox: ctx.mailbox,
       conversation_id: ctx.conversation_id,
       collaboration_id: ctx.collaboration_id,
+    });
+  };
+
+  /** 当前红人的合法目标阶段（产品图，与 Pipeline 页同一口径）。 */
+  const stageChangeTargets = useMemo<PipelineStageTarget[]>(
+    () => (kolStage ? pipelineStageTargets(kolStage.stage_code) : []),
+    [kolStage],
+  );
+
+  const stageChangeText = (handle: string, targetCode: string) => {
+    const targetLabel = stageChangeTargets.find((item) => item.code === targetCode)?.label || "[目标阶段]";
+    return `提出阶段变更 @${handle} 到 ${targetLabel}`;
+  };
+
+  /**
+   * 切换红人时，若提问框正处在阶段变更模板，把文本同步替换为新红人
+   * （#4：点击具体的合作红人，提问框文本被替换）。
+   */
+  const kolStageIdRef = useRef("");
+  useEffect(() => {
+    const id = kolStage?.collaboration_id || "";
+    if (kolStageIdRef.current === id) return;
+    kolStageIdRef.current = id;
+    if (!kolStage || !id) return;
+    const handle = kolStage.handle || kolStage.display_name;
+    if (!handle) return;
+    setComposerText((current) => {
+      if (!current.trim().startsWith("提出阶段变更")) return current;
+      return stageChangeText(handle, stageTarget);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kolStage]);
+
+  /**
+   * 点选合作红人：把提问框文本**替换**为该红人的阶段变更模板（不是追加），
+   * 并带上 confirm_stage 技能芯片。当前阶段已在上方展示，目标阶段在下拉框里填。
+   */
+  const applyStageChangeDraft = () => {
+    if (!kolStage) return;
+    const handle = kolStage.handle || kolStage.display_name;
+    if (!handle) return;
+    // 退出写信流程：否则提交会带上 email_compose intent 与 compose_input。
+    mailCompose.clear();
+    applyLocalDraft({
+      text: stageChangeText(handle, stageTarget),
+      chips: [{ kind: "skill", id: "confirm_stage", label: "提出阶段变更" }],
+    });
+    setNotice("");
+  };
+
+  /** 目标阶段下拉：已在写阶段变更时，把文本里的目标同步替换，保持可提交。 */
+  const onStageTargetChange = (code: string) => {
+    setStageTarget(code);
+    if (!kolStage) return;
+    const handle = kolStage.handle || kolStage.display_name;
+    if (!handle) return;
+    setComposerText((current) => {
+      if (!current.trim().startsWith("提出阶段变更")) return current;
+      return stageChangeText(handle, code);
     });
   };
 
@@ -1075,6 +1206,45 @@ export default function Mail() {
               </div>
             </div>
             <div className="mail-interact-dock">
+              {kolStage ? (
+                <div className="mail-stage-change" data-mail-stage-change>
+                  <p className="mail-pane-label">合作红人阶段</p>
+                  <div className="mail-stage-change-row">
+                    <span>合作红人：</span>
+                    <button
+                      type="button"
+                      className="mail-stage-kol"
+                      data-mail-stage-kol
+                      title="点选后将提问框文本替换为该红人的阶段变更"
+                      onClick={applyStageChangeDraft}
+                    >
+                      @{kolStage.handle || kolStage.display_name}
+                    </button>
+                    <span className="muted" data-mail-stage-current>
+                      当前阶段：{kolStage.stage_label || kolStage.stage_code || "—"}
+                    </span>
+                  </div>
+                  <label className="mail-stage-target" data-mail-stage-target-wrap>
+                    <span>目标阶段</span>
+                    <select
+                      value={stageTarget}
+                      onChange={(event) => onStageTargetChange(event.target.value)}
+                      data-mail-stage-target
+                      aria-label="目标阶段"
+                    >
+                      <option value="">请选择目标阶段</option>
+                      {stageChangeTargets.map((item) => (
+                        <option key={item.code} value={item.code} title={item.note}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="muted" data-mail-stage-hint>
+                    点红人将提问框文本替换为「提出阶段变更 @红人 到 …」；提交后在会话中确认，不直接改阶段。
+                  </p>
+                </div>
+              ) : null}
               <ComposerDock
                 variant="workspace"
                 placement="dock"

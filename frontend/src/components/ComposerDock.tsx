@@ -1128,7 +1128,7 @@ export default function ComposerDock({
           ) : null}
           {mailCompose.digest ? (
             <p className="composer-template-preview-excerpt" data-mail-compose-digest>
-              最近往来{mailCompose.mailCount ? `（${mailCompose.mailCount} 封）` : ""}：{mailCompose.digest}
+              最近往来：{mailCompose.digest}
             </p>
           ) : null}
           {mailCompose.message ? <p className="composer-template-preview-excerpt" data-mail-compose-message>{mailCompose.message}</p> : null}

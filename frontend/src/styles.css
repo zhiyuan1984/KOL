@@ -13142,6 +13142,38 @@ button.today-brief-primary-btn:disabled {
 .mail-interact-feedback > .muted { margin: 0; font-size: var(--ds-font-helper); }
 .mail-interact-dock { margin-top: auto; }
 .mail-interact .composer-dock { padding: 0; background: transparent; }
+/* 通讯页阶段变更：绑定红人的当前阶段 + 目标阶段入口，紧贴提问框上方。 */
+.mail-stage-change {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--ds-border);
+}
+.mail-stage-change > .mail-pane-label { margin: 0; }
+.mail-stage-change-row { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; font-size: var(--ds-font-helper); }
+.mail-stage-kol {
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface);
+  color: var(--accent);
+  font-size: var(--ds-font-helper);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.mail-stage-kol:hover { border-color: var(--accent); }
+.mail-stage-target { display: flex; align-items: center; gap: var(--space-2); font-size: var(--ds-font-helper); }
+.mail-stage-target > span { flex: none; }
+.mail-stage-target select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface);
+  color: var(--text);
+  font-size: var(--ds-font-helper);
+  padding: 4px 8px;
+}
+.mail-stage-change > .muted { margin: 0; font-size: var(--ds-font-helper); }
 
 @media (max-width: 1439px) {
   .mail-split { grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) clamp(320px, 32%, 400px); }

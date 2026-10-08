@@ -1488,11 +1488,14 @@ tasks.post("/tasks/:id/run", async (c) => {
   if (resolution.needs_clarification) {
     getConn().prepare("UPDATE tickets SET status='needs_clarification',updated_at=? WHERE id=?")
       .run(nowIso(), item.id);
+    // 422 响应必须带 message：前端 submit 链路直接展示 error.message，
+    // 缺了它用户只能看到裸的「请求失败 (422)」。
+    const clarificationMessage = resolution.missing_fields.length
+      ? `缺少：${formatMissingFields(resolution.missing_fields)}`
+      : missingFieldsMessage(resolutionIssueFields(resolution), "参数值无效");
     appendTaskEvent(String(item.id), null, "task.clarification", "还需要补充信息", "needs_clarification",
-      resolution.missing_fields.length
-        ? `缺少：${formatMissingFields(resolution.missing_fields)}`
-        : missingFieldsMessage(resolutionIssueFields(resolution), "参数值无效"));
-    return c.json({ needs_clarification: true, resolution }, 422);
+      clarificationMessage);
+    return c.json({ needs_clarification: true, resolution, message: clarificationMessage }, 422);
   }
   const now = nowIso();
   const sid = String(item.session_id || nid("ses"));

@@ -23,6 +23,9 @@ import {
 } from "../host/mail-memory.js";
 import { readOnDemandMemory, readPersonDigest, triggerMailTranslateSkill, triggerMailSummarySkill, writeOnDemandMemory } from "../host/mail-memory-job.js";
 import { composeCatalog } from "../skills/email-compose-contract.js";
+import { getConn } from "../db.js";
+import { label } from "../stages.js";
+import type { Row } from "../types.js";
 import { startMailSyncJob, authorizeMailSync } from "./sync-job.js";
 import { prepareMail, mailDraftActions, sendMailDraft, translateMailDraft, exportMailDraft } from "../host/api.js";
 import { readReplyContext } from "./reply-context.js";
@@ -116,6 +119,35 @@ const mailComposeCatalog: Operation["handle"] = (c, input) => {
   return c.json({ ...MEMORY, letters });
 };
 
+/**
+ * 当前阶段上下文（通讯页阶段变更用，只读）。
+ * 按会话查：会话是用户已可见的通讯，collaboration_id 是服务端匹配结果，
+ * 不接受直接传 collaboration_id，避免越权探测任意合作。
+ */
+const mailCollaborationStage: Operation["handle"] = (c, input) => {
+  c.header("Cache-Control", "no-store");
+  const conversationId = String(input.conversation_id || "").trim();
+  if (!conversationId) throw new HttpFail(400, "conversation_id is required");
+  const thread = findMailThread(conversationId);
+  if (!thread) throw new HttpFail(404, "conversation not found");
+  const collaborationId = thread.collaboration_id ? String(thread.collaboration_id) : "";
+  if (!collaborationId) return c.json({ ...MEMORY, collaboration_id: null });
+  const row = getConn().prepare(
+    "SELECT id, handle, display_name, stage_code FROM collaborations WHERE id=?",
+  ).get(collaborationId) as Row | undefined;
+  if (!row) return c.json({ ...MEMORY, collaboration_id: collaborationId, found: false });
+  const stageCode = String(row.stage_code || "");
+  return c.json({
+    ...MEMORY,
+    collaboration_id: collaborationId,
+    found: true,
+    handle: String(row.handle || ""),
+    display_name: String(row.display_name || ""),
+    stage_code: stageCode,
+    stage_label: label(stageCode),
+  });
+};
+
 const mailPerson: Operation["handle"] = (c, input) => {
   c.header("Cache-Control", "no-store");
   const mailbox = requestedMailbox(String(input.box || "") || "");
@@ -207,6 +239,7 @@ export const mailOperations: Operation[] = [
   { kind: "query", id: "mail.conversations", handle: mailConversations },
   { kind: "query", id: "mail.conversation", handle: mailConversation },
   { kind: "query", id: "mail.compose-catalog", handle: mailComposeCatalog },
+  { kind: "query", id: "mail.collaboration-stage", handle: mailCollaborationStage },
   { kind: "query", id: "mail.person", handle: mailPerson },
   { kind: "query", id: "mail.draft-actions", handle: mailDraftActions },
   { kind: "query", id: "mail.export", handle: exportMailDraft },
