@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
 import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
+import DiscoveryAvatar from "./DiscoveryAvatar";
 import type { DiscoveryState } from "./useDiscovery";
 
 /**
@@ -90,6 +91,7 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
                       ? { key: "completed", glyph: "✓", label: "已完成", detail: "候选与来源已就绪；入库是独立动作。" }
                       : { key: "idle", glyph: "·", label: "未开始", detail: "提交条件后，结果会保存在这里。" };
 
+  const avatarIsActive = ["preparing", "starting", "running"].includes(railStatus.key);
   return (
     <div
       className="discovery-panel"
@@ -99,11 +101,14 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
       data-discovery-running={inFlight ? "true" : undefined}
     >
       <header className="discovery-run-status" data-discovery-run-status={railStatus.key}>
-        <span className="discovery-run-status-kicker">当前任务</span>
-        <strong data-discovery-run-status-label>
-          <span aria-hidden="true" className="discovery-run-status-glyph">{railStatus.glyph}</span>{railStatus.label}
-        </strong>
-        <span className="discovery-run-status-detail" data-discovery-run-status-detail>{railStatus.detail}</span>
+        <DiscoveryAvatar active={avatarIsActive} />
+        <div className="discovery-run-status-copy">
+          <span className="discovery-run-status-kicker">当前任务</span>
+          <strong data-discovery-run-status-label>
+            <span aria-hidden="true" className="discovery-run-status-glyph">{railStatus.glyph}</span>{railStatus.label}
+          </strong>
+          <span className="discovery-run-status-detail" data-discovery-run-status-detail>{railStatus.detail}</span>
+        </div>
       </header>
 
       {runFromAnotherTask ? (

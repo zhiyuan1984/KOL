@@ -224,6 +224,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .discovery-event { scroll-behavior: auto; }
+  .discovery-run-avatar.is-active img { animation: none; }
+  .discovery-run-avatar.is-active img:not(:first-child) { opacity: 0; }
+  .discovery-run-avatar.is-active img:first-child { opacity: 1; }
 }
 
 /* 右栏「回到最新」：与中栏同一枚控件，钉在右栏滚动视口底部；用户回看历史时
@@ -244,18 +247,22 @@
 }
 
 /* 右栏顶部固定的当前任务状态：仍在右栏自己的滚动轴里，用户回看时给出「回到最新」。 */
-.discovery-run-status {
-  position: sticky;
-  top: 0;
-  z-index: 0;
-  display: grid;
-  gap: var(--space-1);
-  margin-bottom: var(--space-3);
-  padding: var(--space-2) calc(var(--icon-btn) + var(--space-2)) var(--space-2) 0;
-  border-bottom: 1px solid var(--ds-border);
-  background: var(--bg);
-}
-
+.discovery-run-status { position: sticky; top: 0; z-index: 0; display: grid; grid-template-columns: var(--discovery-avatar-size, 32px) minmax(0, 1fr); gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); padding: var(--space-2) calc(var(--icon-btn) + var(--space-2)) var(--space-2) 0; border-bottom: 1px solid var(--ds-border); background: var(--bg); }
+.discovery-run-avatar { position: relative; display: inline-block; width: var(--discovery-avatar-size, 32px); height: var(--discovery-avatar-size, 32px); overflow: hidden; flex: 0 0 var(--discovery-avatar-size, 32px); border: 1px solid var(--ds-border); border-radius: 50%; background: var(--ds-surface); vertical-align: middle; }
+.discovery-event-head .discovery-run-avatar { margin-right: var(--space-1); }
+.discovery-run-avatar img { position: absolute; inset: 2px; width: var(--discovery-avatar-image-size, 28px); height: var(--discovery-avatar-image-size, 28px); object-fit: contain; opacity: 0; }
+.discovery-run-avatar img:first-child { opacity: 1; }
+.discovery-run-avatar.is-active img { animation: discovery-avatar-frame 1.35s steps(1, end) infinite; }
+.discovery-run-avatar.is-active img:nth-child(2) { animation-delay: -1.20s; }
+.discovery-run-avatar.is-active img:nth-child(3) { animation-delay: -1.05s; }
+.discovery-run-avatar.is-active img:nth-child(4) { animation-delay: -.90s; }
+.discovery-run-avatar.is-active img:nth-child(5) { animation-delay: -.75s; }
+.discovery-run-avatar.is-active img:nth-child(6) { animation-delay: -.60s; }
+.discovery-run-avatar.is-active img:nth-child(7) { animation-delay: -.45s; }
+.discovery-run-avatar.is-active img:nth-child(8) { animation-delay: -.30s; }
+.discovery-run-avatar.is-active img:nth-child(9) { animation-delay: -.15s; }
+@keyframes discovery-avatar-frame { 0%, 11.1% { opacity: 1; } 11.2%, 100% { opacity: 0; } }
+.discovery-run-status-copy { display: grid; gap: var(--space-1); min-width: 0; }
 .discovery-run-status-kicker {
   color: var(--text-muted);
   font-size: var(--ds-font-helper);

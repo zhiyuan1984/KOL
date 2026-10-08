@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { DISCOVERY_START_COPY, type DiscoveryStartPhase } from "./discoveryStart";
 import { discoveryBriefRecap } from "./discoveryParams";
 import type { DiscoveryBrief } from "./discoveryTemplate";
+import DiscoveryAvatar from "./DiscoveryAvatar";
 
 /**
  * ⑤ 确认开始采集：紧接实际参数清单。点击后原地变成「已确认，正在启动」并移除
@@ -75,6 +76,7 @@ export default function DiscoveryConfirmCard({
       aria-label="确认开始采集"
     >
       <header className="discovery-event-head">
+        {["dispatching", "starting", "running"].includes(phase) ? <DiscoveryAvatar active size="sm" /> : null}
         <span className="discovery-event-kicker">确认开始采集</span>
         <strong>{headline}</strong>
         <span className="discovery-event-status" data-tone={tone} data-discovery-start-status>
