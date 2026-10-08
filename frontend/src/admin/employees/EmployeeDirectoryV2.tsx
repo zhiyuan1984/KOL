@@ -47,6 +47,54 @@ const sourceText = (source: AdminAgentAccessSource) => {
   return `${VIA_LABEL[source.via] || source.via}${unit}${point}`;
 };
 
+/** 只折叠服务端给出的覆盖结果；展开不读取或写入新的权限。 */
+function EmployeeAgentSummary({ names, loading }: { names: string[]; loading: boolean }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const [previewCount, setPreviewCount] = useState(2);
+  const [clipped, setClipped] = useState(false);
+  const signature = names.join("、");
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || loading || !names.length) return;
+    const measure = () => {
+      const samples = root.querySelectorAll<HTMLElement>("[data-agent-measure]");
+      const toggle = root.querySelector<HTMLElement>("[data-agent-toggle-measure]");
+      if (!samples.length || !toggle) return;
+      const width = root.getBoundingClientRect().width;
+      const gap = parseFloat(getComputedStyle(root).columnGap) || 0;
+      const first = samples[0].getBoundingClientRect().width;
+      const pair = samples[samples.length - 1].getBoundingClientRect().width;
+      const needsToggle = names.length > 2 || pair > width;
+      const available = width - (needsToggle ? toggle.getBoundingClientRect().width + gap : 0);
+      setPreviewCount(pair <= available ? Math.min(2, names.length) : 1);
+      setClipped(first > available);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    root.querySelectorAll<HTMLElement>(".employee-agent-measure > span").forEach((sample) => observer.observe(sample));
+    return () => observer.disconnect();
+  }, [signature, loading, names.length]);
+
+  const canExpand = names.length > previewCount || clipped;
+  const hiddenCount = Math.max(0, names.length - previewCount);
+  return <div ref={rootRef} className="employee-agent-summary" data-expanded={expanded && canExpand}>
+    <span id={listId} className={`employee-agent${expanded && canExpand ? " is-expanded" : ""}`}>
+      {loading ? "读取中…" : !names.length ? "未绑定 Agent" : expanded && canExpand ? signature : names.slice(0, previewCount).join("、")}
+    </span>
+    {canExpand && <button type="button" className="employee-agent-toggle" aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded((value) => !value)}>
+      {expanded ? "收起" : `展开更多智能体${hiddenCount ? `（+${hiddenCount}）` : ""}`}
+    </button>}
+    {!!names.length && <div className="employee-agent-measure" aria-hidden="true">
+      <span data-agent-measure>{names[0]}</span><span data-agent-measure>{names.slice(0, 2).join("、")}</span>
+      <span data-agent-toggle-measure>展开更多智能体{names.length > 1 ? `（+${names.length - 1}）` : ""}</span>
+    </div>}
+  </div>;
+}
+
 function EmployeeBindingDialog({
   employee,
   agents,
@@ -246,7 +294,6 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   const agentNames = (user: Employee) => (data?.agents || [])
     .filter((agent) => agent.coverage.user_ids.includes(user.id))
     .map((agent) => `${agent.name}${agent.status === "published" ? "" : agent.status === "draft" ? "（草稿）" : "（停用）"}`);
-  const agentText = (user: Employee) => data ? agentNames(user).join("、") || "未绑定 Agent" : "读取中…";
   const changeActive = (user: Employee) => {
     const act = async () => {
       await api.adminSave(`/api/admin/users/${encodeURIComponent(user.id)}`, { active: user.active === false }, "PATCH");
@@ -274,8 +321,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
       </div>
       <div className="governance-rail-footer"><button type="button" className="governance-text-action" data-employee-create onClick={() => setEditing(null)}>新增员工</button></div>
     </aside>
-    <div className="governance-main">
-      <header className="governance-main-head"><h2>员工列表</h2><span className="governance-count" role="status">{visible.length}/{users.length}名员工</span></header>
+    <div className="governance-main" role="region" aria-label="员工列表">
       <div className="governance-scroll">
         {notice && <p className="governance-notice" role="status">{notice}</p>}
         {loadError && <p className="error" role="alert">{loadError}</p>}
@@ -288,11 +334,12 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
               <div className="employee-main">
                 <div className="employee-row employee-row-primary">
                   <div className="employee-profile">
-                    <strong className="employee-name" title={user.employee_no ? `${label(user)} · 工号 ${user.employee_no}` : label(user)}>{label(user)}</strong>{user.employee_no ? <><span className="employee-dot" aria-hidden="true">·</span><span className="employee-no">{user.employee_no}</span></> : null}
+                    <div className="employee-identity">
+                      <strong className="employee-name" title={user.employee_no ? `${label(user)} · 工号 ${user.employee_no}` : label(user)}>{label(user)}</strong>{user.employee_no ? <><span className="employee-dot" aria-hidden="true">·</span><span className="employee-no" title={String(user.employee_no)}>{user.employee_no}</span></> : null}
+                    </div>
                     <span className="employee-divider" aria-hidden="true" />
-                    <span className="employee-agent" title={agentText(user)}>{agentText(user)}</span>
+                    <EmployeeAgentSummary names={agentNames(user)} loading={!data} />
                   </div>
-                  <button type="button" className={user.active === false ? "employee-status" : "employee-status employee-danger-action"} onClick={() => changeActive(user)}>{user.active === false ? "启用" : "停用"}</button>
                 </div>
                 <div className="employee-row employee-row-secondary">
                   <div className="employee-email" title={email(user)}>{email(user)}</div>

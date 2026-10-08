@@ -6,6 +6,20 @@ import { expect, test } from "@playwright/test";
  * 直接绑定可撤销（先 revoke-preview 名单，再填原因）。
  */
 
+// 全部接口在浏览器内隔离。细分测试后注册的 route 覆盖此兜底，不接触真实员工。
+test.beforeEach(async ({ page }) => {
+  const account = { id: "admin-fixture", name: "测试管理员", roles: ["admin"], available_modes: ["employee", "admin"] };
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    let json: unknown = [];
+    if (path === "/api/auth/status") json = { authenticated: true, account };
+    else if (path === "/api/me") json = account;
+    else if (path === "/api/preferences") json = { theme: "light" };
+    else if (path === "/api/admin/retention-policy") json = {};
+    await route.fulfill({ json });
+  });
+});
+
 const employee = {
   id: "usr_directory", name: "目录员工", username: "directory@amperetime.com", email: "directory@amperetime.com",
   site: "org:promotion_department", position: "KOL 经理", brands: ["LT", "PQ"], roles: ["employee"], active: true,
@@ -97,7 +111,7 @@ test("员工页单选筛选与精简列表；管理绑定先试算覆盖再确�
   await expect(directory.locator("[data-employee-row='usr_directory'] [data-employee-avatar]"))
     .toHaveAttribute("src", "/avatars/employees/ye_guanwang.png");
 
-  await expect(directory.locator(".governance-main-head .governance-count")).toHaveText("1/1名员工");
+  await expect(directory.locator(".governance-main-head")).toHaveCount(0);
   await expect(directory.locator(".governance-rail .governance-count")).toHaveCount(0);
   const row = directory.locator("[data-employee-row='usr_directory']");
   await expect(row).toBeVisible();
@@ -108,16 +122,11 @@ test("员工页单选筛选与精简列表；管理绑定先试算覆盖再确�
   await expect(card).toHaveCount(1);
   await expect(card.locator(".employee-row-primary .employee-name")).toHaveText("目录员工");
   await expect(card.locator(".employee-row-primary .employee-agent")).toHaveText("商务 Agent");
-  await expect(card.locator(".employee-row-primary .employee-status")).toHaveText("停用");
+  await expect(card.locator(".employee-row-primary .employee-status")).toHaveCount(0);
   await expect(card.locator(".employee-row-secondary .employee-email")).toHaveText("directory@amperetime.com");
   await expect(card.locator(".employee-actions button")).toHaveCount(3);
-  // 右侧基线：顶行状态与底行操作组的右缘对齐，不随文字长度漂移。
-  const rightEdges = await card.evaluate((el) => {
-    const status = el.querySelector(".employee-status")!.getBoundingClientRect().right;
-    const actions = el.querySelector(".employee-actions")!.getBoundingClientRect().right;
-    return Math.abs(status - actions);
-  });
-  expect(rightEdges).toBeLessThanOrEqual(1);
+  await expect(card.getByRole("button", { name: "停用", exact: true })).toHaveCount(1);
+  expect((await card.boundingBox())!.height).toBeLessThan(92);
   const groups = directory.locator(".governance-filter-group");
   await expect(groups).toHaveCount(2);
   await expect(groups.nth(0).locator("strong")).toHaveText("品牌");
@@ -131,13 +140,13 @@ test("员工页单选筛选与精简列表；管理绑定先试算覆盖再确�
   await accountGroup.getByRole("button", { name: "停用", exact: true }).click();
   await expect(accountGroup.locator("[aria-pressed=true]")).toHaveCount(1);
   await expect(directory.locator("[data-employee-row]")).toHaveCount(0);
-  await expect(directory.locator(".governance-main-head .governance-count")).toHaveText("0/1名员工");
+  await expect(directory.locator(".governance-empty")).toHaveText("没有符合筛选条件的员工。");
   await accountGroup.getByRole("button", { name: "停用", exact: true }).click();
   await expect(accountGroup.locator("[aria-pressed=true]")).toHaveCount(1);
   await expect(directory.locator("[data-employee-row]")).toHaveCount(0);
   await accountGroup.getByRole("button", { name: "全部", exact: true }).click();
   await expect(directory.locator("[data-employee-row]")).toHaveCount(1);
-  await expect(directory.locator(".governance-main-head .governance-count")).toHaveText("1/1名员工");
+  await expect(directory.locator(".governance-main-head")).toHaveCount(0);
 
   await brandGroup.getByRole("button", { name: "LT", exact: true }).click();
   await expect(brandGroup.locator("[aria-pressed=true]")).toHaveCount(1);
@@ -221,12 +230,12 @@ test("选择上级组织时包含下级组员工，不包含旁支员工", async
     await page.setViewportSize({ width, height: 700 });
     const card = directory.locator('[data-employee-row="usr_promotion"] .employee-card');
     await expect(card.locator(".employee-actions").getByRole("button", { name: "编辑", exact: true })).toBeVisible();
-    await expect(card.locator(".employee-status")).toBeVisible();
-    // 右侧基线在窄宽度下同样保持：顶行状态与底行操作组右缘对齐。
+    await expect(card.locator("[data-employee-action='deactivate']")).toBeVisible();
+    // 删除顶行重复状态后，操作组仍固定在主信息区域右缘。
     const edges = await card.evaluate((el) => {
-      const status = el.querySelector(".employee-status")!.getBoundingClientRect().right;
+      const main = el.querySelector(".employee-main")!.getBoundingClientRect().right;
       const actions = el.querySelector(".employee-actions")!.getBoundingClientRect().right;
-      return Math.abs(status - actions);
+      return Math.abs(main - actions);
     });
     expect(edges).toBeLessThanOrEqual(1);
     expect(await directory.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
@@ -384,4 +393,139 @@ test("停用失败时确认卡保持打开并在卡内显示原因", async ({ pa
   await dialog.locator("[data-admin-confirm-cancel]").click();
   await expect(dialog).toHaveCount(0);
   await expect(row.locator("[data-employee-action='deactivate']")).toBeVisible();
+});
+
+// 员工列表呈现回归：数据为隔离夹具，不代表线上人员或实际绑定。
+async function compactDirectoryFixture(page: import("@playwright/test").Page, theme = "light") {
+  const people = [
+    { ...employee, id: "compact_many", name: "多智能体员工", employee_no: "0999" },
+    { ...employee, id: "compact_other", name: "另一位员工", avatar_url: null },
+    { ...employee, id: "compact_single", name: "单智能体员工" },
+    { ...employee, id: "compact_empty", name: "未绑定员工", username: "empty", email: "", avatar_url: null },
+    { ...employee, id: "compact_long", name: "这是用于验证长姓名不会挤出操作区的员工姓名", employee_no: "123456789012345678901234567890", email: `${"long".repeat(30)}@amperetime.com` },
+    { ...employee, id: "compact_disabled", name: "已停用员工", active: false },
+  ];
+  const agents = ["KOL 智能体", "产品专家", "线索智能体", "工作规划智能体", "知识问答智能体"].map((name, index) => ({
+    ...baseAgent(`agent:compact-${index}`, name), status: index === 3 ? "draft" : index === 4 ? "disabled" : "published",
+    coverage: { org_version: 1, users: [], user_ids: ["compact_many", "compact_other", ...(index === 0 ? ["compact_single"] : [])] },
+  }));
+  agents.push({ ...baseAgent("agent:long", "这是一个非常长的智能体名称".repeat(12)), status: "published", coverage: { org_version: 1, users: [], user_ids: ["compact_long"] } });
+  const writes: string[] = [];
+  const errors: string[] = [];
+  page.on("request", (request) => { if (new URL(request.url()).pathname.startsWith("/api/") && request.method() !== "GET") writes.push(request.method()); });
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/preferences", (route) => route.fulfill({ json: { theme } }));
+  await page.route("**/api/admin/users", (route) => route.fulfill({ json: people }));
+  await page.route("**/api/admin/agents", (route) => route.fulfill({ json: { agents, units, people: [], skills: [], bases: [] } }));
+  await page.goto("/admin");
+  await expect(page.locator('[data-employee-row="compact_many"] .employee-agent')).toContainText("KOL 智能体");
+  return { writes, errors, agents };
+}
+
+test("智能体默认折叠、按员工独立展开且键盘可收起，不触发写接口", async ({ page }) => {
+  const state = await compactDirectoryFixture(page);
+  const many = page.locator('[data-employee-row="compact_many"]');
+  const other = page.locator('[data-employee-row="compact_other"]');
+  const toggle = many.locator(".employee-agent-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(many.locator(".employee-agent")).not.toContainText("知识问答");
+  await expect(page.locator('[data-employee-row="compact_single"] .employee-agent-toggle')).toHaveCount(0);
+  await expect(page.locator('[data-employee-row="compact_empty"] .employee-agent')).toHaveText("未绑定 Agent");
+  await expect(page.locator('[data-employee-row="compact_empty"] .employee-email')).toHaveText("未登记邮箱");
+  await expect(page.locator('[data-employee-row="compact_disabled"]').getByRole("button", { name: "启用", exact: true })).toHaveCount(1);
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(toggle).toHaveText("收起");
+  await expect(many.locator(".employee-agent")).toHaveText("KOL 智能体、产品专家、线索智能体、工作规划智能体（草稿）、知识问答智能体（停用）");
+  const controlled = await toggle.getAttribute("aria-controls");
+  expect(controlled).toBe(await many.locator(".employee-agent").getAttribute("id"));
+  await expect(other.locator(".employee-agent-toggle")).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Space");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await page.locator("[data-employee-search]").fill("多智能体");
+  await expect(page.locator("[data-employee-row]")).toHaveCount(1);
+  await page.locator("[data-employee-search]").fill("没有这个员工");
+  await expect(page.locator(".governance-empty")).toBeVisible();
+  expect(state.writes).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+for (const theme of ["light", "dark"]) {
+  test(`紧凑员工列表：长字段、完整展开、各视口无溢出（${theme}）`, async ({ page }, info) => {
+    const state = await compactDirectoryFixture(page, theme);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const viewport of [{ width: 1920, height: 900 }, { width: 1440, height: 900 }, { width: 1280, height: 520 }, { width: 768, height: 900 }, { width: 375, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      const directory = page.locator("[data-admin-employees]");
+      await expect(directory.locator(".governance-main-head")).toHaveCount(0);
+      const ordinary = directory.locator('[data-employee-row="compact_single"] .employee-card');
+      const geometry = await ordinary.evaluate((el) => {
+        const avatar = el.querySelector(".employee-avatar")!;
+        return { height: el.getBoundingClientRect().height, avatarWidth: avatar.getBoundingClientRect().width,
+          avatarHeight: avatar.getBoundingClientRect().height, radius: getComputedStyle(avatar).borderRadius,
+          cardOverflow: el.scrollWidth > el.clientWidth + 1 };
+      });
+      expect(geometry.avatarWidth).toBe(32);
+      expect(geometry.avatarHeight).toBe(32);
+      expect(geometry.radius).toBe("6px");
+      expect(geometry.cardOverflow).toBe(false);
+      if (viewport.width >= 1280) expect(geometry.height).toBeLessThan(92);
+      for (const row of await directory.locator("[data-employee-row]").all()) {
+        await expect(row.locator(".employee-actions button")).toHaveCount(3);
+        const measure = await row.evaluate((el) => {
+          const rect = el.getBoundingClientRect();
+          return { overflow: el.scrollWidth > el.clientWidth + 1,
+            id: el.getAttribute("data-employee-row"), width: el.clientWidth, scrollWidth: el.scrollWidth,
+            fields: [...el.querySelectorAll(".employee-profile > *, .employee-agent-summary > :not(.employee-agent-measure)")].map((field) => ({ className: field.className, width: field.getBoundingClientRect().width })),
+            actionsInside: [...el.querySelectorAll(".employee-actions button")].every((button) => { const b = button.getBoundingClientRect(); return b.left >= rect.left && b.right <= rect.right + 1; }) };
+        });
+        expect(measure.overflow, JSON.stringify({ viewport, measure })).toBe(false);
+        expect(measure.actionsInside).toBe(true);
+      }
+      const long = directory.locator('[data-employee-row="compact_long"]');
+      const toggle = long.locator(".employee-agent-toggle");
+      await expect(toggle).toBeVisible();
+      await toggle.click();
+      await expect(long.locator(".employee-agent")).toHaveText("这是一个非常长的智能体名称".repeat(12));
+      expect(await long.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      await toggle.click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+      await page.screenshot({ path: info.outputPath(`employees-${theme}-${viewport.width}.png`) });
+    }
+    expect(state.writes).toEqual([]);
+    expect(state.errors).toEqual([]);
+  });
+}
+
+test.describe("触摸员工目录", () => {
+  test.use({ hasTouch: true });
+  test("展开与操作命中区保持至少44px，窄屏不溢出", async ({ page }) => {
+    const state = await compactDirectoryFixture(page);
+    await page.setViewportSize({ width: 375, height: 844 });
+    const row = page.locator('[data-employee-row="compact_many"]');
+    const heights = await row.locator("button").evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height));
+    expect(heights.every((height) => height >= 44)).toBe(true);
+    await row.locator(".employee-agent-toggle").tap();
+    await expect(row.locator(".employee-agent-toggle")).toHaveAttribute("aria-expanded", "true");
+    expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    expect(state.writes).toEqual([]);
+    expect(state.errors).toEqual([]);
+  });
+});
+
+test("智能体加载失败保留错误，不把失败误报为未绑定", async ({ page }) => {
+  await page.route("**/api/admin/users", (route) => route.fulfill({ json: [employee] }));
+  let release: (() => void) | undefined;
+  await page.route("**/api/admin/agents", async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ status: 503, json: { message: "智能体目录暂不可用" } });
+  });
+  await page.goto("/admin");
+  const summary = page.locator('[data-employee-row="usr_directory"] .employee-agent');
+  await expect(summary).toHaveText("读取中…");
+  await expect.poll(() => Boolean(release)).toBe(true);
+  release?.();
+  await expect(page.locator(".governance-main [role='alert']")).toContainText("智能体目录暂不可用");
+  await expect(summary).not.toHaveText("未绑定 Agent");
 });

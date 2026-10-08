@@ -366,7 +366,8 @@ test('follow opens my creators directly, and import opens public pool after conf
   await card.getByRole('button', { name: '加入公海', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: '确认入库公海' }).click();
+  await expect(dialog).toHaveAccessibleName('入库公海');
+  await dialog.getByRole('button', { name: '确认入库', exact: true }).click();
   await expect(page).toHaveURL(/tab=pool$/);
   expect(requests.some(path => path.endsWith('/channel-stable/ingest'))).toBeTruthy();
 });
@@ -380,12 +381,14 @@ test('bulk runtime import waits for confirmation and submits the current candida
   await page.goto(`/s/${task.session_id}`);
   await page.getByRole('checkbox', { name: '选择 Camping creator', exact: true }).check();
   await page.locator('[data-discovery-ingest]').click();
-  await expect(page.getByRole('dialog')).toContainText('将把 1 条线索');
+  await expect(page.getByRole('dialog')).toHaveAccessibleName('批量入库公海');
+  await expect(page.getByRole('dialog').locator('.discovery-confirm-row', { has: page.locator('dt', { hasText: /^数量$/ }) }).locator('dd')).toHaveText('1 条线索');
+  await expect(page.getByRole('dialog')).toContainText('不建联、不发信、不改阶段、不认领跟进');
   expect(imports).toEqual([]);
   await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click();
   expect(imports).toEqual([]);
   await page.locator('[data-discovery-ingest]').click();
-  await page.getByRole('dialog').getByRole('button', { name: '确认入库公海', exact: true }).evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+  await page.getByRole('dialog').getByRole('button', { name: '确认入库', exact: true }).evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
   await expect.poll(() => imports.length).toBe(1);
   expect(imports[0]).toEqual({ snapshot_version: 'candidate-version', confirmed: true });
   await expect(page.locator('[data-discovery-toast]')).toContainText('已取得 1 位候选的入库回执');
