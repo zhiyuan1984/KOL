@@ -1,3 +1,4 @@
+import { knowledgeTaxonomyMutations } from "./knowledge-taxonomy.js";
 import { publicationLabels } from "../knowledge-publication/service.js";
 
 import { Hono } from "hono";
@@ -40,8 +41,6 @@ import {
   createKnowledge,
   deprecate,
   favorite,
-  editBase,
-  editDomain,
   listBases,
   listDomains,
   publicKnowledgeTaxonomy,
@@ -85,6 +84,7 @@ import { publicationContext, publicationState, bindPublication, preparePublicati
   knowledgeReviewMaterial, knowledgeReviewTrial, retryPublication, publishApprovedDocument, createDocumentRevision,replaceDraftDocument } from "../knowledge/publication.js";
 
 export const knowledge = new Hono();
+knowledge.route("/", knowledgeTaxonomyMutations);
 
 knowledge.use("/admin/knowledge/documents/*",async(c,next)=>{
   requireAdmin();
@@ -222,12 +222,10 @@ knowledge.get("/admin/knowledge/proposals", (c) => c.json(listProposals()));
 // 知识分层（主题域族 → 主题域 → 知识库）；分类只做业务归类，不承载权限。
 knowledge.get("/admin/knowledge/domains", (c) => c.json({ domains: listDomains() }));
 knowledge.post("/admin/knowledge/domains", async (c) => c.json(createDomain((await c.req.json()) as Json), 201));
-knowledge.put("/admin/knowledge/domains/:id", async (c) => c.json(editDomain(c.req.param("id"), (await c.req.json()) as Json)));
 knowledge.get("/admin/knowledge/bases", (c) => c.json({
   bases: listBases({ domain_id: c.req.query("domain_id"), kind: c.req.query("kind") }),
 }));
 knowledge.post("/admin/knowledge/bases", async (c) => c.json(createBase((await c.req.json()) as Json), 201));
-knowledge.put("/admin/knowledge/bases/:id", async (c) => c.json(editBase(c.req.param("id"), (await c.req.json()) as Json)));
 
 // 非结构化资料（P1，2026-10-02）：上传 → 规整 → 索引 → 待审 → 发布 → 试算。
 // 设计 docs/superpowers/specs/2026-10-02-knowledge-unstructured-pageindex-design.md §10。

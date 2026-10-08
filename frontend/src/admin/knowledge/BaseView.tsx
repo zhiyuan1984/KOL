@@ -103,7 +103,7 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
     return (
       <article className="panel" data-admin-kb-base-missing>
         <p className="muted">{error || KB_ADMIN_EMPTY.baseMissing}</p>
-        <Link className="kbadmin-action-link" to="/admin/knowledge/catalog">返回知识目录</Link>
+        <Link className="kbadmin-action-link" to="/admin/knowledge/catalog">返回知识规划</Link>
       </article>
     );
   }
@@ -149,7 +149,7 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
       {error && <p className="error" role="alert">{error}</p>}
 
       <p className="admin-crumb">
-        <Link to="/admin/knowledge/catalog">知识目录</Link>
+        <Link to="/admin/knowledge/catalog">知识规划</Link>
         {" / "}
         {[base.family_name, base.domain_name].filter(Boolean).join(" / ") || "未分类"}
         {" / "}

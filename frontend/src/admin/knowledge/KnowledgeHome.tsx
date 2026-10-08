@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect } from "react";
-import { brandLabel, kindLabel } from "../../knowledgeCopy";
+import { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect, lazy, Suspense } from "react";
+import { brandLabel, kindLabel, KB_SCOPE_FAMILY, KB_SCOPE_DOMAIN, KB_SCOPE_BASE } from "../../knowledgeCopy";
 import { MAIN_STAGE_TABS } from "../../kolStages";
 import { stageLabel } from "../../labels";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow, type WsData } from "./shared";
@@ -11,7 +11,8 @@ import { useAccount } from "../../components/AuthGate";
 import type { FilterOption } from "./KnowledgeFilters";
 import KnowledgeBrowseFilters from "./KnowledgeBrowseFilters";
 import { KnowledgeBrowseWorkspace } from "../../components/KnowledgeBrowse";
-import CatalogView from "./CatalogView";
+// Keep the mature tree library out of unrelated admin views.
+const CatalogView = lazy(() => import("./CatalogView"));
 import BaseView from "./BaseView";
 import IngestView from "./IngestView";
 import BindingsView from "./BindingsView";
@@ -22,7 +23,7 @@ import LibraryPane, { type KbView } from "./LibraryPane";
 import UploadDialog from "./UploadDialog";
 import DocumentRail from "./DocumentRail";
 import ReviewView from "./ReviewView";
-import KnowledgeLifecycleTabs, { knowledgeStage, type KnowledgeStage } from "./KnowledgeLifecycleTabs";
+import KnowledgeLifecycleTabs, { KNOWLEDGE_TABS, KNOWLEDGE_NAV_TABS, knowledgeStage, type KnowledgeStage } from "./KnowledgeLifecycleTabs";
 import { useSearchParams,useBlocker } from "react-router-dom";
 
 const PAGE_SIZE = 20;
@@ -34,10 +35,10 @@ const VIEW_STATUS: Record<Exclude<KbView, "all">, string> = {
 };
 const VIEW_OPTIONS: Array<{ value: KbView; label: string }> = [
   { value: "all", label: "全部" },
+  { value: "draft", label: "草稿" },
   { value: "pending", label: "待审批" },
   { value: "published", label: "已发布" },
-  { value: "draft", label: "草稿" },
-  { value: "disabled", label: "已停用" },
+  { value: "disabled", label: "已下架" },
 ];
 const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: kindLabel(spec.code) }));
 const SCOPE_NONE = "__none__";
@@ -187,10 +188,12 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
     setParams(next);
   }, [params, setParams]);
 
+  // The __none__ facet means a missing foreign key. Named “未分类” catalog nodes
+  // are real records, so keep their IDs/names and label only the missing relation explicitly.
   const familyFacet = useMemo<FilterOption[]>(() => {
     const candidates = [
       ...domains.filter((domain) => domain.level === "family").map((domain) => ({ value: domain.id, label: domain.name })),
-      { value: SCOPE_NONE, label: "未分类" },
+      { value: SCOPE_NONE, label: `未归属${KB_SCOPE_FAMILY}` },
     ];
     const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("family") }];
     candidates.forEach((candidate) => {
@@ -210,7 +213,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
           return scope.familyId === SCOPE_NONE ? !parent : parent === scope.familyId;
         })
         .map((domain) => ({ value: domain.id, label: domain.name })),
-      { value: SCOPE_NONE, label: "未分类" },
+      { value: SCOPE_NONE, label: `未归属${KB_SCOPE_DOMAIN}` },
     ];
     const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("domain") }];
     candidates.forEach((candidate) => {
@@ -234,7 +237,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
     });
     const candidates = [
       ...inScope.map((base) => ({ value: base.id, label: base.name })),
-      { value: SCOPE_NONE, label: "未分类" },
+      { value: SCOPE_NONE, label: `未归属${KB_SCOPE_BASE}` },
     ];
     const options: FilterOption[] = [{ value: "", label: "全部", count: fAll("base") }];
     candidates.forEach((candidate) => {
@@ -351,7 +354,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
     <section className="kbv kbv-page kbv-filter-browser knowledge-browse knowledge-governance" data-admin-knowledge data-admin-kb-v2="home">
       <KnowledgeBrowseWorkspace detailOpen={mode !== "list" || stage !== "published"}>
         <section className="kbv-list knowledge-governance-list" aria-label="知识列表" data-knowledge-middle aria-busy={loading}>
-          <KnowledgeBrowseFilters query={query} onQuery={setQuery} scope={scope}
+          <KnowledgeBrowseFilters countsReady={Boolean(data && !loading && !error)} query={query} onQuery={setQuery} scope={scope}
             onFamily={id => setScope({ familyId: id, domainId: "", baseId: "" })}
             onDomain={id => setScope(current => ({ ...current, domainId: id, baseId: "" }))}
             onBase={id => setScope(current => ({ ...current, baseId: id }))}
@@ -379,7 +382,10 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
           {actionError ? <p className="error" role="alert">{actionError}</p> : null}
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           {mode==="list" && <button className="kbv-text-action knowledge-governance-back" onClick={()=>switchMode("list")}>查看知识列表</button>}
-          <div id={`kb-stage-panel-${stage}`} role="tabpanel" aria-labelledby={`kb-stage-tab-${stage}`} tabIndex={0} className="kbw-body" ref={bodyRef}
+          <div id={`kb-stage-panel-${stage}`} role="tabpanel"
+            aria-labelledby={KNOWLEDGE_NAV_TABS.some(tab => tab.id === stage) ? `kb-stage-tab-${stage}` : undefined}
+            aria-label={KNOWLEDGE_NAV_TABS.some(tab => tab.id === stage) ? undefined : KNOWLEDGE_TABS.find(tab => tab.id === stage)?.label}
+            tabIndex={0} className="kbw-body" ref={bodyRef}
             onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
           {mode==="list" ? <>
             {stage === "create" ? <section data-knowledge-creation>
@@ -390,7 +396,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
               <p className="knowledge-panel-help">新建在线知识或上传资料，保存草稿后继续加工、审批与发布。</p>
               <button className="kbv-text-action" onClick={()=>drillView("draft")}>查看中栏草稿</button>
             </section> : stage === "catalog" ? catalogBaseId
-              ? <BaseView id={catalogBaseId} notify={notify} fail={fail} /> : <CatalogView notify={notify} fail={fail} />
+              ? <BaseView id={catalogBaseId} notify={notify} fail={fail} /> : <Suspense fallback={<p className="muted" role="status">正在加载知识规划…</p>}><CatalogView notify={notify} fail={fail} /></Suspense>
             : stage === "processing" ? <IngestView embedded notify={notify} fail={fail} />
             : stage === "bindings" ? <BindingsView notify={notify} fail={fail} />
             : stage === "graph" ? <KnowledgeGraphPanel data={summary} error={summaryError} reload={reloadSummary} />

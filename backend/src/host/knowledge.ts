@@ -17,6 +17,8 @@ import { currentUser, personaAccess } from "./persona.js";
 import { departmentHeadAccessForUser } from "../contract-scope.js";
 import { directory, memberScopeIds } from "./grants.js";
 import { knowledgeKindSpec, validateStructuredFields } from "../knowledge-kinds.js";
+import { knowledgeBindingMatchesRow } from "../knowledge/binding-selector.js";
+import { editCatalogDomain, editCatalogBase, type DomainPatch, type BasePatch } from "../knowledge/taxonomy-mutations.js";
 
 export const KNOWLEDGE_KINDS = ["mail_template", "prompt", "policy", "pattern", "glossary", "question_template"] as const;
 export const KNOWLEDGE_STATUSES = ["draft", "pending_review", "published", "archived"] as const;
@@ -241,33 +243,8 @@ export function createDomain(input: {
   return { domain: domainView(id) };
 }
 
-export function editDomain(id: string, patch: {
-  name?: string;
-  sort?: number | null;
-  status?: string;
-  note?: string;
-}, actor = knowledgeActorId()): Json {
-  requireAdmin();
-  const prev = domainRow(id);
-  const name = patch.name == null ? String(prev.name) : String(patch.name).trim();
-  if (!name) throw new HttpFail(400, "name required");
-  const sort = patch.sort == null ? Number(prev.sort || 0) : Number(patch.sort);
-  if (!Number.isFinite(sort)) throw new HttpFail(400, "sort 须为数字");
-  const status = normalizeRecordStatus(patch.status, String(prev.status));
-  const note = patch.note == null ? String(prev.note || "") : String(patch.note);
-  if (status === "archived" && String(prev.status) !== "archived") {
-    const child = getConn().prepare("SELECT 1 FROM knowledge_domains WHERE parent_id=?").get(id);
-    const base = getConn().prepare("SELECT 1 FROM knowledge_bases WHERE domain_id=?").get(id);
-    if (child || base) {
-      throw new HttpFail(409, { code: "knowledge_domain_in_use", message: "该主题域仍有子主题域或知识库，不能归档" });
-    }
-  }
-  tx((db) => {
-    db.prepare("UPDATE knowledge_domains SET name=?,sort=?,status=?,note=?,updated_at=? WHERE id=?")
-      .run(name, sort, status, note, nowIso(), id);
-  });
-  audit(actor, "knowledge.domain.save", { id, code: String(prev.code), level: String(prev.level), updated: true });
-  return { domain: domainView(id) };
+export async function editDomain(id: string, patch: DomainPatch): Promise<Json> {
+  return editCatalogDomain(id, patch);
 }
 
 function baseRow(id: string): Row {
@@ -360,39 +337,8 @@ export function createBase(input: {
   return { base: baseView(baseRow(id)) };
 }
 
-export function editBase(id: string, patch: {
-  name?: string;
-  description?: string;
-  status?: string;
-  expected_version?: number | null;
-  domain_id?: string;
-  kind?: string;
-}, actor = knowledgeActorId()): Json {
-  requireAdmin();
-  const prev = baseRow(id);
-  if (patch.expected_version == null || !Number.isFinite(Number(patch.expected_version))) {
-    throw new HttpFail(400, "expected_version required");
-  }
-  if (Number(patch.expected_version) !== Number(prev.version || 1)) {
-    throw new HttpFail(409, { code: "knowledge_base_version_conflict", message: "知识库已变更，请刷新后重试" });
-  }
-  if (patch.domain_id != null && String(patch.domain_id) !== String(prev.domain_id)) {
-    throw new HttpFail(400, "不允许修改知识库所属主题域（domain_id）");
-  }
-  if (patch.kind != null && String(patch.kind) !== String(prev.kind)) {
-    throw new HttpFail(400, "不允许修改知识库类型（kind）");
-  }
-  const name = patch.name == null ? String(prev.name) : String(patch.name).trim();
-  if (!name) throw new HttpFail(400, "name required");
-  const description = patch.description == null ? String(prev.description || "") : String(patch.description);
-  const status = normalizeRecordStatus(patch.status, String(prev.status));
-  const version = Number(prev.version || 1) + 1;
-  tx((db) => {
-    db.prepare("UPDATE knowledge_bases SET name=?,description=?,status=?,version=?,updated_at=? WHERE id=?")
-      .run(name, description, status, version, nowIso(), id);
-  });
-  audit(actor, "knowledge.base.save", { id, code: String(prev.code), version, updated: true });
-  return { base: baseView(baseRow(id)) };
+export async function editBase(id: string, patch: BasePatch): Promise<Json> {
+  return editCatalogBase(id, patch);
 }
 
 /** 条目所属库的类型（无库或库已删为空串）。 */
@@ -2091,25 +2037,7 @@ export function deleteBinding(id: string, actor = knowledgeActorId()): Json {
 }
 
 export function bindingMatchesRow(selector: KnowledgeBindingSelector, row: Row): boolean {
-  const ids = selector.ids || [];
-  if (ids.length && !ids.includes(String(row.id || ""))) return false;
-  const baseIds = selector.base_ids || [];
-  if (baseIds.length && !baseIds.includes(String(row.base_id || ""))) return false;
-  const kinds = selector.kinds || [];
-  if (kinds.length && !kinds.includes(String(row.kind || ""))) return false;
-  const tags = selector.tags || [];
-  if (tags.length) {
-    const rowTags = String(row.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean);
-    if (!tags.some((tag) => rowTags.includes(tag))) return false;
-  }
-  const brand = String(selector.brand || "").trim();
-  if (brand) {
-    const rowBrand = String(row.brand || "*");
-    if (rowBrand !== "*" && rowBrand !== brand) return false;
-  }
-  const lang = String(selector.lang || "").trim();
-  if (lang && String(row.lang || "en") !== lang) return false;
-  return true;
+  return knowledgeBindingMatchesRow(selector, row);
 }
 
 export type KnowledgeResolveItem = {

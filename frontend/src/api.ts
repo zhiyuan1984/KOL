@@ -1589,7 +1589,7 @@ export type KnowledgeRow = {
   structured?: Record<string, unknown> | null;
 };
 
-/** 主题域族 / 主题域（knowledge_domains，两级分类树，只做业务归类）。 */
+/** 业务族 / 业务域（knowledge_domains，两级分类树，只做业务归类）。 */
 export type KnowledgeDomainRow = {
   id: string;
   code: string;
@@ -3081,7 +3081,7 @@ export const api = {
     const qs = params.toString();
     return request<KnowledgeRow[]>(qs ? `/api/admin/knowledge?${qs}` : "/api/admin/knowledge");
   },
-  /** 分类树（主题域族 / 主题域）：只做业务归类，不承载权限。 */
+  /** 分类树（业务族 / 业务域）：只做业务归类，不承载权限。 */
   adminKnowledgeDomains: () =>
     request<{ domains: KnowledgeDomainRow[] }>("/api/admin/knowledge/domains"),
   adminKnowledgeDomainCreate: (body: {
@@ -3098,11 +3098,17 @@ export const api = {
     }),
   adminKnowledgeDomainUpdate: (
     id: string,
-    body: { name?: string; sort?: number; status?: string; note?: string },
+    body: { name?: string; sort?: number; status?: string; note?: string; confirmed?: boolean; expected_updated_at: string },
   ) =>
     request<{ domain: KnowledgeDomainRow }>(`/api/admin/knowledge/domains/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: JSON.stringify(body),
+    }),
+  /** 仅空节点可删除；调用前必须展示并获得用户对该节点的明确确认。 */
+  adminKnowledgeDomainDelete: (id: string, expectedUpdatedAt: string) =>
+    request<{ ok: boolean }>(`/api/admin/knowledge/domains/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirmed: true, expected_updated_at: expectedUpdatedAt }),
     }),
   adminKnowledgeBases: (opts: { domain_id?: string; kind?: string } = {}) => {
     const params = new URLSearchParams();
@@ -3119,11 +3125,17 @@ export const api = {
   /** 版本冲突返回 409：expected_version 与当前版本不一致时必须重取再提交。 */
   adminKnowledgeBaseUpdate: (
     id: string,
-    body: { name?: string; description?: string; status?: string; expected_version: number },
+    body: { name?: string; description?: string; status?: string; expected_version: number; confirmed?: boolean; expected_updated_at?: string },
   ) =>
     request<{ base: KnowledgeBaseRow }>(`/api/admin/knowledge/bases/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: JSON.stringify(body),
+    }),
+  /** 仅无内容、历史与引用的空库可删除；删除和下架是独立动作。 */
+  adminKnowledgeBaseDelete: (id: string, expectedUpdatedAt: string) =>
+    request<{ ok: boolean }>(`/api/admin/knowledge/bases/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirmed: true, expected_updated_at: expectedUpdatedAt }),
     }),
   /** 非结构化资料（P1）：上传 → 规整 → 索引 → 待审 → 发布 → 试算。 */
   adminKnowledgeDocuments: (opts: { base?: string; status?: string } = {}) => {
