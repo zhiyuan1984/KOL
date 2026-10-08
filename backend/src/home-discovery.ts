@@ -1641,7 +1641,7 @@ export async function ingestHomeDiscoveryCandidate(id: string, body: Json): Prom
  * 排他认领（`kol_follow_index`）；排他认领仍只在公海完成。
  */
 export async function followHomeDiscoveryCandidate(id: string, body: Json): Promise<Json> {
-  const { candidate, sqliteRow } = await resolveCandidateForAction(id, body);
+  const { candidate, sqliteRow, sourceBatch, runId } = await resolveCandidateForAction(id, body);
   if (!body || (body as Record<string, unknown>).confirmed !== true) {
     throw new HttpFail(422, { code: "follow_confirm_required", message: "跟进需要确认。" });
   }
@@ -1727,6 +1727,16 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
   if (sqliteRow) {
     getConn().prepare(`UPDATE creator_candidates SET status='followed', updated_at=? WHERE id=?`).run(now, candidate.id);
   }
+  // 需求变更（2026-10-08 qiyou）：跟进成功后写 Starry 公海（复用 ingestOne，真邮箱才写）。
+  // 失败不破坏跟进（无邮箱 409 等如实降级），状态返回给前端展示。
+  let starry: { imported: boolean; kol_uid?: string; error?: string } = { imported: false };
+  try {
+    const receipt = await ingestOne({ candidate, source_batch: sourceBatch, run_id: runId }) as Record<string, unknown>;
+    starry = { imported: true, kol_uid: String(receipt.kol_uid || "") };
+  } catch (error) {
+    const detail = error instanceof HttpFail ? (error.detail as { code?: string; message?: string } | undefined) : undefined;
+    starry = { imported: false, error: String(detail?.message || (error instanceof Error ? error.message : "Starry 入库失败")) };
+  }
   audit(ownerId(), "discovery.candidate.followed", {
     candidate_id: candidate.id,
     lead_id: leadId,
@@ -1734,8 +1744,10 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
     platform_creator_id: platformCreatorId,
     sent: false,
     stage_changed: false,
+    starry_imported: starry.imported,
   });
-  return { ok: true, lead_id: leadId, kol_uid: `candidate:${key}`, reused: false };
+  return { ok: true, lead_id: leadId, kol_uid: `candidate:${key}`, reused: false,
+    starry_imported: starry.imported, starry_kol_uid: starry.kol_uid, starry_error: starry.error };
 }
 
 export function starryWriteCounts(): { sends: number; stageWrites: number; transitions: number } {

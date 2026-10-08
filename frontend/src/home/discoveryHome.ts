@@ -582,7 +582,7 @@ export async function ingestHomeDiscoveryCandidate(
 export async function followHomeDiscoveryCandidate(
   id: string,
   runId?: string,
-): Promise<{ ok: boolean; lead_id?: string; reused?: boolean }> {
+): Promise<{ ok: boolean; lead_id?: string; reused?: boolean; starry_imported?: boolean; starry_error?: string }> {
   const row = asRecord(await api.followHomeDiscoveryCandidate(id, {
     confirmed: true, ...(runId ? { run_id: runId } : {}),
   }));
@@ -590,6 +590,8 @@ export async function followHomeDiscoveryCandidate(
     ok: row.ok !== false,
     lead_id: asString(row.lead_id) || undefined,
     reused: Boolean(row.reused),
+    starry_imported: row.starry_imported === undefined ? undefined : Boolean(row.starry_imported),
+    starry_error: asString(row.starry_error) || undefined,
   };
 }
 
