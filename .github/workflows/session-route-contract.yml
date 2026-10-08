@@ -1,0 +1,69 @@
+name: Session route contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/session-route-contract.yml'
+      - 'frontend/src/App.tsx'
+      - 'frontend/src/pages/Session.tsx'
+      - 'frontend/src/pages/Chat.tsx'
+      - 'frontend/src/pages/Home.tsx'
+      - 'frontend/src/home/**'
+      - 'frontend/src/components/**'
+      - 'frontend/src/styles.css'
+      - 'frontend/e2e/session-workspace-presentation.spec.ts'
+      - 'frontend/playwright.presentation.config.ts'
+      - 'frontend/package*.json'
+      - 'docs/ia-information-architecture.md'
+  pull_request:
+    paths:
+      - '.github/workflows/session-route-contract.yml'
+      - 'frontend/src/App.tsx'
+      - 'frontend/src/pages/Session.tsx'
+      - 'frontend/src/pages/Chat.tsx'
+      - 'frontend/src/pages/Home.tsx'
+      - 'frontend/src/home/**'
+      - 'frontend/src/components/**'
+      - 'frontend/src/styles.css'
+      - 'frontend/e2e/session-workspace-presentation.spec.ts'
+      - 'frontend/playwright.presentation.config.ts'
+      - 'frontend/package*.json'
+      - 'docs/ia-information-architecture.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: session-route-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  session-route-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Check frontend types
+        run: npm run typecheck --prefix frontend
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      # Read-only API fixtures isolate the saved-address contract from full
+      # backend regressions; this check does not certify external execution.
+      - name: Verify independent session addresses and recovery
+        working-directory: frontend
+        run: npx playwright test --config=playwright.presentation.config.ts e2e/session-workspace-presentation.spec.ts --reporter=line
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: session-route-failure
+          path: frontend/test-results
+          if-no-files-found: ignore
