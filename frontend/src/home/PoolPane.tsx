@@ -46,11 +46,11 @@ function ingested(value?: string | null) {
     : "入库时间未知";
 }
 
-export function PoolAvatar({ card }: { card: PoolKol }) {
+export function PoolAvatar({ card, className = "pool-row-avatar" }: { card: PoolKol; className?: string }) {
   const [failed, setFailed] = useState(false);
   const name = card.identity.display.replace(/^@/, "");
-  if (card.identity.avatar_url && !failed) return <img className="pool-row-avatar" data-kol-avatar="source" src={card.identity.avatar_url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
-  return <span className="pool-row-avatar" data-kol-avatar="fallback" aria-hidden>{name.slice(0, 1) || "红"}</span>;
+  if (card.identity.avatar_url && !failed) return <img className={className} data-kol-avatar="source" src={card.identity.avatar_url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
+  return <span className={className} data-kol-avatar="fallback" aria-hidden>{name.slice(0, 1) || "红"}</span>;
 }
 
 /** 已有评分取潜力分；与名称旁的「高潜/高风险」徽章并存，二者语义不同。 */

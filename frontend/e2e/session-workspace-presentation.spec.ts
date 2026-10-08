@@ -221,6 +221,26 @@ for (const sessionId of ["ordinary-session", "ses_discovery_saved"]) {
   });
 }
 
+test('Chat and Home discovery use the same composer spacing and text geometry', async ({ page }, info) => {
+  await fixture(page);
+  const samples: Record<string, unknown>[] = [];
+  for (const path of ['/s/ordinary-session', '/?tab=discovery']) {
+    await page.goto(path);
+    await expect(page.locator('[data-ai-prompt-submit]')).toBeInViewport();
+    const editor = page.getByRole('button', { name: '编辑完整请求' });
+    if (await editor.count()) await editor.click();
+    const sample = await page.locator('.scope-workspace .composer--workspace').evaluate(el => {
+      const composer = getComputedStyle(el);
+      const input = getComputedStyle(el.querySelector('textarea')!);
+      return { padding: composer.padding, gap: composer.gap, radius: composer.borderRadius,
+        minHeight: composer.minHeight, fontSize: input.fontSize, lineHeight: input.lineHeight, inputMinHeight: input.minHeight };
+    });
+    samples.push(sample);
+  }
+  await info.attach('composer-parity', { body: JSON.stringify(samples, null, 2), contentType: 'application/json' });
+  expect(samples[1]).toEqual(samples[0]);
+});
+
 for (const status of [503, 403]) test(`session task read failure ${status} stays at the saved address and can retry without creating work`, async ({ page }) => {
   const state = await fixture(page, true);
   state.setTaskReadStatus(status);

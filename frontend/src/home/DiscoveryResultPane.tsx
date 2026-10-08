@@ -84,6 +84,18 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
   const railStatus = runStatus || discoveryTaskStatus({ failure, startPhase, crawlPhase, submitted, stage });
 
   const avatarIsActive = ["preparing", "starting", "running"].includes(railStatus.key);
+  const crawlState = startAction?.crawl?.state;
+  // The remote worker may already be idle after this task completes. Its latest
+  // raw status is receipt evidence, not this saved task's lifecycle label.
+  const receiptState = crawlState === "succeeded" ? "采集完成"
+    : crawlState === "cancelled" ? "采集已取消"
+    : crawlState === "partial" ? "采集部分完成"
+    : railStatus.label;
+  const resultState = startAction?.crawl?.result_state;
+  const resultStateLabel = resultState === "ready" ? "结果读取完成"
+    : resultState === "partial" ? "结果读取部分完成"
+    : resultState === "failed" ? "结果读取失败"
+    : resultState === "running" ? "正在读取结果" : "等待读取结果";
   const statusHeader = (<header className="discovery-run-status" data-discovery-run-status={railStatus.key}>
         <AgentAvatar active={avatarIsActive} failed={railStatus.key === "failed"} completed={railStatus.key === "completed"} />
         <div className="discovery-run-status-copy">
@@ -154,10 +166,11 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
       ) : null}
       {startAction?.crawl ? (
         <details className="discovery-remote-receipt" data-discovery-remote-receipt open={activeCrawl}>
-          <summary><strong>远程采集回执</strong><span data-discovery-remote-state>{String(startAction.crawl.remote_status || startAction.crawl.state || "连接中")}</span></summary>
+          <summary><strong>远程采集回执</strong><span data-discovery-remote-state>{receiptState}</span></summary>
           <dl>
             <div><dt>远程任务</dt><dd>{startAction.crawl.remote_task_id || "等待分配"}</dd></div>
-            <div><dt>结果状态</dt><dd>{startAction.crawl.result_state || "pending"}</dd></div>
+            <div><dt>结果状态</dt><dd>{resultStateLabel}</dd></div>
+            {startAction.crawl.remote_status ? <div><dt>远端状态原文</dt><dd>{startAction.crawl.remote_status}</dd></div> : null}
             <div><dt>远程更新时间</dt><dd>{startAction.crawl.updated_at || "暂无"}</dd></div>
             <div><dt>候选回执</dt><dd>{Array.isArray(startAction.crawl.result_json?.candidates) ? `${startAction.crawl.result_json.candidates.length} 条` : "尚未返回"}</dd></div>
           </dl>

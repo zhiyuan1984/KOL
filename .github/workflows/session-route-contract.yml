@@ -13,6 +13,7 @@ on:
       - 'frontend/src/components/**'
       - 'frontend/src/styles.css'
       - 'frontend/e2e/session-workspace-presentation.spec.ts'
+      - 'frontend/e2e/discovery-presentation.spec.ts'
       - 'frontend/playwright.presentation.config.ts'
       - 'frontend/package*.json'
       - 'docs/ia-information-architecture.md'
@@ -27,6 +28,7 @@ on:
       - 'frontend/src/components/**'
       - 'frontend/src/styles.css'
       - 'frontend/e2e/session-workspace-presentation.spec.ts'
+      - 'frontend/e2e/discovery-presentation.spec.ts'
       - 'frontend/playwright.presentation.config.ts'
       - 'frontend/package*.json'
       - 'docs/ia-information-architecture.md'
@@ -56,11 +58,11 @@ jobs:
       - name: Install Chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
-      # Read-only API fixtures isolate the saved-address contract from full
-      # backend regressions; this check does not certify external execution.
-      - name: Verify independent session addresses and recovery
+      # API fixtures cover saved addresses and rendered task presentation.
+      # This check does not certify external execution.
+      - name: Verify session addresses and Chat-discovery presentation
         working-directory: frontend
-        run: npx playwright test --config=playwright.presentation.config.ts e2e/session-workspace-presentation.spec.ts --reporter=line
+        run: npx playwright test --config=playwright.presentation.config.ts e2e/session-workspace-presentation.spec.ts e2e/discovery-presentation.spec.ts --reporter=line
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

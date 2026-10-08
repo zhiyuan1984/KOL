@@ -848,7 +848,7 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | 条件表单 | `DiscoverySearchCard` / `SkillParamCard` | `discovery-workspace.css` | 文字勾选、关键词可编辑、提交后摘要 |
 | 固定结果头 | `WorkspaceShell` / `DiscoveryResultPane` | `styles.css` / `discovery-workspace.css` | 状态、筛选与批量控件始终可用 |
 | 候选筛选 | `LifecycleNavigation` | `lifecycle-workspace.css` | 共享导航语义、按本次集合计数 |
-| 红人线索行 | `DiscoveryLeadRow` | `styles.css` | 动作位于正文下方、完整证据可展开 |
+| 红人线索行 | `DiscoveryLeadRow` / `DiscoveryRuntimeCandidate` | `styles.css` | 动作位于正文下方、完整证据可展开；runtime 内容类不继承公海网格列与裁切 |
 
 `styles.css` 负责共享 token、Home 导航、工作台几何与线索行；发现两份 CSS 负责条件和事件内容。禁止在发现内容 CSS 再复制整套线索行。`LifecycleNavigation` 可接收调用方 data 属性用于稳定定位，不解释业务状态。Token 登记表仅证明定义与引用一致；页面接入以本节资产和可观察结果单独核查。
 

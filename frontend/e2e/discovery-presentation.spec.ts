@@ -24,6 +24,7 @@ test("reply revisions preserve unsaved human draft, show source and escape mail 
   const fixture = await replyFixture(page);
   await page.clock.install();
   await page.goto("/s/reply-ui-session");
+  await expect(page.locator('[data-scope-workspace="session"]')).toBeVisible({ timeout: 15000 });
   const panel = page.locator("[data-reply-context]");
   await expect(panel).toContainText("读取已核验缓存");
   const body = page.locator("[data-draft-body]");
@@ -43,6 +44,7 @@ test("reply revisions preserve unsaved human draft, show source and escape mail 
 test("reply source failure and revocation remain explicit while human editor survives", async ({page}) => {
   const fixture = await replyFixture(page);
   await page.goto("/s/reply-ui-session");
+  await expect(page.locator('[data-scope-workspace="session"]')).toBeVisible({ timeout: 15000 });
   const panel = page.locator("[data-reply-context]");
   await expect(panel).toContainText("读取已核验缓存");
   await page.locator("[data-draft-body]").fill("Retained edit");
@@ -70,6 +72,7 @@ test("a new reply analysis round keeps the earlier unsaved human draft", async (
   try {
     await page.route("**/api/sessions/reply-ui-session/events",route => route.continue({url: `http://127.0.0.1:${address.port}/events`}));
     await page.goto("/s/reply-ui-session");
+    await expect(page.locator('[data-scope-workspace="session"]')).toBeVisible({ timeout: 15000 });
     const body = page.locator("[data-draft-body]");
     await expect(body).toHaveValue("Saved human draft");
     await body.fill("Unsubmitted partial human adoption");
@@ -162,7 +165,7 @@ async function intercept(page: Page, taskDelay = 0, settled = false, themeOrCand
     } else if (path === "/api/queries/runtime.actions") json = { actions: [{
       id: "presentation-action", skill_id: "crawler_collect", operation: "start_crawl", risk: "L3", state: settled ? "succeeded" : "pending",
       created_at: "2026-10-05T01:03:00Z",
-      crawl: candidateMode ? { id: 'presentation-action', state: 'succeeded', result_state: 'ready', result_json: {
+      crawl: candidateMode ? { id: 'presentation-action', state: 'succeeded', remote_status: 'idle', result_state: 'ready', result_json: {
         task_id: 'remote-task', complete: true, captured_at: '2026-10-05T01:05:00Z', candidates: [{
           id: 'channel-stable', name: 'Camping creator', platform: 'youtube', source_url: 'https://youtube.com/channel/channel-stable',
           followers: 3000000, avg_views_10: null, region: null, snapshot_version: 'candidate-version', ignored,
@@ -442,6 +445,41 @@ test('unlimited upper followers remains optional and candidate cards fit the rig
     expect(sizes.contents).toBeLessThanOrEqual(sizes.visible + 1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   }
+});
+
+test('saved discovery entries keep candidate content in one column with actions below evidence', async ({ page }, info) => {
+  test.setTimeout(60000);
+  await intercept(page, 0, true, true);
+  const measurements = [];
+  for (const width of [1440, 1024, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const path of [`/?tab=discovery&session_id=${task.session_id}`, `/s/${task.session_id}`]) {
+      await page.goto(path);
+      await expect(page).toHaveURL(path);
+      const card = page.locator('[data-discovery-candidate=channel-stable]');
+      await expect(card).toBeVisible();
+      await expect(page.locator('[data-discovery-remote-state]')).toHaveText('采集完成');
+      const layout = await card.evaluate(el => {
+        const content = el.querySelector('.pool-row-content, .discovery-runtime-content')!;
+        const children = [...content.children].map(child => ({
+          tag: child.tagName, className: child.className, x: child.getBoundingClientRect().x,
+          top: child.getBoundingClientRect().top, bottom: child.getBoundingClientRect().bottom,
+          width: child.getBoundingClientRect().width, scrollWidth: child.scrollWidth, clientWidth: child.clientWidth,
+        }));
+        const actions = content.querySelector('.discovery-candidate-actions, .discovery-runtime-actions')!;
+        return { columns: getComputedStyle(content).gridTemplateColumns, actionsDisplay: getComputedStyle(actions).display, children };
+      });
+      measurements.push({ path, width, ...layout });
+      await page.screenshot({ path: info.outputPath(`candidate-${width}-${path.startsWith('/s/') ? 'session' : 'home'}.png`) });
+      expect(layout.actionsDisplay).toBe('flex');
+      const actions = layout.children.find(child => /discovery-(candidate|runtime)-actions/.test(child.className))!;
+      const evidence = layout.children.find(child => child.tag === 'DETAILS')!;
+      expect(actions.top).toBeGreaterThanOrEqual(evidence.bottom);
+      expect(layout.children.every(child => Math.abs(child.x - layout.children[0].x) <= 1)).toBe(true);
+      expect(layout.children.filter(child => child.scrollWidth > child.clientWidth + 1)).toEqual([]);
+    }
+  }
+  await info.attach('candidate-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' });
 });
 for (const theme of ["light", "dark"]) {
   test(`discovery request text and control names remain accessible in ${theme}`, async ({ page }, info) => {
