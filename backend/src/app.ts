@@ -10,6 +10,7 @@ import { authDisabled, authMiddleware, authRouter, ensureDemoAdmin, scopedUser }
 import { clawRouter, starryRouter } from "./adapters/httpMount.js";
 import { clawMode, codexMode, DEMO_ADMIN, DEMO_USER, frontendDist } from "./config.js";
 import { codexBinOk, isTestRuntime } from "./codex-runtime.js";
+import { isSerializationFailure } from "./postgres/pool.js";
 import { getConn } from "./db.js";
 import { host } from "./host/api.js";
 import { HostReject, HttpFail } from "./host/errors.js";
@@ -58,6 +59,19 @@ import { events } from "./routers/events.js";
 import { reconcileTickets } from "./tickets.js";
 import { reconcileDocumentJobs } from "./host/knowledge-documents.js";
 
+/** 需要同步 workbench ticket principal（PG 镜像、可审计外键）的正式权限路径。 */
+export function isFormalAuthorityPath(pathname: string): boolean {
+  return pathname.startsWith("/api/tickets")
+    || pathname === "/api/task-work-orders"
+    || pathname.startsWith("/api/task-work-orders/")
+    || pathname.startsWith("/api/cron/")
+    || pathname.startsWith("/api/admin/scheduling/")
+    || pathname.startsWith("/api/admin/work-orders/")
+    // KOL 线索/合作页：建 Task 根、发已核验事件，需要同步 workbench ticket principal
+    //（否则 requireTicketPrincipal 401“请先登录工作台”）。
+    || pathname.startsWith("/api/kol/");
+}
+
 export function createApp(): Hono {
   getConn();
   seedIfEmpty();
@@ -80,12 +94,6 @@ export function createApp(): Hono {
   app.use("/api/*", compress());
   app.use("/api/*", async (c, next) => {
     const pathname = new URL(c.req.url).pathname;
-    const formalAuthorityPath = pathname.startsWith("/api/tickets")
-      || pathname === "/api/task-work-orders"
-      || pathname.startsWith("/api/task-work-orders/")
-      || pathname.startsWith("/api/cron/")
-      || pathname.startsWith("/api/admin/scheduling/")
-      || pathname.startsWith("/api/admin/work-orders/");
     // Scheduler tick can authenticate with a dedicated secret and therefore
     // intentionally bypasses browser ticket-session middleware.
     if (pathname === "/api/cron/internal/tick") return next();
@@ -94,7 +102,7 @@ export function createApp(): Hono {
     // into PostgreSQL for auditable foreign keys; they never request another
     // account, password, cookie, setup, or login page.
     return authMiddleware(c, async () => {
-      if (!formalAuthorityPath) return next();
+      if (!isFormalAuthorityPath(pathname)) return next();
       const user = scopedUser() || (authDisabled() ? {
         id: DEMO_USER.id, username: DEMO_USER.handle, name: DEMO_USER.name,
         email: DEMO_ADMIN.email, roles: ["employee", "admin"], active: true,
@@ -111,6 +119,11 @@ export function createApp(): Hono {
     }
     if (err instanceof HttpFail) {
       return c.json({ detail: err.detail }, err.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503);
+    }
+    // Serialization conflicts are transient; never leak the raw database
+    // message to the client. The transaction layer already retried.
+    if (isSerializationFailure(err)) {
+      return c.json({ detail: "数据并发冲突，请稍后重试", code: "concurrency_conflict" }, 503);
     }
     if (err instanceof HTTPException) {
       // hono 中间件（如 body-limit）抛出的 HTTPException 没有 message；
