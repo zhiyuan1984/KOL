@@ -473,7 +473,29 @@ describe("task CRUD and run flow", () => {
     expect(run.status).toBe(422);
     expect(run.body.needs_clarification).toBe(true);
     expect(run.body.message).toEqual(expect.stringContaining("缺少："));
-    expect(run.body.message).toEqual(expect.stringContaining("目标阶段"));
+    expect(run.body.message).toEqual(expect.stringContaining("合作红人"));
+  });
+
+  it("accepts explicit mail collaboration and target stage without a 422", async () => {
+    getConn().prepare(
+      `INSERT INTO collaborations (id, handle, display_name, brand, platform, stage_code)
+       VALUES ('col_mail_stage', 'mailstagekol', 'Mail Stage KOL', 'LT', 'youtube', 'QUOTE_PENDING')`,
+    ).run();
+    const created = await request("POST", "/api/tasks/from-text", {
+      text: "提出阶段变更 @mailstagekol 到 商务谈判",
+      collaboration_id: "col_mail_stage",
+      skill_id: "confirm_stage",
+      entities: { handle: "mailstagekol", stage_code: "NEGOTIATING", proposed_stage: "NEGOTIATING" },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.needs_clarification).toBe(false);
+    const task = created.body.task as Json;
+    expect(task.task_type).toBe("confirm_stage");
+    const run = await request("POST", `/api/tasks/${task.id}/run`, {});
+    expect(run.status).toBe(200);
+    expect(run.body.session_id).toEqual(expect.any(String));
+    expect(getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_mail_stage"))
+      .toMatchObject({ stage_code: "QUOTE_PENDING" });
   });
 
   it("routes a creator-search phrase into the discovery workspace without calling remote start", async () => {
