@@ -14,9 +14,13 @@ import { runtimeCandidateCommand, runtimeCandidateViews } from "../src/crawl/can
 import { readPublicPoolPage, parsePoolPageOptions } from "../src/postgres/public-pool.js";
 import { discoveryResultContext } from "../src/crawl/context.js";
 import type { RuntimeContext } from "../src/runtime/execution.js";
-import { importKolProfilesFromCrawlerConfirmed } from "../src/gateway/import-creator.js";
+import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid } from "../src/gateway/import-creator.js";
 
-vi.mock("../src/gateway/import-creator.js", () => ({ importKolProfilesFromCrawlerConfirmed: vi.fn() }));
+vi.mock("../src/gateway/import-creator.js", () => ({
+  importKolProfilesFromCrawlerConfirmed: vi.fn(),
+  lookupImportedKolUid: vi.fn(),
+  withTimeout: vi.fn(async (operation: Promise<unknown>) => operation),
+}));
 const COMPANY = "company:amperetime";
 const candidate = { id: "stable-channel", name: "Camping channel", platform: "youtube", source_url: "https://youtube.com/channel/stable-channel", followers: 3000000, avg_views_10: null, region: null };
 let temp: string;
@@ -59,6 +63,7 @@ beforeEach(async () => {
       VALUES($1,$1,$2,$3,1,'{}',$1,'succeeded','ready',$4)`, [`action-${i}`, users[i].id, JSON.stringify(ctx(users[i].id)), JSON.stringify({ candidates: [candidate], complete: true, captured_at: new Date().toISOString() })]);
   }
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockReset();
+  vi.mocked(lookupImportedKolUid).mockReset();
 });
 afterEach(() => { resetConn(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -100,10 +105,34 @@ it("imports once with a real returned UID, independently of personal follow", as
   expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).toHaveBeenCalledTimes(1);
   expect((await postgresPool().query("SELECT * FROM kol_follow_index")).rows).toHaveLength(0);
 });
-it("never dispatches again after an uncertain import result", async () => {
+it("reconciles an uncertain import when Starry already has the KOL", async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValue(new Error("test transport timeout"));
   const v = await version();
   await expect(command(0, "ingest", v)).rejects.toThrow("test transport timeout");
+  // Starry 侧已写入：第二次真去核对，直接成功，不再派发。
+  vi.mocked(lookupImportedKolUid).mockResolvedValue("kol_uid_123");
+  const result = await command(0, "ingest", v);
+  expect(result).toMatchObject({ ok: true, kol_uid: "kol_uid_123", in_pool: true, reused: true });
+  expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).toHaveBeenCalledTimes(1);
+});
+
+it("re-dispatches only after verifying Starry does not have the KOL", async () => {
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValue(new Error("test transport timeout"));
+  const v = await version();
+  await expect(command(0, "ingest", v)).rejects.toThrow("test transport timeout");
+  // Starry 侧没有：核对后重新派发（非盲目），仍失败则回到 uncertain。
+  vi.mocked(lookupImportedKolUid).mockResolvedValue("");
+  await expect(command(0, "ingest", v)).rejects.toThrow("test transport timeout");
+  expect(vi.mocked(lookupImportedKolUid)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).toHaveBeenCalledTimes(2);
+});
+
+it("stays uncertain when the reconcile lookup itself fails", async () => {
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValue(new Error("test transport timeout"));
+  const v = await version();
+  await expect(command(0, "ingest", v)).rejects.toThrow("test transport timeout");
+  // 核对本身失败：不删行、不盲目重试，诚实报核对失败。
+  vi.mocked(lookupImportedKolUid).mockRejectedValue(new Error("starry down"));
   await expect(command(0, "ingest", v)).rejects.toMatchObject({ detail: { code: "import_creator_uncertain" } });
   expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).toHaveBeenCalledTimes(1);
 });

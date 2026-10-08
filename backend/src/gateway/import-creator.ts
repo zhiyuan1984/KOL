@@ -37,8 +37,7 @@ export type ImportCreatorInput = {
 };
 
 export type AddKolProfileInput = {
-  kolName: string;
-  contactEmail: string;
+  kolName: string;  contactEmail: string;
   dataSource?: string;
   /** 负责人字段（ownerOpenId 必填）：`resolveStarryOwnerForMailbox` 的结果。 */
   owner: Json;
@@ -49,6 +48,28 @@ export type AddKolProfileInput = {
 };
 
 export const ADD_KOL_PROFILE_TOOL = "addKolProfile";
+
+/**
+ * Starry MCP 调用的硬上限：底层 managed client 没有超时，无限挂起会被
+ * nginx 60s 掐断（504）。超时后走既有的 isStarryTimeout 兜底路径
+ *（pageKolProfiles 核对），返回真实状态，不伪造完成。
+ */
+const STARRY_IMPORT_TIMEOUT_MS = 120_000;
+const STARRY_LOOKUP_TIMEOUT_MS = 30_000;
+
+export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} request timed out`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 const CONTACT_EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
@@ -199,7 +220,7 @@ export async function lookupImportedKolUid(input: {
   if (!keyword) return "";
   const listed = await callStarryKolTool("pageKolProfiles", {
     requestJson: JSON.stringify({ pageNo: 1, pageSize: 20, keyword }),
-  }, { timeoutMs: 30_000 });
+  }, { timeoutMs: STARRY_LOOKUP_TIMEOUT_MS });
   const fromList = parseImportedKolUid(listed);
   if (isRealKolUid(fromList)) return fromList;
   for (const row of listOf(asObject(listed))) {
@@ -237,10 +258,14 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
   let data: Json;
   let lookedUpAfterTimeout = false;
   try {
-    data = await callStarryKolTool(IMPORT_CREATOR_TOOL, {
-      fileName: input.file.fileName,
-      fileBase64: input.file.fileBase64,
-    }, { timeoutMs: 120_000 });
+    data = await withTimeout(
+      callStarryKolTool(IMPORT_CREATOR_TOOL, {
+        fileName: input.file.fileName,
+        fileBase64: input.file.fileBase64,
+      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS }),
+      STARRY_IMPORT_TIMEOUT_MS,
+      "importKolProfilesFromCrawler",
+    );
   } catch (error) {
     if (isStarryTimeout(error)) {
       audit(actor, "host.import_creator.timeout_lookup", {
@@ -252,10 +277,14 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
         retried_import: false,
       });
       try {
-        const found = await lookupImportedKolUid({
-          keyword: input.lookupKeyword,
-          creatorExternalId: input.creatorExternalId,
-        });
+        const found = await withTimeout(
+          lookupImportedKolUid({
+            keyword: input.lookupKeyword,
+            creatorExternalId: input.creatorExternalId,
+          }),
+          STARRY_LOOKUP_TIMEOUT_MS,
+          "pageKolProfiles",
+        );
         if (isRealKolUid(found)) {
           lookedUpAfterTimeout = true;
           data = { kolUid: found, looked_up_after_timeout: true, retried: false };
@@ -393,9 +422,13 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
   };
   let data: Json;
   try {
-    data = await callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
-      requestJson: JSON.stringify(body),
-    });
+    data = await withTimeout(
+      callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
+        requestJson: JSON.stringify(body),
+      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS }),
+      STARRY_IMPORT_TIMEOUT_MS,
+      "addKolProfile",
+    );
   } catch (error) {
     const reason = isStarryTimeout(error) ? "timeout" : "failed";
     audit(actor, "host.add_kol_profile.failed", {
