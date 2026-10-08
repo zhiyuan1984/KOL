@@ -56,6 +56,11 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
     startAction,
   } = state;
   const showResults = available.length > 0;
+  // 最终结果已经到达后，结果本身成为页面主信息：隐藏阶段性任务状态和重复的“本次结果”标题。
+  // 仅在真实成功态下触发，避免候选提前到达时误把任务进行状态隐藏。
+  const hasFinalResults = showResults && (
+    startPhase === "succeeded" || crawlPhase === "succeeded" || stage === "success"
+  );
   const activeCrawl = ["queued", "starting", "running", "stopping", "crawling", "uploading", "analyzing"].includes(String(crawlPhase || "").toLowerCase())
     || ["dispatching", "starting", "running"].includes(startPhase);
   const selecting = selected.length > 0;
@@ -108,7 +113,7 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
         </div>
       </header>);
   const resultControls = (<div className="discovery-result-controls" data-discovery-result-controls>
-      <span className="discovery-result-scope">本次结果</span>
+      {!hasFinalResults ? <span className="discovery-result-scope">本次结果</span> : null}
       <div className="discovery-result-filters" data-discovery-result-filters>
         <LifecycleNavigation label="按入库准备度筛选本次结果" mode="filter" idPrefix="discovery-results"
           value={resultFilter} onChange={(id) => setResultFilter(id as typeof resultFilter)}
@@ -146,7 +151,7 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
     </div>);
   if (region === "header") {
     return <div className="discovery-result-header" data-discovery-result-header>
-      {statusHeader}
+      {!hasFinalResults ? statusHeader : null}
       {showResults ? resultControls : null}
     </div>;
   }
@@ -158,7 +163,7 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
       data-discovery-stage={stage}
       data-discovery-running={inFlight ? "true" : undefined}
     >
-      {region === "all" ? statusHeader : null}
+      {region === "all" && !hasFinalResults ? statusHeader : null}
 
       {runFromAnotherTask ? (
         <p className="discovery-flow-note" data-discovery-previous-run>
