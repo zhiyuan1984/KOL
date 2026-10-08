@@ -17017,6 +17017,24 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   .tasks-page .task-center-actions a { padding-inline: 2px; }
   .task-detail-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* Agent session visual baseline: 2e909ebe^ (6c71dca9), DESIGN §27.1. */
+:root {
+  --agent-font: var(--ds-font-sm);
+  --agent-answer-line: var(--ds-line-ui);
+  --agent-compact-line: var(--ds-line-sm);
+  --agent-event-gap: var(--space-4);
+  --agent-block-gap: var(--space-1);
+  --agent-read-pad-y: var(--space-2);
+  --agent-pad-x: var(--space-3);
+  --agent-action-pad: var(--space-3);
+  --agent-user-radius: var(--radius-sm);
+  --agent-card-radius: var(--radius-md);
+  --agent-composer-pad-top: 21px;
+  --agent-composer-pad-x: var(--space-5);
+  --agent-composer-pad-bottom: 10px;
+  --agent-composer-gap: var(--space-1);
+  --agent-composer-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+}
 .compact-button {
   box-sizing: border-box;
   display: inline-flex;

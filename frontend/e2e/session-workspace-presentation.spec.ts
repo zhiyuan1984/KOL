@@ -1,8 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+const sessionVisualBaseline = JSON.parse(readFileSync(new URL("./fixtures/session-visual-pre-2e909ebe.json", import.meta.url), "utf8"));
 test.setTimeout(60000);
 
 // UI fixtures validate rendering and request boundaries, not external execution.
-async function fixture(page: Page, discovery = false, withDraft = false, initialResult = true, sessionId = "ordinary-session") {
+async function fixture(page: Page, discovery = false, withDraft = false, initialResult = true, sessionId = "ordinary-session", theme = "light", visual = false) {
   const errors: string[] = [];
   const writes: Array<{ path: string; body: unknown }> = [];
   let actionState = "pending";
@@ -13,7 +15,7 @@ async function fixture(page: Page, discovery = false, withDraft = false, initial
   const task = { id: "workspace-task", session_id: sessionId, title: discovery ? "露营线索发现" : "合作报告",
     status: "waiting", execution: { result_ready: true }, skill_id: discovery ? "crawler_collect" : "kol_analyze",
     input: discovery ? { discovery_workspace: { kind: "discovery", version: 1, agent_id: "lead", profile: "lead",
-      brief, template: { id: "crawler_collect", skill_id: "crawler_collect", version: "1", title: "采集线索", inputs: [], steps: [], constraints: [] }, submitted_text: "发现露营线索" } } : {} };
+      brief, template: { id: "crawler_collect", skill_id: "crawler_collect", version: "1", title: "采集线索", inputs: [], steps: [], constraints: [] }, submitted_text: "【发现任务】\n发现露营线索" } } : {} };
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error" && /Maximum update depth|route crash/.test(message.text())) errors.push(message.text()); });
   await page.route("**/api/**", async route => {
@@ -23,7 +25,10 @@ async function fixture(page: Page, discovery = false, withDraft = false, initial
     if (request.method() === "POST") writes.push({ path, body: request.postDataJSON() });
     if (path === "/api/auth/status") json = { authenticated: true, account: { id: "employee", name: "员工", available_modes: ["employee"] } };
     else if (path === "/api/me") json = { id: "employee", name: "员工", available_modes: ["employee"] };
-    else if (path === "/api/preferences") json = { theme: "light" };
+    else if (path === "/api/preferences") json = { theme };
+    else if (path === "/api/task-definitions" && discovery) json = [{ id: "crawler_collect", title: "采集线索", granted: true,
+      ui_template: { id: "crawler_collect", kind: "skill_template", skill_id: "crawler_collect", version: "1", title: "采集线索",
+        description: "采集公开线索", inputs: [], steps: [], constraints: [], starter: "发现线索", output: { type: "discovery_candidates", title: "候选线索" }, source: "skill", read_only: true } }];
     else if (path.includes("/api/tasks/by-session/") || path === "/api/tasks/workspace-task") {
       if (taskReadStatus !== 200) return route.fulfill({ status: taskReadStatus, json: { detail: "会话任务暂时无法读取" } });
       json = { task };
@@ -43,6 +48,10 @@ async function fixture(page: Page, discovery = false, withDraft = false, initial
         { id: "report-1", kind: "task_result_card", created_at: "2026-10-08T01:01:00Z", payload: { title: withDraft ? "邮件草稿" : "合作报告", summary: "报告已生成",
           ...(withDraft ? { subject: "合作邮件", body: "人工草稿", draft_id: "mail-draft" } : {}), sections: [{ title: "完整成果", content: "真实成果的完整正文".repeat(100) }] } },
         ...(withDraft ? [{ id: "draft-1", kind: "email_card", payload: { draft_id: "mail-draft", from: "owner@example.test", to: "creator@example.test", subject: "合作邮件", body: "人工草稿", status: "draft", allowed_from_mailboxes: [{ email: "owner@example.test", authorized: true }] } }] : []),
+        ...(visual ? [
+          { id: "visual-draft", kind: "task_result_card", payload: { title: "邮件草稿", summary: "待审核草稿" } },
+          { id: "visual-confirm", kind: "confirm_stage_card", payload: { proposed_stage: "BUSINESS_NEGOTIATION", summary: "待确认阶段建议" } },
+        ] : []),
       ].filter(message => initialResult || message.kind !== "task_result_card"),
     };
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: "" });
@@ -218,6 +227,59 @@ for (const sessionId of ["ordinary-session", "ses_discovery_saved"]) {
     await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", sessionId);
     expect(state.writes).toEqual([]);
     expect(state.errors).toEqual([]);
+  });
+}
+
+// Captured from styles.css + composer.css in their entry import order at 2e909ebe^, with the original
+// session-center/message/composer markup. Equality between current pages alone
+// cannot prove that they retained the user-selected historical appearance.
+for (const theme of ["light", "dark"] as const) {
+  test(`both agent surfaces retain the pre-2e909ebe session tokens in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const baseline = sessionVisualBaseline.themes[theme];
+    const sample = async (selector: string) => {
+      const target = page.locator(selector).first();
+      await expect(target).toBeAttached();
+      return target.evaluate((el, keys) => {
+        const s = getComputedStyle(el);
+        return Object.fromEntries(keys.map(key => [key, s.getPropertyValue(key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`))]));
+      }, Object.keys(baseline.assistant));
+    };
+    const state = await fixture(page, false, false, true, "ordinary-session", theme, true);
+    await page.goto("/s/ordinary-session");
+    await expect(page.locator('[data-agent-visual="session-pre-2e909ebe"]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    expect(await sample('.message.is-user')).toEqual(baseline.user);
+    expect(await sample('.message.is-assistant:not(.result-card):not([data-risk])')).toEqual(baseline.assistant);
+    expect(await sample('.message[data-stream-entry="report-1"]')).toEqual(baseline.read);
+    expect(await sample('.message[data-stream-entry="visual-draft"]')).toEqual(baseline.draft);
+    expect(await sample('.message[data-stream-entry="visual-confirm"]')).toEqual(baseline.confirm);
+    expect(await sample('.composer--workspace')).toEqual(baseline.composer);
+    expect(await sample('.composer--workspace textarea')).toEqual(baseline.input);
+    await page.goto('/s/confirmation-session');
+    expect(await sample('.runtime-action-card')).toEqual(baseline.action);
+    await page.unroute('**/api/**');
+    const discovery = await fixture(page, true, false, true, 'saved-discovery', theme);
+    for (const url of ['/s/saved-discovery', '/?tab=discovery&session_id=saved-discovery']) {
+      await page.goto(url);
+      await expect(page.locator('[data-agent-visual="session-pre-2e909ebe"]')).toBeVisible({ timeout: 15000 });
+      for (const event of ['skill', 'guidance', 'conditions', 'params']) {
+        expect(await sample(`[data-discovery-event="${event}"]`)).toEqual(baseline.assistant);
+      }
+      expect(await sample('[data-discovery-event="confirm"]')).toEqual(baseline.action);
+      await page.getByRole('button', { name: '编辑完整请求' }).click();
+      expect(await sample('.composer--workspace')).toEqual(baseline.composer);
+      expect(await sample('.composer--workspace textarea')).toEqual(baseline.input);
+      const parameterLayout = await page.locator('[data-discovery-params-executed] dt').first().evaluate(el => ({
+        display: getComputedStyle(el).display, fontSize: getComputedStyle(el).fontSize,
+        lineHeight: getComputedStyle(el).lineHeight, separator: getComputedStyle(el, '::after').content,
+      }));
+      expect(parameterLayout).toEqual({ display: 'inline', fontSize: '13px', lineHeight: '20px', separator: '"："' });
+      expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(url);
+    }
+    expect([...state.writes, ...discovery.writes]).toEqual([]);
+    expect([...state.errors, ...discovery.errors]).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath(`session-visual-${theme}.png`) });
   });
 }
 

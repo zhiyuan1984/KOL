@@ -1,0 +1,63 @@
+/* DESIGN §27.1: both entry surfaces use the session visuals from 6c71dca9.
+   Geometry, routing, execution phases and confirmation ownership belong to the shell/hooks. */
+.scope-workspace[data-agent-visual] {
+  font-size: var(--agent-font);
+  color: var(--text);
+}
+.scope-workspace[data-agent-visual] :is(.conversation-content, .discovery-flow) {
+  display: flex; flex-direction: column; gap: var(--agent-event-gap); min-width: 0;
+}
+.scope-workspace[data-agent-visual] :is(.message, .discovery-event) {
+  min-width: 0; font-size: var(--agent-font); color: var(--text);
+  line-height: var(--agent-answer-line); gap: var(--agent-block-gap);
+}
+.scope-workspace[data-agent-visual] :is(.message.is-assistant:not([data-risk]):not(.result-card), .discovery-event:not([data-discovery-event="confirm"])) {
+  background: transparent; border: 0; border-radius: 0; padding: 0; box-shadow: none;
+}
+.scope-workspace[data-agent-visual] .message.is-user {
+  background: var(--bg-elevated); border: 0; border-radius: var(--agent-user-radius);
+  padding: var(--agent-read-pad-y) var(--agent-pad-x); box-shadow: none;
+  font-size: var(--agent-font); line-height: var(--agent-compact-line);
+}
+.scope-workspace[data-agent-visual] .message.risk-l1 {
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--agent-card-radius);
+  padding: var(--agent-read-pad-y) var(--agent-pad-x); line-height: var(--agent-compact-line); gap: 0;
+}
+.scope-workspace[data-agent-visual] .message.result-card { box-shadow: var(--shadow-quiet); }
+.scope-workspace[data-agent-visual] .message:is(.risk-l2, .risk-l3) {
+  border-radius: var(--agent-card-radius); padding: var(--agent-action-pad); line-height: var(--agent-answer-line);
+}
+.scope-workspace[data-agent-visual] :is(.runtime-action-card, .discovery-event[data-discovery-event="confirm"]) {
+  display: block;
+  gap: normal;
+  background: transparent; border: 0; border-radius: 0; box-shadow: none;
+  padding: var(--agent-action-pad); margin-block: var(--space-2); line-height: var(--agent-compact-line);
+}
+.scope-workspace[data-agent-visual] :is(.message .md p, .discovery-event p) { margin-block: 0 var(--space-1); }
+.scope-workspace[data-agent-visual] :is(.message .md, .discovery-event) > :last-child { margin-bottom: 0; }
+.scope-workspace[data-agent-visual] .discovery-event :is(p, li, dt, dd, output) {
+  font-size: var(--agent-font); line-height: inherit;
+}
+.scope-workspace[data-agent-visual] :is(.discovery-event-kicker, .discovery-event-status, .discovery-params-group-title) {
+  font-size: var(--agent-font); line-height: var(--agent-compact-line);
+}
+.scope-workspace[data-agent-visual] :is(.discovery-event-head, .runtime-action-heading) { gap: var(--space-2); }
+.scope-workspace[data-agent-visual] .discovery-params-list {
+  gap: var(--agent-block-gap); margin-block: var(--space-2); line-height: var(--agent-compact-line);
+}
+.scope-workspace[data-agent-visual] .discovery-params-list > div { display: block; }
+.scope-workspace[data-agent-visual] .discovery-params-list :is(dt, dd) { display: inline; }
+.scope-workspace[data-agent-visual] .discovery-params-list dt::after { content: '：'; }
+.scope-workspace[data-agent-visual] .discovery-run-steps { gap: var(--agent-block-gap); }
+.scope-workspace[data-agent-visual] .discovery-run-say { line-height: var(--agent-answer-line); }
+.scope-workspace[data-agent-visual] .composer.composer--workspace {
+  padding: var(--agent-composer-pad-top) var(--agent-composer-pad-x) var(--agent-composer-pad-bottom);
+  gap: var(--agent-composer-gap); border-radius: var(--composer-radius); box-shadow: var(--agent-composer-shadow);
+}
+.scope-workspace[data-agent-visual] .composer.composer--workspace textarea {
+  font-size: var(--agent-font); line-height: var(--agent-compact-line);
+}
+.scope-workspace[data-agent-visual] :is(.discovery-runtime-meta, .discovery-runtime-facts,
+  .discovery-runtime-candidate p, .discovery-runtime-candidate details, .discovery-runtime-status) {
+  font-size: var(--agent-font); line-height: var(--agent-compact-line);
+}

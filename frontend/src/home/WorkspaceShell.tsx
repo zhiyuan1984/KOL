@@ -4,6 +4,7 @@ import { useWorkspaceScroll } from "../hooks/useWorkspaceScroll";
 import ResultRail from "./workspace/ResultRail";
 import type { ResultRailViewModel } from "./workspace/result-contract";
 import "./workspace/workspace-shell.css";
+import "./workspace/agent-session.css";
 
 export type WorkspacePane = "today" | "todo" | "discovery" | "pool" | "lifecycle" | "session";
 export function revealWorkspace(sessionId: string, region: "center" | "rail", target?: string) {
@@ -63,7 +64,8 @@ export default function WorkspaceShell({ pane, railLabel, railToggleLabel, railS
   }, [pendingTarget, scrollReady]);
   const jumpLabel = center.position.updated ? "回到最新" : center.position.atBottom ? "滚到顶部" : "滚到底部";
   return <section className={`home-mode-pane scope-workspace ${className}${railCollapsed ? " is-task-rail-collapsed" : ""}${resultIdle ? " is-result-idle" : ""}${focusResults ? " is-result-focus" : ""}`}
-    data-home-pane={pane} data-scope-workspace={pane} data-workspace-session={sessionId}>
+    data-home-pane={pane} data-scope-workspace={pane} data-workspace-session={sessionId}
+    data-agent-visual={pane === "session" || pane === "discovery" ? "session-pre-2e909ebe" : undefined}>
     <div className={`scope-workspace-center${pane === "session" ? " session-center" : ""}`} data-scope-ai-workspace>
       <div className="scope-workspace-center-content">
         {centerHeader}

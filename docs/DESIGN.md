@@ -31,6 +31,7 @@ scope:
 > 修订记录（2026-10-08 v3.3）：新增 §25 生命周期业务组件契约，并以工单治理页接入验证。Token 登记表重新生成，待落地项如实标注，不以文档登记冒充已实现。
 
 > 修订记录（2026-10-08 v3.4）：新增 §26 会话工作台组件契约，落地于 `/?tab=discovery&session_id=…`。复用 v3.3 的 LifecycleNavigation；固定结果头、紧凑条件与结果行只调整呈现，保留受控采集、入库确认和真实回执。
+> 修订记录（2026-10-08 视觉基准纠正）：按用户明确要求，Chat 与 AI发现均采用 `2e909ebe^`（`6c71dca9`）的 session 智能体视觉，具体 token 和映射见 §27.1。共享发现页骨架不代表采用发现页原有的逐段描边卡片样式。
 
 ## 0. 给 LLM 的阅读指引
 1. 先读 **§1 不变量**（8 条），任何分节与之冲突时不变量优先。
@@ -870,7 +871,32 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 - 阅读位置按任务身份分别保存中栏与右栏；新任务从顶部进入，恢复任务优先回到保存位置或待处理确认。回看历史、编辑表单时更新不抢滚动，提供单一“回到最新”入口。
 - 发现任务由服务端保存的工作台类型与条件决定原地址内的呈现，不依赖会话 ID 的命名，不通过跳回 Home 实现组件复用。会话链接与 Home 恢复链接进入同一任务并保留各自入口地址；读取与恢复本身不创建采集、发送或导入。
 - 智能体头像复用共享组件，只有活跃阶段播放，完成后静止；减少动效偏好下使用静态图。下载、复制、分享放入紧凑“更多操作”入口。
-- 文字沿用 §5 当前口径，几何沿用 §6/10/11，不新增页面独有 token 数值。
+- 文字沿用 §5 当前口径，几何沿用 §6/10/11；两套页面的智能体视觉必须执行 §27.1 的 session 基准，不以发现页样式反向覆盖 Chat。
+
+### 27.1 智能体视觉基准：`2e909ebe` 前的 session
+
+基准提交为 `6c71dca958d1e3ff9dde84be34fb16da8ddf6742`（`2e909ebe^`）。范围覆盖消息、过程、参数、确认、结果文字与输入框；业务功能和路由按现行契约保留。普通 Chat、发现 Home 深链和独立发现 session 都消费同一份 `workspace/agent-session.css`，禁止分别维护两套智能体表面样式。颜色值仍只在 `styles.css`。
+
+| 共享 token | 值／来源 | 职责 |
+|---|---|---|
+| `--agent-font` | `--ds-font-sm`，13px | 智能体正文、参数、确认、结果文字与输入 |
+| `--agent-answer-line` | `--ds-line-ui`，24px | 普通回复和 Markdown 行高 |
+| `--agent-compact-line` | `--ds-line-sm`，20px | 用户消息、只读结果、执行确认与输入文字的紧凑行高 |
+| `--agent-event-gap` / `--agent-block-gap` | `--space-4` / `--space-1`，16px / 4px | 事件之间 / 块内节奏 |
+| `--agent-read-pad-y` / `--agent-pad-x` | `--space-2` / `--space-3`，8px / 12px | 用户消息与只读结果内边距 |
+| `--agent-action-pad` | `--space-3`，12px | 执行范围与确认块内边距 |
+| `--agent-user-radius` / `--agent-card-radius` | `--radius-sm` / `--radius-md`，6px / 8px | 用户消息 / 风险与结果卡圆角 |
+| `--agent-composer-pad-top` / `--agent-composer-pad-x` / `--agent-composer-pad-bottom` | 21px / `--space-5`（24px）/ 10px | 原 session 输入框上／左右／下内边距；历史输入框专用，不扩展为普通间距档 |
+| `--agent-composer-gap` | `--space-1`，4px | 原 session 输入框内部间距 |
+| 输入框圆角与阴影 | `--composer-radius`，28px；`--agent-composer-shadow`，位移 0 / 2px、模糊 8px、黑色 8% | 原 session 输入容器；以入口最后导入的 `composer.css` 为准 |
+
+- 普通回复、说明、参数核对与过程：透明底、无边框、无圆角、无外框内边距；层级由字重与事件间距表达。发现事件不能逐段套描边卡片。
+- 用户消息：`--bg-elevated` 浅底、无边框；只读结果：同浅底、`--border` 描边。草稿仍以 `--border-strong` 和“未生效”文字表达；需确认的风险结果卡保留 `--warning` 淡底／描边与确认标注。
+- 执行确认块沿用原 session 的透明底、无边框和 `--agent-action-pad`；风险文字、范围、当前确认版本与执行回执保持可见。是否需要确认由服务端决定，不能从背景推断。
+- 参数标签与值按原 session 的行内清单呈现，允许换行，使用冒号区分；不重新引入窄栏双列。减少动效、焦点、文字状态与触摸命中规则继续执行 §1/4/11。
+- 验证必须同时比较历史 session 的计算样式与当前两套页面，覆盖浅色／深色及独立会话地址；不能仅凭“两边现在相等”判定恢复正确。
+
+审宪记录：需求 → 两套工作台采用用户指定的原 session 智能体视觉，并登记唯一实施细则；主责角色 → UI/UX 专家、前端专家；宪法条款 → CONST-03/04/05/08/09/10；基本法条款 → PROD-AGENT-01/03/09、TECH-FE-01/02/03，工具风险依据 `07-mcp-data-contract.md` MediaCrawler 异步契约；结论与证据 → **符合**，共享样式与历史计算样式为证据，未变更业务权限、确认、执行 API 或路由；下一步 → 相关呈现回归、构建、合并 main、push 与部署，并核对版本回执。
 
 ---
 
@@ -990,13 +1016,30 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--accent` | ✅ | ✅ |
 | `--accent-hover` | ✅ | ✅ |
 | `--accent-text` | ✅ | ✅ |
+| `--agent-action-pad` | ✅ | ✅ |
+| `--agent-answer-line` | ✅ | ✅ |
+| `--agent-block-gap` | ✅ | ✅ |
+| `--agent-card-radius` | ✅ | ✅ |
+| `--agent-compact-line` | ✅ | ✅ |
+| `--agent-composer-gap` | ✅ | ✅ |
+| `--agent-composer-pad-bottom` | ✅ | ✅ |
+| `--agent-composer-pad-top` | ✅ | ✅ |
+| `--agent-composer-pad-x` | ✅ | ✅ |
+| `--agent-composer-shadow` | ✅ | ✅ |
+| `--agent-event-gap` | ✅ | ✅ |
+| `--agent-font` | ✅ | ✅ |
+| `--agent-pad-x` | ✅ | ✅ |
+| `--agent-read-pad-y` | ✅ | ✅ |
+| `--agent-user-radius` | ✅ | ✅ |
 | `--agent-wait-hint` | ⚠️ | ✅ |
 | `--agent-wait-long` | ⚠️ | ✅ |
 | `--badge-h` | ✅ | ✅ |
 | `--batch-bar-h` | ⚠️ | ✅ |
 | `--bg` | ✅ | ✅ |
+| `--bg-elevated` | ✅ | ✅ |
 | `--bg-subtle` | ✅ | ✅ |
 | `--border` | ✅ | ✅ |
+| `--border-strong` | ✅ | ✅ |
 | `--btn-text-h` | ✅ | ✅ |
 | `--btn-text-hover-bg` | ✅ | ✅ |
 | `--btn-text-pad-x` | ✅ | ✅ |
@@ -1006,6 +1049,7 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--cat-pattern` | ⚠️ | ✅ |
 | `--chip-h` | ✅ | ✅ |
 | `--composer-chips-max` | ⚠️ | ✅ |
+| `--composer-radius` | ✅ | ✅ |
 | `--control-h` | ✅ | ✅ |
 | `--control-h-form` | ✅ | ✅ |
 | `--control-h-lg` | ✅ | ✅ |
@@ -1024,6 +1068,8 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--ds-font-helper` | ✅ | ✅ |
 | `--ds-font-sm` | ✅ | ✅ |
 | `--ds-font-xs` | ✅ | ✅ |
+| `--ds-line-sm` | ✅ | ✅ |
+| `--ds-line-ui` | ✅ | ✅ |
 | `--ds-text-dim` | ✅ | ✅ |
 | `--duration-control` | ✅ | ✅ |
 | `--feed-code-max-h` | ⚠️ | ✅ |
@@ -1050,6 +1096,8 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--radius-chip-square` | ✅ | ✅ |
 | `--radius-control` | ✅ | ✅ |
 | `--radius-dialog` | ✅ | ✅ |
+| `--radius-md` | ✅ | ✅ |
+| `--radius-sm` | ✅ | ✅ |
 | `--scrollbar-size` | ✅ | ✅ |
 | `--scrollbar-thumb` | ⚠️ | ✅ |
 | `--shadow-risk-high` | ⚠️ | ✅ |

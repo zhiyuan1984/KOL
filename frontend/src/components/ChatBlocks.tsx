@@ -1519,7 +1519,9 @@ export function ChatThread({
         }
         if (onViewResult && ["task_result_card", "email_card", "confirm_stage_card", "inbound_card", "kol_mail_card"].includes(m.kind)) {
           const label = m.kind === "email_card" ? "邮件草稿" : m.kind === "confirm_stage_card" ? "阶段建议" : m.kind.includes("mail") || m.kind === "inbound_card" ? "邮件与证据" : String(m.payload.title || "任务成果");
-          return <ThreadMessage key={m.id} role="assistant" data-kind={m.kind === "email_card" ? "email-card-pointer" : "task-result-pointer"} data-stream-entry={m.id}>
+          const risk = m.kind === "email_card" && String(m.payload.status || "") === "sent" ? undefined : messageRisk(m.kind, m.payload) || undefined;
+          return <ThreadMessage key={m.id} role="assistant" result={m.kind === "email_card" ? "draft" : m.kind === "confirm_stage_card" ? "stage" : "task_result"}
+            risk={risk} data-kind={m.kind === "email_card" ? "email-card-pointer" : "task-result-pointer"} data-stream-entry={m.id}>
             <strong>{label}</strong><p>{String(m.payload.summary || "成果与依据已放入结果工作台。")}</p>
             <button type="button" className="result-pointer-button" onClick={() => onViewResult(m.id)}>查看成果</button>
           </ThreadMessage>;
