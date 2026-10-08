@@ -22,6 +22,7 @@ import {
   ingestHomeDiscovery,
   isMissingEndpoint,
   loadDiscoveryCandidates,
+  loadSessionDiscovery,
   loadDiscoveryConnection,
   loadDiscoveryRun,
   loadDiscoveryRuns,
@@ -202,6 +203,43 @@ export default function useDiscovery({
     const sequence = ++loadSequenceRef.current;
     const isCurrent = () => sequence === loadSequenceRef.current;
     setFailure(null);
+    // 线索智能体会话是新结果链路的唯一事实源。只有没有 session_id 的
+    // 历史入口才继续读取 legacy home discovery runs。
+    if (sessionId) {
+      const sessionResult = await loadSessionDiscovery(sessionId);
+      if (!isCurrent()) return;
+      setRunHistory([]);
+      if (sessionResult.down) {
+        setPolling(false);
+        setEmptyKind("down");
+        setEmptyMessage("线索智能体结果暂时不可用。已有输入会保留，可稍后重试。");
+        setCandidates([]);
+        setActiveRun(null);
+        setEvents([]);
+        return;
+      }
+      const current = sessionResult.run;
+      setActiveRun(current);
+      setCandidates(sessionResult.candidates);
+      if (activeTaskId) setEvents(await loadTaskEvents(activeTaskId).catch(() => []));
+      if (current && sessionResult.candidates.length) {
+        setEmptyKind("idle");
+        return;
+      }
+      if (current && runInFlight(current)) {
+        setEmptyKind("idle");
+        setEmptyMessage("线索智能体正在读取候选资料。");
+        return;
+      }
+      if (current?.error) {
+        setFailure(presentDiscoveryError(current.error, DISCOVERY_FAILED_FALLBACK));
+        setEmptyKind("idle");
+        return;
+      }
+      setEmptyKind("filtered");
+      setEmptyMessage("本次线索智能体结果中没有候选。");
+      return;
+    }
     const listed = await loadDiscoveryRuns();
     if (!isCurrent()) return;
     if (listed.down) {
