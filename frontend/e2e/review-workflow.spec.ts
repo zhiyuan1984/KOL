@@ -234,6 +234,28 @@ test("touch input keeps draft actions at the design target size", async ({ brows
     await expect(main.getByRole("button", { name: "提交审批", exact: true })).toBeInViewport();
   } finally { await context.close(); }
 });
+test("reviewer sees changed materials and a receipt distinguishing approval from handling", async ({ page }) => {
+  await fixture(page);
+  const definition = emptyReviewDefinition(); definition.fields = [{ id: "content", label: "方案内容", type: "textarea", required: true }];
+  definition.nodes[1].next = "handler"; definition.nodes.push({ id: "handler", type: "handler", name: "资料存档", mode: "single", assignee: { kind: "named", userIds: ["reviewer"] }, next: "end" });
+  let instance: any = { id: "instance", templateId: "template", templateVersion: 1, version: 2, round: 2, definition, requester: "reviewer", title: "新方案申请", values: { content: "修改后的方案" }, currentNode: "review", status: "reviewing", tasks: [{ id: "t", nodeId: "review", userId: "employee", status: "pending", round: 2, duty: "review" }], allowedActions: ["approve"], progress: { approval: "pending", fulfillment: "pending", currentResponsibility: "核对本轮材料并审批" }, revisions: [{ round: 1, values: { content: "旧方案" } }, { round: 2, values: { content: "修改后的方案" } }], createdAt: "2026-10-09T00:00:00Z", updatedAt: "2026-10-09T00:00:00Z" };
+  await page.route("**/api/approvals/v2/instance-page?*", route => route.fulfill({ json: { items: [instance], nextCursor: null } }));
+  await page.route("**/api/approvals/v2/instances/instance", route => route.fulfill({ json: instance }));
+  await page.route("**/api/approvals/v2/commands", route => {
+    instance = { ...instance, version: 3, currentNode: "handler", allowedActions: [], tasks: [{ ...instance.tasks[0], status: "approved" }, { nodeId: "handler", userId: "reviewer", status: "pending", duty: "handler", round: 2 }], progress: { approval: "approved", fulfillment: "handling", currentResponsibility: "办理事项并登记完成证据" } };
+    return route.fulfill({ json: { id: "handling-receipt", resourceId: "instance", version: 3 } });
+  });
+  await page.goto("/approvals"); const main = page.locator("main.review-page");
+  await main.getByRole("button", { name: /新方案申请/ }).click();
+  const detail = main.getByRole("region", { name: "申请详情" });
+  await expect(detail.getByRole("region", { name: "本轮材料变化" })).toContainText("修改后的方案");
+  await detail.getByText("上一轮材料", { exact: true }).click(); await expect(detail.getByText("旧方案", { exact: true }).first()).toBeVisible();
+  await detail.locator(".review-action-form textarea").fill("核对本轮修改后同意");
+  await detail.getByRole("button", { name: "同意", exact: true }).click();
+  await page.getByRole("dialog", { name: "确认同意" }).getByRole("button", { name: "同意", exact: true }).click();
+  await expect(main.getByText(/已同意.*审批已通过 · 办理中.*回执 handling-receipt/)).toBeVisible();
+  await expect(detail.getByRole("region", { name: "办理结果" })).toContainText("办理状态：办理中");
+});
 
 for (const subject of ["", "?subject=knowledge_publication"]) test(`authoring automatically saves and checks before explicit publication ${subject || "general"}`, async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(globalThis.crypto, "randomUUID", { value: undefined, configurable: true }));

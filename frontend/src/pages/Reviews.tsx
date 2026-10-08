@@ -11,7 +11,7 @@ import { ReviewActions } from "../reviews/ReviewActions";
 import { ReviewInbox } from "../reviews/ReviewInbox";
 import { useReviewCommand } from "../reviews/useReviewCommand";
 import "../reviews/reviews.css";
-import { ReviewDetail, reviewStatusLabel, reviewStatusText as statusText } from "../reviews/ReviewDetail";
+import { ReviewDetail, reviewStatusLabel } from "../reviews/ReviewDetail";
 import { UpgradeDraft } from "../reviews/ReviewChanges";
 import { ReviewOrganization } from "../reviews/ReviewOrganization";
 import { ReviewChoices } from "../reviews/ReviewChoices";
@@ -145,7 +145,7 @@ export default function Reviews() {
     if (action === "submit" && detail) setSelected(detail);
     if (detail) {
       const pending = detail.tasks.filter(t => t.status === "pending");
-      return `${statusText[detail.status]}${pending.length ? ` · 当前处理人：${pending.map(t => context?.people.find(p => p.id === t.userId)?.name || t.userId).join("、")}` : ""}`;
+      return `${reviewStatusLabel(detail)}${pending.length ? ` · 当前处理人：${pending.map(t => context?.people.find(p => p.id === t.userId)?.name || t.userId).join("、")}` : ""}`;
     }
   });
   const saveLock = useRef(false);
