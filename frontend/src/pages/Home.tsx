@@ -830,7 +830,7 @@ export default function Home() {
       setDiscoveryTaskId(String(restored.id || "") || null);
       setResumedDiscoverySession(directDiscoverySessionId);
     }).catch(() => {
-      if (active) setDiscoverySubmitError("无法恢复该发现会话，请核对 session_id 和访问权限。");
+      // session_id 本身即可恢复 runtime actions；任务元数据反查失败不应遮蔽已有会话结果。
     });
     return () => { active = false; };
   }, [directDiscoverySessionId, resumeDiscoveryId]);
