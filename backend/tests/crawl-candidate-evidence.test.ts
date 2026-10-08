@@ -30,3 +30,16 @@ describe("subscriber source evidence", () => {
       .toMatchObject({ followers: null, reported_followers: 4, followers_evidence: { state: "unavailable" } });
   });
 });
+
+describe("candidate avatar normalization", () => {
+  it("picks up avatar urls under non-standard remote field names", () => {
+    expect(candidateView({ id: "a", profile_pic: "https://img/x.jpg" }, "youtube").avatar_url)
+      .toBe("https://img/x.jpg");
+    expect(candidateView({ id: "a", thumbnail: "https://img/y.png" }, "youtube").avatar_url)
+      .toBe("https://img/y.png");
+  });
+  it("still only accepts http(s) urls", () => {
+    expect(candidateView({ id: "a", avatar: "ftp://img/x.jpg" }, "youtube").avatar_url).toBeNull();
+    expect(candidateView({ id: "a" }, "youtube").avatar_url).toBeNull();
+  });
+});
