@@ -108,6 +108,7 @@ export default function Leads() {
                 <span className="kol-row-top"><strong>{lead.display_name}</strong><StageChip stage={lead.lead_stage} /></span>
                 <span className="kol-row-meta">
                   <span>{lead.platform} · {lead.account_handle}</span>
+                  {lead.brand ? <span>品牌 {lead.brand}</span> : null}
                   <span>粉丝 {formatFollowers(lead.follower_count)}</span>
                   {lead.open_work_order_count != null && lead.open_work_order_count > 0
                     ? <span>未完成工单 {lead.open_work_order_count}</span> : null}
@@ -130,6 +131,7 @@ export default function Leads() {
                 <div><dt>阶段</dt><dd><StageChip stage={detail.lead.lead_stage} /></dd></div>
                 <div><dt>粉丝</dt><dd>{formatFollowers(detail.lead.follower_count)}</dd></div>
                 <div><dt>品类</dt><dd>{detail.lead.category || "—"}</dd></div>
+                <div><dt>品牌</dt><dd>{detail.lead.brand || "—"}</dd></div>
                 <div><dt>更新时间</dt><dd>{formatTime(detail.lead.updated_at)}</dd></div>
               </dl>
               <div className="kol-actions">
@@ -211,7 +213,7 @@ function RecordLeadEventForm({ leadId, onDone }: { leadId: string; onDone: () =>
 }
 
 function CreateLeadDrawer({ onClose, onDone }: { onClose: () => void; onDone: (id: string) => void }) {
-  const [form, setForm] = useState({ platform: "", account_handle: "", account_url: "", display_name: "", follower_count: "", category: "", source: "manual", contact: "" });
+  const [form, setForm] = useState({ platform: "", account_handle: "", account_url: "", display_name: "", follower_count: "", category: "", brand: "", platform_creator_id: "", source: "manual", contact: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -229,7 +231,10 @@ function CreateLeadDrawer({ onClose, onDone }: { onClose: () => void; onDone: (i
         account_url: form.account_url.trim() || undefined,
         display_name: form.display_name.trim() || undefined,
         follower_count: form.follower_count ? Number(form.follower_count) : undefined,
-        category: form.category.trim() || undefined, source: form.source,
+        category: form.category.trim() || undefined,
+        brand: form.brand.trim() || undefined,
+        platform_creator_id: form.platform_creator_id.trim() || undefined,
+        source: form.source,
         contact: Object.keys(contact).length ? contact : undefined,
         idempotency_key: randomUuid(),
       });
@@ -248,6 +253,8 @@ function CreateLeadDrawer({ onClose, onDone }: { onClose: () => void; onDone: (i
         <label className="kol-field"><span>显示名</span><input value={form.display_name} onChange={set("display_name")} placeholder="默认与账号名相同" /></label>
         <label className="kol-field"><span>粉丝数</span><input type="number" min={0} value={form.follower_count} onChange={set("follower_count")} /></label>
         <label className="kol-field"><span>品类</span><input value={form.category} onChange={set("category")} placeholder="如 美妆 / 3C" /></label>
+        <label className="kol-field"><span>品牌</span><input value={form.brand} onChange={set("brand")} placeholder="如 LT；留空则按你的唯一品牌自动归属" /></label>
+        <label className="kol-field"><span>平台稳定编号</span><input value={form.platform_creator_id} onChange={set("platform_creator_id")} placeholder="如 YouTube channelId（用于公海品牌可见性）" /></label>
         <label className="kol-field"><span>来源</span><select value={form.source} onChange={set("source")}>
           {LEAD_SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select></label>

@@ -629,6 +629,7 @@ export type WorkOrderAutomationRelease = {
 export type KolLead = {
   id: string; platform: string; account_handle: string; account_url: string | null;
   display_name: string; follower_count: number | null; category: string | null;
+  brand: string; platform_creator_id: string | null;
   source: string; source_ref: string | null; lead_stage: string;
   owner_principal_id: string | null; followup_task_id: string | null;
   is_archived: boolean; archived_reason: string | null;
@@ -638,7 +639,8 @@ export type KolLead = {
 };
 export type KolLeadCreateInput = {
   platform: string; account_handle: string; account_url?: string; display_name?: string;
-  follower_count?: number; category?: string; source?: string; source_ref?: string;
+  follower_count?: number; category?: string; brand?: string; platform_creator_id?: string;
+  source?: string; source_ref?: string;
   contact?: Record<string, unknown>; owner_principal_id?: string; note?: string;
   idempotency_key: string;
 };
@@ -3706,6 +3708,18 @@ export const api = {
     }),
   ingestHomeDiscovery: (body: Record<string, unknown>) =>
     request<Record<string, unknown>>("/api/home/discovery/ingest", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** 二期：首页候选卡片「加入公海」——单候选 Starry 入库。 */
+  ingestHomeDiscoveryCandidate: (id: string, body: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/api/home/discovery/candidates/${encodeURIComponent(id)}/ingest`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** 二期：首页候选卡片「跟进」——创建线索 + 更新 Starry 库表。 */
+  followHomeDiscoveryCandidate: (id: string, body: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/api/home/discovery/candidates/${encodeURIComponent(id)}/follow`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

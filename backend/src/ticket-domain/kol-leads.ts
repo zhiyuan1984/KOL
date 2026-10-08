@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
@@ -5,6 +6,7 @@ import { createTaskRootPostgres, taskWorkOrderAggregate } from "./task-work-orde
 import { recordVerifiedWorkOrderEvent } from "./work-order-verified-event.js";
 import { recordWorkOrderShadowDecision } from "./work-order-shadow.js";
 import { enqueueWorkOrderDecisionExecution } from "./work-order-automation-pipeline.js";
+import { scoreKolLeadWithJev } from "./kol-lead-scoring.js";
 
 /**
  * KOL 线索 / 合作项目 domain。层级（2026-10-07 定稿）：
@@ -85,12 +87,21 @@ function num(value: unknown, field: string): number | null {
 export type KolLeadRow = {
   id: string; platform: string; account_handle: string; account_url: string | null;
   display_name: string; follower_count: number | null; category: string | null;
+  brand: string; platform_creator_id: string | null;
   source: string; source_ref: string | null; lead_stage: string;
   owner_principal_id: string | null; followup_task_id: string | null;
   is_archived: boolean; archived_reason: string | null;
   data_version: number; created_at: string; updated_at: string;
   open_work_order_count?: number; latest_work_order_status?: string | null;
   has_contact?: boolean;
+  potential_score?: number | null;
+  potential_confidence?: number | null;
+  risk_score?: number | null;
+  risk_confidence?: number | null;
+  assessment_version?: string | null;
+  assessment_criteria?: string | null;
+  assessed_at?: string | null;
+  assessment_error?: string | null;
 };
 export type KolCooperationRow = {
   id: string; lead_id: string; converted_from_work_order_id: string | null;
@@ -109,7 +120,8 @@ function mapLead(row: Record<string, unknown>): KolLeadRow {
     id: String(row.id), platform: String(row.platform), account_handle: String(row.account_handle),
     account_url: (row.account_url as string) ?? null, display_name: String(row.display_name ?? ""),
     follower_count: row.follower_count == null ? null : Number(row.follower_count),
-    category: (row.category as string) ?? null, source: String(row.source),
+    category: (row.category as string) ?? null, brand: String(row.brand ?? ""),
+    platform_creator_id: (row.platform_creator_id as string) ?? null, source: String(row.source),
     source_ref: (row.source_ref as string) ?? null, lead_stage: String(row.lead_stage),
     owner_principal_id: (row.owner_principal_id as string) ?? null,
     followup_task_id: (row.followup_task_id as string) ?? null,
@@ -118,6 +130,14 @@ function mapLead(row: Record<string, unknown>): KolLeadRow {
     open_work_order_count: row.open_work_order_count == null ? undefined : Number(row.open_work_order_count),
     latest_work_order_status: (row.latest_work_order_status as string) ?? null,
     has_contact: contact != null && Object.keys(contact).length > 0,
+    potential_score: row.potential_score == null ? null : Number(row.potential_score),
+    potential_confidence: row.potential_confidence == null ? null : Number(row.potential_confidence),
+    risk_score: row.risk_score == null ? null : Number(row.risk_score),
+    risk_confidence: row.risk_confidence == null ? null : Number(row.risk_confidence),
+    assessment_version: (row.assessment_version as string) ?? null,
+    assessment_criteria: (row.assessment_criteria as string) ?? null,
+    assessed_at: (row.assessed_at as string) ?? null,
+    assessment_error: (row.assessment_error as string) ?? null,
   };
 }
 function mapCoop(row: Record<string, unknown>): KolCooperationRow {
@@ -193,10 +213,14 @@ async function cancelOpenWorkOrders(taskId: string, actorRef: string, reason: st
   });
 }
 
-export async function requireLead(actorId: string, isAdmin: boolean, leadId: string): Promise<KolLeadRow> {
+export async function requireLead(
+  actorId: string, isAdmin: boolean, leadId: string, opts?: { leaderMemberIds?: string[] },
+): Promise<KolLeadRow> {
+  // 读：组长可看本单元及下级单元成员的线索；写路径（改/转/归档）不传 scope，仍只限本人或管理员。
+  const leaderIds = opts?.leaderMemberIds?.filter(Boolean) ?? [];
   const rows = await postgresPool().query<Record<string, unknown>>(
-    `SELECT * FROM kol_leads WHERE id=$1 AND ($2::boolean OR owner_principal_id=$3)`,
-    [leadId, isAdmin, actorId]);
+    `SELECT * FROM kol_leads WHERE id=$1 AND ($2::boolean OR owner_principal_id=$3 OR owner_principal_id = ANY($4::text[]))`,
+    [leadId, isAdmin, actorId, leaderIds]);
   if (!rows.rows[0]) throw new HttpFail(404, { code: "kol_lead_not_found" });
   return mapLead(rows.rows[0]!);
 }
@@ -210,11 +234,66 @@ export async function requireCoop(actorId: string, isAdmin: boolean, coopId: str
 
 export type KolLeadInput = {
   platform: unknown; account_handle: unknown; account_url?: unknown; display_name?: unknown;
-  follower_count?: unknown; category?: unknown; source?: unknown; source_ref?: unknown;
+  follower_count?: unknown; category?: unknown; brand?: unknown; platform_creator_id?: unknown;
+  source?: unknown; source_ref?: unknown;
   contact?: unknown; owner_principal_id?: unknown; note?: unknown; idempotency_key: unknown;
 };
 
-export async function createKolLead(actorId: string, isAdmin: boolean, raw: KolLeadInput) {
+/**
+ * 线索品牌归属（2026-10-08 公海品牌可见性规则）。
+ * 优先级：显式传入 > 跟进人唯一品牌；跟进人多品牌/全品牌/无品牌时留空（不锁任何品牌）。
+ * 返回值为大写品牌 code（LT/PQ/…），空字符串表示无归属。
+ */
+export function resolveLeadBrand(rawBrand: unknown, actorBrands?: string[] | null): string {
+  const explicit = String(rawBrand ?? "").trim().toUpperCase();
+  if (explicit) return explicit;
+  const brands = (actorBrands ?? []).map((brand) => String(brand).trim().toUpperCase()).filter(Boolean);
+  if (brands.length === 1) return brands[0]!;
+  return "";
+}
+
+function normalizeLockIdentity(platform: string, platformCreatorId: string): { platform: string; platform_creator_id: string } {
+  return {
+    platform: platform.trim().toLowerCase(),
+    platform_creator_id: platformCreatorId.trim().toLowerCase(),
+  };
+}
+
+/** 跟进建锁：同品牌用户在公海不可见该 KOL；幂等（同身份同品牌只记一条）。 */
+export async function upsertPoolBrandLock(platform: string, platformCreatorId: string, brand: string, leadId: string): Promise<void> {
+  const identity = normalizeLockIdentity(platform, platformCreatorId);
+  if (!identity.platform || !identity.platform_creator_id || !brand) return;
+  await postgresPool().query(
+    `INSERT INTO kol_pool_brand_locks (id, platform, platform_creator_id, brand, lead_id)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (platform, platform_creator_id, brand) DO NOTHING`,
+    [randomUUID(), identity.platform, identity.platform_creator_id, brand, leadId],
+  );
+}
+
+/**
+ * 线索归档/删除时释锁：仅当没有其他有效线索仍持有 (身份, 品牌) 时才删锁，
+ * 避免同 KOL 多条同品牌线索互相踩掉。
+ */
+export async function releasePoolBrandLock(leadId: string): Promise<void> {
+  await postgresPool().query(
+    `DELETE FROM kol_pool_brand_locks l
+     WHERE l.lead_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM kol_leads l2
+         WHERE NOT l2.is_archived AND l2.id <> $1
+           AND lower(l2.platform) = l.platform
+           AND lower(COALESCE(l2.platform_creator_id, '')) = l.platform_creator_id
+           AND upper(l2.brand) = upper(l.brand)
+       )`,
+    [leadId],
+  );
+}
+
+export async function createKolLead(
+  actorId: string, isAdmin: boolean, raw: KolLeadInput,
+  opts?: { actorBrands?: string[] | null },
+) {
   const platform = text(raw.platform, "platform", 60, true);
   const accountHandle = text(raw.account_handle, "account_handle", 200, true);
   const displayName = text(raw.display_name, "display_name", 200) || accountHandle;
@@ -223,6 +302,9 @@ export async function createKolLead(actorId: string, isAdmin: boolean, raw: KolL
   if (idemKey.length < 8) throw new HttpFail(422, { code: "idempotency_key_invalid" });
   const owner = text(raw.owner_principal_id, "owner_principal_id", 200) || actorId;
   if (!isAdmin && owner !== actorId) throw new HttpFail(403, { code: "kol_owner_forbidden" });
+  // 品牌归属：显式传入优先，否则取跟进人唯一品牌；多品牌/全品牌/无品牌留空（不锁）。
+  const brand = resolveLeadBrand(raw.brand, opts?.actorBrands);
+  const platformCreatorId = text(raw.platform_creator_id, "platform_creator_id", 200) || null;
 
   const dup = await postgresPool().query(`SELECT id FROM kol_leads WHERE platform=$1 AND account_handle=$2`, [platform, accountHandle]);
   if (dup.rows[0]) throw new HttpFail(409, { code: "kol_lead_exists", lead_id: dup.rows[0].id });
@@ -238,31 +320,56 @@ export async function createKolLead(actorId: string, isAdmin: boolean, raw: KolL
   const now = new Date().toISOString();
   await postgresPool().query(
     `INSERT INTO kol_leads
-       (id, platform, account_handle, account_url, display_name, follower_count, category,
-        source, source_ref, contact_json, lead_stage, owner_principal_id, followup_task_id, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending_contact',$11,$12,$13,$13)`,
+       (id, platform, account_handle, account_url, display_name, follower_count, category, brand,
+        platform_creator_id, source, source_ref, contact_json, lead_stage, owner_principal_id, followup_task_id, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending_contact',$13,$14,$15,$15)`,
     [leadId, platform, accountHandle, text(raw.account_url, "account_url", 500) || null,
-     displayName, num(raw.follower_count, "follower_count"), text(raw.category, "category", 60) || null,
+     displayName, num(raw.follower_count, "follower_count"), text(raw.category, "category", 60) || null, brand,
+     platformCreatorId,
      source, text(raw.source_ref, "source_ref", 200) || null, JSON.stringify(contact),
      owner, task.task_id, now],
   );
+  // 公海品牌锁：有品牌归属 + 稳定身份才建锁；失败不阻塞建档（只记日志）。
+  if (brand && platformCreatorId) {
+    try {
+      await upsertPoolBrandLock(platform, platformCreatorId, brand, leadId);
+    } catch (error) {
+      console.error("[kol-leads] pool brand lock failed:", error instanceof Error ? error.message : error);
+    }
+  }
   await emitKolEventAndDecide(actorId, isAdmin, task.task_id, "lead.created",
     `线索建档：${displayName}（${platform}）`,
     { lead_id: leadId, platform, account_handle: accountHandle },
     { lead_id: leadId, note: text(raw.note, "note", 1000) },
     `kol:lead.created:${leadId}`);
+  // 一期打分：建档后异步 Jev 打分，不阻塞返回；失败只记 assessment_error。
+  void scoreKolLeadWithJev(leadId).catch((error) => {
+    console.error("[kol-lead-scoring] async scoring failed:", error instanceof Error ? error.message : error);
+  });
   return { lead: await requireLead(actorId, isAdmin, leadId), task_id: task.task_id, replayed: false };
 }
 
 export async function listKolLeads(actorId: string, isAdmin: boolean, q: {
   stage?: string; source?: string; owner?: string; mine?: boolean; search?: string; limit: number; offset: number;
-}) {
-  const where: string[] = [`($1::boolean OR l.owner_principal_id=$2)`];
-  const params: unknown[] = [isAdmin, actorId];
-  let i = 3;
+}, opts?: { leaderMemberIds?: string[] }) {
+  // 可见范围（2026-10-08）：管理员看全量；组长看本单元及下级单元成员的线索
+  // （上级组长范围更大）；普通成员默认只看自己的。写操作（改/转/归档）仍只限本人或管理员。
+  const where: string[] = [];
+  const params: unknown[] = [];
+  let i = 1;
+  const leaderIds = opts?.leaderMemberIds?.filter(Boolean) ?? [];
+  if (isAdmin) {
+    if (q.owner) { where.push(`l.owner_principal_id=$${i++}`); params.push(q.owner); }
+    // 无 owner 参数时看全量
+  } else if (q.mine) {
+    where.push(`l.owner_principal_id=$${i++}`); params.push(actorId);
+  } else if (leaderIds.length) {
+    where.push(`l.owner_principal_id = ANY($${i++})`); params.push(leaderIds);
+  } else {
+    where.push(`l.owner_principal_id=$${i++}`); params.push(actorId);
+  }
   if (q.stage) { where.push(`l.lead_stage=$${i++}`); params.push(q.stage); }
   if (q.source) { where.push(`l.source=$${i++}`); params.push(q.source); }
-  if (q.mine || !isAdmin) { where.push(`l.owner_principal_id=$${i++}`); params.push(actorId); }
   else if (q.owner) { where.push(`l.owner_principal_id=$${i++}`); params.push(q.owner); }
   if (q.search) {
     where.push(`(l.display_name ILIKE $${i} OR l.account_handle ILIKE $${i} OR l.platform ILIKE $${i})`);
@@ -281,8 +388,10 @@ export async function listKolLeads(actorId: string, isAdmin: boolean, q: {
   return { leads: rows.rows.map(mapLead), total: Number(total.rows[0]!.n) };
 }
 
-export async function kolLeadDetail(actorId: string, isAdmin: boolean, leadId: string) {
-  const lead = await requireLead(actorId, isAdmin, leadId);
+export async function kolLeadDetail(
+  actorId: string, isAdmin: boolean, leadId: string, opts?: { leaderMemberIds?: string[] },
+) {
+  const lead = await requireLead(actorId, isAdmin, leadId, opts);
   const task = lead.followup_task_id
     ? await taskWorkOrderAggregate(actorId, lead.followup_task_id, isAdmin)
     : null;
@@ -314,6 +423,14 @@ export async function updateKolLead(actorId: string, isAdmin: boolean, leadId: s
   if (!sets.length) throw new HttpFail(422, { code: "nothing_to_update" });
   sets.push(`data_version=data_version+1`, `updated_at=now()`);
   await postgresPool().query(`UPDATE kol_leads SET ${sets.join(", ")} WHERE id=$${i}`, [...params, leadId]);
+  // 归档即释锁（同身份同品牌还有其他有效线索时保留）；失败只记日志。
+  if (raw.is_archived !== undefined && Boolean(raw.is_archived)) {
+    try {
+      await releasePoolBrandLock(leadId);
+    } catch (error) {
+      console.error("[kol-leads] pool brand unlock failed:", error instanceof Error ? error.message : error);
+    }
+  }
   return kolLeadDetail(actorId, isAdmin, leadId);
 }
 

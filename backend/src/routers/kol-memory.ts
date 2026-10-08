@@ -6,7 +6,8 @@
  */
 import { Hono } from "hono";
 import { parsePoolPageOptions, readPublicPoolPage } from "../postgres/public-pool.js";
-import { requireSkill } from "../auth.js";
+import { requireSkill, scopedUser } from "../auth.js";
+import { poolViewerBrands } from "../host/inbound-scope.js";
 import { agentSubmissionAllowed } from "../contract-scope.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
 import { ingestDiscoveryBatch } from "../host/discovery-ingest.js";
@@ -209,7 +210,10 @@ kolMemory.post("/home/discovery/ingest", async (c) => {
 kolMemory.get("/home/pool", async (c) => {
   c.header("Cache-Control", "no-store");
   const started = performance.now();
-  const result = await readPublicPoolPage(parsePoolPageOptions(c.req.query()), memoryCompanyId());
+  // 品牌可见性：同品牌跟进锁定的 KOL 对同品牌查看者不可见；组长/管理员看全量。
+  const result = await readPublicPoolPage(
+    parsePoolPageOptions(c.req.query()), memoryCompanyId(), poolViewerBrands(scopedUser()),
+  );
   c.header("Server-Timing", `pool_read;dur=${(performance.now() - started).toFixed(1)}`);
   return c.json(result);
 });

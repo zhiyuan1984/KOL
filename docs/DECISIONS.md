@@ -2,6 +2,32 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-08（二）：公海品牌可见性 —— 跟进后同品牌在公海不可见
+
+- **状态**：已接受（用户 2026-10-08 直接要求实现）。
+- **背景**：跟进（建线索）后，该 KOL 仍在公海对所有人可见，同品牌内部会重复跟进、撞单。
+- **决定**：
+  1. 线索记品牌归属（`kol_leads.brand`）：显式传入优先，否则取跟进人唯一品牌；多品牌/全品牌/无品牌留空。
+  2. 建线索即建品牌锁（`kol_pool_brand_locks`，按平台+稳定外部 ID+品牌唯一）；线索归档时释锁（有其他有效同品牌线索则保留）。
+  3. 公海读取按查看者品牌排除被锁 KOL：LT 跟进 → LT 用户不可见，RG 等其他品牌仍可见。
+  4. 组长（2026-10-08 用户纠正：department_head 即组长，不限层级）：以组织树 `organization_units.head_person_ref` 为准，组长看全量公海（不受品牌锁限制）与本单元及下级单元的全部跟进线索；组长的上级（父单元 head）范围更大、权限更多。读放行，写（改/转/归档）仍只限本人或管理员。
+- **理由**：CONST-04（权限在取数前校验，SQL 内过滤；线索列表 `ANY(memberIds)` 同理）；BIZ-15（锁身份键只用平台+稳定外部 ID）；组织表以人员页 `organization_units`（一级→二级→三级→四级→人员）为准。
+- **限制**：PG 锁 SQL 与线索范围 SQL 真跑待用户环境。
+
+## ADR-2026-10-08：AI发现去重三层 + 线索阶段 Jev 打分 + 候选卡片加入公海/跟进 CTA
+
+- **状态**：已接受（用户 2026-10-08 裁决：按推荐做；卡片 CTA 作为二期综合考虑）。
+- **背景**：AI发现跨运行零去重（只有 `ON CONFLICT(request_id, …)` 防重入），抓回来的数据高度重合；「去重打分」是纯前端 label；定时模板 `dedup_by` 无消费方。Jev 评分只在公海手动触发（≤12 个/次），线索阶段无分。首页候选卡片 `POST /home/discovery/candidates/:id/ingest` 501 占位、`…/follow` 403 禁止（10-07 §24.6「禁止从发现路径直接创建 Collaboration/排他认领」）。
+- **决定**：
+  1. **去重身份键** `(platform, 归一化 platform_creator_id)`（BIZ-15：只认平台+稳定外部 ID）；跨平台同一真人不自动合并，只标疑似。
+  2. **三层去重**：批次内内存去重 → PG `kol_creator_pool` 跨运行（`window_days` 默认 30，模板可配；超窗口允许重新入池）→ `kol_leads`/`kol_cooperations`/`kol_follow_index` 跨业务标状态。被去重者入库标 `suppressed`，前端默认折叠。
+  3. **模板 `dedup` 做实**：`system_template.dedup.window_days` 经 `enqueueSystemCrawl` 落 `args_json`，回填时记池。
+  4. **线索阶段打分**：`createKolLead` 后异步调 `assessPublicKolWithJev`（字段映射 + 来源口径，缺啥评啥）；去重命中新鲜评分直接复用；`kol_leads` 加评分列。公海卡片沿用线索分 + 口径摘要展示，跨口径仅参考，不做全池重评。
+  5. **二期 CTA**：「加入公海」（L2，全卡唯一）复用批量 `ingestOne` 同一 Starry 写入路径；「跟进」（L3）= 创建线索（`source='ai_discovery'`）+ upsert `kol_profile_index`（`ingest_source='discovery-lead'`，仍在公海 open）。行内二次确认。
+  6. **决策变更**：10-07「禁止从发现路径直接创建 Collaboration/排他认领」部分推翻——跟进创建的是**线索业务对象**，不是排他认领（`kol_follow_index`）；排他认领仍只在公海完成。
+- **理由**：BIZ-15/BIZ-27/CONST-04/R 分级见设计文档审宪记录（`your_files/discovery-dedup-score-design.md`）。
+- **限制**：PG 集成测试沙箱跑不了（无 `TEST_DATABASE_URL`），待用户环境补；`ingestOne` 要求真实联系邮箱，无邮箱候选 409 如实失败。
+
 ## ADR-2026-10-07：写合作邮件三路径实时带出发件箱/收件人（来源+候选）、无模板首封可提交草稿
 
 - **状态**：已接受（用户 2026-10-07 裁决：四个确认点全确认，按方案开工；合并/推送/部署待走查通过后再确认）。

@@ -10,6 +10,7 @@ import type { Json } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import type { PoolClient } from "pg";
 import { followerEvidence } from "./candidate-evidence.js";
+import { DEFAULT_DEDUP_WINDOW_DAYS, dedupeSightings } from "./dedup.js";
 
 export async function enqueueCrawlResults(id: string, actor: string, attempt = "initial", client?: PoolClient): Promise<void> {
   await pgEnqueueExecutionJob({ job_type: "crawler.results", tenant_ref: "runtime", actor_ref: actor,
@@ -92,6 +93,25 @@ export async function collectCrawlResults(executionJob: ClaimedExecutionJob, che
       captured_at: new Date().toISOString(), complete, total, candidates, collection_state: job.state };
     await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state=$2,result_json=$3,result_error=NULL,updated_at=now() WHERE id=$1",
       [id, complete ? "ready" : "partial", JSON.stringify(result)]);
+    // 一期去重：回填即记池（跨运行去重基准）。失败不阻塞回填本身。
+    try {
+      const windowDaysRaw = Number(job.args_json?.dedup_window_days);
+      await dedupeSightings(
+        candidates.map((row) => {
+          const item = row as Json;
+          return {
+            platform: String(platform).toLowerCase(),
+            platform_creator_id: String(item.id || ""),
+            handle: String(item.name || "") || null,
+            display_name: String(item.name || "") || null,
+            profile_snapshot: { captured_at: result.captured_at, task_id: job.remote_task_id },
+          };
+        }),
+        Number.isFinite(windowDaysRaw) ? windowDaysRaw : DEFAULT_DEDUP_WINDOW_DAYS,
+      );
+    } catch (error) {
+      console.error("[discovery-dedup] pool record failed:", error instanceof Error ? error.message : error);
+    }
     return { state: complete ? "ready" : "partial", count: candidates.length };
   } catch (error) {
     await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state='failed',result_error=$2,updated_at=now() WHERE id=$1", [id, runtimeErrorCode(error)]);
