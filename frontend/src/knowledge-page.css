@@ -1832,8 +1832,6 @@
 
 /* 知识库精简交互：员工行内快操作、长文导航与管理端治理驾驶舱。 */
 .kbv-page .kbv-list { display: flex; flex-direction: column; }
-.kbv-page .kbv-records { order: 4; }
-.kbv-page .kb-skill-templates { order: 5; }
 
 /* ── 员工端中栏：常用项前置，其余收进「更多筛选」（DESIGN §20）───────────── */
 /* 检索区不再是一叠分组，而是「搜索 → 分类 → 更多筛选」三段紧凑排布。 */

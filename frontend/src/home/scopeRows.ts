@@ -1,5 +1,5 @@
 import type { Task, TodoLayoutItem } from "../api";
-import { applyLayoutWhy, isClosedTask, isOpenTask, isPlanningTask, sortTodayTodos, todoPaneRows } from "./homeModel";
+import { applyLayoutWhy, isOpenTask, isPlanningTask, sortTodayTodos, todoPaneRows } from "./homeModel";
 import { isTodayScheduled } from "./schedule";
 import type { PlanScope } from "./todayPlan";
 
@@ -18,17 +18,7 @@ export function scopeRows(scope: PlanScope, tasks: Task[], layout?: TodoLayoutIt
     ? true
     : hasPlanView ? task.plan_view === "today" : isTodayScheduled(task);
   if (scope === "todo") {
-    const activeRows = todoPaneRows(open.filter((task) => inScope(task, "todo")), "all", layout);
-    // Discovery result history is a task record, not content inside the current result page.
-    // Terminal discovery runs remain clickable here, while ordinary completed work stays out
-    // of the active todo list as before.
-    const discoveryHistory = tasks.filter((task) => (
-      String(task.task_type || "") === "discovery_crawl"
-      && Boolean(task.discovery_run_id)
-      && isClosedTask(task)
-      && !task.dismissed_at
-    ));
-    return [...activeRows, ...discoveryHistory];
+    return todoPaneRows(open, "all", layout);
   }
   return applyLayoutWhy(sortTodayTodos(open.filter((task) => inScope(task, "today"))), layout);
 }

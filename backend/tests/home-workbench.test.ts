@@ -43,6 +43,24 @@ afterEach(() => {
 });
 
 describe("home workbench", () => {
+  it("enriches current workbench rows linked only by collaboration_id", async () => {
+    const source = getConn().prepare("SELECT project_id, collaboration_id FROM tickets WHERE id=?")
+      .get("tsk_home_laozhang_quote") as { project_id?: string; collaboration_id?: string };
+    const collaborationId = source.collaboration_id || source.project_id;
+    expect(collaborationId).toBeTruthy();
+    getConn().prepare("UPDATE tickets SET collaboration_id=?, project_id=NULL WHERE id=?")
+      .run(collaborationId, "tsk_home_laozhang_quote");
+
+    for (const view of ["todo", "today"]) {
+      const listed = await request("GET", `/api/workbench/tasks?view=${view}`);
+      expect(listed.status).toBe(200);
+      const item = (listed.body.items as Json[]).find((row) => row.id === "tsk_home_laozhang_quote");
+      expect(item?.collaboration_id).toBe(collaborationId);
+      expect(String(item?.kol_name || "")).not.toBe("");
+      expect(item?.current_stage).toContain("报价待确认");
+    }
+  });
+
   it("splits seed work into todos and unpromoted AI insights", () => {
     const board = buildHomeBoard() as Json;
     const workbench = board.workbench as Json;

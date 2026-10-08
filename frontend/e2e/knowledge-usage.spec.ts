@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * 员工端知识库「阶段 3」契约：服务端搜索、适用筛选、同页详情（右栏）溯源与草稿卡引用芯片。
@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
  * 只断言页面自己的 DOM 契约，不改 workbench.spec.ts 的既有基线：
  *   搜索 → [data-kb-search]（debounce 后走 GET /api/knowledge?q=）
  *   适用 → 行内 [data-kb-scope] chips 只露品牌值（阶段在右栏给中文标签），
- *          阶段筛选为标签行：＋增加、×移除、无「全部」；值按代码过滤、展示中文标签
+ *          阶段筛选默认全部＋五个字典标签，其余下拉；值按代码过滤、展示中文标签
  *   溯源 → 右栏 [data-kb-provenance]：发布人 / 版本 / 更新时间 / 适用
  *   芯片 → 草稿与回执 [data-draft-knowledge]：模板：{标题} v{n}
  *
@@ -14,6 +14,13 @@ import { expect, test } from "@playwright/test";
  *   kb_mail_ship「发货通知」的 subject 是 "Sample shipped — [运单号]"，正文没有 shipped，
  *   所以 q=shipped 只命中它一条 —— 顺带证明关键词检索覆盖了 subject。
  */
+
+/** Compact browse starts with five records; paging must not depend on seed sort order. */
+async function expandKnowledgeList(page: Page): Promise<void> {
+  await expect(page.locator("[data-knowledge]").first()).toBeVisible();
+  const more = page.locator("[data-kb-load-more]");
+  while (await more.count()) await more.click();
+}
 
 test.beforeEach(async ({ request }) => {
   // 种子库跨运行保留（其它用例会重建协作与隐藏知识），先回到工作台基线再断言。
@@ -27,6 +34,8 @@ test.beforeEach(async ({ request }) => {
 test("搜索按关键词收敛到单条种子，清空后恢复", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
+  await expandKnowledgeList(page);
+  const allCount = await kb.locator("[data-kbv-count]").textContent();
   await expect(kb.locator('[data-knowledge="kb_mail_kol"]')).toBeVisible();
 
   await kb.locator("[data-kb-search]").fill("shipped");
@@ -36,6 +45,8 @@ test("搜索按关键词收敛到单条种子，清空后恢复", async ({ page 
   await expect(kb.locator('[data-knowledge="kb_mail_followup"]')).toHaveCount(0);
 
   await kb.locator("[data-kb-search]").fill("");
+  await expect(kb.locator("[data-kbv-count]")).toHaveText(allCount!);
+  await expandKnowledgeList(page);
   await expect(kb.locator('[data-knowledge="kb_mail_kol"]')).toBeVisible();
   await expect(kb.locator('[data-knowledge="kb_mail_followup"]')).toBeVisible();
 });
@@ -43,13 +54,14 @@ test("搜索按关键词收敛到单条种子，清空后恢复", async ({ page 
 test("同页详情给出来源与版本与全文（右栏常显）", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
+  await expandKnowledgeList(page);
   await kb.locator('[data-kb-open="kb_mail_followup"]').click();
 
   const rail = page.locator('[data-kb-preview="kb_mail_followup"]');
   await expect(rail).toBeVisible();
   const provenance = rail.locator("[data-kb-provenance]");
   await expect(provenance).toBeVisible();
-  await expect(provenance).toContainText("来源与版本");
+  await expect(provenance).toHaveAttribute("aria-label", "来源与版本");
   await expect(provenance).toContainText("发布人");
   await expect(provenance).toContainText("v1");
   await expect(provenance).toContainText("更新时间");
@@ -63,6 +75,7 @@ test("同页详情给出来源与版本与全文（右栏常显）", async ({ pa
 test("行内只露品牌值；阶段中文标签在右栏；无适用范围写全阶段 · 通用", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
+  await expandKnowledgeList(page);
 
   const mail = kb.locator('[data-knowledge="kb_mail_followup"] [data-kb-scope]');
   await expect(mail).toBeVisible();
@@ -78,15 +91,11 @@ test("行内只露品牌值；阶段中文标签在右栏；无适用范围写�
   await expect(rail).toContainText("全阶段");
   await expect(rail).toContainText("通用");
 
-  // 阶段筛选＝标签行：＋增加、×移除，无「全部」标签（select 选项文本不计入芯片）。
-  // 品牌与阶段按 DESIGN §20 收在「更多筛选」里，先展开再断言。
-  await kb.locator("[data-kbv-more-filters] > summary").click();
   const stageRow = kb.locator("[data-kb-filter='stage']");
-  await expect(stageRow).not.toContainText("全部");
-  await stageRow.locator("[data-kb-stage-add]").selectOption("INITIAL_CONTACT");
-  await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toBeVisible();
-  await stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]').click();
-  await expect(stageRow.locator('[data-kb-stage-remove="INITIAL_CONTACT"]')).toHaveCount(0);
+  await expect(stageRow.locator("[data-kb-filter-value='']")).toHaveAttribute("aria-pressed", "true");
+  await stageRow.locator("[data-kb-filter-value='INITIAL_CONTACT']").click();
+  await expect(stageRow.locator("[data-kb-filter-value='INITIAL_CONTACT']")).toHaveAttribute("aria-pressed", "true");
+  await stageRow.locator("[data-kb-filter-value='']").click();
 
   await expect(kb.locator("[data-kb-filter='brand']")).toBeVisible();
 });
