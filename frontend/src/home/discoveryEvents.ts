@@ -324,6 +324,9 @@ export type RuntimeCrawlSnapshot = {
   updated_at?: string | null;
   remote_task_id?: string | null;
   error_code?: string | null;
+  result_state?: string | null;
+  result_json?: { candidates?: unknown[] | null; complete?: boolean | null } | null;
+  status_json?: { last_activity_at?: string | null; task_elapsed_seconds?: number | null } | null;
 } | null | undefined;
 
 export type RemoteCrawlView = {
@@ -335,11 +338,13 @@ export type RemoteCrawlView = {
   ago: string;
   /** 超过阈值未更新：采集可能停滞。 */
   stale: boolean;
+  resultState: string;
+  resultCount: number | null;
 } | null;
 
 /**
- * 由 runtime action 的 crawl 快照推导远端状态展示。仅在作业仍在推进时返回；
- * 尚未收到远端回执时展示"连接中"，不编造状态。
+ * 由 runtime action 的 crawl 快照推导远端状态展示。终态也必须返回，
+ * 否则中栏会在远端完成后丢失最终状态和候选回执。
  */
 export function discoveryRemoteCrawlView(
   crawl: RuntimeCrawlSnapshot,
@@ -347,15 +352,20 @@ export function discoveryRemoteCrawlView(
 ): RemoteCrawlView {
   if (!crawl) return null;
   const state = String(crawl.state || "").toLowerCase();
-  if (!REMOTE_CRAWL_ACTIVE.has(state)) return null;
+  const resultState = String(crawl.result_state || "").toLowerCase();
   const status = String(crawl.remote_status || "").toLowerCase();
   const atMs = Date.parse(String(crawl.updated_at || ""));
   const hasAt = Number.isFinite(atMs);
   const ageMs = hasAt ? Math.max(0, nowMs - atMs) : -1;
+  const terminal = state === "succeeded" || resultState === "ready";
+  const failed = ["failed", "cancelled", "uncertain"].includes(state) || ["failed", "uncertain"].includes(resultState);
+  const label = terminal ? "已完成" : failed ? "失败" : status ? remoteCrawlLabel(status) : "连接中";
   return {
-    label: status ? remoteCrawlLabel(status) : "连接中",
+    label,
     status,
     ago: hasAt ? `${formatAgo(ageMs)}更新` : "",
-    stale: hasAt && ageMs >= REMOTE_CRAWL_STALE_MS,
+    stale: !terminal && hasAt && ageMs >= REMOTE_CRAWL_STALE_MS,
+    resultState,
+    resultCount: Array.isArray(crawl.result_json?.candidates) ? crawl.result_json.candidates.length : null,
   };
 }

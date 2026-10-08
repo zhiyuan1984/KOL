@@ -51,6 +51,7 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
     openIngest,
     confirmIngest,
     cancelIngest,
+    startAction,
   } = state;
   const showResults = available.length > 0;
   const activeCrawl = ["queued", "starting", "running", "stopping", "crawling", "uploading", "analyzing"].includes(String(crawlPhase || "").toLowerCase())
@@ -117,6 +118,17 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
         <p className="discovery-flow-note" data-discovery-previous-run>
           下面的结果仍来自上一次运行；本次运行产出后会原位更新，不覆盖旧回执。
         </p>
+      ) : null}
+      {startAction?.crawl ? (
+        <section className="discovery-remote-receipt" data-discovery-remote-receipt aria-label="远程采集状态">
+          <header><strong>远程采集</strong><span data-discovery-remote-state>{String(startAction.crawl.remote_status || startAction.crawl.state || "连接中")}</span></header>
+          <dl>
+            <div><dt>远程任务</dt><dd>{startAction.crawl.remote_task_id || "等待分配"}</dd></div>
+            <div><dt>结果状态</dt><dd>{startAction.crawl.result_state || "pending"}</dd></div>
+            <div><dt>远程更新时间</dt><dd>{startAction.crawl.updated_at || "暂无"}</dd></div>
+            <div><dt>候选回执</dt><dd>{Array.isArray(startAction.crawl.result_json?.candidates) ? `${startAction.crawl.result_json.candidates.length} 条` : "尚未返回"}</dd></div>
+          </dl>
+        </section>
       ) : null}
 
       {approvalState === "brief_mismatch" ? (

@@ -150,6 +150,7 @@ export default function DiscoveryRunEvents({
                 role="status"
               >
                 远端：{remote.label}
+                {remote.resultCount != null ? ` · 候选 ${remote.resultCount} 条` : ""}
                 {remote.ago ? ` · ${remote.ago}` : ""}
                 {remote.stale ? "（远端状态长时间未更新，采集可能停滞，可尝试停止后重试）" : ""}
               </p>
