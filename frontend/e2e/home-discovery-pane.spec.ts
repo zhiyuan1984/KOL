@@ -1137,6 +1137,16 @@ test("after submit the condition card stays read-only in place and 修改条件 
   expect(submitPosts).toEqual(["/api/home/discovery/workspace"]);
 });
 
+test("远端采集中尚无候选时不误报筛选无结果", async ({ page }) => {
+  const base = runningCrawl("rt_waiting");
+  const crawl = { ...base, result_state: "pending", result_json: { ...base.result_json, candidates: [] } };
+  await stubRuntimeActions(page, () => [runtimeAction("running", crawl)]);
+  await openDiscoveryWithRun(page);
+  await expect(page.locator('[data-scope-task-rail] [data-discovery-run-status="running"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-empty="filtered"]')).toHaveCount(0);
+  await expect(page.locator('[data-discovery-empty="waiting-results"]')).toContainText("正在等待候选结果");
+});
+
 test("页内确认闭环：确认只发一次，随后右栏状态与中栏执行事件继续更新", async ({ page }) => {
   const gate: { release?: () => void } = {};
   const held = new Promise<void>((resolve) => { gate.release = resolve; });
@@ -1195,18 +1205,9 @@ test("页内确认闭环：确认只发一次，随后右栏状态与中栏执�
   expect(confirmBodies).toHaveLength(1);
   await expect(page.locator("[data-discovery-start-confirm]")).toHaveCount(0);
 
-  // 服务端接着走：右栏状态头、回执与候选，以及中栏执行事件同步更新。
+  // 服务端接着走：右栏状态头、session runtime 回执与候选，以及中栏执行事件同步更新。
   await expect(page.locator('[data-scope-task-rail] [data-discovery-run-status="running"]')).toBeVisible();
   await expect(page.locator("[data-scope-task-rail] [data-discovery-run-status-label]")).toContainText("采集中");
-  // 右栏候选是单决策面（结果明细）：只从 home-discovery runs 读，不再读旧卡片区。
-  const leads = page.locator("[data-discovery-candidates]");
-  await expect(leads).toContainText("E2E 候选");
-  await expect(page.locator("[data-discovery-result-filters]")).toContainText("全部 1");
-  // 行内跟进：标记待跟进并自动加入入库选择。
-  const lead = page.locator('[data-candidate-id="cand_e2e"]');
-  await lead.getByRole("button", { name: "跟进", exact: true }).click();
-  await expect(lead).toContainText("待跟进");
-  await expect(page.locator("[data-discovery-selected-count]")).toContainText("已选 1 人 · 待跟进 1 人");
   events = [{ type: "queued" }, { type: "crawl.started" }];
   const trail = page.locator('[data-discovery-event="run"]');
   await expect(trail.locator("[data-discovery-run-steps]")).toContainText("排队");

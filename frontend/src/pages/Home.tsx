@@ -689,6 +689,11 @@ export default function Home() {
       // 提交后留在本页：实际参数、确认与回执都留在中栏事件流里，历史事件不清空。
       setDiscoveryTaskId(result.task_id);
       setDiscoverySessionId(result.session_id);
+      const next = new URLSearchParams(params);
+      next.set("tab", "discovery");
+      next.set("session_id", result.session_id);
+      next.delete("resume");
+      setParams(next, { replace: true });
       setDiscoveryRunId(null);
       // 工作区先持久化，再投递首轮分析。短暂服务重启时按同一 task/run 恢复，
       // 已被服务端接收的回合不再重复发送。
@@ -805,6 +810,30 @@ export default function Home() {
   const discoveryRequest = useRef<{ fingerprint: string; id: string } | null>(null);
   const [resumedDiscoverySession, setResumedDiscoverySession] = useState<string | null>(null);
   const resumeDiscoveryId = params.get("resume");
+  const directDiscoverySessionId = params.get("session_id");
+  useEffect(() => {
+    let active = true;
+    if (!directDiscoverySessionId || params.get("tab") !== "discovery" || resumeDiscoveryId) return;
+    setDiscoverySessionId(directDiscoverySessionId);
+    void api.taskBySession(directDiscoverySessionId).then(value => {
+      if (!active) return;
+      const restored = ("task" in value ? value.task : value) as Task;
+      const workspace = discoveryWorkspaceOf(restored);
+      if (workspace) {
+        setDiscoveryFormBrief(workspace.brief);
+        setDiscoveryBrief(workspace.brief);
+        setText(workspace.submitted_text || renderDiscoveryBody(workspace.brief));
+        setLockedIntent(DISCOVERY_INTENT);
+        setLockedLabel(DISCOVERY_LOCK_LABEL);
+        setEntryIntent("discover");
+      }
+      setDiscoveryTaskId(String(restored.id || "") || null);
+      setResumedDiscoverySession(directDiscoverySessionId);
+    }).catch(() => {
+      if (active) setDiscoverySubmitError("无法恢复该发现会话，请核对 session_id 和访问权限。");
+    });
+    return () => { active = false; };
+  }, [directDiscoverySessionId, resumeDiscoveryId]);
   useEffect(() => {
     let active = true;
     setResumedDiscoverySession(null);
@@ -838,7 +867,7 @@ export default function Home() {
       if (active) setDiscoverySubmitError("无法恢复该发现任务，请从任务中心核对访问权限。已有输入仍保留。");
     });
     return () => { active = false; };
-  }, [resumeDiscoveryId]);
+  }, [resumeDiscoveryId, params, setParams]);
   const mode = parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {

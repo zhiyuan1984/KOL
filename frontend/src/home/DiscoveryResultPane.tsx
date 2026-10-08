@@ -53,6 +53,8 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
     cancelIngest,
   } = state;
   const showResults = available.length > 0;
+  const activeCrawl = ["queued", "starting", "running", "stopping", "crawling", "uploading", "analyzing"].includes(String(crawlPhase || "").toLowerCase())
+    || ["dispatching", "starting", "running"].includes(startPhase);
   const selecting = selected.length > 0;
   const readyCount = available.filter((candidate) => candidate.ingestReadiness === "ready").length;
   const reviewCount = available.filter((candidate) => candidate.ingestReadiness === "needs_review").length;
@@ -237,7 +239,13 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
         </p>
       ) : null}
 
-      {!inFlight && !showResults && !failure && emptyKind !== "idle" && emptyKind !== "down" ? (
+      {!showResults && !failure && (inFlight || activeCrawl) ? (
+        <div className="task-empty" data-discovery-empty="waiting-results" role="status">
+          <strong>正在等待候选结果</strong>
+          <p>远端仍在采集或读取结果；当前没有候选不等于筛选无结果。</p>
+        </div>
+      ) : null}
+      {!inFlight && !activeCrawl && !showResults && !failure && emptyKind !== "idle" && emptyKind !== "down" ? (
         <div className="task-empty" data-discovery-empty={emptyKind}>
           <strong>筛选无结果</strong>
           <p>{emptyMessage}</p>
