@@ -122,7 +122,7 @@ test("uses saved candidates for analysis and distinguishes sampled views from la
   let submitted: Record<string, unknown> | null = null;
   let messages: Record<string, unknown>[] = [];
   await page.route(`**/api/home/discovery/workspace/${saved.task_id}/pending`, route => route.fulfill({ json: { pending: null } }));
-  await page.route(new RegExp(`/api/sessions/${saved.session_id}(?:\\?.*)?$`), route => route.fulfill({ json: { messages, agent_status: "listening" } }));
+  await page.route(new RegExp(`/api/sessions/${saved.session_id}(?:[?].*)?$`), route => route.fulfill({ json: { messages, agent_status: "listening" } }));
   await page.route(`**/api/sessions/${saved.session_id}/events`, route => route.fulfill({ contentType: "text/event-stream", body: "" }));
   await page.route(`**/api/sessions/${saved.session_id}/messages`, async route => {
     if (route.request().method() !== "POST") return route.continue();

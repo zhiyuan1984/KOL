@@ -92,6 +92,11 @@
 .scope-workspace.scope-workspace [data-workspace-awaiting-confirm] [data-send-arrow] { color: var(--accent-text); }
 .scope-workspace-center-content > [data-workspace-awaiting-confirm],
 .scope-workspace-center-content > div:has(> .home-composer-dock) { flex-shrink: 0; }
+/* Keep the jump control beside the reading area, including its touch target. */
+.scope-workspace .scope-workspace-center-scroll-wrap:has(> [data-scope-scroll-jump]) {
+  padding-inline-end: calc(var(--workspace-arrow-button-size) + var(--space-4));
+}
+.scope-workspace [data-scope-scroll-jump] { right: var(--space-2); }
 .workspace-agent-avatar img { width: var(--icon-md); height: var(--icon-md); }
 .scope-workspace .today-plan-lucas img { width: var(--icon-sm); height: var(--icon-sm); }
 :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .home-composer-dock {
@@ -126,6 +131,9 @@
   .scope-workspace .composer.composer--workspace textarea { max-height: var(--control-h-lg); }
 }
 @media (pointer: coarse) {
+  .scope-workspace .scope-workspace-center-scroll-wrap:has(> [data-scope-scroll-jump]) {
+    padding-inline-end: calc(var(--touch-hit-min) + var(--space-4));
+  }
   .scope-workspace :is(.scope-task-rail-toggle, .scope-scroll-jump, .result-pointer-button, .workspace-confirm-hint button) {
     min-height: var(--touch-hit-min); min-width: var(--touch-hit-min);
   }

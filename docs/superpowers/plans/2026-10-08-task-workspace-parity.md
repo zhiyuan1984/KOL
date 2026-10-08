@@ -64,3 +64,6 @@
 
 
 预发几何核对 → 390px × 700px 触摸视口，中栏实际可滚动高度约 112px，旧固定 Composer 的 80px scroll-padding 仍生效，导致 Chromium 定位 44px 按钮后上沿被裁剪。Composer 已独立占一行，取消旧覆盖补偿，滚动留白复用 `--space-2` / `--space-4`。依据 → CONST-08/10、TECH-FE-02/03、DESIGN §10/11/27；结论 → 符合，保留真实触摸命中断言验证修正。运行时用例按既有 `ses_discovery_` 直达 session_id 和普通会话按服务端任务恢复 resume 两条入口核对；候选分析固定数据同时拦截 session 同步读取与 SSE，避免真实初始空快照覆盖测试报告。
+
+
+触摸命中续核 → 修正留白后，390px 视口地区选项的边缘仍被悬浮滚动按钮命中区覆盖。共享滚动容器为跳转控件预留旁侧空间，按指针模态分别取 `--workspace-arrow-button-size` / `--touch-hit-min` 与既有间距 token；不缩小触摸命中区，也不放宽实际 elementFromPoint 检查。最新 main 同期候选证据修正已完整合入（`e7d61338`），保持后端事实来源与权限修正。
