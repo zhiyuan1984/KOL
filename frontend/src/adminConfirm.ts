@@ -34,6 +34,10 @@ export type AdminConfirmCopy = {
 };
 
 export type AdminConfirmKind =
+  | "work-order-binding"
+  | "work-order-publish"
+  | "work-order-disable"
+  | "work-order-automation"
   | "review-command"
   | "user-deactivate"
   | "employee-tool-grants"
