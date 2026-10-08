@@ -183,3 +183,30 @@
     min-height: var(--touch-hit-min); min-width: var(--touch-hit-min);
   }
 }
+
+/* Today/Todo share one width axis, regardless of stream length or scrollbar
+ * mode. Keep the jump control below the feed instead of reserving a side lane
+ * that narrows whichever pane happens to have overflowing content. */
+.home-pane[data-home-workspace] .scope-workspace.scope-workspace:is([data-scope-workspace="today"], [data-scope-workspace="todo"]) .scope-workspace-center-scroll-wrap {
+  padding-inline-end: 0;
+}
+.home-pane[data-home-workspace] .scope-workspace.scope-workspace:is([data-scope-workspace="today"], [data-scope-workspace="todo"]) .scope-workspace-center-scroll {
+  width: calc(100% + var(--inset-scrollbar-width, 0px));
+  margin-inline-end: calc(-1 * var(--inset-scrollbar-width, 0px));
+  padding-inline-end: var(--space-4);
+}
+.home-pane[data-home-workspace] .scope-workspace.scope-workspace:is([data-scope-workspace="today"], [data-scope-workspace="todo"]) [data-scope-scroll-jump] {
+  position: static;
+  align-self: flex-end;
+  flex-shrink: 0;
+  margin-block: var(--space-1);
+  margin-inline-end: var(--space-4);
+}
+@media (max-width: 1100px) {
+  .home-pane[data-home-workspace] .scope-workspace.scope-workspace:is([data-scope-workspace="today"], [data-scope-workspace="todo"]) .scope-workspace-center-scroll {
+    padding-inline-end: 0;
+  }
+  .home-pane[data-home-workspace] .scope-workspace.scope-workspace:is([data-scope-workspace="today"], [data-scope-workspace="todo"]) [data-scope-scroll-jump] {
+    margin-inline-end: 0;
+  }
+}

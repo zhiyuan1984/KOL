@@ -20,7 +20,7 @@ const SKELETON = [
   "[data-scope-workspace] [data-list-total]",
   "[data-scope-workspace] [data-board-filter]",
   "[data-scope-workspace] .task-board-search",
-  "[data-scope-workspace] [data-home-stats]",
+  "[data-scope-workspace] [data-home-title]",
   "[data-scope-workspace] .home-composer-dock",
 ] as const;
 

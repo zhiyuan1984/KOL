@@ -45,6 +45,7 @@ function specsForPath(file) {
   // Home workspace
   if (dir === "home" || dir.startsWith("home/") || rest === "pages/Home.tsx") {
     return [
+      "home-task-presentation.spec.ts",
       "session-workspace-presentation.spec.ts",
       "discovery-presentation.spec.ts",
       "home-discovery-pane.spec.ts",

@@ -695,11 +695,8 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   // tab 行与提问框是工作台 chrome（会带「AI发现 / 我的待办」字样），内容断言只看页签正文。
   await expect.poll(() => paneBodyText(page, "today")).not.toContain("AI发现");
   await expect(page.locator("[data-home-pane=\"todo\"]")).toHaveCount(0);
-  await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
-  await expect(page.locator("[data-today-summary]")).toContainText("逾期");
-  await expect(page.locator("[data-today-summary]")).not.toContainText("归因复盘");
-  await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
-  await expect(page.locator("[data-today-summary] [data-panel-filter]")).toHaveCount(0);
+  await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
+  await expect(page.locator('[data-scope-task-rail] [data-attention-filter="overdue"]')).toBeVisible();
   await expect(page.locator("[data-home] [data-workbench]")).toHaveCount(0);
   await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
@@ -1022,7 +1019,7 @@ test("home lifecycle followed KOL opens the mail rail not the task list", async 
 test("home followed-KOL object list opens the KOL session", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
+  await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   await openHomeLifecycle(page);
   await expectFollowedObjectToolbar(page);
   // Wait for the stub listAllKolProfiles pair first; demo fixtures like 小美妆日记 have no kol_uid.
@@ -1697,9 +1694,7 @@ test("home open work items list every state and never show 已入队", async ({ 
   await expect(page.locator('[data-today-todo="tsk_queued_follow"]')).toBeVisible();
   await expect(page.locator('[data-today-todo="tsk_queued_follow"] [data-board-status]')).toHaveText("未开始");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
-  await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
-  await expect(page.locator("[data-today-summary]")).toContainText("等审批");
-  await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
+  await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("等待中");
   await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("已入队");
   await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("待处理");
@@ -1851,9 +1846,7 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   await expect(page.locator("[data-today-todo]")).toHaveCount(1);
   await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"]')).toBeVisible();
   await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"] [data-board-status]')).toHaveText("未开始");
-  await expect(page.locator("[data-today-summary]")).toContainText(/\d+项未了结/);
-  await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
-  await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
+  await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   // 原 waiting 分桶容器为 0 的断言：「等待中」不再是行状态标签，改为文案断言。
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
   // 原 later 分桶（2 行）与「后续」文案断言：分桶容器移除，且原 later 行已归今日面板。
@@ -3794,7 +3787,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await page.goto("/");
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-today-summary]")).toContainText("2项待处理");
+  await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
   await openHomeTodo(page);

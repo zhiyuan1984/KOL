@@ -154,7 +154,6 @@ import {
 import {
   HOME_TASK_POLL_MS,
   isActiveRun,
-  isAwaitingApproval,
   recognizeElapsedSeconds,
   recognizeTimedOut,
   unwrapTaskList,
@@ -1948,9 +1947,6 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     ? planMemoryTasks ?? []
     : planMemoryTasks ?? taskCatalog;
 
-  // Scope-level stats stay tied to the matching plan memory when switching tabs.
-  const todoScopeTasks = mode === "todo" ? todoPlan.memoryTasks ?? [] : todoPlan.memoryTasks ?? taskCatalog;
-
   const todoItems = useMemo(
     () => sortOpenWorkItems(homeMemoryTasks.filter(isOpenTask)),
     [homeMemoryTasks],
@@ -1998,12 +1994,6 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     () => (paneScope ? scopeRows(paneScope, homeMemoryTasks, activePlan.brief?.todo_layout) : []),
     [paneScope, homeMemoryTasks, activePlan.brief],
   );
-
-  const tabOpenTodoItems = useMemo(
-    () => todoScopeTasks.filter(isOpenTask),
-    [todoScopeTasks],
-  );
-
 
   const insightItems = useMemo(
     () => sortedTasks(taskCatalog.filter(isInsightTask), "priority"),
@@ -2077,19 +2067,8 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     ai: tasks.filter((task) => task.source === "ai").length,
   };
 
-  const overdueCount = tabOpenTodoItems.filter((task) => openBucket(task) === "overdue").length;
-  const dueTodayCount = tabOpenTodoItems.filter((task) => openBucket(task) === "due_today").length;
-  const awaitingApprovalCount = tabOpenTodoItems.filter((task) => isAwaitingApproval(task)).length;
-  const todayOverdueCount = paneRows.filter((task) => openBucket(task) === "overdue").length;
-  const todayDueCount = paneRows.filter((task) => openBucket(task) === "due_today").length;
-  const todayApprovalCount = paneRows.filter((task) => isAwaitingApproval(task)).length;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
-
-  const statsText = mode === "todo"
-    ? `${overdueCount} 已逾期 · ${dueTodayCount} 今天到期`
-    : `${todayOverdueCount} 逾期 · ${todayDueCount} 今天到期`;
-  const scopeApprovalCount = mode === "today" ? todayApprovalCount : awaitingApprovalCount;
 
   const groups = definitions.reduce<Map<string, TaskDefinition[]>>((catalog, definition) => {
     const category = definition.category || definition.profile || "常用任务";
@@ -2548,10 +2527,6 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
               centerHeader={(
                 <div className="home-hero today-center-hero">
                   <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>
-                  <p className="home-stats" data-today-summary data-home-stats>
-                    {statsText}
-                    {scopeApprovalCount ? ` · ${scopeApprovalCount} 等审批` : ""}
-                  </p>
                 </div>
               )}
               centerSupplement={renderInteractionFeedback()}

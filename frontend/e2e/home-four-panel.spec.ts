@@ -91,8 +91,8 @@ test("home five-mode tab order and pane visibility", async ({ page }) => {
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("正式阶段共 15 个");
 
   await openMode(page, "todo");
-  await expect(page.locator("[data-today-summary]")).toBeVisible();
-  await expect(page.locator("[data-today-summary]")).toContainText("今天到期");
+  await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
+  await expect(page.locator('[data-scope-task-rail] [data-attention-filter="due_today"]')).toBeVisible();
   await expect(page.locator("[data-home]")).not.toHaveAttribute("data-followed-chrome", "compact");
 });
 
