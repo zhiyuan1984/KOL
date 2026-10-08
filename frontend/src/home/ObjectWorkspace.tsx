@@ -17,6 +17,7 @@ export default function ObjectWorkspace({
   railToggleLabel,
   railStorageKey,
   centerHeader,
+  streamStick,
   centerContent,
   centerFooter,
   interaction,
@@ -32,6 +33,7 @@ export default function ObjectWorkspace({
   railToggleLabel: string;
   railStorageKey: string;
   centerHeader?: ReactNode;
+  streamStick?: boolean;
   centerContent?: ReactNode;
   centerFooter?: ReactNode;
   interaction?: ReactNode;
@@ -72,6 +74,7 @@ export default function ObjectWorkspace({
         freshness: "unknown",
       }}
       centerHeader={centerHeader}
+      streamStick={streamStick}
       centerScroll={interactionView}
       centerFooter={centerFooter}
       rail={rail}

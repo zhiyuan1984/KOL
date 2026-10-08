@@ -180,6 +180,7 @@ export async function syncHomePoolIndex(): Promise<{ items: PoolKol[]; count: nu
 }
 
 type PoolCommandReceipt = {
+  started?: boolean;
   status?: "idle" | "running" | "succeeded" | "failed";
   ok?: boolean;
   message?: string;
@@ -187,12 +188,15 @@ type PoolCommandReceipt = {
   kols?: Array<Record<string, unknown>>;
 };
 
+export class PoolMaintenancePendingError extends Error {}
+
 async function waitPoolMaintenance(
   start: () => Promise<PoolCommandReceipt>,
   status: () => Promise<PoolCommandReceipt>,
   pendingCopy: string,
 ): Promise<{ items: PoolKol[]; message: string }> {
-  await start();
+  const accepted = await start();
+  if (accepted.started === false) throw new Error("已有评分任务正在运行，本次评分未启动，请稍后重试。");
   for (let attempt = 0; attempt < POOL_SYNC_WAIT_ATTEMPTS; attempt += 1) {
     if (attempt) await wait(POOL_SYNC_POLL_MS);
     const payload = await status();
@@ -203,7 +207,7 @@ async function waitPoolMaintenance(
     const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
     return { items: unownedFirst(items), message: payload.message || "已完成" };
   }
-  throw new Error(`${pendingCopy}仍在后台进行，请稍后重新打开公海查看更新。`);
+  throw new PoolMaintenancePendingError(`${pendingCopy}仍在后台进行，请重新读取评分状态。`);
 }
 
 /** Explicit public homepage metadata crawl; no stored cookies or account session are used. */
@@ -221,6 +225,11 @@ export function assessPoolWithJev(
     () => api.poolJevAssessmentStatus(),
     "Jev 评分",
   );
+}
+
+/** 等待中的评分只读取原任务回执，不再次启动评分。 */
+export function resumePoolJevAssessment(): Promise<{ items: PoolKol[]; message: string }> {
+  return waitPoolMaintenance(() => Promise.resolve({}), () => api.poolJevAssessmentStatus(), "红人评分");
 }
 
 export async function previewPoolCleanup(): Promise<{ candidateCount: number; protectedActiveFollows: number }> {

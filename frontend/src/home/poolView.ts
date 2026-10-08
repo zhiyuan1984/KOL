@@ -54,7 +54,7 @@ export function poolScorePlaceholder(
   return {
     state: "unscored",
     label: "未评分",
-    title: `${missing}Jev 评分只依据公开资料，可用中栏「KOL评分」执行；执行时带上当前 AI 发现条件作为口径。${criteriaLabel}`,
+    title: `${missing}评分只依据公开资料，可用中栏「红人评分」执行；口径以执行前确认的条件为准。${criteriaLabel}`,
   };
 }
 

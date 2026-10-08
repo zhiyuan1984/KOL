@@ -10,7 +10,7 @@ describe("pool score placeholder", () => {
     const withMetrics = poolScorePlaceholder({ state: "unscored" }, []);
     expect(withMetrics.state).toBe("unscored");
     expect(withMetrics.label).toBe("未评分");
-    expect(withMetrics.title).toContain("可用中栏「KOL评分」执行");
+    expect(withMetrics.title).toContain("可用中栏「红人评分」执行");
     expect(withMetrics.title).not.toContain("缺 ");
 
     const missing = poolScorePlaceholder({ state: "unscored" }, ["均播", "互动率"]);
@@ -47,7 +47,7 @@ describe("pool score placeholder", () => {
     expect(low.title).toContain("近10条均播 ≥5000");
 
     const unscored = poolScorePlaceholder({ state: "unscored" }, ["均播"]);
-    expect(unscored.title).toContain("执行时带上当前 AI 发现条件作为口径");
+    expect(unscored.title).toContain("口径以执行前确认的条件为准");
   });
 
   it("高分徽章与置信度门槛一致（≥80 且 ≥0.7）", () => {

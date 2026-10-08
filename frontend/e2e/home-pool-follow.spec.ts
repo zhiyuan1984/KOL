@@ -278,12 +278,13 @@ test("public pool restores the central interaction and uses a structured right r
   const list = workspace.locator("[data-pool-focus-list]");
   const row = workspace.locator("[data-pool-card]").first();
   await expect(center).toBeVisible();
-  await expect(center).toContainText("公海现有KOL共2位供你选择");
+  await expect(center).toContainText("公海分析");
+  await expect(center.locator("[data-pool-selection-scope]")).toHaveText("未选择对象");
   await expect(center.locator("[data-pool-analysis-actions]")).toBeVisible();
   await expect(center.locator("[data-pool-analysis]")).toHaveCount(3);
-  await expect(center.locator("[data-pool-jev-assess]")).toHaveText("KOL评分");
+  await expect(center.locator("[data-pool-jev-assess]")).toHaveText("红人评分");
   await expect(center.locator("[data-pool-analysis-actions]")).toHaveCSS("border-bottom-width", "0px");
-  await expect(center.locator("[data-pool-analysis='potential']")).toHaveCSS("text-decoration-line", "underline");
+  await expect(center.locator("[data-pool-analysis='potential']")).toHaveCSS("border-top-width", "0px");
   await expect(center.locator("[data-composer-input]")).toBeVisible();
   await expect(rail).toBeVisible();
   await expect(rail.locator("[data-pool-toolbar]")).toBeVisible();
@@ -402,7 +403,7 @@ test("pool cards say why a KOL is unscored", async ({ page }) => {
   // 从未评过但资料齐：只提示可以执行评分。
   const fresh = page.locator("[data-pool-kol='uid_fresh'] [data-pool-score='missing']");
   await expect(fresh).toHaveText("未评分");
-  await expect(fresh).toHaveAttribute("title", /可用中栏「KOL评分」执行/);
+  await expect(fresh).toHaveAttribute("title", /可用中栏「红人评分」执行/);
 });
 
 test("pool first paint reads only what the pool needs", async ({ page }) => {
@@ -607,7 +608,7 @@ test("pool rows render without waiting for the board read", async ({ page }) => 
 test("pool KOL scoring uses the existing Jev endpoint and refreshes public signals", async ({ page }) => {
   const posts: Array<{ path: string; body?: Record<string, unknown> }> = [];
   const enriched = { ...POOL_ITEM, avatar_url: "https://yt3.ggpht.com/enriched-avatar.jpg" };
-  const assessed = { ...enriched, potential_score: 85, potential_confidence: 0.91, risk_score: 85, risk_confidence: 0.83, assessment_model: "jev-1.13" };
+  const assessed = { ...enriched, potential_score: 85, potential_confidence: 0.91, risk_score: 85, risk_confidence: 0.83, assessment_model: "jev-1.13", assessed_at: "2026-10-08T10:00:00Z", assessment_state: "scored" };
   await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     await route.fulfill({ json: { items: posts.some((post) => post.path === "/api/home/pool/jev-assess") ? [assessed] : [POOL_ITEM] } });
   });
@@ -636,10 +637,11 @@ test("pool KOL scoring uses the existing Jev endpoint and refreshes public signa
   });
 
   await page.goto("/?tab=pool");
+  await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
   await page.locator("[data-pool-jev-assess]").click();
-  // 点击只预填知识库评分模板；不得跳过员工确认直接调用评分接口。
+  // 评分独立确认，不覆盖输入草稿。
   const input = page.locator("[data-home] [data-composer-input]");
-  await expect(input).toHaveValue(/评分/);
+  await expect(input).toHaveValue("");
   expect(posts.map((item) => item.path)).not.toContain("/api/home/pool/jev-assess");
   await expect(page.locator("[data-pool-score-confirm]")).toBeVisible();
   await page.locator("[data-pool-score-execute]").click();
@@ -652,7 +654,7 @@ test("pool KOL scoring uses the existing Jev endpoint and refreshes public signa
   await expect(page.locator("[data-home-pane='pool']")).not.toContainText("清理无主页");
 });
 
-test("selection prefills composer, enqueue is not from-text, and submit starts the run", async ({ page }) => {
+test("selection sets the scope, enqueue is not from-text, and submit runs inside pool", async ({ page }) => {
   const runBodies: Array<Record<string, unknown>> = [];
   const askBodies: Array<Record<string, unknown>> = [];
   await page.route("**/api/tasks/tsk_analyze_1/run", async (route) => {
@@ -722,19 +724,20 @@ test("selection prefills composer, enqueue is not from-text, and submit starts t
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
   const input = page.locator("[data-home] [data-composer-input]");
-  await expect(input).toHaveValue(/分析已选/);
-  await expect(input).toHaveValue(/户外充电君/);
+  await expect(input).toHaveValue("");
+  const scope = page.locator("[data-pool-selection-scope]");
+  await expect(scope).toContainText("户外充电君");
   await page.locator("[data-pool-kol='uid_unowned'] [data-pool-select]").check();
-  await expect(input).toHaveValue(/户外充电君/);
-  await expect(input).toHaveValue(/无主红人/);
+  await expect(scope).toContainText("户外充电君");
+  await expect(scope).toContainText("无主红人");
   await page.locator("[data-pool-kol='uid_unowned'] [data-pool-select]").uncheck();
-  await expect(input).not.toHaveValue(/无主红人/);
+  await expect(scope).not.toContainText("无主红人");
   await page.locator("[data-pool-analysis='potential']").click();
   await expect(input).toHaveValue(/合作潜力/);
   await input.fill(`${await input.inputValue()}\n补充：只要公开资料建议`);
   await page.locator("[data-home] [data-send]").click();
-  await expect(page).toHaveURL(/\/s\/ses_analyze_1/);
-  await expect(page.locator("[data-session-stream-pane]")).toBeVisible();
+  await expect(page).toHaveURL(/\?tab=pool$/);
+  await expect(page.locator("[data-pool-agent-feed]")).toBeVisible();
   await expect.poll(() => runBodies.length).toBe(1);
   await expect.poll(() => askBodies.length).toBe(1);
   expect(String(runBodies[0]?.text || "")).toContain("合作潜力");
@@ -764,14 +767,13 @@ test("pool bulk analysis is limited to the current filtered result", async ({ pa
   await expect(page.locator("[data-pool-kol='uid_unowned']")).toBeVisible();
   await page.locator("[data-pool-select-all]").check();
 
-  // The composer always reflects every selected object, including a selection
-  // that is currently outside the filtered result set.
-  const input = page.locator("[data-home] [data-composer-input]");
-  await expect(input).toHaveValue(/无主红人/);
-  await expect(input).toHaveValue(/户外充电君/);
+  // 当前范围包括筛选外对象，选择不覆盖正文。
+  const scope = page.locator("[data-pool-selection-scope]");
+  await expect(scope).toContainText("无主红人");
+  await expect(scope).toContainText("户外充电君");
 
   await page.locator("[data-pool-select-all]").uncheck();
-  await expect(input).toHaveValue(/户外充电君/);
+  await expect(scope).toContainText("户外充电君");
   await expect(page.locator("[data-pool-analysis='risk']")).toBeEnabled();
 });
 

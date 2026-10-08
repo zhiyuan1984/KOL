@@ -2519,7 +2519,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({
         ...(kolUids?.length ? { kol_uids: kolUids } : {}),
-        ...(criteria ? { criteria } : {}),
+        criteria: criteria ?? null,
       }),
     }),
   poolJevAssessmentStatus: () =>

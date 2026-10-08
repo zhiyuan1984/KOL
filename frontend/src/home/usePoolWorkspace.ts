@@ -188,10 +188,11 @@ export function usePoolWorkspace(options: {
       // rail reflects the committed assessment columns after every batch.
       await loadSurface(true);
       setMaintenanceNotice(result.message);
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Jev 评分失败，请稍后重试";
       setMaintenanceError(message);
-      throw new Error(message);
+      throw err;
     } finally {
       setMaintenanceBusy(null);
     }

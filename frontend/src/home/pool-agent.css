@@ -1,0 +1,69 @@
+/* 公海 Agent 工作面，数值与颜色职责复用 DESIGN.md。 */
+.pool-agent-header {
+  flex-shrink: 0;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--ds-font-sm);
+}
+.pool-agent-header h1 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+}
+.pool-selection-scope, .pool-agent-meta, .pool-agent-turn-scope, .pool-agent-session-link {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.pool-selection-scope p { margin: var(--space-1) 0; overflow-wrap: anywhere; }
+.pool-agent-selected-list ul, .pool-agent-turn-scope ul {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-1) 0;
+}
+.pool-agent-selected-list { padding-bottom: var(--space-3); font-size: var(--ds-font-helper); }
+.pool-agent-header summary, .pool-agent-turn-scope summary, .pool-agent-score-confirm summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.pool-agent-quick-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+.pool-agent-quick-actions .btn { font-size: var(--ds-font-sm); }
+.pool-agent-feed { font-size: var(--ds-font-sm); line-height: var(--ds-line-body); }
+.pool-agent-empty { margin: 0; color: var(--text-quiet); }
+.pool-agent-turn { padding-block: var(--space-3); border-bottom: 1px solid var(--border); min-width: 0; }
+.pool-agent-turn:first-child { padding-top: 0; }
+.pool-agent-turn p { margin-block: var(--space-2); overflow-wrap: anywhere; }
+.pool-agent-turn-scope { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); }
+.pool-agent-question { white-space: pre-wrap; text-align: right; }
+.pool-agent-feed .chat { padding: 0; background: transparent; }
+.pool-agent-wait { color: var(--text-quiet); }
+.pool-agent-session-link { color: var(--accent-text); }
+.pool-agent-feed [role="alert"] { color: var(--danger); }
+.pool-agent-score-results { list-style: none; padding: 0; margin: var(--space-2) 0; }
+.pool-agent-score-results li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1); padding-block: var(--space-1); }
+.pool-agent-score-confirm {
+  margin: var(--space-2) var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-sm);
+}
+.pool-agent-score-confirm strong { font-weight: 600; }
+.pool-agent-score-confirm p { margin-block: var(--space-1); }
+.pool-agent-confirm-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+[data-home-pane="pool"]:has([data-pool-score-confirm]) [data-ai-prompt-submit] {
+  background: transparent; color: var(--text-quiet); box-shadow: none;
+}
+.pool-agent-header :is(button, summary):focus-visible, .pool-agent-feed :is(button, summary, a):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+@media (max-height: 630px) {
+  .pool-agent-header { padding-block: var(--space-1); }
+  .pool-agent-quick-actions { margin-top: var(--space-1); }
+  .pool-agent-score-confirm { margin-block: var(--space-1); }
+}
+@media (pointer: coarse) {
+  .pool-agent-quick-actions .btn, .pool-agent-feed .btn, .pool-agent-confirm-actions .btn,
+  .pool-agent-header summary { min-height: var(--touch-hit-min); }
+}
