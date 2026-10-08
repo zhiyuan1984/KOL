@@ -537,8 +537,25 @@ export default function useDiscovery({
     if (!result.ok) throw new Error("跟进没有完成。");
     setFollowUpIds((current) => (current.includes(id) ? current : [...current, id]));
     setCandidates((current) => current.map((row) => (
-      row.id === id ? { ...row, status: "followed" } : row
+      row.id === id
+        ? {
+            ...row,
+            status: "followed",
+            ...(result.starry_imported
+              ? {
+                  in_library: true,
+                  libraryStatus: "pool",
+                  ingestReadiness: "already_in_library",
+                  ingestBlockReason: "跟进时已写入 Starry 公海，不重复导入。",
+                }
+              : {}),
+          }
+        : row
     )));
+    // 跟进顺带写 Starry：失败不破坏跟进（上面已标已跟进），但必须如实告知。
+    if (result.starry_imported === false && result.starry_error) {
+      throw new Error(`已跟进，但 Starry 入库未完成：${result.starry_error}`);
+    }
   };
 
   /**

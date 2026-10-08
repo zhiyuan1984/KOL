@@ -21,7 +21,15 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
     try {
       const result = await api.discoveryCandidateCommand(actionId, row.id, verb, snapshot);
       if (!result.ok) throw new Error("操作结果尚未确认，请刷新核对。");
-      if (verb === "follow") nav("/?tab=lifecycle");
+      if (verb === "follow") {
+        // 跟进成功后会顺带写 Starry 公海；失败不破坏跟进，但必须如实告知。
+        if (result.starry_imported === false) {
+          setError(`已跟进，但 Starry 入库未完成：${result.starry_error || "未知原因"}。`);
+          refresh();
+        } else {
+          nav("/?tab=lifecycle");
+        }
+      }
       else if (verb === "ingest") nav("/?tab=pool");
       else refresh();
       setConfirm(false);

@@ -2081,7 +2081,7 @@ export const api = {
   runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
   retryCrawlResults: (actionId: string) => request<{ state: string }>("/api/actions/runtime.crawl.results.retry", { method: "POST", body: JSON.stringify({ action_id: actionId }) }),
   discoveryCandidateCommand: (actionId: string, candidateId: string, verb: "follow" | "ignore" | "restore" | "ingest", snapshotVersion: string) =>
-    request<{ ok: boolean }>(`/api/home/discovery/runtime/${encodeURIComponent(actionId)}/candidates/${encodeURIComponent(candidateId)}/${verb}`, {
+    request<{ ok: boolean; lead_id?: string; starry_imported?: boolean; starry_error?: string }>(`/api/home/discovery/runtime/${encodeURIComponent(actionId)}/candidates/${encodeURIComponent(candidateId)}/${verb}`, {
       method: "POST", body: JSON.stringify({ snapshot_version: snapshotVersion, confirmed: verb === "follow" || verb === "ingest" }),
     }),
   confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),
