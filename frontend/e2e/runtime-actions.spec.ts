@@ -166,7 +166,7 @@ test("recovers a saved discovery after the browser loses its initial pending mes
     return route.fulfill({ json: { messages: [], agent_status: "listening" } });
   });
   await page.goto(`/s/${saved.session_id}`);
-  await expect(page).toHaveURL(`/?tab=discovery&session_id=${saved.session_id}`);
+  await expect(page).toHaveURL(`/s/${saved.session_id}`);
   await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
   await expect.poll(() => posted).toHaveLength(1);
   expect(posted[0]).toMatchObject({ work_item_id: saved.task_id, run_id: saved.pending.run_id });
@@ -212,7 +212,8 @@ test("home discovery submits to the lead agent without calling the retired crawl
   const initialTask = page.waitForResponse(readsWorkspaceTask);
   await page.goto(`/s/${savedWorkspace.session_id}`);
   expect((await initialTask).ok()).toBeTruthy();
-  await expect(page).toHaveURL(restoredUrl);
+  await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
+  await expect(page).toHaveURL(`/s/${savedWorkspace.session_id}`);
   await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
   await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", savedWorkspace.session_id);
   await expect(page.locator("[data-expert-identity='expert:crawler']")).toHaveCount(0);

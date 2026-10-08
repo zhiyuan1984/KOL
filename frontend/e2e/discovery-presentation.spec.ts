@@ -400,7 +400,8 @@ test('ignore survives reload, can be restored, and failed follow stays in the ta
   await page.locator('[data-discovery-results]').getByRole('button', { name: '返回候选', exact: true }).click();
   await card.getByRole('button', { name: '跟进', exact: true }).click();
   await expect(card.getByRole('alert')).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`tab=discovery&resume=${task.id}`));
+  await expect(page).toHaveURL(`/s/${task.session_id}`);
+  await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", task.session_id);
 });
 
 test('discovery recovery and sidebar navigation remain usable on a task', async ({ page }) => {

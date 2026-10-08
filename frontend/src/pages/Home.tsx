@@ -360,7 +360,7 @@ async function dispatchDiscoveryPendingAnalysis(taskId: string, sessionId: strin
   throw lastError instanceof Error ? lastError : new Error("首轮分析暂时不可用");
 }
 
-export default function Home() {
+export default function Home({ sessionRoute }: { sessionRoute?: { id: string; task: Task } } = {}) {
   const homeRef = useRef<HTMLDivElement>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
@@ -379,8 +379,8 @@ export default function Home() {
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const followScopeRef = useRef<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
-  const initialFill = peekComposerFill();
-  const initialHomeMode = parseHomeMode(new URLSearchParams(window.location.search).get("tab"));
+  const initialFill = sessionRoute ? null : peekComposerFill();
+  const initialHomeMode = sessionRoute ? "discovery" : parseHomeMode(new URLSearchParams(window.location.search).get("tab"));
   // AI发现 tab：条件卡与提问框正文在首帧就位，不等 GET /api/home/discovery/template。
   const discoveryEntryTab = initialHomeMode === "discovery";
   const todayEntryDefault = !initialFill && !discoveryEntryTab && initialHomeMode === "today";
@@ -689,11 +689,13 @@ export default function Home() {
       // 提交后留在本页：实际参数、确认与回执都留在中栏事件流里，历史事件不清空。
       setDiscoveryTaskId(result.task_id);
       setDiscoverySessionId(result.session_id);
-      const next = new URLSearchParams(params);
-      next.set("tab", "discovery");
-      next.set("session_id", result.session_id);
-      next.delete("resume");
-      setParams(next, { replace: true });
+      if (!sessionRoute) {
+        const next = new URLSearchParams(params);
+        next.set("tab", "discovery");
+        next.set("session_id", result.session_id);
+        next.delete("resume");
+        setParams(next, { replace: true });
+      }
       setDiscoveryRunId(null);
       // 工作区先持久化，再投递首轮分析。短暂服务重启时按同一 task/run 恢复，
       // 已被服务端接收的回合不再重复发送。
@@ -703,6 +705,8 @@ export default function Home() {
         setDiscoverySubmitFailed(true);
         setDiscoverySubmitError(discoveryDispatchFailureMessage(error));
       }
+      // An explicit new submission creates a new session; passive reads keep the original address.
+      if (sessionRoute) nav(`/s/${encodeURIComponent(result.session_id)}`);
     } catch (error) {
       setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {
@@ -809,8 +813,8 @@ export default function Home() {
   const [discoverySubmitError, setDiscoverySubmitError] = useState("");
   const discoveryRequest = useRef<{ fingerprint: string; id: string } | null>(null);
   const [resumedDiscoverySession, setResumedDiscoverySession] = useState<string | null>(null);
-  const resumeDiscoveryId = params.get("resume");
-  const directDiscoverySessionId = params.get("session_id");
+  const resumeDiscoveryId = sessionRoute ? null : params.get("resume");
+  const directDiscoverySessionId = sessionRoute?.id || params.get("session_id");
   const restoreDiscoveryAnalysis = async (taskId: string, sessionId: string, isActive: () => boolean) => {
     try {
       const { pending } = await api.pendingDiscoveryWorkspace(taskId);
@@ -825,9 +829,10 @@ export default function Home() {
   };
   useEffect(() => {
     let active = true;
-    if (!directDiscoverySessionId || params.get("tab") !== "discovery" || resumeDiscoveryId) return;
+    if (!directDiscoverySessionId || (!sessionRoute && params.get("tab") !== "discovery") || resumeDiscoveryId) return;
     setDiscoverySessionId(directDiscoverySessionId);
-    void api.taskBySession(directDiscoverySessionId).then(value => {
+    const savedTask = sessionRoute ? Promise.resolve({ task: sessionRoute.task }) : api.taskBySession(directDiscoverySessionId);
+    void savedTask.then(value => {
       if (!active) return;
       const restored = ("task" in value ? value.task : value) as Task;
       const workspace = discoveryWorkspaceOf(restored);
@@ -846,7 +851,7 @@ export default function Home() {
       // session_id 本身即可恢复 runtime actions；任务元数据反查失败不应遮蔽已有会话结果。
     });
     return () => { active = false; };
-  }, [directDiscoverySessionId, resumeDiscoveryId]);
+  }, [directDiscoverySessionId, resumeDiscoveryId, sessionRoute?.task]);
   useEffect(() => {
     let active = true;
     setResumedDiscoverySession(null);
@@ -877,7 +882,7 @@ export default function Home() {
     });
     return () => { active = false; };
   }, [resumeDiscoveryId, params, setParams]);
-  const mode = parseHomeMode(params.get("tab"));
+  const mode = sessionRoute ? "discovery" : parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {
     listOpenTasks: (signal) => loadAllWorkbenchTasks("today", undefined, signal),
@@ -923,6 +928,11 @@ export default function Home() {
   }, [mode]);
 
   const setMode = (next: HomeMode) => {
+    if (sessionRoute) {
+      const query = homeModeQuery(next);
+      nav(query ? `/?tab=${query}` : "/");
+      return;
+    }
     const nextParams = new URLSearchParams(params);
     const query = homeModeQuery(next);
     if (!query) nextParams.delete("tab");
@@ -1099,6 +1109,7 @@ export default function Home() {
           setDefinitions(withHomeCommandTemplates(taskDefinitions));
         }
       }).catch(() => undefined);
+      if (sessionRoute) return;
       void api.tasks().then(unwrapTaskList).then((catalog) => {
         if (!cancelled) applyTaskCatalog(catalog);
       }).catch(() => undefined);
@@ -2410,7 +2421,7 @@ export default function Home() {
       }
       data-composer-rhythm="dock"
     >
-      {quickTaskBar}
+      {sessionRoute ? null : quickTaskBar}
       {mode === "pool" && poolAgent.scoreConfirm ? <section className="pool-agent-score-confirm" role="group"
         aria-label="执行红人评分确认" data-pool-score-confirm data-pool-score-targets={poolAgent.scoreConfirm.scope.length}>
         <strong>⚠ R3 · 红人评分待确认</strong>
@@ -2487,6 +2498,7 @@ export default function Home() {
         + " is-composer-dock"
       }
       data-home
+      data-session-route={sessionRoute?.id}
       ref={homeRef}
       data-home-active-mode={mode}
       data-home-workspace={workspacePane ?? undefined}
@@ -2550,13 +2562,13 @@ export default function Home() {
               onSubmitConditions={submitDiscoveryConditions}
               skillTemplate={activeSkillTemplate}
               sessionId={discoverySessionId}
-              sessionHref={discoverySessionId ? `/?tab=discovery&session_id=${encodeURIComponent(discoverySessionId)}` : null}
+              sessionHref={discoverySessionId ? (sessionRoute ? `/s/${encodeURIComponent(discoverySessionId)}` : `/?tab=discovery&session_id=${encodeURIComponent(discoverySessionId)}`) : null}
               activeTaskId={discoveryTaskId}
               activeRunId={discoveryRunId}
               lastSubmit={lastDiscoverySubmit}
               onRetrySubmit={() => void retryDiscoveryRun()}
               centerSupplement={<>
-                {resumedDiscoverySession ? <p className="discovery-resume-notice" role="status" data-discovery-resume>
+                {resumedDiscoverySession && !sessionRoute ? <p className="discovery-resume-notice" role="status" data-discovery-resume>
                   <strong>已恢复上次条件</strong><button className="discovery-follow-quiet" onClick={() => nav(`/?tab=discovery&session_id=${encodeURIComponent(resumedDiscoverySession)}`)}>继续原发现任务</button>
                   <span className="muted">修改条件后提交将新建发现任务，原结果保留。</span>
                 </p> : null}

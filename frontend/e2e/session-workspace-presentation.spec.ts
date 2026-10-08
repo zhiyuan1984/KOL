@@ -2,14 +2,15 @@ import { expect, test, type Page } from "@playwright/test";
 test.setTimeout(60000);
 
 // UI fixtures validate rendering and request boundaries, not external execution.
-async function fixture(page: Page, discovery = false, withDraft = false, initialResult = true) {
+async function fixture(page: Page, discovery = false, withDraft = false, initialResult = true, sessionId = "ordinary-session") {
   const errors: string[] = [];
   const writes: Array<{ path: string; body: unknown }> = [];
   let actionState = "pending";
   let version = "version-1";
+  let taskReadStatus = 200;
   const brief = { platforms: ["youtube"], region: "global_en", directions: [], keywords: ["camping"],
     min_followers: 10000, max_followers: null, min_avg_plays_10: 5000, expect_count: 30 };
-  const task = { id: "workspace-task", session_id: "ordinary-session", title: discovery ? "露营线索发现" : "合作报告",
+  const task = { id: "workspace-task", session_id: sessionId, title: discovery ? "露营线索发现" : "合作报告",
     status: "waiting", execution: { result_ready: true }, skill_id: discovery ? "crawler_collect" : "kol_analyze",
     input: discovery ? { discovery_workspace: { kind: "discovery", version: 1, agent_id: "lead", profile: "lead",
       brief, template: { id: "crawler_collect", skill_id: "crawler_collect", version: "1", title: "采集线索", inputs: [], steps: [], constraints: [] }, submitted_text: "发现露营线索" } } : {} };
@@ -23,7 +24,10 @@ async function fixture(page: Page, discovery = false, withDraft = false, initial
     if (path === "/api/auth/status") json = { authenticated: true, account: { id: "employee", name: "员工", available_modes: ["employee"] } };
     else if (path === "/api/me") json = { id: "employee", name: "员工", available_modes: ["employee"] };
     else if (path === "/api/preferences") json = { theme: "light" };
-    else if (path.includes("/api/tasks/by-session/") || path === "/api/tasks/workspace-task") json = { task };
+    else if (path.includes("/api/tasks/by-session/") || path === "/api/tasks/workspace-task") {
+      if (taskReadStatus !== 200) return route.fulfill({ status: taskReadStatus, json: { detail: "会话任务暂时无法读取" } });
+      json = { task };
+    }
     else if (path.endsWith("/pending")) json = { pending: null };
     else if (path === "/api/cron/jobs") json = { jobs: [] };
     else if (path === "/api/queries/runtime.actions") json = { actions: discovery || new URL(request.url()).searchParams.get("session_id") === "confirmation-session" ? [{
@@ -44,7 +48,7 @@ async function fixture(page: Page, discovery = false, withDraft = false, initial
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: "" });
     await route.fulfill({ json });
   });
-  return { errors, writes, revise: () => { version = "version-2"; } };
+  return { errors, writes, revise: () => { version = "version-2"; }, setTaskReadStatus: (status: number) => { taskReadStatus = status; } };
 }
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589 }, { width: 860, height: 700 }]) {
@@ -179,7 +183,8 @@ test("an ordinary session ID and a Home session link restore the same server dis
   await page.goto("/?tab=discovery&session_id=ordinary-session");
   await expect(page.locator("[data-scope-workspace='discovery']")).toBeVisible({ timeout: 15000 });
   await page.goto("/s/ordinary-session");
-  await expect(page).toHaveURL(/tab=discovery&resume=workspace-task/, { timeout: 15000 });
+  await expect(page.locator("[data-scope-workspace='discovery']")).toBeVisible({ timeout: 15000 });
+  await expect(page).toHaveURL("/s/ordinary-session");
   await expect(page.locator("[data-scope-workspace='discovery']")).toBeVisible({ timeout: 15000 });
   await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", "ordinary-session");
   await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
@@ -187,5 +192,58 @@ test("an ordinary session ID and a Home session link restore the same server dis
   await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", "ordinary-session");
   await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
   expect(state.writes.filter(row => row.path.includes("/confirm") || row.path === "/api/home/discovery/workspace")).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+// Route expectations come from IA §1.1; shared rendering must not rewrite them.
+for (const sessionId of ["ordinary-session", "ses_discovery_saved"]) {
+  test(`independent discovery session preserves its address and browser history: ${sessionId}`, async ({ page }) => {
+    const state = await fixture(page, true, false, true, sessionId);
+    const sessionUrl = `/s/${sessionId}?source=task-list`;
+    await page.goto("/skills");
+    await page.goto(sessionUrl);
+    await expect(page.locator("[data-scope-workspace='discovery']")).toBeVisible({ timeout: 15000 });
+    await expect(page).toHaveURL(sessionUrl);
+    await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", sessionId);
+    await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
+    await expect(page.locator("[data-home-modes]")).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
+    await expect(page).toHaveURL(sessionUrl);
+    await page.goBack();
+    await expect(page).toHaveURL("/skills");
+    await page.goForward();
+    await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
+    await expect(page).toHaveURL(sessionUrl);
+    await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", sessionId);
+    expect(state.writes).toEqual([]);
+    expect(state.errors).toEqual([]);
+  });
+}
+
+for (const status of [503, 403]) test(`session task read failure ${status} stays at the saved address and can retry without creating work`, async ({ page }) => {
+  const state = await fixture(page, true);
+  state.setTaskReadStatus(status);
+  await page.goto("/s/ordinary-session");
+  const failure = page.locator("[data-session-route-error]");
+  await expect(failure).toContainText("会话任务暂时无法读取");
+  await expect(page).toHaveURL("/s/ordinary-session");
+  await expect(page.locator("[data-discovery-start-confirm]")).toHaveCount(0);
+  state.setTaskReadStatus(200);
+  await failure.getByRole("button", { name: "重试读取" }).click();
+  await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
+  await expect(page).toHaveURL("/s/ordinary-session");
+  expect(state.writes).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+test("a discovery-shaped ID with an ordinary task stays an ordinary independent session", async ({ page }) => {
+  const sessionId = "ses_discovery_ordinary";
+  const state = await fixture(page, false, false, true, sessionId);
+  await page.goto(`/s/${sessionId}`);
+  await expect(page.locator("[data-scope-workspace='session']")).toBeVisible({ timeout: 15000 });
+  await expect(page).toHaveURL(`/s/${sessionId}`);
+  await expect(page.locator("[data-round-results]")).toContainText("真实成果的完整正文");
+  expect(state.writes).toEqual([]);
   expect(state.errors).toEqual([]);
 });

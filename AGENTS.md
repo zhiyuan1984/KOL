@@ -50,6 +50,7 @@
 - 用文档、占位页面、模拟结果或测试通过冒充完整生产能力（CONST-10）。
 - 为了让代码通过而偷偷改法（CONST-09）。
 - **凭文件名或目录名猜法律层级。** 先把仓库里的文件列全再判断——例如 `docs/` 下有过 `law-v2/`、`median_mcp_server.md`（内容其实是 MediaCrawler）这类名字与内容不符的情况。
+- **共享组件不等于迁移路由。** 涉及页面统一、会话恢复或深链时必须读 `docs/ia-information-architecture.md` §1.1。仅请求统一视觉、布局或交互时，不得新增独立会话/对象/工单导回 Home 或 Tab 的强制跳转；不得把回归测试的目标地址改成该跳转后的地址来消除失败。
 - 在法条正文里写 hex 或 token 数值；数值以 `docs/DESIGN.md` 为准——颜色只给「职责→token」映射、hex 住 `frontend/src/styles.css`，布局/字号/间距/圆角数值直接取用；落地实现是 `frontend/src/styles.css`（不一致时先核对 DESIGN.md）。
 - **若任务涉及「把工具/技能/数据渲染成界面元素」，必须同时读工具风险目录**，核对 R1/R2/R3 风险分级与异步契约（例如：MediaCrawler 是异步作业，不得伪装成同步 Skill）。
 

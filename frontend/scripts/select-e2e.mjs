@@ -25,6 +25,11 @@ function specsForPath(file) {
   const rest = file.slice("frontend/src/".length);
   const dir = dirname(rest);
 
+  // Route and shared workspace changes must keep saved session addresses stable.
+  if (["App.tsx", "pages/Session.tsx"].includes(rest)) {
+    return ["session-workspace-presentation.spec.ts", "discovery-presentation.spec.ts", "session-task-run.spec.ts"];
+  }
+
   // Connector / admin
   if (dir.startsWith("admin/connector")) return ["connector-admin.spec.ts"];
   if (dir.startsWith("admin/")) {
@@ -38,8 +43,10 @@ function specsForPath(file) {
   }
 
   // Home workspace
-  if (dir.startsWith("home/") || rest === "pages/Home.tsx") {
+  if (dir === "home" || dir.startsWith("home/") || rest === "pages/Home.tsx") {
     return [
+      "session-workspace-presentation.spec.ts",
+      "discovery-presentation.spec.ts",
       "home-discovery-pane.spec.ts",
       "home-followed-focus.spec.ts",
       "home-followed-legacy-projection.spec.ts",
@@ -61,7 +68,7 @@ function specsForPath(file) {
     ["pages/Chat.tsx", "components/ChatBlocks.tsx", "components/ComposerDock.tsx"].includes(rest) ||
     dir.startsWith("components/Composer")
   ) {
-    return ["workbench.spec.ts", "session-task-run.spec.ts", "composer-prompt-input.spec.ts"];
+    return ["workbench.spec.ts", "session-task-run.spec.ts", "composer-prompt-input.spec.ts", "session-workspace-presentation.spec.ts"];
   }
 
   // Generic components likely affect workbench / composer

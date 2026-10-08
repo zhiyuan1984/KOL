@@ -1,4 +1,4 @@
-import { Navigate, Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTaskCollaborationWorkspace } from "../tasks/useTaskCollaborationWorkspace";
 import { TaskCollaborationContext } from "../tasks/TaskCollaborationContext";
@@ -1254,7 +1254,6 @@ export default function Chat() {
   };
 
   const taskView = sessionRunView(task, agentStatus, messages, runtimeActions, crawlJob);
-  if (task && discoveryWorkspace) return <Navigate to={`/?tab=discovery&resume=${encodeURIComponent(task.id)}`} replace />;
   return (
     <div className="session-workspace">
       <WorkspaceShell pane="session" className={`conversation-workspace${pendingRuntimeActionId ? " is-awaiting-runtime-confirm" : ""}`}
