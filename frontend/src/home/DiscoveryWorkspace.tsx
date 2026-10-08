@@ -7,7 +7,7 @@ import DiscoveryResultPane from "./DiscoveryResultPane";
 import DiscoveryRunEvents from "./DiscoveryRunEvents";
 import DiscoverySearchCard from "./DiscoverySearchCard";
 import DiscoverySkillEvent, { DiscoveryGuidanceEvent } from "./DiscoverySkillEvent";
-import WorkspaceShell from "./WorkspaceShell";
+import WorkspaceShell, { revealWorkspace } from "./WorkspaceShell";
 import useDiscovery from "./useDiscovery";
 import { discoveryParamCheck } from "./discoveryParams";
 import { type ReactNode } from "react";
@@ -16,6 +16,7 @@ import type { DiscoveryBrief, DiscoveryTemplate } from "./discoveryTemplate";
 import type { SkillParamField } from "./workspace/SkillParamCard";
 import "./discovery-workspace.css";
 import "./discovery-flow.css";
+import { discoveryTaskStatus } from "./discoveryTaskStatus";
 
 /**
  * AI发现 = 走同一工作台骨架的页面（WorkspaceShell），中栏是一条有序事件流：
@@ -91,23 +92,25 @@ export default function DiscoveryWorkspace({
   // （标题"等待确认"+正文"还没有开始采集"）只会让人误以为执行已就绪。
   // 员工点确认后该段才出现；CONST-03 等待诚实。
   const startConfirmed = disc.startPhase !== "waiting_proposal" && disc.startPhase !== "pending";
+  const status = discoveryTaskStatus({ failure: disc.failure, startPhase: disc.startPhase,
+    crawlPhase: disc.crawlPhase, submitted: disc.submitted || busy, stage: disc.stage });
   return (
     <WorkspaceShell
       pane="discovery"
+      sessionId={sessionId}
+      pendingTarget={disc.startPhase === "pending" ? disc.startAction?.id : undefined}
       railLabel="红人线索"
       railToggleLabel="红人线索"
       railStorageKey="ui:home-discovery-rail-collapsed"
       railBadge={disc.visible.length}
       resultIdle={!disc.run && !disc.inFlight && !disc.failure}
-      streamStick={busy || disc.inFlight}
+      streamStick={status.live}
       railScrollJump
       resultView={{
         skillId: "creator_discovery",
         resultType: "discovery_candidates",
         // 右栏元数据与摘要、过程流共用同一个阶段机，避免一侧显示运行中、另一侧显示失败。
-        status: disc.stage === "failure" ? "failed"
-          : disc.stage === "running" ? "running"
-            : disc.stage === "success" ? "completed" : "idle",
+        status: status.key === "waiting" ? "awaiting_confirm" : status.key,
         version: disc.run?.id,
         freshness: disc.run?.memory_validity === "stale"
           ? "stale"
@@ -165,10 +168,12 @@ export default function DiscoveryWorkspace({
           ) : null}
           {flowStarted ? (
             <DiscoveryConfirmCard
+              actionId={disc.startAction?.id}
               phase={disc.startPhase}
               error={disc.startError}
-              blockedReason={disc.paramsStale ? "条件已修改，重新核对后才能确认采集。" : ""}
               reason={disc.startReason}
+              blockedReason={disc.paramsStale ? "条件已修改，重新核对后才能确认采集。"
+                : disc.startPhase === "pending" && !disc.startAction?.confirmation_version ? "确认快照尚未就绪，请重新读取参数。" : ""}
               sessionHref={sessionHref}
               busy={disc.startBusy}
               brief={brief}
@@ -225,9 +230,14 @@ export default function DiscoveryWorkspace({
           {centerSupplement}
         </div>
       )}
-      centerFooter={centerFooter}
-      railHeader={<DiscoveryResultPane state={disc} brief={brief} region="header" />}
-      rail={<DiscoveryResultPane state={disc} brief={brief} region="body" />}
+      centerFooter={<div data-workspace-awaiting-confirm={disc.startPhase === "pending" ? true : undefined}>
+        {disc.startPhase === "pending" && sessionId ? <p className="workspace-confirm-hint" role="status">
+          ⚠ 请核对采集范围 <button className="btn ghost" type="button" onClick={() => revealWorkspace(sessionId, "center", disc.startAction?.id)}>查看确认卡</button>
+        </p> : null}
+        {centerFooter}
+      </div>}
+      railHeader={<DiscoveryResultPane state={disc} brief={brief} runStatus={status} region="header" />}
+      rail={<DiscoveryResultPane state={disc} brief={brief} runStatus={status} region="body" />}
     />
   );
 }

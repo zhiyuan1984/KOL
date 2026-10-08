@@ -178,6 +178,7 @@ export default function ComposerDock({
   onSkillRemoved,
   initialDraft,
   submitLabel = "发送",
+  submitEmphasis = "primary",
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -222,6 +223,7 @@ export default function ComposerDock({
   onSkillRemoved?: (skillId: string) => void;
   initialDraft?: ComposerDraftStash;
   submitLabel?: string;
+  submitEmphasis?: "primary" | "secondary";
 }) {
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
@@ -1417,6 +1419,7 @@ export default function ComposerDock({
                 type="submit"
                 data-send
                 data-ai-prompt-submit
+                data-send-emphasis={submitEmphasis}
                 data-send-state={sendState}
                 disabled={sendDisabled}
                 aria-label={submitLabel}

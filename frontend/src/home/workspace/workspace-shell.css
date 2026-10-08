@@ -1,0 +1,132 @@
+/* DESIGN §§6/10/11/14: shared geometry for Home and task conversations. */
+.session-workspace.session-workspace {
+  flex: 1; height: 100%; min-height: 0; min-width: 0;
+  width: min(100%, var(--content-max)); margin-inline: auto;
+  padding: 0 var(--page-gutter); overflow: hidden;
+}
+.home-pane[data-home-workspace] .home-stage.home-stage { flex: 1; min-height: 0; overflow: hidden; }
+.home-pane[data-home-workspace] .home-board.home-board { flex: 1; min-height: 0; padding-bottom: 0; overflow: hidden; }
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace {
+  --scope-task-rail-width: clamp(var(--workspace-result-rail-min), var(--workspace-result-rail-ideal), var(--workspace-result-rail-max));
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--scope-task-rail-width);
+  grid-template-rows: minmax(0, 1fr); height: 100%; min-height: 0; min-width: 0; overflow: hidden;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace.is-task-rail-collapsed {
+  grid-template-columns: minmax(0, 1fr) var(--workspace-result-rail-collapsed);
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace.is-result-focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-workspace-center {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  padding: var(--space-1) var(--space-4) var(--space-2) 0; overflow: hidden;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-workspace-center-content {
+  display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
+  container: home-workspace-center / inline-size;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-workspace-center-scroll-wrap {
+  display: flex; position: relative; flex-direction: column; flex: 1; min-height: 0; min-width: 0;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-workspace-center-scroll {
+  flex: 1; min-height: 0; min-width: 0; padding: var(--space-1) var(--space-2) var(--space-4) 0;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-workspace-center-scroll-content {
+  min-height: 100%; overflow-anchor: auto;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-task-rail {
+  position: relative; display: flex; flex-direction: column; min-height: 0;
+  min-width: var(--workspace-result-rail-min); margin: 0; padding: 0;
+  border-left: 1px solid var(--border); border-top: 0; overflow: hidden;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-task-rail.is-collapsed {
+  min-width: 0;
+}
+.scope-workspace .scope-task-rail-scroll {
+  flex: 1; min-height: 0; min-width: 0; overflow-y: auto;
+  overscroll-behavior: contain; scrollbar-gutter: stable;
+}
+.scope-workspace .scope-task-rail.is-collapsed .scope-task-rail-scroll { display: none; }
+.scope-workspace .scope-task-rail-body { padding: var(--space-2); }
+.scope-workspace .scope-task-rail-toggle { z-index: 8; right: var(--space-2); top: var(--space-2); }
+.scope-workspace-center-content > :is(header, footer, .home-composer-dock) { flex-shrink: 0; }
+.session-workspace .session-workspace-header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  padding-block: var(--space-2); border-bottom: 1px solid var(--border);
+}
+.session-workspace .conversation-context { max-height: none; overflow: visible; padding: 0; }
+.session-workspace .task-context-details { padding-block: var(--space-2); }
+.session-workspace .task-context-details > summary { cursor: pointer; color: var(--accent-text); }
+.session-workspace .session-composer { margin: 0; padding: var(--space-2) 0 0; }
+.session-workspace .session-composer .composer-dock { margin: 0; width: 100%; }
+.workspace-confirm-hint { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--warning-text); }
+.scope-workspace .result-pointer-button {
+  padding: 0; min-height: var(--btn-text-h); border: 0; background: none;
+  color: var(--accent-text); cursor: pointer; font: inherit;
+}
+.scope-workspace .result-pointer-button:focus-visible { outline: 2px solid var(--focus-ring); }
+.scope-workspace .embedded-workbench { display: block; padding: 0; min-width: 0; }
+.scope-workspace .embedded-workbench .side-body { display: grid; overflow: visible; padding: 0; max-height: none; }
+.scope-workspace .embedded-workbench .task-result-head {
+  position: sticky; top: 0; z-index: 7; background: var(--bg);
+  padding-bottom: var(--space-2); border-bottom: 1px solid var(--border);
+}
+.scope-workspace .embedded-workbench .side-head { padding: 0 calc(var(--icon-btn) + var(--space-2)) var(--space-1) 0; }
+.scope-workspace .embedded-workbench .artifact-toolbar { padding: 0; flex-wrap: wrap; }
+.scope-workspace .embedded-workbench .icon-btn { width: auto; min-height: var(--btn-text-h); }
+.scope-workspace .workspace-agent-avatar { display: inline-flex; flex: 0 0 auto; vertical-align: middle; }
+.workspace-agent-avatar img { width: var(--icon-md); height: var(--icon-md); object-fit: contain; }
+.scope-workspace [data-discovery-run-status] { position: sticky; top: 0; z-index: 7; background: var(--bg); }
+.scope-workspace.scope-workspace .composer .btn.send.send-arrow[data-send-emphasis="secondary"],
+.scope-workspace.scope-workspace [data-workspace-awaiting-confirm] .composer .btn.send.send-arrow[data-ai-prompt-submit] {
+  background: transparent; color: var(--accent-text); border: 1px solid var(--border); box-shadow: none;
+}
+.scope-workspace.is-awaiting-runtime-confirm .embedded-workbench .btn.work,
+.scope-workspace .embedded-workbench [aria-selected="false"] .btn.work,
+.scope-workspace .embedded-workbench .btn.work:disabled,
+.scope-workspace .task-context-details .btn.work {
+  background: transparent; color: var(--accent-text); border: 1px solid var(--border); box-shadow: none;
+}
+.scope-workspace.scope-workspace .composer .btn.send.send-arrow[data-send-emphasis="secondary"] [data-send-arrow],
+.scope-workspace.scope-workspace [data-workspace-awaiting-confirm] [data-send-arrow] { color: var(--accent-text); }
+.scope-workspace-center-content > [data-workspace-awaiting-confirm],
+.scope-workspace-center-content > div:has(> .home-composer-dock) { flex-shrink: 0; }
+.workspace-agent-avatar img { width: var(--icon-md); height: var(--icon-md); }
+.scope-workspace .today-plan-lucas img { width: var(--icon-sm); height: var(--icon-sm); }
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .home-composer-dock {
+  position: static; inset: auto; transform: none; margin-top: 0; width: 100%; align-items: flex-start;
+}
+.scope-workspace .embedded-workbench .side-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.scope-workspace .task-result-head :is(.result-tools, .result-provenance) { font-size: var(--ds-font-sm); color: var(--text-quiet); }
+/* Selected surfaces retain their border/check signal; body ink meets AA in both themes. */
+.scope-workspace .discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"],
+.scope-workspace .discovery-brief-form .discovery-keyword-chip { color: var(--text); }
+.scope-workspace .discovery-event-status[data-tone="ready"] { color: var(--success-text); }
+.scope-workspace .discovery-event-status[data-tone="warning"] { color: var(--warning-text); }
+.scope-workspace .composer-discovery-clear { color: var(--text-muted); }
+.scope-workspace .result-tools > summary { cursor: pointer; }
+.scope-workspace .result-provenance { display: flex; flex-wrap: wrap; gap: var(--space-2); padding-block: var(--space-1); overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+  }
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace.is-task-rail-collapsed {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) var(--workspace-result-rail-collapsed);
+  }
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace.is-result-focus { grid-template-rows: minmax(0, 1fr); }
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-workspace-center { padding-right: 0; }
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace .scope-task-rail {
+    min-width: 0; border-left: 0; border-top: 1px solid var(--border);
+  }
+}
+@media (max-height: 630px) {
+  .session-workspace .session-workspace-header { padding-block: var(--space-1); }
+  .scope-workspace .composer.composer--workspace { min-height: 0; }
+  .scope-workspace .composer.composer--workspace textarea { max-height: var(--control-h-lg); }
+}
+@media (pointer: coarse) {
+  .scope-workspace :is(.scope-task-rail-toggle, .scope-scroll-jump, .result-pointer-button, .workspace-confirm-hint button) {
+    min-height: var(--touch-hit-min); min-width: var(--touch-hit-min);
+  }
+}

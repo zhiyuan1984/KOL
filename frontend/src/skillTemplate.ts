@@ -8,6 +8,7 @@ type SkillTemplateCarrier = {
   id: string;
   ui_template?: SkillTemplate | null;
 };
+const EMPTY_INPUT_FIELDS: TaskInputField[] = [];
 
 /** Inline DTO on the authorized skill is authoritative over the list projection. */
 export function templateForSkill(
@@ -34,7 +35,7 @@ export function templateStarter(template: SkillTemplate): string {
 
 export function templateInputFields(
   template: SkillTemplate | null | undefined,
-  fallback: TaskInputField[] = [],
+  fallback: TaskInputField[] = EMPTY_INPUT_FIELDS,
 ): TaskInputField[] {
   return template ? template.inputs : fallback;
 }

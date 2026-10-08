@@ -12,6 +12,8 @@ import { stageLabel } from "../labels";
 import { isComposeResultCard } from "./ResultArtifact";
 import { resultCardOf } from "./StreamArtifact";
 import { streamTime } from "../streamOrder";
+import AgentAvatar from "./AgentAvatar";
+import type { TaskRunView } from "../runViewState";
 
 /** 形状通道的字形：⚠ 只给需要人确认的 R3 等待，✓/✕ 只在真的完成或失败时出现。 */
 const STATUS_SHAPE_GLYPH: Record<TaskStatusShape, string> = {
@@ -107,6 +109,7 @@ export default function SideWorkbench({
   phase,
   remoteLabel,
   discoveryReturn,
+  embedded = false, runView, renderArtifact, artifactExtra,
 }: {
   sessionId: string;
   messages: Message[];
@@ -123,12 +126,15 @@ export default function SideWorkbench({
   /** 调试视图下的远端执行面名称，只出现在调试细节里。 */
   remoteLabel?: string;
   discoveryReturn?: string;
+  embedded?: boolean; runView?: TaskRunView;
+  renderArtifact?: (message: Message) => ReactNode | undefined; artifactExtra?: ReactNode;
 }) {
   const { debug } = useViewMode();
   const statusView = taskStatusView(task, status);
   // 执行中、待人确认、失败是需要员工知道的状态；其余（已完成、待命等）结束后不再占位。
-  const showStatus = statusView.live || statusView.needsConfirm || statusView.tone === "failed";
+  const showStatus = runView ? runView.key !== "idle" : statusView.live || statusView.needsConfirm || statusView.tone === "failed";
   const entries = resultEntries(messages, extraEntries);
+  const primaryArtifactId = [...messages].reverse().find(message => ["email_card", "confirm_stage_card", "supplement_card", "task_result_card"].includes(message.kind))?.id;
   const latestDraft = [...messages].reverse().find((message) => message.kind === "email_card");
   const draft = latestDraft ? latestDraft.payload as unknown as EmailCard : null;
   const latestResult = [...messages].reverse().find((message) => message.kind === "task_result_card");
@@ -176,13 +182,14 @@ export default function SideWorkbench({
     }
   };
 
+  const Container = embedded ? "div" : "aside";
   return (
-    <aside
-      className={"side-workbench scope-task-rail" + (collapsed ? " is-collapsed" : "")}
-      data-workbench
+    <Container
+      className={embedded ? "embedded-workbench" : "side-workbench scope-task-rail" + (collapsed ? " is-collapsed" : "")}
+      data-workbench={embedded ? undefined : true}
     >
       {/* 收起/展开按钮＝今日任务右栏同一个控件（24px 图标 + 竖排标签 + 可见焦点环）。 */}
-      {!discoveryReturn || collapsed ? <button
+      {!embedded && (!discoveryReturn || collapsed) ? <button
         type="button"
         className="scope-task-rail-toggle"
         aria-expanded={!collapsed}
@@ -194,7 +201,8 @@ export default function SideWorkbench({
         <PanelToggleIcon className="scope-task-rail-toggle-icon" />
       </button> : null}
       {discoveryReturn && collapsed ? <Link className="discovery-return is-collapsed-return" to={discoveryReturn} data-session-back-link>返回 AI发现</Link> : null}
-      {collapsed ? null : <>
+      {!embedded && collapsed ? null : <>
+      <details className="result-tools"><summary>更多操作</summary>
       <div className="artifact-toolbar" aria-label="产物工具栏">
         {discoveryReturn ? <Link className="discovery-return" to={discoveryReturn} data-session-back-link>返回 AI发现</Link> : null}
         <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=md`} download aria-label="下载 Markdown">↓ MD</a>
@@ -203,18 +211,20 @@ export default function SideWorkbench({
         <button className="icon-btn" onClick={() => void copyArtifact()}>复制</button>
         <button className="icon-btn" onClick={() => window.open(`/s/${sessionId}`, "_blank", "noopener")}>打开</button>
         <button className="icon-btn" onClick={() => void createShare()}>分享</button>
-        {discoveryReturn ? <button type="button" className="icon-btn discovery-inline-toggle" data-workbench-toggle
+        {discoveryReturn && !embedded ? <button type="button" className="icon-btn discovery-inline-toggle" data-workbench-toggle
           aria-label="收起结果" aria-expanded onClick={toggle}><PanelToggleIcon className="scope-task-rail-toggle-icon" /></button> : null}
       </div>
+      </details>
       {/* 执行中的状态（DESIGN §8.6）：颜色 + 形状 + 文案三条通道同时变化；结束后退场，只留结果目录。 */}
       {showStatus ? (
         <div className="side-status" data-run-status={statusView.key} data-run-tone={statusView.tone}>
+          <AgentAvatar active={runView?.live ?? statusView.live} failed={(runView?.key || statusView.key) === "failed"} />
           <i className={`status-shape is-${statusView.tone}`} aria-hidden>{STATUS_SHAPE_GLYPH[statusView.shape]}</i>
-          <span className="side-status-copy" data-agent-status={status} role="status" aria-live="polite">
-            {statusOverride || statusView.copy}
+          <span className="side-status-copy" data-agent-status={status} data-workspace-status role="status" aria-live="polite">
+            {statusOverride || runView?.label || statusView.copy}
           </span>
           {statusView.live && phase ? <span className="side-status-phase" data-run-phase>{phase}</span> : null}
-          {statusView.live ? <span className="side-status-hint">刷新页面不会取消后台执行；过程与结果按时间出现在中栏</span> : null}
+          {statusView.live ? <span className="side-status-hint">刷新页面不会取消后台执行；过程在中栏，完整成果保存在这里</span> : null}
           {debug && remoteLabel ? (
             <details className="execution-details side-status-debug">
               <summary>调试细节</summary>
@@ -231,7 +241,10 @@ export default function SideWorkbench({
             <MailBodyArtifact mail={focusedMail} />
           </section>
         ) : null}
-        {entries.length ? (
+        {renderArtifact ? <>{messages.map(message => {
+          const artifact = renderArtifact(message);
+          return artifact ? <section key={message.id} aria-selected={message.id === primaryArtifactId} data-result-message={message.id} data-tab={message.kind === "email_card" ? "draft" : "result"}>{artifact}</section> : null;
+        })}{artifactExtra}</> : entries.length ? (
           <nav className="result-index" aria-label="结果目录" data-result-index>
             <div className="page-kicker">结果目录</div>
             <ol>
@@ -251,6 +264,6 @@ export default function SideWorkbench({
         ) : null}
       </div>
       </>}
-    </aside>
+    </Container>
   );
 }

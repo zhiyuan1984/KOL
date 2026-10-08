@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { SafeResultValue } from "./ResultRendererRegistry";
 
-export type ResultStatus = "idle" | "ready" | "running" | "completed" | "partial" | "failed" | "stale";
+export type ResultStatus = "idle" | "ready" | "preparing" | "awaiting_confirm" | "running" | "completed" | "partial" | "failed" | "stale" | "stopped" | "uncertain";
 export type ResultFreshness = "current" | "historical" | "stale" | "unknown";
 
 export type ResultRailViewModel = {

@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Navigate, Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTaskCollaborationWorkspace } from "../tasks/useTaskCollaborationWorkspace";
 import { TaskCollaborationContext } from "../tasks/TaskCollaborationContext";
@@ -31,8 +31,8 @@ import AgentTaskList, { readTaskListWidth } from "../components/AgentTaskList";
 import SideWorkbench, { type ResultEntry } from "../components/SideWorkbench";
 import { useStreamArtifacts } from "../components/StreamArtifact";
 import CrawlArtifact, { crawlCandidates } from "../components/CrawlArtifact";
-import StreamScrollJump from "../components/StreamScrollJump";
-import { useStreamScroll } from "../hooks/useStreamScroll";
+import WorkspaceShell, { revealWorkspace } from "../home/WorkspaceShell";
+import { sessionRunView } from "../runViewState";
 import { useAccount } from "../components/AuthGate";
 import { useViewMode } from "../viewMode";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
@@ -446,6 +446,7 @@ export default function Chat() {
   const [agentChoice, setAgentChoice] = useState<{ candidates: AgentChoiceCandidate[]; pending: PendingAsk } | null>(null);
   const [pending, setPending] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
+  const [taskReadComplete, setTaskReadComplete] = useState(false);
   const [taskReadError, setTaskReadError] = useState("");
   const [taskReadGeneration, setTaskReadGeneration] = useState(0);
   const taskSessionRef = useRef(id);
@@ -456,7 +457,6 @@ export default function Chat() {
     && (!task?.worker_id || action.run_id === task.worker_id))?.progress;
   const discoveryExecutionResult = discoveryProgress?.replace_result ? discoveryProgress.result : undefined;
   const pendingRuntimeActionId = runtimeActions.find((action) => action.state === "pending" && !action.execution)?.id || null;
-  const focusedPendingRuntimeActionRef = useRef<string | null>(null);
   const [selectedSkillTemplate, setSelectedSkillTemplate] = useState<SkillTemplate | null>(null);
   const [selectedTemplateSkillId, setSelectedTemplateSkillId] = useState<string | null>(null);
   const [skillParamValues, setSkillParamValues] = useState<Record<string, unknown>>({});
@@ -473,7 +473,6 @@ export default function Chat() {
   const [crawlGeneration, setCrawlGeneration] = useState(0);
   const [focusedMail, setFocusedMail] = useState<SessionMailRow | null>(null);
   // 中栏只有这一条时间流滚动轴，规则与首页工作台同一套：停在底部时跟随最新，上翻不抢。
-  const stream = useStreamScroll({ resetKey: id, start: "bottom", follow: true });
   const [templatePickedAt, setTemplatePickedAt] = useState("");
   const stopRequestedRef = useRef(false);
   const paramTemplateKey = useRef<string | null>(null);
@@ -496,7 +495,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (!id) return;
-    if (taskSessionRef.current !== id) { taskSessionRef.current = id; setTask(null); setTaskReadError(""); }
+    if (taskSessionRef.current !== id) { taskSessionRef.current = id; setTask(null); setTaskReadError(""); setTaskReadComplete(false); }
     const taskId = sessionStorage.getItem(`task:${id}`) || id;
     let cancelled = false;
     let loading = false;
@@ -520,7 +519,7 @@ export default function Chat() {
         if (!cancelled && (sessionStorage.getItem(`task:${id}`) || (location.state as { discoverySession?: string } | null)?.discoverySession === id)) {
           setTaskReadError("暂时无法读取已保存的发现条件，请重试读取；这不会重新提交任务。");
         }
-      } finally { loading = false; }
+      } finally { loading = false; if (!cancelled) setTaskReadComplete(true); }
     };
     void loadTask();
     const timer = window.setInterval(() => {
@@ -851,17 +850,6 @@ export default function Chat() {
       ? [...safeCrawlOperationMessages(task.id, crawlEvents), ...safeCrawlEventMessages(task.id, crawlEvents, crawlJob)]
       : []),
   ];
-  useEffect(() => {
-    if (!pendingRuntimeActionId) {
-      focusedPendingRuntimeActionRef.current = null;
-      return;
-    }
-    if (focusedPendingRuntimeActionRef.current === pendingRuntimeActionId) return;
-    focusedPendingRuntimeActionRef.current = pendingRuntimeActionId;
-    // 待确认的动作留在时间流里：只把它带进视口一次，不做成浮层。
-    const frame = window.requestAnimationFrame(() => stream.pinToBottom());
-    return () => window.cancelAnimationFrame(frame);
-  }, [pendingRuntimeActionId, stream.pinToBottom]);
   const lastComposeGap = lastUnsentComposeGap(messages);
   const composerHint = String(lastComposeGap?.placeholder || journey?.composer_placeholder || "");
   const boundExpert = !discoveryEntry && id ? readBoundExpert(id) : null;
@@ -1224,22 +1212,6 @@ export default function Chat() {
             </button>
           )}
         </section>
-        {crawlCandidateRows.length ? (
-          <CrawlArtifact
-            job={crawlJob}
-            events={crawlEvents}
-            candidates={crawlCandidateRows}
-            busy={crawlBusy}
-            error={crawlError}
-            onStart={startCrawl}
-            onStop={stopCrawl}
-            onPrefill={setText}
-            showControls={false}
-            isAdmin={account?.available_modes?.includes("admin") === true}
-            onRetryUpload={crawlJob.id ? retryCrawlUpload : undefined}
-            onClearHistory={clearCrawlHistory}
-          />
-        ) : null}
       </div>;
     }
     if (slot === "crawl-error" && crawlError) {
@@ -1281,30 +1253,21 @@ export default function Chat() {
     return null;
   };
 
+  const taskView = sessionRunView(task, agentStatus, messages, runtimeActions, crawlJob);
+  if (task && discoveryWorkspace) return <Navigate to={`/?tab=discovery&resume=${encodeURIComponent(task.id)}`} replace />;
   return (
-    <div
-      className={`session-shell conversation-workspace${discoveryEntry ? " is-discovery-task" : ""}${showLeftRail ? " has-tasklist" : ""}${showRightWorkbench ? "" : " no-workbench"}`}
-      style={{ ["--tasklist-width" as string]: `${taskListWidth}px` }}
-    >
-      {showLeftRail ? (
-        <AgentTaskList
-          sessionId={id}
-          currentTask={task}
-          running={status === "running"}
-          width={taskListWidth}
-          onWidthChange={setTaskListWidth}
-          mails={kolSession ? (sessionMails || []) : undefined}
-          selectedMailId={focusedMail?.id}
-          onSelectMail={selectMail}
-          onRefreshMails={() => reload(true, true)}
-          mailSyncing={Boolean(journey?.mail_sync_pending)}
-          mailSyncFailed={Boolean(journey?.mail_sync_failed)}
-        />
-      ) : null}
-      <section className="session-center">
-        {/* 中栏三段式：header 固定顶、feed 唯一滚动、composer 固定底（DESIGN §10.1）。
-            任务状态只在右栏表达一次（§8.6），页头不再重复。 */}
-        <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
+    <div className="session-workspace">
+      <WorkspaceShell pane="session" className={`conversation-workspace${pendingRuntimeActionId ? " is-awaiting-runtime-confirm" : ""}`}
+        sessionId={id} scrollReady={sessionLoaded && taskReadComplete}
+        railLabel="结果" railToggleLabel="结果" railStorageKey="ui:right-collapsed"
+        streamStick={taskView.live} railScrollJump pendingTarget={pendingRuntimeActionId}
+        centerHeader={<header className="session-workspace-header">
+          <Link to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : "/"} className="task-back" data-session-back-link>← 返回任务列表</Link>
+          <strong>{task?.title || String(journey?.handle ? `@${journey.handle}` : "当前会话")}</strong>
+        </header>}
+        centerScroll={<>
+        <details className="task-context-details" data-task-context><summary>任务背景与上下文</summary>
+        <div className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           {!discoveryEntry ? (
             <div className="session-head-row">
               <Link
@@ -1425,8 +1388,7 @@ export default function Chat() {
             {completion && <p className={task.status === "completed" ? "completion-feedback" : "error"} role="status">{completion}</p>}
             </>
           )}
-        </header>
-        <div className="session-stream conversation" ref={stream.ref} onScroll={stream.onScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
+        </div></details>
         {id && (
           <RuntimeActions sessionId={id} onChange={setRuntimeActions}>{(actions, renderAction) => <ChatThread
             messages={timelineWithCrawl}
@@ -1437,14 +1399,12 @@ export default function Chat() {
             onRefresh={reload}
             slots={streamSlots}
             renderSlot={renderSlot}
-            renderArtifact={renderArtifact}
+            onViewResult={target => id && revealWorkspace(id, "rail", target)}
           />}</RuntimeActions>
         )}
-        </div>
-        {/* 时间流只有一个跳转控件：不在底部「滚到底部」，在底部「滚到顶部」（DESIGN §10.2）。 */}
-        {stream.canJump ? <div className="session-scroll-control">
-          <StreamScrollJump atBottom={stream.atBottom} onClick={stream.toggle} data-session-scroll-jump />
-        </div> : null}
+        </>}
+        centerFooter={<>
+        {pendingRuntimeActionId && id ? <p className="workspace-confirm-hint" role="status">⚠ 请核对操作范围 <button className="btn ghost" onClick={() => revealWorkspace(id,"center",pendingRuntimeActionId)}>查看确认卡</button></p> : null}
         <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>
           {kolSession || messages.some((message) => message.kind === "email_card") ? (
             <p className="session-send-hint" data-session-send-hint>
@@ -1453,6 +1413,7 @@ export default function Chat() {
           ) : null}
           <ComposerDock
             variant="workspace"
+            submitEmphasis={pendingRuntimeActionId ? "secondary" : "primary"}
             value={text}
             onChange={setText}
             onSubmit={send}
@@ -1502,10 +1463,11 @@ export default function Chat() {
               if (skillId === "email_compose") mailCompose.clear();
             }}
           />
-        </footer>
-      </section>
-      {id && showRightWorkbench && (
+        </footer></>}
+        rail={id ? (
         <SideWorkbench
+          embedded runView={taskView} renderArtifact={renderArtifact}
+          artifactExtra={crawlCandidateRows.length ? <CrawlArtifact job={crawlJob} events={crawlEvents} candidates={crawlCandidateRows} busy={crawlBusy} error={crawlError} onStart={startCrawl} onStop={stopCrawl} onPrefill={setText} showControls={false} /> : null}
           sessionId={id}
           messages={[...messages, ...taskResultRows]}
           status={status}
@@ -1528,7 +1490,8 @@ export default function Chat() {
             })} /> : undefined}
           focusedMail={focusedMail}
         />
-      )}
+      ) : null}
+      />
     </div>
   );
 }

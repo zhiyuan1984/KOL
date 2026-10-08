@@ -1,10 +1,12 @@
 import { Link } from "react-router-dom";
 import { LifecycleNavigation } from "../components/LifecycleNavigation";
 import "../components/lifecycle-workspace.css";
+import DiscoveryRuntimeResults from "./DiscoveryRuntimeResults";
+import AgentAvatar from "../components/AgentAvatar";
+import { discoveryTaskStatus, type DiscoveryTaskStatus } from "./discoveryTaskStatus";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
 import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
-import DiscoveryAvatar from "./DiscoveryAvatar";
 import type { DiscoveryState } from "./useDiscovery";
 
 /**
@@ -13,7 +15,7 @@ import type { DiscoveryState } from "./useDiscovery";
  * 本身，右栏顶部固定的是「这个任务现在到哪了」。reads、polling、writes 与 L3
  * 确认仍然都在 hook 和既有确认流程里。
  */
-export default function DiscoveryResultPane({ state, brief, region = "all" }: { state: DiscoveryState; brief: DiscoveryBrief; region?: "all" | "header" | "body" }) {
+export default function DiscoveryResultPane({ state, brief, region = "all", runStatus }: { state: DiscoveryState; brief: DiscoveryBrief; region?: "all" | "header" | "body"; runStatus?: DiscoveryTaskStatus }) {
   const {
     run,
     runId,
@@ -75,36 +77,11 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
   const allSelectableShown = selectableVisible.length > 0
     && selectableVisible.every((candidate) => selectedIds.includes(candidate.id));
 
-  // 右栏顶部固定的当前任务状态：文案 + 图形 + 字重，不只靠颜色（DESIGN §1 不变量 4）。
-  // 以会话动作的相位为准；`stage === "running"` 只表示「任务在动」（可能只是在等确认），
-  // 所以它只作兜底，不能盖掉「待确认」。
-  const railStatus = failure || startPhase === "failed"
-    ? { key: "failed", glyph: "⚠", label: "失败", detail: "保留已取得的结果；可核对原因后重试。" }
-    : startPhase === "uncertain"
-      ? { key: "uncertain", glyph: "⚠", label: "结果待核实", detail: "不重复提交；先核对任务状态。" }
-      : crawlPhase === "running" || startPhase === "running"
-        ? { key: "running", glyph: "▶", label: "采集中", detail: "候选到达后原位更新，不打断阅读。" }
-        : startPhase === "dispatching" || startPhase === "starting"
-          ? { key: "starting", glyph: "▶", label: "启动中", detail: "已确认，正在启动采集。" }
-          : startPhase === "succeeded" || crawlPhase === "succeeded"
-            ? { key: "completed", glyph: "✓", label: "已完成", detail: "候选与来源已就绪；入库是独立动作。" }
-            : startPhase === "cancelled" || crawlPhase === "cancelled" || startPhase === "rejected"
-              ? { key: "stopped", glyph: "■", label: "已停止", detail: "只保留已取得的候选。" }
-              : startPhase === "pending"
-                ? { key: "waiting", glyph: "·", label: "待确认", detail: "确认前不会发起采集。" }
-                : startPhase === "waiting_proposal"
-                  ? (submitted
-                    ? { key: "preparing", glyph: "·", label: "准备中", detail: "正在整理本次采集范围。" }
-                    : { key: "idle", glyph: "·", label: "未开始", detail: "提交条件后，结果会保存在这里。" })
-                  : stage === "running"
-                    ? { key: "running", glyph: "▶", label: "采集中", detail: "候选到达后原位更新，不打断阅读。" }
-                    : stage === "success"
-                      ? { key: "completed", glyph: "✓", label: "已完成", detail: "候选与来源已就绪；入库是独立动作。" }
-                      : { key: "idle", glyph: "·", label: "未开始", detail: "提交条件后，结果会保存在这里。" };
+  const railStatus = runStatus || discoveryTaskStatus({ failure, startPhase, crawlPhase, submitted, stage });
 
   const avatarIsActive = ["preparing", "starting", "running"].includes(railStatus.key);
   const statusHeader = (<header className="discovery-run-status" data-discovery-run-status={railStatus.key}>
-        <DiscoveryAvatar active={avatarIsActive} />
+        <AgentAvatar active={avatarIsActive} failed={railStatus.key === "failed"} completed={railStatus.key === "completed"} />
         <div className="discovery-run-status-copy">
           <span className="discovery-run-status-kicker">当前任务</span>
           <strong data-discovery-run-status-label>
@@ -207,7 +184,8 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
         </div>
       ) : null}
 
-      {showResults ? (
+      {state.actions.some(action => Boolean(action.crawl?.result_json)) ? <DiscoveryRuntimeResults actions={state.actions} brief={brief} onRefresh={state.reloadActions}
+        candidateIds={visible.map(row => row.id)} selectedIds={selectedIds} onSelect={toggleSelected} /> : showResults ? (
         <section className="discovery-result-detail" aria-label="结果明细">
           {region === "all" ? <header className="discovery-result-detail-head">
             <h3>结果明细{!selecting ? <span className="discovery-result-detail-hint"> · 优先复核证据，再选择可入库线索</span> : null}</h3>

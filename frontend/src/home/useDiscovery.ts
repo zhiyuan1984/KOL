@@ -114,6 +114,7 @@ export default function useDiscovery({
   const [checkingConnection, setCheckingConnection] = useState(false);
   const [ingestOpen, setIngestOpen] = useState(false);
   const [ingestBusy, setIngestBusy] = useState(false);
+  const ingestSubmitting = useRef(false);
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [approvalState, setApprovalState] = useState<DiscoveryIngestState>(null);
@@ -129,6 +130,7 @@ export default function useDiscovery({
   const [confirmingStart, setConfirmingStart] = useState(false);
   const [startError, setStartError] = useState("");
   const [startBusy, setStartBusy] = useState(false);
+  const startSubmittingRef = useRef(false);
   /** 发现页首屏会同时触发两次只读恢复；只有最后一次读取允许回写状态。 */
   const loadSequenceRef = useRef(0);
 
@@ -409,8 +411,8 @@ export default function useDiscovery({
 
   // 实际采集参数、确认与回执都来自会话的受控动作；采集取得终态后停表。
   useEffect(() => {
-    if (!sessionId || actionsSettled) {
-      if (!sessionId) setActions([]);
+    if (!sessionId) {
+      setActions([]);
       return;
     }
     let cancelled = false;
@@ -435,11 +437,16 @@ export default function useDiscovery({
         setActionsError(presentDiscoveryError(error, "读取采集动作失败，可稍后重试。").message);
       }
     };
-    void poll();
-    timer = window.setInterval(() => void poll(), 2000);
+    const refresh = () => void poll();
+    window.addEventListener("discovery:candidates-refresh", refresh);
+    if (!actionsSettled) {
+      void poll();
+      timer = window.setInterval(refresh, 2000);
+    }
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener("discovery:candidates-refresh", refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, actionsSettled]);
@@ -575,14 +582,32 @@ export default function useDiscovery({
   };
 
   const confirmIngest = async () => {
-    if (!selected.length || ingestBusy) return;
+    if (!selected.length || ingestBusy || ingestSubmitting.current) return;
     if (!runId) {
       setIngestError("没有可入库的发现运行。");
       return;
     }
+    ingestSubmitting.current = true;
     setIngestBusy(true);
     setIngestError(null);
     try {
+      if (sessionId) {
+        let completed = 0;
+        for (const candidate of selected) {
+          const action = actions.find(row => row.crawl?.result_json?.candidates.some(item => item.id === candidate.id));
+          const snapshot = action?.crawl?.result_json?.candidates.find(item => item.id === candidate.id)?.snapshot_version;
+          if (!action || !snapshot) throw new Error("候选资料版本缺失，请刷新核对后入库。");
+          const receipt = await api.discoveryCandidateCommand(action.id, candidate.id, "ingest", snapshot);
+          if (!receipt.ok) throw new Error("操作结果尚未确认，请刷新核对。");
+          completed += 1;
+          setSelectedIds(current => current.filter(id => id !== candidate.id));
+          setToast(`本次已取得 ${completed} 位候选的入库回执。`);
+        }
+        await refreshActions();
+        window.dispatchEvent(new Event("discovery:candidates-refresh"));
+        setIngestOpen(false);
+        return;
+      }
       const result = await ingestHomeDiscovery({
         run_id: runId,
         candidate_ids: selected.map((row) => row.id),
@@ -656,6 +681,8 @@ export default function useDiscovery({
       }
       setIngestError(presentDiscoveryError(error, "入库没有完成，未建联也未发信。").message);
     } finally {
+      if (sessionId) { await refreshActions(); window.dispatchEvent(new Event("discovery:candidates-refresh")); }
+      ingestSubmitting.current = false;
       setIngestBusy(false);
     }
   };
@@ -701,7 +728,8 @@ export default function useDiscovery({
    */
   const confirmStart = async () => {
     const action = startAction;
-    if (!action || action.state !== "pending" || action.execution || confirmingStart || startBusy) return;
+    if (!action || action.state !== "pending" || action.execution || !action.confirmation_version || startSubmittingRef.current) return;
+    startSubmittingRef.current = true;
     setStartError("");
     setConfirmingStart(true);
     setStartBusy(true);
@@ -710,16 +738,18 @@ export default function useDiscovery({
     } catch (error) {
       setStartError(presentDiscoveryError(error, "确认没有完成，未发起采集。可稍后重试。").message);
     } finally {
+      await refreshActions();
+      startSubmittingRef.current = false;
       setConfirmingStart(false);
       setStartBusy(false);
-      await refreshActions();
     }
   };
 
   /** 取消未确认的提案（不执行任何外部动作）。 */
   const cancelStart = async () => {
     const action = startAction;
-    if (!action || action.state !== "pending" || action.execution || startBusy) return;
+    if (!action || action.state !== "pending" || action.execution || startSubmittingRef.current) return;
+    startSubmittingRef.current = true;
     setStartError("");
     setStartBusy(true);
     try {
@@ -727,15 +757,17 @@ export default function useDiscovery({
     } catch (error) {
       setStartError(presentDiscoveryError(error, "取消没有完成。未发起采集。").message);
     } finally {
-      setStartBusy(false);
       await refreshActions();
+      startSubmittingRef.current = false;
+      setStartBusy(false);
     }
   };
 
   /** 失败或结果不确定后重新核对并重试（服务端受限动作）。 */
   const retryStart = async () => {
     const action = startAction;
-    if (!action || startBusy) return;
+    if (!action || startSubmittingRef.current) return;
+    startSubmittingRef.current = true;
     setStartError("");
     setStartBusy(true);
     try {
@@ -743,15 +775,17 @@ export default function useDiscovery({
     } catch (error) {
       setStartError(presentDiscoveryError(error, "重试没有提出，请核对任务状态。").message);
     } finally {
-      setStartBusy(false);
       await refreshActions();
+      startSubmittingRef.current = false;
+      setStartBusy(false);
     }
   };
 
   /** 停止采集（独立动作与回执，不覆盖已取得候选）。 */
   const stopStart = async () => {
     const action = startAction;
-    if (!action || startBusy) return;
+    if (!action || startSubmittingRef.current) return;
+    startSubmittingRef.current = true;
     setStartError("");
     setStartBusy(true);
     try {
@@ -759,8 +793,9 @@ export default function useDiscovery({
     } catch (error) {
       setStartError(presentDiscoveryError(error, "停止申请没有提出，请核对任务状态。").message);
     } finally {
-      setStartBusy(false);
       await refreshActions();
+      startSubmittingRef.current = false;
+      setStartBusy(false);
     }
   };
 

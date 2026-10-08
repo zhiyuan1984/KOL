@@ -10,6 +10,7 @@ import {
   KolMailCard,
   OverdueArtifact,
   SupplementArtifact,
+  taskResultCardsFrom,
 } from "./ChatBlocks";
 import CrawlArtifact, { crawlCandidates } from "./CrawlArtifact";
 import Markdown from "./Markdown";
@@ -86,6 +87,8 @@ export function useStreamArtifacts(ctx: StreamArtifactContext): (message: Messag
 
   return (message: Message) => {
     const payload = message.payload as Record<string, unknown>;
+    const parsed = ["assistant", "text"].includes(message.kind) ? taskResultCardsFrom(String(payload.text || "")) : [];
+    if (parsed.length) return <>{parsed.map((card, index) => <GenericResultArtifact key={index} card={card} sessionId={ctx.sessionId} onPrefill={ctx.onPrefill} onRefresh={ctx.onRefresh} showDraftPreview={!latestDraftId} />)}</>;
     if (message.kind === "task_result_card") {
       const card = resultCardOf(message);
       const candidates = crawlCandidates(card, payload);
@@ -114,6 +117,7 @@ export function useStreamArtifacts(ctx: StreamArtifactContext): (message: Messag
             sessionId={ctx.sessionId}
             onPrefill={ctx.onPrefill}
             stacked={compose}
+            showDraftPreview={!draftFollows}
             collaborationId={ctx.collaborationId}
             handle={ctx.handle}
             onRefresh={ctx.onRefresh}

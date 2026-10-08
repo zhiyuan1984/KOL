@@ -122,6 +122,7 @@ export function GenericResultArtifact({
   collaborationId,
   handle,
   onRefresh,
+  showDraftPreview = true,
 }: {
   card: TaskResultCard;
   sessionId: string;
@@ -130,6 +131,7 @@ export function GenericResultArtifact({
   collaborationId?: string;
   handle?: string;
   onRefresh?: () => void;
+  showDraftPreview?: boolean;
 }) {
   // 结果卡在中栏时间流里渲染，走同一套员工面清洗（DESIGN §15）：模型写的引擎名与技能 id 不外泄。
   const rawSections: TaskResultSection[] = Array.isArray(card.sections)
@@ -165,7 +167,7 @@ export function GenericResultArtifact({
         {stacked && isComposeResultCard(card) ? null : <h2>{stripEngineCopy(String(card.title || "分析结果"))}</h2>}
         {summary ? <p className="task-result-summary">{summary}</p> : null}
       </header>
-      {draftPreview}
+      {showDraftPreview ? draftPreview : null}
       {metrics.length > 0 && (
         <dl className="result-metrics">
           {metrics.map((metric, index) => (

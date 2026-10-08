@@ -3,9 +3,9 @@ import { api, type RuntimeActionView } from "../api";
 import type { DiscoveryBrief } from "./discoveryTemplate";
 import DiscoveryRuntimeCandidate from "./DiscoveryRuntimeCandidate";
 
-export default function DiscoveryRuntimeResults({ actions, brief, onAnalyze, analyzing, onRefresh }: {
+export default function DiscoveryRuntimeResults({ actions, brief, onAnalyze, analyzing, onRefresh, candidateIds, selectedIds, onSelect }: {
   actions: RuntimeActionView[]; brief: DiscoveryBrief; onAnalyze?: (taskId: string) => void; analyzing?: boolean;
-  onRefresh?: () => void;
+  onRefresh?: () => void; candidateIds?: string[]; selectedIds?: string[]; onSelect?: (id: string, on: boolean) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -48,8 +48,9 @@ export default function DiscoveryRuntimeResults({ actions, brief, onAnalyze, ana
           <p className="muted">地区和方向需按来源核验；跟进和加入公海分别执行。</p>
           {onAnalyze && result.candidates.length > 0 ? <button className="btn ghost" disabled={analyzing} onClick={() => onAnalyze(result.task_id)}>让线索智能体分析候选</button> : null}
           {!result.candidates.length ? <p>本次采集返回空结果，可调整条件新建发现任务。</p> : null}
-          {result.candidates.filter(row => Boolean(row.ignored) === showIgnored).slice(0, visible).map(row =>
+          {result.candidates.filter(row => Boolean(row.ignored) === showIgnored && (showIgnored || !candidateIds || candidateIds.includes(row.id))).slice(0, visible).map(row =>
             <DiscoveryRuntimeCandidate key={row.id} row={row} actionId={action.id} brief={brief} capturedAt={result.captured_at}
+              selected={selectedIds?.includes(row.id)} onSelect={onSelect ? on => onSelect(row.id, on) : undefined}
               refresh={() => { onRefresh?.(); window.dispatchEvent(new Event("discovery:candidates-refresh")); }} />)}
           {showIgnored && !result.candidates.some(row => row.ignored) ? <p>本次发现没有已忽略的候选。</p> : null}
           {result.candidates.filter(row => Boolean(row.ignored) === showIgnored).length > visible ? <button className="btn ghost" onClick={() => setVisible(v => v + 30)}>显示更多候选</button> : null}

@@ -1,10 +1,11 @@
-import type { Task } from "./api";
+import type { CrawlJob, Message, RuntimeActionView, Task } from "./api";
 
 /**
  * 「这一件任务现在到哪了」的统一状态：会话右栏是它唯一的表达处（DESIGN §8.6），
  * 不再让会话 agent_status、任务 status 与最后一条事件各说各话。
  */
 export type TaskRunKey =
+  | "uncertain"
   | "idle"
   | "queued"
   | "running"
@@ -26,6 +27,7 @@ export type TaskRunView = {
 };
 
 export const TASK_RUN_LABEL: Record<TaskRunKey, string> = {
+  uncertain: "结果待核实",
   idle: "待命",
   queued: "已排队",
   running: "执行中",
@@ -58,6 +60,7 @@ export type TaskStatusView = TaskRunView & {
  * 不把「待确认」挪用成「等你标记完成」；结果未出时也不谎称已有结果。
  */
 const TASK_STATUS_PRESENTATION: Record<TaskRunKey, { copy: string; tone: TaskStatusTone; shape: TaskStatusShape }> = {
+  uncertain: { copy: "结果待核实", tone: "confirm", shape: "alert" },
   idle: { copy: "待命", tone: "neutral", shape: "dot" },
   queued: { copy: "已排队 · 等待开始", tone: "neutral", shape: "dot" },
   running: { copy: "执行中", tone: "live", shape: "pulse" },
@@ -108,4 +111,26 @@ export function taskRunView(task: Task | null | undefined, agentStatus?: string)
 
 function view(key: TaskRunKey, live: boolean, canRerun: boolean): TaskRunView {
   return { key, label: TASK_RUN_LABEL[key], live, canRerun };
+}
+
+/** One projection for conversation and result status. Result readiness remains
+ * distinct from formal work order acceptance. */
+export function sessionRunView(task: Task | null, agentStatus: string, messages: Message[], actions: RuntimeActionView[], crawl?: CrawlJob | null): TaskRunView {
+  if (actions.some(action => action.state === "pending" && !action.execution)) return view("awaiting_confirm", false, false);
+  const active = actions.some(action => ["dispatching", "running", "starting", "stopping", "queued"]
+    .includes(String(action.crawl?.state || action.execution?.status || action.state)));
+  if (active || agentStatus === "running") return view("running", true, false);
+  const action = actions.at(-1);
+  const state = action?.crawl?.state || action?.execution?.status || action?.state;
+  if (state === "uncertain") return view("uncertain", false, false);
+  if (state === "failed") return view("failed", false, true);
+  if (state === "cancelled" || state === "rejected") return view("stopped", false, true);
+  if (crawl && ["running", "uploading", "starting", "pending"].includes(crawl.status)) return view("running", true, false);
+  if (crawl?.status === "failed") return view("failed", false, true);
+  const taskView = taskRunView(task, agentStatus);
+  if (taskView.key !== "idle") return taskView;
+  if (agentStatus === "stopped") return view("stopped", false, true);
+  if (agentStatus === "failed" || messages.at(-1)?.kind === "error_card") return view("failed", false, true);
+  if (state === "succeeded" || messages.some(message => ["task_result_card", "email_card"].includes(message.kind))) return view("result_ready", false, false);
+  return taskView;
 }

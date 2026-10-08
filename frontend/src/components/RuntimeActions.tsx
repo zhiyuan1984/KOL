@@ -34,6 +34,7 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
   const [actions, setActions] = useState<RuntimeActionView[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const submitting = useRef(false);
   const changeRef = useRef(onChange);
   changeRef.current = onChange;
   useEffect(() => {
@@ -52,6 +53,8 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
     return () => { active = false; window.clearInterval(timer); window.removeEventListener("discovery:candidates-refresh", reload); };
   }, [sessionId]);
   async function submit(action: RuntimeActionView, confirm: boolean) {
+    if (submitting.current || (confirm && !action.confirmation_version)) return;
+    submitting.current = true;
     setBusy(action.id); setError("");
     try {
       if (confirm) await api.confirmRuntimeAction(action.id, action.confirmation_version);
@@ -59,33 +62,42 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
       const updated = (await api.runtimeActions(sessionId)).actions;
       setActions(updated); changeRef.current?.(updated);
     } catch { setError("操作未完成，请刷新核对当前状态；参数或权限变化后需要重新提出动作。"); }
-    finally { setBusy(null); }
+    finally { submitting.current = false; setBusy(null); }
   }
   async function crawlAction(action: RuntimeActionView, stop: boolean) {
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(action.id); setError("");
     try {
       if (stop) await api.proposeCrawlStop(action.id); else await api.proposeCrawlRetry(action.id);
       const updated = (await api.runtimeActions(sessionId)).actions;
       setActions(updated); changeRef.current?.(updated);
     } catch { setError("无法提出操作，请刷新核对任务状态和当前权限。"); }
-    finally { setBusy(null); }
+    finally { submitting.current = false; setBusy(null); }
   }
   async function dequeue(action: RuntimeActionView) {
+    if (submitting.current) return;
+    submitting.current = true;
     setBusy(action.id); setError("");
     try {
       await api.dequeueCrawl(action.id);
       const updated = (await api.runtimeActions(sessionId)).actions;
       setActions(updated); changeRef.current?.(updated);
     } catch { setError("无法取消排队，请刷新核对任务状态。"); }
-    finally { setBusy(null); }
+    finally { submitting.current = false; setBusy(null); }
   }
   const render = (id: string) => {
     const action = actions.find(row => row.id === id);
     if (!action) return null;
     const pending = action.state === "pending" && !action.execution;
-    return <article className="artifact runtime-action-card" key={action.id} data-runtime-action={action.id}>
+    const firstPending = actions.find(row => row.state === "pending" && !row.execution && !row.blocked_reason && row.confirmation_version)?.id;
+    const settled = ["succeeded", "failed", "rejected", "cancelled", "uncertain"].includes(action.crawl?.state || action.execution?.status || action.state);
+    const Body = settled ? "details" : "div";
+    return <article className="artifact runtime-action-card" key={action.id} data-runtime-action={action.id} data-runtime-state={action.state}>
       <header className="runtime-action-heading"><strong>{pending && action.operation === "start_crawl" ? "请确认本次采集范围" : actionLabel(action)}</strong>
         {pending ? <span className="muted">需要确认（{action.risk.replace(/^L([123])$/, "R$1")}）· 确认后{action.operation === "start_crawl" ? "启动外部采集" : "执行以上操作"}</span> : null}</header>
+      <Body>
+      {settled ? <summary>查看执行回执与范围</summary> : null}
       {action.created_at ? <time dateTime={action.created_at}>{new Date(action.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</time> : null}
       {action.progress && action.progress.state !== "pending" ? <p role="status">{action.progress.summary}</p> : null}
       <details className="runtime-action-scope" open={action.state === "pending" && !action.execution}>
@@ -100,7 +112,7 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
       </details>
       {action.blocked_reason ? <p>{action.blocked_reason}</p> : null}
       {action.state === "pending" && !action.execution ? <div>
-        <button className="btn ghost" disabled={Boolean(busy) || Boolean(action.blocked_reason)} onClick={() => void submit(action, true)}>{action.operation === "start_crawl" ? "确认开始采集" : "确认执行以上内容"}</button>
+        <button className={action.id === firstPending ? "btn work" : "btn ghost"} disabled={Boolean(busy) || Boolean(action.blocked_reason) || !action.confirmation_version} onClick={() => void submit(action, true)}>{action.operation === "start_crawl" ? "确认开始采集" : "确认执行以上内容"}</button>
         <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void submit(action, false)}>取消</button>
       </div> : null}
       {action.crawl ? <div role="status">
@@ -121,6 +133,7 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
           {action.updated_at ? <div><dt>最近记录时间</dt><dd>{new Date(action.updated_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</dd></div> : null}
           <div><dt>说明</dt><dd>提交请求和采集完成分别记录；候选资料需另行确认加入公海。</dd></div></dl>
         {debug ? <pre>{JSON.stringify(action.receipt, null, 2)}</pre> : null}</details> : null}
+      </Body>
     </article>;
   };
   return <section aria-label="任务执行记录" data-runtime-actions>

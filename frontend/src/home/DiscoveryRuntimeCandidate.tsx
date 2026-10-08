@@ -7,8 +7,8 @@ import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
 
 type Candidate = NonNullable<NonNullable<RuntimeActionView["crawl"]>["result_json"]>["candidates"][number];
-export default function DiscoveryRuntimeCandidate({ row, actionId, brief, capturedAt, refresh }: {
-  row: Candidate; actionId: string; brief: DiscoveryBrief; capturedAt: string; refresh: () => void;
+export default function DiscoveryRuntimeCandidate({ row, actionId, brief, capturedAt, refresh, selected, onSelect }: {
+  row: Candidate; actionId: string; brief: DiscoveryBrief; capturedAt: string; refresh: () => void; selected?: boolean; onSelect?: (on: boolean) => void;
 }) {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -33,6 +33,7 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
   const followerVerified = row.followers_evidence?.state === "source_recorded";
   const source = row.source_url && /^https?:\/\//i.test(row.source_url) ? row.source_url : undefined;
   return <article className="discovery-runtime-candidate" data-kol-work-card data-discovery-candidate={row.id}>
+    {onSelect && !row.ignored && !row.in_pool && !row.followed ? <label className="discovery-candidate-select"><input type="checkbox" checked={Boolean(selected)} onChange={event => onSelect(event.target.checked)} /><span>选择 {row.name}</span></label> : null}
     <div className="pool-row-content">
       <div className="pool-row-heading">
         <PoolAvatar card={{ kol_uid: row.id, identity: { display: row.name, platform: row.platform, avatar_url: row.avatar_url || undefined }, metrics: {} }} />

@@ -60,6 +60,10 @@ function stringList(value: unknown): string[] {
 }
 
 function formatArg(key: string, value: unknown, catalog?: DiscoveryParamCatalog): string | null {
+  if ((key === "crawler_type" || key === "mode") && typeof value === "string") {
+    const modes: Record<string, string> = { search: "关键词搜索", detail: "指定内容", creator: "指定频道" };
+    return modes[value.trim()] || value.trim() || null;
+  }
   if (key === "platforms" || key === "platform") {
     const labels = stringList(value).map((code) => (
       DISCOVERY_PLATFORM_CODES.includes(code) ? platformLabelOf(code, catalog?.platforms) : code

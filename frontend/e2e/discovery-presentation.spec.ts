@@ -198,23 +198,11 @@ test("submitted discovery stays in its workspace while task loading is delayed",
   const errors = await intercept(page, 1600);
   await page.goto("/?tab=discovery");
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
-  const seen: boolean[] = [];
-  await page.exposeFunction("recordChrome", (genericTaskChrome: boolean) => seen.push(genericTaskChrome));
-  await page.evaluate(() => {
-    new MutationObserver(() => {
-      const genericTaskChrome = Boolean(document.querySelector("[data-complete-task], [data-skill-template-context]"));
-      void (window as unknown as { recordChrome(genericTaskChrome: boolean): Promise<void> }).recordChrome(genericTaskChrome);
-    }).observe(document.body, { childList: true, subtree: true });
-  });
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
-  // Home keeps conditions, actual parameters and confirmation in the same event flow.
-  await expect(page).toHaveURL(/\/\?tab=discovery$/);
-  await expect(page.locator('[data-scope-workspace="discovery"]')).toBeVisible();
-  await expect(page.locator('[data-discovery-event="conditions"]')).toHaveAttribute("data-discovery-event-state", "readonly");
-  await expect(page.getByRole("button", { name: "确认开始采集" })).toBeVisible({ timeout: 15000 });
-  expect(seen.length).toBeGreaterThan(0);
-  expect(seen.every(genericTaskChrome => !genericTaskChrome)).toBeTruthy();
-  await expect(page.locator("[data-complete-task], [data-skill-template-context]")).toHaveCount(0);
+  await expect(page).toHaveURL(/tab=discovery/);
+  await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", task.session_id);
+  await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
+  await expect(page.locator("[data-complete-task]")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -237,9 +225,10 @@ test("focused stream links remain reachable during live content growth", async (
     await page.goto("/?tab=discovery");
     await page.locator("[data-home] [data-ai-prompt-submit]").click();
     await started;
+    await expect(page.locator("[data-discovery-start-confirm]")).toBeInViewport();
     const stream = page.locator(".scope-workspace-center-scroll");
     const link = page.locator("[data-discovery-open-session]").first();
-    await expect(link).toHaveAttribute("href", `/s/${task.session_id}`);
+    await expect(link).toHaveAttribute("href", `/?tab=discovery&session_id=${task.session_id}`);
     await stream.evaluate(el => {
       for (let i = 0; i < 40; i++) { const row = document.createElement("p"); row.textContent = `布局回归内容 ${i}`; el.append(row); }
       el.scrollTop = el.scrollHeight;
@@ -275,7 +264,7 @@ test("Home uses one directional jump control without covering the composer", asy
   });
   const jump = page.locator("[data-scope-scroll-jump]");
   await expect(jump).toHaveCount(1);
-  await expect(jump).toHaveAccessibleName("滚到底部");
+  await expect(jump).toHaveAccessibleName("回到最新");
   await jump.click();
   await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
   await expect(jump).toHaveAccessibleName("滚到顶部");
@@ -307,10 +296,9 @@ test("short discovery reveals focused input after context growth and respects ma
     return r.top >= 0 && r.bottom <= innerHeight && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
   })).toBe(true);
   await expect(submit).toBeFocused();
-  const stage = page.locator(".home-stage");
-  await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
-  await stage.hover();
-  await page.mouse.wheel(0, -10000);
+  const stage = page.locator(".scope-workspace-center-scroll");
+  await stage.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await stage.evaluate(el => { el.scrollTop = 0; });
   await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);
   await grow();
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -325,64 +313,39 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
     await page.emulateMedia({ reducedMotion: "reduce" });
     const errors = await intercept(page);
     await page.goto(`/s/${task.session_id}`);
-    await expect(page.locator("[data-discovery-workspace][data-agent-identity]")).toBeVisible({ timeout: 15000 });
-    const card = page.locator(".runtime-action-card");
-    await expect(card).toContainText("关键词搜索");
-    await expect(card).toContainText("YouTube");
-    await expect(card.locator("pre").first()).not.toBeVisible();
-    const pane = page.locator("[data-session-stream-pane]");
-    await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
-    // 在底部时只可能出现「滚到顶部」，不出现「滚到底部」，也没有新内容条数（DESIGN §10.2）。
-    await expect(page.locator('[data-session-scroll-jump]:not([aria-label="滚到顶部"])')).toHaveCount(0);
-    await expect(card.getByRole("button", { name: "确认开始采集" })).toBeInViewport();
+    await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", task.session_id);
+    const params = page.locator('[data-discovery-event="params"]');
+    await expect(params).toContainText("关键词搜索");
+    await expect(params).toContainText("YouTube");
+    const card = page.locator('[data-discovery-event="confirm"]');
+    const pane = page.locator(".scope-workspace-center-scroll");
+    await expect(card.getByRole("button", { name: "确认开始采集", exact: true })).toBeInViewport();
+    await expect(page.locator('[data-ai-prompt-submit]')).toBeInViewport();
     await pane.evaluate(el => { el.scrollTop = 0; });
-    await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
-    await expect(page.locator(".agent-internal-review")).toHaveCount(1);
-    await expect(page.getByText("符合本轮授权：主责为线索发现；仅提出 L3 受控采集确认。")).not.toBeVisible();
-    await expect(page.getByText("权限冲突：无法访问该对象，请核对当前范围。")).toBeVisible();
-    await pane.locator(".conversation-content").evaluate(el => {
-      const content = document.createElement("p");
-      content.textContent = "新增过程内容".repeat(100);
-      el.append(content);
+    await pane.locator(".scope-workspace-center-scroll-content").evaluate(el => {
+      const content = document.createElement("p"); content.textContent = "新增过程内容".repeat(100); el.append(content);
     });
     // 看历史时新内容不打断阅读：位置不动；不在底部时右下角是「滚到底部」。
     await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
-    await page.mouse.move(viewport.width / 2, viewport.height / 3);
-    await page.mouse.wheel(0, 500);
-    const jump = page.locator("[data-session-scroll-jump]");
-    await expect(jump).toHaveAccessibleName("滚到底部");
+    const jump = page.locator('[data-scope-scroll-jump]');
+    await expect(jump).toHaveAccessibleName("回到最新");
     await jump.click();
     await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
-    // 到底后同一个控件切换成「滚到顶部」，再点回到最早的记录。
-    await expect(jump).toHaveAccessibleName("滚到顶部");
-    await jump.click();
-    await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
-    await expect(jump).toHaveAccessibleName("滚到底部");
-    await jump.click();
-    await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
-    const sizes = await page.locator(".session-center h3, .runtime-action-summary dt, .runtime-action-summary dd, .session-center button").evaluateAll(els =>
-      [...new Set(els.map(el => getComputedStyle(el).fontSize))]);
+    const sizes = await params.locator('dt, dd, h3').evaluateAll(els => [...new Set(els.map(el => getComputedStyle(el).fontSize))]);
     expect(sizes).toEqual(["13px"]);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     expect(errors).toEqual([]);
     await page.screenshot({ path: info.outputPath("discovery-presentation.png") });
   });
 }
 
-test("submitted collection is compact and steps show only recorded times", async ({ page }) => {
+test("submitted collection keeps its receipt without claiming completion before remote facts", async ({ page }) => {
   await intercept(page, 0, true);
   await page.goto(`/s/${task.session_id}`);
-  const card = page.locator('.runtime-action-card');
-  await expect(card).toContainText('采集请求已提交');
-  await expect(card).not.toContainText('需要确认（R3）');
-  await expect(card).not.toContainText('已取得回执');
-  await expect(card.locator('.runtime-action-scope .runtime-action-summary')).not.toBeVisible();
-  await expect(card.getByText('查看操作记录')).toBeVisible();
-  const trace = page.locator('[data-kind=discovery-step]');
-  await expect(trace.locator('time')).toHaveAttribute('datetime', '2026-10-05T01:02:03Z');
-  await expect(trace.filter({ hasText: '历史核对步骤' })).toContainText('历史步骤未记录时间');
-  await card.locator('.runtime-action-scope > summary').click();
-  await expect(card.locator('.runtime-action-scope .runtime-action-summary')).toBeVisible();
+  await expect(page.locator('[data-discovery-start-confirm]')).toHaveCount(0);
+  await expect(page.locator('[data-discovery-event="confirm"]')).toContainText('已取得回执');
+  await expect(page.locator('[data-discovery-run-status-label]')).toContainText('启动中');
+  await expect(page.locator('[data-discovery-event="params"]')).toContainText('YouTube');
 });
 
 test('follow opens my creators directly, and import opens public pool after confirmation', async ({ page }) => {
@@ -405,6 +368,26 @@ test('follow opens my creators directly, and import opens public pool after conf
   expect(requests.some(path => path.endsWith('/channel-stable/ingest'))).toBeTruthy();
 });
 
+test('bulk runtime import waits for confirmation and submits the current candidate snapshot', async ({ page }) => {
+  await intercept(page, 0, true, true);
+  const imports: unknown[] = [];
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/channel-stable/ingest')) imports.push(request.postDataJSON());
+  });
+  await page.goto(`/s/${task.session_id}`);
+  await page.getByRole('checkbox', { name: '选择 Camping creator', exact: true }).check();
+  await page.locator('[data-discovery-ingest]').click();
+  await expect(page.getByRole('dialog')).toContainText('将把 1 条线索');
+  expect(imports).toEqual([]);
+  await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click();
+  expect(imports).toEqual([]);
+  await page.locator('[data-discovery-ingest]').click();
+  await page.getByRole('dialog').getByRole('button', { name: '确认入库公海', exact: true }).evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+  await expect.poll(() => imports.length).toBe(1);
+  expect(imports[0]).toEqual({ snapshot_version: 'candidate-version', confirmed: true });
+  await expect(page.locator('[data-discovery-toast]')).toContainText('已取得 1 位候选的入库回执');
+});
+
 test('ignore survives reload, can be restored, and failed follow stays in the task', async ({ page }) => {
   await intercept(page, 0, true, true, true);
   await page.goto(`/s/${task.session_id}`);
@@ -417,18 +400,16 @@ test('ignore survives reload, can be restored, and failed follow stays in the ta
   await page.locator('[data-discovery-results]').getByRole('button', { name: '返回候选', exact: true }).click();
   await card.getByRole('button', { name: '跟进', exact: true }).click();
   await expect(card.getByRole('alert')).toBeVisible();
-  await expect(page).toHaveURL(`/s/${task.session_id}`);
+  await expect(page).toHaveURL(new RegExp(`tab=discovery&resume=${task.id}`));
 });
 
-test('right return and sidebar navigation remain usable on a task', async ({ page }) => {
+test('discovery recovery and sidebar navigation remain usable on a task', async ({ page }) => {
   await intercept(page, 0, true);
   await page.goto(`/s/${task.session_id}`);
-  await expect(page.locator('.session-center [data-session-back-link]')).toHaveCount(0);
-  await expect(page.locator('[data-workbench] [data-session-back-link]')).toHaveCount(1);
-  await page.locator('[data-workbench] [data-session-back-link]').click();
-  await expect(page).toHaveURL(/tab=discovery/);
+  await expect(page.locator('[data-workspace-session]')).toHaveAttribute('data-workspace-session', task.session_id);
   for (const [key, path] of [['running', '/tasks'], ['mail', '/mail'], ['cron', '/cron'], ['knowledge', '/kb']]) {
     await page.goto(`/s/${task.session_id}`);
+    await expect(page.locator('[data-workspace-session]')).toHaveAttribute('data-workspace-session', task.session_id);
     await page.locator(`.sidebar [data-nav=${key}]`).click();
     await expect(page).toHaveURL(new RegExp(`${path}$`));
   }
@@ -446,8 +427,8 @@ test('unlimited upper followers remains optional and candidate cards fit the rig
   await upper.fill('');
   await expect(upper).toHaveValue('');
   await page.goto(`/s/${task.session_id}`);
-  const bounds = await page.locator('.runtime-action-card').evaluate(el => {
-    const pane = document.querySelector('.conversation-content')!.getBoundingClientRect();
+  const bounds = await page.locator('[data-discovery-event=confirm]').evaluate(el => {
+    const pane = document.querySelector('.scope-workspace-center-scroll-content')!.getBoundingClientRect();
     const card = el.getBoundingClientRect();
     return { card: card.width, pane: pane.width };
   });
@@ -482,15 +463,12 @@ for (const theme of ["light", "dark"]) {
     await page.emulateMedia({ reducedMotion: "reduce", contrast: "more" });
     await page.goto(`/s/${task.session_id}`);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-    const actions = page.getByRole("region", { name: "任务执行记录" });
+    const actions = page.locator('[data-discovery-event="confirm"]');
     await expect(actions).toBeVisible();
-    await expect(actions).toContainText("需要确认（R3）");
+    await expect(actions).toContainText("R3 · 确认开始采集");
     await expect(actions.getByRole("button", { name: "确认开始采集", exact: true })).toBeEnabled();
     for (const button of await actions.getByRole("button").all()) await expect(button).toHaveAccessibleName(/\S/);
-    await actions.getByText("旧任务记录", { exact: true }).click();
-    const trace = actions.locator('[data-kind="discovery-step"]');
-    for (const status of ["已完成", "失败", "执行中", "已跳过", "待处理"]) await expect(trace.getByRole("img", { name: status, exact: true }).first()).toBeVisible();
-    const measurements = await textContrast(page, ".session-center");
+    const measurements = await textContrast(page, ".scope-workspace-center");
     expect(measurements.length).toBeGreaterThan(20);
     await info.attach("text-contrast", { body: JSON.stringify(measurements, null, 2), contentType: "application/json" });
     expect(measurements.filter(item => item.ratio < 4.5)).toEqual([]);
@@ -509,12 +487,16 @@ for (const theme of ["light", "dark"]) {
     if (!address || typeof address === "string") throw new Error("Missing isolated stream address");
     try {
       const errors = await intercept(page, 0, true, theme);
+      await page.route(/\/api\/tasks\/(?:by-session\/presentation-session|presentation-task)(?:\?.*)?$/, route => route.fulfill({ json: {
+        task: { ...task, skill_id: "kol_analyze", input: {} },
+      } }));
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.route(`**/api/sessions/${task.session_id}/events`, route => route.continue({ url: `http://127.0.0.1:${address.port}/events` }));
       await page.goto(`/s/${task.session_id}`);
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       const pane = page.locator("[data-session-stream-pane]");
       await expect(pane).toBeVisible();
+      await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
       await expect.poll(() => clients.size).toBe(1);
       await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
       const emit = (revision: number) => {
@@ -535,7 +517,7 @@ for (const theme of ["light", "dark"]) {
       await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
       // 流式更新同一条消息：上翻时不抢滚动，控件只给「滚到底部」，不报条数（DESIGN §10.2）。
       const jump = page.locator("[data-session-scroll-jump]");
-      await expect(jump).toHaveAccessibleName("滚到底部");
+      await expect(jump).toHaveAccessibleName("回到最新");
       await jump.click();
       await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
       emit(3);

@@ -59,8 +59,6 @@ const migrations: SchemaMigration[] = [
   { id: "20261005_knowledge_workspace", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "026_knowledge_workspace.sql"), "utf8")] },
   { id: "20261006_knowledge_scope", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "027_knowledge_scope.sql"), "utf8")] },
   { id: "20261006_knowledge_favorites", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "028_knowledge_favorites.sql"), "utf8")] },
-  { id: "20261008_discovery_dedup_score", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "029_discovery_dedup_score.sql"), "utf8")] },
-  { id: "20261008_pool_brand_visibility", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "030_pool_brand_visibility.sql"), "utf8")] },
   { id: "20261004_runtime_actions", statements: [runtimeActionSchema] },
   { id: "20261007_crawl_queue_state", statements: crawlQueueStateMigration },
   { id: "20261004_discovery_results", statements: [crawlResultSchema] },
@@ -1518,6 +1516,13 @@ migrations.push({
     "CREATE UNIQUE INDEX IF NOT EXISTS business_events_idempotency_uidx ON business_events(idempotency_key) WHERE idempotency_key IS NOT NULL",
   ],
 });
+
+// Score and brand visibility depend on the lead/cooperation bootstrap above.
+// Keep migration IDs and SQL unchanged so existing ledgers retain their checksums.
+migrations.push(
+  { id: "20261008_discovery_dedup_score", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "029_discovery_dedup_score.sql"), "utf8")] },
+  { id: "20261008_pool_brand_visibility", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "030_pool_brand_visibility.sql"), "utf8")] },
+);
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
 if (onlyMigration && !migrations.some((migration) => migration.id === onlyMigration)) throw new Error("Unknown migration selection");

@@ -14,6 +14,7 @@ import {
   type TodayPlanPhase,
 } from "./todayPlan";
 import "./today-plan-progress.css";
+import AgentAvatar from "../components/AgentAvatar";
 
 function usePlanningElapsed(active: boolean): number | null {
   const [elapsed, setElapsed] = useState(0);
@@ -90,13 +91,10 @@ export function lucasPlanCopy(
   return "Lucas 已完成规划";
 }
 
-function LucasAvatar({ phase, size = 16 }: { phase: TodayPlanPhase; size?: number }) {
+function LucasAvatar({ phase }: { phase: TodayPlanPhase }) {
   const avatar = LUCAS_AVATAR[phase];
   return (
-    <picture className={`today-plan-lucas is-${phase}`} aria-hidden="true">
-      <source media="(prefers-reduced-motion: reduce)" srcSet={`/avatars/lucas/Lucas${avatar}.png`} />
-      <img src={`/avatars/lucas/Lucas${avatar}.webp`} alt="" width={size} height={size} />
-    </picture>
+    <AgentAvatar frame={avatar} active={phase === "planning" || phase === "loading-memory"} className={`today-plan-lucas is-${phase}`} />
   );
 }
 

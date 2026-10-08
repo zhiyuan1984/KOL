@@ -22,6 +22,7 @@ export default function DiscoveryConfirmCard({
   onRetry,
   onStop,
   busy,
+  actionId,
 }: {
   phase: DiscoveryStartPhase;
   /** 读取或确认失败时的可读原因。 */
@@ -41,12 +42,13 @@ export default function DiscoveryConfirmCard({
   onRetry?: () => void;
   onStop?: () => void;
   busy?: boolean;
+  actionId?: string;
 }) {
   const cardRef = useRef<HTMLElement | null>(null);
   // R3 确认卡必达视口（docs/DESIGN.md §10.3）：首次出现待确认时滚到可见处，
   // 减少动效偏好下不滚动。
   useEffect(() => {
-    if (phase !== "pending") return;
+    if (phase !== "pending" || actionId) return;
     const node = cardRef.current;
     if (!node) return;
     const rect = node.getBoundingClientRect();
@@ -54,7 +56,7 @@ export default function DiscoveryConfirmCard({
     if (visible) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     node.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
-  }, [phase]);
+  }, [phase, actionId]);
 
   const copy = DISCOVERY_START_COPY[phase];
   /** 参数缺失时标题不再说"正在整理"，直接点出问题。 */
@@ -71,13 +73,14 @@ export default function DiscoveryConfirmCard({
       ref={cardRef}
       className="discovery-event"
       data-discovery-event="confirm"
+      data-runtime-action={actionId}
       data-discovery-event-index="5"
       data-discovery-event-state={phase}
       aria-label="确认开始采集"
     >
       <header className="discovery-event-head">
         {["dispatching", "starting", "running"].includes(phase) ? <DiscoveryAvatar active size="sm" /> : null}
-        <span className="discovery-event-kicker">确认开始采集</span>
+        <span className="discovery-event-kicker">R3 · 确认开始采集</span>
         <strong>{headline}</strong>
         <span className="discovery-event-status" data-tone={tone} data-discovery-start-status>
           {phase === "pending" ? "等待你确认" : phase === "dispatching" || phase === "starting" ? "已确认" : ""}

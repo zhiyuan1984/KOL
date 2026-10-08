@@ -74,6 +74,8 @@
   --danger: #c43c3c;
   --success: #2f7d73;
   --warning: #ea5504;
+  --warning-text: color-mix(in srgb, var(--warning) 72%, var(--text));
+  --success-text: color-mix(in srgb, var(--success) 72%, var(--text));
 
   --radius-sm: var(--ds-radius-input);
   --radius-md: var(--ds-radius-section);
@@ -945,7 +947,7 @@ summary:focus-visible,
   flex-direction: column;
   overflow: hidden;
 }
-.main > :not(.session-shell):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page) {
+.main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page) {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
@@ -8281,7 +8283,7 @@ body {
   height: var(--scrollbar-size);
 }
 
-.main > :not(.session-shell):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page) {
+.main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page) {
   width: 100%;
   max-width: var(--content-max);
   margin-inline: auto;
@@ -9789,7 +9791,7 @@ body {
   .kb-drawer { width: min(100vw, 440px); }
   .list-page.kb-page.has-drawer { padding-right: 0; }
   .main { padding: 0; }
-  .main > :not(.session-shell):not(.home-pane):not(.admin-shell):not(.kbv-page) { padding: 16px 14px 36px; }
+  .main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.kbv-page) { padding: 16px 14px 36px; }
   /* 管理面在窄视口与员工端同规则：导航走 .sidebar 抽屉（由 .mobile-top ☰ 打开），
      不再把导航压成横向顶条。 */
   .admin-body { padding: var(--space-3) var(--space-3) var(--space-5); }
