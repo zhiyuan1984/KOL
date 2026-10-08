@@ -249,7 +249,7 @@ test("reviewer sees changed materials and a receipt distinguishing approval from
   await main.getByRole("button", { name: /新方案申请/ }).click();
   const detail = main.getByRole("region", { name: "申请详情" });
   await expect(detail.getByRole("region", { name: "本轮材料变化" })).toContainText("修改后的方案");
-  await detail.getByText("上一轮材料", { exact: true }).click(); await expect(detail.getByText("旧方案", { exact: true }).first()).toBeVisible();
+  await detail.getByText("上一轮材料", { exact: true }).click(); await expect(detail.getByRole("region", { name: "本轮材料变化" }).locator("details[open]")).toContainText("旧方案");
   await detail.locator(".review-action-form textarea").fill("核对本轮修改后同意");
   await detail.getByRole("button", { name: "同意", exact: true }).click();
   await page.getByRole("dialog", { name: "确认同意" }).getByRole("button", { name: "同意", exact: true }).click();
