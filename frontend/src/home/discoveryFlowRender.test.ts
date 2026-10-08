@@ -303,7 +303,7 @@ describe("AI发现中栏事件渲染契约", () => {
     expect(html).not.toContain("正在整理采集范围");
   });
 
-  it("recaps the brief in one business sentence without the R3 prefix", () => {
+  it("recaps the brief and keeps the confirmation risk visible", () => {
     const html = renderToStaticMarkup(createElement(DiscoveryConfirmCard, {
       phase: "pending",
       error: "",
@@ -322,7 +322,8 @@ describe("AI发现中栏事件渲染契约", () => {
     expect(html).toContain("data-discovery-start-recap");
     expect(html).toContain("将在 YouTube");
     expect(html).toContain("户外能源");
-    expect(html).not.toContain("R3 ·");
+    expect(html).toContain("R3 · 确认开始采集");
+    expect(html).toContain("确认前不会发起任何采集");
   });
 
   it("shows the live remote crawl status under the business phases", () => {
@@ -363,7 +364,7 @@ describe("AI发现中栏事件渲染契约", () => {
     expect(html).toContain('data-tone="warning"');
   });
 
-  it("hides the remote line once the crawl job settles", () => {
+  it("preserves the settled remote status without a stale warning", () => {
     const html = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
       stage: "success",
       steps: [STEP("collect_done", "采集完成")],
@@ -375,6 +376,8 @@ describe("AI发现中栏事件渲染契约", () => {
         updated_at: new Date().toISOString(),
       },
     }));
-    expect(html).not.toContain("data-discovery-remote-line");
+    expect(html).toContain("data-discovery-remote-line");
+    expect(html).toContain("远端：已完成");
+    expect(html).not.toContain("可能停滞");
   });
 });
