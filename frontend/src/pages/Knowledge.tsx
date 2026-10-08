@@ -1,31 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type KnowledgeBaseRow, type KnowledgeDomainRow, type KnowledgeRow, type SkillTemplate } from "../api";
-import SkillTemplateContext from "../components/SkillTemplateContext";
+import { api, type KnowledgeBaseRow, type KnowledgeDomainRow, type KnowledgeRow } from "../api";
 import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
 import FilterChips from "../components/FilterChips";
-import StageTags from "../components/StageTags";
-import { stashComposerDraft } from "../composer/draft";
-import { templateQuestionDraft } from "../skillTemplate";
+import CompactButton from "../components/CompactButton";
+import { KnowledgeBrowseWorkspace, KnowledgeFilterBar, StageFilterGroup, KnowledgeListRow, ListLoadFooter, KnowledgeDetailHeader, InlineMetadata, DetailActionBar } from "../components/KnowledgeBrowse";
 import {
   HIDE_REASONS,
   KB_EMPTY_FILTER,
   KB_EMPTY_SEARCH,
   KB_EMPTY_SCOPE,
   KB_FILTER_LABEL,
-  KB_PROVENANCE_LABEL,
-  KB_PROVENANCE_TITLE,
   KB_SCOPE_CLEAR,
   KB_SCOPE_NONE,
   KB_SEARCH_LABEL,
   KB_SEARCH_PLACEHOLDER,
   formatKbTime,
   hideReasonLabel,
-  kbAuthorLabel,
   kbIsMail,
-  kbRowVersionLine,
   kbScopeTags,
-  kbStatusLabel,
   kbSummary,
   kbVariableLine,
   kbVersionTag,
@@ -33,12 +26,12 @@ import {
   readKbFavorites,
   readKbRecent,
   rememberKbRecent,
-  sortStageCodes,
   stashComposerFill,
   writeKbFavorites,
 } from "../knowledgeCopy";
 import KbvIcon from "../knowledgeIcons";
 import "../knowledge-page.css";
+import "../knowledge-browse.css";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -131,25 +124,30 @@ function splitKnowledgeBody(text: string, id: string): KnowledgeSection[] | null
       content: lines.slice(index * 24, (index + 1) * 24).join("\n"),
     }));
   }
-  return headings.map((heading, index) => ({
+  const introduction = lines.slice(0, headings[0].index).join("\n").trim();
+  return [...(introduction ? [{ id: `kb-section-${id}-intro`, title: "概述", content: introduction }] : []), ...headings.map((heading, index) => ({
     id: `kb-section-${id}-${index + 1}`,
     title: heading.line.replace(/^#{1,6}\s+/, "").trim(),
     content: lines.slice(heading.index + 1, headings[index + 1]?.index ?? lines.length).join("\n").trim(),
-  }));
+  }))];
 }
 
 function KnowledgeDocumentBody({ row }: { row: KnowledgeRow }) {
   const text = row.body_en || row.body;
   const sections = splitKnowledgeBody(text, row.id);
-  if (!sections) return <pre className="kb-preview-body" data-kb-preview-body>{text}</pre>;
+  if (!sections) return <div className="kb-preview-body" data-kb-preview-body>{text}</div>;
   return <div className="kb-long-document" data-kb-preview-body>
     <nav className="kb-mini-toc" aria-label="正文目录">
-      {sections.map((section) => <a key={section.id} href={`#${section.id}`}>{section.title}</a>)}
+      {sections.map((section) => <a key={section.id} href={`#${section.id}`} onClick={(event) => {
+        event.preventDefault();
+        const target = document.getElementById(section.id) as HTMLDetailsElement | null;
+        if (target) { target.open = true; target.scrollIntoView({ block: "start", behavior: "auto" }); }
+      }}>{section.title}</a>)}
     </nav>
     <div className="kb-long-document-sections">
       {sections.map((section, index) => <details key={section.id} id={section.id} open={index === 0}>
         <summary>{section.title}</summary>
-        <pre className="kb-preview-body">{section.content || "（本节暂无正文）"}</pre>
+        <div className="kb-preview-body">{section.content || "（本节暂无正文）"}</div>
       </details>)}
     </div>
   </div>;
@@ -183,9 +181,7 @@ export default function Knowledge() {
   const [rows, setRows] = useState<KnowledgeRow[]>([]);
   const [displayLimit, setDisplayLimit] = useState(5);
   const [taxonomy, setTaxonomy] = useState<{ domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] }>({ domains: [], bases: [] });
-  const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
-  const [skillTemplatesLoading, setSkillTemplatesLoading] = useState(true);
-  const [skillTemplatesError, setSkillTemplatesError] = useState("");
+  const [detailOpen, setDetailOpen] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [hideFor, setHideFor] = useState("");
   const [err, setErr] = useState("");
@@ -197,10 +193,11 @@ export default function Knowledge() {
   const [query, setQuery] = useState("");
   const [keyword, setKeyword] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const loadSequence = useRef(0);
+  const [brandOptions, setBrandOptions] = useState<string[]>([]);
   const [stageFilters, setStageFilters] = useState<string[]>([]);
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
-  /** §20：品牌与阶段不是常用项，收进「更多筛选」；已选中时保持展开。 */
-  const [moreOpen, setMoreOpen] = useState<boolean | null>(null);
   const [familyId, setFamilyId] = useState("");
   const [domainId, setDomainId] = useState("");
   const [baseId, setBaseId] = useState("");
@@ -208,15 +205,20 @@ export default function Knowledge() {
   const closeTip = useCallback(() => setTipId(""), []);
 
   const reload = useCallback(() => {
+    const sequence = ++loadSequence.current;
+    setLoading(true);
     api.knowledge({ q: keyword })
       .then((nextRows) => {
+        if (sequence !== loadSequence.current) return;
+        setErr("");
         setRows(nextRows);
+        if (!keyword) setBrandOptions([...new Set(nextRows.map((row) => String(row.brand || "").trim()).filter((code) => code && code !== "*"))].sort());
         const serverFavorites = nextRows.filter((row) => row.favorite).map((row) => row.id);
         setFavorites(serverFavorites);
         writeKbFavorites(serverFavorites);
       })
-      .catch((e) => setErr(e instanceof Error ? e.message : "无法加载知识库"))
-      .finally(() => setLoaded(true));
+      .catch((e) => { if (sequence === loadSequence.current) setErr(e instanceof Error ? e.message : "无法加载知识库"); })
+      .finally(() => { if (sequence === loadSequence.current) { setLoaded(true); setLoading(false); } });
   }, [keyword]);
 
   useEffect(() => { setDisplayLimit(5); void reload(); }, [reload]);
@@ -226,21 +228,6 @@ export default function Knowledge() {
       .then(setTaxonomy)
       .catch((e) => setErr(e instanceof Error ? e.message : "无法加载知识分类"));
   }, []);
-
-  const loadSkillTemplates = useCallback(async () => {
-    setSkillTemplatesLoading(true);
-    setSkillTemplatesError("");
-    try {
-      const templates = await api.skillTemplates();
-      setSkillTemplates(Array.isArray(templates) ? templates : []);
-    } catch (error) {
-      setSkillTemplatesError(error instanceof Error ? error.message : "无法加载技能交互模板");
-    } finally {
-      setSkillTemplatesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void loadSkillTemplates(); }, [loadSkillTemplates]);
 
   useEffect(() => {
     const next = query.trim();
@@ -265,28 +252,6 @@ export default function Knowledge() {
   useEffect(() => {
     if (baseId && !baseOptions.some((item) => item.id === baseId)) setBaseId("");
   }, [baseId, baseOptions]);
-
-  const stageOptions = useMemo(
-    () => sortStageCodes([...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))]),
-    [rows],
-  );
-  const brandOptions = useMemo(
-    () => [...new Set(
-      rows.map((row) => String(row.brand || "").trim()).filter((code) => code && code !== "*"),
-    )].sort(),
-    [rows],
-  );
-
-  useEffect(() => {
-    setStageFilters((current) => {
-      const next = current.filter((code) => stageOptions.includes(code));
-      return next.length === current.length ? current : next;
-    });
-    setBrandFilters((current) => {
-      const next = current.filter((code) => brandOptions.includes(code));
-      return next.length === current.length ? current : next;
-    });
-  }, [stageOptions, brandOptions]);
 
   const familyTotal = rows.length;
   const domainTotal = useMemo(
@@ -323,6 +288,7 @@ export default function Knowledge() {
     if (view === "recent") return scopedVisible.filter((row) => recentIds.includes(row.id));
     return scopedVisible;
   }, [scopedVisible, view, favorites, recentIds]);
+  useEffect(() => { setDisplayLimit(5); }, [familyId, domainId, baseId, view, stageFilters, brandFilters]);
   const visible = useMemo(() => filteredVisible.slice(0, displayLimit), [filteredVisible, displayLimit]);
 
   const selectedRow = useMemo(
@@ -330,13 +296,12 @@ export default function Knowledge() {
     [visible, selectedId],
   );
 
-  const visibleSkillTemplates = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return skillTemplates;
-    return skillTemplates.filter((template) => (
-      `${template.title} ${template.description} ${template.skill_id}`.toLowerCase().includes(needle)
-    ));
-  }, [query, skillTemplates]);
+  useEffect(() => {
+    const list = document.querySelector("[data-kbv-list]");
+    if (detailOpen && selectedRow && list && getComputedStyle(list).display === "none") {
+      document.getElementById("kb-preview-title")?.focus({ preventScroll: true });
+    }
+  }, [detailOpen, selectedRow?.id]);
 
   useEffect(() => {
     if (!selectedRow?.has_newer_version || !selectedRow.favorite_version) {
@@ -353,6 +318,7 @@ export default function Knowledge() {
   const openRow = (row: KnowledgeRow) => {
     closeTip();
     setSelectedId(row.id);
+    setDetailOpen(true);
     setRecentIds(rememberKbRecent(row.id).map((item) => item.id));
   };
 
@@ -388,15 +354,6 @@ export default function Knowledge() {
       .catch((e) => setErr(e instanceof Error ? e.message : "无法记录反馈"));
   };
 
-  const askWithSkillTemplate = (template: SkillTemplate) => {
-    closeTip();
-    // The template is a read-only published Skill projection, not a knowledge
-    // row: stash only an editable question draft and never cite/edit this
-    // synthetic identifier or start an execution from the library.
-    stashComposerDraft(templateQuestionDraft(template));
-    nav("/");
-  };
-
   const resetAll = () => {
     setFamilyId("");
     setDomainId("");
@@ -408,7 +365,6 @@ export default function Knowledge() {
   };
 
   const anyFilter = scoped || Boolean(stageFilters.length || brandFilters.length || query.trim()) || view !== "all";
-  const moreActive = Boolean(brandFilters.length || stageFilters.length);
 
   const emptyCopy = useMemo(() => {
     if (view === "favorites") return "还没有收藏的知识。先把常用资料加入收藏。";
@@ -420,11 +376,12 @@ export default function Knowledge() {
   }, [view, brandFilters, keyword, stageFilters, scoped]);
 
   return (
-    <section className="kbv kbv-page" data-kb-page="mine" data-kb-v2="home">
-      <div className="kbv-workspace">
-        <section className="kbv-list" aria-label="知识列表" data-kbv-list>
+    <section className="kbv kbv-page knowledge-browse" data-kb-page="mine" data-kb-v2="home">
+      <KnowledgeBrowseWorkspace detailOpen={detailOpen && !!selectedRow}>
+        <section className="kbv-list" aria-label="知识列表" data-kbv-list aria-busy={loading}>
+          {loading ? <p className="knowledge-load-footer" role="status">{loaded ? "正在检索知识…" : "正在加载知识…"}</p> : null}
           {loaded ? (
-            <div className="kbv-tools">
+            <KnowledgeFilterBar>
               <div className="kbv-search">
                 <KbvIcon name="search" />
                 <input
@@ -463,37 +420,20 @@ export default function Knowledge() {
                 <p className="muted" data-kb-scope-none>{KB_SCOPE_NONE}</p>
               )}
 
-              {/* DESIGN §20：搜索 + 分类 + 快捷视图是常用项，品牌/阶段收进「更多筛选」；
-                  已选中时自动展开，已选数写在标题上，避免"筛了看不到条件"。 */}
-              <details
-                className="kbv-more-filters"
-                data-kbv-more-filters
-                open={moreOpen ?? moreActive}
-                onToggle={(event) => setMoreOpen(event.currentTarget.open)}
-              >
-                <summary>
-                  更多筛选
-                  {moreActive ? <small>{brandFilters.length + stageFilters.length} 项已选</small> : null}
-                </summary>
-                <div className="kbv-more-filters-body">
-                  <FilterChips
-                    label={KB_FILTER_LABEL.brand}
-                    filterKey="brand"
-                    options={brandOptions}
-                    selected={brandFilters}
-                    onToggle={(value) => setBrandFilters((current) => (
-                      current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
-                    ))}
-                    onClear={() => setBrandFilters([])}
-                  />
-                  <StageTags
-                    selected={stageFilters}
-                    onChange={setStageFilters}
-                    options={stageOptions}
-                    rootAttrs={{ "data-kb-filter": "stage" }}
-                  />
-                </div>
-              </details>
+              <FilterChips
+                label={KB_FILTER_LABEL.brand}
+                filterKey="brand"
+                options={brandOptions}
+                selected={brandFilters}
+                onToggle={(value) => setBrandFilters((current) => (
+                  current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
+                ))}
+                onClear={() => setBrandFilters([])}
+              />
+              <StageFilterGroup
+                selected={stageFilters}
+                onChange={setStageFilters}
+              />
               {anyFilter ? (
                 <div className="kbv-filters">
                   <button className="kbv-link-plain" type="button" data-kb-scope-clear onClick={resetAll}>
@@ -501,7 +441,7 @@ export default function Knowledge() {
                   </button>
                 </div>
               ) : null}
-            </div>
+            </KnowledgeFilterBar>
           ) : null}
 
           {loaded ? (
@@ -523,111 +463,25 @@ export default function Knowledge() {
             </div>
           ) : null}
 
-          {loaded ? (
-            <details className="kb-skill-templates" data-kb-skill-templates>
-              <summary className="kb-skill-templates-head">
-                <span>
-                  <span className="page-kicker">可用技能</span>
-                  <strong id="kb-skill-template-title">技能交互模板</strong>
-                  <small>查看功能、预计步骤和输入条件；用于提问只打开草稿，不会自动执行。</small>
-                </span>
-                <span>{skillTemplatesLoading ? "加载中" : `${visibleSkillTemplates.length} 项`}</span>
-              </summary>
-              <div className="kb-skill-template-list" aria-labelledby="kb-skill-template-title">
-                {skillTemplatesLoading ? <p className="muted">正在加载技能交互模板…</p> : null}
-                {skillTemplatesError ? (
-                  <p className="error" role="alert">
-                    无法加载技能交互模板：{skillTemplatesError}
-                    <button className="kbv-text-action row-action" type="button" onClick={() => void loadSkillTemplates()}>重试</button>
-                  </p>
-                ) : null}
-                {!skillTemplatesLoading && !skillTemplatesError && !visibleSkillTemplates.length ? (
-                  <p className="muted">{query.trim() ? "没有匹配的技能交互模板。" : "暂无可用技能交互模板。"}</p>
-                ) : null}
-                {visibleSkillTemplates.map((template) => (
-                  <article className="kb-skill-template-row" key={template.id} data-skill-template={template.id}>
-                    <div className="kb-skill-template-summary">
-                      <strong>{template.title}</strong>
-                      <span>{template.description || "按可用技能处理你的请求。"}</span>
-                    </div>
-                    <div className="kb-skill-template-actions">
-                      <details data-kb-skill-template-preview={template.id}>
-                        <summary>查看交互模板</summary>
-                        <SkillTemplateContext template={template} />
-                      </details>
-                      <button
-                        className="kbv-text-action row-action"
-                        type="button"
-                        data-kb-skill-template-ask={template.skill_id}
-                        onClick={() => askWithSkillTemplate(template)}
-                      >
-                        用于提问
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </details>
-          ) : null}
-
           {loaded && visible.length ? (
             <div className="kbv-records" data-kbv-records>
-              {visible.map((row) => {
-                const favorited = favorites.includes(row.id);
-                return (
-                  <article
-                    className="kbv-record-item"
-                    key={row.id}
-                  >
-                    <button
-                      type="button"
-                      className="kbv-record"
-                      data-knowledge={row.id}
-                      data-kind={row.kind}
-                      data-cited={row.cited ? "true" : "false"}
-                      data-kb-open={row.id}
-                      aria-current={selectedRow?.id === row.id}
-                      onClick={() => openRow(row)}
-                    >
-                      <span className="kbv-record-icon"><KbvIcon name={kbIsMail(row) ? "mail" : "file"} /></span>
-                      <span className="kbv-record-copy">
-                        <span className="kbv-record-title" title={row.title}>{row.title}</span>
-                        <span className="kbv-record-meta">
-                          <span>{kindLabel(row.kind)}</span>
-                          <ScopeChips row={row} withStage={false} compact />
-                          {row.deprecated ? <span className="chip chip-warn">已隐藏</span> : null}
-                          {row.has_newer_version ? <span className="chip kb-new-version">有新版本</span> : null}
-                        </span>
-                      </span>
-                      <span className="kbv-record-end">
-                        <span>{formatKbTime(row.updated_at || row.approved_at || row.created_at) || ""}</span>
-                        <span>{kbVersionTag(row.current_version)}</span>
-                      </span>
-                    </button>
-                    <span className="kbv-record-quick" aria-label={`${row.title} 快捷操作`}>
-                      <button type="button" className="kbv-quick-action" data-kb-row-favorite={row.id} aria-pressed={favorited} onClick={() => toggleFavorite(row)}>
-                        {favorited ? "取消收藏" : "收藏"}
-                      </button>
-                      <button type="button" className="kbv-quick-action" data-kb-row-use={row.id} onClick={() => useForTask(row)}>带入工作草稿</button>
-                    </span>
-                  </article>
-                );
-              })}
+              {visible.map((row) => <KnowledgeListRow key={row.id} row={row}
+                selected={selectedRow?.id === row.id} favorite={favorites.includes(row.id)}
+                icon={<KbvIcon name={kbIsMail(row) ? "mail" : "file"} />}
+                metadata={<><span>{kindLabel(row.kind)}</span><ScopeChips row={row} withStage={false} />
+                  {row.deprecated ? <span className="chip chip-warn">已隐藏</span> : null}
+                  {row.has_newer_version ? <span className="chip kb-new-version">有新版本</span> : null}</>}
+                onOpen={() => openRow(row)} onFavorite={() => toggleFavorite(row)} onUse={() => useForTask(row)}
+              />)}
             </div>
           ) : null}
-          {loaded && filteredVisible.length > visible.length ? (
-            <button type="button" className="kbv-load-more" onClick={() => setDisplayLimit((value) => Math.min(value + 5, filteredVisible.length))}>
-              加载更多（5条）
-            </button>
-          ) : null}
-          {loaded && displayLimit > 5 && visible.length === filteredVisible.length ? (
-            <button type="button" className="kbv-load-more" onClick={() => setDisplayLimit(5)}>收起到前5条</button>
-          ) : null}
+          {loaded && visible.length > 0 ? <ListLoadFooter remaining={filteredVisible.length - visible.length}
+            onMore={() => setDisplayLimit((value) => Math.min(value + 5, filteredVisible.length))} /> : null}
 
-          {err && <p className="error">{err}</p>}
-          {loaded && !rows.length && !keyword ? <p className="kbv-empty">暂无已发布资料。</p> : null}
+          {err && <p className="error" role="alert">知识服务暂不可用：{err} <CompactButton data-kb-retry onClick={reload}>重试</CompactButton></p>}
+          {loaded && !loading && !err && !rows.length && !keyword ? <p className="kbv-empty">暂无已发布资料。</p> : null}
           {/* §9.3 空态紧凑且动作内联：条件类空态直接给出恢复动作，不留一句话让人自己找。 */}
-          {loaded && (rows.length > 0 || !!keyword) && !visible.length ? (
+          {loaded && !loading && !err && (rows.length > 0 || !!keyword) && !visible.length ? (
             <p className="kbv-empty" data-kb-empty>
               {emptyCopy}
               {anyFilter ? <button type="button" className="kbv-text-action" data-kb-empty-reset onClick={resetAll}>{KB_SCOPE_CLEAR}</button> : null}
@@ -635,59 +489,20 @@ export default function Knowledge() {
           ) : null}
         </section>
 
-        {selectedRow ? (
         <aside className="kbv-rail" aria-label="知识详情" data-kb-detail>
+          {selectedRow ? (
             <div className="kbv-rail-inner" data-kb-preview={selectedRow.id}>
-              <div className="kbv-rail-head">
-                <div className="kbv-title-row">
-                  <h2 id="kb-preview-title">{selectedRow.title}</h2>
-                  <Hinted
-                    id={`${selectedRow.id}-fav`}
-                    open={tipId === `${selectedRow.id}-fav`}
-                    onOpen={setTipId}
-                    onClose={closeTip}
-                    hint="收藏会同步到你的账号；接口暂不可用时会先保存在本机。"
-                  >
-                    <button
-                      className={"btn" + (favorites.includes(selectedRow.id) ? " is-on" : "")}
-                      type="button"
-                      data-kb-favorite={selectedRow.id}
-                      aria-pressed={favorites.includes(selectedRow.id)}
-                      onClick={() => toggleFavorite(selectedRow)}
-                    >
-                      {favorites.includes(selectedRow.id) ? "已收藏" : "收藏"}
-                    </button>
-                  </Hinted>
-                </div>
-                <div className="kbv-subtitle">
-                  <span className="chip">{kbStatusLabel(selectedRow)}</span>
-                  <span>{kbRowVersionLine(selectedRow)}</span>
-                </div>
-              </div>
-
+              <KnowledgeDetailHeader row={selectedRow} favorite={favorites.includes(selectedRow.id)}
+                onFavorite={() => toggleFavorite(selectedRow)} onBack={() => {
+                  setDetailOpen(false);
+                  requestAnimationFrame(() => {
+                    const buttons = document.querySelectorAll<HTMLButtonElement>("[data-kb-open]");
+                    [...buttons].find((button) => button.dataset.kbOpen === selectedRow.id)?.focus({ preventScroll: true });
+                  });
+                }} />
               <div className="kbv-rail-body">
-                <section className="kb-provenance" data-kb-provenance aria-label={KB_PROVENANCE_TITLE}>
-                  <p className="kb-provenance-title">{KB_PROVENANCE_TITLE}</p>
-                  <dl className="kb-provenance-grid">
-                    <div>
-                      <dt>{KB_PROVENANCE_LABEL.author}</dt>
-                      <dd>{kbAuthorLabel(selectedRow.created_by)}</dd>
-                    </div>
-                    <div>
-                      <dt>{KB_PROVENANCE_LABEL.version}</dt>
-                      <dd>{kbVersionTag(selectedRow.current_version)}</dd>
-                    </div>
-                    <div>
-                      <dt>{KB_PROVENANCE_LABEL.updated}</dt>
-                      <dd>{formatKbTime(selectedRow.updated_at || selectedRow.approved_at || selectedRow.created_at) || "暂无时间"}</dd>
-                    </div>
-                    <div>
-                      <dt>{KB_PROVENANCE_LABEL.scope}</dt>
-                      <dd><ScopeChips row={selectedRow} /></dd>
-                    </div>
-                  </dl>
-                </section>
-                <p className="kb-card-summary" data-kb-summary>{kbSummary(selectedRow)}</p>
+                <InlineMetadata row={selectedRow} scope={<ScopeChips row={selectedRow} />} />
+                {kbSummary(selectedRow) !== selectedRow.subject && kbSummary(selectedRow) !== (selectedRow.body_en || selectedRow.body) ? <p className="kb-card-summary" data-kb-summary>{kbSummary(selectedRow)}</p> : null}
                 {kbVariableLine(selectedRow) ? <p className="kb-card-vars">{kbVariableLine(selectedRow)}</p> : null}
                 {selectedRow.has_newer_version ? <details className="kb-version-compare" data-kb-version-diff>
                   <summary>有新版本 · 查看版本变化</summary>
@@ -730,20 +545,18 @@ export default function Knowledge() {
                 )}
               </div>
 
-              <footer className="kbv-rail-foot">
-                <small className="muted">带入工作草稿只会预填内容；正式发送前仍需要你确认。</small>
-                <div className="kbv-actions">
+              <DetailActionBar>
                   {selectedRow.deprecated ? (
-                    <button
-                      className="btn"
+                    <CompactButton
+
                       type="button"
                       onClick={() => void api.undeprecateKnowledge(selectedRow.id).then(() => { setHideFor(""); reload(); })}
                     >
                       取消隐藏
-                    </button>
+                    </CompactButton>
                   ) : (
                     <>
-                      <button className="btn" type="button" data-kb-not-helpful={selectedRow.id} onClick={() => markNotHelpful(selectedRow)}>没帮助</button>
+                      <CompactButton type="button" data-kb-not-helpful={selectedRow.id} onClick={() => markNotHelpful(selectedRow)}>没帮助</CompactButton>
                       <Hinted
                         id={`${selectedRow.id}-hide`}
                         open={tipId === `${selectedRow.id}-hide`}
@@ -751,15 +564,15 @@ export default function Knowledge() {
                         onClose={closeTip}
                         hint="可补充具体原因；只在本账号隐藏，已发信不受影响。"
                       >
-                        <button
-                          className={"btn" + (hideFor === selectedRow.id ? " is-on" : "")}
+                        <CompactButton
+
                           type="button"
                           aria-expanded={hideFor === selectedRow.id}
                           aria-pressed={hideFor === selectedRow.id}
                           onClick={() => setHideFor((current) => (current === selectedRow.id ? "" : selectedRow.id))}
                         >
                           反馈 / 隐藏
-                        </button>
+                        </CompactButton>
                       </Hinted>
                     </>
                   )}
@@ -774,22 +587,23 @@ export default function Knowledge() {
                         : "把适用说明带进当前任务。只作为参考草稿，不会直接发送，也不会改阶段。"
                     }
                   >
-                    <button
-                      className="btn work"
+                    <CompactButton
+                      emphasis="primary" size="md"
                       type="button"
                       data-kb-use={selectedRow.id}
                       data-fill-composer={selectedRow.id}
                       onClick={() => useForTask(selectedRow)}
                     >
                       带入工作草稿
-                    </button>
+                    </CompactButton>
                   </Hinted>
-                </div>
-              </footer>
+              </DetailActionBar>
             </div>
+          ) : (
+            <p className="kbv-empty" role="status">{loaded ? "从列表选择一条知识，查看内容与来源。" : "正在加载知识…"}</p>
+          )}
         </aside>
-        ) : null}
-      </div>
+      </KnowledgeBrowseWorkspace>
     </section>
   );
 }

@@ -86,6 +86,9 @@
      （--primary 数值、--radius-cards 等）不在此处，需单独一轮。 */
   --hit-min: 24px;
   --control-h-sm: 24px;
+  /* DESIGN §28: business knowledge rows, not generic table density. */
+  --knowledge-row-h: 36px;
+  --knowledge-row-h-detail: 44px;
   --control-h: 28px;
   --control-h-lg: 32px;
   /* 筛选 chips 高度（docs/DESIGN.md §4.1 尺寸表）。触摸模态只扩大命中区
@@ -17095,4 +17098,39 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   .tasks-page .task-center-actions button,
   .tasks-page .task-center-actions a { padding-inline: 2px; }
   .task-detail-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.compact-button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: var(--control-h-sm);
+  min-height: 0;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.compact-button[data-size="md"] { height: var(--control-h); padding-inline: var(--space-2); }
+.compact-button--text:hover { background: var(--btn-text-hover-bg); }
+.compact-button--text[aria-pressed="true"] { font-weight: 600; }
+.compact-button--primary { background: var(--primary); color: var(--primary-fg); }
+.compact-button--primary:hover { background: var(--primary-hover); }
+.compact-button:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+.compact-button:disabled { opacity: .5; cursor: default; }
+@media (pointer: coarse) {
+  .compact-button { position: relative; isolation: isolate; min-height: var(--touch-hit-min); min-width: var(--touch-hit-min); }
+  .compact-button--primary, .compact-button--primary:hover, .compact-button--text:hover { background: transparent; }
+  .compact-button::before { content: ""; position: absolute; z-index: -1; inset-inline: 0; inset-block: calc((var(--touch-hit-min) - var(--control-h-sm)) / 2); border-radius: var(--radius-control); }
+  .compact-button[data-size="md"]::before { inset-block: calc((var(--touch-hit-min) - var(--control-h)) / 2); }
+  .compact-button--primary::before { background: var(--primary); }
+  .compact-button--primary:hover::before { background: var(--primary-hover); }
+  .compact-button--text:hover::before { background: var(--btn-text-hover-bg); }
 }
