@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { KnowledgeRow } from "../api";
 import { MAIN_STAGE_TABS } from "../kolStages";
 import { formatKbTime, kbAuthorLabel, kbStatusLabel, kbVersionTag } from "../knowledgeCopy";
@@ -12,44 +12,45 @@ export function KnowledgeFilterBar({ children }: { children: ReactNode }) {
   return <div className="kbv-tools knowledge-filter-bar">{children}</div>;
 }
 
-/** Five initial dictionary entries, with all other stages reachable without deriving them from results. */
+/** Preview: ten initial chips including All; removing chips never changes the dictionary. */
 export function StageFilterGroup({ selected, onChange }: { selected: string[]; onChange: (next: string[]) => void }) {
-  const primary = MAIN_STAGE_TABS.slice(0, 5);
-  const extra = MAIN_STAGE_TABS.slice(5);
-  const shown = [...primary, ...extra.filter((stage) => selected.includes(stage.code))];
-  const toggle = (code: string) => onChange(selected.includes(code) ? selected.filter((value) => value !== code) : [...selected, code]);
+  const [shownCodes, setShownCodes] = useState(() => MAIN_STAGE_TABS.slice(0, 9).map(stage => stage.code));
+  const [adding, setAdding] = useState(false);
+  const shown = MAIN_STAGE_TABS.filter(stage => shownCodes.includes(stage.code) || selected.includes(stage.code));
+  const extra = MAIN_STAGE_TABS.filter(stage => !shown.some(item => item.code === stage.code));
+  const toggle = (code: string) => onChange(selected.includes(code) ? selected.filter(value => value !== code) : [...selected, code]);
+  const remove = (code: string) => {
+    setShownCodes(codes => codes.filter(value => value !== code));
+    onChange(selected.filter(value => value !== code));
+  };
   return <div className="kbv-chip-row knowledge-stage-filter" data-kb-filter="stage" role="group" aria-label="适用阶段">
     <span className="kbv-scope-name">适用阶段</span>
-    <CompactButton aria-pressed={!selected.length} data-kb-filter-value="" onClick={() => onChange([])}>全部</CompactButton>
-    {shown.map((stage) => <CompactButton key={stage.code} aria-pressed={selected.includes(stage.code)}
-      data-kb-filter-value={stage.code} onClick={() => toggle(stage.code)}>{stage.label}</CompactButton>)}
-    {extra.some((stage) => !selected.includes(stage.code)) && <select className="knowledge-stage-more" aria-label="更多阶段" value=""
-      onChange={(event) => { if (event.target.value) toggle(event.target.value); }}>
-      <option value="">更多阶段</option>
-      {extra.filter((stage) => !selected.includes(stage.code)).map((stage) => <option key={stage.code} value={stage.code}>{stage.label}</option>)}
-    </select>}
+    <div className="knowledge-stage-chips">
+      <CompactButton className="knowledge-stage-all" aria-pressed={!selected.length} data-kb-filter-value="" onClick={() => onChange([])}>全部</CompactButton>
+      {shown.map(stage => <span key={stage.code} className="knowledge-stage-chip" data-selected={selected.includes(stage.code)}>
+        <CompactButton aria-pressed={selected.includes(stage.code)} data-kb-filter-value={stage.code} onClick={() => toggle(stage.code)}>{stage.label}</CompactButton>
+        <button type="button" className="knowledge-stage-remove" aria-label={`移除阶段：${stage.label}`} onClick={() => remove(stage.code)}>×</button>
+      </span>)}
+      {extra.length > 0 && <span className="knowledge-stage-add-wrap">
+        <CompactButton className="knowledge-stage-add" aria-label="添加阶段" aria-expanded={adding} onClick={() => setAdding(value => !value)}>+</CompactButton>
+        {adding && <div className="knowledge-stage-picker" role="group" aria-label="可添加阶段" onKeyDown={event => { if (event.key === "Escape") setAdding(false); }}>
+          {extra.map(stage => <CompactButton key={stage.code} onClick={() => { setShownCodes(codes => [...codes, stage.code]); onChange([...selected, stage.code]); setAdding(false); }}>{stage.label}</CompactButton>)}
+          <CompactButton onClick={() => setAdding(false)}>取消</CompactButton>
+        </div>}
+      </span>}
+    </div>
   </div>;
 }
 
-export function KnowledgeListRow({ row, selected, favorite, icon, metadata, onOpen, onFavorite, onUse }: {
-  row: KnowledgeRow; selected: boolean; favorite: boolean; icon: ReactNode; metadata: ReactNode;
-  onOpen: () => void; onFavorite: () => void; onUse: () => void;
+export function KnowledgeListRow({ row, selected, kind, onOpen }: {
+  row: KnowledgeRow; selected: boolean; kind: string; onOpen: () => void;
 }) {
   return <article className="knowledge-list-row" data-kb-row={row.id}>
     <button type="button" className="knowledge-list-open" data-knowledge={row.id} data-kind={row.kind}
       data-cited={row.cited ? "true" : "false"} data-kb-open={row.id} aria-current={selected} onClick={onOpen}>
-      <span className="knowledge-row-icon">{icon}</span>
-      <span className="knowledge-row-copy">
-        <span className="knowledge-row-title" title={row.title}>{row.title}</span>
-        <span className="knowledge-row-metadata">{metadata}
-          <span className="knowledge-row-time">{formatKbTime(row.updated_at || row.approved_at || row.created_at)} · {kbVersionTag(row.current_version)}</span>
-        </span>
-      </span>
+      <span className="knowledge-row-title" title={row.title}>{row.title}</span>
+      <span className="knowledge-row-kind">{kind}</span>
     </button>
-    <span className="knowledge-row-actions" aria-label={`${row.title} 快捷操作`}>
-      <CompactButton data-kb-row-favorite={row.id} aria-pressed={favorite} onClick={onFavorite}>{favorite ? "已收藏" : "收藏"}</CompactButton>
-      <CompactButton data-kb-row-use={row.id} onClick={onUse}>带入草稿</CompactButton>
-    </span>
   </article>;
 }
 

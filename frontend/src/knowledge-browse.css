@@ -67,3 +67,25 @@
 @media (pointer: coarse) {
   .knowledge-browse :is(.kbv-tab, .kbv-filter-chip, .kbv-link-plain, .knowledge-stage-more) { min-height: var(--touch-hit-min); }
 }
+
+
+/* Isolated employee preview: annotated compact presentation. */
+.knowledge-browse .knowledge-stage-filter { align-items: flex-start; }
+.knowledge-stage-filter > .kbv-scope-name { line-height: var(--control-h-sm); }
+.knowledge-stage-chips { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
+.knowledge-stage-chip { display: inline-flex; align-items: center; box-sizing: border-box; height: var(--control-h-sm); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-subtle); }
+.knowledge-stage-chip .compact-button { height: calc(var(--control-h-sm) - 2px); padding-inline: var(--space-2) var(--space-1); }
+.knowledge-stage-remove { width: var(--badge-h); height: var(--badge-h); padding: 0; border: 0; background: transparent; color: var(--text-quiet); cursor: pointer; font: inherit; }
+.knowledge-stage-chip[data-selected="true"], .knowledge-stage-all[aria-pressed="true"] { background: var(--btn-text-hover-bg); border-color: var(--accent); }
+.knowledge-stage-filter [aria-pressed="true"] { text-decoration: none; font-weight: 600; }
+.knowledge-stage-all { border: 1px solid var(--border); border-radius: var(--radius-control); }
+.knowledge-stage-add-wrap { position: relative; }
+.knowledge-stage-add { width: var(--control-h-sm); border: 1px dashed var(--border-strong); }
+.knowledge-stage-picker { position: absolute; z-index: 5; top: 100%; right: 0; min-width: max-content; padding: var(--space-1); border: 1px solid var(--border); background: var(--bg); border-radius: var(--radius-control); box-shadow: var(--shadow-scroll); display: flex; flex-direction: column; }
+.knowledge-stage-picker .compact-button { justify-content: flex-start; }
+.knowledge-browse .knowledge-list-row { min-height: var(--knowledge-row-h); height: var(--knowledge-row-h); }
+.knowledge-list-open { height: 100%; padding: 0; justify-content: space-between; gap: var(--space-4); }
+.knowledge-row-title { flex: 1; min-width: 0; }
+.knowledge-row-kind { flex: none; font-size: var(--ds-font-xs); color: var(--text-quiet); white-space: nowrap; }
+.knowledge-browse .knowledge-favorite-icon { width: calc(var(--control-h-sm) + var(--space-2)); height: calc(var(--control-h-sm) + var(--space-2)); }
+.knowledge-favorite-icon > span { font-size: calc(var(--ds-font-sm) * 2); line-height: 1; }

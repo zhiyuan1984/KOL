@@ -466,12 +466,8 @@ export default function Knowledge() {
           {loaded && visible.length ? (
             <div className="kbv-records" data-kbv-records>
               {visible.map((row) => <KnowledgeListRow key={row.id} row={row}
-                selected={selectedRow?.id === row.id} favorite={favorites.includes(row.id)}
-                icon={<KbvIcon name={kbIsMail(row) ? "mail" : "file"} />}
-                metadata={<><span>{kindLabel(row.kind)}</span><ScopeChips row={row} withStage={false} />
-                  {row.deprecated ? <span className="chip chip-warn">已隐藏</span> : null}
-                  {row.has_newer_version ? <span className="chip kb-new-version">有新版本</span> : null}</>}
-                onOpen={() => openRow(row)} onFavorite={() => toggleFavorite(row)} onUse={() => useForTask(row)}
+                selected={selectedRow?.id === row.id} kind={kindLabel(row.kind)}
+                onOpen={() => openRow(row)}
               />)}
             </div>
           ) : null}
