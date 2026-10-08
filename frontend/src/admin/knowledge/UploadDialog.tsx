@@ -172,7 +172,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
               }}
             />
           </label>
-          <p className="muted">支持 PDF；归属必须为非结构化知识库。</p>
+          <p className="muted">支持 PDF、图片、音频、视频；归属必须为非结构化知识库。</p>
           <p className="muted">上传会开始解析；解析完成后仍需提交发布审批，不会自动对员工生效。</p>
         </div>
         {files.length ? (
