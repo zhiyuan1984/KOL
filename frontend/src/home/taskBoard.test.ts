@@ -45,15 +45,28 @@ describe("today task board presentation", () => {
   });
 });
 
-describe("today/todo status filters", () => {
-  it("uses one primary filter row for overdue, exception, and normal tasks", () => {
+describe("today/todo compact board", () => {
+  it("reuses lifecycle priority filters and separates overlapping attention filters", () => {
     const board = read("TaskBoard.tsx");
-    expect(board).toContain('{ value: "overdue", label: "逾期" }');
-    expect(board).toContain('{ value: "exception", label: "异常" }');
-    expect(board).toContain('{ value: "normal", label: "正常" }');
-    expect(board).not.toContain("task-board-attention");
-    expect(board).not.toContain("attentionFilter");
-    expect(board).not.toContain("<th>任务与状态</th>");
+    expect(board).toContain("<LifecycleNavigation");
+    expect(board).toContain('mode="filter"');
+    expect(board).toContain('aria-label="任务提醒筛选"');
+    expect(board).not.toContain('role="tab"');
+    expect(board).not.toContain('aria-selected=');
+    expect(board).not.toContain('task-board-refresh');
+    expect(board).not.toContain('task-board-result-count');
+    expect(board).toContain('task-board-search-icon');
+  });
+
+  it("keeps formal status, execution failure, and due date in separate cells", () => {
+    const row = read("BoardRow.tsx");
+    expect(row).toContain('className="task-board-cell-status"');
+    expect(row).toContain('className="task-board-cell-due"');
+    expect(row).toContain('hidden={!expanded}');
+    expect(row).toContain('aria-controls={detailsId}');
+    expect(row).not.toContain('className="task-board-meta"');
+    expect(row).toContain('task.status === "queued" ? "已入队"');
+    expect(row).not.toContain('const statusLabel = displayStatusLabel(task)');
   });
 });
 

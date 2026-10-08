@@ -127,6 +127,7 @@ import {
 import { isTodayScheduled } from "../home/schedule";
 import {
   SCOPE_CONFIG,
+  TODAY_PLAN_REFRESH_EVENT,
   TODAY_PLAN_START_EVENT,
   TODO_PLAN_START_EVENT,
   type PlanScope,
@@ -1488,7 +1489,10 @@ export default function Home() {
   };
   openTaskRef.current = openTask;
 
-  const refreshTasks = () => fetchHomeTasks().catch(() => undefined);
+  const refreshTasks = () => fetchHomeTasks().then((rows) => {
+    window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT));
+    return rows;
+  }).catch(() => undefined);
 
   useEffect(() => {
     const onVisible = () => {
@@ -2008,7 +2012,13 @@ export default function Home() {
       if (document.visibilityState !== "visible" || inFlight) return;
       inFlight = true;
       void api.tasks(undefined, controller.signal).then(unwrapTaskList).then((catalog) => {
-        if (!controller.signal.aborted) applyTaskCatalog(catalog);
+        if (controller.signal.aborted) return;
+        applyTaskCatalog(catalog);
+        // The panes render their owner-scoped workbench projection, not this
+        // catalog. Re-read it after a real execution update; never start a plan.
+        if (mode === "today" || mode === "todo") {
+          window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT));
+        }
       }).catch(() => undefined).finally(() => { inFlight = false; });
     };
     const kickoff = window.setTimeout(tick, SHELL_READ_DELAY_MS);

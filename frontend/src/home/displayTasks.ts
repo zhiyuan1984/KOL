@@ -37,33 +37,48 @@ export function groupDisplayTasks(tasks: Task[]): Array<{ group: string; rows: T
     .map(([group, rows]) => ({ group, rows }));
 }
 
-/** Result memory → list rows. Host tasks only supply bucket/due/id for actions. */
+/** Result memory decorates current host rows; it cannot create task membership. */
 const DISPLAY_CLOSED = new Set(["completed", "done", "cancelled"]);
 
 export function projectDisplayTasks(display: DisplayTaskRow[] | null | undefined, hostTasks: Task[] = []): Task[] {
   const hostById = new Map(hostTasks.map((task) => [task.id, task]));
+  const seen = new Set<string>();
   return (display || [])
     .slice()
     .sort((a, b) => Number(a.rank || 0) - Number(b.rank || 0))
+    .filter((row) => {
+      const id = String(row.work_item_id || "").trim();
+      if (!id || !hostById.has(id) || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
     .map((row, index) => {
       const id = String(row.work_item_id || "").trim();
-      const host = id ? hostById.get(id) : undefined;
+      const host = hostById.get(id)!;
       return {
-        ...(host || {}),
-        id: id || `display:${index}`,
-        title: String(row.title || host?.title || ""),
+        ...host,
+        id,
+        title: host.title,
         layout_why: row.why || undefined,
-        next_action: row.next_action || row.label || host?.next_action,
-        next_action_code: row.verb || host?.next_action_code,
+        // The current task owns its title and permitted next action. Historical
+        // plan verbs/labels must not restore an obsolete operation.
         display_rank: row.rank || index + 1,
-        display_verb: row.verb,
-        display_label: row.label,
         display_icon: row.icon || undefined,
         display_group: row.group || undefined,
-        plan_view: row.view || undefined,
+        // Current server membership wins over a historical plan assignment.
+        plan_view: host.plan_view || row.view || undefined,
         memory_kind: "task_result",
       } as Task;
     })
     .filter((task) => task.title)
     .filter((task) => !DISPLAY_CLOSED.has(String(task.status || "")) && !task.dismissed_at);
+}
+
+/** A plan can order/annotate tasks, but a stale or partial plan cannot hide new work. */
+export function displayTasksOrBase(display: DisplayTaskRow[] | null | undefined, hostTasks: Task[] = []): Task[] {
+  const projected = projectDisplayTasks(display, hostTasks);
+  const projectedIds = new Set(projected.map((task) => task.id));
+  const remaining = hostTasks.filter((task) => !projectedIds.has(task.id)
+    && !DISPLAY_CLOSED.has(String(task.status || "")) && !task.dismissed_at);
+  return [...projected, ...remaining];
 }

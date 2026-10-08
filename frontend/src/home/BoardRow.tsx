@@ -1,10 +1,10 @@
+import { Fragment, useState } from "react";
 import type { Task } from "../api";
 import { lastSafeSummary } from "../waitStatus";
 import {
   dueDayDiff,
   isClosedTask,
   isDisplayOnlyTask,
-  displayStatusLabel,
   taskActionLabel,
   taskDisplayStatus,
 } from "./homeModel";
@@ -29,11 +29,13 @@ function BoardTaskIcon({ task }: { task: Task }) {
   );
 }
 
-type BoardStatus = { label: "待处理" | "进行中" | "已完成" | "等审批"; tone: "pending" | "running" | "completed" | "approval" };
+type BoardStatus = { label: "待处理" | "进行中" | "已完成" | "等审批" | "失败" | "已取消"; tone: "pending" | "running" | "completed" | "approval" | "failed" | "cancelled" };
 
 export function boardStatus(task: Task): BoardStatus {
   const direct = String(task.status || "").trim().toLowerCase();
   const status = direct || String(taskDisplayStatus(task)?.code || "").toLowerCase();
+  if (status === "failed") return { label: "失败", tone: "failed" };
+  if (status === "cancelled") return { label: "已取消", tone: "cancelled" };
   if (["completed", "done"].includes(status)) return { label: "已完成", tone: "completed" };
   // 等审批是独立状态：不要把它吞进"进行中"，用户分不清"在跑"和"在等我批"。
   if (status === "waiting_approval") return { label: "等审批", tone: "approval" };
@@ -69,6 +71,8 @@ export default function BoardRow({
   onOpen?: (task: Task) => void;
   onEdit?: (task: Task) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = `task-board-details-${task.id}`;
   const why = String(task.layout_why || task.display_why || "").trim();
   const verb = String(task.display_verb || task.next_action_code || "open");
   const actionLabel = taskActionLabel(task);
@@ -77,17 +81,19 @@ export default function BoardRow({
   const status = boardStatus(task);
   const executionFailed = task.execution?.status === "failed";
   const executionNote = executionFailed ? lastSafeSummary(task) : "";
-  const taskFailed = task.status === "failed" || task.display_status === "failed";
+  const taskFailed = task.status === "failed";
   const dueDiff = dueDayDiff(task.due_at);
   const dueTime = task.due_at ? new Date(task.due_at) : null;
   const dueLabel = dueTime && !Number.isNaN(dueTime.getTime())
     ? dueTime.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
     : "";
-  const statusLabel = executionFailed && task.status === "pending" && !task.display_status_label
-    ? "待处理"
-    : displayStatusLabel(task);
+  // Execution attempts and due dates do not overwrite the formal task status.
+  const statusLabel = task.status === "queued" ? "已入队" : task.status === "waiting" ? "待确认" : status.label;
+  const deadline = !isClosedTask(task) && dueDiff != null && dueDiff < 0 ? "逾期"
+    : !isClosedTask(task) && dueDiff === 0 ? "今天到期" : "到期";
   const editable = Boolean(onEdit) && verb !== "edit" && !isDisplayOnlyTask(task);
   return (
+    <Fragment>
     <tr
       className="task-board-row"
       data-today-todo={task.id}
@@ -95,12 +101,16 @@ export default function BoardRow({
       data-today-display="host"
       data-today-verb={verb}
       data-board-status={status.tone}
+      data-row-number={index + 1}
     >
-      <td className="task-board-cell-index">{index + 1}</td>
       <td className="task-board-cell-title">
         <div className="task-board-title-wrap">
           <div className="task-board-title-row">
-            <span className="task-board-icon"><BoardTaskIcon task={task} /></span>
+            <button type="button" className="task-board-details-toggle" aria-expanded={expanded}
+              aria-controls={detailsId} aria-label={`${expanded ? "收起" : "展开"}任务详情：${task.title}`}
+              onClick={() => setExpanded(value => !value)}>
+              <span className="task-board-icon"><BoardTaskIcon task={task} /></span>
+            </button>
             <button
               type="button"
               className="task-board-title"
@@ -111,16 +121,21 @@ export default function BoardRow({
               {task.title}
             </button>
           </div>
-          {(why || risk || statusLabel || executionFailed || dueLabel) ? (
-            <div className="task-board-meta">
-              {why ? <p className="task-board-why" title={why}>{why}</p> : null}
-              {risk ? <span className={`task-board-chip is-${risk.toLowerCase()}`} data-risk-level={task.risk_level} title={`任务风险：${task.risk_level === "high" ? "高" : task.risk_level === "medium" ? "中" : "低"}（${risk}）`}>{risk}</span> : null}
-              {statusLabel ? <span className="task-board-row-state" data-state={taskFailed ? "failed" : !isClosedTask(task) && dueDiff != null && dueDiff < 0 ? "overdue" : "default"}>任务状态：{statusLabel}</span> : null}
-              {dueLabel ? <span className="task-board-row-state">到期 {dueLabel}</span> : null}
-              {executionFailed ? <span className="task-board-execution-failed">上次执行失败{executionNote ? `：${executionNote}` : " · 原因待核对"}{task.status === "pending" || task.status === "waiting" ? " · 任务仍待处理" : ""}</span> : null}
-            </div>
-          ) : null}
         </div>
+      </td>
+      <td className="task-board-cell-status">
+        <div className="task-board-row-signals">
+          {risk ? <span className={`task-board-chip is-${risk.toLowerCase()}`} data-risk-level={task.risk_level} title={`任务风险：${risk}`}>{risk}</span> : null}
+          <span className="task-board-row-state" data-state={taskFailed ? "failed" : "default"} aria-label={`任务状态：${statusLabel}`}>
+            <i className={`task-status-dot is-${status.tone}`} aria-hidden />{statusLabel}
+          </span>
+          {executionFailed ? <button type="button" className="task-board-execution-failed" onClick={() => setExpanded(true)}
+            aria-expanded={expanded} aria-controls={detailsId}>上次执行失败</button> : null}
+        </div>
+      </td>
+      <td className="task-board-cell-due">
+        {dueLabel ? <time className="task-board-row-state" dateTime={task.due_at}
+          data-state={deadline === "逾期" ? "overdue" : "default"}>{deadline} {dueLabel}</time> : <span className="task-board-row-state" aria-label="未设置截止日期">—</span>}
       </td>
       <td className="task-board-cell-actions">
         <div className="task-board-actions">
@@ -150,5 +165,16 @@ export default function BoardRow({
         </div>
       </td>
     </tr>
+    <tr id={detailsId} className="task-board-details-row" hidden={!expanded}>
+      <td colSpan={4}>
+        <div className="task-board-expanded-details">
+          <strong>{task.title}</strong>
+          {why ? <p>{why}</p> : null}
+          {task.description && task.description !== why ? <p>{task.description}</p> : null}
+          {executionFailed ? <p className="task-board-failure-detail">上次执行失败：{executionNote || "原因待核对"}。任务状态：{statusLabel}。</p> : null}
+        </div>
+      </td>
+    </tr>
+    </Fragment>
   );
 }

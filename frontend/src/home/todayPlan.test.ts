@@ -61,6 +61,16 @@ function deferred<T>() {
 }
 
 describe("today plan wiring", () => {
+  it("refreshes pane task projections after successful execution polling without starting a plan", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
+    const polling = home.slice(home.indexOf('if (!hasActiveRuns || mode === "pool") return;'), home.indexOf('}, [hasActiveRuns, mode]);'));
+    expect(polling).toContain("if (controller.signal.aborted) return;");
+    expect(polling).toMatch(/applyTaskCatalog\(catalog\);[\s\S]*window\.dispatchEvent\(new Event\(TODAY_PLAN_REFRESH_EVENT\)\)/);
+    expect(polling).not.toContain("TODAY_PLAN_START_EVENT");
+    expect(polling).not.toContain("startPlan");
+  });
+
   it("Home entry reads memory only; 启动 buttons own the think POST", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
@@ -74,10 +84,11 @@ describe("today plan wiring", () => {
     expect(home).toContain("fetchTodayTasks");
     expect(home).toContain("fetchTodoTasks");
     expect(home).toContain("usePlanScope");
-    expect(hook).toContain("projectDisplayTasks");
+    expect(hook).toContain("displayTasksOrBase");
     expect(hook).toContain("runTodayPlanRefresh");
     // The POST is gated on the explicit start entries, never on the page mount.
-    expect(hook).toContain("startPlan: startRef.current");
+    expect(hook).toContain("const shouldStartPlan = startRef.current");
+    expect(hook).toContain("startPlan: shouldStartPlan");
     expect(hook).not.toContain("startPlan: true");
     expect(home).toContain("TODAY_PLAN_START_EVENT");
     expect(home).toContain("TODO_PLAN_START_EVENT");
@@ -89,7 +100,7 @@ describe("today plan wiring", () => {
     expect(workspace).not.toContain("planning && !sections.length");
   });
 
-  it("one workspace renders both tabs; switching reuses open-task memory", () => {
+  it("one workspace renders both tabs; switching revalidates each task projection", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     const workspace = fs.readFileSync(path.resolve(here, "./ScopeWorkspace.tsx"), "utf8");
@@ -103,9 +114,12 @@ describe("today plan wiring", () => {
     expect(home).not.toContain("TodoPane");
     expect(home).not.toContain("TodayPane");
     const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
-    // 计划作用域只在激活的 tab 上读；同一 tab 60 秒内切回不重复读（复用屏上结果）。
+    // Only the active tab reads; cached plan presentation cannot replace fresh task rows.
     expect(hook).toMatch(/\[tick, scope, enabled\]/);
-    expect(hook).toContain("PLAN_SCOPE_FRESH_MS");
+    expect(hook).not.toContain("PLAN_SCOPE_FRESH_MS");
+    expect(hook).not.toContain("setMemoryTasks(cache.memoryTasks)");
+    expect(hook).toContain("setBrief(cache.brief)");
+    expect(hook).toContain("memoryTasks: []");
     expect(home).toMatch(/usePlanScope\("today",\s*\{[\s\S]{0,320}\}, \{ enabled: mode === "today" \}\)/);
     expect(home).toMatch(/usePlanScope\("todo",\s*\{[\s\S]{0,320}\}, \{ enabled: mode === "todo" \}\)/);
     expect(home).not.toMatch(/if \(mode !== "today"\)/);

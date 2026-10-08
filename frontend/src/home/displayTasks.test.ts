@@ -38,4 +38,43 @@ describe("displayTasksOrBase", () => {
   it("never invents rows when both the projection and the open list are empty", () => {
     expect(displayTasksOrBase([{ work_item_id: "tsk_gone", rank: 1 }], [])).toEqual([]);
   });
+
+  it("never revives a titled result whose task is no longer in the authorized host list", () => {
+    const stale = [{ work_item_id: "tsk_gone", title: "历史计划里的任务", rank: 1 }];
+    expect(projectDisplayTasks(stale, [due])).toEqual([]);
+    expect(displayTasksOrBase(stale, [due])).toEqual([due]);
+  });
+
+  it("keeps new host tasks when the previous plan covers only part of the current list", () => {
+    const added = task({ id: "tsk_new", title: "规划后新建的待办", plan_view: "todo" });
+    const rows = displayTasksOrBase([{ work_item_id: due.id, rank: 1 }], [due, added]);
+    expect(rows.map((row) => row.id)).toEqual([due.id, added.id]);
+    expect(rows[1]).toEqual(added);
+  });
+
+  it("keeps current task state and service-owned membership over stale plan metadata", () => {
+    const current = task({ id: "tsk_changed", title: "重新安排", status: "waiting", plan_view: "todo", owner_user_id: "owner", collaboration_id: "collab" });
+    const [row] = displayTasksOrBase([{ work_item_id: current.id, view: "today", why: "旧安排", rank: 1 }], [current]);
+    expect(row).toMatchObject({ status: "waiting", plan_view: "todo", owner_user_id: "owner", collaboration_id: "collab", layout_why: "旧安排" });
+  });
+
+  it("deduplicates display IDs and excludes closed or dismissed rows from either source", () => {
+    const closed = task({ id: "closed", title: "已完成", status: "completed" });
+    const dismissed = task({ id: "dismissed", title: "已忽略", dismissed_at: new Date().toISOString() });
+    const rows = displayTasksOrBase([
+      { work_item_id: due.id, rank: 1 },
+      { work_item_id: due.id, rank: 2 },
+      { work_item_id: closed.id, title: "旧任务", rank: 3 },
+    ], [due, closed, dismissed]);
+    expect(rows.map((row) => row.id)).toEqual([due.id]);
+  });
+  it("never overwrites edited titles or current actions with historical plan text", () => {
+    const current = task({ id: "edited", title: "人工修改后的标题", next_action_code: "approve", next_action: "确认当前结果", display_verb: "approve", display_label: "去审批" });
+    const [row] = displayTasksOrBase([{ work_item_id: current.id, title: "旧标题", verb: "send", label: "再次发送", next_action: "旧操作", why: "规划依据", rank: 1 }], [current]);
+    expect(row).toMatchObject({ title: current.title, next_action_code: "approve", next_action: "确认当前结果", display_verb: "approve", display_label: "去审批", layout_why: "规划依据" });
+    const [noAction] = displayTasksOrBase([{ work_item_id: due.id, verb: "send", label: "发送" }], [due]);
+    expect(noAction.display_verb).toBeUndefined();
+    expect(noAction.next_action_code).toBeUndefined();
+  });
+
 });

@@ -16675,7 +16675,7 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   min-width: 0;
   height: var(--control-h-lg);
   min-height: var(--control-h-lg);
-  padding-inline: var(--workspace-search-pad-x);
+  padding-inline: calc(var(--workspace-search-pad-x) + var(--icon-sm) + var(--space-2)) var(--workspace-search-pad-x);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--bg);
@@ -16791,21 +16791,16 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   border-bottom-color: var(--workspace-list-divider);
   transition: background-color var(--duration-control);
 }
-.task-board .task-board-table > tbody > tr.task-board-row:has(.task-board-meta) > td {
-  height: var(--workspace-list-row-h-relaxed);
-}
 .task-board .task-board-table .task-board-title {
-  display: -webkit-box;
+  display: block;
   min-width: 0;
   overflow: hidden;
-  overflow-wrap: anywhere;
   color: var(--text);
   font-size: var(--ds-font-sm);
   font-weight: 500;
   line-height: var(--lh-control-sm);
-  white-space: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .task-board .task-board-table .task-board-title:hover:not(:disabled) {
   color: var(--accent-text);
