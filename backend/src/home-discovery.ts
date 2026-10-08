@@ -45,7 +45,6 @@ import { ingestOne } from "./host/discovery-ingest.js";
 import { brandScope } from "./host/inbound-scope.js";
 import { memoryCompanyId } from "./host/kol-memory.js";
 import { postgresPool } from "./postgres/pool.js";
-import { requireTicketPrincipal, ticketIsAdmin } from "./ticket-domain/auth.js";
 import { createKolLead } from "./ticket-domain/kol-leads.js";
 
 /** 本文件内的 asObject（此前 1572 行引用缺失，tsc TS2552）。 */
@@ -1557,10 +1556,12 @@ async function resolveCandidateForAction(
   if (!actionId) {
     throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人" });
   }
-  const principal = requireTicketPrincipal();
+  // 注意：/api/home/discovery/* 不在 formalAuthorityPath 内，ticket principal 中间件不会执行，
+  // 这里必须用工作台身份 ownerId()（与 runtime_crawl_jobs.actor_id 同一 id 空间），不能用 requireTicketPrincipal()。
+  const actorId = ownerId();
   const job = await postgresPool().query<{ result_json: unknown }>(
     `SELECT result_json FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2`,
-    [actionId, principal.id],
+    [actionId, actorId],
   );
   const rawCandidates = asObject(job.rows[0]?.result_json).candidates;
   const list = Array.isArray(rawCandidates) ? rawCandidates : [];
@@ -1644,8 +1645,9 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
   if (!body || (body as Record<string, unknown>).confirmed !== true) {
     throw new HttpFail(422, { code: "follow_confirm_required", message: "跟进需要确认。" });
   }
-  const principal = requireTicketPrincipal();
-  const isAdmin = ticketIsAdmin(principal);
+  // 同上：本路由无 ticket principal，用工作台身份；id 与 ticket principal 同源（String(user.id)）。
+  const actorId = ownerId();
+  const admin = isAdmin();
   const platform = String(candidate.platform || "").toLowerCase();
   const platformCreatorId = String(candidate.platform_creator_id || "").trim();
   if (!platform || !platformCreatorId) {
@@ -1671,7 +1673,7 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
   if (existingLead) {
     return { ok: true, lead_id: existingLead.id, reused: true };
   }
-  const created = await createKolLead(principal.id, isAdmin, {
+  const created = await createKolLead(actorId, admin, {
     platform,
     account_handle: handle || platformCreatorId,
     account_url: accountUrl,
@@ -1682,7 +1684,7 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
     source: "ai_discovery",
     source_ref: String(candidate.id),
     contact: payload.contact_email ? { email: payload.contact_email } : {},
-    owner_principal_id: principal.id,
+    owner_principal_id: actorId,
     note: `AI发现跟进（run ${candidate.run_id}）`,
     idempotency_key: `discovery:follow:${candidate.id}`,
   }, {

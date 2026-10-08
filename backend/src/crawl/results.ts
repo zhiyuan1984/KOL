@@ -28,9 +28,13 @@ export function candidateView(value: Json, platform: string): Json {
   const views = value.recent_views || value.recent_10_views;
   const recent = Array.isArray(views) ? views.slice(0, 10).map(number) : [];
   const samples = (Array.isArray(value.views) ? value.views : []).slice(0, 10).map(number);
+  // 远端头像字段名不固定（avatar_url/avatar/profile_pic/thumbnail/pic_url…），只认 avatar_url 会把已抓到的头像丢掉。
+  const avatarRaw = [value.avatar_url, value.avatar, value.profile_pic, value.profile_image,
+    value.thumbnail, value.thumb_url, value.pic_url, value.head_img]
+    .find((v): v is string => typeof v === "string" && /^https?:\/\//i.test(v)) || null;
   return { id: String(value.platform_creator_id || value.creator_id || value.user_id || value.id || ""),
     name: String(value.nickname || value.name || value.handle || "未提供名称"), platform, source_url: url,
-    avatar_url: typeof value.avatar_url === "string" && /^https?:\/\//i.test(value.avatar_url) ? value.avatar_url : null,
+    avatar_url: avatarRaw,
     direction: typeof value.direction === "string" ? value.direction : null,
     followers: number(value.followers ?? value.follower_count ?? value.fans),
     followers_evidence: followerEvidence(value.followers_evidence),
