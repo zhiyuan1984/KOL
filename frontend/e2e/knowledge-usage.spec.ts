@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * 员工端知识库「阶段 3」契约：服务端搜索、适用筛选、同页详情（右栏）溯源与草稿卡引用芯片。
@@ -15,6 +15,13 @@ import { expect, test } from "@playwright/test";
  *   所以 q=shipped 只命中它一条 —— 顺带证明关键词检索覆盖了 subject。
  */
 
+/** Compact browse starts with five records; paging must not depend on seed sort order. */
+async function expandKnowledgeList(page: Page): Promise<void> {
+  await expect(page.locator("[data-knowledge]").first()).toBeVisible();
+  const more = page.locator("[data-kb-load-more]");
+  while (await more.count()) await more.click();
+}
+
 test.beforeEach(async ({ request }) => {
   // 种子库跨运行保留（其它用例会重建协作与隐藏知识），先回到工作台基线再断言。
   await request.post("/api/demo/reset", { data: { workbench: true } });
@@ -27,6 +34,8 @@ test.beforeEach(async ({ request }) => {
 test("搜索按关键词收敛到单条种子，清空后恢复", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
+  await expandKnowledgeList(page);
+  const allCount = await kb.locator("[data-kbv-count]").textContent();
   await expect(kb.locator('[data-knowledge="kb_mail_kol"]')).toBeVisible();
 
   await kb.locator("[data-kb-search]").fill("shipped");
@@ -36,6 +45,8 @@ test("搜索按关键词收敛到单条种子，清空后恢复", async ({ page 
   await expect(kb.locator('[data-knowledge="kb_mail_followup"]')).toHaveCount(0);
 
   await kb.locator("[data-kb-search]").fill("");
+  await expect(kb.locator("[data-kbv-count]")).toHaveText(allCount!);
+  await expandKnowledgeList(page);
   await expect(kb.locator('[data-knowledge="kb_mail_kol"]')).toBeVisible();
   await expect(kb.locator('[data-knowledge="kb_mail_followup"]')).toBeVisible();
 });
@@ -43,6 +54,7 @@ test("搜索按关键词收敛到单条种子，清空后恢复", async ({ page 
 test("同页详情给出来源与版本与全文（右栏常显）", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
+  await expandKnowledgeList(page);
   await kb.locator('[data-kb-open="kb_mail_followup"]').click();
 
   const rail = page.locator('[data-kb-preview="kb_mail_followup"]');
@@ -63,6 +75,7 @@ test("同页详情给出来源与版本与全文（右栏常显）", async ({ pa
 test("行内只露品牌值；阶段中文标签在右栏；无适用范围写全阶段 · 通用", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
+  await expandKnowledgeList(page);
 
   const mail = kb.locator('[data-knowledge="kb_mail_followup"] [data-kb-scope]');
   await expect(mail).toBeVisible();
