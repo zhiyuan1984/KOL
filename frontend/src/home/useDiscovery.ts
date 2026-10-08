@@ -39,6 +39,7 @@ import {
   type HomeDiscoveryRun,
 } from "./discoveryHome";
 import { isIngestSelectable } from "./discoveryLeadFields";
+import { useSessionMessages } from "../components/ChatBlocks";
 
 const DISCOVERY_FAILED_FALLBACK = "检索没有完成。可稍后重试。";
 
@@ -89,6 +90,7 @@ export default function useDiscovery({
   /** 没有 run 可重试时（提交就没成功），交回提交方重发。 */
   onRetrySubmit?: () => void;
 }) {
+  const session = useSessionMessages(sessionId || undefined);
   const [emptyKind, setEmptyKind] = useState<HomeDiscoveryEmptyKind>("idle");
   const [emptyMessage, setEmptyMessage] = useState("还没有搜索过红人线索。");
   const [candidates, setCandidates] = useState<HomeDiscoveryCandidate[]>([]);
@@ -131,6 +133,9 @@ export default function useDiscovery({
   const [startError, setStartError] = useState("");
   const [startBusy, setStartBusy] = useState(false);
   const startSubmittingRef = useRef(false);
+  const analyzingRef = useRef(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
   /** 发现页首屏会同时触发两次只读恢复；只有最后一次读取允许回写状态。 */
   const loadSequenceRef = useRef(0);
 
@@ -188,7 +193,7 @@ export default function useDiscovery({
     ? String(startAction?.progress?.summary || "").trim()
     : "";
   /** 这一页已经提交过（提交身份或本任务已有运行）。 */
-  const submitted = Boolean(lastSubmit)
+  const submitted = Boolean(lastSubmit) || Boolean(sessionId && activeTaskId)
     || Boolean(activeRun && activeTaskId && activeRun.work_item_id === activeTaskId);
   const cardMode = discoveryCardMode({ submitted, editing: editingCard });
   const paramsStale = discoveryParamsStale({ submitted, editing: editingCard });
@@ -799,6 +804,46 @@ export default function useDiscovery({
     }
   };
 
+  /** Cancel the saved queue slot through the existing server command. */
+  const dequeueStart = async () => {
+    const action = startAction;
+    if (!action || !["queued", "uncertain"].includes(action.crawl?.state || "") || startSubmittingRef.current) return;
+    startSubmittingRef.current = true;
+    setStartBusy(true);
+    setStartError("");
+    try { await api.dequeueCrawl(action.id); }
+    catch (error) { setStartError(presentDiscoveryError(error, "无法取消排队，请刷新核对任务状态。").message); }
+    finally {
+      await refreshActions();
+      startSubmittingRef.current = false;
+      setStartBusy(false);
+    }
+  };
+
+  const analyzeCandidates = async (remoteTaskId: string) => {
+    if (!sessionId || !activeTaskId || analyzingRef.current || session.agentStatus === "running") return;
+    // Only a task-scoped receipt may supply the candidate snapshot for analysis.
+    if (!actions.some(action => action.crawl?.result_json?.task_id === remoteTaskId)) return;
+    analyzingRef.current = true;
+    setAnalyzing(true);
+    setAnalysisError("");
+    try {
+      const response = await api.postMessage(sessionId, {
+        text: `请基于本任务已保存的发现条件与采集 ${remoteTaskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
+        intent: "crawler_collect", work_item_id: activeTaskId,
+      });
+      session.setMessages(response.messages || []);
+      session.setAgentStatus(String(response.agent_status || (response.accepted ? "running" : "listening")));
+      await loadExisting();
+    } catch (error) {
+      setAnalysisError(presentDiscoveryError(error, "候选分析没有提交，可重试；原候选与回执仍保留。").message);
+    } finally {
+      analyzingRef.current = false;
+      setAnalyzing(false);
+      await refreshActions();
+    }
+  };
+
   /**
    * 修改条件：条件卡回到可编辑（原位，不新建第二张卡）。上一次参数核对随之失效；
    * 尚未确认的提案一并取消 —— 取消不执行任何外部动作。
@@ -811,8 +856,16 @@ export default function useDiscovery({
   const selectedPlatforms = Array.from(
     new Set(selected.map((row) => row.platform).filter(Boolean)),
   ) as string[];
+  // The persisted request identifies this report after reload as well as live.
+  let analysisRequest = -1;
+  session.messages.forEach((message, index) => {
+    if (message.kind === "me" && String((message.payload as Record<string, unknown>).text || "").startsWith("请基于本任务已保存的发现条件与采集 ")) analysisRequest = index;
+  });
+  const analysisMessages = !session.err && session.sessionLoaded && analysisRequest >= 0
+    ? session.messages.slice(analysisRequest + 1).filter(message => !["me", "operation", "process", "system"].includes(message.kind)) : [];
 
   return {
+    sessionId,
     stage,
     cardMode,
     editConditions,
@@ -846,6 +899,7 @@ export default function useDiscovery({
     retryRun,
     checkCollector,
     actions,
+    receiveActions: setActions,
     actionsError,
     reloadActions: refreshActions,
     startAction,
@@ -860,6 +914,13 @@ export default function useDiscovery({
     cancelStart: () => void cancelStart(),
     retryStart: () => void retryStart(),
     stopStart: () => void stopStart(),
+    dequeueStart: () => void dequeueStart(),
+    analyzeCandidates: (taskId: string) => void analyzeCandidates(taskId),
+    analyzing: analyzing || (session.sessionLoaded && session.agentStatus === "running"),
+    analysisMessages,
+    analysisReadError: session.err,
+    refreshAnalysis: session.reload,
+    analysisError,
     toggleSelected,
     selectAll,
     expandedIds,

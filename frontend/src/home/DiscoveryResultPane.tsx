@@ -8,6 +8,8 @@ import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
 import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
 import type { DiscoveryState } from "./useDiscovery";
+import { useStreamArtifacts } from "../components/StreamArtifact";
+import Markdown from "../components/Markdown";
 
 /**
  * Right rail: 当前任务状态 + 采集回执与候选 + 结果明细与入库确认。
@@ -16,6 +18,8 @@ import type { DiscoveryState } from "./useDiscovery";
  * 确认仍然都在 hook 和既有确认流程里。
  */
 export default function DiscoveryResultPane({ state, brief, region = "all", runStatus }: { state: DiscoveryState; brief: DiscoveryBrief; region?: "all" | "header" | "body"; runStatus?: DiscoveryTaskStatus }) {
+  const renderAnalysis = useStreamArtifacts({ sessionId: state.sessionId || "", messages: state.analysisMessages,
+    onRefresh: state.refreshAnalysis, onPosted: () => state.refreshAnalysis() });
   const {
     run,
     runId,
@@ -184,7 +188,10 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
         </div>
       ) : null}
 
-      {state.actions.some(action => Boolean(action.crawl?.result_json)) ? <DiscoveryRuntimeResults actions={state.actions} brief={brief} onRefresh={state.reloadActions}
+      {state.analysisError ? <p role="alert">{state.analysisError}</p> : null}
+      {state.analysisReadError ? <p role="alert">{state.analysisReadError}</p> : null}
+      {startAction ? <DiscoveryRuntimeResults actions={state.actions} brief={brief} onRefresh={state.reloadActions}
+        analyzing={state.analyzing} onAnalyze={state.analyzeCandidates}
         candidateIds={visible.map(row => row.id)} selectedIds={selectedIds} onSelect={toggleSelected} /> : showResults ? (
         <section className="discovery-result-detail" aria-label="结果明细">
           {region === "all" ? <header className="discovery-result-detail-head">
@@ -220,6 +227,14 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
           )}
         </section>
       ) : null}
+
+      {state.analysisMessages.length || state.analyzing ? <section aria-label="候选分析简报" data-discovery-analysis>
+        <h3>候选分析简报</h3>
+        {state.analyzing ? <p role="status">线索智能体正在分析本任务的候选快照。</p> : null}
+        {state.analysisMessages.map(message => <div key={message.id} data-result-message={message.id}>
+          {renderAnalysis(message) || <Markdown>{String((message.payload as Record<string, unknown>).text || "")}</Markdown>}
+        </div>)}
+      </section> : null}
 
       {ingestReceipt ? (
         <section className="discovery-ingest-receipt" data-discovery-ingest-receipt role="status">

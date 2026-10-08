@@ -42,21 +42,21 @@ test("confirmation replaces stale discovery results and restores a busy rejectio
     await route.fulfill({ status: 202, json: { job: { id: "confirmation-job" } } });
   });
   await page.goto(`/s/${saved.session_id}`);
-  const actions = page.locator("[data-runtime-actions]");
+  const actions = page.locator('[data-discovery-event="confirm"]');
   await actions.getByRole("button", { name: "确认开始采集" }).click();
   await expect(actions).toContainText("已确认，等待执行");
   await expect(actions).toContainText("确认已收到，正在等待后台执行。无需重复确认。");
-  await expect(page.locator(".side-workbench")).toContainText("尚未取得候选资料");
-  await expect(page.locator(".side-workbench")).not.toContainText("确认采集范围后");
-  await expect(page.locator(".side-workbench")).not.toContainText(stale.summary);
+  await expect(page.locator("[data-scope-task-rail]")).toContainText("尚未取得候选资料");
+  await expect(page.locator("[data-scope-task-rail]")).not.toContainText("确认采集范围后");
+  await expect(page.locator("[data-scope-task-rail]")).not.toContainText(stale.summary);
   await expect(actions.getByRole("button", { name: "确认开始采集" })).toHaveCount(0);
   stage = "rejected";
   await page.reload();
   await expect(actions).toContainText("未执行");
   await expect(actions).toContainText("此前采集仍占用采集服务，本次启动未执行。");
-  await expect(page.locator(".side-workbench")).toContainText("尚未取得候选资料");
-  await expect(page.locator(".side-workbench")).not.toContainText(stale.summary);
-  await expect(actions.getByRole("button", { name: "重新核对并重试" })).toBeVisible();
+  await expect(page.locator("[data-scope-task-rail]")).toContainText("尚未取得候选资料");
+  await expect(page.locator("[data-scope-task-rail]")).not.toContainText(stale.summary);
+  await expect(actions.getByRole("button", { name: "核对后重试" })).toBeVisible();
   expect(confirmations).toBe(1);
   await page.unrouteAll({ behavior: "wait" });
 });
@@ -90,7 +90,7 @@ test("queued crawl shows position and supports dequeue", async ({ page, request 
     await route.fulfill({ json: { ok: true } });
   });
   await page.goto(`/s/${saved.session_id}`);
-  const actions = page.locator("[data-runtime-actions]");
+  const actions = page.locator('[data-discovery-event="confirm"]');
   await expect(actions).toContainText("前面还有 2 个任务");
   await expect(actions.getByRole("button", { name: "取消排队" })).toBeVisible();
   await actions.getByRole("button", { name: "取消排队" }).click();
@@ -120,10 +120,17 @@ test("uses saved candidates for analysis and distinguishes sampled views from la
     } },
   }] } }));
   let submitted: Record<string, unknown> | null = null;
+  let messages: Record<string, unknown>[] = [];
+  await page.route(`**/api/home/discovery/workspace/${saved.task_id}/pending`, route => route.fulfill({ json: { pending: null } }));
+  await page.route(`**/api/sessions/${saved.session_id}`, route => route.fulfill({ json: { messages, agent_status: "listening" } }));
   await page.route(`**/api/sessions/${saved.session_id}/messages`, async route => {
     if (route.request().method() !== "POST") return route.continue();
     submitted = route.request().postDataJSON();
-    await route.fulfill({ json: { messages: [], agent_status: "listening" } });
+    messages = [
+      { id: "analysis-request", kind: "me", payload: { text: submitted!.text } },
+      { id: "analysis-report", kind: "task_result_card", payload: { title: "候选分析", summary: "本任务候选分析的完整证据", sections: [], metrics: [], recommended_actions: [] } },
+    ];
+    await route.fulfill({ json: { messages, agent_status: "listening" } });
   });
   await page.goto(`/s/${saved.session_id}`);
   const results = page.locator("[data-discovery-results]");
@@ -136,7 +143,11 @@ test("uses saved candidates for analysis and distinguishes sampled views from la
   await expect(results.getByRole("link", { name: "主页 ↗", exact: true })).toHaveAttribute("href", "https://www.youtube.com/channel/fixture");
   await page.screenshot({ path: testInfo.outputPath("discovery-candidates.png"), fullPage: true });
   await results.getByRole("button", { name: "让线索智能体分析候选" }).click();
-  await expect.poll(() => submitted).toMatchObject({ intent: "crawler_collect", text: expect.stringContaining("scoped-crawl") });
+  await expect.poll(() => submitted).toMatchObject({ intent: "crawler_collect", work_item_id: saved.task_id, text: expect.stringContaining("scoped-crawl") });
+  await expect(page.locator("[data-discovery-analysis]")).toContainText("本任务候选分析的完整证据");
+  await expect(page.locator(".scope-workspace-center-scroll")).not.toContainText("本任务候选分析的完整证据");
+  await page.reload();
+  await expect(page.locator("[data-discovery-analysis]")).toContainText("本任务候选分析的完整证据");
 });
 
 test("recovers a saved discovery after the browser loses its initial pending message", async ({ page, request }) => {
@@ -148,12 +159,17 @@ test("recovers a saved discovery after the browser loses its initial pending mes
   } });
   expect(response.ok()).toBeTruthy();
   const saved = await response.json();
+  const posted: Record<string, unknown>[] = [];
+  await page.route(`**/api/sessions/${saved.session_id}/messages`, route => {
+    posted.push(route.request().postDataJSON());
+    return route.fulfill({ json: { messages: [], agent_status: "listening" } });
+  });
   await page.goto(`/s/${saved.session_id}`);
-  await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
-  const post = page.waitForRequest(r => r.method() === "POST" && r.url().includes(`/sessions/${saved.session_id}/messages`));
-  await page.getByRole("button", { name: "继续分析发现需求" }).click();
-  expect((await post).postDataJSON()).toMatchObject({ work_item_id: saved.task_id, run_id: saved.pending.run_id });
-  await expect(page.getByRole("button", { name: "继续分析发现需求" })).toHaveCount(0);
+  await expect(page).toHaveURL(`/?tab=discovery&resume=${saved.task_id}`);
+  await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
+  await expect.poll(() => posted).toHaveLength(1);
+  expect(posted[0]).toMatchObject({ work_item_id: saved.task_id, run_id: saved.pending.run_id });
+  await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", saved.session_id);
 });
 
 for (const surface of [
@@ -190,36 +206,32 @@ test("home discovery submits to the lead agent without calling the retired crawl
   // 新流程：提交后留在 AI发现 面核对实际参数、再确认采集，不跳转；任务会话由常驻入口打开。
   await expect(page).toHaveURL(/tab=discovery/);
   await expect(page.locator('[data-discovery-event="params"]')).toBeVisible();
-  const openSession = page.locator("[data-discovery-open-session]").first();
-  await expect(openSession).toHaveAttribute("href", `/s/${savedWorkspace.session_id}`);
-  const initialTask = page.waitForResponse(response => response.request().method() === "GET" && readsWorkspaceTask(response));
-  await openSession.click();
-  const initialTaskResponse = await initialTask;
-  expect(initialTaskResponse.ok()).toBeTruthy();
-  await expect(page).toHaveURL(/\/s\/[^/]+$/);
-  const sessionUrl = page.url();
-  await expect(page.locator('[data-agent-profile="lead"]')).toContainText("线索智能体");
-  await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
+  const restoredUrl = `/?tab=discovery&session_id=${encodeURIComponent(savedWorkspace.session_id)}`;
+  // Both saved entry URLs must restore the same workspace without creating a task.
+  const initialTask = page.waitForResponse(readsWorkspaceTask);
+  await page.goto(`/s/${savedWorkspace.session_id}`);
+  expect((await initialTask).ok()).toBeTruthy();
+  await expect(page).toHaveURL(`/?tab=discovery&resume=${savedWorkspace.task_id}`);
+  await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
+  await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", savedWorkspace.session_id);
   await expect(page.locator("[data-expert-identity='expert:crawler']")).toHaveCount(0);
   const restoredTask = page.waitForResponse(readsWorkspaceTask);
   await page.reload();
   expect((await restoredTask).ok()).toBeTruthy();
-  await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
-  const back = page.getByRole("link", { name: /返回\s*AI发现/ });
-  await expect(back).toHaveCount(1);
-  if (surface.name.startsWith("short-keyboard")) { await back.focus(); await page.keyboard.press("Enter"); }
-  else if (surface.touch) await back.tap();
-  else await back.click();
-  await expect(page).toHaveURL(/tab=discovery&resume=/);
+  await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
   await expect(page.locator("[data-discovery-resume]")).toBeVisible();
   await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/北美/);
   const continuedTask = page.waitForResponse(readsWorkspaceTask);
-  await page.getByRole("button", { name: "继续原发现任务" }).click();
+  const continueButton = page.getByRole("button", { name: "继续原发现任务" });
+  if (surface.name.startsWith("short-keyboard")) { await continueButton.focus(); await page.keyboard.press("Enter"); }
+  else if (surface.touch) await continueButton.tap();
+  else await continueButton.click();
   expect((await continuedTask).ok()).toBeTruthy();
-  await expect(page).toHaveURL(sessionUrl);
-  await expect(page.locator("[data-discovery-condition-snapshot]")).toContainText("北美");
+  await expect(page).toHaveURL(restoredUrl);
+  await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
+  await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", savedWorkspace.session_id);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  if (surface.width < 1200) await expect(page.getByRole("button", { name: "展开结果", exact: true })).toBeVisible();
+  if (surface.width < 1200) await expect(page.getByRole("button", { name: "展开红人线索", exact: true })).toBeVisible();
   if (surface.touch) {
     const top = await page.locator(".mobile-top").boundingBox();
     expect(top!.height).toBeLessThan(surface.height / 5);
@@ -239,7 +251,7 @@ test("a previous failed discovery does not hide the new conditions or template",
   await page.goto("/?tab=discovery");
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
   await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/【发现任务】/);
-  await expect(page.locator('[data-skill-template-context]').first()).toBeVisible();
+  await expect(page.locator('[data-discovery-event="skill"]').first()).toBeVisible();
 });
 
 test("shows exact pending scope, confirms once, and restores the receipt after reload", async ({ page, request }) => {
@@ -267,15 +279,54 @@ test("shows exact pending scope, confirms once, and restores the receipt after r
   expect(confirmations).toBe(0);
   await actions.getByRole("button", { name: "确认开始采集" }).click();
   await expect(actions).toContainText("采集请求已提交");
+  await actions.getByText("查看执行回执与范围", { exact: true }).click();
   await expect(actions.getByText("查看操作记录", { exact: true })).toBeVisible();
   expect(confirmations).toBe(1);
   await page.reload();
   await expect(page.locator("[data-runtime-actions]")).toContainText("采集请求已提交");
+  await page.getByText("查看执行回执与范围", { exact: true }).click();
   await page.getByText("查看操作记录", { exact: true }).click();
   const record = page.getByText("查看操作记录", { exact: true }).locator("..");
   await expect(record).toContainText("采集公开红人资料");
   await expect(record).toContainText("采集请求已提交");
   await expect(record.locator("pre")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "确认开始采集" })).toHaveCount(0);
+  expect(confirmations).toBe(1);
+});
+
+
+test("restored discovery retains the separate R3 stop confirmation and receipt", async ({ page, request }) => {
+  const response = await request.post("/api/home/discovery/workspace", { data: {
+    request_id: `restored-stop-${Date.now()}`, text: "隔离停止确认验收", brief: {
+      platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"],
+      min_followers: 100, max_followers: 20000, min_avg_plays_10: 100, expect_count: 10,
+    },
+  } });
+  expect(response.ok()).toBeTruthy();
+  const saved = await response.json();
+  await page.route(`**/api/home/discovery/workspace/${saved.task_id}/pending`, route => route.fulfill({ json: { pending: null } }));
+  let stopState = "pending";
+  await page.route("**/api/queries/runtime.actions?*", route => route.fulfill({ json: { actions: [
+    { id: "saved-start", operation: "start_crawl", skill_id: "crawler_collect", state: "succeeded", risk: "L3",
+      arguments: { keywords: "camping" }, crawl: { id: "saved-start", state: "running", remote_task_id: "saved-remote" } },
+    { id: "saved-stop", operation: "stop_crawl", skill_id: "crawler_collect", state: stopState, risk: "L3",
+      arguments: { task_id: "saved-remote" }, confirmation_version: "stop-snapshot",
+      receipt: stopState === "succeeded" ? { task_id: "saved-remote" } : null },
+  ] } }));
+  let confirmations = 0;
+  await page.route("**/api/actions/runtime.confirm", route => {
+    expect(route.request().postDataJSON()).toEqual({ action_id: "saved-stop", confirmation_version: "stop-snapshot" });
+    confirmations += 1; stopState = "succeeded";
+    return route.fulfill({ status: 202, json: { job: { id: "stop-fixture" } } });
+  });
+  await page.goto(`/s/${saved.session_id}`);
+  const stop = page.locator('[data-runtime-action="saved-stop"]');
+  await expect(stop).toContainText("需要确认（R3）");
+  await expect(stop).toContainText("saved-remote");
+  expect(confirmations).toBe(0);
+  await stop.getByRole("button", { name: "确认执行以上内容" }).click();
+  await expect(stop).toContainText("停止请求已提交");
+  await page.reload();
+  await expect(stop).toContainText("停止请求已提交");
   expect(confirmations).toBe(1);
 });

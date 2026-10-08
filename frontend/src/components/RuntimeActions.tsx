@@ -28,16 +28,20 @@ function actionLabel(action: RuntimeActionView): string {
   return `${operation} · ${states[state] || state}`;
 }
 
-export function RuntimeActions({ sessionId, onChange, children }: { sessionId: string; onChange?: (actions: RuntimeActionView[]) => void;
+export function RuntimeActions({ sessionId, onChange, children, actions: providedActions, primaryAllowed = true }: { sessionId: string; onChange?: (actions: RuntimeActionView[]) => void;
+  actions?: RuntimeActionView[]; primaryAllowed?: boolean;
   children?: (actions: RuntimeActionView[], render: (id: string) => ReactNode) => ReactNode }) {
   const { debug } = useViewMode();
-  const [actions, setActions] = useState<RuntimeActionView[]>([]);
+  const [localActions, setActions] = useState<RuntimeActionView[]>([]);
+  const actions = providedActions || localActions;
+  const controlled = providedActions !== undefined;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const submitting = useRef(false);
   const changeRef = useRef(onChange);
   changeRef.current = onChange;
   useEffect(() => {
+    if (controlled) return;
     let active = true;
     let loading = false;
     const reload = () => {
@@ -51,7 +55,7 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
     const timer = window.setInterval(reload, 5000);
     window.addEventListener("discovery:candidates-refresh", reload);
     return () => { active = false; window.clearInterval(timer); window.removeEventListener("discovery:candidates-refresh", reload); };
-  }, [sessionId]);
+  }, [sessionId, controlled]);
   async function submit(action: RuntimeActionView, confirm: boolean) {
     if (submitting.current || (confirm && !action.confirmation_version)) return;
     submitting.current = true;
@@ -112,7 +116,7 @@ export function RuntimeActions({ sessionId, onChange, children }: { sessionId: s
       </details>
       {action.blocked_reason ? <p>{action.blocked_reason}</p> : null}
       {action.state === "pending" && !action.execution ? <div>
-        <button className={action.id === firstPending ? "btn work" : "btn ghost"} disabled={Boolean(busy) || Boolean(action.blocked_reason) || !action.confirmation_version} onClick={() => void submit(action, true)}>{action.operation === "start_crawl" ? "确认开始采集" : "确认执行以上内容"}</button>
+        <button className={primaryAllowed && action.id === firstPending ? "btn work" : "btn ghost"} disabled={Boolean(busy) || Boolean(action.blocked_reason) || !action.confirmation_version} onClick={() => void submit(action, true)}>{action.operation === "start_crawl" ? "确认开始采集" : "确认执行以上内容"}</button>
         <button className="btn ghost" disabled={Boolean(busy)} onClick={() => void submit(action, false)}>取消</button>
       </div> : null}
       {action.crawl ? <div role="status">

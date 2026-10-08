@@ -3,6 +3,7 @@ import { DISCOVERY_START_COPY, type DiscoveryStartPhase } from "./discoveryStart
 import { discoveryBriefRecap } from "./discoveryParams";
 import type { DiscoveryBrief } from "./discoveryTemplate";
 import DiscoveryAvatar from "./DiscoveryAvatar";
+import type { RuntimeActionView } from "../api";
 
 /**
  * ⑤ 确认开始采集：紧接实际参数清单。点击后原地变成「已确认，正在启动」并移除
@@ -23,6 +24,9 @@ export default function DiscoveryConfirmCard({
   onStop,
   busy,
   actionId,
+  progress,
+  crawlState,
+  onDequeue,
 }: {
   phase: DiscoveryStartPhase;
   /** 读取或确认失败时的可读原因。 */
@@ -43,6 +47,9 @@ export default function DiscoveryConfirmCard({
   onStop?: () => void;
   busy?: boolean;
   actionId?: string;
+  progress?: RuntimeActionView["progress"];
+  crawlState?: string | null;
+  onDequeue?: () => void;
 }) {
   const cardRef = useRef<HTMLElement | null>(null);
   // R3 确认卡必达视口（docs/DESIGN.md §10.3）：首次出现待确认时滚到可见处，
@@ -102,6 +109,10 @@ export default function DiscoveryConfirmCard({
         )}
       </p>
 
+      {progress && progress.state !== "pending" ? <p role="status" data-discovery-execution-progress>
+        {progress.label !== headline ? <strong>{progress.label}。 </strong> : null}{progress.summary}
+      </p> : null}
+
       {phase === "waiting_proposal" && missingParams && missingParams.length && onGotoParams ? (
         <div className="discovery-confirm-actions">
           <button type="button" className="btn work sm" data-discovery-start-goto-params onClick={onGotoParams}>
@@ -115,11 +126,18 @@ export default function DiscoveryConfirmCard({
       ) : null}
 
       {/* 执行失败／未执行时给出服务端的真实结论：光写「执行失败」等于让员工猜。 */}
-      {reason && !blockedReason ? (
+      {reason && !blockedReason && reason !== progress?.summary ? (
         <p className="muted" role="status" data-discovery-start-reason>{reason}</p>
       ) : null}
 
       {error ? <p role="alert" data-discovery-start-error>{error}</p> : null}
+
+      {["queued", "uncertain"].includes(crawlState || "") && onDequeue ? <div className="discovery-confirm-actions">
+        <button type="button" className="btn text" disabled={Boolean(busy)} onClick={onDequeue}>
+          {crawlState === "queued" ? "取消排队" : "取消等待"}
+        </button>
+        {crawlState === "uncertain" ? <p className="muted">远端状态未知，取消只释放本地占位，远端任务可能仍在运行。</p> : null}
+      </div> : null}
 
       {phase === "pending" ? (
         <div className="discovery-confirm-actions">

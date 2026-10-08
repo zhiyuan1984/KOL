@@ -17,6 +17,7 @@ import type { SkillParamField } from "./workspace/SkillParamCard";
 import "./discovery-workspace.css";
 import "./discovery-flow.css";
 import { discoveryTaskStatus } from "./discoveryTaskStatus";
+import { RuntimeActions } from "../components/RuntimeActions";
 
 /**
  * AI发现 = 走同一工作台骨架的页面（WorkspaceShell），中栏是一条有序事件流：
@@ -94,17 +95,19 @@ export default function DiscoveryWorkspace({
   const startConfirmed = disc.startPhase !== "waiting_proposal" && disc.startPhase !== "pending";
   const status = discoveryTaskStatus({ failure: disc.failure, startPhase: disc.startPhase,
     crawlPhase: disc.crawlPhase, submitted: disc.submitted || busy, stage: disc.stage });
+  const pendingAction = disc.actions.find(action => action.state === "pending" && !action.execution
+    && action.confirmation_version && !action.blocked_reason);
   return (
     <WorkspaceShell
       pane="discovery"
       sessionId={sessionId}
-      pendingTarget={disc.startPhase === "pending" ? disc.startAction?.id : undefined}
+      pendingTarget={pendingAction?.id}
       railLabel="红人线索"
       railToggleLabel="红人线索"
       railStorageKey="ui:home-discovery-rail-collapsed"
       railBadge={disc.visible.length}
       resultIdle={!disc.run && !disc.inFlight && !disc.failure}
-      streamStick={status.live}
+      streamStick={status.live || disc.analyzing}
       railScrollJump
       resultView={{
         skillId: "creator_discovery",
@@ -172,6 +175,9 @@ export default function DiscoveryWorkspace({
               phase={disc.startPhase}
               error={disc.startError}
               reason={disc.startReason}
+              progress={disc.startAction?.progress}
+              crawlState={disc.crawlPhase}
+              onDequeue={disc.dequeueStart}
               blockedReason={disc.paramsStale ? "条件已修改，重新核对后才能确认采集。"
                 : disc.startPhase === "pending" && !disc.startAction?.confirmation_version ? "确认快照尚未就绪，请重新读取参数。" : ""}
               sessionHref={sessionHref}
@@ -228,11 +234,18 @@ export default function DiscoveryWorkspace({
             onOpenIngest={disc.openIngest}
           /> : null}
           {centerSupplement}
+          {sessionId && disc.actions.some(action => action.operation !== "start_crawl") ? <RuntimeActions sessionId={sessionId}
+            actions={disc.actions.filter(action => action.operation !== "start_crawl")} onChange={disc.receiveActions}
+            primaryAllowed={disc.startPhase !== "pending"} /> : null}
+          {sessionId && (disc.analysisMessages.length || disc.analyzing) ? <p role="status">
+            {disc.analyzing ? "正在分析已保存候选" : "候选分析已有回执"} · <button type="button" className="btn text"
+              onClick={() => revealWorkspace(sessionId, "rail", disc.analysisMessages[0]?.id)}>查看分析简报</button>
+          </p> : null}
         </div>
       )}
-      centerFooter={<div data-workspace-awaiting-confirm={disc.startPhase === "pending" ? true : undefined}>
-        {disc.startPhase === "pending" && sessionId ? <p className="workspace-confirm-hint" role="status">
-          ⚠ 请核对采集范围 <button className="btn ghost" type="button" onClick={() => revealWorkspace(sessionId, "center", disc.startAction?.id)}>查看确认卡</button>
+      centerFooter={<div data-workspace-awaiting-confirm={pendingAction ? true : undefined}>
+        {pendingAction && sessionId ? <p className="workspace-confirm-hint" role="status">
+          ⚠ 请核对执行范围 <button className="btn ghost" type="button" onClick={() => revealWorkspace(sessionId, "center", pendingAction.id)}>查看确认卡</button>
         </p> : null}
         {centerFooter}
       </div>}

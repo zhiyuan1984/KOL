@@ -145,7 +145,8 @@ test.describe("short touch confirmation", () => {
     // Tap the outer part of the target rather than the center of the small visual button.
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2 + 21);
     await expect(actions).toContainText("采集请求已提交");
-    await expect(actions.getByText("查看操作记录", { exact: true })).toBeVisible();
+    await actions.getByText("查看执行回执与范围", { exact: true }).click();
+  await expect(actions.getByText("查看操作记录", { exact: true })).toBeVisible();
     expect(confirmed).toBe(true);
     await page.reload();
     await expect(page.getByRole("button", { name: "确认开始采集" })).toHaveCount(0);

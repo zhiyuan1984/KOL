@@ -811,6 +811,18 @@ export default function Home() {
   const [resumedDiscoverySession, setResumedDiscoverySession] = useState<string | null>(null);
   const resumeDiscoveryId = params.get("resume");
   const directDiscoverySessionId = params.get("session_id");
+  const restoreDiscoveryAnalysis = async (taskId: string, sessionId: string, isActive: () => boolean) => {
+    try {
+      const { pending } = await api.pendingDiscoveryWorkspace(taskId);
+      if (!pending || !isActive()) return;
+      storePending(sessionId, pending);
+      await dispatchDiscoveryPendingAnalysis(taskId, sessionId);
+    } catch (error) {
+      if (!isActive()) return;
+      setDiscoverySubmitFailed(true);
+      setDiscoverySubmitError(discoveryDispatchFailureMessage(error));
+    }
+  };
   useEffect(() => {
     let active = true;
     if (!directDiscoverySessionId || params.get("tab") !== "discovery" || resumeDiscoveryId) return;
@@ -829,6 +841,7 @@ export default function Home() {
       }
       setDiscoveryTaskId(String(restored.id || "") || null);
       setResumedDiscoverySession(directDiscoverySessionId);
+      if (workspace && restored.id) void restoreDiscoveryAnalysis(String(restored.id), directDiscoverySessionId, () => active);
     }).catch(() => {
       // session_id 本身即可恢复 runtime actions；任务元数据反查失败不应遮蔽已有会话结果。
     });
@@ -857,11 +870,7 @@ export default function Home() {
       const resumeTaskId = String(restored.id || "");
       if (resumeSessionId && resumeTaskId) {
         // 首轮分析没跑完时（页面关闭丢了 pending 消息），按所有者与技能权限取回再运行一次。
-        void api.pendingDiscoveryWorkspace(resumeTaskId).then(({ pending }) => {
-          if (!pending) return;
-          storePending(resumeSessionId, pending);
-          return runPendingAsk(resumeSessionId);
-        }).catch(() => {});
+        void restoreDiscoveryAnalysis(resumeTaskId, resumeSessionId, () => active);
       }
     }).catch(() => {
       if (active) setDiscoverySubmitError("无法恢复该发现任务，请从任务中心核对访问权限。已有输入仍保留。");
