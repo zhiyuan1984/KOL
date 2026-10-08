@@ -16,6 +16,10 @@ type Props = {
 export function LifecycleNavigation({ label, options, value, onChange, mode = "filter", idPrefix }: Props) {
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const views = mode === "views";
+  // A preserved deep link may show a panel omitted from the visible navigation.
+  // Keep an entry point for keyboard users without marking a different panel selected.
+  const focusableId = options.find(option => option.id === value && !option.disabled)?.id
+    ?? options.find(option => !option.disabled)?.id;
   function navigate(event: KeyboardEvent<HTMLButtonElement>, id: string) {
     if (!views || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     const enabled = options.filter(option => !option.disabled);
@@ -34,7 +38,7 @@ export function LifecycleNavigation({ label, options, value, onChange, mode = "f
       role={views ? "tab" : undefined} aria-selected={views ? value === option.id : undefined}
       aria-pressed={!views ? value === option.id : undefined}
       aria-controls={views ? `${idPrefix}-panel-${option.id}` : undefined}
-      tabIndex={views && value !== option.id ? -1 : 0} disabled={option.disabled}
+      tabIndex={views && focusableId !== option.id ? -1 : 0} disabled={option.disabled}
       data-selected={value === option.id} onClick={() => onChange(option.id)} onKeyDown={event => navigate(event, option.id)}>
       {option.label}{option.count != null ? <span className="lifecycle-count">{option.count}</span> : null}
     </button>)}

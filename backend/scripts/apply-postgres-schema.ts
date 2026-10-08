@@ -1522,6 +1522,7 @@ migrations.push({
 migrations.push(
   { id: "20261008_discovery_dedup_score", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "029_discovery_dedup_score.sql"), "utf8")] },
   { id: "20261008_pool_brand_visibility", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "030_pool_brand_visibility.sql"), "utf8")] },
+  { id: "20261008_knowledge_taxonomy_guards", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "031_knowledge_taxonomy_guards.sql"), "utf8")] },
 );
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);

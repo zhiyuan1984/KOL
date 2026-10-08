@@ -163,7 +163,7 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
     return (
       <article className="panel" data-admin-kb-entry-missing>
         <p className="muted">{error || KB_ADMIN_EMPTY.entryMissing}</p>
-        <Link className="kbadmin-action-link" to="/admin/knowledge/catalog">返回知识目录</Link>
+        <Link className="kbadmin-action-link" to="/admin/knowledge/catalog">返回知识规划</Link>
       </article>
     );
   }
@@ -211,7 +211,7 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
       {dialog}
       {error && <p className="error" role="alert">{error}</p>}
       {!maintenanceOnly && <p className="admin-crumb">
-        <Link to="/admin/knowledge/catalog">知识目录</Link>
+        <Link to="/admin/knowledge/catalog">知识规划</Link>
         {row.family_name ? <> / {row.family_name}</> : null}
         {row.domain_name ? <> / {row.domain_name}</> : null}
         {row.base_id ? <> / <Link to={basePath(row.base_id)}>{row.base_name || row.base_id}</Link></> : null}
@@ -271,7 +271,7 @@ export default function EntryView({ id, notify, fail, maintenanceOnly=false }: K
             </dd>
           </div>
           <div>
-            <dt>业务域 / 业务主题</dt>
+            <dt>业务族 / 业务域</dt>
             <dd>{[row.family_name, row.domain_name].filter(Boolean).join(" / ") || "未归类"}</dd>
           </div>
           <div><dt>品牌 / 语言</dt><dd>{brandLabel(row.brand)} · {row.lang || "en"}</dd></div>

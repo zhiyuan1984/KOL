@@ -416,7 +416,7 @@ export const KB_ADMIN_BINDINGS_PATH = "/admin/knowledge/bindings";
 /** 子导航顺序 = 路由顺序；深链直接可达，不靠前端状态。 */
 export const KB_ADMIN_NAV: KbAdminNavItem[] = [
   { view: "review", path: KB_ADMIN_DEFAULT_PATH, label: "待处置", question: "有什么在等我决定？" },
-  { view: "catalog", path: KB_ADMIN_CATALOG_PATH, label: "目录", question: "知识分在哪几个业务域 / 业务主题 / 知识库？" },
+  { view: "catalog", path: KB_ADMIN_CATALOG_PATH, label: "知识规划", question: "知识分在哪几个业务族 / 业务域 / 知识库？" },
   { view: "base", path: KB_ADMIN_BASES_PATH, label: "库", question: "这个库里有哪些条目、什么状态？", contextual: true },
   { view: "entry", path: KB_ADMIN_ENTRIES_PATH, label: "条目", question: "这条知识的治理状态与影响面？", contextual: true },
   { view: "ingest", path: KB_ADMIN_INGEST_PATH, label: "入库", question: "素材入库与提取成败？" },
@@ -425,7 +425,7 @@ export const KB_ADMIN_NAV: KbAdminNavItem[] = [
 
 export const KB_ADMIN_VIEW_TITLE: Record<KbAdminView, string> = {
   review: "知识待处置",
-  catalog: "知识目录",
+  catalog: "知识规划",
   base: "知识库",
   entry: "条目详情",
   ingest: "资料入库",
@@ -434,7 +434,7 @@ export const KB_ADMIN_VIEW_TITLE: Record<KbAdminView, string> = {
 
 export const KB_ADMIN_VIEW_LEAD: Record<KbAdminView, string> = {
   review: "待审、草稿、隔离提案、到期提醒与员工反馈处置汇总在这里；每行只把你带到条目详情。",
-  catalog: "业务域 → 业务主题 → 知识库的目录树：分类只做业务归类，不承载权限；权限仍按组织范围与授权。",
+  catalog: "业务族 → 业务域 → 知识库的目录树：分类只做业务归类，不承载权限；权限仍按组织范围与授权。",
   base: "这个库里有哪些内容、处于什么状态；新建只写草稿，发布仍要走审批。",
   entry: "这条知识的治理状态与影响面；主行动按当前状态唯一渲染。",
   ingest: "素材入库与提取的进展与成败。",
@@ -469,8 +469,8 @@ export const KB_ADMIN_ACTION = {
   saveDraft: "保存草稿",
   newEntry: "新建条目",
   newBase: "新建知识库",
-  newDomain: "新建业务主题",
-  newFamily: "新建业务域",
+  newDomain: "新建业务域",
+  newFamily: "新建业务族",
   saveBase: "保存知识库",
   saveDomain: "保存分类",
   upload: "上传资料",
@@ -496,8 +496,8 @@ export const KB_ADMIN_EMPTY = {
   drafts: "没有还没发布的草稿。",
   proposals: "暂无隔离提案。",
   expiry: "30 天内没有到期的知识。",
-  catalog: "还没有分类。先建「业务域」，再建「业务主题」，最后建「知识库」。",
-  domains: "还没有业务域 / 业务主题；知识库必须挂在业务主题下。",
+  catalog: "还没有分类。先建「业务族」，再建「业务域」，最后建「知识库」。",
+  domains: "还没有业务族 / 业务域；知识库必须挂在业务域下。",
   bases: "这个分类下还没有知识库。",
   basesFiltered: "没有符合当前筛选的知识库。",
   baseMissing: "找不到这个知识库，可能已被归档或删除。",
@@ -524,8 +524,8 @@ export const KB_LEVEL_FAMILY = "family";
 export const KB_LEVEL_DOMAIN = "domain";
 
 export const KB_LEVEL_LABEL: Record<string, string> = {
-  family: "业务域",
-  domain: "业务主题",
+  family: "业务族",
+  domain: "业务域",
 };
 
 export const KB_BASE_KIND_LABEL: Record<string, string> = {
