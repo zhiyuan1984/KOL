@@ -38,25 +38,51 @@ export function postgresPool(): Pool {
   return pool;
 }
 
+/** True when PostgreSQL aborted the transaction as a serialization failure (SQLSTATE 40001).
+ * Such transactions applied nothing, so retrying is always safe. */
+export function isSerializationFailure(error: unknown): boolean {
+  const code = error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : "";
+  return code === "40001"
+    || /could not serialize access/i.test(error instanceof Error ? error.message : String(error || ""));
+}
+
+const TX_RETRY_DELAYS_MS = [120, 300, 800];
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function postgresTransaction<T>(
   fn: (client: PoolClient) => Promise<T>,
-  options: { isolation?: "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE" } = {},
+  options: { isolation?: "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE"; maxRetries?: number } = {},
 ): Promise<T> {
-  const client = await postgresPool().connect();
-  try {
-    await client.query(`BEGIN ISOLATION LEVEL ${options.isolation || "READ COMMITTED"}`);
-    const result = await fn(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
+  const maxRetries = options.maxRetries ?? 3;
+  let attempt = 0;
+  for (;;) {
+    const client = await postgresPool().connect();
     try {
-      await client.query("ROLLBACK");
-    } catch {
-      // Preserve the original database or domain error.
+      await client.query(`BEGIN ISOLATION LEVEL ${options.isolation || "READ COMMITTED"}`);
+      const result = await fn(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the original database or domain error.
+      }
+      // Serialization failures are transient by design: the aborted transaction
+      // applied nothing, so a bounded retry is the documented recovery.
+      if (isSerializationFailure(error) && attempt < maxRetries) {
+        const delay = TX_RETRY_DELAYS_MS[Math.min(attempt, TX_RETRY_DELAYS_MS.length - 1)];
+        attempt += 1;
+        await sleep(delay);
+        continue;
+      }
+      throw error;
+    } finally {
+      client.release();
     }
-    throw error;
-  } finally {
-    client.release();
   }
 }
 
