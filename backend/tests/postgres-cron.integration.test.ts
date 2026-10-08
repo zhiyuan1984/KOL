@@ -37,7 +37,7 @@ describePostgres("native PostgreSQL Cron scheduler", () => {
       CREATE TABLE IF NOT EXISTS cron_jobs (
         id TEXT PRIMARY KEY, job_key TEXT NOT NULL UNIQUE, title TEXT NOT NULL, owner_account_id TEXT, execute_as TEXT NOT NULL,
         capability_expert_id TEXT NOT NULL, handler_key TEXT NOT NULL, scope_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-        condition_json JSONB NOT NULL DEFAULT '{}'::jsonb, cron_expr TEXT NOT NULL, timezone TEXT NOT NULL, status TEXT NOT NULL,
+        condition_json TEXT NOT NULL DEFAULT '{}', cron_expr TEXT NOT NULL, timezone TEXT NOT NULL, status TEXT NOT NULL,
         retry_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb, takeover_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         published_rev INTEGER NOT NULL, next_run_at TIMESTAMPTZ, last_run_at TIMESTAMPTZ, last_terminal_status TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
