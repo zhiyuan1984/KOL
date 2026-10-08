@@ -6,8 +6,8 @@ import { DEFAULT_COMPANY_ID } from "../host/kol-memory.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { authorizeConnector, runtimeAgentForSkill, runtimeHash, type RuntimeContext } from "../runtime/execution.js";
 import { runtimeAction } from "../runtime/action-store.js";
-import { buildCrawlerImportFile, mapCandidateToCrawlerRow, creatorExternalId } from "../discovery-import.js";
-import { importKolProfilesFromCrawlerConfirmed } from "../gateway/import-creator.js";
+import { buildCrawlerImportFile, mapCandidateToCrawlerRow, creatorExternalId, isRealKolUid } from "../discovery-import.js";
+import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid, withTimeout } from "../gateway/import-creator.js";
 import type { Json } from "../types.js";
 import { getSkillTools, getToolPolicy } from "../runtime/store.js";
 import { ensureLeadFromDiscoveryCandidate } from "../ticket-domain/kol-event-bridge.js";
@@ -20,6 +20,11 @@ function user() {
 const stamp = (row: Json) => runtimeHash(row);
 const company = DEFAULT_COMPANY_ID;
 const identity = (row: Json) => `${String(row.platform).toLowerCase()}:${String(row.id)}`;
+
+/** uncertain 核对时 pageKolProfiles 的上限：核对本身失败不删行、不盲目重试。 */
+const STARRY_RECONCILE_TIMEOUT_MS = 30_000;
+/** dispatching 行超过此时长视为孤儿（持有者已死），同样走核对。 */
+const STALE_DISPATCHING_MS = 10 * 60_000;
 
 /** Starry 公海导入的授权门禁（抽出供 ingest / follow 复用）。 */
 function authorizeStarryImport(action: { context_json: RuntimeContext }, actorId: string): void {
@@ -59,7 +64,22 @@ async function starryImportCandidate(input: {
     const prior = (await client.query("SELECT * FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id])).rows[0];
     if (prior) {
       if (prior.state === "succeeded") return { kol_uid: String(prior.kol_uid), reused: true };
-      throw new HttpFail(409, { code: "import_creator_uncertain", message: "入库请求已提交，正在核对结果；请勿重复提交。" });
+      // uncertain：上一次已结束，这次真去 Starry 核对，而不是永远 409。
+      // dispatching 超过 10 分钟：视为孤儿（持有者已死），同样核对。
+      const orphaned = prior.state === "dispatching" &&
+        Date.now() - new Date(prior.updated_at).getTime() > STALE_DISPATCHING_MS;
+      if (prior.state !== "uncertain" && !orphaned) {
+        throw new HttpFail(409, { code: "import_creator_uncertain", message: "入库请求已提交，正在处理；请稍后再试。" });
+      }
+      const reconciled = await reconcileUncertainImport(client, {
+        row, actionId, actorId, sourceBatch, candidateId, allowFollowed,
+      });
+      if (reconciled) return reconciled;
+      // Starry 侧确实没有：删掉旧行，重新派发（已核对过，非盲目重试）。
+      await client.query("DELETE FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3",
+        [company, row.platform, row.id]);
+      await audit(client, actorId, "discovery.runtime.ingest.reconciled_retry", { action_id: actionId, candidate_id: candidateId,
+        source_batch: sourceBatch, prior_state: prior.state });
     }
     await client.query(`INSERT INTO discovery_runtime_imports(company_id,platform,creator_id,action_id,actor_id,state)
       VALUES($1,$2,$3,$4,$5,'dispatching')`, [company, row.platform, row.id, actionId, actorId]);
@@ -93,6 +113,46 @@ async function starryImportCandidate(input: {
     await postgresPool().query("UPDATE discovery_runtime_imports SET state='uncertain',updated_at=now() WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id]);
     throw error;
   }
+}
+/**
+ * 核对 uncertain / 孤儿 dispatching 的入库：真去 Starry 查一次。
+ * - Starry 已有 → 补成功落盘，返回 { kol_uid, reused: true }；
+ * - Starry 没有 → 返回 null，调用方删掉旧行后重新派发；
+ * - 核对本身失败 → 抛 502，不删行、不盲目重试。
+ */
+async function reconcileUncertainImport(client: PoolClient, input: {
+  row: Json; actionId: string; actorId: string; sourceBatch: string; candidateId: string; allowFollowed: boolean;
+}): Promise<{ kol_uid: string; reused: boolean } | null> {
+  const { row, actionId, actorId, sourceBatch, candidateId, allowFollowed } = input;
+  let found: string;
+  try {
+    found = await withTimeout(
+      lookupImportedKolUid({ creatorExternalId: creatorExternalId(row.platform, row.id) }),
+      STARRY_RECONCILE_TIMEOUT_MS,
+      "pageKolProfiles",
+    );
+  } catch {
+    throw new HttpFail(502, {
+      code: "import_creator_uncertain",
+      message: "入库状态核对失败（达人库无响应），请稍后重试；未重复提交。",
+    });
+  }
+  if (!isRealKolUid(found)) return null;
+  const kolUid = String(found);
+  await lock(client, row);
+  const now = new Date().toISOString();
+  await client.query(`INSERT INTO kol_profile_index(id,company_id,kol_uid,handle,display_name,platform,homepage_url,followers,
+    avg_plays,region,ingest_source,pool_status,platform_creator_id,source_batch,source_version,ingested_at,created_at,updated_at,avatar_url,direction)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'discovery-ingest','open',$4,$11,$11,$12,$12,$12,$13,$14)
+    ON CONFLICT(company_id,kol_uid) DO UPDATE SET platform_creator_id=EXCLUDED.platform_creator_id,updated_at=EXCLUDED.updated_at`,
+  [`profile_${randomUUID()}`, company, kolUid, row.id, row.name, row.platform, row.source_url,
+    row.followers == null ? null : String(row.followers), row.avg_views_10 == null ? null : String(row.avg_views_10), row.region, sourceBatch, now, row.avatar_url || null, row.direction || null]);
+  await client.query(`UPDATE discovery_runtime_imports SET state='succeeded',kol_uid=$4,receipt=$5,updated_at=now()
+    WHERE company_id=$1 AND platform=$2 AND creator_id=$3`,
+  [company, row.platform, row.id, kolUid, JSON.stringify({ kolUid, reconciled: true, looked_up_after_timeout: true })]);
+  await audit(client, actorId, "discovery.runtime.ingested", { action_id: actionId, candidate_id: candidateId,
+    kol_uid: kolUid, sent: false, followed: allowFollowed, reconciled: true });
+  return { kol_uid: kolUid, reused: true };
 }
 async function lock(client: PoolClient, row: Json) {
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`discovery:${company}:${identity(row)}`]);
