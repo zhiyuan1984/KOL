@@ -285,17 +285,17 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
         busy={ingestBusy}
         error={ingestError}
         confirmDisabled={!selected.length}
+        title="批量入库公海"
+        rows={[
+          { label: "数量", value: `${selected.length} 条线索` },
+          { label: "平台", value: selectedPlatforms.length ? selectedPlatforms.map((code) => platformLabel(code)).join("、") : "无" },
+          { label: "来源", value: `运行 ${run?.id || runId || "无"}` },
+          ...(reviewSelected ? [{ label: "复核", value: `${reviewSelected} 条需人工复核评分与来源证据` }] : []),
+          { label: "说明", value: "写入 Starry 并进入公海；不建联、不发信、不改阶段、不认领跟进" },
+        ]}
         onConfirm={() => void confirmIngest()}
         onCancel={() => void cancelIngest()}
-      >
-        <p data-discovery-ingest-summary>
-          {`将把 ${selected.length} 条线索写入 Starry 并进入公海。`}
-          {` 平台：${selectedPlatforms.length ? selectedPlatforms.map((code) => platformLabel(code)).join("、") : "无"}。`}
-          {` 来源运行：${run?.id || runId || "无"}。`}
-          {reviewSelected ? ` 其中 ${reviewSelected} 条仍需人工复核其评分与来源证据。` : ""}
-          不会建联，不会发信，也不会改阶段或认领跟进。
-        </p>
-      </DiscoveryIngestConfirm>
+      />
     </div>
   );
 }
