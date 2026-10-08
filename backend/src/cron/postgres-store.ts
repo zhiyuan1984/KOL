@@ -125,12 +125,12 @@ export async function pgEnsureSystemCronJobs(from = new Date()): Promise<void> {
       await client.query(
         `UPDATE cron_jobs
             SET condition_json = jsonb_build_object('system_template',
-                  COALESCE(condition_json->'system_template', $2::jsonb)),
+                  COALESCE(condition_json::jsonb->'system_template', $2::jsonb)),
                 updated_at = $3
            WHERE id = $1
-             AND (NOT (condition_json ? 'system_template')
-                  OR condition_json ? 'enabled'
-                  OR condition_json ? 'reason')`,
+             AND (NOT (condition_json::jsonb ? 'system_template')
+                  OR condition_json::jsonb ? 'enabled'
+                  OR condition_json::jsonb ? 'reason')`,
         [discoverySeed.id, JSON.stringify((discoverySeed.condition as { system_template: unknown }).system_template), now],
       );
     }
