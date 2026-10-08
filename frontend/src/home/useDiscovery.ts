@@ -419,6 +419,15 @@ export default function useDiscovery({
         if (cancelled) return;
         setActions(data.actions);
         setActionsError("");
+        // runtime action 可能先于远端 crawl 结束：start_crawl 会在 13:48:45
+        // 先变为 succeeded，但 crawl.result_json 要到远端终态后才出现。
+        // 轮询一旦看到结果快照 ready，必须重新读取 session projection，
+        // 否则右栏会永久停在「等待候选结果」。
+        const start = data.actions.find((item) => item.operation === "start_crawl");
+        const crawl = start?.crawl;
+        if (crawl && (crawl.result_state === "ready" || Boolean(crawl.result_json?.candidates))) {
+          void loadExisting(null);
+        }
       } catch (error) {
         if (cancelled) return;
         setActionsError(presentDiscoveryError(error, "读取采集动作失败，可稍后重试。").message);
