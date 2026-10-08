@@ -116,12 +116,8 @@
 /* 人员治理：统一小字号、文字操作、单列组织联动；不改变授权计算。 */
 [data-admin-employees] { font-size: var(--ds-font-sm); grid-template-columns: minmax(0, 36%) minmax(var(--workspace-result-rail-min), 1fr); }
 [data-admin-employees] .governance-main { container-type: inline-size; }
-[data-admin-employees] .governance-main-head { justify-content: center; flex-wrap: wrap; min-height: var(--control-h-lg); }
-[data-admin-employees] .governance-main-head h2,
-[data-admin-employees] .governance-count,
 [data-admin-employees] .governance-filter-group strong,
 [data-admin-employees] .governance-employee-number { font-size: var(--ds-font-sm); }
-[data-admin-employees] .governance-count { margin: 0; white-space: nowrap; }
 .employee-search-wrap { margin-bottom: var(--space-3); }
 .employee-search-wrap svg { width: var(--space-4); height: var(--space-4); flex-shrink: 0; stroke: currentColor; stroke-width: 1.5; fill: none; color: var(--text-muted); }
 .employee-search-wrap:focus-within { outline: var(--focus-ring); }
@@ -137,44 +133,51 @@
 [data-admin-employees] button:focus-visible,
 .employee-organization-filter select:focus-visible,
 .employee-organization-filter input:focus-visible { outline: var(--focus-ring); }
-/* 员工卡片：双行结构＝头像＋姓名·工号＋Agent 文案｜邮箱＋操作组；
-   右侧账号启停与操作组固定靠右，左侧自适应省略；卡片间距替代列表分隔线。 */
-[data-admin-employees] .governance-list { display: grid; gap: var(--space-3); border: 0; border-radius: 0; overflow: visible; }
+/* 紧凑双行：身份与 Agent｜邮箱与操作组。启停只保留操作区一个入口。 */
+[data-admin-employees] .governance-list { display: grid; gap: var(--space-2); border: 0; border-radius: 0; overflow: visible; }
 [data-admin-employees] .governance-employee-row { display: block; padding: 0; border: 0; background: transparent; cursor: default; }
 [data-admin-employees] .governance-employee-row:hover { background: transparent; }
 [data-admin-employees] .governance-employee-row > .employee-card { white-space: normal; overflow: visible; text-overflow: clip; }
-.employee-card { display: flex; align-items: center; min-height: 92px; padding: var(--space-3) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg); }
-.employee-avatar { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; margin-right: var(--space-4); border-radius: 50%; overflow: hidden; background: var(--fill-control); color: var(--text-muted); font-size: var(--ds-font-section); }
+.employee-card { display: flex; align-items: center; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg); }
+.employee-avatar { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: var(--control-h-lg); height: var(--control-h-lg); margin-right: var(--space-3); border-radius: var(--radius-control); overflow: hidden; background: var(--fill-control); color: var(--text-muted); font-size: var(--ds-font-sm); }
 .employee-avatar img { width: 100%; height: 100%; margin: 0; object-fit: cover; }
 .employee-avatar > span { text-transform: uppercase; }
 .employee-main { flex: 1; min-width: 0; }
 .employee-row { display: flex; align-items: center; justify-content: space-between; min-width: 0; }
 .employee-row-primary,
-.employee-row-secondary { min-height: 30px; }
-.employee-row-secondary { margin-top: var(--space-1); padding-top: var(--space-1); border-top: 1px solid var(--border); }
-.employee-profile { display: flex; align-items: center; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
-.employee-name { flex: 0 0 auto; font-size: var(--ds-font-ui); line-height: var(--ds-line-ui); font-weight: 600; color: var(--text); }
+.employee-row-secondary { min-height: var(--control-h-sm); }
+.employee-row-secondary { border-top: 1px solid var(--border); }
+.employee-profile { display: flex; align-items: center; flex: 1; min-width: 0; white-space: nowrap; }
+.employee-identity { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; max-width: 40%; }
+.employee-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--ds-font-sm); line-height: var(--ds-line-ui); font-weight: 600; color: var(--text); }
 .employee-dot { flex: 0 0 auto; margin: 0 var(--space-1); color: var(--text-muted); }
-.employee-no { flex: 0 0 auto; font-size: var(--ds-font-sm); color: var(--text-muted); }
-.employee-divider { flex: 0 0 auto; width: 1px; height: 14px; margin: 0 var(--space-3); background: var(--border); }
-.employee-agent { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ds-font-sm); color: var(--text-muted); }
-.employee-status { flex: 0 0 auto; margin-left: var(--space-4); }
-.employee-email { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: var(--space-5); font-size: var(--ds-font-sm); color: var(--text-muted); }
-.employee-actions { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-3); white-space: nowrap; }
-.employee-actions .action-divider { flex: 0 0 auto; width: 1px; height: 14px; background: var(--border); }
-[data-admin-employees] .employee-card button { font: inherit; min-height: var(--workspace-task-action-h); padding: 2px 0; }
+.employee-no { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--ds-font-sm); color: var(--text-muted); }
+.employee-divider { flex: 0 0 auto; width: 1px; height: var(--space-3); margin: 0 var(--space-2); background: var(--border); }
+.employee-agent-summary { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; gap: var(--space-1); }
+.employee-agent { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ds-font-sm); color: var(--text-muted); }
+.employee-agent-summary[data-expanded='true'] { flex-wrap: wrap; }
+.employee-agent.is-expanded { flex-basis: 100%; white-space: normal; overflow: visible; overflow-wrap: anywhere; padding-block: var(--space-1); }
+.employee-agent-toggle { flex: 0 1 auto; max-width: 100%; color: var(--accent-text); white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.employee-agent-measure { position: absolute; inset: 0 auto auto 0; visibility: hidden; pointer-events: none; width: 0; height: 0; overflow: hidden; font-size: var(--ds-font-sm); }
+.employee-agent-measure > span { display: block; width: max-content; white-space: nowrap; overflow-wrap: normal; }
+.employee-agent-measure > [data-agent-toggle-measure] { padding-inline: var(--space-1); }
+.employee-email { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: var(--space-2); font-size: var(--ds-font-xs); color: var(--text-muted); }
+.employee-actions { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.employee-actions .action-divider { flex: 0 0 auto; width: 1px; height: var(--space-3); background: var(--border); }
+[data-admin-employees] .employee-card button { font: inherit; font-size: var(--ds-font-sm); min-height: var(--control-h-sm); padding: 0 var(--space-1); border-radius: var(--radius-control); }
 [data-admin-employees] .employee-card .employee-actions button,
-[data-admin-employees] .employee-card .employee-status { color: var(--accent-text); }
+[data-admin-employees] .employee-card .employee-agent-toggle { color: var(--accent-text); }
+[data-admin-employees] .employee-card button:hover { background: var(--btn-text-hover-bg); }
 [data-admin-employees] .employee-card button.employee-danger-action { color: var(--danger); }
-@media (max-width: 1200px) {
-  .employee-card { padding-inline: var(--space-4); }
-  .employee-divider { margin-inline: var(--space-2); }
-  .employee-actions { gap: var(--space-2); }
-  .employee-email { max-width: 320px; }
-}
-@media (max-width: 960px) {
-  .employee-agent { max-width: 220px; }
-  .employee-email { max-width: 240px; }
+/* 按主栏实际宽度重排，避免左侧导航/组织栏挤压内容；不靠隐藏溢出兜底。 */
+@container (max-width: 479px) {
+  .employee-profile { flex-wrap: wrap; row-gap: var(--space-1); }
+  .employee-identity { max-width: 100%; }
+  .employee-divider { display: none; }
+  .employee-agent-summary { flex-basis: 100%; }
+  .employee-row-secondary { flex-wrap: wrap; }
+  .employee-email { flex-basis: 100%; padding-right: 0; }
+  .employee-actions { margin-left: auto; }
 }
 .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog { width: min(var(--dialog-w-lg), calc(100vw - var(--space-4) * 2)); max-height: 88dvh; border-radius: var(--radius-dialog); container-type: inline-size; }
 .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) .employee-dialog :is(h2, h3, p, label, legend, input, select, button, strong, span) { font-size: var(--ds-font-sm); }
