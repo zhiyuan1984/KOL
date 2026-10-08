@@ -299,3 +299,11 @@
 .discovery-run-status[data-discovery-run-status="uncertain"] strong { color: var(--danger); }
 
 .discovery-run-status[data-discovery-run-status="waiting"] strong { color: var(--color-warning-vivid); }
+
+/* 远端采集真实进展行：挂在业务四段之下，字号与过程行一致的次级信息。 */
+.discovery-remote-line {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.discovery-remote-line[data-tone="warning"] { color: var(--color-warning-vivid); }

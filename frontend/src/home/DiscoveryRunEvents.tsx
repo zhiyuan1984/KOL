@@ -1,5 +1,6 @@
-import type { DiscoveryNarrative, DiscoveryProcessStep } from "./discoveryEvents";
+import type { DiscoveryNarrative, DiscoveryProcessStep, RuntimeCrawlSnapshot } from "./discoveryEvents";
 import { BIZ_PHASES, discoveryBizPhaseIndex } from "./discoveryBizPhase";
+import { discoveryRemoteCrawlView } from "./discoveryEvents";
 import DiscoveryAvatar from "./DiscoveryAvatar";
 
 const RUN_STATE_LABEL: Record<string, string> = {
@@ -39,6 +40,7 @@ export default function DiscoveryRunEvents({
   onStop,
   stopping,
   foundCount,
+  runtimeCrawl = null,
 }: {
   stage: string;
   steps: DiscoveryProcessStep[];
@@ -55,6 +57,11 @@ export default function DiscoveryRunEvents({
   stopping?: boolean;
   /** 搜索中找到的候选数（随轮询增长），用于"搜索中（已找到 N 个）"。 */
   foundCount?: number;
+  /**
+   * runtime 采集作业快照（`startAction.crawl`）：展示远端真实进展
+   * （远端状态 + 最后更新时间 + 停滞告警），不再让 UI 静默冻住。
+   */
+  runtimeCrawl?: RuntimeCrawlSnapshot;
 }) {
   const failed = steps.some((step) => step.kind === "failed");
   const stopped = steps.some((step) => step.kind === "stopped");
@@ -109,6 +116,10 @@ export default function DiscoveryRunEvents({
       {(() => {
         if (!confirmed) return null;
         const bizIndex = discoveryBizPhaseIndex({ steps, crawlState, stage });
+        // 远端真实进展：后端 monitor 每次轮询刷新 status_json/updated_at，
+        // 前端经 runtime action 视图拿到。这里展示"远端：X · N 秒前更新"，
+        // 停滞（超过阈值未更新）时给告警——不再静默冻住。
+        const remote = discoveryRemoteCrawlView(runtimeCrawl, Date.now());
         return (
           <>
             <ol className="discovery-run-steps" data-discovery-biz-phases role="status" aria-busy={inFlight || undefined}>
@@ -131,6 +142,18 @@ export default function DiscoveryRunEvents({
                 );
               })}
             </ol>
+            {remote ? (
+              <p
+                className="discovery-remote-line"
+                data-discovery-remote-line
+                data-tone={remote.stale ? "warning" : undefined}
+                role="status"
+              >
+                远端：{remote.label}
+                {remote.ago ? ` · ${remote.ago}` : ""}
+                {remote.stale ? "（远端状态长时间未更新，采集可能停滞，可尝试停止后重试）" : ""}
+              </p>
+            ) : null}
             {steps.length ? (
               <details className="discovery-run-details" data-discovery-run-details>
                 <summary>详情</summary>

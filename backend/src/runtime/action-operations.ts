@@ -9,6 +9,7 @@ import type { Operation } from "./operations.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPublic } from "../execution-jobs/postgres-store.js";
 import { enqueueCrawlResults } from "../crawl/results.js";
 import { canRetryRuntimeCrawl, runtimeActionProgress } from "./action-progress.js";
+import { remoteCrawlStatusValue } from "../crawl/runtime-gates.js";
 import { runtimeCandidateViews } from "../crawl/candidate-actions.js";
 import { crawlQueuePosition, drainCrawlQueue } from "../crawl/runtime-gates.js";
 
@@ -23,8 +24,12 @@ async function view(action: RuntimeAction) {
   try { if (action.state === "pending") await runtimeActionGate(action.connector_id, action.tool_name).validate(action.context_json, action.args_json); }
   catch { blocked = "此动作仍需业务范围或审批校验，请使用对应业务操作入口。"; }
   const crawl = (await postgresPool().query(`SELECT id,remote_task_id,state,status_json,error_code,result_state,result_json,result_error,
-    instance_key,created_at FROM runtime_crawl_jobs
+    instance_key,created_at,updated_at FROM runtime_crawl_jobs
     WHERE id=$1 AND actor_id=$2`, [action.id, action.actor_id])).rows[0] || null;
+  if (crawl) {
+    // 向前端透出远端状态原文与最后更新时间，供采集执行区展示"远端：X · N 秒前更新"。
+    crawl.remote_status = remoteCrawlStatusValue(crawl.status_json);
+  }
   if (crawl?.state === "queued" && crawl.instance_key) {
     try { crawl.queue_position = await crawlQueuePosition(String(crawl.instance_key), String(crawl.id)); }
     catch { /* 位置查询失败不影响主流程 */ }
@@ -61,7 +66,15 @@ export const runtimeActionOperations: Operation[] = [
     try {
       const tool = (await runtime.discover()).tools.find((item) => item.connectorId === "claw" && item.remoteName === "stop_crawl");
       if (!tool) throw new HttpFail(403, { code: "runtime_tool_not_granted" });
-      return c.json(await runtime.invoke(String(tool.exposed.name), { task_id: crawl.remote_task_id }));
+      const receipt = await runtime.invoke(String(tool.exposed.name), { task_id: crawl.remote_task_id });
+      // 停止请求已发出：本地先记 stopping（"停止请求已提交，正在核对终态"），
+      // 等 monitor 下轮轮询核对远端终态。若远端无视停止，monitor 会继续上报
+      // running，前端停滞告警会如实展示——不伪装成"已停止"。
+      await postgresPool().query(
+        "UPDATE runtime_crawl_jobs SET state='stopping',updated_at=now() WHERE id=$1 AND state='running'",
+        [action.id],
+      );
+      return c.json(receipt);
     } finally { runtime.close(); }
   } },
   { id: "runtime.crawl.dequeue", kind: "action", async handle(c, input) {

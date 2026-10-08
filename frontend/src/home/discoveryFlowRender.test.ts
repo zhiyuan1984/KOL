@@ -324,4 +324,57 @@ describe("AI发现中栏事件渲染契约", () => {
     expect(html).toContain("户外能源");
     expect(html).not.toContain("R3 ·");
   });
+
+  it("shows the live remote crawl status under the business phases", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "running",
+      steps: [STEP("collecting", "正在采集")],
+      inFlight: true,
+      crawlState: "running",
+      foundCount: 0,
+      runtimeCrawl: {
+        state: "running",
+        remote_status: "running",
+        updated_at: new Date(Date.now() - 8000).toISOString(),
+      },
+    }));
+    expect(html).toContain("data-discovery-remote-line");
+    expect(html).toContain("远端：采集中");
+    expect(html).toMatch(/秒前更新/);
+    expect(html).not.toContain("可能停滞");
+  });
+
+  it("warns when the remote status has gone stale", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "running",
+      steps: [STEP("collecting", "正在采集")],
+      inFlight: true,
+      crawlState: "running",
+      foundCount: 0,
+      runtimeCrawl: {
+        state: "running",
+        remote_status: "running",
+        updated_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+      },
+    }));
+    expect(html).toContain("data-discovery-remote-line");
+    expect(html).toContain("远端：采集中");
+    expect(html).toContain("可能停滞");
+    expect(html).toContain('data-tone="warning"');
+  });
+
+  it("hides the remote line once the crawl job settles", () => {
+    const html = renderToStaticMarkup(createElement(DiscoveryRunEvents, {
+      stage: "success",
+      steps: [STEP("collect_done", "采集完成")],
+      inFlight: false,
+      crawlState: "succeeded",
+      runtimeCrawl: {
+        state: "succeeded",
+        remote_status: "completed",
+        updated_at: new Date().toISOString(),
+      },
+    }));
+    expect(html).not.toContain("data-discovery-remote-line");
+  });
 });
