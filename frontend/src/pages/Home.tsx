@@ -2533,14 +2533,14 @@ export default function Home() {
               onSubmitConditions={submitDiscoveryConditions}
               skillTemplate={activeSkillTemplate}
               sessionId={discoverySessionId}
-              sessionHref={discoverySessionId ? `/s/${discoverySessionId}` : null}
+              sessionHref={discoverySessionId ? `/?tab=discovery&session_id=${encodeURIComponent(discoverySessionId)}` : null}
               activeTaskId={discoveryTaskId}
               activeRunId={discoveryRunId}
               lastSubmit={lastDiscoverySubmit}
               onRetrySubmit={() => void retryDiscoveryRun()}
               centerSupplement={<>
                 {resumedDiscoverySession ? <p className="discovery-resume-notice" role="status" data-discovery-resume>
-                  <strong>已恢复上次条件</strong><button className="discovery-follow-quiet" onClick={() => nav(`/s/${resumedDiscoverySession}`)}>继续原发现任务</button>
+                  <strong>已恢复上次条件</strong><button className="discovery-follow-quiet" onClick={() => nav(`/?tab=discovery&session_id=${encodeURIComponent(resumedDiscoverySession)}`)}>继续原发现任务</button>
                   <span className="muted">修改条件后提交将新建发现任务，原结果保留。</span>
                 </p> : null}
                 {renderInteractionFeedback({ withSkillTemplate: false })}

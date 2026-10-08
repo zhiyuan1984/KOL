@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import Workbench from "./layout/Workbench";
 import AuthGate, { useAccount } from "./components/AuthGate";
 import { ViewModeProvider } from "./viewMode";
@@ -42,6 +42,16 @@ function HomeEntry() {
   return postgresOnly ? <Navigate to="/tasks" replace /> : <Home />;
 }
 
+/** Discovery sessions have a dedicated workspace. Keep old /s/:id links backward-compatible
+ * while preventing them from opening the legacy generic Chat surface. */
+function SessionEntry() {
+  const { id = "" } = useParams();
+  if (id.startsWith("ses_discovery_")) {
+    return <Navigate to={`/?tab=discovery&session_id=${encodeURIComponent(id)}`} replace />;
+  }
+  return <Chat />;
+}
+
 export default function App() {
   return (
     <RouteErrorBoundary label="app">
@@ -52,7 +62,7 @@ export default function App() {
           <Route element={<Workbench />}>
             <Route path="/" element={<HomeEntry />} />
             <Route path="/work" element={<Navigate to="/" replace />} />
-            <Route path="/s/:id" element={<Chat />} />
+            <Route path="/s/:id" element={<SessionEntry />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/leads" element={<Leads />} />
             <Route path="/cooperations" element={<Cooperations />} />
