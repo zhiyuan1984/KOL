@@ -45,6 +45,18 @@ describe("today task board presentation", () => {
   });
 });
 
+describe("today/todo status filters", () => {
+  it("uses one primary filter row for overdue, exception, and normal tasks", () => {
+    const board = read("TaskBoard.tsx");
+    expect(board).toContain('{ value: "overdue", label: "逾期" }');
+    expect(board).toContain('{ value: "exception", label: "异常" }');
+    expect(board).toContain('{ value: "normal", label: "正常" }');
+    expect(board).not.toContain("task-board-attention");
+    expect(board).not.toContain("attentionFilter");
+    expect(board).not.toContain("<th>任务与状态</th>");
+  });
+});
+
 describe("today/todo consistency fixes", () => {
   it("renders waiting_approval as its own 等审批 status (not 进行中)", async () => {
     const { boardStatus } = await import("./BoardRow");

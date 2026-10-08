@@ -5,8 +5,7 @@ import { dueDayDiff, isClosedTask, isTaskException, taskPriorityRank } from "./h
 import { planStartEvent, SCOPE_CONFIG, TODAY_PLAN_REFRESH_EVENT, type PlanScope, type TodayPlanPhase } from "./todayPlan";
 import "./today-plan-board.css";
 
-type BoardFilter = "all" | "iu" | "in" | "ui" | "nn";
-type AttentionFilter = "all" | "overdue" | "today" | "exception";
+type BoardFilter = "all" | "iu" | "in" | "ui" | "overdue" | "exception" | "normal";
 type TaskBoardScope = PlanScope;
 
 const FILTERS: Array<{ value: BoardFilter; label: string }> = [
@@ -14,21 +13,20 @@ const FILTERS: Array<{ value: BoardFilter; label: string }> = [
   { value: "iu", label: "重要紧急" },
   { value: "in", label: "重要" },
   { value: "ui", label: "紧急" },
-  { value: "nn", label: "一般" },
+  { value: "overdue", label: "逾期" },
+  { value: "exception", label: "异常" },
+  { value: "normal", label: "正常" },
 ];
 
-type BoardPreferences = { filter: BoardFilter; attentionFilter: AttentionFilter; query: string };
+type BoardPreferences = { filter: BoardFilter; query: string };
 function preferenceKey(scope: PlanScope): string { return `ui:home-${scope}-task-board`; }
 function readPreferences(scope: PlanScope): BoardPreferences {
   try {
     const value = JSON.parse(sessionStorage.getItem(preferenceKey(scope)) || "null") as Partial<BoardPreferences> | null;
     const filter = FILTERS.some((item) => item.value === value?.filter) ? value!.filter! : "all";
-    const attentionFilter = ["all", "overdue", "today", "exception"].includes(String(value?.attentionFilter))
-      ? value!.attentionFilter!
-      : "all";
-    return { filter, attentionFilter, query: String(value?.query || "") };
+    return { filter, query: String(value?.query || "") };
   } catch {
-    return { filter: "all", attentionFilter: "all", query: "" };
+    return { filter: "all", query: "" };
   }
 }
 
@@ -38,17 +36,11 @@ function matchesBoardFilter(task: Task, filter: BoardFilter): boolean {
   if (filter === "iu") return rank === 0;
   if (filter === "in") return rank === 1;
   if (filter === "ui") return rank === 2;
-  return rank >= 3;
-}
-
-function matchesAttentionFilter(task: Task, filter: AttentionFilter): boolean {
-  if (filter === "all") return true;
-  if (isClosedTask(task)) return false;
+  if (filter === "overdue") return !isClosedTask(task) && dueDayDiff(task.due_at) != null && dueDayDiff(task.due_at)! < 0;
   if (filter === "exception") return isTaskException(task);
   const dayDiff = dueDayDiff(task.due_at);
-  return filter === "overdue" ? dayDiff != null && dayDiff < 0 : dayDiff === 0;
+  return rank >= 3 && !isTaskException(task) && (dayDiff == null || dayDiff >= 0);
 }
-
 function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, current: BoardFilter, select: (value: BoardFilter) => void) {
   const index = FILTERS.findIndex((item) => item.value === current);
   const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -110,38 +102,32 @@ export default function TaskBoard({
   summary?: ReactNode;
 }) {
   const [filter, setFilter] = useState<BoardFilter>(() => readPreferences(scope).filter);
-  const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>(() => readPreferences(scope).attentionFilter);
   const [query, setQuery] = useState(() => readPreferences(scope).query);
 
   useEffect(() => {
-    try { sessionStorage.setItem(preferenceKey(scope), JSON.stringify({ filter, attentionFilter, query })); } catch { /* Storage is optional. */ }
-  }, [scope, filter, attentionFilter, query]);
+    try { sessionStorage.setItem(preferenceKey(scope), JSON.stringify({ filter, query })); } catch { /* Storage is optional. */ }
+  }, [scope, filter, query]);
 
   const counts = useMemo(() => {
-    const tally: Record<BoardFilter, number> = { all: rows.length, iu: 0, in: 0, ui: 0, nn: 0 };
+    const tally: Record<BoardFilter, number> = { all: rows.length, iu: 0, in: 0, ui: 0, overdue: 0, exception: 0, normal: 0 };
     for (const task of rows) {
       if (matchesBoardFilter(task, "iu")) tally.iu += 1;
       if (matchesBoardFilter(task, "in")) tally.in += 1;
       if (matchesBoardFilter(task, "ui")) tally.ui += 1;
-      if (matchesBoardFilter(task, "nn")) tally.nn += 1;
+      if (matchesBoardFilter(task, "overdue")) tally.overdue += 1;
+      if (matchesBoardFilter(task, "exception")) tally.exception += 1;
+      if (matchesBoardFilter(task, "normal")) tally.normal += 1;
     }
     return tally;
   }, [rows]);
 
-  const attentionCounts = useMemo(() => ({
-    overdue: rows.filter((task) => matchesAttentionFilter(task, "overdue")).length,
-    today: rows.filter((task) => matchesAttentionFilter(task, "today")).length,
-    exception: rows.filter((task) => matchesAttentionFilter(task, "exception")).length,
-  }), [rows]);
-
-  const filtered = useMemo(
-    () => rows.filter((task) => matchesBoardFilter(task, filter) && matchesAttentionFilter(task, attentionFilter) && matchesQuery(task, query)),
-    [rows, filter, attentionFilter, query],
-  );
-
   const cfg = SCOPE_CONFIG[scope];
   const emptyCopy = cfg.emptyCopy;
   const filterLabel = `筛选${cfg.railToggleLabel}`;
+  const filtered = useMemo(
+    () => rows.filter((task) => matchesBoardFilter(task, filter) && matchesQuery(task, query)),
+    [rows, filter, query],
+  );
   const planButton = planButtonState(planPhase, scope);
 
   return (
@@ -201,44 +187,29 @@ export default function TaskBoard({
             className="task-board-tab"
             id={`task-board-tab-${scope}-${value}`}
             aria-selected={filter === value}
+            aria-pressed={filter === value}
             aria-controls={`task-board-panel-${scope}`}
             tabIndex={filter === value ? 0 : -1}
             data-board-filter={value}
+            data-attention-filter={value === "overdue" || value === "exception" ? value : undefined}
             onKeyDown={(event) => onTabKeyDown(event, filter, setFilter)}
             onClick={() => setFilter(value)}
           >
             <span>{label} {counts[value]}</span>
           </button>
         ))}
-      </div>
-
-      <div className="task-board-attention" role="group" aria-label="期限与异常筛选">
-        {([ ["overdue", "逾期", attentionCounts.overdue], ["today", "今天到期", attentionCounts.today], ["exception", "异常", attentionCounts.exception] ] as const)
-          .filter(([, , count]) => count > 0).map(([value, label, count]) => (
-            <button key={value} type="button" className="task-board-attention-filter" aria-pressed={attentionFilter === value}
-              data-attention-filter={value} onClick={() => setAttentionFilter((current) => current === value ? "all" : value)}>
-              {label} {count}
-            </button>
-          ))}
-        {(filter !== "all" || attentionFilter !== "all" || query) ? <button type="button" className="task-board-clear-filter" onClick={() => {
-          setFilter("all"); setAttentionFilter("all"); setQuery("");
+        {(filter !== "all" || query) ? <button type="button" className="task-board-clear-filter" onClick={() => {
+          setFilter("all"); setQuery("");
         }}>清除筛选</button> : null}
         <span className="task-board-result-count" aria-live="polite">显示 {filtered.length} / {rows.length} 项</span>
       </div>
-
       {summary}
 
       <div id={`task-board-panel-${scope}`} className="task-board-panel" role="tabpanel" tabIndex={0} aria-labelledby={`task-board-tab-${scope}-${filter}`} aria-label="任务表">
       {filtered.length ? (
         <div className="task-board-table-scroll">
         <table className="task-board-table">
-          <thead>
-            <tr>
-              <th className="task-board-cell-index">#</th>
-              <th>任务与状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
+          <thead aria-hidden="true"><tr><th /><th /><th /></tr></thead>
           <tbody>
             {filtered.map((task, index) => (
               <BoardRow

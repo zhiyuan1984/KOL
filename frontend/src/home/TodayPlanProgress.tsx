@@ -330,6 +330,31 @@ export default function TodayPlanProgress({
       data-today-plan-open={open ? "true" : "false"}
       role="status"
     >
+      {live ? (
+        <header className="today-plan-head is-live">
+          <div className="today-plan-head-main">
+            <LucasAvatar phase={displayPhase} />
+            <strong className="today-plan-title">规划中</strong>
+            {status ? <span className="today-plan-lead" data-today-plan-lead>{status}</span> : null}
+            {elapsed != null ? (
+              <span className="today-plan-elapsed" data-today-plan-elapsed={elapsed} aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}>
+                {formatTodayPlanElapsed(elapsed)}
+              </span>
+            ) : null}
+          </div>
+        </header>
+      ) : failed ? (
+        <section className="today-plan-failure" data-today-plan-failure>
+          <div><strong>本轮规划未完成</strong><p>{failureReason}</p></div>
+          <button type="button" onClick={() => window.dispatchEvent(new Event(planStartEvent(scope)))}>重新规划</button>
+        </section>
+      ) : (
+        <header className="today-plan-success" data-today-plan-success>
+          <strong>✓ {planNoun}</strong>
+          {successMeta ? <span>{successMeta}</span> : null}
+        </header>
+      )}
+
       {hasPrevious ? (
         <div className="today-plan-previous" data-today-plan-previous>
           <button
@@ -383,31 +408,6 @@ export default function TodayPlanProgress({
           ) : null}
         </div>
       ) : null}
-      {live ? (
-        <header className="today-plan-head is-live">
-          <div className="today-plan-head-main">
-            <LucasAvatar phase={displayPhase} />
-            <strong className="today-plan-title">规划中</strong>
-            {status ? <span className="today-plan-lead" data-today-plan-lead>{status}</span> : null}
-            {elapsed != null ? (
-              <span className="today-plan-elapsed" data-today-plan-elapsed={elapsed} aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}>
-                {formatTodayPlanElapsed(elapsed)}
-              </span>
-            ) : null}
-          </div>
-        </header>
-      ) : failed ? (
-        <section className="today-plan-failure" data-today-plan-failure>
-          <div><strong>本轮规划未完成</strong><p>{failureReason}</p></div>
-          <button type="button" onClick={() => window.dispatchEvent(new Event(planStartEvent(scope)))}>重新规划</button>
-        </section>
-      ) : (
-        <header className="today-plan-success" data-today-plan-success>
-          <strong>✓ {planNoun}</strong>
-          {successMeta ? <span>{successMeta}</span> : null}
-        </header>
-      )}
-
       {!live && steps.length > 0 ? (
         <button type="button" className="today-plan-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
           {open ? "收起执行详情" : "查看执行详情"}

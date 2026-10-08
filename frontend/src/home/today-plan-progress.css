@@ -353,7 +353,7 @@
   overflow-wrap: anywhere;
 }
 
-/* 上一版计划 — folded to one row so versions never stack. */
+/* 计划版本 — 当前计划优先呈现，上一版折叠为一行。 */
 .today-plan-previous {
   margin: 0 0 4px;
 }
