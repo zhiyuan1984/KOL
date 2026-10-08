@@ -3,6 +3,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
+import { HTTPException } from "hono/http-exception";
 import { frontendDist } from "./config.js";
 import { HttpFail } from "./host/errors.js";
 import { postgresPool, requiredPostgresUrl } from "./postgres/pool.js";
@@ -54,6 +55,12 @@ export function createPostgresOnlyApp(): Hono {
   app.onError((error, c) => {
     if (error instanceof HttpFail) {
       return c.json({ detail: error.detail }, error.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503);
+    }
+    if (error instanceof HTTPException) {
+      // hono 中间件（如 body-limit）抛出的 HTTPException 没有 message；
+      // 不在这里承接会被当成未知异常变成 500 "internal error"。
+      const status = error.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503;
+      return c.json({ detail: error.message || (error.status === 413 ? "请求体过大" : `请求失败 (${error.status})`) }, status);
     }
     console.error(error);
     return c.json({ detail: error instanceof Error ? error.message : "internal error" }, 500);

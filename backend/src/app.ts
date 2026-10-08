@@ -5,6 +5,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
+import { HTTPException } from "hono/http-exception";
 import { authDisabled, authMiddleware, authRouter, ensureDemoAdmin, scopedUser } from "./auth.js";
 import { clawRouter, starryRouter } from "./adapters/httpMount.js";
 import { clawMode, codexMode, DEMO_ADMIN, DEMO_USER, frontendDist } from "./config.js";
@@ -110,6 +111,12 @@ export function createApp(): Hono {
     }
     if (err instanceof HttpFail) {
       return c.json({ detail: err.detail }, err.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503);
+    }
+    if (err instanceof HTTPException) {
+      // hono 中间件（如 body-limit）抛出的 HTTPException 没有 message；
+      // 不在这里承接会被当成未知异常变成 500 "internal error"。
+      const status = err.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503;
+      return c.json({ detail: err.message || (err.status === 413 ? "请求体过大" : `请求失败 (${err.status})`) }, status);
     }
     console.error(err);
     return c.json({ detail: err.message || "internal error" }, 500);

@@ -7,7 +7,12 @@ import { scopeCatalog,requestSkillGeneration,generationDetail,acceptKnowledgeSki
 import {bodyLimit} from 'hono/body-limit';
 import { workspaceContext } from '../knowledge/workspace.js';
 export const knowledgeScopeRouter=new Hono();
-knowledgeScopeRouter.use('/admin/*',bodyLimit({maxSize:500000}));
+knowledgeScopeRouter.use('/admin/*', async (c, next) => {
+  // multipart 文件上传的体积上限由各业务接口自行控制（如 KNOWLEDGE_DOC_MAX_BYTES）；
+  // 这里的 500KB 只约束本路由的 JSON 接口，避免误伤 /api/admin/knowledge/documents 等上传路由。
+  if ((c.req.header('content-type') || '').toLowerCase().startsWith('multipart/form-data')) return next();
+  return bodyLimit({ maxSize: 500000 })(c, next);
+});
 const actor=()=>{const user=scopedUser();if(!user)throw new HttpFail(401,'请登录');return user.id;};
 knowledgeScopeRouter.get('/admin/knowledge/documents/:id/scope',async c=>c.json(await scopeDetail(actor(),c.req.header('X-Review-Company'),c.req.param('id'))));
 knowledgeScopeRouter.put('/admin/knowledge/documents/:id/scope',async c=>c.json(await saveScope(actor(),c.req.header('X-Review-Company'),c.req.param('id'),await c.req.json())));

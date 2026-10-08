@@ -41,6 +41,7 @@ type Props = {
   onView: (value: KbView) => void;
   onUpload: () => void;
   onCreate: () => void;
+  showCreationActions?: boolean;
 };
 
 /** 长选项组使用紧凑列表；折叠时选中项始终可见。 */
@@ -82,7 +83,7 @@ export default function KnowledgeFilters({
   stageOptions, selectedStages, onToggleStage, onClearStages,
   kindOptions, kind, onKind,
   viewOptions, view, onView,
-  onUpload, onCreate,
+  onUpload, onCreate, showCreationActions = true,
 }: Props) {
   const [stagesExpanded, setStagesExpanded] = useState(false);
   const stageAll = stageOptions[0];
@@ -243,10 +244,10 @@ export default function KnowledgeFilters({
         </section>
       </div>
 
-      <footer className="kbv-filter-actions">
+      {showCreationActions ? <footer className="kbv-filter-actions">
         <button type="button" className="kbv-text-action" data-kbv-upload onClick={onUpload}>上传文件</button>
         <button type="button" className="kbv-text-action" data-kbv-new onClick={onCreate}>新建知识</button>
-      </footer>
+      </footer> : null}
     </aside>
   );
 }

@@ -33,6 +33,56 @@
   overflow: hidden;
 }
 
+/* ── 知识生命周期一级 Tab ─────────────────────────────────────────── */
+.kbv-lifecycle-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: var(--workspace-tab-gap);
+  min-height: var(--workspace-tab-h);
+  padding: 0 var(--workspace-pane-gutter);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.kbv-lifecycle-tabs::-webkit-scrollbar { display: none; }
+.kbv-lifecycle-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--workspace-tab-h);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.kbv-lifecycle-tab > span { font-weight: 500; }
+.kbv-lifecycle-tab > small { color: var(--text-muted); font-size: var(--ds-font-xs); }
+.kbv-lifecycle-tab > em { color: var(--text-faint); font-size: var(--ds-font-xs); font-style: normal; }
+.kbv-lifecycle-tab[aria-selected="true"] { color: var(--text); }
+.kbv-lifecycle-tab[aria-selected="true"] > span { font-weight: 600; }
+.kbv-lifecycle-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--workspace-tab-indicator-h);
+  background: var(--accent);
+}
+.kbv-lifecycle-tab:hover { color: var(--accent-text); }
+.kbv-lifecycle-tab:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+@media (max-width: 720px) {
+  .kbv-lifecycle-tabs { padding-inline: var(--space-3); gap: var(--space-3); }
+  .kbv-lifecycle-tab > em { display: none; }
+}
+
 /* ── 页面骨架 ─────────────────────────────────────────────────────── */
 
 .kbv {

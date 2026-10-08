@@ -13,6 +13,7 @@ import LibraryPane, { type KbView } from "./LibraryPane";
 import UploadDialog from "./UploadDialog";
 import DocumentRail from "./DocumentRail";
 import ReviewView from "./ReviewView";
+import KnowledgeLifecycleTabs, { type KnowledgeStage } from "./KnowledgeLifecycleTabs";
 import { useSearchParams,useBlocker } from "react-router-dom";
 
 const PAGE_SIZE = 20;
@@ -31,6 +32,14 @@ const VIEW_OPTIONS: Array<{ value: KbView; label: string }> = [
 ];
 const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: kindLabel(spec.code) }));
 const SCOPE_NONE = "__none__";
+const STAGES: KnowledgeStage[] = ["create", "processing", "pending-review", "published", "lifecycle"];
+const DEFAULT_STAGE_VIEW: Record<KnowledgeStage, { view: KbView; asset?: "entry" | "document"; expiring?: boolean }> = {
+  create: { view: "draft" },
+  processing: { view: "all", asset: "document" },
+  "pending-review": { view: "pending" },
+  published: { view: "published" },
+  lifecycle: { view: "all" },
+};
 type KbScope = { familyId: string; domainId: string; baseId: string };
 const EMPTY_SCOPE: KbScope = { familyId: "", domainId: "", baseId: "" };
 /** 驾驶舱下钻的 URL 轴：状态、资产类型、到期。只认合法值，其余忽略。 */
@@ -48,6 +57,7 @@ const assetParam = (value: string | null): "" | "entry" | "document" =>
 export default function KnowledgeHome() {
   const [params,setParams]=useSearchParams();
   const requestedDocument=params.get("document");
+  const requestedStage = params.get("stage") as KnowledgeStage | null;
   const {account}=useAccount();
   const contextKey=`knowledge.workspace:${account?.id || "current"}:${reviewCompany()}`;
   const restore=useMemo(()=>{try{return JSON.parse(sessionStorage.getItem(contextKey)||"{}");}catch{return {};}},[contextKey]);
@@ -61,6 +71,7 @@ export default function KnowledgeHome() {
   const [stages, setStages] = useState<string[]>(restore.stages || []);
   const [kind, setKind] = useState<string>(restore.kind || "");
   const [view, setView] = useState<KbView>(viewParam(params.get("view")) || restore.view || "all");
+  const [stage, setStage] = useState<KnowledgeStage>(STAGES.includes(requestedStage as KnowledgeStage) ? requestedStage as KnowledgeStage : restore.stage || "lifecycle");
   const [assetTypeFilter, setAssetTypeFilter] = useState<"" | "entry" | "document">(assetParam(params.get("asset")));
   /** `?expiring=1`：驾驶舱「30 天内到期」的下钻筛选轴（与卡片计数同一口径）。 */
   const [expiring, setExpiring] = useState<boolean>(params.get("expiring") === "1");
@@ -71,6 +82,7 @@ export default function KnowledgeHome() {
   useEffect(()=>{const id=params.get("assetId") || params.get("document");if(id!==null)setSelectedId(id);},[params]);
   // 下钻轴以 URL 为准：链接可复制、可后退，回来时筛选条件不丢。
   useEffect(()=>{const next=viewParam(params.get("view"));if(next)setView(next);},[params]);
+  useEffect(()=>{const next=params.get("stage") as KnowledgeStage | null;if(next && STAGES.includes(next))setStage(next);},[params]);
   useEffect(()=>{if(params.get("asset")!==null)setAssetTypeFilter(assetParam(params.get("asset")));},[params]);
   useEffect(()=>{if(params.get("expiring")!==null)setExpiring(params.get("expiring")==="1");},[params]);
   const notify = useCallback((message: string) => {
@@ -293,7 +305,7 @@ export default function KnowledgeHome() {
       reload();
     }catch(cause){fail(cause);}
   },[selection,rows,notify,fail,reload]);
-  useEffect(()=>{sessionStorage.setItem(contextKey,JSON.stringify({query,scope,brands,stages,kind,view,page,selectedId,selectedType,positions:positions.current}));},[contextKey,query,scope,brands,stages,kind,view,page,selectedId,selectedType,mode]);
+  useEffect(()=>{sessionStorage.setItem(contextKey,JSON.stringify({query,scope,brands,stages,kind,view,stage,page,selectedId,selectedType,positions:positions.current}));},[contextKey,query,scope,brands,stages,kind,view,stage,page,selectedId,selectedType,mode]);
   const revealCreated=(id:string,type="entry")=>{onDirty(false);switchMode("detail",id,type);reload();};
 
   const toggleBrand = useCallback((value: string) => {
@@ -303,10 +315,32 @@ export default function KnowledgeHome() {
     setStages((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
   }, []);
   const clearBrands = useCallback(() => setBrands([]), []);
+  const changeStage = useCallback((next: KnowledgeStage) => {
+    if (dirtyRef.current && !window.confirm("当前有未保存内容，放弃修改并切换阶段？")) return;
+    onDirty(false);
+    setStage(next);
+    const defaults = DEFAULT_STAGE_VIEW[next];
+    setView(defaults.view);
+    setAssetTypeFilter(defaults.asset || "");
+    setExpiring(Boolean(defaults.expiring));
+    setPage(1);
+    const nextParams = new URLSearchParams(params);
+    nextParams.set("stage", next);
+    nextParams.delete("panel");
+    nextParams.delete("mode");
+    nextParams.delete("assetId");
+    nextParams.delete("assetType");
+    nextParams.delete("document");
+    nextParams.set("view", defaults.view);
+    if (defaults.asset) nextParams.set("asset", defaults.asset); else nextParams.delete("asset");
+    if (defaults.expiring) nextParams.set("expiring", "1"); else nextParams.delete("expiring");
+    setParams(nextParams);
+  }, [onDirty, params, setParams]);
   const clearStages = useCallback(() => setStages([]), []);
 
   return (
     <section className="kbv kbv-filter-browser" data-admin-knowledge data-admin-kb-v2="home">
+      <KnowledgeLifecycleTabs stage={stage} stats={data?.stats} onChange={changeStage} />
       {receipt ? <p className="admin-receipt status-ok" data-admin-receipt role="status">{receipt}</p> : null}
       {actionError ? <p className="error" role="alert">{actionError}</p> : null}
       {error && !actionError ? <p className="error" role="alert">{errorMessage(error)} <button className="kbv-text-action" disabled={loading} onClick={reload}>重新加载</button></p> : null}
@@ -338,13 +372,14 @@ export default function KnowledgeHome() {
           onView={setView}
           onUpload={() => switchMode("upload")}
           onCreate={() => switchMode("create")}
+          showCreationActions={stage === "create"}
         />
 
         <WorkspaceActionContext.Provider value={actionTarget}>
-        <section className="kbv-browser kbw-workarea" aria-label="知识工作区" data-workspace-mode={mode} aria-busy={loading}>
+        <section id={`kb-stage-panel-${stage}`} role="tabpanel" className="kbv-browser kbw-workarea" aria-label="知识工作区" data-workspace-mode={mode} data-kb-active-stage={stage} aria-busy={loading}>
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           <div className="kbw-body" ref={bodyRef} onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
-          {mode==="list" ? <ReviewView stats={data?.stats} governance={data?.governance} /> : null}
+          {mode==="list" && (stage === "lifecycle" || stage === "pending-review") ? <ReviewView stats={data?.stats} governance={data?.governance} /> : null}
           {mode==="list" && (view !== "all" || assetTypeFilter || expiring) ? (
             <p className="kbv-filter-note" data-kbv-filter-note role="status">
               {/* 下钻筛选轴回显：条件与列表同源，可一键清除（DESIGN §9.2）。 */}
