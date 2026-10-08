@@ -178,7 +178,7 @@ describe("approval optimization boundaries on PostgreSQL", () => {
     for (const selectedApprovers of [{ review: ["review-outsider"] }, { review: ["review-employee"] }, { start: ["review-reviewer"] }, { review: ["review-reviewer", "review-reviewer"] }])
       expect((await req("employee", "/approvals/v2/preview", { ...command, selectedApprovers })).status).toBe(422);
     const confirm = await (await req("employee", "/approvals/v2/prepare", command)).json();
-    getConn().prepare("UPDATE organization_memberships SET status='inactive' WHERE id='review-membership:reviewer'").run();
+    getConn().prepare("UPDATE organization_memberships SET status='ended' WHERE id='review-membership:reviewer'").run();
     const result = await req("employee", "/approvals/v2/commands", { command, confirmationId: confirm.confirmationId, idempotencyKey: "revoked-selected-reviewer" });
     expect([409, 422]).toContain(result.status);
     expect(getConn().prepare("SELECT COUNT(*) AS count FROM review_instances").get()).toMatchObject({ count: 0 });
