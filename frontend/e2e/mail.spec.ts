@@ -302,6 +302,7 @@ test("通讯阶段变更点红人、选目标后提交显式合作与阶段绑�
     json: { task: { id: "tsk_mail_stage", task_type: "confirm_stage" }, needs_clarification: false },
   }));
   await page.route("**/api/tasks/tsk_mail_stage/run", (route) => route.fulfill({
+    status: 202,
     json: { task: { id: "tsk_mail_stage" }, session_id: "ses_mail_stage" },
   }));
   await page.goto("/mail?c=3901");

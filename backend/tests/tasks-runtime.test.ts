@@ -494,7 +494,7 @@ describe("task CRUD and run flow", () => {
     const task = created.body.task as Json;
     expect(task.task_type).toBe("confirm_stage");
     const run = await request("POST", `/api/tasks/${task.id}/run`, {});
-    expect(run.status).toBe(200);
+    expect(run.status).toBe(202);
     expect(run.body.session_id).toEqual(expect.any(String));
     expect(getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_mail_stage"))
       .toMatchObject({ stage_code: "QUOTE_PENDING" });
