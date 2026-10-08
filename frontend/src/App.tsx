@@ -27,6 +27,7 @@ const Partners = lazy(() => import("./pages/Partners"));
 const Agents = lazy(() => import("./pages/Agents"));
 const AgentTeams = lazy(() => import("./pages/AgentTeams"));
 const Tasks = lazy(() => import("./pages/Tasks"));
+const TaskDetailPage = lazy(() => import("./pages/TaskDetailPage"));
 const Leads = lazy(() => import("./pages/Leads"));
 const Cooperations = lazy(() => import("./pages/Cooperations"));
 
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/work" element={<Navigate to="/" replace />} />
             <Route path="/s/:id" element={<SessionEntry />} />
             <Route path="/tasks" element={<Tasks />} />
+            <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
             <Route path="/leads" element={<Leads />} />
             <Route path="/cooperations" element={<Cooperations />} />
             <Route path="/pipeline" element={<Pipeline />} />

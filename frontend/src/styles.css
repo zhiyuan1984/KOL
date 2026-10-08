@@ -17011,3 +17011,85 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   color: var(--accent-text);
   border: 1px solid var(--accent);
 }
+/* Task center: fixed columns, no horizontal scrolling; only task name may collapse. */
+.tasks-page .task-center-table-wrap { overflow-x: hidden; overflow-y: auto; }
+.tasks-page .task-center-table { width: 100%; min-width: 0; table-layout: fixed; }
+.tasks-page .task-center-col-task { width: auto !important; }
+.tasks-page .task-center-col-status { width: 88px !important; }
+.tasks-page .task-center-col-time { width: 96px !important; }
+.tasks-page .task-center-col-type { width: 90px !important; }
+.tasks-page .task-center-col-actions { width: 138px !important; }
+.tasks-page .task-center-table th,
+.tasks-page .task-center-table td { white-space: nowrap; }
+.tasks-page .task-center-table th { overflow: hidden; text-overflow: clip; }
+.tasks-page .task-center-task-cell,
+.tasks-page .task-center-task-content,
+.tasks-page .task-center-task-cell strong { min-width: 0; max-width: 100%; }
+.tasks-page .task-center-task-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-page .task-center-status,
+.tasks-page .task-center-type-cell,
+.tasks-page .task-center-actions { white-space: nowrap; }
+.tasks-page .task-center-table td[data-label="更新时间"] { overflow: hidden; text-overflow: clip; font-variant-numeric: tabular-nums; }
+.tasks-page .task-center-actions { gap: 6px; flex-wrap: nowrap; }
+@media (max-width: 760px) {
+  .tasks-page .task-center-table { min-width: 0; }
+  .tasks-page .task-center-col-status { width: 80px !important; }
+  .tasks-page .task-center-col-time { width: 84px !important; }
+  .tasks-page .task-center-col-type { width: 78px !important; }
+  .tasks-page .task-center-col-actions { width: 128px !important; }
+  .tasks-page .task-center-table th,
+  .tasks-page .task-center-table td { padding-inline: 6px; }
+  .tasks-page .task-center-table th:first-child,
+  .tasks-page .task-center-table td:first-child { padding-inline-start: 0; }
+  .tasks-page .task-center-table th:last-child,
+  .tasks-page .task-center-table td:last-child { padding-inline-end: 0; }
+  .tasks-page .task-center-actions { gap: 4px; }
+  .tasks-page .task-center-actions button,
+  .tasks-page .task-center-actions a { padding-inline: 2px; }
+}
+/* Final task-center composition: type is detail-only; task name owns the freed column. */
+.tasks-page .task-center-table { table-layout: fixed; min-width: 0; }
+.tasks-page .task-center-col-task { width: auto !important; }
+.tasks-page .task-center-col-status { width: 88px !important; }
+.tasks-page .task-center-col-time { width: 96px !important; }
+.tasks-page .task-center-col-actions { width: 138px !important; }
+.tasks-page .task-center-table th,
+.tasks-page .task-center-table td { white-space: nowrap; }
+.tasks-page .task-center-task-cell,
+.tasks-page .task-center-task-content,
+.tasks-page .task-center-task-cell strong { min-width: 0; max-width: 100%; }
+.tasks-page .task-center-task-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-page .task-center-table td[data-label="更新时间"] { overflow: hidden; text-overflow: clip; font-variant-numeric: tabular-nums; }
+.tasks-page .task-center-actions { gap: 6px; flex-wrap: nowrap; white-space: nowrap; }
+
+/* Detail is intentionally data-dense: compact sections, four-up facts and a short timeline rhythm. */
+.task-detail-page { max-width: 1240px; padding-top: 16px; }
+.task-detail-page-header { padding-bottom: 12px; }
+.task-detail-heading { margin-top: 10px; }
+.task-detail-heading h1 { font-size: 20px; line-height: 28px; }
+.task-detail-layout { grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; margin-top: 12px; }
+.task-detail-main, .task-detail-side { gap: 12px; }
+.task-detail-section { padding: 12px; border-radius: var(--ds-radius-sm, 6px); }
+.task-detail-section-head { margin-bottom: 10px; }
+.task-detail-info-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 14px; }
+.task-detail-progress { margin-bottom: 12px; }
+.task-detail-timeline li { gap: 10px; padding-bottom: 12px; }
+.task-detail-timeline p { margin-top: 2px; }
+.task-detail-records div { padding: 8px 10px; }
+.task-detail-side-list { gap: 10px; }
+.task-detail-next { gap: 6px; }
+@media (max-width: 760px) {
+  .tasks-page .task-center-col-status { width: 80px !important; }
+  .tasks-page .task-center-col-time { width: 84px !important; }
+  .tasks-page .task-center-col-actions { width: 128px !important; }
+  .tasks-page .task-center-table th,
+  .tasks-page .task-center-table td { padding-inline: 6px; }
+  .tasks-page .task-center-table th:first-child,
+  .tasks-page .task-center-table td:first-child { padding-inline-start: 0; }
+  .tasks-page .task-center-table th:last-child,
+  .tasks-page .task-center-table td:last-child { padding-inline-end: 0; }
+  .tasks-page .task-center-actions { gap: 4px; }
+  .tasks-page .task-center-actions button,
+  .tasks-page .task-center-actions a { padding-inline: 2px; }
+  .task-detail-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
