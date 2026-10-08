@@ -2,7 +2,7 @@
  * Home AI发现 client against landed /api/home/discovery/* (runs, not batches).
  * 404 → fallback template / empty runs. Never fabricate candidates.
  */
-import { api, type TaskEvent } from "../api";
+import { api, type RuntimeActionView, type TaskEvent } from "../api";
 import {
   asDiscoveryTemplate,
   fallbackDiscoveryTemplate,
@@ -389,6 +389,71 @@ export async function loadDiscoveryTemplate(): Promise<DiscoveryTemplate> {
     if (!isMissingEndpoint(error)) throw error;
   }
   return fallbackDiscoveryTemplate();
+}
+
+export type SessionDiscoveryResult = {
+  run: HomeDiscoveryRun | null;
+  candidates: HomeDiscoveryCandidate[];
+  action: RuntimeActionView | null;
+  missing: boolean;
+  down: boolean;
+};
+
+/**
+ * 线索智能体会话的唯一结果入口：runtime.actions 返回的 crawl.result_json
+ * 是结构化候选快照。AI 发现页只把它投影成现有右栏 view model，绝不再
+ * 从旧 home/discovery/runs 表复制一份候选。
+ */
+export function sessionDiscoveryFromAction(action: RuntimeActionView | null, sessionId: string): SessionDiscoveryResult {
+  const crawl = action?.crawl;
+  const snapshot = crawl?.result_json;
+  const rawCandidates = snapshot?.candidates || [];
+  const candidates = rawCandidates.map((row) => asHomeCandidate({
+    ...row,
+    nickname: row.name,
+    avg_plays_10: row.avg_views_10,
+    sampled_views_avg: row.sampled_views_avg,
+    in_pool: row.in_pool,
+    already_in_pool: row.in_pool,
+    already_followed: row.followed,
+    status: row.ignored ? "dismissed" : "suggested",
+    run_id: action?.id,
+  })).filter(Boolean) as HomeDiscoveryCandidate[];
+  if (!action) return { run: null, candidates: [], action: null, missing: true, down: false };
+  const crawlState = String(crawl?.state || action.state || "").toLowerCase();
+  const resultState = String(crawl?.result_state || "").toLowerCase();
+  const status = resultState === "ready" || crawlState === "succeeded"
+    ? "completed"
+    : ["failed", "uncertain", "cancelled"].includes(crawlState) ? crawlState
+      : ["queued", "starting", "running"].includes(crawlState) ? "crawling" : "queued";
+  const run: HomeDiscoveryRun = {
+    id: action.id,
+    headline: "线索智能体发现结果",
+    raw_count: candidates.length || null,
+    shortlist_count: candidates.length,
+    status,
+    work_item_id: undefined,
+    session_id: sessionId,
+    brief_version: 1,
+    created_at: action.created_at,
+    started_at: crawl?.status_json?.started_at ? String(crawl.status_json.started_at) : undefined,
+    completed_at: status === "completed" ? (crawl?.updated_at || action.updated_at) : undefined,
+    error: crawl?.result_error || crawl?.error_code || action.error_code || null,
+    memory_validity: "current",
+  };
+  return { run, candidates, action, missing: false, down: false };
+}
+
+export async function loadSessionDiscovery(sessionId: string): Promise<SessionDiscoveryResult> {
+  try {
+    const data = await api.runtimeActions(sessionId);
+    const action = data.actions
+      .filter((item) => item.operation === "start_crawl")
+      .sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))[0] || null;
+    return sessionDiscoveryFromAction(action, sessionId);
+  } catch {
+    return { run: null, candidates: [], action: null, missing: false, down: true };
+  }
 }
 
 export async function loadDiscoveryRuns(): Promise<OptionalGet<HomeDiscoveryRun[]>> {

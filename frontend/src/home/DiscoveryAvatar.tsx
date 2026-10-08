@@ -5,7 +5,7 @@ export default function DiscoveryAvatar({ active = false, size = "md" }: { activ
   const imageSize = size === "sm" ? 20 : 28;
   const style = { "--discovery-avatar-size": `${dimension}px`, "--discovery-avatar-image-size": `${imageSize}px` } as CSSProperties;
   return (
-    <span className={`discovery-run-avatar discovery-run-avatar-${size}${active ? " is-active" : ""}`} aria-hidden="true" style={style}>
+    <span className={`discovery-run-avatar discovery-run-avatar-${size}${active ? " is-active" : ""}`} aria-hidden="true" data-discovery-avatar-motion={active ? "frame" : "static"} style={style}>
       {Array.from({ length: 9 }, (_, index) => (
         <img key={index + 1} src={`/avatars/lucas/Lucas${index + 1}.webp`} alt="" width={imageSize} height={imageSize} loading="eager" />
       ))}
