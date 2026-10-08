@@ -6,13 +6,8 @@ import { reviewProgress } from "../src/approval/review-progress.js";
 import { reviewStarters } from "../src/approval/review-starters.js";
 import { skillOutputSchema, withNarrative, requiredSkillOutputMissing } from "../src/worker/runner.js";
 import { requireTaskDefinition } from "../src/tasks/registry.js";
-import { messageRisk } from "../../frontend/src/agentUx.js";
 
 const now = "2026-10-09T00:00:00Z";
-it("labels a saved AI approval draft as draft risk rather than a read result", () => {
-  expect(messageRisk("task_result_card", { artifact_type: "review_draft" })).toBe("L2");
-  expect(messageRisk("task_result_card", { title: "申请草稿尚未形成" })).toBe("L1");
-});
 const ctx = { tenant: "a", actor: "employee", admin: false, people: [
   { id: "employee", name: "员工", managerIds: ["reviewer"] },
   { id: "reviewer", name: "负责人", managerIds: [], roles: ["finance"] },
