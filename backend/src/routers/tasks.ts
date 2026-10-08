@@ -555,12 +555,13 @@ tasks.get("/workbench/tasks", (c) => {
     if (batch.length < rawChunk) exhausted = true;
   }
   const page = rows.slice(0, limit);
-  const collabs = collabsByIds(page.map((row) => String(row.project_id || "")).filter(Boolean));
+  const collabs = collabsByIds([...new Set(page.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))]);
   const definitions = taskDefinitionIndex();
   const items = page
     .map((row) => {
       const reasons = todayMembershipReasons(row);
-      const projected = decorateTaskFromCollab(publicWorkItem(row, collabs.get(String(row.project_id || "")) || null, definitions), collabs.get(String(row.project_id || "")));
+      const collab = collabs.get(String(row.collaboration_id || row.project_id || ""));
+      const projected = decorateTaskFromCollab(publicWorkItem(row, collab || null, definitions), collab);
       return {
         ...projected,
         plan_view: reasons.length ? "today" : "todo",

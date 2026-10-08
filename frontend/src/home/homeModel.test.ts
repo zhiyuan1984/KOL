@@ -286,7 +286,7 @@ describe("display status labels", () => {
 });
 
 describe("display task grouping", () => {
-  it("projects icon/group/verb onto host tasks and keeps display_rank order", () => {
+  it("decorates host tasks without replacing current title or action", () => {
     const host = [task({ id: "t1", title: "宿主", priority: "important", due_at: new Date().toISOString() })];
     const rows = projectDisplayTasks([
       { work_item_id: "t1", title: "改写标题", why: "因为", rank: 2, verb: "handle", label: "处理", icon: "🔥", group: "重要" },
@@ -294,8 +294,8 @@ describe("display task grouping", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].display_icon).toBe("🔥");
     expect(rows[0].display_group).toBe("重要");
-    expect(rows[0].display_verb).toBe("handle");
-    expect(rows[0].title).toBe("改写标题");
+    expect(rows[0].display_verb).toBeUndefined();
+    expect(rows[0].title).toBe("宿主");
     expect(rows[0].priority).toBe("important");
   });
 
@@ -326,8 +326,8 @@ describe("display task grouping", () => {
       { work_item_id: "t2", title: "结束-完成", rank: 2 },
       { work_item_id: "t3", title: "结束-取消", rank: 3 },
       { work_item_id: "t4", title: "结束-忽略", rank: 4 },
-      { work_item_id: "", title: "无宿主保留", rank: 5 },
+      { work_item_id: "", title: "无宿主不可生成任务", rank: 5 },
     ], host);
-    expect(rows.map((row) => row.title)).toEqual(["还在", "无宿主保留"]);
+    expect(rows.map((row) => row.title)).toEqual(["进行中"]);
   });
 });

@@ -142,16 +142,16 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   // 待办是全部未结责任，包含今日相关行；今日只是其中的子集。
   await expect(page.locator("[data-today-todo]")).toHaveCount(7);
   await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toBeVisible();
-  // 分桶容器与「后续」文案随分桶分组移除；状态 chip 用 taskDisplayStatus 派生标签。
+  // 不再按状态分桶；每一行保留当前正式任务状态。
   await expect(page.locator('[data-today-todo="tsk_queued"]')).toBeVisible();
-  await expect(page.locator('[data-today-todo="tsk_queued"] .task-board-row-state[data-state]')).toHaveText("任务状态：未开始");
+  await expect(page.locator('[data-today-todo="tsk_queued"] .task-board-row-state[data-state]')).toHaveText("已入队");
   await expect(page.locator('[data-today-todo="tsk_queued"] [data-today-todo-act]')).toHaveText("打开");
   await expect(page.locator('[data-today-todo="tsk_ai_open"]')).toBeVisible();
-  await expect(page.locator('[data-today-todo="tsk_ai_open"] .task-board-row-state[data-state]')).toHaveText("任务状态：未开始");
+  await expect(page.locator('[data-today-todo="tsk_ai_open"] .task-board-row-state[data-state]')).toHaveText("待处理");
   await expect(page.locator('[data-today-todo="tsk_done"]')).toHaveCount(0);
-  await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
+  await expect(page.locator(".task-board-group-row")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("今天推荐");
-  await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
+  await expect(page.getByRole("heading", { name: "待处理", exact: true })).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("加入待办");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("确认后才会出现");
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);
@@ -195,11 +195,19 @@ test("exception summary and filter agree; refreshing data does not plan", async 
   await expect(exception).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-today-todo]")).toHaveCount(1);
   await expect(page.locator('[data-today-todo="tsk_attempt_failed"]')).toContainText("上次执行失败");
-  await expect(page.locator('[data-today-todo="tsk_attempt_failed"]')).toContainText("任务状态：待处理");
+  await expect(page.locator('[data-today-todo="tsk_attempt_failed"] [aria-label="任务状态：待处理"]')).toBeVisible();
+  const details = page.locator("#task-board-details-tsk_attempt_failed");
+  await expect(details).toBeHidden();
+  await page.locator('[data-today-todo="tsk_attempt_failed"]').getByRole("button", { name: "上次执行失败" }).click();
+  await expect(details).toBeVisible();
+  await expect(details).toContainText("任务状态：待处理");
+  await page.locator('[data-today-todo="tsk_attempt_failed"] .task-board-details-toggle').click();
+  await expect(details).toBeHidden();
   await page.getByRole("button", { name: "清除筛选" }).click();
   await expect(page.locator("[data-today-todo]")).toHaveCount(2);
   const before = reads;
-  await page.getByRole("button", { name: "刷新任务数据" }).click();
+  await expect(page.getByRole("button", { name: "刷新任务数据" })).toHaveCount(0);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await expect.poll(() => reads).toBeGreaterThan(before);
   await expect(page.locator("[data-today-todo]")).toHaveCount(2);
   expect(planPosts).toEqual([]);
@@ -255,8 +263,8 @@ test("tab=todo is a memory route and does not POST sessions", async ({ page }) =
   await page.goto("/?tab=todo");
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
   await expect(page.locator(".task-board-filters")).toBeVisible();
-  await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
+  await expect(page.locator(".task-board-group-row")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("今天推荐");
-  await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
+  await expect(page.getByRole("heading", { name: "待处理", exact: true })).toHaveCount(0);
   expect(sessionPosts).toEqual([]);
 });
