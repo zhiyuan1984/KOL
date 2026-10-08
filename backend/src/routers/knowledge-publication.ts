@@ -5,6 +5,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { bodyLimit } from "hono/body-limit";
 import { scopedUser } from "../auth.js";
+import { requiresKnowledgeEntryAuthorization } from "./knowledge-route-scope.js";
 import { HttpFail } from "../host/errors.js";
 import { dataDir } from "../config.js";
 import { postgresTransaction } from "../postgres/pool.js";
@@ -36,7 +37,7 @@ knowledgePublication.use("/admin/knowledge/documents/:id/*",async(c,next)=>{
 });
 knowledgePublication.use("/admin/knowledge/:id/*",async(c,next)=>{
   const id=c.req.param("id") || "";
-  if(!["documents","bases","domains","workspace-v1","entries","publication-v2","bindings","raw","extract","proposals"].includes(id))await postgresTransaction(db=>authorizeEntry(db,actor(),c.req.header("X-Review-Company"),id));
+  if(requiresKnowledgeEntryAuthorization(id))await postgresTransaction(db=>authorizeEntry(db,actor(),c.req.header("X-Review-Company"),id));
   await next();
 });
 knowledgePublication.use("/admin/knowledge/:id",async(c,next)=>{
