@@ -26,6 +26,7 @@ import { evaluateOwnershipRelease, releaseFollowOwnershipIfEligible } from "../s
 import { callMemoryStarryTool } from "../src/host/starry-connectors.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import * as recognize from "../src/tasks/recognize.js";
+import * as scoringCriteria from "../src/host/kol-scoring-criteria.js";
 import { taskDefinition, taskDefinitions } from "../src/tasks/registry.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -527,6 +528,35 @@ ${body.state?.target_criteria || ""}`;
       ).get("KOL_CRIT") as { assessment_criteria: string; potential_score: unknown };
       expect(Number(row.potential_score)).toBe(85);
       expect(row.assessment_criteria).toContain("平台 youtube");
+    } finally {
+      if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = priorKey;
+    }
+  });
+
+  it("explicit null scoring criteria never inherit an older discovery scope", async () => {
+    seedProfile("KOL_NO_CRITERIA");
+    const latest = vi.spyOn(scoringCriteria, "latestDiscoveryCriteria").mockReturnValue(
+      scoringCriteria.normalizeScoringCriteria({ platforms: ["youtube"], keywords: ["old scope"] }),
+    );
+    const priorKey = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    let seen = "";
+    setKolJevFetch(async (_input, init) => {
+      seen = String(init?.body || "");
+      return new Response(JSON.stringify({ model: "typesafe/jev-1.13", answers: {
+        potential: { type: "choice", choice: "high_potential", confidence: 0.9 },
+        risk: { type: "choice", choice: "normal", confidence: 0.9 },
+      } }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    try {
+      const accepted = await request("POST", "/api/home/pool/jev-assess", { kol_uids: ["KOL_NO_CRITERIA"], criteria: null });
+      expect(accepted.status).toBe(202);
+      expect(accepted.body.criteria_summary).toBe("");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect((await request("GET", "/api/home/pool/jev-assess")).body.status).toBe("succeeded");
+      expect(latest).not.toHaveBeenCalled();
+      expect(seen).not.toContain("old scope");
     } finally {
       if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = priorKey;

@@ -61,7 +61,7 @@ function PoolScore({ card }: { card: PoolKol }) {
   const at = card.assessment?.assessed_at ? new Date(card.assessment.assessed_at) : null;
   const atLabel = at && !Number.isNaN(at.getTime()) ? ` · 评估于 ${at.toLocaleDateString("zh-CN")}` : "";
   const criteria = card.assessment?.criteria_summary ? ` · 口径 ${card.assessment.criteria_summary}` : "";
-  return <span className="pool-row-score" data-pool-score="potential" title={`Jev 公开资料评估 · 置信度 ${confidence}%${atLabel}${criteria}`}>评分 {raw} · 置信度 {confidence}%</span>;
+  return <span className="pool-row-score" data-pool-score="potential" title={`公开资料评估 · 置信度 ${confidence}%${atLabel}${criteria}`}>评分 {raw} · 置信度 {confidence}%</span>;
 }
 
 function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, onSelect, onClaim, onConfirm, onCancel }: {
@@ -169,6 +169,9 @@ export default function PoolPane({ cards, totalCount, isFiltered, selectedIds, q
         <SortButton field="score" label="评分" sort={sort} onToggle={onToggleSort} />
       </div>
     </div>
+    {page && !loading && !queryDown ? <p className="pool-pagination" data-pool-count>
+      公海共 {page.total} 位{isFiltered ? ` · 当前筛选 ${page.matched} 位` : ""}
+    </p> : null}
     {syncNotice ? <p className="pool-score-feedback" role="status" data-pool-sync-notice>{syncNotice}</p> : null}
     {undoAvailable && <div className="pool-claim-undo" role="status" data-pool-claim-undo><span>已领取</span><span aria-hidden>·</span><button type="button" data-pool-claim-undo-button data-home-entry="release-follow" disabled={undoBusy} onClick={onUndoClaim}>{undoBusy ? "正在撤销…" : "撤销"}</button>{undoError && <span className="pool-claim-undo-error" role="alert">{undoError}</span>}</div>}
     {loading && cards.length ? <p className="pool-score-feedback" role="status">正在读取公海…</p> : null}

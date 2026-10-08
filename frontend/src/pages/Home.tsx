@@ -45,8 +45,10 @@ import { matchesFollowedSituation, type FollowedSituation } from "../home/Follow
 import PoolInteraction, {
   QUESTION_TEMPLATE_MISSING_COPY,
   type PoolAnalysisKind,
-  type PoolScoreConfirm,
 } from "../home/PoolInteraction";
+import PoolAgentFeed from "../home/PoolAgentFeed";
+import { usePoolAgentWorkspace } from "../home/usePoolAgentWorkspace";
+import "../home/pool-agent.css";
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
@@ -99,8 +101,6 @@ import {
   analyzePrefillPrompt,
   followKolToRecord,
   isAnalyzePrefill,
-  KOL_BATCH_SIZE,
-  poolAnalysisPrefill,
   selectAll,
   toggleSelect,
   type KolSurface,
@@ -373,7 +373,7 @@ export default function Home() {
   const [queuedNotice, setQueuedNotice] = useState("");
   const [poolTemplates, setPoolTemplates] = useState<Partial<Record<PoolAnalysisKind, QuestionTemplateRow>>>({});
   const [poolTemplateNotice, setPoolTemplateNotice] = useState("");
-  const [scoreConfirm, setScoreConfirm] = useState<PoolScoreConfirm | null>(null);
+  const [poolScopeExpanded, setPoolScopeExpanded] = useState(false);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [libraryCount, setLibraryCount] = useState<number | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
@@ -1039,6 +1039,9 @@ export default function Home() {
     },
   });
   poolSetErrorRef.current = poolWorkspace.setError;
+  const poolAgent = usePoolAgentWorkspace(poolWorkspace.assessWithJev, () => poolWorkspace.loadSurface(true));
+  const selectedPoolCards = poolWorkspace.analysisCards.filter((card) => selectedKolIds.includes(card.kol_uid));
+  const poolAgentBusy = poolAgent.dispatching || poolAgent.scoring || poolAgent.running;
 
   /** 四个入口的可点击状态由知识库模板决定，而不是由写死文案决定。 */
   const poolTemplateState = useMemo(() => {
@@ -1318,14 +1321,10 @@ export default function Home() {
 
   const applyPoolSelection = (nextIds: string[]) => {
     setSelectedKolIds(nextIds);
-    const selected = poolWorkspace.analysisCards.filter((card) => nextIds.includes(card.kol_uid));
-    if (selected.length) {
-      prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
-      return;
-    }
-    setAnalyzeSurface(null);
-    setAnalyzeUids([]);
-    if (isAnalyzePrefill(text)) setText("");
+    // 选择只更新范围，不覆盖员工正在编辑的正文。
+    setAnalyzeSurface(nextIds.length ? "pool" : null);
+    setAnalyzeUids(nextIds);
+    if (poolAgent.scoreConfirm) poolAgent.setScoreConfirm(null);
   };
 
   const toggleSelectedPool = (id: string, on: boolean) => {
@@ -1343,7 +1342,7 @@ export default function Home() {
   const poolTemplateBody = (kind: PoolAnalysisKind): string => String(poolTemplates[kind]?.body || "").trim();
 
   /**
-   * 四个入口只预填空草稿：名单 + 知识库模板正文，绝不提交或执行。
+   * 分析入口只预填知识库模板正文；对象范围由独立上下文传入。
    * 模板缺失时禁用入口并如实提示，不回落成写死的问题（CONST-09/10）。
    */
   const prefillPoolQuestion = (kind: PoolAnalysisKind, targets: string[]): boolean => {
@@ -1353,11 +1352,14 @@ export default function Home() {
       setPoolTemplateNotice(QUESTION_TEMPLATE_MISSING_COPY);
       return false;
     }
-    const cards = poolWorkspace.analysisCards.filter((card) => targets.includes(card.kol_uid));
     setPoolTemplateNotice("");
+    setLockedIntent(null);
+    setLockedLabel(null);
+    setSelectedSkillTemplate(null);
+    applyLockedKnowledge(null);
     setAnalyzeSurface("pool");
     setAnalyzeUids(targets);
-    setText(poolAnalysisPrefill(cards, "pool", body));
+    setText(body);
     setComposerFocused(true);
     setDraftFocus((value) => value + 1);
     setQueuedNotice("");
@@ -1365,38 +1367,19 @@ export default function Home() {
   };
 
   const startPoolAnalysis = (kind: PoolAnalysisKind) => {
-    const selected = selectedKolIds.filter((id) => poolWorkspace.analysisCards.some((card) => card.kol_uid === id));
-    if (kind !== "score" && !selected.length) return;
-    if (!prefillPoolQuestion(kind, selected)) return;
-    if (kind === "score") setScoreConfirm({ busy: false, count: selected.length, error: null });
-  };
-
-  const confirmPoolScore = async () => {
-    const targets = analyzeUids;
-    // 当前 AI 发现条件就是这次评分的口径：模型据此判「量级是否达标 / 方向地区是否匹配」，
-    // 没有条件时不带 target_criteria（模型不得自己编匹配）。
-    setScoreConfirm({ busy: true, count: targets.length, error: null });
-    try {
-      const criteria = discoveryBrief ? { ...discoveryBrief } : null;
-      // The backend protects each Jev request at eight targets. A full-page
-      // selection is therefore executed in bounded batches, with each batch
-      // persisted and refreshed before the next one starts.
-      if (!targets.length) {
-        await poolWorkspace.assessWithJev(undefined, criteria);
-      } else {
-        for (let offset = 0; offset < targets.length; offset += KOL_BATCH_SIZE) {
-          await poolWorkspace.assessWithJev(targets.slice(offset, offset + KOL_BATCH_SIZE), criteria);
-        }
-      }
-      setScoreConfirm(null);
-    } catch (cause) {
-      setScoreConfirm({ busy: false, count: targets.length, error: cause instanceof Error ? cause.message : "KOL评分失败" });
+    const selected = selectedPoolCards.map((card) => card.kol_uid);
+    if (!selected.length || poolAgentBusy) return;
+    if (kind === "score") {
+      const criteria = discoveryBrief || lastDiscoverySubmit?.brief || null;
+      poolAgent.setScoreConfirm({
+        scope: structuredClone(selectedPoolCards), criteria: criteria ? structuredClone(criteria) : null,
+        criteriaNote: criteria
+          ? "评分口径：当前 AI 发现条件（平台 / 地区 / 方向 / 关键词 / 粉丝与均播门槛）。"
+          : "评分口径：未设置 AI 发现条件，按公开资料通用口径。",
+      });
+      return;
     }
-  };
-
-  const cancelPoolScore = () => {
-    if (scoreConfirm?.busy) return;
-    setScoreConfirm(null);
+    if (!prefillPoolQuestion(kind, selected)) return;
   };
 
   const mergeCatalogTask = (updated: Task) => {
@@ -1643,6 +1626,17 @@ export default function Home() {
     );
     const submittedParamKey = submittedTemplate ? `${submittedTemplate.id}:${submittedTemplate.version}` : intent || "";
     if (!prompt && !p.attachments?.length && !skillFromScope && !submittedSchemaFields.length) return;
+    if (mode === "pool" && !skillFromScope && (!p.intent || p.intent === "free") && !lockedIntent) {
+      if (!selectedPoolCards.length) {
+        setErr("请先在右侧选择要分析的红人");
+        return;
+      }
+      if (poolAgentBusy || poolAgent.scoreConfirm) return;
+      setErr("");
+      setText("");
+      await poolAgent.submit(selectedPoolCards, prompt);
+      return;
+    }
     const intakeText = prompt || selectedDefinition?.title || "";
     const submittedSkillValues = paramSkillId.current === submittedParamKey
       ? skillParamValues
@@ -2408,6 +2402,19 @@ export default function Home() {
       data-composer-rhythm="dock"
     >
       {quickTaskBar}
+      {mode === "pool" && poolAgent.scoreConfirm ? <section className="pool-agent-score-confirm" role="group"
+        aria-label="执行红人评分确认" data-pool-score-confirm data-pool-score-targets={poolAgent.scoreConfirm.scope.length}>
+        <strong>⚠ R3 · 红人评分待确认</strong>
+        <p>将对已选 {poolAgent.scoreConfirm.scope.length} 位使用 Jev 评分，结果写入 KOL 记忆。</p>
+        <p>{poolAgent.scoreConfirm.scope.slice(0, 3).map((card) => card.identity.display).join("、")}
+          {poolAgent.scoreConfirm.scope.length > 3 ? <button className="btn text sm" aria-expanded={poolScopeExpanded}
+            onClick={() => setPoolScopeExpanded((current) => !current)}>查看全部 {poolAgent.scoreConfirm.scope.length} 位</button> : null}</p>
+        <p>{poolAgent.scoreConfirm.criteriaNote}</p>
+        <div className="pool-agent-confirm-actions">
+          <button className="btn text sm" data-pool-score-cancel onClick={() => poolAgent.setScoreConfirm(null)}>取消</button>
+          <button className="btn work sm" data-pool-score-execute onClick={() => void poolAgent.confirmScore()}>执行评分</button>
+        </div>
+      </section> : null}
       {stopping ? <p className="composer-override-hint" role="status" data-home-stopping>正在停止…</p> : null}
       <ComposerDock
         variant="workspace"
@@ -2415,9 +2422,10 @@ export default function Home() {
         value={text}
         onChange={onComposerText}
         onSubmit={onComposer}
-        disabled={busy || blockSubmit}
-        running={intakeRunning}
-        onStop={stopIntake}
+        disabled={busy || blockSubmit || (mode === "pool" && (poolAgentBusy || Boolean(poolAgent.scoreConfirm)))}
+        running={mode === "pool" ? poolAgent.running : intakeRunning}
+        onStop={mode === "pool" ? () => void poolAgent.stop() : stopIntake}
+        hint={mode === "pool" ? "问问 AI，例如：比较这些红人谁更值得领取…" : undefined}
         onFocusChange={setComposerFocused}
         lockedIntent={lockedIntent}
         lockedLabel={lockedLabel}
@@ -2633,25 +2641,28 @@ export default function Home() {
               railLabel="公海结果"
               railToggleLabel="公海"
               railStorageKey="ui:home-pool-rail-collapsed-v2"
-              centerContent={(
+              streamStick={poolAgentBusy}
+              centerHeader={(
                 <PoolInteraction
-                  totalCount={poolWorkspace.totalCount}
-                  selectedCount={selectedKolIds.length}
-                  maintenanceBusy={poolWorkspace.maintenanceBusy}
-                  maintenanceNotice={poolWorkspace.maintenanceNotice}
-                  maintenanceError={poolWorkspace.maintenanceError}
-                  interaction={renderInteractionFeedback()}
+                  selected={selectedPoolCards}
+                  scopeExpanded={poolScopeExpanded}
+                  onToggleScope={() => setPoolScopeExpanded((current) => !current)}
                   templates={poolTemplateState}
                   templateNotice={poolTemplateNotice}
-                  criteriaNote={discoveryBrief
-                    ? "评分口径：当前 AI 发现条件（平台 / 地区 / 方向 / 关键词 / 粉丝与均播门槛）。"
-                    : "评分口径：未设置 AI 发现条件，按公开资料通用口径。"}
-                  scoreConfirm={scoreConfirm}
+                  disabled={poolAgentBusy || poolAgent.waitingScore || Boolean(poolAgent.scoreConfirm)}
                   onAnalyze={startPoolAnalysis}
-                  onConfirmScore={() => void confirmPoolScore()}
-                  onCancelScore={cancelPoolScore}
                 />
               )}
+              centerContent={<>
+                {poolScopeExpanded ? <section className="pool-agent-selected-list" data-pool-selected-list>
+                  <strong>当前分析范围</strong>
+                  <ul>{(poolAgent.scoreConfirm?.scope || selectedPoolCards).map((card) => <li key={card.kol_uid}>{card.identity.display}</li>)}</ul>
+                </section> : null}
+                <PoolAgentFeed turns={poolAgent.turns} onRetryAnalysis={(turn) => void poolAgent.retryAnalysis(turn)}
+                  onRetryScore={poolAgent.retryScore} onResumeScore={(turn) => void poolAgent.resumeScore(turn)}
+                  onRunning={poolAgent.onSessionRunning} disabled={poolAgentBusy || Boolean(poolAgent.scoreConfirm)} />
+                {renderInteractionFeedback()}
+              </>}
               centerFooter={renderComposerDock()}
               rail={(
                 <PoolPane

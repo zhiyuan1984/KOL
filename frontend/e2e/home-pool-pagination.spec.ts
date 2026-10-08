@@ -25,19 +25,19 @@ test("pool pages preserve global counts and selected analysis scope, and search 
   });
   await page.goto("/?tab=pool");
   await expect(page.locator("[data-pool-card]")).toHaveCount(50);
-  await expect(page.locator("[data-pool-total]")).toHaveText("101");
+  await expect(page.locator("[data-pool-count]")).toHaveText("公海共 101 位");
   await page.locator("[data-pool-select='page_0']").check();
   await page.locator("[data-pool-next]").click();
   await expect(page.locator("[data-pool-kol='page_50']")).toBeVisible();
   await expect(page.locator("[data-pool-select]:checked")).toHaveCount(0);
-  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/分页红人0/);
+  await expect(page.locator("[data-pool-selection-scope]")).toContainText("分页红人0");
   await page.locator("[data-pool-next]").click();
   await expect(page.locator("[data-pool-card]")).toHaveCount(1);
   await expect(page.locator("[data-pool-next]")).toBeDisabled();
   await page.locator("[data-pool-search]").fill("分页红人100");
   await expect(page.locator("[data-pool-kol='page_100']")).toBeVisible();
   await expect(page.locator("[data-pool-card]")).toHaveCount(1);
-  await expect(page.locator("[data-pool-total]")).toHaveText("101");
+  await expect(page.locator("[data-pool-count]")).toHaveText("公海共 101 位 · 当前筛选 1 位");
   await expect.poll(() => offsets).toEqual([0, 50, 100, 0]);
 });
 
