@@ -290,6 +290,39 @@ test("returned 往来要点 when GET /api/mail is the primary path", async ({ pa
   await expect(page.locator("[data-mail-digest] [data-digest-body]")).toContainText("与 Amy 的往来集中在 LiTime 合作");
 });
 
+test("通讯阶段变更点红人、选目标后提交显式合作与阶段绑定", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.route("**/api/queries/mail.collaboration-stage?**", (route) => route.fulfill({
+    json: {
+      collaboration_id: "col_xiaomei", found: true, handle: "小美妆日记",
+      stage_code: "QUOTE_PENDING", stage_label: "报价待确认",
+    },
+  }));
+  await page.route("**/api/tasks/from-text", (route) => route.fulfill({
+    json: { task: { id: "tsk_mail_stage", task_type: "confirm_stage" }, needs_clarification: false },
+  }));
+  await page.route("**/api/tasks/tsk_mail_stage/run", (route) => route.fulfill({
+    json: { task: { id: "tsk_mail_stage" }, session_id: "ses_mail_stage" },
+  }));
+  await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mail-stage-current]")).toHaveText("当前阶段：报价待确认");
+  await page.locator("[data-composer-input]").fill("已有的其它草稿");
+  await page.locator("[data-mail-stage-kol]").click();
+  await expect(page.locator("[data-composer-input]")).toHaveValue("提出阶段变更 @小美妆日记 到 [目标阶段]");
+  await expect(page.locator('[data-skill-chip="confirm_stage"]')).toBeVisible();
+  await expect(page.locator("[data-mail-stage-target] option[value='INITIAL_CONTACT']")).toHaveCount(1);
+  await expect(page.locator("[data-mail-stage-target] option[value='CONTENT_PLANNING']")).toHaveCount(1);
+  await page.locator("[data-mail-stage-target]").selectOption("NEGOTIATING");
+  await expect(page.locator("[data-composer-input]")).toHaveValue("提出阶段变更 @小美妆日记 到 商务谈判");
+  const submitted = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/api/tasks/from-text"));
+  await page.locator("[data-send]").click();
+  expect((await submitted).postDataJSON()).toMatchObject({
+    collaboration_id: "col_xiaomei",
+    entities: { handle: "小美妆日记", stage_code: "NEGOTIATING", proposed_stage: "NEGOTIATING" },
+  });
+  await expect(page).toHaveURL(/\/s\/ses_mail_stage/);
+});
+
 test("POST /api/jobs/mail.sync/start uses SyncReceipt and does not create sessions", async ({ page }) => {
   const sessionPosts = sessionPostsOf(page);
   await mockFormalMail(page);

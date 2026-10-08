@@ -472,6 +472,8 @@ describe("task CRUD and run flow", () => {
     const run = await request("POST", `/api/tasks/${created.body.id}/run`, {});
     expect(run.status).toBe(422);
     expect(run.body.needs_clarification).toBe(true);
+    expect(run.body.message).toEqual(expect.stringContaining("缺少："));
+    expect(run.body.message).toEqual(expect.stringContaining("目标阶段"));
   });
 
   it("routes a creator-search phrase into the discovery workspace without calling remote start", async () => {

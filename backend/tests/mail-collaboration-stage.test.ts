@@ -8,6 +8,7 @@ import { HttpFail } from "../src/host/errors.js";
 import { mailOperations } from "../src/mail/operations.js";
 import { operationRouter } from "../src/runtime/operations.js";
 import type { Json } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
@@ -20,9 +21,9 @@ async function query(conversationId: string) {
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as Json };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-stage-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   resetConn();
   const router = operationRouter(mailOperations);
@@ -51,7 +52,6 @@ beforeEach(() => {
 
 afterEach(() => {
   resetConn();
-  delete process.env.LINGONG_DB;
   delete process.env.LINGONG_DATA;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
