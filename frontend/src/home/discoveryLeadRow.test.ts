@@ -114,10 +114,11 @@ describe("discovery lead row", () => {
     expect(inLibrary).not.toContain("加入公海");
   });
 
-  it("keeps a single L2 per card: 加入公海 is the only pool-claim-button", () => {
+  it("uses L3 text buttons only on the card (no L2): 加入公海 is a quiet text button", () => {
     const html = render({ in_library: false });
-    const l2Count = (html.match(/pool-claim-button/g) || []).length;
-    expect(l2Count).toBe(1);
+    expect(html).not.toContain("pool-claim-button");
+    expect(html).toContain('data-lead-ingest="c1"');
+    expect(html).toContain("加入公海");
   });
 
   it("renders the brief-fit decision line from thresholds", () => {

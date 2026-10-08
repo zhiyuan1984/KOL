@@ -1535,21 +1535,89 @@ export function homeDiscoveryCandidateIngestPlaceholder(id: string): Json {
  * 二期「加入公海」：单候选 Starry 入库（复用批量 `ingestOne` 同一写入路径，L3 需确认）。
  * 成功后候选即在库（kol_profile_index pool_status='open'）。
  */
+/**
+ * 候选解析（含会话视图回退）。
+ *
+ * 首页会话视图展示的是运行时 `result_json` 的候选（运行时 id），而
+ * `creator_candidates` 的行 id 是 `persistFilteredCandidates` 新生成的
+ * `nid("cand")`——两套 id 空间从未对齐，直接查行必 404。
+ * 回退：按 body.run_id（会话视图下即 runtime action id）去
+ * `runtime_crawl_jobs.result_json` 里找候选，用运行时数据直接执行。
+ */
+async function resolveCandidateForAction(
+  id: string, body: Json,
+): Promise<{ candidate: Row; sqliteRow: Row | null; sourceBatch: string; runId: string }> {
+  try {
+    const row = homeCandidateRow(id);
+    return { candidate: row, sqliteRow: row, sourceBatch: `home:${row.run_id}`, runId: String(row.run_id) };
+  } catch (error) {
+    if (!(error instanceof HttpFail) || error.status !== 404) throw error;
+  }
+  const actionId = String(asObject(body).run_id || "").trim();
+  if (!actionId) {
+    throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人" });
+  }
+  const principal = requireTicketPrincipal();
+  const job = await postgresPool().query<{ result_json: unknown }>(
+    `SELECT result_json FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2`,
+    [actionId, principal.id],
+  );
+  const rawCandidates = asObject(job.rows[0]?.result_json).candidates;
+  const list = Array.isArray(rawCandidates) ? rawCandidates : [];
+  const found = list.map((item) => asObject(item)).find((item) => String(item.id || "") === id);
+  if (!found) {
+    throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人" });
+  }
+  return { candidate: runtimeCandidateRow(found, actionId), sqliteRow: null, sourceBatch: `runtime:${actionId}`, runId: actionId };
+}
+
+/** 把运行时 result_json 的候选适配成下游（ingestOne / 跟进）读取的 Row 形状。 */
+function runtimeCandidateRow(raw: Record<string, unknown>, actionId: string): Row {
+  const str = (value: unknown): string => String(value ?? "").trim();
+  const platform = str(raw.platform).toLowerCase();
+  const platformCreatorId = str(raw.platform_creator_id || raw.platformCreatorId);
+  const nickname = str(raw.nickname || raw.name || raw.display_name || raw.title);
+  const handle = str(raw.handle || raw.username);
+  const followers = Number(raw.followers ?? raw.follower_count);
+  const avgViews = Number(raw.avg_plays_10 ?? raw.avg_views_10);
+  return {
+    id: str(raw.id),
+    platform,
+    platform_creator_id: platformCreatorId,
+    handle: handle || null,
+    nickname: nickname || handle || platformCreatorId,
+    followers: Number.isFinite(followers) ? followers : null,
+    avg_views_10: Number.isFinite(avgViews) ? avgViews : null,
+    source_url: str(raw.profile_url || raw.source_url || raw.url) || null,
+    avatar_url: str(raw.avatar_url || raw.avatar) || null,
+    payload: JSON.stringify({
+      ...raw,
+      contact_email: str(raw.contact_email || raw.email),
+      profile_url: str(raw.profile_url || raw.source_url || raw.url),
+      direction: str(raw.direction || raw.fit || raw.category),
+      region: str(raw.region),
+      avatar_url: str(raw.avatar_url || raw.avatar),
+    }),
+    signals: JSON.stringify({}),
+    run_id: actionId,
+    source: "runtime",
+  } as Row;
+}
+
 export async function ingestHomeDiscoveryCandidate(id: string, body: Json): Promise<Json> {
-  const candidate = homeCandidateRow(id);
   if (!body || (body as Record<string, unknown>).confirmed !== true) {
     throw new HttpFail(422, { code: "l3_confirm_required", message: "加入公海需要确认。" });
   }
-  const run = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(candidate.run_id) as Row;
+  const { candidate, sourceBatch, runId } = await resolveCandidateForAction(id, body);
   const receipt = await ingestOne({
     candidate,
-    source_batch: `home:${run.id}`,
-    run_id: String(run.id),
+    source_batch: sourceBatch,
+    run_id: runId,
   });
   audit(ownerId(), "discovery.candidate.ingested", {
     candidate_id: candidate.id,
     kol_uid: (receipt as Record<string, unknown>).kol_uid,
-    source_batch: `home:${run.id}`,
+    source_batch: sourceBatch,
     sent: false,
     followed: false,
   });
@@ -1572,7 +1640,7 @@ export async function ingestHomeDiscoveryCandidate(id: string, body: Json): Prom
  * 排他认领（`kol_follow_index`）；排他认领仍只在公海完成。
  */
 export async function followHomeDiscoveryCandidate(id: string, body: Json): Promise<Json> {
-  const candidate = homeCandidateRow(id);
+  const { candidate, sqliteRow } = await resolveCandidateForAction(id, body);
   if (!body || (body as Record<string, unknown>).confirmed !== true) {
     throw new HttpFail(422, { code: "follow_confirm_required", message: "跟进需要确认。" });
   }
@@ -1653,7 +1721,10 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
       String(payload.direction || "").trim() || null,
     ],
   );
-  getConn().prepare(`UPDATE creator_candidates SET status='followed', updated_at=? WHERE id=?`).run(now, candidate.id);
+  // SQLite 行状态回写仅在有行时做；会话视图（运行时回退）无行可写，前端已本地标已跟进。
+  if (sqliteRow) {
+    getConn().prepare(`UPDATE creator_candidates SET status='followed', updated_at=? WHERE id=?`).run(now, candidate.id);
+  }
   audit(ownerId(), "discovery.candidate.followed", {
     candidate_id: candidate.id,
     lead_id: leadId,

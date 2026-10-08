@@ -520,8 +520,8 @@ export default function useDiscovery({
    * 二期「跟进」：创建线索 + 更新 Starry 库表（真实动作，替代原来的本地分拣标记）。
    * 成功后该行标「已跟进」；失败抛错由卡片行内展示。
    */
-  const followUpCandidate = async (id: string): Promise<void> => {
-    const result = await followHomeDiscoveryCandidate(id);
+  const followUpCandidate = async (id: string, runId?: string): Promise<void> => {
+    const result = await followHomeDiscoveryCandidate(id, runId);
     if (!result.ok) throw new Error("跟进没有完成。");
     setFollowUpIds((current) => (current.includes(id) ? current : [...current, id]));
     setCandidates((current) => current.map((row) => (
@@ -532,8 +532,8 @@ export default function useDiscovery({
   /**
    * 二期「加入公海」：单候选 Starry 入库。成功后该行标已在库并取消选中。
    */
-  const ingestCandidate = async (id: string): Promise<void> => {
-    const result = await ingestHomeDiscoveryCandidate(id);
+  const ingestCandidate = async (id: string, runId?: string): Promise<void> => {
+    const result = await ingestHomeDiscoveryCandidate(id, runId);
     if (!result.ok) throw new Error("入库没有完成。");
     setCandidates((current) => current.map((row) => (
       row.id === id
