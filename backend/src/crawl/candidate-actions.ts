@@ -10,6 +10,7 @@ import { buildCrawlerImportFile, mapCandidateToCrawlerRow, creatorExternalId } f
 import { importKolProfilesFromCrawlerConfirmed } from "../gateway/import-creator.js";
 import type { Json } from "../types.js";
 import { getSkillTools, getToolPolicy } from "../runtime/store.js";
+import { ensureLeadFromDiscoveryCandidate } from "../ticket-domain/kol-event-bridge.js";
 
 function user() {
   const actor = scopedUser();
@@ -110,7 +111,7 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
   if (checked[0].ignored) throw new HttpFail(409, { code: "candidate_ignored", message: "请先恢复考虑该红人。" });
   if (verb === "follow") {
     if (input.confirmed !== true) throw new HttpFail(422, { code: "follow_click_required" });
-    return postgresTransaction(async client => {
+    const result = await postgresTransaction(async client => {
       await lock(client, row);
       authorizeConnector(action.context_json, "claw");
       await currentSnapshot(client, actionId, row, input.snapshot_version);
@@ -146,6 +147,20 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
         snapshot_version: input.snapshot_version, confirmed: true, risk: "L3", claimed_at_not_effective: true, imported: false, sent: false, stage_changed: false });
       return { ok: true, followed: true, follow_id: followId, kol_uid: uid, imported: false };
     });
+    // 跟进成功后建档为线索（去重：平台+账号已存在则复用）。桥接失败不破坏跟进主动作。
+    if (result.followed && !result.reused) {
+      try {
+        const bridged = await ensureLeadFromDiscoveryCandidate(actor.id, isAdmin(actor), {
+          platform: row.platform, account_handle: row.id, display_name: row.name,
+          account_url: row.source_url, follower_count: row.followers,
+          category: row.direction, candidate_id: candidateId,
+        });
+        return { ...result, lead_id: bridged.lead_id, lead_created: bridged.created };
+      } catch (error) {
+        console.error("kol lead bridge failed after discovery follow", { candidate_id: candidateId, error: error instanceof Error ? error.message : error });
+      }
+    }
+    return result;
   }
   if (verb !== "ingest") throw new HttpFail(404, { code: "candidate_action_unknown" });
   requireSkill("creator_discovery");

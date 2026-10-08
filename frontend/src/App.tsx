@@ -27,6 +27,8 @@ const Partners = lazy(() => import("./pages/Partners"));
 const Agents = lazy(() => import("./pages/Agents"));
 const AgentTeams = lazy(() => import("./pages/AgentTeams"));
 const Tasks = lazy(() => import("./pages/Tasks"));
+const Leads = lazy(() => import("./pages/Leads"));
+const Cooperations = lazy(() => import("./pages/Cooperations"));
 
 function RouteFallback() {
   return <p className="muted" style={{ padding: 24 }} data-route-loading>加载中…</p>;
@@ -52,6 +54,8 @@ export default function App() {
             <Route path="/work" element={<Navigate to="/" replace />} />
             <Route path="/s/:id" element={<Chat />} />
             <Route path="/tasks" element={<Tasks />} />
+            <Route path="/leads" element={<Leads />} />
+            <Route path="/cooperations" element={<Cooperations />} />
             <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/cron" element={<Cron />} />
             <Route path="/cron/:jobId" element={<Cron />} />

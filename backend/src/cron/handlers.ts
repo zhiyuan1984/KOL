@@ -12,7 +12,7 @@ import { HttpFail } from "../host/errors.js";
 import { enqueueSystemCrawl } from "../crawl/runtime-gates.js";
 import { cronJson, normalizeSystemTemplate } from "./contracts.js";
 
-export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment" | "ai-task";
+export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment" | "ai-task" | "kol-deadline-sweep" | "kol-mail-reply-scan";
 
 export type CronHandlerResult = {
   status: "succeeded" | "skipped" | "failed" | "needs_takeover";
@@ -213,7 +213,41 @@ export const CRON_HANDLERS: Record<CronHandlerKey, CronHandler> = {
   "discovery-search": discoverySearch,
   "mail-memory-increment": mailMemoryIncrement,
   "ai-task": aiTask,
+  "kol-deadline-sweep": kolDeadlineSweep,
+  "kol-mail-reply-scan": kolMailReplyScan,
 };
+
+/** KOL 工单 deadline 自动生产者：扫描逾期/临近的拍摄与结算工单，以及已发布未结算的项目，
+ * 在对应 Task 上写入已核验业务事件（verified-event → Jev → 执行队列）。PG-only。 */
+async function kolDeadlineSweep(): Promise<CronHandlerResult> {
+  const { sweepKolDeadlines } = await import("../ticket-domain/kol-deadline-sweep.js");
+  const result = await sweepKolDeadlines();
+  return {
+    status: "succeeded",
+    receipt: {
+      handler_key: "kol-deadline-sweep", side_effect: "write", created_session: false,
+      source: "postgresql_work_orders+kol_cooperations",
+      scanned: result.scanned, emitted: result.emitted.length,
+      events: result.emitted.map((e) => ({ kind: e.kind, ref_id: e.ref_id, event_type: e.event_type })),
+    },
+  };
+}
+
+/** 邮件回复自动检测：inbound 邮件 → 线索匹配 → lead.reply_received 事件（PG-only）。 */
+async function kolMailReplyScan(): Promise<CronHandlerResult> {
+  const { scanMailReplies } = await import("../ticket-domain/kol-mail-reply-scan.js");
+  const result = await scanMailReplies();
+  return {
+    status: "succeeded",
+    receipt: {
+      handler_key: "kol-mail-reply-scan", side_effect: "write", created_session: false,
+      source: "postgresql_kol_mail_items+kol_leads",
+      scanned: result.scanned, emitted: result.emitted.length, skipped: result.skipped.length,
+      events: result.emitted.map((e) => ({ item_id: e.item_id, lead_id: e.lead_id, event_type: e.event_type })),
+      skipped_reasons: result.skipped.map((e) => ({ item_id: e.item_id, reason: e.skipped_reason })),
+    },
+  };
+}
 
 export function cronHandler(key: string): CronHandler | undefined { return CRON_HANDLERS[key as CronHandlerKey]; }
 export function isCronHandlerKey(key: string): key is CronHandlerKey { return Object.prototype.hasOwnProperty.call(CRON_HANDLERS, key); }
@@ -226,6 +260,8 @@ export function handlerContract(key: string): Json {
     "ownership-release": { title: "14 天无互动回公海", execute_as: "system", side_effect: "none", migration_state: "blocked_pending_native_repository", creates_session: false },
     "discovery-search": { title: "发现搜索", execute_as: "system", side_effect: "enqueue", source: "system_template", creates_session: false },
     "mail-memory-increment": { title: "邮件记忆增量", execute_as: "system", side_effect: "none", migration_state: "blocked_pending_native_repository", creates_session: false },
+    "kol-deadline-sweep": { title: "KOL 工单 deadline 扫描", execute_as: "task_owner", side_effect: "write", source: "postgresql_work_orders+kol_cooperations", creates_session: false },
+    "kol-mail-reply-scan": { title: "邮件回复自动检测", execute_as: "lead_owner", side_effect: "write", source: "postgresql_kol_mail_items+kol_leads", creates_session: false },
   };
   return contracts[key] || { title: key, creates_session: false };
 }

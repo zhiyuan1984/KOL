@@ -620,6 +620,68 @@ export type WorkOrderAutomationRelease = {
   updated_at: string;
 };
 
+// KOL 线索 / 合作项目（2026-10-08）
+export type KolLead = {
+  id: string; platform: string; account_handle: string; account_url: string | null;
+  display_name: string; follower_count: number | null; category: string | null;
+  source: string; source_ref: string | null; lead_stage: string;
+  owner_principal_id: string | null; followup_task_id: string | null;
+  is_archived: boolean; archived_reason: string | null;
+  data_version: number; created_at: string; updated_at: string;
+  open_work_order_count?: number; latest_work_order_status?: string | null;
+  has_contact?: boolean;
+};
+export type KolLeadCreateInput = {
+  platform: string; account_handle: string; account_url?: string; display_name?: string;
+  follower_count?: number; category?: string; source?: string; source_ref?: string;
+  contact?: Record<string, unknown>; owner_principal_id?: string; note?: string;
+  idempotency_key: string;
+};
+export type KolLeadUpdateInput = {
+  lead_stage?: string; owner_principal_id?: string | null; category?: string;
+  follower_count?: number | null; is_archived?: boolean; archived_reason?: string;
+};
+export type KolLeadConvertInput = {
+  title: string; brand?: string; coop_type?: string; budget_amount?: number;
+  currency?: string; deliverable_plan?: Record<string, unknown>; settlement_terms?: string;
+  owner_principal_id?: string; work_order_id?: string; idempotency_key: string;
+};
+export type KolLeadListResponse = {
+  leads: KolLead[]; total: number; request_id: string; as_of: string; schema_version: string;
+};
+export type KolLeadDetailResponse = {
+  lead: KolLead; task: AiTaskWorkOrderAggregate | null;
+  request_id: string; as_of: string; schema_version: string;
+};
+export type KolCooperation = {
+  id: string; lead_id: string; converted_from_work_order_id: string | null;
+  title: string; brand: string; coop_type: string; coop_stage: string;
+  exception_kind: string | null;
+  budget_amount: string | null; currency: string;
+  project_task_id: string | null; owner_principal_id: string | null;
+  data_version: number; created_at: string; updated_at: string; archived_at: string | null;
+  lead_display_name?: string; lead_platform?: string; lead_account_handle?: string;
+  open_work_order_count?: number; blocked_work_order_count?: number;
+};
+export type KolCooperationCreateInput = {
+  lead_id: string; title: string; brand?: string; coop_type?: string;
+  budget_amount?: number; currency?: string; deliverable_plan?: Record<string, unknown>;
+  settlement_terms?: string; owner_principal_id?: string; idempotency_key: string;
+};
+export type KolCooperationUpdateInput = {
+  coop_stage?: string; exception_kind?: string; reason?: string;
+  action?: "archive" | "cancel"; settlement_terms?: string;
+  budget_amount?: number | null; owner_principal_id?: string | null;
+};
+export type KolCooperationListResponse = {
+  cooperations: KolCooperation[]; total: number; request_id: string; as_of: string; schema_version: string;
+};
+export type KolCooperationDetailResponse = {
+  cooperation: KolCooperation; lead: KolLead | null;
+  task: AiTaskWorkOrderAggregate | null;
+  request_id: string; as_of: string; schema_version: string;
+};
+
 export type AiTaskRoot = {
   workspace_allowed?: boolean;
   task_id: string;
@@ -2149,6 +2211,49 @@ export const api = {
   }),
   bindTicketAccountToOrganizationPerson: (body: { person_ref: string; account_id: string; reason: string }) =>
     request<{ person_ref: string; account_id: string; username: string; changed: boolean; prior_account_id: string | null; request_id: string }>("/api/admin/work-orders/account-bindings", { method: "POST", body: JSON.stringify(body) }),
+  // KOL 线索 / 合作项目（2026-10-08）：工单只挂 Task，业务对象持有 Task。
+  kolLeadList: (opts: { stage?: string; source?: string; mine?: boolean; search?: string; limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.stage) query.set("stage", opts.stage);
+    if (opts.source) query.set("source", opts.source);
+    if (opts.mine) query.set("mine", "1");
+    if (opts.search) query.set("search", opts.search);
+    if (opts.limit != null) query.set("limit", String(opts.limit));
+    if (opts.offset != null) query.set("offset", String(opts.offset));
+    return request<KolLeadListResponse>(`/api/kol/leads?${query}`);
+  },
+  kolLeadDetail: (id: string) => request<KolLeadDetailResponse>(`/api/kol/leads/${encodeURIComponent(id)}`),
+  kolLeadCreate: (body: KolLeadCreateInput) => request<{ lead: KolLead; task_id: string; replayed: boolean; request_id: string }>(`/api/kol/leads`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  kolLeadUpdate: (id: string, body: KolLeadUpdateInput) => request<KolLeadDetailResponse>(`/api/kol/leads/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify(body),
+  }),
+  kolLeadConvert: (id: string, body: KolLeadConvertInput) => request<{ cooperation: KolCooperation; task_id: string; cancelled_work_orders: number; request_id: string }>(`/api/kol/leads/${encodeURIComponent(id)}/convert`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  kolLeadRecordEvent: (id: string, body: { event_type: string; summary: string; evidence_ref?: string; evidence?: Record<string, unknown>; idempotency_key: string }) => request<{ lead_id: string; event_type: string; request_id: string }>(`/api/kol/leads/${encodeURIComponent(id)}/lead-events`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  kolCooperationList: (opts: { stage?: string; mine?: boolean; search?: string; limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.stage) query.set("stage", opts.stage);
+    if (opts.mine) query.set("mine", "1");
+    if (opts.search) query.set("search", opts.search);
+    if (opts.limit != null) query.set("limit", String(opts.limit));
+    if (opts.offset != null) query.set("offset", String(opts.offset));
+    return request<KolCooperationListResponse>(`/api/kol/cooperations?${query}`);
+  },
+  kolCooperationDetail: (id: string) => request<KolCooperationDetailResponse>(`/api/kol/cooperations/${encodeURIComponent(id)}`),
+  kolCooperationCreate: (body: KolCooperationCreateInput) => request<{ cooperation: KolCooperation; task_id: string; request_id: string }>(`/api/kol/cooperations`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
+  kolCooperationUpdate: (id: string, body: KolCooperationUpdateInput) => request<KolCooperationDetailResponse>(`/api/kol/cooperations/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify(body),
+  }),
+  kolCooperationRecordEvent: (id: string, body: { event_type: string; summary: string; evidence_ref?: string; evidence?: Record<string, unknown>; idempotency_key: string }) => request<{ coop_id: string; event_type: string; request_id: string }>(`/api/kol/cooperations/${encodeURIComponent(id)}/coop-events`, {
+    method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
+  }),
   createFormalTicket: (body: CreateFormalTicketInput) => request<CreateFormalTicketResult>("/api/tickets", {
     method: "POST",
     headers: { "Idempotency-Key": body.idempotency_key },

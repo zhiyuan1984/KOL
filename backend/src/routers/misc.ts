@@ -898,7 +898,7 @@ misc.post("/demo/reset", async (c) => {
   return c.json({ ok: true });
 });
 
-misc.get("/home/board", (c) => {
+misc.get("/home/board", async (c) => {
   c.header("Cache-Control", "no-store");
   const refresh = c.req.query("refresh") === "1" || c.req.query("sync") === "1";
   // Local DB projection first. Remote Starry library/mail sync is started in
@@ -906,7 +906,7 @@ misc.get("/home/board", (c) => {
   // Poll a later GET or read library/mail.synced_at when fresh remote data is required.
   const board = buildHomeBoard();
   const library = starryLibraryStatus();
-  const mail = followedMailStatus();
+  const mail = await followedMailStatus();
   if (refresh) {
     void startStarryHomeLibrarySync().catch(() => undefined);
     void startFollowedMailSync(true).catch(() => undefined);

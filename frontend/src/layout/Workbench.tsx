@@ -288,6 +288,17 @@ export default function Workbench() {
           </NavLink>
         </nav>
 
+        <nav className="nav-group" aria-label="KOL业务">
+          <NavLink to="/leads" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="leads" onClick={() => setMobileOpen(false)}>
+            <Ico path="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21c0-4 3.5-6.5 8-6.5s8 2.5 8 6.5" />
+            <span className="sidebar-label">线索管理</span>
+          </NavLink>
+          <NavLink to="/cooperations" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="cooperations" onClick={() => setMobileOpen(false)}>
+            <Ico path="M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 9h6 M9 13h6 M9 17h4" />
+            <span className="sidebar-label">合作项目</span>
+          </NavLink>
+        </nav>
+
         <nav className="nav-group" aria-label="Agent">
           <NavLink
             to="/agents"

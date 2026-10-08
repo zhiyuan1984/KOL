@@ -1120,6 +1120,402 @@ migrations.push({
     "CREATE INDEX IF NOT EXISTS capability_registry_kind_status ON capability_registry(kind, status)",
   ],
 });
+migrations.push({
+  // KOL 线索 / 合作项目主对象 + 工单业务关联（2026-10-07 设计定稿）。
+  // 层级：kol_leads → tickets[跟进目标 Task] → work_orders(biz_type=kol_lead)；
+  //       kol_cooperations → tickets[项目目标 Task] → work_orders(biz_type=kol_cooperation)。
+  // Task → WorkOrder 方向不变；work_orders 只 ADD 列，不改现有列。
+  id: "20261007_kol_lead_coop",
+  statements: [
+    `CREATE TABLE IF NOT EXISTS kol_leads (
+      id TEXT PRIMARY KEY,
+      platform TEXT NOT NULL,
+      account_handle TEXT NOT NULL,
+      account_url TEXT,
+      display_name TEXT NOT NULL DEFAULT '',
+      follower_count BIGINT,
+      category TEXT,
+      source TEXT NOT NULL CHECK (source IN ('ai_discovery','crawler','manual','channel','referral')),
+      source_ref TEXT,
+      contact_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      lead_stage TEXT NOT NULL DEFAULT 'pending_contact'
+        CHECK (lead_stage IN ('pending_contact','contacting','price_negotiating','sample_pending','intent_pending','rejected','converted')),
+      owner_principal_id TEXT,
+      followup_task_id TEXT REFERENCES tickets(id) ON DELETE RESTRICT,
+      is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+      archived_reason TEXT,
+      data_version INTEGER NOT NULL DEFAULT 1 CHECK (data_version > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    "CREATE UNIQUE INDEX IF NOT EXISTS kol_leads_account_uidx ON kol_leads(platform, account_handle)",
+    "CREATE INDEX IF NOT EXISTS kol_leads_stage_idx ON kol_leads(lead_stage, updated_at DESC) WHERE is_archived = FALSE",
+    "CREATE INDEX IF NOT EXISTS kol_leads_owner_idx ON kol_leads(owner_principal_id, lead_stage) WHERE is_archived = FALSE",
+    `CREATE TABLE IF NOT EXISTS kol_cooperations (
+      id TEXT PRIMARY KEY,
+      lead_id TEXT NOT NULL REFERENCES kol_leads(id) ON DELETE RESTRICT,
+      converted_from_work_order_id TEXT REFERENCES work_orders(id) ON DELETE RESTRICT,
+      title TEXT NOT NULL,
+      brand TEXT NOT NULL DEFAULT '',
+      coop_type TEXT NOT NULL CHECK (coop_type IN ('duanshipping','short_video','live','graphic','mixed')),
+      coop_stage TEXT NOT NULL DEFAULT 'initiated'
+        CHECK (coop_stage IN ('initiated','preparing','shooting','delivering','settling','after_sales','archived','cancelled')),
+      budget_amount NUMERIC(14,2),
+      currency TEXT NOT NULL DEFAULT 'CNY',
+      deliverable_plan_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      settlement_terms TEXT NOT NULL DEFAULT '',
+      project_task_id TEXT REFERENCES tickets(id) ON DELETE RESTRICT,
+      owner_principal_id TEXT,
+      data_version INTEGER NOT NULL DEFAULT 1 CHECK (data_version > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      archived_at TIMESTAMPTZ
+    )`,
+    "CREATE INDEX IF NOT EXISTS kol_cooperations_lead_idx ON kol_cooperations(lead_id)",
+    "CREATE INDEX IF NOT EXISTS kol_cooperations_stage_idx ON kol_cooperations(coop_stage, updated_at DESC) WHERE coop_stage NOT IN ('archived','cancelled')",
+    "CREATE INDEX IF NOT EXISTS kol_cooperations_owner_idx ON kol_cooperations(owner_principal_id, coop_stage)",
+    "ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS lead_id TEXT REFERENCES kol_leads(id) ON DELETE RESTRICT",
+    "ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS coop_id TEXT REFERENCES kol_cooperations(id) ON DELETE RESTRICT",
+    "ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS biz_type TEXT CHECK (biz_type IN ('kol_lead','kol_cooperation'))",
+    `ALTER TABLE work_orders ADD CONSTRAINT work_orders_biz_ref_check CHECK (
+      NOT (lead_id IS NOT NULL AND coop_id IS NOT NULL)
+      AND ((biz_type = 'kol_lead') = (lead_id IS NOT NULL))
+      AND ((biz_type = 'kol_cooperation') = (coop_id IS NOT NULL))
+    )`,
+    "CREATE INDEX IF NOT EXISTS work_orders_lead_idx ON work_orders(lead_id, status, updated_at DESC) WHERE lead_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS work_orders_coop_idx ON work_orders(coop_id, status, template_code) WHERE coop_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS work_orders_lead_single_open_uidx ON work_orders(lead_id, template_code) WHERE lead_id IS NOT NULL AND status NOT IN ('completed','cancelled')",
+    "CREATE UNIQUE INDEX IF NOT EXISTS work_orders_coop_single_open_uidx ON work_orders(coop_id, template_code) WHERE coop_id IS NOT NULL AND status NOT IN ('completed','cancelled')",
+    // 模板 seed 的 created_by 需要一个 ticket_accounts 行：系统占位账号，不可登录（active=false）。
+    `INSERT INTO ticket_accounts (id, username, name, password_hash, roles, active)
+     VALUES ('system-seed','system-seed','System Seed','','["admin"]'::jsonb,false)
+     ON CONFLICT (id) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_lead_first_touch','kol_lead_first_touch',1,'初次建联',
+        '对高潜力线索的首次建联触达：拉取主页数据、匹配品牌brief、发送邀约、7天跟踪回复',
+        'draft','A2','kol_lead',
+        '["lead.created","lead.high_potential_detected"]'::jsonb,
+        '["邀约已发出且有迹可查","7天无回复标记跟进失败"]'::jsonb,
+        'lead_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_lead_followup','kol_lead_followup',1,'商务跟进',
+        '线索单次跟进事件：沟通记录、报价谈判、意向推进；结案不等于线索作废',
+        'draft','A2','kol_lead',
+        '["lead.reply_received","lead.followup_due"]'::jsonb,
+        '["本次沟通记录完整","lead_stage已更新"]'::jsonb,
+        'lead_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_lead_sample_request','kol_lead_sample_request',1,'样品申请',
+        '达人样品申请：审核、寄送、单号回填',
+        'draft','A2','kol_lead',
+        '["lead.sample_requested"]'::jsonb,
+        '["样品已寄出且单号回填"]'::jsonb,
+        'lead_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_lead_conversion_check','kol_lead_conversion_check',1,'转化评估',
+        '意向确认后的转化评估：明确创建合作项目或放弃归档；转化成功自动创建合作项目',
+        'draft','A1','kol_lead',
+        '["lead.intent_confirmed"]'::jsonb,
+        '["明确结论：创建合作项目/放弃并注明归档原因"]'::jsonb,
+        'lead_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_contract_signing','kol_contract_signing',1,'合同签署',
+        '合作项目合同签署：法务/财务会签，签署动作必须人工确认',
+        'draft','L3','kol_cooperation',
+        '["coop.created","coop.contract_requested"]'::jsonb,
+        '["双方签署完成","合同已归档"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_sample_shipment','kol_sample_shipment',1,'样品寄送/补发',
+        '合作样品寄送与补发：打单、物流跟踪、签收核验',
+        'draft','A2','kol_cooperation',
+        '["coop.script_approved","kol.sample_reship_requested"]'::jsonb,
+        '["物流签收核验完成"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_script_review','kol_script_review',1,'脚本审核',
+        '达人/商务提交脚本的审核：建单分派自动，审核结论人工；打回走工单内退回',
+        'draft','A2','kol_cooperation',
+        '["kol.script_submitted"]'::jsonb,
+        '["审核通过","或打回且修改意见完整"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_schedule_change','kol_schedule_change',1,'档期变更',
+        '排期冲突或改期申请：协调双方确认新档期',
+        'draft','A2','kol_cooperation',
+        '["kol.schedule_conflict_detected","kol.reschedule_requested"]'::jsonb,
+        '["双方确认新档期"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_production_followup','kol_production_followup',1,'拍摄跟进',
+        '档期到达后的拍摄跟进确认；轻量项目可不启用',
+        'draft','A2','kol_cooperation',
+        '["kol.shoot_date_reached"]'::jsonb,
+        '["拍摄完成确认"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_deliverable_acceptance','kol_deliverable_acceptance',1,'素材验收',
+        '交付素材验收：AI初审+人工复核；卡项目阶段推进的关键工单，验收结论必须人工确认',
+        'draft','A2','kol_cooperation',
+        '["kol.deliverable_submitted"]'::jsonb,
+        '["AI初审通过","人工复核通过"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_publish_confirm','kol_publish_confirm',1,'发布确认',
+        '验收通过后的发布确认：发布链接回传与真实性核验',
+        'draft','A2','kol_cooperation',
+        '["kol.deliverable_accepted"]'::jsonb,
+        '["发布链接已回传","链接真实性已核验"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_settlement_check','kol_settlement_check',1,'结算对账',
+        '交付完成或账期到达后的结算对账：对账无误后发出付款指令；付款动作必须人工确认',
+        'draft','A2','kol_cooperation',
+        '["kol.delivery_completed","kol.billing_cycle_due"]'::jsonb,
+        '["对账无误","付款指令已发出"]'::jsonb,
+        'finance_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_sentiment_alert','kol_sentiment_alert',1,'舆情异常',
+        '负面舆情/违规内容检测触发的高优先级处置工单，可跨项目阶段存在',
+        'draft','A2','kol_cooperation',
+        '["kol.negative_sentiment_detected","kol.content_violation_detected"]'::jsonb,
+        '["处置完成","已复核"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_dispute_resolution','kol_dispute_resolution',1,'纠纷处理',
+        '数据不达标/违约等纠纷处理：仅生成草稿，必须人工确认后建单',
+        'draft','A1','kol_cooperation',
+        '["kol.metric_shortfall","kol.breach_detected"]'::jsonb,
+        '["纠纷已解决（退款/补发/终止合作）"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+    `INSERT INTO work_order_templates
+       (id, template_code, version, title, description, status, automation_level,
+        business_category, trigger_event_types, acceptance_criteria_json, routing_policy_code, created_by)
+     VALUES
+       ('kol_performance_review','kol_performance_review',1,'效果复盘',
+        '结算完成后的效果复盘：复盘报告归档并沉淀知识库；不阻塞项目归档',
+        'draft','A2','kol_cooperation',
+        '["kol.settlement_completed"]'::jsonb,
+        '["复盘报告已归档"]'::jsonb,
+        'coop_owner','system-seed')
+     ON CONFLICT (template_code, version) DO NOTHING`,
+  ],
+});
+migrations.push({
+  // 审宪修正（2026-10-08，违反基本法 BIZ-08）：
+  // kol_cooperations.coop_stage 原 8 段自创码不能作为写入码，改用 15 正式主阶段 + exception；
+  // 另修正 coop_type 笔误 'duanshipping'。增量修复，不动 20261007 原 migration（checksum）。
+  // 终态语义：COMPLETED 不是产品节点（BIZ-08），归档=结算完成后的结果记 archived_at；
+  // 取消/终止走 exception + exception_kind（CANCELLED 等，见 stage-transitions.md）。
+  id: "20261008_kol_stage_biz08",
+  statements: [
+    "ALTER TABLE kol_cooperations DROP CONSTRAINT IF EXISTS kol_cooperations_coop_type_check",
+    `ALTER TABLE kol_cooperations ADD CONSTRAINT kol_cooperations_coop_type_check
+     CHECK (coop_type IN ('short_video','live','graphic','custom'))`,
+    "ALTER TABLE kol_cooperations DROP CONSTRAINT IF EXISTS kol_cooperations_coop_stage_check",
+    `ALTER TABLE kol_cooperations ADD CONSTRAINT kol_cooperations_coop_stage_check
+     CHECK (coop_stage IN ('INITIAL_CONTACT','INTERESTED','EVALUATING','QUOTE_PENDING','NEGOTIATING',
+       'PLAN_PENDING','CONTRACTING','SAMPLE_PENDING','SHIPPED','TESTING','CONTENT_PLANNING',
+       'CONTENT_REVIEW','PUBLISH_PENDING','PUBLISHED','SETTLING','exception'))`,
+    "ALTER TABLE kol_cooperations ALTER COLUMN coop_stage SET DEFAULT 'PLAN_PENDING'",
+    "ALTER TABLE kol_cooperations ADD COLUMN IF NOT EXISTS exception_kind TEXT CHECK (exception_kind IN ('PAUSED','DISPUTED','LOST','REJECTED','CANCELLED'))",
+  ],
+});
+
+// 20261008_mail_sync_pg：邮件同步 PG 化。背景：mail-sync.ts / reply-source.ts 的 PG 写路径
+// （kol_mail_threads / kol_mail_items / user_starry_bindings / business_events）早已存在于代码中，
+// 但 PG schema 从未建这些表，同步在 PG 上实际不可用。本 migration 补齐建表；
+// collaborations / user_starry_bindings 按 D1 做 legacy 原样镜像（同步子集列），bearer_token
+// 仅为 cred_xxx 引用（非明文密钥），同步需用它解析凭证；D2 存量邮件不导入 PG。
+migrations.push({
+  id: "20261008_mail_sync_pg",
+  statements: [
+    `CREATE TABLE IF NOT EXISTS kol_mail_threads (
+      id TEXT PRIMARY KEY,
+      collaboration_id TEXT,
+      conversation_id TEXT NOT NULL,
+      subject TEXT NOT NULL DEFAULT '',
+      mailbox TEXT,
+      last_direction TEXT,
+      last_snippet TEXT,
+      unread_count INTEGER NOT NULL DEFAULT 0,
+      last_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_from TEXT,
+      last_from_name TEXT,
+      peer_email TEXT,
+      peer_name TEXT,
+      last_preview TEXT,
+      match_state TEXT,
+      last_receipt TEXT,
+      digest_text TEXT,
+      digest_source TEXT,
+      digest_fingerprint TEXT,
+      digest_error TEXT,
+      digest_failed_at TIMESTAMPTZ,
+      digest_mail_count INTEGER,
+      CONSTRAINT kol_mail_threads_mailbox_conversation_unique UNIQUE (mailbox, conversation_id)
+    )`,
+    "CREATE INDEX IF NOT EXISTS kol_mail_threads_collab_idx ON kol_mail_threads(collaboration_id)",
+    "CREATE INDEX IF NOT EXISTS kol_mail_threads_mailbox_idx ON kol_mail_threads(mailbox, last_at DESC)",
+    `CREATE TABLE IF NOT EXISTS kol_mail_items (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL REFERENCES kol_mail_threads(id) ON DELETE CASCADE,
+      collaboration_id TEXT,
+      conversation_id TEXT NOT NULL,
+      provider_message_id TEXT,
+      direction TEXT,
+      subject TEXT,
+      title TEXT,
+      snippet TEXT,
+      unread INTEGER NOT NULL DEFAULT 1,
+      occurred_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      from_addr TEXT,
+      from_name TEXT,
+      to_addr TEXT,
+      body_text TEXT,
+      summary TEXT,
+      summary_zh TEXT,
+      summary_source TEXT,
+      translation_zh TEXT,
+      translation_source TEXT,
+      memory_fingerprint TEXT,
+      memory_generated_at TIMESTAMPTZ,
+      receipt_status TEXT,
+      receipt_at TIMESTAMPTZ,
+      effective INTEGER
+    )`,
+    "CREATE INDEX IF NOT EXISTS kol_mail_items_thread_idx ON kol_mail_items(thread_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS kol_mail_items_direction_idx ON kol_mail_items(direction, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS kol_mail_items_provider_idx ON kol_mail_items(provider_message_id)",
+    `CREATE TABLE IF NOT EXISTS collaborations (
+      id TEXT PRIMARY KEY,
+      handle TEXT NOT NULL DEFAULT '',
+      display_name TEXT NOT NULL DEFAULT '',
+      brand TEXT NOT NULL DEFAULT '',
+      platform TEXT,
+      kol_uid TEXT,
+      conversation_id TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      mailbox_from TEXT NOT NULL DEFAULT '',
+      stage_code TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `COMMENT ON TABLE collaborations IS 'legacy Starry mirror for mail sync (sync-subset columns); business truth lives in kol_leads/kol_cooperations'`,
+    "CREATE INDEX IF NOT EXISTS collaborations_kol_uid_idx ON collaborations(kol_uid)",
+    `CREATE TABLE IF NOT EXISTS user_starry_bindings (
+      user_id TEXT NOT NULL,
+      mailbox_email TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      mailbox_id TEXT,
+      owner_name TEXT,
+      bearer_token TEXT,
+      status TEXT NOT NULL DEFAULT 'connected',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      sync_cursor_at TIMESTAMPTZ,
+      sync_cursor_id TEXT,
+      sync_page_no INTEGER NOT NULL DEFAULT 1,
+      synced_at TIMESTAMPTZ,
+      last_error TEXT,
+      last_tool TEXT,
+      PRIMARY KEY (user_id, mailbox_email)
+    )`,
+    `CREATE TABLE IF NOT EXISTS mail_sync_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS mail_sync_audit (
+      id TEXT PRIMARY KEY,
+      ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+      actor TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    )`,
+    "CREATE INDEX IF NOT EXISTS mail_sync_audit_ts_idx ON mail_sync_audit(ts DESC)",
+    `CREATE TABLE IF NOT EXISTS business_events (
+      id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      object_type TEXT NOT NULL,
+      object_id TEXT NOT NULL,
+      occurred_at TIMESTAMPTZ NOT NULL,
+      received_at TIMESTAMPTZ NOT NULL,
+      source TEXT NOT NULL,
+      source_version TEXT,
+      actor_type TEXT NOT NULL,
+      actor_id TEXT,
+      action_ref TEXT,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+      receipt TEXT,
+      diff TEXT,
+      idempotency_key TEXT,
+      correlation_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    "CREATE INDEX IF NOT EXISTS business_events_type_idx ON business_events(event_type, occurred_at DESC)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS business_events_idempotency_uidx ON business_events(idempotency_key) WHERE idempotency_key IS NOT NULL",
+  ],
+});
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
 if (onlyMigration && !migrations.some((migration) => migration.id === onlyMigration)) throw new Error("Unknown migration selection");

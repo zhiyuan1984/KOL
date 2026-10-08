@@ -12,7 +12,8 @@ const WORKBENCH = fs.readFileSync(
 
 function todayNavOrder(source: string): string[] {
   const start = source.indexOf('aria-label="今日"');
-  const end = source.indexOf('aria-label="Agent"');
+  // 精确截到今日组自己的 </nav>，不依赖下一个分组的 label（KOL业务等新分组插在今日之后不应影响本断言）。
+  const end = source.indexOf("</nav>", start);
   const cluster = start >= 0 && end > start ? source.slice(start, end) : "";
   return [...cluster.matchAll(/data-nav="([^"]+)"/g)].map((match) => match[1]);
 }
