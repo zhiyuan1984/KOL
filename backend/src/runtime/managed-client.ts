@@ -6,7 +6,7 @@ import { createConfiguredClient } from "./execution.js";
 import { getConnectorConfig } from "./store.js";
 
 /** Shared transport for existing business gateways. Callers retain their authorization and effect gates. */
-export function createManagedClient(connectorId: string, userId: string, credentialAccountId?: string) {
+export function createManagedClient(connectorId: string, userId: string, credentialAccountId?: string, timeoutMs?: number) {
   const saved = getConnectorConfig(connectorId);
   if (!saved) throw new HttpFail(503, { code: "runtime_connector_not_configured" });
   const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
@@ -21,7 +21,10 @@ export function createManagedClient(connectorId: string, userId: string, credent
     config.credential_provider = "user-account";
     config.credential_account_id = credentialAccountId;
   }
-  const client = createConfiguredClient({ userId, agentId: "", skillId: "", runId: "business-gateway" }, config);
+  const client = createConfiguredClient(
+    { userId, agentId: "", skillId: "", runId: "business-gateway" },
+    timeoutMs && timeoutMs > 0 ? { ...config, timeout_ms: timeoutMs } : config,
+  );
   return {
     listTools: () => client.listTools(),
     async callTool(name: string, args: Json = {}): Promise<Json> {

@@ -495,10 +495,10 @@ function mockCall(name: string, args: Json): Json {
   throw new Error(`unknown starry-kol-mcp tool: ${name}`);
 }
 
-export async function callStarryKolTool(name: string, args: Json = {}): Promise<Json> {
+export async function callStarryKolTool(name: string, args: Json = {}, options: { timeoutMs?: number } = {}): Promise<Json> {
   const { rejectDiscoveryHarnessTool } = await import("../gateway/discovery-harness.js");
   rejectDiscoveryHarnessTool(name);
-  return call(name, args);
+  return call(name, args, options.timeoutMs);
 }
 
 /**
@@ -659,7 +659,7 @@ export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput 
   };
 }
 
-async function call(name: string, args: Json = {}): Promise<Json> {
+async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<Json> {
   if (name === "sendEmailNow") await recheckMailSendAuthority();
   if (!clientFactory && codexMode() === "stub") return mockCall(name, args);
   if (!clientFactory && !starryKolMcpConfigured()) {
@@ -672,7 +672,7 @@ async function call(name: string, args: Json = {}): Promise<Json> {
   const client = clientFactory
     ? clientFactory()
     : createManagedClient("starrykol", scopedUser()?.id || "",
-      callScope.getStore()?.credentialAccountId || boundStarryCredentialId(scopedUser()?.id));
+      callScope.getStore()?.credentialAccountId || boundStarryCredentialId(scopedUser()?.id), timeoutMs);
   try {
     return normalizeStarryKolResult(await client.callTool(name, args));
   } catch (error) {
