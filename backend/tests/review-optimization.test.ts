@@ -28,6 +28,8 @@ it("resolves employee choices only within current authority, excluding the reque
   expect(reviewResolver(ctx, { review: ["reviewer"] })(node, "employee")).toEqual(["reviewer"]);
   for (const selected of [["employee"], ["outsider"], []]) expect(reviewResolver(ctx, { review: selected })(node, "employee")).toEqual([]);
   expect(reviewResolver({ ...ctx, people: ctx.people.filter(p => p.id !== "reviewer") }, { review: ["reviewer"] })(node, "employee")).toEqual([]);
+  node.assignee.candidates.userIds.push("ended-unselected-person");
+  expect(reviewResolver(ctx, { review: ["reviewer"] })(node, "employee")).toEqual(["reviewer"]);
 });
 it("keeps employee choice out of fixed knowledge and handling duties", () => {
   const d = knowledgeReviewDefinition();

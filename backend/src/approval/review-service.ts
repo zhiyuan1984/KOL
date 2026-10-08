@@ -1,4 +1,4 @@
-import { reviewResolver, reviewCandidates } from "./review-resolver.js";
+import { reviewResolver, reviewCandidates, reviewChoiceCandidates } from "./review-resolver.js";
 import { reviewProgress } from "./review-progress.js";
 import { checkedReviewSource } from "./review-source.js";
 import { reviewIntake } from "./review-rollout.js";
@@ -331,7 +331,7 @@ export class ReviewService {
   private instanceResolver(i: ReviewInstance) { return reviewResolver(this.ctx, i.selectedApprovers); }
   private choiceCandidates(d: ReviewDefinition, requester = this.ctx.actor): ReviewChoices {
     return Object.fromEntries(d.nodes.filter(n => n.assignee?.kind === "requester_choice").map(n => [n.id,
-      n.assignee?.kind === "requester_choice" ? reviewCandidates(this.ctx, n.assignee.candidates, requester).filter(id => id !== requester) : [],
+      n.assignee?.kind === "requester_choice" ? reviewChoiceCandidates(this.ctx, n.assignee.candidates, requester) : [],
     ]));
   }
   simulationCandidates(definition: ReviewDefinition, requester: string) {
