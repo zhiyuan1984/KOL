@@ -260,6 +260,7 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--workspace-result-rail-max` | `820px` | 防宽视口无限扩张 |
 | `--workspace-result-rail-collapsed` | `56px` | 折叠轨道 |
 | 堆叠断点 | `1100px` | 及以下：中栏在上、结果栏在下 |
+- Chat 与 AI发现采用 §27.2 的固定中栏、剩余宽度结果栏；上表右栏 ideal/max 仅用于其他工作台模式。
 - 右栏 `flex-shrink: 0`；中栏 `min-width: 0`（允许收缩）；英文长标题强制 `overflow-wrap: break-word`。
 - 滚动轴总数 ≤3（左栏 / 中栏 feed / 右栏）；页面外层不滚动（细则见 §10.1）。
 
@@ -900,6 +901,24 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 
 ---
 
+### 27.2 Chat 与 AI发现三栏留白（2026-10-09）
+
+用户确认：左栏宽度保持不变，中栏内容净宽固定，剩余宽度交给右栏；六个栏内左右留白以左栏左侧为基准。Tab 与问题框之间须清楚分隔。
+
+| 共享 token | 值／来源 | 职责 |
+|---|---|---|
+| `--workspace-pane-gutter` | `--space-4`，16px | 展开左栏、Chat/AI发现中栏与右栏各自的左右容器留白 |
+| `--workspace-agent-content-w` | 400px | 桌面中栏内容净宽，不含两侧留白、分隔线与滚动条 |
+| `--workspace-tabs-composer-gap` | `--space-2`，8px | Home 各模式 Tab 下边界至问题框外边界的间隔 |
+
+- >1100px：展开左栏外框仍为 260px；中栏外框为 432px，过程、参数、确认、Tab 与输入框共享 400px 内容轴；右栏占据剩余宽度，不再套页面居中上限或右栏最大宽度。分隔线单独计入，不算留白。
+- 每栏内容容器的左右留白均为 16px，相邻栏内容之间隔着两份留白和分隔线。卡片／控件自身的内边距继续采用 §27.1，不混入栏留白测量。
+- 滚动条安放在右侧留白内，按浏览器实际占宽补偿滚动容器，出现／消失不压缩内容轴。滚动跳转按钮位于过程滚动视口之后、输入区之前的独立控制行，不额外扣除横向内容宽度，也不遮住正文。
+- ≤1100px 保留上下堆叠，中栏随可用宽度收缩，左右留白仍相等；短高度、粗指针命中区继续按 §10/11 管理。折叠成果栏和聚焦成果维持现有操作语义。
+- Tab 间隔由共享外壳维护，适用于今日任务、我的待办、AI发现、公海、我的红人；独立 session 无 Home Tab，不添加空 Tab 行。
+
+审宪记录：需求 → 用户确认三栏几何与 Tab/问题框留白；主责角色 → UI/UX 专家、前端专家、测试经理；宪法条款 → CONST-04/08/09/10；基本法条款 → TECH-FE-02/03、TECH-TEST-01/02/03/04；结论与证据 → **符合**，只调整共享外壳、导航容器和间距，不变更业务、执行 API、风险确认或入口地址；验收证据为实际 DOM 尺寸、历史视觉基准与相关呈现回归；下一步 → 构建与相关验证后合并 main、push、部署并保存版本回执。
+
 ## 28. 知识浏览工作区组件契约（2026-10-08）
 
 目标：保持全局导航，知识库桌面默认中栏检索与列表＋右栏详情；首次进入即保留详情空态，选择条目只更新内容。组件默认 size=sm、density=compact，不能只登记小号而继续缺省大号。
@@ -1130,10 +1149,12 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--text-quiet` | ✅ | ✅ |
 | `--touch-hit-min` | ✅ | ✅ |
 | `--warning` | ✅ | ✅ |
+| `--workspace-agent-content-w` | ✅ | ✅ |
 | `--workspace-list-cell-pad-x` | ✅ | ✅ |
 | `--workspace-list-divider` | ✅ | ✅ |
 | `--workspace-list-row-h` | ✅ | ✅ |
 | `--workspace-list-row-h-relaxed` | ✅ | ✅ |
+| `--workspace-pane-gutter` | ✅ | ✅ |
 | `--workspace-result-rail-collapsed` | ✅ | ✅ |
 | `--workspace-result-rail-ideal` | ✅ | ✅ |
 | `--workspace-result-rail-max` | ✅ | ✅ |
@@ -1143,4 +1164,5 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--workspace-tab-gap` | ✅ | ✅ |
 | `--workspace-tab-h` | ✅ | ✅ |
 | `--workspace-tab-indicator-h` | ✅ | ✅ |
+| `--workspace-tabs-composer-gap` | ✅ | ✅ |
 | `--workspace-task-action-h` | ✅ | ✅ |

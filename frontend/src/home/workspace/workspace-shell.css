@@ -112,6 +112,51 @@
 .scope-workspace .composer-discovery-clear { color: var(--text-muted); }
 .scope-workspace .result-tools > summary { cursor: pointer; }
 .scope-workspace .result-provenance { display: flex; flex-wrap: wrap; gap: var(--space-2); padding-block: var(--space-1); overflow-wrap: anywhere; }
+/* DESIGN §27.2: one outer gutter per pane. Inner agent/card padding remains
+ * the pre-2e909ebe visual baseline. Home modes also share the Tab/dock gap. */
+.home-pane[data-home-workspace] .scope-workspace .home-quick-tasks {
+  margin-block-end: var(--workspace-tabs-composer-gap);
+}
+.session-workspace.session-workspace,
+.home-pane[data-home-workspace]:has([data-agent-visual]) .home-stage.home-stage {
+  width: 100%; max-width: none; margin-inline: 0; padding-inline: 0;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] .scope-workspace-center {
+  padding-inline: var(--workspace-pane-gutter);
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] .scope-workspace-center-scroll-wrap {
+  padding-inline: 0;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] :is(.scope-workspace-center-scroll, .scope-task-rail-scroll) {
+  width: calc(100% + var(--inset-scrollbar-width, 0px));
+  margin-inline-end: calc(-1 * var(--inset-scrollbar-width, 0px));
+  padding-inline: 0;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] .scope-task-rail {
+  padding-inline: var(--workspace-pane-gutter);
+  scrollbar-gutter: auto;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] .scope-task-rail-body {
+  padding-inline: 0;
+}
+:is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] .home-composer-dock {
+  padding-inline: 0;
+}
+.scope-workspace.scope-workspace[data-agent-visual] [data-scope-scroll-jump] {
+  position: static; align-self: flex-end; flex-shrink: 0;
+  margin-block: var(--space-1);
+}
+@media (min-width: 1101px) {
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] {
+    grid-template-columns: calc(var(--workspace-agent-content-w) + 2 * var(--workspace-pane-gutter)) minmax(0, 1fr);
+  }
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual].is-task-rail-collapsed {
+    grid-template-columns: calc(var(--workspace-agent-content-w) + 2 * var(--workspace-pane-gutter)) var(--workspace-result-rail-collapsed);
+  }
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual].is-result-focus {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 @media (max-width: 1100px) {
   :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace {
     grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);

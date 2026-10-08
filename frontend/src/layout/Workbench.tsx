@@ -11,6 +11,8 @@ import { ANALYZE_WORK_EVENT, kolAnalyzeInFlight, unwrapTaskRows, type AnalyzeWor
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
 import { ADMIN_NAV_GROUPS, adminTabOf } from "./adminNav";
+import { useInsetScrollbar } from "../hooks/useInsetScrollbar";
+import "./sidebar-gutters.css";
 
 function Ico({ path }: { path: string }) {
   return (
@@ -43,6 +45,8 @@ export default function Workbench() {
   const [pendingNav, setPendingNav] = useState<string | null>(null);
   const [navStuck, setNavStuck] = useState(false);
   const loc = useLocation();
+  const sidebarScroll = useRef<HTMLDivElement | null>(null);
+  useInsetScrollbar(sidebarScroll);
   // 壳层轮询闸门：上一次读取未返回前不再发下一次（多标签页各自全速轮询曾把单线程后端压到 5–6s 停顿）。
   const pollInFlight = useRef(false);
 
@@ -225,7 +229,7 @@ export default function Workbench() {
           <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}><PanelToggleIcon side="left" /></button>
         </div>
 
-        <div className="sidebar-scroll">
+        <div className="sidebar-scroll" ref={sidebarScroll}>
         <div className="sidebar-nav-stack">
         {showAdminNav ? ADMIN_NAV_GROUPS.map((group) => (
           <nav className="nav-group" aria-label={group.label} key={group.label}>

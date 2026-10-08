@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import PanelToggleIcon from "../components/PanelToggleIcon";
 import { useWorkspaceScroll } from "../hooks/useWorkspaceScroll";
+import { useInsetScrollbar } from "../hooks/useInsetScrollbar";
 import ResultRail from "./workspace/ResultRail";
 import type { ResultRailViewModel } from "./workspace/result-contract";
 import "./workspace/workspace-shell.css";
@@ -29,6 +30,8 @@ export default function WorkspaceShell({ pane, railLabel, railToggleLabel, railS
   // A late first result starts at its heading; only a reader who reaches the
   // tail opts into following later revisions in this column.
   const result = useWorkspaceScroll(`${readingKey}:rail`, scrollReady, false);
+  useInsetScrollbar(center.ref);
+  useInsetScrollbar(result.ref);
   useEffect(() => { setRailCollapsed(localStorage.getItem(railStorageKey) === "true"); }, [railStorageKey]);
   useEffect(() => {
     if (!scrollAnchorEvent) return;

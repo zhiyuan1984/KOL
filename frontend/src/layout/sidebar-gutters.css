@@ -1,0 +1,13 @@
+/* DESIGN §27.2: retain the desktop rail width and balance its content gutters.
+ * The scrollbar occupies the gutter rather than reducing the nav width. */
+@media (min-width: 861px) {
+  .workbench:not(.sidebar-collapsed) .sidebar.sidebar {
+    padding-inline: var(--workspace-pane-gutter);
+  }
+  .workbench:not(.sidebar-collapsed) .sidebar .sidebar-scroll {
+    width: calc(100% + var(--inset-scrollbar-width, 0px));
+    margin-inline-end: calc(-1 * var(--inset-scrollbar-width, 0px));
+    padding-inline: 0;
+    scrollbar-gutter: stable;
+  }
+}

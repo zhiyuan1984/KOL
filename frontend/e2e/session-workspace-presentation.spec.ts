@@ -3,6 +3,103 @@ import { readFileSync } from "node:fs";
 const sessionVisualBaseline = JSON.parse(readFileSync(new URL("./fixtures/session-visual-pre-2e909ebe.json", import.meta.url), "utf8"));
 test.setTimeout(60000);
 
+for (const theme of ["light", "dark"]) {
+  test(`pane gutters stay balanced and center content stays 400px in ${theme}`, async ({ page }, info) => {
+    for (const entry of [
+      { url: "/s/ordinary-session", discovery: false, pane: "session" },
+      { url: "/s/ordinary-session", discovery: true, pane: "discovery" },
+      { url: "/?tab=discovery&session_id=ordinary-session", discovery: true, pane: "discovery" },
+    ]) {
+      const state = await fixture(page, entry.discovery, false, true, "ordinary-session", theme);
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto(entry.url);
+      const workspace = page.locator(`[data-scope-workspace=${entry.pane}]`);
+      await expect(workspace).toBeVisible();
+      await expect(workspace.locator("[data-scope-scroll-jump]")).toBeVisible();
+      const measure = () => workspace.evaluate(el => {
+        const rect = (selector: string) => el.querySelector(selector)!.getBoundingClientRect();
+        const sidebar = document.querySelector(".sidebar")!;
+        const nav = sidebar.querySelector(".sidebar-nav-stack")!.getBoundingClientRect();
+        const left = sidebar.getBoundingClientRect();
+        const center = rect(".scope-workspace-center");
+        const content = rect(".scope-workspace-center-content");
+        const feed = el.querySelector<HTMLElement>(".scope-workspace-center-scroll")!;
+        const body = rect(".scope-workspace-center-scroll-content");
+        const composer = rect(".composer");
+        const rail = rect(".scope-task-rail");
+        const result = rect(".result-rail");
+        const jump = rect("[data-scope-scroll-jump]");
+        const railBorder = parseFloat(getComputedStyle(el.querySelector(".scope-task-rail")!).borderLeftWidth);
+        return {
+          leftWidth: left.width,
+          gutters: [nav.left - left.left, left.right - nav.right - parseFloat(getComputedStyle(sidebar).borderRightWidth),
+            content.left - center.left, center.right - content.right, result.left - rail.left - railBorder, rail.right - result.right],
+          centerWidth: center.width, contentWidth: content.width, feedWidth: body.width,
+          feedClientWidth: feed.clientWidth, composerWidth: composer.width,
+          aligned: Math.abs(body.left - composer.left) < 1 && Math.abs(body.right - composer.right) < 1,
+          railWidth: rail.width, rightEdge: rail.right,
+          jumpBelowFeed: jump.top >= feed.getBoundingClientRect().bottom,
+          jumpAboveComposer: jump.bottom <= composer.top,
+          overflow: document.documentElement.scrollWidth > innerWidth,
+        };
+      });
+      await expect.poll(async () => (await measure()).gutters).toEqual([16, 16, 16, 16, 16, 16]);
+      const normal = await measure();
+      expect(normal).toMatchObject({ leftWidth: 260, centerWidth: 432, contentWidth: 400,
+        feedWidth: 400, feedClientWidth: 400, composerWidth: 400, aligned: true,
+        rightEdge: 1440, jumpBelowFeed: true, jumpAboveComposer: true, overflow: false });
+      // Classic and overlay scrollbars, including a nav rail that becomes
+      // scrollable after loading, must not alter the content gutters.
+      await page.locator(".sidebar-nav-stack").evaluate(el => {
+        const extra = document.createElement("div"); extra.style.height = "1200px"; extra.style.flexShrink = "0"; el.append(extra);
+      });
+      await page.setViewportSize({ width: 1920, height: 900 });
+      await expect.poll(async () => (await measure()).gutters).toEqual([16, 16, 16, 16, 16, 16]);
+      const wide = await measure();
+      expect(wide.contentWidth).toBe(400);
+      expect(wide.feedWidth).toBe(400);
+      expect(wide.composerWidth).toBe(400);
+      expect(wide.railWidth - normal.railWidth).toBe(480);
+      expect(wide.rightEdge).toBe(1920);
+      expect(wide.overflow).toBe(false);
+      await expect(page).toHaveURL(entry.url);
+      expect(state.errors).toEqual([]);
+      expect(state.writes).toEqual([]);
+      await page.screenshot({ path: info.outputPath(`${entry.pane}-${entry.discovery ? "discovery" : "chat"}-${entry.url.startsWith("/?") ? "home" : "session"}.png`) });
+      await page.unrouteAll({ behavior: "wait" });
+    }
+  });
+}
+
+for (const hasTouch of [false, true]) test.describe(`Home Tab spacing with ${hasTouch ? "coarse" : "fine"} pointer`, () => {
+test.use({ hasTouch });
+test("Home mode Tabs leave 8px before the composer, including short viewports", async ({ page }, info) => {
+  const state = await fixture(page, true);
+  expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(hasTouch);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const mode of ["today", "todo", "discovery", "pool", "lifecycle"]) {
+      await page.goto(`/?tab=${mode}`);
+      const tabs = page.locator("[data-home-quick-tasks]");
+      await expect(tabs).toBeVisible();
+      const composer = page.locator(".home-composer-dock .composer");
+      await expect(composer).toBeVisible();
+      const gap = await tabs.evaluate(el => {
+        const dock = el.closest(".home-composer-dock")!;
+        return dock.querySelector(".composer")!.getBoundingClientRect().top - el.getBoundingClientRect().bottom;
+      });
+      expect(gap).toBe(8);
+      await expect(page.locator("[data-ai-prompt-submit]")).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (viewport.width === 1440 && mode === "today") await page.screenshot({ path: info.outputPath("today-tabs-gap.png") });
+    }
+  }
+  expect(state.errors).toEqual([]);
+  expect(state.writes).toEqual([]);
+});
+});
+
 // UI fixtures validate rendering and request boundaries, not external execution.
 async function fixture(page: Page, discovery = false, withDraft = false, initialResult = true, sessionId = "ordinary-session", theme = "light", visual = false) {
   const errors: string[] = [];
