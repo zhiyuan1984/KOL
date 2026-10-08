@@ -127,9 +127,11 @@ export function filterWhere(f:NormFilter,entry:boolean,from:number):{sql:string;
     const s=VIEW_STATUS_SQL[f.view];
     if(s) conds.push(entry?`(${ENTRY_STATUS_SQL} = ${p(s)})`:`(k.status = ${p(s)})`);
   }
-  if(f.kind) conds.push(`(k.kind = ${p(f.kind)})`);
-  if(f.brands.length) conds.push(`(k.brand IS NULL OR k.brand='' OR k.brand='*' OR k.brand = ANY(${p(f.brands)}::text[]))`);
-  if(f.stages.length) conds.push(`(COALESCE(NULLIF(k.stage_codes,''),'[]')::jsonb = '[]'::jsonb OR EXISTS`
+  // Documents project kind='document', brand=NULL and stage_codes=[]; those
+  // are UNION output fields, not physical columns of knowledge_documents.
+  if(f.kind) conds.push(entry ? `(k.kind = ${p(f.kind)})` : `('document' = ${p(f.kind)})`);
+  if(entry && f.brands.length) conds.push(`(k.brand IS NULL OR k.brand='' OR k.brand='*' OR k.brand = ANY(${p(f.brands)}::text[]))`);
+  if(entry && f.stages.length) conds.push(`(COALESCE(NULLIF(k.stage_codes,''),'[]')::jsonb = '[]'::jsonb OR EXISTS`
     +` (SELECT 1 FROM jsonb_array_elements_text(COALESCE(NULLIF(k.stage_codes,''),'[]')::jsonb) s WHERE s = ANY(${p(f.stages)}::text[])))`);
   if(f.familyId) conds.push(f.familyId===SCOPE_NONE?`(f.id IS NULL)`:`(f.id = ${p(f.familyId)})`);
   if(f.domainId) conds.push(f.domainId===SCOPE_NONE?`(d.id IS NULL)`:`(d.id = ${p(f.domainId)})`);
@@ -238,7 +240,7 @@ export async function facetCounts(db:PoolClient,base:{ids:any[];tenant:string},f
 }
 export async function workspaceStats(db:PoolClient,base:{ids:any[];tenant:string}){
   const f:NormFilter={...parseWorkspaceFilter({}) as NormFilter,page:1,pageSize:20,q:"",kind:"",familyId:"",domainId:"",baseId:"",asset:"",view:"all",brands:[],stages:[],expiring:false};
-  const {sql:u,params}=buildUnion(base,f,null,e=>e?ENTRY_STATUS_SQL:"k.status");
+  const {sql:u,params}=buildUnion(base,f,null,e=>e?`${ENTRY_STATUS_SQL} AS status`:"k.status AS status");
   const statusRows=(await db.query(`SELECT u.status AS k,COUNT(*) AS c FROM (${u}) u GROUP BY 1`,params)).rows;
   const status:Record<string,number>={};
   for(const r of statusRows)status[String(r.k)]=Number(r.c);

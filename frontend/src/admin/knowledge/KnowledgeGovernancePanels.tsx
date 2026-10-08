@@ -44,6 +44,6 @@ export function KnowledgeGraphPanel({ data, error, reload }: Pick<Props, "data" 
     {graph ? <div className="kbadmin-graph-path">
       <span>{graph.family_name || "未分类"}</span><b>→</b><span>{graph.domain_name || "未分类"}</span><b>→</b><strong>{graph.base_name}</strong>
       <b>→</b><span>文档 {graph.document_count}（范围 {graph.scoped_document_count}）</span><b>→</b><span>技能 {graph.skill_count}</span><b>→</b><span>Agent {graph.agent_count}</span>
-    </div> : <p className="muted">当前组织尚无已接通的知识关系投影；可先在知识目录配置分类，在查询技能中查看绑定与试算。</p>}
+    </div> : <p className="muted">当前组织尚无已接通的知识关系投影；可先在知识规划配置分类，在查询技能中查看绑定与试算。</p>}
   </section>;
 }

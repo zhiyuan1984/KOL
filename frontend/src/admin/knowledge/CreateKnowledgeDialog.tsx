@@ -228,7 +228,7 @@ export default function CreateKnowledgeDialog({ open, onClose, bases, onCreated 
         </label>
 
         {!targetBase ? (
-          <p className="kbv-error" role="alert">还没有可写入的结构化知识库；先到知识目录建一个。</p>
+          <p className="kbv-error" role="alert">还没有可写入的结构化知识库；先到知识规划建一个。</p>
         ) : null}
         {targetBase && !kindOk ? (
           <p className="kbv-error" role="alert">所选知识库类型与「{kindLabel(kind)}」不兼容，换一个知识库。</p>
@@ -236,7 +236,7 @@ export default function CreateKnowledgeDialog({ open, onClose, bases, onCreated 
         {error ? <p className="kbv-error" role="alert">{error}</p> : null}
       </div>
       <div className="kbv-dialog-actions">
-        <Link className="kbv-link-plain" to="/admin/knowledge/catalog" onClick={onClose}>去知识目录</Link>
+        <Link className="kbv-link-plain" to="/admin/knowledge/catalog" onClick={onClose}>去知识规划</Link>
         <button type="button" className="btn" onClick={onClose}>取消</button>
         <button type="button" className="btn work" data-kbv-create-submit disabled={!canSubmit} onClick={submit}>
           创建草稿
