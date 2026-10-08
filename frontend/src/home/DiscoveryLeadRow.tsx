@@ -201,7 +201,7 @@ export default function DiscoveryLeadRow({
             <>
               <button
                 type="button"
-                className="pool-claim-button"
+                className="discovery-follow-quiet"
                 data-lead-ingest-confirm={candidate.id}
                 disabled={busy}
                 onClick={() => void runAction("ingest")}
@@ -220,7 +220,7 @@ export default function DiscoveryLeadRow({
           ) : (
             <button
               type="button"
-              className="pool-claim-button"
+              className="discovery-follow-quiet"
               data-lead-ingest={candidate.id}
               title="将公开资料写入 Starry 并进入公海（L3，需确认）"
               onClick={() => setConfirming("ingest")}

@@ -227,8 +227,8 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
                     followedUp={followUpIds.includes(candidate.id)}
                     onToggleSelect={(on) => toggleSelected(candidate.id, on)}
                     onToggleExpand={() => toggleExpanded(candidate.id)}
-                    onIngestCandidate={() => ingestCandidate(candidate.id)}
-                    onFollowUpCandidate={() => followUpCandidate(candidate.id)}
+                    onIngestCandidate={() => ingestCandidate(candidate.id, candidate.run_id)}
+                    onFollowUpCandidate={() => followUpCandidate(candidate.id, candidate.run_id)}
                     onIgnore={() => ignoreCandidate(candidate.id)}
                   />
                 </li>
