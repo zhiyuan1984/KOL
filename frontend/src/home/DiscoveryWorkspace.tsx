@@ -118,7 +118,7 @@ export default function DiscoveryWorkspace({
       centerHeader={centerHeader}
       centerScroll={(
         <div className="discovery-flow" data-discovery-flow>
-          <DiscoverySkillEvent template={skillTemplate} />
+          <DiscoverySkillEvent template={skillTemplate} compact={flowStarted} />
           <DiscoveryGuidanceEvent />
           <section
             className="discovery-event"
@@ -128,8 +128,7 @@ export default function DiscoveryWorkspace({
             aria-label="发现条件"
           >
             <header className="discovery-event-head">
-              <span className="discovery-event-kicker">发现条件</span>
-              <strong>{disc.cardMode === "readonly" ? "本次提交的条件" : "填写发现条件"}</strong>
+              <strong>{disc.cardMode === "readonly" ? "本次提交的条件" : "发现条件"}</strong>
               {disc.cardMode === "readonly" ? (
                 <span className="discovery-event-status">
                   <button
@@ -209,11 +208,11 @@ export default function DiscoveryWorkspace({
               connection={disc.connection}
             />
           ) : null}
-          <DiscoveryNextPlan
+          {(!flowStarted || startConfirmed) ? <DiscoveryNextPlan
             run={disc.run}
             visibleCount={disc.visible.length}
             selectedCount={disc.selected.length}
-            inFlight={disc.inFlight}
+            inFlight={disc.startAction ? disc.crawlPending : disc.inFlight}
             failure={disc.failure}
             emptyKind={disc.emptyKind}
             onEditConditions={editConditions}
@@ -222,12 +221,13 @@ export default function DiscoveryWorkspace({
             checkingConnection={disc.checkingConnection}
             connection={disc.connection}
             onOpenIngest={disc.openIngest}
-          />
+          /> : null}
           {centerSupplement}
         </div>
       )}
       centerFooter={centerFooter}
-      rail={<DiscoveryResultPane state={disc} brief={brief} />}
+      railHeader={<DiscoveryResultPane state={disc} brief={brief} region="header" />}
+      rail={<DiscoveryResultPane state={disc} brief={brief} region="body" />}
     />
   );
 }

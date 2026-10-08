@@ -1,4 +1,6 @@
 import { Link } from "react-router-dom";
+import { LifecycleNavigation } from "../components/LifecycleNavigation";
+import "../components/lifecycle-workspace.css";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
 import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
@@ -11,7 +13,7 @@ import type { DiscoveryState } from "./useDiscovery";
  * 本身，右栏顶部固定的是「这个任务现在到哪了」。reads、polling、writes 与 L3
  * 确认仍然都在 hook 和既有确认流程里。
  */
-export default function DiscoveryResultPane({ state, brief }: { state: DiscoveryState; brief: DiscoveryBrief }) {
+export default function DiscoveryResultPane({ state, brief, region = "all" }: { state: DiscoveryState; brief: DiscoveryBrief; region?: "all" | "header" | "body" }) {
   const {
     run,
     runId,
@@ -95,15 +97,7 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
                       : { key: "idle", glyph: "·", label: "未开始", detail: "提交条件后，结果会保存在这里。" };
 
   const avatarIsActive = ["preparing", "starting", "running"].includes(railStatus.key);
-  return (
-    <div
-      className="discovery-panel"
-      data-discovery-panel
-      data-discovery-live="false"
-      data-discovery-stage={stage}
-      data-discovery-running={inFlight ? "true" : undefined}
-    >
-      <header className="discovery-run-status" data-discovery-run-status={railStatus.key}>
+  const statusHeader = (<header className="discovery-run-status" data-discovery-run-status={railStatus.key}>
         <DiscoveryAvatar active={avatarIsActive} />
         <div className="discovery-run-status-copy">
           <span className="discovery-run-status-kicker">当前任务</span>
@@ -112,7 +106,59 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
           </strong>
           <span className="discovery-run-status-detail" data-discovery-run-status-detail>{railStatus.detail}</span>
         </div>
-      </header>
+      </header>);
+  const resultControls = (<div className="discovery-result-controls" data-discovery-result-controls>
+      <span className="discovery-result-scope">本次结果</span>
+      <div className="discovery-result-filters" data-discovery-result-filters>
+        <LifecycleNavigation label="按入库准备度筛选本次结果" mode="filter" idPrefix="discovery-results"
+          value={resultFilter} onChange={(id) => setResultFilter(id as typeof resultFilter)}
+          options={[
+            { id: "all", label: "全部", count: available.length },
+            { id: "ready", label: "可入库", count: readyCount },
+            { id: "review", label: "待复核", count: reviewCount },
+            { id: "blocked", label: "待补资料", count: blockedCount },
+            { id: "existing", label: "已在库", count: existingCount },
+          ].map((option) => ({ ...option, dataAttributes: { "data-discovery-result-filter": option.id } }))} />
+      </div>
+      <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
+            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 待跟进 ${followUpCount} 人` : ""}`}</span>
+            <label className="discovery-candidate-select">
+              <input
+                type="checkbox"
+                data-discovery-select-all
+                checked={allSelectableShown}
+                disabled={!selectableVisible.length}
+                onChange={(event) => selectAll(event.target.checked)}
+              />
+              <span>全选当前结果</span>
+            </label>
+            <button
+              type="button"
+              className="discovery-follow-quiet discovery-ingest-trigger"
+              data-discovery-ingest
+              data-home-entry="discovery-ingest"
+              disabled={!selecting}
+              onClick={openIngest}
+            >
+              {`入库公海（${selected.length}）`}
+            </button>
+          </div>
+    </div>);
+  if (region === "header") {
+    return <div className="discovery-result-header" data-discovery-result-header>
+      {statusHeader}
+      {showResults ? resultControls : null}
+    </div>;
+  }
+  return (
+    <div
+      className="discovery-panel"
+      data-discovery-panel
+      data-discovery-live="false"
+      data-discovery-stage={stage}
+      data-discovery-running={inFlight ? "true" : undefined}
+    >
+      {region === "all" ? statusHeader : null}
 
       {runFromAnotherTask ? (
         <p className="discovery-flow-note" data-discovery-previous-run>
@@ -120,15 +166,15 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
         </p>
       ) : null}
       {startAction?.crawl ? (
-        <section className="discovery-remote-receipt" data-discovery-remote-receipt aria-label="远程采集状态">
-          <header><strong>远程采集</strong><span data-discovery-remote-state>{String(startAction.crawl.remote_status || startAction.crawl.state || "连接中")}</span></header>
+        <details className="discovery-remote-receipt" data-discovery-remote-receipt open={activeCrawl}>
+          <summary><strong>远程采集回执</strong><span data-discovery-remote-state>{String(startAction.crawl.remote_status || startAction.crawl.state || "连接中")}</span></summary>
           <dl>
             <div><dt>远程任务</dt><dd>{startAction.crawl.remote_task_id || "等待分配"}</dd></div>
             <div><dt>结果状态</dt><dd>{startAction.crawl.result_state || "pending"}</dd></div>
             <div><dt>远程更新时间</dt><dd>{startAction.crawl.updated_at || "暂无"}</dd></div>
             <div><dt>候选回执</dt><dd>{Array.isArray(startAction.crawl.result_json?.candidates) ? `${startAction.crawl.result_json.candidates.length} 条` : "尚未返回"}</dd></div>
           </dl>
-        </section>
+        </details>
       ) : null}
 
       {approvalState === "brief_mismatch" ? (
@@ -157,54 +203,11 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
 
       {showResults ? (
         <section className="discovery-result-detail" aria-label="结果明细">
-          <header className="discovery-result-detail-head">
+          {region === "all" ? <header className="discovery-result-detail-head">
             <h3>结果明细{!selecting ? <span className="discovery-result-detail-hint"> · 优先复核证据，再选择可入库线索</span> : null}</h3>
-          </header>
+          </header> : null}
 
-          <div className={"discovery-result-filters" + (resultFilter !== "all" ? " is-filtered" : "")} data-discovery-result-filters>
-            {[
-              ["all", `全部 ${available.length}`],
-              ["ready", `可入库 ${readyCount}`],
-              ["review", `待复核 ${reviewCount}`],
-              ["blocked", `待补资料 ${blockedCount}`],
-              ["existing", `已在库 ${existingCount}`],
-            ].map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                className="discovery-filter-chip"
-                aria-pressed={resultFilter === key}
-                data-discovery-result-filter={key}
-                onClick={() => setResultFilter(key as typeof resultFilter)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
-            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 待跟进 ${followUpCount} 人` : ""}`}</span>
-            <label className="discovery-candidate-select">
-              <input
-                type="checkbox"
-                data-discovery-select-all
-                checked={allSelectableShown}
-                disabled={!selectableVisible.length}
-                onChange={(event) => selectAll(event.target.checked)}
-              />
-              <span>全选当前结果</span>
-            </label>
-            <button
-              type="button"
-              className="btn work sm"
-              data-discovery-ingest
-              data-home-entry="discovery-ingest"
-              disabled={!selecting}
-              onClick={openIngest}
-            >
-              {`入库公海（${selected.length}）`}
-            </button>
-          </div>
+          {region === "all" ? resultControls : null}
 
           {visible.length ? (
             <ol className="discovery-candidate-list" data-discovery-candidates>
@@ -251,7 +254,7 @@ export default function DiscoveryResultPane({ state, brief }: { state: Discovery
         </p>
       ) : null}
 
-      {!showResults && !failure && (inFlight || activeCrawl) ? (
+      {!showResults && !failure && (activeCrawl || (inFlight && !["waiting_proposal", "pending"].includes(startPhase))) ? (
         <div className="task-empty" data-discovery-empty="waiting-results" role="status">
           <strong>正在等待候选结果</strong>
           <p>远端仍在采集或读取结果；当前没有候选不等于筛选无结果。</p>

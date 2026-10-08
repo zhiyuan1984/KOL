@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { platformLabel, regionLabel } from "./discoveryTemplate";
 import type { DiscoveryBrief, DiscoveryTemplate } from "./discoveryTemplate";
 import {
   defaultDiscoveryBrief,
@@ -65,7 +66,7 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema, 
     const words = flushed ?? (Array.isArray(brief.keywords) ? brief.keywords : []);
     onSubmit?.(words === brief.keywords ? brief : { ...brief, keywords: words });
   };
-  return <div className="discovery-brief-form"><SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
+  const card = <SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
       values={brief as unknown as Record<string, unknown>} optionSets={options}
       tokenFields={TOKEN_FIELDS} pristineValues={PRISTINE_DISCOVERY_VALUES}
       hideTitle compactDiscoveryLayout mode={mode} keywordFieldRef={keywordFieldRef}
@@ -74,6 +75,12 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema, 
         <p className="discovery-card-note" data-discovery-card-note>地区、粉丝与均播用于候选核对，不是远端采集数量限制。</p>
         {mode === "edit" ? <button type="button" className="btn" data-discovery-card-submit
           disabled={submitting} aria-busy={submitting || undefined} onClick={submit}>{submitting ? "提交中…" : submitLabel || "提交条件，核对参数"}</button> : null}
-      </div> : undefined} />
+      </div> : undefined} />;
+  return <div className="discovery-brief-form">
+    {mode === "ready" ? <details className="discovery-submitted-conditions" data-discovery-submitted-conditions>
+      <summary>{brief.platforms.map(code => platformLabel(code, options.platforms)).join("、") || "未选平台"}
+        {` · ${regionLabel(brief.region, options.regions)} · ${brief.keywords.length} 个关键词 · 查看已提交条件`}</summary>
+      {card}
+    </details> : card}
   </div>;
 }

@@ -3,10 +3,10 @@ import SkillTemplateContext from "../components/SkillTemplateContext";
 
 /**
  * ① 展示技能：采集线索的交互模板全文（功能 / 预计执行步骤 / 输出说明 /
- * 结果依据 / 需要你决定 / 使用边界 / 异常与恢复）。默认展开、平铺排版，
+ * 结果依据 / 需要你决定 / 使用边界 / 异常与恢复）。填写时展开、核对后收起，
  * 内部不加滚动条，也不套第二层卡片。
  */
-export default function DiscoverySkillEvent({ template }: { template: SkillTemplate | null }) {
+export default function DiscoverySkillEvent({ template, compact = false }: { template: SkillTemplate | null; compact?: boolean }) {
   if (!template) return null;
   return (
     <section
@@ -15,7 +15,10 @@ export default function DiscoverySkillEvent({ template }: { template: SkillTempl
       data-discovery-event-index="1"
       aria-label="AI发现技能说明"
     >
-      <SkillTemplateContext template={template} flat showOptionalInputs={false} className="discovery-skill-context" />
+      <details className="discovery-skill-details" open={!compact}>
+        <summary>采集线索技能说明</summary>
+        <SkillTemplateContext template={template} flat showOptionalInputs={false} className="discovery-skill-context" />
+      </details>
     </section>
   );
 }

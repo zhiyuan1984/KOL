@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent } from "react";
 
-export type LifecycleOption = { id: string; label: string; count?: number | null; disabled?: boolean };
+export type LifecycleOption = { id: string; label: string; count?: number | null; disabled?: boolean; dataAttributes?: Record<`data-${string}`, string> };
 
 type Props = {
   label: string;
@@ -28,7 +28,7 @@ export function LifecycleNavigation({ label, options, value, onChange, mode = "f
     buttons.current.get(enabled[next].id)?.focus();
   }
   return <div className="lifecycle-navigation" data-mode={mode} role={views ? "tablist" : "group"} aria-label={label}>
-    {options.map(option => <button key={option.id} type="button"
+    {options.map(option => <button key={option.id} type="button" {...option.dataAttributes}
       ref={node => { if (node) buttons.current.set(option.id, node); else buttons.current.delete(option.id); }}
       id={`${idPrefix}-tab-${option.id}`} className="lifecycle-tab"
       role={views ? "tab" : undefined} aria-selected={views ? value === option.id : undefined}

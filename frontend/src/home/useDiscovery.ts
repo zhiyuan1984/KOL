@@ -793,6 +793,7 @@ export default function useDiscovery({
     startPhase,
     crawlPhase,
     crawlRunning,
+    crawlPending,
     startReason,
     startError,
     startBusy,

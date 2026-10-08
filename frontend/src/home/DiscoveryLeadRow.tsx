@@ -31,7 +31,7 @@ function CartoonAvatar() {
 }
 
 /**
- * Creator lead / Row：默认紧凑行（最小高 76），点「查看详情」展开二级指标。
+ * Creator lead / Row：身份、指标、理由和文字操作依次排列，点「查看详情」展开二级指标。
  * 所有缺失都渲染缺失文案，不编造；无 URL 时「看来源」禁用。
  */
 export default function DiscoveryLeadRow({
@@ -113,26 +113,22 @@ export default function DiscoveryLeadRow({
           <span className="discovery-chip discovery-chip-soft">
             {candidate.platform ? platformLabel(candidate.platform) : MISSING_TEXT}
           </span>
-          {candidate.in_library ? (
+          {candidate.in_library && !["already_in_library", "already_followed"].includes(candidate.ingestReadiness) ? (
             <span className="discovery-chip discovery-chip-soft" data-discovery-in-library>已在库</span>
           ) : null}
           {followUp ? (
             <span className="discovery-lead-tag is-followup" data-lead-followup>待跟进</span>
           ) : null}
-          <span className="discovery-lead-tag" data-lead-score>
-            {score == null ? `推荐分 ${MISSING_TEXT}` : `推荐分 ${score}`}
-          </span>
-          <span className="discovery-lead-tag" data-lead-confidence-chip>
-            {`置信度 ${confidenceLabel(candidate)}`}
-          </span>
           <span className={`discovery-lead-tag is-readiness is-${candidate.ingestReadiness}`} data-lead-readiness>
             {readiness}
           </span>
         </p>
         <p className="discovery-lead-meta" data-discovery-candidate-meta data-lead-fit>
-          {`${briefFitText(candidate, brief)} · 账号 ${candidate.platformCreatorId || MISSING_TEXT} · 粉丝 ${displayMetric(candidate.followers)}`
+          <span>{`${briefFitText(candidate, brief)} · 账号 ${candidate.platformCreatorId || MISSING_TEXT} · 粉丝 ${displayMetric(candidate.followers)}`
             + ` · 近10均播 ${displayMetric(plays)}${note ? ` · ${note}` : ""}`
-            + ` · 播放/粉丝比 ${viewFollowerPercent(candidate)}`}
+            + ` · 播放/粉丝比 ${viewFollowerPercent(candidate)}`}</span>
+          <span data-lead-score>{score == null ? `推荐分 ${MISSING_TEXT}` : `推荐分 ${score}`}</span>
+          <span data-lead-confidence-chip>{`置信度 ${confidenceLabel(candidate)}`}</span>
         </p>
         {email ? (
           <p className="discovery-lead-meta" data-lead-email>

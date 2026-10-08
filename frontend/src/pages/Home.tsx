@@ -2539,8 +2539,8 @@ export default function Home() {
               lastSubmit={lastDiscoverySubmit}
               onRetrySubmit={() => void retryDiscoveryRun()}
               centerSupplement={<>
-                {resumedDiscoverySession ? <p role="status" data-discovery-resume>
-                  已恢复上次条件。<button className="btn ghost" onClick={() => nav(`/s/${resumedDiscoverySession}`)}>继续原发现任务</button>
+                {resumedDiscoverySession ? <p className="discovery-resume-notice" role="status" data-discovery-resume>
+                  <strong>已恢复上次条件</strong><button className="discovery-follow-quiet" onClick={() => nav(`/s/${resumedDiscoverySession}`)}>继续原发现任务</button>
                   <span className="muted">修改条件后提交将新建发现任务，原结果保留。</span>
                 </p> : null}
                 {renderInteractionFeedback({ withSkillTemplate: false })}

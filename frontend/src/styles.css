@@ -12841,83 +12841,36 @@ button.today-brief-primary-btn:disabled {
   padding: 0;
   list-style: none;
 }
-.discovery-lead {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-3);
-  min-height: 76px;
-  padding: var(--ds-space-3) 0;
-  border-bottom: 1px solid var(--ds-border);
-}
-.discovery-lead.is-expanded { flex-wrap: wrap; align-items: flex-start; }
-.discovery-lead-avatar {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--ds-radius-tag);
-  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
-  color: var(--accent-text);
-  font-size: var(--ds-font-section);
-  font-weight: 600;
-  object-fit: cover;
-  overflow: hidden;
-}
-.discovery-lead-main { flex: 1 1 320px; min-width: 0; }
-.discovery-lead-identity {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ds-space-2);
-  margin: 0;
-}
-.discovery-lead-nickname { font-size: var(--ds-font-body); font-weight: 600; color: var(--text); }
-.discovery-lead-tag {
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-  color: var(--ds-text-dim);
-  border: 1px solid var(--ds-border);
-  border-radius: var(--ds-radius-chip);
-  padding: 2px var(--ds-space-2);
-}
-.discovery-lead-meta,
-.discovery-lead-reason {
-  margin: var(--ds-space-1) 0 0;
-  font-size: var(--ds-font-body);
-  line-height: var(--ds-line-body);
-  color: var(--ds-text-dim);
-}
-.discovery-lead-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-3);
-}
-.discovery-follow-quiet.is-disabled,
-.discovery-follow-quiet[aria-disabled="true"] {
-  color: var(--color-smoke);
-  cursor: not-allowed;
-}
-.discovery-lead-detail {
-  flex: 1 1 100%;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--ds-space-2) var(--ds-space-6);
-  margin: var(--ds-space-3) 0 0;
-  padding: var(--ds-space-3) 0 0;
-  border-top: 1px dashed var(--ds-border);
-}
-.discovery-lead-detail-item { display: flex; gap: var(--ds-space-2); min-width: 0; }
-.discovery-lead-detail-item.is-wide { grid-column: 1 / -1; }
-.discovery-lead-detail-item dt {
-  flex: 0 0 auto;
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-  color: var(--ds-text-dim);
-}
-.discovery-lead-detail-item dd { margin: 0; font-size: var(--ds-font-body); color: var(--text); }
+/* 线索证据行：身份、指标、理由、操作上下组合；正文列可收缩。 */
+.discovery-lead { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; gap: var(--space-1) var(--space-2); min-width: 0; min-height: 0; padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.discovery-lead-select { grid-column: 1; grid-row: 1; display: inline-flex; align-items: start; }
+.discovery-lead-select input { margin: 0; width: var(--icon-sm); height: var(--icon-sm); }
+.discovery-lead-avatar { grid-column: 2; grid-row: 1; width: var(--control-h-sm); height: var(--control-h-sm); border-radius: var(--radius-control); background: var(--color-ash); color: var(--text-quiet); object-fit: cover; overflow: hidden; }
+.discovery-lead-main { grid-column: 3; grid-row: 1; min-width: 0; }
+.discovery-lead-identity { display: flex; flex-wrap: wrap; align-items: start; gap: var(--space-1) var(--space-2); margin: 0; }
+.discovery-lead-nickname { color: var(--text); font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); font-weight: 500; overflow-wrap: anywhere; }
+.discovery-lead-identity .discovery-chip { height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
+.discovery-lead-tag { color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
+.discovery-lead-tag:is(.is-readiness,.is-followup) { display: inline-flex; align-items: center; min-height: var(--badge-h); padding-inline: var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-control); font-weight: 500; }
+.discovery-lead-tag.is-followup { color: var(--accent-text); border-color: var(--accent); }
+.discovery-lead-tag.is-readiness.is-ready { color: var(--color-success-vivid); }
+.discovery-lead-tag.is-readiness.is-needs_review { color: var(--color-warning-vivid); }
+.discovery-lead-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: var(--space-1) 0 0; color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); overflow-wrap: anywhere; }
+.discovery-lead-reason { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); overflow-wrap: anywhere; }
+.discovery-lead:not(.is-expanded) .discovery-lead-reason { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.discovery-lead-actions { grid-column: 3; display: flex; flex-wrap: wrap; align-items: center; justify-content: start; gap: var(--space-1); min-width: 0; }
+.discovery-follow-quiet { display: inline-flex; align-items: center; min-height: var(--control-h-sm); margin: 0; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--accent-text); font: inherit; font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); text-decoration: none; cursor: pointer; }
+.discovery-follow-quiet:hover:not(:disabled) { background: var(--btn-text-hover-bg); }
+.discovery-follow-quiet:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+.discovery-follow-quiet[data-discovery-followup][aria-pressed="true"] { font-weight: 600; }
+.discovery-follow-quiet:disabled { opacity: .45; cursor: not-allowed; }
+.discovery-follow-quiet.is-disabled, .discovery-follow-quiet[aria-disabled="true"] { color: var(--text-muted); cursor: not-allowed; }
+.discovery-lead-detail { grid-column: 3; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); margin: 0; padding-top: var(--space-2); border-top: 1px dashed var(--border); }
+.discovery-lead-detail-item { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0; }
+.discovery-lead-detail-item dt { color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
+.discovery-lead-detail-item dd { margin: 0; color: var(--text); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); overflow-wrap: anywhere; }
+.discovery-lead-select input:disabled { cursor: not-allowed; opacity: .55; }
+@media (pointer: coarse) { .discovery-follow-quiet { min-height: var(--touch-hit-min); } }
 
 /* ── T7：成功态暗色 / 对比度 ── */
 :root {
@@ -12932,15 +12885,6 @@ button.today-brief-primary-btn:disabled {
 .discovery-status-card.is-ok .discovery-status-dot { background: var(--discovery-success); }
 .discovery-status-card.is-ok .discovery-status-copy,
 .discovery-status-card.is-ok .discovery-status-state { color: var(--discovery-success); }
-
-.discovery-lead-select { flex: 0 0 auto; display: inline-flex; align-items: center; }
-.discovery-lead-nickname { font-size: var(--ds-font-body); }
-/* 移除整栏 overflow-x:hidden 兜底后的行级收束：长 URL / 无空格长串在行内换行，不撑破窄栏。 */
-.discovery-lead-nickname,
-.discovery-lead-meta,
-.discovery-lead-reason,
-.discovery-lead-tag,
-.discovery-lead-detail-item dd { overflow-wrap: anywhere; }
 
 /* ── 全局视觉 token（Design System v1） ──────────────────────────────────
    一套尺度给全站用：间距走 8px 网格，圆角按层级分档，颜色/字号只从这里取。
@@ -13068,9 +13012,6 @@ button.today-brief-primary-btn:disabled {
    （隐藏二级指标：播放中位数/稳定度/采集时间/在库状态）。 */
 @media (max-width: 1024px) {
   .ai-discovery-rows.is-pair { grid-template-columns: minmax(0, 1fr); }
-  .discovery-lead { min-height: 64px; }
-  .discovery-lead-detail-item:nth-child(-n + 4) { display: none; }
-  .discovery-lead-detail { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ── 邮箱通讯：三栏（左邮箱树 / 中人机互动 / 右邮件详情） ──────────────────
@@ -13714,59 +13655,13 @@ button.today-brief-primary-btn:disabled {
    complete interaction dock (quick tasks + composer); the result rail scrolls
    independently. These rules intentionally supersede the transitional
    absolute-positioned Today composer above. */
-.home-quick-tasks {
-  display: flex;
-  flex-wrap: nowrap;
-  width: max-content;
-  max-width: 100%;
-  align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
-  padding: 0 2px 8px;
-}
-.home-quick-tasks button {
-  flex: 0 0 auto;
-  width: auto;
-  min-width: 0;
-  padding: var(--space-1) var(--space-3);
-  border: none;
-  border-radius: var(--radius-control);
-  background: var(--chrome);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--ds-font-helper);
-  /* 必须在 font: inherit 之后：芯片按内容收缩成 26px 高（4 + 18 + 4），字号字重不变。 */
-  line-height: var(--ds-line-helper);
-  white-space: nowrap;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--home-mode-tab-gap);
-}
-.home-mode-label {
-  display: block;
-  min-width: 0;
-  white-space: nowrap;
-}
-.home-quick-tasks button:hover {
-  background: var(--chrome-2);
-}
-.home-quick-tasks button[aria-pressed="true"] {
-  background: var(--chrome-2);
-  color: var(--text);
-  font-weight: 600;
-}
-.home-quick-tasks button[aria-selected="true"] {
-  background: color-mix(in srgb, var(--primary) 10%, var(--chrome));
-  color: var(--primary-text);
-  font-weight: 600;
-  border-color: transparent;
-  box-shadow: none;
-}
-.home-quick-tasks button[aria-selected="true"]:hover {
-  background: color-mix(in srgb, var(--primary) 14%, var(--chrome));
-}
+.home-quick-tasks { display: flex; flex-wrap: nowrap; width: 100%; min-width: 0; gap: var(--workspace-tab-gap); align-items: end; overflow-x: auto; padding: 0; border-bottom: 1px solid var(--border); }
+.home-quick-tasks button { flex: 0 0 auto; min-height: var(--filter-tab-h); padding: 0 var(--space-1); border: 0; border-bottom: var(--workspace-tab-indicator-h) solid transparent; border-radius: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); white-space: nowrap; cursor: pointer; }
+.home-mode-label { display: block; min-width: 0; white-space: nowrap; }
+.home-quick-tasks button:hover { color: var(--accent-text); }
+.home-quick-tasks button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.home-quick-tasks button:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+@media (pointer: coarse) { .home-quick-tasks button { min-height: var(--touch-hit-min); } }
 /* 芯片行与中栏内容同一条左缘轴：composer.css 给 .home-composer-dock 设了
    align-items:center，这里在工作台上下文改回左对齐（标题/步骤/推理块全部贴左，
    芯片不再悬在列中间），首尾 2px 内边距一并归零。 */
@@ -17098,4 +16993,18 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   border: 0;
   padding: 0 var(--space-1);
   color: var(--text-quiet);
+}
+
+/* 固定右栏头与唯一内容滚动区；独立于各任务的内容组件。 */
+.home-pane[data-home-workspace] .scope-task-rail.has-fixed-header { display: flex; flex-direction: column; overflow: clip; min-height: 0; padding: 0; }
+.scope-task-rail.has-fixed-header > .scope-task-rail-fixed-header { flex: 0 0 auto; min-width: 0; padding: var(--space-2) var(--space-4) 0; background: var(--bg); }
+.scope-workspace .scope-task-rail.has-fixed-header > .scope-task-rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) var(--space-4) var(--space-3); scrollbar-gutter: stable; }
+.scope-task-rail.has-fixed-header.is-collapsed > .scope-task-rail-fixed-header { display: none; }
+.scope-task-rail.has-fixed-header > .scope-rail-jump-wrap { position: absolute; right: 0; bottom: var(--space-3); }
+
+/* 受控确认出现时，输入框发送降为 L2；确认仍是当前唯一 L1。 */
+.scope-workspace[data-home-pane="discovery"]:has([data-discovery-start-confirm], [data-discovery-start-goto-params], [data-discovery-ingest-confirm]) .home-composer-dock .composer .btn.send.send-arrow[data-ai-prompt-submit] {
+  background: transparent;
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
 }

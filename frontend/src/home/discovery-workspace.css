@@ -21,13 +21,13 @@
   保留原字段的 data-skill-param / API key，布局变化不改变提交语义。
 */
 .discovery-brief-form {  --ds-label-w: 88px;
-  --ds-row-gap: var(--space-3);
+  --ds-row-gap: var(--space-2);
   --ds-control-h: var(--control-h-form);
   --ds-chip-h: var(--chip-h);
   /* 关键词芯片与芯片内输入位同高：24px 档，触摸模态升到 44px 命中区。 */  --ds-token-h: var(--control-h-sm);
   --ds-chip-gap: var(--space-1);
   --ds-space-5: var(--space-3);
-  padding-bottom: calc(var(--space-4, 16px) + env(safe-area-inset-bottom, 0px));}
+  padding-bottom: 0;}
 .discovery-brief-form .ai-discovery-card {
   gap: 0;
   margin-bottom: 0;  /* 一层浅灰边框由外层发现事件块（discovery-event）提供，卡片自身保持平铺。 */
@@ -38,7 +38,7 @@
 }
 .discovery-brief-form .ai-discovery-row {
   grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   column-gap: var(--space-2);
 }
 .discovery-brief-form .ai-discovery-label,
@@ -64,15 +64,15 @@
 .discovery-brief-form .ai-discovery-chips {
   gap: var(--ds-chip-gap);
 }
-.discovery-brief-form .ai-discovery-card .discovery-chip {  height: var(--ds-chip-h);  min-height: var(--ds-chip-h);  /* 水平内边距沿用基础档（--space-3）：两字标签在触摸模态下也要 ≥44px 命中区。 */  border-color: transparent;  border-radius: var(--radius-control);  background: var(--ds-surface);  color: var(--text-muted);
+.discovery-brief-form .ai-discovery-card .discovery-chip {  height: var(--ds-chip-h);  min-height: var(--ds-chip-h);  /* 水平内边距沿用基础档（--space-3）：两字标签在触摸模态下也要 ≥44px 命中区。 */  border-color: transparent;  border-radius: var(--radius-control);  background: transparent;  color: var(--text-muted);
   font-weight: 400;
   line-height: var(--lh-control-sm, 16px);
 }
 .discovery-brief-form .ai-discovery-card .discovery-chip:hover {
-  border-color: var(--control-border-hover);
+  border-color: transparent;
   background: var(--surface-hover);
 }
-.discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"] {  border-color: var(--ds-selected-border);  background: var(--ds-selected-bg);  box-shadow: none;  color: var(--text);  font-weight: 500;}
+.discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"] {  border-color: transparent;  background: transparent;  box-shadow: none;  color: var(--text);  font-weight: 500;}
 .discovery-brief-form .discovery-chip-check {
   display: inline-flex;
   align-items: center;
@@ -137,8 +137,8 @@
 .discovery-brief-form .ai-discovery-row[data-skill-param="region"],
 .discovery-brief-form .ai-discovery-row[data-skill-param="directions"],
 .discovery-brief-form .ai-discovery-row[data-skill-param="keywords"] {
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 /* 同行范围：两格等宽，短横只作数值区间提示，不参与读屏。 */
@@ -172,7 +172,7 @@
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field {
   display: grid;
   grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   gap: var(--space-2);
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field {
@@ -290,8 +290,8 @@
 .discovery-next-plan h3 {
   margin: 0;
   color: var(--text);
-  font-size: var(--ds-font-section);
-  line-height: var(--ds-line-section);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
   font-weight: var(--ds-weight-section);
   overflow-wrap: anywhere;
 }
@@ -531,31 +531,9 @@
 .discovery-conversion-overview [data-discovery-conversion-count="review"] { border-left-color: var(--color-warning-vivid); }
 .discovery-conversion-overview [data-discovery-conversion-count="blocked"] { border-left-color: var(--danger); }
 .discovery-conversion-overview [data-discovery-conversion-count="existing"] { border-left-color: var(--accent); }
-.discovery-result-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin: 0 0 var(--space-2);
-}
-.discovery-filter-chip {
-  min-height: var(--chip-h);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--bg);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-  padding: 0 var(--space-2);
-  cursor: pointer;
-}
-.discovery-filter-chip[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--bg-elevated);
-  color: var(--accent-text);
-  font-weight: 600;
-}
-.discovery-filter-chip:focus-visible {
+.discovery-result-filters { min-width: 0; }
+.discovery-result-filters .lifecycle-navigation { font-size: var(--ds-font-sm); }
+.discovery-result-filters .lifecycle-tab:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
 }
@@ -569,7 +547,7 @@
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
-.discovery-run-bar .btn { margin-left: auto; }
+.discovery-run-bar .discovery-ingest-trigger { margin-left: auto; }
 .discovery-filter-empty { margin-top: var(--space-2); }
 .discovery-ingest-receipt {
   margin: var(--space-3) 0 0;
@@ -585,179 +563,24 @@
 .discovery-lead-select input:disabled { cursor: not-allowed; opacity: 0.55; }
 @media (max-width: 480px) {
   .discovery-conversion-overview dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .discovery-run-bar .btn { margin-left: 0; }
+  .discovery-run-bar .discovery-ingest-trigger { margin-left: 0; }
 }
 
-/* ── 结果明细：线索行（单决策面 · 紧凑密度） ────────────────────────────────
-   密度整改（design-spec-v3 组合规则缺口复盘）：
-   - 三段式：左选择区（复选框+24px头像，8px间距，垂直居中）
-     / 中信息区（标题行+元信息行+辅助行，左对齐）/ 右操作区（右对齐）。
-   - 三级文字：标题 13px/500 / 元信息 12px弱化 / 辅助说明 12px更弱，单行截断。
-   - 状态一律 20px 描边 chip，禁止实底；行内操作统一 L3 文字按钮 24px 高。
-   只复用已有 token，不新增变量。 */
-.discovery-lead {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  /* 覆盖 styles.css 里复活的旧 76px 最小行高：紧凑密度下行高由内容决定。 */
-  min-height: 0;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border);
+.discovery-result-header { min-width: 0; }
+.discovery-result-header .discovery-run-status { position: static; margin-bottom: var(--space-2); }
+.discovery-result-scope { color: var(--text-muted); font-size: var(--ds-font-helper); }
+.discovery-result-controls .discovery-run-bar { border-top: 0; margin-bottom: 0; }
+.discovery-resume-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; font-size: var(--ds-font-sm); }
+.discovery-resume-notice > strong { font-weight: 600; }
+.discovery-resume-notice > span { flex-basis: 100%; color: var(--text-muted); font-size: var(--ds-font-helper); }
+@container home-workspace-center (max-width: 479px) {
+  .discovery-brief-form .ai-discovery-row,
+  .discovery-brief-form .ai-discovery-row.is-metric-pair,
+  .discovery-brief-form .is-metric-pair .ai-discovery-inline-field,
+  .discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field { grid-template-columns: minmax(0, 1fr); row-gap: var(--space-1); }
+  .discovery-brief-form .discovery-followers-hint,
+  .discovery-brief-form .ai-discovery-row.is-follower-range > .skill-param-error { grid-column: auto; }
 }
-.discovery-lead.is-expanded { flex-wrap: wrap; align-items: flex-start; }
-.discovery-lead-avatar {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-control);
-  background: var(--color-ash);
-  color: var(--text-quiet);
-  font-size: var(--ds-font-helper);
-  font-weight: 600;
-  object-fit: cover;
-  overflow: hidden;
-}
-.discovery-lead-main { flex: 1 1 auto; min-width: 0; }
-/* 标题行：账号名称 13px/500 + 平台/状态 chips */
-.discovery-lead-identity {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  margin: 0;
-}
-.discovery-lead-nickname {
-  font-size: var(--ds-font-sm);
-  font-weight: 500;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* 状态 chip：20px 高描边，禁止实底；文字 12px/500 + 语义色 */
-.discovery-lead-tag {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 var(--space-2);
-  font-size: var(--ds-font-helper);
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  color: var(--text-quiet);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: transparent;
-}
-.discovery-lead-identity .discovery-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 var(--space-2);
-  font-size: var(--ds-font-helper);
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  color: var(--text-quiet);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: transparent;
-}
-/* 待跟进：状态 chip，不做成按钮 */
-.discovery-lead-tag.is-followup {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-/* 元信息行：12px 弱化色，横向排列，单行截断 */
-.discovery-lead-meta {
-  margin: var(--space-1) 0 0;
-  font-size: var(--ds-font-helper);
-  line-height: 1.5;
-  color: var(--text-quiet);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow-wrap: normal;
-}
-/* 辅助行：匹配原因，12px 更弱化色，单行截断 */
-.discovery-lead-reason {
-  margin: 2px 0 0;
-  font-size: var(--ds-font-helper);
-  line-height: 1.5;
-  color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow-wrap: normal;
-}
-.discovery-lead-nickname,
-.discovery-lead-detail-item dd { overflow-wrap: anywhere; }
-/* 右操作区：状态标签 + 操作按钮右对齐；操作统一 L3 文字按钮 */
-.discovery-lead-actions {
-  /* 窄栏（右栏 360px 起）下动作组允许收缩并内部换行，优先保证正文列可读。 */
-  flex: 0 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-/* 行内安静动作：看来源 / 查看详情 / 跟进 / 忽略，统一 L3，24px 高 */
-.discovery-follow-quiet {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  margin: 0;
-  padding: 0 var(--space-1);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text-quiet);
-  font: inherit;
-  font-size: var(--ds-font-helper);
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.discovery-lead:hover .discovery-follow-quiet,
-.discovery-lead:focus-within .discovery-follow-quiet,
-.discovery-follow-quiet:hover:not(:disabled),
-.discovery-follow-quiet:focus-visible { color: var(--text); }
-/* 跟进处于标记态时用辅助蓝明示，不只靠文字切换。 */
-.discovery-follow-quiet[data-discovery-followup][aria-pressed="true"] {
-  color: var(--accent);
-  font-weight: 600;
-}
-.discovery-follow-quiet:disabled { opacity: .45; cursor: default; }
-.discovery-follow-quiet.is-disabled,
-.discovery-follow-quiet[aria-disabled="true"] { color: var(--text-faint); cursor: not-allowed; }
-/* 展开详情：单栏纵排（右栏窄宽度下两栏信息密度更低） */
-.discovery-lead-detail {
-  flex: 1 1 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-1);
-  margin: var(--space-2) 0 0;
-  padding: var(--space-2) 0 0;
-  border-top: 1px dashed var(--border);
-}
-.discovery-lead-detail-item { display: flex; gap: var(--space-2); min-width: 0; }
-.discovery-lead-detail-item dt {
-  flex: 0 0 auto;
-  font-size: var(--ds-font-helper);
-  line-height: 1.5;
-  color: var(--text-quiet);
-}
-.discovery-lead-detail-item dd { margin: 0; font-size: var(--ds-font-helper); color: var(--text); }
-.discovery-lead-select { flex: 0 0 auto; display: inline-flex; align-items: center; }
-/* 转化准备度颜色：文字 + 语义色，不只靠颜色（文案本身已表达状态）。 */
-.discovery-lead-tag.is-readiness.is-ready { color: var(--color-success); }
-.discovery-lead-tag.is-readiness.is-needs_review { color: var(--color-warning); }
-.discovery-lead-tag.is-readiness.is-needs_contact,
-.discovery-lead-tag.is-readiness.is-already_in_library,
-.discovery-lead-tag.is-readiness.is-already_followed { color: var(--text-quiet); }
-.discovery-lead-select input:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.scope-workspace[data-home-pane="discovery"] .scope-workspace-center { container-type: inline-size; container-name: home-workspace-center; }
+@media (pointer: coarse) { .discovery-result-filters .lifecycle-tab { min-height: var(--touch-hit-min); } }

@@ -75,8 +75,8 @@ describe("AI发现中栏事件渲染契约", () => {
     expect(html).toContain('data-skill-template-flat="true"');
     expect(html).toContain("使用边界");
     expect(html).toContain("异常与恢复");
-    // 平铺：使用边界/异常与恢复不再折叠。
-    expect(html).not.toContain("<details");
+    // 填写时说明默认展开；进入采集流程后由 compact 收起，完整边界仍保留。
+    expect(html).toContain('<details class="discovery-skill-details" open="">');
     expect(html).toContain("无需必填参数");
   });
 

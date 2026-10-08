@@ -29,6 +29,7 @@ export default function WorkspaceShell({
   centerHeader,
   centerScroll,
   centerFooter,
+  railHeader,
   rail,
 }: {
   pane: WorkspacePane;
@@ -56,6 +57,8 @@ export default function WorkspaceShell({
   centerHeader?: ReactNode;
   centerScroll: ReactNode;
   centerFooter?: ReactNode;
+  /** 可选固定结果头；提供时只有右栏内容区滚动，头部与批量控件保持可用。 */
+  railHeader?: ReactNode;
   rail: ReactNode;
 }) {
   const [railCollapsed, setRailCollapsed] = useState(() =>
@@ -98,7 +101,9 @@ export default function WorkspaceShell({
     };
     const observer = new MutationObserver(follow);
     observer.observe(el, { subtree: true, childList: true, characterData: true });
-    const body = el.querySelector<HTMLElement>(".scope-task-rail-body");
+    const body = el.matches(".scope-task-rail-body")
+      ? el.querySelector<HTMLElement>(".result-rail")
+      : el.querySelector<HTMLElement>(".scope-task-rail-body");
     const resizeObserver = typeof ResizeObserver === "undefined" || !body
       ? null
       : new ResizeObserver(follow);
@@ -161,11 +166,11 @@ export default function WorkspaceShell({
       </div>
 
       {!focusResults ? <aside
-        ref={railRef}
-        className={"scope-task-rail" + (railCollapsed ? " is-collapsed" : "")}
+        ref={(node) => { if (!railHeader) railRef.current = node; }}
+        className={"scope-task-rail" + (railCollapsed ? " is-collapsed" : "") + (railHeader ? " has-fixed-header" : "")}
         data-scope-task-rail
         aria-label={railLabel}
-        onScroll={railScrollJump || preserveRailPosition ? onRailScroll : undefined}
+        onScroll={!railHeader && (railScrollJump || preserveRailPosition) ? onRailScroll : undefined}
       >
         <button
           type="button"
@@ -179,7 +184,10 @@ export default function WorkspaceShell({
           <PanelToggleIcon className="scope-task-rail-toggle-icon" />
           {railCollapsed && railBadge != null ? <em aria-label={`${railToggleLabel}${railBadge}`}>{railBadge}</em> : null}
         </button>
-        <div className="scope-task-rail-body" data-scope-rail-body>
+        {railHeader ? <div className="scope-task-rail-fixed-header" data-scope-rail-header>{railHeader}</div> : null}
+        <div className="scope-task-rail-body" data-scope-rail-body
+          ref={(node) => { if (railHeader) railRef.current = node; }}
+          onScroll={railHeader && (railScrollJump || preserveRailPosition) ? onRailScroll : undefined}>
           <ResultRail pane={pane} view={resultView}>{rail}</ResultRail>
         </div>
         {railScrollJump && railJump ? (
