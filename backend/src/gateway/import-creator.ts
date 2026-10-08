@@ -199,7 +199,7 @@ export async function lookupImportedKolUid(input: {
   if (!keyword) return "";
   const listed = await callStarryKolTool("pageKolProfiles", {
     requestJson: JSON.stringify({ pageNo: 1, pageSize: 20, keyword }),
-  });
+  }, { timeoutMs: 30_000 });
   const fromList = parseImportedKolUid(listed);
   if (isRealKolUid(fromList)) return fromList;
   for (const row of listOf(asObject(listed))) {
@@ -240,7 +240,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     data = await callStarryKolTool(IMPORT_CREATOR_TOOL, {
       fileName: input.file.fileName,
       fileBase64: input.file.fileBase64,
-    });
+    }, { timeoutMs: 120_000 });
   } catch (error) {
     if (isStarryTimeout(error)) {
       audit(actor, "host.import_creator.timeout_lookup", {

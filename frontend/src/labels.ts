@@ -435,6 +435,9 @@ export function friendlyError(error: unknown, fallback = "操作未完成，请�
       return fallback;
     }
   }
+  if (/请求失败\s*\(\s*504\s*\)|gateway time-?out/i.test(raw)) {
+    return "网关超时：请求可能仍在处理中，请勿重复提交，稍后核对是否已生效。";
+  }
   if (/illegal_edge|unknown_stage|version_conflict|stage_code|collaboration_id/.test(raw)) {
     return raw
       .replace(/必须指定具体目标 stage_code/g, "必须指定具体目标阶段")

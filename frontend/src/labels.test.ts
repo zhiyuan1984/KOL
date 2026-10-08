@@ -19,6 +19,11 @@ describe("friendlyApiError", () => {
     expect(friendlyApiError(new Error("请求失败 (502)"), "发现任务没有提交。")).toBe("请求失败 (502)");
   });
 
+  it("uses honest gateway-timeout copy for a bare 504", () => {
+    expect(friendlyApiError(new Error("请求失败 (504)"), "操作未完成，请刷新核对当前状态。"))
+      .toBe("网关超时：请求可能仍在处理中，请勿重复提交，稍后核对是否已生效。");
+  });
+
   it("falls back only when there is nothing readable, and keeps unknown codes as-is", () => {
     expect(friendlyApiError({}, "发现任务没有提交。")).toBe("发现任务没有提交。");
     expect(friendlyApiError(apiError(500, { detail: { code: "not_a_known_code" } }), "发现任务没有提交。"))
