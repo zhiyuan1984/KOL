@@ -11,6 +11,10 @@ export type RuntimeActionView = {
   can_retry?: boolean;
   progress?: { state: string; label: string; summary: string; replace_result: boolean; result: TaskResultCard } | null;
   crawl?: { id: string; remote_task_id: string | null; state: string; status_json: Record<string, unknown> | null; error_code: string | null;
+    /** 远端状态原文（后端由 status_json 解析），供采集执行区展示远端进展。 */
+    remote_status?: string | null;
+    /** 远端状态最后更新时间（monitor 每次轮询刷新）。 */
+    updated_at?: string | null;
     queue_position?: number | null;
     result_state?: string; result_error?: string | null; result_json?: { task_id: string; complete: boolean; captured_at: string; candidates: Array<{
       id: string; name: string; platform: string; source_url: string | null; followers: number | null; avg_views_10: number | null; region: string | null;

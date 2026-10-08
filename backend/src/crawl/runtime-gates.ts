@@ -263,6 +263,19 @@ registerRuntimeToolScope("claw", async (context, tool, args) => {
 
 type RemoteCrawlTerminal = "succeeded" | "failed" | "cancelled" | null;
 
+/**
+ * 从 `runtime_crawl_jobs.status_json` 提取远端状态原文。解析口径与 monitor 共用：
+ * `status` / `data.status` / `state` 三处取其一。action 视图用它向前端透出远端状态，
+ * 不再由前端各自猜测 payload 结构。
+ */
+export function remoteCrawlStatusValue(payload: unknown): string {
+  const status = (payload && typeof payload === "object" ? payload : {}) as Json;
+  const data = status.data as Json | undefined;
+  return String(
+    status.status || (data && typeof data === "object" ? data.status : "") || status.state || "",
+  ).toLowerCase();
+}
+
 /** 查询远端任务状态并判定终态。抽出供 monitor 与 reconcile 共用（createRuntime 是测试接缝；
  *  平台主体默认走后台直调通道，不经过技能装配发现）。 */
 async function fetchRemoteCrawlStatus(job: Crawl,
@@ -276,7 +289,7 @@ async function fetchRemoteCrawlStatus(job: Crawl,
     const raw = await runtime.invoke(String(statusTool!.exposed.name), { task_id: job.remote_task_id });
     if (raw.isError) fail("runtime_crawl_status_failed");
     const status = normalizeMcpContent(raw);
-    const value = String(status.status || (status.data as Json | undefined)?.status || status.state || "").toLowerCase();
+    const value = remoteCrawlStatusValue(status);
     // idle alone is not proof that this particular task completed.
     if (String(status.task_id || "") !== job.remote_task_id) fail("runtime_crawl_task_mismatch");
     const terminal: RemoteCrawlTerminal = value === "idle"

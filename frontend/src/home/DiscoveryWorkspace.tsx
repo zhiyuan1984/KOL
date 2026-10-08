@@ -189,6 +189,7 @@ export default function DiscoveryWorkspace({
               inFlight={disc.inFlight}
               crawlState={disc.crawlPhase}
               foundCount={disc.visible.length}
+              runtimeCrawl={disc.startAction?.crawl ?? null}
               canStop={disc.crawlRunning}
               stopping={disc.startBusy}
               onStop={disc.stopStart}

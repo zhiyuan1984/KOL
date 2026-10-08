@@ -267,3 +267,95 @@ export function presentDiscoveryThink(events: TaskEvent[]): DiscoveryThink | nul
     ...(last.time ? { time: last.time } : {}),
   };
 }
+
+/**
+ * 远端采集状态（runtime 采集路径）。
+ *
+ * 后端 monitor 每次轮询远端都会刷新 `runtime_crawl_jobs.status_json` 与
+ * `updated_at`，前端经 runtime action 视图（`startAction.crawl`，2s 轮询）拿到。
+ * 这里只回答「远端还活着吗」：远端状态原文 → 中文标签 + 最后更新时间；
+ * 超过阈值未更新即判停滞，不再让 UI 静默冻在「搜索中（已找到 0 个）」。
+ */
+
+/** 远端状态多久未更新算停滞。 */
+export const REMOTE_CRAWL_STALE_MS = 120_000;
+
+/** 仍在推进的远端作业状态（`runtime_crawl_jobs.state`）。 */
+const REMOTE_CRAWL_ACTIVE = new Set(["queued", "starting", "running", "stopping"]);
+
+const REMOTE_STATUS_LABEL: Record<string, string> = {
+  running: "采集中",
+  crawling: "采集中",
+  queued: "排队中",
+  pending: "排队中",
+  starting: "启动中",
+  stopping: "停止中",
+  uploading: "上传结果中",
+  analyzing: "整理结果中",
+  idle: "远端空闲",
+  completed: "远端已完成",
+  done: "远端已完成",
+  succeeded: "远端已完成",
+  error: "远端失败",
+  failed: "远端失败",
+  timeout: "远端超时",
+  timed_out: "远端超时",
+  stopped: "远端已停止",
+  cancelled: "远端已取消",
+  canceled: "远端已取消",
+};
+
+export function remoteCrawlLabel(status: string): string {
+  const key = String(status || "").toLowerCase();
+  return REMOTE_STATUS_LABEL[key] || key || "未知";
+}
+
+export function formatAgo(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total} 秒前`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes} 分钟前`;
+  return `${Math.floor(minutes / 60)} 小时前`;
+}
+
+export type RuntimeCrawlSnapshot = {
+  state?: string | null;
+  remote_status?: string | null;
+  updated_at?: string | null;
+  remote_task_id?: string | null;
+  error_code?: string | null;
+} | null | undefined;
+
+export type RemoteCrawlView = {
+  /** 中文标签，如"采集中"。 */
+  label: string;
+  /** 远端状态原文（小写），如"running"。 */
+  status: string;
+  /** "N 秒前"文案；尚无更新时间时为 ""。 */
+  ago: string;
+  /** 超过阈值未更新：采集可能停滞。 */
+  stale: boolean;
+} | null;
+
+/**
+ * 由 runtime action 的 crawl 快照推导远端状态展示。仅在作业仍在推进时返回；
+ * 尚未收到远端回执时展示"连接中"，不编造状态。
+ */
+export function discoveryRemoteCrawlView(
+  crawl: RuntimeCrawlSnapshot,
+  nowMs: number,
+): RemoteCrawlView {
+  if (!crawl) return null;
+  const state = String(crawl.state || "").toLowerCase();
+  if (!REMOTE_CRAWL_ACTIVE.has(state)) return null;
+  const status = String(crawl.remote_status || "").toLowerCase();
+  const atMs = Date.parse(String(crawl.updated_at || ""));
+  const hasAt = Number.isFinite(atMs);
+  const ageMs = hasAt ? Math.max(0, nowMs - atMs) : -1;
+  return {
+    label: status ? remoteCrawlLabel(status) : "连接中",
+    status,
+    ago: hasAt ? `${formatAgo(ageMs)}更新` : "",
+    stale: hasAt && ageMs >= REMOTE_CRAWL_STALE_MS,
+  };
+}
