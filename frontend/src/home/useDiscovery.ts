@@ -17,6 +17,8 @@ import {
   type DiscoveryThink,
 } from "./discoveryEvents";
 import {
+  followHomeDiscoveryCandidate,
+  ingestHomeDiscoveryCandidate,
   ingestFailureBriefVersion,
   ingestFailureKind,
   ingestHomeDiscovery,
@@ -514,15 +516,37 @@ export default function useDiscovery({
     });
   };
 
-  const toggleFollowUp = (id: string, on: boolean) => {
-    setFollowUpIds((current) => {
-      if (on) return current.includes(id) ? current : [...current, id];
-      return current.filter((item) => item !== id);
-    });
-    if (on) {
-      const row = candidates.find((item) => item.id === id);
-      if (row && isIngestSelectable(row)) toggleSelected(id, true);
-    }
+  /**
+   * 二期「跟进」：创建线索 + 更新 Starry 库表（真实动作，替代原来的本地分拣标记）。
+   * 成功后该行标「已跟进」；失败抛错由卡片行内展示。
+   */
+  const followUpCandidate = async (id: string): Promise<void> => {
+    const result = await followHomeDiscoveryCandidate(id);
+    if (!result.ok) throw new Error("跟进没有完成。");
+    setFollowUpIds((current) => (current.includes(id) ? current : [...current, id]));
+    setCandidates((current) => current.map((row) => (
+      row.id === id ? { ...row, status: "followed" } : row
+    )));
+  };
+
+  /**
+   * 二期「加入公海」：单候选 Starry 入库。成功后该行标已在库并取消选中。
+   */
+  const ingestCandidate = async (id: string): Promise<void> => {
+    const result = await ingestHomeDiscoveryCandidate(id);
+    if (!result.ok) throw new Error("入库没有完成。");
+    setCandidates((current) => current.map((row) => (
+      row.id === id
+        ? {
+            ...row,
+            in_library: true,
+            libraryStatus: "pool",
+            ingestReadiness: "already_in_library",
+            ingestBlockReason: "该红人已写入 Starry 公海，不重复导入。",
+          }
+        : row
+    )));
+    setSelectedIds((current) => current.filter((item) => item !== id));
   };
 
   const selectAll = (on: boolean) => {
@@ -807,7 +831,8 @@ export default function useDiscovery({
     toggleExpanded,
     ignoreCandidate,
     followUpIds,
-    toggleFollowUp,
+    followUpCandidate,
+    ingestCandidate,
     followUpCount,
     ingestOpen,
     ingestBusy,

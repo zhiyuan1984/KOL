@@ -168,6 +168,7 @@ async function discoverySearch(ctx: CronHandlerContext): Promise<CronHandlerResu
       filters: template.filters,
       cronJobId: String(ctx.job.id),
       cronRunId: String(ctx.run.id),
+      dedup: template.dedup,
     });
     return {
       status: "succeeded",

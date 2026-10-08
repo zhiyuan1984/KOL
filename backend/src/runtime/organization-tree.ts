@@ -984,3 +984,64 @@ export function visibleSkillIdsForUser(userId: string | null | undefined): strin
     .all(...usable) as { skill_id: string }[];
   return rows.map((row) => row.skill_id);
 }
+
+export type LeaderScope = {
+  /** 是否为组长：其 person_ref 是任一 active 组织单元的 head（department_head 即组长，不限层级）。 */
+  isLeader: boolean;
+  /** 组长直管单元（含所有下级单元）id；非组长为空。 */
+  unitIds: string[];
+  /** 上述单元内成员映射到的 user id（含组长本人）；非组长为空。 */
+  memberUserIds: string[];
+};
+
+/**
+ * 组长数据范围（2026-10-08 用户规则）：组长 = 任一层级组织单元的 head；
+ * 范围 = 本单元 + 全部下级单元；组长的上级（父单元 head）范围更大（父子树为超集）。
+ */
+export function leaderScopeForUser(userId: string | null | undefined): LeaderScope {
+  const empty: LeaderScope = { isLeader: false, unitIds: [], memberUserIds: [] };
+  if (!userId) return empty;
+  ensureOrganizationTree();
+  const db = getConn();
+  const personRef = personRefForUser(userId);
+  if (!personRef) return empty;
+  const headed = db.prepare(
+    "SELECT id FROM organization_units WHERE head_person_ref = ? AND status = 'active'",
+  ).all(personRef) as { id: string }[];
+  if (!headed.length) return empty;
+  // BFS 收下级单元（含自身）。
+  const allUnits = db.prepare(
+    "SELECT id, parent_id FROM organization_units WHERE status = 'active'",
+  ).all() as { id: string; parent_id: string | null }[];
+  const children = new Map<string, string[]>();
+  for (const unit of allUnits) {
+    if (!unit.parent_id) continue;
+    const list = children.get(unit.parent_id) ?? [];
+    list.push(unit.id);
+    children.set(unit.parent_id, list);
+  }
+  const unitIds = new Set<string>();
+  const queue = headed.map((row) => row.id);
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (unitIds.has(current)) continue;
+    unitIds.add(current);
+    queue.push(...(children.get(current) ?? []));
+  }
+  const unitList = [...unitIds];
+  const placeholders = unitList.map(() => "?").join(", ");
+  const memberRefs = db.prepare(
+    `SELECT DISTINCT person_ref FROM organization_memberships WHERE status = 'active' AND org_unit_id IN (${placeholders})`,
+  ).all(...unitList) as { person_ref: string }[];
+  const refList = memberRefs.map((row) => row.person_ref);
+  let memberUserIds: string[] = [];
+  if (refList.length) {
+    const refPlaceholders = refList.map(() => "?").join(", ");
+    const people = db.prepare(
+      `SELECT user_id FROM organization_people WHERE person_ref IN (${refPlaceholders}) AND user_id IS NOT NULL AND user_id <> ''`,
+    ).all(...refList) as { user_id: string }[];
+    memberUserIds = people.map((row) => row.user_id);
+  }
+  if (!memberUserIds.includes(userId)) memberUserIds.push(userId);
+  return { isLeader: true, unitIds: unitList, memberUserIds };
+}

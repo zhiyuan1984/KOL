@@ -26,7 +26,8 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
     selectedIds,
     selectedPlatforms,
     followUpIds,
-    toggleFollowUp,
+    followUpCandidate,
+    ingestCandidate,
     followUpCount,
     inFlight,
     stage,
@@ -126,7 +127,7 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
           ].map((option) => ({ ...option, dataAttributes: { "data-discovery-result-filter": option.id } }))} />
       </div>
       <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
-            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 待跟进 ${followUpCount} 人` : ""}`}</span>
+            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 已跟进 ${followUpCount} 人` : ""}`}</span>
             <label className="discovery-candidate-select">
               <input
                 type="checkbox"
@@ -223,10 +224,11 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
                     brief={brief}
                     selected={selectedIds.includes(candidate.id)}
                     expanded={expandedIds.includes(candidate.id)}
-                    followUp={followUpIds.includes(candidate.id)}
+                    followedUp={followUpIds.includes(candidate.id)}
                     onToggleSelect={(on) => toggleSelected(candidate.id, on)}
                     onToggleExpand={() => toggleExpanded(candidate.id)}
-                    onToggleFollowUp={(on) => toggleFollowUp(candidate.id, on)}
+                    onIngestCandidate={() => ingestCandidate(candidate.id)}
+                    onFollowUpCandidate={() => followUpCandidate(candidate.id)}
                     onIgnore={() => ignoreCandidate(candidate.id)}
                   />
                 </li>

@@ -19,6 +19,7 @@ import {
   backgroundToolRuntime,
   type BackgroundToolInvoker,
 } from "./background-crawl.js";
+import { DEFAULT_DEDUP_WINDOW_DAYS } from "./dedup.js";
 import type { Json } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 
@@ -114,14 +115,20 @@ export async function enqueueSystemCrawl(input: {
   filters?: Json;
   cronJobId: string;
   cronRunId: string;
+  /** 一期去重：模板去重口径，随任务落 args_json，供回填时记池。 */
+  dedup?: { dedup_by?: string; window_days?: number };
 }): Promise<{ crawlJobId: string; queuePosition: number; duplicate: boolean }> {
   const filters = input.filters && typeof input.filters === "object" && !Array.isArray(input.filters)
     ? (input.filters as Json)
     : {};
+  const windowDaysRaw = Number(input.dedup?.window_days);
   const args: Json = {
     platforms: [String(input.platform).toLowerCase()],
     crawler_type: "search",
     keywords: input.keywords.map(String).join(","),
+    dedup_window_days: Number.isFinite(windowDaysRaw)
+      ? Math.min(365, Math.max(1, Math.floor(windowDaysRaw)))
+      : DEFAULT_DEDUP_WINDOW_DAYS,
     ...filters,
   };
   assertBackgroundCrawlArgs(args);

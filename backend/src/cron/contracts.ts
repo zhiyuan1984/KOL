@@ -12,7 +12,8 @@ export type DiscoverySystemTemplate = {
   platform: string;
   keywords: string[];
   filters: Json;
-  dedup: { dedup_by: string };
+  /** 去重口径：一期做实为真正的消费方。window_days 默认 30（1–365）。 */
+  dedup: { dedup_by: string; window_days: number };
 };
 
 const TEMPLATE_PLATFORMS = ["youtube", "instagram", "facebook"];
@@ -21,7 +22,7 @@ export const DEFAULT_DISCOVERY_SYSTEM_TEMPLATE: DiscoverySystemTemplate = {
   platform: "youtube",
   keywords: [],
   filters: {},
-  dedup: { dedup_by: "platform_creator_id" },
+  dedup: { dedup_by: "platform_creator_id", window_days: 30 },
 };
 
 /** 校验并规整系统发现模板。keywords 为空合法（handler 届时如实 skipped，不伪造运行）。 */
@@ -61,11 +62,15 @@ export function normalizeSystemTemplate(value: unknown): DiscoverySystemTemplate
     raw.dedup && typeof raw.dedup === "object" && !Array.isArray(raw.dedup)
       ? (raw.dedup as Record<string, unknown>)
       : {};
+  const windowDaysRaw = Number(dedupRaw.window_days);
+  const windowDays = Number.isFinite(windowDaysRaw)
+    ? Math.min(365, Math.max(1, Math.floor(windowDaysRaw)))
+    : 30;
   return {
     platform,
     keywords,
     filters: maxNotes !== undefined ? { max_notes_count: maxNotes } : {},
-    dedup: { dedup_by: String(dedupRaw.dedup_by || "platform_creator_id") },
+    dedup: { dedup_by: String(dedupRaw.dedup_by || "platform_creator_id"), window_days: windowDays },
   };
 }
 
@@ -84,7 +89,7 @@ export const SYSTEM_JOBS: Array<{
   { id: "cjob_overdue_scan", job_key: "overdue-scan", title: "失联与延期扫描", handler_key: "overdue-scan", cron_expr: "0 8 * * *", status: "published", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { overdue: true } },
   { id: "cjob_daily_task_snapshot", job_key: "daily-task-snapshot", title: "每日待办快照", handler_key: "daily-task-snapshot", cron_expr: "15 7 * * *", status: "published", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { buckets: ["greet", "follow", "quote", "negotiate"] } },
   { id: "cjob_ownership_release", job_key: "ownership-release", title: "14 天无互动回公海", handler_key: "ownership-release", cron_expr: "30 3 * * *", status: "disabled", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { idle_days: 14, require_correspondence_timestamp: true, enabled: false, reason: "postgres_repository_pending" } },
-  { id: "cjob_discovery_search", job_key: "discovery-search", title: "发现搜索", handler_key: "discovery-search", cron_expr: "0 6 * * *", status: "disabled", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { system_template: { platform: "youtube", keywords: [], filters: {}, dedup: { dedup_by: "platform_creator_id" } } } },
+  { id: "cjob_discovery_search", job_key: "discovery-search", title: "发现搜索", handler_key: "discovery-search", cron_expr: "0 6 * * *", status: "disabled", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { system_template: { platform: "youtube", keywords: [], filters: {}, dedup: { dedup_by: "platform_creator_id", window_days: 30 } } } },
   { id: "cjob_mail_memory_increment", job_key: "mail-memory-increment", title: "邮件记忆增量", handler_key: "mail-memory-increment", cron_expr: "*/10 * * * *", status: "disabled", scope: { applies: "employee_authorized", label: "适用于我的授权范围" }, condition: { memory_kinds: ["translation", "summary", "digest", "person_digest"], enabled: false, reason: "postgres_repository_pending" } },
 ];
 
