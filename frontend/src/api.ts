@@ -1785,7 +1785,7 @@ export type TicketAccountBindingOptions = {
   as_of: string;
 };
 
-type RequestOptions = RequestInit & { optional?: boolean };
+type RequestOptions = RequestInit & { optional?: boolean; timeoutMs?: number };
 
 function httpError(status: number, payload?: unknown, fallback?: string): Error & { status?: number; payload?: unknown } {
   const detail = payload && typeof payload === "object"
@@ -1820,11 +1820,11 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { optional, ...init } = options;
+  const { optional, timeoutMs, ...init } = options;
   const headers = new Headers(init.headers);
   if(path.startsWith("/api/admin/knowledge") && typeof window!=="undefined") { const company=new URLSearchParams(window.location.search).get("reviewCompany") || sessionStorage.getItem("review.company");if(company)headers.set("X-Review-Company",company); }
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  const signals = [init.signal, AbortSignal.timeout(45_000)].filter(Boolean) as AbortSignal[];
+  const signals = [init.signal, AbortSignal.timeout(timeoutMs ?? 45_000)].filter(Boolean) as AbortSignal[];
   let response: Response;
   try {
     response = await fetch(path, {
@@ -2083,6 +2083,8 @@ export const api = {
   discoveryCandidateCommand: (actionId: string, candidateId: string, verb: "follow" | "ignore" | "restore" | "ingest", snapshotVersion: string) =>
     request<{ ok: boolean; lead_id?: string; starry_imported?: boolean; starry_error?: string }>(`/api/home/discovery/runtime/${encodeURIComponent(actionId)}/candidates/${encodeURIComponent(candidateId)}/${verb}`, {
       method: "POST", body: JSON.stringify({ snapshot_version: snapshotVersion, confirmed: verb === "follow" || verb === "ingest" }),
+      // Starry 文件导入是长耗时 L3 操作，后端幂等，前端给足 3 分钟。
+      timeoutMs: 180_000,
     }),
   confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),
   cancelRuntimeAction: (id: string) => request("/api/actions/runtime.cancel", { method: "POST", body: JSON.stringify({ action_id: id }) }),
@@ -3710,18 +3712,21 @@ export const api = {
     request<Record<string, unknown>>("/api/home/discovery/ingest", {
       method: "POST",
       body: JSON.stringify(body),
+      timeoutMs: 180_000,
     }),
   /** 二期：首页候选卡片「加入公海」——单候选 Starry 入库。 */
   ingestHomeDiscoveryCandidate: (id: string, body: Record<string, unknown>) =>
     request<Record<string, unknown>>(`/api/home/discovery/candidates/${encodeURIComponent(id)}/ingest`, {
       method: "POST",
       body: JSON.stringify(body),
+      timeoutMs: 180_000,
     }),
   /** 二期：首页候选卡片「跟进」——创建线索 + 更新 Starry 库表。 */
   followHomeDiscoveryCandidate: (id: string, body: Record<string, unknown>) =>
     request<Record<string, unknown>>(`/api/home/discovery/candidates/${encodeURIComponent(id)}/follow`, {
       method: "POST",
       body: JSON.stringify(body),
+      timeoutMs: 180_000,
     }),
   mailBox: (box?: string) =>
     request<Record<string, unknown>>(box ? `/api/queries/mail.box?box=${encodeURIComponent(box)}` : "/api/queries/mail.box"),

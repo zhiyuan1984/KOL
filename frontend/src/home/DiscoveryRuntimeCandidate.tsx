@@ -71,11 +71,13 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
       {!snapshot ? <p role="status">此历史结果缺少资料版本，请刷新核对后操作。</p> : null}
       {error && !confirm ? <p role="alert">{error}</p> : null}
     </div>
-    <DiscoveryIngestConfirm open={confirm} busy={busy} error={error} onConfirm={() => void command("ingest")} onCancel={() => { if (!busy) { setConfirm(false); setError(""); } }}>
-      <p>需要确认（L3）· 将 {row.name} 的公开资料加入正式公海。</p>
-      <p>平台：{platformLabel(row.platform)} · 平台账号：{row.id}</p>
-      <p>来源批次：本次发现任务；当前资料取得于 {new Date(capturedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。</p>
-      <p>导入公开身份和主页；已有指标保留在本地资料索引。缺失联系方式不补造；本次操作不取得个人跟进、不发信、不改变阶段。</p>
-    </DiscoveryIngestConfirm>
+    <DiscoveryIngestConfirm open={confirm} busy={busy} error={error} onConfirm={() => void command("ingest")} onCancel={() => { if (!busy) { setConfirm(false); setError(""); } }}
+      rows={[
+        { label: "对象", value: row.name },
+        { label: "平台", value: <>{platformLabel(row.platform)} · <code>{row.id}</code></> },
+        { label: "来源", value: <>本次发现任务 · {new Date(capturedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</> },
+        { label: "说明", value: "导入公开身份和主页；缺失联系方式不补造；不建联、不发信、不改阶段、不取个人跟进" },
+      ]}
+    />
   </article>;
 }
