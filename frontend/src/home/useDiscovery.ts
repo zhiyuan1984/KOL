@@ -388,7 +388,7 @@ export default function useDiscovery({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     if (activeRunId) void loadExisting(activeRunId);
