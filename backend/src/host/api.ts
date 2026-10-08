@@ -2364,7 +2364,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
       const company = (intent.extras?.entities as Json | undefined)?.review_company;
       const saved = tx(db => saveAssistantReviewDraft(db, actor.id, proposal, `worker:${wr.worker_id}`, typeof company === "string" ? company : undefined));
       const href = `/approvals?draft=${encodeURIComponent(saved.draft.id)}&reviewCompany=${encodeURIComponent(saved.company)}&session=${encodeURIComponent(sid)}`;
-      addMsg(sid, "assistant", "task_result_card", { type: "task_result", title: "审批申请草稿", summary: "R2 草稿已保存，尚未提交。请打开核对材料、审批人和通过后的后果。",
+      addMsg(sid, "assistant", "task_result_card", { type: "task_result", artifact_type: "review_draft", review_draft_id: saved.draft.id, review_company: saved.company, source_session_id: sid, title: "审批申请草稿", summary: "R2 草稿已保存，尚未提交。请打开核对材料、审批人和通过后的后果。",
         sections: [{ title: "待补充与核对", items: Array.isArray(proposal.needs) ? proposal.needs.map(String) : [] }], recommended_actions: [{ label: "核对申请草稿", href }], skill: "business_approval", persistent: true });
       return ok(sid, me, intent, { worker, review_draft: saved.draft });
     }

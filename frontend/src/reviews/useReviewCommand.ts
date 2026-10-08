@@ -40,8 +40,7 @@ export function useReviewCommand(after: (receipt: { id: string; resourceId: stri
           scope: prepared.summary.scope || "当前组织内的流程参与人",
           ruleVersion: String(prepared.summary.version),
           consequence: prepared.summary.consequence,
-          note: "R3 · 确认后正式写入，并保存操作回执。",
-          change: [prepared.summary.configuration, prepared.summary.reviewers?.length ? `本次处理人：${prepared.summary.reviewers.join("、")}` : "", "reason" in command ? command.reason : ""].filter(Boolean).join("\n"),
+          change: ["R3 · 确认后正式写入，并保存操作回执。", prepared.summary.configuration, prepared.summary.reviewers?.length ? `本次处理人：${prepared.summary.reviewers.join("、")}` : "", "reason" in command ? command.reason : ""].filter(Boolean).join("\n"),
           confirmLabel: labels[command.action],
           confirmTone: ["reject", "withdraw"].includes(command.action)
             ? "danger"

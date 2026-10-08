@@ -992,6 +992,7 @@ function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; 
       <strong>{title}</strong>
       {card.reply_context_version ? <p className="muted">邮件依据版本 {String(card.reply_context_version).slice(0,12)}{card.reply_context_stale ? " · 已过期" : ""}</p> : null}
       {summary ? <p>{summary}</p> : null}
+      {card.artifact_type === "review_draft" && typeof card.review_draft_id === "string" && typeof card.review_company === "string" && <Link to={`/approvals?draft=${encodeURIComponent(card.review_draft_id)}&reviewCompany=${encodeURIComponent(card.review_company)}${typeof card.source_session_id === "string" ? `&session=${encodeURIComponent(card.source_session_id)}` : ""}`}>核对申请草稿</Link>}
       <ResultDraftPreview card={card} onRefresh={onRefresh} />
       {sections.map((section, index) => {
         const heading = stripEngineCopy(String(section.title || section.heading || ""));
@@ -1001,6 +1002,7 @@ function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; 
           <section key={`${heading}-${index}`}>
             {heading ? <h4>{heading}</h4> : null}
             {content ? <p>{content}</p> : null}
+            {card.artifact_type === "review_draft" && Array.isArray(section.items) && <ul>{section.items.map((item, i) => <li key={i}>{stripEngineCopy(String(item))}</li>)}</ul>}
           </section>
         );
       })}

@@ -61,6 +61,7 @@ export function messageRisk(kind: string, payload: Record<string, unknown> = {})
     return intent === "confirm_stage" || intent === "business_approval" ? "L3" : "L2";
   }
   if (kind === "task_result_card") {
+    if (payload.artifact_type === "review_draft") return "L2";
     return String(payload.title || "") === "邮件草稿" || String(payload.skill || "") === "email_compose"
       ? "L2"
       : "L1";
