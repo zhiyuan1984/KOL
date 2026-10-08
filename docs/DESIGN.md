@@ -1,8 +1,8 @@
-# 视觉 Token 实施细则（LLM 可执行版）v3.2
+# 视觉 Token 实施细则（LLM 可执行版）v3.3
 
 ```yaml
-version: v3.2
-name: design-spec-v3.2
+version: v3.3
+name: design-spec-v3.3
 style-baseline: data-dense-dashboard + data-grid
 description: 员工端工作台与中台 2B 数据面的视觉 token 与布局实施细则。LLM 实现时唯一数值来源。
   颜色只给"职责→token"映射，hex 住 frontend/src/styles.css（根 AGENTS.md §3）；
@@ -26,6 +26,8 @@ scope:
 > 修订记录（2026-10-07 v3.2）：补充工作台搜索、业务 Tab、分类筛选、任务列表行与 CTA 的视觉 token 和交互态，基于 `ffdc5210` 工作台评审；不改变业务语义与既有风险闸门。
 
 ---
+> 修订记录（2026-10-08 v3.3）：新增 §25 生命周期业务组件契约，并以工单治理页接入验证。Token 登记表重新生成，待落地项如实标注，不以文档登记冒充已实现。
+
 ## 0. 给 LLM 的阅读指引
 1. 先读 **§1 不变量**（8 条），任何分节与之冲突时不变量优先。
 2. 颜色：**只允许** §3 表中"职责→token"的映射，不得自创颜色职责，不得写 hex。
@@ -464,9 +466,9 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 |状态|表现|token、文案、图标|
 |---|---|---|
 |待触发（还有更多数据）|不渲染任何 DOM，无提示文字、无图标|无输出|
-|加载中|容器水平居中：spinner + 文字「正在加载更多」|字号 `--ds‑font‑sm`；文字色 `--text‑quiet`；spinner 颜色 `--accent`；无额外装饰图标|
-|已全部加载完成|容器水平居中：静态文字「已加载全部」|字号 `--ds‑font‑sm`；文字色 `--text‑quiet`；无按钮、无图标|
-|加载失败|容器水平居中：警告语义图标 + 文案「加载失败，点击重试」 + **L3文字按钮「重试」**|警告图标语义 `--danger`；按钮严格遵守L3全套token：`--btn‑text‑h`、`--btn‑text‑pad‑x`、`--btn‑text‑hover‑bg`、`--radius‑control`；按钮文字色 `--danger`|
+|加载中|容器水平居中：spinner + 文字「正在加载更多」|字号 `--ds-font-sm`；文字色 `--text-quiet`；spinner 颜色 `--accent`；无额外装饰图标|
+|已全部加载完成|容器水平居中：静态文字「已加载全部」|字号 `--ds-font-sm`；文字色 `--text-quiet`；无按钮、无图标|
+|加载失败|容器水平居中：警告语义图标 + 文案「加载失败，点击重试」 + **L3文字按钮「重试」**|警告图标语义 `--danger`；按钮严格遵守L3全套token：`--btn-text-h`、`--btn-text-pad-x`、`--btn-text-hover-bg`、`--radius-control`；按钮文字色 `--danger`|
 
 > ❌禁止：常驻"上拉加载更多 / 滚动加载更多"提示文案；禁止状态节点穿插列表行中间。
 
@@ -743,6 +745,45 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 - 列表、卡片内必须呈现标题/正文/辅助三级（执行 §5.2 五级文字层级）；辅助信息必须 12px + 弱化字色，禁止整行同一字号字重。
 - 窄栏（<480px）内禁止二次分栏，字段单列堆叠（不变量 7）。
 ---
+## 25. 生命周期业务组件契约（v3.3）
+
+基础 Token 只定义颜色、字号和尺寸，不能代替业务组件。具有生命周期的对象管理页，优先使用以下两个组件；不得将状态、表单和操作自由拼成卡片墙。
+
+### 25.1 LifecycleNavigation：状态导航
+
+实施资产：`frontend/src/components/LifecycleNavigation.tsx`。
+
+- 输入：稳定状态 ID、可读名称、数量、当前选中项、禁用态和选择回调。状态与数量由所属业务读模型提供，不内置通用状态机，不推断权限。
+- `views` 模式切换业务视图，使用 tablist/tab/tabpanel、aria-selected、方向键与 Home/End；`filter` 模式只筛选当前数据，使用原生按钮与 aria-pressed，不虚构页面 Tab 语义。
+- 共享基线与选中下划线，选中态同时改变字重和辅助色。视图使用 `--workspace-tab-h`；状态筛选使用 `--filter-tab-h`；间距与指示线使用 `--workspace-tab-gap` 和 `--workspace-tab-indicator-h`。
+- 状态计数必须声明范围：当前授权全量、服务端筛选结果或本次返回集合。限制数量的接口不得将本次返回数标为全量。
+- 加载和失败时不显示 0；读取成功的真实零计数保留。未知状态原样保留，不合并为已完成或其他已知状态。
+- 筛选和视图切换保留搜索、选择与未提交内容，不执行发布、启用或状态推进。触摸命中区使用 `--touch-hit-min`，不把导航画成实底 CTA。
+
+### 25.2 LifecycleWorkspace：生命周期管理工作区
+
+实施资产：`frontend/src/components/LifecycleWorkspace.tsx` 与 `lifecycle-workspace.css`。
+
+- 固定结构：紧凑标题/来源与时间/次级入口 → 操作回执 → 业务视图导航 → 内容滚动区。页面壳与导航不随长表单滚出视口。
+- 视图内使用同源指标、状态导航、紧凑表格与按需展开编辑区；默认以已存在对象列表为中心，不常驻展示空白创建表单。
+- 生命周期状态、发布状态和执行开关是不同维度，分别标记。发布不等于自动执行；工单生命周期不等于模板生命周期。
+- 分组表格筛选只应用所属报告的 by_status 数据，不能把 Task 根状态、Work Order 状态或业务阶段混为一套状态机。
+- 每个独立数据模块至少有 loading/ready/error 状态；失败只影响该模块。空态只在读取成功后呈现；失败给重试，技术错误进入诊断展开层。
+- 长表单按 §19 分组，条件字段仅在对应配置等级下展示；隐藏字段禁用以避免残留配置误提交。切换视图不清空未提交编辑。
+- 文本输入、复选框与开关有独立样式边界，宽度/内边距/最小高度不得用无类型 input 选择器污染复选框。复选框视觉尺寸复用 `--icon-sm`，焦点使用 `--focus-ring`。
+- 列表内重复操作用 L3，当前编辑提交才用 L1。正式发布、停用、绑定和执行开关复用确认组件；对象、版本、后果、原因和操作回执可核查。最终授权与合法动作仍由后端校验。
+
+### 25.3 工单治理页组合与验收
+
+`AdminWorkOrders.tsx` 使用三个管理视图：治理概览 / 人员绑定 / AI 工单模板。
+
+- 概览中的工单状态来自组织授权工单计数；按状态筛选受理组织存量，不增加管理员代员工接单、完成或推进阶段的操作。
+- 模板状态由模板契约提供；列表数量仅统计本次返回集合（现接口最多 100 个模板），任务战报同样注明本次返回（默认最多 50 个 Task 根）。全量分页读模型是已有接口能力缺口，不用前端推断补齐。
+- 有效组织/人员目前只有计数读模型，暂不伪造明细下钻；阻断项可进入人员绑定与质量明细。补充组织/人员明细接口后再关联下钻。
+- 验收至少覆盖：单个接口失败而其他模块仍可用；失败不显示零业务数据；键盘视图导航；筛选与搜索保留；A3 条件字段；复选框尺寸；发布与执行独立确认；取消不写入；1440/1024/390 宽度无页面横向溢出。
+- 测试资产：`frontend/e2e/admin-work-orders.spec.ts`；契约形状 API 桩只证明呈现与交互，不证明生产 PostgreSQL 集成。
+
+---
 ## 附：LLM 输出自检清单
 输出任何界面前逐项打勾：
 - [ ] 同一视口 L1 ≤1 个？其余动作按 L2/L3/L4 分级，无"一排三个描边按钮"？
@@ -821,107 +862,62 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 
 ---
 ## 附：Token 登记表（md ↔ css 对账）
-> 本表由脚本从两文件实际内容生成。✅ = css 有定义；⚠️ = 缺失（需补）。当前 style-v1.2.css / design-v3.1.md，对账零缺失。
+
+> 本表由 `backend/scripts/check-design-tokens.mjs --write` 从实际内容生成，发布门禁校验表格与实际一致，请勿手改。css 列 = `frontend/src` 下 CSS 有定义；md 列 = 本文正文有引用。⚠️ = 已写入细则但样式尚未定义，属待落地项，不代表已实现。
+
 | token | css 定义 | md 引用 |
 |---|---|---|
 | `--accent` | ✅ | ✅ |
-| `--accent-fg` | ✅ | ✅ |
 | `--accent-hover` | ✅ | ✅ |
 | `--accent-text` | ✅ | ✅ |
-| `--agent-wait-hint` | ✅ | ✅ |
-| `--agent-wait-long` | ✅ | ✅ |
+| `--agent-wait-hint` | ⚠️ | ✅ |
+| `--agent-wait-long` | ⚠️ | ✅ |
 | `--badge-h` | ✅ | ✅ |
-| `--batch-bar-h` | ✅ | ✅ |
+| `--batch-bar-h` | ⚠️ | ✅ |
 | `--bg` | ✅ | ✅ |
-| `--bg-elevated` | ✅ | ✅ |
 | `--bg-subtle` | ✅ | ✅ |
 | `--border` | ✅ | ✅ |
-| `--border-strong` | ✅ | ✅ |
 | `--btn-text-h` | ✅ | ✅ |
 | `--btn-text-hover-bg` | ✅ | ✅ |
 | `--btn-text-pad-x` | ✅ | ✅ |
-| `--cat-assistant` | ✅ | ✅ |
-| `--cat-assistant-text` | ✅ | ✅ |
-| `--cat-assistant-tile` | ✅ | ✅ |
-| `--cat-builtin` | ✅ | ✅ |
-| `--cat-builtin-text` | ✅ | ✅ |
-| `--cat-builtin-tile` | ✅ | ✅ |
-| `--cat-crawl` | ✅ | ✅ |
-| `--cat-crawl-text` | ✅ | ✅ |
-| `--cat-crawl-tile` | ✅ | ✅ |
-| `--cat-doc` | ✅ | ✅ |
-| `--cat-doc-text` | ✅ | ✅ |
-| `--cat-library` | ✅ | ✅ |
-| `--cat-library-text` | ✅ | ✅ |
-| `--cat-library-tile` | ✅ | ✅ |
-| `--cat-memory` | ✅ | ✅ |
-| `--cat-memory-text` | ✅ | ✅ |
-| `--cat-ontology` | ✅ | ✅ |
-| `--cat-ontology-text` | ✅ | ✅ |
-| `--cat-pattern` | ✅ | ✅ |
-| `--cat-pattern-text` | ✅ | ✅ |
+| `--cat-doc` | ⚠️ | ✅ |
+| `--cat-memory` | ⚠️ | ✅ |
+| `--cat-ontology` | ⚠️ | ✅ |
+| `--cat-pattern` | ⚠️ | ✅ |
 | `--chip-h` | ✅ | ✅ |
-| `--color-accent` | ✅ | ✅ |
-| `--color-accent-hover` | ✅ | ✅ |
-| `--color-ash` | ✅ | ✅ |
-| `--color-danger` | ✅ | ✅ |
-| `--color-graphite` | ✅ | ✅ |
-| `--color-hairline` | ✅ | ✅ |
-| `--color-ink` | ✅ | ✅ |
-| `--color-paper` | ✅ | ✅ |
-| `--color-primary` | ✅ | ✅ |
-| `--color-primary-hover` | ✅ | ✅ |
-| `--color-smoke` | ✅ | ✅ |
-| `--color-success` | ✅ | ✅ |
-| `--color-warning` | ✅ | ✅ |
-| `--composer-chips-max` | ✅ | ✅ |
-| `--control-h` | ✅ | ✅ |
+| `--composer-chips-max` | ⚠️ | ✅ |
 | `--control-h-form` | ✅ | ✅ |
 | `--control-h-lg` | ✅ | ✅ |
 | `--control-h-sm` | ✅ | ✅ |
-| `--cost-meter-h` | ✅ | ✅ |
+| `--cost-meter-h` | ⚠️ | ✅ |
 | `--danger` | ✅ | ✅ |
-| `--danger-bg` | ✅ | ✅ |
-| `--dialog-w-sm/md/lg` | ✅ | ✅ |
-| `--dialog-pad` | ✅ | ✅ |
-| `--dialog-pad-compact` | ✅ | ✅ |
-| `--dialog-pad-compact-x` | ✅ | ✅ |
-| `--dialog-pad-compact-y` | ✅ | ✅ |
-| `--dialog-pad-b` | ✅ | ✅ |
-| `--dialog-pad-t` | ✅ | ✅ |
-| `--dialog-pad-x` | ✅ | ✅ |
 | `--dialog-h-max` | ✅ | ✅ |
-| `--drawer-pad` | ✅ | ✅ |
-| `--drawer-pad-x` | ✅ | ✅ |
-| `--drawer-pad-y` | ✅ | ✅ |
+| `--dialog-pad` | ⚠️ | ✅ |
+| `--dialog-pad-compact` | ⚠️ | ✅ |
+| `--dialog-w-sm` | ✅ | ✅ |
+| `--drawer-pad` | ⚠️ | ✅ |
+| `--drawer-w-lg` | ⚠️ | ✅ |
+| `--drawer-w-md` | ⚠️ | ✅ |
 | `--drawer-w-sm` | ✅ | ✅ |
-| `--drawer-w-md` | ✅ | ✅ |
-| `--drawer-w-lg` | ✅ | ✅ |
 | `--ds-border` | ✅ | ✅ |
-| `--ds-font-helper` | ✅ | ✅ |
 | `--ds-font-sm` | ✅ | ✅ |
 | `--ds-font-xs` | ✅ | ✅ |
-| `--ds-font-tag` | ✅ | ✅ |
-| `--ds-line-helper` | ✅ | ✅ |
-| `--ds-line-sm` | ✅ | ✅ |
 | `--ds-text-dim` | ✅ | ✅ |
-| `--feed-code-max-h` | ✅ | ✅ |
+| `--duration-control` | ✅ | ✅ |
+| `--feed-code-max-h` | ⚠️ | ✅ |
 | `--feed-follow-threshold` | ✅ | ✅ |
-| `--feed-min-h` | ✅ | ✅ |
+| `--feed-min-h` | ⚠️ | ✅ |
+| `--filter-tab-h` | ✅ | ✅ |
 | `--focus-ring` | ✅ | ✅ |
-| `--font-sans` | ✅ | ✅ |
-| `--icon-md` | ✅ | ✅ |
 | `--icon-sm` | ✅ | ✅ |
 | `--infinite-load-threshold` | ✅ | ✅ |
 | `--knowledge-action` | ✅ | ✅ |
-| `--knowledge-action-hover` | ✅ | ✅ |
 | `--knowledge-filter-width` | ✅ | ✅ |
-| `--list-row-h` | ✅ | ✅ |
-| `--list-row-h-relaxed` | ✅ | ✅ |
-| `--list-row-h-compact` | ✅ | ✅ |
+| `--list-row-h` | ⚠️ | ✅ |
+| `--list-row-h-compact` | ⚠️ | ✅ |
+| `--list-row-h-relaxed` | ⚠️ | ✅ |
 | `--mono` | ✅ | ✅ |
-| `--nav-indent-level` | ✅ | ✅ |
-| `--nav-rail-w` | ✅ | ✅ |
+| `--nav-indent-level` | ⚠️ | ✅ |
 | `--primary` | ✅ | ✅ |
 | `--primary-fg` | ✅ | ✅ |
 | `--primary-hover` | ✅ | ✅ |
@@ -930,16 +926,10 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--radius-chip-square` | ✅ | ✅ |
 | `--radius-control` | ✅ | ✅ |
 | `--radius-dialog` | ✅ | ✅ |
-| `--radius-full` | ✅ | ✅ |
 | `--scrollbar-size` | ✅ | ✅ |
-| `--scrollbar-thumb` | ✅ | ✅ |
-| `--shadow-lg` | ✅ | ✅ |
-| `--shadow-md` | ✅ | ✅ |
-| `--shadow-primary` | ✅ | ✅ |
-| `--shadow-quiet` | ✅ | ✅ |
-| `--shadow-risk-high` | ✅ | ✅ |
-| `--shadow-scroll` | ✅ | ✅ |
-| `--shadow-sm` | ✅ | ✅ |
+| `--scrollbar-thumb` | ⚠️ | ✅ |
+| `--shadow-risk-high` | ⚠️ | ✅ |
+| `--shadow-scroll` | ⚠️ | ✅ |
 | `--space-1` | ✅ | ✅ |
 | `--space-2` | ✅ | ✅ |
 | `--space-3` | ✅ | ✅ |
@@ -949,26 +939,31 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--stat-label-font` | ✅ | ✅ |
 | `--stat-value-font` | ✅ | ✅ |
 | `--success` | ✅ | ✅ |
-| `--success-bg` | ✅ | ✅ |
 | `--surface` | ✅ | ✅ |
 | `--surface-hover` | ✅ | ✅ |
-| `--table-cell-pad-y` | ✅ | ✅ |
 | `--table-header-h` | ✅ | ✅ |
 | `--table-row-h` | ✅ | ✅ |
 | `--table-row-h-compact` | ✅ | ✅ |
 | `--table-row-h-relaxed` | ✅ | ✅ |
-| `--task-status-done` | ✅ | ✅ |
-| `--task-status-pending` | ✅ | ✅ |
-| `--task-status-running` | ✅ | ✅ |
+| `--task-status-done` | ⚠️ | ✅ |
+| `--task-status-pending` | ⚠️ | ✅ |
+| `--task-status-running` | ⚠️ | ✅ |
 | `--text` | ✅ | ✅ |
-| `--text-faint` | ✅ | ✅ |
+| `--text-faint` | ⚠️ | ✅ |
 | `--text-quiet` | ✅ | ✅ |
-| `--trans-fast` | ✅ | ✅ |
-| `--trans-med` | ✅ | ✅ |
+| `--touch-hit-min` | ✅ | ✅ |
 | `--warning` | ✅ | ✅ |
-| `--warning-bg` | ✅ | ✅ |
+| `--workspace-list-cell-pad-x` | ✅ | ✅ |
+| `--workspace-list-divider` | ✅ | ✅ |
+| `--workspace-list-row-h` | ✅ | ✅ |
+| `--workspace-list-row-h-relaxed` | ✅ | ✅ |
 | `--workspace-result-rail-collapsed` | ✅ | ✅ |
 | `--workspace-result-rail-ideal` | ✅ | ✅ |
 | `--workspace-result-rail-max` | ✅ | ✅ |
 | `--workspace-result-rail-min` | ✅ | ✅ |
+| `--workspace-search-max-w` | ✅ | ✅ |
+| `--workspace-search-pad-x` | ✅ | ✅ |
+| `--workspace-tab-gap` | ✅ | ✅ |
+| `--workspace-tab-h` | ✅ | ✅ |
+| `--workspace-tab-indicator-h` | ✅ | ✅ |
 | `--workspace-task-action-h` | ✅ | ✅ |
