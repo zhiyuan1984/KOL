@@ -267,6 +267,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(await sample(`[data-discovery-event="${event}"]`)).toEqual(baseline.assistant);
       }
       expect(await sample('[data-discovery-event="confirm"]')).toEqual(baseline.action);
+      await expect(page.locator('[data-discovery-start-detail]')).toHaveCSS('display', 'block');
       await page.getByRole('button', { name: '编辑完整请求' }).click();
       expect(await sample('.composer--workspace')).toEqual(baseline.composer);
       expect(await sample('.composer--workspace textarea')).toEqual(baseline.input);

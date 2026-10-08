@@ -117,9 +117,7 @@
 .discovery-confirm-actions .btn { min-height: var(--control-h); }
 
 .discovery-confirm-state {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  display: block;
   margin: 0;
   color: var(--text);
 }
