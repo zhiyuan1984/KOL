@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>任务中心 · 系统运行任务列表视觉稿</title>
+  <link rel="stylesheet" href="../frontend/src/styles.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 36px; background: #f7f7f8; color: var(--text); font: 13px/20px var(--font-openai-sans); }
+    .preview { max-width: 1440px; margin: 0 auto; padding: 24px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-card); }
+    .page-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
+    h1 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; }
+    .subhead { margin: 4px 0 0; color: var(--text-muted); }
+    .count { color: var(--text-muted); white-space: nowrap; }
+    .filters { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .search { flex: 1; min-width: 260px; height: var(--control-h-lg); padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--text-muted); }
+    .filter-chip { padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text-muted); white-space: nowrap; }
+    .table-wrap { overflow: auto; }
+    table { width: 100%; table-layout: auto; border-collapse: collapse; }
+    .task-col-name { width: 100%; }
+    .task-col-content { width: var(--task-list-content-col-width); }
+    thead { height: var(--task-list-header-h); background: var(--bg-elevated); }
+    th { height: var(--task-list-header-h); padding: 0 var(--task-list-cell-pad-x); color: var(--text-muted); text-align: left; font-size: 12px; font-weight: 500; }
+    td { height: var(--task-list-row-h); padding: 0 var(--task-list-cell-pad-x); border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tbody tr:hover { background: color-mix(in srgb, var(--accent) 3%, var(--bg)); }
+    .task-name { display: block; overflow: hidden; color: var(--text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+    .status { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); white-space: nowrap; }
+    .status::before { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); content: ""; }
+    .status.waiting { color: var(--warning); }
+    .status.waiting::before { background: var(--warning); }
+    .status.done { color: var(--success); }
+    .status.done::before { background: var(--success); }
+    .time, .type { color: var(--text-muted); white-space: nowrap; }
+    .actions { display: flex; align-items: center; gap: var(--task-list-actions-gap); white-space: nowrap; }
+    .action { border: 0; padding: 0; background: transparent; color: var(--accent-text); font: inherit; cursor: pointer; }
+    .action:hover { text-decoration: underline; }
+    .fold { display: grid; place-items: center; width: 24px; height: 24px; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
+    .chevron { width: 12px; height: 12px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg) translateY(-2px); }
+    .footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; color: var(--text-muted); }
+    .more { border: 0; background: transparent; color: var(--accent-text); font: inherit; cursor: pointer; }
+    @media (max-width: 760px) {
+      body { padding: 12px; }
+      .preview { padding: 16px; }
+      .page-head, .filters { align-items: flex-start; flex-wrap: wrap; }
+      .search { flex-basis: 100%; }
+      .table-wrap { overflow: visible; }
+      table, tbody, tr, td { display: block; width: 100%; }
+      colgroup, thead { display: none; }
+      tbody tr { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+      td { width: auto; height: auto; padding: 0; border: 0; }
+      td::before { display: block; margin-bottom: 2px; color: var(--text-muted); font-size: 12px; }
+      td:nth-child(1) { grid-column: 1 / -1; }
+      td:nth-child(1)::before { content: "任务名"; }
+      td:nth-child(2) { grid-column: 1; grid-row: 2; }
+      td:nth-child(2)::before { content: "状态"; }
+      td:nth-child(3) { grid-column: 2; grid-row: 2; }
+      td:nth-child(3)::before { content: "更新时间"; }
+      td:nth-child(4) { grid-column: 1; grid-row: 3; }
+      td:nth-child(4)::before { content: "类型"; }
+      td:nth-child(5) { grid-column: 1 / -1; grid-row: 4; }
+      td:nth-child(5)::before { content: "操作"; }
+      .footer { gap: 12px; flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <main class="preview">
+    <header class="page-head">
+      <div><h1>系统运行任务</h1><p class="subhead">Agent、计划与执行任务的运行记录</p></div>
+      <span class="count">共 8 项 · 每 4 秒更新</span>
+    </header>
+    <div class="filters" aria-label="任务筛选">
+      <div class="search">⌕　搜索任务名称、内容或技能</div>
+      <span class="filter-chip">进行中　8</span><span class="filter-chip">时间范围　全部</span>
+    </div>
+    <div class="table-wrap">
+      <table aria-label="系统运行任务列表">
+        <colgroup><col class="task-col-name" /><col class="task-col-content" /><col class="task-col-content" /><col class="task-col-content" /><col class="task-col-content" /></colgroup>
+        <thead><tr><th>任务名</th><th>状态</th><th>更新时间</th><th>类型</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr><td><span class="task-name" title="AI发现 · youtube · camping, portable coffee and outdoor lifestyle creators">AI发现 · youtube · camping, portable coffee and outdoor lifestyle creators</span></td><td><span class="status">进行中</span></td><td class="time">10/8 13:04</td><td class="type">Agent 任务</td><td><div class="actions"><button class="action">详情</button><button class="action">查看进度</button><button class="fold" aria-label="展开明细"><span class="chevron"></span></button></div></td></tr>
+          <tr><td><span class="task-name" title="AI发现 · youtube · camping, portable coffee and trail gear review">AI发现 · youtube · camping, portable coffee and trail gear review</span></td><td><span class="status">进行中</span></td><td class="time">10/8 12:24</td><td class="type">Agent 任务</td><td><div class="actions"><button class="action">详情</button><button class="action">查看进度</button><button class="fold" aria-label="展开明细"><span class="chevron"></span></button></div></td></tr>
+          <tr><td><span class="task-name" title="AI发现 · youtube · family camping and portable cooking equipment">AI发现 · youtube · family camping and portable cooking equipment</span></td><td><span class="status">进行中</span></td><td class="time">10/8 11:49</td><td class="type">Agent 任务</td><td><div class="actions"><button class="action">详情</button><button class="action">查看进度</button><button class="fold" aria-label="展开明细"><span class="chevron"></span></button></div></td></tr>
+          <tr><td><span class="task-name" title="AI发现 · youtube · portable coffee and lightweight camping accessories">AI发现 · youtube · portable coffee and lightweight camping accessories</span></td><td><span class="status">进行中</span></td><td class="time">10/8 11:36</td><td class="type">Agent 任务</td><td><div class="actions"><button class="action">详情</button><button class="action">查看进度</button><button class="fold" aria-label="展开明细"><span class="chevron"></span></button></div></td></tr>
+          <tr><td><span class="task-name" title="AI发现 · youtube · hiking and family campsite essentials">AI发现 · youtube · hiking and family campsite essentials</span></td><td><span class="status">进行中</span></td><td class="time">10/8 11:36</td><td class="type">Agent 任务</td><td><div class="actions"><button class="action">详情</button><button class="action">查看进度</button><button class="fold" aria-label="展开明细"><span class="chevron"></span></button></div></td></tr>
+          <tr><td><span class="task-name" title="统一工作计划">统一工作计划</span></td><td><span class="status waiting">等待确认</span></td><td class="time">10/8 10:53</td><td class="type">Agent 任务</td><td><div class="actions"><button class="action">详情</button><button class="action">查看进度</button><button class="fold" aria-label="展开明细"><span class="chevron"></span></button></div></td></tr>
+          <tr><td><span class="task-name" title="AI发现 · youtube · sustainable outdoor cooking creators">AI发现 · youtube · sustainable outdoor cooking creators</span></td><td><span class="status done">已完成</span></td><td class="time">10/8 10:22</td><td class="type">Agent 任务</td><td><div class="actions"><button class="action">详情</button><button class="action">查看结果</button><button class="fold" aria-label="展开明细"><span class="chevron"></span></button></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <footer class="footer"><span>列表密度：紧凑 · 行内容可展开查看，不以颜色单独表达状态</span><button class="more">加载更多任务　→</button></footer>
+  </main>
+</body>
+</html>

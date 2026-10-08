@@ -448,6 +448,7 @@ export type Task = {
   source?: TaskSource;
   status?: TaskStatus;
   created_at?: string;
+  updated_at?: string | null;
   queued_at?: string | null;
   started_at?: string | null;
   completed_at?: string | null;

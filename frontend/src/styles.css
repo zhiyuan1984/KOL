@@ -118,6 +118,12 @@
   --workspace-list-row-h-relaxed: 52px;
   --workspace-list-cell-pad-x: 8px;
   --workspace-list-divider: var(--border);
+  /* Task center uses intrinsic content columns so surplus width belongs to the task title. */
+  --task-list-content-col-width: 1%;
+  --task-list-actions-gap: var(--space-2);
+  --task-list-row-h: var(--workspace-list-row-h);
+  --task-list-header-h: var(--table-header-h);
+  --task-list-cell-pad-x: var(--workspace-list-cell-pad-x);
   /* 中栏「查看最新」与提问框发送箭头共享同一视觉尺寸。 */
   --workspace-arrow-button-size: 32px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
@@ -16727,6 +16733,33 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
 @media (prefers-reduced-motion: reduce) {
   .task-kpi-card,
   .task-kpi-card:hover { transition: none; transform: none; }
+}
+
+/* Task center compact list: intrinsic metadata columns, flexible task title. */
+.tasks-page .task-center-table { table-layout: auto; min-width: 0; }
+.tasks-page .task-center-col-task { width: 100%; }
+.tasks-page .task-center-col-status,
+.tasks-page .task-center-col-time,
+.tasks-page .task-center-col-type,
+.tasks-page .task-center-col-actions { width: var(--task-list-content-col-width); }
+.tasks-page .task-center-table th,
+.tasks-page .task-center-table td { height: var(--task-list-row-h); padding-inline: var(--task-list-cell-pad-x); }
+.tasks-page .task-center-table th { height: var(--task-list-header-h); }
+.tasks-page .task-center-table .task-center-meta-row > td { height: auto; }
+.tasks-page .task-center-table th:first-child,
+.tasks-page .task-center-table td:first-child { padding-inline-start: 0; }
+.tasks-page .task-center-table th:last-child,
+.tasks-page .task-center-table td:last-child { padding-inline-end: 0; }
+.tasks-page .task-center-task-content { display: flex; min-width: 0; align-items: center; gap: var(--space-2); }
+.tasks-page .task-center-task-content input[type="checkbox"] { flex: 0 0 auto; margin: 0; }
+.tasks-page .task-center-task-content strong { min-width: 0; }
+.tasks-page .task-center-status { min-height: 0; gap: var(--space-1); padding: 0; border: 0; border-radius: 0; line-height: var(--lh-control); }
+.tasks-page .task-center-status::before { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: currentColor; content: ""; }
+.tasks-page .task-center-actions { gap: var(--task-list-actions-gap); }
+.tasks-page .task-center-fold { flex: 0 0 var(--control-h-lg); }
+@media (max-width: 760px) {
+  .tasks-page .task-center-table { min-width: 46rem; }
+  .tasks-page .task-center-actions { flex-wrap: wrap; }
 }
 
 /* Workbench search, navigation tabs, category filters, rows and CTAs.
