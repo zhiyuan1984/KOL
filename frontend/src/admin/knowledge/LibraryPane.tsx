@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { kbDateOnly, kbDocStatusLabel, kbExpiryLabel, kbExpiryState, kindLabel, statusLabel } from "../../knowledgeCopy";
+import { kindLabel } from "../../knowledgeCopy";
 import type { KbAssetRow } from "./shared";
-import KbvIcon from "../../knowledgeIcons";
+import { KnowledgeListRow } from "../../components/KnowledgeBrowse";
 
 export type KbView = "all" | "pending" | "published" | "draft" | "disabled";
 
@@ -104,7 +104,7 @@ export default function LibraryPane({
       ) : rows.length === 0 ? (
         <div className="kbv-empty" data-kbv-empty>
           <h3>没有匹配的知识</h3>
-          <p>请调整左侧筛选条件后重试。</p>
+          <p>请调整上方筛选条件后重试。</p>
           {onReset ? <button type="button" className="kbv-text-action" data-kbv-empty-reset onClick={onReset}>清除筛选条件</button> : null}
         </div>
       ) : (
@@ -132,50 +132,7 @@ function RecordRow({ row, selected, checked, onToggleSelect, onSelect }: {
   onToggleSelect?: (id: string) => void;
   onSelect: (id: string) => void;
 }) {
-  const status = String(row.status || "draft");
-  const statusClass = status === "published"
-    ? "is-published"
-    : status === "pending_review"
-      ? "is-pending"
-      : status === "archived"
-        ? "is-disabled"
-        : "is-draft";
-  const expiry = row.asset_type === "document" ? null : kbExpiryState(row.expires_at);
-  const kindText = row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind);
-  const statusText = row.publication_label
-    || (row.asset_type === "document" ? kbDocStatusLabel(status) : statusLabel(status));
-  const expiryText = expiry ? kbExpiryLabel(row.expires_at) : "";
-  const dateText = row.updated_at ? kbDateOnly(row.updated_at) : "";
-  const citeCount = Number(row.cite_count_30d || 0);
-  // 密度：引用与到期二选一——有到期风险时显示到期，否则显示引用；都有时到期优先。
-  const showCite = !expiry && citeCount > 0;
-  // 单行行式下元信息会被裁切，完整值由 title 兜底（DESIGN §9.1 长文本规则）。
-  const metaTitle = [kindText, statusText, showCite ? `引用 ${citeCount} 次（近30天）` : "", expiryText, dateText].filter(Boolean).join(" · ");
-
-  return (
-    <div className="kbv-browser-record-wrap" data-kbv-record-wrap={row.id}>
-      {onToggleSelect ? (
-        <input
-          type="checkbox" className="kbv-record-check" aria-label={`选择：${row.title}`}
-          checked={checked} onChange={() => onToggleSelect(row.id)}
-        />
-      ) : null}
-      <button
-        type="button"
-        className="kbv-browser-record"
-        data-kbv-record={row.id}
-        aria-current={selected}
-        onClick={() => onSelect(row.id)}
-      >
-        <span className="kbv-record-heading"><span className="kbv-record-icon"><KbvIcon name={row.asset_type === "document" ? "pdf" : "book"} /></span><span className="kbv-record-title" title={row.title}>{row.title}</span></span>
-        <span className="kbv-browser-record-meta" title={metaTitle}>
-          <span className="kbv-record-kind">{kindText}</span>
-          <span className={`kbv-status ${statusClass}`}>{statusText}</span>
-          {showCite ? <span className="kbv-record-cite" data-kbv-cite={row.id} title="近 30 天被引用次数">引用 {citeCount} 次</span> : null}
-          {expiry ? <span className={`kbv-expiry is-${expiry}`} data-kbv-expiry={expiry}>{expiryText}</span> : null}
-          {dateText ? <span className="kbv-record-date">{dateText}</span> : null}
-        </span>
-      </button>
-    </div>
-  );
+  return <KnowledgeListRow row={row} selected={selected} kind={row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind)}
+    onOpen={()=>onSelect(row.id)} openAttributes={{ "data-kbv-record": row.id }} recordAttributes={{ "data-kbv-record-wrap": row.id }}
+    leading={onToggleSelect ? <input type="checkbox" className="kbv-record-check" aria-label={`选择：${row.title}`} checked={checked} onChange={()=>onToggleSelect(row.id)} /> : null} />;
 }

@@ -4,6 +4,16 @@ import { knowledgeReviewDefinition } from "../../shared/review";
 // Browser interaction fixtures only. Native PostgreSQL review/publish and
 // authenticated PDF/trial boundaries are covered by knowledge-publication.test.ts.
 async function fixture(page:Page,missing=false){
+  const account={id:"owner",name:"资料管理员",available_modes:["admin","employee"]};
+  await page.route("**/api/**",route=>{
+    const p=new URL(route.request().url()).pathname;
+    if(p==="/api/auth/status")return route.fulfill({json:{authenticated:true,account}});
+    if(p==="/api/me")return route.fulfill({json:account});
+    if(p==="/api/health")return route.fulfill({json:{ok:true}});
+    if(p==="/api/preferences")return route.fulfill({json:{theme:"light"}});
+    if(p==="/api/cron/jobs")return route.fulfill({json:{jobs:[]}});
+    return route.fulfill({json:[]});
+  });
   const doc={id:"publication-pdf",base_id:"publication-base",title:"产品规格",filename:"规格.pdf",status:"pending_review",updated_at:"2026-10-05T00:00:00Z",created_at:"2026-10-05T00:00:00Z"};
   const definition=knowledgeReviewDefinition();
   const template={id:"publication-flow",version:1,publishedVersion:1,enabled:true,definition,updatedAt:doc.updated_at};
@@ -14,11 +24,17 @@ async function fixture(page:Page,missing=false){
   let failOnce=false;
   await page.route("**/api/admin/knowledge**",async route=>{
     const p=new URL(route.request().url()).pathname;
+    if(p.endsWith("/workspace-v1"))return route.fulfill({json:{tenant:"test",bases:[{id:doc.base_id,name:"产品库",kind:"unstructured",status:"active"}],domains:[],rows:[{...doc,asset_type:"document",kind:"document"}],total:1,page:1,page_size:20,page_count:1,facets:{},stats:{status:{pending_review:1},pending_review:{count:0,max_wait_days:0},pending_documents:{count:1,max_wait_days:0},expiring:{count:0,nearest:null}}}});
+    if(p.endsWith("/review-check"))return route.fulfill({json:{allowed:true,reason:"",reviewers:["资料审核人"]}});
     if(p==="/api/admin/knowledge")return route.fulfill({json:[]});
     if(p.endsWith("/domains"))return route.fulfill({json:{domains:[]}});
     if(p.endsWith("/bases"))return route.fulfill({json:{bases:[{id:doc.base_id,name:"产品库",kind:"unstructured",status:"active"}]}});
     if(p.endsWith("/documents"))return route.fulfill({json:{documents:[doc]}});
     if(p.endsWith(`/documents/${doc.id}`))return route.fulfill({json:{document:doc,jobs:[],text_preview:null}});
+    // 当前详情先核对 scope，再由 publication-v2 明确选择旧发布协议。
+    if(p.endsWith("/scope"))return route.fulfill({json:{revision:1,state:"checked",frozen:false,explanation:"产品规格",scope:{summary:"产品规格",topics:[],entities:[],question_types:[],limitations:[],unverified_notes:[],coverage:{status:"complete",unreadable_pages:[]},evidence:[]},job:null,actions:{edit:true,generate:true,check:false}}});
+    if(p.endsWith("/publication-v2/companies"))return route.fulfill({json:[{id:"test",name:"测试组织"}]});
+    if(p.endsWith("/publication-v2"))return route.fulfill({json:{legacy:{updatedAt:doc.updated_at},tenant:"test",templates:[],publication:null,intake:{allowed:true,reason:""}}});
     if(p.endsWith("/publication"))return route.fulfill({json:state});
     if(p.endsWith("/publication-execute")){actions.push("publish");state={...state,label:"已发布",publication_status:"published",allowed_actions:["view_review","create_revision"]};return route.fulfill({json:{publication_status:"published"}});}
     if(p.endsWith("/review-prepare"))return route.fulfill({json:{confirmationId:"prepared",command:{action:"submit",templateId:template.id,templateVersion:1,title:"发布产品规格",values:{...route.request().postDataJSON().values,knowledge_request:"frozen-request",publication_note:route.request().postDataJSON().note}},
@@ -27,7 +43,12 @@ async function fixture(page:Page,missing=false){
     if(p.endsWith("/publication-retry")){actions.push("retry");state={...state,label:"已批准·等待发布",publication_status:"queued",allowed_actions:["view_review","create_revision"],error:null};return route.fulfill({json:{queued:true}});}
     return route.fulfill({status:404,json:{detail:"unknown UI fixture"}});
   });
-  await page.route("**/api/admin/approval-types/v2/**",route=>route.fulfill({json:missing ? [] : [template]}));
+  await page.route("**/api/admin/approval-types/v2/**",route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(path.endsWith("/validate"))return route.fulfill({json:{issues:[]}});
+    if(route.request().method()==="GET")return route.fulfill({json:missing ? [] : [template]});
+    return route.fulfill({json:{...template,id:"created-flow",publishedVersion:undefined,definition:route.request().postDataJSON().definition}});
+  });
   await page.route("**/api/approvals/v2/**",async route=>{
     const p=new URL(route.request().url()).pathname.split("/v2/")[1];
     if(p==="companies")return route.fulfill({json:[{id:"test",name:"测试组织"}]});
@@ -43,6 +64,7 @@ async function fixture(page:Page,missing=false){
   });
   await page.goto(`/admin/knowledge?document=${doc.id}&reviewCompany=test`);
   const panel=page.locator("[data-knowledge-publication]");await expect(panel).toContainText(state.label);
+  await expect(page.getByRole("region",{name:"文档知识范围"})).toHaveCount(1);
   return {panel,commands,actions,setFail:()=>{failOnce=true;},setState:(s:Partial<typeof state>)=>{state={...state,...s};}};
 }
 
@@ -53,7 +75,7 @@ test("缺流程保留资料并引导新建专用流程，系统字段不可改",
   await f.panel.getByRole("link",{name:"新建审批流程"}).click();
   await page.getByRole("button",{name:"新建流程",exact:true}).click();
   await expect(page.getByLabel("流程名称")).toHaveValue("知识发布审批");
-  await page.getByRole("button",{name:"填写表单字段",exact:true}).click();
+  await page.getByRole("button",{name:"下一步：表单设计",exact:true}).click();
   await expect(page.getByLabel("字段名称").first()).toBeDisabled();
   await page.getByRole("button",{name:"添加字段",exact:true}).click();
   await page.getByRole("button",{name:"添加字段",exact:true}).click();
@@ -64,14 +86,14 @@ test("缺流程保留资料并引导新建专用流程，系统字段不可改",
 });
 
 test("提交明确确认、取消无副作用、失败重试保留幂等键并链接真实审批",async({page})=>{
-  const f=await fixture(page);await f.panel.getByLabel("发布说明").fill("核对产品规格后发布");
+  const f=await fixture(page);await page.getByRole("button",{name:"提交审批",exact:true}).click();await f.panel.getByLabel("发布说明").fill("核对产品规格后发布");
   await f.panel.getByLabel("产品型号").fill("LT-100");
-  await f.panel.getByRole("button",{name:"提交审批",exact:true}).click();
+  await page.getByRole("button",{name:"提交审批",exact:true}).click();
   const dialog=page.getByRole("dialog",{name:"确认提交知识发布审批"});
   await expect(dialog).toContainText("16页");await expect(dialog).toContainText("资料审核人");
   await expect(dialog).toContainText("LT-100");
   await dialog.locator("[data-admin-confirm-cancel]").click();expect(f.commands).toHaveLength(0);
-  await f.panel.getByRole("button",{name:"提交审批",exact:true}).click();f.setFail();
+  await page.getByRole("button",{name:"提交审批",exact:true}).click();f.setFail();
   await dialog.getByRole("button",{name:"确认提交审批",exact:true}).click();await expect(dialog).toContainText("临时连接失败");
   await dialog.getByRole("button",{name:"确认提交审批",exact:true}).click();await expect(dialog).not.toBeVisible();
   expect(f.commands).toHaveLength(2);expect(f.commands[0].idempotencyKey).toBe(f.commands[1].idempotencyKey);
@@ -118,13 +140,13 @@ test("审核页展示冻结原件、限定版本试算和发布时间",async({pa
 test("已批准版本可立即发布，取消不写入，也不要求填写回执",async({page})=>{
   const f=await fixture(page);
   f.setState({review_status:"approved",publication_status:"queued",label:"已批准·等待发布",instance_id:"publication-instance",allowed_actions:["publish_approved","view_review","create_revision"]});
-  await page.reload();await f.panel.getByRole("button",{name:"立即发布",exact:true}).click();
+  await page.reload();await page.getByRole("button",{name:"立即发布",exact:true}).click();
   const dialog=page.getByRole("dialog",{name:"确认发布",exact:true});
   await expect(dialog).toContainText("可供员工问答使用");
   await dialog.locator("[data-admin-confirm-cancel]").click();expect(f.actions).toEqual([]);
-  await f.panel.getByRole("button",{name:"立即发布",exact:true}).click();
+  await page.getByRole("button",{name:"立即发布",exact:true}).click();
   await dialog.getByRole("button",{name:"确认发布",exact:true}).click();
   await expect(f.panel).toContainText("已发布");
-  await expect(f.panel.getByRole("button",{name:"立即发布",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"立即发布",exact:true})).toHaveCount(0);
   expect(f.actions).toEqual(["publish"]);expect(f.commands).toHaveLength(0);
 });

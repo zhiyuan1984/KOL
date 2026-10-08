@@ -48,14 +48,14 @@ test("first visit reserves detail; selecting preserves columns and controls meas
   expect(before!.x).toBe(after!.x); expect(before!.width).toBe(after!.width);
   expect(left!.x + left!.width).toBeLessThanOrEqual(after!.x + 1);
   expect(after!.width).toBeGreaterThanOrEqual(360);
-  for (const selector of ['[data-kb-row-favorite="kb-0"]', '[data-kb-favorite="kb-0"]', '[data-kb-filter="stage"] button']) {
-    const sizes = await page.locator(selector).evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
-    expect(sizes.every(height => height === 24), selector).toBe(true);
-  }
+  await expect(page.locator('[data-kb-row-favorite], [data-kb-row-use]')).toHaveCount(0);
+  expect((await page.locator('[data-kb-favorite="kb-0"]').boundingBox())!.height).toBe(32);
+  const chipHeights=await page.locator('.knowledge-stage-chip').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().height));
+  expect(chipHeights.every(height=>height===24)).toBe(true);
   expect((await page.locator('[data-kb-use="kb-0"]').boundingBox())!.height).toBe(28);
   expect((await page.locator('[data-kb-search]').boundingBox())!.height).toBe(28);
   expect((await page.locator('.knowledge-status').boundingBox())!.height).toBe(20);
-  expect((await page.locator('[data-kb-row="kb-0"]').boundingBox())!.height).toBe(44);
+  expect((await page.locator('[data-kb-row="kb-0"]').boundingBox())!.height).toBe(36);
   const metadata = page.locator("[data-kb-provenance]");
   await expect(metadata.locator("dd").filter({ hasText: "v1" })).toHaveCount(1);
   await expect(detail).not.toContainText("第 1 版");
@@ -70,7 +70,7 @@ test("first visit reserves detail; selecting preserves columns and controls meas
 test("stages use dictionary, zero results keep selection, multiple stages are a union", async ({ page }) => {
   await surface(page);
   const stages = page.locator('[data-kb-filter="stage"]');
-  await expect(stages.locator("button")).toHaveCount(6);
+  await expect(stages.locator("[data-kb-filter-value]")).toHaveCount(10);
   await expect(stages.locator('[data-kb-filter-value=""]')).toHaveAttribute("aria-pressed", "true");
   await stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]').click();
   await expect(page.locator("[data-kbv-count]")).toHaveText("7 条知识");
@@ -80,13 +80,14 @@ test("stages use dictionary, zero results keep selection, multiple stages are a 
   await expect(page.locator("[data-kb-empty]")).toBeVisible();
   await expect(stages.locator('[data-kb-filter-value="EVALUATING"]')).toHaveAttribute("aria-pressed", "true");
   await stages.locator('[data-kb-filter-value=""]').click();
-  await stages.getByRole("combobox", { name: "更多阶段" }).selectOption("TESTING");
+  await stages.getByRole("button", { name: "添加阶段", exact:true }).click();
+  await stages.getByRole("group", { name: "可添加阶段" }).getByRole("button", { name: "已签收-测试中", exact:true }).click();
   await expect(stages.locator('[data-kb-filter-value="TESTING"]')).toHaveAttribute("aria-pressed", "true");
   await page.locator('[data-kb-filter="brand"] [data-kb-filter-value="LT"]').click();
   await expect(page.locator("[data-kb-empty]")).toBeVisible();
 });
 
-test("load footer follows last row and actions work without hover or opening detail", async ({ page }) => {
+test("title-kind rows stay compact; footer expands and actions remain in detail", async ({ page }) => {
   const state = await surface(page);
   await expect(page.locator("[data-kb-row]")).toHaveCount(5);
   const last = await page.locator("[data-kb-row]").last().boundingBox();
@@ -95,13 +96,16 @@ test("load footer follows last row and actions work without hover or opening det
   const more = page.locator("[data-kb-load-more]");
   await expect(more).toHaveCSS("border-top-width", "0px");
   await expect(more).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await page.locator('[data-kb-row-favorite="kb-0"]').click();
-  await expect(page.locator('[data-kb-row-favorite="kb-0"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("[data-kb-preview]")).toHaveCount(0);
+  await expect(page.locator('[data-kb-row="kb-0"] .knowledge-row-title')).toHaveText('合作知识 1');
+  await expect(page.locator('[data-kb-row="kb-0"] .knowledge-row-kind')).toHaveText('邮件模板');
+  await expect(page.locator('[data-kb-row="kb-0"] .knowledge-row-metadata, [data-kb-row="kb-0"] .knowledge-row-actions')).toHaveCount(0);
   await more.click(); await expect(page.locator("[data-kb-row]")).toHaveCount(10);
   await more.click(); await expect(page.locator("[data-kb-row]")).toHaveCount(14);
   await expect(more).toHaveCount(0);
-  await page.locator('[data-kb-row-use="kb-0"]').click();
+  await page.locator('[data-kb-open="kb-0"]').click();
+  await page.locator('[data-kb-favorite="kb-0"]').click();
+  await expect(page.locator('[data-kb-favorite="kb-0"]')).toHaveAttribute('aria-pressed','true');
+  await page.locator('[data-kb-use="kb-0"]').click();
   await expect(page).toHaveURL(/knowledge_id=kb-0/);
   expect(state.writes).toEqual(["POST /api/knowledge/kb-0/favorite", "POST /api/knowledge/kb-0/cite"]);
 });
@@ -173,7 +177,7 @@ test("search preserves selected brand and dictionary stages when results disappe
   await page.locator('[data-kb-search]').fill("does-not-exist");
   await expect(page.locator("[data-kb-empty]")).toBeVisible();
   await expect(brand).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('[data-kb-filter="stage"] button')).toHaveCount(6);
+  await expect(page.locator('[data-kb-filter="stage"] [data-kb-filter-value]')).toHaveCount(10);
   await page.locator('[data-kb-search]').fill("");
   await expect(page.locator("[data-kbv-count]")).toHaveText("7 条知识");
 });
@@ -183,13 +187,27 @@ test.describe("touch input", () => {
   test("actions remain discoverable with touch hit targets", async ({ page }) => {
     await surface(page);
     await page.setViewportSize({ width: 400, height: 700 });
-    const favorite = page.locator('[data-kb-row-favorite="kb-0"]');
+    await page.locator('[data-kb-open="kb-0"]').tap();
+    const favorite = page.locator('[data-kb-favorite="kb-0"]');
     await expect(favorite).toBeVisible();
     const box = await favorite.boundingBox();
     expect(box!.height).toBeGreaterThanOrEqual(44);
     await favorite.tap();
     await expect(favorite).toHaveAttribute("aria-pressed", "true");
-    await page.locator('[data-kb-open="kb-0"]').tap();
     await expect(page.locator('[data-kb-use="kb-0"]')).toBeInViewport();
   });
+});
+
+test("stage chips can be removed and re-added without mutating taxonomy", async ({page})=>{
+ const state=await surface(page);
+ const stages=page.locator('[data-kb-filter="stage"]');
+ await stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]').click();
+ await stages.getByRole('button',{name:'移除阶段：初步接触',exact:true}).click();
+ await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveCount(0);
+ await expect(stages.locator('[data-kb-filter-value=""]')).toHaveAttribute('aria-pressed','true');
+ await stages.getByRole('button',{name:'添加阶段',exact:true}).click();
+ await stages.getByRole('group',{name:'可添加阶段'}).getByRole('button',{name:'初步接触',exact:true}).click();
+ await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute('aria-pressed','true');
+ await expect(page.locator('[data-kbv-count]')).toHaveText('7 条知识');
+ expect(state.writes).toEqual([]);expect(state.errors).toEqual([]);
 });

@@ -26,7 +26,7 @@ import { formatBytes, textValue, useKbData, type KbFeed, type Row } from "./shar
 /** §9.1 空单元格占位：渲染 — 并降到 --text-quiet，不留白格。 */
 const emptyCell = <span className="kb-cell-empty">—</span>;
 
-export default function IngestView({ notify, fail }: KbFeed) {
+export default function IngestView({ notify, fail, embedded = false }: KbFeed & { embedded?: boolean }) {
   const { ask, dialog } = useAdminConfirm();
   const location = useLocation();
   const load = useCallback(async () => {
@@ -207,7 +207,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
       {loading && !data && <p className="muted" role="status">正在加载入库数据…</p>}
 
       <header className="kbingest-head">
-        <div className="kbingest-breadcrumb"><Link to="/admin/knowledge" data-admin-kb-home-link>← 返回知识管理</Link><h2>资料入库</h2></div>
+        <div className="kbingest-breadcrumb">{!embedded && <Link to="/admin/knowledge" data-admin-kb-home-link>← 返回知识管理</Link>}<h2>{embedded ? "知识加工" : "资料入库"}</h2></div>
         <details className="kbingest-health">
           <summary data-admin-kb-engine-health>PageIndex · {health ? health.ok ? "可用" : health.code === "knowledge_index_unavailable" ? "状态未获取" : "异常" : "正在检查"}</summary>
           <p>{health?.message || (health?.ok ? "健康检查通过" : "暂未获取健康检查结果")}</p>
@@ -215,7 +215,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
           <button className="kbadmin-action-link" type="button" onClick={reload}>重新检查</button>
         </details>
       </header>
-      <article className="kbingest-upload" data-admin-kb-doc-upload>
+      {!embedded && <article className="kbingest-upload" data-admin-kb-doc-upload>
         <div className="kbadmin-toolbar">
           <label className="field">知识库
             <select
@@ -268,7 +268,7 @@ export default function IngestView({ notify, fail }: KbFeed) {
         {health && !health.ok && <p className="muted" data-admin-kb-engine-down>暂时无法上传：{health.message || health.code}。<button className="kbadmin-action-link" onClick={reload}>重新检查</button></p>}
         {file && documents.some(doc => doc.base_id === baseId && doc.filename === file.name) && <p role="status">此知识库已有同名文件，请先核对资料详情；继续上传将创建独立资料。更新版本可在已发布资料详情创建版本草稿。</p>}
         {!bases.length && !loading ? <p className="muted">{KB_DOC_EMPTY.bases}</p> : null}
-      </article>
+      </article>}
 
       <nav className="kbingest-tabs" aria-label="入库内容">
         {([['documents', '资料', documents.length], ['raw', '原文库', raw.length], ['jobs', '提取作业', jobs.length]] as const).map(([key, label, count]) => <button key={key} type="button" aria-pressed={tab === key} aria-controls={`kbingest-${key}`} onClick={() => setTab(key)}>{label} <span>{count}</span></button>)}

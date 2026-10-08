@@ -110,8 +110,8 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
         {processing && <p role="status" className="kbv-document-progress">{progress || "等待加工服务处理已提交的资料"} · 自动刷新中</p>}
         {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p>{mode==="edit" && <label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv" onChange={e=>{const file=e.currentTarget.files?.[0];if(file){setReplacement(file);onDirty?.(true);}}} />{replacement && <p>{replacement.name}</p>}</label>}</>}
         {doc.status === "cancelled" && <p>加工已取消，可重试恢复；未发布资料不参与员工问答。</p>}
-        {mode!=='review' && <KnowledgeScopePanel key={id} id={id} onReady={setScopeReady} onDirty={onDirty} onChanged={()=>{refresh();reload();}} />}
-        {["pending_review", "published"].includes(doc.status) && (scopeReady || mode==='review') && <PublicationPanel key={id} id={id} mode={mode==="review"?"review":"detail"} ownsPrimary={mode!=="edit"} onInitiate={()=>onMode?.("review")} onSubmitted={()=>onMode?.("detail")} onDirty={onDirty} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}
+        {mode!=='review' && <KnowledgeScopePanel key={`scope:${id}`} id={id} onReady={setScopeReady} onDirty={onDirty} onChanged={()=>{refresh();reload();}} />}
+        {["pending_review", "published"].includes(doc.status) && (scopeReady || mode==='review') && <PublicationPanel key={`publication:${id}`} id={id} mode={mode==="review"?"review":"detail"} ownsPrimary={mode!=="edit"} onInitiate={()=>onMode?.("review")} onSubmitted={()=>onMode?.("detail")} onDirty={onDirty} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}
         {mode!=="review" && <WorkspaceActions><div className="kbv-document-actions">
       <div className="kbv-actions">
         {data.actions?.start && mode!=="edit" && <button className={cta("start")} data-kbv-doc-action="start" disabled={blocked} onClick={() => void run("start", "已提交解析，范围核对与审批通过后自动发布")}>{busy ? "提交中…" : "解析并提取范围"}</button>}

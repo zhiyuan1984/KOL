@@ -1,53 +1,29 @@
-import type { WsStats } from "./shared";
+import { LifecycleNavigation } from "../../components/LifecycleNavigation";
+import "../../components/lifecycle-workspace.css";
 
-export type KnowledgeStage = "create" | "processing" | "pending-review" | "published" | "lifecycle";
-
-type Props = {
-  stage: KnowledgeStage;
-  stats?: WsStats;
-  onChange: (stage: KnowledgeStage) => void;
-};
-
-const TABS: Array<{ id: KnowledgeStage; label: string; hint: string }> = [
-  { id: "create", label: "知识创作", hint: "新建与上传" },
-  { id: "processing", label: "解析加工", hint: "解析与索引" },
-  { id: "pending-review", label: "待审批", hint: "提交与发布前" },
-  { id: "published", label: "已发布", hint: "当前生效资产" },
-  { id: "lifecycle", label: "生命周期管理", hint: "版本与治理" },
-];
-
-function countFor(stage: KnowledgeStage, stats?: WsStats): number | null {
-  if (!stats) return null;
-  if (stage === "pending-review") return Number(stats.pending_review?.count || 0) + Number(stats.pending_documents?.count || 0);
-  if (stage === "published") return Number(stats.status?.published || 0);
-  if (stage === "lifecycle") return Number(stats.status?.archived || 0) + Number(stats.expiring?.count || 0);
-  if (stage === "create") return Number(stats.status?.draft || 0);
-  return null;
+export const KNOWLEDGE_TABS = [
+  { id: "catalog", label: "知识目录" },
+  { id: "create", label: "知识创作" },
+  { id: "processing", label: "知识加工" },
+  { id: "pending-review", label: "发布审批" },
+  { id: "published", label: "知识资产" },
+  { id: "bindings", label: "查询技能" },
+  { id: "lifecycle", label: "生命周期" },
+  { id: "graph", label: "知识关系" },
+] as const;
+export type KnowledgeStage = typeof KNOWLEDGE_TABS[number]["id"];
+export function knowledgeStage(value: string | null): KnowledgeStage {
+  return KNOWLEDGE_TABS.some(tab => tab.id === value) ? value as KnowledgeStage : "published";
 }
 
-export default function KnowledgeLifecycleTabs({ stage, stats, onChange }: Props) {
-  return (
-    <nav className="kbv-lifecycle-tabs" aria-label="知识生命周期阶段" role="tablist" data-kb-lifecycle-tabs>
-      {TABS.map((tab) => {
-        const count = countFor(tab.id, stats);
-        const selected = tab.id === stage;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={selected}
-            aria-controls={`kb-stage-panel-${tab.id}`}
-            className="kbv-lifecycle-tab"
-            data-kb-stage={tab.id}
-            onClick={() => onChange(tab.id)}
-          >
-            <span>{tab.label}</span>
-            {count !== null ? <small>{count}</small> : null}
-            <em>{tab.hint}</em>
-          </button>
-        );
-      })}
-    </nav>
-  );
+/** 一级入口只在右栏；导航不改中栏筛选，也不推进资产状态。 */
+export default function KnowledgeLifecycleTabs({ stage, onChange }: {
+  stage: KnowledgeStage;
+  onChange: (stage: KnowledgeStage) => void;
+}) {
+  return <nav className="kbv-lifecycle-tabs" data-kb-lifecycle-tabs>
+    <LifecycleNavigation label="知识治理流程" mode="views" idPrefix="kb-stage"
+      options={KNOWLEDGE_TABS.map(tab => ({ ...tab, dataAttributes: { "data-kb-stage": tab.id } }))}
+      value={stage} onChange={id => onChange(id as KnowledgeStage)} />
+  </nav>;
 }

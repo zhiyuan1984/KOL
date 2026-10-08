@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
 import { kbExpiryLabel, kbStatusSegments, proposalKindLabel, proposalStatusLabel } from "../../knowledgeCopy";
-import { type Row, type WsStats } from "./shared";
+import { errorMessage, type Row, type WsStats } from "./shared";
 
 type Props = {
   /** 服务端驾驶舱聚合（stats）；未加载时为 undefined，驾驶舱显示加载态。 */
   stats?: WsStats;
+  section?: "approval" | "lifecycle";
   governance?: { family_name?: string; domain_name?: string; base_name: string; document_count: number; scoped_document_count: number; skill_count: number; agent_count: number } | null;
 };
 
@@ -42,29 +43,26 @@ const feedbackKey = (row: FeedbackRow) => `${row.user_id || ""}::${row.knowledge
  * 有筛选轴的下钻写成链接（可复制、可后退），没有筛选轴的（反馈、提案）在页内展开自身列表。
  * 计数与最长等待来自服务端 stats（workspace-v1），与点选下钻后的列表同源。
  */
-export default function ReviewView({ stats, governance }: Props) {
+export default function ReviewView({ stats, governance, section }: Props) {
   const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
   const [proposals, setProposals] = useState<Row[]>([]);
   const [feedbackNotice, setFeedbackNotice] = useState("");
+  const [queueLoading, setQueueLoading] = useState(true);
+  const [queueError, setQueueError] = useState("");
   const [handling, setHandling] = useState("");
   const [expanded, setExpanded] = useState<QueueKey | null>(null);
   const [checked, setChecked] = useState<string[]>([]);
 
   const loadGovernance = async () => {
-    const [nextFeedback, nextProposals] = await Promise.all([
-      api.adminKnowledgeFeedback().catch(() => [] as Row[]),
-      api.adminKnowledgeProposals().catch(() => [] as Row[]),
-    ]);
-    setFeedback(nextFeedback as unknown as FeedbackRow[]);
-    setProposals(nextProposals);
+    setQueueLoading(true); setQueueError("");
+    try {
+      const [nextFeedback, nextProposals] = await Promise.all([api.adminKnowledgeFeedback(), api.adminKnowledgeProposals()]);
+      if (!Array.isArray(nextFeedback) || !Array.isArray(nextProposals)) throw new Error("治理队列响应格式不正确");
+      setFeedback(nextFeedback as unknown as FeedbackRow[]); setProposals(nextProposals);
+    } catch (cause) { setQueueError(errorMessage(cause)); }
+    finally { setQueueLoading(false); }
   };
-
-  useEffect(() => {
-    let alive = true;
-    void loadGovernance().then(() => { if (!alive) return; });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { if (section !== "approval") void loadGovernance(); }, [section]);
 
   const statusCounts = useMemo(() => {
     const s = stats?.status || {};
@@ -121,39 +119,39 @@ export default function ReviewView({ stats, governance }: Props) {
 
   const waitHint = (days: number) => days > 0 ? `最长等待 ${days} 天` : "暂无待办";
   /** 队列行：有筛选轴的走链接，没有筛选轴的展开自身的页内列表（缺口见 DESIGN §9.2 登记）。 */
-  const queueRows: Array<{ key: QueueKey; label: string; value: number; hint: string; to?: string }> = [
+  const queueRows: Array<{ key: QueueKey; label: string; value: number | string; hint: string; to?: string }> = [
     {
       key: "documents", label: "待审资料（非结构化）",
       value: stats?.pending_documents.count ?? 0,
       hint: `PDF 解析完成，等待发布审批。${waitHint(stats?.pending_documents.max_wait_days ?? 0)}`,
-      to: "/admin/knowledge?view=pending&asset=document",
+      to: "/admin/knowledge?stage=pending-review&view=pending&asset=document",
     },
     {
       key: "expiry", label: "30 天内到期",
       value: stats?.expiring.count ?? 0,
       hint: stats?.expiring.nearest ? kbExpiryLabel(stats.expiring.nearest) : "需要续期或归档",
-      to: "/admin/knowledge?expiring=1",
+      to: "/admin/knowledge?stage=lifecycle&expiring=1",
     },
     {
       key: "feedback", label: "员工反馈待处置",
-      value: unresolvedFeedback.length,
-      hint: `尚未处置的隐藏与没帮助反馈。${waitHint(feedbackMaxWait)}`,
+      value: queueLoading ? "…" : queueError ? "—" : unresolvedFeedback.length,
+      hint: queueLoading ? "正在读取员工反馈…" : queueError ? "读取失败，不能确定待处置数量" : `尚未处置的隐藏与没帮助反馈。${waitHint(feedbackMaxWait)}`,
     },
     {
       key: "proposals", label: "隔离提案",
-      value: pendingProposals.length,
-      hint: `建议尚未进入正式知识库。${waitHint(proposalsMaxWait)}`,
+      value: queueLoading ? "…" : queueError ? "—" : pendingProposals.length,
+      hint: queueLoading ? "正在读取隔离提案…" : queueError ? "读取失败，不能确定待决数量" : `建议尚未进入正式知识库。${waitHint(proposalsMaxWait)}`,
     },
   ];
 
   return (
     <section className="kb-governance-dashboard" data-admin-knowledge-review data-admin-kb-dashboard aria-label="知识治理驾驶舱">
-      <div className="kb-governance-heading">
+      {!section && <div className="kb-governance-heading">
         <h2>治理驾驶舱 <span>状态是同一条知识资产的生命周期；点任一段或任一行，到列表里按该条件继续处理。</span></h2>
-      </div>
+      </div>}
 
       {/* 状态分布（DESIGN §9.2）：同一对象的生命周期用分段条，段宽按计数成比例，不拆成并列 KPI 卡。 */}
-      <section className="kbadmin-status" data-admin-kb-status aria-label="知识资产状态">
+      {!section && <section className="kbadmin-status" data-admin-kb-status aria-label="知识资产状态">
         <div className="kbadmin-status-head">
           <h3>知识资产状态</h3>
           <span className="muted">共 {statusCounts.total} 条</span>
@@ -172,10 +170,10 @@ export default function ReviewView({ stats, governance }: Props) {
             </Link>
           ))}
         </div>
-      </section>
+      </section>}
 
       <nav className="kbadmin-queue" data-admin-kb-queue aria-label="待处置队列">
-        {queueRows.map((row) => (row.to ? (
+        {queueRows.filter(row => !section || (section === "approval" ? row.key === "documents" : row.key !== "documents")).map((row) => (row.to ? (
           <Link key={row.key} className="kbadmin-queue-row" data-kb-queue={row.key} to={row.to} title={row.hint}>
             <span className="kbadmin-queue-label">{row.label}<small className="muted">{row.hint}</small></span>
             <span className="kbadmin-queue-count">{row.value}</span>
@@ -197,8 +195,9 @@ export default function ReviewView({ stats, governance }: Props) {
           </button>
         )))}
       </nav>
+      {section !== "approval" && queueError ? <p role="alert" data-knowledge-queue-error>治理队列读取失败：{queueError} <button className="kbv-text-action" onClick={()=>void loadGovernance()}>重试</button></p> : null}
 
-      {governance ? (
+      {!section && governance ? (
         <section className="kbadmin-knowledge-graph" aria-label="产品知识关系图" data-kb-knowledge-graph>
           <div className="kbadmin-status-head"><h3>产品知识关系图</h3><span className="muted">管理端主数据与发布投影</span></div>
           <div className="kbadmin-graph-path">
@@ -208,18 +207,10 @@ export default function ReviewView({ stats, governance }: Props) {
         </section>
       ) : null}
 
-      {/* 治理子视图入口（D）：分类 / 绑定 / 加工 / 索引健康 ранее只靠直达 URL。 */}
-      <nav className="kbadmin-govern" data-admin-kb-govern aria-label="知识治理">
-        <span className="muted">治理</span>
-        <Link className="kbv-text-action" to="/admin/knowledge/catalog">知识目录</Link>
-        <Link className="kbv-text-action" to="/admin/knowledge/bindings">技能绑定</Link>
-        <Link className="kbv-text-action" to="/admin/knowledge/ingest">非结构化加工</Link>
-      </nav>
-
       {expanded === "feedback" ? (
         <section className="kbadmin-queue-panel" data-admin-kb-feedback aria-label="员工反馈处置">
           {feedbackNotice ? <p role="status" className="kb-governance-receipt">{feedbackNotice}</p> : null}
-          {!unresolvedFeedback.length ? <p className="muted">当前没有待处置反馈。</p> : (
+          {queueLoading ? <p role="status">正在读取员工反馈…</p> : queueError ? <p className="muted">请先重试读取反馈队列。</p> : !unresolvedFeedback.length ? <p className="muted">当前没有待处置反馈。</p> : (
             <>
               {checked.length ? (
                 <div className="kbadmin-batch-bar" data-admin-kb-feedback-batch role="toolbar" aria-label="批量处置反馈">
@@ -227,7 +218,7 @@ export default function ReviewView({ stats, governance }: Props) {
                   {FEEDBACK_ACTIONS.map(({ code, label }) => (
                     <button
                       key={code} type="button" className="kbv-text-action"
-                      disabled={Boolean(handling)}
+                      disabled={Boolean(handling) || queueLoading || Boolean(queueError)}
                       onClick={() => void runFeedback(unresolvedFeedback.filter((r) => checked.includes(feedbackKey(r))), code)}
                     >{handling === `batch:${code}` ? "处理中…" : `批量${label}`}</button>
                   ))}
@@ -254,7 +245,7 @@ export default function ReviewView({ stats, governance }: Props) {
                       {FEEDBACK_ACTIONS.map(({ code, label }) => (
                         <button
                           type="button" key={code} className="kbv-text-action"
-                          disabled={Boolean(handling)}
+                          disabled={Boolean(handling) || queueLoading || Boolean(queueError)}
                           onClick={() => void runFeedback([row], code)}
                         >{handling ? "处理中…" : label}</button>
                       ))}
@@ -269,7 +260,7 @@ export default function ReviewView({ stats, governance }: Props) {
 
       {expanded === "proposals" ? (
         <section className="kbadmin-queue-panel" data-admin-kb-proposals aria-label="隔离提案">
-          {!pendingProposals.length ? <p className="muted">当前没有待决提案。</p> : (
+          {queueLoading ? <p role="status">正在读取隔离提案…</p> : queueError ? <p className="muted">请先重试读取提案队列。</p> : !pendingProposals.length ? <p className="muted">当前没有待决提案。</p> : (
             <div className="kbadmin-queue-list">
               {pendingProposals.map((proposal) => (
                 <article key={String(proposal.id)} data-admin-kb-proposal={String(proposal.id)}>
