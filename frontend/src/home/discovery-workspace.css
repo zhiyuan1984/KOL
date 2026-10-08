@@ -196,8 +196,9 @@
 /* 粉丝区间：上限留空说明与越界提示都落在控件那一列，只提示、不拦编辑。 */.discovery-brief-form .discovery-followers-hint {  grid-column: 2;  color: var(--ds-text-dim);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);}
 .discovery-brief-form .ai-discovery-row.is-follower-range > .skill-param-error {  grid-column: 2;}
 .scope-workspace[data-home-pane="discovery"] .scope-workspace-center-scroll {
-  scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
-  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  /* Composer now occupies its own row; reserve only the shared reading inset. */
+  scroll-padding-block: var(--space-2);
+  padding-bottom: var(--space-4);
 }
 
 /* 触摸命中区遵守 44px；窄屏中分组纵排，避免压缩数字输入或产生整页横滚。 */

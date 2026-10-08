@@ -122,7 +122,8 @@ test("uses saved candidates for analysis and distinguishes sampled views from la
   let submitted: Record<string, unknown> | null = null;
   let messages: Record<string, unknown>[] = [];
   await page.route(`**/api/home/discovery/workspace/${saved.task_id}/pending`, route => route.fulfill({ json: { pending: null } }));
-  await page.route(`**/api/sessions/${saved.session_id}`, route => route.fulfill({ json: { messages, agent_status: "listening" } }));
+  await page.route(new RegExp(`/api/sessions/${saved.session_id}(?:\\?.*)?$`), route => route.fulfill({ json: { messages, agent_status: "listening" } }));
+  await page.route(`**/api/sessions/${saved.session_id}/events`, route => route.fulfill({ contentType: "text/event-stream", body: "" }));
   await page.route(`**/api/sessions/${saved.session_id}/messages`, async route => {
     if (route.request().method() !== "POST") return route.continue();
     submitted = route.request().postDataJSON();
@@ -165,7 +166,7 @@ test("recovers a saved discovery after the browser loses its initial pending mes
     return route.fulfill({ json: { messages: [], agent_status: "listening" } });
   });
   await page.goto(`/s/${saved.session_id}`);
-  await expect(page).toHaveURL(`/?tab=discovery&resume=${saved.task_id}`);
+  await expect(page).toHaveURL(`/?tab=discovery&session_id=${saved.session_id}`);
   await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
   await expect.poll(() => posted).toHaveLength(1);
   expect(posted[0]).toMatchObject({ work_item_id: saved.task_id, run_id: saved.pending.run_id });
@@ -211,10 +212,14 @@ test("home discovery submits to the lead agent without calling the retired crawl
   const initialTask = page.waitForResponse(readsWorkspaceTask);
   await page.goto(`/s/${savedWorkspace.session_id}`);
   expect((await initialTask).ok()).toBeTruthy();
-  await expect(page).toHaveURL(`/?tab=discovery&resume=${savedWorkspace.task_id}`);
+  await expect(page).toHaveURL(restoredUrl);
   await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
   await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", savedWorkspace.session_id);
   await expect(page.locator("[data-expert-identity='expert:crawler']")).toHaveCount(0);
+  const resumedTask = page.waitForResponse(readsWorkspaceTask);
+  await page.goto(`/?tab=discovery&resume=${savedWorkspace.task_id}`);
+  expect((await resumedTask).ok()).toBeTruthy();
+  await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", savedWorkspace.session_id);
   const restoredTask = page.waitForResponse(readsWorkspaceTask);
   await page.reload();
   expect((await restoredTask).ok()).toBeTruthy();
@@ -231,7 +236,7 @@ test("home discovery submits to the lead agent without calling the retired crawl
   await expect(page.locator('[data-discovery-event="conditions"]')).toContainText("北美");
   await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", savedWorkspace.session_id);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  if (surface.width < 1200) await expect(page.getByRole("button", { name: "展开红人线索", exact: true })).toBeVisible();
+  if (surface.width < 1200) await expect(page.locator(".scope-task-rail-toggle")).toBeVisible();
   if (surface.touch) {
     const top = await page.locator(".mobile-top").boundingBox();
     expect(top!.height).toBeLessThan(surface.height / 5);
