@@ -552,6 +552,27 @@ test("已验证未启用的连接器重开向导直接落在启用步，并可�
   await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("4 个工具");
   await expect(panel.locator("[data-connector-wizard-mount-summary]")).toContainText("可一键挂载 1 个");
   await expect(panel.locator("[data-connector-wizard-mount-summary]")).toContainText("另有 1 个要逐项决定");
+  await expect(panel.locator("[data-connector-wizard-status]")).toHaveCount(1);
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toHaveCount(1);
+  await expect(panel.locator(".enable-progress")).toContainText("已挂 0/2 个");
+  await expect(panel.locator(".enable-facts-item")).toHaveCount(6);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 900 }, { width: 375, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const layout = await panel.locator(".connector-enable-info").evaluate((root) => {
+      const facts = root.querySelector(".enable-facts")!;
+      const steps = root.closest(".connector-panel")!.querySelector(".connector-wizard-steps")!;
+      return {
+        columns: getComputedStyle(facts).gridTemplateColumns.split(" ").length,
+        factsOverflow: facts.scrollWidth - facts.clientWidth,
+        stepsOverflow: steps.scrollWidth - steps.clientWidth,
+      };
+    });
+    expect(layout.columns).toBe(1);
+    expect(layout.factsOverflow).toBeLessThanOrEqual(1);
+    expect(layout.stepsOverflow).toBeLessThanOrEqual(1);
+    await expect(panel.locator("[data-connector-wizard-enable]")).toBeInViewport();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   await panel.locator("[data-connector-wizard-mount-declared]").click();
   const confirm = page.locator("[data-admin-confirm='skill-declared-mount']");

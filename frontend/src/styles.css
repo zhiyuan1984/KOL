@@ -153,6 +153,8 @@
   --radius-card: 8px;
   /* 紧凑等级/风险 chip 方角（docs/DESIGN.md §4.1，行内标记专用） */
   --radius-chip-square: 4px;
+  /* 进度/比例条高度（docs/DESIGN.md §4.1 --cost-meter-h；比例只由形状表达，状态词与数值同时文字给出） */
+  --cost-meter-h: 6px;
   /* 次要文字 12px（docs/DESIGN.md §5.1） */
   --ds-font-xs: 12px;
   /* 无限加载触发阈值（docs/DESIGN.md §9.4.2 v3.1，不复用 --feed-follow-threshold） */
