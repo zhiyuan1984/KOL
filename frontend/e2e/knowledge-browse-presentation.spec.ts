@@ -54,7 +54,8 @@ test("first visit reserves detail; selecting preserves columns and controls meas
   const chipHeights=await page.locator('.knowledge-stage-chip').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().height));
   expect(chipHeights.every(height=>height===24)).toBe(true);
   expect((await page.locator('[data-kb-use="kb-0"]').boundingBox())!.height).toBe(28);
-  expect((await page.locator('[data-kb-search]').boundingBox())!.height).toBe(28);
+  // DESIGN §30 supersedes legacy 24/28px searches. Measure the outer wrapper, not its 18px text input.
+  expect((await page.locator('.knowledge-filter-bar .workspace-search-input').boundingBox())!.height).toBe(32);
   expect((await page.locator('.knowledge-status').boundingBox())!.height).toBe(20);
   expect((await page.locator('[data-kb-row="kb-0"]').boundingBox())!.height).toBe(36);
   const metadata = page.locator("[data-kb-provenance]");
