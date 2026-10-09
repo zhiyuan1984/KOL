@@ -1,6 +1,7 @@
+import { HttpFail } from "../host/errors.js";
+import { postgresPool } from "./pool.js";
 import { postgresQuery } from "./pool.js";
 import { publicProfileFields } from "../host/public-profile.js";
-import { HttpFail } from "../host/errors.js";
 import { attachLeadAssessments } from "../ticket-domain/kol-lead-scoring.js";
 import type { Json, Row } from "../types.js";
 
@@ -160,6 +161,8 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
     if (status) library = { ...library, ok: Boolean(status.ok), count: Number(status.count || 0), synced_at: status.synced_at, error: status.error };
   } catch { /* Malformed stored status is not successful synchronization. */ }
   const matched = Number(result.matched);
+  const health=(await postgresPool().query("SELECT state,error FROM starry_ownership_sync_state WHERE company_id=$1",[companyId])).rows[0];
+  if(health?.state==='failed' && matched===0) throw new HttpFail(503,"公海归属来源核验不完整，不能据此判断公海为空");
   return {
     entry: "memory", kind: "memory", creates_session: false, calls_model: false, index: "公海",
     library,

@@ -251,8 +251,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
     expect((await postgresPool().query("SELECT owner_open_id FROM starry_profile_ownership WHERE kol_uid='KOL_LEGACY_BOX'")).rows[0].owner_open_id).toBe('real-owner');
     await postgresPool().query("UPDATE starry_ownership_sync_state SET state='failed' WHERE company_id=$1",[COMPANY_ID]);
     expect(await readFollowingAuthority('employee-legacy')).toEqual([]);
-    const sea=await readPublicPoolPage({query:'',filter:'all',sort:'default',offset:0,limit:50},COMPANY_ID);
-    expect(poolIds(sea)).not.toContain('KOL_LEGACY_BOX');
+    await expect(readPublicPoolPage({query:'',filter:'all',sort:'default',offset:0,limit:50},COMPANY_ID)).rejects.toThrow('不能据此判断公海为空');
     await postgresPool().query("UPDATE user_starry_bindings SET status='expired' WHERE user_id='employee-legacy'");
     expect(poolIds(await readPublicPoolPage({query:'',filter:'all',sort:'default',offset:0,limit:50},COMPANY_ID))).toContain('KOL_LEGACY_BOX');
   });
