@@ -60,6 +60,11 @@ async function jobByIdIn(client: PoolClient, id: string, lock = false): Promise<
   return result.rows[0] as Row | undefined;
 }
 
+const CRON_JOB_READ_COLUMNS = `job.*,
+       (SELECT run.status FROM cron_runs run WHERE run.job_id=job.id AND run.status IN ('queued','running') ORDER BY run.created_at DESC LIMIT 1) AS active_run_status,
+       (SELECT result.receipt_json FROM cron_runs result WHERE result.job_id=job.id AND result.status IN ('succeeded','failed','skipped','needs_takeover') ORDER BY result.finished_at DESC NULLS LAST,result.created_at DESC LIMIT 1) AS last_result_receipt_json,
+       (SELECT result.error_summary FROM cron_runs result WHERE result.job_id=job.id AND result.status IN ('succeeded','failed','skipped','needs_takeover') ORDER BY result.finished_at DESC NULLS LAST,result.created_at DESC LIMIT 1) AS last_result_error_summary`;
+
 async function insertCronDispatch(client: PoolClient, job: Row, run: Row, now: string): Promise<void> {
   const jobId = nid("job");
   const idempotencyKey = `cron-run:${String(run.id)}`;
@@ -138,15 +143,16 @@ export async function pgEnsureSystemCronJobs(from = new Date()): Promise<void> {
 }
 
 export async function pgCronJobById(id: string): Promise<Row | undefined> {
-  const result = await postgresPool().query<Row>("SELECT * FROM cron_jobs WHERE id=$1 OR job_key=$1", [id]);
+  const result = await postgresPool().query<Row>(
+    `SELECT ${CRON_JOB_READ_COLUMNS} FROM cron_jobs job WHERE job.id=$1 OR job.job_key=$1`,
+    [id],
+  );
   return result.rows[0] as Row | undefined;
 }
 
 export async function pgListCronJobs(): Promise<Row[]> {
   const result = await postgresPool().query<Row>(
-    `SELECT job.*,
-       (SELECT run.status FROM cron_runs run WHERE run.job_id=job.id AND run.status IN ('queued','running') ORDER BY run.created_at DESC LIMIT 1) AS active_run_status
-     FROM cron_jobs job ORDER BY title`,
+    `SELECT ${CRON_JOB_READ_COLUMNS} FROM cron_jobs job ORDER BY job.title`,
   );
   return result.rows as Row[];
 }

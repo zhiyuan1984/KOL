@@ -294,6 +294,12 @@ export type CronJob = {
   next_run_at?: string | null;
   last_run_at?: string | null;
   last_terminal_status?: string | null;
+  last_result_label?: string | null;
+  execution_capability?: { ready: boolean; reason?: string; code?: string };
+  allowed_actions?: {
+    edit: boolean; pause: boolean; resume: boolean; publish: boolean; run_now: boolean;
+    run_reason?: string;
+  };
   system?: boolean;
   legal_fields_readonly?: boolean;
   schedule?: Record<string, unknown>;
