@@ -2,6 +2,7 @@ export type HomePoolPage = { offset: number; limit: number; total: number; match
 export type HomePoolOptions = { query?: string; filter?: string; sort?: string; offset?: number; limit?: number };
 export type CandidateAssessment = {
   state: "unscored" | "scoring" | "scored" | "failed";
+  execution_state?: "queued" | "scoring" | "scored" | "failed";
   potential_score?: number | null; risk_score?: number | null;
   potential_confidence?: number | null; risk_confidence?: number | null;
   potential_probabilities?: string | null; risk_probabilities?: string | null;
@@ -2091,8 +2092,8 @@ export const api = {
   discoveryCandidateCommand: (actionId: string, candidateId: string, verb: "follow" | "ignore" | "restore" | "ingest" | "score", snapshotVersion: string) =>
     request<{ ok: boolean; lead_id?: string; starry_imported?: boolean; starry_error?: string }>(`/api/home/discovery/runtime/${encodeURIComponent(actionId)}/candidates/${encodeURIComponent(candidateId)}/${verb}`, {
       method: "POST", body: JSON.stringify({ snapshot_version: snapshotVersion, confirmed: verb === "follow" || verb === "ingest" }),
-      // Starry 文件导入是长耗时 L3 操作，后端幂等，前端给足 3 分钟。
-      timeoutMs: 180_000,
+      // Scoring only queues work; Starry imports retain their longer IO budget.
+      timeoutMs: verb === "score" ? 20_000 : 180_000,
     }),
   confirmRuntimeAction: (id: string, version: string) => request("/api/actions/runtime.confirm", { method: "POST", body: JSON.stringify({ action_id: id, confirmation_version: version }) }),
   cancelRuntimeAction: (id: string) => request("/api/actions/runtime.cancel", { method: "POST", body: JSON.stringify({ action_id: id }) }),

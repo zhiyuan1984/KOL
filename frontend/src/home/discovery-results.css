@@ -3,6 +3,12 @@
 .discovery-results-summary { padding: var(--space-2) var(--space-3); background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
 .discovery-results-summary > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
 .discovery-runtime-results .discovery-results-summary p { margin: var(--space-1) 0 0; color: var(--text-muted); }
+.discovery-candidate-scoring { padding: var(--space-2); border-bottom: 1px solid var(--border); }
+.discovery-scoring-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.discovery-scoring-toolbar button { margin-inline-start: auto; }
+.discovery-runtime-results .discovery-candidate-scoring p { margin: var(--space-1) 0 0; }
+.discovery-scoring-progress { font-variant-numeric: tabular-nums; }
+.discovery-scoring-hint { color: var(--text-muted); }
 .discovery-candidate-batch { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border); }
 .discovery-candidate-batch label { display: inline-flex; align-items: center; gap: var(--space-1); }
 .discovery-candidate-batch > button { margin-inline-start: auto; }
@@ -39,7 +45,7 @@
   .discovery-runtime-results .discovery-runtime-candidate .discovery-candidate-actions { margin-inline-start: 0; }
 }
 @media (pointer: coarse) {
-  .discovery-runtime-results .discovery-runtime-candidate :is(button, summary), .discovery-runtime-results .discovery-candidate-batch :is(button, label) { min-width: var(--touch-hit-min); min-height: var(--touch-hit-min); }
+  .discovery-runtime-results .discovery-runtime-candidate :is(button, summary), .discovery-runtime-results .discovery-candidate-batch :is(button, label), .discovery-runtime-results .discovery-scoring-toolbar button { min-width: var(--touch-hit-min); min-height: var(--touch-hit-min); }
   .discovery-candidate-selection { min-width: var(--touch-hit-min); min-height: var(--touch-hit-min); }
   .discovery-candidate-heading input { margin: 0; }
 }

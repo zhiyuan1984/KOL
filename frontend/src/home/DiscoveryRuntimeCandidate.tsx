@@ -16,7 +16,7 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState(false);
   const snapshot = row.snapshot_version;
-  async function command(verb: "follow" | "ignore" | "restore" | "ingest" | "score") {
+  async function command(verb: "follow" | "ignore" | "restore" | "ingest") {
     if (busy || !snapshot) return;
     setBusy(true); setError("");
     try {
@@ -51,10 +51,8 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
       <span className="discovery-candidate-state">{row.followed ? "已跟进" : row.in_pool ? "已加入公海" : row.ignored ? "已忽略" : "候选"}</span>
       <span className="discovery-candidate-score" data-candidate-score={scoreState} role={scoreState === "scoring" ? "status" : undefined}>
         {score != null ? <>评分 <b>{Math.round(score)}</b> / 100{confidence != null && confidence < 0.7 ? " · 需复核" : ""}</>
-          : scoreState === "scoring" ? "评分中…" : scoreState === "failed" ? "评分失败" : scoreState === "scored" ? "评分资料不足" : "未评分"}
+          : scoreState === "scoring" ? assessment?.execution_state === "queued" ? "排队评分" : "评分中…" : scoreState === "failed" ? "评分失败" : scoreState === "scored" ? "评分资料不足" : "未评分"}
       </span>
-      {scoreState === "failed" || scoreState === "unscored" ? <button type="button" className="link-button" disabled={busy || !snapshot}
-        onClick={() => void command("score")}>{scoreState === "failed" ? "重试评分" : "开始评分"}</button> : null}
     </div>
       <div className="discovery-candidate-meta"><span>{platformLabel(row.platform)}</span>
         <span>{row.region || "地区待核验"}</span>
@@ -82,7 +80,7 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
         {row.followers_evidence?.raw_text ? <p>粉丝来源原文：{row.followers_evidence.raw_text}</p> : null}
         {row.sampled_views_count ? <p>本次采样 {row.sampled_views_count} 条，样本均播 {row.sampled_views_avg == null ? "无法核验" : Math.round(row.sampled_views_avg).toLocaleString()}；未证明覆盖最近10条。</p> : null}
         {scoreState === "scoring" ? <p role="status">正在依据公开资料与本次发现条件评分；结果会自动更新，可继续筛选候选。</p> : null}
-        {scoreState === "failed" ? <p>{assessment?.error || "评分未完成，可重试评分；候选资料仍保留。"}</p> : null}
+        {scoreState === "failed" ? <p>{assessment?.error || "评分未完成，候选资料仍保留。"}可使用列表顶部“补全评分”。</p> : null}
         {scoreState === "scored" ? <>
           <p>潜力分：{assessment?.potential_score ?? "资料不足"}；信息与匹配风险分：{assessment?.risk_score ?? "资料不足"}。评分仅供人工复核，不改变跟进、入库或阶段。</p>
           <p>依据：平台、账号、公开主页、粉丝、可核验近10条均播、方向与地区；缺失字段不补造。</p>

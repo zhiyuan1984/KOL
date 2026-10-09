@@ -11,6 +11,11 @@ async function fixture(page: Page, theme = "light") {
   let snapshot = "snapshot";
   let failedImport: string | undefined;
   let runtimeReads = 0;
+  const states = new Map<string, string>();
+  let failedScore: string | undefined;
+  let extraRun = false;
+  let scoreGate: Promise<void> | undefined;
+  let releaseScore: (() => void) | undefined;
   const writes: string[] = [];
   await page.route("**/api/**", async route => {
     const path = new URL(route.request().url()).pathname;
@@ -25,28 +30,42 @@ async function fixture(page: Page, theme = "light") {
     else if (path === "/api/sessions/density") json = { agent_status: "listening", messages: [] };
     else if (path === "/api/queries/runtime.actions") {
       runtimeReads++;
-      json = { actions: [{ id: "density-action", skill_id: "crawler_collect", operation: "start_crawl", state: "succeeded",
+      const action = { id: "density-action", skill_id: "crawler_collect", operation: "start_crawl", state: "succeeded",
       arguments: {}, confirmation_version: "v1", receipt: { task_id: "density-crawl" }, crawl: { id: "density-action", state: "succeeded", result_state: "ready", result_json: {
         task_id: "density-crawl", complete: true, captured_at: "2026-10-09T01:00:00Z", candidates: Array.from({ length: 8 }, (_, i) => ({
           id: `account-${i}`, name: `Camping creator ${i + 1}`, platform: "youtube", region: "Canada", followers: 200000, avg_views_10: 15000,
           source_url: `https://youtube.com/channel/account-${i}`, snapshot_version: snapshot, in_pool: inPool && i === 0,
           followers_evidence: { state: "source_recorded", raw_text: "200K subscribers" },
-          assessment: i === 0 ? { state, ...(state === "scored" ? { potential_score: 83, risk_score: 25, potential_confidence: 0.8,
-            risk_confidence: 0.9, version: "jev-kol-v1", assessed_at: "2026-10-09T01:01:00Z", criteria_summary: "平台 youtube · 关键词 camping" } : {}) } : { state: "unscored" },
-        })) } } }] };
+          assessment: (() => {
+            const current = states.get(`account-${i}`) || (i === 0 ? state : "unscored");
+            return { state: current === "queued" ? "scoring" : current, execution_state: current === "unscored" ? undefined : current,
+              ...(current === "scored" ? { potential_score: 83, risk_score: 25, potential_confidence: 0.8,
+                risk_confidence: 0.9, version: "jev-kol-v1", assessed_at: "2026-10-09T01:01:00Z", criteria_summary: "平台 youtube · 关键词 camping" } : {}) };
+          })(),
+        })) } } };
+      json = { actions: extraRun ? [action, { ...action, id: "density-action-2" }] : [action] };
     }
     else if (path.includes("/api/home/discovery/runtime/")) {
       writes.push(path);
       if (path.endsWith("/ingest") && failedImport && path.includes(`/${failedImport}/`)) {
         return route.fulfill({ status: 503, json: { error: "import_creator_uncertain" } });
       }
-      if (path.endsWith("/score")) state = "scoring";
+      if (path.endsWith("/score")) {
+        if (scoreGate) await scoreGate;
+        const id = path.split("/").at(-2)!;
+        if (id === failedScore) return route.fulfill({ status: 503, json: { error: "assessment_unavailable" } });
+        states.set(id, "queued");
+      }
       if (path.endsWith("/ingest")) inPool = true;
       json = { ok: true };
     } else if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: "" });
     await route.fulfill({ json });
   });
   return { writes, setScore: (next: string) => { state = next; }, changeSnapshot: () => { snapshot = "changed"; },
+    setCandidateScore: (id: string, next: string) => { states.set(id, next); },
+    failScore: (id: string) => { failedScore = id; }, addRun: () => { extraRun = true; },
+    holdScores: () => { scoreGate = new Promise<void>(resolve => { releaseScore = resolve; }); },
+    releaseScores: () => { releaseScore?.(); scoreGate = undefined; },
     failImport: (id: string) => { failedImport = id; }, runtimeReads: () => runtimeReads };
 }
 
@@ -90,15 +109,61 @@ test("a completed crawl refreshes a scoring failure without another scoring requ
   expect(f.writes).toEqual([]);
 });
 
-test("failed and unscored candidates have no invented zero score and retry independently", async ({ page }) => {
+test("one list entry retries selected failures and leaves other candidates untouched", async ({ page }) => {
   const f = await fixture(page); f.setScore("failed");
   await page.goto("/s/density");
   const first = page.locator("[data-discovery-candidate=account-0]");
   await expect(first.locator("[data-candidate-score]")).toHaveText("评分失败");
-  await first.getByRole("button", { name: "重试评分" }).click();
-  await expect(first.locator("[data-candidate-score]")).toHaveText("评分中…");
+  await expect(page.getByRole("button", { name: /开始评分|重试评分/ })).toHaveCount(0);
+  await first.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "补全评分（1）", exact: true }).click();
+  await expect(first.locator("[data-candidate-score]")).toHaveText("排队评分");
   expect(f.writes).toHaveLength(1);
   expect(f.writes[0]).toMatch(/account-0\/score$/);
+});
+
+test("list completion skips successful and active scores, blocks duplicate clicks and reuses results after reload", async ({ page }) => {
+  const f = await fixture(page); f.setScore("scored");
+  f.setCandidateScore("account-1", "queued");
+  f.setCandidateScore("account-2", "scoring");
+  f.setCandidateScore("account-3", "failed");
+  f.holdScores();
+  await page.goto("/s/density");
+  await expect(page.locator(".discovery-scoring-progress")).toHaveText("已评分 1 · 排队 1 · 评分中 1 · 失败 1 · 未评分 4");
+  const button = page.getByRole("button", { name: "补全评分（5）", exact: true });
+  await button.evaluate(element => { (element as HTMLButtonElement).click(); (element as HTMLButtonElement).click(); });
+  await expect(page.getByRole("button", { name: "正在提交评分…", exact: true })).toBeDisabled();
+  await expect.poll(() => f.writes.filter(path => path.endsWith("/score")).length).toBe(1);
+  f.releaseScores();
+  await expect(page.locator(".discovery-scoring-receipt")).toHaveText("已提交 5 位评分，结果自动更新。");
+  expect(f.writes.map(path => path.split("/").at(-2))).toEqual(["account-3", "account-4", "account-5", "account-6", "account-7"]);
+  for (let i = 1; i < 8; i++) f.setCandidateScore(`account-${i}`, "scored");
+  await expect(page.locator(".discovery-scoring-progress")).toHaveText("已评分 8 · 排队 0 · 评分中 0 · 失败 0 · 未评分 0");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "补全评分（0）", exact: true })).toBeDisabled();
+  expect(f.writes).toHaveLength(5);
+  expect(f.writes.some(path => /follow|ingest|send|stage/.test(path))).toBeFalsy();
+});
+
+test("one failed submission does not stop selected candidates and can be completed separately", async ({ page }) => {
+  const f = await fixture(page); f.setScore("failed"); f.failScore("account-1");
+  await page.goto("/s/density");
+  for (const id of [0, 1, 2]) await page.locator(`[data-discovery-candidate=account-${id}]`).getByRole("checkbox").check();
+  await page.getByRole("button", { name: "补全评分（3）", exact: true }).click();
+  await expect(page.locator(".discovery-scoring-receipt")).toHaveText("已提交 2 位评分；1 位提交未确认，请刷新核对后补全。");
+  expect(f.writes.map(path => path.split("/").at(-2))).toEqual(["account-0", "account-1", "account-2"]);
+  await expect(page.getByRole("button", { name: "补全评分（1）", exact: true })).toBeEnabled();
+  f.failScore("");
+  await page.getByRole("button", { name: "补全评分（1）", exact: true }).click();
+  await expect(page.locator(".discovery-scoring-receipt")).toHaveText("已提交 1 位评分，结果自动更新。");
+  expect(f.writes.at(-1)).toMatch(/account-1\/score$/);
+});
+
+test("multiple crawl receipts still share one scoring entry", async ({ page }) => {
+  const f = await fixture(page); f.addRun();
+  await page.goto("/s/density");
+  await expect(page.locator("[data-discovery-results-summary]")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: /^补全评分/ })).toHaveCount(1);
 });
 
 test("batch import stops after an uncertain receipt and preserves a partial completion receipt", async ({ page }) => {
@@ -167,6 +232,9 @@ test.describe("touch input", () => {
       expect(box.height).toBeGreaterThanOrEqual(44);
       expect(box.width).toBeGreaterThanOrEqual(44);
     }
+    const scoreButton = (await page.getByRole("button", { name: /^补全评分/ }).boundingBox())!;
+    expect(scoreButton.height).toBeGreaterThanOrEqual(44);
+    expect(scoreButton.width).toBeGreaterThanOrEqual(44);
     await first.locator(".discovery-candidate-selection").tap();
     await expect(first.getByRole("checkbox")).toBeChecked();
     await first.locator("summary").tap();

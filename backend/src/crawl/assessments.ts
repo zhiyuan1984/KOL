@@ -65,6 +65,7 @@ export function candidateAssessmentView(record?: Row): Json {
   if (!record) return { state: "unscored" };
   const result = object(record.result_json);
   return { state: record.state === "queued" || record.state === "scoring" ? "scoring" : record.state,
+    execution_state: record.state,
     potential_score: result.potential_score ?? null, risk_score: result.risk_score ?? null,
     potential_confidence: result.potential_confidence ?? null, risk_confidence: result.risk_confidence ?? null,
     potential_probabilities: result.potential_probabilities ?? null, risk_probabilities: result.risk_probabilities ?? null,

@@ -291,17 +291,22 @@ it("deduplicates scoring, persists before import, and reuses the same score afte
   const job = await enqueueScore(); await enqueueScore();
   expect((await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows).toHaveLength(1);
   expect((await postgresPool().query("SELECT * FROM kol_candidate_assessments")).rows).toHaveLength(1);
-  expect((await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0].assessment).toMatchObject({ state: "scoring", potential_score: null });
+  expect((await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0].assessment).toMatchObject({ state: "scoring", execution_state: "queued", potential_score: null });
+  const snapshot = await version();
+  await Promise.all([command(0, "score", snapshot), command(0, "score", snapshot)]);
+  expect((await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows).toHaveLength(1);
   const scorer = vi.fn().mockResolvedValue(assessment);
   await scoreDiscoveryCandidate({ ...job, attempts: 1 }, async () => {}, scorer);
   await scoreDiscoveryCandidate({ ...job, attempts: 1 }, async () => {}, scorer);
   expect(scorer).toHaveBeenCalledTimes(1);
+  await command(0, "score", snapshot);
+  expect((await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows).toHaveLength(1);
   expect(scorer.mock.calls[0][0].avg_plays).toBeNull();
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "starry-scored" });
   await command(0, "ingest", await version());
   resetConn();
   const view = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0];
-  expect(view.assessment).toMatchObject({ state: "scored", potential_score: 83, version: "jev-kol-v1" });
+  expect(view.assessment).toMatchObject({ state: "scored", execution_state: "scored", potential_score: 83, version: "jev-kol-v1" });
   const pool = await readPublicPoolPage(parsePoolPageOptions({}), COMPANY);
   expect(pool.items.find(row => row.kol_uid === "starry-scored")).toMatchObject({ potential_score: 83, risk_score: 25,
     assessment_state: "scored", assessed_at: assessment.assessed_at, assessment_criteria: assessment.criteria_summary });
