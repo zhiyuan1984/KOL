@@ -25,7 +25,10 @@ const app = new Hono();
 app.route('/api', knowledgeTaxonomyMutations);
 app.onError((error, c) => error instanceof HttpFail ? c.json({ detail: error.detail }, error.status as any) : c.json({ message: error.message }, 500));
 async function request(collection: 'domains' | 'bases', method = 'DELETE', body: any = confirmed) {
-  const response = await app.request(`/api/admin/knowledge/${collection}/${collection === 'domains' ? 'domain' : 'base'}`, {
+  const path = method === 'POST'
+    ? `/api/admin/knowledge/${collection}`
+    : `/api/admin/knowledge/${collection}/${collection === 'domains' ? 'domain' : 'base'}`;
+  const response = await app.request(path, {
     method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() as any };
@@ -34,7 +37,8 @@ function changed() { return test.calls.some(sql => /^(DELETE FROM knowledge_(dom
 
 beforeEach(() => {
   test.calls = [];
-  test.state = { admin: true, activeAdmin: true, ready: true, guardVersion: 1, row: { ...domain }, counts: {}, assets: [], refs: [], audits: [], onLock: null, auditFailure: false };
+  test.state = { admin: true, activeAdmin: true, ready: true, guardVersion: 1, row: { ...domain }, counts: {}, assets: [], refs: [], audits: [], onLock: null, auditFailure: false,
+    parents: { family: { id: 'family', level: 'family', status: 'active' }, domain: { ...domain } }, domainCodes: new Set<string>(), baseCodes: new Set<string>() };
   test.query = vi.fn(async (sql: string, args: any[] = []) => {
     test.calls.push(sql);
     let rows: any[] = [];
@@ -43,6 +47,18 @@ beforeEach(() => {
     else if (sql === 'SELECT knowledge_taxonomy_guard_version() AS version') rows = [{ version: test.state.guardVersion }];
     else if (sql.startsWith('SET LOCAL')) { /* transaction-local setting */ }
     else if (sql.startsWith('SELECT pg_advisory_xact_lock')) { test.state.onLock?.(); }
+    else if (sql.startsWith('SELECT id,level,status,parent_id FROM knowledge_domains WHERE id=$1 FOR UPDATE')) {
+      const parent = test.state.parents[args[0]]; rows = parent ? [{ ...parent }] : [];
+    }
+    else if (sql.startsWith('SELECT id,level,status FROM knowledge_domains WHERE id=$1 FOR UPDATE')) {
+      const parent = test.state.parents[args[0]]; rows = parent ? [{ ...parent }] : [];
+    }
+    else if (sql.startsWith("SELECT 1 FROM knowledge_domains WHERE code=$1 AND COALESCE(parent_id,'')=$2")) {
+      rows = test.state.domainCodes.has(args[0]) ? [{ '?column?': 1 }] : [];
+    }
+    else if (sql.startsWith('SELECT 1 FROM knowledge_bases WHERE code=$1')) {
+      rows = test.state.baseCodes.has(args[0]) ? [{ '?column?': 1 }] : [];
+    }
     else if (/SELECT \* FROM knowledge_(domains|bases) WHERE id=\$1 FOR UPDATE/.test(sql)) rows = test.state.row ? [{ ...test.state.row }] : [];
     else if (sql.startsWith('SELECT id,base_id,kind')) rows = test.state.assets;
     else if (sql.includes("'binding' AS source")) rows = test.state.refs;
@@ -51,6 +67,14 @@ beforeEach(() => {
       rows = codes.map(code => ({ code, message: `blocked: ${code}`, count: test.state.counts[code] || 0 }));
     }
     else if (sql.includes("set_config('knowledge.taxonomy_mutation'")) { /* validated mutation token */ }
+    else if (sql.startsWith('INSERT INTO knowledge_domains')) {
+      test.state.createdDomain = { id: args[0], code: args[1], name: args[2], level: args[3], parent_id: args[4], sort: args[5], status: 'active', note: args[6], created_by: args[7], created_at: args[8], updated_at: args[8] };
+      rows = [{ ...test.state.createdDomain }];
+    }
+    else if (sql.startsWith('INSERT INTO knowledge_bases')) {
+      test.state.createdBase = { id: args[0], code: args[1], name: args[2], domain_id: args[3], kind: args[4], description: args[5], owner_user_id: args[6], status: 'active', settings: args[7], external_ref: args[8], version: 1, created_at: args[9], updated_at: args[9] };
+      rows = [{ ...test.state.createdBase }];
+    }
     else if (sql.startsWith('DELETE FROM knowledge_')) { test.state.row = null; }
     else if (sql.startsWith('SELECT id FROM knowledge_domains') || sql.startsWith('SELECT d.id FROM knowledge_domains')) rows = test.state.parentMissing ? [] : [{ id: 'parent' }];
     else if (sql.startsWith('UPDATE knowledge_domains')) {
@@ -65,7 +89,7 @@ beforeEach(() => {
       if (test.state.auditFailure) throw new Error('audit unavailable');
       test.state.audits.push({ actor: args[1], type: args[2], payload: JSON.parse(args[3]) }); rows = [{ id: 7 }];
     }
-    else if (sql.startsWith('SELECT b.*,d.name')) rows = [{ ...test.state.row, entries: 3, domain_name: '域', family_id: 'family', family_name: '族' }];
+    else if (sql.startsWith('SELECT b.*,d.name')) rows = [{ ...(test.state.createdBase || test.state.row), entries: 3, domain_name: '域', family_id: 'family', family_name: '族' }];
     else throw new Error(`Unexpected SQL: ${sql}`);
     return { rows, rowCount: rows.length };
   });
@@ -88,6 +112,45 @@ describe('real catalog mutation routes, native service and transaction guards (m
   it('rechecks current active administrator inside the transaction', async () => {
     test.state.activeAdmin = false;
     expect((await request('domains')).status).toBe(403); expect(changed()).toBe(false);
+  });
+  it('creates a family through the native route with a generated stable code and atomic audit', async () => {
+    const result = await request('domains', 'POST', { name: '新主题域族', level: 'family' });
+    expect(result.status).toBe(201);
+    expect(result.body.domain).toMatchObject({ name: '新主题域族', level: 'family', parent_id: null, status: 'active' });
+    expect(result.body.domain.code).toMatch(/^family_[a-f0-9]{32}$/);
+    expect(test.state.audits[0]).toMatchObject({ actor: 'admin', type: 'knowledge.domain.create', payload: { before: null, after: { code: result.body.domain.code }, confirmed: false } });
+    expect(test.calls.findIndex(sql => sql.startsWith('SELECT pg_advisory_xact_lock'))).toBeLessThan(test.calls.findIndex(sql => sql.startsWith('INSERT INTO knowledge_domains')));
+  });
+  it('keeps an explicit valid domain code and rejects a same-parent conflict', async () => {
+    const created = await request('domains', 'POST', { name: '显式编码', level: 'family', code: 'operations' });
+    expect(created.status).toBe(201); expect(created.body.domain.code).toBe('operations');
+    test.state.domainCodes.add('operations');
+    const conflict = await request('domains', 'POST', { name: '冲突', level: 'family', code: 'operations' });
+    expect(conflict.status).toBe(409); expect(conflict.body.detail.code).toBe('knowledge_domain_code_conflict');
+  });
+  it('rejects a new domain below an archived family', async () => {
+    test.state.parents.family.status = 'archived';
+    const result = await request('domains', 'POST', { name: '子域', level: 'domain', parent_id: 'family' });
+    expect(result.status).toBe(409); expect(result.body.detail.code).toBe('knowledge_taxonomy_parent_unavailable');
+    expect(test.calls.some(sql => sql.startsWith('INSERT INTO knowledge_domains'))).toBe(false);
+  });
+  it('creates a base through the native route with generated code and legacy-compatible defaults', async () => {
+    const result = await request('bases', 'POST', { name: '资料库', domain_id: 'domain', kind: 'unstructured', settings: { mode: 'review' }, external_ref: { library: 'remote' } });
+    expect(result.status).toBe(201);
+    expect(result.body.base).toMatchObject({ name: '资料库', domain_id: 'domain', kind: 'unstructured', owner_user_id: 'admin', status: 'active', version: 1, settings: { mode: 'review' }, external_ref: { library: 'remote' } });
+    expect(result.body.base.code).toMatch(/^base_[a-f0-9]{32}$/);
+    expect(test.state.audits[0]).toMatchObject({ type: 'knowledge.base.create', payload: { before: null, after: { code: result.body.base.code }, confirmed: false } });
+  });
+  it('rejects new bases below an archived domain or family and explicit global code conflicts', async () => {
+    test.state.parents.domain.status = 'archived';
+    let result = await request('bases', 'POST', { name: '拒绝库', domain_id: 'domain', kind: 'structured' });
+    expect(result.status).toBe(409); expect(result.body.detail.code).toBe('knowledge_taxonomy_parent_unavailable');
+    test.state.parents.domain.status = 'active'; test.state.parents.family.status = 'archived';
+    result = await request('bases', 'POST', { name: '拒绝库', domain_id: 'domain', kind: 'structured' });
+    expect(result.status).toBe(409); expect(result.body.detail.code).toBe('knowledge_taxonomy_parent_unavailable');
+    test.state.parents.family.status = 'active'; test.state.baseCodes.add('taken');
+    result = await request('bases', 'POST', { name: '冲突库', domain_id: 'domain', kind: 'structured', code: 'taken' });
+    expect(result.status).toBe(409); expect(result.body.detail.code).toBe('knowledge_base_code_conflict');
   });
   it.each([{}, { confirmed: 'true', expected_updated_at: stamp }, { confirmed: true }])('requires explicit boolean confirmation and current timestamp: %o', async body => {
     expect((await request('domains', 'DELETE', body)).status).toBe(400); expect(changed()).toBe(false);

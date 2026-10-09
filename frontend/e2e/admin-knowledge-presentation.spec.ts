@@ -57,21 +57,26 @@ async function surface(page:Page,status='pending_review') {
 async function pdf(page:Page){await page.locator('[data-kb-scope-base="specs"]').click();await page.locator('[data-kbv-record="pdf"]').click();await expect(page.locator('[data-workspace-mode="detail"]')).toBeVisible();}
 test('right rail lifecycle tabs preserve middle list and offer all first-level capabilities',async({page})=>{
  const s=await surface(page);
- await expect(page.locator('[data-knowledge-right] [role="tab"]')).toHaveCount(8);
+ await expect(page.locator('[data-knowledge-right] [role="tab"]')).toHaveCount(5);
  await expect(page.locator('[data-knowledge-middle] [role="tab"]')).toHaveCount(0);
  await expect(page.locator('[data-kbv-new]')).toHaveCount(0);
  await page.locator('[data-kbv-next]').click();
  for(const [id,label,target] of [
-  ['catalog','知识目录','[data-admin-kb-catalog]'],['create','知识创作','[data-kbv-new]'],
+  ['catalog','知识规划','[data-admin-kb-catalog]'],['create','知识创作','[data-knowledge-creation]'],
   ['processing','知识加工','[data-admin-kb-documents]'],['pending-review','发布审批','[data-kb-queue="documents"]'],
-  ['published','知识资产','[data-knowledge-assets]'],['bindings','查询技能','[data-admin-kb-bindings]'],
-  ['lifecycle','生命周期','[data-kb-queue="expiry"]'],['graph','知识关系','[data-kb-knowledge-graph]']]) {
+  ['published','知识资产','[data-knowledge-assets]']]) {
   await page.getByRole('tab',{name:label,exact:true}).click();
   await expect(page).toHaveURL(new RegExp('stage='+id));
   await expect(page.locator('[data-kbv-page]')).toHaveText('第 2 / 2 页');
   await expect(page.locator('[data-kbv-record="text-22"]')).toBeVisible();
   await expect(page.locator(target)).toBeVisible();
   await expect(page.locator('[data-knowledge-middle] [data-kbv-new], [data-knowledge-middle] [data-kbv-upload]')).toHaveCount(0);
+ }
+ // Hidden governance capabilities retain their original deep links, not tabs.
+ for(const [id,target] of [['bindings','[data-admin-kb-bindings]'],['lifecycle','[data-kb-queue="expiry"]'],['graph','[data-kb-knowledge-graph]']]) {
+  await page.goto(`/admin/knowledge?reviewCompany=company&stage=${id}`);
+  await expect(page).toHaveURL(new RegExp('stage='+id));
+  await expect(page.locator(target)).toBeVisible();
  }
  expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
  await page.getByRole('tab',{name:'知识创作',exact:true}).focus();await page.keyboard.press('ArrowRight');
@@ -88,8 +93,11 @@ test('same viewport matches employee column tracks and internal gutters',async({
   await page.setViewportSize({width,height:900});await page.goto('/kb');await expect(page.locator('.knowledge-filter-bar')).toBeVisible();const employee=await measure();
   await page.goto('/admin/knowledge?reviewCompany=company');await expect(page.locator('[data-knowledge-assets]')).toBeVisible();const admin=await measure();console.log('GEOMETRY',JSON.stringify({width,employee,admin}));
   for(const key of ['middle','right','filter'])for(const attr of ['x','width'])expect(Math.abs(admin[key][attr]-employee[key][attr]),`${width} ${key} ${attr}`).toBeLessThanOrEqual(1);
-  expect(admin.filter.padLeft).toBe(employee.filter.padLeft);expect(admin.filter.padRight).toBe(employee.filter.padRight);
-  const pad=await page.locator('.kbw-body').evaluate(el=>[getComputedStyle(el).paddingLeft,getComputedStyle(el).paddingRight]);expect(pad).toEqual([employee.filter.padLeft,employee.filter.padRight]);
+  // DESIGN §28 specifies --space-5 for the admin retrieval/detail surface;
+  // employee internals need not share its padding, only the same column tracks.
+  const expectedPad=await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--space-5').trim());
+  expect(admin.filter.padLeft).toBe(expectedPad);expect(admin.filter.padRight).toBe(expectedPad);
+  const pad=await page.locator('.kbw-body').evaluate(el=>[getComputedStyle(el).paddingLeft,getComputedStyle(el).paddingRight]);expect(pad).toEqual([expectedPad,expectedPad]);
  }
  await page.screenshot({path:'test-results/knowledge-governance-1920.png',fullPage:true});
  await page.setViewportSize({width:1440,height:900});await page.screenshot({path:'test-results/knowledge-governance-1440.png',fullPage:true});
@@ -100,7 +108,7 @@ test('legacy governance routes resolve to the same right rail host',async({page}
   await page.goto('/admin/knowledge/'+route+'?reviewCompany=company');await expect(page).toHaveURL(new RegExp('/admin/knowledge/'+route));
   await expect(page.locator('[data-knowledge-right]')).toHaveAttribute('data-kb-active-stage',stage);
   await page.reload();await expect(page).toHaveURL(new RegExp('/admin/knowledge/'+route));
-  await expect(page.locator('[data-knowledge-middle]')).toBeVisible();await expect(page.locator('[data-knowledge-right] [role="tab"]')).toHaveCount(8);
+  await expect(page.locator('[data-knowledge-middle]')).toBeVisible();await expect(page.locator('[data-knowledge-right] [role="tab"]')).toHaveCount(5);
  }
  expect(s.errors).toEqual([]);
 });
@@ -108,10 +116,10 @@ test('list/detail/editor replace in place and restore page and selection',async(
  const s=await surface(page);await page.locator('[data-kbv-next]').click();await page.locator('[data-kbv-record="text-22"]').click();await expect(page.locator('[data-kbv-list]')).toBeVisible();await expect(page.getByRole('heading',{name:'合作知识 23',exact:true})).toBeVisible();await page.getByRole('button',{name:'修订',exact:true}).click();await page.locator('input[name="title"]').fill('修订后的标题');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('修订后的标题');await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-kbv-page]')).toHaveText('第 2 / 2 页');await expect(page.locator('[data-kbv-record="text-22"]')).toHaveAttribute('aria-current','true');expect(s.calls).toEqual(['save']);expect(s.errors).toEqual([]);
 });
 test('create preserves taxonomy and save is independent from approval',async({page})=>{
- const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kb-scope-base="specs"]').click();await page.locator('[data-kbv-new]').click();await page.locator('input[name="title"]').fill('新的结构化知识');await page.locator('textarea[name="body"]').fill('草稿内容');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('新的结构化知识');await expect(page.locator('[data-kb-scope-base="specs"]')).toHaveAttribute('aria-pressed','true');expect(s.calls).toEqual(['save']);
+ const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kb-scope-base="specs"]').click();await page.goto('/admin/knowledge?reviewCompany=company&stage=create&mode=create');await page.locator('input[name="title"]').fill('新的结构化知识');await page.locator('textarea[name="body"]').fill('草稿内容');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('新的结构化知识');await expect(page.locator('[data-kb-scope-base="specs"]')).toHaveAttribute('aria-pressed','true');expect(s.calls).toEqual(['save']);
 });
 test('validation preserves fields and unsaved exit can be cancelled',async({page})=>{
- const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kbv-new]').click();await page.locator('textarea[name="body"]').fill('保留这段正文');s.failSave();await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('alert')).toContainText('请修正知识字段');await expect(page.locator('input[name="title"]')).toBeFocused();await expect(page.locator('textarea[name="body"]')).toHaveValue('保留这段正文');page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="list"]')).toBeVisible();
+ const s=await surface(page);await page.goto('/admin/knowledge?reviewCompany=company&stage=create&mode=create');await page.locator('textarea[name="body"]').fill('保留这段正文');s.failSave();await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('alert')).toContainText('请修正知识字段');await expect(page.locator('input[name="title"]')).toBeFocused();await expect(page.locator('textarea[name="body"]')).toHaveValue('保留这段正文');page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="list"]')).toBeVisible();
 });
 test('approval is confirmed once and approved waits for separate publication',async({page})=>{
  const s=await surface(page);await pdf(page);await page.getByRole('button',{name:'提交审批',exact:true}).click();await expect(page.locator('[data-workspace-mode="review"]')).toBeVisible();await page.locator('.kbv-release-note textarea').fill('规格更新');await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();await page.locator('[data-kbv-doc-action="submit"]').click();expect(s.calls).toEqual([]);await page.getByRole('button',{name:'确认提交审批',exact:true}).dblclick();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批中');s.approve();await expect(page.getByRole('button',{name:'发布',exact:true})).toBeVisible({timeout:10000});await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批通过 · 等待发布');expect(s.calls).toEqual(['submit']);await page.getByRole('button',{name:'发布',exact:true}).click();await page.getByRole('button',{name:'确认发布',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('publish-receipt');expect(s.calls).toEqual(['submit','publish']);expect(s.errors).toEqual([]);
@@ -173,5 +181,143 @@ test('new middle uses title-kind rows and the shared editable stage dictionary',
  await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute('aria-pressed','true');
  await page.getByRole('tab',{name:'知识创作',exact:true}).click();
  await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute('aria-pressed','true');
+  expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+});
+
+test('creation surface keeps upload new and draft actions in one compact row',async({page})=>{
+ const s=await surface(page);
+ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
+ const creation=page.locator('[data-knowledge-creation]');
+ await expect(creation).toBeVisible();
+ await page.screenshot({path:process.env.KNOWLEDGE_CREATION_SCREENSHOT || 'test-results/knowledge-creation-desktop.png',fullPage:true});
+ await expect(creation.getByRole('heading',{name:'知识创作',exact:true})).toHaveCount(0);
+ await expect(creation.locator('[data-kbv-upload], [data-kbv-new]')).toHaveCount(2);
+ await expect(creation.getByRole('group',{name:'知识创作操作'}).locator('button')).toHaveText(['上传文件','新建知识','查看草稿']);
+  await creation.getByRole('button',{name:'上传文件',exact:true}).focus();
+  await page.keyboard.press('Tab');await expect(creation.getByRole('button',{name:'新建知识',exact:true})).toBeFocused();
+  await page.keyboard.press('Tab');await expect(creation.getByRole('button',{name:'查看草稿',exact:true})).toBeFocused();
+  await expect(creation.locator('.knowledge-panel-help')).toHaveCount(0);
+  const draft=creation.getByRole('button',{name:'查看草稿',exact:true});
+  await expect(draft).toBeVisible();
+  const request=page.waitForRequest(req=>{
+  const url=new URL(req.url());
+  return url.pathname==='/api/admin/knowledge/workspace-v1' && url.searchParams.get('view')==='draft';
+ });
+ await draft.click();await request;
+ await expect(page).toHaveURL(/view=draft/);
+ await expect(page.locator('[data-knowledge-right]')).toHaveAttribute('data-kb-active-stage','create');
+ await expect(page.locator('[data-kbv-filter-note]')).toContainText('当前查看：草稿');
+ await expect(page.locator('[data-kb-lifecycle-tabs] [role="tab"]')).toHaveCount(5);
+ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
+ await expect(page.locator('[data-admin-kb-documents]')).toBeVisible();
+ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
+ await expect(draft).toBeVisible();
+ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+});
+
+test('creation surface fits compact widths and upload new entries work',async({page})=>{
+ const s=await surface(page);
+ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
+ for(const width of [1440,1024,768,375,320]){
+  await page.setViewportSize({width,height:800});
+  const actions=page.getByRole('group',{name:'知识创作操作'}).locator('button');
+  const boxes=[];
+  for(let i=0;i<3;i++){
+   await expect(actions.nth(i)).toBeVisible();
+   const box=(await actions.nth(i).boundingBox())!;boxes.push(box);
+   expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
+  }
+  for(let i=1;i<3;i++){
+   expect(Math.abs(boxes[i].y-boxes[0].y)).toBeLessThanOrEqual(1);
+   expect(boxes[i].x-boxes[i-1].x-boxes[i-1].width).toBe(12);
+  }
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:`test-results/knowledge-creation-${width}.png`,fullPage:true});
+ }
+ await page.setViewportSize({width:1440,height:900});
+ await page.getByRole('group',{name:'知识创作操作'}).getByRole('button',{name:'上传文件',exact:true}).click();
+ await expect(page.locator('[data-workspace-mode="upload"]')).toBeVisible();
+ await expect(page.locator('input[type="file"]')).toHaveCount(1);
+ await page.getByRole('button',{name:'← 返回列表',exact:true}).click();
+ await page.getByRole('group',{name:'知识创作操作'}).getByRole('button',{name:'新建知识',exact:true}).click();
+ await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();
+ await expect(page.locator('input[name="title"]')).toBeVisible();
+ await page.getByRole('button',{name:'← 返回列表',exact:true}).click();
+ await expect(page.getByRole('group',{name:'知识创作操作'}).locator('button')).toHaveText(['上传文件','新建知识','查看草稿']);
+ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+});
+
+test('processing surface shows only filename and compact details with preserved workspace access',async({page})=>{
+ const s=await surface(page);
+ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
+ const right=page.locator('[data-knowledge-right]'),table=page.locator('[data-admin-kb-documents-table]');
+ await expect(right.getByRole('heading',{name:'知识加工',exact:true})).toHaveCount(0);
+ await expect(right.locator('[data-admin-kb-engine-health]')).toHaveCount(0);
+ await expect(table.locator('thead th')).toHaveText(['文件名','资料详情']);
+ await expect(table.locator('[data-admin-kb-doc="pdf"] > td')).toHaveCount(2);
+ await expect(table.locator('[data-admin-kb-doc-detail="pdf"]')).toHaveText('▸NETC.pdf');
+ await table.locator('[data-admin-kb-doc-details-link="pdf"]').click();
+ const detail=page.locator('[data-admin-kb-doc-detail-panel="pdf"]');
+ await expect(detail).toBeVisible();await expect(detail).toContainText('产品与解决方案 / 产品管理 / 电池');
+ await expect(detail.locator('.ant-descriptions')).toBeVisible();
+ await expect(detail.locator('pre, [data-knowledge-publication], [data-admin-kb-job]')).toHaveCount(0);
+ await expect(detail.locator('[data-admin-kb-doc-open]')).toHaveAttribute('href','/api/admin/knowledge/documents/pdf/file?company=company');
+ for(const width of [1440,1024,768,375]){
+  await page.setViewportSize({width,height:800});
+  await expect(table.getByRole('columnheader',{name:'文件名',exact:true})).toBeVisible();
+  await expect(detail.getByRole('link',{name:'加工与审批',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ }
+ await page.setViewportSize({width:1440,height:900});
+ await page.screenshot({path:'test-results/knowledge-processing-compact.png',fullPage:true});
+ await detail.getByRole('button',{name:'收起',exact:true}).click();await expect(detail).toHaveCount(0);
+ await table.locator('[data-admin-kb-doc-detail="pdf"]').focus();await page.keyboard.press('Enter');
+ await expect(detail).toBeVisible();
+ await detail.getByRole('link',{name:'加工与审批',exact:true}).click();
+ await expect(page).toHaveURL(/assetId=pdf/);
+ await expect(page.locator('[data-workspace-mode="detail"]')).toBeVisible();
+ await expect(page.getByRole('button',{name:'提交审批',exact:true})).toBeVisible();
+ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+});
+
+test('processing long filenames and same-name records stay compact without merging identities',async({page})=>{
+ const s=await surface(page);
+ const filename='media-generation-tk-3-0-2f62595e-7dd3-4b9b-a013-715f5af3569e-长文件名资料'.repeat(3)+'.mp4';
+ const doc=(id:string,status='pending_review')=>({id,base_id:'specs',title:'真实资料标题',filename,media_type:'video',size_bytes:2000,status,retry_count:0,created_at:'2026-10-05T01:00:00Z',updated_at:'2026-10-05T02:00:00Z'});
+ await page.route('**/api/admin/knowledge/documents',route=>route.fulfill({json:{documents:[doc('long-one'),doc('long-two','failed'),doc('long-three')]}}));
+ await page.route('**/api/admin/knowledge/documents/long-*',route=>route.fulfill({json:{document:doc(new URL(route.request().url()).pathname.split('/').at(-1)!),base:{id:'specs',name:'电池',family_name:'产品与解决方案',domain_name:'产品管理'},jobs:[],text_preview:null,actions:{edit:false,start:false,retry:false,cancel:false,revision:true}}}));
+ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
+ const table=page.locator('[data-admin-kb-documents-table]');await expect(table.locator('[data-admin-kb-doc]')).toHaveCount(3);
+ await table.locator('[data-admin-kb-doc-details-link="long-one"]').click();
+ const detail=page.locator('[data-admin-kb-doc-detail-panel="long-one"]');
+ await expect(detail.locator('[data-admin-kb-related-document]')).toHaveCount(2);
+ await expect(detail.locator('.kbingest-full-name')).toHaveText(filename);
+ for(const width of [1920,1440,1024,768,375,320]){
+  await page.setViewportSize({width,height:800});
+  const overflow=await detail.evaluate(el=>el.scrollWidth>el.clientWidth+1);expect(overflow).toBe(false);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  const button=table.locator('[data-admin-kb-doc-detail="long-one"]');await expect(button).toHaveAttribute('title',filename);
+ }
+ await page.setViewportSize({width:1440,height:900});
+ await page.screenshot({path:'test-results/knowledge-processing-long-filenames.png',fullPage:true});
+ await detail.locator('[data-admin-kb-related-document="long-two"] button').click();
+ await expect(page.locator('[data-admin-kb-doc-detail-panel="long-two"]')).toBeVisible();
+ await expect(table.locator('[data-admin-kb-doc]')).toHaveCount(3);
+ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+});
+
+test('processing detail load failures can retry without showing logs or issuing mutations',async({page})=>{
+ const s=await surface(page);let failed=true;
+ await page.route('**/api/admin/knowledge/documents/pdf',async route=>{
+  if(failed)return route.fulfill({status:503,json:{detail:'资料详情暂时不可用'}});
+  await route.fallback();
+ });
+ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
+ await page.locator('[data-admin-kb-doc-details-link="pdf"]').click();
+ const detail=page.locator('[data-admin-kb-doc-detail-panel="pdf"]');
+ await expect(detail.getByRole('alert')).toContainText('资料详情暂时不可用');
+ failed=false;await detail.getByRole('button',{name:'重试读取详情',exact:true}).click();
+ await expect(detail.locator('.ant-descriptions')).toBeVisible();
+ await detail.getByRole('button',{name:'收起',exact:true}).click();await expect(detail).toHaveCount(0);
  expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
 });

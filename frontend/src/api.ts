@@ -3094,7 +3094,7 @@ export const api = {
   adminKnowledgeDomains: () =>
     request<{ domains: KnowledgeDomainRow[] }>("/api/admin/knowledge/domains"),
   adminKnowledgeDomainCreate: (body: {
-    code: string;
+    code?: string;
     name: string;
     level: "family" | "domain";
     parent_id?: string;
@@ -3126,7 +3126,7 @@ export const api = {
     const qs = params.toString();
     return request<{ bases: KnowledgeBaseRow[] }>(qs ? `/api/admin/knowledge/bases?${qs}` : "/api/admin/knowledge/bases");
   },
-  adminKnowledgeBaseCreate: (body: { code: string; name: string; domain_id: string; kind: string; description?: string }) =>
+  adminKnowledgeBaseCreate: (body: { code?: string; name: string; domain_id: string; kind: string; description?: string }) =>
     request<{ base: KnowledgeBaseRow }>("/api/admin/knowledge/bases", {
       method: "POST",
       body: JSON.stringify(body),

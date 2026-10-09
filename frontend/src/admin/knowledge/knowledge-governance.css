@@ -15,7 +15,8 @@
 .knowledge-governance .kbw-identity { margin-bottom:var(--space-2); }
 .knowledge-governance .knowledge-panel-help { font-size:var(--ds-font-helper); color:var(--text-quiet); line-height:var(--ds-line-helper); }
 .knowledge-governance .knowledge-creation-head { display:flex; gap:var(--space-2); align-items:center; justify-content:space-between; flex-wrap:wrap; }
-.knowledge-creation-actions { display:flex; gap:var(--space-1); }
+.knowledge-creation-actions { display:flex; align-items:center; flex-wrap:nowrap; gap:var(--space-3); }
+.knowledge-creation-actions > button { flex:0 0 auto; white-space:nowrap; }
 #root .workbench .knowledge-governance .knowledge-filter-bar { padding:var(--space-2) var(--space-5) var(--space-3); gap:var(--space-2); }
 #root .workbench .knowledge-governance .kbv-search { height:var(--control-h); min-height:var(--control-h); margin:0; }
 #root .workbench .knowledge-governance .kbv-search input { height:100%; min-height:0; padding-block:0; }
