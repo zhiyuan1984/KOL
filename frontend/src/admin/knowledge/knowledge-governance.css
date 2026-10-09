@@ -83,3 +83,41 @@
 
 /* 中栏共用单行密度，不继承旧管理列表的卡片 gap。 */
 #root .workbench .knowledge-governance .kbv-browser-records { display:block; gap:0; padding:0; }
+
+/* ── 知识资产 BI 改版（2026-10-09）：中栏状态条＋右栏驾驶舱 ──────────────
+   审宪记录：需求→用户 2026-10-09 明确指令；主责→前端实现；
+   CONST-04→只调呈现与筛选交互，未新增业务规则，符合；
+   CONST-10→全部计数走 workspace-v1 真实数据，无等待口径的不展示，符合；
+   DESIGN §9.2（生命周期状态用分布条、不拆 KPI 卡）→部分偏离：用户已明确批准数字卡方案，
+   调和为段宽按计数成比例（保留分布条语义）＋单行紧凑不做卡片墙，用户指令优先。 */
+
+/* 中栏：资产状态条。段宽按计数成比例（flex-grow），每段为紧凑 BI 数字块。 */
+.kbv-asset-strip { display:flex; gap:var(--space-2); padding:var(--space-2) var(--space-3) 0; }
+.kbv-asset-seg {
+  flex-basis:0; min-width:min-content;
+  display:flex; flex-direction:column; align-items:flex-start; gap:var(--space-1);
+  padding:var(--space-2) var(--space-3);
+  background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-card);
+  color:var(--text); font:inherit; text-align:left; cursor:pointer;
+}
+.kbv-asset-seg:hover { border-color:var(--accent); }
+.kbv-asset-seg.is-active { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, var(--bg)); }
+.kbv-asset-seg:focus-visible { outline:var(--focus-ring-width) solid var(--focus-ring); outline-offset:calc(-1 * var(--focus-ring-width)); }
+.kbv-asset-seg-label { display:flex; align-items:center; gap:var(--space-1); font-size:var(--ds-font-xs); color:var(--text-quiet); white-space:nowrap; }
+.kbv-asset-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+.kbv-asset-seg-num { font-size:var(--stat-value-font); font-weight:600; line-height:1.2; font-variant-numeric:tabular-nums; }
+.kbv-asset-seg-sub { font-size:var(--ds-font-helper); color:var(--text-quiet); white-space:nowrap; }
+.kbv-asset-seg-sub b { color:var(--warning-text); font-weight:600; }
+@media (max-width:1100px) { .kbv-asset-strip { flex-wrap:wrap; } .kbv-asset-seg { flex:1 1 120px; } }
+
+/* 右栏：资产健康队列沿用 .kbadmin-queue 行式；状态点只作辅助，文字为准。 */
+[data-kb-asset-queue] .kbadmin-queue-row { gap:var(--space-2); }
+[data-kb-asset-queue] .kbadmin-queue-label small b { color:var(--warning-text); }
+
+/* 右栏：分类分布行内比例条（组内相对比例，不跨组比较）。 */
+.knowledge-summary-row.has-bar { flex-direction:column; align-items:stretch; gap:var(--space-1); padding:var(--space-1); border-radius:var(--radius-control); }
+.ksr-main { display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-2); }
+.ksr-name { font-size:var(--ds-font-sm); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ksr-count { font-size:var(--ds-font-sm); font-variant-numeric:tabular-nums; color:var(--text-quiet); }
+.ksr-bar { display:block; height:4px; border-radius:2px; background:var(--bg-subtle); overflow:hidden; }
+.ksr-bar i { display:block; height:100%; border-radius:2px; background:var(--accent); }

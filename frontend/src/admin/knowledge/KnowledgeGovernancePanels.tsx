@@ -1,36 +1,95 @@
-import { kbDocStatusLabel, kbStatusSegments } from "../../knowledgeCopy";
-import type { KbView } from "./LibraryPane";
+import { Link } from "react-router-dom";
+import { kbExpiryLabel } from "../../knowledgeCopy";
 import type { WsData } from "./shared";
 
-type Props = { data: WsData | null; error: string; reload: () => void; onView: (view: KbView) => void; onScope: (level: "family" | "domain" | "base", id: string) => void };
-export function KnowledgeAssetsPanel({ data, error, reload, onView, onScope }: Props) {
+type Props = {
+  data: WsData | null;
+  error: string;
+  reload: () => void;
+  onPendingDocuments: () => void;
+  onScope: (level: "family" | "domain" | "base", id: string) => void;
+  /** 「30 天内到期」下钻：打开中栏到期筛选（与队列计数同口径）。 */
+  onExpiring: () => void;
+};
+
+/**
+ * 知识资产 Tab（右栏）：治理驾驶舱。
+ * - 健康队列：加工失败 / 待审资料 / 30 天内到期，点行即到可处置的位置（加工页重试 / 中栏筛选）。
+ * - 分类分布：业务族 / 业务域 / 知识库，行内比例条，点行按下钻筛选中栏。
+ * - 状态分布条已移至中栏顶部（AssetStatStrip），此处不再重复。
+ * 全部计数来自 workspace-v1 stats/facets，与中栏列表同源。
+ */
+export function KnowledgeAssetsPanel({ data, error, reload, onPendingDocuments, onScope, onExpiring }: Props) {
   if (error) return <p role="alert">资产统计读取失败：{error} <button className="kbv-text-action" onClick={reload}>重试</button></p>;
   if (!data) return <p role="status">正在读取知识资产统计…</p>;
-  const s = data.stats.status;
-  const segments = kbStatusSegments({ draft: s.draft || 0, pending: s.pending_review || 0, published: s.published || 0, archived: s.archived || 0, total: data.total });
-  const otherStates = Object.entries(s).filter(([key, count]) => !["draft", "pending_review", "published", "archived"].includes(key) && count > 0);
-  const groups = ([['family', '业务族', data.domains.filter(item => item.level === 'family')], ['domain', '业务域', data.domains.filter(item => item.level === 'domain')], ['base', '知识库', data.bases]] as const);
+  const stats = data.stats;
+  const failed = stats.status.failed || 0;
+  const pendingDocs = stats.pending_documents;
+  const expiring = stats.expiring;
+  const queue: Array<{
+    key: string; label: string; count: number; hint: React.ReactNode;
+    action: (() => void) | string; dot: string;
+  }> = [];
+  if (failed > 0) queue.push({
+    key: "failed", label: "加工失败", count: failed,
+    hint: "资料解析或转码失败，到知识加工重试。",
+    action: "/admin/knowledge?stage=processing", dot: "var(--danger)",
+  });
+  queue.push({
+    key: "documents", label: "待审资料", count: pendingDocs.count,
+    hint: <>解析完成，等待发布审批。{pendingDocs.max_wait_days > 0 ? <>最长等待 <b>{pendingDocs.max_wait_days} 天</b></> : null}</>,
+    action: onPendingDocuments, dot: "var(--warning)",
+  });
+  queue.push({
+    key: "expiry", label: "30 天内到期", count: expiring.count,
+    hint: expiring.nearest ? kbExpiryLabel(expiring.nearest) : "需要续期或归档",
+    action: onExpiring, dot: "var(--accent)",
+  });
+
+  const groups = ([
+    ['family', '业务族', data.domains.filter(item => item.level === 'family')],
+    ['domain', '业务域', data.domains.filter(item => item.level === 'domain')],
+    ['base', '知识库', data.bases],
+  ] as const);
+
   return <section className="knowledge-assets-summary" data-knowledge-assets>
     <header className="kbadmin-status-head"><h3>知识资产</h3><span className="muted">当前组织 · 全局共 {data.total} 条</span></header>
-    <div className="kbadmin-status-bar" role="group" aria-label="按资产状态筛选">
-      {segments.map(item => <button key={item.key} type="button" className={`kbadmin-status-seg is-${item.key}`}
-        data-kb-status={item.key} style={{ flexGrow: Math.max(item.value, 1) }} onClick={() => onView(item.view as KbView)}>
-        <span>{item.label}</span><strong className="kbadmin-status-count">{item.value}</strong>
-      </button>)}
-      {otherStates.map(([key, count]) => <span key={key} className="kbadmin-status-seg" data-kb-status={key} style={{flexGrow:Math.max(count,1)}}>
-        <span>{kbDocStatusLabel(key)}</span><strong className="kbadmin-status-count">{count}</strong>
-      </span>)}
-    </div>
+
+    <nav className="kbadmin-queue" data-kb-asset-queue aria-label="资产健康队列">
+      {queue.map(row => {
+        const inner = (<>
+          <span className="kbv-asset-dot" style={{ background: row.dot }} aria-hidden="true" />
+          <span className="kbadmin-queue-label">{row.label}<small className="muted">{row.hint}</small></span>
+          <span className="kbadmin-queue-count">{row.count}</span>
+          <span className="kbadmin-queue-go">查看 →</span>
+        </>);
+        return typeof row.action === "string" ? (
+          <Link key={row.key} className="kbadmin-queue-row" data-kb-queue={row.key} to={row.action}>{inner}</Link>
+        ) : (
+          <button key={row.key} type="button" className="kbadmin-queue-row" data-kb-queue={row.key} onClick={row.action}>{inner}</button>
+        );
+      })}
+    </nav>
+
     <div className="knowledge-asset-facets">
-      {groups.map(([level, label, options]) => <section key={level}>
-        <h3>{label}</h3>
-        {options.length ? options.map(item => <button key={item.id} className="knowledge-summary-row" type="button" onClick={() => onScope(level, item.id)}>
-          <span>{item.name}</span><span>{data.facets[level]?.values[item.id] || 0}</span>
-        </button>) : <p className="muted">尚无{label}。</p>}
-        {data.facets[level]?.values.__none__ ? <button className="knowledge-summary-row" type="button" onClick={() => onScope(level, '__none__')}><span>未分类</span><span>{data.facets[level].values.__none__}</span></button> : null}
-      </section>)}
+      {groups.map(([level, label, options]) => {
+        const rows = options.map(item => ({ id: item.id, name: item.name, count: data.facets[level]?.values[item.id] || 0 }));
+        const unclassified = data.facets[level]?.values.__none__ || 0;
+        if (unclassified > 0) rows.push({ id: "__none__", name: "未分类", count: unclassified });
+        const max = Math.max(1, ...rows.map(r => r.count));
+        return <section key={level} aria-label={label}>
+          <h3>{label}</h3>
+          {rows.length ? rows.map(item => (
+            <button key={item.id} className="knowledge-summary-row has-bar" type="button"
+              data-kb-dist={`${level}:${item.id}`} title={`按「${item.name}」筛选中栏`} onClick={() => onScope(level, item.id)}>
+              <span className="ksr-main"><span className="ksr-name">{item.name}</span><span className="ksr-count">{item.count}</span></span>
+              <span className="ksr-bar" aria-hidden="true"><i style={{ width: `${Math.round((item.count / max) * 100)}%` }} /></span>
+            </button>
+          )) : <p className="muted">尚无{label}。</p>}
+        </section>;
+      })}
     </div>
-    <p className="knowledge-panel-help">点可操作状态或分类筛选中栏；加工状态为只读分布，详情和恢复操作在知识加工。选择知识查看内容、来源、版本和发布信息。</p>
+    <p className="knowledge-panel-help">点队列行到可处置的位置，点分类行筛选中栏；状态分布在中栏顶部，点段即按状态筛选。选择知识查看内容、来源、版本和发布信息。</p>
   </section>;
 }
 

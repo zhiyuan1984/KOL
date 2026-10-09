@@ -20,6 +20,7 @@ import { KnowledgeAssetsPanel, KnowledgeGraphPanel } from "./KnowledgeGovernance
 import "../../knowledge-browse.css";
 import "./knowledge-governance.css";
 import LibraryPane, { type KbView } from "./LibraryPane";
+import AssetStatStrip from "./AssetStatStrip";
 import UploadDialog from "./UploadDialog";
 import DocumentRail from "./DocumentRail";
 import ReviewView from "./ReviewView";
@@ -124,7 +125,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   const { data, error, loading, reload: reloadList } = useKbData(load, [queryKey]);
   // 全局资产统计与筛选列表共用服务端投影；不把当前页 rows 当全局数据。
   const loadSummary = useCallback(() => reviewApi<WsData>("/admin/knowledge/workspace-v1?page_size=1"), [contextKey]);
-  const { data: summary, error: summaryError, reload: reloadSummary } = useKbData(loadSummary);
+  const { data: summary, error: summaryError, loading: summaryLoading, reload: reloadSummary } = useKbData(loadSummary);
   const reload = useCallback(() => { reloadList(); reloadSummary(); }, [reloadList, reloadSummary]);
 
   const rows = data?.rows || [];
@@ -346,12 +347,20 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
     setView(next); setPage(1);
     const url = new URLSearchParams(params); url.set("view", next); setParams(url);
   };
+  const drillPendingDocuments = () => {
+    setView("pending"); setAssetTypeFilter("document"); setPage(1);
+    const url = new URLSearchParams(params); url.set("view", "pending"); url.set("asset", "document"); setParams(url);
+  };
   const drillScope = (level: "family" | "domain" | "base", id: string) => {
     if (level === "family") setScope({ familyId: id, domainId: "", baseId: "" });
     else if (level === "domain") setScope({ familyId: "", domainId: id, baseId: "" });
     else setScope({ familyId: "", domainId: "", baseId: id });
     setPage(1);
   };
+  const drillExpiring = useCallback(() => {
+    setExpiring(true); setPage(1);
+    const url = new URLSearchParams(params); url.set("expiring", "1"); setParams(url);
+  }, [params, setParams]);
   const clearStages = useCallback(() => setStages([]), []);
   const catalogBaseId = params.get("panel") === "base" ? params.get("baseId") : !params.has("stage") ? routeBaseId : undefined;
 
@@ -367,6 +376,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
             brandOptions={brandFacet} selectedBrands={brands} onToggleBrand={toggleBrand} onClearBrands={clearBrands}
             stageOptions={stageFacet} selectedStages={stages} onToggleStage={toggleStage} onClearStages={clearStages} onStages={setStages}
             kindOptions={kindFacet} kind={kind} onKind={setKind} viewOptions={viewFacet} view={view} onView={drillView} />
+          <AssetStatStrip stats={summary?.stats} loading={summaryLoading} error={summaryError} reload={reloadSummary} view={view} onView={drillView} />
           {(view !== "all" || assetTypeFilter || expiring) ? <p className="kbv-filter-note" data-kbv-filter-note role="status">
             <span>当前查看：{[view !== "all" ? VIEW_OPTIONS.find(option => option.value === view)?.label : "",
               assetTypeFilter === "document" ? "非结构化资料" : assetTypeFilter === "entry" ? "知识条目" : "",
@@ -410,7 +420,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
               <button className="kbv-text-action" onClick={()=>drillView("pending")}>筛选中栏待审批资产</button>
               {summaryError ? <p role="alert">审批统计读取失败：{summaryError} <button className="kbv-text-action" onClick={reloadSummary}>重试</button></p> : summary ? <ReviewView section="approval" stats={summary.stats} /> : <p role="status">正在读取审批统计…</p>}
             </> : <>
-              <KnowledgeAssetsPanel data={summary} error={summaryError} reload={reloadSummary} onView={drillView} onScope={drillScope} />
+              <KnowledgeAssetsPanel data={summary} error={summaryError} reload={reloadSummary} onPendingDocuments={drillPendingDocuments} onScope={drillScope} onExpiring={drillExpiring} />
               <p className="kbv-empty">从列表选择一条知识，查看内容与来源。</p>
             </>}
           </> : mode==="create" ? <EntryEditor bases={bases} onDirty={onDirty} onCancel={()=>switchMode("list")} onSaved={row=>{notify("草稿已保存");revealCreated(row.id);}} />
