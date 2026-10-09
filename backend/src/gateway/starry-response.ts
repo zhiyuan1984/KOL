@@ -57,3 +57,43 @@ export function starryBodyFailure(data: Json): { failed: boolean; message: strin
   }
   return { failed: false, message: "" };
 }
+
+/** Single-candidate crawler import: transport success is not a successful row write. */
+export function starryImportFailure(data: Json): { failed: boolean; message: string } {
+  const explicit = starryBodyFailure(data);
+  if (explicit.failed) return explicit;
+  const queue: Array<{ row: Json; depth: number }> = [{ row: data, depth: 0 }];
+  const seen = new Set<Json>();
+  while (queue.length) {
+    const { row, depth } = queue.shift()!;
+    if (seen.has(row)) continue;
+    seen.add(row);
+    const failed = Number(row.failedCount) > 0;
+    const skipped = Number(row.skippedCount) > 0;
+    if (failed || skipped) {
+      const details = failed ? row.failures : row.skipped;
+      const reasons: string[] = [];
+      if (Array.isArray(details)) {
+        for (const entry of details) {
+          const item = object(entry);
+          if (!item) continue;
+          const reasonRows = Array.isArray(item.reasons) ? item.reasons : [item];
+          for (const value of reasonRows) {
+            const reason = object(value);
+            const message = typeof value === "string" ? value : reason &&
+              (typeof reason.reason === "string" ? reason.reason : messageOf(reason));
+            if (message && message.trim() && !reasons.includes(message.trim())) reasons.push(message.trim());
+          }
+        }
+      }
+      return { failed: true, message: redactCredentials(reasons.join("；") ||
+        (failed ? "候选行写入失败" : "候选行已跳过，未写入档案")) };
+    }
+    if (depth >= 6) continue;
+    for (const value of [row.data, row.result, row.text]) {
+      const nested = object(value);
+      if (nested) queue.push({ row: nested, depth: depth + 1 });
+    }
+  }
+  return { failed: false, message: "" };
+}

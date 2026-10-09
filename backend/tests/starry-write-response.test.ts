@@ -57,9 +57,38 @@ describe("Starry write response diagnostics", () => {
   it("does not let a known UID conceal a rejected enrichment import", async () => {
     call.mockResolvedValue({ code: 400, message: "平台字段校验失败", data: {} });
     await expect(importKolProfilesFromCrawlerConfirmed({ ...importer, knownKolUid: "KOLKNOWN001" }))
-      .rejects.toMatchObject({ detail: { message: "Starry 建档未成功：平台字段校验失败" } });
+      .rejects.toMatchObject({ detail: { message: "Starry 入库未成功：平台字段校验失败" } });
     expect(audit).toHaveBeenCalledWith("test", "host.import_creator.failed", expect.objectContaining({ reason: "starry_rejected" }));
     expect(call).toHaveBeenCalledTimes(1);
+  });
+  it.each([undefined, "KOLKNOWN001"])("surfaces the actual skipped row even with known UID %s", async (knownKolUid) => {
+    const response = { code: 200, message: "success", data: {
+      totalCount: 1, createdCount: 0, updatedCount: 0, failedCount: 0, failures: [], skippedCount: 1,
+      skipped: [{ rowNo: 2, kolUid: null, kolName: "Outdoor Boys", reasons: [
+        { field: "红人统一ID", code: "SKIPPED_NO_KOL_UID", reason: "缺少红人统一ID，已跳过" },
+      ] }],
+    } };
+    call.mockResolvedValue(response);
+    await expect(importKolProfilesFromCrawlerConfirmed({ ...importer, knownKolUid })).rejects.toMatchObject({
+      detail: { code: "import_creator_failed", message: "Starry 入库未成功：缺少红人统一ID，已跳过" },
+    });
+    expect(call.mock.calls.map(args => args[0])).toEqual(["importKolProfilesFromCrawler"]);
+    expect(audit).toHaveBeenCalledWith("test", "host.import_creator.failed", expect.objectContaining({
+      reason: "starry_rejected", starry_response: JSON.stringify(response),
+    }));
+  });
+  it("surfaces failed row reasons inside an outer success envelope", async () => {
+    call.mockResolvedValue({ code: 200, message: "success", data: { totalCount: 1, failedCount: 1,
+      failures: [{ reasons: [{ reason: "平台字段校验失败 token=private" }] }] } });
+    await expect(importKolProfilesFromCrawlerConfirmed(importer)).rejects.toMatchObject({
+      detail: { message: "Starry 入库未成功：平台字段校验失败 token=***" },
+    });
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+  it("does not interpret zero failed/skipped counts as rejection", async () => {
+    call.mockResolvedValue({ code: 200, data: { totalCount: 1, updatedCount: 1, failedCount: 0, skippedCount: 0 } });
+    await expect(importKolProfilesFromCrawlerConfirmed({ ...importer, knownKolUid: "KOLKNOWN001" }))
+      .resolves.toMatchObject({ kol_uid: "KOLKNOWN001" });
   });
   it("keeps a clear rejection even when its message is absent", async () => {
     call.mockResolvedValue({ success: false, data: {} });

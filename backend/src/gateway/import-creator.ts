@@ -22,7 +22,7 @@ import {
 import { HttpFail } from "../host/errors.js";
 import { callStarryKolTool, normalizeStarryKolResult } from "../starrykol/service.js";
 import type { Json } from "../types.js";
-import { starryBodyFailure, starryResponseDigest } from "./starry-response.js";
+import { starryBodyFailure, starryImportFailure, starryResponseDigest } from "./starry-response.js";
 
 export type ImportCreatorInput = {
   file: CrawlerImportFile;
@@ -335,7 +335,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       });
     }
   }
-  const bodyFailure = starryBodyFailure(data);
+  const bodyFailure = starryImportFailure(data);
   if (bodyFailure.failed) {
     audit(actor, "host.import_creator.failed", {
       policy: IMPORT_CREATOR_POLICY, tool: IMPORT_CREATOR_TOOL,
@@ -345,7 +345,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     });
     throw new HttpFail(502, {
       code: "import_creator_failed",
-      message: bodyFailure.message ? `Starry 建档未成功：${bodyFailure.message}` : "Starry 明确拒绝了档案写入，未加入公海。",
+      message: bodyFailure.message ? `Starry 入库未成功：${bodyFailure.message}` : "Starry 明确拒绝了档案写入，未加入公海。",
       policy: IMPORT_CREATOR_POLICY,
     });
   }
