@@ -250,7 +250,7 @@ export default function FollowedKolWorkCard({
         >
           <p className="kol-card-suggestion">
             {rec.kind === "insufficient" ? <KolFactIcon type="alert" /> : null}
-            <span>{headline}</span>
+            <span className="kol-card-suggestion-title">{headline}</span>
             {rec.why ? <span className="kol-card-why" data-action-why>· {rec.why}</span> : null}
           </p>
         </div>

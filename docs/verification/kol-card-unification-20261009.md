@@ -76,3 +76,7 @@ npx playwright test --config playwright.ui-unify.config.ts
 最终修正：该 shell 重置仅排除 `.kol-card-row` 及其后代，其余工作台样式保持；KOL 字階仍只由 `kol-card.css` 和原有 token 管理，不在共享组件反打 `!important`。三组件 fixture 增加真实 `.workbench` 宿主；真实 Home 回归补辅助 12px、状态 12px、图标 14px 断言。新版本上线后再次读 DOM 核验，而不是只凭隔离截图判断完成。最终源 SHA 和实测值见交付回执。
 
 最终作用域补测：带真实 `#root .workbench` 的三卡片矩阵 9 / 9 通过；真实 Home 字阶/选择、领取取消、焦点保护 3 / 3 通过；补测发现呈现与密度 36 项通过，SSE 前提同步进一步包含初始阅读位置恢复，并发浅/深重复 4 / 4 通过；最终 TypeScript + Vite 构建通过。Home 的两条 meta 行逐一断言，状态通过既有 `data-stage-label` 定位，不假定业务组件都复制同一 class。
+
+逐个生产图标检查还覆盖到资料不足建议态：警告图标会成为 `span:first-of-type`，旧建议正文选择器错误把它指定为 13px。建议正文改为显式 `kol-card-suggestion-title`，警告图标继续由 `--icon-sm` 唯一负责；新增真实组件的 `insufficient=1` 呈现输入 fixture，分别断言图标 14px、正文 13px、原因 12px，并检查三入口所有指标图标。只改角色选择器，不改推荐、事实或业务策略。
+
+最终条件图标专项：三组件全套 10 / 10 通过（含资料不足建议态），真实 Home 接入/取消/焦点 3 / 3 通过，TypeScript + Vite 构建通过，共享组件/KOL契约/公海模型单测 21 / 21 通过。

@@ -49,7 +49,7 @@
   font-weight: 400;
 }
 .kol-card-row .kol-card-risk { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--warning-text, var(--warning)); font-size: var(--ds-font-xs); }
-.kol-card-row .kol-card-suggestion > span:first-of-type { color: var(--text); font-size: var(--ds-font-sm); }
+.kol-card-row .kol-card-suggestion-title { color: var(--text); font-size: var(--ds-font-sm); }
 .kol-card-row .kol-card-why { color: var(--text-quiet); font-size: var(--ds-font-xs); }
 .kol-card-row [data-candidate-score="scoring"] { color: var(--accent-text); }
 .kol-card-row [data-candidate-score="failed"] { color: var(--danger-text, var(--danger)); }

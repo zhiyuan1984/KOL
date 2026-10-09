@@ -320,3 +320,15 @@ test.describe("KOL card unification · isolated real-component fixture", () => {
 // Intentional reuse: discovery-results-density.spec.ts already covers the
 // production /s/:id result-pane screenshots, live refresh and batch-import
 // confirmation. This fixture suite supplements it with three-entry geometry.
+
+test('insufficient suggestion uses explicit text roles without resizing the leading warning icon', async ({ page }) => {
+  await page.route('**/api/**', route => route.abort());
+  await page.goto('/e2e/kol-card-fixture.html?container=820&insufficient=1');
+  const suggestion = page.locator('[data-fixture-card="followed"] .kol-card-suggestion');
+  await expect(suggestion).toBeVisible();
+  await expect(page.locator('[data-fixture-card="followed"] [data-recommended-action]')).toHaveAttribute('data-recommended-action', 'insufficient');
+  await expect(suggestion.locator('.kol-card-icon')).toHaveCSS('font-size', '14px');
+  await expect(suggestion.locator('.kol-card-suggestion-title')).toHaveCSS('font-size', '13px');
+  await expect(suggestion.locator('.kol-card-why')).toHaveCSS('font-size', '12px');
+  for (const icon of await page.locator('[data-fixture-card] .kol-card-icon').all()) await expect(icon).toHaveCSS('font-size', '14px');
+});

@@ -94,7 +94,14 @@ const candidate: Candidate = {
 };
 
 function FollowedFixture() {
-  const card = useMemo(() => projectFollowedKolCard(followedRecord), []);
+  const card = useMemo(() => {
+    const projected = projectFollowedKolCard(followedRecord);
+    if (new URLSearchParams(location.search).get("insufficient") !== "1") return projected;
+    // Presentation-only state sample: no rule or production record is changed.
+    return { ...projected, recommended_action: { ...projected.recommended_action,
+      kind: "insufficient" as const, label: "资料不足，先核验事实",
+      why: "隔离呈现样本，未生成阶段建议。", can_write_stage: false } };
+  }, []);
   const [selected, setSelected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [primaryCalls, setPrimaryCalls] = useState(0);
