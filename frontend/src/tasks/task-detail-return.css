@@ -1,0 +1,10 @@
+.tasks-page #task-details:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.tasks-page .task-list-return-notice {
+  margin: 0 0 var(--space-2);
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-ui);
+}

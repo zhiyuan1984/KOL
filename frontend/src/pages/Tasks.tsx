@@ -14,7 +14,10 @@ import { TaskRowActions } from "../tasks/TaskRowActions";
 import { AgentExpandedDetails, BusinessExpandedDetails } from "../tasks/TaskExpandedDetails";
 import { TaskOperationsReport, type TaskOperationsFilter } from "../tasks/TaskOperationsReport";
 import { BusinessTaskDetailContent } from "../tasks/BusinessTaskDetailContent";
-import { captureTaskListSnapshot, readTaskListSnapshot } from "../tasks/taskDetailNavigation";
+import { captureTaskListSnapshot, taskListSnapshotForReturn, taskListReturnState, taskListScopeKey, TASK_LIST_ANCHOR, type TaskDetailNavigationState } from "../tasks/taskDetailNavigation";
+import { useAccount } from "../components/AuthGate";
+import { businessTaskStatusLabel } from "../tasks/taskDetailPresentation";
+import "../tasks/task-detail-return.css";
 import { businessTaskStatus, createTaskSearchDebouncer, sortTaskRowsByUpdatedAt } from "../tasks/taskCenterModel";
 
 type View = "active" | "history";
@@ -124,8 +127,12 @@ function belongsToTab(task: Task, tab: TaskStatusTab) {
 export default function Tasks() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { account } = useAccount();
+  const accountScopeKey = taskListScopeKey(account);
+  const restoredIntent = useRef<string | null>(null);
+  const [returnNotice, setReturnNotice] = useState("");
   const [restoreSnapshot] = useState(() => {
-    const candidate = readTaskListSnapshot<TaskOperationsFilter>();
+    const candidate = taskListSnapshotForReturn<TaskOperationsFilter>(location.state, accountScopeKey);
     const listParams = new URLSearchParams(location.search); listParams.delete("businessTask");
     const listUrl = `/tasks${listParams.size ? `?${listParams}` : ""}`;
     return candidate?.originalUrl === listUrl ? candidate : null;
@@ -380,7 +387,7 @@ export default function Tasks() {
     finally { setActionBusy(""); }
   };
 
-  const rememberList = () => {
+  const rememberList = (taskId?: string) => {
     queryDebouncer.cancel();
     const canonical = patchTaskQuery(new URLSearchParams(location.search), { q: query, page: listPage > 1 ? String(listPage) : null });
     canonical.delete("businessTask");
@@ -388,16 +395,22 @@ export default function Tasks() {
     if (originalUrl !== `/tasks${location.search}`) navigate(originalUrl, { replace: true });
     return captureTaskListSnapshot({
       originalUrl, query, from, to, operationsFilter, selectedIds, expandedSystemTasks,
+      openedTaskId: taskId, scopeKey: accountScopeKey,
+      outerScrollPosition: listRef.current?.scrollTop || 0,
+      shellScrollPosition: listRef.current?.closest(".main")?.scrollTop || 0,
       loadedAgentPages: loadedAgentPages.current, loadedBusinessPages: loadedBusinessPages.current,
       scrollY: listRef.current?.querySelector(".task-center-table-wrap")?.scrollTop || listRef.current?.scrollTop || 0,
     });
   };
   const openAgentDetail = (task: Task) => {
-    const snapshot = rememberList();
-    navigate(`/tasks/${encodeURIComponent(task.id)}`, { state: { taskListPath: snapshot?.originalUrl || "/tasks" } });
+    const snapshot = rememberList(task.id);
+    const state = taskListReturnState(task.id, accountScopeKey);
+    if (snapshot) navigate(snapshot.originalUrl, { replace: true, state });
+    navigate(`/tasks/${encodeURIComponent(task.id)}`, { state: { ...state, taskListPath: snapshot?.originalUrl || "/tasks" } });
   };
   const openAiTask = (taskId: string) => {
-    const snapshot = rememberList(); setError(""); setSelected(null);
+    const snapshot = rememberList(taskId); setError(""); setSelected(null);
+    if (snapshot) navigate(snapshot.originalUrl, { replace: true, state: taskListReturnState(taskId, accountScopeKey) });
     const next = new URLSearchParams(snapshot?.originalUrl.split("?")[1] || location.search);
     next.set("businessTask", taskId);
     navigate(`/tasks?${next}`, { state: { taskDetailFromList: true } });
@@ -420,11 +433,7 @@ export default function Tasks() {
       .finally(() => { if (!cancelled) setActionBusy(""); });
     return () => { cancelled = true; };
   }, [businessTaskId]);
-  useEffect(() => {
-    if (loading || aiDashboardLoading || restoreScroll.current == null) return;
-    const top = restoreScroll.current; restoreScroll.current = null;
-    requestAnimationFrame(() => requestAnimationFrame(() => { if (listRef.current) { const table = listRef.current.querySelector(".task-center-table-wrap"); if (table) table.scrollTop = top; else listRef.current.scrollTop = top; } }));
-  }, [loading, aiDashboardLoading]);
+
 
   const openTaskWorkspace = async (taskId: string) => {
     setActionBusy(`workspace:${taskId}`);
@@ -507,6 +516,43 @@ export default function Tasks() {
     ...(debouncedQuery ? [{ key: "q", text: `搜索：${debouncedQuery}`, clear: () => { queryDebouncer.cancel(); setQuery(""); setParam("q", null); } }] : []),
   ];
 
+  useEffect(() => {
+    const intent = location.state as TaskDetailNavigationState | null;
+    const requested = intent?.restoreTaskList || location.hash === `#${TASK_LIST_ANCHOR}`;
+    const key = `${location.key}:${intent?.taskListTaskId || ""}`;
+    if (!requested || businessTaskId || loading || aiDashboardLoading || restoredIntent.current === key) return;
+    restoredIntent.current = key;
+    const snapshot = taskListSnapshotForReturn<TaskOperationsFilter>(location.state, accountScopeKey);
+    const targetId = intent?.taskListTaskId;
+    const frame = requestAnimationFrame(() => requestAnimationFrame(() => {
+      const root = listRef.current;
+      if (!root) return;
+      const table = root.querySelector<HTMLElement>(".task-center-table-wrap");
+      const shell = root.closest<HTMLElement>(".main");
+      const section = root.querySelector<HTMLElement>(`#${TASK_LIST_ANCHOR}`);
+      if (snapshot) {
+        if (table) table.scrollTop = snapshot.scrollPosition;
+        else root.scrollTop = snapshot.scrollPosition;
+        if (snapshot.outerScrollPosition !== undefined) root.scrollTop = snapshot.outerScrollPosition;
+        if (shell && snapshot.shellScrollPosition !== undefined) shell.scrollTop = snapshot.shellScrollPosition;
+      } else if (section) {
+        // Scroll only an owned host; never disturb an embedding outer frame.
+        const host = shell && shell.scrollHeight > shell.clientHeight ? shell : root;
+        if (host.scrollHeight > host.clientHeight) host.scrollTop += section.getBoundingClientRect().top - host.getBoundingClientRect().top;
+      }
+      const row = targetId ? [...root.querySelectorAll<HTMLElement>("tr[data-task-id]")].find(el => el.dataset.taskId === targetId) : null;
+      const focus = row?.querySelector<HTMLElement>("[data-task-detail-entry]") || section;
+      if (row && !snapshot && table) {
+        const a = row.getBoundingClientRect(), b = table.getBoundingClientRect();
+        if (a.top < b.top || a.bottom > b.bottom) table.scrollTop += a.top - b.top;
+      }
+      focus?.focus({ preventScroll: true });
+      setReturnNotice(targetId && !row ? "已返回任务明细。原任务不在当前已载入结果中，请检查筛选条件或加载更多；未自动改变筛选。" : "");
+      restoreScroll.current = null;
+    }));
+    return () => cancelAnimationFrame(frame);
+  }, [accountScopeKey, businessTaskId, loading, aiDashboardLoading, location.key, location.state, location.hash]);
+
   return <TaskTheme><main ref={listRef} className={`tasks-page${selected || selectedAiTask ? " has-task-detail" : ""}`} data-task-center data-density="data-grid" data-source={source}>
     <TaskOperationsReport dashboard={operationsDashboard} workOrders={aiDashboard} period={period} loading={operationsDashboardLoading} workOrdersLoading={aiDashboardLoading} error={operationsReportError} workOrdersError={reportError} activeFilter={operationsFilter}
       activeStatus={source === "agent" && selectedStatus !== "all" ? selectedStatus : null} filteredRangeLabel={filteredRangeLabel}
@@ -517,7 +563,8 @@ export default function Tasks() {
       }} onFilter={applyOperationsFilter} onClearFilter={clearOperationsFilter} onRetry={() => void loadOperationsDashboard()} onRetryWorkOrders={() => void loadAiDashboard()} />
     {periodNotice ? <p className="task-period-notice muted" role="status">{periodNotice}</p> : null}
 
-    <section className="panel task-center-unified-section" aria-label="任务明细">
+    <section id={TASK_LIST_ANCHOR} tabIndex={-1} className="panel task-center-unified-section" aria-label="任务明细">
+      {returnNotice ? <p className="task-list-return-notice" role="status">{returnNotice}</p> : null}
       <header className="task-center-system-head"><h2>任务明细</h2><span className="task-result-scope">{displayedScope} · {visible.length} 条已载入结果{nextCursor || businessNextCursor ? "（非全量）" : ""}</span></header>
       <div className="task-center-filters" role="search" aria-label="筛选任务">
         <Input className="task-filter-search" aria-label="搜索任务名称、内容、技能或模板" prefix={<SearchOutlined aria-hidden />} placeholder="搜索名称、内容、技能或模板" allowClear value={query} onChange={event => setQuery(event.target.value)} />
@@ -535,10 +582,10 @@ export default function Tasks() {
       {loading || (source !== "agent" && aiDashboardLoading) ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 && ((source !== "business" && systemError) || (source !== "agent" && reportError)) ? <p className="task-center-load-error" role="alert">任务明细暂时无法读取。<button className="task-center-text-action" type="button" onClick={() => { if (source !== "business") void load(); if (source !== "agent") void loadAiDashboard(); }}>重试</button></p> : visible.length === 0 ? <section className="task-center-empty"><strong>{(source !== "business" && nextCursor) || (source !== "agent" && businessNextCursor) ? "已载入集合暂无匹配结果，仍有更多任务可读取" : "当前没有符合条件的任务"}</strong><p>调整状态、筛选条件或等待任务状态变化后再试。</p></section> : <div className="task-center-table-wrap"><table className="task-center-table task-center-unified-table"><colgroup><col className="task-center-col-task" /><col className="task-center-col-status" /><col className="task-center-col-time" /><col className="task-center-col-actions" /></colgroup><thead><tr><th scope="col">任务名</th><th scope="col">状态</th><th scope="col">更新时间</th><th scope="col">操作</th></tr></thead><tbody>{pageRows.map((row) => {
         if (row.kind === "agent") {
           const task = row.task; const expanded = expandedSystemTasks.has(task.id);
-          return <Fragment key={row.key}><tr><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${row.title}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}<span className="task-source-label">Agent</span><strong title={row.title}>{row.title}</strong></div></td><td data-label="状态"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span></td><td data-label="更新时间">{formatTaskTime(row.updatedAt, operationsDashboard?.timezone)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => openAgentDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>} secondary={task.session_id || (view === "active" && canCancel(task)) ? <>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</> : undefined} expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}明细`} onToggle={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })} /></td></tr>{expanded ? <tr className="task-center-meta-row"><td colSpan={4}><AgentExpandedDetails task={task} title={row.title} summary={row.summary} /></td></tr> : null}</Fragment>;
+          return <Fragment key={row.key}><tr data-task-id={task.id}><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${row.title}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}<span className="task-source-label">Agent</span><strong title={row.title}>{row.title}</strong></div></td><td data-label="状态"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span></td><td data-label="更新时间">{formatTaskTime(row.updatedAt, operationsDashboard?.timezone)}</td><td data-label="操作"><TaskRowActions detail={<button data-task-detail-entry type="button" onClick={() => openAgentDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>} secondary={task.session_id || (view === "active" && canCancel(task)) ? <>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</> : undefined} expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}明细`} onToggle={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })} /></td></tr>{expanded ? <tr className="task-center-meta-row"><td colSpan={4}><AgentExpandedDetails task={task} title={row.title} summary={row.summary} /></td></tr> : null}</Fragment>;
         }
         const item = row.item; const detail = expandedAiTasks[item.task.task_id];
-        return <Fragment key={row.key}><tr className={detail ? "is-expanded" : undefined}><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content"><span className="task-source-label">业务</span><strong title={row.title}>{row.title}</strong></div></td><td data-label="状态"><span className={`task-center-status status-${row.status}`}>{row.status === "running" ? "进行中" : row.status === "waiting_approval" ? "待确认" : row.status === "completed" ? "已完成" : row.status === "cancelled" ? "已取消" : "排队中"}</span></td><td data-label="更新时间">{formatTaskTime(row.updatedAt, aiDashboard?.timezone)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => void openAiTask(item.task.task_id)}>详情</button>} expanded={Boolean(detail)} label={`${detail ? "收起" : "展开"}${row.title}工单明细`} busy={actionBusy === `ai-task-expand:${item.task.task_id}`} onToggle={() => void toggleAiTaskRow(item.task.task_id)} /></td></tr>{detail ? <tr className="task-center-meta-row"><td colSpan={4}><BusinessExpandedDetails detail={detail} statusLabel={workOrderStatusLabel} decisionSummary={workOrderDecisionSummary} /></td></tr> : null}</Fragment>;
+        return <Fragment key={row.key}><tr data-task-id={item.task.task_id} className={detail ? "is-expanded" : undefined}><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content"><span className="task-source-label">业务</span><strong title={row.title}>{row.title}</strong></div></td><td data-label="状态"><span className={`task-center-status status-${row.status}`}>{businessTaskStatusLabel(item.task.status)}</span></td><td data-label="更新时间">{formatTaskTime(row.updatedAt, aiDashboard?.timezone)}</td><td data-label="操作"><TaskRowActions detail={<button data-task-detail-entry type="button" onClick={() => void openAiTask(item.task.task_id)}>详情</button>} secondary={<Link to={`/tasks/${encodeURIComponent(item.task.task_id)}`} onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); const snapshot = rememberList(item.task.task_id); const state = taskListReturnState(item.task.task_id, accountScopeKey); if (snapshot) navigate(snapshot.originalUrl, { replace: true, state }); navigate(`/tasks/${encodeURIComponent(item.task.task_id)}`, { state: { ...state, taskListPath: snapshot?.originalUrl || "/tasks" } }); }}>独立详情</Link>} expanded={Boolean(detail)} label={`${detail ? "收起" : "展开"}${row.title}工单明细`} busy={actionBusy === `ai-task-expand:${item.task.task_id}`} onToggle={() => void toggleAiTaskRow(item.task.task_id)} /></td></tr>{detail ? <tr className="task-center-meta-row"><td colSpan={4}><BusinessExpandedDetails detail={detail} statusLabel={workOrderStatusLabel} decisionSummary={workOrderDecisionSummary} /></td></tr> : null}</Fragment>;
       })}</tbody></table></div>}
       {systemError && rows.length > 0 ? <p className="task-center-load-error" role="alert">系统任务更新失败，当前显示上次载入的任务。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : null}
       {!loading && (visible.length > 0 || (source !== "business" && nextCursor) || (source !== "agent" && businessNextCursor)) ? <div className="task-center-pagination" aria-label="已载入任务分页">
@@ -560,7 +607,7 @@ export default function Tasks() {
       {error ? <p role="alert">{error}</p> : null}
       {selected ? <><dl className="task-detail-meta"><div><dt>状态</dt><dd>{statusOf(selected)}</dd></div><div><dt>任务 ID</dt><dd>{selected.id}</dd></div><div><dt>创建时间</dt><dd>{formatTime(selected.created_at)}</dd></div><div><dt>说明</dt><dd>{taskSummary(selected)}</dd></div></dl><p className="muted">已尝试 {selected.runs?.length || 0} 次{selected.runs?.length ? `；最近一次：${String(selected.runs[selected.runs.length - 1]?.status || "未知")}` : ""}</p><section><h3>执行事件 {liveRunEvents.connected ? <small className="muted">实时更新中</small> : liveRunEvents.fallback ? <small className="muted">正在以安全补读更新</small> : null}</h3>{(liveRunEvents.events.length ? liveRunEvents.events : events).length ? <ol className="task-detail-events">{(liveRunEvents.events.length ? liveRunEvents.events : events).map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section><div className="task-detail-actions">{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>进入完整会话 →</Link> : null}</div></> : null}
       {selectedAiTask ? <BusinessTaskDetailContent key={selectedAiTask.task.task_id} detail={selectedAiTask} actionBusy={actionBusy}
-        onWorkspace={() => { rememberList(); void openTaskWorkspace(selectedAiTask.task.task_id); }} onUnavailable={clearUnavailableAiTask}
+        onWorkspace={() => { rememberList(selectedAiTask.task.task_id); void openTaskWorkspace(selectedAiTask.task.task_id); }} onUnavailable={clearUnavailableAiTask}
         onChanged={() => { void loadAiDashboard(true); }} onTaskUpdated={setSelectedAiTask}
         onDirtyChange={setDetailDirty} onBusyChange={setDetailSubmitting} onEntryOpenChange={setDetailEntryOpen} /> : null}
     </TaskDetailDrawer> : null}
