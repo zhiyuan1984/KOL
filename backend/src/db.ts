@@ -1824,6 +1824,9 @@ function migrateSchema(db: SqliteConn): void {
   if (!hadSkillOrigin) {
     db.prepare("UPDATE skill_lifecycle SET origin='third_party' WHERE tags LIKE '%第三方%'").run();
   }
+  // 技能业务族 / 业务域（2026-10-10，管理侧技能治理）：复用知识侧字典，不另建字典。
+  add(db, "skill_lifecycle", "biz_family", "TEXT");
+  add(db, "skill_lifecycle", "biz_domain", "TEXT");
   add(db, "connectors", "purpose", "TEXT NOT NULL DEFAULT ''");
   add(db, "connectors", "last_verified_at", "TEXT");
   add(db, "connectors", "last_error", "TEXT");

@@ -48,6 +48,11 @@ export type SkillRow = {
     owner: string | null;
     business_stage: string | null;
     tags: string[];
+    /** 业务族 / 业务域：复用知识侧字典，治理与复用盘点用。 */
+    biz_family?: string | null;
+    biz_domain?: string | null;
+    /** 风险等级：服务端读取时从工具风险派生（L1/L2/L3）。 */
+    risk?: "L1" | "L2" | "L3" | null;
     current_version: number | null;
     release?: { kind: "versioned"; version: number } | { kind: "bundled_baseline" } | { kind: "none" };
     dependencies?: { unregistered: string[]; unmounted: string[] };
@@ -68,6 +73,73 @@ const STAGES = [
   { id: "published", label: "发布上线", hint: "当前阶段" },
   { id: "disabled", label: "已停用", hint: "保留历史" },
 ];
+
+type PublishCheck = {
+  id: string;
+  risk: "L1" | "L2" | "L3" | null;
+  can_publish: boolean;
+  reasons: string[];
+  checks: Record<string, { ok: boolean; detail: string; required?: boolean; status?: string }>;
+};
+
+const PUBLISH_CHECK_LABELS: Array<[string, string]> = [
+  ["tests", "测试验证"],
+  ["tools", "工具已挂载"],
+  ["knowledge", "知识依赖已发布"],
+  ["approval", "发布审批"],
+  ["owner", "负责人"],
+];
+
+/** 发布前检查卡：测试 / 工具 / 知识 / 审批 / 负责人逐项展示；R3 可一键发起发布审批（CEO 终审）。 */
+function PublishCheckCard({ skillId, onChanged }: { skillId: string; onChanged: () => Promise<void> }) {
+  const [check, setCheck] = useState<PublishCheck | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      setCheck(await api.skillPublishCheck(skillId));
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "读取发布前检查失败");
+    }
+  }, [skillId]);
+  useEffect(() => { void load(); }, [load]);
+  const createApproval = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api.createSkillPublishApproval(skillId);
+      await load();
+      await onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "发起发布审批失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const approval = check?.checks.approval;
+  const needApprovalAction = check?.risk === "L3" && approval && !approval.ok && approval.status !== "pending";
+  return (
+    <section className="skill-detail-card" aria-labelledby="skill-publish-check-heading">
+      <div className="skill-section-head"><div><h3 id="skill-publish-check-heading">发布前检查</h3><p>有一项不通过就不能发布；R3 高风险技能必须先走发布审批（CEO 终审）。</p></div>
+        {needApprovalAction && <button type="button" className="skill-governance-primary" disabled={busy} onClick={() => void createApproval()}>{busy ? "发起中…" : "发起发布审批"}</button>}
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      {!check && !error && <p className="muted">正在读取发布前检查…</p>}
+      {check && <>
+        <div className="skill-publish-checks">
+          {PUBLISH_CHECK_LABELS.map(([key, label]) => {
+            const item = check.checks[key];
+            if (!item) return null;
+            return <div className="skill-publish-check-row" key={key}><span aria-hidden="true" className={item.ok ? "skill-check-ok" : "skill-check-no"}>{item.ok ? "✓" : "✗"}</span><strong>{label}</strong><span className="muted">{item.detail}</span></div>;
+          })}
+        </div>
+        {!check.can_publish && check.reasons.length > 0 && <p className="skill-governance-notice" role="note">暂不能发布：{check.reasons.join("；")}。</p>}
+        {check.can_publish && <p className="muted" role="status">检查全部通过，可以发布。</p>}
+      </>}
+    </section>
+  );
+}
 
 const NEXT_ACTIONS: Record<string, { stage: string; label: string; needReason?: boolean }[]> = {
   draft: [{ stage: "editing", label: "进入编辑配置" }],
@@ -404,6 +476,11 @@ export function DetailPanel(props: {
   const [ownerValue, setOwnerValue] = useState("");
   const [ownerBusy, setOwnerBusy] = useState(false);
   const [ownerError, setOwnerError] = useState("");
+  const [bizOpen, setBizOpen] = useState(false);
+  const [bizFamily, setBizFamily] = useState("");
+  const [bizDomain, setBizDomain] = useState("");
+  const [bizBusy, setBizBusy] = useState(false);
+  const [bizError, setBizError] = useState("");
   const [titleText, setTitleText] = useState(skill.title || skill.label);
   const [summaryText, setSummaryText] = useState(skill.description || "");
   const [bodyText, setBodyText] = useState("");
@@ -538,6 +615,23 @@ export function DetailPanel(props: {
     }
   };
 
+  const submitBiz = async () => {
+    setBizBusy(true);
+    setBizError("");
+    try {
+      await api.skillLifecycleMetaSave(skill.id, {
+        biz_family: bizFamily.trim() || undefined,
+        biz_domain: bizDomain.trim() || undefined,
+      });
+      setBizOpen(false);
+      await onChanged();
+    } catch (cause) {
+      setBizError(cause instanceof Error ? cause.message : "保存业务分类失败");
+    } finally {
+      setBizBusy(false);
+    }
+  };
+
   const [activeTab, setActiveTab] = useState<"overview" | "dependencies" | "access" | "release">("overview");
 
   async function saveSkillContent() {
@@ -615,6 +709,9 @@ export function DetailPanel(props: {
               <Field label="Key" value={skill.id} />
               <Field label="当前版本" value={lc?.current_version || lc?.release?.kind === "bundled_baseline" ? releaseLabel(lc, "short") : "—"} />
               <Field label="技能类型" value={skill.profile || "—"} />
+              <Field label="风险等级" value={lc?.risk || "—"} />
+              <Field label="业务族" value={lc?.biz_family || "—"} />
+              <Field label="业务域" value={lc?.biz_domain || "—"} />
               <Field label="业务阶段" value={lc?.business_stage || "—"} />
               <Field label="负责人" value={lc?.owner || "未设置"} />
             </div>
@@ -633,7 +730,20 @@ export function DetailPanel(props: {
                 setOwnerError("");
                 setOwnerOpen(true);
               }}>设置负责人</button>
+              <button type="button" className="skill-governance-secondary" onClick={() => {
+                setBizFamily(lc?.biz_family || "");
+                setBizDomain(lc?.biz_domain || "");
+                setBizError("");
+                setBizOpen(true);
+              }}>设置业务分类</button>
             </div>
+            {bizOpen && <div className="skill-biz-form" role="group" aria-label="设置业务分类">
+              <input className="skill-inline-input" placeholder="业务族（复用知识侧字典）" value={bizFamily} onChange={(event) => setBizFamily(event.target.value)} />
+              <input className="skill-inline-input" placeholder="业务域（复用知识侧字典）" value={bizDomain} onChange={(event) => setBizDomain(event.target.value)} />
+              <button type="button" className="skill-governance-secondary" disabled={bizBusy} onClick={() => void submitBiz()}>{bizBusy ? "保存中…" : "保存"}</button>
+              <button type="button" className="skill-governance-minor" onClick={() => setBizOpen(false)}>取消</button>
+              {bizError && <span className="error" role="alert">{bizError}</span>}
+            </div>}
           </section>
           <section className="skill-detail-card" aria-labelledby="skill-contract-heading">
             <div className="skill-section-head"><div><h3 id="skill-contract-heading">运行契约</h3><p>{skill.source === "bundled" ? "内置技能的运行契约随平台代码维护，此处只读。" : "输入字段、结果类型、动作、记忆策略和异步能力；修改先存为草稿。"}</p></div></div>
@@ -656,7 +766,7 @@ export function DetailPanel(props: {
         {activeTab === "access" && <PublishedAgentUsage skillId={skill.id} />}
 
         {activeTab === "release" && <div className="skill-detail-stack">
-          <p className="skill-governance-notice" role="note">当前发布接口由产品经理直接确认；审批单与审批状态接口尚未接入，此页不会展示“审批通过”。</p>
+          <PublishCheckCard skillId={skill.id} onChanged={onChanged} />
           <div className="skill-release-grid">
             <section className="skill-detail-card">
               <div className="skill-section-head"><div><h3>测试验证</h3><p>用例 {lc?.test_summary.total ?? 0} · 通过率 {lc?.test_summary.pass_rate ?? "—"}% · 未通过 {lc?.test_summary.failing ?? 0}</p></div></div>

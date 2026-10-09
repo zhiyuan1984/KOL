@@ -140,3 +140,10 @@
 .skill-template-constraints{display:grid;gap:var(--space-1);margin-top:var(--space-3);font-size:var(--ds-font-sm)}
 .skill-template-constraints span{color:var(--text-muted);line-height:var(--ds-line-helper)}
 .skill-template-note{margin:var(--space-3) 0 0}
+.skill-publish-checks{display:grid;gap:0;margin:var(--space-2) 0}
+.skill-publish-check-row{display:flex;align-items:center;gap:var(--space-2);min-width:0;padding:var(--space-2) 0;border-bottom:1px solid var(--border)}
+.skill-publish-check-row>strong{white-space:nowrap}
+.skill-publish-check-row>.muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-check-ok{color:var(--success,#1a7f37);font-weight:600}
+.skill-check-no{color:var(--danger,#d1242f);font-weight:600}
+.skill-biz-form{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;margin-top:var(--space-2)}

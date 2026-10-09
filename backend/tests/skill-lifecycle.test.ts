@@ -80,6 +80,12 @@ describe("skill lifecycle", () => {
       expect(moved.body.stage).toBe(stage);
     }
 
+    // 负责人必填（2026-10-10）：无负责人时发布应被 400 拦截。
+    const noOwner = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "published" });
+    expect(noOwner.status).toBe(400);
+    const setOwner = await request("PATCH", `/api/admin/skills/${id}/lifecycle`, { owner: "测试负责人" });
+    expect(setOwner.status, JSON.stringify(setOwner.body)).toBe(200);
+
     const published = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "published" });
     expect(published.status, JSON.stringify(published.body)).toBe(200);
 

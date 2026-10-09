@@ -7,7 +7,7 @@ import path from "node:path";
 import { dataDir, publishedSkillsDir, codexMode } from "../config.js";
 import { audit, getConn, nowIso } from "../db.js";
 import { nid } from "../ids.js";
-import { unmountedDeclaredTools, unregisteredDeclaredTools } from "../runtime/skill-coverage.js";
+import { skillToolProfile, unmountedDeclaredTools, unregisteredDeclaredTools } from "../runtime/skill-coverage.js";
 import { taskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
 import { HttpFail } from "./errors.js";
@@ -58,9 +58,9 @@ function requireSkill(id: string): void {
   if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
 }
 
-function lifecycleRow(id: string): { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; updated_at: string } | undefined {
+function lifecycleRow(id: string): { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; biz_family: string | null; biz_domain: string | null; updated_at: string } | undefined {
   return getConn().prepare("SELECT * FROM skill_lifecycle WHERE skill_id = ?").get(id) as
-    | { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; updated_at: string }
+    | { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; biz_family: string | null; biz_domain: string | null; updated_at: string }
     | undefined;
 }
 
@@ -76,6 +76,14 @@ function pendingDeclaredTools(id: string): string[] {
   if (Array.isArray(drafted)) return drafted.map(String);
   if (typeof drafted === "string") return drafted.split(/[,，]/).map((tool) => tool.trim()).filter(Boolean);
   return [...(taskDefinition(id)?.mcp || [])];
+}
+
+/**
+ * 技能风险等级：读取时从声明工具的风险策略派生（取最高），不另存列，
+ * 保证「工具风险变了，技能风险自动跟着变」的单一事实源。
+ */
+export function skillRiskLevel(id: string): "L1" | "L2" | "L3" | null {
+  return skillToolProfile(id, pendingDeclaredTools(id)).risk;
 }
 
 export function skillDependencyIssues(id: string): { unregistered: string[]; unmounted: string[] } {
@@ -116,6 +124,11 @@ export function skillLifecycleMeta(id: string): {
   owner: string | null;
   business_stage: string | null;
   tags: string[];
+  /** 业务族 / 业务域：复用知识侧字典，治理与复用盘点用。 */
+  biz_family: string | null;
+  biz_domain: string | null;
+  /** 风险等级：读取时从工具风险派生（L1/L2/L3），不存储。 */
+  risk: "L1" | "L2" | "L3" | null;
   current_version: number | null;
   release: SkillRelease;
   /** 读取时派生：所需工具里未登记 / 未挂载的项（编写时提示，进入测试或发布时拦截）。 */
@@ -147,6 +160,9 @@ export function skillLifecycleMeta(id: string): {
     owner: row?.owner || null,
     business_stage: row?.business_stage || null,
     tags,
+    biz_family: row?.biz_family || null,
+    biz_domain: row?.biz_domain || null,
+    risk: skillRiskLevel(id),
     current_version: version.v ?? null,
     release: version.v
       ? { kind: "versioned", version: version.v }
@@ -196,6 +212,7 @@ export function transitionSkillStage(id: string, toStage: string, reason?: strin
     throw new HttpFail(400, "reason required to disable a published skill");
   }
   if (to === "testing" || to === "published") assertDeclaredToolsReady(id);
+  if (to === "published") assertSkillPublishAllowed(id);
   if (to === "published") applySkillDraft(id);
   const conn = getConn();
   const operator = currentUser().handle;
@@ -216,24 +233,198 @@ export function transitionSkillStage(id: string, toStage: string, reason?: strin
   return { stage: to };
 }
 
+function currentPublishedVersion(id: string): number {
+  const row = getConn()
+    .prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ? AND status = 'published'")
+    .get(id) as { v: number | null };
+  return row.v || 0;
+}
+
+export type SkillPublishApprovalSummary = {
+  approval_id: string;
+  status: string;
+  base_version: number;
+} | null;
+
+/** 审批引擎终态中文（consumed=链走完通过）。 */
+export function approvalStatusLabel(status: string): string {
+  return { pending: "待审批", consumed: "已通过", rejected: "已驳回" }[status] || status;
+}
+
+/** 该技能最新一条技能发布审批（走统一审批引擎，kind=skill_publish，CEO 终审链）。 */
+export function latestSkillPublishApproval(id: string): SkillPublishApprovalSummary {
+  const rows = getConn()
+    .prepare("SELECT id, status, payload FROM approvals WHERE kind = 'skill_publish' ORDER BY created_at DESC")
+    .all() as { id: string; status: string; payload: string | null }[];
+  for (const row of rows) {
+    let payload: { skill_id?: string; base_version?: number } = {};
+    try {
+      payload = JSON.parse(row.payload || "{}") as { skill_id?: string; base_version?: number };
+    } catch {
+      /* 审批 payload 解析失败就跳过，不拦发布检查 */
+    }
+    if (payload.skill_id === id) {
+      return { approval_id: row.id, status: row.status, base_version: Number(payload.base_version || 0) };
+    }
+  }
+  return null;
+}
+
+/**
+ * 发布门禁（P0）：
+ * 1. 负责人必填；
+ * 2. R3（L3）技能发布必须持有「已通过」的技能发布审批（审批引擎终态 consumed），
+ *    且该审批的 base_version 必须等于当前已发布版本（一次审批只放行一次发布，发布后即失效）。
+ * 未通过时抛 403/400 中文原因，前端直接展示。
+ */
+export function assertSkillPublishAllowed(id: string): void {
+  requireSkill(id);
+  const row = lifecycleRow(id);
+  if (!row?.owner || !row.owner.trim()) {
+    throw new HttpFail(400, { code: "skill_owner_required", message: "请先设置技能负责人，再发布。" });
+  }
+  if (skillRiskLevel(id) !== "L3") return;
+  const base = currentPublishedVersion(id);
+  const approval = latestSkillPublishApproval(id);
+  if (approval && approval.status === "consumed" && approval.base_version === base) return;
+  throw new HttpFail(403, {
+    code: "skill_publish_approval_required",
+    message: "该技能为 R3 高风险技能，发布前必须先发起发布审批并获得通过（CEO 终审）。",
+  });
+}
+
+export type SkillPublishCheck = {
+  id: string;
+  risk: "L1" | "L2" | "L3" | null;
+  owner: string | null;
+  biz_family: string | null;
+  biz_domain: string | null;
+  checks: {
+    tests: { ok: boolean; total: number; pass_rate: number | null; failing: number; detail: string };
+    tools: { ok: boolean; unregistered: string[]; unmounted: string[]; detail: string };
+    knowledge: { ok: boolean; detail: string };
+    approval: { required: boolean; ok: boolean; status: string; approval_id: string | null; detail: string };
+    owner: { ok: boolean; detail: string };
+  };
+  can_publish: boolean;
+  reasons: string[];
+};
+
+/** 发布前检查：有一项不通过就不能发布，前端逐项展示中文原因。 */
+export function skillPublishCheck(id: string): SkillPublishCheck {
+  requireSkill(id);
+  const meta = skillLifecycleMeta(id);
+  const reasons: string[] = [];
+
+  const t = meta.test_summary;
+  const testsOk = t.total > 0 && t.failing === 0;
+  if (t.total === 0) reasons.push("暂无测试用例，请先添加并运行测试");
+  else if (t.failing > 0) reasons.push(`有 ${t.failing} 个测试未通过`);
+
+  const dep = meta.dependencies;
+  const toolsOk = dep.unregistered.length === 0 && dep.unmounted.length === 0;
+  if (dep.unregistered.length > 0) reasons.push(`${dep.unregistered.length} 个声明工具未在平台登记`);
+  if (dep.unmounted.length > 0) reasons.push(`${dep.unmounted.length} 个声明工具未挂载到本技能`);
+
+  let knowledgeOk = true;
+  let knowledgeDetail = "无知识依赖";
+  const kc = getConn()
+    .prepare("SELECT revision, published_revision, update_policy FROM skill_knowledge_configs WHERE skill_id = ?")
+    .get(id) as { revision: number; published_revision: number | null; update_policy: string } | undefined;
+  if (kc) {
+    if (kc.published_revision == null) {
+      knowledgeOk = false;
+      knowledgeDetail = "知识配置尚未发布";
+      reasons.push("知识配置尚未发布");
+    } else if (kc.update_policy === "follow_published" && kc.published_revision !== kc.revision) {
+      knowledgeOk = false;
+      knowledgeDetail = `知识依赖有未发布的新版本（草稿 r${kc.revision}，已发布 r${kc.published_revision}）`;
+      reasons.push("知识依赖有未发布的新版本");
+    } else {
+      knowledgeDetail = `知识依赖已发布（r${kc.published_revision}）`;
+    }
+  }
+
+  const needApproval = meta.risk === "L3";
+  const approval = latestSkillPublishApproval(id);
+  const base = currentPublishedVersion(id);
+  // 审批引擎终态：consumed=链走完（通过），rejected=驳回，pending=待审批。
+  const approvalOk = !needApproval || Boolean(approval && approval.status === "consumed" && approval.base_version === base);
+  if (!approvalOk) {
+    reasons.push(
+      approval && approval.status === "pending"
+        ? "发布审批待 CEO 终审，通过后才能发布"
+        : "R3 高风险技能发布前必须先发起发布审批并获得通过（CEO 终审）",
+    );
+  }
+
+  const ownerOk = Boolean(meta.owner && meta.owner.trim());
+  if (!ownerOk) reasons.push("请先设置技能负责人");
+
+  return {
+    id,
+    risk: meta.risk,
+    owner: meta.owner,
+    biz_family: meta.biz_family,
+    biz_domain: meta.biz_domain,
+    checks: {
+      tests: {
+        ok: testsOk,
+        total: t.total,
+        pass_rate: t.pass_rate,
+        failing: t.failing,
+        detail: t.total ? `用例 ${t.total} · 通过率 ${t.pass_rate ?? "—"}% · 未通过 ${t.failing}` : "暂无测试用例",
+      },
+      tools: {
+        ok: toolsOk,
+        unregistered: dep.unregistered,
+        unmounted: dep.unmounted,
+        detail: toolsOk ? "声明工具全部已登记并挂载" : "有工具未就绪",
+      },
+      knowledge: { ok: knowledgeOk, detail: knowledgeDetail },
+      approval: {
+        required: needApproval,
+        ok: approvalOk,
+        status: approval ? approval.status : "none",
+        approval_id: approval ? approval.approval_id : null,
+        detail: needApproval
+          ? approval
+            ? `审批单 ${approval.approval_id} · ${approvalStatusLabel(approval.status)}`
+            : "R3 发布必须先走发布审批"
+          : "R1/R2 无需审批",
+      },
+      owner: { ok: ownerOk, detail: ownerOk ? `负责人：${meta.owner}` : "未设置负责人" },
+    },
+    can_publish: reasons.length === 0,
+    reasons,
+  };
+}
+
 export function updateSkillLifecycleMeta(
   id: string,
-  patch: { owner?: string; business_stage?: string; tags?: string[] },
+  patch: { owner?: string; business_stage?: string; tags?: string[]; biz_family?: string; biz_domain?: string },
 ): void {
   requireSkill(id);
   const row = lifecycleRow(id);
   const stage = row?.stage || "draft";
+  const owner = patch.owner ?? row?.owner ?? null;
+  const businessStage = patch.business_stage ?? row?.business_stage ?? null;
+  const tags = JSON.stringify(patch.tags ?? (row?.tags ? JSON.parse(row.tags) : []));
+  const bizFamily = patch.biz_family ?? row?.biz_family ?? null;
+  const bizDomain = patch.biz_domain ?? row?.biz_domain ?? null;
   getConn()
     .prepare(
-      "INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(skill_id) DO UPDATE SET owner=excluded.owner, business_stage=excluded.business_stage, tags=excluded.tags, updated_at=excluded.updated_at",
+      "INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, biz_family, biz_domain, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(skill_id) DO UPDATE SET owner=excluded.owner, business_stage=excluded.business_stage, tags=excluded.tags, biz_family=excluded.biz_family, biz_domain=excluded.biz_domain, updated_at=excluded.updated_at",
     )
     .run(
       id,
       stage,
       row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official"),
-      patch.owner ?? row?.owner ?? null,
-      patch.business_stage ?? row?.business_stage ?? null,
-      JSON.stringify(patch.tags ?? (row?.tags ? JSON.parse(row.tags) : [])),
+      owner,
+      businessStage,
+      tags,
+      bizFamily,
+      bizDomain,
       nowIso(),
     );
 }
@@ -249,6 +440,8 @@ export function listSkillVersions(id: string): Json[] {
 
 export function publishSkillVersion(id: string, description?: string, version?: number): { version: number } {
   requireSkill(id);
+  // 发布门禁：负责人必填；R3 无已通过审批单时 403。两条发布路径（阶段流转 / 直接发版）都走这里。
+  assertSkillPublishAllowed(id);
   const bundled = isBundledSkill(id);
   const dir = bundled ? packagedSkillDir(id) : skillDir(id);
   if (!dir || !fs.existsSync(path.join(dir, "SKILL.md"))) throw new HttpFail(400, "skill pack not found");

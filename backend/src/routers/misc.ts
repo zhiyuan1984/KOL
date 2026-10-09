@@ -10,7 +10,7 @@ import { authDisabled, isAdmin, requireAdmin, requireSkill, scopedUser } from ".
 import { examDemoStatus, examTodoCount } from "../exam.js";
 import { starry } from "../adapters/clients.js";
 import { BRAND_MAILBOXES, DEMO_ADMIN, DEMO_USER, clawMode, kolClawConfigured } from "../config.js";
-import { AUDIT_PAYLOAD_PREVIEW_CHARS, auditPayloadPreview, getConn, listAudit, nowIso } from "../db.js";
+import { AUDIT_PAYLOAD_PREVIEW_CHARS, audit, auditPayloadPreview, getConn, listAudit, nowIso } from "../db.js";
 import { uploadsDir } from "../host/attachments.js";
 import { HttpFail } from "../host/errors.js";
 import { currentUser, setPersona } from "../host/persona.js";
@@ -39,6 +39,7 @@ import {
 import {
   createSkillTest,
   deleteSkillTest,
+  latestSkillPublishApproval,
   listSkillTestRuns,
   listSkillTests,
   listSkillVersions,
@@ -47,6 +48,8 @@ import {
   rollbackSkillVersion,
   skillLifecycleMeta,
   skillMetrics,
+  skillPublishCheck,
+  assertSkillPublishAllowed,
   skillStageHistory,
   setSkillOrigin,
   SKILL_STAGES,
@@ -54,6 +57,10 @@ import {
   transitionSkillStage,
   updateSkillLifecycleMeta,
 } from "../host/skill-lifecycle.js";
+import { createWorkApproval } from "../gateway/wecom.js";
+import { roleHolder } from "../approval/org.js";
+import { defaultOrgSnapshot } from "../approval/snapshot.js";
+import type { Employee } from "../approval/types.js";
 import { nid } from "../ids.js";
 import { publicProfiles } from "../profiles.js";
 import { resetDemoRuntimeState, seedAll } from "../seed.js";
@@ -479,9 +486,97 @@ misc.post("/admin/skills/:id/stage", async (c) => {
 misc.patch("/admin/skills/:id/lifecycle", async (c) => {
   requirePm();
   const id = c.req.param("id");
-  const body = (await c.req.json()) as { owner?: string; business_stage?: string; tags?: string[] };
+  const body = (await c.req.json()) as { owner?: string; business_stage?: string; tags?: string[]; biz_family?: string; biz_domain?: string };
   updateSkillLifecycleMeta(id, body);
   return c.json({ id, lifecycle: skillLifecycleMeta(id) });
+});
+/** 发布前检查：测试 / 工具挂载 / 知识版本 / 审批 / 负责人，逐项中文原因。 */
+misc.get("/admin/skills/:id/publish-check", (c) => {
+  requirePm();
+  return c.json(skillPublishCheck(c.req.param("id")));
+});
+/**
+ * 发起技能发布审批（R3 必需）：复用统一审批引擎，kind=skill_publish，
+ * 审批链为 CEO 终审单节点。审批通过后才能发布对应版本（base_version 绑定）。
+ */
+misc.post("/admin/skills/:id/publish-approvals", async (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const meta = skillLifecycleMeta(id);
+  if (meta.risk !== "L3") {
+    throw new HttpFail(400, {
+      code: "approval_not_required",
+      message: `该技能风险等级为 ${meta.risk || "未知"}，无需走发布审批。`,
+    });
+  }
+  const pending = latestSkillPublishApproval(id);
+  if (pending && pending.status === "pending") {
+    return c.json({ id, approval_id: pending.approval_id, status: "pending", reused: true });
+  }
+  const me = currentUser();
+  const org = defaultOrgSnapshot();
+  // roleHolder 的 gm 分支不使用 requester，这里仅为满足类型传入占位。
+  const placeholder = {
+    id: me.id || me.handle,
+    name: me.name || me.handle,
+    department_id: "",
+    position: "",
+    manager_id: null,
+    status: "active",
+    cost_center: "",
+    mailboxes: [],
+    delegate_to: null,
+  } as Employee;
+  const ceo = roleHolder(org, "gm", placeholder);
+  if (!ceo) throw new HttpFail(400, { code: "ceo_not_found", message: "组织架构中未找到 CEO，无法发起发布审批。" });
+  const base = meta.current_version || 0;
+  const skillLabel = taskDefinition(id)?.title || id;
+  const approval = createWorkApproval({
+    kind: "skill_publish",
+    title: `技能发布审批：${skillLabel}（v${base + 1}）`,
+    chain: [ceo.id],
+    payload: {
+      skill_id: id,
+      skill_label: skillLabel,
+      base_version: base,
+      risk: meta.risk,
+      requester_name: me.name || me.handle,
+      steps: [{ employee_id: ceo.id, name: ceo.name, role: "CEO" }],
+    },
+  });
+  if (!approval?.id) {
+    throw new HttpFail(400, { code: "empty_approval_chain", message: "审批链为空，无法发起发布审批。" });
+  }
+  audit("host", "skill.publish.approval.created", { skill: id, approval_id: approval.id, base_version: base });
+  return c.json({ id, approval_id: approval.id, status: "pending", base_version: base, chain: [ceo.id] }, 201);
+});
+/**
+ * user_skill_grants 废止迁移清单：该表已退役（不再被任何装配路径读取），
+ * 管理员按清单在 Agent 页重新绑定后，可删除本表记录。
+ */
+misc.get("/admin/skills/legacy-grants", (c) => {
+  requirePm();
+  const rows = getConn()
+    .prepare(
+      `SELECT g.user_id, g.skill_id, g.created_at, u.username, u.name AS user_name
+       FROM user_skill_grants g LEFT JOIN users u ON u.id = g.user_id
+       ORDER BY g.created_at DESC`,
+    )
+    .all() as { user_id: string; skill_id: string; created_at: string; username: string | null; user_name: string | null }[];
+  const labels = new Map<string, string>();
+  for (const entry of skillCatalog()) labels.set(entry.id, entry.label || entry.id);
+  return c.json({
+    deprecated: true,
+    notice: "user_skill_grants 已退役：不再被任何装配路径读取。请按清单在 Agent 页为对应人员重新绑定，确认生效后可删除本表记录。",
+    count: rows.length,
+    grants: rows.map((r) => ({
+      user_id: r.user_id,
+      user: r.user_name || r.username || r.user_id,
+      skill_id: r.skill_id,
+      skill_label: labels.get(r.skill_id) || r.skill_id,
+      created_at: r.created_at,
+    })),
+  });
 });
 misc.get("/admin/skills/:id/stage-history", (c) => {
   requirePm();
@@ -496,6 +591,8 @@ misc.get("/admin/skills/:id/versions", (c) => {
 misc.post("/admin/skills/:id/versions", async (c) => {
   requirePm();
   const id = c.req.param("id");
+  // 发布门禁：负责人必填；R3 无已通过审批单时 403（先行检查，避免草稿被提前应用）。
+  assertSkillPublishAllowed(id);
   if(getConn().prepare('SELECT 1 FROM skill_knowledge_configs WHERE skill_id=?').get(id))throw new HttpFail(409,'知识技能须通过真实试算和生命周期发布；不能直接发布版本。');
   const body = (await c.req.json()) as { description?: string };
   applySkillDraft(id);
