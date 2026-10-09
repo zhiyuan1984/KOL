@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { sanitizeAdminText } from "../../adminGovernance";
@@ -101,21 +102,14 @@ export function ConnectorToolsReadOnlyList({ connectorId, requestKey = 0, autoLo
   return (
     <>
       {filterable && (
-        <label className="connector-search connector-drawer-search">
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-          </svg>
-          <input
-            type="search"
-            className="connector-search-input"
+        <WorkspaceSearchInput
+            className="connector-search connector-drawer-search connector-search-input"
             data-connector-drawer-search
             placeholder="搜索工具"
             aria-label="搜索工具"
             value={q}
             onChange={(event) => setQ(event.target.value)}
           />
-        </label>
       )}
 
       {discovering && <p className="muted" role="status" data-connector-tools-loading>正在读取工具清单…</p>}

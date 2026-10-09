@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, type AdminAgentAccessSource, type AdminAgentRow, type AdminAgentsResponse, type AdminBindingPreview, type AdminEmployeeAgent } from "../../api";
@@ -320,7 +321,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
   return <section className="governance-workspace" data-admin-employees>
     <aside className="governance-rail">
       <div className="governance-scroll">
-        <div className="governance-search-wrap employee-search-wrap"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg><input className="governance-search" aria-label="搜索员工" data-employee-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、邮箱、岗位、工号" /></div>
+        <WorkspaceSearchInput className="governance-search-wrap employee-search-wrap governance-search" aria-label="搜索员工" data-employee-search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、邮箱、岗位、工号" />
         <div className="governance-filter-group"><strong>品牌</strong><div className="governance-filter-options"><button type="button" aria-pressed={!brand} onClick={() => setBrand("")}>全部</button>{brands.map((item) => <button type="button" key={item} aria-pressed={brand === item} onClick={() => setBrand(item)}>{item}</button>)}</div></div>
         <div className="governance-filter-group"><strong>状态</strong><div className="governance-filter-options">{([["all", "全部"], ["active", "启用"], ["disabled", "停用"]] as const).map(([id, name]) => <button type="button" key={id} aria-pressed={account === id} onClick={() => setAccount(id)}>{name}</button>)}</div></div>
         {stackedLayout && <div className="employee-create-inline">{createAction}</div>}
@@ -328,7 +329,7 @@ export function EmployeeDirectoryV2({ users, onReload }: { users: Employee[]; on
           const parent = index ? departments[index - 1] : "";
           const options = orgs.filter((unit) => unit.level === index + 1 && (!parent || unit.parent_id === parent));
           return <label key={title}>{title}<select value={departments[index]} onChange={(event) => changeDepartment(index, event.target.value)} disabled={!data || !options.length} data-employee-department={index + 1}><option value="">{!data ? "正在读取组织…" : options.length ? "全部" : "无下级部门"}</option>{options.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select></label>;
-        })}<label>人员<input type="search" aria-label="搜索组织内人员" placeholder="搜索姓名或邮箱" value={personQuery} onChange={(event) => setPersonQuery(event.target.value)} /><select aria-label="人员" value={person} onChange={(event) => setPerson(event.target.value)}><option value="">全部</option>{people.filter((user) => user.id === person || `${label(user)} ${email(user)}`.toLowerCase().includes(personQuery.trim().toLowerCase())).map((user) => <option key={user.id} value={user.id}>{label(user)} · {email(user)}</option>)}</select></label></section>
+        })}<label>人员<WorkspaceSearchInput aria-label="搜索组织内人员" placeholder="搜索姓名或邮箱" value={personQuery} onChange={(event) => setPersonQuery(event.target.value)} /><select aria-label="人员" value={person} onChange={(event) => setPerson(event.target.value)}><option value="">全部</option>{people.filter((user) => user.id === person || `${label(user)} ${email(user)}`.toLowerCase().includes(personQuery.trim().toLowerCase())).map((user) => <option key={user.id} value={user.id}>{label(user)} · {email(user)}</option>)}</select></label></section>
       </div>
       {!stackedLayout && <div className="governance-rail-footer employee-create-footer">{createAction}</div>}
     </aside>

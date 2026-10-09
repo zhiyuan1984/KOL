@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
@@ -115,21 +116,14 @@ export function ConnectorHub({ connectors, loading, onSave, reload }: {
       </header>
 
       <div className="connector-hub-tools">
-        <label className="connector-search">
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-          </svg>
-          <input
-            type="search"
-            className="connector-search-input"
+        <WorkspaceSearchInput
+            className="connector-search connector-search-input"
             data-connector-search
             placeholder="搜索连接器"
             aria-label="搜索连接器"
             value={q}
             onChange={(event) => setQ(event.target.value)}
           />
-        </label>
         <div className="connector-hub-actions">
           <button type="button" className="btn" data-connector-browse-toggle onClick={() => setBrowseOpen(true)}>
             浏览连接器
@@ -252,21 +246,14 @@ function ConnectorBrowseModal({ cards, loading, adding, onAddBuiltin, onCreate, 
   return (
     <ModalShell kind="browse" title="连接器" onClose={onClose}>
       <div className="connector-browse" data-connector-browse-modal>
-        <label className="connector-search">
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-          </svg>
-          <input
-            type="search"
-            className="connector-search-input"
+        <WorkspaceSearchInput
+            className="connector-search connector-search-input"
             data-connector-browse-search
             placeholder="搜索连接器"
             aria-label="搜索连接器"
             value={q}
             onChange={(event) => setQ(event.target.value)}
           />
-        </label>
         <div className="connector-browse-toolbar" data-connector-browse-toolbar>
           <div className="hub-chips connector-hub-tabs" role="tablist" aria-label="连接器分类">
             {([ ["app", "应用"], ["custom_api", "自定义 API"], ["custom_mcp", "自定义 MCP"]] as const).map(([id, label]) => (

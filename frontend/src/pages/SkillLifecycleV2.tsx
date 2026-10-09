@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { DetailPanel, type SkillRow } from "./SkillLifecycle";
@@ -86,7 +87,7 @@ export default function SkillLifecycleV2() {
   return <section className="governance-workspace skill-governance-v2" data-admin-page="skills">
     <aside className="governance-rail">
       <div className="governance-scroll">
-        <input className="governance-search" aria-label="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、Key 或说明" />
+        <WorkspaceSearchInput className="governance-search" aria-label="搜索技能" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、Key 或说明" />
         <p className="governance-count">{visible.length} / {skills.length} 项技能</p>
         <div className="governance-filter-group"><strong>来源</strong><div className="governance-filter-options">{([["all", "全部"], ["official", "官方"], ["third_party", "第三方"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={origin === key} onClick={() => setOrigin(key)}>{label}</button>)}</div></div>
         <div className="governance-filter-group"><strong>阶段</strong><div className="governance-filter-options">{([["all", "全部"], ["draft", "草稿"], ["editing", "编辑"], ["testing", "测试"], ["published", "已发布"], ["disabled", "停用"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={stage === key} onClick={() => setStage(key)}>{label}</button>)}</div></div>

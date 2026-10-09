@@ -55,9 +55,13 @@ for (const empty of [false, true]) {
       await expect(root.locator(".today-center-hero")).not.toContainText("逾期");
       await expect(root.locator(".today-center-hero")).not.toContainText("今天到期");
       const rail = root.locator("[data-scope-task-rail]");
-      await expect(rail.locator('[data-attention-filter="overdue"]')).toHaveText(`逾期 ${empty ? 0 : 2}`);
-      await expect(rail.locator('[data-attention-filter="due_today"]')).toHaveText(`今天到期 ${empty ? 0 : 1}`);
-      await expect(rail.locator('[data-attention-filter="exception"]')).toHaveText(`异常 ${empty ? 0 : 1}`);
+      if (empty) {
+        await expect(rail.locator('[data-attention-filter]')).toHaveCount(0);
+      } else {
+        await expect(rail.locator('[data-attention-filter="overdue"]')).toHaveText("逾期 2");
+        await expect(rail.locator('[data-attention-filter="due_today"]')).toHaveText("今天到期 1");
+        await expect(rail.locator('[data-attention-filter="exception"]')).toHaveText("异常 1");
+      }
       await expect(rail.locator(`[data-home-entry="plan-${scope}"]`)).toBeVisible();
       await expect(root.locator("[data-skill-template-context]")).toBeVisible();
       if (!empty) {
@@ -65,7 +69,7 @@ for (const empty of [false, true]) {
         await expect(rail.locator("[data-today-todo]")).toHaveCount(2);
         await rail.locator(".task-board-clear-filter").click();
         await expect(rail.locator("[data-today-todo]")).toHaveCount(3);
-        await rail.locator(".task-board-search").fill("今天报价");
+        await rail.locator("input.task-board-search").fill("今天报价");
         await expect(rail.locator("[data-today-todo]")).toHaveCount(1);
       }
     }
@@ -157,3 +161,53 @@ test.describe("task stream with a coarse pointer", () => {
     expect(state.errors).toEqual([]);
   });
 });
+
+// 2026-10-09 approved density: measure final DOM boxes, not declared CSS tokens.
+for (const theme of ["light", "dark"]) {
+  test(`approved compact task rows, search spacing and composer controls in ${theme}`, async ({ page }, info) => {
+    const state = await fixture(page, false, theme);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 1280, height: 630 }]) {
+      await page.setViewportSize(viewport);
+      for (const scope of ["today", "todo"]) {
+        await page.goto(`/?tab=${scope}`);
+        const root = page.locator(`[data-home-pane="${scope}"]`);
+        const row = root.locator('[data-today-todo]').first();
+        await expect(row).toBeVisible();
+        const height = await row.evaluate(el => el.getBoundingClientRect().height);
+        expect(height).toBe(32);
+        await expect(row).toHaveCSS("font-size", "13px");
+        const search = root.locator('.task-board-search.ant-input-affix-wrapper');
+        expect(await search.evaluate(el => el.getBoundingClientRect().height)).toBe(32);
+        expect(await search.evaluate(el => {
+          const icon = el.querySelector('.ant-input-prefix')!.getBoundingClientRect();
+          const input = el.querySelector('input')!.getBoundingClientRect();
+          return input.left - icon.right;
+        })).toBeGreaterThanOrEqual(8);
+        const plus = root.locator('.composer-plus');
+        const send = root.locator('.send-arrow');
+        const sizes = await Promise.all([plus, send].map(locator => locator.evaluate(el => {
+          const rect = el.getBoundingClientRect(); return { width: rect.width, height: rect.height };
+        })));
+        expect(sizes[0]).toEqual(sizes[1]);
+        expect(sizes[0].width).toBe(sizes[0].height);
+        expect(await plus.evaluate(el => {
+          const radius = getComputedStyle(el).borderTopLeftRadius;
+          return radius.endsWith('%') ? parseFloat(radius) >= 50 : parseFloat(radius) >= el.getBoundingClientRect().width / 2;
+        })).toBe(true);
+        const clear = root.locator('[data-composer-clear-draft]');
+        await expect(clear).toBeVisible();
+        const input = root.locator('[data-composer-input]');
+        await input.fill('待清理的下一条草稿');
+        await clear.click();
+        await expect(input).toHaveValue('');
+        await expect(input).toBeFocused();
+        await expect(clear).toBeDisabled();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        await page.screenshot({ path: info.outputPath(`${scope}-${theme}-${viewport.width}x${viewport.height}-density.png`) });
+      }
+    }
+    expect(state.writes).toEqual([]);
+    expect(state.errors).toEqual([]);
+  });
+}

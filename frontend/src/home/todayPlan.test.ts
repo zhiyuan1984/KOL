@@ -708,6 +708,8 @@ describe("todo scope wiring", () => {
     expect(SCOPE_CONFIG.todo.railLabel).toBe("待办任务表");
     expect(SCOPE_CONFIG.today.planSummaryLabel).toBe("今日计划摘要");
     expect(SCOPE_CONFIG.todo.planSummaryLabel).toBe("待办计划摘要");
+    expect(SCOPE_CONFIG.today.streamEmpty.body).toBe("启动今日任务，查看 Codex 规划过程与结果摘要。");
+    expect(SCOPE_CONFIG.todo.streamEmpty.body).toBe("启动待办任务，查看 Codex 规划过程与结果摘要。");
     // 右栏搜索只搜自己面板里的任务行，文案不带「红人/说明」。
     expect(SCOPE_CONFIG.today.boardSearchLabel).toBe("搜索任务");
     expect(SCOPE_CONFIG.todo.boardSearchLabel).toBe("搜索任务");

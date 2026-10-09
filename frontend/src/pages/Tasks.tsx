@@ -1,7 +1,7 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, DatePicker, Input, Pagination, Select, Tag } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
+import { Button, DatePicker, Pagination, Select, Tag } from "antd";
 import dayjs from "dayjs";
 import { LifecycleNavigation } from "../components/LifecycleNavigation";
 import { TaskTheme } from "../tasks/TaskTheme";
@@ -520,7 +520,7 @@ export default function Tasks() {
     <section className="panel task-center-unified-section" aria-label="任务明细">
       <header className="task-center-system-head"><h2>任务明细</h2><span className="task-result-scope">{displayedScope} · {visible.length} 条已载入结果{nextCursor || businessNextCursor ? "（非全量）" : ""}</span></header>
       <div className="task-center-filters" role="search" aria-label="筛选任务">
-        <Input className="task-filter-search" aria-label="搜索任务名称、内容、技能或模板" prefix={<SearchOutlined aria-hidden />} placeholder="搜索名称、内容、技能或模板" allowClear value={query} onChange={event => setQuery(event.target.value)} />
+        <WorkspaceSearchInput className="task-filter-search" aria-label="搜索任务名称、内容、技能或模板" placeholder="搜索名称、内容、技能或模板" value={query} onChange={event => setQuery(event.target.value)} />
         <Select className="task-filter-source" aria-label="任务来源" value={source} onChange={(value: TaskSource) => patchParams({ source: value, ...(value !== "agent" ? { from: null, to: null, task_type: null } : {}) })} options={[{ value: "all", label: "全部来源" }, { value: "agent", label: "Agent／系统任务" }, { value: "business", label: "业务任务" }]} />
         <DatePicker.RangePicker className="task-filter-date-range" aria-label="Agent任务时间范围" placeholder={["开始日期", "结束日期"]} format="YYYY-MM-DD" value={[from ? dayjs(from) : null, to ? dayjs(to) : null]} onChange={(_dates, values) => changeRange(values)} allowEmpty={[true, true]} />
         <Button type="text" className={`task-attention-filter${taskQuery.overdue ? " is-active" : ""}`} aria-pressed={taskQuery.overdue} onClick={() => setParam("attention", taskQuery.overdue ? null : "overdue")}>逾期任务</Button>

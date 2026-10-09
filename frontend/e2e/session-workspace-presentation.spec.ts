@@ -28,7 +28,8 @@ for (const theme of ["light", "dark"]) {
         const composer = rect(".composer");
         const rail = rect(".scope-task-rail");
         const result = rect(".result-rail");
-        const jump = rect("[data-scope-scroll-jump]");
+        const jumpElement = el.querySelector<HTMLElement>("[data-scope-scroll-jump]")!;
+        const jump = jumpElement.getBoundingClientRect();
         const railBorder = parseFloat(getComputedStyle(el.querySelector(".scope-task-rail")!).borderLeftWidth);
         return {
           leftWidth: left.width,
@@ -38,7 +39,12 @@ for (const theme of ["light", "dark"]) {
           feedClientWidth: feed.clientWidth, composerWidth: composer.width,
           aligned: Math.abs(body.left - composer.left) < 1 && Math.abs(body.right - composer.right) < 1,
           railWidth: rail.width, rightEdge: rail.right,
-          jumpBelowFeed: jump.top >= feed.getBoundingClientRect().bottom,
+          // New density contract: the jump floats inside the scroll-wrap; its
+          // content tail reserves enough vertical space to keep the final row
+          // reachable without introducing a side lane or a permanent footer.
+          jumpPosition: getComputedStyle(jumpElement).position,
+          jumpWithinFeed: jump.top >= feed.getBoundingClientRect().top && jump.bottom <= feed.getBoundingClientRect().bottom + 1,
+          jumpReservedTail: parseFloat(getComputedStyle(el.querySelector('.scope-workspace-center-scroll-content')!).paddingBottom) >= jump.height,
           jumpAboveComposer: jump.bottom <= composer.top,
           overflow: document.documentElement.scrollWidth > innerWidth,
         };
@@ -47,7 +53,7 @@ for (const theme of ["light", "dark"]) {
       const normal = await measure();
       expect(normal).toMatchObject({ leftWidth: 260, centerWidth: 432, contentWidth: 400,
         feedWidth: 400, feedClientWidth: 400, composerWidth: 400, aligned: true,
-        rightEdge: 1440, jumpBelowFeed: true, jumpAboveComposer: true, overflow: false });
+        rightEdge: 1440, jumpPosition: "absolute", jumpWithinFeed: true, jumpReservedTail: true, jumpAboveComposer: true, overflow: false });
       // Classic and overlay scrollbars, including a nav rail that becomes
       // scrollable after loading, must not alter the content gutters.
       await page.locator(".sidebar-nav-stack").evaluate(el => {
@@ -128,6 +134,15 @@ async function fixture(page: Page, discovery = false, withDraft = false, initial
     else if (path === "/api/task-definitions" && discovery) json = [{ id: "crawler_collect", title: "采集线索", granted: true,
       ui_template: { id: "crawler_collect", kind: "skill_template", skill_id: "crawler_collect", version: "1", title: "采集线索",
         description: "采集公开线索", inputs: [], steps: [], constraints: [], starter: "发现线索", output: { type: "discovery_candidates", title: "候选线索" }, source: "skill", read_only: true } }];
+    // The five Home panes load their own read models. Returning the production
+    // response shapes keeps this presentation fixture at the actual UI boundary
+    // rather than leaving today/todo in their indeterminate loading state.
+    else if (path === "/api/home/board") json = { kols: [], tabs: [], tasks: [], workbench: { today: [], todo: [] }, follow_scope: { required: false, bound: false } };
+    else if (path === "/api/home/following") json = { entry: "memory", creates_session: false, calls_model: false, kols: [], follow_scope: { required: false, bound: false } };
+    else if (path === "/api/home/pool") json = { entry: "memory", creates_session: false, calls_model: false, items: [], kols: [], library: { count: 0 }, page: { offset: 0, limit: 50, total: 0, matched: 0, next_offset: null } };
+    else if (path === "/api/workbench/tasks" || path === "/api/tickets") json = { items: [], page: { next_cursor: null } };
+    else if (path === "/api/home/today-tasks" || path === "/api/home/todo-tasks") json = { items: [] };
+    else if (path === "/api/workbench/plan") json = { planning: false, brief: null, events: [], creates_session: false, calls_model: false };
     else if (path.includes("/api/tasks/by-session/") || path === "/api/tasks/workspace-task") {
       if (taskReadStatus !== 200) return route.fulfill({ status: taskReadStatus, json: { detail: "会话任务暂时无法读取" } });
       json = { task };

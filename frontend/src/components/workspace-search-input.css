@@ -1,0 +1,71 @@
+/* Local shield for legacy native-search selectors; no global input reset is required. */
+#root .workspace-search-input.ant-input-affix-wrapper {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  height: var(--control-h-lg);
+  min-height: var(--control-h-lg);
+  gap: var(--space-2);
+  padding-inline: var(--workspace-search-pad-x);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  line-height: 1;
+  transition: border-color var(--duration-control), box-shadow var(--duration-control);
+}
+
+#root .workspace-search-input.ant-input-affix-wrapper:hover {
+  border-color: var(--control-border);
+}
+
+#root .workspace-search-input.ant-input-affix-wrapper:focus-within {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+#root .workspace-search-input.ant-input-affix-wrapper .ant-input-prefix,
+#root .workspace-search-input.ant-input-affix-wrapper .ant-input-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-quiet);
+}
+
+#root .workspace-search-input.ant-input-affix-wrapper .ant-input-prefix > .anticon {
+  font-size: var(--icon-sm);
+}
+
+#root .workspace-search-input.ant-input-affix-wrapper .ant-input {
+  min-width: 0;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  color: var(--text);
+  font: inherit;
+  line-height: normal;
+}
+
+#root .workspace-search-input.ant-input-affix-wrapper .ant-input::placeholder {
+  color: var(--text-quiet);
+}
+
+#root .workspace-search-input.ant-input-affix-wrapper .ant-input-clear-icon {
+  color: var(--text-quiet);
+}
+
+#root .workspace-search-input.ant-input-affix-wrapper .ant-input-clear-icon:hover {
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root .workspace-search-input.ant-input-affix-wrapper {
+    transition: none;
+  }
+}

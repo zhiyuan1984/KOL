@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Button } from "antd";
+import { HighlightOutlined } from "@ant-design/icons";
 import type { Task } from "../api";
 import BoardRow from "./BoardRow";
 import { LifecycleNavigation } from "../components/LifecycleNavigation";
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { ATTENTION_FILTERS, BOARD_FILTERS, matchesAttentionFilter, matchesBoardFilter, matchesBoardQuery, type AttentionFilter, type BoardFilter } from "./taskBoardFilters";
 import "../components/lifecycle-workspace.css";
 import { planStartEvent, SCOPE_CONFIG, type PlanScope, type TodayPlanPhase } from "./todayPlan";
@@ -99,33 +102,33 @@ export default function TaskBoard({
           <span className="task-board-scope-note">{scope === "today" ? "今日安排与进展" : "当前未结责任清单"}</span>
         </div>
         <div className="task-board-tools">
-          <label className="task-board-search-field">
-            <svg className="task-board-search-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></svg>
-            <input
-            type="search"
-            className="task-board-search"
-            placeholder={cfg.boardSearchLabel}
-            aria-label={cfg.boardSearchLabel}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          </label>
+          <div className="task-board-search-slot">
+            <WorkspaceSearchInput
+              className="task-board-search"
+              placeholder={cfg.boardSearchLabel}
+              aria-label={cfg.boardSearchLabel}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
           {showPlanButton ? (
-            <button
-              type="button"
+            <Button
+              type="text"
+              size="small"
               className={"task-board-plan-btn is-" + planButton.state}
               data-plan-state={planButton.state}
               data-home-entry={`plan-${scope}`}
               disabled={planButton.busy}
               aria-busy={planButton.busy ? true : undefined}
+              icon={planButton.busy
+                ? <span className="task-board-plan-spin" aria-hidden />
+                : <HighlightOutlined className="task-board-plan-icon" aria-hidden />}
               onClick={() => window.dispatchEvent(new Event(
                 planStartEvent(scope),
               ))}
             >
-              {planButton.busy ? <span className="task-board-plan-spin" aria-hidden /> : null}
-              {!planButton.busy ? <svg className="task-board-plan-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d={planButton.state === "again" ? "M15 6a6 6 0 1 0 1 6" : "m8 5 6 5-6 5Z"} /><path d={planButton.state === "again" ? "M15 3v3h-3" : undefined} /></svg> : null}
               {planButton.label}
-            </button>
+            </Button>
           ) : null}
         </div>
       </header>
@@ -137,12 +140,12 @@ export default function TaskBoard({
           idPrefix={`task-board-${scope}`}
           value={filter}
           onChange={value => setFilter(value as BoardFilter)}
-          options={BOARD_FILTERS.filter(({ id }) => id !== "unclassified" || counts[id] > 0 || filter === id)
+          options={BOARD_FILTERS.filter(({ id }) => counts[id] > 0 || filter === id)
             .map(({ id, label }) => ({ id, label, count: counts[id], dataAttributes: { "data-board-filter": id } }))}
         />
       </div>
       <div className="task-board-attention" role="group" aria-label="任务提醒筛选">
-        {ATTENTION_FILTERS.map(({ id, label }) => <button key={id} type="button"
+        {ATTENTION_FILTERS.filter(({ id }) => attentionCounts[id] > 0 || attention === id).map(({ id, label }) => <button key={id} type="button"
           className="task-board-attention-filter" data-attention-filter={id}
           aria-pressed={attention === id} onClick={() => setAttention(attention === id ? null : id)}>
           {label} {attentionCounts[id]}
@@ -157,6 +160,12 @@ export default function TaskBoard({
       {filtered.length ? (
         <div className="task-board-table-scroll">
         <table className="task-board-table">
+          <colgroup>
+            <col className="task-board-col-title" />
+            <col className="task-board-col-status" />
+            <col className="task-board-col-due" />
+            <col className="task-board-col-actions" />
+          </colgroup>
           <thead className="sr-only"><tr><th scope="col">任务</th><th scope="col">任务状态与执行</th><th scope="col">到期</th><th scope="col">操作</th></tr></thead>
           <tbody>
             {filtered.map((task, index) => (

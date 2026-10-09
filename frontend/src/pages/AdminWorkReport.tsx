@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -641,8 +642,7 @@ export default function AdminWorkReport() {
         </summary>
         <div className="wr-fold-body">
           <div className="wr-members-tools">
-            <input
-              type="search"
+            <WorkspaceSearchInput
               value={memberQuery}
               onChange={(event) => setMemberQuery(event.target.value)}
               placeholder="搜索成员"

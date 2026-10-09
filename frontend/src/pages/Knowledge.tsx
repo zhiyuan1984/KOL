@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type KnowledgeBaseRow, type KnowledgeDomainRow, type KnowledgeRow } from "../api";
@@ -382,17 +383,13 @@ export default function Knowledge() {
           {loading ? <p className="knowledge-load-footer" role="status">{loaded ? "正在检索知识…" : "正在加载知识…"}</p> : null}
           {loaded ? (
             <KnowledgeFilterBar>
-              <div className="kbv-search">
-                <KbvIcon name="search" />
-                <input
-                  type="search"
+              <WorkspaceSearchInput className="kbv-search"
                   aria-label={KB_SEARCH_LABEL}
                   data-kb-search
                   value={query}
                   placeholder={KB_SEARCH_PLACEHOLDER}
                   onChange={(event) => setQuery(event.target.value)}
                 />
-              </div>
 
               {hasTaxonomy ? (
                 <ScopeTabs

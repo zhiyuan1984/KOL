@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type AdminAgentAccess, type AdminAgentRow, type AdminAgentsResponse, type AdminBindingPreview, type AdminSkillRecommendation } from "../api";
 import { useAdminConfirm } from "../components/ConfirmDialog";
@@ -311,7 +312,7 @@ export function AdminAgents() {
   return <section className="governance-workspace" data-admin-page="agents">
     <aside className="governance-rail">
       <div className="governance-scroll">
-        <label className="governance-search-wrap"><span aria-hidden="true">⌕</span><input className="governance-search" aria-label="搜索 Agent" placeholder="请搜索Agent名称或说明" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <WorkspaceSearchInput className="governance-search-wrap governance-search" aria-label="搜索 Agent" placeholder="请搜索Agent名称或说明" value={query} onChange={(event) => setQuery(event.target.value)} />
         <div className="governance-filter-group"><strong>发布状态</strong><div className="governance-filter-options">{([["all", "全部"], ["draft", "草稿"], ["published", "已发布"], ["disabled", "已停用"]] as const).map(([id, label]) => <button className="governance-filter-choice" type="button" key={id} aria-pressed={status === id} onClick={() => setStatus(id)}>{label}<span className="governance-filter-badge">{countForStatus(id)}</span></button>)}</div></div>
         <div className="governance-filter-group"><strong>绑定类型</strong><div className="governance-filter-options">{([["all", "全部"], ["company", "公司"], ["level1", "一级部门"], ["level2", "二级部门"], ["level3", "三级部门"], ["person", "人员"], ["unbound", "未绑定"]] as const).map(([id, label]) => <button className="governance-filter-choice" type="button" key={id} aria-pressed={bindingType === id} onClick={() => setBindingType(id)}>{label}<span className="governance-filter-badge">{countForBinding(id)}</span></button>)}</div></div>
         <h2 className="governance-subheading">Agent 列表</h2>

@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
 import { useState, type ComponentProps } from "react";
 import KnowledgeFilters from "./KnowledgeFilters";
 import ScopeTabs from "../../components/ScopeTabs";
@@ -30,11 +31,8 @@ export default function KnowledgeBrowseFilters(props: Props) {
     - props.viewOptions.filter(item => item.value !== "all").reduce((sum, item) => sum + item.count, 0));
   return <div data-kbv-filter-pane>
     <KnowledgeFilterBar>
-      <div className="kbv-search">
-        <KbvIcon name="search" />
-        <input type="search" aria-label="搜索知识" data-kbv-search placeholder={KB_SEARCH_PLACEHOLDER}
+      <WorkspaceSearchInput className="kbv-search" aria-label="搜索知识" data-kbv-search placeholder={KB_SEARCH_PLACEHOLDER}
           value={props.query} onChange={event => props.onQuery(event.target.value)} />
-      </div>
       <div className="kbv-filter-tools">
         <span className="muted" data-kbv-count-scope>分类计数随其他筛选条件变化</span>
         <div>

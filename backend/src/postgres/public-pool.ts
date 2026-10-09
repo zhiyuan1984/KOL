@@ -75,7 +75,7 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
     ? viewerBrands.map((brand) => String(brand).trim().toUpperCase()).filter(Boolean)
     : null;
   const rows = await postgresQuery<{
-    items: Row[]; total: string; matched: string; new_count: string; library_value: string | null;
+    items: Row[]; total: string; matched: string; new_count: string; overdue_count: string; library_value: string | null;
   }>(`
     WITH source AS (
       SELECT ${columns.map(poolColumn).join(", ")},
@@ -130,18 +130,20 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
         WHERE f.company_id=c.company_id AND f.kol_uid=c.kol_uid AND f.status='released'
         ORDER BY f.released_at DESC, f.id DESC LIMIT 1
       ) released ON true
-    ), filtered AS MATERIALIZED (
-      SELECT * FROM visible WHERE ($2='all' OR public_filter=$2)
-        AND ($3='' OR strpos(lower(concat_ws(' ', handle, display_name, platform, direction, region, style,
+    ), queried AS MATERIALIZED (
+      SELECT * FROM visible WHERE ($3='' OR strpos(lower(concat_ws(' ', handle, display_name, platform, direction, region, style,
           effective_stage, CASE WHEN public_filter='new' THEN '未首次建联' ELSE '14天无回复' END,
           followers, avg_plays, engagement, ${metricSearch("followers")}, ${metricSearch("avg_plays")}, ${metricSearch("engagement")})), lower($3)) > 0)
+    ), filtered AS MATERIALIZED (
+      SELECT * FROM queried WHERE ($2='all' OR public_filter=$2)
     ), page AS (
       SELECT * FROM filtered ORDER BY ${orderField} ${orderDirection} NULLS LAST, id ASC LIMIT $4 OFFSET $5
     )
     SELECT COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY ${orderField} ${orderDirection} NULLS LAST, id ASC) FROM page), '[]'::jsonb) AS items,
       (SELECT count(*) FROM visible)::text AS total,
       (SELECT count(*) FROM filtered)::text AS matched,
-      (SELECT count(*) FROM visible WHERE public_filter='new')::text AS new_count,
+      (SELECT count(*) FROM queried WHERE public_filter='new')::text AS new_count,
+      (SELECT count(*) FROM queried WHERE public_filter='overdue')::text AS overdue_count,
       (SELECT value FROM app_state WHERE key='starry_library_sync') AS library_value
   `, [companyId, options.filter, options.query, options.limit, options.offset, brandFilter]);
   const result = rows[0]!;
@@ -160,6 +162,7 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
     page: {
       offset: options.offset, limit: options.limit, total: Number(result.total), matched,
       new_count: Number(result.new_count),
+      overdue_count: Number(result.overdue_count),
       next_offset: options.offset + options.limit < matched ? options.offset + options.limit : null,
     },
   };

@@ -166,6 +166,8 @@ export default function ComposerDock({
   showDiscoveryEditor = true,
   onDiscoveryBriefChange,
   onClearDiscoveryLock,
+  /** Lets a page release draft-only locks it owns without touching submitted runs. */
+  onClearDraft,
   // 2026-09-23：Discovery 模板入口已从 + 菜单移出（AI发现面自己负责），此 prop 目前无人使用；
   // 保留签名是为了不动 Home.tsx（另一个会话正在改那份文件），待其提交后与调用点一起删除。
   onOpenDiscoveryTemplate: _onOpenDiscoveryTemplate,
@@ -212,6 +214,7 @@ export default function ComposerDock({
   showDiscoveryEditor?: boolean;
   onDiscoveryBriefChange?: (brief: DiscoveryBrief) => void;
   onClearDiscoveryLock?: () => void;
+  onClearDraft?: () => void;
   /** 已不再使用（见参数处的说明）：保留签名只为不动 Home.tsx 的调用点。 */
   onOpenDiscoveryTemplate?: () => void;
   contextChips?: { id: string; label: string; objectKind?: string }[];
@@ -253,6 +256,8 @@ export default function ComposerDock({
   const [composing, setComposing] = useState(false);
   const [discoveryTextExpanded, setDiscoveryTextExpanded] = useState(false);
   const [dismissedObjectChipKeys, setDismissedObjectChipKeys] = useState<string[]>([]);
+  const [dismissedLockedKnowledgeId, setDismissedLockedKnowledgeId] = useState<string | null>(null);
+  const [clearedDraftLockSignature, setClearedDraftLockSignature] = useState<string | null>(null);
   const { debug } = useViewMode();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const selectionRef = useRef({ start: value.length, end: value.length });
@@ -262,12 +267,19 @@ export default function ComposerDock({
   const pickerRef = useRef<HTMLDivElement>(null);
   const onKnowledgeChangeRef = useRef(onKnowledgeChange);
   const lockSourceRef = useRef<"auto" | "explicit" | null>(lockedKnowledgeId ? "explicit" : null);
+  // A clear only abandons the pending reference. The upload itself can finish on
+  // the server and remain reusable in recent files, but may never repopulate a
+  // new draft after it resolves.
+  const draftEpochRef = useRef(0);
+  const uploadCountRef = useRef(0);
   onKnowledgeChangeRef.current = onKnowledgeChange;
 
   const objectChipSignature = [
     ...objectRefs.map((ref) => `${objectChipKey({ id: ref.id, kind: ref.kind })}:${ref.label || ""}`),
     ...(contextChips || []).map((chip) => `${objectChipKey({ id: chip.id, objectKind: chip.objectKind })}:${chip.label}`),
   ].join("|");
+  const draftLockSignature = `${lockedIntent || ""}|${lockedKnowledgeId || ""}|${entryIntent}|${discoveryBrief ? "discovery" : ""}`;
+  const draftLocksCleared = clearedDraftLockSignature === draftLockSignature;
 
   useEffect(() => {
     // Context follows the selected mailbox conversation. A different context
@@ -275,6 +287,20 @@ export default function ComposerDock({
     // remains effective for the current one.
     setDismissedObjectChipKeys([]);
   }, [objectChipSignature]);
+
+  useEffect(() => {
+    // A parent normally clears this prop in response to onKnowledgeChange(null).
+    // Keep the local dismissal only while it still echoes the cleared lock so
+    // the chip/preview do not flash back during that parent update.
+    setDismissedLockedKnowledgeId((current) => current && current !== lockedKnowledgeId ? null : current);
+  }, [lockedKnowledgeId]);
+
+  useEffect(() => {
+    // Once an owning page responds with changed lock props, let its next draft
+    // use them normally. Until then, stale props cannot make an empty composer
+    // sendable after the user explicitly cleared it.
+    setClearedDraftLockSignature((current) => current && current !== draftLockSignature ? null : current);
+  }, [draftLockSignature]);
 
   // 技能目录由添加菜单或 @ / / 候选触发；预填文本和已知意图无需预读整份目录。
   // 指针移到「+」上就预取，菜单打开时已有数据；每次打开或出现候选仍刷新一次，
@@ -560,11 +586,14 @@ export default function ComposerDock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const lockedSkill = lockedIntent && lockedIntent !== DISCOVERY_INTENT
-    ? skills.find((s) => s.id === lockedIntent) || (lockedIntent ? {
-      id: lockedIntent,
-      title: lockedLabel || lockedIntent,
-      label: lockedLabel || lockedIntent,
+  const activeLockedIntent = draftLocksCleared ? null : lockedIntent;
+  const activeLockedKnowledgeId = draftLocksCleared || dismissedLockedKnowledgeId === lockedKnowledgeId ? null : lockedKnowledgeId;
+  const activeEntryIntent = draftLocksCleared ? "free" : entryIntent;
+  const lockedSkill = activeLockedIntent && activeLockedIntent !== DISCOVERY_INTENT
+    ? skills.find((s) => s.id === activeLockedIntent) || (activeLockedIntent ? {
+      id: activeLockedIntent,
+      title: lockedLabel || activeLockedIntent,
+      label: lockedLabel || activeLockedIntent,
     } : undefined)
     : undefined;
 
@@ -578,16 +607,16 @@ export default function ComposerDock({
       seenSkills.add(chip.id);
       chips.push(chip);
     }
-    if (lockedKnowledgeId) {
-      const title = lockedTemplate?.title || templates.find((row) => row.id === lockedKnowledgeId)?.title || "资料";
+    if (activeLockedKnowledgeId) {
+      const title = lockedTemplate?.title || templates.find((row) => row.id === activeLockedKnowledgeId)?.title || "资料";
       chips.push({
         kind: "kb",
-        id: lockedKnowledgeId,
+        id: activeLockedKnowledgeId,
         label: title.length > 8 ? `${title.slice(0, 8)}…` : title,
       });
     }
     for (const chip of kbChips) {
-      if (chip.id === lockedKnowledgeId) continue;
+      if (chip.id === activeLockedKnowledgeId) continue;
       chips.push(chip);
     }
     if (expertId !== DEFAULT_EXPERT_ID) {
@@ -636,6 +665,7 @@ export default function ComposerDock({
     contextChips,
     discoveryBrief,
     dismissedObjectChipKeys,
+    dismissedLockedKnowledgeId,
     entryIntent,
     expertId,
     kbChips,
@@ -648,6 +678,7 @@ export default function ComposerDock({
     selectedProject,
     skillChips,
     templates,
+    activeLockedKnowledgeId,
   ]);
 
   const filtered = skills.filter((s) => {
@@ -797,10 +828,12 @@ export default function ComposerDock({
 
   const attachFiles = async (files: FileList | File[] | null) => {
     if (!files?.length) return;
+    const uploadEpoch = draftEpochRef.current;
+    uploadCountRef.current += 1;
     setUploading(true);
     setAttachErr("");
     try {
-      const next: AttachmentRef[] = [...attachments];
+      const uploadedRefs: AttachmentRef[] = [];
       for (const file of Array.from(files)) {
         const fd = new FormData();
         fd.append("file", file);
@@ -810,14 +843,22 @@ export default function ComposerDock({
           throw new Error(typeof b.detail === "string" ? b.detail : "附件未写入磁盘");
         }
         const uploaded = { id: b.id, name: b.name || file.name, path: b.path, size: b.size || file.size, type: b.type || file.type || "文件", available: true };
-        next.push(uploaded);
+        uploadedRefs.push(uploaded);
         setRecentFiles((current) => [uploaded, ...current.filter((item) => item.path !== uploaded.path)].slice(0, 12));
       }
-      setAttachments(next);
+      if (draftEpochRef.current === uploadEpoch) {
+        setAttachments((current) => [
+          ...current,
+          ...uploadedRefs.filter((uploaded) => !current.some((item) => item.path === uploaded.path)),
+        ]);
+      }
     } catch (e) {
-      setAttachErr(String(e));
+      if (draftEpochRef.current === uploadEpoch) setAttachErr(String(e));
     } finally {
-      setUploading(false);
+      if (draftEpochRef.current === uploadEpoch) {
+        uploadCountRef.current = Math.max(0, uploadCountRef.current - 1);
+        setUploading(uploadCountRef.current > 0);
+      }
       if (fileRef.current) fileRef.current.value = "";
       if (imageRef.current) imageRef.current.value = "";
     }
@@ -875,14 +916,14 @@ export default function ComposerDock({
     onFocusChange?.(next);
   };
 
-  const intent = entryIntent !== "free" ? entryIntent : undefined;
-  const lockedRow = templates.find((row) => row.id === lockedKnowledgeId);
+  const intent = activeEntryIntent !== "free" ? activeEntryIntent : undefined;
+  const lockedRow = templates.find((row) => row.id === activeLockedKnowledgeId);
   const previewTitle = lockedRow?.title || lockedTemplate?.title || "";
   const previewSubject = lockedRow?.subject || lockedTemplate?.subject || "";
   const previewBody = lockedRow?.body_en || lockedRow?.body || lockedTemplate?.body_en || "";
   const previewExcerpt = templateBodyExcerpt(previewBody);
   const bodyInComposer = composerHoldsTemplateBody(value, previewBody);
-  const discoveryLocked = entryIntent === "discover" || lockedIntent === DISCOVERY_INTENT || Boolean(discoveryBrief);
+  const discoveryLocked = !draftLocksCleared && (entryIntent === "discover" || lockedIntent === DISCOVERY_INTENT || Boolean(discoveryBrief));
   const compactDiscoveryPreview = Boolean(discoveryBrief && !showDiscoveryEditor && value.startsWith(DISCOVERY_BODY_PREFIX) && !autoFocus && !discoveryTextExpanded);
   const discoveryReady = Boolean(discoveryBrief && canSubmitDiscovery(discoveryBrief));
   const discoveryBlocked = Boolean(discoveryBrief && !canSubmitDiscovery(discoveryBrief));
@@ -901,6 +942,75 @@ export default function ComposerDock({
   const workspace = variant === "workspace";
   const placeholder = hint && !value.trim() ? hint : COMPOSER_PLACEHOLDER;
   const sendState = running ? "stop" : canSend && !sendDisabled ? "ready" : "idle";
+
+  const hasDraft = Boolean(
+    value
+    || attachments.length
+    || skillChips.length
+    || kbChips.length
+    || connectorChips.length
+    || selectedProject
+    || selectedSkillId
+    || selectedSkillTemplate
+    || activeLockedIntent
+    || activeLockedKnowledgeId
+    || discoveryLocked
+    || objectRefs.some((ref) => !dismissedObjectChipKeys.includes(objectChipKey({ id: ref.id, kind: ref.kind }))),
+  );
+
+  const clearDraft = () => {
+    if (!hasDraft) return;
+    // Invalidate all in-flight attachment references before resetting the local
+    // draft. We deliberately do not delete uploaded files from the server.
+    draftEpochRef.current += 1;
+    uploadCountRef.current = 0;
+    setUploading(false);
+    setAttachErr("");
+    setAttachments([]);
+    setSkillChips([]);
+    setKbChips([]);
+    setConnectorChips([]);
+    setSelectedProject(null);
+    setSelectedSkillId(null);
+    setSelectedSkillTemplate(null);
+    setPicker(false);
+    setQuery("");
+    setPlusOpen(false);
+    setDiscoveryTextExpanded(false);
+    if (fileRef.current) fileRef.current.value = "";
+    if (imageRef.current) imageRef.current.value = "";
+
+    // `objectRefs` are user-added draft context. `contextChips` are session
+    // context and intentionally remain untouched; the existing dismissal model
+    // keeps that distinction while parent state catches up.
+    if (objectRefs.length) {
+      setDismissedObjectChipKeys((current) => Array.from(new Set([
+        ...current,
+        ...objectRefs.map((ref) => objectChipKey({ id: ref.id, kind: ref.kind })),
+      ])));
+      onObjectRefsChange?.([]);
+    }
+
+    const removedSkillIds = new Set(skillChips.map((chip) => chip.id));
+    if (selectedSkillId) removedSkillIds.add(selectedSkillId);
+    if (lockedIntent && lockedIntent !== DISCOVERY_INTENT) removedSkillIds.add(lockedIntent);
+    for (const skillId of removedSkillIds) onSkillRemoved?.(skillId);
+
+    lockSourceRef.current = null;
+    setClearedDraftLockSignature(draftLockSignature);
+    if (lockedKnowledgeId) setDismissedLockedKnowledgeId(lockedKnowledgeId);
+    onMailBodyEdit?.();
+    onChange("");
+    onKnowledgeChange?.(null);
+    onSkillTemplateChange?.(null, null);
+    if (selectedProject) mailCompose?.onContextChange(undefined, "");
+    if (mailCompose?.active) mailCompose.onSubjectChange("");
+    if (discoveryLocked) onClearDiscoveryLock?.();
+    // Pages own route-level and intent locks. This callback must only clear
+    // draft state; it deliberately has no access to queue, results, or onStop.
+    onClearDraft?.();
+    focusEditor(0);
+  };
 
   const insertChipText = (chip: ComposerChip) => {
     if (busy || running || !chip.label) return;
@@ -949,18 +1059,18 @@ export default function ComposerDock({
           label: chip.label,
           access: chip.access || "write",
         })),
-      intent: entryIntent,
+      intent: activeEntryIntent,
     };
     onSubmit({
       text: submitText,
       intent: mailCompose?.active ? "email_compose" : intent,
       collaboration_id: mailCompose?.collaborationId || selectedProject?.id,
-      knowledge_id: mailCompose?.knowledgeId || lockedKnowledgeId || kbChips[0]?.id || undefined,
+      knowledge_id: mailCompose?.knowledgeId || activeLockedKnowledgeId || kbChips[0]?.id || undefined,
       model_tier: modelTier,
       attachments: attachments.length ? attachments : undefined,
       scope,
-      object_refs: objectRefs,
-      client_entry: clientEntryFor(entryIntent),
+      object_refs: objectRefs.filter((ref) => !dismissedObjectChipKeys.includes(objectChipKey({ id: ref.id, kind: ref.kind }))),
+      client_entry: clientEntryFor(activeEntryIntent),
       compose_input: mailCompose?.composeInput(value),
       skill_template_version: selectedSkillTemplate?.version,
     });
@@ -1054,10 +1164,10 @@ export default function ComposerDock({
           onChange={(next) => onDiscoveryBriefChange?.(next)}
         />
       ) : null}
-      {lockedKnowledgeId && (previewTitle || previewBody) ? (
+      {activeLockedKnowledgeId && (previewTitle || previewBody) ? (
         <aside
           className={"composer-template-preview" + (bodyInComposer ? " composer-template-preview--lock" : "")}
-          data-knowledge-preview={lockedKnowledgeId}
+          data-knowledge-preview={activeLockedKnowledgeId}
           data-knowledge-preview-mode={bodyInComposer ? "lock" : "full"}
           aria-label="已锁定邮件底稿"
         >
@@ -1382,17 +1492,17 @@ export default function ComposerDock({
               knowledgeLoaded={knowledgeLoaded}
             />
           </div>
-          {discoveryLocked && onClearDiscoveryLock ? (
-              <button
-                type="button"
-                className="composer-discovery-clear"
-                data-composer-discovery-clear
-                title="清除发现条件，退回普通提问"
-                onClick={() => onClearDiscoveryLock()}
-              >
-              清除发现条件
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="composer-clear-draft"
+            data-composer-clear-draft
+            disabled={!hasDraft}
+            aria-label="清空提问框"
+            title="清空提问框"
+            onClick={clearDraft}
+          >
+            清空提问框
+          </button>
           <div className="composer-toolbar-end">
             {/* 产品要求（2026-09-22）：不再展示「Enter 发送 · Shift+Enter 换行」——
                 键位约定保留，但不占工具栏视野。 */}

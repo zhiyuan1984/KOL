@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useRef, useState } from "react";
 import "./followed.css";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
@@ -22,15 +23,6 @@ const SORT_OPTIONS: { key: KolSortMode; label: string }[] = [
 ];
 
 /** 与公海同一支搜索图标：框内左侧内联，命中区仍是整个输入框。 */
-function SearchIcon() {
-  return (
-    <svg className="followed-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
-      <path d="m10.25 10.25 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function SortIcon() {
   return (
     <svg className="followed-sort-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -102,6 +94,9 @@ export default function FollowedPane({
   focusedKolId,
   confirmStageBusyId,
   confirmStageFeedback,
+  releaseBusyId,
+  releaseErrorId,
+  releaseError,
   followScope,
   followEmptyKind,
   down,
@@ -134,6 +129,9 @@ export default function FollowedPane({
   focusedKolId: string | null;
   confirmStageBusyId: string | null;
   confirmStageFeedback: { id: string; text: string; tone: "info" | "error" } | null;
+  releaseBusyId?: string | null;
+  releaseErrorId?: string | null;
+  releaseError?: string | null;
   followScope: StarryBinding | null;
   followEmptyKind: string;
   down?: SurfaceDownView | null;
@@ -206,17 +204,12 @@ export default function FollowedPane({
             筛选后右栏显示「共 N 位」（筛选结果数），未筛选时不渲染，避免与中栏总数重复（不变量 6）。 */}
         {allCards.length ? <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <div className="followed-object-look" data-followed-object-look>
-            <label className="followed-object-search">
-              <SearchIcon />
-              <span className="sr-only">搜索跟进对象</span>
-              <input
-                type="search"
+            <WorkspaceSearchInput className="followed-object-search"
                 data-followed-object-search
                 value={kolQuery}
                 placeholder="搜索跟进对象"
                 onChange={(event) => onQuery(event.target.value)}
               />
-            </label>
             <div className="followed-object-sort" data-followed-sort role="group" aria-label="跟进对象排序">
               {SORT_OPTIONS.map((option) => (
                 <button
@@ -315,6 +308,8 @@ export default function FollowedPane({
                   onCompose={() => onCompose(card)}
                   onConfirmStage={() => onConfirmStage(card)}
                   onRelease={card.source.follow_id && onRelease ? () => onRelease(card) : undefined}
+                  releaseBusy={releaseBusyId === card.source.id}
+                  releaseError={releaseErrorId === card.source.id ? releaseError || undefined : undefined}
                 />
               ))}
             </div>

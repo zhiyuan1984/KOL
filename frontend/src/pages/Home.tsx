@@ -50,7 +50,6 @@ import PoolAgentFeed from "../home/PoolAgentFeed";
 import { usePoolAgentWorkspace } from "../home/usePoolAgentWorkspace";
 import "../home/pool-agent.css";
 import PoolPane from "../home/PoolPane";
-import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
 import SkillParamCard, { type SkillParamField } from "../home/workspace/SkillParamCard";
 import SkillTemplateContext from "../components/SkillTemplateContext";
@@ -2430,6 +2429,28 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         placement="dock"
         value={text}
         onChange={onComposerText}
+        onClearDraft={() => {
+          releasePreset();
+          setText("");
+          setLockedIntent(null);
+          setLockedLabel(null);
+          applyLockedKnowledge(null);
+          setSelectedSkillTemplate(null);
+          setSkillParamValues({});
+          setSkillParamErrors({});
+          setSkillParamTouched(new Set());
+          setDiscoveryBrief(null);
+          discoveryBriefRef.current = null;
+          setEntryIntent("free");
+          setComposerChips([]);
+          setObjectRefs([]);
+          setAnalyzeSurface(null);
+          setAnalyzeUids([]);
+          setAnalyzePeople([]);
+          mailCompose.clear();
+          clearComposerDraft();
+          clearComposerFill();
+        }}
         onSubmit={onComposer}
         disabled={busy || blockSubmit || (mode === "pool" && (poolAgentBusy || Boolean(poolAgent.scoreConfirm)))}
         running={mode === "pool" ? poolAgent.running : intakeRunning}
@@ -2606,6 +2627,9 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
                   focusedKolId={followedWorkspace.focusedId}
                   confirmStageBusyId={followedWorkspace.confirmStageBusyId}
                   confirmStageFeedback={followedWorkspace.confirmStageFeedback}
+                  releaseBusyId={followedWorkspace.releaseBusyId}
+                  releaseErrorId={followedWorkspace.releaseErrorId}
+                  releaseError={followedWorkspace.releaseError}
                   followScope={followScope}
                   followEmptyKind={followEmptyKind}
                   down={followingDown}
@@ -2641,7 +2665,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
             <ObjectWorkspace
               pane="pool"
               title="公海"
-              description="从当前可见的公开对象中选择分析范围；领取跟进仍是右栏里的独立确认动作。"
+              description="选择公开对象进行分析；点击领取建立跟进关系，不发信、不改阶段。"
               selectedCount={selectedKolIds.length}
               resultCount={poolWorkspace.matchedCount}
               railLabel="公海结果"
@@ -2674,6 +2698,8 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
                 <PoolPane
                   cards={poolWorkspace.visibleCards}
                   totalCount={poolWorkspace.totalCount}
+                  matchedCount={poolWorkspace.matchedCount}
+                  filterCounts={poolWorkspace.poolCounts}
                   page={poolWorkspace.page}
                   onPage={poolWorkspace.setOffset}
                   isFiltered={Boolean(poolWorkspace.query.trim()) || poolWorkspace.filter !== "all"}
@@ -2687,13 +2713,10 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
                   syncBusy={poolWorkspace.syncBusy}
                   syncError={poolWorkspace.syncError}
                   syncNotice={poolWorkspace.syncNotice}
-                  claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
-                  claimTarget={poolWorkspace.claimTarget}
+                  claimBusyId={poolWorkspace.claimBusyId}
+                  claimErrorId={poolWorkspace.claimErrorId}
                   claimError={poolWorkspace.claimError}
-                  claimedId={poolWorkspace.claimedId}
-                  undoAvailable={poolWorkspace.undoAvailable}
-                  undoBusy={poolWorkspace.undoBusy}
-                  undoError={poolWorkspace.undoError}
+                  claimReceipts={poolWorkspace.claimReceipts}
                   onQuery={poolWorkspace.setQuery}
                   onFilter={poolWorkspace.setFilter}
                   onToggleSort={(field) => poolWorkspace.setSort(nextPoolSort(poolWorkspace.sort, field))}
@@ -2701,9 +2724,8 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
                   onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void poolWorkspace.syncLibrary()}
                   onClaim={poolWorkspace.requestClaim}
-                  onConfirmClaim={() => void poolWorkspace.confirmClaim()}
-                  onCancelClaim={poolWorkspace.cancelClaim}
-                  onUndoClaim={() => void poolWorkspace.undoLatestClaim()}
+                  onReleaseClaim={poolWorkspace.releaseClaimReceipt}
+                  onRefreshOwnership={poolWorkspace.refreshOwnership}
                 />
               )}
             />
@@ -2791,14 +2813,6 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         busy={Boolean(followedWorkspace.batchPending?.[0] && followedWorkspace.confirmStageBusyId === followedWorkspace.batchPending[0].id)}
         onConfirm={followedWorkspace.confirmBatch}
         onCancel={followedWorkspace.cancelBatch}
-      />
-      <ReleaseFollowConfirm
-        handle={followedWorkspace.releaseTarget?.handle}
-        open={Boolean(followedWorkspace.releaseTarget)}
-        busy={followedWorkspace.releaseBusy}
-        error={followedWorkspace.releaseError}
-        onConfirm={() => void followedWorkspace.confirmRelease()}
-        onCancel={followedWorkspace.cancelRelease}
       />
     </div>
   );

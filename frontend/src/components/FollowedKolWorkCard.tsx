@@ -58,6 +58,8 @@ export default function FollowedKolWorkCard({
   onCompose,
   onConfirmStage,
   onRelease,
+  releaseBusy = false,
+  releaseError,
   actionBusy = false,
   actionNotice,
   actionTone = "info",
@@ -75,6 +77,8 @@ export default function FollowedKolWorkCard({
   onCompose?: () => void;
   onConfirmStage?: () => void;
   onRelease?: () => void;
+  releaseBusy?: boolean;
+  releaseError?: string;
   actionBusy?: boolean;
   actionNotice?: string;
   actionTone?: "info" | "error";
@@ -322,10 +326,11 @@ export default function FollowedKolWorkCard({
               className="is-danger"
               data-release-follow
               data-home-entry="release-follow"
+              disabled={releaseBusy}
               title="解除跟进关系，该红人将回到公海"
               onClick={onRelease}
             >
-              回公海
+              {releaseBusy ? "正在放回…" : "放回公海"}
             </KolAction>
           ) : null}
         </KolCardActions>
@@ -349,6 +354,7 @@ export default function FollowedKolWorkCard({
           {actionNotice}
         </p>
       ) : null}
+      {releaseError ? <p className="error" data-release-follow-error role="alert">{releaseError}</p> : null}
     </KolCardShell>
   );
 }

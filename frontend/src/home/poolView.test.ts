@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { isHighPoolScore, poolScorePlaceholder } from "./poolView";
+import type { PoolKol } from "./kolContract";
+import {
+  EMPTY_POOL_CLAIM_RECEIPTS,
+  canStartPoolMutation,
+  countsAfterPoolReceipts,
+  isHighPoolScore,
+  poolCandidateCards,
+  poolScorePlaceholder,
+  reducePoolClaimReceipts,
+} from "./poolView";
+
+function poolCard(kolUid: string, stage = "未首次建联"): PoolKol {
+  return {
+    kol_uid: kolUid,
+    identity: { display: `@${kolUid}`, platform: "youtube" },
+    metrics: {},
+    public_stage: { label: stage },
+  };
+}
 
 /**
  * 「未评分」必须能解释自己：从未评过 / 评过但置信度不足 / 评分失败，三种原因文案与 tooltip 都不同；
@@ -55,5 +73,49 @@ describe("pool score placeholder", () => {
     expect(isHighPoolScore(85, 0.55)).toBe(false);
     expect(isHighPoolScore(50, 0.99)).toBe(false);
     expect(isHighPoolScore(null, 0.99)).toBe(false);
+  });
+});
+
+describe("pool claim receipts", () => {
+  it("keeps a successful claim as a release receipt, excludes it from candidates, then restores the claim action after release", () => {
+    const card = poolCard("kol-1");
+    const claimed = reducePoolClaimReceipts(EMPTY_POOL_CLAIM_RECEIPTS, {
+      type: "claim-succeeded",
+      receipt: { kolUid: card.kol_uid, followId: "follow-1", card },
+    });
+
+    expect(claimed[card.kol_uid]?.followId).toBe("follow-1");
+    expect(poolCandidateCards([card], claimed)).toEqual([]);
+    expect(countsAfterPoolReceipts({ newCount: 4, overdueCount: 2 }, claimed)).toEqual({ newCount: 3, overdueCount: 2 });
+
+    const released = reducePoolClaimReceipts(claimed, { type: "release-succeeded", kolUid: card.kol_uid });
+    expect(poolCandidateCards([card], released)).toEqual([card]);
+  });
+
+  it("does not switch the committed receipt state when a claim or release fails", () => {
+    const card = poolCard("kol-1", "14天无回复");
+    const claimed = reducePoolClaimReceipts(EMPTY_POOL_CLAIM_RECEIPTS, {
+      type: "claim-succeeded",
+      receipt: { kolUid: card.kol_uid, followId: "follow-1", card },
+    });
+
+    expect(reducePoolClaimReceipts(EMPTY_POOL_CLAIM_RECEIPTS, { type: "claim-failed" })).toBe(EMPTY_POOL_CLAIM_RECEIPTS);
+    expect(reducePoolClaimReceipts(claimed, { type: "release-failed" })).toBe(claimed);
+    expect(countsAfterPoolReceipts({ newCount: 4, overdueCount: 2 }, claimed)).toEqual({ newCount: 4, overdueCount: 1 });
+  });
+
+  it("blocks a second click during the same ownership mutation", () => {
+    expect(canStartPoolMutation(null, "kol-1")).toBe(true);
+    expect(canStartPoolMutation("kol-1", "kol-1")).toBe(false);
+    expect(canStartPoolMutation("kol-2", "kol-1")).toBe(false);
+  });
+
+  it("clears temporary receipts whenever the query/filter/page scope changes", () => {
+    const card = poolCard("kol-1");
+    const claimed = reducePoolClaimReceipts(EMPTY_POOL_CLAIM_RECEIPTS, {
+      type: "claim-succeeded",
+      receipt: { kolUid: card.kol_uid, followId: "follow-1", card },
+    });
+    expect(reducePoolClaimReceipts(claimed, { type: "scope-reset" })).toBe(EMPTY_POOL_CLAIM_RECEIPTS);
   });
 });

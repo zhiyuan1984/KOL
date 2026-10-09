@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -480,7 +481,7 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
                 <p className="muted">主键、上架、分配和最近改说明。漏斗分类只在员工目录使用。</p>
               </div>
               <label className="hub-search-wrap">
-                <input className="hub-search" placeholder="搜索主键或名称" value={q} onChange={(e) => setQ(e.target.value)} />
+                <WorkspaceSearchInput className="hub-search" placeholder="搜索主键或名称" value={q} onChange={(e) => setQ(e.target.value)} />
               </label>
             </div>
             <div className="admin-table-wrap">

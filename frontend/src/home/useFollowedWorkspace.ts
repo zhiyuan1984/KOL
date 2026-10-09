@@ -28,6 +28,11 @@ import type { ComposerObjectRef } from "../composer/types";
 
 export type FollowedKol = FollowedKolRecord;
 
+type FollowReleaseStatus =
+  | { state: "active"; followId: string }
+  | { state: "released" }
+  | { state: "uncertain" };
+
 /**
  * A follow-list "empty" result is only conclusive after the B.active index and
  * the mailbox-scoped legacy projection have both been reconciled. The latter
@@ -108,9 +113,16 @@ export function useFollowedWorkspace(options: {
     tone: "info" | "error";
   } | null>(null);
   const [batchPending, setBatchPending] = useState<FollowedKolCardModel[] | null>(null);
-  const [releaseTarget, setReleaseTarget] = useState<FollowedKol | null>(null);
-  const [releaseBusy, setReleaseBusy] = useState(false);
+  /** Kept null by the click-is-confirmed flow; retained only for the current Home prop shape. */
+  const [releaseTarget] = useState<FollowedKol | null>(null);
+  const [releaseBusyId, setReleaseBusyId] = useState<string | null>(null);
+  const releaseBusyRef = useRef<string | null>(null);
+  /** Lets the row retain its failure feedback after finally clears releaseBusyId. */
+  const [releaseErrorId, setReleaseErrorId] = useState<string | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+  /** A failed/unknown release must read B.active before a subsequent write. */
+  const releaseCheckRequired = useRef(new Set<string>());
+  const verifiedFollowIds = useRef(new Map<string, string>());
 
   const cards = useMemo(
     () => rows.map((kol) => projectFollowedKolCard(kol, todoItems)),
@@ -443,35 +455,102 @@ export function useFollowedWorkspace(options: {
     setBatchPending(null);
   }, []);
 
-  const requestRelease = useCallback((kol: FollowedKol) => {
-    setReleaseError(null);
-    setReleaseTarget(kol);
+  /** B.active is the ownership authority used to reconcile a lost/failed release response. */
+  const readReleaseStatus = useCallback(async (target: FollowedKol): Promise<FollowReleaseStatus> => {
+    try {
+      const following = await loadHomeFollowing();
+      // Without B.active, a board-adapter empty list cannot prove that it was released.
+      if (following.down || following.source !== "following") return { state: "uncertain" };
+      const followId = String(following.items.find((item) => item.kol_uid === target.kol_uid)?.follow_id || "").trim();
+      return followId ? { state: "active", followId } : { state: "released" };
+    } catch {
+      return { state: "uncertain" };
+    }
   }, []);
 
-  const cancelRelease = useCallback(() => {
-    if (releaseBusy) return;
-    setReleaseTarget(null);
-    setReleaseError(null);
-  }, [releaseBusy]);
-
-  const confirmRelease = useCallback(async () => {
-    const target = releaseTarget;
-    const followId = String(target?.follow_id || "").trim();
-    if (!target || !followId) return;
+  const commitReleasedFollow = useCallback(async (target: FollowedKol, followId: string) => {
     const kolId = target.id;
-    setReleaseBusy(true);
+    const ownershipKey = String(target.kol_uid || kolId);
+    setRows((current) => current.filter((row) => row.follow_id !== followId && row.id !== kolId && row.kol_uid !== target.kol_uid));
+    verifiedFollowIds.current.delete(ownershipKey);
+    releaseCheckRequired.current.delete(ownershipKey);
     setReleaseError(null);
+    setReleaseErrorId(null);
     try {
-      await releaseFollowedKol(followId);
-      setRows((current) => current.filter((row) => row.follow_id !== followId && row.id !== kolId));
-      setReleaseTarget(null);
       await onReleased(kolId);
     } catch (err) {
-      setReleaseError(err instanceof Error ? err.message : "释放失败");
-    } finally {
-      setReleaseBusy(false);
+      // The release committed; only the cross-surface refresh failed.
+      setError(err instanceof Error ? `已放回公海，但刷新公海失败：${err.message}` : "已放回公海，但刷新公海失败");
     }
-  }, [releaseTarget, onReleased]);
+  }, [onReleased]);
+
+  const reconcileReleaseFailure = useCallback(async (target: FollowedKol, attemptedFollowId: string, failedMessage: string) => {
+    const ownershipKey = String(target.kol_uid || target.id);
+    const status = await readReleaseStatus(target);
+    if (status.state === "released") {
+      await commitReleasedFollow(target, attemptedFollowId);
+      return;
+    }
+    setReleaseErrorId(target.id);
+    if (status.state === "active") {
+      verifiedFollowIds.current.set(ownershipKey, status.followId);
+      releaseCheckRequired.current.delete(ownershipKey);
+      setReleaseError(`${failedMessage}；已核对仍在我的跟进，可再次放回公海。`);
+      return;
+    }
+    releaseCheckRequired.current.add(ownershipKey);
+    setReleaseError(`${failedMessage}；当前无法核对放回状态，下次操作会先核对，未确认前不会重复放回。`);
+  }, [commitReleasedFollow, readReleaseStatus]);
+
+  /** “回公海” is the user's explicit confirmation; the controlled API still sends confirm=true. */
+  const requestRelease = useCallback(async (target: FollowedKol) => {
+    const kolId = target.id;
+    const ownershipKey = String(target.kol_uid || kolId);
+    let followId = verifiedFollowIds.current.get(ownershipKey) || String(target.follow_id || "").trim();
+    if (!followId || releaseBusyRef.current) return;
+    releaseBusyRef.current = kolId;
+    setReleaseBusyId(kolId);
+    setReleaseError(null);
+    setReleaseErrorId(null);
+    try {
+      if (releaseCheckRequired.current.has(ownershipKey)) {
+        const status = await readReleaseStatus(target);
+        if (status.state === "released") {
+          await commitReleasedFollow(target, followId);
+          return;
+        }
+        if (status.state === "uncertain") {
+          setReleaseErrorId(kolId);
+          setReleaseError("当前无法核对放回状态，尚未重复放回；请稍后再试。");
+          return;
+        }
+        releaseCheckRequired.current.delete(ownershipKey);
+        verifiedFollowIds.current.set(ownershipKey, status.followId);
+        followId = status.followId;
+      }
+      const released = await releaseFollowedKol(followId);
+      if (!released.ok) {
+        await reconcileReleaseFailure(target, followId, "放回公海未成功");
+        return;
+      }
+      await commitReleasedFollow(target, followId);
+    } catch (err) {
+      // Do not remove the followed row or blindly issue a second release after a failed request.
+      await reconcileReleaseFailure(target, followId, err instanceof Error ? err.message : "放回公海失败");
+    } finally {
+      releaseBusyRef.current = null;
+      setReleaseBusyId(null);
+    }
+  }, [commitReleasedFollow, readReleaseStatus, reconcileReleaseFailure]);
+
+  // Compatibility exports keep Home compiling until it removes ReleaseFollowConfirm.
+  const cancelRelease = useCallback(() => {
+    if (!releaseBusyRef.current) {
+      setReleaseError(null);
+      setReleaseErrorId(null);
+    }
+  }, []);
+  const confirmRelease = useCallback(() => undefined, []);
 
   return {
     rows,
@@ -503,8 +582,10 @@ export function useFollowedWorkspace(options: {
     confirmBatch,
     cancelBatch,
     releaseTarget,
-    releaseBusy,
+    releaseBusy: Boolean(releaseBusyId),
+    releaseBusyId,
     releaseError,
+    releaseErrorId,
     requestRelease,
     confirmRelease,
     cancelRelease,

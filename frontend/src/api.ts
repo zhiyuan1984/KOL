@@ -1,4 +1,12 @@
-export type HomePoolPage = { offset: number; limit: number; total: number; matched: number; new_count: number; next_offset: number | null };
+export type HomePoolPage = {
+  offset: number;
+  limit: number;
+  total: number;
+  matched: number;
+  new_count: number;
+  overdue_count: number;
+  next_offset: number | null;
+};
 export type HomePoolOptions = { query?: string; filter?: string; sort?: string; offset?: number; limit?: number };
 export type CandidateAssessment = {
   state: "unscored" | "scoring" | "scored" | "failed";

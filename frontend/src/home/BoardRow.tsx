@@ -81,7 +81,7 @@ export default function BoardRow({
   const status = boardStatus(task);
   const executionFailed = task.execution?.status === "failed";
   const executionNote = executionFailed ? lastSafeSummary(task) : "";
-  const taskFailed = task.status === "failed";
+  const taskFailed = status.tone === "failed";
   const dueDiff = dueDayDiff(task.due_at);
   const dueTime = task.due_at ? new Date(task.due_at) : null;
   const dueLabel = dueTime && !Number.isNaN(dueTime.getTime())

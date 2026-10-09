@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type KnowledgeRow } from "../api";
 import { examAssignConfirm, examPublishConfirm } from "../adminConfirm";
@@ -353,7 +354,7 @@ export default function AdminExams({
                     <p className="muted">只读已发布知识。生成结果是候选，不会变成现行题卷。</p>
                     {useKnowledgeSearch && (
                       <label className="field exam-search">
-                        <input
+                        <WorkspaceSearchInput
                           placeholder="搜索已发布知识…"
                           value={knowledgeQuery}
                           onChange={(e) => setKnowledgeQuery(e.target.value)}

@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type KolCooperation, type KolCooperationDetailResponse } from "../api";
@@ -103,7 +104,7 @@ export default function Cooperations() {
       {error ? <p className="kol-error" role="alert">{error}</p> : null}
       <div className="kol-filters">
         <div className="kol-search-row">
-          <input className="kol-search" aria-label="搜索合作项目" placeholder="搜索项目标题 / 品牌" value={search}
+          <WorkspaceSearchInput className="kol-search" aria-label="搜索合作项目" placeholder="搜索项目标题 / 品牌" value={search}
             onChange={(e) => setSearch(e.target.value)} />
           <button type="button" className="kol-chip" aria-pressed={mine} onClick={() => setMine((v) => !v)}>只看我负责</button>
         </div>
@@ -274,7 +275,7 @@ function CreateCooperationDrawer({ onClose, onDone }: { onClose: () => void; onD
         <div className="kol-field">
           <span>关联线索 *</span>
           <div style={{ display: "flex", gap: 8 }}>
-            <input value={form.lead_search} onChange={set("lead_search")} placeholder="搜索账号名" style={{ flex: 1 }} />
+            <WorkspaceSearchInput value={form.lead_search} onChange={set("lead_search")} placeholder="搜索账号名" style={{ flex: 1 }} />
             <button type="button" className="btn ghost" onClick={() => void searchLeads()}>搜索</button>
           </div>
           {leadOptions.length > 0 ? (

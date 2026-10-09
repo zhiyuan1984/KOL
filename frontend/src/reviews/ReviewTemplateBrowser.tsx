@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useState } from "react";
 import type { ReviewDefinition, ReviewStarter, ReviewTemplate } from "../../../shared/review";
 import { reviewApi, type ReviewContext } from "./api";
@@ -37,7 +38,7 @@ export function ReviewTemplateBrowser({ list, context, busy, creating, onCancel,
   </section>;
   return <div className="review-workspace review-template-browser">
     <section className="review-list-pane" aria-label="流程列表区域">
-      <div className="review-toolbar review-list-tools"><input aria-label="搜索流程" placeholder="搜索流程名称或说明" value={query} onChange={e => setQuery(e.target.value)} />
+      <div className="review-toolbar review-list-tools"><WorkspaceSearchInput aria-label="搜索流程" placeholder="搜索流程名称或说明" value={query} onChange={e => setQuery(e.target.value)} />
         <select aria-label="流程状态筛选" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部流程</option><option value="enabled">已发布 · 可使用</option><option value="draft">待发布草稿</option><option value="disabled">已停用</option></select></div>
       <p className="review-muted">共 {rows.length} 个流程 · 草稿和发布版分别管理</p>
       {!rows.length ? <p>暂无匹配流程。可清空筛选或新建流程。</p> : <table className="review-table"><thead><tr><th>流程名称</th><th>草稿版本</th><th>已发布版本</th><th>版本关系</th></tr></thead>

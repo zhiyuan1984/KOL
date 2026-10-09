@@ -1,3 +1,5 @@
+import type { InputRef } from "antd";
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { AttachmentRef } from "../api";
@@ -61,7 +63,7 @@ export default function PlusMenu({
 }) {
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const searchRef = useRef<HTMLInputElement | null>(null);
+  const searchRef = useRef<InputRef | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -266,16 +268,13 @@ export default function PlusMenu({
           return;
         }
         // 任何可打印字符都回到搜索框继续输入。
-        if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey && event.target !== searchRef.current) {
+        if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey && event.target !== searchRef.current?.input) {
           searchRef.current?.focus();
         }
       }}
     >
-      <label className="composer-menu-search">
-        <span className="sr-only">搜索可用条目</span>
-        <input
+      <WorkspaceSearchInput className="composer-menu-search"
           ref={searchRef}
-          type="search"
           value={query}
           placeholder="搜索文件、知识库、技能…"
           aria-label="搜索可用条目"
@@ -290,7 +289,6 @@ export default function PlusMenu({
             if (match) choose(match);
           }}
         />
-      </label>
       <div className="cascade-scroll" data-composer-menu-list>
         {!visibleGroups.length ? (
           <p className="menu-empty" data-composer-menu-empty>没有匹配的条目</p>

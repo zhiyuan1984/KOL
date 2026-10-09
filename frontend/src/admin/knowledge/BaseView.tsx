@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
@@ -275,8 +276,7 @@ export default function BaseView({ id, notify, fail }: KbFeed & { id: string }) 
             </select>
           </label>
           <label className="field">搜索
-            <input
-              type="search"
+            <WorkspaceSearchInput
               value={query}
               placeholder="标题、正文、标签"
               data-admin-kb-filter="query"

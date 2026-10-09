@@ -15685,7 +15685,9 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
 }
 
 .task-board .task-board-table > tbody > tr.task-board-row > td {
-  height: var(--workspace-list-row-h);
+  height: var(--table-row-h-compact);
+  box-sizing: border-box;
+  padding-block: 0;
   padding-inline: var(--workspace-list-cell-pad-x);
   border-bottom-color: var(--workspace-list-divider);
   transition: background-color var(--duration-control);
@@ -15720,7 +15722,8 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
 .task-board .task-board-table .task-board-open,
 .task-board .task-board-table .task-board-edit,
 .task-board .task-board-table .task-board-retry {
-  min-height: var(--control-h-sm);
+  height: var(--workspace-task-action-h);
+  min-height: var(--workspace-task-action-h);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -15741,16 +15744,15 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
 
 .task-board .task-board-plan-btn {
   min-height: var(--control-h-lg);
-  border-color: var(--border);
+  border: 0;
   border-radius: var(--radius-control);
-  background: var(--bg);
-  color: var(--text);
+  background: transparent;
+  color: var(--accent-text);
   transition: background-color var(--duration-control), border-color var(--duration-control),
     color var(--duration-control), box-shadow var(--duration-control);
 }
 .task-board .task-board-plan-btn:hover:not(:disabled) {
-  border-color: var(--control-border-hover);
-  background: var(--surface-hover);
+  background: var(--btn-text-hover-bg);
 }
 .task-board .task-board-plan-btn:active:not(:disabled) {
   background: var(--surface-hover);

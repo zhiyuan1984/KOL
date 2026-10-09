@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "./WorkspaceSearchInput";
 import { Fragment, useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -738,7 +739,7 @@ export function InboundArtifact({ payload, onRefresh }: { payload: Record<string
             绑定 @{c.handle}
           </button>
         ))}
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索达人" />
+        <WorkspaceSearchInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索达人" />
         <button className="btn ghost" onClick={() => api.inboundSearch(id, q).then((r) => setHits(r.kols || []))}>
           搜索
         </button>
