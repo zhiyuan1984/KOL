@@ -157,7 +157,7 @@ describe("approval optimization boundaries on PostgreSQL", () => {
       for (let n = 0; n < 120; n++) db.prepare("INSERT INTO review_notifications(id,tenant,instance_id,user_id,message,created_at) VALUES(?,?,?,?,?,?)")
         .run(`notice-${n}`, "review-test-a", receipt.resourceId, "review-reviewer", "核对申请", "2026-10-09T00:00:00Z");
     });
-    const inbox = () => req("reviewer", "/approvals/v2/notifications/inbox").then(r => r.json());
+    const inbox = async () => (await req("reviewer", "/approvals/v2/notifications/inbox")).json();
     const initial = await inbox(); expect(initial.items).toHaveLength(100); expect(initial.unreadCount).toBeGreaterThanOrEqual(120);
     expect((await req(undefined, "/approvals/v2/notifications/inbox")).status).toBe(401);
     expect(await (await req("outsider", "/approvals/v2/notifications/inbox")).json()).toEqual({ items: [], unreadCount: 0 });
