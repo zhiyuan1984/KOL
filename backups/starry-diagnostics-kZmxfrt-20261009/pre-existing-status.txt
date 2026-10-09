@@ -1,0 +1,32 @@
+ M backend/src/knowledge/taxonomy-mutations.ts
+ M backend/src/routers/knowledge-taxonomy.ts
+ M backend/tests/knowledge-taxonomy-mutations.test.ts
+ M backend/tests/knowledge-taxonomy.postgres.integration.test.ts
+ M frontend/e2e/admin-knowledge-presentation.spec.ts
+ M frontend/package-lock.json
+ M frontend/package.json
+ M frontend/playwright.knowledge.config.ts
+ M frontend/src/admin/knowledge/CatalogView.test.tsx
+ M frontend/src/admin/knowledge/CatalogView.tsx
+ M frontend/src/admin/knowledge/IngestView.tsx
+ M frontend/src/admin/knowledge/KnowledgeHome.tsx
+ M frontend/src/admin/knowledge/knowledge-admin.css
+ M frontend/src/admin/knowledge/knowledge-governance.css
+ M frontend/src/admin/knowledge/planning-tree.css
+ M frontend/src/api.ts
+ M frontend/src/pages/Tasks.tsx
+?? .env.bak.20261009022449
+?? backend/src/cron/postgres-store.ts.bak.20261008111422
+?? backups/
+?? frontend/dist.before-score-refresh-97fab833/
+?? frontend/dist.before-unified-score-8418f9e1/
+?? frontend/dist.knowledge-JvaO5AYf242Sm9aPewqcVa/
+?? frontend/dist.task-layout-563cb55c/
+?? frontend/e2e/knowledge-planning-presentation.spec.ts
+?? frontend/src/admin/knowledge/IngestDocumentDetails.test.tsx
+?? frontend/src/admin/knowledge/IngestDocumentDetails.tsx
+?? frontend/src/tasks/TaskExpandedDetails.test.tsx
+?? frontend/src/tasks/TaskExpandedDetails.tsx
+?? frontend/src/tasks/task-expanded-details.css
+?? frontend/vitest.task-details.config.ts
+?? node_modules/

@@ -1,0 +1,14 @@
+{
+  "frontend/src/admin/knowledge/KnowledgeHome.tsx": "f86f4f946f27df3eab6e77a204d05b0e39732989bab51bd18677182299564163",
+  "frontend/src/admin/knowledge/CatalogView.tsx": "33a7e0125bd8d3cc1c009afc5521ae31ad1d52280d08b633d427386c65a866ee",
+  "frontend/src/admin/knowledge/planning-tree.css": "2f4a81055a925271b6e375d5a4df5d87416f348b98da4ac69641c27eef238424",
+  "frontend/src/admin/knowledge/CatalogView.test.tsx": "1213c35c026ba6e7337fcefa6edea2dc7f97cd2c864e8e18153e7f6c93efc4ff",
+  "frontend/src/api.ts": "3b1d2d485555c0bad2708d61c81ef5c3db9bce8dd55726ca38facdcfcb80c672",
+  "frontend/package.json": "3fd51301a5cef863df3d58b3112874ded6142894f046badec6c5e64e5ca262b7",
+  "frontend/package-lock.json": "6767dc7b42089a438c7b159519958aa9b6fa69f3f53061ee510be1a71d4cf32c",
+  "frontend/playwright.knowledge.config.ts": "77e1432f42f6242779aa03c3e5c55fa6029a3341d0fab3f3bee7ed7d7df9636a",
+  "backend/src/knowledge/taxonomy-mutations.ts": "f58e782cb2a73f6b54c01fcd02906711586a8016412e13c48dfa24b13619d2b3",
+  "backend/src/routers/knowledge-taxonomy.ts": "b68dfb04a87a74bcfd20c22b0c9ecbb75fa5e9b2847666e6747846337ebafbd6",
+  "backend/tests/knowledge-taxonomy.postgres.integration.test.ts": "bd454c3623441e9e9a2ea95388c4ee384ff19ca227d5d6c1a084fab5eb4180d8",
+  "backend/tests/knowledge-taxonomy-mutations.test.ts": "54b254eb92110398ad0aa8d02c7361d57d7d1b28dc245a93d4df9d9209d1da32"
+}

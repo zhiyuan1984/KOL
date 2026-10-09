@@ -1,0 +1,95 @@
+--- a/frontend/src/admin/knowledge/KnowledgeHome.tsx
++++ b/frontend/src/admin/knowledge/KnowledgeHome.tsx
+@@ -389,12 +389,8 @@
+             onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
+           {mode==="list" ? <>
+             {stage === "create" ? <section data-knowledge-creation>
+-              <header className="knowledge-creation-head"><h3>知识创作</h3><div className="knowledge-creation-actions">
+-                <button type="button" className="kbv-text-action" data-kbv-upload onClick={()=>switchMode("upload")}>上传文件</button>
+-                <button type="button" className="kbv-text-action" data-kbv-new onClick={()=>switchMode("create")}>新建知识</button>
+-              </div></header>
+               <p className="knowledge-panel-help">新建在线知识或上传资料，保存草稿后继续加工、审批与发布。</p>
+-              <button className="kbv-text-action" onClick={()=>drillView("draft")}>查看中栏草稿</button>
++              <button type="button" className="kbv-text-action" onClick={()=>drillView("draft")}>查看草稿</button>
+             </section> : stage === "catalog" ? catalogBaseId
+               ? <BaseView id={catalogBaseId} notify={notify} fail={fail} /> : <Suspense fallback={<p className="muted" role="status">正在加载知识规划…</p>}><CatalogView notify={notify} fail={fail} /></Suspense>
+             : stage === "processing" ? <IngestView embedded notify={notify} fail={fail} />
+--- a/frontend/e2e/admin-knowledge-presentation.spec.ts
++++ b/frontend/e2e/admin-knowledge-presentation.spec.ts
+@@ -62,7 +62,7 @@
+  await expect(page.locator('[data-kbv-new]')).toHaveCount(0);
+  await page.locator('[data-kbv-next]').click();
+  for(const [id,label,target] of [
+-  ['catalog','知识目录','[data-admin-kb-catalog]'],['create','知识创作','[data-kbv-new]'],
++  ['catalog','知识目录','[data-admin-kb-catalog]'],['create','知识创作','[data-knowledge-creation]'],
+   ['processing','知识加工','[data-admin-kb-documents]'],['pending-review','发布审批','[data-kb-queue="documents"]'],
+   ['published','知识资产','[data-knowledge-assets]'],['bindings','查询技能','[data-admin-kb-bindings]'],
+   ['lifecycle','生命周期','[data-kb-queue="expiry"]'],['graph','知识关系','[data-kb-knowledge-graph]']]) {
+@@ -108,10 +108,10 @@
+  const s=await surface(page);await page.locator('[data-kbv-next]').click();await page.locator('[data-kbv-record="text-22"]').click();await expect(page.locator('[data-kbv-list]')).toBeVisible();await expect(page.getByRole('heading',{name:'合作知识 23',exact:true})).toBeVisible();await page.getByRole('button',{name:'修订',exact:true}).click();await page.locator('input[name="title"]').fill('修订后的标题');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('修订后的标题');await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-kbv-page]')).toHaveText('第 2 / 2 页');await expect(page.locator('[data-kbv-record="text-22"]')).toHaveAttribute('aria-current','true');expect(s.calls).toEqual(['save']);expect(s.errors).toEqual([]);
+ });
+ test('create preserves taxonomy and save is independent from approval',async({page})=>{
+- const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kb-scope-base="specs"]').click();await page.locator('[data-kbv-new]').click();await page.locator('input[name="title"]').fill('新的结构化知识');await page.locator('textarea[name="body"]').fill('草稿内容');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('新的结构化知识');await expect(page.locator('[data-kb-scope-base="specs"]')).toHaveAttribute('aria-pressed','true');expect(s.calls).toEqual(['save']);
++ const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kb-scope-base="specs"]').click();await page.goto('/admin/knowledge?reviewCompany=company&stage=create&mode=create');await page.locator('input[name="title"]').fill('新的结构化知识');await page.locator('textarea[name="body"]').fill('草稿内容');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('新的结构化知识');await expect(page.locator('[data-kb-scope-base="specs"]')).toHaveAttribute('aria-pressed','true');expect(s.calls).toEqual(['save']);
+ });
+ test('validation preserves fields and unsaved exit can be cancelled',async({page})=>{
+- const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kbv-new]').click();await page.locator('textarea[name="body"]').fill('保留这段正文');s.failSave();await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('alert')).toContainText('请修正知识字段');await expect(page.locator('input[name="title"]')).toBeFocused();await expect(page.locator('textarea[name="body"]')).toHaveValue('保留这段正文');page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="list"]')).toBeVisible();
++ const s=await surface(page);await page.goto('/admin/knowledge?reviewCompany=company&stage=create&mode=create');await page.locator('textarea[name="body"]').fill('保留这段正文');s.failSave();await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('alert')).toContainText('请修正知识字段');await expect(page.locator('input[name="title"]')).toBeFocused();await expect(page.locator('textarea[name="body"]')).toHaveValue('保留这段正文');page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="list"]')).toBeVisible();
+ });
+ test('approval is confirmed once and approved waits for separate publication',async({page})=>{
+  const s=await surface(page);await pdf(page);await page.getByRole('button',{name:'提交审批',exact:true}).click();await expect(page.locator('[data-workspace-mode="review"]')).toBeVisible();await page.locator('.kbv-release-note textarea').fill('规格更新');await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();await page.locator('[data-kbv-doc-action="submit"]').click();expect(s.calls).toEqual([]);await page.getByRole('button',{name:'确认提交审批',exact:true}).dblclick();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批中');s.approve();await expect(page.getByRole('button',{name:'发布',exact:true})).toBeVisible({timeout:10000});await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批通过 · 等待发布');expect(s.calls).toEqual(['submit']);await page.getByRole('button',{name:'发布',exact:true}).click();await page.getByRole('button',{name:'确认发布',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('publish-receipt');expect(s.calls).toEqual(['submit','publish']);expect(s.errors).toEqual([]);
+@@ -173,5 +173,54 @@
+  await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute('aria-pressed','true');
+  await page.getByRole('tab',{name:'知识创作',exact:true}).click();
+  await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute('aria-pressed','true');
++  expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
++});
++
++test('creation surface removes redundant controls and keeps one working draft action',async({page})=>{
++ const s=await surface(page);
++ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
++ const creation=page.locator('[data-knowledge-creation]');
++ await expect(creation).toBeVisible();
++ await page.screenshot({path:process.env.KNOWLEDGE_CREATION_SCREENSHOT || 'test-results/knowledge-creation-desktop.png',fullPage:true});
++ await expect(creation.getByRole('heading',{name:'知识创作',exact:true})).toHaveCount(0);
++ await expect(creation.locator('[data-kbv-upload], [data-kbv-new]')).toHaveCount(0);
++ await expect(creation.locator('button')).toHaveCount(1);
++ await expect(creation.locator('.knowledge-panel-help')).toHaveText('新建在线知识或上传资料，保存草稿后继续加工、审批与发布。');
++ const draft=creation.getByRole('button',{name:'查看草稿',exact:true});
++ await expect(draft).toBeVisible();
++ const request=page.waitForRequest(req=>{
++  const url=new URL(req.url());
++  return url.pathname==='/api/admin/knowledge/workspace-v1' && url.searchParams.get('view')==='draft';
++ });
++ await draft.click();await request;
++ await expect(page).toHaveURL(/view=draft/);
++ await expect(page.locator('[data-knowledge-right]')).toHaveAttribute('data-kb-active-stage','create');
++ await expect(page.locator('[data-kbv-filter-note]')).toContainText('当前查看：草稿');
++ await expect(page.locator('[data-kb-lifecycle-tabs] [role="tab"]')).toHaveCount(5);
++ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
++ await expect(page.locator('[data-admin-kb-documents]')).toBeVisible();
++ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
++ await expect(draft).toBeVisible();
++ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
++});
++
++test('creation surface fits compact widths and upload deep link is retained',async({page})=>{
++ const s=await surface(page);
++ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
++ for(const width of [1440,1024,768,375]){
++  await page.setViewportSize({width,height:800});
++  const draft=page.locator('[data-knowledge-creation]').getByRole('button',{name:'查看草稿',exact:true});
++  await expect(draft).toBeVisible();
++  const box=await draft.boundingBox();
++  expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
++  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
++  await page.screenshot({path:`test-results/knowledge-creation-${width}.png`,fullPage:true});
++ }
++ await page.setViewportSize({width:1440,height:900});
++ await page.goto('/admin/knowledge?reviewCompany=company&stage=create&mode=upload');
++ await expect(page.locator('[data-workspace-mode="upload"]')).toBeVisible();
++ await expect(page.locator('input[type="file"]')).toHaveCount(1);
++ await page.getByRole('button',{name:'← 返回列表',exact:true}).click();
++ await expect(page.locator('[data-knowledge-creation]').getByRole('button',{name:'查看草稿',exact:true})).toBeVisible();
+  expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+ });

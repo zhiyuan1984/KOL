@@ -1,0 +1,13 @@
+frontend/src/admin/knowledge/CatalogView.tsx
+frontend/src/admin/knowledge/planning-tree.css
+frontend/src/admin/knowledge/CatalogView.test.tsx
+frontend/src/admin/knowledge/KnowledgeHome.tsx
+frontend/src/api.ts
+frontend/package.json
+frontend/package-lock.json
+frontend/playwright.knowledge.config.ts
+frontend/e2e/knowledge-planning-presentation.spec.ts
+backend/src/knowledge/taxonomy-mutations.ts
+backend/src/routers/knowledge-taxonomy.ts
+backend/tests/knowledge-taxonomy-mutations.test.ts
+backend/tests/knowledge-taxonomy.postgres.integration.test.ts

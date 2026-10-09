@@ -1,0 +1,64 @@
+/* 图1、管理侧共用 KnowledgeBrowseWorkspace / KnowledgeBrowseFilters / knowledge-list-row。
+   数值来自 DESIGN §25/§27/§28；不另建栏宽比例或小于基线的正文。 */
+#root .workbench .knowledge-governance { min-height:0; min-width:0; padding:0; gap:0; }
+#root .workbench .knowledge-governance .knowledge-browse-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(var(--workspace-result-rail-min),1fr); grid-template-rows:minmax(0,1fr); gap:0; flex:1; min-height:0; }
+#root .workbench .knowledge-governance .knowledge-governance-list { display:block; width:auto; min-width:0; min-height:0; overflow:auto; padding:0; }
+#root .workbench .knowledge-governance .kbw-workarea { display:flex; flex-direction:column; width:auto; min-width:0; min-height:0; overflow:hidden; border:0; border-left:1px solid var(--border); padding:0; }
+#root .workbench .knowledge-governance .kbv-lifecycle-tabs { display:block; flex:none; padding:0 var(--space-5); margin:0; min-width:0; overflow:visible; border:0; }
+.knowledge-governance .kbv-lifecycle-tabs .lifecycle-navigation { flex-wrap:wrap; gap:0 var(--space-2); overflow:visible; }
+.knowledge-governance .kbv-lifecycle-tabs .lifecycle-tab { min-height:var(--workspace-tab-h); padding:0 var(--space-1); font-size:var(--ds-font-sm); }
+#root .workbench .knowledge-governance .kbw-body { padding:var(--space-3) var(--space-5); overflow:auto; min-height:0; flex:1; font-size:var(--ds-font-sm); }
+#root .workbench .knowledge-governance .kbw-task-head { padding:var(--space-1) var(--space-5); gap:var(--space-2); min-height:var(--control-h-sm); }
+#root .workbench .knowledge-governance .kbw-action-bar { padding:var(--space-2) var(--space-5); }
+.knowledge-governance .kbw-body > section { margin:0 0 var(--space-2); padding:0 0 var(--space-2); }
+.knowledge-governance .kbw-body p { margin-block:var(--space-1); }
+.knowledge-governance .kbw-identity { margin-bottom:var(--space-2); }
+.knowledge-governance .knowledge-panel-help { font-size:var(--ds-font-helper); color:var(--text-quiet); line-height:var(--ds-line-helper); }
+.knowledge-governance .knowledge-creation-head { display:flex; gap:var(--space-2); align-items:center; justify-content:space-between; flex-wrap:wrap; }
+.knowledge-creation-actions { display:flex; gap:var(--space-1); }
+#root .workbench .knowledge-governance .knowledge-filter-bar { padding:var(--space-2) var(--space-5) var(--space-3); gap:var(--space-1); }
+#root .workbench .knowledge-governance .kbv-search { height:var(--control-h); min-height:var(--control-h); margin:0; }
+#root .workbench .knowledge-governance .kbv-search input { height:100%; min-height:0; padding-block:0; }
+#root .workbench .knowledge-governance .kbv-scope-name { color:var(--text-quiet); }
+#root .workbench .knowledge-governance .kbv-tabs { padding:var(--space-1) var(--space-3); gap:var(--space-1); }
+.knowledge-admin-more-filters summary { cursor:pointer; color:var(--accent-text); min-height:var(--control-h-sm); }
+#root .workbench .knowledge-governance .kbv-browser-list-head { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-1); padding:var(--space-1) var(--space-3); margin:0; }
+.knowledge-governance .kbv-pagination { font-size:var(--ds-font-xs); gap:var(--space-1); }
+.knowledge-governance .kbv-pagination button { padding-inline:var(--space-1); }
+#root .workbench .knowledge-governance .kbv-browser-record-wrap { display:flex; gap:var(--space-1); padding-inline:var(--space-3); min-height:var(--knowledge-row-h-detail); border:0; border-radius:0; margin:0; }
+#root .workbench .knowledge-governance .kbv-browser-record { display:flex; flex-direction:row; gap:var(--space-2); padding:var(--space-1) 0; width:auto; min-height:0; flex:1; border:0; border-radius:0; }
+#root .workbench .knowledge-governance .kbv-record-check { width:var(--icon-sm); height:var(--icon-sm); padding:0; margin:0; min-height:0; flex-shrink:0; }
+#root .workbench .knowledge-governance .kbv-status { background:transparent; border:0; padding:0; font-size:var(--ds-font-xs); min-height:0; }
+.knowledge-governance .knowledge-row-metadata { line-height:var(--lh-control-sm); }
+.knowledge-governance .kb-governance-dashboard { border:0; padding:0; margin:0; }
+.knowledge-governance .kbadmin-queue { margin-block:var(--space-2); }
+.knowledge-governance .kbadmin-queue-row { padding:var(--space-1) var(--space-2); min-height:var(--knowledge-row-h-detail); }
+.knowledge-governance .kbadmin-queue-label small { font-size:var(--ds-font-helper); }
+.knowledge-governance .kbadmin-status-bar { margin:var(--space-2) 0; }
+.knowledge-governance .kbadmin-status-seg { border:0; font:inherit; cursor:pointer; }
+.knowledge-governance .kbadmin-status-head h3 { margin:0; }
+.knowledge-asset-facets > section { padding:var(--space-2) 0; border-bottom:1px solid var(--border); }
+.knowledge-summary-row { display:flex; width:100%; align-items:center; justify-content:space-between; gap:var(--space-2); min-height:var(--control-h-sm); padding:0 var(--space-1); border:0; background:transparent; color:var(--text); font:inherit; cursor:pointer; }
+.knowledge-summary-row:hover { background:var(--bg-subtle); }
+.knowledge-summary-row > span:last-child { font-variant-numeric:tabular-nums; color:var(--text-quiet); }
+.knowledge-governance .admin-table { width:100%; font-size:var(--ds-font-sm); }
+.knowledge-governance .admin-table :is(th,td) { padding:var(--space-1) var(--space-2); height:var(--table-row-h-compact); }
+.knowledge-governance .admin-table th { position:sticky; top:0; background:var(--bg-subtle); }
+.knowledge-governance .admin-table td { white-space:normal; overflow-wrap:anywhere; }
+.knowledge-governance .panel { padding:var(--space-2) 0; border:0; border-radius:0; }
+.knowledge-governance .kbw-body .admin-section-head { gap:var(--space-2); margin-bottom:var(--space-2); }
+.knowledge-governance .kbw-body .muted { font-size:var(--ds-font-helper); }
+.knowledge-governance .kbw-editor { gap:var(--space-2); }
+.knowledge-governance .kbw-editor :is(input,select,textarea) { min-height:var(--control-h); background:var(--bg-subtle); border:1px solid transparent; padding:var(--space-1) var(--space-2); }
+.knowledge-governance .kbw-editor :is(input,select,textarea):focus { border-color:var(--focus-ring); }
+.knowledge-governance :is(button,select,a,summary):focus-visible { outline:var(--focus-ring-width) solid var(--focus-ring); outline-offset:calc(-1 * var(--focus-ring-width)); }
+.knowledge-governance-back { display:none; }
+@container knowledge-browse (max-width:719px) {
+  #root .workbench .knowledge-governance .knowledge-browse-workspace { grid-template-columns:minmax(0,1fr); }
+  #root .workbench .knowledge-governance .knowledge-browse-workspace[data-pane="detail"] > .knowledge-governance-list { display:none; }
+  #root .workbench .knowledge-governance .knowledge-browse-workspace[data-pane="list"] > .kbw-workarea { display:flex; }
+  #root .workbench .knowledge-governance .knowledge-browse-workspace[data-pane="list"] { grid-template-rows:minmax(0,1fr) auto; }
+  #root .workbench .knowledge-governance .knowledge-browse-workspace[data-pane="list"] .kbw-body { display:none; }
+  .knowledge-governance-back { display:inline-flex; align-self:flex-start; }
+}
+@media (pointer:coarse) { .knowledge-governance .kbv-lifecycle-tabs .lifecycle-tab { min-height:var(--touch-hit-min); } }

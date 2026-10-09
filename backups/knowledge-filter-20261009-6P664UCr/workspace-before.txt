@@ -1,0 +1,17 @@
+ M backend/src/host/kol-memory-sync.ts
+?? .env.bak.20261009022449
+?? backend/src/cron/postgres-store.ts.bak.20261008111422
+?? backend/src/gateway/starry-response.ts
+?? backend/tests/knowledge-file-facets.integration.test.ts
+?? backend/tests/starry-write-response.test.ts
+?? backups/
+?? docs/starry-response-diagnostics-20261009.md
+?? frontend/dist.before-score-refresh-97fab833/
+?? frontend/dist.before-unified-score-8418f9e1/
+?? frontend/dist.knowledge-JvaO5AYf242Sm9aPewqcVa/
+?? frontend/dist.task-detail-qRBRtdrBjDpZH0YvHwZM8L/
+?? frontend/dist.task-layout-563cb55c/
+?? frontend/src/admin/knowledge/KnowledgeSelectionFields.tsx
+?? frontend/src/admin/knowledge/UploadDialog.test.tsx
+?? node_modules/
+?? shared/knowledge-file-types.ts

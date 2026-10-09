@@ -1,0 +1,104 @@
+{
+  "base": "http://47.88.94.205",
+  "results": [
+    {
+      "kind": "real",
+      "width": 1280,
+      "pageOverflow": false,
+      "tableScroll": false,
+      "cells": [
+        4,
+        4,
+        4
+      ],
+      "heights": [
+        32
+      ],
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "width": 1600,
+      "pageOverflow": false,
+      "tableScroll": false,
+      "cells": [
+        4,
+        4,
+        4
+      ],
+      "heights": [
+        32
+      ],
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "width": 1920,
+      "pageOverflow": false,
+      "tableScroll": false,
+      "cells": [
+        4,
+        4,
+        4
+      ],
+      "heights": [
+        32
+      ],
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "width": 768,
+      "pageOverflow": false,
+      "tableScroll": false,
+      "cells": [
+        4,
+        4,
+        4
+      ],
+      "heights": [
+        32
+      ],
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "width": 390,
+      "pageOverflow": false,
+      "tableScroll": true,
+      "cells": [
+        4,
+        4,
+        4
+      ],
+      "heights": [
+        32
+      ],
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "interactions": [
+        "展开/收起",
+        "键盘Enter",
+        "可见焦点",
+        "详情抽屉打开/关闭",
+        "搜索/清空"
+      ],
+      "passed": true
+    },
+    {
+      "kind": "synthetic-only",
+      "foldSpread": 0,
+      "overflow": false,
+      "placeholders": true,
+      "longTitleHasTooltip": true,
+      "longTitleTruncated": true,
+      "rowCount": 10,
+      "singleSelection": true,
+      "cancellationConfirmationDismissed": true,
+      "externalWrites": 0
+    }
+  ],
+  "errors": []
+}

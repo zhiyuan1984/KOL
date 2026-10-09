@@ -1,0 +1,1 @@
+function i(e){const o=e==null?void 0:e.input;if(!o||typeof o!="object")return null;const r=o.discovery_workspace;return(r==null?void 0:r.kind)==="discovery"&&r.version===1&&r.profile==="lead"&&r.brief&&Array.isArray(r.brief.platforms)?r:null}export{i as d};

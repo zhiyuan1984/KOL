@@ -1,0 +1,120 @@
+/* Knowledge business components; token values are registered in DESIGN §28. */
+.knowledge-browse { container: knowledge-browse / inline-size; }
+.knowledge-browse .knowledge-browse-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(var(--workspace-result-rail-min), 1fr); min-height: 0; overflow: hidden; }
+.knowledge-browse .kbv-list { display: block; min-height: 0; overflow: auto; }
+.knowledge-browse .kbv-records { overflow: visible; flex: none; padding: 0; }
+.knowledge-browse .kbv-rail { min-width: 0; height: 100%; overflow: hidden; flex: none; }
+.knowledge-browse .kbv-rail-inner { height: 100%; }
+.knowledge-browse .knowledge-filter-bar { display: grid; grid-template-columns: max-content minmax(0, 1fr); padding: var(--space-2) var(--space-5) var(--space-3); gap: var(--space-3) var(--space-2); font-size: var(--ds-font-sm); }
+.knowledge-filter-bar > * { grid-column: 1 / -1; }
+.knowledge-filter-bar :is(.kbv-scope-rows, .knowledge-browse-filter-group) { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; min-width: 0; }
+.knowledge-browse .knowledge-filter-bar .workspace-search-input.kbv-search { height: var(--control-h-lg); min-height: var(--control-h-lg); padding-block: 0; }
+.knowledge-browse .kbv-search input { height: 100%; min-height: 0; padding-block: 0; font-size: var(--ds-font-sm); }
+.knowledge-browse .kbv-search svg { width: var(--icon-sm); height: var(--icon-sm); }
+.knowledge-browse .kbv-scope-rows { gap: var(--space-1); }
+.knowledge-browse .knowledge-filter-bar .knowledge-filter-row { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; gap: var(--space-2); align-items: flex-start; min-width: 0; }
+.knowledge-browse .knowledge-filter-bar .kbv-scope-name { width: auto; min-width: 0; font-size: var(--ds-font-sm); line-height: var(--control-h-sm); color: var(--text-quiet); }
+.knowledge-browse .knowledge-filter-options { display: flex; flex: 1 1 0; min-width: 0; max-width: none; flex-wrap: wrap; align-items: flex-start; gap: var(--space-1) var(--space-2); overflow: visible; }
+.knowledge-browse .knowledge-filter-option.ant-btn,
+.knowledge-browse .knowledge-filter-action { box-sizing: border-box; display: inline-flex; align-items: center; gap: var(--space-1); height: var(--control-h-sm); min-height: var(--control-h-sm); max-width: 100%; padding: 0 var(--space-1); border: 0; box-shadow: none; border-radius: var(--radius-control); background: transparent; color: var(--text-quiet); font: inherit; font-size: var(--ds-font-sm); line-height: var(--lh-control-sm); white-space: normal; text-align: left; }
+.knowledge-filter-label { min-width: 0; overflow-wrap: anywhere; }
+.knowledge-browse .knowledge-filter-count { flex: none; margin: 0; font-size: var(--ds-font-sm); color: var(--text-quiet); font-weight: 400; font-variant-numeric: tabular-nums; }
+.knowledge-browse .knowledge-filter-option[aria-pressed="true"] { font-weight: 600; color: var(--accent-text); }
+.knowledge-browse .knowledge-filter-option[aria-pressed="true"],
+.knowledge-browse .knowledge-filter-option[aria-pressed="true"] * { text-decoration: none; }
+.knowledge-browse .knowledge-filter-option:hover:not(:disabled),
+.knowledge-browse .knowledge-filter-action:hover:not(:disabled) { color: var(--accent-text); background: var(--btn-text-hover-bg); }
+.knowledge-browse .knowledge-filter-action { color: var(--accent-text); }
+.knowledge-browse .kbv-filter-tools { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-1) var(--space-2); flex-wrap: wrap; min-width: 0; }
+.knowledge-browse .kbv-filter-tools > span { font-size: var(--ds-font-xs); }
+.knowledge-browse .kbv-filter-tools > div { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); }
+.knowledge-browse .kbv-tabs { padding: var(--space-1) var(--space-3); gap: var(--space-2); flex-wrap: wrap; }
+.knowledge-browse :is(.kbv-tab, .kbv-filter-chip, .kbv-link-plain, .knowledge-stage-more) { box-sizing: border-box; height: var(--control-h-sm); min-height: 0; border: 0; padding: 0 var(--space-1); line-height: var(--lh-control-sm); font-size: var(--ds-font-sm); display: inline-flex; align-items: center; border-radius: var(--radius-control); }
+.knowledge-browse .kbv-tab { white-space: normal; height: auto; min-height: var(--control-h-sm); overflow-wrap: anywhere; }
+.knowledge-stage-more { max-width: 100%; color: var(--accent-text); background: var(--bg-subtle); font: inherit; cursor: pointer; }
+.knowledge-browse .kbv-tab[aria-pressed="true"] { text-decoration: none; }
+.knowledge-browse .kbv-tab[aria-pressed="true"]::after { content: ""; display: block; position: absolute; inset-inline: var(--space-1); bottom: 0; height: var(--workspace-tab-indicator-h); background: var(--accent); }
+.knowledge-browse .kbv-filter-chip[aria-pressed="true"] { background: var(--btn-text-hover-bg); }
+.knowledge-lifecycle-filter { align-items: flex-start; font-size: var(--ds-font-sm); }
+.knowledge-lifecycle-filter .kbv-filter-status-label { flex: none; font-size: var(--ds-font-sm); color: var(--text-quiet); line-height: var(--filter-tab-h); }
+.knowledge-lifecycle-filter .lifecycle-navigation { flex: 1; min-width: 0; flex-wrap: wrap; gap: var(--space-1) var(--space-2); border: 0; overflow: visible; }
+.knowledge-lifecycle-filter .lifecycle-count { font-size: var(--ds-font-sm); }
+.knowledge-list-row { display: flex; align-items: center; min-width: 0; min-height: var(--knowledge-row-h-detail); box-shadow: inset 0 -1px var(--border); gap: var(--space-1); padding-inline: var(--space-3); box-sizing: border-box; }
+.knowledge-list-row:has([aria-current="true"]) { background: var(--btn-text-hover-bg); box-shadow: inset var(--space-1) 0 var(--accent), inset 0 -1px var(--border); }
+.knowledge-list-open { display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; border: 0; padding: var(--space-1) 0; background: transparent; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.knowledge-row-icon { display: inline-flex; flex-shrink: 0; color: var(--accent-text); }
+.knowledge-row-icon svg { width: var(--icon-sm); height: var(--icon-sm); }
+.knowledge-row-copy { min-width: 0; flex: 1; }
+.knowledge-row-title { display: block; font-size: var(--ds-font-sm); line-height: var(--lh-control-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-row-metadata { display: flex; gap: var(--space-1); align-items: center; flex-wrap: wrap; font-size: var(--ds-font-xs); color: var(--text-quiet); line-height: var(--lh-control-sm); overflow-wrap: anywhere; }
+.knowledge-row-time { white-space: normal; }
+.knowledge-row-actions { display: flex; gap: var(--space-1); flex-shrink: 0; }
+.knowledge-browse .kb-scope { display: inline-flex; gap: var(--space-1); flex-wrap: wrap; overflow: visible; }
+.knowledge-browse :is(.kb-scope-chip, .knowledge-status, .chip) { display: inline-flex; align-items: center; box-sizing: border-box; min-height: var(--badge-h); padding: 0 var(--space-1); font-size: var(--ds-font-xs); line-height: var(--lh-control-sm); border-radius: var(--radius-control); overflow-wrap: anywhere; }
+.knowledge-load-footer { display: flex; align-items: center; justify-content: center; gap: var(--space-1); padding: var(--space-2); font-size: var(--ds-font-xs); }
+.knowledge-browse .knowledge-detail-header { padding: var(--space-3); }
+.knowledge-browse .kbv-title-row { align-items: center; gap: var(--space-2); }
+.knowledge-browse .kbv-title-row h2 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; line-height: var(--ds-line-sm); overflow-wrap: anywhere; }
+.knowledge-browse .knowledge-favorite-icon { width: var(--control-h-sm); padding: 0; flex-shrink: 0; }
+.knowledge-browse .knowledge-back { display: none; }
+.knowledge-browse .kbv-rail-body { flex: 1; overflow: auto; min-height: 0; padding: 0 var(--space-3) var(--space-3); font-size: var(--ds-font-sm); }
+.knowledge-inline-metadata { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); font-size: var(--ds-font-xs); border-bottom: 1px solid var(--border); padding-bottom: var(--space-2); margin-bottom: var(--space-2); }
+.knowledge-status { color: var(--text-quiet); border: 1px solid var(--border); }
+.knowledge-inline-metadata dl { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: 0; }
+.knowledge-inline-metadata dl > div { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1); }
+.knowledge-inline-metadata dt { color: var(--text-quiet); }
+.knowledge-inline-metadata dd { margin: 0; overflow-wrap: anywhere; }
+.knowledge-scope-line { display: flex; align-items: center; gap: var(--space-2); width: 100%; }
+.knowledge-browse .kb-preview-body { margin: var(--space-2) 0; padding: 0; border: 0; background: transparent; font-family: var(--font-sans, var(--sans)); font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.knowledge-browse .kb-preview-subject { font-size: var(--ds-font-sm); overflow-wrap: anywhere; }
+.knowledge-browse .knowledge-detail-actions { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); padding: var(--space-2) var(--space-3); background: var(--bg); }
+.knowledge-detail-actions > small { font-size: var(--ds-font-xs); line-height: var(--lh-control-sm); }
+.knowledge-browse .knowledge-detail-actions .kbv-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); justify-content: flex-end; margin: 0; width: 100%; }
+.knowledge-browse :is(button, select, a):focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: calc(-1 * var(--focus-ring-width)); }
+@container knowledge-browse (max-width: 719px) {
+  .knowledge-browse .knowledge-browse-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); flex-direction: row; }
+  .knowledge-browse-workspace[data-pane="list"] > .kbv-rail,
+  .knowledge-browse-workspace[data-pane="detail"] > .kbv-list { display: none; }
+  .knowledge-browse .knowledge-back { display: inline-flex; margin-bottom: var(--space-1); }
+  .knowledge-browse .kbv-rail { border: 0; min-height: 0; flex: none; }
+}
+@container knowledge-browse (min-width: 1280px) {
+  .knowledge-list-row { min-height: var(--knowledge-row-h); }
+  .knowledge-row-copy { display: flex; gap: var(--space-2); align-items: center; }
+  .knowledge-row-title { flex: 1; min-width: 0; }
+}
+@media (pointer: coarse) {
+  .knowledge-browse :is(.kbv-tab, .kbv-filter-chip, .kbv-link-plain, .knowledge-stage-more) { min-height: var(--touch-hit-min); }
+  /* Reserve non-overlapping hit slots, but keep the visual filter at 24px. */
+  .knowledge-browse .knowledge-filter-bar { row-gap: var(--space-5); }
+  .knowledge-browse .kbv-scope-rows { row-gap: var(--space-5); }
+  .knowledge-browse .knowledge-filter-options { gap: var(--space-5); padding-block: var(--space-3); }
+  .knowledge-browse .knowledge-filter-bar .kbv-scope-name { padding-top: var(--space-3); }
+  .knowledge-browse :is(.knowledge-filter-option, .knowledge-filter-action) { position: relative; }
+  .knowledge-browse :is(.knowledge-filter-option, .knowledge-filter-action)::before { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, var(--touch-hit-min)); height: var(--touch-hit-min); transform: translate(-50%, -50%); }
+  .knowledge-browse .knowledge-stage-chip .knowledge-stage-remove { width: var(--touch-hit-min); }
+}
+
+
+/* Shared management / employee stage display; controls and counters are never nested buttons. */
+.knowledge-browse .knowledge-stage-filter { align-items: flex-start; }
+.knowledge-stage-filter > .kbv-scope-name { line-height: var(--control-h-sm); }
+.knowledge-stage-chip { display: inline-flex; align-items: center; box-sizing: border-box; height: var(--control-h-sm); max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-subtle); }
+.knowledge-browse .knowledge-stage-chip .knowledge-stage-choice { height: calc(var(--control-h-sm) - 2px); min-height: 0; padding-inline: var(--space-2) var(--space-1); color: var(--accent-text); }
+.knowledge-browse .knowledge-stage-chip .knowledge-stage-remove { flex: none; width: var(--badge-h); height: calc(var(--control-h-sm) - 2px); min-height: 0; padding: 0; justify-content: center; color: var(--text-quiet); }
+.knowledge-stage-chip[data-selected="true"], .knowledge-stage-all[aria-pressed="true"] { background: var(--btn-text-hover-bg); border-color: var(--accent); }
+.knowledge-stage-filter [aria-pressed="true"] { text-decoration: none; font-weight: 600; }
+.knowledge-browse .knowledge-filter-bar .knowledge-stage-all { border: 1px solid var(--border); border-radius: var(--radius-control); }
+.knowledge-browse .knowledge-filter-bar .knowledge-stage-all[aria-pressed="true"] { border-color: var(--accent); background: var(--btn-text-hover-bg); }
+.knowledge-stage-add-wrap { position: relative; }
+.knowledge-browse .knowledge-stage-add { width: var(--control-h-sm); justify-content: center; border: 1px dashed var(--border-strong); }
+.knowledge-stage-picker { display: flex; flex-direction: column; gap: var(--space-1); max-height: var(--dialog-h-max); overflow: auto; }
+.knowledge-stage-picker .knowledge-filter-action { justify-content: flex-start; font-size: var(--ds-font-sm); }
+.knowledge-stage-popover { --antd-arrow-background-color: var(--bg); }
+.knowledge-stage-popover :is(.ant-popover-container, .ant-popover-inner) { background: var(--bg); color: var(--text); padding: var(--space-2); border-radius: var(--radius-control); box-shadow: var(--shadow-scroll); }
+.knowledge-browse .knowledge-list-row { min-height: var(--knowledge-row-h); height: var(--knowledge-row-h); }
+.knowledge-list-open { height: 100%; padding: 0; justify-content: space-between; gap: var(--space-4); }
+.knowledge-row-title { flex: 1; min-width: 0; }
+.knowledge-row-kind { flex: none; font-size: var(--ds-font-xs); color: var(--text-quiet); white-space: nowrap; }
+.knowledge-browse .knowledge-favorite-icon { width: calc(var(--control-h-sm) + var(--space-2)); height: calc(var(--control-h-sm) + var(--space-2)); }
+.knowledge-favorite-icon > span { font-size: calc(var(--ds-font-sm) * 2); line-height: 1; }

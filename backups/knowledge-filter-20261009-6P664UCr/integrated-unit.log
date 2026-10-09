@@ -1,0 +1,514 @@
+
+> lingong-workbench@0.1.0 test:knowledge
+> vitest run --config vitest.knowledge.config.ts
+
+
+ RUN  v3.2.7 /home/ecs-user/kol-filter-integration-6P664UCr/frontend
+
+ ✓ src/admin/knowledge/CatalogView.test.tsx (15 tests) 14006ms
+   ✓ CatalogView actual Ant Collapse interactions > starts expanded without a form, selects independently from the arrow, and keeps the base detail route  2225ms
+   ✓ CatalogView actual Ant Collapse interactions > searches a leaf while retaining its family/domain path and restores the tree  1122ms
+   ✓ CatalogView actual Ant Collapse interactions > opens child forms with the selected parent and cancels without a mutation  1026ms
+   ✓ CatalogView actual Ant Collapse interactions > guards repeated create submissions, refreshes and selects the created node  880ms
+   ✓ CatalogView actual Ant Collapse interactions > requires R3 archive confirmation and submits exactly once with both versions  1011ms
+   ✓ CatalogView actual Ant Collapse interactions > keeps a blocked delete intact and invalidates confirmation until reload  859ms
+   ✓ CatalogView actual Ant Collapse interactions > preserves stale edit drafts until explicit reload, then sends the new timestamp  1146ms
+   ✓ CatalogView actual Ant Collapse interactions > does not report uncertain writes as success or permit blind repeated creation  972ms
+   ✓ CatalogView actual Ant Collapse interactions > does not relabel successful writes when the subsequent refresh fails  686ms
+   ✓ CatalogView actual Ant Collapse interactions > renders separate accessible buttons for selection and expansion on the real Collapse  694ms
+   ✓ CatalogView actual Ant Collapse interactions > removes the redundant heading and bulk controls and locates creation below the list  523ms
+   ✓ CatalogView actual Ant Collapse interactions > makes codes readonly and leaves generation to the server for all create levels  779ms
+   ✓ CatalogView actual Ant Collapse interactions > preserves the unknown-write reload guard after the dialog is dismissed  784ms
+   ✓ CatalogView actual Ant Collapse interactions > refuses editing a domain without its version timestamp  597ms
+   ✓ CatalogView actual Ant Collapse interactions > reveals a newly created base under an otherwise collapsed parent  693ms
+ ❯ src/admin/knowledge/KnowledgeBrowseFilters.test.tsx (10 tests | 8 failed) 1193ms
+   × compact knowledge filters > groups taxonomy together and always exposes brand, stage and type 438ms
+     → window.matchMedia is not a function
+   × compact knowledge filters > preserves independent brand, type, scope and status callbacks 124ms
+     → window.matchMedia is not a function
+   × compact knowledge filters > keeps counts server-supplied and excludes unavailable counts without inventing zero 129ms
+     → window.matchMedia is not a function
+   × compact knowledge filters > keeps stage multiselection, remove, add, cancel and clear working 84ms
+     → window.matchMedia is not a function
+   × compact knowledge filters > collapses empty taxonomy without deleting it, and lets users expand and collapse 84ms
+     → window.matchMedia is not a function
+   × compact knowledge filters > keeps a selected zero-count category visible and does not collapse unknown counts 82ms
+     → window.matchMedia is not a function
+   × compact knowledge filters > distinguishes conditional counts and clears filters through the host callback 79ms
+     → window.matchMedia is not a function
+   × compact knowledge filters > renders true brand and stage counts, and hides them when unavailable 53ms
+     → window.matchMedia is not a function
+   ✓ knowledge right navigation > shows only five workflows and preserves hidden direct-link stage IDs 63ms
+   ✓ knowledge right navigation > keeps a keyboard entry point without selecting a different hidden-link panel 40ms
+ ✓ src/admin/knowledge/KnowledgeGovernancePanels.test.tsx (6 tests) 934ms
+   ✓ knowledge asset distribution > hides zero-count categories by default and explicitly expands then collapses them  441ms
+stderr | src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > projects the exact lifecycle order from filtered facets rather than global asset statistics
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19) {
+  [stack]: [36m[Getter/Setter][39m,
+  [message]: [32m'window.matchMedia is not a function'[39m
+}
+
+The above error occurred in the <TaskTheme> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.
+
+React Router caught the following error during render TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+
+stderr | src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > distinguishes real unclassified nodes from missing foreign keys in every scope dimension
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19) {
+  [stack]: [36m[Getter/Setter][39m,
+  [message]: [32m'window.matchMedia is not a function'[39m
+}
+
+The above error occurred in the <TaskTheme> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.
+
+React Router caught the following error during render TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+
+stderr | src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > does not display stale lifecycle counts during loading
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19) {
+  [stack]: [36m[Getter/Setter][39m,
+  [message]: [32m'window.matchMedia is not a function'[39m
+}
+
+The above error occurred in the <TaskTheme> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.
+
+React Router caught the following error during render TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+
+stderr | src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > does not display stale lifecycle counts during error
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19) {
+  [stack]: [36m[Getter/Setter][39m,
+  [message]: [32m'window.matchMedia is not a function'[39m
+}
+
+The above error occurred in the <TaskTheme> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.
+
+React Router caught the following error during render TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+
+stderr | src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > keeps the editor and filters when clearing is cancelled with an unsaved draft
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19) {
+  [stack]: [36m[Getter/Setter][39m,
+  [message]: [32m'window.matchMedia is not a function'[39m
+}
+
+The above error occurred in the <TaskTheme> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.
+
+React Router caught the following error during render TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+
+stderr | src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > preserves a hidden legacy stage and names its panel without a nonexistent tab reference
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+Error handled by React Router default ErrorBoundary: TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19) {
+  [stack]: [36m[Getter/Setter][39m,
+  [message]: [32m'window.matchMedia is not a function'[39m
+}
+
+The above error occurred in the <TaskTheme> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.
+
+React Router caught the following error during render TypeError: window.matchMedia is not a function
+    at taskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:33:23[90m)[39m
+    at [90m/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:59
+    at mountStateImpl (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8268:24)
+    at mountState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:8289:22)
+    at Object.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:26243:18)
+    at process.env.NODE_ENV.exports.useState (/home/ecs-user/kol/frontend/node_modules/[4mreact[24m/cjs/react.development.js:1263:34)
+    at TaskTheme [90m(/home/ecs-user/kol-filter-integration-6P664UCr/frontend/[39msrc/tasks/TaskTheme.tsx:46:31[90m)[39m
+    at Object.react_stack_bottom_frame (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:25904:20)
+    at renderWithHooks (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:7662:22)
+    at updateFunctionComponent (/home/ecs-user/kol/frontend/node_modules/[4mreact-dom[24m/cjs/react-dom-client.development.js:10166:19)
+
+ ❯ src/admin/knowledge/KnowledgeHome.filters.test.tsx (6 tests | 6 failed) 932ms
+   × knowledge host filter projection > projects the exact lifecycle order from filtered facets rather than global asset statistics 404ms
+     → expected [] to deeply equal [ '全部13', '草稿2', '待审批6', '已发布3', …(1) ]
+   × knowledge host filter projection > distinguishes real unclassified nodes from missing foreign keys in every scope dimension 113ms
+     → expected undefined to be '未分类2' // Object.is equality
+   × knowledge host filter projection > does not display stale lifecycle counts during loading 112ms
+     → expected undefined to be '全部' // Object.is equality
+   × knowledge host filter projection > does not display stale lifecycle counts during error 92ms
+     → expected undefined to be '全部' // Object.is equality
+   × knowledge host filter projection > keeps the editor and filters when clearing is cancelled with an unsaved draft 87ms
+     → Cannot read properties of null (reading 'click')
+   × knowledge host filter projection > preserves a hidden legacy stage and names its panel without a nonexistent tab reference 118ms
+     → Cannot read properties of null (reading 'getAttribute')
+ ✓ src/admin/knowledge/IngestDocumentDetails.test.tsx (3 tests) 1500ms
+   ✓ compact ingest document details > shows file information without jobs, preview or approval form  1055ms
+ ✓ src/admin/knowledge/LibraryPane.test.tsx (3 tests) 189ms
+ ✓ src/admin/knowledge/planningTree.test.ts (7 tests) 56ms
+ ✓ src/admin/knowledge/employeeKnowledgeFacets.test.ts (3 tests) 29ms
+ ✓ src/admin/knowledge/AssetStatStrip.test.tsx (5 tests) 50ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/admin/knowledge/KnowledgeBrowseFilters.test.tsx > compact knowledge filters > groups taxonomy together and always exposes brand, stage and type
+ FAIL  src/admin/knowledge/KnowledgeBrowseFilters.test.tsx > compact knowledge filters > preserves independent brand, type, scope and status callbacks
+ FAIL  src/admin/knowledge/KnowledgeBrowseFilters.test.tsx > compact knowledge filters > keeps counts server-supplied and excludes unavailable counts without inventing zero
+ FAIL  src/admin/knowledge/KnowledgeBrowseFilters.test.tsx > compact knowledge filters > keeps stage multiselection, remove, add, cancel and clear working
+ FAIL  src/admin/knowledge/KnowledgeBrowseFilters.test.tsx > compact knowledge filters > collapses empty taxonomy without deleting it, and lets users expand and collapse
+ FAIL  src/admin/knowledge/KnowledgeBrowseFilters.test.tsx > compact knowledge filters > keeps a selected zero-count category visible and does not collapse unknown counts
+ FAIL  src/admin/knowledge/KnowledgeBrowseFilters.test.tsx > compact knowledge filters > distinguishes conditional counts and clears filters through the host callback
+ FAIL  src/admin/knowledge/KnowledgeBrowseFilters.test.tsx > compact knowledge filters > renders true brand and stage counts, and hides them when unavailable
+TypeError: window.matchMedia is not a function
+ ❯ taskTheme src/tasks/TaskTheme.tsx:33:23
+     31|       fontFamily: value("--font-openai-sans"), borderRadius: number("-…
+     32|       controlHeight: number("--control-h-lg"), controlHeightSM: number…
+     33|       motion: !window.matchMedia("(prefers-reduced-motion: reduce)").m…
+       |                       ^
+     34|     },
+     35|     components: {
+ ❯ src/tasks/TaskTheme.tsx:46:59
+ ❯ mountStateImpl ../../kol/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:8268:24
+ ❯ mountState ../../kol/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:8289:22
+ ❯ Object.useState ../../kol/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:26243:18
+ ❯ process.env.NODE_ENV.exports.useState ../../kol/frontend/node_modules/react/cjs/react.development.js:1263:34
+ ❯ TaskTheme src/tasks/TaskTheme.tsx:46:31
+ ❯ Object.react_stack_bottom_frame ../../kol/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks ../../kol/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent ../../kol/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > projects the exact lifecycle order from filtered facets rather than global asset statistics
+AssertionError: expected [] to deeply equal [ '全部13', '草稿2', '待审批6', '已发布3', …(1) ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "全部13",[39m
+[32m-   "草稿2",[39m
+[32m-   "待审批6",[39m
+[32m-   "已发布3",[39m
+[32m-   "已下架0",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ src/admin/knowledge/KnowledgeHome.filters.test.tsx:51:94
+     49|   it("projects the exact lifecycle order from filtered facets rather t…
+     50|     render();
+     51|     expect([...container.querySelectorAll("[data-kbv-view]")].map(node…
+       |                                                                                              ^
+     52|     expect(container.querySelectorAll('[data-kbv-view="pending"]')).to…
+     53|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+ FAIL  src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > distinguishes real unclassified nodes from missing foreign keys in every scope dimension
+AssertionError: expected undefined to be '未分类2' // Object.is equality
+
+[32m- Expected:[39m 
+"未分类2"
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ src/admin/knowledge/KnowledgeHome.filters.test.tsx:58:87
+     56|     render();
+     57|     for (const [axis, id, label] of [["family", "legacy", "业务族"], ["do…
+     58|       expect(container.querySelector(`[data-kb-scope-${axis}="${id}"]`…
+       |                                                                                       ^
+     59|       expect(container.querySelector(`[data-kb-scope-${axis}="__none__…
+     60|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > does not display stale lifecycle counts during loading
+ FAIL  src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > does not display stale lifecycle counts during error
+AssertionError: expected undefined to be '全部' // Object.is equality
+
+[32m- Expected:[39m 
+"全部"
+
+[31m+ Received:[39m 
+undefined
+
+ ❯ src/admin/knowledge/KnowledgeHome.filters.test.tsx:67:75
+     65|     render();
+     66|     expect(container.querySelectorAll('[data-kbv-view] .lifecycle-coun…
+     67|     expect(container.querySelector('[data-kbv-view="all"]')?.textConte…
+       |                                                                           ^
+     68|   });
+     69| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > keeps the editor and filters when clearing is cancelled with an unsaved draft
+TypeError: Cannot read properties of null (reading 'click')
+ ❯ src/admin/knowledge/KnowledgeHome.filters.test.tsx:72:90
+     70|   it("keeps the editor and filters when clearing is cancelled with an …
+     71|     render("/admin/knowledge?stage=create&mode=create");
+     72|     act(() => container.querySelector<HTMLButtonElement>('[data-kb-kin…
+       |                                                                                          ^
+     73|     act(() => container.querySelector<HTMLButtonElement>('[data-test-d…
+     74|     const confirmation = vi.spyOn(window, "confirm").mockReturnValue(f…
+ ❯ Proxy.process.env.NODE_ENV.exports.act ../../kol/frontend/node_modules/react/cjs/react.development.js:814:22
+ ❯ src/admin/knowledge/KnowledgeHome.filters.test.tsx:72:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  src/admin/knowledge/KnowledgeHome.filters.test.tsx > knowledge host filter projection > preserves a hidden legacy stage and names its panel without a nonexistent tab reference
+TypeError: Cannot read properties of null (reading 'getAttribute')
+ ❯ src/admin/knowledge/KnowledgeHome.filters.test.tsx:90:18
+     88|     expect(router.state.location.search).toBe("?stage=bindings");
+     89|     const panel = container.querySelector('[role="tabpanel"]')!;
+     90|     expect(panel.getAttribute("aria-label")).toBe("查询技能");
+       |                  ^
+     91|     expect(panel.getAttribute("aria-labelledby")).toBeNull();
+     92|     expect(container.querySelector('[data-knowledge-right]')?.getAttri…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+
+ Test Files  2 failed | 7 passed (9)
+      Tests  14 failed | 44 passed (58)
+   Start at  21:01:40
+   Duration  91.48s (transform 3.47s, setup 0ms, collect 50.08s, tests 18.89s, environment 12.48s, prepare 3.24s)
+

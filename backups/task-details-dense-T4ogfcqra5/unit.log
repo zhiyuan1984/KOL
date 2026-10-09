@@ -1,0 +1,10 @@
+
+ RUN  v3.2.7 /home/ecs-user/kol/frontend
+
+ ✓ src/tasks/TaskExpandedDetails.test.tsx (7 tests) 170ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  10:25:36
+   Duration  1.83s (transform 522ms, setup 0ms, collect 661ms, tests 170ms, environment 1ms, prepare 394ms)
+

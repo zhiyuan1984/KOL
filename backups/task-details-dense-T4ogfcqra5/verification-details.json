@@ -1,0 +1,185 @@
+{
+  "base": "http://127.0.0.1:4178",
+  "results": [
+    {
+      "kind": "real",
+      "width": 1280,
+      "height": 49,
+      "summary": "完成对 MAX BUSHCRAFT（youtube：UC9oYA9Hy2dZwqIhL_CMd_kA）的跟进，直到转化或放弃",
+      "facts": [
+        {
+          "label": "创建",
+          "value": "10/9 10:09",
+          "y": 480
+        },
+        {
+          "label": "优先级",
+          "value": "中",
+          "y": 480
+        },
+        {
+          "label": "工单",
+          "value": "无",
+          "y": 480
+        }
+      ],
+      "hasEmptyBlock": false,
+      "hasPageOverflow": false,
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "width": 1600,
+      "height": 49,
+      "summary": "完成对 MAX BUSHCRAFT（youtube：UC9oYA9Hy2dZwqIhL_CMd_kA）的跟进，直到转化或放弃",
+      "facts": [
+        {
+          "label": "创建",
+          "value": "10/9 10:09",
+          "y": 480
+        },
+        {
+          "label": "优先级",
+          "value": "中",
+          "y": 480
+        },
+        {
+          "label": "工单",
+          "value": "无",
+          "y": 480
+        }
+      ],
+      "hasEmptyBlock": false,
+      "hasPageOverflow": false,
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "width": 1920,
+      "height": 49,
+      "summary": "完成对 MAX BUSHCRAFT（youtube：UC9oYA9Hy2dZwqIhL_CMd_kA）的跟进，直到转化或放弃",
+      "facts": [
+        {
+          "label": "创建",
+          "value": "10/9 10:09",
+          "y": 480
+        },
+        {
+          "label": "优先级",
+          "value": "中",
+          "y": 480
+        },
+        {
+          "label": "工单",
+          "value": "无",
+          "y": 480
+        }
+      ],
+      "hasEmptyBlock": false,
+      "hasPageOverflow": false,
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "width": 768,
+      "height": 49,
+      "summary": "完成对 MAX BUSHCRAFT（youtube：UC9oYA9Hy2dZwqIhL_CMd_kA）的跟进，直到转化或放弃",
+      "facts": [
+        {
+          "label": "创建",
+          "value": "10/9 10:09",
+          "y": 635
+        },
+        {
+          "label": "优先级",
+          "value": "中",
+          "y": 635
+        },
+        {
+          "label": "工单",
+          "value": "无",
+          "y": 635
+        }
+      ],
+      "hasEmptyBlock": false,
+      "hasPageOverflow": false,
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "width": 390,
+      "height": 49,
+      "summary": "完成对 MAX BUSHCRAFT（youtube：UC9oYA9Hy2dZwqIhL_CMd_kA）的跟进，直到转化或放弃",
+      "facts": [
+        {
+          "label": "创建",
+          "value": "10/9 10:09",
+          "y": 753
+        },
+        {
+          "label": "优先级",
+          "value": "中",
+          "y": 753
+        },
+        {
+          "label": "工单",
+          "value": "无",
+          "y": 753
+        }
+      ],
+      "hasEmptyBlock": false,
+      "hasPageOverflow": false,
+      "foldSpread": 0
+    },
+    {
+      "kind": "real",
+      "allExpanded": 4
+    },
+    {
+      "kind": "synthetic-only",
+      "case": "稀疏内容仅元数据一行",
+      "height": 29
+    },
+    {
+      "kind": "synthetic-only",
+      "case": "长摘要展开全文/收起",
+      "passed": true
+    },
+    {
+      "kind": "synthetic-only",
+      "case": "三个子工单紧凑表",
+      "rows": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "scroll": false
+    },
+    {
+      "kind": "synthetic-only",
+      "case": "系统任务一行/等待任务两行",
+      "agentMetrics": [
+        {
+          "height": 29,
+          "summary": "",
+          "labels": [
+            "技能",
+            "创建"
+          ]
+        },
+        {
+          "height": 49,
+          "summary": "[测试样例] 等待外部确认",
+          "labels": [
+            "技能",
+            "创建",
+            "开始"
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "writes": 0
+}

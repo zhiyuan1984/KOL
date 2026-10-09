@@ -1,0 +1,60 @@
+{
+  "document": {
+    "id": "kdoc_5a10907d-09e7-4637-b7f3-3bbd4eb52458",
+    "base_id": "kbase_546516e4dbc4",
+    "title": "media-generation-tk-3-0-2f62595e-7dd3-4b9b-a013-715f5af3569e",
+    "filename": "media-generation-tk-3-0-2f62595e-7dd3-4b9b-a013-715f5af3569e.mp4",
+    "media_type": "pdf",
+    "mime": "application/pdf",
+    "size_bytes": "7173955",
+    "source_path": "/home/ecs-user/kol/data/knowledge/bases/kbase_546516e4dbc4/documents/kdoc_5a10907d-09e7-4637-b7f3-3bbd4eb52458/source.pdf",
+    "status": "failed",
+    "error": "Failed to submit document: could not read PDF: EOF marker not found",
+    "retry_count": "0",
+    "artifacts": "{\"normalize\":{\"mode\":\"text-passthrough\",\"normalized_path\":\"knowledge/bases/kbase_546516e4dbc4/documents/kdoc_5a10907d-09e7-4637-b7f3-3bbd4eb52458/normalized.pdf\",\"finished_at\":\"2026-10-08T18:32:43.427Z\"}}",
+    "created_by": "sriphy",
+    "created_at": "2026-10-08T18:32:37.353Z",
+    "updated_at": "2026-10-08T18:32:51.896Z",
+    "published_by": null,
+    "published_at": null
+  },
+  "lineage": {
+    "document_id": "kdoc_5a10907d-09e7-4637-b7f3-3bbd4eb52458",
+    "root_id": "kdoc_54ec53fd5fd7",
+    "version": 2,
+    "expected_active_id": null
+  },
+  "jobs": [
+    {
+      "id": "kdjob_bc5a56c62b8b",
+      "document_id": "kdoc_5a10907d-09e7-4637-b7f3-3bbd4eb52458",
+      "kind": "normalize",
+      "status": "done",
+      "progress_done": "1",
+      "progress_total": "1",
+      "detail": null,
+      "error": null,
+      "attempt": "1",
+      "created_by": "sriphy",
+      "created_at": "2026-10-08T18:32:43.411Z",
+      "started_at": "2026-10-08T18:32:43.420Z",
+      "finished_at": "2026-10-08T18:32:43.518Z"
+    },
+    {
+      "id": "kdjob_e4897c2680af",
+      "document_id": "kdoc_5a10907d-09e7-4637-b7f3-3bbd4eb52458",
+      "kind": "index",
+      "status": "failed",
+      "progress_done": "0",
+      "progress_total": "0",
+      "detail": null,
+      "error": "Failed to submit document: could not read PDF: EOF marker not found",
+      "attempt": "1",
+      "created_by": "sriphy",
+      "created_at": "2026-10-08T18:32:43.524Z",
+      "started_at": "2026-10-08T18:32:43.528Z",
+      "finished_at": "2026-10-08T18:32:51.894Z"
+    }
+  ],
+  "source_sha256": "4121e5c738cecb351c782eb56dc9abc3c14b75a8752f0e819aa19dd8beaa30ff"
+}

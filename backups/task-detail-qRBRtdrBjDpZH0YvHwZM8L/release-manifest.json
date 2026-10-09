@@ -1,0 +1,20 @@
+{
+  "before": {
+    "frontend/src/pages/Tasks.tsx": "a7e269f3d5ba07ab6bf48e3c7f3b9d65021425c54240358941a3757add012959",
+    "frontend/src/pages/TaskDetailPage.tsx": "e12c8f36965beb53517ad0a8839ef1f3cec32c0f71dc3a8d9ec6a9cf67be72e0",
+    "frontend/src/tasks/TaskDetailDrawer.tsx": "0dbe3099f7f9feab60b94b48cfa3aea671f1774409f705142a1eb53b932e1fc6",
+    "frontend/src/tasks/TaskCollaborationContext.tsx": "e8b52ac104a024fb61289ed2cf57fae80fb38ae0721e088fc12b423dd252473f",
+    "frontend/src/tasks/WorkOrderSuggestions.tsx": "bd18bf23cc73b4a0e9a5eb0906c5f788becc0087e3eef21a1d1110c53d3fa381",
+    "frontend/src/components/AuthGate.tsx": "3691d23542e2a9d6b517b8188ac422bae1c00cc75e6d004232506d53bf0372ba",
+    "docs/DESIGN.md": "32a2a000f35f68572047708dded75c38ee4e82f2a4d3a1b66388cc83ad70b889"
+  },
+  "new_files": [
+    "frontend/src/tasks/BusinessTaskDetailContent.tsx",
+    "frontend/src/tasks/task-detail-drawer.css",
+    "frontend/src/tasks/taskDetailNavigation.ts",
+    "frontend/src/tasks/taskDetailNavigation.test.ts",
+    "frontend/e2e/task-detail-redesign.spec.ts",
+    "frontend/playwright.task-detail.config.ts",
+    "docs/task-detail-redesign.md"
+  ]
+}

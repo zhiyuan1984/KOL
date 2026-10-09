@@ -1,0 +1,72 @@
+
+> lingong-workbench@0.1.0 build
+> tsc --noEmit && vite build --configLoader runner
+
+vite v6.4.3 building for production...
+transforming...
+✓ 3703 modules transformed.
+rendering chunks...
+computing gzip size...
+dist.task-center-T4ogfcqra5/index.html                                    0.64 kB │ gzip:   0.38 kB
+dist.task-center-T4ogfcqra5/assets/kol-lead-coop-iEBatxOn.css             4.79 kB │ gzip:   1.23 kB
+dist.task-center-T4ogfcqra5/assets/lifecycle-workspace--DO37teB.css       7.63 kB │ gzip:   1.81 kB
+dist.task-center-T4ogfcqra5/assets/CatalogView-CP9bMhYi.css               9.49 kB │ gzip:   1.99 kB
+dist.task-center-T4ogfcqra5/assets/ReviewLeaveDialog-ZOPUFFQo.css        11.25 kB │ gzip:   2.45 kB
+dist.task-center-T4ogfcqra5/assets/modes-DafxmXzu.css                    24.92 kB │ gzip:   3.99 kB
+dist.task-center-T4ogfcqra5/assets/knowledge-page-phTD11kC.css           61.52 kB │ gzip:   9.22 kB
+dist.task-center-T4ogfcqra5/assets/Home-7tb07yPD.css                     82.05 kB │ gzip:  12.33 kB
+dist.task-center-T4ogfcqra5/assets/AdminConsole-C_axyTK2.css            120.48 kB │ gzip:  16.98 kB
+dist.task-center-T4ogfcqra5/assets/index-DaE_wN2u.css                   447.47 kB │ gzip:  70.23 kB
+dist.task-center-T4ogfcqra5/assets/AgentTeams-CatdZ-oe.js                 0.16 kB │ gzip:   0.15 kB
+dist.task-center-T4ogfcqra5/assets/discoveryWorkspaceState-Ci75cuAw.js    0.26 kB │ gzip:   0.20 kB
+dist.task-center-T4ogfcqra5/assets/Partners-BSH4oos1.js                   0.58 kB │ gzip:   0.39 kB
+dist.task-center-T4ogfcqra5/assets/draft-gIqS1loB.js                      1.15 kB │ gzip:   0.60 kB
+dist.task-center-T4ogfcqra5/assets/lifecycle-workspace-vbD2vUvs.js        1.32 kB │ gzip:   0.74 kB
+dist.task-center-T4ogfcqra5/assets/kolStages-DBI4o3kV.js                  1.32 kB │ gzip:   0.58 kB
+dist.task-center-T4ogfcqra5/assets/SharedSession-dmFWoPbH.js              1.54 kB │ gzip:   0.94 kB
+dist.task-center-T4ogfcqra5/assets/useTaskRunEventStream-ChK0_oss.js      1.74 kB │ gzip:   0.86 kB
+dist.task-center-T4ogfcqra5/assets/journey-D4KRgnS4.js                    1.87 kB │ gzip:   0.88 kB
+dist.task-center-T4ogfcqra5/assets/Session-j-qI-W_r.js                    2.29 kB │ gzip:   1.20 kB
+dist.task-center-T4ogfcqra5/assets/kol-lead-coop-D64QqYvS.js              2.84 kB │ gzip:   1.54 kB
+dist.task-center-T4ogfcqra5/assets/stageTargets-CwG8wpWv.js               2.89 kB │ gzip:   1.46 kB
+dist.task-center-T4ogfcqra5/assets/taskStarters-BQ7YDpPt.js               3.66 kB │ gzip:   1.99 kB
+dist.task-center-T4ogfcqra5/assets/useMailComposeFlow-yYbQLs3o.js         4.08 kB │ gzip:   1.77 kB
+dist.task-center-T4ogfcqra5/assets/skillIcons-Cx0-Su0p.js                 4.62 kB │ gzip:   1.79 kB
+dist.task-center-T4ogfcqra5/assets/ReviewForm-VIQwF3gg.js                 5.64 kB │ gzip:   2.60 kB
+dist.task-center-T4ogfcqra5/assets/SkillHub-c61uXE3y.js                   6.41 kB │ gzip:   2.81 kB
+dist.task-center-T4ogfcqra5/assets/knowledge-page-BWdser2F.js             8.18 kB │ gzip:   2.84 kB
+dist.task-center-T4ogfcqra5/assets/TaskDetailPage-CO5gXsPC.js             8.31 kB │ gzip:   2.83 kB
+dist.task-center-T4ogfcqra5/assets/ReviewLeaveDialog-DLcrrowK.js          8.41 kB │ gzip:   3.99 kB
+dist.task-center-T4ogfcqra5/assets/Exam-BIVIS4Tt.js                       8.84 kB │ gzip:   3.31 kB
+dist.task-center-T4ogfcqra5/assets/CrawlArtifact-lfwcZuR0.js              9.48 kB │ gzip:   3.69 kB
+dist.task-center-T4ogfcqra5/assets/WorkOrderSuggestions-DHNhpqoY.js      10.27 kB │ gzip:   4.08 kB
+dist.task-center-T4ogfcqra5/assets/experts-D5ebH3Su.js                   11.20 kB │ gzip:   4.41 kB
+dist.task-center-T4ogfcqra5/assets/knowledgeCopy-D8WGbyNl.js             11.39 kB │ gzip:   5.56 kB
+dist.task-center-T4ogfcqra5/assets/Cooperations-7y2ZlT2G.js              12.71 kB │ gzip:   4.03 kB
+dist.task-center-T4ogfcqra5/assets/ApprovalTypes-DY8wnKLI.js             13.81 kB │ gzip:   3.99 kB
+dist.task-center-T4ogfcqra5/assets/Knowledge-CQwhZyML.js                 13.95 kB │ gzip:   5.62 kB
+dist.task-center-T4ogfcqra5/assets/Leads-8gBNyUo2.js                     14.69 kB │ gzip:   4.44 kB
+dist.task-center-T4ogfcqra5/assets/Pipeline-DRe2AePN.js                  14.85 kB │ gzip:   5.12 kB
+dist.task-center-T4ogfcqra5/assets/composerDraft-BXY0orz6.js             15.54 kB │ gzip:   5.85 kB
+dist.task-center-T4ogfcqra5/assets/AccountSettings-DiJXY6lE.js           15.77 kB │ gzip:   5.38 kB
+dist.task-center-T4ogfcqra5/assets/Approvals-ByVhtC4g.js                 18.04 kB │ gzip:   6.46 kB
+dist.task-center-T4ogfcqra5/assets/ConfirmDialog-6z7Otx2k.js             19.41 kB │ gzip:   6.88 kB
+dist.task-center-T4ogfcqra5/assets/SkillCatalog-BWhAMPj7.js              22.51 kB │ gzip:   8.24 kB
+dist.task-center-T4ogfcqra5/assets/Agents-DW6rKnCG.js                    22.73 kB │ gzip:   7.28 kB
+dist.task-center-T4ogfcqra5/assets/Cron-Bg2xB_gV.js                      22.92 kB │ gzip:   8.10 kB
+dist.task-center-T4ogfcqra5/assets/Reviews-BU-Y-02E.js                   34.95 kB │ gzip:  11.66 kB
+dist.task-center-T4ogfcqra5/assets/CatalogView-DL78Y8d6.js               36.08 kB │ gzip:  12.87 kB
+dist.task-center-T4ogfcqra5/assets/Mail-BAufzEG_.js                      45.69 kB │ gzip:  14.76 kB
+dist.task-center-T4ogfcqra5/assets/ComposerDock-QSuA4c4D.js              49.08 kB │ gzip:  16.85 kB
+dist.task-center-T4ogfcqra5/assets/Chat-CiOw5F47.js                      54.92 kB │ gzip:  19.15 kB
+dist.task-center-T4ogfcqra5/assets/ReviewTypes-Bt3EwDbU.js               56.36 kB │ gzip:  17.83 kB
+dist.task-center-T4ogfcqra5/assets/ChatBlocks-C4N2aGlo.js                61.20 kB │ gzip:  20.40 kB
+dist.task-center-T4ogfcqra5/assets/Tasks-B5aGjaxm.js                     65.64 kB │ gzip:  21.17 kB
+dist.task-center-T4ogfcqra5/assets/modes-D0W5ufNx.js                     85.79 kB │ gzip:  27.47 kB
+dist.task-center-T4ogfcqra5/assets/vendor-CWy1lqx7.js                   108.36 kB │ gzip:  36.50 kB
+dist.task-center-T4ogfcqra5/assets/useSize-BI0mun8H.js                  108.52 kB │ gzip:  41.09 kB
+dist.task-center-T4ogfcqra5/assets/markdown-CVX_sRzT.js                 157.98 kB │ gzip:  48.03 kB
+dist.task-center-T4ogfcqra5/assets/Home-9AL22g5J.js                     249.70 kB │ gzip:  79.61 kB
+dist.task-center-T4ogfcqra5/assets/index-COZUJ0rs.js                    305.34 kB │ gzip:  92.75 kB
+dist.task-center-T4ogfcqra5/assets/AdminConsole-dDsGUh8A.js             456.54 kB │ gzip: 129.12 kB
+✓ built in 25.19s

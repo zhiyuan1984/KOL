@@ -1,0 +1,1375 @@
+diff --git a/backend/src/knowledge/taxonomy-mutations.ts b/backend/src/knowledge/taxonomy-mutations.ts
+index 938b1c5d..34fdcb47 100644
+--- a/backend/src/knowledge/taxonomy-mutations.ts
++++ b/backend/src/knowledge/taxonomy-mutations.ts
+@@ -4,6 +4,7 @@
+  * The guard migration serializes every relevant writer with these mutations;
+  * never enable destructive operations against an older, unprotected schema.
+  */
++import { randomUUID } from 'node:crypto';
+ import type { PoolClient } from 'pg';
+ import { requireAdmin } from '../auth.js';
+ import { postgresTransaction } from '../postgres/pool.js';
+@@ -14,11 +15,57 @@ type Row = Record<string, any>;
+ export type CatalogConfirmation = { confirmed?: unknown; expected_updated_at?: unknown };
+ export type DomainPatch = CatalogConfirmation & { name?: string; sort?: number | null; status?: string; note?: string };
+ export type BasePatch = CatalogConfirmation & { name?: string; description?: string; status?: string; expected_version?: number | null; domain_id?: string; kind?: string };
++export type CreateCatalogDomainInput = { code?: unknown; name?: unknown; level?: unknown; parent_id?: unknown; sort?: unknown; note?: unknown };
++export type CreateCatalogBaseInput = { code?: unknown; name?: unknown; domain_id?: unknown; kind?: unknown; description?: unknown; settings?: unknown; external_ref?: unknown };
+ type Blocker = { code: string; message: string; count: number };
+ const LOCK_KEY = 'knowledge-taxonomy-mutation-v1';
++const DOMAIN_CODE_RE = /^[a-z][a-z0-9_]*$/;
+ const fail = (status: number, code: string, message: string): never => { throw new HttpFail(status, { code, message }); };
+ const parse = (value: unknown): any => typeof value === 'string' ? JSON.parse(value) : value;
+ const nextStamp = (previous: string): string => new Date(Math.max(Date.now(), (Date.parse(previous) || 0) + 1)).toISOString();
++const generated = (prefix: string) => `${prefix}_${randomUUID().replaceAll('-', '')}`;
++
++function jsonObject(value: unknown): Record<string, unknown> {
++  if (value == null || value === '') return {};
++  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
++  try {
++    const parsed = JSON.parse(String(value));
++    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
++  } catch {
++    return {};
++  }
++}
++
++async function uniqueDomainCode(db: PoolClient, parentId: string, input: unknown, prefix: 'family' | 'domain'): Promise<string> {
++  const supplied = String(input ?? '').trim();
++  if (supplied) {
++    if (!DOMAIN_CODE_RE.test(supplied)) fail(400, 'knowledge_domain_code_invalid', 'code 须为小写字母开头的 a-z0-9_ 编码');
++    const exists = (await db.query("SELECT 1 FROM knowledge_domains WHERE code=$1 AND COALESCE(parent_id,'')=$2", [supplied, parentId])).rows[0];
++    if (exists) fail(409, 'knowledge_domain_code_conflict', '同一父级下编码已存在');
++    return supplied;
++  }
++  for (let attempt = 0; attempt < 8; attempt += 1) {
++    const code = generated(prefix);
++    const exists = (await db.query("SELECT 1 FROM knowledge_domains WHERE code=$1 AND COALESCE(parent_id,'')=$2", [code, parentId])).rows[0];
++    if (!exists) return code;
++  }
++  return fail(409, 'knowledge_domain_code_conflict', '无法生成未占用的主题域编码，请重试');
++}
++
++async function uniqueBaseCode(db: PoolClient, input: unknown): Promise<string> {
++  const supplied = String(input ?? '').trim();
++  if (supplied) {
++    const exists = (await db.query('SELECT 1 FROM knowledge_bases WHERE code=$1', [supplied])).rows[0];
++    if (exists) fail(409, 'knowledge_base_code_conflict', '知识库编码已存在');
++    return supplied;
++  }
++  for (let attempt = 0; attempt < 8; attempt += 1) {
++    const code = generated('base');
++    const exists = (await db.query('SELECT 1 FROM knowledge_bases WHERE code=$1', [code])).rows[0];
++    if (!exists) return code;
++  }
++  return fail(409, 'knowledge_base_code_conflict', '无法生成未占用的知识库编码，请重试');
++}
+ 
+ function confirmation(input: CatalogConfirmation) {
+   if (input.confirmed !== true) fail(400, 'knowledge_taxonomy_confirmation_required', '请明确确认本次删除或归档操作');
+@@ -133,11 +180,12 @@ async function baseBlockers(db: PoolClient, row: Row, action: 'delete' | 'archiv
+   reasons.push(...jobs);
+   return reasons;
+ }
+-async function record(db: PoolClient, actor: string, kind: 'domain' | 'base', action: string, before: Row, after: Row | null) {
+-  const summary = (r: Row) => ({ id: r.id, code: r.code, name: r.name, level: r.level, parent_id: r.parent_id,
+-    domain_id: r.domain_id, status: r.status, version: r.version, updated_at: r.updated_at });
++async function record(db: PoolClient, actor: string, kind: 'domain' | 'base', action: string, before: Row | null, after: Row | null) {
++  const summary = (r: Row | null) => r ? ({ id: r.id, code: r.code, name: r.name, level: r.level, parent_id: r.parent_id,
++    domain_id: r.domain_id, status: r.status, version: r.version, updated_at: r.updated_at }) : null;
++  const target = after || before;
+   const result = await db.query(`INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4) RETURNING id`,
+-    [new Date().toISOString(), actor, `knowledge.${kind}.${action}`, JSON.stringify({ id: before.id, before: summary(before), after: after ? summary(after) : null, confirmed: action !== 'save', expected_updated_at: before.updated_at })]);
++    [new Date().toISOString(), actor, `knowledge.${kind}.${action}`, JSON.stringify({ id: target?.id, before: summary(before), after: summary(after), confirmed: ['delete', 'archive'].includes(action), expected_updated_at: before?.updated_at ?? null })]);
+   return result.rows[0]?.id;
+ }
+ async function mutation<T>(destructive: boolean, fn: (db: PoolClient, actor: string) => Promise<T>): Promise<T> {
+@@ -150,12 +198,82 @@ async function mutation<T>(destructive: boolean, fn: (db: PoolClient, actor: str
+     });
+   } catch (error) {
+     const code = (error as { code?: string }).code;
++    const constraint = (error as { constraint?: string }).constraint;
++    const message = error instanceof Error ? error.message : String(error || '');
+     if (code === '22P02') fail(409, 'knowledge_taxonomy_unresolved_dependencies', '依赖记录格式无法核验，请先修复后再操作');
++    if (code === '23514' && message.includes('knowledge_taxonomy_parent_unavailable')) {
++      fail(409, 'knowledge_taxonomy_parent_unavailable', '所属主题域或主题域族不存在或已归档');
++    }
+     if (code === '23514') fail(409, 'knowledge_taxonomy_dependency_changed', '所属节点或知识依赖已变化，请刷新后重试');
++    if (code === '23505' && constraint === 'knowledge_domains_code') fail(409, 'knowledge_domain_code_conflict', '同一父级下编码已存在');
++    if (code === '23505' && constraint === 'ux_knowledge_bases_code') fail(409, 'knowledge_base_code_conflict', '知识库编码已存在');
++    if (code === '23505') fail(409, 'knowledge_taxonomy_conflict', '知识分类编码已存在，请刷新后重试');
+     if (['55P03', '40P01', '40001'].includes(String(code))) fail(409, 'knowledge_taxonomy_busy', '知识分类或依赖正在变更，请刷新后重试');
+     throw error;
+   }
+ }
++
++export async function createCatalogDomain(input: CreateCatalogDomainInput) {
++  requireAdmin();
++  return mutation(false, async (db, actor) => {
++    const name = String(input.name ?? '').trim();
++    if (!name) fail(400, 'knowledge_taxonomy_invalid', 'name required');
++    const level = String(input.level ?? '');
++    if (!['family', 'domain'].includes(level)) fail(400, 'knowledge_taxonomy_invalid', 'level 须为 family / domain');
++    const parentId = String(input.parent_id ?? '').trim();
++    if (level === 'family' && parentId) fail(400, 'knowledge_taxonomy_invalid', '主题域族不能有父级（parent_id）');
++    if (level === 'domain') {
++      if (!parentId) fail(400, 'knowledge_taxonomy_invalid', '主题域必须给 parent_id（所属族）');
++      const parent = (await db.query('SELECT id,level,status FROM knowledge_domains WHERE id=$1 FOR UPDATE', [parentId])).rows[0];
++      if (!parent) fail(400, 'knowledge_taxonomy_invalid', '父级主题域不存在');
++      if (String(parent.level) !== 'family') fail(400, 'knowledge_taxonomy_invalid', '主题域的父级必须是族（family）');
++      if (String(parent.status) !== 'active') fail(409, 'knowledge_taxonomy_parent_unavailable', '所属主题域族不存在或已归档');
++    }
++    const code = await uniqueDomainCode(db, parentId, input.code, level as 'family' | 'domain');
++    const sort = Number.isFinite(Number(input.sort)) ? Number(input.sort) : 0;
++    const now = new Date().toISOString();
++    const domain = (await db.query(`INSERT INTO knowledge_domains
++      (id,code,name,level,parent_id,sort,status,note,created_by,created_at,updated_at)
++      VALUES($1,$2,$3,$4,$5,$6,'active',$7,$8,$9,$9) RETURNING *`,
++    [`kdom_${randomUUID().replaceAll('-', '')}`, code, name, level, level === 'family' ? null : parentId, sort, String(input.note ?? ''), actor, now])).rows[0];
++    await record(db, actor, 'domain', 'create', null, domain);
++    return { domain };
++  });
++}
++
++export async function createCatalogBase(input: CreateCatalogBaseInput) {
++  requireAdmin();
++  return mutation(false, async (db, actor) => {
++    const name = String(input.name ?? '').trim();
++    if (!name) fail(400, 'knowledge_taxonomy_invalid', 'name required');
++    const domainId = String(input.domain_id ?? '').trim();
++    if (!domainId) fail(400, 'knowledge_taxonomy_invalid', 'domain_id required');
++    const domain = (await db.query('SELECT id,level,status,parent_id FROM knowledge_domains WHERE id=$1 FOR UPDATE', [domainId])).rows[0];
++    if (!domain) fail(400, 'knowledge_taxonomy_invalid', '主题域不存在');
++    if (String(domain.level) !== 'domain') fail(400, 'knowledge_taxonomy_invalid', '知识库必须挂在主题域（level=domain）下');
++    const family = (await db.query('SELECT id,level,status FROM knowledge_domains WHERE id=$1 FOR UPDATE', [domain.parent_id])).rows[0];
++    if (String(domain.status) !== 'active' || !family || String(family.level) !== 'family' || String(family.status) !== 'active') {
++      fail(409, 'knowledge_taxonomy_parent_unavailable', '所属主题域或主题域族不存在或已归档');
++    }
++    const kind = String(input.kind ?? '');
++    if (!['structured', 'unstructured'].includes(kind)) fail(400, 'knowledge_taxonomy_invalid', 'kind 须为 structured / unstructured');
++    const externalRef = input.external_ref == null || input.external_ref === '' ? null : JSON.stringify(input.external_ref);
++    if (kind === 'structured' && externalRef) fail(400, 'knowledge_base_external_ref_forbidden', '结构化知识库不能带 external_ref');
++    const code = await uniqueBaseCode(db, input.code);
++    const now = new Date().toISOString();
++    const base = (await db.query(`INSERT INTO knowledge_bases
++      (id,code,name,domain_id,kind,description,owner_user_id,status,settings,external_ref,version,created_at,updated_at)
++      VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8,$9,1,$10,$10) RETURNING *`,
++    [`kbase_${randomUUID().replaceAll('-', '')}`, code, name, domainId, kind, String(input.description ?? ''), actor,
++      JSON.stringify(jsonObject(input.settings)), externalRef, now])).rows[0];
++    await record(db, actor, 'base', 'create', null, base);
++    const view = (await db.query(`SELECT b.*,d.name AS domain_name,d.parent_id AS family_id,f.name AS family_name,
++      (SELECT COUNT(*) FROM knowledge k WHERE k.base_id=b.id) AS entries FROM knowledge_bases b
++      LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id WHERE b.id=$1`, [base.id])).rows[0];
++    return { base: { ...view, settings: parse(view.settings || '{}'), external_ref: view.external_ref ? parse(view.external_ref) : null,
++      version: Number(view.version), entries: Number(view.entries || 0), description: view.description ?? '', owner_user_id: view.owner_user_id ?? '' } };
++  });
++}
+ export async function deleteCatalogDomain(id: string, input: CatalogConfirmation) {
+   requireAdmin(); confirmation(input);
+   return mutation(true, async (db, actor) => {
+diff --git a/backend/src/routers/knowledge-taxonomy.ts b/backend/src/routers/knowledge-taxonomy.ts
+index 1d5b7684..dac67acd 100644
+--- a/backend/src/routers/knowledge-taxonomy.ts
++++ b/backend/src/routers/knowledge-taxonomy.ts
+@@ -1,6 +1,6 @@
+ import { Hono, type Context } from 'hono';
+ import { HttpFail } from '../host/errors.js';
+-import { deleteCatalogDomain, deleteCatalogBase, editCatalogDomain, editCatalogBase } from '../knowledge/taxonomy-mutations.js';
++import { createCatalogDomain, createCatalogBase, deleteCatalogDomain, deleteCatalogBase, editCatalogDomain, editCatalogBase } from '../knowledge/taxonomy-mutations.js';
+ 
+ /** Mounted under /api; fixed catalog routes preserve the existing admin surface. */
+ export const knowledgeTaxonomyMutations = new Hono();
+@@ -11,6 +11,10 @@ async function mutationBody(c: Context): Promise<Record<string, any>> {
+   }
+   return value as Record<string, any>;
+ }
++knowledgeTaxonomyMutations.post('/admin/knowledge/domains', async c =>
++  c.json(await createCatalogDomain(await mutationBody(c)), 201));
++knowledgeTaxonomyMutations.post('/admin/knowledge/bases', async c =>
++  c.json(await createCatalogBase(await mutationBody(c)), 201));
+ knowledgeTaxonomyMutations.put('/admin/knowledge/domains/:id', async c =>
+   c.json(await editCatalogDomain(c.req.param('id'), await mutationBody(c))));
+ knowledgeTaxonomyMutations.put('/admin/knowledge/bases/:id', async c =>
+diff --git a/backend/tests/knowledge-taxonomy-mutations.test.ts b/backend/tests/knowledge-taxonomy-mutations.test.ts
+index e58eb7cb..9800e276 100644
+--- a/backend/tests/knowledge-taxonomy-mutations.test.ts
++++ b/backend/tests/knowledge-taxonomy-mutations.test.ts
+@@ -25,7 +25,10 @@ const app = new Hono();
+ app.route('/api', knowledgeTaxonomyMutations);
+ app.onError((error, c) => error instanceof HttpFail ? c.json({ detail: error.detail }, error.status as any) : c.json({ message: error.message }, 500));
+ async function request(collection: 'domains' | 'bases', method = 'DELETE', body: any = confirmed) {
+-  const response = await app.request(`/api/admin/knowledge/${collection}/${collection === 'domains' ? 'domain' : 'base'}`, {
++  const path = method === 'POST'
++    ? `/api/admin/knowledge/${collection}`
++    : `/api/admin/knowledge/${collection}/${collection === 'domains' ? 'domain' : 'base'}`;
++  const response = await app.request(path, {
+     method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+   });
+   return { status: response.status, body: await response.json() as any };
+@@ -34,7 +37,8 @@ function changed() { return test.calls.some(sql => /^(DELETE FROM knowledge_(dom
+ 
+ beforeEach(() => {
+   test.calls = [];
+-  test.state = { admin: true, activeAdmin: true, ready: true, guardVersion: 1, row: { ...domain }, counts: {}, assets: [], refs: [], audits: [], onLock: null, auditFailure: false };
++  test.state = { admin: true, activeAdmin: true, ready: true, guardVersion: 1, row: { ...domain }, counts: {}, assets: [], refs: [], audits: [], onLock: null, auditFailure: false,
++    parents: { family: { id: 'family', level: 'family', status: 'active' }, domain: { ...domain } }, domainCodes: new Set<string>(), baseCodes: new Set<string>() };
+   test.query = vi.fn(async (sql: string, args: any[] = []) => {
+     test.calls.push(sql);
+     let rows: any[] = [];
+@@ -43,6 +47,18 @@ beforeEach(() => {
+     else if (sql === 'SELECT knowledge_taxonomy_guard_version() AS version') rows = [{ version: test.state.guardVersion }];
+     else if (sql.startsWith('SET LOCAL')) { /* transaction-local setting */ }
+     else if (sql.startsWith('SELECT pg_advisory_xact_lock')) { test.state.onLock?.(); }
++    else if (sql.startsWith('SELECT id,level,status,parent_id FROM knowledge_domains WHERE id=$1 FOR UPDATE')) {
++      const parent = test.state.parents[args[0]]; rows = parent ? [{ ...parent }] : [];
++    }
++    else if (sql.startsWith('SELECT id,level,status FROM knowledge_domains WHERE id=$1 FOR UPDATE')) {
++      const parent = test.state.parents[args[0]]; rows = parent ? [{ ...parent }] : [];
++    }
++    else if (sql.startsWith("SELECT 1 FROM knowledge_domains WHERE code=$1 AND COALESCE(parent_id,'')=$2")) {
++      rows = test.state.domainCodes.has(args[0]) ? [{ '?column?': 1 }] : [];
++    }
++    else if (sql.startsWith('SELECT 1 FROM knowledge_bases WHERE code=$1')) {
++      rows = test.state.baseCodes.has(args[0]) ? [{ '?column?': 1 }] : [];
++    }
+     else if (/SELECT \* FROM knowledge_(domains|bases) WHERE id=\$1 FOR UPDATE/.test(sql)) rows = test.state.row ? [{ ...test.state.row }] : [];
+     else if (sql.startsWith('SELECT id,base_id,kind')) rows = test.state.assets;
+     else if (sql.includes("'binding' AS source")) rows = test.state.refs;
+@@ -51,6 +67,14 @@ beforeEach(() => {
+       rows = codes.map(code => ({ code, message: `blocked: ${code}`, count: test.state.counts[code] || 0 }));
+     }
+     else if (sql.includes("set_config('knowledge.taxonomy_mutation'")) { /* validated mutation token */ }
++    else if (sql.startsWith('INSERT INTO knowledge_domains')) {
++      test.state.createdDomain = { id: args[0], code: args[1], name: args[2], level: args[3], parent_id: args[4], sort: args[5], status: 'active', note: args[6], created_by: args[7], created_at: args[8], updated_at: args[8] };
++      rows = [{ ...test.state.createdDomain }];
++    }
++    else if (sql.startsWith('INSERT INTO knowledge_bases')) {
++      test.state.createdBase = { id: args[0], code: args[1], name: args[2], domain_id: args[3], kind: args[4], description: args[5], owner_user_id: args[6], status: 'active', settings: args[7], external_ref: args[8], version: 1, created_at: args[9], updated_at: args[9] };
++      rows = [{ ...test.state.createdBase }];
++    }
+     else if (sql.startsWith('DELETE FROM knowledge_')) { test.state.row = null; }
+     else if (sql.startsWith('SELECT id FROM knowledge_domains') || sql.startsWith('SELECT d.id FROM knowledge_domains')) rows = test.state.parentMissing ? [] : [{ id: 'parent' }];
+     else if (sql.startsWith('UPDATE knowledge_domains')) {
+@@ -65,7 +89,7 @@ beforeEach(() => {
+       if (test.state.auditFailure) throw new Error('audit unavailable');
+       test.state.audits.push({ actor: args[1], type: args[2], payload: JSON.parse(args[3]) }); rows = [{ id: 7 }];
+     }
+-    else if (sql.startsWith('SELECT b.*,d.name')) rows = [{ ...test.state.row, entries: 3, domain_name: '域', family_id: 'family', family_name: '族' }];
++    else if (sql.startsWith('SELECT b.*,d.name')) rows = [{ ...(test.state.createdBase || test.state.row), entries: 3, domain_name: '域', family_id: 'family', family_name: '族' }];
+     else throw new Error(`Unexpected SQL: ${sql}`);
+     return { rows, rowCount: rows.length };
+   });
+@@ -89,6 +113,45 @@ describe('real catalog mutation routes, native service and transaction guards (m
+     test.state.activeAdmin = false;
+     expect((await request('domains')).status).toBe(403); expect(changed()).toBe(false);
+   });
++  it('creates a family through the native route with a generated stable code and atomic audit', async () => {
++    const result = await request('domains', 'POST', { name: '新主题域族', level: 'family' });
++    expect(result.status).toBe(201);
++    expect(result.body.domain).toMatchObject({ name: '新主题域族', level: 'family', parent_id: null, status: 'active' });
++    expect(result.body.domain.code).toMatch(/^family_[a-f0-9]{32}$/);
++    expect(test.state.audits[0]).toMatchObject({ actor: 'admin', type: 'knowledge.domain.create', payload: { before: null, after: { code: result.body.domain.code }, confirmed: false } });
++    expect(test.calls.findIndex(sql => sql.startsWith('SELECT pg_advisory_xact_lock'))).toBeLessThan(test.calls.findIndex(sql => sql.startsWith('INSERT INTO knowledge_domains')));
++  });
++  it('keeps an explicit valid domain code and rejects a same-parent conflict', async () => {
++    const created = await request('domains', 'POST', { name: '显式编码', level: 'family', code: 'operations' });
++    expect(created.status).toBe(201); expect(created.body.domain.code).toBe('operations');
++    test.state.domainCodes.add('operations');
++    const conflict = await request('domains', 'POST', { name: '冲突', level: 'family', code: 'operations' });
++    expect(conflict.status).toBe(409); expect(conflict.body.detail.code).toBe('knowledge_domain_code_conflict');
++  });
++  it('rejects a new domain below an archived family', async () => {
++    test.state.parents.family.status = 'archived';
++    const result = await request('domains', 'POST', { name: '子域', level: 'domain', parent_id: 'family' });
++    expect(result.status).toBe(409); expect(result.body.detail.code).toBe('knowledge_taxonomy_parent_unavailable');
++    expect(test.calls.some(sql => sql.startsWith('INSERT INTO knowledge_domains'))).toBe(false);
++  });
++  it('creates a base through the native route with generated code and legacy-compatible defaults', async () => {
++    const result = await request('bases', 'POST', { name: '资料库', domain_id: 'domain', kind: 'unstructured', settings: { mode: 'review' }, external_ref: { library: 'remote' } });
++    expect(result.status).toBe(201);
++    expect(result.body.base).toMatchObject({ name: '资料库', domain_id: 'domain', kind: 'unstructured', owner_user_id: 'admin', status: 'active', version: 1, settings: { mode: 'review' }, external_ref: { library: 'remote' } });
++    expect(result.body.base.code).toMatch(/^base_[a-f0-9]{32}$/);
++    expect(test.state.audits[0]).toMatchObject({ type: 'knowledge.base.create', payload: { before: null, after: { code: result.body.base.code }, confirmed: false } });
++  });
++  it('rejects new bases below an archived domain or family and explicit global code conflicts', async () => {
++    test.state.parents.domain.status = 'archived';
++    let result = await request('bases', 'POST', { name: '拒绝库', domain_id: 'domain', kind: 'structured' });
++    expect(result.status).toBe(409); expect(result.body.detail.code).toBe('knowledge_taxonomy_parent_unavailable');
++    test.state.parents.domain.status = 'active'; test.state.parents.family.status = 'archived';
++    result = await request('bases', 'POST', { name: '拒绝库', domain_id: 'domain', kind: 'structured' });
++    expect(result.status).toBe(409); expect(result.body.detail.code).toBe('knowledge_taxonomy_parent_unavailable');
++    test.state.parents.family.status = 'active'; test.state.baseCodes.add('taken');
++    result = await request('bases', 'POST', { name: '冲突库', domain_id: 'domain', kind: 'structured', code: 'taken' });
++    expect(result.status).toBe(409); expect(result.body.detail.code).toBe('knowledge_base_code_conflict');
++  });
+   it.each([{}, { confirmed: 'true', expected_updated_at: stamp }, { confirmed: true }])('requires explicit boolean confirmation and current timestamp: %o', async body => {
+     expect((await request('domains', 'DELETE', body)).status).toBe(400); expect(changed()).toBe(false);
+   });
+diff --git a/backend/tests/knowledge-taxonomy.postgres.integration.test.ts b/backend/tests/knowledge-taxonomy.postgres.integration.test.ts
+index b4e6a18c..18df7ab1 100644
+--- a/backend/tests/knowledge-taxonomy.postgres.integration.test.ts
++++ b/backend/tests/knowledge-taxonomy.postgres.integration.test.ts
+@@ -18,7 +18,7 @@ vi.mock('../src/postgres/pool.js', () => ({ postgresTransaction: async (fn: (db:
+   catch (error) { await db.query('ROLLBACK'); throw error; }
+   finally { db.release(); }
+ } }));
+-import { deleteCatalogBase, editCatalogBase } from '../src/knowledge/taxonomy-mutations.js';
++import { createCatalogBase, createCatalogDomain, deleteCatalogBase, editCatalogBase } from '../src/knowledge/taxonomy-mutations.js';
+ 
+ const enabled = process.env.KNOWLEDGE_TAXONOMY_PG_TEST === '1' && Boolean(process.env.TEST_DATABASE_URL);
+ const stamp = '2026-10-08T10:00:00.000Z';
+@@ -70,6 +70,34 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
+     await state.pool.query(`INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,version,created_at,updated_at)
+       VALUES('base','base','Base','domain','structured','active',1,$1,$1)`, [stamp]);
+   });
++  it('creates catalog nodes with generated codes, defaults, and same-transaction audit receipts', async () => {
++    const family = await createCatalogDomain({ name: 'Generated family', level: 'family', code: ' ' });
++    expect(family.domain).toMatchObject({ name: 'Generated family', level: 'family', parent_id: null, status: 'active' });
++    expect(family.domain.code).toMatch(/^family_[a-f0-9]{32}$/);
++    const domain = await createCatalogDomain({ name: 'Generated domain', level: 'domain', parent_id: family.domain.id });
++    expect(domain.domain.code).toMatch(/^domain_[a-f0-9]{32}$/);
++    const base = await createCatalogBase({ name: 'Generated base', domain_id: domain.domain.id, kind: 'unstructured', settings: { source: 'test' }, external_ref: { library: 'fixture' } });
++    expect(base.base).toMatchObject({ domain_id: domain.domain.id, kind: 'unstructured', owner_user_id: 'taxonomy-test-admin', status: 'active', version: 1, settings: { source: 'test' }, external_ref: { library: 'fixture' } });
++    expect(base.base.code).toMatch(/^base_[a-f0-9]{32}$/);
++    const audits = (await state.pool.query("SELECT event_type,payload FROM audit_events WHERE event_type IN ('knowledge.domain.create','knowledge.base.create')")).rows;
++    expect(audits).toHaveLength(3);
++    expect(audits).toEqual(expect.arrayContaining([
++      expect.objectContaining({ event_type: 'knowledge.base.create', payload: expect.stringContaining(base.base.code) }),
++      expect.objectContaining({ event_type: 'knowledge.domain.create', payload: expect.stringContaining(family.domain.code) }),
++      expect.objectContaining({ event_type: 'knowledge.domain.create', payload: expect.stringContaining(domain.domain.code) }),
++    ]));
++  });
++  it('preserves explicit code conflicts and refuses archived parents for newly created nodes', async () => {
++    await expect(createCatalogDomain({ name: 'Conflict', level: 'family', code: 'family' })).rejects.toMatchObject({ status: 409, detail: { code: 'knowledge_domain_code_conflict' } });
++    await expect(createCatalogBase({ name: 'Conflict', domain_id: 'domain', kind: 'structured', code: 'base' })).rejects.toMatchObject({ status: 409, detail: { code: 'knowledge_base_code_conflict' } });
++    await state.pool.query(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at)
++      VALUES('archived-family','archived_family','Archived family','family',NULL,'archived',$1,$1),
++        ('archived-domain','archived_domain','Archived domain','domain','family','archived',$1,$1)`, [stamp]);
++    await expect(createCatalogDomain({ name: 'Unavailable child', level: 'domain', parent_id: 'archived-family' })).rejects
++      .toMatchObject({ status: 409, detail: { code: 'knowledge_taxonomy_parent_unavailable' } });
++    await expect(createCatalogBase({ name: 'Unavailable base', domain_id: 'archived-domain', kind: 'structured' })).rejects
++      .toMatchObject({ status: 409, detail: { code: 'knowledge_taxonomy_parent_unavailable' } });
++  });
+   it('validates installed trigger version and commits a deletion with its audit receipt', async () => {
+     expect((await state.pool.query('SELECT knowledge_taxonomy_guard_version() AS version')).rows[0].version).toBe(1);
+     expect(await deleteCatalogBase('base', confirmation)).toMatchObject({ deleted: true });
+diff --git a/frontend/e2e/admin-knowledge-presentation.spec.ts b/frontend/e2e/admin-knowledge-presentation.spec.ts
+index d6434e8c..f52c7ad3 100644
+--- a/frontend/e2e/admin-knowledge-presentation.spec.ts
++++ b/frontend/e2e/admin-knowledge-presentation.spec.ts
+@@ -62,7 +62,7 @@ test('right rail lifecycle tabs preserve middle list and offer all first-level c
+  await expect(page.locator('[data-kbv-new]')).toHaveCount(0);
+  await page.locator('[data-kbv-next]').click();
+  for(const [id,label,target] of [
+-  ['catalog','知识目录','[data-admin-kb-catalog]'],['create','知识创作','[data-kbv-new]'],
++  ['catalog','知识目录','[data-admin-kb-catalog]'],['create','知识创作','[data-knowledge-creation]'],
+   ['processing','知识加工','[data-admin-kb-documents]'],['pending-review','发布审批','[data-kb-queue="documents"]'],
+   ['published','知识资产','[data-knowledge-assets]'],['bindings','查询技能','[data-admin-kb-bindings]'],
+   ['lifecycle','生命周期','[data-kb-queue="expiry"]'],['graph','知识关系','[data-kb-knowledge-graph]']]) {
+@@ -108,10 +108,10 @@ test('list/detail/editor replace in place and restore page and selection',async(
+  const s=await surface(page);await page.locator('[data-kbv-next]').click();await page.locator('[data-kbv-record="text-22"]').click();await expect(page.locator('[data-kbv-list]')).toBeVisible();await expect(page.getByRole('heading',{name:'合作知识 23',exact:true})).toBeVisible();await page.getByRole('button',{name:'修订',exact:true}).click();await page.locator('input[name="title"]').fill('修订后的标题');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('修订后的标题');await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-kbv-page]')).toHaveText('第 2 / 2 页');await expect(page.locator('[data-kbv-record="text-22"]')).toHaveAttribute('aria-current','true');expect(s.calls).toEqual(['save']);expect(s.errors).toEqual([]);
+ });
+ test('create preserves taxonomy and save is independent from approval',async({page})=>{
+- const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kb-scope-base="specs"]').click();await page.locator('[data-kbv-new]').click();await page.locator('input[name="title"]').fill('新的结构化知识');await page.locator('textarea[name="body"]').fill('草稿内容');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('新的结构化知识');await expect(page.locator('[data-kb-scope-base="specs"]')).toHaveAttribute('aria-pressed','true');expect(s.calls).toEqual(['save']);
++ const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kb-scope-base="specs"]').click();await page.goto('/admin/knowledge?reviewCompany=company&stage=create&mode=create');await page.locator('input[name="title"]').fill('新的结构化知识');await page.locator('textarea[name="body"]').fill('草稿内容');await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('新的结构化知识');await expect(page.locator('[data-kb-scope-base="specs"]')).toHaveAttribute('aria-pressed','true');expect(s.calls).toEqual(['save']);
+ });
+ test('validation preserves fields and unsaved exit can be cancelled',async({page})=>{
+- const s=await surface(page);await page.getByRole('tab',{name:/知识创作/}).click();await page.locator('[data-kbv-new]').click();await page.locator('textarea[name="body"]').fill('保留这段正文');s.failSave();await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('alert')).toContainText('请修正知识字段');await expect(page.locator('input[name="title"]')).toBeFocused();await expect(page.locator('textarea[name="body"]')).toHaveValue('保留这段正文');page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="list"]')).toBeVisible();
++ const s=await surface(page);await page.goto('/admin/knowledge?reviewCompany=company&stage=create&mode=create');await page.locator('textarea[name="body"]').fill('保留这段正文');s.failSave();await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('alert')).toContainText('请修正知识字段');await expect(page.locator('input[name="title"]')).toBeFocused();await expect(page.locator('textarea[name="body"]')).toHaveValue('保留这段正文');page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="list"]')).toBeVisible();
+ });
+ test('approval is confirmed once and approved waits for separate publication',async({page})=>{
+  const s=await surface(page);await pdf(page);await page.getByRole('button',{name:'提交审批',exact:true}).click();await expect(page.locator('[data-workspace-mode="review"]')).toBeVisible();await page.locator('.kbv-release-note textarea').fill('规格更新');await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();await page.locator('[data-kbv-doc-action="submit"]').click();expect(s.calls).toEqual([]);await page.getByRole('button',{name:'确认提交审批',exact:true}).dblclick();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批中');s.approve();await expect(page.getByRole('button',{name:'发布',exact:true})).toBeVisible({timeout:10000});await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批通过 · 等待发布');expect(s.calls).toEqual(['submit']);await page.getByRole('button',{name:'发布',exact:true}).click();await page.getByRole('button',{name:'确认发布',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('publish-receipt');expect(s.calls).toEqual(['submit','publish']);expect(s.errors).toEqual([]);
+@@ -173,5 +173,143 @@ test('new middle uses title-kind rows and the shared editable stage dictionary',
+  await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute('aria-pressed','true');
+  await page.getByRole('tab',{name:'知识创作',exact:true}).click();
+  await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute('aria-pressed','true');
++  expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
++});
++
++test('creation surface keeps upload new and draft actions in one compact row',async({page})=>{
++ const s=await surface(page);
++ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
++ const creation=page.locator('[data-knowledge-creation]');
++ await expect(creation).toBeVisible();
++ await page.screenshot({path:process.env.KNOWLEDGE_CREATION_SCREENSHOT || 'test-results/knowledge-creation-desktop.png',fullPage:true});
++ await expect(creation.getByRole('heading',{name:'知识创作',exact:true})).toHaveCount(0);
++ await expect(creation.locator('[data-kbv-upload], [data-kbv-new]')).toHaveCount(2);
++ await expect(creation.getByRole('group',{name:'知识创作操作'}).locator('button')).toHaveText(['上传文件','新建知识','查看草稿']);
++  await creation.getByRole('button',{name:'上传文件',exact:true}).focus();
++  await page.keyboard.press('Tab');await expect(creation.getByRole('button',{name:'新建知识',exact:true})).toBeFocused();
++  await page.keyboard.press('Tab');await expect(creation.getByRole('button',{name:'查看草稿',exact:true})).toBeFocused();
++  await expect(creation.locator('.knowledge-panel-help')).toHaveCount(0);
++  const draft=creation.getByRole('button',{name:'查看草稿',exact:true});
++  await expect(draft).toBeVisible();
++  const request=page.waitForRequest(req=>{
++  const url=new URL(req.url());
++  return url.pathname==='/api/admin/knowledge/workspace-v1' && url.searchParams.get('view')==='draft';
++ });
++ await draft.click();await request;
++ await expect(page).toHaveURL(/view=draft/);
++ await expect(page.locator('[data-knowledge-right]')).toHaveAttribute('data-kb-active-stage','create');
++ await expect(page.locator('[data-kbv-filter-note]')).toContainText('当前查看：草稿');
++ await expect(page.locator('[data-kb-lifecycle-tabs] [role="tab"]')).toHaveCount(5);
++ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
++ await expect(page.locator('[data-admin-kb-documents]')).toBeVisible();
++ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
++ await expect(draft).toBeVisible();
++ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
++});
++
++test('creation surface fits compact widths and upload new entries work',async({page})=>{
++ const s=await surface(page);
++ await page.getByRole('tab',{name:'知识创作',exact:true}).click();
++ for(const width of [1440,1024,768,375,320]){
++  await page.setViewportSize({width,height:800});
++  const actions=page.getByRole('group',{name:'知识创作操作'}).locator('button');
++  const boxes=[];
++  for(let i=0;i<3;i++){
++   await expect(actions.nth(i)).toBeVisible();
++   const box=(await actions.nth(i).boundingBox())!;boxes.push(box);
++   expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
++  }
++  for(let i=1;i<3;i++){
++   expect(Math.abs(boxes[i].y-boxes[0].y)).toBeLessThanOrEqual(1);
++   expect(boxes[i].x-boxes[i-1].x-boxes[i-1].width).toBe(12);
++  }
++  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
++  await page.screenshot({path:`test-results/knowledge-creation-${width}.png`,fullPage:true});
++ }
++ await page.setViewportSize({width:1440,height:900});
++ await page.getByRole('group',{name:'知识创作操作'}).getByRole('button',{name:'上传文件',exact:true}).click();
++ await expect(page.locator('[data-workspace-mode="upload"]')).toBeVisible();
++ await expect(page.locator('input[type="file"]')).toHaveCount(1);
++ await page.getByRole('button',{name:'← 返回列表',exact:true}).click();
++ await page.getByRole('group',{name:'知识创作操作'}).getByRole('button',{name:'新建知识',exact:true}).click();
++ await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();
++ await expect(page.locator('input[name="title"]')).toBeVisible();
++ await page.getByRole('button',{name:'← 返回列表',exact:true}).click();
++ await expect(page.getByRole('group',{name:'知识创作操作'}).locator('button')).toHaveText(['上传文件','新建知识','查看草稿']);
++ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
++});
++
++test('processing surface shows only filename and compact details with preserved workspace access',async({page})=>{
++ const s=await surface(page);
++ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
++ const right=page.locator('[data-knowledge-right]'),table=page.locator('[data-admin-kb-documents-table]');
++ await expect(right.getByRole('heading',{name:'知识加工',exact:true})).toHaveCount(0);
++ await expect(right.locator('[data-admin-kb-engine-health]')).toHaveCount(0);
++ await expect(table.locator('thead th')).toHaveText(['文件名','资料详情']);
++ await expect(table.locator('[data-admin-kb-doc="pdf"] > td')).toHaveCount(2);
++ await expect(table.locator('[data-admin-kb-doc-detail="pdf"]')).toHaveText('▸NETC.pdf');
++ await table.locator('[data-admin-kb-doc-details-link="pdf"]').click();
++ const detail=page.locator('[data-admin-kb-doc-detail-panel="pdf"]');
++ await expect(detail).toBeVisible();await expect(detail).toContainText('产品与解决方案 / 产品管理 / 电池');
++ await expect(detail.locator('.ant-descriptions')).toBeVisible();
++ await expect(detail.locator('pre, [data-knowledge-publication], [data-admin-kb-job]')).toHaveCount(0);
++ await expect(detail.locator('[data-admin-kb-doc-open]')).toHaveAttribute('href','/api/admin/knowledge/documents/pdf/file?company=company');
++ for(const width of [1440,1024,768,375]){
++  await page.setViewportSize({width,height:800});
++  await expect(table.getByRole('columnheader',{name:'文件名',exact:true})).toBeVisible();
++  await expect(detail.getByRole('link',{name:'加工与审批',exact:true})).toBeVisible();
++  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
++ }
++ await page.setViewportSize({width:1440,height:900});
++ await page.screenshot({path:'test-results/knowledge-processing-compact.png',fullPage:true});
++ await detail.getByRole('button',{name:'收起',exact:true}).click();await expect(detail).toHaveCount(0);
++ await table.locator('[data-admin-kb-doc-detail="pdf"]').focus();await page.keyboard.press('Enter');
++ await expect(detail).toBeVisible();
++ await detail.getByRole('link',{name:'加工与审批',exact:true}).click();
++ await expect(page).toHaveURL(/assetId=pdf/);
++ await expect(page.locator('[data-workspace-mode="detail"]')).toBeVisible();
++ await expect(page.getByRole('button',{name:'提交审批',exact:true})).toBeVisible();
++ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
++});
++
++test('processing long filenames and same-name records stay compact without merging identities',async({page})=>{
++ const s=await surface(page);
++ const filename='media-generation-tk-3-0-2f62595e-7dd3-4b9b-a013-715f5af3569e-长文件名资料'.repeat(3)+'.mp4';
++ const doc=(id:string,status='pending_review')=>({id,base_id:'specs',title:'真实资料标题',filename,media_type:'video',size_bytes:2000,status,retry_count:0,created_at:'2026-10-05T01:00:00Z',updated_at:'2026-10-05T02:00:00Z'});
++ await page.route('**/api/admin/knowledge/documents',route=>route.fulfill({json:{documents:[doc('long-one'),doc('long-two','failed'),doc('long-three')]}}));
++ await page.route('**/api/admin/knowledge/documents/long-*',route=>route.fulfill({json:{document:doc(new URL(route.request().url()).pathname.split('/').at(-1)!),base:{id:'specs',name:'电池',family_name:'产品与解决方案',domain_name:'产品管理'},jobs:[],text_preview:null,actions:{edit:false,start:false,retry:false,cancel:false,revision:true}}}));
++ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
++ const table=page.locator('[data-admin-kb-documents-table]');await expect(table.locator('[data-admin-kb-doc]')).toHaveCount(3);
++ await table.locator('[data-admin-kb-doc-details-link="long-one"]').click();
++ const detail=page.locator('[data-admin-kb-doc-detail-panel="long-one"]');
++ await expect(detail.locator('[data-admin-kb-related-document]')).toHaveCount(2);
++ await expect(detail.locator('.kbingest-full-name')).toHaveText(filename);
++ for(const width of [1920,1440,1024,768,375,320]){
++  await page.setViewportSize({width,height:800});
++  const overflow=await detail.evaluate(el=>el.scrollWidth>el.clientWidth+1);expect(overflow).toBe(false);
++  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
++  const button=table.locator('[data-admin-kb-doc-detail="long-one"]');await expect(button).toHaveAttribute('title',filename);
++ }
++ await page.setViewportSize({width:1440,height:900});
++ await page.screenshot({path:'test-results/knowledge-processing-long-filenames.png',fullPage:true});
++ await detail.locator('[data-admin-kb-related-document="long-two"] button').click();
++ await expect(page.locator('[data-admin-kb-doc-detail-panel="long-two"]')).toBeVisible();
++ await expect(table.locator('[data-admin-kb-doc]')).toHaveCount(3);
++ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
++});
++
++test('processing detail load failures can retry without showing logs or issuing mutations',async({page})=>{
++ const s=await surface(page);let failed=true;
++ await page.route('**/api/admin/knowledge/documents/pdf',async route=>{
++  if(failed)return route.fulfill({status:503,json:{detail:'资料详情暂时不可用'}});
++  await route.fallback();
++ });
++ await page.getByRole('tab',{name:'知识加工',exact:true}).click();
++ await page.locator('[data-admin-kb-doc-details-link="pdf"]').click();
++ const detail=page.locator('[data-admin-kb-doc-detail-panel="pdf"]');
++ await expect(detail.getByRole('alert')).toContainText('资料详情暂时不可用');
++ failed=false;await detail.getByRole('button',{name:'重试读取详情',exact:true}).click();
++ await expect(detail.locator('.ant-descriptions')).toBeVisible();
++ await detail.getByRole('button',{name:'收起',exact:true}).click();await expect(detail).toHaveCount(0);
+  expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+ });
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index d219eee0..aaccc00a 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -8,6 +8,7 @@
+       "name": "lingong-workbench",
+       "version": "0.1.0",
+       "dependencies": {
++        "@ant-design/icons": "6.3.4",
+         "antd": "6.6.5",
+         "react": "^19.0.0",
+         "react-dom": "^19.0.0",
+diff --git a/frontend/package.json b/frontend/package.json
+index e2fdd6d4..67032615 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -17,6 +17,7 @@
+     "test:knowledge": "vitest run --config vitest.knowledge.config.ts"
+   },
+   "dependencies": {
++    "@ant-design/icons": "6.3.4",
+     "antd": "6.6.5",
+     "react": "^19.0.0",
+     "react-dom": "^19.0.0",
+diff --git a/frontend/playwright.knowledge.config.ts b/frontend/playwright.knowledge.config.ts
+index 4d6afcbd..302774dd 100644
+--- a/frontend/playwright.knowledge.config.ts
++++ b/frontend/playwright.knowledge.config.ts
+@@ -1,7 +1,7 @@
+ import { defineConfig, devices } from "@playwright/test";
+ // Browser contract tests use HTTP fixtures; PostgreSQL integration is tested separately.
+ export default defineConfig({
+-  testDir:"./e2e",testMatch:"admin-knowledge-presentation.spec.ts",workers:1,retries:0,timeout:30000,
++  testDir:"./e2e",testMatch:["admin-knowledge-presentation.spec.ts", "knowledge-planning-presentation.spec.ts"],workers:1,retries:0,timeout:30000,
+   use:{baseURL:"http://127.0.0.1:4179",viewport:{width:1440,height:900},trace:"retain-on-failure",...(process.env.PW_EXECUTABLE_PATH?{launchOptions:{executablePath:process.env.PW_EXECUTABLE_PATH}}:{})},
+   webServer:{command:"npm run dev -- --port 4179",url:"http://127.0.0.1:4179",reuseExistingServer:false,timeout:60000},
+   projects:[{name:"chromium",use:{...devices["Desktop Chrome"]}}],
+diff --git a/frontend/src/admin/knowledge/CatalogView.test.tsx b/frontend/src/admin/knowledge/CatalogView.test.tsx
+index 6233c6e4..bdcf8ec6 100644
+--- a/frontend/src/admin/knowledge/CatalogView.test.tsx
++++ b/frontend/src/admin/knowledge/CatalogView.test.tsx
+@@ -37,11 +37,11 @@ beforeEach(() => {
+   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+ });
+ afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+-describe("CatalogView actual Ant Tree interactions", () => {
++describe("CatalogView actual Ant Collapse interactions", () => {
+   it("starts expanded without a form, selects independently from the arrow, and keeps the base detail route", async () => {
+-    await mount(); expect(query(".ant-tree")).toBeTruthy(); expect(query('[data-admin-kb-base="base-a"]')).toBeTruthy(); expect(document.querySelector("[data-admin-kb-family-form]")).toBeNull();
++    await mount(); expect(query(".ant-collapse")).toBeTruthy(); expect(query('[data-admin-kb-base="base-a"]')).toBeTruthy(); expect(document.querySelector("[data-admin-kb-family-form]")).toBeNull();
+     await click(query('[data-admin-kb-family="family-a"]')); expect(query('[data-admin-kb-selected="family:family-a"]')).toBeTruthy(); expect(query('[data-admin-kb-base="base-a"]')).toBeTruthy();
+-    const switcher = query('[data-admin-kb-family="family-a"]').closest(".ant-tree-treenode")!.querySelector(".ant-tree-switcher")!;
++    const switcher = query('[data-admin-kb-family="family-a"]').closest(".ant-collapse-header")!.querySelector(".ant-collapse-expand-icon")!;
+     await click(switcher); expect(document.querySelector('[data-admin-kb-base="base-a"]')).toBeNull();
+     await click(switcher); await click(query('[data-admin-kb-base="base-a"]')); expect(query<HTMLAnchorElement>(".kbplanning-detail a").getAttribute("href")).toBe("/admin/knowledge/bases/base-a");
+   });
+@@ -58,8 +58,8 @@ describe("CatalogView actual Ant Tree interactions", () => {
+   });
+   it("guards repeated create submissions, refreshes and selects the created node", async () => {
+     const request = deferred<{ domain: KnowledgeDomainRow }>(); mocks.adminKnowledgeDomainCreate.mockReturnValue(request.promise);
+-    await mount(); await click(query("[data-admin-kb-create-family]")); await fill('[data-admin-kb-family-form] input[name="name"]', "品牌增长"); await fill('[data-admin-kb-family-form] input[name="code"]', "growth");
+-    await submit("[data-admin-kb-family-form]"); await submit("[data-admin-kb-family-form]"); expect(mocks.adminKnowledgeDomainCreate).toHaveBeenCalledTimes(1); expect(button("取消").disabled).toBe(true); expect(query<HTMLInputElement>('[data-admin-kb-family-form] input[name="name"]').closest("fieldset")!.disabled).toBe(true);
++    await mount(); await click(query("[data-admin-kb-create-family]")); await fill('[data-admin-kb-family-form] input[name="name"]', "品牌增长");
++    await submit("[data-admin-kb-family-form]"); await submit("[data-admin-kb-family-form]"); expect(mocks.adminKnowledgeDomainCreate).toHaveBeenCalledTimes(1); expect(mocks.adminKnowledgeDomainCreate).toHaveBeenCalledWith({ name: "品牌增长", level: "family", note: undefined }); expect(button("取消").disabled).toBe(true); expect(query<HTMLInputElement>('[data-admin-kb-family-form] input[name="name"]').closest("fieldset")!.disabled).toBe(true);
+     const created: KnowledgeDomainRow = { ...domains[0], id: "family-new", name: "品牌增长", code: "growth" }; domains.push(created); await act(async () => request.resolve({ domain: created }));
+     expect(document.querySelector("[role=dialog]")).toBeNull(); expect(query('[data-admin-kb-selected="family:family-new"]')).toBeTruthy(); expect(notify).toHaveBeenCalledWith("业务族已创建。");
+   });
+@@ -86,22 +86,49 @@ describe("CatalogView actual Ant Tree interactions", () => {
+     expect(mocks.adminKnowledgeDomainUpdate).toHaveBeenLastCalledWith("domain-a", { name: "我的改名", note: "", expected_updated_at: "2026-10-08T13:00:00.000Z" });
+   });
+   it("does not report uncertain writes as success or permit blind repeated creation", async () => {
+-    mocks.adminKnowledgeDomainCreate.mockRejectedValue(Object.assign(new Error("超时"), { status: 0 })); await mount(); await click(query("[data-admin-kb-create-family]")); await fill('[data-admin-kb-family-form] input[name="name"]', "增长"); await fill('[data-admin-kb-family-form] input[name="code"]', "growth"); await submit("[data-admin-kb-family-form]");
++    mocks.adminKnowledgeDomainCreate.mockRejectedValue(Object.assign(new Error("超时"), { status: 0 })); await mount(); await click(query("[data-admin-kb-create-family]")); await fill('[data-admin-kb-family-form] input[name="name"]', "增长"); await submit("[data-admin-kb-family-form]");
+     expect(document.body.textContent).toContain("是否保存尚未确认"); expect(notify).not.toHaveBeenCalled(); await click(button("重新读取并核对")); expect(query<HTMLButtonElement>("[data-admin-kb-family-submit]").disabled).toBe(true); await submit("[data-admin-kb-family-form]"); expect(mocks.adminKnowledgeDomainCreate).toHaveBeenCalledTimes(1);
+   });
+   it("does not relabel successful writes when the subsequent refresh fails", async () => {
+     mocks.adminKnowledgeBaseUpdate.mockResolvedValue({ base: {} }); await mount(); await click(query('[data-admin-kb-base="base-a"]')); await click(query("[data-admin-kb-archive-node]")); mocks.adminKnowledgeDomains.mockRejectedValueOnce(new Error("读取失败")); await click(query("[data-admin-confirm-ok]"));
+     expect(notify).toHaveBeenCalledWith("知识库「磷酸铁锂资料」已归档。"); expect(document.body.textContent).toContain("目录刷新失败，以下为上次读取结果"); expect(query<HTMLButtonElement>("[data-admin-kb-archive-node]").disabled).toBe(true); expect(fail).not.toHaveBeenCalled();
+   });
+-  it("supports keyboard selection and directional expansion on the real Tree", async () => {
++  it("renders separate accessible buttons for selection and expansion on the real Collapse", async () => {
+     await mount();
+-    const tree = query<HTMLElement>('[role="tree"]');
+-    await act(async () => tree.focus());
+-    const key = async (value: string) => { await act(async () => { tree.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); }); };
+-    await key("Home"); await key(" ");
++    const family = query<HTMLButtonElement>('[data-admin-kb-family="family-a"]');
++    expect(family.tagName).toBe("BUTTON");
++    expect(family.getAttribute("aria-pressed")).toBe("false");
++    await click(family);
++    expect(family.getAttribute("aria-pressed")).toBe("true");
++    const toggle = family.closest(".ant-collapse-header")!.querySelector('[role="button"]')!;
++    expect(toggle.getAttribute("aria-expanded")).toBe("true");
++    await click(toggle);
++    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+     expect(query('[data-admin-kb-selected="family:family-a"]')).toBeTruthy();
+-    await key("ArrowLeft"); expect(document.querySelector('[data-admin-kb-base="base-a"]')).toBeNull();
+-    await key("ArrowRight"); expect(query('[data-admin-kb-base="base-a"]')).toBeTruthy();
++    await click(toggle);
++    expect(toggle.getAttribute("aria-expanded")).toBe("true");
++  });
++  it("removes the redundant heading and bulk controls and locates creation below the list", async () => {
++    await mount();
++    expect(document.querySelector(".kbplanning-head")).toBeNull();
++    expect(button("展开全部")).toBeUndefined();
++    expect(button("收起全部")).toBeUndefined();
++    expect(query(".kbplanning-search .anticon-search")).toBeTruthy();
++    expect(query(".kbplanning-footer [data-admin-kb-create-family]")).toBeTruthy();
++  });
++  it("makes codes readonly and leaves generation to the server for all create levels", async () => {
++    await mount();
++    for (const [entry, form] of [["[data-admin-kb-create-family]", "family"], ["[data-admin-kb-create-domain]", "domain"], ["[data-admin-kb-create-base]", "base"]]) {
++      if (form === "domain") await click(query('[data-admin-kb-family="family-a"]'));
++      if (form === "base") await click(query('[data-admin-kb-domain="domain-a"]'));
++      await click(query(entry));
++      const code = query<HTMLInputElement>(`[data-admin-kb-${form}-form] input[name="code"]`);
++      expect(code.readOnly).toBe(true); expect(code.required).toBe(false);
++      expect(code.placeholder).toBe("保存时自动生成");
++      await click(button("取消"));
++    }
++    expect(mocks.adminKnowledgeDomainCreate).not.toHaveBeenCalled();
++    expect(mocks.adminKnowledgeBaseCreate).not.toHaveBeenCalled();
+   });
+   it("preserves the unknown-write reload guard after the dialog is dismissed", async () => {
+     mocks.adminKnowledgeBaseUpdate.mockRejectedValue(Object.assign(new Error("Bad Gateway"), { status: 502 }));
+@@ -126,15 +153,15 @@ describe("CatalogView actual Ant Tree interactions", () => {
+   it("reveals a newly created base under an otherwise collapsed parent", async () => {
+     await mount();
+     await click(query('[data-admin-kb-domain="domain-a"]'));
+-    const switcher = query('[data-admin-kb-domain="domain-a"]').closest(".ant-tree-treenode")!.querySelector(".ant-tree-switcher")!;
++    const switcher = query('[data-admin-kb-domain="domain-a"]').closest(".ant-collapse-header")!.querySelector(".ant-collapse-expand-icon")!;
+     await click(switcher);
+     expect(document.querySelector('[data-admin-kb-base="base-a"]')).toBeNull();
+     const created: KnowledgeBaseRow = { ...bases[0], id: "base-new", name: "新建产品资料", code: "new-product" };
+     mocks.adminKnowledgeBaseCreate.mockImplementation(async () => { bases.push(created); return { base: created }; });
+     await click(query("[data-admin-kb-create-base]"));
+     await fill('[data-admin-kb-base-form] input[name="name"]', created.name);
+-    await fill('[data-admin-kb-base-form] input[name="code"]', created.code);
+     await submit("[data-admin-kb-base-form]");
++    expect(mocks.adminKnowledgeBaseCreate).toHaveBeenCalledWith({ name: created.name, domain_id: "domain-a", kind: "structured", description: "" });
+     expect(query('[data-admin-kb-base="base-new"]')).toBeTruthy();
+     expect(query('[data-admin-kb-selected="base:base-new"]')).toBeTruthy();
+   });
+diff --git a/frontend/src/admin/knowledge/CatalogView.tsx b/frontend/src/admin/knowledge/CatalogView.tsx
+index 08a6f2a3..0914dc3c 100644
+--- a/frontend/src/admin/knowledge/CatalogView.tsx
++++ b/frontend/src/admin/knowledge/CatalogView.tsx
+@@ -1,5 +1,6 @@
+ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+-import { Tree } from "antd";
++import { Collapse } from "antd";
++import { RightOutlined, SearchOutlined } from "@ant-design/icons";
+ import { Link } from "react-router-dom";
+ import { api, type KnowledgeBaseRow, type KnowledgeDomainRow } from "../../api";
+ import { AdminFormDialog } from "../../components/AdminFormDialog";
+@@ -36,7 +37,6 @@ export default function CatalogView({ notify, fail }: KbFeed) {
+   const [actionError, setActionError] = useState("");
+   const [needsReload, setNeedsReload] = useState(false);
+   const [uncertain, setUncertain] = useState(false);
+-  const [receipt, setReceipt] = useState("");
+   const operationLock = useRef(false);
+   const loadSequence = useRef(0);
+   const knownBranches = useRef(new Set<string>());
+@@ -118,7 +118,7 @@ export default function CatalogView({ notify, fail }: KbFeed) {
+     operationLock.current = true; setBusy(true); setActionError("");
+     try {
+       await work();
+-      setEditor(null); setPending(null); setReceipt(message); notify(message);
++      setEditor(null); setPending(null); notify(message);
+       // A failed refresh must never relabel a successfully acknowledged write as failed.
+       await reload().catch(() => {});
+     } catch (cause) {
+@@ -151,15 +151,16 @@ export default function CatalogView({ notify, fail }: KbFeed) {
+   const saveEditor = async () => {
+     if (!editor || busy || needsReload || (uncertain && editor.mode === "create")) return;
+     const snapshot = editor;
++    if (!snapshot.name.trim()) { setActionError("请填写名称。"); nameRef.current?.focus(); return; }
+     if (snapshot.mode === "edit" && snapshot.node?.level !== "base" && !snapshot.node?.row.updated_at) { setActionError("缺少当前版本时间，请重新读取目录后再保存。"); setNeedsReload(true); return; }
+     await perform(async () => {
+       if (snapshot.mode === "create") {
+         if (snapshot.level === "base") {
+-          const result = await api.adminKnowledgeBaseCreate({ code: snapshot.code.trim(), name: snapshot.name.trim(), domain_id: snapshot.parentId, kind: snapshot.kind, description: snapshot.note.trim() });
++          const result = await api.adminKnowledgeBaseCreate({ name: snapshot.name.trim(), domain_id: snapshot.parentId, kind: snapshot.kind, description: snapshot.note.trim() });
+           revealCreatedKey.current = planningKey("base", result.base.id);
+           setSelectedKey(revealCreatedKey.current);
+         } else {
+-          const result = await api.adminKnowledgeDomainCreate({ code: snapshot.code.trim(), name: snapshot.name.trim(), level: snapshot.level, ...(snapshot.level === "domain" ? { parent_id: snapshot.parentId } : {}), note: snapshot.note.trim() || undefined });
++          const result = await api.adminKnowledgeDomainCreate({ name: snapshot.name.trim(), level: snapshot.level, ...(snapshot.level === "domain" ? { parent_id: snapshot.parentId } : {}), note: snapshot.note.trim() || undefined });
+           revealCreatedKey.current = planningKey(snapshot.level, result.domain.id);
+           setSelectedKey(revealCreatedKey.current);
+         }
+@@ -191,24 +192,28 @@ export default function CatalogView({ notify, fail }: KbFeed) {
+   const modalOpen = Boolean(editor || pending);
+   const controlsDisabled = busy || loading || needsReload || !data || Boolean(loadError);
+   const nodeTitle = (node: PlanningNode) => (
+-    <span className="kbplanning-node" data-admin-kb-family={node.level === "family" ? node.row.id : undefined} data-admin-kb-domain={node.level === "domain" ? node.row.id : undefined} data-admin-kb-base={node.level === "base" ? node.row.id : undefined}>
++    <button type="button" className="kbplanning-node" aria-pressed={selectedKey === node.key} onClick={() => { if (!busy) setSelectedKey(node.key); }} data-admin-kb-family={node.level === "family" ? node.row.id : undefined} data-admin-kb-domain={node.level === "domain" ? node.row.id : undefined} data-admin-kb-base={node.level === "base" ? node.row.id : undefined}>
+       <span className="kbplanning-node-level">{levelLabel(node.level)}</span>
+       <span className="kbplanning-node-name" title={node.path.join(" / ")}>{node.title}</span>
+       <span className="kbplanning-node-count" title={planningChildSummary(allNodes.find(item => item.key === node.key) || node)}>{planningChildSummary(allNodes.find(item => item.key === node.key) || node)}</span>
+       <span className="kbplanning-node-state" data-state={node.row.status}>{planningStateLabel(node.row.status)}</span>
+-    </span>
++    </button>
+   );
+   const renderTree = (nodes: PlanningNode[], label: string) => (
+-    <Tree<PlanningNode>
+-      className="kbplanning-tree" aria-label={label} blockNode virtual={false}
+-      treeData={nodes} titleRender={nodeTitle} showIcon={false} showLine={false}
+-      switcherIcon={({ expanded }) => <span className="kbplanning-arrow" aria-hidden="true">{expanded ? "▾" : "▸"}</span>}
+-      expandedKeys={query.trim() ? searchExpandedKeys : expandedKeys}
+-      onExpand={keys => (query.trim() ? setSearchExpandedKeys : setExpandedKeys)(keys.map(String))}
+-      selectedKeys={selectedKey ? [selectedKey] : []}
+-      onSelect={(_, info) => { if (!busy) { setSelectedKey(String(info.node.key)); setReceipt(""); } }}
+-      expandAction={false}
+-    />
++    <div className="kbplanning-branches" role="group" aria-label={label} onKeyDownCapture={event => {
++      if (event.key === " " && event.target instanceof HTMLElement && event.target.classList.contains("ant-collapse-expand-icon")) {
++        event.preventDefault(); event.stopPropagation(); event.target.click();
++      }
++    }}>
++      {nodes.map(node => node.children.length ? (
++        <Collapse key={node.key} className="kbplanning-accordion" ghost size="small" collapsible="icon" destroyOnHidden
++          expandIcon={({ isActive }) => <span><span className="sr-only">{isActive ? "收起" : "展开"}{node.title}</span><RightOutlined rotate={isActive ? 90 : 0} aria-hidden="true" /></span>}
++          activeKey={(query.trim() ? searchExpandedKeys : expandedKeys).includes(node.key) ? [node.key] : []}
++          onChange={keys => (query.trim() ? setSearchExpandedKeys : setExpandedKeys)(current => keys.length ? [...new Set([...current, node.key])] : current.filter(key => key !== node.key))}
++          items={[{ key: node.key, label: nodeTitle(node), children: renderTree(node.children, `${node.title}的子节点`) }]}
++        />
++      ) : <div className="kbplanning-leaf" key={node.key}>{nodeTitle(node)}</div>)}
++    </div>
+   );
+   const parentOptions = editor?.level === "domain" ? families : domainOptions;
+   const parentActive = (id: string) => {
+@@ -220,20 +225,13 @@ export default function CatalogView({ notify, fail }: KbFeed) {
+ 
+   return (
+     <article className="panel kbplanning" data-admin-kb-catalog data-density="compact" aria-busy={loading || busy || undefined}>
+-      <header className="kbplanning-head">
+-        <div><h2>知识规划</h2><p className="muted">业务族 → 业务域 → 知识库</p></div>
+-        <button className={modalOpen ? "kbplanning-action" : "btn work"} type="button" data-admin-kb-create-family disabled={controlsDisabled} onClick={() => openCreate("family")}>{KB_ADMIN_ACTION.newFamily}</button>
+-      </header>
+-      <p className="kbplanning-note">分类只做业务归类；节点启用、归档与内容发布状态分别管理。</p>
+       <div className="kbplanning-toolbar">
+-        <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索名称或编码" aria-label="搜索知识规划" data-admin-kb-catalog-search />
+-        <button className="kbplanning-action" type="button" onClick={() => (query.trim() ? setSearchExpandedKeys : setExpandedKeys)(planningBranchKeys(visibleTree))}>展开全部</button>
+-        <button className="kbplanning-action" type="button" onClick={() => (query.trim() ? setSearchExpandedKeys : setExpandedKeys)([])}>收起全部</button>
++        <label className="kbplanning-search"><SearchOutlined aria-hidden="true" /><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索名称或编码" aria-label="搜索知识规划" data-admin-kb-catalog-search /></label>
++        <div className="kbplanning-summary">{data ? <span>{families.length} 个业务族 · {domainOptions.length} 个业务域 · {bases.length} 个知识库</span> : null}</div>
++        <button type="button" className="kbplanning-action" disabled={busy || loading} onClick={() => void reload().catch(() => {})}>刷新</button>
+       </div>
+-      <div className="kbplanning-summary">{data ? <span>{families.length} 个业务族 · {domainOptions.length} 个业务域 · {bases.length} 个知识库</span> : null}<button type="button" className="kbplanning-action" disabled={busy || loading} onClick={() => void reload().catch(() => {})}>刷新</button></div>
+       {loadError ? <div className="kbplanning-feedback" role="alert">{data ? "目录刷新失败，以下为上次读取结果。" : "知识规划读取失败。"}{loadError} <button type="button" className="kbplanning-action" disabled={loading || busy} onClick={() => void reload().catch(() => {})}>重试</button></div> : null}
+       {loading ? <p className="kbplanning-note" role="status">{data ? "正在刷新知识规划…" : "正在加载知识规划…"}</p> : null}
+-      {receipt ? <p className="kbplanning-receipt" role="status">{receipt}</p> : null}
+       {!modalOpen && actionError ? <div className="kbplanning-feedback" role="alert">{actionError}{recovery}</div> : null}
+       <div data-admin-kb-catalog-tree>
+         {filteredRoots.length ? renderTree(filteredRoots, "知识规划树") : null}
+@@ -262,14 +260,16 @@ export default function CatalogView({ notify, fail }: KbFeed) {
+         {selected.children.length ? <p className="kbplanning-note">含子节点，不能直接删除。归档只处理当前节点，依赖由服务端校验。</p> : null}
+       </section> : data && visibleTree.length ? <p className="kbplanning-note">选择节点查看详情和操作；点击箭头展开或收起。</p> : null}
+ 
+-      <AdminFormDialog open={Boolean(editor)} title={editor ? `${editor.mode === "create" ? "新建" : "编辑"}${levelLabel(editor.level)}` : ""} subtitle="只保存分类节点；内容需在知识库中单独管理。" initialFocusRef={nameRef} busy={busy} error={actionError} onClose={closeAction} footer={<><button type="button" className="kbplanning-action" disabled={busy} onClick={closeAction}>取消</button><button type="submit" form={formId} className="btn work" disabled={busy || needsReload || loading || (uncertain && editor?.mode === "create")} data-admin-kb-family-submit={editor?.level === "family" ? "" : undefined} data-admin-kb-domain-submit={editor?.level === "domain" ? "" : undefined} data-admin-kb-base-submit={editor?.level === "base" ? "" : undefined}>{busy ? "正在保存…" : editor?.level === "base" ? KB_ADMIN_ACTION.saveBase : KB_ADMIN_ACTION.saveDomain}</button></>}>
++      <footer className="kbplanning-footer"><button className={modalOpen ? "kbplanning-action" : "btn work kbplanning-submit"} type="button" data-admin-kb-create-family disabled={controlsDisabled} onClick={() => openCreate("family")}>{KB_ADMIN_ACTION.newFamily}</button></footer>
++
++      <AdminFormDialog open={Boolean(editor)} title={editor ? `${editor.mode === "create" ? "新建" : "编辑"}${levelLabel(editor.level)}` : ""} subtitle={editor?.level === "base" ? "新建知识库容器；内容在创建后单独管理。" : "只保存分类节点；内容需在知识库中单独管理。"} initialFocusRef={nameRef} busy={busy} error={actionError} onClose={closeAction} footer={<><button type="button" className="kbplanning-action" disabled={busy} onClick={closeAction}>取消</button><button type="submit" form={formId} className="btn work kbplanning-submit" disabled={busy || needsReload || loading || (uncertain && editor?.mode === "create")} data-admin-kb-family-submit={editor?.level === "family" ? "" : undefined} data-admin-kb-domain-submit={editor?.level === "domain" ? "" : undefined} data-admin-kb-base-submit={editor?.level === "base" ? "" : undefined}>{busy ? "正在保存…" : editor?.level === "base" ? KB_ADMIN_ACTION.saveBase : KB_ADMIN_ACTION.saveDomain}</button></>}>
+         {editor ? <form id={formId} className="kbplanning-form" data-admin-kb-family-form={editor.level === "family" ? "" : undefined} data-admin-kb-domain-form={editor.level === "domain" ? "" : undefined} data-admin-kb-base-form={editor.level === "base" ? "" : undefined} onSubmit={event => { event.preventDefault(); void saveEditor(); }}>
+           <fieldset disabled={busy}>
+             {editor.level !== "family" ? <label className="field">所属{editor.level === "domain" ? "业务族" : "业务域"}<select name={editor.level === "domain" ? "parent_id" : "domain_id"} required aria-required="true" value={editor.parentId} disabled={editor.mode === "edit"} data-admin-kb-domain-parent={editor.level === "domain" ? "" : undefined} data-admin-kb-base-domain={editor.level === "base" ? "" : undefined} onChange={event => setEditor({ ...editor, parentId: event.target.value })}><option value="">请选择{editor.level === "domain" ? "业务族" : "业务域"}</option>{parentOptions.map(row => <option key={row.id} value={row.id} disabled={!parentActive(row.id)}>{[editor.level === "base" ? families.find(family => family.id === row.parent_id)?.name : "", row.name].filter(Boolean).join(" / ")}{row.status === "archived" ? "（已归档）" : ""}</option>)}</select></label> : null}
+             <label className="field"><span>名称 <b aria-hidden="true">*</b></span><input ref={nameRef} name="name" required aria-required="true" value={editor.name} onChange={event => setEditor({ ...editor, name: event.target.value })} /></label>
+-            <label className="field"><span>编码 <b aria-hidden="true">*</b></span><input name="code" required aria-required="true" readOnly={editor.mode === "edit"} value={editor.code} onChange={event => setEditor({ ...editor, code: event.target.value })} /></label>
++            <label className="field"><span>编码</span><input name="code" readOnly value={editor.mode === "edit" ? editor.code : ""} placeholder="保存时自动生成" /></label>
+             {editor.level === "base" ? <label className="field">库类型<select name="kind" value={editor.kind} disabled={editor.mode === "edit"} data-admin-kb-base-kind onChange={event => setEditor({ ...editor, kind: event.target.value })}><option value="structured">结构化：按键取用的受控条目</option><option value="unstructured">非结构化：文档与媒体资料</option></select></label> : null}
+-            <label className="field">说明<textarea name={editor.level === "base" ? "description" : "note"} rows={3} value={editor.note} onChange={event => setEditor({ ...editor, note: event.target.value })} /></label>
++            <label className="field">说明<textarea name={editor.level === "base" ? "description" : "note"} rows={2} value={editor.note} onChange={event => setEditor({ ...editor, note: event.target.value })} /></label>
+           </fieldset>
+           {editor.mode === "edit" && editor.node ? <p className="kbplanning-note">当前记录：{editor.node.row.name} · {planningStateLabel(editor.node.row.status)}{editor.node.row.updated_at ? ` · ${formatKbTime(editor.node.row.updated_at)}` : ""}</p> : null}
+           {loadError ? <p className="error" role="alert">重新读取失败：{loadError}</p> : null}{recovery}
+diff --git a/frontend/src/admin/knowledge/IngestView.tsx b/frontend/src/admin/knowledge/IngestView.tsx
+index 1ab85f6c..803b370a 100644
+--- a/frontend/src/admin/knowledge/IngestView.tsx
++++ b/frontend/src/admin/knowledge/IngestView.tsx
+@@ -8,18 +8,12 @@ import {
+   KB_ADMIN_EMPTY,
+   KB_DOC_ACTION,
+   KB_DOC_EMPTY,
+-  KB_DOC_JOB_KIND_LABEL,
+-  KB_DOC_JOB_STATUS_LABEL,
+   formatKbTime,
+   jobStatusLabel as rawJobStatusLabel,
+-  kbDocProgressText,
+-  kbDocStatusLabel,
+ } from "../../knowledgeCopy";
+ import { Link, useLocation } from "react-router-dom";
+-import PublicationPanel, { stateLabel } from "./PublicationPanel";
+-import type { LegacyPublicationState } from "./LegacyPublicationPanel";
+-import type { KnowledgePublicationOptions } from "../../../../shared/knowledge-publication";
+-import { reviewApi } from "../../reviews/api";
++import { reviewCompany } from "../../reviews/api";
++import IngestDocumentDetails from "./IngestDocumentDetails";
+ import { formatBytes, textValue, useKbData, type KbFeed, type Row } from "./shared";
+ 
+ /** 入库：非结构化资料的 上传 → 规整 → 索引 → 待审 入口；进度与终态全部真实。 */
+@@ -39,15 +33,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed &
+       api.adminKnowledgeRaw(),
+       api.adminKnowledgeJobs(),
+     ]);
+-    const publications = Object.fromEntries(await Promise.all(documents.documents
+-      .filter(doc => ["pending_review", "published", "archived"].includes(doc.status))
+-      .map(async doc => [doc.id, await (async () => {
+-        const options = await reviewApi<KnowledgePublicationOptions>(`/admin/knowledge/documents/${encodeURIComponent(doc.id)}/publication-v2`);
+-        if (options.legacy) return reviewApi<LegacyPublicationState>(`/admin/knowledge/documents/${encodeURIComponent(doc.id)}/publication`);
+-        const publication = options.publication;
+-        return { label: publication ? stateLabel[publication.status === "waiting" ? publication.reviewStatus : publication.status] || publication.reviewStatus : kbDocStatusLabel(doc.status), allowed_actions: [] as string[], instance_id: publication?.instanceId || null };
+-      })().catch(() => null)] as const)));
+-    return { publications, health, bases: bases.bases || [], documents: documents.documents || [], raw, jobs };
++    return { health, bases: bases.bases || [], documents: documents.documents || [], raw, jobs };
+   }, [location.search]);
+   const { data, error, loading, reload } = useKbData(load);
+ 
+@@ -124,7 +110,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed &
+     try {
+       const result = await api.adminKnowledgeDocumentUpload(baseId, file, false, setUploadProgress);
+       void openDetail(result.document.id, true);
+-      notify("已上传，开始规整与建索引；可在资料详情检查结果并提交审批；审批通过后自动发布。");
++      notify("已上传，开始规整与建索引；可从资料详情进入加工与审批。");
+       setFile(null);
+       if (fileRef.current) fileRef.current.value = "";
+       reload();
+@@ -145,60 +131,27 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed &
+     return hit ? textValue(hit.filename || hit.source) || id : id;
+   };
+ 
+-  const renderDetail = () => (
+-
+-          <section id={`kbingest-detail-${detailId}`} className="kbadmin-doc-detail" data-admin-kb-doc-detail-panel={detailId}>
+-            <div className="admin-section-head">
+-              <h3>资料详情</h3>
+-              <button className="kbadmin-action-link" type="button" onClick={() => { ++detailRequest.current; setDetailId(""); setDetail(null); }}>
+-                {KB_DOC_ACTION.collapse}
+-              </button>
+-            </div>
+-            {detailError ? <p role="alert">{detailError} <button className="kbadmin-action-link" onClick={() => void refreshDetail(detailId)}>重试读取详情</button></p> : !detail ? (
+-              <p className="muted" role="status">正在加载详情…</p>
+-            ) : (
+-              <>
+-                <p className="muted">
+-                  {[detail.base?.family_name, detail.base?.domain_name, detail.base?.name].filter(Boolean).join(" / ") || "未归类"}
+-                  {detail.document.error ? ` · ${detail.document.error}` : ""}
+-                </p>
+-                <p>原文：{detail.document.filename} · {formatBytes(detail.document.size_bytes)}</p>
+-                {documents.filter(other => other.id !== detailId && other.base_id === detail.document.base_id && other.filename === detail.document.filename).map(other => <p key={other.id}>同名资料：<button className="kbadmin-action-link" onClick={() => void openDetail(other.id, true)}>{other.title} · {formatKbTime(other.updated_at)} · {kbDocStatusLabel(other.status)}</button>（独立记录，未确认版本关系）</p>)}
+-                <p className="kbadmin-row-actions">
+-                  <a
+-                    className="kbadmin-action-link"
+-                    data-admin-kb-doc-open={detail.document.id}
+-                    href={`/api/admin/knowledge/documents/${encodeURIComponent(detail.document.id)}/file`}
+-                    target="_blank"
+-                    rel="noreferrer"
+-                  >
+-                    {KB_DOC_ACTION.openSource}
+-                  </a>
+-                </p>
+-                <h4 className="kb-subhead">关联作业与加工结果</h4>
+-                {!detail.jobs.length ? <p className="muted">{KB_DOC_EMPTY.jobs}</p> : null}
+-                <ul className="kbadmin-doc-jobs">
+-                  {detail.jobs.map((job) => (
+-                    <li key={job.id} data-admin-kb-job={job.id}>
+-                      {KB_DOC_JOB_KIND_LABEL[job.kind] || job.kind} · {KB_DOC_JOB_STATUS_LABEL[job.status] || job.status}
+-                      {job.progress_total > 0 ? ` · ${job.progress_done}/${job.progress_total}` : ""}
+-                      {" · 第 "}{job.attempt}{" 次 · "}{formatKbTime(job.finished_at || job.started_at || job.created_at) || "—"}
+-                      {job.error ? <span className="error"> · {job.error}</span> : null}
+-                    </li>
+-                  ))}
+-                </ul>
+-                <h4 className="kb-subhead">加工结果{detail.document.status === "published" ? "（已发布版本）" : "（待审稿）"}</h4>
+-                {detail.text_preview ? (
+-                  <pre className="kbadmin-body" data-admin-kb-doc-preview>{detail.text_preview.text}</pre>
+-                ) : (
+-                  <p className="muted">{KB_DOC_EMPTY.preview}</p>
+-                )}
+-                {["pending_review", "published", "archived"].includes(detail.document.status) && <PublicationPanel mode="review" id={detail.document.id} ownsPrimary={false} notify={notify} refreshDocument={() => { reload(); void refreshDetail(detailId); }} />}
+-              </>
+-            )}
+-          </section>
+-
+-  );
++  const renderDetail = () => {
++    const doc = detail?.document;
++    return <section id={`kbingest-detail-${detailId}`} className="kbadmin-doc-detail kbingest-file-detail" data-admin-kb-doc-detail-panel={detailId}>
++      <div className="kbingest-detail-head">
++        <h3>资料详情</h3>
++        <button className="kbadmin-action-link" type="button" onClick={() => void openDetail(detailId)}>{KB_DOC_ACTION.collapse}</button>
++      </div>
++      {detailError ? <p role="alert">{detailError} <button className="kbadmin-action-link" onClick={() => void refreshDetail(detailId)}>重试读取详情</button></p>
++        : !detail || !doc ? <p className="muted" role="status">正在加载详情…</p>
++        : <IngestDocumentDetails detail={detail} documents={documents} company={reviewCompany()} onOpen={id => void openDetail(id, true)} actions={
++          <details className="kbingest-more"><summary>更多操作</summary><div>
++            {detail.actions?.start && <button className="kbadmin-action-link" type="button" onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "start"), "已开始解析；完成后待审核。")}>开始解析</button>}
++            {detail.actions?.retry && <button className="kbadmin-action-link" type="button" data-admin-kb-doc-retry={doc.id} onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "retry"), "已重新排队；从失败阶段继续。")}>{KB_DOC_ACTION.retry}</button>}
++            {detail.actions?.cancel && <button className="kbadmin-action-link" type="button" data-admin-kb-doc-cancel={doc.id} onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "cancel"), "已取消；可重试。")}>{KB_DOC_ACTION.cancel}</button>}
++            <button className="kbadmin-action-link" type="button" onClick={() => void refreshDetail(doc.id)}>刷新资料</button>
++            {doc.status === "published" && <button className="kbadmin-action-link" type="button" data-admin-kb-doc-archive={doc.id} onClick={() => ask(knowledgeDocumentArchiveConfirm(doc.title), () => run(() => api.adminKnowledgeDocumentAction(doc.id, "archive"), "已归档：不再参与检索。"))}>{KB_DOC_ACTION.archive}</button>}
++            {["draft", "uploaded", "pending_review", "failed", "cancelled"].includes(doc.status) && <button className="kbadmin-action-link kbadmin-action-danger" type="button" data-admin-kb-doc-delete={doc.id} onClick={() => ask(knowledgeDocumentDeleteConfirm(doc.title), () => run(() => api.adminKnowledgeDocumentDelete(doc.id), "资料已删除（原文件与索引已清理）。"))}>{KB_DOC_ACTION.remove}</button>}
++          </div></details>
++        } />}
++    </section>;
++  };
+ 
+   return (
+     <>
+@@ -206,15 +159,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed &
+       {error && <p className="error" role="alert">{error} <button className="kbadmin-action-link" onClick={reload}>重新加载</button></p>}
+       {loading && !data && <p className="muted" role="status">正在加载入库数据…</p>}
+ 
+-      <header className="kbingest-head">
+-        <div className="kbingest-breadcrumb">{!embedded && <Link to="/admin/knowledge" data-admin-kb-home-link>← 返回知识管理</Link>}<h2>{embedded ? "知识加工" : "资料入库"}</h2></div>
+-        <details className="kbingest-health">
+-          <summary data-admin-kb-engine-health>PageIndex · {health ? health.ok ? "可用" : health.code === "knowledge_index_unavailable" ? "状态未获取" : "异常" : "正在检查"}</summary>
+-          <p>{health?.message || (health?.ok ? "健康检查通过" : "暂未获取健康检查结果")}</p>
+-          <p>运行模式：{health?.mode || "未获取"} · 引擎版本：{health?.pageindex || "未获取"}</p>
+-          <button className="kbadmin-action-link" type="button" onClick={reload}>重新检查</button>
+-        </details>
+-      </header>
++      {!embedded && <header className="kbingest-head"><Link to="/admin/knowledge" data-admin-kb-home-link>← 返回知识管理</Link><h2>资料入库</h2></header>}
+       {!embedded && <article className="kbingest-upload" data-admin-kb-doc-upload>
+         <div className="kbadmin-toolbar">
+           <label className="field">知识库
+@@ -280,101 +225,32 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed &
+             <table className="admin-table" data-admin-kb-documents-table>
+               <thead>
+                 <tr>
+-                  <th>名称 / 文件信息</th>
+-                  <th>知识库</th>
+-                  <th>状态 / 进度</th>
+-                  <th>更新时间</th>
+-                  <th>操作</th>
++                  <th scope="col">文件名</th>
++                  <th scope="col">资料详情</th>
+                 </tr>
+               </thead>
+               <tbody>
+-                {uploading && file && <tr data-admin-kb-upload-progress><td>{file.name}<p className="muted">PDF · {formatBytes(file.size)}</p></td><td>{bases.find(base => base.id === baseId)?.name}</td><td colSpan={3} role="status">{uploadProgress === 100 ? "正在保存原文与创建作业记录" : `上传中 · ${uploadProgress === null ? "传输进度未获取" : `${uploadProgress}%`}`}</td></tr>}
++                {uploading && file && <tr data-admin-kb-upload-progress><td title={file.name}>{file.name}</td><td role="status">{uploadProgress === 100 ? "正在保存原文与创建作业记录" : `上传中 · ${uploadProgress === null ? "传输进度未获取" : `${uploadProgress}%`}`}</td></tr>}
+                 {documents.map((doc) => {
+-                  const progress = kbDocProgressText(doc);
+                   const status = String(doc.status || "");
+-                  const busy = ["uploaded", "normalizing", "indexing"].includes(status);
+-                  const removable = ["draft", "uploaded", "pending_review", "failed", "cancelled"].includes(status);
+-                  const publication = data?.publications[doc.id];
+-                  const chipClass = status === "published" ? "chip kbingest-status-success" : status === "failed" ? "chip kbingest-status-error" : busy ? "chip kbingest-status-busy" : "chip";
+                   return (
+                     <Fragment key={doc.id}><tr className={detailId === doc.id ? "is-selected" : ""} data-admin-kb-doc={doc.id} data-admin-kb-doc-status={status}>
+                       <td>
+                         <button
+                           className="kbadmin-title-link"
+                           type="button"
+-                          title={doc.title}
++                          title={doc.filename || doc.title}
+                           data-admin-kb-doc-detail={doc.id}
+                           aria-expanded={detailId === doc.id}
+                           aria-controls={`kbingest-detail-${doc.id}`}
+                           onClick={() => void openDetail(doc.id)}
+                         >
+-                          {detailId === doc.id ? "▾ " : "▸ "}{doc.title}
++                          <span aria-hidden="true">{detailId === doc.id ? "▾" : "▸"}</span><span className="kbingest-filename">{doc.filename || doc.title}</span>
+                         </button>
+-                        <p
+-                          className="muted kbadmin-doc-meta"
+-                          title={`${doc.filename} · PDF · ${formatBytes(Number(doc.size_bytes || 0))}`}
+-                        >
+-                          {doc.filename.replace(/\.pdf$/i, "") === doc.title ? "PDF" : `${doc.filename} · PDF`} · {formatBytes(Number(doc.size_bytes || 0))}
+-                          {documents.some(other => other.id !== doc.id && other.base_id === doc.base_id && other.filename === doc.filename) ? " · 同名资料，详情可核对" : ""}
+-                        </p>
+-                        {doc.error ? <p className="error" data-admin-kb-doc-error>{doc.error}</p> : null}
+-                      </td>
+-                      <td>{doc.base_name || doc.base_id || emptyCell}</td>
+-                      <td>
+-                        <span className={chipClass} data-admin-kb-doc-status-chip={status}>{publication?.label || kbDocStatusLabel(status)}</span>
+-                        {["pending_review", "published", "archived"].includes(status) && !publication && <p className="muted">审批状态未获取，展开详情可重试</p>}
+-                        {progress ? <p className="muted kbadmin-doc-meta" title={progress} data-admin-kb-doc-progress>{progress}</p> : null}
+-                      </td>
+-                      <td><time title={formatKbTime(doc.updated_at)}>{formatKbTime(doc.updated_at)?.replace(/^\d{4}\//, "") || emptyCell}</time></td>
+-                      <td>
+-                        <div className="kbadmin-row-actions">
+-                          {status === "draft" && <button className="kbadmin-action-link" type="button" onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "start"), "已开始解析；完成后待审核。")}>开始解析</button>}
+-                          {["failed", "cancelled"].includes(status) ? (
+-                            <button
+-                              className="kbadmin-action-link"
+-                              type="button"
+-                              data-admin-kb-doc-retry={doc.id}
+-                              onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "retry"), "已重新排队；从失败阶段继续。")}
+-                            >
+-                              {KB_DOC_ACTION.retry}
+-                            </button>
+-                          ) : null}
+-                          {busy ? <button className="kbadmin-action-link" type="button" onClick={() => void openDetail(doc.id, true)}>查看进度</button> : null}
+-                          {publication?.allowed_actions.includes("submit") ? <button className="kbadmin-action-link" data-admin-kb-doc-review={doc.id} type="button" onClick={() => void openDetail(doc.id, true)}>提交审批</button> : !busy && !["draft", "failed", "cancelled"].includes(status) ? <button className="kbadmin-action-link" type="button" onClick={() => void openDetail(doc.id, true)}>{publication?.instance_id ? "查看审批进度" : status === "pending_review" ? "查看结果与审批" : "查看"}</button> : null}
+-                          <details className="kbingest-more"><summary>更多</summary><div>
+-                          {busy ? <button className="kbadmin-action-link" type="button" data-admin-kb-doc-cancel={doc.id} onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "cancel"), "已取消；可重试。")}>{KB_DOC_ACTION.cancel}</button> : null}
+-                          <button className="kbadmin-action-link" type="button" onClick={() => void openDetail(doc.id, true)}>查看结果与原因</button>
+-                          {status === "published" ? (
+-                            <button
+-                              className="kbadmin-action-link"
+-                              type="button"
+-                              data-admin-kb-doc-archive={doc.id}
+-                              onClick={() => ask(
+-                                knowledgeDocumentArchiveConfirm(doc.title),
+-                                () => run(() => api.adminKnowledgeDocumentAction(doc.id, "archive"), "已归档：不再参与检索。"),
+-                              )}
+-                            >
+-                              {KB_DOC_ACTION.archive}
+-                            </button>
+-                          ) : null}
+-                          {removable && !["published", "archived"].includes(status) ? (
+-                            <button
+-                              className="kbadmin-action-link"
+-                              type="button"
+-                              data-admin-kb-doc-delete={doc.id}
+-                              onClick={() => ask(
+-                                knowledgeDocumentDeleteConfirm(doc.title),
+-                                () => run(() => api.adminKnowledgeDocumentDelete(doc.id), "资料已删除（原文件与索引已清理）。"),
+-                              )}
+-                            >
+-                              {KB_DOC_ACTION.remove}
+-                            </button>
+-                          ) : null}
+-                          </div></details>
+-                        </div>
+                       </td>
++                      <td><button className="kbadmin-action-link" type="button" data-admin-kb-doc-details-link={doc.id} aria-expanded={detailId === doc.id} aria-controls={`kbingest-detail-${doc.id}`} onClick={() => void openDetail(doc.id, true)}>资料详情</button></td>
+                     </tr>
+-                    {detailId === doc.id ? <tr className="kbingest-detail-row"><td colSpan={5}>{renderDetail()}</td></tr> : null}
++                    {detailId === doc.id ? <tr className="kbingest-detail-row"><td colSpan={2}>{renderDetail()}</td></tr> : null}
+                     </Fragment>
+                   );
+                 })}
+diff --git a/frontend/src/admin/knowledge/KnowledgeHome.tsx b/frontend/src/admin/knowledge/KnowledgeHome.tsx
+index 41029f12..0a9115af 100644
+--- a/frontend/src/admin/knowledge/KnowledgeHome.tsx
++++ b/frontend/src/admin/knowledge/KnowledgeHome.tsx
+@@ -11,7 +11,7 @@ import { useAccount } from "../../components/AuthGate";
+ import type { FilterOption } from "./KnowledgeFilters";
+ import KnowledgeBrowseFilters from "./KnowledgeBrowseFilters";
+ import { KnowledgeBrowseWorkspace } from "../../components/KnowledgeBrowse";
+-// Keep the mature tree library out of unrelated admin views.
++// Keep the mature planning component out of unrelated admin views.
+ const CatalogView = lazy(() => import("./CatalogView"));
+ import BaseView from "./BaseView";
+ import IngestView from "./IngestView";
+@@ -69,6 +69,8 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
+   const [debouncedQuery, setDebouncedQuery] = useState<string>(restore.query || "");
+   useEffect(()=>{const t=setTimeout(()=>setDebouncedQuery(query),300);return ()=>clearTimeout(t);},[query]);
+   const [receipt, setReceipt] = useState("");
++  const receiptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  useEffect(() => () => { if (receiptTimer.current) clearTimeout(receiptTimer.current); }, []);
+   const [actionError, setActionError] = useState("");
+   const [scope, setScope] = useState<KbScope>(restore.scope || EMPTY_SCOPE);
+   const [brands, setBrands] = useState<string[]>(restore.brands || []);
+@@ -89,9 +91,12 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
+   useEffect(()=>{setExpiring(params.get("expiring")==="1");},[params]);
+   const notify = useCallback((message: string) => {
+     setActionError("");
++    if (receiptTimer.current) clearTimeout(receiptTimer.current);
+     setReceipt(message);
+-  }, []);
++    if (stage === "catalog") receiptTimer.current = setTimeout(() => setReceipt(""), 3000);
++  }, [stage]);
+   const fail = useCallback((cause: unknown, fallback = "操作失败") => {
++    if (receiptTimer.current) clearTimeout(receiptTimer.current);
+     setReceipt("");
+     setActionError(errorMessage(cause, fallback));
+   }, []);
+@@ -378,7 +383,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
+         <WorkspaceActionContext.Provider value={actionTarget}>
+         <section className="kbv-rail kbv-browser kbw-workarea" aria-label="知识治理工作区" data-knowledge-right data-workspace-mode={mode} data-kb-active-stage={stage}>
+           <KnowledgeLifecycleTabs stage={stage} onChange={changeStage} />
+-          {receipt ? <p className="admin-receipt status-ok" data-admin-receipt role="status">{receipt}</p> : null}
++          {receipt ? <p className={`admin-receipt status-ok${stage === "catalog" ? " kbplanning-toast" : ""}`} data-admin-receipt role="status">{receipt}</p> : null}
+           {actionError ? <p className="error" role="alert">{actionError}</p> : null}
+           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
+           {mode==="list" && <button className="kbv-text-action knowledge-governance-back" onClick={()=>switchMode("list")}>查看知识列表</button>}
+@@ -389,12 +394,11 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
+             onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
+           {mode==="list" ? <>
+             {stage === "create" ? <section data-knowledge-creation>
+-              <header className="knowledge-creation-head"><h3>知识创作</h3><div className="knowledge-creation-actions">
++              <div className="knowledge-creation-actions" role="group" aria-label="知识创作操作">
+                 <button type="button" className="kbv-text-action" data-kbv-upload onClick={()=>switchMode("upload")}>上传文件</button>
+                 <button type="button" className="kbv-text-action" data-kbv-new onClick={()=>switchMode("create")}>新建知识</button>
+-              </div></header>
+-              <p className="knowledge-panel-help">新建在线知识或上传资料，保存草稿后继续加工、审批与发布。</p>
+-              <button className="kbv-text-action" onClick={()=>drillView("draft")}>查看中栏草稿</button>
++                <button type="button" className="kbv-text-action" onClick={()=>drillView("draft")}>查看草稿</button>
++              </div>
+             </section> : stage === "catalog" ? catalogBaseId
+               ? <BaseView id={catalogBaseId} notify={notify} fail={fail} /> : <Suspense fallback={<p className="muted" role="status">正在加载知识规划…</p>}><CatalogView notify={notify} fail={fail} /></Suspense>
+             : stage === "processing" ? <IngestView embedded notify={notify} fail={fail} />
+diff --git a/frontend/src/admin/knowledge/knowledge-admin.css b/frontend/src/admin/knowledge/knowledge-admin.css
+index f36d786a..04b95781 100644
+--- a/frontend/src/admin/knowledge/knowledge-admin.css
++++ b/frontend/src/admin/knowledge/knowledge-admin.css
+@@ -699,3 +699,75 @@
+ 
+ /* 空单元格占位：渲染 — 而不是留白格造成「缺数据」误读（§9.1）。 */
+ .kb-cell-empty { color: var(--text-quiet); }
++
++/* 文件列表与资料详情：两列高密度展示，沿用 DESIGN.md 的既有 token。
++   仅覆盖资料表；原文库、提取作业和独立资料工作区不受影响。 */
++.kbingest-worktable .admin-table[data-admin-kb-documents-table] {
++  display: table;
++  width: 100%;
++  table-layout: fixed;
++}
++[data-admin-kb-documents-table] thead { display: table-header-group; }
++[data-admin-kb-documents-table] tbody { display: table-row-group; }
++[data-admin-kb-documents-table] tr { display: table-row; }
++[data-admin-kb-documents-table] td { display: table-cell; }
++.kbingest-worktable [data-admin-kb-documents-table] th:first-child { width: auto; }
++.kbingest-worktable [data-admin-kb-documents-table] th:last-child { width: 20%; text-align: right; }
++.kbingest-worktable [data-admin-kb-documents-table] td {
++  height: var(--table-row-h-compact);
++  padding: var(--space-1) var(--space-2);
++  vertical-align: middle;
++}
++.kbingest-worktable [data-admin-kb-documents-table] td:last-child:not([colspan]) { text-align: right; white-space: nowrap; }
++.kbingest-worktable [data-admin-kb-documents-table] .kbadmin-title-link {
++  display: flex;
++  align-items: center;
++  gap: var(--space-2);
++  width: 100%;
++  min-width: 0;
++  min-height: var(--control-h-sm);
++  font-weight: 500;
++  text-decoration: none;
++}
++.kbingest-worktable [data-admin-kb-documents-table] .kbadmin-title-link:hover { color: var(--accent-text); }
++.kbingest-filename { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
++.kbingest-worktable [data-admin-kb-documents-table] tr.is-selected > td:not([colspan]) { background: var(--bg-subtle); }
++.kbingest-worktable [data-admin-kb-documents-table] .kbingest-detail-row > td {
++  height: auto;
++  padding: var(--space-3) var(--space-4);
++  white-space: normal;
++  text-align: left;
++  background: var(--bg-subtle);
++  overflow: visible;
++}
++.kbingest-file-detail { min-width: 0; color: var(--text); font-size: var(--ds-font-sm); }
++.kbingest-detail-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
++.kbingest-detail-head h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; }
++.kbingest-properties { font-family: inherit; font-size: var(--ds-font-sm); color: var(--text); }
++.kbingest-file-detail .kbingest-properties .ant-descriptions-view table { width: 100%; table-layout: fixed; }
++.kbingest-file-detail .kbingest-properties .ant-descriptions-row > td { height: auto; padding: var(--space-1) 0; border: 0; background: none; text-align: left; white-space: normal; }
++.kbingest-properties .ant-descriptions-item-container { display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; }
++.kbingest-properties .ant-descriptions-item-label { flex: 0 0 7em; color: var(--text-quiet); font-size: var(--ds-font-xs); font-family: inherit; }
++.kbingest-properties .ant-descriptions-item-content { min-width: 0; color: var(--text); font-size: var(--ds-font-sm); font-family: inherit; overflow-wrap: anywhere; }
++.kbingest-full-name { overflow-wrap: anywhere; }
++.kbingest-related { margin-top: var(--space-2); border-top: 1px solid var(--border); padding-top: var(--space-2); }
++.kbingest-related-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-1) var(--space-2); font-size: var(--ds-font-xs); color: var(--text-quiet); }
++.kbingest-related-list { list-style: none; margin: var(--space-1) 0 0; padding: 0; display: grid; }
++.kbingest-related-list li { display: flex; flex-direction: column; align-items: stretch; min-width: 0; padding: var(--space-1) 0; }
++.kbingest-related-list .kbingest-related-name { display: block; min-width: 0; max-width: 100%; padding-inline: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.kbingest-related-meta { color: var(--text-quiet); font-size: var(--ds-font-xs); overflow-wrap: anywhere; }
++.kbingest-detail-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-2); padding-top: var(--space-2); margin-top: var(--space-2); border-top: 1px solid var(--border); }
++.kbingest-detail-footer .kbadmin-row-actions { gap: var(--space-2); }
++.kbingest-detail-footer .kbadmin-row-actions > .kbadmin-action-link:first-child { padding-left: 0; }
++.kbingest-detail-footer a:hover { text-decoration: underline; }
++.kbingest-detail-error { margin: var(--space-2) 0 0; overflow-wrap: anywhere; }
++.kbingest-detail-footer .kbingest-more > summary { min-height: var(--control-h-sm); display: flex; align-items: center; }
++.kbingest-detail-footer .kbingest-more > div { max-width: min(var(--dialog-w-sm), 100vw); }
++@container (min-width: 720px) {
++  .kbingest-related-list li { flex-direction: row; align-items: center; gap: var(--space-3); }
++  .kbingest-related-name { flex: 1; }
++  .kbingest-related-meta { flex: 0 0 auto; }
++}
++@media (pointer: coarse) {
++  [data-admin-kb-documents-table] button, .kbingest-detail-footer .kbingest-more > summary { min-height: var(--touch-hit-min); }
++}
+diff --git a/frontend/src/admin/knowledge/knowledge-governance.css b/frontend/src/admin/knowledge/knowledge-governance.css
+index a4b0dd59..a8f751b9 100644
+--- a/frontend/src/admin/knowledge/knowledge-governance.css
++++ b/frontend/src/admin/knowledge/knowledge-governance.css
+@@ -15,7 +15,8 @@
+ .knowledge-governance .kbw-identity { margin-bottom:var(--space-2); }
+ .knowledge-governance .knowledge-panel-help { font-size:var(--ds-font-helper); color:var(--text-quiet); line-height:var(--ds-line-helper); }
+ .knowledge-governance .knowledge-creation-head { display:flex; gap:var(--space-2); align-items:center; justify-content:space-between; flex-wrap:wrap; }
+-.knowledge-creation-actions { display:flex; gap:var(--space-1); }
++.knowledge-creation-actions { display:flex; align-items:center; flex-wrap:nowrap; gap:var(--space-3); }
++.knowledge-creation-actions > button { flex:0 0 auto; white-space:nowrap; }
+ #root .workbench .knowledge-governance .knowledge-filter-bar { padding:var(--space-2) var(--space-5) var(--space-3); gap:var(--space-2); }
+ #root .workbench .knowledge-governance .kbv-search { height:var(--control-h); min-height:var(--control-h); margin:0; }
+ #root .workbench .knowledge-governance .kbv-search input { height:100%; min-height:0; padding-block:0; }
+diff --git a/frontend/src/admin/knowledge/planning-tree.css b/frontend/src/admin/knowledge/planning-tree.css
+index cb1bc19a..5defd9c2 100644
+--- a/frontend/src/admin/knowledge/planning-tree.css
++++ b/frontend/src/admin/knowledge/planning-tree.css
+@@ -1,40 +1,41 @@
+-/* Knowledge planning: scoped compact rows, using DESIGN's existing tokens. */
+-.kbplanning { --kbplanning-row-h: var(--control-h-lg); --kbplanning-indent: var(--space-5); min-width: 0; margin: 0; padding: var(--space-3) 0; border: 0; box-shadow: none; background: transparent; color: var(--text); font-size: var(--ds-font-sm); }
+-.kbplanning .kbplanning-head, .kbplanning .kbplanning-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
+-.kbplanning h2, .kbplanning h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; overflow-wrap: anywhere; }
+-.kbplanning-head p { margin: var(--space-1) 0 0; }
+-.kbplanning-head > .btn { flex-shrink: 0; min-height: var(--control-h-sm); white-space: nowrap; }
++/* Knowledge planning: Ant Design Collapse, with DESIGN's existing compact tokens. */
++.kbplanning { --kbplanning-row-h: var(--list-row-h-compact); min-width: 0; margin: 0; padding: var(--space-2) 0; border: 0; box-shadow: none; background: transparent; color: var(--text); font-size: var(--ds-font-sm); }
++.kbplanning .kbplanning-detail-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
++.kbplanning h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; overflow-wrap: anywhere; }
+ .kbplanning-note, .kbplanning-path { color: var(--text-quiet); font-size: var(--ds-font-xs); line-height: 1.5; margin: var(--space-2) 0; overflow-wrap: anywhere; }
+-.kbplanning-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-3) 0 var(--space-1); }
+-.kbplanning-toolbar input[type="search"] { flex: 1 1 auto; min-width: 0; width: 100%; max-width: var(--workspace-search-max-w); height: var(--control-h); padding: 0 var(--workspace-search-pad-x); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--text); font: inherit; }
+-.kbplanning-toolbar input::placeholder { color: var(--text-quiet); }
++.kbplanning-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-1); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
++.kbplanning-search { box-sizing: border-box; display: flex; align-items: center; flex: 0 1 var(--workspace-search-max-w); min-width: 0; width: 100%; height: var(--control-h); gap: var(--space-2); padding: 0 var(--workspace-search-pad-x); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--text-quiet); }
++.kbplanning-search .anticon { flex: 0 0 auto; font-size: var(--icon-sm); }
++.kbplanning-search input[type="search"] { box-sizing: border-box; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
++.kbplanning-search input::placeholder { color: var(--text-quiet); }
++.kbplanning-search:focus-within { border-color: var(--focus-ring); outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+ .kbplanning-action { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-h-sm); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--accent-text); font: inherit; white-space: nowrap; cursor: pointer; }
+ .kbplanning-action:hover:not(:disabled) { background: var(--btn-text-hover-bg); }
+ .kbplanning-action:disabled { color: var(--text-quiet); opacity: .6; cursor: not-allowed; }
+ .kbplanning-action.is-danger { color: var(--danger); }
+-.kbplanning-action:focus-visible, .kbplanning-toolbar input:focus-visible, .kbplanning-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+-.kbplanning-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1); color: var(--text-quiet); font-size: var(--ds-font-xs); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+-.kbplanning .kbplanning-tree.ant-tree { background: transparent; color: var(--text); font-family: inherit; font-size: var(--ds-font-sm); padding: var(--space-1) 0; }
+-.kbplanning-tree.ant-tree .ant-tree-list-holder-inner { width: 100%; }
+-.kbplanning-tree.ant-tree .ant-tree-treenode { width: 100%; min-width: 0; min-height: var(--kbplanning-row-h); align-items: center; padding: 0; }
+-.kbplanning-tree.ant-tree .ant-tree-indent-unit { width: var(--kbplanning-indent); }
+-.kbplanning-tree.ant-tree .ant-tree-switcher { flex: 0 0 var(--control-h-sm); width: var(--control-h-sm); height: var(--kbplanning-row-h); display: inline-flex; align-items: center; justify-content: center; line-height: normal; border-radius: var(--radius-control); color: var(--text-quiet); }
+-.kbplanning-tree.ant-tree .ant-tree-switcher:hover { background: var(--bg-subtle); }
+-.kbplanning-arrow { font-size: var(--ds-font-xs); }
+-.kbplanning-tree.ant-tree .ant-tree-node-content-wrapper { flex: 1; min-width: 0; min-height: var(--kbplanning-row-h); display: flex; align-items: center; padding: 0 var(--space-1); border-radius: var(--radius-control); color: var(--text); line-height: normal; }
+-.kbplanning-tree.ant-tree .ant-tree-node-content-wrapper:hover { background: var(--bg-subtle); }
+-.kbplanning-tree.ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected { background: var(--btn-text-hover-bg); box-shadow: inset 2px 0 var(--accent); }
+-.kbplanning-tree.ant-tree .ant-tree-node-selected .kbplanning-node-name { font-weight: 600; }
+-.kbplanning-tree.ant-tree .ant-tree-treenode-active .ant-tree-node-content-wrapper { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+-.kbplanning-tree.ant-tree .ant-tree-title { display: block; flex: 1; min-width: 0; }
+-.kbplanning-node { display: flex; align-items: baseline; gap: var(--space-2); width: 100%; min-width: 0; }
++.kbplanning-action:focus-visible, .kbplanning-link:focus-visible, .kbplanning-node:focus-visible, .kbplanning-accordion .ant-collapse-expand-icon:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
++.kbplanning-summary { flex: 1 1 auto; min-width: 0; color: var(--text-quiet); font-size: var(--ds-font-xs); }
++.kbplanning-toolbar > .kbplanning-action { margin-left: auto; }
++.kbplanning-branches { min-width: 0; }
++.kbplanning .kbplanning-accordion.ant-collapse { border: 0; border-radius: 0; background: transparent; color: var(--text); font-family: inherit; font-size: var(--ds-font-sm); }
++.kbplanning-accordion.ant-collapse > .ant-collapse-item { border: 0; }
++.kbplanning-accordion.ant-collapse > .ant-collapse-item > .ant-collapse-header { display: flex; align-items: center; gap: 0; min-height: var(--kbplanning-row-h); padding: 0; border-radius: 0; cursor: default; }
++.kbplanning-accordion.ant-collapse .ant-collapse-title { min-width: 0; flex: 1; }
++.kbplanning-accordion.ant-collapse .ant-collapse-expand-icon { box-sizing: border-box; flex: 0 0 var(--control-h-sm); width: var(--control-h-sm); height: var(--kbplanning-row-h); margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-control); color: var(--text-quiet); cursor: pointer; }
++.kbplanning-accordion.ant-collapse .ant-collapse-expand-icon:hover { background: var(--bg-subtle); }
++.kbplanning-accordion.ant-collapse > .ant-collapse-item > .ant-collapse-content { background: transparent; border: 0; }
++.kbplanning-accordion.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-body { padding: 0 0 0 var(--nav-indent-level); }
++.kbplanning-leaf { min-width: 0; padding-left: var(--control-h-sm); }
++.kbplanning-node { box-sizing: border-box; display: flex; align-items: baseline; gap: var(--space-2); width: 100%; min-width: 0; min-height: var(--kbplanning-row-h); padding: var(--space-1); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
++.kbplanning-node:hover { background: var(--bg-subtle); }
++.kbplanning-node[aria-pressed="true"] { background: var(--btn-text-hover-bg); box-shadow: inset 2px 0 var(--accent); }
++.kbplanning-node[aria-pressed="true"] .kbplanning-node-name { font-weight: 600; }
+ .kbplanning-node-name { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+ .kbplanning-node-level, .kbplanning-node-count, .kbplanning-node-state { flex-shrink: 0; color: var(--text-quiet); font-size: var(--ds-font-xs); white-space: nowrap; }
+ .kbplanning-node-state[data-state="archived"] { font-style: italic; }
+ .kbplanning-empty { padding: var(--space-3) 0; margin: 0; color: var(--text-quiet); }
+ .kbplanning-detached { border-top: 1px solid var(--border); margin-top: var(--space-2); }
+ .kbplanning-detail { border-top: 1px solid var(--border); padding-top: var(--space-3); margin-top: var(--space-2); }
+-.kbplanning-detail-head { align-items: baseline; }
+ .kbplanning-facts { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-2) 0; }
+ .kbplanning-facts > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); }
+ .kbplanning-facts dt { color: var(--text-quiet); flex-shrink: 0; }
+@@ -43,20 +44,31 @@
+ .kbplanning-link { color: var(--accent-text); padding: 0 var(--space-1); text-decoration: none; }
+ .kbplanning-link:hover { text-decoration: underline; }
+ .kbplanning-feedback { color: var(--danger); margin: var(--space-2) 0; overflow-wrap: anywhere; }
+-.kbplanning-receipt { color: var(--text); margin: var(--space-2) 0; }
++.kbplanning-footer { display: flex; justify-content: flex-end; padding-top: var(--space-2); }
++.kbplanning .kbplanning-submit, .governance-modal:has(.kbplanning-form) .kbplanning-submit { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; height: var(--control-h-sm); min-height: var(--control-h-sm); padding: 0 var(--space-2); border-radius: var(--radius-control); font-size: var(--ds-font-sm); line-height: normal; }
++.knowledge-governance .kbplanning-toast { box-sizing: border-box; position: fixed; top: var(--space-4); right: var(--space-4); z-index: 150; max-width: min(var(--dialog-w-sm), calc(100vw - var(--space-4) * 2)); margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); box-shadow: var(--shadow-scroll); font-size: var(--ds-font-sm); overflow-wrap: anywhere; }
+ .kbplanning-form fieldset { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; border: 0; padding: 0; margin: 0; }
+ .kbplanning-form .field { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); margin: 0; font-size: var(--ds-font-sm); color: var(--text-quiet); }
+ .kbplanning-form .field > span { display: block; color: inherit; }
+ .kbplanning-form .field > span > b { color: var(--danger); font-weight: inherit; }
+-.kbplanning-form input, .kbplanning-form select, .kbplanning-form textarea { box-sizing: border-box; min-width: 0; width: 100%; font: inherit; color: var(--text); background: var(--fill-control); border: 1px solid transparent; border-radius: var(--radius-control); padding: var(--space-1) var(--space-2); }
++.governance-modal .kbplanning-form input, .governance-modal .kbplanning-form select, .governance-modal .kbplanning-form textarea { box-sizing: border-box; min-width: 0; width: 100%; font: inherit; color: var(--text); background: var(--fill-control); border: 1px solid transparent; border-radius: var(--radius-control); padding: var(--space-1) var(--space-2); }
+ .kbplanning-form input, .kbplanning-form select { height: var(--control-h-form); }
+-.kbplanning-form textarea { resize: vertical; }
++.governance-modal .kbplanning-form textarea { min-height: calc(var(--control-h-form) * 2); resize: vertical; }
+ .kbplanning-form input[readonly], .kbplanning-form select:disabled { color: var(--text-quiet); background: var(--bg-subtle); }
++.kbplanning-form input:focus-visible, .kbplanning-form select:focus-visible, .kbplanning-form textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-color: var(--focus-ring); }
+ .kbplanning-confirm { font-size: var(--ds-font-sm); line-height: 1.5; overflow-wrap: anywhere; }
+ .kbplanning-confirm p { margin: var(--space-3) 0; }
+-@media (pointer: coarse) { .kbplanning-action, .kbplanning-link { min-height: var(--touch-hit-min); } .kbplanning-tree.ant-tree .ant-tree-treenode, .kbplanning-tree.ant-tree .ant-tree-node-content-wrapper, .kbplanning-tree.ant-tree .ant-tree-switcher { min-height: var(--touch-hit-min); } }
+-@media (prefers-reduced-motion: reduce) { .kbplanning-tree * { transition: none !important; animation: none !important; } }
+-
+-.kbplanning-form input:focus-visible, .kbplanning-form select:focus-visible, .kbplanning-form textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-color: var(--focus-ring); }
+ .governance-modal:has(.kbplanning-form), .governance-modal:has(.kbplanning-confirm) { width: min(var(--dialog-w-sm), calc(100vw - var(--space-4) * 2)); }
+-.governance-modal:has(.kbplanning-form) .governance-modal-head h2, .governance-modal:has(.kbplanning-confirm) .governance-modal-head h2 { font-size: var(--ds-font-sm); }
++.governance-modal:has(.kbplanning-form) .governance-modal-head { padding: var(--dialog-pad-compact-y) var(--dialog-pad-compact-x) var(--space-2); }
++.governance-modal:has(.kbplanning-form) .governance-modal-body { padding: var(--space-2) var(--dialog-pad-compact-x) var(--space-3); }
++.governance-modal:has(.kbplanning-form) .governance-modal-foot { padding: var(--space-2) var(--dialog-pad-compact-x); }
++.governance-modal:has(.kbplanning-form) .governance-modal-head h2, .governance-modal:has(.kbplanning-confirm) .governance-modal-head h2 { font-size: var(--ds-font-sm); font-weight: 600; }
++.governance-modal:has(.kbplanning-form) .governance-minor { min-height: var(--control-h-sm); padding: 0 var(--space-1); }
++@media (max-width: 720px) { .kbplanning-search { flex-basis: 100%; max-width: none; } .kbplanning-node { flex-wrap: wrap; gap: var(--space-1); } .kbplanning-node-name { flex-basis: 50%; } .kbplanning-node-count { margin-left: auto; } }
++@media (pointer: coarse) { .kbplanning-action, .kbplanning-link, .kbplanning-node, .kbplanning .kbplanning-submit, .governance-modal:has(.kbplanning-form) .kbplanning-submit, .kbplanning-accordion.ant-collapse .ant-collapse-expand-icon { min-height: var(--touch-hit-min); } }
++@media (prefers-reduced-motion: reduce) { .kbplanning-accordion * { transition: none !important; animation: none !important; } }
++/* Override the legacy knowledge-page SVG stroke rule for Ant Design's filled icons. */
++.kbplanning .anticon svg { width: var(--icon-sm); height: var(--icon-sm); fill: currentColor; stroke: none; }
++.governance-modal .kbplanning-form :is(input, select) { height: var(--control-h-form); min-height: var(--control-h-form); flex-shrink: 0; }
++#root .workbench .knowledge-governance .kbplanning .kbplanning-submit { height: var(--control-h-sm); min-height: var(--control-h-sm); padding: 0 var(--space-2); }
++@media (pointer: coarse) { #root .workbench .knowledge-governance .kbplanning .kbplanning-submit { min-height: var(--touch-hit-min); } }
+diff --git a/frontend/src/api.ts b/frontend/src/api.ts
+index 66e7e843..05542fe0 100644
+--- a/frontend/src/api.ts
++++ b/frontend/src/api.ts
+@@ -3094,7 +3094,7 @@ export const api = {
+   adminKnowledgeDomains: () =>
+     request<{ domains: KnowledgeDomainRow[] }>("/api/admin/knowledge/domains"),
+   adminKnowledgeDomainCreate: (body: {
+-    code: string;
++    code?: string;
+     name: string;
+     level: "family" | "domain";
+     parent_id?: string;
+@@ -3126,7 +3126,7 @@ export const api = {
+     const qs = params.toString();
+     return request<{ bases: KnowledgeBaseRow[] }>(qs ? `/api/admin/knowledge/bases?${qs}` : "/api/admin/knowledge/bases");
+   },
+-  adminKnowledgeBaseCreate: (body: { code: string; name: string; domain_id: string; kind: string; description?: string }) =>
++  adminKnowledgeBaseCreate: (body: { code?: string; name: string; domain_id: string; kind: string; description?: string }) =>
+     request<{ base: KnowledgeBaseRow }>("/api/admin/knowledge/bases", {
+       method: "POST",
+       body: JSON.stringify(body),
+diff --git a/frontend/src/pages/Tasks.tsx b/frontend/src/pages/Tasks.tsx
+index 92a66907..49e21cb6 100644
+--- a/frontend/src/pages/Tasks.tsx
++++ b/frontend/src/pages/Tasks.tsx
+@@ -5,6 +5,7 @@ import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
+ import { TaskCollaborationContext } from "../tasks/TaskCollaborationContext";
+ import { TaskDetailDrawer } from "../tasks/TaskDetailDrawer";
+ import { TaskRowActions } from "../tasks/TaskRowActions";
++import { AgentExpandedDetails, BusinessExpandedDetails } from "../tasks/TaskExpandedDetails";
+ import { TaskOperationsReport, type TaskOperationsFilter } from "../tasks/TaskOperationsReport";
+ import { WorkOrderSuggestions } from "../tasks/WorkOrderSuggestions";
+ import { businessTaskStatus, createTaskSearchDebouncer, isAgentTaskInProgress, sortTaskRowsByUpdatedAt } from "../tasks/taskCenterModel";
+@@ -456,10 +457,10 @@ export default function Tasks() {
+       {loading ? <p className="muted">正在读取任务状态…</p> : systemError && rows.length === 0 && !operationsDashboard ? <p className="task-center-load-error" role="alert">任务明细暂时无法读取。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : visible.length === 0 ? <section className="task-center-empty"><strong>当前没有符合条件的任务</strong><p>调整状态、筛选条件或等待任务状态变化后再试。</p></section> : <div className="task-center-table-wrap"><table className="task-center-table task-center-unified-table"><colgroup><col className="task-center-col-task" /><col className="task-center-col-status" /><col className="task-center-col-time" /><col className="task-center-col-actions" /></colgroup><thead><tr><th scope="col">任务名</th><th scope="col">状态</th><th scope="col">更新时间</th><th scope="col">操作</th></tr></thead><tbody>{visible.map((row) => {
+         if (row.kind === "agent") {
+           const task = row.task; const expanded = expandedSystemTasks.has(task.id);
+-          return <Fragment key={row.key}><tr><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${row.title}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}<strong title={row.title}>{row.title}</strong></div></td><td data-label="状态"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span></td><td data-label="更新时间">{formatTime(row.updatedAt)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => navigate(`/tasks/${encodeURIComponent(task.id)}`)} disabled={actionBusy === `detail:${task.id}`}>详情</button>} secondary={task.session_id || (view === "active" && canCancel(task)) ? <>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</> : undefined} expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}明细`} onToggle={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })} /></td></tr>{expanded ? <tr className="task-center-meta-row"><td colSpan={4}><dl className="task-center-inline-meta"><div className="task-center-meta-summary"><dt>摘要</dt><dd>{row.summary}</dd></div><div><dt>技能</dt><dd>{safeTaskText(task.skill || task.skill_id || task.task_type || task.source, "Agent 任务")}</dd></div><div><dt>创建时间</dt><dd>{formatTime(task.created_at)}</dd></div><div><dt>开始时间</dt><dd>{formatTime(task.started_at)}</dd></div></dl></td></tr> : null}</Fragment>;
++          return <Fragment key={row.key}><tr><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${row.title}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}<strong title={row.title}>{row.title}</strong></div></td><td data-label="状态"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span></td><td data-label="更新时间">{formatTime(row.updatedAt)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => navigate(`/tasks/${encodeURIComponent(task.id)}`)} disabled={actionBusy === `detail:${task.id}`}>详情</button>} secondary={task.session_id || (view === "active" && canCancel(task)) ? <>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</> : undefined} expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}明细`} onToggle={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })} /></td></tr>{expanded ? <tr className="task-center-meta-row"><td colSpan={4}><AgentExpandedDetails task={task} title={row.title} summary={row.summary} /></td></tr> : null}</Fragment>;
+         }
+         const item = row.item; const detail = expandedAiTasks[item.task.task_id];
+-        return <Fragment key={row.key}><tr className={detail ? "is-expanded" : undefined}><td data-label="任务名" className="task-center-task-cell"><strong title={row.title}>{row.title}</strong></td><td data-label="状态"><span className={`task-center-status status-${row.status}`}>{row.status === "running" ? "进行中" : row.status === "waiting_approval" ? "待确认" : row.status === "completed" ? "已完成" : row.status === "cancelled" ? "已取消" : "排队中"}</span></td><td data-label="更新时间">{formatTime(row.updatedAt)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => void openAiTask(item.task.task_id)}>详情</button>} expanded={Boolean(detail)} label={`${detail ? "收起" : "展开"}${row.title}工单明细`} busy={actionBusy === `ai-task-expand:${item.task.task_id}`} onToggle={() => void toggleAiTaskRow(item.task.task_id)} /></td></tr>{detail ? <tr className="task-center-meta-row"><td colSpan={4}><div className="task-work-order-detail-panel"><h3>归属标准工单</h3>{detail.work_orders.length ? <table className="task-work-order-child-table"><thead><tr><th>标准工单</th><th>状态</th><th>主受理</th><th>决策摘要</th></tr></thead><tbody>{detail.work_orders.map((order) => <tr key={order.work_order_id}><td><strong>{order.title}</strong><small>{order.template_code}.v{order.template_version}</small></td><td>{workOrderStatusLabel(order.status)}</td><td>{order.primary_assignee?.person_ref || "尚未分派"}</td><td>{workOrderDecisionSummary(order)}</td></tr>)}</tbody></table> : <p className="muted">该业务任务尚未物化标准执行工单。</p>}</div></td></tr> : null}</Fragment>;
++        return <Fragment key={row.key}><tr className={detail ? "is-expanded" : undefined}><td data-label="任务名" className="task-center-task-cell"><strong title={row.title}>{row.title}</strong></td><td data-label="状态"><span className={`task-center-status status-${row.status}`}>{row.status === "running" ? "进行中" : row.status === "waiting_approval" ? "待确认" : row.status === "completed" ? "已完成" : row.status === "cancelled" ? "已取消" : "排队中"}</span></td><td data-label="更新时间">{formatTime(row.updatedAt)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => void openAiTask(item.task.task_id)}>详情</button>} expanded={Boolean(detail)} label={`${detail ? "收起" : "展开"}${row.title}工单明细`} busy={actionBusy === `ai-task-expand:${item.task.task_id}`} onToggle={() => void toggleAiTaskRow(item.task.task_id)} /></td></tr>{detail ? <tr className="task-center-meta-row"><td colSpan={4}><BusinessExpandedDetails detail={detail} statusLabel={workOrderStatusLabel} decisionSummary={workOrderDecisionSummary} /></td></tr> : null}</Fragment>;
+       })}</tbody></table></div>}
+       {systemError && rows.length > 0 ? <p className="task-center-load-error" role="alert">系统任务更新失败，当前显示上次载入的任务。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : null}
+       {!loading && (rows.length > 0 || aiDashboard?.tasks.items.length) ? <div className="row-actions task-center-pagination" aria-live="polite"><span className="muted">已载入 {rows.length} / {total || rows.length} 个 Agent 任务 · 已载入 {aiDashboard?.tasks.items.length || 0} / {aiDashboard?.tasks.page.total || 0} 个业务任务</span>{nextCursor ? <button type="button" className="btn ghost" onClick={() => void load(false, true)} disabled={loadingMore}>{loadingMore ? "加载中…" : "加载更多 Agent 任务"}</button> : null}{businessNextCursor ? <button type="button" className="btn ghost" onClick={() => void loadAiDashboard(false, true)} disabled={loadingBusinessMore}>{loadingBusinessMore ? "加载中…" : "加载更多业务任务"}</button> : null}</div> : null}
