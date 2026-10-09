@@ -1,7 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { EmailCard, Message, Task, TaskResultCard } from "../api";
-import { taskResultCardsFrom } from "./ChatBlocks";
+import { KolMailWorkbench, taskResultCardsFrom } from "./ChatBlocks";
 import PanelToggleIcon from "./PanelToggleIcon";
 import { api } from "../api";
 import { stripEngineCopy } from "../employeeCopy";
@@ -9,7 +9,8 @@ import type { SessionMailRow } from "./AgentTaskList";
 import { taskStatusView, type TaskStatusShape } from "../runViewState";
 import { useViewMode } from "../viewMode";
 import { stageLabel } from "../labels";
-import { isComposeResultCard } from "./ResultArtifact";
+import { isComposeResultCard, ResultActions } from "./ResultArtifact";
+import { revealWorkspace } from "../home/WorkspaceShell";
 import { resultCardOf } from "./StreamArtifact";
 import { streamTime } from "../streamOrder";
 import AgentAvatar from "./AgentAvatar";
@@ -110,6 +111,7 @@ export default function SideWorkbench({
   remoteLabel,
   discoveryReturn,
   embedded = false, runView, renderArtifact, artifactExtra,
+  officialStage, onPrefill, ready = true,
 }: {
   sessionId: string;
   messages: Message[];
@@ -128,6 +130,7 @@ export default function SideWorkbench({
   discoveryReturn?: string;
   embedded?: boolean; runView?: TaskRunView;
   renderArtifact?: (message: Message) => ReactNode | undefined; artifactExtra?: ReactNode;
+  officialStage?: string; onPrefill?: (text: string) => void; ready?: boolean;
 }) {
   const { debug } = useViewMode();
   const statusView = taskStatusView(task, status);
@@ -139,6 +142,24 @@ export default function SideWorkbench({
   const draft = latestDraft ? latestDraft.payload as unknown as EmailCard : null;
   const latestResult = [...messages].reverse().find((message) => message.kind === "task_result_card");
   const result = latestResult ? resultCardOf(latestResult) : (task?.task_result || task?.crawl_result) as TaskResultCard | undefined;
+  const mailMessages = messages.filter(message => message.kind === "kol_mail_card");
+  const latestStage = [...messages].reverse().find(message => message.kind === "confirm_stage_card");
+  const composing = Boolean(draft && task?.skill_id !== "reply_analysis") || Boolean(result && isComposeResultCard(result));
+  const decisionActions = !composing && result ? result.recommended_actions || result.actions || [] : [];
+  const stageReview = useRef<HTMLDetailsElement>(null);
+  const lastUser = [...messages].reverse().find(message => message.kind === "me");
+  const lastUserIndex = messages.findIndex(message => message.id === lastUser?.id);
+  const stageRequested = Boolean(latestStage && !latestStage.payload.locked && !latestStage.payload.resolved && !latestStage.payload.rejected
+    && lastUserIndex > messages.findIndex(message => message.id === mailMessages.at(-1)?.id));
+  useEffect(() => {
+    if (!ready || !stageRequested || !latestStage) return;
+    if (stageReview.current) stageReview.current.open = true;
+    const frame = requestAnimationFrame(() => {
+      revealWorkspace(sessionId, "rail", latestStage.id);
+      requestAnimationFrame(() => stageReview.current?.querySelector<HTMLElement>("[data-confirm-stage]")?.scrollIntoView({ block: "nearest", behavior: "auto" }));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [ready, stageRequested, latestStage?.id, sessionId]);
 
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem("ui:right-collapsed");
@@ -183,6 +204,19 @@ export default function SideWorkbench({
   };
 
   const Container = embedded ? "div" : "aside";
+  const mailDecision = mailMessages.length && renderArtifact ? <>
+    <KolMailWorkbench messages={mailMessages} sessionId={sessionId} officialStage={officialStage}
+      nextActions={decisionActions.length ? <ResultActions compact actions={decisionActions} sessionId={sessionId} onPrefill={onPrefill} /> : null}
+      onReviewStage={latestStage ? () => {
+        if (stageReview.current) stageReview.current.open = true;
+        revealWorkspace(sessionId, "rail", latestStage.id);
+        stageReview.current?.querySelector("summary")?.focus({ preventScroll: true });
+        requestAnimationFrame(() => stageReview.current?.querySelector<HTMLElement>("[data-confirm-stage]")?.scrollIntoView({ block: "nearest", behavior: "auto" }));
+      } : undefined} />
+    {latestStage ? <details className="mail-stage-review" ref={stageReview} data-result-message={latestStage.id}>
+      <summary>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
+    </details> : null}
+  </> : null;
   return (
     <Container
       className={embedded ? "embedded-workbench" : "side-workbench scope-task-rail" + (collapsed ? " is-collapsed" : "")}
@@ -241,7 +275,12 @@ export default function SideWorkbench({
             <MailBodyArtifact mail={focusedMail} />
           </section>
         ) : null}
-        {renderArtifact ? <>{messages.map(message => {
+        {renderArtifact ? <>
+          {mailDecision && composing && latestDraft ? <>
+            <section data-tab="draft" data-result-message={latestDraft.id}>{renderArtifact(latestDraft)}</section>
+            <details className="mail-decision-context"><summary>阶段建议与证据链</summary>{mailDecision}</details>
+          </> : mailDecision}
+          {messages.filter(message => !mailDecision || (message.kind !== "kol_mail_card" && message.id !== latestStage?.id && (!composing || message.id !== latestDraft?.id))).map(message => {
           const artifact = renderArtifact(message);
           return artifact ? <section key={message.id} aria-selected={message.id === primaryArtifactId} data-result-message={message.id} data-tab={message.kind === "email_card" ? "draft" : "result"}>{artifact}</section> : null;
         })}{artifactExtra}</> : entries.length ? (

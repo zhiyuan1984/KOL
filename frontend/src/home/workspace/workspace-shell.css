@@ -49,7 +49,14 @@
 }
 .scope-workspace .scope-task-rail.is-collapsed .scope-task-rail-scroll { display: none; }
 .scope-workspace .scope-task-rail-body { padding: var(--space-2); }
-.scope-workspace .scope-task-rail-toggle { z-index: 8; right: var(--space-2); top: var(--space-2); }
+.scope-workspace .scope-task-rail-toggle {
+  position: absolute; z-index: 8; right: var(--space-2); top: var(--space-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--control-h-sm); height: var(--control-h-sm); min-height: var(--control-h-sm);
+  padding: 0; border: 0; background: transparent; color: var(--accent-text); cursor: pointer;
+}
+.scope-workspace .scope-task-rail-toggle-icon { width: var(--icon-md); height: var(--icon-md); flex: 0 0 auto; }
+.scope-workspace .scope-task-rail-toggle:focus-visible { outline: 2px solid var(--focus-ring); }
 .scope-workspace-center-content > :is(header, footer, .home-composer-dock) { flex-shrink: 0; }
 .session-workspace .session-workspace-header {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);

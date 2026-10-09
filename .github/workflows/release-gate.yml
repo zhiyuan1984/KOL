@@ -171,6 +171,12 @@ jobs:
             "DEPLOY_REVISION='${DEPLOY_REVISION}' bash -s" <<'REMOTE'
           set -euo pipefail
           cd ~/kol
+          # Other scoped releases may have changes on this host. A deployment
+          # must never discard those files while updating the verified revision.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Production checkout has local changes; preserve and reconcile them before deployment." >&2
+            exit 1
+          fi
           git fetch github "$DEPLOY_REVISION"
           git reset --hard "$DEPLOY_REVISION"
           if [ -d data/kol ]; then

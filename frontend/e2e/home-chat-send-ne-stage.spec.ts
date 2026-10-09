@@ -97,7 +97,7 @@ test("inbound mail card replies only; stage write stays on confirm_stage card", 
   await page.goto(`/s/${ingested.session_id}`);
   const card = page.locator('[data-kind="kol-mail-card"]').filter({ hasText: "would love to collaborate" });
   await expect(card).toBeVisible();
-  await expect(card.locator("[data-mail-reply]")).toBeVisible();
+  await expect(page.locator("[data-mail-decision-workbench] [data-mail-reply]")).toBeVisible();
   await expect(card.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(card.locator("[data-mail-stage-select]")).toHaveCount(0);
   await expect(card.locator("[data-stage-diff]")).toHaveCount(0);
@@ -236,8 +236,8 @@ test("KolMailCard treats auto_advanced as a suggestion, not a written stage", as
   const mail = page.locator("[data-session-stream-pane] [data-kind='kol-mail-card']");
   await expect(mail).toBeVisible();
   await expect(mail).not.toContainText("已按事实进入");
-  await expect(mail.locator("[data-mail-suggest][data-auto-advanced='suggest']")).toContainText("建议进入 已发货");
-  await expect(mail.locator("[data-mail-suggest]")).toContainText("阶段确认卡");
+  await expect(page.locator("[data-stage-suggestion] [data-mail-current-stage]")).toContainText("已发货");
+  await expect(page.locator("[data-stage-suggestion] [data-mail-suggest][data-auto-advanced='suggest']")).toContainText("阶段确认卡");
   await expect(mail).not.toContainText("已按事实进入");
   await expect(mail.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(mail.locator("[data-mail-stage-select]")).toHaveCount(0);

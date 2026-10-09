@@ -16184,6 +16184,87 @@ button.today-brief-primary-btn:disabled {
 .reply-context-panel p { margin-block: var(--space-2); }
 .reply-context-panel article { padding-block: var(--space-2); border-top: 1px solid var(--border); }
 .reply-context-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* KOL decision and evidence share the DESIGN.md dashboard density. */
+.kol-mail-workbench, .kol-mail-decision, .mail-evidence-item {
+  min-width: 0;
+  font-size: var(--ds-font-sm);
+  color: var(--text);
+}
+.mail-decision-heading, .mail-decision-actions, .mail-decision-citations {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.mail-decision-heading strong, .mail-decision-actions > strong { font-weight: 600; }
+.mail-stage-suggestion { padding-block: var(--space-2); }
+.mail-stage-suggestion p, .mail-decision-actions p { margin: var(--space-1) 0; }
+.mail-decision-stages, .mail-decision-reason { line-height: var(--ds-line-ui); overflow-wrap: anywhere; }
+.mail-decision-note, .mail-evidence-label, .mail-evidence-source { color: var(--text-muted); }
+.mail-decision-actions { padding-block: var(--space-2); border-block: 1px solid var(--border); margin-bottom: var(--space-2); }
+.mail-decision-actions p { flex-basis: 100%; }
+.evidence-text-button {
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  border-radius: var(--radius-control);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-1);
+  font: inherit;
+  cursor: pointer;
+}
+.evidence-text-button:hover { background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+.evidence-text-button:disabled { color: var(--text-muted); cursor: default; }
+.evidence-text-button:focus-visible, .mail-evidence-detail:focus-visible,
+.mail-evidence-item mark:focus-visible, .mail-stage-review summary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.mail-evidence-item { padding-block: var(--space-2); border-bottom: 1px solid var(--border); }
+.mail-evidence-meta { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; min-width: 0; }
+.mail-evidence-direction { font-weight: 500; white-space: nowrap; }
+.mail-evidence-contact { max-width: 20%; }
+.mail-evidence-subject { flex: 1 1 0; min-width: 0; font-weight: 500; }
+.mail-evidence-contact, .mail-evidence-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-evidence-meta time { color: var(--text-muted); white-space: nowrap; }
+.mail-evidence-item .mail-evidence-excerpt, .mail-evidence-item .mail-evidence-inference {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: var(--space-1) 0 0;
+  line-height: var(--ds-line-ui);
+  overflow-wrap: anywhere;
+}
+.mail-evidence-item:has(.mail-evidence-inference) .mail-evidence-excerpt,
+.mail-evidence-item .mail-evidence-inference { -webkit-line-clamp: 1; }
+.mail-evidence-item mark { background: color-mix(in srgb, var(--accent) 8%, var(--bg)); color: var(--text); font-weight: 600; text-decoration: underline; }
+.mail-evidence-missing { color: var(--warning); margin-block: var(--space-1); }
+.mail-evidence-detail { padding: var(--space-2) var(--space-3); background: var(--bg-elevated); border-radius: var(--radius-control); margin-top: var(--space-2); }
+.mail-evidence-detail[hidden] { display: none; }
+.mail-evidence-detail p { margin: var(--space-1) 0; overflow-wrap: anywhere; }
+.mail-evidence-detail summary, .mail-stage-review > summary { cursor: pointer; color: var(--accent-text); min-height: var(--control-h-sm); }
+.mail-evidence-detail details { margin-top: var(--space-2); }
+.mail-evidence-source { word-break: break-word; }
+.mail-stage-review { padding-block: var(--space-2); border-bottom: 1px solid var(--border); }
+.mail-stage-review > .artifact { padding-top: var(--space-2); }
+.mail-decision-context > summary { color: var(--accent-text); min-height: var(--control-h-sm); padding-block: var(--space-2); cursor: pointer; }
+.kol-mail-workbench > .result-actions { padding-block: var(--space-2); font-size: var(--ds-font-sm); }
+.kol-mail-workbench > .result-actions h3 { font-size: inherit; margin-bottom: var(--space-1); }
+.kol-mail-workbench > .result-actions > ol > li > button { font-weight: 600; }
+.kol-mail-workbench > .result-actions summary { color: var(--accent-text); min-height: var(--control-h-sm); cursor: pointer; }
+/* The active R3 confirmation owns the filled action in this viewport. */
+.session-workspace .scope-workspace.scope-workspace:has(.mail-stage-review[open] [data-confirm-stage]:not(:disabled)) .composer .btn.send.send-arrow:not(:disabled) {
+  background: transparent;
+  color: var(--accent-text);
+  border-color: var(--border);
+  filter: none;
+}
+@media (pointer: coarse) {
+  .evidence-text-button, .mail-evidence-detail summary, .mail-stage-review > summary { min-height: var(--touch-hit-min); }
+  .mail-evidence-meta > .evidence-text-button { flex-basis: 100%; text-align: left; }
+}
 .runtime-action-summary { gap: var(--space-1); margin-block: var(--space-2); }
 
 /* AI discovery uses the full center column and the public-pool object grammar. */

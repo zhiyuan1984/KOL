@@ -1912,11 +1912,11 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator(".workbench-resizer")).toHaveCount(0);
   const card = page.locator('[data-kind="kol-mail-card"]').filter({ hasText: "would love to collaborate" });
   await expect(card).toBeVisible();
-  await expect(card.locator("[data-mail-reply]")).toBeVisible();
+  await expect(page.locator("[data-mail-decision-workbench] [data-mail-reply]")).toBeVisible();
   await expect(card.locator("[data-stage-diff]")).toHaveCount(0);
   await expect(card.locator("[data-mail-stage-select]")).toHaveCount(0);
   await expect(card.locator("[data-mail-confirm]")).toHaveCount(0);
-  await expect(card.locator("[data-mail-suggest]")).toContainText("阶段确认卡");
+  await expect(page.locator("[data-stage-suggestion] [data-mail-suggest]")).toContainText("阶段确认卡");
   await askConfirmStage(page, "小美妆日记", "已回复-有兴趣");
   const confirmCard = page.locator('[data-kind="confirm-stage-card"]');
   await expect(confirmCard).toBeVisible();

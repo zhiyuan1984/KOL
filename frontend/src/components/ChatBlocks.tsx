@@ -27,6 +27,8 @@ import { stripEngineCopy } from "../employeeCopy";
 import { orderStream } from "../streamOrder";
 import { streamingNarrative } from "../../../shared/narrative";
 import type { RuntimeActionView } from "../api";
+import { MailEvidenceItem } from "../mail/components/MailEvidenceItem";
+import { evidenceQuotes, type MailEvidenceFocus } from "../mail/evidence";
 
 type ThreadRole = "user" | "assistant" | "system";
 type ResultShape = "task_result" | "draft" | "confirm" | "send" | "stage";
@@ -608,7 +610,7 @@ export function ConfirmStageArtifact({
   };
   return (
     <article className="artifact risk-l3" data-kind="confirm-stage-card" data-risk="L3">
-      <span className="risk-kicker">{MESSAGE_RISK_LABEL.L3}</span>
+      <span className="risk-kicker">R3 正式阶段变更 · 需确认</span>
       <Markdown>{md}</Markdown>
       <div className="stage-diff" data-stage-diff>
         <div className="diff-from">变更前：{currentLabel}</div>
@@ -1285,17 +1287,6 @@ function isLegacyPhaseOperation(operation: OperationTraceItem, legacyTrace: bool
   return legacyTrace && !name && LEGACY_PHASE_OPERATIONS.has(label);
 }
 
-function formatMailTime(value: unknown): string {
-  const ms = occurredAtMs(value);
-  return ms ? new Date(ms).toLocaleString("zh-CN", { hour12: false }) : "";
-}
-
-function mailCardTime(payload: Record<string, unknown>, fallback?: string): string {
-  return formatMailTime(payload.occurred_at || payload.sentAt || payload.sendTime || payload.receivedAt)
-    || formatMailTime(fallback)
-    || "";
-}
-
 function replySubjectOf(subject: string): string {
   const clean = String(subject || "").replace(/^(Re:\s*)+/i, "").replace(/^无主题$/, "").trim();
   return clean ? `Re: ${clean}` : "";
@@ -1315,6 +1306,70 @@ function firstRealMailbox(...values: unknown[]): string {
   return "";
 }
 
+function prepareMailReply(payload: Record<string, unknown>) {
+  const inbound = String(payload.direction || "inbound") !== "outbound";
+  const handle = String(payload.handle || "");
+  const subject = String(payload.subject || "");
+  const conversationId = String(payload.conversation_id || "");
+  const brandBox = inbound ? firstRealMailbox(payload.mailbox, payload.to) : firstRealMailbox(payload.mailbox, payload.from);
+  const kolAddr = inbound ? firstRealMailbox(payload.from) : firstRealMailbox(payload.to);
+  const replySubject = replySubjectOf(subject);
+  applyComposerDraft({
+    text: [conversationId ? `回复会话 ${conversationId}` : (handle ? `给@${handle} 写跟进邮件` : "写跟进邮件"),
+      brandBox ? `发件: ${brandBox}` : "", kolAddr ? `收件: ${kolAddr}` : "", replySubject ? `主题: ${replySubject}` : ""].filter(Boolean).join(" "),
+    intent: "mail_reply",
+    chips: [{ kind: "skill", id: "email_compose", label: "写跟进邮件", write: true },
+      ...(handle ? [{ kind: "object" as const, id: handle, label: handle, objectKind: "kol" }] : [])],
+    object_refs: [...(conversationId ? [{ kind: "mail", id: conversationId, label: subject }] : []),
+      ...(handle ? [{ kind: "kol", id: handle, label: handle }] : [])],
+    client_entry: "compose-send", scope: { skills: ["email_compose"], intent: "mail_reply" },
+  });
+}
+
+function MailStageSuggestion({ payload, officialStage, onCitation }: {
+  payload: Record<string, unknown>; officialStage?: string;
+  onCitation: (source: string, snippet: string) => void;
+}) {
+  const judgment = (payload.judgment || {}) as Record<string, unknown>;
+  const suggested = String(judgment.suggested_stage || "");
+  const current = officialStage || String(payload.current_stage || "");
+  const quotes = evidenceQuotes(judgment.evidence);
+  return <section className="mail-stage-suggestion" data-stage-suggestion>
+    <div className="mail-decision-heading"><strong>阶段建议</strong><span className="mail-evidence-label">推断 · 待核验</span></div>
+    <p className="mail-decision-stages" data-mail-current-stage>当前 <strong>{stageLabel(current, current === payload.current_stage ? String(payload.current_label || "") : "") || "阶段未取得"}</strong>
+      {suggested === current ? " · 建议维持当前阶段" : suggested ? <> → 建议 <strong>{stageLabel(suggested, String(judgment.suggested_label || ""))}</strong></> : " · 尚无阶段建议"}</p>
+    {judgment.reason ? <p className="mail-decision-reason">{String(judgment.reason)}</p> : null}
+    {quotes.length ? <div className="mail-decision-citations" aria-label="阶段判断引用">依据 {quotes.map((quote, index) =>
+      <button className="evidence-text-button" type="button" key={`${quote.source}-${index}`} onClick={() => onCitation(quote.source, quote.snippet)} title={quote.snippet}>[{index + 1}] {({ body: "正文", subject: "主题", attachment: "附件与链接", fulfillment: "履约字段" } as Record<string, string>)[quote.source] || "来源"}</button>)}</div>
+      : <p className="mail-evidence-missing" role="status">尚无可定位的原文引用，请核对完整邮件后再判断。</p>}
+    {suggested ? <p className="mail-decision-note" data-mail-suggest data-auto-advanced={payload.auto_advanced ? "suggest" : undefined}>正式变更需独立阶段确认卡。</p> : null}
+  </section>;
+}
+
+/** One decision path; every mail remains available, including conflicting and outbound evidence. */
+export function KolMailWorkbench({ messages, sessionId, officialStage, onReviewStage, nextActions }: {
+  messages: Message[]; sessionId?: string; officialStage?: string; onReviewStage?: () => void; nextActions?: ReactNode;
+}) {
+  const [focus, setFocus] = useState<{ id: string; citation: MailEvidenceFocus } | null>(null);
+  const [notice, setNotice] = useState("");
+  const actionsRef = useRef<HTMLElement>(null);
+  const latest = [...messages].reverse().find(message => message.payload.direction !== "outbound") || messages[messages.length - 1];
+  if (!latest) return null;
+  return <section className="kol-mail-workbench" data-mail-decision-workbench>
+    <MailStageSuggestion payload={latest.payload} officialStage={officialStage} onCitation={(source, snippet) => setFocus(previous => ({ id: latest.id, citation: { source, snippet, request: (previous?.citation.request || 0) + 1 } }))} />
+    {nextActions}
+    <section className="mail-decision-actions" aria-label="下一步动作" ref={actionsRef} tabIndex={-1}>
+      <strong>{nextActions ? "邮件与阶段操作" : "下一步动作"}</strong>
+      {onReviewStage ? <button className="evidence-text-button" type="button" onClick={onReviewStage}>核对阶段变更 · R3 需确认</button> : null}
+      <button className="evidence-text-button" type="button" data-mail-reply disabled={!sessionId} onClick={() => { prepareMailReply(latest.payload); setNotice("已预填回复要求，请在输入框继续准备草稿。尚未发送。"); }}>准备回复 · R2 草稿</button>
+      {notice ? <p role="status">{notice}</p> : null}
+    </section>
+    <div className="mail-decision-heading"><strong>证据链</strong><span className="mail-evidence-label">R1 只读 · {messages.length} 封</span></div>
+    {[...messages].reverse().map(message => <KolMailCard key={message.id} payload={message.payload} messageId={message.id} createdAt={message.created_at} evidenceOnly focus={focus?.id === message.id ? focus.citation : undefined}
+      onReturnToActions={() => { actionsRef.current?.focus({ preventScroll: true }); actionsRef.current?.scrollIntoView({ block: "nearest", behavior: "auto" }); }} />)}
+  </section>;
+}
+
 export function KolMailCard({
   payload,
   sessionId,
@@ -1323,6 +1378,10 @@ export function KolMailCard({
   messageId,
   showSubject = true,
   bodyOnly = false,
+  officialStage,
+  evidenceOnly = false,
+  focus,
+  onReturnToActions,
 }: {
   payload: Record<string, unknown>;
   sessionId?: string;
@@ -1332,13 +1391,15 @@ export function KolMailCard({
   messageId?: string;
   showSubject?: boolean;
   bodyOnly?: boolean;
+  evidenceOnly?: boolean;
+  focus?: MailEvidenceFocus;
+  onReturnToActions?: () => void;
 }) {
+  const [citation, setCitation] = useState<MailEvidenceFocus>();
+  const [notice, setNotice] = useState("");
   const judgment = (payload.judgment && typeof payload.judgment === "object"
     ? payload.judgment
     : {}) as Record<string, unknown>;
-  const handle = String(payload.handle || "");
-  const collaborationId = String(payload.collaboration_id || "");
-  const suggested = String(judgment.suggested_stage || "");
   const inbound = String(payload.direction || "inbound") !== "outbound";
   const subject = String(payload.subject || "").trim() || "无主题";
   const body = String(payload.body || payload.snippet || "").trim();
@@ -1349,41 +1410,10 @@ export function KolMailCard({
     : firstRealMailbox(payload.mailbox, payload.from);
   const kolAddr = inbound ? firstRealMailbox(payload.from) : firstRealMailbox(payload.to);
   const fromLine = [fromName, inbound ? fromEmail : (fromEmail || brandBox)].filter(Boolean).join(" · ");
-  const mailbox = inbound ? brandBox : kolAddr;
-  const occurred = mailCardTime(payload, createdAt);
-  const replySubject = replySubjectOf(subject);
-  const suggestedLabel = stageLabel(suggested, String(judgment.suggested_label || ""));
-  const currentLabel = stageLabel(String(payload.current_stage || ""), String(payload.current_label || ""));
-  const autoAdvanced = payload.auto_advanced && typeof payload.auto_advanced === "object"
-    ? payload.auto_advanced as { to_stage?: string; label?: string }
-    : null;
-  const factSuggestLabel = autoAdvanced
-    ? String(autoAdvanced.label || stageLabel(String(autoAdvanced.to_stage || "")) || suggestedLabel)
-    : "";
-  const suggestText = factSuggestLabel || suggestedLabel;
   const reply = async () => {
     if (!sessionId) return;
-    const conversationId = String(payload.conversation_id || "");
-    const text = [
-      conversationId ? `回复会话 ${conversationId}` : (handle ? `给@${handle} 写跟进邮件` : "写跟进邮件"),
-      brandBox ? `发件: ${brandBox}` : "",
-      kolAddr ? `收件: ${kolAddr}` : "",
-      replySubject ? `主题: ${replySubject}` : "",
-    ].filter(Boolean).join(" ");
-    applyComposerDraft({
-      text,
-      intent: "mail_reply",
-      chips: [
-        { kind: "skill", id: "email_compose", label: "写跟进邮件", write: true },
-        ...(handle ? [{ kind: "object" as const, id: handle, label: handle, objectKind: "kol" }] : []),
-      ],
-      object_refs: [
-        ...(conversationId ? [{ kind: "mail", id: conversationId, label: subject }] : []),
-        ...(handle ? [{ kind: "kol", id: handle, label: handle }] : []),
-      ],
-      client_entry: "compose-send",
-      scope: { skills: ["email_compose"], intent: "mail_reply" },
-    });
+    prepareMailReply(payload);
+    setNotice("已预填回复要求，请在输入框继续准备草稿。尚未发送。");
   };
   if (bodyOnly) {
     return (
@@ -1406,39 +1436,25 @@ export function KolMailCard({
   }
   return (
     <article
-      className={"bubble assistant kol-mail" + (inbound ? " is-in" : " is-out")}
+      className="kol-mail-decision"
       data-kind="kol-mail-card"
       data-thread-id={String(payload.conversation_id || "")}
       data-mail-id={messageId || String(payload.provider_message_id || "")}
       data-mail-direction={inbound ? "inbound" : "outbound"}
     >
-      <header className="kol-mail-head">
-        <strong>{inbound ? "来信" : "去信"}{showSubject ? ` · ${subject}` : ""}</strong>
-        <time className="muted" data-mail-time dateTime={String(payload.occurred_at || createdAt || "")}>
-          {occurred || "时间未同步"}
-        </time>
-      </header>
-      {fromLine ? <p className="muted" data-mail-from>发件 {fromLine}</p> : null}
-      {mailbox ? <p className="muted" data-mail-to>收件 {mailbox}</p> : null}
-      {body
-        ? <p className="kol-mail-body">{body}</p>
-        : <p className="muted" data-mail-empty>正文未拉取到，请回到首页点「刷新收取」后再打开。</p>}
-      {inbound && judgment.reason ? <p className="muted" data-mail-judgment>{String(judgment.reason)}</p> : null}
-      {currentLabel ? <p className="muted" data-mail-current-stage>当前 {currentLabel}</p> : null}
-      {suggestText ? (
-        <p
-          className="muted"
-          data-mail-suggest
-          data-auto-advanced={autoAdvanced ? "suggest" : undefined}
-        >
-          建议进入 {suggestText}。改阶段请走阶段确认卡，回复不会改阶段。
-        </p>
-      ) : null}
-      <div className="action-row">
-        <button type="button" className="btn work" data-mail-reply onClick={() => void reply()} disabled={!sessionId}>
-          回复
-        </button>
-      </div>
+      {!evidenceOnly ? <>
+        {inbound ? <MailStageSuggestion payload={payload} officialStage={officialStage} onCitation={(source, snippet) => setCitation(previous => ({ source, snippet, request: (previous?.request || 0) + 1 }))} /> : null}
+        <div className="mail-decision-actions"><strong>下一步动作</strong><button type="button" className="evidence-text-button" data-mail-reply onClick={() => void reply()} disabled={!sessionId}>准备回复 · R2 草稿</button>{notice ? <p role="status">{notice}</p> : null}</div>
+      </> : null}
+      <MailEvidenceItem id={String(payload.provider_message_id || messageId || "邮件来源未提供")}
+        subject={subject} direction={inbound ? "inbound" : "outbound"} contact={inbound ? fromLine : kolAddr}
+        occurredAt={String(payload.occurred_at || payload.sentAt || payload.sendTime || payload.receivedAt || createdAt || "")}
+        body={typeof payload.body === "string" ? payload.body : null} preview={String(payload.snippet || "")}
+        quotes={evidenceQuotes(judgment.evidence)} inference={evidenceOnly && inbound ? String(judgment.reason || "") : ""}
+        source={String(payload.source || "当前会话邮件")} version={String(payload.source_version || payload.version || "")}
+        translation={String(payload.translation_zh || payload.body_zh_internal || "")}
+        attachments={[...(Array.isArray(payload.attachments) ? payload.attachments : []), ...(Array.isArray(payload.links) ? payload.links : [])].map(item => typeof item === "string" ? item : JSON.stringify(item))}
+        focus={focus || citation} onReturnToActions={onReturnToActions} />
     </article>
   );
 }

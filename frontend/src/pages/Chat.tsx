@@ -1466,6 +1466,8 @@ export default function Chat() {
         rail={id ? (
         <SideWorkbench
           embedded runView={taskView} renderArtifact={renderArtifact}
+          officialStage={String(journey?.stage_code || "")} onPrefill={setText}
+          ready={sessionLoaded && taskReadComplete}
           artifactExtra={crawlCandidateRows.length ? <CrawlArtifact job={crawlJob} events={crawlEvents} candidates={crawlCandidateRows} busy={crawlBusy} error={crawlError} onStart={startCrawl} onStop={stopCrawl} onPrefill={setText} showControls={false} /> : null}
           sessionId={id}
           messages={[...messages, ...taskResultRows]}

@@ -78,17 +78,19 @@ export function ResultActions({
   actions,
   sessionId,
   onPrefill,
+  compact = false,
 }: {
   actions: Array<string | { label?: string; title?: string; description?: string; prompt?: string; href?: string }>;
   sessionId: string;
   onPrefill?: (text: string) => void;
+  compact?: boolean;
 }) {
   if (!actions.length) return null;
   return (
     <section className="result-actions">
-      <h3>可补全</h3>
+      <h3>{compact ? "下一步动作" : "可补全"}</h3>
       <ol>
-        {actions.map((action, index) => {
+        {(compact ? actions.slice(0, 1) : actions).map((action, index) => {
           const item = actionPrompt(action, index);
           return (
             <li key={index}>
@@ -110,6 +112,7 @@ export function ResultActions({
           );
         })}
       </ol>
+      {compact && actions.length > 1 ? <details><summary>其他建议（{actions.length - 1}）</summary><ResultActions actions={actions.slice(1)} sessionId={sessionId} onPrefill={onPrefill} /></details> : null}
     </section>
   );
 }
