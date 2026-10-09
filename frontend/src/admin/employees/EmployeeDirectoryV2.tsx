@@ -85,12 +85,12 @@ function EmployeeAgentSummary({ names, loading }: { names: string[]; loading: bo
     <span id={listId} className={`employee-agent${expanded && canExpand ? " is-expanded" : ""}`}>
       {loading ? "读取中…" : !names.length ? "未绑定 Agent" : expanded && canExpand ? signature : names.slice(0, previewCount).join("、")}
     </span>
-    {canExpand && <button type="button" className="employee-agent-toggle" aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded((value) => !value)}>
-      {expanded ? "收起" : `展开更多智能体${hiddenCount ? `（+${hiddenCount}）` : ""}`}
+    {canExpand && <button type="button" className="employee-agent-toggle" title={expanded ? "收起智能体列表" : hiddenCount ? `展开其余 ${hiddenCount} 个智能体` : "查看完整智能体名称"} aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded((value) => !value)}>
+      {expanded ? "收起" : "更多"}
     </button>}
     {!!names.length && <div className="employee-agent-measure" aria-hidden="true">
       <span data-agent-measure>{names[0]}</span><span data-agent-measure>{names.slice(0, 2).join("、")}</span>
-      <span data-agent-toggle-measure>展开更多智能体{names.length > 1 ? `（+${names.length - 1}）` : ""}</span>
+      <span data-agent-toggle-measure>更多</span>
     </div>}
   </div>;
 }

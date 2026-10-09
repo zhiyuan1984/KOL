@@ -427,6 +427,10 @@ test("智能体默认折叠、按员工独立展开且键盘可收起，不触�
   const many = page.locator('[data-employee-row="compact_many"]');
   const other = page.locator('[data-employee-row="compact_other"]');
   const toggle = many.locator(".employee-agent-toggle");
+  await expect(toggle).toHaveText("更多");
+  await expect(toggle).toHaveAccessibleName("更多");
+  await expect(toggle).toHaveAttribute("title", /展开其余 \d+ 个智能体/);
+  await expect(many.locator("[data-agent-toggle-measure]")).toHaveText("更多");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(many.locator(".employee-agent")).not.toContainText("知识问答");
   await expect(page.locator('[data-employee-row="compact_single"] .employee-agent-toggle')).toHaveCount(0);
@@ -443,6 +447,7 @@ test("智能体默认折叠、按员工独立展开且键盘可收起，不触�
   await expect(other.locator(".employee-agent-toggle")).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Space");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveText("更多");
   await page.locator("[data-employee-search]").fill("多智能体");
   await expect(page.locator("[data-employee-row]")).toHaveCount(1);
   await page.locator("[data-employee-search]").fill("没有这个员工");
@@ -462,14 +467,26 @@ for (const theme of ["light", "dark"]) {
       const ordinary = directory.locator('[data-employee-row="compact_single"] .employee-card');
       const geometry = await ordinary.evaluate((el) => {
         const avatar = el.querySelector(".employee-avatar")!;
+        const primary = el.querySelector(".employee-row-primary")!.getBoundingClientRect();
+        const secondary = el.querySelector(".employee-row-secondary")!.getBoundingClientRect();
         return { height: el.getBoundingClientRect().height, avatarWidth: avatar.getBoundingClientRect().width,
           avatarHeight: avatar.getBoundingClientRect().height, radius: getComputedStyle(avatar).borderRadius,
+          primaryHeight: primary.height, rowGap: secondary.top - primary.bottom,
+          paddingTop: getComputedStyle(el).paddingTop,
+          secondaryBorder: getComputedStyle(el.querySelector(".employee-row-secondary")!).borderTopWidth,
           cardOverflow: el.scrollWidth > el.clientWidth + 1 };
       });
       expect(geometry.avatarWidth).toBe(32);
       expect(geometry.avatarHeight).toBe(32);
       expect(geometry.radius).toBe("6px");
       expect(geometry.cardOverflow).toBe(false);
+      expect(geometry.secondaryBorder).toBe("0px");
+      expect(geometry.paddingTop).toBe("4px");
+      expect(geometry.rowGap).toBe(0);
+      if (viewport.width >= 1440) {
+        expect(geometry.height).toBeLessThanOrEqual(54);
+        expect(geometry.primaryHeight).toBe(20);
+      }
       if (viewport.width >= 1280) expect(geometry.height).toBeLessThan(92);
       for (const row of await directory.locator("[data-employee-row]").all()) {
         await expect(row.locator(".employee-actions button")).toHaveCount(3);
@@ -486,6 +503,8 @@ for (const theme of ["light", "dark"]) {
       const long = directory.locator('[data-employee-row="compact_long"]');
       const toggle = long.locator(".employee-agent-toggle");
       await expect(toggle).toBeVisible();
+      await expect(toggle).toHaveText("更多");
+      await expect(toggle).toHaveAttribute("title", "查看完整智能体名称");
       await toggle.click();
       await expect(long.locator(".employee-agent")).toHaveText("这是一个非常长的智能体名称".repeat(12));
       expect(await long.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
