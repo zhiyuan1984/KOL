@@ -1796,3 +1796,241 @@
 .connector-panel.is-form [data-connector-wizard-step="enable"] {
   justify-items: start;
 }
+
+/* ── 连接器设置向导 · 启用步 antd 高密度信息页 ──────────────────────────────
+   视觉语言对标 antd（Steps / Alert / Descriptions 紧凑形态）；颜色与数值
+   全部取自 docs/DESIGN.md 与 frontend/src/styles.css 的既有 token，不新增。 */
+
+/* 步骤条：圆圈序号 + 连接线（原芯片式改为 antd Steps 形态；按钮文本顺序不变） */
+.connector-wizard-steps {
+  align-items: center;
+  gap: 0;
+}
+.connector-wizard-steps li {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.connector-wizard-steps li:not(:last-child) {
+  flex: 1 1 auto;
+}
+.connector-wizard-steps li:not(:last-child)::after {
+  content: "";
+  flex: 1 1 var(--space-4);
+  height: 1px;
+  background: var(--border);
+  margin: 0 var(--space-2);
+}
+.connector-wizard-step {
+  border: 0;
+  background: transparent;
+  padding: 0 var(--space-1);
+  height: auto;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
+}
+.connector-wizard-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  font-size: var(--ds-font-xs);
+  color: var(--text-muted);
+}
+.connector-wizard-step.done .connector-wizard-step-n {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.connector-wizard-step.on {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+  font-weight: 600;
+}
+.connector-wizard-step.on .connector-wizard-step-n {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-fg);
+}
+.connector-wizard-step:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+.connector-wizard-step:disabled .connector-wizard-step-n {
+  border-color: var(--border-quiet);
+  color: var(--text-muted);
+  background: transparent;
+}
+.connector-wizard-step:not(:disabled):hover .connector-wizard-step-n {
+  border-color: var(--accent);
+}
+
+/* 启用步信息页容器：块级拉满 */
+.connector-panel.is-form [data-connector-wizard-step="enable"].connector-enable-info {
+  justify-items: stretch;
+}
+.connector-enable-info {
+  gap: var(--space-3);
+}
+
+/* antd Alert 形态：图标 + 加粗标题 + 说明文字 */
+.enable-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  font-size: var(--ds-font-sm);
+  line-height: var(--leading-body);
+}
+.enable-alert-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+}
+.enable-alert-icon svg {
+  width: 66%;
+  height: 66%;
+}
+.enable-alert-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.enable-alert-main strong {
+  color: var(--text);
+}
+.enable-alert-main > span {
+  color: var(--text-muted);
+  font-size: var(--ds-font-xs);
+}
+.enable-alert .admin-status {
+  flex: none;
+  margin-left: auto;
+}
+.enable-alert.is-success {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  background: color-mix(in srgb, var(--success) 8%, var(--bg));
+}
+.enable-alert.is-success .enable-alert-icon {
+  color: var(--success);
+}
+.enable-alert.is-info {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+.enable-alert.is-info .enable-alert-icon {
+  color: var(--accent-text);
+}
+.enable-alert.is-warn {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg));
+}
+.enable-alert.is-warn .enable-alert-icon {
+  color: var(--warning);
+}
+
+/* antd Descriptions 形态：三列 bordered 描述表 */
+.enable-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  overflow: hidden;
+}
+.enable-facts-item {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-quiet);
+  min-width: 0;
+}
+.enable-facts-item:nth-child(-n+3) {
+  border-top: 0;
+}
+.enable-facts-item:not(:nth-child(3n+1)) {
+  border-left: 1px solid var(--border-quiet);
+}
+.enable-facts-item dt {
+  margin: 0 0 var(--space-1);
+  font-size: var(--ds-font-xs);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.enable-facts-item dd {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* 挂载进度条：形状表达比例，数值同时文字给出（DESIGN.md §4.1） */
+.enable-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.enable-progress-track {
+  flex: 1 1 auto;
+  min-width: var(--space-4);
+  height: var(--cost-meter-h);
+  border-radius: var(--radius-control);
+  background: var(--border-quiet);
+  overflow: hidden;
+}
+.enable-progress-track i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+}
+.enable-progress > span:last-child {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 挂载操作区 */
+.enable-mount {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+.enable-mount-summary {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  color: var(--text);
+}
+.enable-mount-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.enable-mount-actions .muted {
+  flex: 1 1 220px;
+  font-size: var(--ds-font-xs);
+}
+
+/* 快捷入口：L3 文字按钮；危险动作用 --danger 文字（DESIGN.md §4.2） */
+.enable-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+.btn.text.danger {
+  color: var(--danger);
+}
