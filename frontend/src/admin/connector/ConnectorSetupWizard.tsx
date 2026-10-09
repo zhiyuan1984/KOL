@@ -63,6 +63,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const [step, setStep] = useState<WizardStep>(() => initialWizardStep(mode, card));
   const [createdId, setCreatedId] = useState<string | null>(null);
   const id = createdId ?? card?.id ?? null;
+  const [saveFooterHost, setSaveFooterHost] = useState<HTMLDivElement | null>(null);
 
   // Creation fields (docs/DESIGN.md §7.2 连接器设置向导): name / transport / URL / secrets / icon.
   const [label, setLabel] = useState("");
@@ -321,7 +322,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const stepFooter = (() => {
     if (step === "save") {
       if (mode === "configure") {
-        return <p className="connector-panel-note muted">保存只更新配置并回到待验证；启用前需要一次通过的测试。</p>;
+        return <div ref={setSaveFooterHost} className="connector-config-save-footer" data-connector-config-save-footer />;
       }
       return (
         <>
@@ -472,6 +473,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             card={card}
             reload={() => reload?.()}
             embedded
+            saveFooterHost={saveFooterHost}
             onLoaded={adoptServerVersion}
             onSaved={(savedVersion) => rememberSave(
               savedVersion,

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { Form } from "antd";
 import { api } from "../../api";
 import {
   errorMessage,
@@ -20,11 +22,13 @@ function secretRowsFromConfig(config: RuntimeConnectorConfig): SecretRow[] {
   return rows.length ? rows : [{ name: "", value: "" }];
 }
 
-export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, onLoaded }: {
+export function ConnectorConfigCard({ card, reload, embedded = false, saveFooterHost, onSaved, onLoaded }: {
   card: ConnectorCardView;
   reload: () => void;
   /** Rendered inside the setup wizard: heading drops and save becomes that step's primary action. */
   embedded?: boolean;
+  /** The wizard owns the fixed footer; this card retains the sole save handler and busy state. */
+  saveFooterHost?: HTMLDivElement | null;
   onSaved?: (version: number) => void;
   /** Reports the server's stored config version after each load (0 when none is saved). */
   onLoaded?: (version: number, probeMode?: "directory" | "mediacrawler_start") => void;
@@ -195,8 +199,32 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, o
     }
   };
 
+  const saveAction = (
+    <>
+      {embedded ? (
+        <p className="connector-config-save-note muted" data-connector-config-save-note>
+          <span>保存仅更新配置并回到待验证，不代表连通或启用。</span>
+          <span>配置改动后须重新测试，通过后方可启用。</span>
+        </p>
+      ) : (
+        <p className="connector-panel-note muted">保存只更新配置，不等于连通或启用；改动后需重新测试。</p>
+      )}
+      <button
+        type="button"
+        className="btn work"
+        data-connector-panel-save
+        data-connector-wizard-primary={embedded ? "" : undefined}
+        disabled={busy}
+        aria-busy={busy}
+        onClick={() => void submit()}
+      >
+        {busy ? "保存中…" : "保存"}
+      </button>
+    </>
+  );
+
   return (
-    <section className="panel connector-detail-card" data-connector-config-card>
+    <section className={"panel connector-detail-card" + (embedded ? " connector-config-compact" : "")} data-connector-config-card>
       {!embedded && (
         <div className="connector-card-head">
           <div>
@@ -217,30 +245,33 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, o
         <>
           {error && <p className="error" role="alert" data-connector-config-error>{error}</p>}
           {notice && <p className="runtime-notice" role="status">{notice}</p>}
+          <Form component="div" layout="horizontal" className="connector-config-form">
           <div className="connector-form-grid">
-            <label className="field">服务器名称
+            <label className="field connector-config-inline"><span className="connector-config-label">服务器名称</span>
               <input value={label} maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
             </label>
-            {protocol === "mcp" && <label className="field">传输类型
+            {protocol === "mcp" && <label className="field connector-config-inline"><span className="connector-config-label">传输类型</span>
               <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
                 <option value="streamable-http">HTTP</option>
                 <option value="sse">SSE</option>
               </select>
             </label>}
           </div>
-          <div className="field">图标
-            <ConnectorIconUpload variant="dialog" file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
+          <div className="field connector-config-inline"><span className="connector-config-label">图标</span>
+            <ConnectorIconUpload variant={embedded ? "compact" : "dialog"} file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
           </div>
-          <label className="field"><span>备注<span className="field-optional">（可选）</span></span>
+          <label className="field connector-config-purpose"><span className={embedded ? "sr-only" : undefined}>备注<span className="field-optional">（可选）</span></span>
             <textarea
               value={purpose}
-              rows={5}
+              rows={embedded ? 2 : 5}
               maxLength={280}
-              placeholder="提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP"
+              data-connector-field="purpose"
+              placeholder={embedded ? "备注（可选）" : "提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP"}
+              title={embedded ? "提供文档或说明，以告知平台如何及何时使用此连接器" : undefined}
               onChange={(event) => setPurpose(event.target.value)}
             />
           </label>
-          <label className="field">{protocol === "mcp" ? "服务器 URL" : "API Base URL"}
+          <label className="field connector-config-inline"><span className="connector-config-label">{protocol === "mcp" ? "服务器 URL" : "API Base URL"}</span>
             <input
               value={url}
               placeholder={urlEnv
@@ -283,7 +314,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, o
             </label>
             <p className="muted">每个动作均需在“接口”中单独审批，并在对应 Skill 中精确挂载后才会被模型看到。</p>
           </section>}
-          <div className="field">自定义 headers
+          <div className="field connector-config-inline connector-config-headers"><span className="connector-config-label">自定义 headers</span>
             <div className="connector-header-rows" data-connector-header-rows>
               {secretRows.map((row, index) => (
                 <div className="connector-header-row" key={index}>
@@ -334,26 +365,17 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, o
             </ul>
           )}
           <div className="connector-form-grid">
-            <label className="field">超时（毫秒）
+            <label className="field connector-config-inline"><span className="connector-config-label">超时（毫秒）</span>
               <input type="number" min="1" max="120000" value={timeoutMs} onChange={(event) => setTimeoutMs(event.target.value)} />
             </label>
             <label className="check connector-check-row">
               <input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权
             </label>
           </div>
-          <div className="connector-card-actions">
-            <p className="connector-panel-note muted">保存只更新配置，不等于连通或启用；改动后需重新测试。</p>
-            <button
-              type="button"
-              className="btn work"
-              data-connector-panel-save
-              data-connector-wizard-primary={embedded ? "" : undefined}
-              disabled={busy}
-              onClick={() => void submit()}
-            >
-              {busy ? "保存中…" : "保存"}
-            </button>
-          </div>
+          </Form>
+          {embedded
+            ? saveFooterHost && createPortal(saveAction, saveFooterHost)
+            : <div className="connector-card-actions">{saveAction}</div>}
         </>
       )}
     </section>

@@ -137,7 +137,7 @@ export function ConnectorIconUpload({ file, existingUrl, onPick, variant = "plai
   existingUrl?: string | null;
   onPick: (file: File | null) => void;
   /** "dialog" drops the surrounding box and uses the upload dropdown from the reference design. */
-  variant?: "plain" | "dialog";
+  variant?: "plain" | "dialog" | "compact";
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localError, setLocalError] = useState("");
@@ -158,7 +158,7 @@ export function ConnectorIconUpload({ file, existingUrl, onPick, variant = "plai
     if (inputRef.current) inputRef.current.value = "";
   };
   return (
-    <div className={"connector-icon-field" + (variant === "dialog" ? " is-bare" : "")}>
+    <div className={"connector-icon-field" + (variant !== "plain" ? " is-bare" : "") + (variant === "compact" ? " is-compact" : "")}>
       <span className="connector-icon-preview" data-connector-icon-preview>
         {shown ? <img src={shown} alt="图标预览" /> : (
           <svg className="connector-icon-placeholder" viewBox="0 0 24 24" aria-hidden>
@@ -169,7 +169,7 @@ export function ConnectorIconUpload({ file, existingUrl, onPick, variant = "plai
         )}
       </span>
       <div className="connector-icon-actions">
-        {variant === "dialog" ? (
+        {variant !== "plain" ? (
           <SplitButton
             name="icon"
             label="上传"
@@ -200,7 +200,7 @@ export function ConnectorIconUpload({ file, existingUrl, onPick, variant = "plai
             onPick(problem ? null : picked);
           }}
         />
-        <p className="muted">PNG 或 JPG，最大 1 MB。推荐尺寸 256×256 像素。</p>
+        <p className="muted" data-connector-icon-hint>{variant === "compact" ? "PNG/JPG · ≤1 MB · 推荐256×256" : "PNG 或 JPG，最大 1 MB。推荐尺寸 256×256 像素。"}</p>
         {localError && <p className="error" role="alert">{localError}</p>}
       </div>
     </div>

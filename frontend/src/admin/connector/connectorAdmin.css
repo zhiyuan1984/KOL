@@ -2215,3 +2215,159 @@
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
 }
+
+/* Approved configuration-dialog compact variant. No changes to create dialogs
+   or the standalone detail card: the form wrapper is otherwise layout-neutral. */
+.connector-config-form { display: contents; }
+.connector-panel.is-form .connector-config-compact {
+  padding: 0 0 var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  min-width: 0;
+}
+.connector-config-compact .connector-config-form.ant-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--ds-font-sm);
+}
+.connector-config-compact .connector-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.connector-panel.is-form .connector-config-compact .connector-config-inline {
+  display: grid;
+  grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.connector-config-compact .connector-config-label {
+  min-width: 0;
+  color: var(--text);
+}
+.connector-panel.is-form .connector-config-compact .field input:not([type="checkbox"]),
+.connector-panel.is-form .connector-config-compact .field select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  height: var(--control-h-form);
+  min-height: var(--control-h-form);
+  padding: 0 var(--space-2);
+  font-size: var(--ds-font-sm);
+}
+.connector-config-compact .connector-config-inline > small {
+  grid-column: 2;
+}
+.connector-panel.is-form .connector-config-compact .connector-config-purpose {
+  display: block;
+  margin: 0;
+}
+.connector-panel.is-form .connector-config-compact .connector-config-purpose textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  height: calc(var(--ds-line-sm) * 2 + var(--space-2) * 2);
+  min-height: calc(var(--ds-line-sm) * 2 + var(--space-2) * 2);
+  padding: var(--space-2);
+  resize: vertical;
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.connector-panel.is-form .connector-config-compact .connector-icon-field.is-compact {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  gap: var(--space-2);
+}
+.connector-panel.is-form .connector-config-compact .connector-icon-field.is-compact .connector-icon-preview {
+  flex: 0 0 var(--control-h-form);
+  width: var(--control-h-form);
+  height: var(--control-h-form);
+  box-sizing: border-box;
+  border-radius: var(--radius-control);
+}
+.connector-config-compact .is-compact .connector-icon-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: var(--space-1) var(--space-2);
+}
+.connector-config-compact .is-compact .connector-icon-actions > p {
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
+}
+.connector-config-compact .is-compact .connector-icon-actions > [data-connector-icon-hint] {
+  flex-basis: auto;
+  white-space: nowrap;
+}
+.connector-config-compact .is-compact input[type="file"] {
+  display: none;
+}
+.connector-config-compact .is-compact .connector-icon-actions > .error {
+  flex-basis: 100%;
+}
+.connector-panel.is-form .connector-config-compact .is-compact .connector-split-btn {
+  margin-block: 0;
+  height: var(--control-h-form);
+  min-height: var(--control-h-form);
+  border-radius: var(--radius-control);
+}
+.connector-config-compact .connector-config-headers {
+  align-items: start;
+}
+.connector-config-compact .connector-config-headers > .connector-config-label {
+  padding-top: var(--space-1);
+}
+.connector-config-compact .connector-header-rows {
+  min-width: 0;
+}
+.connector-config-compact .connector-check-row {
+  margin: 0 0 0 calc(var(--ds-label-w) + var(--space-2));
+  font-size: var(--ds-font-sm);
+}
+.connector-panel.is-form:has(.connector-config-save-footer) .connector-panel-foot {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--dialog-pad-x);
+  border-top: 1px solid var(--border-quiet);
+}
+.connector-config-save-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+}
+.connector-config-save-note {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
+  color: var(--text-muted);
+}
+.connector-panel.is-form .connector-config-save-footer .btn {
+  height: var(--control-h-form);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-sm);
+}
+@media (max-width: 600px) {
+  .connector-panel.is-form .connector-config-compact .connector-config-inline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connector-config-compact .connector-config-inline > small { grid-column: 1; }
+  .connector-config-compact .connector-check-row { margin-left: 0; }
+  .connector-panel.is-form .connector-config-compact .connector-config-headers > .connector-config-label { padding-top: 0; }
+}
