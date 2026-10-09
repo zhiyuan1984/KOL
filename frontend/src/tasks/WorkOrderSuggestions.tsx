@@ -16,7 +16,7 @@ const reasons: Record<string, string> = {
 };
 type Confirmation = { suggestion: WorkOrderSuggestion; action: string; target?: string; key: string };
 
-export function WorkOrderSuggestions({ taskId, onChanged }: { taskId: string; onChanged: () => void }) {
+export function WorkOrderSuggestions({ taskId, onChanged, compactEmpty = false }: { taskId: string; onChanged: () => void; compactEmpty?: boolean }) {
   const [items, setItems] = useState<WorkOrderSuggestion[] | null>(null);
   const [pending, setPending] = useState<Confirmation | null>(null);
   const [notice, setNotice] = useState("");
@@ -49,7 +49,7 @@ export function WorkOrderSuggestions({ taskId, onChanged }: { taskId: string; on
         if (!stopped) {
           setItems(null); setPending(null);
           setError([401,403,404].includes(Number((cause as { status?: number }).status))
-            ? "当前没有采纳权限，请核对任务负责人或授权。" : "建议读取失败，请重新读取。");
+            ? "工单建议当前不可访问，请核对任务归属或授权。" : "建议读取失败，请重新读取。");
         }
       } finally { reading = false; }
     };
@@ -81,6 +81,8 @@ export function WorkOrderSuggestions({ taskId, onChanged }: { taskId: string; on
       } else setError("尚未确认提交结果。可用同一请求重试核对回执。");
     } finally { submitting.current = false; setBusy(false); }
   };
+  // Hide only a successfully loaded empty module, never loading/errors or adoption receipts.
+  if (compactEmpty && items && !items.length && !pending && !notice && !error) return null;
   return <section aria-label="工单建议">
     <h3>工单建议 <small className="muted">未采纳的建议不是正式待办</small></h3>
     {notice ? <p role="status">{notice}</p> : null}
