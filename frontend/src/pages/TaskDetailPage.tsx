@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { api, type TaskDetail, type TaskEvent } from "../api";
 import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
+import { taskListReturnUrl } from "../tasks/taskDetailNavigation";
 
 const CLOSED = new Set(["completed", "done", "success", "succeeded", "failed", "cancelled", "canceled"]);
 function statusLabel(task: TaskDetail) {
@@ -31,7 +32,8 @@ function eventSummary(event: TaskEvent) { return text(event.summary || event.mes
 
 export default function TaskDetailPage() {
   const { taskId = "" } = useParams();
-  const navigate = useNavigate();
+  const location = useLocation();
+  const taskListUrl = taskListReturnUrl(location.state);
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,10 +61,10 @@ export default function TaskDetailPage() {
   const visibleEvents = live.events.length ? live.events : events;
   const progress = task?.progress == null ? null : Math.max(0, Math.min(100, Number(task.progress)));
   if (loading) return <main className="task-detail-page"><p className="muted">正在读取任务详情…</p></main>;
-  if (!task) return <main className="task-detail-page"><Link className="task-detail-back" to="/tasks">← 返回消息中心</Link><section className="task-detail-error" role="alert"><strong>任务详情暂时无法读取</strong><p>{error || "任务不存在或当前账号没有访问权限。"}</p><button className="btn ghost" type="button" onClick={() => void load()}>重试</button></section></main>;
+  if (!task) return <main className="task-detail-page"><Link className="task-detail-back" to={taskListUrl} state={{ restoreTaskList: true }}>← 返回任务明细</Link><section className="task-detail-error" role="alert"><strong>任务详情暂时无法读取</strong><p>{error || "任务不存在或当前账号没有访问权限。"}</p><button className="btn ghost" type="button" onClick={() => void load()}>重试</button></section></main>;
   return <main className="task-detail-page" data-task-detail>
     <header className="task-detail-page-header">
-      <div className="task-detail-breadcrumb"><Link className="task-detail-back" to="/tasks">← 消息中心</Link><span>/</span><span>任务详情</span></div>
+      <div className="task-detail-breadcrumb"><Link className="task-detail-back" to={taskListUrl} state={{ restoreTaskList: true }}>← 返回任务明细</Link><span>/</span><span>任务详情</span></div>
       <div className="task-detail-heading"><div><p className="eyebrow">Agent 任务 · {text(task.source, "系统任务")}</p><h1 title={task.title}>{text(task.title, "未命名任务")}</h1><p className="task-detail-subtitle">任务 ID：{task.id}</p></div><div className="task-detail-header-actions"><span className={`task-center-status status-${statusClass(task)}`}>{statusLabel(task)}</span><button className="btn ghost" type="button" onClick={() => void load(true)} disabled={refreshing}>{refreshing ? "刷新中…" : "刷新"}</button>{task.session_id ? <Link className="btn primary" to={`/s/${task.session_id}`}>查看进度</Link> : null}</div></div>
     </header>
     {error ? <p className="task-detail-inline-error" role="alert">{error} <button type="button" onClick={() => void load()}>重试</button></p> : null}

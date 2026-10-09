@@ -22,7 +22,7 @@ const statuses: Record<string, string> = { approved: "已通过", reviewing: "�
   accepted: "已受理", waiting_approval: "待审批", waiting_external: "等待外部", cancelled: "已取消" };
 
 /** L1 only. Versions and blockers come from the server, never UI rules. */
-export function TaskCollaborationContext({ taskId, titles, onUnavailable }: { taskId: string; titles: Record<string, string>; onUnavailable: () => void }) {
+export function TaskCollaborationContext({ taskId, titles, onUnavailable, compactEmpty = false }: { taskId: string; titles: Record<string, string>; onUnavailable: () => void; compactEmpty?: boolean }) {
   const [context, setContext] = useState<Context | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -52,7 +52,8 @@ export function TaskCollaborationContext({ taskId, titles, onUnavailable }: { ta
         if (!cancelled) {
           // Includes scope revocation: never keep private cached events visible.
           events = []; cursor = 0; setContext(null);
-          setError(cause instanceof Error ? cause.message : "关联上下文读取失败");
+          const status = Number((cause as { status?: number })?.status);
+          setError([401,403,404].includes(status) ? "审批与工单依赖当前不可访问，请核对关联范围或授权。" : cause instanceof Error ? cause.message : "关联上下文读取失败");
           if ([401,403,404].includes(Number((cause as { status?: number })?.status))) onUnavailable();
         }
       } finally { busy = false; }
@@ -61,6 +62,8 @@ export function TaskCollaborationContext({ taskId, titles, onUnavailable }: { ta
     const timer = window.setInterval(() => { void read(); }, 15_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [taskId, retry, onUnavailable]);
+  // An authorized empty response is not an error. Keep polling mounted for revocation/changes.
+  if (compactEmpty && context && !error && !context.gates.length && !context.events.length) return null;
   return <section aria-label="审批与工单依赖">
     <h3>审批与工单依赖 <small className="muted">只读</small></h3>
     {error ? <p role="alert">{error} <button type="button" className="button" onClick={() => setRetry(value => value + 1)}>重新读取</button></p> : !context ? <p role="status">正在读取当前关联与授权…</p> : <>

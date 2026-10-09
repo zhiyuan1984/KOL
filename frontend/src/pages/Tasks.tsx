@@ -1,13 +1,14 @@
+import { Button } from "antd";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type AiTaskWorkOrderAggregate, type AiTaskWorkOrderDashboard, type Task, type TaskDetail, type TaskEvent, type TaskOperationsDashboard, type TaskOperationsPeriod } from "../api";
 import { useTaskRunEventStream } from "../hooks/useTaskRunEventStream";
-import { TaskCollaborationContext } from "../tasks/TaskCollaborationContext";
 import { TaskDetailDrawer } from "../tasks/TaskDetailDrawer";
 import { TaskRowActions } from "../tasks/TaskRowActions";
 import { AgentExpandedDetails, BusinessExpandedDetails } from "../tasks/TaskExpandedDetails";
 import { TaskOperationsReport, type TaskOperationsFilter } from "../tasks/TaskOperationsReport";
-import { WorkOrderSuggestions } from "../tasks/WorkOrderSuggestions";
+import { BusinessTaskDetailContent } from "../tasks/BusinessTaskDetailContent";
+import { captureTaskListSnapshot, readTaskListSnapshot } from "../tasks/taskDetailNavigation";
 import { businessTaskStatus, createTaskSearchDebouncer, isAgentTaskInProgress, sortTaskRowsByUpdatedAt } from "../tasks/taskCenterModel";
 
 type View = "active" | "history";
@@ -140,6 +141,22 @@ function belongsToTab(task: Task, tab: TaskStatusTab) {
 
 export default function Tasks() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [restoreSnapshot] = useState(() => {
+    const candidate = readTaskListSnapshot<TaskOperationsFilter>();
+    const listParams = new URLSearchParams(location.search); listParams.delete("businessTask");
+    const listUrl = `/tasks${listParams.size ? `?${listParams}` : ""}`;
+    return candidate?.originalUrl === listUrl ? candidate : null;
+  });
+  const listRef = useRef<HTMLElement | null>(null);
+  const loadedAgentPages = useRef(1);
+  const loadedBusinessPages = useRef(1);
+  const agentRestorePages = useRef(restoreSnapshot?.loadedAgentPages || 1);
+  const businessRestorePages = useRef(restoreSnapshot?.loadedBusinessPages || 1);
+  const restoreScroll = useRef(restoreSnapshot?.scrollPosition ?? null);
+  const [detailDirty, setDetailDirty] = useState(false);
+  const [detailEntryOpen, setDetailEntryOpen] = useState(false);
+  const [detailSubmitting, setDetailSubmitting] = useState(false);
   const [params, setParams] = useSearchParams();
   const rawPeriod = params.get("period");
   const isPeriod = (value: string | null): value is TaskOperationsPeriod => ["realtime", "today", "week", "month", "year"].includes(String(value));
@@ -161,17 +178,17 @@ export default function Tasks() {
   const [aiDashboardLoading, setAiDashboardLoading] = useState(true);
   const [expandedAiTasks, setExpandedAiTasks] = useState<Record<string, AiTaskWorkOrderAggregate>>({});
   const [selectedAiTask, setSelectedAiTask] = useState<AiTaskWorkOrderAggregate | null>(null);
-  const [showAiEventCreate, setShowAiEventCreate] = useState(false);
-  const [aiEventDraft, setAiEventDraft] = useState({ event_type: "mail.reply_verified", summary: "", evidence_ref: "", occurred_at: "", work_order_id: "", evidence_keys: "", completed_stages: "" });
-  const [aiEventNotice, setAiEventNotice] = useState("");
+  const selectedAiTaskIdRef = useRef<string | null>(null);
+  selectedAiTaskIdRef.current = selectedAiTask?.task.task_id || null;
+  const taskAccessCheckRef = useRef(false);
   const [actionBusy, setActionBusy] = useState("");
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [expandedSystemTasks, setExpandedSystemTasks] = useState<Set<string>>(new Set());
-  const [operationsFilter, setOperationsFilter] = useState<TaskOperationsFilter>(null);
+  const [query, setQuery] = useState(restoreSnapshot?.query || "");
+  const [debouncedQuery, setDebouncedQuery] = useState(restoreSnapshot?.query || "");
+  const [from, setFrom] = useState(restoreSnapshot?.from || "");
+  const [to, setTo] = useState(restoreSnapshot?.to || "");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(restoreSnapshot?.selectedIds || []));
+  const [expandedSystemTasks, setExpandedSystemTasks] = useState<Set<string>>(new Set(restoreSnapshot?.expandedSystemTasks || []));
+  const [operationsFilter, setOperationsFilter] = useState<TaskOperationsFilter>(["in_progress", "waiting", "completed", "overdue", "failed"].includes(restoreSnapshot?.operationsFilter || "") ? restoreSnapshot!.operationsFilter : null);
   const requestRef = useRef<Promise<void> | null>(null);
   const rowsRef = useRef<Task[]>([]);
   const nextCursorRef = useRef<string | null>(null);
@@ -218,11 +235,25 @@ export default function Tasks() {
       if (append) setLoadingMore(true);
       setSystemError("");
       try {
-        const response = await api.taskPage({
+        let response = await api.taskPage({
           view: "history", q: debouncedQuery, from: period === "realtime" ? from : undefined, to: period === "realtime" ? to : undefined, period, limit: 100,
           cursor: append ? nextCursorRef.current || undefined : undefined,
         });
-        const nextRows = response.items || [];
+        let nextRows = response.items || [];
+        if (!background && !append) {
+          loadedAgentPages.current = 1;
+          const targetPages = agentRestorePages.current; agentRestorePages.current = 1;
+          let cursor = response.page?.next_cursor;
+          while (cursor && loadedAgentPages.current < targetPages) {
+            const previousCursor = cursor;
+            response = await api.taskPage({ view: "history", q: debouncedQuery, from: period === "realtime" ? from : undefined, to: period === "realtime" ? to : undefined, period, limit: 100, cursor });
+            nextRows = mergeTaskRows(nextRows, response.items || []);
+            loadedAgentPages.current++;
+            cursor = response.page?.next_cursor;
+            if (cursor === previousCursor) break;
+          }
+        } else if (append) loadedAgentPages.current++;
+
         const merged = append ? mergeTaskRows(rowsRef.current, nextRows) : background ? mergeTaskRows(nextRows, rowsRef.current) : nextRows;
         if (!sameTaskRows(rowsRef.current, merged)) { rowsRef.current = merged; setRows(merged); }
         setTotal(Number(response.page?.total || 0));
@@ -265,12 +296,28 @@ export default function Tasks() {
     if (append) setLoadingBusinessMore(true);
     setReportError("");
     try {
-      const next = await api.aiTaskWorkOrderDashboard({
+      let next = await api.aiTaskWorkOrderDashboard({
         limit: 100,
         cursor: append ? businessNextCursorRef.current || undefined : undefined,
         period,
         q: debouncedQuery || undefined,
       });
+      if (!append) {
+        const targetPages = background ? loadedBusinessPages.current : businessRestorePages.current;
+        loadedBusinessPages.current = 1; businessRestorePages.current = 1;
+        let items = next.tasks.items;
+        let cursor = next.tasks.page.next_cursor;
+        while (cursor && loadedBusinessPages.current < targetPages) {
+          const previousCursor = cursor;
+          next = await api.aiTaskWorkOrderDashboard({ limit: 100, cursor, period, q: debouncedQuery || undefined });
+          const map = new Map(items.map(item => [item.task.task_id, item]));
+          next.tasks.items.forEach(item => map.set(item.task.task_id, item));
+          items = [...map.values()]; loadedBusinessPages.current++;
+          cursor = next.tasks.page.next_cursor;
+          if (cursor === previousCursor) break;
+        }
+        next = { ...next, tasks: { ...next.tasks, items } };
+      } else if (append) loadedBusinessPages.current++;
       const previousItems = append ? dashboardRef.current?.tasks.items || [] : [];
       const itemsById = new Map(previousItems.map((item) => [item.task.task_id, item]));
       next.tasks.items.forEach((item) => itemsById.set(item.task.task_id, item));
@@ -299,7 +346,19 @@ export default function Tasks() {
   }, [load, loadOperationsDashboard, loadAiDashboard, period, view]);
 
   const clearUnavailableAiTask = useCallback(() => {
-    setSelectedAiTask(null); setExpandedAiTasks({}); setError("该任务当前不可访问，已清除缓存内容。请核对归属或授权后重新读取。");
+    const taskId = selectedAiTaskIdRef.current;
+    if (!taskId || taskAccessCheckRef.current) return;
+    taskAccessCheckRef.current = true;
+    // A restricted related module is not authority to revoke an independently authorized root.
+    // The module has already cleared its private cache; re-read the root with the same identity.
+    void api.aiTaskWorkOrder(taskId).then(detail => {
+      if (selectedAiTaskIdRef.current === taskId) setSelectedAiTask(detail);
+    }).catch(() => {
+      if (selectedAiTaskIdRef.current !== taskId) return;
+      setSelectedAiTask(null); setExpandedAiTasks({}); setAiDashboard(null); dashboardRef.current = null;
+      businessNextCursorRef.current = null; setBusinessNextCursor(null);
+      setError("该任务当前不可访问，已清除缓存内容。请核对归属或授权后重新读取。");
+    }).finally(() => { taskAccessCheckRef.current = false; });
   }, []);
 
   const openDetail = async (task: Task) => {
@@ -320,21 +379,42 @@ export default function Tasks() {
     finally { setActionBusy(""); }
   };
 
-  const openAiTask = async (taskId: string) => {
-    setActionBusy(`ai-task:${taskId}`); setSelected(null);
-    try { setSelectedAiTask(await api.aiTaskWorkOrder(taskId)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "AI 工单任务详情加载失败"); }
-    finally { setActionBusy(""); }
+  const rememberList = () => captureTaskListSnapshot({
+    originalUrl: `/tasks${location.search}`, query, from, to, operationsFilter,
+    selectedIds, expandedSystemTasks, loadedAgentPages: loadedAgentPages.current,
+    loadedBusinessPages: loadedBusinessPages.current, scrollY: listRef.current?.scrollTop || 0,
+  });
+  const openAgentDetail = (task: Task) => {
+    const snapshot = rememberList();
+    navigate(`/tasks/${encodeURIComponent(task.id)}`, { state: { taskListPath: snapshot?.originalUrl || "/tasks" } });
   };
-
+  const openAiTask = (taskId: string) => {
+    rememberList(); setError(""); setSelected(null);
+    setParams(current => { const next = new URLSearchParams(current); next.set("businessTask", taskId); return next; }, { state: { taskDetailFromList: true } });
+  };
+  const closeTaskDetail = () => {
+    setSelected(null); setSelectedAiTask(null); setDetailDirty(false);
+    if (params.has("businessTask")) {
+      if ((location.state as { taskDetailFromList?: boolean } | null)?.taskDetailFromList) navigate(-1);
+      else setParams(current => { const next = new URLSearchParams(current); next.delete("businessTask"); return next; }, { replace: true });
+    }
+  };
   const businessTaskId = params.get("businessTask");
   useEffect(() => {
-    if (!businessTaskId) return;
+    if (!businessTaskId) { setSelectedAiTask(null); setDetailDirty(false); return; }
     let cancelled = false;
-    void api.aiTaskWorkOrder(businessTaskId).then((task) => { if (!cancelled) { setSelected(null); setSelectedAiTask(task); } })
-      .catch(() => { if (!cancelled) { setSelectedAiTask(null); setError("该业务任务当前不可访问，请核对归属或授权。"); } });
+    setSelectedAiTask(null); setDetailDirty(false);
+    setActionBusy(`ai-task:${businessTaskId}`);
+    void api.aiTaskWorkOrder(businessTaskId).then(task => { if (!cancelled) { setSelected(null); setSelectedAiTask(task); } })
+      .catch(() => { if (!cancelled) { setSelectedAiTask(null); setError("该业务任务当前不可访问，请核对归属或授权。"); } })
+      .finally(() => { if (!cancelled) setActionBusy(""); });
     return () => { cancelled = true; };
   }, [businessTaskId]);
+  useEffect(() => {
+    if (loading || aiDashboardLoading || restoreScroll.current == null) return;
+    const top = restoreScroll.current; restoreScroll.current = null;
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = top; }));
+  }, [loading, aiDashboardLoading]);
 
   const openTaskWorkspace = async (taskId: string) => {
     setActionBusy(`workspace:${taskId}`);
@@ -351,30 +431,6 @@ export default function Tasks() {
     setActionBusy(`ai-task-expand:${taskId}`);
     try { const detail = await api.aiTaskWorkOrder(taskId); setExpandedAiTasks((current) => ({ ...current, [taskId]: detail })); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "子工单明细加载失败"); }
-    finally { setActionBusy(""); }
-  };
-
-  const recordAiVerifiedEvent = async () => {
-    if (!selectedAiTask) return;
-    if (!aiEventDraft.summary.trim() || !aiEventDraft.evidence_ref.trim()) { setError("请填写已核验事实摘要和证据引用。"); return; }
-    const taskId = selectedAiTask.task.task_id;
-    setActionBusy("ai-task:verified-event"); setError(""); setAiEventNotice("");
-    try {
-      const stamp = Date.now();
-      const split = (value: string) => [...new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))];
-      const evidenceKeys = split(aiEventDraft.evidence_keys); const completedStages = split(aiEventDraft.completed_stages);
-      const result = await api.recordAiTaskVerifiedEvent(taskId, {
-        source_system: "workbench_human_verification", source_event_id: `workbench:${taskId}:${stamp}`, source_version: "workbench.v1",
-        event_type: aiEventDraft.event_type, occurred_at: aiEventDraft.occurred_at ? new Date(aiEventDraft.occurred_at).toISOString() : new Date().toISOString(),
-        summary: aiEventDraft.summary.trim(), evidence_ref: aiEventDraft.evidence_ref.trim(),
-        evidence: { verified_in: "workbench", actor_action: "human_verified_event", completed_stages: completedStages, ...Object.fromEntries(evidenceKeys.map((key) => [key, true])) },
-        payload: {}, work_order_id: aiEventDraft.work_order_id || undefined, idempotency_key: `workbench-verified-event-${taskId}-${stamp}`,
-      });
-      setAiEventDraft({ event_type: "mail.reply_verified", summary: "", evidence_ref: "", occurred_at: "", work_order_id: "", evidence_keys: "", completed_stages: "" });
-      setShowAiEventCreate(false);
-      setAiEventNotice(`已核验事件已进入 Jev → Outbox → Worker 管道（决策：${result.decision.outcome}；作业：${result.execution_job.status}）。`);
-      await loadAiDashboard(true); setSelectedAiTask(await api.aiTaskWorkOrder(taskId));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "已核验事件登记失败"); }
     finally { setActionBusy(""); }
   };
 
@@ -416,7 +472,7 @@ export default function Tasks() {
     return next;
   }, [unifiedRows, operationsFilter]);
   const selectableRows = useMemo(() => visible.filter((row): row is Extract<UnifiedRow, { kind: "agent" }> => row.kind === "agent" && canSelect(row.task)), [visible]);
-  useEffect(() => { const visibleIds = new Set(selectableRows.map((row) => row.task.id)); setSelectedIds((current) => new Set([...current].filter((id) => visibleIds.has(id)))); }, [selectableRows]);
+  useEffect(() => { if (loading) return; const visibleIds = new Set(selectableRows.map((row) => row.task.id)); setSelectedIds((current) => new Set([...current].filter((id) => visibleIds.has(id)))); }, [selectableRows, loading]);
   const cancelSelected = async () => {
     if (!selectedIds.size || !window.confirm(`确认取消 ${selectedIds.size} 个排队任务？`)) return;
     setActionBusy("bulk-cancel");
@@ -430,7 +486,7 @@ export default function Tasks() {
   };
   const clearOperationsFilter = () => setOperationsFilter(null);
 
-  return <main className="tasks-page" data-task-center>
+  return <main ref={listRef} className={`tasks-page${selected || selectedAiTask ? " has-task-detail" : ""}`} data-task-center>
     <TaskOperationsReport dashboard={operationsDashboard} workOrders={aiDashboard} period={period} loading={operationsDashboardLoading} workOrdersLoading={aiDashboardLoading} error={operationsReportError} workOrdersError={reportError} activeFilter={operationsFilter}
       onPeriod={(next) => {
         const clearsManualRange = Boolean(from || to);
@@ -457,7 +513,7 @@ export default function Tasks() {
       {loading ? <p className="muted">正在读取任务状态…</p> : systemError && rows.length === 0 && !operationsDashboard ? <p className="task-center-load-error" role="alert">任务明细暂时无法读取。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : visible.length === 0 ? <section className="task-center-empty"><strong>当前没有符合条件的任务</strong><p>调整状态、筛选条件或等待任务状态变化后再试。</p></section> : <div className="task-center-table-wrap"><table className="task-center-table task-center-unified-table"><colgroup><col className="task-center-col-task" /><col className="task-center-col-status" /><col className="task-center-col-time" /><col className="task-center-col-actions" /></colgroup><thead><tr><th scope="col">任务名</th><th scope="col">状态</th><th scope="col">更新时间</th><th scope="col">操作</th></tr></thead><tbody>{visible.map((row) => {
         if (row.kind === "agent") {
           const task = row.task; const expanded = expandedSystemTasks.has(task.id);
-          return <Fragment key={row.key}><tr><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${row.title}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}<strong title={row.title}>{row.title}</strong></div></td><td data-label="状态"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span></td><td data-label="更新时间">{formatTime(row.updatedAt)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => navigate(`/tasks/${encodeURIComponent(task.id)}`)} disabled={actionBusy === `detail:${task.id}`}>详情</button>} secondary={task.session_id || (view === "active" && canCancel(task)) ? <>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</> : undefined} expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}明细`} onToggle={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })} /></td></tr>{expanded ? <tr className="task-center-meta-row"><td colSpan={4}><AgentExpandedDetails task={task} title={row.title} summary={row.summary} /></td></tr> : null}</Fragment>;
+          return <Fragment key={row.key}><tr><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${row.title}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}<strong title={row.title}>{row.title}</strong></div></td><td data-label="状态"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span></td><td data-label="更新时间">{formatTime(row.updatedAt)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => openAgentDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>} secondary={task.session_id || (view === "active" && canCancel(task)) ? <>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</> : undefined} expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}明细`} onToggle={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })} /></td></tr>{expanded ? <tr className="task-center-meta-row"><td colSpan={4}><AgentExpandedDetails task={task} title={row.title} summary={row.summary} /></td></tr> : null}</Fragment>;
         }
         const item = row.item; const detail = expandedAiTasks[item.task.task_id];
         return <Fragment key={row.key}><tr className={detail ? "is-expanded" : undefined}><td data-label="任务名" className="task-center-task-cell"><strong title={row.title}>{row.title}</strong></td><td data-label="状态"><span className={`task-center-status status-${row.status}`}>{row.status === "running" ? "进行中" : row.status === "waiting_approval" ? "待确认" : row.status === "completed" ? "已完成" : row.status === "cancelled" ? "已取消" : "排队中"}</span></td><td data-label="更新时间">{formatTime(row.updatedAt)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => void openAiTask(item.task.task_id)}>详情</button>} expanded={Boolean(detail)} label={`${detail ? "收起" : "展开"}${row.title}工单明细`} busy={actionBusy === `ai-task-expand:${item.task.task_id}`} onToggle={() => void toggleAiTaskRow(item.task.task_id)} /></td></tr>{detail ? <tr className="task-center-meta-row"><td colSpan={4}><BusinessExpandedDetails detail={detail} statusLabel={workOrderStatusLabel} decisionSummary={workOrderDecisionSummary} /></td></tr> : null}</Fragment>;
@@ -468,9 +524,16 @@ export default function Tasks() {
 
     {error ? <p className="surface-error" role="alert">{hidesSignalTimeout(error) ? "任务暂时无法读取，请稍后查看。" : error}</p> : null}
 
-    {selected || selectedAiTask ? <TaskDetailDrawer eyebrow={selected ? "任务详情" : "业务任务 · AI 标准工单"} title={selected ? safeTaskText(selected.title, "未命名任务") : selectedAiTask!.task.title} onClose={() => { setSelected(null); setSelectedAiTask(null); }}>
+    {selected || selectedAiTask ? <TaskDetailDrawer eyebrow={selected ? "任务详情" : "业务任务"} title={selected ? safeTaskText(selected.title, "未命名任务") : selectedAiTask!.task.title}
+      status={selectedAiTask ? <span className="task-center-status">{workOrderStatusLabel(selectedAiTask.task.status)}</span> : null}
+      dirty={detailDirty} closeDisabled={detailSubmitting} onClose={closeTaskDetail}
+      footer={selectedAiTask && detailEntryOpen ? <Button type="primary" htmlType="submit" form="task-business-verified-event-form" disabled={detailSubmitting}>提交已核验事件</Button> : null}>
+      {error ? <p role="alert">{error}</p> : null}
       {selected ? <><dl className="task-detail-meta"><div><dt>状态</dt><dd>{statusOf(selected)}</dd></div><div><dt>任务 ID</dt><dd>{selected.id}</dd></div><div><dt>创建时间</dt><dd>{formatTime(selected.created_at)}</dd></div><div><dt>说明</dt><dd>{taskSummary(selected)}</dd></div></dl><p className="muted">已尝试 {selected.runs?.length || 0} 次{selected.runs?.length ? `；最近一次：${String(selected.runs[selected.runs.length - 1]?.status || "未知")}` : ""}</p><section><h3>执行事件 {liveRunEvents.connected ? <small className="muted">实时更新中</small> : liveRunEvents.fallback ? <small className="muted">正在以安全补读更新</small> : null}</h3>{(liveRunEvents.events.length ? liveRunEvents.events : events).length ? <ol className="task-detail-events">{(liveRunEvents.events.length ? liveRunEvents.events : events).map((event, index) => <li key={event.id || `${event.created_at}-${index}`}><strong>{safeTaskText(event.title || event.type, "任务事件")}</strong><small>{formatTime(event.created_at)}</small><p>{safeTaskText(event.summary || event.message)}</p></li>)}</ol> : <p className="muted">暂无执行事件。</p>}</section><div className="task-detail-actions">{selected.session_id ? <Link className="button" to={`/s/${selected.session_id}`}>进入完整会话 →</Link> : null}</div></> : null}
-      {selectedAiTask ? <><dl className="task-detail-meta"><div><dt>任务状态</dt><dd>{workOrderStatusLabel(selectedAiTask.task.status)}</dd></div><div><dt>业务目标</dt><dd>{selectedAiTask.task.goal}</dd></div><div><dt>任务截止</dt><dd>{formatTime(selectedAiTask.task.due_at)}</dd></div><div><dt>子工单</dt><dd>{selectedAiTask.counts.open} 开放 / {selectedAiTask.counts.total} 总计 / {selectedAiTask.counts.blocked} 阻塞</dd></div></dl>{selectedAiTask.task.workspace_allowed ? <button className="btn ghost" type="button" disabled={actionBusy.startsWith("workspace:")} onClick={() => void openTaskWorkspace(selectedAiTask.task.task_id)}>打开协作工作台</button> : null}<TaskCollaborationContext taskId={selectedAiTask.task.task_id} titles={Object.fromEntries(selectedAiTask.work_orders.map((order) => [order.work_order_id, order.title]))} onUnavailable={clearUnavailableAiTask} /><WorkOrderSuggestions key={selectedAiTask.task.task_id} taskId={selectedAiTask.task.task_id} onChanged={() => { void openAiTask(selectedAiTask.task.task_id); void loadAiDashboard(true); }} /><section><div className="split-head"><div><h3>登记已核验业务事件</h3><p className="muted">只登记已核验事实，不填写推测或结论。提交后才会触发受控 Jev 判断与异步工单管道。</p></div><button className="btn ghost sm" type="button" onClick={() => setShowAiEventCreate((current) => !current)}>{showAiEventCreate ? "收起" : "登记事件"}</button></div>{showAiEventCreate ? <form className="task-work-order-create task-work-order-event-create" onSubmit={(event) => { event.preventDefault(); void recordAiVerifiedEvent(); }}><label>事件类型<select value={aiEventDraft.event_type} onChange={(event) => setAiEventDraft((current) => ({ ...current, event_type: event.target.value }))}><option value="mail.reply_verified">已验证邮件回复</option><option value="mail.commitment_verified">已验证邮件承诺</option><option value="deadline.quote">报价期限</option><option value="deadline.contract">合同期限</option><option value="deadline.sample">样品期限</option><option value="deadline.content">内容期限</option></select></label><label>作用子工单（A3 可选）<select value={aiEventDraft.work_order_id} onChange={(event) => setAiEventDraft((current) => ({ ...current, work_order_id: event.target.value }))}><option value="">不指定：仅判断是否新建/分派工单</option>{selectedAiTask.work_orders.filter((order) => !["completed", "cancelled"].includes(order.status)).map((order) => <option key={order.work_order_id} value={order.work_order_id}>{order.title} · 当前阶段 {order.stage_code || "未设定"}</option>)}</select></label><label>事实摘要<textarea value={aiEventDraft.summary} maxLength={1000} placeholder="仅写已经确认的事实" onChange={(event) => setAiEventDraft((current) => ({ ...current, summary: event.target.value }))} /></label><label>证据引用<input value={aiEventDraft.evidence_ref} maxLength={1000} placeholder="例如：mail:thread/123" onChange={(event) => setAiEventDraft((current) => ({ ...current, evidence_ref: event.target.value }))} /></label><label>已核验证据键（每行一个）<textarea value={aiEventDraft.evidence_keys} placeholder={"receipt_verified\ncompleted_stages"} onChange={(event) => setAiEventDraft((current) => ({ ...current, evidence_keys: event.target.value }))} /></label><label>已完成阶段（每行一个）<textarea value={aiEventDraft.completed_stages} placeholder={"SHIPPED\nTESTING"} onChange={(event) => setAiEventDraft((current) => ({ ...current, completed_stages: event.target.value }))} /></label><label>发生时间<input type="datetime-local" value={aiEventDraft.occurred_at} onChange={(event) => setAiEventDraft((current) => ({ ...current, occurred_at: event.target.value }))} /></label><div className="row-actions"><button className="btn primary" type="submit" disabled={actionBusy === "ai-task:verified-event"}>{actionBusy === "ai-task:verified-event" ? "提交中…" : "提交已核验事件"}</button></div></form> : null}{aiEventNotice ? <p className="muted" role="status">{aiEventNotice}</p> : null}</section><section><h3>已核验业务事件</h3>{selectedAiTask.verified_events.length ? <ol className="task-detail-events">{selectedAiTask.verified_events.map((event) => <li key={event.id}><strong>{event.event_type}</strong><small>{formatTime(event.occurred_at)} · 核验 {formatTime(event.verified_at)}</small><p>{event.summary}</p><p className="muted">证据：{event.evidence_ref}</p></li>)}</ol> : <p className="muted">尚未记录可用于自动化判断的已核验业务事件。</p>}</section><section><h3>标准执行工单</h3>{selectedAiTask.work_orders.length ? <ol className="task-detail-events">{selectedAiTask.work_orders.map((order) => <li key={order.work_order_id}><strong>{order.title}</strong><small>{order.template_code}.v{order.template_version} · {order.automation_level} · {workOrderStatusLabel(order.status)}</small><p>{order.objective}</p><p className="muted">主受理：{order.primary_assignee?.person_ref || "尚未分派"} · 决策：{order.latest_decision ? `${order.latest_decision.outcome}（${order.latest_decision.confidence ?? "—"}）` : "—"}</p></li>)}</ol> : <p className="muted">该业务任务尚未物化标准执行工单。</p>}</section><p className="muted">数据来源：PostgreSQL 任务—工单关系；子工单终态不会直接改变任务根状态。</p></> : null}
+      {selectedAiTask ? <BusinessTaskDetailContent key={selectedAiTask.task.task_id} detail={selectedAiTask} actionBusy={actionBusy}
+        onWorkspace={() => { rememberList(); void openTaskWorkspace(selectedAiTask.task.task_id); }} onUnavailable={clearUnavailableAiTask}
+        onChanged={() => { void loadAiDashboard(true); }} onTaskUpdated={setSelectedAiTask}
+        onDirtyChange={setDetailDirty} onBusyChange={setDetailSubmitting} onEntryOpenChange={setDetailEntryOpen} /> : null}
     </TaskDetailDrawer> : null}
   </main>;
 }

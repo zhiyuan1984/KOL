@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, type Account } from "../api";
 import { clearPlanCaches } from "../home/todayPlan";
+import { clearTaskListSnapshot } from "../tasks/taskDetailNavigation";
 
 type AuthContextValue = {
   account: Account | null;
@@ -88,6 +89,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       await api.logout();
     } finally {
       clearPlanCaches();
+      clearTaskListSnapshot();
       setAccount(null);
       setState("login");
     }
