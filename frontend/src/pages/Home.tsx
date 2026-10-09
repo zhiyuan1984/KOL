@@ -2212,8 +2212,15 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
       ) : null}
     </div>
   ) : null;
-  const skillTemplateContext = activeSkillTemplate
-    ? <SkillTemplateContext template={activeSkillTemplate} showOptionalInputs={false} />
+  // A workspace's registered explanation is page context, not a draft lock.
+  // Clearing/editing a prompt must not remove it or re-lock the next submission.
+  const scopeExplanationId = mode === "today" ? "creator_daily_tasks" : mode === "todo" ? "todo_plan" : null;
+  const scopeExplanation = scopeExplanationId
+    ? definitions.find((definition) => definition.id === scopeExplanationId && definition.granted !== false)?.ui_template
+    : null;
+  const explanationTemplate = activeSkillTemplate || scopeExplanation;
+  const skillTemplateContext = explanationTemplate
+    ? <SkillTemplateContext template={explanationTemplate} showOptionalInputs={false} />
     : null;
 
   const quickTaskBar = (
