@@ -57,6 +57,9 @@ describe("formatNextTime", () => {
 describe("compactFrequency", () => {
   it("humanises common cron expressions without changing unrecognised schedules", () => {
     expect(compactFrequency({ cron_expr: "*/10 * * * *" })).toBe("每10分钟");
+    expect(compactFrequency({ frequency: "*/10 * * * *（上海时间）" })).toBe("每10分钟");
+    expect(compactFrequency({ frequency: "*/10 * * * *（UTC）", timezone: "UTC" })).toBe("每10分钟（UTC）");
+    expect(compactFrequency({ frequency: "0 8 1-5 * *（上海时间）" })).toBe("0 8 1-5 * *");
     expect(compactFrequency({ cron_expr: "0 * * * *" })).toBe("每小时");
     expect(compactFrequency({ cron_expr: "15 9 * * *" })).toBe("每天 09:15");
     expect(compactFrequency({ cron_expr: "30 8 * * 1" })).toBe("每周一 08:30");
