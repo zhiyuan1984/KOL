@@ -495,7 +495,15 @@ test("1440/1024/768/390、短高度、深色减动效与触控均无横向溢出
     expect(bounds.width).toBeLessThanOrEqual(size.width + 1);
     expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.viewport + 1);
     if (size.width <= 390) await expect(page.locator(".cron-mobile-list > li[data-cron-job]").first()).toBeVisible();
+    await expect.poll(() => page.locator(".ant-tabs-tab-active").evaluate(node => {
+      const tab = node.getBoundingClientRect(), wrap = node.closest(".ant-tabs-nav-wrap")!.getBoundingClientRect();
+      return tab.left >= wrap.left - 1 && tab.right <= wrap.right + 1;
+    })).toBe(true);
   }
+  await page.getByRole("tab", { name: "已启用11", exact: true }).click();
+  await expect(listRows(page)).toHaveCount(11);
+  await page.getByRole("tab", { name: "全部30", exact: true }).click();
+  await expect(listRows(page)).toHaveCount(20);
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   const motion = await page.locator("[data-cron-page]").evaluate((node) => getComputedStyle(node.querySelector(".ant-tabs-tab")!).transitionDuration);
   expect(motion).toBe("0s");
@@ -510,6 +518,7 @@ test("1440/1024/768/390、短高度、深色减动效与触控均无横向溢出
     expect(hit).toBeGreaterThanOrEqual(44);
     const bounds = await touchPage.locator("[data-cron-page]").evaluate((node) => ({ scrollWidth: node.scrollWidth, viewport: window.innerWidth }));
     expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.viewport + 1);
+    await expect(touchPage.getByRole("tab", { name: "全部30", exact: true })).toBeInViewport();
     await touchPage.screenshot({ path: test.info().outputPath("cron-touch.png"), fullPage: true, animations: "disabled" });
   } finally {
     await touch.close();

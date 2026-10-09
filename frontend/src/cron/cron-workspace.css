@@ -112,8 +112,6 @@
 @media (max-width: 860px) {
   .cron-workspace-toolbar { flex-wrap: wrap; }
   .cron-workspace-tools { flex: 1 1 auto; }
-  .cron-workspace .ant-tabs-nav { display: flex; flex-wrap: wrap; }
-  .cron-workspace .ant-tabs-extra-content { flex-basis: 100%; }
   .cron-view-tools { justify-content: flex-end; padding-block: var(--space-1); }
 }
 @media (max-width: 480px) {
