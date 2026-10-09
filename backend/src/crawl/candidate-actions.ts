@@ -6,8 +6,8 @@ import { DEFAULT_COMPANY_ID } from "../host/kol-memory.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { authorizeConnector, runtimeAgentForSkill, runtimeHash, type RuntimeContext } from "../runtime/execution.js";
 import { runtimeAction } from "../runtime/action-store.js";
-import { buildCrawlerImportFile, mapCandidateToCrawlerRow, creatorExternalId } from "../discovery-import.js";
-import { importKolProfilesFromCrawlerConfirmed } from "../gateway/import-creator.js";
+import { buildCrawlerImportFile, mapCandidateToCrawlerRow, creatorExternalId, isRealKolUid } from "../discovery-import.js";
+import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid, withTimeout } from "../gateway/import-creator.js";
 import type { Json } from "../types.js";
 import { getSkillTools, getToolPolicy } from "../runtime/store.js";
 import { ensureLeadFromDiscoveryCandidate } from "../ticket-domain/kol-event-bridge.js";
@@ -19,7 +19,158 @@ function user() {
 }
 const stamp = (row: Json) => runtimeHash(row);
 const company = DEFAULT_COMPANY_ID;
+/**
+ * 写 Starry 公海失败时的文案纠正：这一步的目标是公海，不是跟进。
+ * 上游 "未加入跟进" 是旧流程残留（当年跟进与入库是一步），在此会与前端
+ * "已跟进" 拼出自相矛盾的文案，一律纠正为"公海"。
+ */
+function poolImportMessage(message: string): string {
+  return message.replace(/加入跟进/g, "加入公海");
+}
+function poolImportError(error: unknown): unknown {
+  if (error instanceof HttpFail) {
+    const detail = (error.detail ?? {}) as Record<string, unknown>;
+    if (typeof detail.message === "string" && detail.message.includes("加入跟进")) {
+      return new HttpFail(error.status, { ...detail, message: poolImportMessage(detail.message) });
+    }
+  }
+  return error;
+}
 const identity = (row: Json) => `${String(row.platform).toLowerCase()}:${String(row.id)}`;
+
+/** uncertain 核对时 pageKolProfiles 的上限：核对本身失败不删行、不盲目重试。 */
+const STARRY_RECONCILE_TIMEOUT_MS = 30_000;
+/** dispatching 行超过此时长视为孤儿（持有者已死），同样走核对。 */
+const STALE_DISPATCHING_MS = 10 * 60_000;
+
+/** Starry 公海导入的授权门禁（抽出供 ingest / follow 复用）。 */
+function authorizeStarryImport(action: { context_json: RuntimeContext }, actorId: string): void {
+  const importContext = { ...action.context_json, agentId: runtimeAgentForSkill("creator_discovery", actorId), skillId: "creator_discovery" };
+  authorizeConnector(importContext, "starrykol");
+  const tool = "importKolProfilesFromCrawler";
+  const binding = getSkillTools(importContext.skillId, "starrykol").find(item => item.tool_name === tool);
+  const policy = getToolPolicy("starrykol", tool);
+  if (!binding?.enabled || !policy?.enabled || policy.risk !== "L3" || policy.access !== "write") {
+    throw new HttpFail(403, { code: "runtime_tool_not_granted", message: "当前智能体未获准将候选导入正式公海。" });
+  }
+}
+
+/**
+ * 候选导入 Starry 公海（ingest / follow 共用）。
+ * - allowFollowed=false（加入公海）：已有有效跟进则 409；
+ * - allowFollowed=true（跟进顺带入库）：跳过跟进排斥检查，复用已存在的画像行 kol_uid，避免分叉。
+ */
+async function starryImportCandidate(input: {
+  row: Json; actionId: string; actorId: string; sourceBatch: string;
+  candidateId: string; snapshotVersion: unknown; allowFollowed: boolean;
+}): Promise<{ kol_uid: string; reused: boolean }> {
+  const { row, actionId, actorId, sourceBatch, candidateId, allowFollowed } = input;
+  const action = await runtimeAction(actionId, actorId);
+  authorizeStarryImport(action, actorId);
+  const importState = await postgresTransaction(async client => {
+    await lock(client, row);
+    await currentSnapshot(client, actionId, row, input.snapshotVersion);
+    if (!allowFollowed && await follow(client, row)) {
+      throw new HttpFail(409, { code: "candidate_followed", message: "该红人已有有效跟进关系，不能加入公海。" });
+    }
+    const known = await profile(client, row);
+    if (known && known.ingest_source !== "discovery-candidate") {
+      if (known.pool_status !== "open") throw new HttpFail(409, { code: "candidate_ownership_unknown", message: "正式档案当前不在公海，请先核对归属。" });
+      return { kol_uid: String(known.kol_uid), reused: true };
+    }
+    const prior = (await client.query("SELECT * FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id])).rows[0];
+    if (prior) {
+      if (prior.state === "succeeded") return { kol_uid: String(prior.kol_uid), reused: true };
+      // uncertain：上一次已结束，这次真去 Starry 核对，而不是永远 409。
+      // dispatching 超过 10 分钟：视为孤儿（持有者已死），同样核对。
+      const orphaned = prior.state === "dispatching" &&
+        Date.now() - new Date(prior.updated_at).getTime() > STALE_DISPATCHING_MS;
+      if (prior.state !== "uncertain" && !orphaned) {
+        throw new HttpFail(409, { code: "import_creator_uncertain", message: "入库请求已提交，正在处理；请稍后再试。" });
+      }
+      const reconciled = await reconcileUncertainImport(client, {
+        row, actionId, actorId, sourceBatch, candidateId, allowFollowed,
+      });
+      if (reconciled) return reconciled;
+      // Starry 侧确实没有：删掉旧行，重新派发（已核对过，非盲目重试）。
+      await client.query("DELETE FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3",
+        [company, row.platform, row.id]);
+      await audit(client, actorId, "discovery.runtime.ingest.reconciled_retry", { action_id: actionId, candidate_id: candidateId,
+        source_batch: sourceBatch, prior_state: prior.state });
+    }
+    await client.query(`INSERT INTO discovery_runtime_imports(company_id,platform,creator_id,action_id,actor_id,state)
+      VALUES($1,$2,$3,$4,$5,'dispatching')`, [company, row.platform, row.id, actionId, actorId]);
+    await audit(client, actorId, "discovery.runtime.ingest.confirmed", { action_id: actionId, candidate_id: candidateId, source_batch: sourceBatch,
+      snapshot_version: input.snapshotVersion, confirmed: true, risk: "L3", via: allowFollowed ? "follow" : "ingest" });
+    return null;
+  });
+  if (importState) return importState;
+  try {
+    const file = buildCrawlerImportFile([mapCandidateToCrawlerRow({ platform: row.platform, platform_creator_id: row.id,
+      nickname: row.name, profile_url: row.source_url })]);
+    const receipt = await importKolProfilesFromCrawlerConfirmed({ file, sourceBatch, actor: actorId,
+      creatorExternalId: creatorExternalId(row.platform, row.id), candidateId });
+    await postgresTransaction(async client => {
+      await lock(client, row);
+      const now = new Date().toISOString();
+      const existing = await profile(client, row);
+      const kolUid = existing ? String(existing.kol_uid) : String(receipt.kol_uid);
+      await client.query(`INSERT INTO kol_profile_index(id,company_id,kol_uid,handle,display_name,platform,homepage_url,followers,
+        avg_plays,region,ingest_source,pool_status,platform_creator_id,source_batch,source_version,ingested_at,created_at,updated_at,avatar_url,direction)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'discovery-ingest','open',$4,$11,$11,$12,$12,$12,$13,$14)
+        ON CONFLICT(company_id,kol_uid) DO UPDATE SET platform_creator_id=EXCLUDED.platform_creator_id,updated_at=EXCLUDED.updated_at`,
+      [`profile_${randomUUID()}`, company, kolUid, row.id, row.name, row.platform, row.source_url,
+        row.followers == null ? null : String(row.followers), row.avg_views_10 == null ? null : String(row.avg_views_10), row.region, sourceBatch, now, row.avatar_url || null, row.direction || null]);
+      await client.query(`UPDATE discovery_runtime_imports SET state='succeeded',kol_uid=$4,receipt=$5,updated_at=now()
+        WHERE company_id=$1 AND platform=$2 AND creator_id=$3`, [company, row.platform, row.id, receipt.kol_uid, JSON.stringify(receipt)]);
+      await audit(client, actorId, "discovery.runtime.ingested", { action_id: actionId, candidate_id: candidateId, kol_uid: receipt.kol_uid, sent: false, followed: allowFollowed });
+    });
+    return { kol_uid: String(receipt.kol_uid), reused: false };
+  } catch (error) {
+    await postgresPool().query("UPDATE discovery_runtime_imports SET state='uncertain',updated_at=now() WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id]);
+    throw error;
+  }
+}
+/**
+ * 核对 uncertain / 孤儿 dispatching 的入库：真去 Starry 查一次。
+ * - Starry 已有 → 补成功落盘，返回 { kol_uid, reused: true }；
+ * - Starry 没有 → 返回 null，调用方删掉旧行后重新派发；
+ * - 核对本身失败 → 抛 502，不删行、不盲目重试。
+ */
+async function reconcileUncertainImport(client: PoolClient, input: {
+  row: Json; actionId: string; actorId: string; sourceBatch: string; candidateId: string; allowFollowed: boolean;
+}): Promise<{ kol_uid: string; reused: boolean } | null> {
+  const { row, actionId, actorId, sourceBatch, candidateId, allowFollowed } = input;
+  let found: string;
+  try {
+    found = await withTimeout(
+      lookupImportedKolUid({ creatorExternalId: creatorExternalId(row.platform, row.id) }),
+      STARRY_RECONCILE_TIMEOUT_MS,
+      "pageKolProfiles",
+    );
+  } catch {
+    throw new HttpFail(502, {
+      code: "import_creator_uncertain",
+      message: "入库状态核对失败（达人库无响应），请稍后重试；未重复提交。",
+    });
+  }
+  if (!isRealKolUid(found)) return null;
+  const kolUid = String(found);
+  await lock(client, row);
+  const now = new Date().toISOString();
+  await client.query(`INSERT INTO kol_profile_index(id,company_id,kol_uid,handle,display_name,platform,homepage_url,followers,
+    avg_plays,region,ingest_source,pool_status,platform_creator_id,source_batch,source_version,ingested_at,created_at,updated_at,avatar_url,direction)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'discovery-ingest','open',$4,$11,$11,$12,$12,$12,$13,$14)
+    ON CONFLICT(company_id,kol_uid) DO UPDATE SET platform_creator_id=EXCLUDED.platform_creator_id,updated_at=EXCLUDED.updated_at`,
+  [`profile_${randomUUID()}`, company, kolUid, row.id, row.name, row.platform, row.source_url,
+    row.followers == null ? null : String(row.followers), row.avg_views_10 == null ? null : String(row.avg_views_10), row.region, sourceBatch, now, row.avatar_url || null, row.direction || null]);
+  await client.query(`UPDATE discovery_runtime_imports SET state='succeeded',kol_uid=$4,receipt=$5,updated_at=now()
+    WHERE company_id=$1 AND platform=$2 AND creator_id=$3`,
+  [company, row.platform, row.id, kolUid, JSON.stringify({ kolUid, reconciled: true, looked_up_after_timeout: true })]);
+  await audit(client, actorId, "discovery.runtime.ingested", { action_id: actionId, candidate_id: candidateId,
+    kol_uid: kolUid, sent: false, followed: allowFollowed, reconciled: true });
+  return { kol_uid: kolUid, reused: true };
+}
 async function lock(client: PoolClient, row: Json) {
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`discovery:${company}:${identity(row)}`]);
 }
@@ -120,8 +271,26 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
         if (existing.employee_id !== actor.id) throw new HttpFail(409, { code: "follow_conflict", message: "该红人已被其他员工跟进。" });
         return { ok: true, followed: true, reused: true, follow_id: existing.id };
       }
-      const importing = (await client.query("SELECT state FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id])).rows[0];
-      if (importing && importing.state !== "succeeded") throw new HttpFail(409, { code: "candidate_import_pending", message: "该红人的入库结果正在核对，请稍后再跟进。" });
+      const importing = (await client.query("SELECT * FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id])).rows[0];
+      if (importing && importing.state !== "succeeded") {
+        const orphaned = importing.state === "dispatching" &&
+          Date.now() - new Date(importing.updated_at).getTime() > STALE_DISPATCHING_MS;
+        if (importing.state === "dispatching" && !orphaned) {
+          throw new HttpFail(409, { code: "candidate_import_pending", message: "该红人正在入库，请稍后再跟进。" });
+        }
+        // uncertain / 孤儿 dispatching：跟进前真去 Starry 核对一次，不再永远 409。
+        // Starry 已有 → 补成功落盘后继续跟进；没有 → 删掉僵尸行，跟进走本地建档，
+        // 跟进成功后的 Starry 写入会重新入库；核对本身失败 → 502 诚实报错。
+        const reconciled = await reconcileUncertainImport(client, {
+          row, actionId, actorId: actor.id, sourceBatch: `runtime:${actionId}`, candidateId, allowFollowed: true,
+        });
+        if (!reconciled) {
+          await client.query("DELETE FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3",
+            [company, row.platform, row.id]);
+          await audit(client, actor.id, "discovery.runtime.import.zombie_cleared", { action_id: actionId,
+            candidate_id: candidateId, prior_state: importing.state });
+        }
+      }
       const known = await profile(client, row);
       if (known && known.ingest_source !== "discovery-candidate" && known.pool_status !== "open") {
         throw new HttpFail(409, { code: "candidate_ownership_unknown", message: "正式档案当前不在公海，请先核对归属。" });
@@ -148,6 +317,7 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
       return { ok: true, followed: true, follow_id: followId, kol_uid: uid, imported: false };
     });
     // 跟进成功后建档为线索（去重：平台+账号已存在则复用）。桥接失败不破坏跟进主动作。
+    let followed: Record<string, unknown> = result as unknown as Record<string, unknown>;
     if (result.followed && !result.reused) {
       try {
         const bridged = await ensureLeadFromDiscoveryCandidate(actor.id, isAdmin(actor), {
@@ -155,72 +325,40 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
           account_url: row.source_url, follower_count: row.followers,
           category: row.direction, candidate_id: candidateId,
         });
-        return { ...result, lead_id: bridged.lead_id, lead_created: bridged.created };
+        followed = { ...result, lead_id: bridged.lead_id, lead_created: bridged.created };
       } catch (error) {
         console.error("kol lead bridge failed after discovery follow", { candidate_id: candidateId, error: error instanceof Error ? error.message : error });
       }
     }
-    return result;
+    // 需求变更（2026-10-08 qiyou）：跟进成功后写 Starry 公海。失败不破坏跟进，如实返回状态。
+    if (followed.followed && !followed.reused) {
+      try {
+        const imported = await starryImportCandidate({ row, actionId, actorId: actor.id,
+          sourceBatch: `runtime:${actionId}`, candidateId,
+          snapshotVersion: input.snapshot_version, allowFollowed: true });
+        return { ...followed, starry_imported: true, starry_kol_uid: imported.kol_uid };
+      } catch (error) {
+        const rawMessage = error instanceof HttpFail
+          ? String((error.detail as { message?: string } | undefined)?.message || error.message)
+          : "Starry 入库失败";
+        const message = poolImportMessage(rawMessage);
+        console.error("starry import failed after discovery follow", { candidate_id: candidateId, error: message });
+        return { ...followed, starry_imported: false, starry_error: message };
+      }
+    }
+    return followed;
   }
   if (verb !== "ingest") throw new HttpFail(404, { code: "candidate_action_unknown" });
   requireSkill("creator_discovery");
-  const importContext = { ...action.context_json, agentId: runtimeAgentForSkill("creator_discovery", actor.id), skillId: "creator_discovery" };
-  const authorizeImport = () => {
-    authorizeConnector(importContext, "starrykol");
-    const tool = "importKolProfilesFromCrawler";
-    const binding = getSkillTools(importContext.skillId, "starrykol").find(item => item.tool_name === tool);
-    const policy = getToolPolicy("starrykol", tool);
-    if (!binding?.enabled || !policy?.enabled || policy.risk !== "L3" || policy.access !== "write") {
-      throw new HttpFail(403, { code: "runtime_tool_not_granted", message: "当前智能体未获准将候选导入正式公海。" });
-    }
-  };
-  authorizeImport();
+  authorizeStarryImport(action, actor.id);
   if (input.confirmed !== true) throw new HttpFail(422, { code: "l3_confirm_required", message: "加入公海需要确认。" });
   const sourceBatch = `runtime:${actionId}`;
-  const importState = await postgresTransaction(async client => {
-    await lock(client, row);
-    authorizeImport();
-    await currentSnapshot(client, actionId, row, input.snapshot_version);
-    if (await follow(client, row)) throw new HttpFail(409, { code: "candidate_followed", message: "该红人已有有效跟进关系，不能加入公海。" });
-    const known = await profile(client, row);
-    if (known && known.ingest_source !== "discovery-candidate") {
-      if (known.pool_status !== "open") throw new HttpFail(409, { code: "candidate_ownership_unknown", message: "正式档案当前不在公海，请先核对归属。" });
-      return { ok: true, kol_uid: known.kol_uid, reused: true };
-    }
-    const prior = (await client.query("SELECT * FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id])).rows[0];
-    if (prior) {
-      if (prior.state === "succeeded") return { ok: true, kol_uid: prior.kol_uid, reused: true };
-      throw new HttpFail(409, { code: "import_creator_uncertain", message: "入库请求已提交，正在核对结果；请勿重复提交。" });
-    }
-    await client.query(`INSERT INTO discovery_runtime_imports(company_id,platform,creator_id,action_id,actor_id,state)
-      VALUES($1,$2,$3,$4,$5,'dispatching')`, [company, row.platform, row.id, actionId, actor.id]);
-    await audit(client, actor.id, "discovery.runtime.ingest.confirmed", { action_id: actionId, candidate_id: candidateId, source_batch: sourceBatch,
-      snapshot_version: input.snapshot_version, confirmed: true, risk: "L3" });
-    return null;
-  });
-  if (importState) return importState;
+  let imported;
   try {
-    authorizeImport();
-    const file = buildCrawlerImportFile([mapCandidateToCrawlerRow({ platform: row.platform, platform_creator_id: row.id,
-      nickname: row.name, profile_url: row.source_url })]);
-    const receipt = await importKolProfilesFromCrawlerConfirmed({ file, sourceBatch, actor: actor.id,
-      creatorExternalId: creatorExternalId(row.platform, row.id), candidateId });
-    await postgresTransaction(async client => {
-      await lock(client, row);
-      const now = new Date().toISOString();
-      await client.query(`INSERT INTO kol_profile_index(id,company_id,kol_uid,handle,display_name,platform,homepage_url,followers,
-        avg_plays,region,ingest_source,pool_status,platform_creator_id,source_batch,source_version,ingested_at,created_at,updated_at,avatar_url,direction)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'discovery-ingest','open',$4,$11,$11,$12,$12,$12,$13,$14)
-        ON CONFLICT(company_id,kol_uid) DO UPDATE SET platform_creator_id=EXCLUDED.platform_creator_id,updated_at=EXCLUDED.updated_at`,
-      [`profile_${randomUUID()}`, company, receipt.kol_uid, row.id, row.name, row.platform, row.source_url,
-        row.followers == null ? null : String(row.followers), row.avg_views_10 == null ? null : String(row.avg_views_10), row.region, sourceBatch, now, row.avatar_url || null, row.direction || null]);
-      await client.query(`UPDATE discovery_runtime_imports SET state='succeeded',kol_uid=$4,receipt=$5,updated_at=now()
-        WHERE company_id=$1 AND platform=$2 AND creator_id=$3`, [company, row.platform, row.id, receipt.kol_uid, JSON.stringify(receipt)]);
-      await audit(client, actor.id, "discovery.runtime.ingested", { action_id: actionId, candidate_id: candidateId, kol_uid: receipt.kol_uid, sent: false, followed: false });
-    });
-    return { ok: true, kol_uid: receipt.kol_uid, in_pool: true };
+    imported = await starryImportCandidate({ row, actionId, actorId: actor.id, sourceBatch,
+      candidateId, snapshotVersion: input.snapshot_version, allowFollowed: false });
   } catch (error) {
-    await postgresPool().query("UPDATE discovery_runtime_imports SET state='uncertain',updated_at=now() WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id]);
-    throw error;
+    throw poolImportError(error);
   }
+  return { ok: true, kol_uid: imported.kol_uid, in_pool: true, reused: imported.reused };
 }

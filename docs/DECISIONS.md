@@ -2,6 +2,45 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-09：Starry 入库 uncertain 状态的真核对（替代永远 409）
+
+- **状态**：已接受（线上 409「入库请求已提交，正在核对结果」实证：没有对账扫，uncertain 是死胡同，「正在核对」无人执行）。
+- **背景**：`discovery_runtime_imports` 状态机只有 dispatching → succeeded / uncertain；uncertain 后重试永远 409，无恢复路径。根因链：MCP client 无超时 → 导入挂起 → nginx 60s 掐断 504（已修：后端导入 120s/核对 30s 硬超时 + nginx `proxy_read_timeout 240s`）。
+- **决定**：
+  1. 重试命中 uncertain（或 dispatching 超 10 分钟视为孤儿）时，真调 `pageKolProfiles` 按平台账号核对 Starry 侧：有 → 补成功落盘（画像 + succeeded + 审计 `reconciled: true`）；没有 → 删旧行重新派发（已核对，非盲目）。
+  2. 核对本身失败（Starry 无响应）→ 502「入库状态核对失败，请稍后重试；未重复提交」，不删行、不盲目重试。
+  3. 鲜活的 dispatching（10 分钟内）仍 409「正在处理，请稍后再试」。
+- **理由**：CONST 不变量「真实等待有原因、不得伪造完成」——旧文案承诺的「正在核对」实际无人执行，属伪造状态；新路径让文案为真。R3 导入的确认与回执不变。
+- **限制**：PG 真跑待用户环境；`discovery-candidate-actions.test.ts` 新增 3 项核对测试（原「never dispatches again」按新语义重写）。
+- **追记（同日）**：跟进口 `candidate_import_pending` 是同一死锁的另一面——uncertain 行同样让「跟进」永远 409，而跟进成功后的 Starry 写入已走核对路径。决定：跟进前对 uncertain/孤儿 dispatching 复用 `reconcileUncertainImport`；Starry 有 → 补成功落盘后继续跟进；没有 → 删僵尸行走本地建档（跟进后的 Starry 写入会重新派发）；核对失败 → 502。鲜活 dispatching 仍 409，文案改为「该红人正在入库，请稍后再跟进」（诚实）。测试新增 4 项（跟进三态）。
+- **追记（同日二）**：线上实证两条——①「已跟进，但 Starry 入库未完成：写入红人档案失败，未加入跟进」自相矛盾：`employeeImportError` 的「未加入跟进」是旧流程残留（当年跟进＝入库一步），现在跟进已成功、失败的只是写公海。决定：candidate-actions 内 `poolImportMessage`/`poolImportError` 把「加入跟进」纠正为「加入公海」（跟进口 catch 与加入公海口共用；不碰共享 fallback，其它流程断言不变）。② 超时那次若 Starry 侧实际写成功了，keyword 核对会漏检（刚建档案 keyword 查不到，`findExistingKolUid` 注释有载），误判「未入库」删行重派发会撞重复拒绝。决定：`lookupImportedKolUid` 加 listAll 兜底；`host.import_creator.failed` 审计补 `error_detail`（脱敏后真实错误，用户文案仍走白名单）。测试 +1（文案纠正）。
+
+## ADR-2026-10-08（二）：公海品牌可见性 —— 跟进后同品牌在公海不可见
+
+- **状态**：已接受（用户 2026-10-08 直接要求实现）。
+- **背景**：跟进（建线索）后，该 KOL 仍在公海对所有人可见，同品牌内部会重复跟进、撞单。
+- **决定**：
+  1. 线索记品牌归属（`kol_leads.brand`）：显式传入优先，否则取跟进人唯一品牌；多品牌/全品牌/无品牌留空。
+  2. 建线索即建品牌锁（`kol_pool_brand_locks`，按平台+稳定外部 ID+品牌唯一）；线索归档时释锁（有其他有效同品牌线索则保留）。
+  3. 公海读取按查看者品牌排除被锁 KOL：LT 跟进 → LT 用户不可见，RG 等其他品牌仍可见。
+  4. 组长（2026-10-08 用户纠正：department_head 即组长，不限层级）：以组织树 `organization_units.head_person_ref` 为准，组长看全量公海（不受品牌锁限制）与本单元及下级单元的全部跟进线索；组长的上级（父单元 head）范围更大、权限更多。读放行，写（改/转/归档）仍只限本人或管理员。
+- **理由**：CONST-04（权限在取数前校验，SQL 内过滤；线索列表 `ANY(memberIds)` 同理）；BIZ-15（锁身份键只用平台+稳定外部 ID）；组织表以人员页 `organization_units`（一级→二级→三级→四级→人员）为准。
+- **限制**：PG 锁 SQL 与线索范围 SQL 真跑待用户环境。
+
+## ADR-2026-10-08：AI发现去重三层 + 线索阶段 Jev 打分 + 候选卡片加入公海/跟进 CTA
+
+- **状态**：已接受（用户 2026-10-08 裁决：按推荐做；卡片 CTA 作为二期综合考虑）。
+- **背景**：AI发现跨运行零去重（只有 `ON CONFLICT(request_id, …)` 防重入），抓回来的数据高度重合；「去重打分」是纯前端 label；定时模板 `dedup_by` 无消费方。Jev 评分只在公海手动触发（≤12 个/次），线索阶段无分。首页候选卡片 `POST /home/discovery/candidates/:id/ingest` 501 占位、`…/follow` 403 禁止（10-07 §24.6「禁止从发现路径直接创建 Collaboration/排他认领」）。
+- **决定**：
+  1. **去重身份键** `(platform, 归一化 platform_creator_id)`（BIZ-15：只认平台+稳定外部 ID）；跨平台同一真人不自动合并，只标疑似。
+  2. **三层去重**：批次内内存去重 → PG `kol_creator_pool` 跨运行（`window_days` 默认 30，模板可配；超窗口允许重新入池）→ `kol_leads`/`kol_cooperations`/`kol_follow_index` 跨业务标状态。被去重者入库标 `suppressed`，前端默认折叠。
+  3. **模板 `dedup` 做实**：`system_template.dedup.window_days` 经 `enqueueSystemCrawl` 落 `args_json`，回填时记池。
+  4. **线索阶段打分**：`createKolLead` 后异步调 `assessPublicKolWithJev`（字段映射 + 来源口径，缺啥评啥）；去重命中新鲜评分直接复用；`kol_leads` 加评分列。公海卡片沿用线索分 + 口径摘要展示，跨口径仅参考，不做全池重评。
+  5. **二期 CTA**：「加入公海」（L2，全卡唯一）复用批量 `ingestOne` 同一 Starry 写入路径；「跟进」（L3）= 创建线索（`source='ai_discovery'`）+ upsert `kol_profile_index`（`ingest_source='discovery-lead'`，仍在公海 open）。行内二次确认。
+  6. **决策变更**：10-07「禁止从发现路径直接创建 Collaboration/排他认领」部分推翻——跟进创建的是**线索业务对象**，不是排他认领（`kol_follow_index`）；排他认领仍只在公海完成。
+- **理由**：BIZ-15/BIZ-27/CONST-04/R 分级见设计文档审宪记录（`your_files/discovery-dedup-score-design.md`）。
+- **限制**：PG 集成测试沙箱跑不了（无 `TEST_DATABASE_URL`），待用户环境补；`ingestOne` 要求真实联系邮箱，无邮箱候选 409 如实失败。
+
 ## ADR-2026-10-07：写合作邮件三路径实时带出发件箱/收件人（来源+候选）、无模板首封可提交草稿
 
 - **状态**：已接受（用户 2026-10-07 裁决：四个确认点全确认，按方案开工；合并/推送/部署待走查通过后再确认）。

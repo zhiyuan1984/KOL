@@ -1,6 +1,7 @@
 import { postgresQuery } from "./pool.js";
 import { publicProfileFields } from "../host/public-profile.js";
 import { HttpFail } from "../host/errors.js";
+import { attachLeadAssessments } from "../ticket-domain/kol-lead-scoring.js";
 import type { Json, Row } from "../types.js";
 
 export type PoolPageOptions = {
@@ -46,10 +47,19 @@ function metricSearch(column: string): string {
 }
 
 /** One PostgreSQL snapshot for the bounded page, counts and library status. No sync bridge or remote calls. */
-export async function readPublicPoolPage(options: PoolPageOptions, companyId: string) {
+/**
+ * 公海品牌可见性（2026-10-08 用户规则）：viewerBrands 为查看者的品牌 code 数组
+ * 时，排除被同品牌跟进（kol_pool_brand_locks）锁定的 KOL；null 表示全品牌
+ * （推广组组长/管理员/公司级部门负责人）不过滤；undefined 表示无法判定查看者，
+ * 按失败开放处理（不过滤，保持现有行为）。
+ */
+export async function readPublicPoolPage(options: PoolPageOptions, companyId: string, viewerBrands?: string[] | null) {
   const [field, direction] = options.sort.split("-");
   const orderField = field === "followers" ? "follower_number" : field === "ingested" || field === "default" ? "ingested_at" : "COALESCE(potential_score, 0)";
   const orderDirection = direction === "asc" ? "ASC" : "DESC";
+  const brandFilter = Array.isArray(viewerBrands)
+    ? viewerBrands.map((brand) => String(brand).trim().toUpperCase()).filter(Boolean)
+    : null;
   const rows = await postgresQuery<{
     items: Row[]; total: string; matched: string; new_count: string; library_value: string | null;
   }>(`
@@ -72,6 +82,12 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
           WHERE f.company_id=p.company_id AND f.status='active' AND
             (f.kol_uid=p.kol_uid OR (lower(owned.platform)=lower(p.platform)
               AND NULLIF(owned.platform_creator_id,'')=NULLIF(p.platform_creator_id,''))))
+        AND ($6::text[] IS NULL OR NOT EXISTS (
+          SELECT 1 FROM kol_pool_brand_locks bl
+          WHERE lower(bl.platform) = lower(p.platform)
+            AND NULLIF(bl.platform_creator_id, '') = NULLIF(lower(p.platform_creator_id), '')
+            AND bl.brand = ANY($6::text[])
+        ))
     ), candidates AS (
       SELECT s.*, CASE WHEN public_url <> '' THEN 'url:' || regexp_replace(lower(public_url), '/+$', '')
         ELSE 'identity:' || lower(trim(COALESCE(platform, ''))) || ':@' || lower(bare_handle) END AS profile_key,
@@ -105,7 +121,7 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
       (SELECT count(*) FROM filtered)::text AS matched,
       (SELECT count(*) FROM visible WHERE public_filter='new')::text AS new_count,
       (SELECT value FROM app_state WHERE key='starry_library_sync') AS library_value
-  `, [companyId, options.filter, options.query, options.limit, options.offset]);
+  `, [companyId, options.filter, options.query, options.limit, options.offset, brandFilter]);
   const result = rows[0]!;
   let library: Json = { ok: false, source: "starry", tool: "listAllKolProfiles", count: 0 };
   try {
@@ -116,7 +132,9 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
   return {
     entry: "memory", kind: "memory", creates_session: false, calls_model: false, index: "公海",
     library,
-    items: result.items.map((row) => publicProfileFields({ ...row, public_stage: row.effective_stage })),
+    items: await attachLeadAssessments(
+      result.items.map((row) => publicProfileFields({ ...row, public_stage: row.effective_stage })),
+    ),
     page: {
       offset: options.offset, limit: options.limit, total: Number(result.total), matched,
       new_count: Number(result.new_count),

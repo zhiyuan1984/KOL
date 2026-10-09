@@ -50,17 +50,18 @@ const brief = {
 
 function render(
   overrides: Partial<HomeDiscoveryCandidate> = {},
-  props: { followUp?: boolean } = {},
+  props: { followedUp?: boolean } = {},
 ): string {
   return renderToStaticMarkup(createElement(DiscoveryLeadRow, {
     candidate: { ...candidate, ...overrides },
     brief,
     selected: false,
     expanded: false,
-    followUp: props.followUp ?? false,
+    followedUp: props.followedUp ?? false,
     onToggleSelect: () => undefined,
     onToggleExpand: () => undefined,
-    onToggleFollowUp: () => undefined,
+    onIngestCandidate: () => Promise.resolve(),
+    onFollowUpCandidate: () => Promise.resolve(),
     onIgnore: () => undefined,
   }));
 }
@@ -93,23 +94,31 @@ describe("discovery lead row", () => {
     expect(html).toContain("看来源");
   });
 
-  it("offers per-row follow-up triage on selectable candidates", () => {
+  it("offers a real follow-up action that creates a lead (not a local triage flag)", () => {
     const html = render();
     expect(html).toContain('data-discovery-followup="c1"');
     expect(html).toContain("跟进");
     expect(html).not.toContain("data-lead-followup");
-    const marked = render({}, { followUp: true });
-    expect(marked).toContain("data-lead-followup");
-    expect(marked).toContain("待跟进");
-    expect(marked).toContain("取消跟进");
-    expect(marked).toContain('aria-pressed="true"');
+    const followed = render({}, { followedUp: true });
+    expect(followed).toContain("data-lead-followup");
+    expect(followed).toContain("已跟进");
+    expect(followed).not.toContain("data-discovery-followup");
   });
 
-  it("hides the follow-up action when the candidate cannot be ingested", () => {
-    const html = render({ ingestReadiness: "needs_contact" });
-    expect(html).not.toContain("data-discovery-followup");
-    const existing = render({ ingestReadiness: "already_in_library" });
-    expect(existing).not.toContain("data-discovery-followup");
+  it("shows 加入公海 only before the candidate is in the library", () => {
+    const notInLibrary = render({ in_library: false });
+    expect(notInLibrary).toContain('data-lead-ingest="c1"');
+    expect(notInLibrary).toContain("加入公海");
+    const inLibrary = render({ in_library: true });
+    expect(inLibrary).not.toContain("data-lead-ingest");
+    expect(inLibrary).not.toContain("加入公海");
+  });
+
+  it("uses L3 text buttons only on the card (no L2): 加入公海 is a quiet text button", () => {
+    const html = render({ in_library: false });
+    expect(html).not.toContain("pool-claim-button");
+    expect(html).toContain('data-lead-ingest="c1"');
+    expect(html).toContain("加入公海");
   });
 
   it("renders the brief-fit decision line from thresholds", () => {

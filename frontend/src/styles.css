@@ -2135,31 +2135,78 @@ summary:focus-visible,
 }
 .discovery-confirm {
   position: relative;
-  width: min(440px, 100%);
+  width: min(var(--dialog-w-sm), 100%);
   display: grid;
-  gap: var(--space-4);
-  padding: var(--space-5);
+  gap: var(--space-3);
+  padding: var(--dialog-pad-compact-y) var(--dialog-pad-compact-x);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-quiet);
 }
-.discovery-confirm strong {
-  font-size: var(--font-section);
-  line-height: var(--leading-tight);
+.discovery-confirm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
-.discovery-confirm p {
+.discovery-confirm-title {
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+  font-weight: var(--ds-weight-section);
+}
+.discovery-confirm-risk {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding-inline: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-quiet);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-weight: 500;
+}
+.discovery-confirm-rows {
+  display: grid;
+  margin: 0;
+}
+.discovery-confirm-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: var(--space-2);
+  padding-block: var(--space-1);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.discovery-confirm-row + .discovery-confirm-row {
+  border-top: 1px solid var(--border);
+}
+.discovery-confirm-row dt {
+  color: var(--text-quiet);
+  white-space: nowrap;
+}
+.discovery-confirm-row dd {
   margin: 0;
   color: var(--text);
-  font-size: var(--font-body);
-  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+.discovery-confirm-row dd code {
+  font-size: var(--ds-font-helper);
+  color: var(--text-quiet);
+}
+.discovery-confirm-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.discovery-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 .discovery-confirm [data-discovery-follow-error] {
   color: var(--danger);
-}
-.discovery-confirm .discovery-plan-actions .btn {
-  margin: 0;
-  min-height: 40px;
 }
 /* 紧凑检索区：标题 / 平台 / 条件合并为一块，左沿与状态卡、工具栏、候选列表一致（无卡片内边距）。 */
 .ai-discovery-card {
@@ -12850,12 +12897,13 @@ button.today-brief-primary-btn:disabled {
    基本法→TECH-FE-02/03；结论→符合；证据→仅调整网格，身份行保留选择框与头像，
    后续信息跨整行，动作与数据不变；下一步→构建与差异校验。 */
 .discovery-lead-main { display: contents; }
-.discovery-lead-identity { grid-column: 3; grid-row: 1; display: flex; flex-wrap: wrap; align-items: start; gap: var(--space-1) var(--space-2); margin: 0; min-width: 0; }
+.discovery-lead-identity { grid-column: 3; grid-row: 1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; min-width: 0; }
 .discovery-lead-nickname { color: var(--text); font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); font-weight: 500; overflow-wrap: anywhere; }
 .discovery-lead-identity .discovery-chip { height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
 .discovery-lead-tag { color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
-.discovery-lead-tag:is(.is-readiness,.is-followup) { display: inline-flex; align-items: center; min-height: var(--badge-h); padding-inline: var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-control); font-weight: 500; }
-.discovery-lead-tag.is-followup { color: var(--accent-text); border-color: var(--accent); }
+.discovery-lead-tag.is-followup { display: inline-flex; align-items: center; min-height: var(--badge-h); padding-inline: var(--space-1); border: 1px solid var(--accent); border-radius: var(--radius-control); font-weight: 500; color: var(--accent-text); }
+/* 入库就绪态按用户要求展示为纯绿色文字，不用描边 chip。 */
+.discovery-lead-tag.is-readiness { display: inline-flex; align-items: center; font-weight: 500; }
 .discovery-lead-tag.is-readiness.is-ready { color: var(--color-success-vivid); }
 .discovery-lead-tag.is-readiness.is-needs_review { color: var(--color-warning-vivid); }
 .discovery-lead-meta { grid-column: 1 / -1; min-width: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: 0; color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); overflow-wrap: anywhere; }

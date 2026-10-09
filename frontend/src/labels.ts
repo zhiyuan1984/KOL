@@ -100,6 +100,10 @@ const ERROR_TITLES: Record<string, string> = {
   proposal_collaboration_missing: "缺少合作对象",
   proposal_illegal_target: "阶段建议不合法",
   nudge_stage_gate: "当前阶段不能催大纲",
+  candidate_scope_denied: "该红人已有有效跟进关系，当前不可操作",
+  runtime_tool_not_granted: "当前智能体未获准将候选导入正式公海",
+  runtime_connector_unbound: "Starry 连接器未绑定到当前智能体",
+  runtime_connector_disabled: "Starry 连接器已停用",
   nudge_incomplete: "催大纲信息不完整",
   ship_incomplete: "发货信息不完整",
   knowledge_incomplete: "知识模板未填完",
@@ -438,6 +442,9 @@ export function friendlyError(error: unknown, fallback = "操作未完成，请�
       .replace(/非法阶段边/g, "请从主流程、分支流程或异常流程中选择具体阶段")
       .replace(/collaboration not found/g, "找不到对应合作")
       .replace(/collaboration_id/g, "合作红人");
+  }
+  if (/请求失败\s*\(\s*504\s*\)|gateway time-?out/i.test(raw)) {
+    return "网关超时：请求可能仍在处理中，请勿重复提交，稍后核对是否已生效。";
   }
   return raw;
 }

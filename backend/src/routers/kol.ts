@@ -1,5 +1,7 @@
 import { Hono } from "hono";
+import { scopedUser } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
+import { brandScope, leaderMemberUserIds } from "../host/inbound-scope.js";
 import { nid } from "../ids.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
 import {
@@ -43,7 +45,7 @@ function actor() {
 kol.post("/kol/leads", async (c) => {
   const { id, isAdmin } = actor();
   const body = await c.req.json().catch(() => ({})) as KolLeadInput;
-  const result = await createKolLead(id, isAdmin, body);
+  const result = await createKolLead(id, isAdmin, body, { actorBrands: brandScope(scopedUser()) });
   return c.json({ ...result, ...meta() }, 201);
 });
 
@@ -54,13 +56,16 @@ kol.get("/kol/leads", async (c) => {
     mine: c.req.query("mine") === "1" || c.req.query("mine") === "true",
     search: c.req.query("search"),
     limit: parseLimit(c.req.query("limit")), offset: parseOffset(c.req.query("offset")),
-  });
+  }, { leaderMemberIds: leaderMemberUserIds(scopedUser()) });
   return c.json({ ...page, ...meta() });
 });
 
 kol.get("/kol/leads/:id", async (c) => {
   const { id, isAdmin } = actor();
-  return c.json({ ...(await kolLeadDetail(id, isAdmin, c.req.param("id"))), ...meta() });
+  return c.json({
+    ...(await kolLeadDetail(id, isAdmin, c.req.param("id"), { leaderMemberIds: leaderMemberUserIds(scopedUser()) })),
+    ...meta(),
+  });
 });
 
 kol.patch("/kol/leads/:id", async (c) => {

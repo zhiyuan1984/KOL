@@ -31,8 +31,28 @@ import {
   isDiscoveryRegion,
   isDomesticPlatform,
 } from "./discovery-template.js";
+import { randomUUID } from "node:crypto";
 import { onCrawlJobSettled, startCrawl, stopCrawl } from "./crawl/service.js";
+import {
+  DEFAULT_DEDUP_WINDOW_DAYS,
+  dedupeSightings,
+  normalizeCreatorKey,
+  type DedupOutcome,
+  type DedupSighting,
+} from "./crawl/dedup.js";
 import { audit, getConn, nowIso, tx } from "./db.js";
+import { ingestOne } from "./host/discovery-ingest.js";
+import { brandScope } from "./host/inbound-scope.js";
+import { memoryCompanyId } from "./host/kol-memory.js";
+import { postgresPool } from "./postgres/pool.js";
+import { createKolLead } from "./ticket-domain/kol-leads.js";
+
+/** 本文件内的 asObject（此前 1572 行引用缺失，tsc TS2552）。 */
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 import {
   FROM_TEXT_FORBIDDEN_TASK_TYPES,
   runInDiscoveryHarness,
@@ -877,18 +897,52 @@ function hostFilterSnapshots(run: Row, job: Row): { kept: Row[]; raw: number; dr
   return { kept, raw: snapshots.length, dropped };
 }
 
-function persistFilteredCandidates(run: Row, job: Row): { written: number; raw: number; dropped: number } {
+async function persistFilteredCandidates(
+  run: Row,
+  job: Row,
+): Promise<{ written: number; raw: number; dropped: number; duplicates: number; dedup_skipped: boolean }> {
   const { kept, raw, dropped } = hostFilterSnapshots(run, job);
+  // 一期去重：「去重打分」阶段名副其实 —— 归一化 → 批次内去重 → 池比对 → 业务比对 → 写池。
+  // PG 不可用时降级跳过去重（候选照常落盘），不伪造去重结论。
+  let dedupByKey = new Map<string, DedupOutcome>();
+  let batchDuplicates = 0;
+  let dedupSkipped = false;
+  const keptKeys = kept.map((snap) =>
+    normalizeCreatorKey(snap.platform || job.platform, snap.platform_creator_id),
+  );
+  try {
+    const sightings: DedupSighting[] = kept.map((snap) => ({
+      platform: String(snap.platform || job.platform || "").toLowerCase(),
+      platform_creator_id: String(snap.platform_creator_id || "").trim(),
+      handle: String(snap.nickname || snap.claw_handle || "").trim() || null,
+      display_name: String(snap.nickname || snap.claw_name || "").trim() || null,
+      profile_snapshot: {
+        followers: snap.followers ?? null,
+        avg_views_10: recentViewsOf(snap).length ? avgViews10(snap) : null,
+        collected_at: snap.collected_at ?? null,
+        crawl_job_id: job.id,
+      },
+    }));
+    const { outcomes, batch_duplicates } = await dedupeSightings(sightings, DEFAULT_DEDUP_WINDOW_DAYS);
+    dedupByKey = new Map(outcomes.map((outcome) => [outcome.key, outcome]));
+    batchDuplicates = batch_duplicates;
+  } catch (error) {
+    dedupSkipped = true;
+    console.error("[discovery-dedup] pool unavailable, dedup skipped:", error instanceof Error ? error.message : error);
+  }
   const now = nowIso();
   let written = 0;
   tx((db) => {
     for (const [index, snap] of kept.entries()) {
+      // 批次内重复：第一条已写入，后续跳过（与原来"后写覆盖先写"结果一致，更干净）。
+      if (dedupByKey.size && keptKeys.indexOf(keptKeys[index]) !== index) continue;
       const platform = String(snap.platform || job.platform || "").toLowerCase();
       const platformCreatorId = String(snap.platform_creator_id || "").trim();
       const nickname = String(snap.nickname || snap.claw_name || snap.claw_handle || "").trim();
       const followersPresent = snap.followers != null && String(snap.followers) !== "";
       const views = recentViewsOf(snap);
       const flags = lookupFlags(platform, platformCreatorId);
+      const dedup = dedupByKey.get(keptKeys[index]);
       const metricsMissing = !followersPresent || !views.length;
       const existing = db.prepare(
         "SELECT * FROM creator_candidates WHERE request_id=? AND platform=? AND platform_creator_id=?",
@@ -903,6 +957,15 @@ function persistFilteredCandidates(run: Row, job: Row): { written: number; raw: 
         crawl_job_id: job.id,
         source: "ai",
         contact_needed: true,
+        // 三层去重结论（不改表结构，走 payload；被去重的入库标 suppressed，前端默认折叠）。
+        dedup: dedup
+          ? {
+              pool: dedup.pool,
+              days_since_seen: dedup.days_since_seen,
+              business: dedup.business,
+              suppressed: dedup.suppressed,
+            }
+          : { skipped: true },
         ...crawlerFieldsOf(parseJson(snap.claw_payload), snap),
       };
       const signals = {
@@ -969,7 +1032,7 @@ function persistFilteredCandidates(run: Row, job: Row): { written: number; raw: 
         WHERE id=?`,
     ).run(raw, written, now, run.id);
   });
-  return { written, raw, dropped };
+  return { written, raw, dropped, duplicates: batchDuplicates, dedup_skipped: dedupSkipped };
 }
 
 /**
@@ -1153,7 +1216,7 @@ async function defaultPlanRunner(input: { sessionId: string; prompt: string; ext
   return runWorker(input.sessionId, "discovery_plan", input.prompt, input.extra);
 }
 
-function onHomeCrawlSettled(job: Row): void {
+async function onHomeCrawlSettled(job: Row): Promise<void> {
   const run = getConn().prepare(
     "SELECT * FROM discovery_runs WHERE crawl_job_id=? AND kind=?",
   ).get(job.id, HOME_KIND) as Row | undefined;
@@ -1162,7 +1225,7 @@ function onHomeCrawlSettled(job: Row): void {
     if (status === "result_ready") {
       try {
         event(String(run.work_item_id || ""), "crawl_progress", "crawling", "采集结果已就绪");
-        const counts = persistFilteredCandidates(run, job);
+        const counts = await persistFilteredCandidates(run, job);
         event(String(run.work_item_id || ""), "crawl_idle", "ranking", "采集空闲，已写入 CreatorCandidate");
         track(rankHomeDiscoveryRun(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(run.id) as Row, counts));
       } catch (error) {
@@ -1467,16 +1530,224 @@ export function homeDiscoveryCandidateIngestPlaceholder(id: string): Json {
   return { ...INGEST_HANDOFF };
 }
 
-/** This path must not create Collaboration. Real ingest/claim is not owned here. */
-export function homeDiscoveryFollowForbidden(id: string): Json {
-  homeCandidateRow(id);
+/**
+ * 二期「加入公海」：单候选 Starry 入库（复用批量 `ingestOne` 同一写入路径，L3 需确认）。
+ * 成功后候选即在库（kol_profile_index pool_status='open'）。
+ */
+/**
+ * 候选解析（含会话视图回退）。
+ *
+ * 首页会话视图展示的是运行时 `result_json` 的候选（运行时 id），而
+ * `creator_candidates` 的行 id 是 `persistFilteredCandidates` 新生成的
+ * `nid("cand")`——两套 id 空间从未对齐，直接查行必 404。
+ * 回退：按 body.run_id（会话视图下即 runtime action id）去
+ * `runtime_crawl_jobs.result_json` 里找候选，用运行时数据直接执行。
+ */
+async function resolveCandidateForAction(
+  id: string, body: Json,
+): Promise<{ candidate: Row; sqliteRow: Row | null; sourceBatch: string; runId: string }> {
+  try {
+    const row = homeCandidateRow(id);
+    return { candidate: row, sqliteRow: row, sourceBatch: `home:${row.run_id}`, runId: String(row.run_id) };
+  } catch (error) {
+    if (!(error instanceof HttpFail) || error.status !== 404) throw error;
+  }
+  const actionId = String(asObject(body).run_id || "").trim();
+  if (!actionId) {
+    throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人" });
+  }
+  // 注意：/api/home/discovery/* 不在 formalAuthorityPath 内，ticket principal 中间件不会执行，
+  // 这里必须用工作台身份 ownerId()（与 runtime_crawl_jobs.actor_id 同一 id 空间），不能用 requireTicketPrincipal()。
+  const actorId = ownerId();
+  const job = await postgresPool().query<{ result_json: unknown }>(
+    `SELECT result_json FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2`,
+    [actionId, actorId],
+  );
+  const rawCandidates = asObject(job.rows[0]?.result_json).candidates;
+  const list = Array.isArray(rawCandidates) ? rawCandidates : [];
+  const found = list.map((item) => asObject(item)).find((item) => String(item.id || "") === id);
+  if (!found) {
+    throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人" });
+  }
+  return { candidate: runtimeCandidateRow(found, actionId), sqliteRow: null, sourceBatch: `runtime:${actionId}`, runId: actionId };
+}
+
+/** 把运行时 result_json 的候选适配成下游（ingestOne / 跟进）读取的 Row 形状。 */
+function runtimeCandidateRow(raw: Record<string, unknown>, actionId: string): Row {
+  const str = (value: unknown): string => String(value ?? "").trim();
+  const platform = str(raw.platform).toLowerCase();
+  const platformCreatorId = str(raw.platform_creator_id || raw.platformCreatorId);
+  const nickname = str(raw.nickname || raw.name || raw.display_name || raw.title);
+  const handle = str(raw.handle || raw.username);
+  const followers = Number(raw.followers ?? raw.follower_count);
+  const avgViews = Number(raw.avg_plays_10 ?? raw.avg_views_10);
   return {
-    executed: false,
-    collaboration_created: false,
-    starry_written: false,
-    code: "home_discovery_follow_forbidden",
-    message: "本路径禁止 follow 创建 Collaboration。采集完成只保留 CreatorCandidate。",
+    id: str(raw.id),
+    platform,
+    platform_creator_id: platformCreatorId,
+    handle: handle || null,
+    nickname: nickname || handle || platformCreatorId,
+    followers: Number.isFinite(followers) ? followers : null,
+    avg_views_10: Number.isFinite(avgViews) ? avgViews : null,
+    source_url: str(raw.profile_url || raw.source_url || raw.url) || null,
+    avatar_url: str(raw.avatar_url || raw.avatar) || null,
+    payload: JSON.stringify({
+      ...raw,
+      contact_email: str(raw.contact_email || raw.email),
+      profile_url: str(raw.profile_url || raw.source_url || raw.url),
+      direction: str(raw.direction || raw.fit || raw.category),
+      region: str(raw.region),
+      avatar_url: str(raw.avatar_url || raw.avatar),
+    }),
+    signals: JSON.stringify({}),
+    run_id: actionId,
+    source: "runtime",
+  } as Row;
+}
+
+export async function ingestHomeDiscoveryCandidate(id: string, body: Json): Promise<Json> {
+  if (!body || (body as Record<string, unknown>).confirmed !== true) {
+    throw new HttpFail(422, { code: "l3_confirm_required", message: "加入公海需要确认。" });
+  }
+  const { candidate, sourceBatch, runId } = await resolveCandidateForAction(id, body);
+  const receipt = await ingestOne({
+    candidate,
+    source_batch: sourceBatch,
+    run_id: runId,
+  });
+  audit(ownerId(), "discovery.candidate.ingested", {
+    candidate_id: candidate.id,
+    kol_uid: (receipt as Record<string, unknown>).kol_uid,
+    source_batch: sourceBatch,
+    sent: false,
+    followed: false,
+  });
+  return {
+    ok: true,
+    candidate_id: candidate.id,
+    kol_uid: (receipt as Record<string, unknown>).kol_uid,
+    in_library: true,
+    status: (receipt as Record<string, unknown>).status,
+    already_imported: Boolean((receipt as Record<string, unknown>).already_imported),
   };
+}
+
+/**
+ * 二期「跟进」：建立合作关系 = 创建线索（`kol_leads`，source='ai_discovery'），
+ * 并更新 Starry 库表（`kol_profile_index` upsert 画像）。
+ *
+ * 决策变更（2026-10-08 用户明确要求）：10-07 §24.6「禁止从发现路径直接创建
+ * Collaboration/排他认领」部分推翻——此处创建的是**线索业务对象**，不是
+ * 排他认领（`kol_follow_index`）；排他认领仍只在公海完成。
+ */
+export async function followHomeDiscoveryCandidate(id: string, body: Json): Promise<Json> {
+  const { candidate, sqliteRow, sourceBatch, runId } = await resolveCandidateForAction(id, body);
+  if (!body || (body as Record<string, unknown>).confirmed !== true) {
+    throw new HttpFail(422, { code: "follow_confirm_required", message: "跟进需要确认。" });
+  }
+  // 同上：本路由无 ticket principal，用工作台身份；id 与 ticket principal 同源（String(user.id)）。
+  const actorId = ownerId();
+  const admin = isAdmin();
+  const platform = String(candidate.platform || "").toLowerCase();
+  const platformCreatorId = String(candidate.platform_creator_id || "").trim();
+  if (!platform || !platformCreatorId) {
+    throw new HttpFail(422, { code: "candidate_identity_missing", message: "候选缺少平台或稳定外部编号，无法跟进。" });
+  }
+  const payload = asObject(candidate.payload);
+  const handle = String(candidate.handle || payload.handle || "").trim();
+  const displayName = String(candidate.nickname || handle || platformCreatorId).trim();
+  const accountUrl = String(payload.profile_url || payload.source_url || candidate.source_url || "").trim() || null;
+  const followers = Number(candidate.followers);
+  // 归一化去重预检：同一创作者已有线索直接返回，不重复建档。
+  const key = normalizeCreatorKey(platform, platformCreatorId);
+  const handleKey = handle ? normalizeCreatorKey(platform, handle) : null;
+  const existingLead = (
+    await postgresPool().query(
+      `SELECT id FROM kol_leads
+        WHERE NOT is_archived AND lower(platform)=$1
+          AND (lower(account_handle)=$2 OR ($3::text IS NOT NULL AND lower(account_handle)=$3))
+        LIMIT 1`,
+      [platform, key.slice(key.indexOf(":") + 1), handleKey ? handleKey.slice(handleKey.indexOf(":") + 1) : null],
+    )
+  ).rows[0] as { id: string } | undefined;
+  if (existingLead) {
+    return { ok: true, lead_id: existingLead.id, reused: true };
+  }
+  const created = await createKolLead(actorId, admin, {
+    platform,
+    account_handle: handle || platformCreatorId,
+    account_url: accountUrl,
+    display_name: displayName,
+    follower_count: Number.isFinite(followers) ? followers : null,
+    category: String(payload.direction || payload.category || "").trim() || null,
+    platform_creator_id: platformCreatorId,
+    source: "ai_discovery",
+    source_ref: String(candidate.id),
+    contact: payload.contact_email ? { email: payload.contact_email } : {},
+    owner_principal_id: actorId,
+    note: `AI发现跟进（run ${candidate.run_id}）`,
+    idempotency_key: `discovery:follow:${candidate.id}`,
+  }, {
+    // 品牌归属：跟进人唯一品牌（LT 跟进 → 公海对 LT 用户隐藏该 KOL，其他品牌仍可见）。
+    actorBrands: brandScope(scopedUser()),
+  });
+  const leadId = String((created as { lead: { id: string } }).lead.id);
+  // Starry 库表更新：upsert 画像（PG kol_profile_index），仍在公海（open），不做排他认领。
+  const now = new Date().toISOString();
+  await postgresPool().query(
+    `INSERT INTO kol_profile_index
+       (id, company_id, kol_uid, handle, display_name, platform, homepage_url, followers,
+        avg_plays, region, ingest_source, pool_status, platform_creator_id, source_batch,
+        created_at, updated_at, avatar_url, direction)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'discovery-lead','open',$11,$12,$13,$13,$14,$15)
+     ON CONFLICT (company_id, kol_uid) DO UPDATE SET
+       handle = COALESCE(EXCLUDED.handle, kol_profile_index.handle),
+       display_name = COALESCE(EXCLUDED.display_name, kol_profile_index.display_name),
+       followers = COALESCE(EXCLUDED.followers, kol_profile_index.followers),
+       updated_at = EXCLUDED.updated_at`,
+    [
+      `profile_${randomUUID()}`,
+      memoryCompanyId(),
+      `candidate:${key}`,
+      handle || platformCreatorId,
+      displayName,
+      platform,
+      accountUrl,
+      Number.isFinite(followers) ? String(followers) : null,
+      candidate.avg_views_10 == null ? null : String(candidate.avg_views_10),
+      String(payload.region || "").trim() || null,
+      platformCreatorId,
+      `home:follow:${candidate.id}`,
+      now,
+      String(payload.avatar_url || candidate.avatar_url || "").trim() || null,
+      String(payload.direction || "").trim() || null,
+    ],
+  );
+  // SQLite 行状态回写仅在有行时做；会话视图（运行时回退）无行可写，前端已本地标已跟进。
+  if (sqliteRow) {
+    getConn().prepare(`UPDATE creator_candidates SET status='followed', updated_at=? WHERE id=?`).run(now, candidate.id);
+  }
+  // 需求变更（2026-10-08 qiyou）：跟进成功后写 Starry 公海（复用 ingestOne，真邮箱才写）。
+  // 失败不破坏跟进（无邮箱 409 等如实降级），状态返回给前端展示。
+  let starry: { imported: boolean; kol_uid?: string; error?: string } = { imported: false };
+  try {
+    const receipt = await ingestOne({ candidate, source_batch: sourceBatch, run_id: runId }) as Record<string, unknown>;
+    starry = { imported: true, kol_uid: String(receipt.kol_uid || "") };
+  } catch (error) {
+    const detail = error instanceof HttpFail ? (error.detail as { code?: string; message?: string } | undefined) : undefined;
+    starry = { imported: false, error: String(detail?.message || (error instanceof Error ? error.message : "Starry 入库失败")) };
+  }
+  audit(ownerId(), "discovery.candidate.followed", {
+    candidate_id: candidate.id,
+    lead_id: leadId,
+    platform,
+    platform_creator_id: platformCreatorId,
+    sent: false,
+    stage_changed: false,
+    starry_imported: starry.imported,
+  });
+  return { ok: true, lead_id: leadId, kol_uid: `candidate:${key}`, reused: false,
+    starry_imported: starry.imported, starry_kol_uid: starry.kol_uid, starry_error: starry.error };
 }
 
 export function starryWriteCounts(): { sends: number; stageWrites: number; transitions: number } {

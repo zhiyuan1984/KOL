@@ -10,6 +10,7 @@ import type { Json } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import type { PoolClient } from "pg";
 import { followerEvidence } from "./candidate-evidence.js";
+import { DEFAULT_DEDUP_WINDOW_DAYS, dedupeSightings } from "./dedup.js";
 
 export async function enqueueCrawlResults(id: string, actor: string, attempt = "initial", client?: PoolClient): Promise<void> {
   await pgEnqueueExecutionJob({ job_type: "crawler.results", tenant_ref: "runtime", actor_ref: actor,
@@ -27,9 +28,13 @@ export function candidateView(value: Json, platform: string): Json {
   const views = value.recent_views || value.recent_10_views;
   const recent = Array.isArray(views) ? views.slice(0, 10).map(number) : [];
   const samples = (Array.isArray(value.views) ? value.views : []).slice(0, 10).map(number);
+  // 远端头像字段名不固定（avatar_url/avatar/profile_pic/thumbnail/pic_url…），只认 avatar_url 会把已抓到的头像丢掉。
+  const avatarRaw = [value.avatar_url, value.avatar, value.profile_pic, value.profile_image,
+    value.thumbnail, value.thumb_url, value.pic_url, value.head_img]
+    .find((v): v is string => typeof v === "string" && /^https?:\/\//i.test(v)) || null;
   return { id: String(value.platform_creator_id || value.creator_id || value.user_id || value.id || ""),
     name: String(value.nickname || value.name || value.handle || "未提供名称"), platform, source_url: url,
-    avatar_url: typeof value.avatar_url === "string" && /^https?:\/\//i.test(value.avatar_url) ? value.avatar_url : null,
+    avatar_url: avatarRaw,
     direction: typeof value.direction === "string" ? value.direction : null,
     followers: number(value.followers ?? value.follower_count ?? value.fans),
     followers_evidence: followerEvidence(value.followers_evidence),
@@ -92,6 +97,25 @@ export async function collectCrawlResults(executionJob: ClaimedExecutionJob, che
       captured_at: new Date().toISOString(), complete, total, candidates, collection_state: job.state };
     await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state=$2,result_json=$3,result_error=NULL,updated_at=now() WHERE id=$1",
       [id, complete ? "ready" : "partial", JSON.stringify(result)]);
+    // 一期去重：回填即记池（跨运行去重基准）。失败不阻塞回填本身。
+    try {
+      const windowDaysRaw = Number(job.args_json?.dedup_window_days);
+      await dedupeSightings(
+        candidates.map((row) => {
+          const item = row as Json;
+          return {
+            platform: String(platform).toLowerCase(),
+            platform_creator_id: String(item.id || ""),
+            handle: String(item.name || "") || null,
+            display_name: String(item.name || "") || null,
+            profile_snapshot: { captured_at: result.captured_at, task_id: job.remote_task_id },
+          };
+        }),
+        Number.isFinite(windowDaysRaw) ? windowDaysRaw : DEFAULT_DEDUP_WINDOW_DAYS,
+      );
+    } catch (error) {
+      console.error("[discovery-dedup] pool record failed:", error instanceof Error ? error.message : error);
+    }
     return { state: complete ? "ready" : "partial", count: candidates.length };
   } catch (error) {
     await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state='failed',result_error=$2,updated_at=now() WHERE id=$1", [id, runtimeErrorCode(error)]);
