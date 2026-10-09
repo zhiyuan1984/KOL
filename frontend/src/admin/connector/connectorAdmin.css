@@ -2054,64 +2054,164 @@
   color: var(--danger);
 }
 
-/* Dense connector list (2026-10-09): reference-card rhythm + Ant Design compact metadata. */
-.connector-hub .connector-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
-.connector-hub .connector-card {
+/* Management list — user-approved 36px rows / 20px marks / 14px names.
+   Deliberately independent of .connector-card, which belongs to the browse modal. */
+.connector-list {
+  --connector-list-row-h: 36px;
+  --connector-list-mark-size: 20px;
+  --connector-list-name-font: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+.connector-list-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
+  grid-template-columns: var(--connector-list-mark-size) minmax(160px, 210px) 104px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  padding: 8px 12px;
-  border-radius: var(--radius-card);
-  background: var(--bg);
-  transition: border-color var(--duration-control), background var(--duration-control);
+  gap: var(--space-2);
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--connector-list-row-h);
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  border-bottom: 1px solid var(--border-quiet);
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--duration-control);
 }
-.connector-hub .connector-card-linkable:hover { border-color: var(--control-border); background: var(--surface-hover); }
-.connector-hub .connector-card > .connector-mark { width: 32px; height: 32px; border-radius: 8px; background: var(--ds-surface); }
-.connector-hub .connector-card-body { display: flex; min-width: 0; align-items: center; gap: 10px; overflow: hidden; }
-.connector-hub .connector-card-title { flex: 0 0 auto; min-width: 0; align-items: center; gap: 6px; line-height: 20px; white-space: nowrap; }
-.connector-hub .connector-card-title strong { font-size: 14px; font-weight: 600; }
-.connector-hub .connector-card-purpose { flex: 0 1 280px; min-width: 80px; margin: 0; font-size: 13px; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.connector-hub .connector-card-meta { display: flex; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; align-items: center; gap: 4px 10px; margin: 0; overflow: hidden; font-size: 12px; line-height: 20px; white-space: nowrap; }
-.connector-hub .connector-card-meta > * { flex: 0 0 auto; }
-.connector-hub .connector-card-meta .connector-dense-fact:last-of-type { overflow: hidden; text-overflow: ellipsis; }
-.connector-dense-tag, .connector-dense-status { margin: 0; height: var(--badge-h); padding-inline: var(--space-2); border-radius: var(--radius-control); font-size: var(--ds-font-xs); line-height: 18px; }
-.connector-dense-tag { color: var(--text-muted); border-color: var(--border); background: var(--ds-surface); }
-.connector-dense-status { font-weight: 500; background: var(--bg); }
-.connector-dense-status { cursor: pointer; font-family: inherit; }
-.connector-dense-status-enabled { color: var(--success); border-color: var(--success); }
-.connector-dense-status-error { color: var(--danger); border-color: var(--danger); }
-.connector-dense-status-pending, .connector-dense-status-verified { color: var(--warning); border-color: var(--warning); }
-.connector-dense-status-draft, .connector-dense-status-disabled { color: var(--text-muted); border-color: var(--control-border); }
-.connector-dense-fact { color: var(--text-muted); white-space: nowrap; }
-.connector-dense-error { color: var(--danger); font-weight: 500; }
-.connector-hub .connector-card-side { flex-direction: row; align-items: center; gap: 2px; }
-.connector-row-action.ant-btn { height: var(--control-h-sm); padding-inline: var(--space-1); color: var(--accent-text); font-size: var(--ds-font-xs); }
-.connector-row-action.ant-btn:hover, .connector-row-action.ant-btn:focus-visible { color: var(--accent-text); background: var(--surface-hover); }
-.connector-row-action .anticon { font-size: var(--icon-sm); }
-.connector-hub .connector-added { width: var(--control-h-sm); height: var(--control-h-sm); color: var(--success); }
-.connector-hub .connector-added svg { width: var(--icon-sm); height: var(--icon-sm); }
-.connector-row-chevron { color: var(--text-muted); font-size: var(--icon-sm); }
+.connector-list-row:hover {
+  background: var(--surface-hover);
+}
+.connector-list-row > .connector-mark {
+  width: var(--connector-list-mark-size);
+  height: var(--connector-list-mark-size);
+  border: 0;
+  border-radius: var(--radius-chip-square);
+  font-size: var(--ds-font-sm);
+}
+.connector-list-title {
+  min-width: 0;
+  line-height: var(--ds-line-sm);
+}
+.connector-list-title .connector-card-link {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.connector-list-title strong {
+  font-size: var(--connector-list-name-font);
+  font-weight: 600;
+}
+.connector-list-row .connector-list-status.ant-btn,
+.connector-list-row .connector-list-action.ant-btn {
+  height: var(--control-h-sm);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-1);
+  border: 0;
+  box-shadow: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.connector-list-row .connector-list-status.ant-btn {
+  justify-self: start;
+}
+.connector-list-row .connector-list-status-enabled.ant-btn { color: var(--success); }
+.connector-list-row .connector-list-status-error.ant-btn { color: var(--danger); }
+.connector-list-row .connector-list-status-pending.ant-btn,
+.connector-list-row .connector-list-status-verified.ant-btn { color: var(--warning); }
+.connector-list-row .connector-list-status-draft.ant-btn,
+.connector-list-row .connector-list-status-disabled.ant-btn { color: var(--text-muted); }
+.connector-list-row .ant-btn:hover {
+  background: var(--btn-text-hover-bg);
+}
+.connector-list-purpose {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+  color: var(--text-muted);
+}
+.connector-list-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+.connector-list-actions .anticon { font-size: var(--icon-sm); }
+.connector-list-detail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+}
+.connector-list-detail:hover { background: var(--btn-text-hover-bg); color: var(--text); }
+.connector-list-row :is(a, button):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
 @media (max-width: 720px) {
-  .connector-hub .connector-card { grid-template-columns: 32px minmax(0, 1fr) auto; padding: 8px 10px; }
-  .connector-hub .connector-card-side .connector-row-action { display: none; }
-  .connector-hub .connector-card-body { display: block; }
-  .connector-hub .connector-card-title { display: flex; }
-  .connector-hub .connector-card-purpose { display: block; margin-top: 1px; }
-  .connector-hub .connector-card-meta { display: none; }
+  .connector-list-row {
+    grid-template-columns: var(--connector-list-mark-size) minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-2);
+    padding-inline: var(--space-2);
+  }
+  .connector-list-row .connector-list-status.ant-btn { grid-column: 3; }
+  .connector-list-purpose { grid-column: 2 / -1; }
+  .connector-list-actions { grid-column: 2 / -1; }
+  .connector-list-row .connector-list-status.ant-btn,
+  .connector-list-row .connector-list-action.ant-btn,
+  .connector-list-detail { min-width: 44px; min-height: 44px; }
 }
-@media (prefers-reduced-motion: reduce) { .connector-hub .connector-card { transition: none; } }
+@media (pointer: coarse) {
+  .connector-list-row .connector-list-status.ant-btn,
+  .connector-list-row .connector-list-action.ant-btn,
+  .connector-list-detail { min-width: 44px; min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connector-list-row { transition: none; }
+}
 
-/* Browse modal keeps its compact 32px search contract even on coarse-pointer emulation. */
-#root .connector-browse .connector-search {
-  height: var(--control-h-form) !important;
-  min-height: var(--control-h-form) !important;
+/* ModalShell portals outside #root: size only the affix wrapper and reset the
+   inner input's inherited legacy connector-search margin/height. */
+.connector-browse .workspace-search-input.ant-input-affix-wrapper {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  height: var(--control-h-form);
+  min-height: var(--control-h-form);
   box-sizing: border-box;
 }
-#root .connector-browse .connector-search.ant-input {
-  height: var(--control-h-form) !important;
-  min-height: 0 !important;
-  padding-block: 0 !important;
-  box-sizing: border-box;
+.connector-browse .workspace-search-input.ant-input-affix-wrapper .ant-input {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: normal;
+  outline: 0;
+}
+.connector-browse .workspace-search-input.ant-input-affix-wrapper:focus-within {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }

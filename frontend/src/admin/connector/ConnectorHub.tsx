@@ -1,5 +1,5 @@
 import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
-import { Button, Tag } from "antd";
+import { Button } from "antd";
 import { RightOutlined, SettingOutlined, ToolOutlined } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -34,13 +34,6 @@ const BUILTIN_CATALOG = [
 ] as const;
 
 type HealthCounts = { total: number; enabled: number; registered: number; pending: number; errors: number };
-
-function compactDate(value: string): string {
-  if (!value) return "未记录";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
-}
 
 function connectorHealthCounts(cards: ConnectorCardView[]): HealthCounts {
   const counts: HealthCounts = { total: cards.length, enabled: 0, registered: 0, pending: 0, errors: 0 };
@@ -179,7 +172,7 @@ export function ConnectorHub({ connectors, loading, onSave, reload }: {
           {needle ? "没有匹配的连接器。" : "尚未挂接任何连接器。"}
         </p>
       ) : (
-        <div className="connector-grid" data-connector-grid data-admin-connectors-table>
+        <div className="connector-list" role="list" aria-label="已添加的连接器" data-connector-grid data-admin-connectors-table>
           {visible.map((card) => (
             <ConnectorCard
               key={card.id}
@@ -366,6 +359,75 @@ function ConnectorCard({ card, onOpen, onViewTools, onOpenConfig, plain = false 
   const navigate = useNavigate();
   const href = connectorHref(card.id);
   const open = onOpen ?? (() => navigate(href));
+  // Management rows and catalog cards have distinct density and affordance contracts.
+  if (!plain) {
+    return (
+      <article
+        className="connector-list-row"
+        role="listitem"
+        data-connector-card
+        data-connector={card.id}
+        data-connector-kind={card.kind}
+        data-governance-status={status.key}
+        onClick={open}
+      >
+        <ConnectorMark id={card.id} label={card.label} iconUrl={card.iconUrl} />
+        <div className="connector-list-title">
+          <Link
+            to={href}
+            className="connector-card-link"
+            title={card.label}
+            onClick={(event) => { event.preventDefault(); event.stopPropagation(); open(); }}
+          >
+            <strong>{card.label}</strong>
+          </Link>
+        </div>
+        <Button
+          type="text"
+          size="small"
+          className={`connector-list-status connector-list-status-${status.key}`}
+          data-connector-status-entry
+          title={connectorStatusNote(card)}
+          onClick={(event) => { event.stopPropagation(); (onOpenConfig ?? open)(); }}
+        >
+          {status.label}
+        </Button>
+        <p className="connector-list-purpose" title={card.purpose || "未填写业务用途"}>
+          {card.purpose || "未填写业务用途"}
+        </p>
+        <div className="connector-list-actions">
+          {onOpenConfig && (
+            <Button
+              type="text"
+              size="small"
+              className="connector-list-action"
+              icon={<SettingOutlined />}
+              data-connector-config-entry
+              onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
+            >配置</Button>
+          )}
+          {onViewTools && (
+            <Button
+              type="text"
+              size="small"
+              className="connector-list-action"
+              icon={<ToolOutlined />}
+              data-connector-tools-entry
+              onClick={(event) => { event.stopPropagation(); onViewTools(); }}
+            >工具</Button>
+          )}
+          <Link
+            to={href}
+            className="connector-list-detail"
+            aria-label={`查看 ${card.label} 详情`}
+            title="详情"
+            data-connector-detail-entry
+            onClick={(event) => event.stopPropagation()}
+          ><RightOutlined aria-hidden /></Link>
+        </div>
+      </article>
+    );
+  }
   return (
     <article
       className="connector-card connector-card-linkable"
@@ -385,60 +447,14 @@ function ConnectorCard({ card, onOpen, onViewTools, onOpenConfig, plain = false 
           >
             <strong>{card.label}</strong>
           </Link>
-          {!plain && onOpenConfig && (
-            <button
-              type="button"
-              className={`connector-dense-status connector-dense-status-${status.key}`}
-              data-connector-status-entry
-              title={connectorStatusNote(card)}
-              onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
-            >
-              {status.label}
-            </button>
-          )}
         </div>
         <p className="connector-card-purpose">{card.purpose || "未填写业务用途"}</p>
-        {!plain && (
-          <div className="connector-card-meta" aria-label="连接器关键信息">
-            <Tag className="connector-dense-tag">{card.kind === "app" ? "应用" : card.protocol === "http" ? "HTTP API" : "MCP"}</Tag>
-            <span className="connector-dense-fact">{card.credentialRegistered ? "凭据已登记" : "未登记凭据"}</span>
-            <span className="connector-dense-fact">验证 {compactDate(card.lastVerifiedAt)}</span>
-            <span className="connector-dense-fact">更新 {compactDate(card.updatedAt)}</span>
-            {card.approvedToolCount > 0 && <span className="connector-dense-fact">接口 {card.approvedToolCount} 已审阅</span>}
-            {card.lastError && <span className="connector-dense-error" title={card.lastError}>最近一次验证有异常</span>}
-          </div>
-        )}
       </div>
       <div className="connector-card-side">
-        {!plain && onOpenConfig && (
-          <Button
-            type="text"
-            size="small"
-            className="connector-row-action"
-            icon={<SettingOutlined />}
-            title={connectorStatusNote(card)}
-            onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
-          >
-            配置
-          </Button>
-        )}
-        {!plain && onViewTools && (
-          <Button
-            type="text"
-            size="small"
-            className="connector-row-action"
-            icon={<ToolOutlined />}
-            data-connector-tools-entry
-            onClick={(event) => { event.stopPropagation(); onViewTools(); }}
-          >
-            工具
-          </Button>
-        )}
         <span className="connector-added">
           <svg viewBox="0 0 16 16" aria-hidden><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
           <span className="sr-only">已加入目录</span>
         </span>
-        <RightOutlined className="connector-row-chevron" aria-hidden />
       </div>
     </article>
   );
