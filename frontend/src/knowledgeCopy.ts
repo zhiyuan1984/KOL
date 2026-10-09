@@ -28,6 +28,7 @@ export const HIDE_REASONS = [
 ] as const;
 
 const KIND_LABEL: Record<string, string> = {
+  document: "文档资料",
   mail_template: "邮件模板",
   prompt: "提示词",
   policy: "口径",

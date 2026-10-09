@@ -1,8 +1,10 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { KnowledgeRow } from "../api";
 import { MAIN_STAGE_TABS } from "../kolStages";
 import { formatKbTime, kbAuthorLabel, kbStatusLabel, kbVersionTag } from "../knowledgeCopy";
 import CompactButton from "./CompactButton";
+import { Popover, Tooltip } from "antd";
+import { FilterAction, FilterOptionButton } from "./KnowledgeFilterControls";
 
 export function KnowledgeBrowseWorkspace({ children, detailOpen }: { children: ReactNode; detailOpen: boolean }) {
   return <div className="kbv-workspace knowledge-browse-workspace" data-pane={detailOpen ? "detail" : "list"}>{children}</div>;
@@ -12,10 +14,19 @@ export function KnowledgeFilterBar({ children }: { children: ReactNode }) {
   return <div className="kbv-tools knowledge-filter-bar">{children}</div>;
 }
 
-/** Preview: ten initial chips including All; removing chips never changes the dictionary. */
-export function StageFilterGroup({ selected, onChange }: { selected: string[]; onChange: (next: string[]) => void }) {
+/** Ten dictionary entries including All; removing a visible option never mutates the dictionary. */
+export function StageFilterGroup({ selected, onChange, options, countsReady = true, disabled = false }: {
+  selected: string[]; onChange: (next: string[]) => void;
+  options?: Array<{ value: string; label: string; count: number }>; countsReady?: boolean;
+  disabled?: boolean;
+}) {
   const [shownCodes, setShownCodes] = useState(() => MAIN_STAGE_TABS.slice(0, 9).map(stage => stage.code));
   const [adding, setAdding] = useState(false);
+  const addWrap = useRef<HTMLSpanElement>(null);
+  const closePicker = () => {
+    setAdding(false);
+    requestAnimationFrame(() => addWrap.current?.querySelector<HTMLButtonElement>('button')?.focus());
+  };
   const shown = MAIN_STAGE_TABS.filter(stage => shownCodes.includes(stage.code) || selected.includes(stage.code));
   const extra = MAIN_STAGE_TABS.filter(stage => !shown.some(item => item.code === stage.code));
   const toggle = (code: string) => onChange(selected.includes(code) ? selected.filter(value => value !== code) : [...selected, code]);
@@ -23,20 +34,31 @@ export function StageFilterGroup({ selected, onChange }: { selected: string[]; o
     setShownCodes(codes => codes.filter(value => value !== code));
     onChange(selected.filter(value => value !== code));
   };
-  return <div className="kbv-chip-row knowledge-stage-filter" data-kb-filter="stage" role="group" aria-label="适用阶段">
+  const countOf = (code: string) => options ? options.find(option => option.value === code)?.count ?? 0 : undefined;
+  const picker = <div className="knowledge-stage-picker" role="group" aria-label="可添加阶段"
+    onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closePicker(); } }}>
+    {extra.map(stage => <FilterAction disabled={disabled} key={stage.code} onClick={() => {
+      setShownCodes(codes => [...codes, stage.code]); onChange([...selected, stage.code]); closePicker();
+    }}>{stage.label}</FilterAction>)}
+    <FilterAction onClick={closePicker}>取消</FilterAction>
+  </div>;
+  return <div className="kbv-chip-row knowledge-filter-row knowledge-stage-filter" data-kb-filter="stage" role="group" aria-label="适用阶段">
     <span className="kbv-scope-name">适用阶段</span>
-    <div className="knowledge-stage-chips">
-      <CompactButton className="knowledge-stage-all" aria-pressed={!selected.length} data-kb-filter-value="" onClick={() => onChange([])}>全部</CompactButton>
+    <div className="knowledge-stage-chips knowledge-filter-options">
+      <FilterOptionButton disabled={disabled} className="knowledge-stage-all" selected={!selected.length} label="全部"
+        count={countOf("")} countsReady={countsReady} data-kb-filter-value="" onClick={() => onChange([])} />
       {shown.map(stage => <span key={stage.code} className="knowledge-stage-chip" data-selected={selected.includes(stage.code)}>
-        <CompactButton aria-pressed={selected.includes(stage.code)} data-kb-filter-value={stage.code} onClick={() => toggle(stage.code)}>{stage.label}</CompactButton>
-        <button type="button" className="knowledge-stage-remove" aria-label={`移除阶段：${stage.label}`} onClick={() => remove(stage.code)}>×</button>
+        <FilterOptionButton disabled={disabled} className="knowledge-stage-choice" selected={selected.includes(stage.code)} label={stage.label}
+          count={countOf(stage.code)} countsReady={countsReady} data-kb-filter-value={stage.code} onClick={() => toggle(stage.code)} />
+        <Tooltip title="移出展示；已选时同时取消筛选，不删除阶段">
+          <FilterAction disabled={disabled} className="knowledge-stage-remove" aria-label={`移除阶段：${stage.label}`} onClick={() => remove(stage.code)}>×</FilterAction>
+        </Tooltip>
       </span>)}
-      {extra.length > 0 && <span className="knowledge-stage-add-wrap">
-        <CompactButton className="knowledge-stage-add" aria-label="添加阶段" aria-expanded={adding} onClick={() => setAdding(value => !value)}>+</CompactButton>
-        {adding && <div className="knowledge-stage-picker" role="group" aria-label="可添加阶段" onKeyDown={event => { if (event.key === "Escape") setAdding(false); }}>
-          {extra.map(stage => <CompactButton key={stage.code} onClick={() => { setShownCodes(codes => [...codes, stage.code]); onChange([...selected, stage.code]); setAdding(false); }}>{stage.label}</CompactButton>)}
-          <CompactButton onClick={() => setAdding(false)}>取消</CompactButton>
-        </div>}
+      {extra.length > 0 && <span className="knowledge-stage-add-wrap" ref={addWrap}>
+        <Popover trigger="click" placement="bottomLeft" open={adding} onOpenChange={setAdding} content={adding ? picker : null}
+          destroyOnHidden getPopupContainer={trigger => trigger.parentElement!} classNames={{ root: "knowledge-stage-popover" }}>
+          <FilterAction disabled={disabled} className="knowledge-stage-add" aria-label="添加阶段" title="从阶段字典中添加筛选项" aria-expanded={adding} onClick={() => setAdding(value => !value)}>+</FilterAction>
+        </Popover>
       </span>}
     </div>
   </div>;

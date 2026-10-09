@@ -17,19 +17,10 @@
 .knowledge-governance .knowledge-creation-head { display:flex; gap:var(--space-2); align-items:center; justify-content:space-between; flex-wrap:wrap; }
 .knowledge-creation-actions { display:flex; align-items:center; flex-wrap:nowrap; gap:var(--space-3); }
 .knowledge-creation-actions > button { flex:0 0 auto; white-space:nowrap; }
-#root .workbench .knowledge-governance .knowledge-filter-bar { padding:var(--space-2) var(--space-5) var(--space-3); gap:var(--space-2); }
 #root .workbench .knowledge-governance .kbv-search { height:var(--control-h); min-height:var(--control-h); margin:0; }
 #root .workbench .knowledge-governance .kbv-search input { height:100%; min-height:0; padding-block:0; }
-/* Classification is one cascade; each applicability dimension has its own compact row.
-   Labels align with the first line, and options occupy the entire remaining row width. */
+/* Filter rows, counters and alignment belong to shared knowledge-browse.css. */
 .knowledge-governance .knowledge-browse-filter-group { min-width:0; margin:0; padding:0; }
-#root .workbench .knowledge-governance .knowledge-filter-bar :is(.kbv-scope-row,.kbv-chip-row) { display:flex; flex-wrap:nowrap; align-items:flex-start; gap:var(--space-1); }
-#root .workbench .knowledge-governance .knowledge-filter-bar .kbv-scope-name { flex:0 0 4.5em; width:4.5em; color:var(--text-quiet); line-height:var(--control-h-sm); }
-.knowledge-governance .knowledge-filter-options { display:flex; flex:1 1 0; flex-wrap:wrap; align-items:flex-start; gap:var(--space-1); min-width:0; }
-#root .workbench .knowledge-governance .knowledge-filter-bar :is(.kbv-scope-tabs,.knowledge-stage-chips) { flex:1 1 0; width:auto; max-width:none; min-width:0; align-items:flex-start; gap:var(--space-1); }
-#root .workbench .knowledge-governance .knowledge-filter-options > button { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
-#root .workbench .knowledge-governance .knowledge-filter-bar .kbv-scope-rows { gap:var(--space-1); }
-.knowledge-governance .knowledge-filter-bar small { margin-left:var(--space-1); }
 #root .workbench .knowledge-governance .kbv-tabs { padding:var(--space-1) var(--space-3); gap:var(--space-1); }
 #root .workbench .knowledge-governance .kbv-browser-list-head { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-1); padding:var(--space-1) var(--space-3); margin:0; }
 .knowledge-governance .kbv-pagination { font-size:var(--ds-font-xs); gap:var(--space-1); }
@@ -84,31 +75,23 @@
 /* 中栏共用单行密度，不继承旧管理列表的卡片 gap。 */
 #root .workbench .knowledge-governance .kbv-browser-records { display:block; gap:0; padding:0; }
 
-/* ── 知识资产 BI 改版（2026-10-09）：中栏状态条＋右栏驾驶舱 ──────────────
-   审宪记录：需求→用户 2026-10-09 明确指令；主责→前端实现；
-   CONST-04→只调呈现与筛选交互，未新增业务规则，符合；
-   CONST-10→全部计数走 workspace-v1 真实数据，无等待口径的不展示，符合；
-   DESIGN §9.2（生命周期状态用分布条、不拆 KPI 卡）→部分偏离：用户已明确批准数字卡方案，
-   调和为段宽按计数成比例（保留分布条语义）＋单行紧凑不做卡片墙，用户指令优先。 */
-
-/* 中栏：资产状态条。段宽按计数成比例（flex-grow），每段为紧凑 BI 数字块。 */
-.kbv-asset-strip { display:flex; gap:var(--space-2); padding:var(--space-2) var(--space-3) 0; }
+/* One object's state breakdown: continuous compact strip, not four independent KPI cards. */
 .kbv-asset-seg {
   flex-basis:0; min-width:min-content;
   display:flex; flex-direction:column; align-items:flex-start; gap:var(--space-1);
-  padding:var(--space-2) var(--space-3);
-  background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-card);
+  padding:var(--space-1) var(--space-2);
+  background:var(--bg); border:0; border-inline-end:1px solid var(--border); border-radius:0;
   color:var(--text); font:inherit; text-align:left; cursor:pointer;
 }
-.kbv-asset-seg:hover { border-color:var(--accent); }
-.kbv-asset-seg.is-active { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, var(--bg)); }
+.kbv-asset-seg:last-child { border-inline-end:0; }
+.kbv-asset-seg:hover { background:var(--btn-text-hover-bg); }
+.kbv-asset-seg.is-active { box-shadow:inset 0 calc(-1 * var(--workspace-tab-indicator-h)) var(--accent); background:var(--btn-text-hover-bg); }
 .kbv-asset-seg:focus-visible { outline:var(--focus-ring-width) solid var(--focus-ring); outline-offset:calc(-1 * var(--focus-ring-width)); }
 .kbv-asset-seg-label { display:flex; align-items:center; gap:var(--space-1); font-size:var(--ds-font-xs); color:var(--text-quiet); white-space:nowrap; }
-.kbv-asset-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+.kbv-asset-dot { width:var(--space-2); height:var(--space-2); border-radius:50%; flex:none; }
 .kbv-asset-seg-num { font-size:var(--stat-value-font); font-weight:600; line-height:1.2; font-variant-numeric:tabular-nums; }
 .kbv-asset-seg-sub { font-size:var(--ds-font-helper); color:var(--text-quiet); white-space:nowrap; }
 .kbv-asset-seg-sub b { color:var(--warning-text); font-weight:600; }
-@media (max-width:1100px) { .kbv-asset-strip { flex-wrap:wrap; } .kbv-asset-seg { flex:1 1 120px; } }
 
 /* 右栏：资产健康队列沿用 .kbadmin-queue 行式；状态点只作辅助，文字为准。 */
 [data-kb-asset-queue] .kbadmin-queue-row { gap:var(--space-2); }

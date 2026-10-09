@@ -5,6 +5,9 @@ import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
 import FilterChips from "../components/FilterChips";
 import CompactButton from "../components/CompactButton";
 import { KnowledgeBrowseWorkspace, KnowledgeFilterBar, StageFilterGroup, KnowledgeListRow, ListLoadFooter, KnowledgeDetailHeader, InlineMetadata, DetailActionBar } from "../components/KnowledgeBrowse";
+import { FilterAction, FilterOptionButton, FilterRow } from "../components/KnowledgeFilterControls";
+import { MAIN_STAGE_TABS } from "../kolStages";
+import { employeeKnowledgeFacets, filterEmployeeKnowledgeRows } from "../employeeKnowledgeFacets";
 import {
   HIDE_REASONS,
   KB_EMPTY_FILTER,
@@ -15,6 +18,7 @@ import {
   KB_SCOPE_NONE,
   KB_SEARCH_LABEL,
   KB_SEARCH_PLACEHOLDER,
+  brandLabel,
   formatKbTime,
   hideReasonLabel,
   kbIsMail,
@@ -155,23 +159,18 @@ function KnowledgeDocumentBody({ row }: { row: KnowledgeRow }) {
 
 /** 分类名称来自管理端主数据；计数仍按用户当前可见知识行计算。 */
 function collectScope(
-  rows: KnowledgeRow[],
   taxonomy: { domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] },
   level: "family" | "domain" | "base",
   parentId: string,
+  counts: Record<string, number>,
 ): ScopeOption[] {
-  const count = new Map<string, number>();
-  for (const row of rows) {
-    const id = level === "family" ? row.family_id : level === "domain" ? row.domain_id : row.base_id;
-    if (id) count.set(String(id), (count.get(String(id)) || 0) + 1);
-  }
   const options = level === "base"
     ? taxonomy.bases
       .filter((base) => !parentId || String(base.domain_id) === parentId)
-      .map((base) => ({ id: String(base.id), name: String(base.name), count: count.get(String(base.id)) || 0 }))
+      .map((base) => ({ id: String(base.id), name: String(base.name), count: counts[String(base.id)] ?? 0 }))
     : taxonomy.domains
       .filter((domain) => domain.level === level && (level === "family" || !parentId || String(domain.parent_id || "") === parentId))
-      .map((domain) => ({ id: String(domain.id), name: String(domain.name), count: count.get(String(domain.id)) || 0 }));
+      .map((domain) => ({ id: String(domain.id), name: String(domain.name), count: counts[String(domain.id)] ?? 0 }));
   return options
     .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
 }
@@ -195,12 +194,13 @@ export default function Knowledge() {
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const loadSequence = useRef(0);
-  const [brandOptions, setBrandOptions] = useState<string[]>([]);
   const [stageFilters, setStageFilters] = useState<string[]>([]);
   const [brandFilters, setBrandFilters] = useState<string[]>([]);
+  const [kindFilter, setKindFilter] = useState("");
   const [familyId, setFamilyId] = useState("");
   const [domainId, setDomainId] = useState("");
   const [baseId, setBaseId] = useState("");
+  const [showEmptyTaxonomy, setShowEmptyTaxonomy] = useState(false);
   const nav = useNavigate();
   const closeTip = useCallback(() => setTipId(""), []);
 
@@ -212,7 +212,6 @@ export default function Knowledge() {
         if (sequence !== loadSequence.current) return;
         setErr("");
         setRows(nextRows);
-        if (!keyword) setBrandOptions([...new Set(nextRows.map((row) => String(row.brand || "").trim()).filter((code) => code && code !== "*"))].sort());
         const serverFavorites = nextRows.filter((row) => row.favorite).map((row) => row.id);
         setFavorites(serverFavorites);
         writeKbFavorites(serverFavorites);
@@ -236,10 +235,36 @@ export default function Knowledge() {
     return () => clearTimeout(timer);
   }, [keyword, query]);
 
-  const familyOptions = useMemo(() => collectScope(rows, taxonomy, "family", ""), [rows, taxonomy]);
-  const domainOptions = useMemo(() => collectScope(rows, taxonomy, "domain", familyId), [rows, taxonomy, familyId]);
-  const baseOptions = useMemo(() => collectScope(rows, taxonomy, "base", domainId), [rows, taxonomy, domainId]);
-  const hasTaxonomy = familyOptions.length > 0 || baseOptions.length > 0;
+  const employeeFilters = useMemo(() => ({
+    familyId, domainId, baseId, brandFilters, stageFilters, kindFilter, view,
+    favoriteIds: favorites, recentIds,
+  }), [baseId, brandFilters, domainId, familyId, favorites, kindFilter, recentIds, stageFilters, view]);
+  const facets = useMemo(() => employeeKnowledgeFacets(rows, employeeFilters), [employeeFilters, rows]);
+  const searchPending = loading || query.trim() !== keyword;
+  const countsReady = loaded && !searchPending && !err;
+  const familyOptions = useMemo(
+    () => collectScope(taxonomy, "family", "", facets.family.values),
+    [facets.family.values, taxonomy],
+  );
+  const domainOptions = useMemo(
+    () => collectScope(taxonomy, "domain", familyId, facets.domain.values),
+    [facets.domain.values, familyId, taxonomy],
+  );
+  const baseOptions = useMemo(
+    () => collectScope(taxonomy, "base", domainId, facets.base.values),
+    [domainId, facets.base.values, taxonomy],
+  );
+  const brandOptions = useMemo(() => Object.keys(facets.brand.values).sort(), [facets.brand.values]);
+  const kindOptions = useMemo(() => Object.keys(facets.kind.values).sort(), [facets.kind.values]);
+  const stageOptions = useMemo(() => {
+    const known = new Set(MAIN_STAGE_TABS.map((stage) => stage.code));
+    return [
+      { value: "", label: "全部", count: facets.stage.all },
+      ...MAIN_STAGE_TABS.map((stage) => ({ value: stage.code, label: stage.label, count: facets.stage.values[stage.code] ?? 0 })),
+      ...stageFilters.filter((stage) => !known.has(stage)).map((stage) => ({ value: stage, label: stage, count: facets.stage.values[stage] ?? 0 })),
+    ];
+  }, [facets.stage, stageFilters]);
+  const hasTaxonomy = familyOptions.length > 0 || domainOptions.length > 0 || baseOptions.length > 0;
   const scoped = Boolean(familyId || domainId || baseId);
 
   // 分类是层级的：上层变了，下层选择随之清空；选项消失也回退到「全部」。
@@ -253,42 +278,19 @@ export default function Knowledge() {
     if (baseId && !baseOptions.some((item) => item.id === baseId)) setBaseId("");
   }, [baseId, baseOptions]);
 
-  const familyTotal = rows.length;
-  const domainTotal = useMemo(
-    () => (familyId ? domainOptions.reduce((sum, option) => sum + (option.count || 0), 0) : rows.length),
-    [familyId, domainOptions],
-  );
-  const baseTotal = useMemo(
-    () => (domainId ? baseOptions.reduce((sum, option) => sum + (option.count || 0), 0) : rows.length),
-    [domainId, baseOptions],
-  );
-
-  const scopedVisible = useMemo(() => {
-    return rows.filter((row) => {
-      if (familyId && row.family_id !== familyId) return false;
-      if (domainId && row.domain_id !== domainId) return false;
-      if (baseId && row.base_id !== baseId) return false;
-      if (stageFilters.length && !(row.stage_codes || []).some((code) => stageFilters.includes(code))) return false;
-      if (brandFilters.length) {
-        const brand = String(row.brand || "");
-        if (brand && brand !== "*" && !brandFilters.includes(brand)) return false;
-      }
-      return true;
-    });
-  }, [rows, familyId, domainId, baseId, stageFilters, brandFilters]);
-
-  const counts = useMemo(() => ({
-    all: scopedVisible.length,
-    favorites: scopedVisible.filter((row) => favorites.includes(row.id)).length,
-    recent: scopedVisible.filter((row) => recentIds.includes(row.id)).length,
-  }), [scopedVisible, favorites, recentIds]);
-
-  const filteredVisible = useMemo(() => {
-    if (view === "favorites") return scopedVisible.filter((row) => favorites.includes(row.id));
-    if (view === "recent") return scopedVisible.filter((row) => recentIds.includes(row.id));
-    return scopedVisible;
-  }, [scopedVisible, view, favorites, recentIds]);
-  useEffect(() => { setDisplayLimit(5); }, [familyId, domainId, baseId, view, stageFilters, brandFilters]);
+  const filteredVisible = useMemo(() => filterEmployeeKnowledgeRows(rows, employeeFilters), [employeeFilters, rows]);
+  const counts = facets.view.values;
+  const emptyTaxonomyCount = useMemo(() => {
+    if (!countsReady) return 0;
+    const axes: Array<[ScopeOption[], string]> = [[familyOptions, familyId], [domainOptions, domainId], [baseOptions, baseId]];
+    return axes
+      .reduce((sum, [options, selected]) => sum + options.filter((option) => option.count === 0 && option.id !== selected).length, 0);
+  }, [baseId, baseOptions, countsReady, domainId, domainOptions, familyId, familyOptions]);
+  const visibleTaxonomyOptions = useCallback((options: ScopeOption[], selected: string) => {
+    if (!countsReady || showEmptyTaxonomy) return options;
+    return options.filter((option) => option.count !== 0 || option.id === selected);
+  }, [countsReady, showEmptyTaxonomy]);
+  useEffect(() => { setDisplayLimit(5); }, [familyId, domainId, baseId, view, stageFilters, brandFilters, kindFilter]);
   const visible = useMemo(() => filteredVisible.slice(0, displayLimit), [filteredVisible, displayLimit]);
 
   const selectedRow = useMemo(
@@ -360,20 +362,21 @@ export default function Knowledge() {
     setBaseId("");
     setStageFilters([]);
     setBrandFilters([]);
+    setKindFilter("");
     setQuery("");
     setView("all");
   };
 
-  const anyFilter = scoped || Boolean(stageFilters.length || brandFilters.length || query.trim()) || view !== "all";
+  const anyFilter = scoped || Boolean(stageFilters.length || brandFilters.length || kindFilter || query.trim()) || view !== "all";
 
   const emptyCopy = useMemo(() => {
     if (view === "favorites") return "还没有收藏的知识。先把常用资料加入收藏。";
     if (view === "recent") return "还没有最近查看的知识。打开一条资料后会出现在这里。";
     if (keyword) return KB_EMPTY_SEARCH;
-    if (stageFilters.length || brandFilters.length) return KB_EMPTY_FILTER;
+    if (stageFilters.length || brandFilters.length || kindFilter) return KB_EMPTY_FILTER;
     if (scoped) return KB_EMPTY_SCOPE;
     return "暂无已发布资料。";
-  }, [view, brandFilters, keyword, stageFilters, scoped]);
+  }, [view, brandFilters, keyword, kindFilter, stageFilters, scoped]);
 
   return (
     <section className="kbv kbv-page knowledge-browse" data-kb-page="mine" data-kb-v2="home">
@@ -395,27 +398,42 @@ export default function Knowledge() {
               </div>
 
               {hasTaxonomy ? (
-                <ScopeTabs
-                  familyOptions={familyOptions}
-                  domainOptions={domainOptions}
-                  baseOptions={baseOptions}
-                  familyId={familyId}
-                  domainId={domainId}
-                  baseId={baseId}
-                  onFamily={(id) => {
-                    setFamilyId(id);
-                    setDomainId("");
-                    setBaseId("");
-                  }}
-                  onDomain={(id) => {
-                    setDomainId(id);
-                    setBaseId("");
-                  }}
-                  onBase={setBaseId}
-                  familyTotal={familyTotal}
-                  domainTotal={domainTotal}
-                  baseTotal={baseTotal}
-                />
+                <>
+                  <div className="kbv-filter-tools">
+                    <span className="muted" data-kbv-count-scope>计数随其他筛选条件变化 · 个人可见范围</span>
+                    <div>
+                    {countsReady && emptyTaxonomyCount > 0 ? <FilterAction
+                      className="kbv-text-action"
+                      data-kbv-empty-taxonomy
+                      aria-expanded={showEmptyTaxonomy}
+                      onClick={() => setShowEmptyTaxonomy((value) => !value)}
+                    >{showEmptyTaxonomy ? "收起空分类" : `显示空分类（${emptyTaxonomyCount}）`}</FilterAction> : null}
+                    {anyFilter ? <FilterAction className="kbv-text-action" data-kb-scope-clear onClick={resetAll}>清除筛选</FilterAction> : null}
+                    </div>
+                  </div>
+                  <ScopeTabs
+                    showCount={countsReady}
+                    familyOptions={visibleTaxonomyOptions(familyOptions, familyId)}
+                    domainOptions={visibleTaxonomyOptions(domainOptions, domainId)}
+                    baseOptions={visibleTaxonomyOptions(baseOptions, baseId)}
+                    familyId={familyId}
+                    domainId={domainId}
+                    baseId={baseId}
+                    onFamily={(id) => {
+                      setFamilyId(id);
+                      setDomainId("");
+                      setBaseId("");
+                    }}
+                    onDomain={(id) => {
+                      setDomainId(id);
+                      setBaseId("");
+                    }}
+                    onBase={setBaseId}
+                    familyTotal={facets.family.all}
+                    domainTotal={facets.domain.all}
+                    baseTotal={facets.base.all}
+                  />
+                </>
               ) : (
                 <p className="muted" data-kb-scope-none>{KB_SCOPE_NONE}</p>
               )}
@@ -423,22 +441,45 @@ export default function Knowledge() {
               <FilterChips
                 label={KB_FILTER_LABEL.brand}
                 filterKey="brand"
+                labelOf={brandLabel}
                 options={brandOptions}
                 selected={brandFilters}
                 onToggle={(value) => setBrandFilters((current) => (
                   current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
                 ))}
                 onClear={() => setBrandFilters([])}
+                counts={facets.brand.values}
+                allCount={facets.brand.all}
+                countsReady={countsReady}
               />
               <StageFilterGroup
                 selected={stageFilters}
                 onChange={setStageFilters}
+                options={stageOptions}
+                countsReady={countsReady}
               />
-              {anyFilter ? (
+              <FilterRow label="类型" data-kb-filter="kind" role="group" aria-label="类型">
+                <FilterOptionButton
+                  label="全部"
+                  count={facets.kind.all}
+                  countsReady={countsReady}
+                  selected={!kindFilter}
+                  data-kb-kind=""
+                  onClick={() => setKindFilter("")}
+                />
+                {kindOptions.map((kind) => <FilterOptionButton
+                  key={kind}
+                  label={kindLabel(kind)}
+                  count={facets.kind.values[kind]}
+                  countsReady={countsReady}
+                  selected={kindFilter === kind}
+                  data-kb-kind={kind}
+                  onClick={() => setKindFilter(kind)}
+                />)}
+              </FilterRow>
+              {anyFilter && !hasTaxonomy ? (
                 <div className="kbv-filters">
-                  <button className="kbv-link-plain" type="button" data-kb-scope-clear onClick={resetAll}>
-                    {KB_SCOPE_CLEAR}
-                  </button>
+                  <FilterAction className="kbv-text-action" data-kb-scope-clear onClick={resetAll}>清除筛选</FilterAction>
                 </div>
               ) : null}
             </KnowledgeFilterBar>
@@ -447,19 +488,19 @@ export default function Knowledge() {
           {loaded ? (
             <div className="kbv-tabs" role="group" aria-label="快捷视图">
               {EMPLOYEE_VIEWS.map((item) => (
-                <button
+                <FilterOptionButton
                   key={item.key}
-                  type="button"
                   className="kbv-tab"
-                  aria-pressed={view === item.key}
+                  selected={view === item.key}
+                  label={item.label}
+                  count={counts[item.key]}
+                  countsReady={countsReady}
                   data-kbv-view={item.key}
                   onClick={() => setView(item.key)}
-                >
-                  {item.label} <small>{counts[item.key]}</small>
-                </button>
+                />
               ))}
               {/* 计数与列表同源（§8 数字同源），并入本行不再单独占一行高度。 */}
-              <span className="kbv-tabs-count" data-kbv-count>{filteredVisible.length} 条知识</span>
+              <span className="kbv-tabs-count" data-kbv-count>{countsReady ? `${filteredVisible.length} 条知识` : searchPending ? "正在更新计数…" : "计数暂不可用"}</span>
             </div>
           ) : null}
 

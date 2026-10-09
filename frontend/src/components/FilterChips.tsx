@@ -1,40 +1,20 @@
+import { FilterOptionButton, FilterRow } from "./KnowledgeFilterControls";
+
 type Props = {
-  label: string;
-  filterKey: string;
-  options: string[];
-  selected: string[];
-  onToggle: (value: string) => void;
-  onClear: () => void;
-  /** 展示名（值仍按原始代码过滤）：如阶段代码显示为中文标签。 */
+  label: string; filterKey: string; options: string[]; selected: string[];
+  onToggle: (value: string) => void; onClear: () => void;
   labelOf?: (value: string) => string;
+  counts?: Record<string, number>; allCount?: number; countsReady?: boolean;
 };
 
-/** 适用范围筛选标签：值全部露出，点击即筛；品牌支持多选（selected 多项），阶段单选。 */
-export default function FilterChips({ label, filterKey, options, selected, onToggle, onClear, labelOf }: Props) {
-  return (
-    <div className="kbv-chip-row" data-kb-filter={filterKey}>
-      <span className="kbv-scope-name">{label}</span>
-      <button
-        type="button"
-        className="kbv-filter-chip"
-        aria-pressed={selected.length === 0}
-        data-kb-filter-value=""
-        onClick={onClear}
-      >
-        全部
-      </button>
-      {options.map((value) => (
-        <button
-          key={value}
-          type="button"
-          className="kbv-filter-chip"
-          aria-pressed={selected.includes(value)}
-          data-kb-filter-value={value}
-          onClick={() => onToggle(value)}
-        >
-          {labelOf ? labelOf(value) : value}
-        </button>
-      ))}
-    </div>
-  );
+/** Applicability multiselection retains the caller's matching and permission contract. */
+export default function FilterChips({ label, filterKey, options, selected, onToggle, onClear, labelOf,
+  counts, allCount, countsReady = true }: Props) {
+  return <FilterRow label={label} data-kb-filter={filterKey} role="group" aria-label={label}>
+    <FilterOptionButton className="kbv-filter-chip" label="全部" count={allCount} countsReady={countsReady}
+      selected={!selected.length} data-kb-filter-value="" onClick={onClear} />
+    {options.map(value => <FilterOptionButton key={value} className="kbv-filter-chip"
+      label={labelOf ? labelOf(value) : value} count={counts?.[value]} countsReady={countsReady}
+      selected={selected.includes(value)} data-kb-filter-value={value} onClick={() => onToggle(value)} />)}
+  </FilterRow>;
 }
