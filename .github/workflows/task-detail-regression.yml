@@ -1,0 +1,70 @@
+name: Task detail regression
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/task-detail-regression.yml'
+      - 'frontend/src/tasks/**'
+      - 'frontend/src/pages/Tasks.tsx'
+      - 'frontend/src/pages/TaskDetailPage.tsx'
+      - 'frontend/src/components/AuthGate.tsx'
+      - 'frontend/src/api.ts'
+      - 'frontend/src/styles.css'
+      - 'frontend/e2e/task-detail-redesign.spec.ts'
+      - 'frontend/playwright.task-detail.config.ts'
+      - 'frontend/vitest.task-details.config.ts'
+      - 'frontend/package*.json'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/task-detail-regression.yml'
+      - 'frontend/src/tasks/**'
+      - 'frontend/src/pages/Tasks.tsx'
+      - 'frontend/src/pages/TaskDetailPage.tsx'
+      - 'frontend/src/components/AuthGate.tsx'
+      - 'frontend/src/api.ts'
+      - 'frontend/src/styles.css'
+      - 'frontend/e2e/task-detail-redesign.spec.ts'
+      - 'frontend/playwright.task-detail.config.ts'
+      - 'frontend/vitest.task-details.config.ts'
+      - 'frontend/package*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task-detail-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  task-detail-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm run typecheck --prefix frontend
+      - name: Verify task model and list restoration
+        working-directory: frontend
+        run: npx vitest run src/tasks/taskDetailNavigation.test.ts src/tasks/taskCenterModel.test.ts
+      - name: Verify compact expanded details
+        working-directory: frontend
+        run: npx vitest run --config vitest.task-details.config.ts
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      # Isolated transport fixtures only; never certifies production writes.
+      - name: Verify task detail navigation, density and controlled-action boundaries
+        working-directory: frontend
+        run: npx playwright test --config playwright.task-detail.config.ts --reporter=line
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: task-detail-failure
+          path: frontend/test-results/task-detail
+          if-no-files-found: ignore
