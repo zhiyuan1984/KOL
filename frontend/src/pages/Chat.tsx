@@ -1415,6 +1415,20 @@ export default function Chat() {
             submitEmphasis={pendingRuntimeActionId ? "secondary" : "primary"}
             value={text}
             onChange={setText}
+            onClearDraft={() => {
+              setText("");
+              setEntryIntent("free");
+              setLockedIntent(null);
+              setLockedLabel(null);
+              setLockedKnowledgeId(null);
+              setSelectedTemplateSkillId(null);
+              setSelectedSkillTemplate(null);
+              setSkillParamValues({});
+              setSkillParamErrors({});
+              setSkillParamTouched(new Set());
+              mailCompose.clear();
+              if (id) clearComposerDraft(id);
+            }}
             onSubmit={send}
             disabled={blockSubmit}
             running={status === "running"}

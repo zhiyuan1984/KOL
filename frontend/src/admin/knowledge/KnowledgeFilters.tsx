@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
 import { useState, type ReactNode } from "react";
 import KbvIcon from "../../knowledgeIcons";
 import {
@@ -113,17 +114,13 @@ export default function KnowledgeFilters({
   return (
     <aside className="kbv-filter-pane" aria-label="知识筛选" data-kbv-filter-pane>
       <div className="kbv-filter-scroll">
-        <label className="kbv-search" aria-label="搜索知识">
-          <KbvIcon name="search" />
-          <input
-            type="search"
+        <WorkspaceSearchInput className="kbv-search"
             aria-label="搜索知识"
             placeholder="搜索标题、正文、负责人…"
             data-kbv-search
             value={query}
             onChange={(event) => onQuery(event.target.value)}
           />
-        </label>
 
         <section className="kbv-filter-group" data-kb-filter="taxonomy">
           <FilterGroup label={KB_SCOPE_FAMILY} icon="family" className="kbv-filter-block">

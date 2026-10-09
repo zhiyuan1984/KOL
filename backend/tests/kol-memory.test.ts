@@ -113,6 +113,31 @@ describe("kol follow/pool memory P0", () => {
     expect((res.body.detail as Json)?.code || res.body.code).toBe("follow_conflict");
   });
 
+  it("concurrent duplicate confirmed claims reuse one active follow and one creation receipt", async () => {
+    seedProfile("KOL_DENSITY_DOUBLE");
+    const attempts = await Promise.all([
+      request("POST", "/api/kols/KOL_DENSITY_DOUBLE/claim", { confirm: true, scope_brand: "LT" }),
+      request("POST", "/api/kols/KOL_DENSITY_DOUBLE/claim", { confirm: true, scope_brand: "LT" }),
+    ]);
+    expect(attempts.every((result) => [200, 201].includes(result.status))).toBe(true);
+    expect(new Set(attempts.map((result) => (result.body.follow as Json).follow_id)).size).toBe(1);
+    expect(attempts.filter((result) => result.body.created === true)).toHaveLength(1);
+    expect(attempts.filter((result) => result.body.reused === true)).toHaveLength(1);
+    const active = getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid=? AND status='active'").get("KOL_DENSITY_DOUBLE") as { n: unknown };
+    expect(Number(active.n)).toBe(1);
+  });
+
+  it("release still requires explicit confirmation and a duplicate release cannot mutate the released receipt", async () => {
+    seedProfile("KOL_DENSITY_RELEASE");
+    const claim = await request("POST", "/api/kols/KOL_DENSITY_RELEASE/claim", { confirm: true, scope_brand: "LT" });
+    const followId = String((claim.body.follow as Json).follow_id);
+    expect((await request("POST", `/api/follows/${followId}/release`, {})).status).toBe(422);
+    expect((await request("POST", `/api/follows/${followId}/release`, { confirm: true })).status).toBe(200);
+    const before = getConn().prepare("SELECT status, data_version, released_at FROM kol_follow_index WHERE id=?").get(followId);
+    expect((await request("POST", `/api/follows/${followId}/release`, { confirm: true })).status).toBe(404);
+    expect(getConn().prepare("SELECT status, data_version, released_at FROM kol_follow_index WHERE id=?").get(followId)).toEqual(before);
+  });
+
   it("no effective correspondence → no release", () => {
     seedProfile("KOL_GAP");
     const claimed = claimFollow({
@@ -328,7 +353,7 @@ describe("kol follow/pool memory P0", () => {
       accepted: true,
       status: "running",
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect.poll(async () => (await request("GET", "/api/home/pool/sync")).body.status).toBe("succeeded");
     const response = await request("GET", "/api/home/pool/sync");
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ ok: true, status: "succeeded", count: 3, tool: "pageKolProfiles" });

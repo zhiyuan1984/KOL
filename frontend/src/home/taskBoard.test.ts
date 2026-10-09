@@ -55,7 +55,28 @@ describe("today/todo compact board", () => {
     expect(board).not.toContain('aria-selected=');
     expect(board).not.toContain('task-board-refresh');
     expect(board).not.toContain('task-board-result-count');
-    expect(board).toContain('task-board-search-icon');
+    expect(board).toContain('import WorkspaceSearchInput from "../components/WorkspaceSearchInput";');
+    expect(board).toContain("<WorkspaceSearchInput");
+    expect(board).not.toContain("task-board-search-icon");
+    expect(board).not.toContain("<svg");
+  });
+
+  it("hides zero-count filters unless currently selected and keeps the compact board controls", () => {
+    const board = read("TaskBoard.tsx");
+    const css = read("today-plan-board.css");
+    expect(board).toContain('BOARD_FILTERS.filter(({ id }) => counts[id] > 0 || filter === id)');
+    expect(board).toContain('ATTENTION_FILTERS.filter(({ id }) => attentionCounts[id] > 0 || attention === id)');
+    expect(board).toContain("<Button");
+    expect(board).toContain('type="text"');
+    expect(board).toContain('size="small"');
+    expect(board).toContain("<HighlightOutlined");
+    expect(board).toContain('planStartEvent(scope)');
+    expect(board).toContain("<colgroup>");
+    expect(css).toContain("height: var(--table-row-h-compact);");
+    expect(css).toContain("box-sizing: border-box;");
+    expect(css).toContain("height: var(--workspace-task-action-h);");
+    expect(css).toContain("color: var(--cat-assistant-text);");
+    expect(css).toContain("min-height: var(--touch-hit-min);");
   });
 
   it("keeps formal status, execution failure, and due date in separate cells", () => {
@@ -66,6 +87,7 @@ describe("today/todo compact board", () => {
     expect(row).toContain('aria-controls={detailsId}');
     expect(row).not.toContain('className="task-board-meta"');
     expect(row).toContain('task.status === "queued" ? "已入队"');
+    expect(row).toContain('const taskFailed = status.tone === "failed";');
     expect(row).not.toContain('const statusLabel = displayStatusLabel(task)');
   });
 });

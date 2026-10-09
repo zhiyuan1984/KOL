@@ -5,6 +5,72 @@ export type PoolSortField = "ingested" | "followers" | "score";
 export type PoolSortDirection = "asc" | "desc";
 export type PoolSort = "default" | `${PoolSortField}-${PoolSortDirection}`;
 
+/** Counts are supplied by the same authorized server snapshot as the pool page. */
+export type PoolGlobalCounts = {
+  newCount: number;
+  overdueCount: number;
+};
+
+/** A successful claim stays on its source row only as a release receipt. */
+export type PoolClaimReceipt = {
+  kolUid: string;
+  followId: string;
+  card: PoolKol;
+};
+
+export type PoolClaimReceipts = Readonly<Record<string, PoolClaimReceipt>>;
+
+export type PoolClaimReceiptEvent =
+  | { type: "claim-succeeded"; receipt: PoolClaimReceipt }
+  | { type: "claim-failed" }
+  | { type: "release-succeeded"; kolUid: string }
+  | { type: "release-failed" }
+  | { type: "scope-reset" };
+
+export const EMPTY_POOL_CLAIM_RECEIPTS: PoolClaimReceipts = Object.freeze({});
+
+/** Failed requests intentionally preserve the last committed receipt state. */
+export function reducePoolClaimReceipts(
+  current: PoolClaimReceipts,
+  event: PoolClaimReceiptEvent,
+): PoolClaimReceipts {
+  if (event.type === "claim-succeeded") {
+    return { ...current, [event.receipt.kolUid]: event.receipt };
+  }
+  if (event.type === "release-succeeded") {
+    if (!current[event.kolUid]) return current;
+    const { [event.kolUid]: _released, ...rest } = current;
+    return rest;
+  }
+  if (event.type === "scope-reset") return EMPTY_POOL_CLAIM_RECEIPTS;
+  return current;
+}
+
+export function poolReceiptFor(receipts: PoolClaimReceipts, kolUid: string): PoolClaimReceipt | undefined {
+  return receipts[kolUid];
+}
+
+/** Receipt rows are not selectable/analyzable as remaining public-pool candidates. */
+export function poolCandidateCards(cards: PoolKol[], receipts: PoolClaimReceipts): PoolKol[] {
+  return cards.filter((card) => !receipts[card.kol_uid]);
+}
+
+/** A single in-flight pool ownership mutation prevents repeated clicks and races. */
+export function canStartPoolMutation(busyKolUid: string | null, _kolUid: string): boolean {
+  return busyKolUid === null;
+}
+
+/** Keep locally retained receipts out of the server-originated global filter badges. */
+export function countsAfterPoolReceipts(counts: PoolGlobalCounts, receipts: PoolClaimReceipts): PoolGlobalCounts {
+  let newCount = counts.newCount;
+  let overdueCount = counts.overdueCount;
+  for (const receipt of Object.values(receipts)) {
+    if (isPoolOverdue(receipt.card)) overdueCount -= 1;
+    else if (isPoolNew(receipt.card)) newCount -= 1;
+  }
+  return { newCount: Math.max(0, newCount), overdueCount: Math.max(0, overdueCount) };
+}
+
 export function isPoolNew(card: PoolKol): boolean {
   return (card.public_stage?.label || "").includes("未首次建联");
 }

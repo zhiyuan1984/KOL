@@ -1,7 +1,12 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
-/** #172 GET /api/home/following envelope. `kols` may be board-shaped; FE toFollowKol accepts both. */
+/** Complete B.active server authority. Board-shaped data is accepted only as fixture input, never as a UI fallback. */
 export async function stubHomeFollowing(page: Page, kols: Array<Record<string, unknown>> = []) {
+  const activeRows = kols.map((kol) => ({
+    ...kol,
+    source_kind: typeof kol.source_kind === "string" && kol.source_kind ? kol.source_kind : "kol_follow_index",
+    status: "active",
+  }));
   await page.route("**/api/home/following", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
@@ -11,8 +16,9 @@ export async function stubHomeFollowing(page: Page, kols: Array<Record<string, u
         creates_session: false,
         calls_model: false,
         index: "我的跟进",
-        authority: "kol_follow_index",
-        kols,
+        authority: "kol_follow_index+verified_starry_binding",
+        completeness: "complete",
+        kols: activeRows,
       },
     });
   });
@@ -44,7 +50,7 @@ export async function stubHomeBoardAndFollowing(page: Page, board: Record<string
   }
 }
 
-/** Demo fixtures seed collaborations on board, not B.index — mirror for follow-pane e2e. */
+/** Demo fixtures supply B.active rows separately from board so follow-pane tests stay server-authority-only. */
 export async function stubFollowingFromServerBoard(page: Page, request: APIRequestContext) {
   try {
     const board = await request.get("/api/home/board").then((row) => row.json()) as {

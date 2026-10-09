@@ -98,13 +98,13 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
     : resultState === "running" ? "正在读取结果" : "等待读取结果";
   const statusHeader = (<header className="discovery-run-status" data-discovery-run-status={railStatus.key}>
         <AgentAvatar active={avatarIsActive} failed={railStatus.key === "failed"} completed={railStatus.key === "completed"} />
-        <div className="discovery-run-status-copy">
-          <span className="discovery-run-status-kicker">当前任务</span>
+        <p className="discovery-run-status-copy">
+          <span className="discovery-run-status-kicker">当前任务</span>{" "}
           <strong data-discovery-run-status-label>
             <span aria-hidden="true" className="discovery-run-status-glyph">{railStatus.glyph}</span>{railStatus.label}
           </strong>
-          <span className="discovery-run-status-detail" data-discovery-run-status-detail>{railStatus.detail}</span>
-        </div>
+          <span className="discovery-run-status-detail" data-discovery-run-status-detail>{railStatus.key === "idle" ? "，提交条件后在此查看结果。" : `，${railStatus.detail}`}</span>
+        </p>
       </header>);
   const resultControls = (<div className="discovery-result-controls" data-discovery-result-controls>
       {!hasFinalResults ? <span className="discovery-result-scope">本次结果</span> : null}

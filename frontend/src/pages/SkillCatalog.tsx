@@ -1,3 +1,5 @@
+import type { InputRef } from "antd";
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -257,14 +259,6 @@ function toolLabel(ref: string, kind?: string): string {
  */
 const ASYNC_SKILL_IDS = new Set(["creator_discovery"]);
 
-/** 搜索框的清除图标：一个「×」。图标按钮必须带 aria-label（语义不能只靠图形象征）。 */
-function ClearIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="skill-search-clear-svg" aria-hidden>
-      <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 function SkillCard({
   skill,
@@ -822,7 +816,7 @@ export function SkillCatalog() {
   // 详情列：`detailWide` 控制宽度档；`detailOpen` 只在窄屏的覆盖态下起作用（≥900px 常驻）。
   const [detailWide, setDetailWide] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const searchRef = useRef<HTMLInputElement | null>(null);
+  const searchRef = useRef<InputRef | null>(null);
 
   // 选中技能＝同时展开详情；窄屏下这一步才会把覆盖层打开。
   const selectSkill = (s: SkillRow) => {
@@ -994,35 +988,15 @@ export function SkillCatalog() {
         <div className="skill-catalog-content">
           {/* 搜索行 sticky 在列表列的滚动口上：搜的是下面这份列表，两者不该被筛选栏隔开。 */}
           <div className="skill-search-row">
-            <label className="skill-search-wrap">
-              <svg viewBox="0 0 24 24" aria-hidden>
-                <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-                <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-              </svg>
-              <input
+            <WorkspaceSearchInput
                 ref={searchRef}
-                className="skill-search"
+                className="skill-search-wrap skill-search"
                 placeholder="搜索技能 / SOP / 场景"
                 aria-label="搜索技能 / SOP / 场景"
                 title="按 / 快速聚焦搜索"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
-              {q && (
-                <button
-                  type="button"
-                  className="skill-search-clear"
-                  aria-label="清除搜索"
-                  title="清除"
-                  onClick={() => {
-                    setQ("");
-                    searchRef.current?.focus();
-                  }}
-                >
-                  <ClearIcon />
-                </button>
-              )}
-            </label>
           </div>
 
           {GROUPS.map((group) => {

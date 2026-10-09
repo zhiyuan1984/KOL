@@ -236,7 +236,7 @@
 }
 
 /* 右栏顶部固定的当前任务状态：仍在右栏自己的滚动轴里，用户回看时给出「回到最新」。 */
-.discovery-run-status { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: var(--discovery-avatar-size, 32px) minmax(0, 1fr); gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); padding: var(--space-2) calc(var(--icon-btn) + var(--space-2)) var(--space-2) 0; border-bottom: 1px solid var(--ds-border); background: var(--bg); }
+.discovery-run-status { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: var(--icon-md) minmax(0, 1fr); gap: var(--space-2); align-items: center; box-sizing: border-box; min-height: var(--control-h-lg); margin-bottom: var(--space-2); padding: var(--space-1) calc(var(--icon-btn) + var(--space-2)) var(--space-1) 0; border-bottom: 1px solid var(--ds-border); background: var(--bg); }
 .discovery-run-avatar { position: relative; display: inline-block; width: var(--discovery-avatar-size, 32px); height: var(--discovery-avatar-size, 32px); overflow: hidden; flex: 0 0 var(--discovery-avatar-size, 32px); border: 1px solid var(--ds-border); border-radius: 50%; background: var(--ds-surface); vertical-align: middle; }
 .discovery-event-head .discovery-run-avatar { margin-right: var(--space-1); }
 .discovery-run-avatar img { position: absolute; inset: 2px; width: var(--discovery-avatar-image-size, 28px); height: var(--discovery-avatar-image-size, 28px); object-fit: contain; opacity: 0; }
@@ -251,11 +251,11 @@
 .discovery-run-avatar.is-active img:nth-child(8) { animation-delay: -.30s; }
 .discovery-run-avatar.is-active img:nth-child(9) { animation-delay: -.15s; }
 @keyframes discovery-avatar-frame { 0%, 11.1% { opacity: 1; } 11.2%, 100% { opacity: 0; } }
-.discovery-run-status-copy { display: grid; gap: var(--space-1); min-width: 0; }
+.discovery-run-status-copy { display: block; min-width: 0; margin: 0; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); overflow-wrap: anywhere; }
 .discovery-run-status-kicker {
   color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .discovery-run-status strong {
@@ -275,8 +275,8 @@
 
 .discovery-run-status-detail {
   color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .discovery-run-status[data-discovery-run-status="running"] strong,

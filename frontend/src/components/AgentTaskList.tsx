@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "./WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type Task } from "../api";
@@ -262,7 +263,7 @@ export default function AgentTaskList({
       <header>
         <strong>{mailMode ? "往来邮件" : "任务列表"}</strong>
         {mailMode && mailSyncing ? <small data-mail-sync-status>正在同步往来</small> : null}
-        <input
+        <WorkspaceSearchInput
           value={q}
           onChange={(event) => setQ(event.target.value)}
           placeholder={mailMode ? "搜索邮件" : "搜索任务"}

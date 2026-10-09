@@ -55,9 +55,13 @@ for (const empty of [false, true]) {
       await expect(root.locator(".today-center-hero")).not.toContainText("逾期");
       await expect(root.locator(".today-center-hero")).not.toContainText("今天到期");
       const rail = root.locator("[data-scope-task-rail]");
-      await expect(rail.locator('[data-attention-filter="overdue"]')).toHaveText(`逾期 ${empty ? 0 : 2}`);
-      await expect(rail.locator('[data-attention-filter="due_today"]')).toHaveText(`今天到期 ${empty ? 0 : 1}`);
-      await expect(rail.locator('[data-attention-filter="exception"]')).toHaveText(`异常 ${empty ? 0 : 1}`);
+      if (empty) {
+        await expect(rail.locator('[data-attention-filter]')).toHaveCount(0);
+      } else {
+        await expect(rail.locator('[data-attention-filter="overdue"]')).toHaveText("逾期 2");
+        await expect(rail.locator('[data-attention-filter="due_today"]')).toHaveText("今天到期 1");
+        await expect(rail.locator('[data-attention-filter="exception"]')).toHaveText("异常 1");
+      }
       await expect(rail.locator(`[data-home-entry="plan-${scope}"]`)).toBeVisible();
       await expect(root.locator("[data-skill-template-context]")).toBeVisible();
       if (!empty) {
@@ -65,7 +69,7 @@ for (const empty of [false, true]) {
         await expect(rail.locator("[data-today-todo]")).toHaveCount(2);
         await rail.locator(".task-board-clear-filter").click();
         await expect(rail.locator("[data-today-todo]")).toHaveCount(3);
-        await rail.locator(".task-board-search").fill("今天报价");
+        await rail.locator("input.task-board-search").fill("今天报价");
         await expect(rail.locator("[data-today-todo]")).toHaveCount(1);
       }
     }
@@ -104,10 +108,17 @@ for (const theme of ["light", "dark"]) {
         // Passive extra content triggers the real scroll control, not a fake button.
         await root.locator(".scope-workspace-center-scroll-content").evaluate(el => {
           const tail = document.createElement("div"); tail.style.height = "1600px"; tail.setAttribute("aria-hidden", "true"); el.append(tail);
-          const scroll = el.closest(".scope-workspace-center-scroll")!; scroll.dispatchEvent(new Event("scroll"));
+          const scroll = el.closest(".scope-workspace-center-scroll")!;
+          // This is a jump-to-bottom case. Previous viewport runs intentionally
+          // persist reading positions; start at the top instead of accidentally
+          // testing the valid opposite-direction action after restoring a tail.
+          scroll.dispatchEvent(new WheelEvent("wheel"));
+          scroll.scrollTop = 0;
+          scroll.dispatchEvent(new Event("scroll"));
         });
         const jump = root.locator("[data-scope-scroll-jump]");
         await expect(jump).toBeVisible();
+        await expect(jump).toHaveAttribute('aria-label', /滚到底部|回到最新/);
         const after = await measure();
         expect(after).toEqual(before);
         await jump.focus();
@@ -139,10 +150,14 @@ test.describe("task stream with a coarse pointer", () => {
         const before = await card.evaluate(el => el.getBoundingClientRect().width);
         await root.locator(".scope-workspace-center-scroll-content").evaluate(el => {
           const tail = document.createElement("div"); tail.style.height = "1600px"; tail.setAttribute("aria-hidden", "true"); el.append(tail);
-          el.closest(".scope-workspace-center-scroll")!.dispatchEvent(new Event("scroll"));
+          const scroll = el.closest(".scope-workspace-center-scroll")!;
+          scroll.dispatchEvent(new WheelEvent("wheel"));
+          scroll.scrollTop = 0;
+          scroll.dispatchEvent(new Event("scroll"));
         });
         const jump = root.locator("[data-scope-scroll-jump]");
         await expect(jump).toBeInViewport();
+        await expect(jump).toHaveAttribute('aria-label', /滚到底部|回到最新/);
         const size = await jump.evaluate(el => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height }));
         expect(size.width).toBeGreaterThanOrEqual(44);
         expect(size.height).toBeGreaterThanOrEqual(44);
@@ -156,4 +171,101 @@ test.describe("task stream with a coarse pointer", () => {
     expect(state.writes).toEqual([]);
     expect(state.errors).toEqual([]);
   });
+});
+
+// 2026-10-09 approved density: measure final DOM boxes, not declared CSS tokens.
+for (const theme of ["light", "dark"]) {
+  test(`approved compact task rows, search spacing and composer controls in ${theme}`, async ({ page }, info) => {
+    const state = await fixture(page, false, theme);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 1280, height: 630 }]) {
+      await page.setViewportSize(viewport);
+      for (const scope of ["today", "todo"]) {
+        await page.goto(`/?tab=${scope}`);
+        const root = page.locator(`[data-home-pane="${scope}"]`);
+        const row = root.locator('[data-today-todo]').first();
+        await expect(row).toBeVisible();
+        const height = await row.evaluate(el => el.getBoundingClientRect().height);
+        expect(height).toBe(32);
+        await expect(row).toHaveCSS("font-size", "13px");
+        const search = root.locator('.task-board-search.ant-input-affix-wrapper');
+        expect(await search.evaluate(el => el.getBoundingClientRect().height)).toBe(32);
+        expect(await search.evaluate(el => {
+          const icon = el.querySelector('.ant-input-prefix')!.getBoundingClientRect();
+          const input = el.querySelector('input')!.getBoundingClientRect();
+          return input.left - icon.right;
+        })).toBeGreaterThanOrEqual(8);
+        const plus = root.locator('.composer-plus');
+        const send = root.locator('.send-arrow');
+        const sizes = await Promise.all([plus, send].map(locator => locator.evaluate(el => {
+          const rect = el.getBoundingClientRect(); return { width: rect.width, height: rect.height };
+        })));
+        expect(sizes[0]).toEqual(sizes[1]);
+        expect(sizes[0].width).toBe(sizes[0].height);
+        expect(await plus.evaluate(el => {
+          const radius = getComputedStyle(el).borderTopLeftRadius;
+          return radius.endsWith('%') ? parseFloat(radius) >= 50 : parseFloat(radius) >= el.getBoundingClientRect().width / 2;
+        })).toBe(true);
+        const clear = root.locator('[data-composer-clear-draft]');
+        await expect(clear).toBeVisible();
+        const input = root.locator('[data-composer-input]');
+        await input.fill('待清理的下一条草稿');
+        await clear.click();
+        await expect(input).toHaveValue('');
+        await expect(input).toBeFocused();
+        await expect(clear).toBeDisabled();
+        const explanation = root.locator('[data-skill-template-context]');
+        await expect(explanation).toHaveCount(1);
+        await expect(explanation).toBeVisible();
+        await expect(explanation).toHaveAttribute('data-skill-template-context', scope === 'today' ? 'creator_daily_tasks' : 'todo_plan');
+        await expect(explanation).toContainText('功能');
+        await expect(explanation).toContainText('预计执行步骤');
+        await expect(explanation).toContainText('输出说明');
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        await page.screenshot({ path: info.outputPath(`${scope}-${theme}-${viewport.width}x${viewport.height}-density.png`) });
+      }
+    }
+    expect(state.writes).toEqual([]);
+    expect(state.errors).toEqual([]);
+  });
+}
+
+test('clearing either task prompt retains its explanation without relocking ordinary submission', async ({ page }) => {
+  const state = await fixture(page);
+  const posts: Record<string, unknown>[] = [];
+  await page.route('**/api/tasks/from-text', async route => {
+    posts.push(route.request().postDataJSON());
+    await route.fulfill({ json: { needs_clarification: true, clarification_kind: 'missing_fields', clarification: '请补充需要整理的内容', resolution: { missing_fields: ['topic'] } } });
+  });
+  for (const scope of ['today', 'todo']) {
+    await page.goto(`/?tab=${scope}`);
+    const root = page.locator(`[data-home-pane="${scope}"]`);
+    const expectedId = scope === 'today' ? 'creator_daily_tasks' : 'todo_plan';
+    const input = root.locator('[data-composer-input]');
+    const explanation = root.locator(`[data-skill-template-context="${expectedId}"]`);
+    await expect(explanation).toBeVisible();
+    const originalText = await explanation.textContent();
+    await input.fill('旧的规划草稿');
+    await root.locator('[data-composer-clear-draft]').click();
+    await expect(input).toHaveValue('');
+    await expect(root.locator('[data-ai-prompt-submit]')).toBeDisabled();
+    await expect(explanation).toHaveText(originalText!);
+    expect(state.writes).toEqual([]);
+    await page.reload();
+    await expect(explanation).toBeVisible();
+    await input.fill('整理这段文字');
+    await root.locator('[data-composer-clear-draft]').click();
+    await input.fill('新的普通问题');
+    const before = posts.length;
+    await root.locator('[data-ai-prompt-submit]').click();
+    await expect.poll(() => posts.length).toBe(before + 1);
+    expect(posts[before].task_type).toBeUndefined();
+    expect(posts[before].intent).toBeUndefined();
+    expect((posts[before].scope as Record<string, unknown>).skills).toEqual([]);
+    await expect(explanation).toBeVisible();
+    // The only write in this case is the deliberately submitted ordinary ask.
+    expect(state.writes.filter(path => !path.endsWith('/api/tasks/from-text'))).toEqual([]);
+    state.writes.length = 0;
+  }
+  expect(state.errors).toEqual([]);
 });

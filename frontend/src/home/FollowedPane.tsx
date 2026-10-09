@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useRef, useState } from "react";
 import "./followed.css";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
@@ -22,15 +23,6 @@ const SORT_OPTIONS: { key: KolSortMode; label: string }[] = [
 ];
 
 /** 与公海同一支搜索图标：框内左侧内联，命中区仍是整个输入框。 */
-function SearchIcon() {
-  return (
-    <svg className="followed-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none">
-      <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
-      <path d="m10.25 10.25 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function SortIcon() {
   return (
     <svg className="followed-sort-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -55,18 +47,15 @@ function useSlowWait(active: boolean, ms = 3000): boolean {
 
 function followEmptyCopy(kind: string, scope: StarryBinding | null) {
   if (kind === "loading") {
-    return { title: "正在读取跟进名单…", body: "读完这里会显示你在跟的红人与合作对象；读取完成前不下结论。" };
-  }
-  if (kind === "reconciling") {
     return {
       title: "正在核对跟进名单…",
-      body: "已读取本地跟进索引，正在核对当前邮箱名下的历史协作记录；完成前不会显示“暂无”。",
+      body: "正在读取服务端核对的授权名单；读取完成前不显示“暂无”。",
     };
   }
   if (kind === "incomplete") {
     return {
       title: "跟进名单暂时无法确认",
-      body: "未能完成当前邮箱范围的名单核对，因此暂不显示“暂无”。可重试或交给 Agent 排查。",
+      body: "未能完成服务端授权名单核对，因此暂不显示“暂无”。可重试或交给 Agent 排查。",
     };
   }
   if (kind === "unbound") {
@@ -80,10 +69,9 @@ function followEmptyCopy(kind: string, scope: StarryBinding | null) {
   }
   if (kind === "mailbox") {
     const mailbox = scope?.mailbox_email || "当前邮箱";
-    const scopeLabel = scope?.owner_name ? `${scope.owner_name}（${mailbox}）` : mailbox;
     return {
       title: "还没有领取跟进的红人",
-      body: `这里显示 ${scopeLabel} 名下的跟进名单。可先从公海领取已有红人，或通过 AI 发现寻找新红人。`,
+      body: `这里显示服务端为 ${mailbox} 核对的授权跟进名单。可先从公海领取已有红人，或通过 AI 发现寻找新红人。`,
     };
   }
   if (kind === "down") {
@@ -102,6 +90,9 @@ export default function FollowedPane({
   focusedKolId,
   confirmStageBusyId,
   confirmStageFeedback,
+  releaseBusyId,
+  releaseErrorId,
+  releaseError,
   followScope,
   followEmptyKind,
   down,
@@ -134,6 +125,9 @@ export default function FollowedPane({
   focusedKolId: string | null;
   confirmStageBusyId: string | null;
   confirmStageFeedback: { id: string; text: string; tone: "info" | "error" } | null;
+  releaseBusyId?: string | null;
+  releaseErrorId?: string | null;
+  releaseError?: string | null;
   followScope: StarryBinding | null;
   followEmptyKind: string;
   down?: SurfaceDownView | null;
@@ -163,7 +157,7 @@ export default function FollowedPane({
   const selectedCards = visibleKols.filter((card) => selectedKolIds.includes(card.id));
   const bulkLabel = followedBulkCtaLabel(selectedCards);
   const queryDown = Boolean(down);
-  const loading = !queryDown && (followEmptyKind === "loading" || followEmptyKind === "reconciling");
+  const loading = !queryDown && followEmptyKind === "loading";
   const slowLoading = useSlowWait(loading);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
 
@@ -206,17 +200,12 @@ export default function FollowedPane({
             筛选后右栏显示「共 N 位」（筛选结果数），未筛选时不渲染，避免与中栏总数重复（不变量 6）。 */}
         {allCards.length ? <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <div className="followed-object-look" data-followed-object-look>
-            <label className="followed-object-search">
-              <SearchIcon />
-              <span className="sr-only">搜索跟进对象</span>
-              <input
-                type="search"
+            <WorkspaceSearchInput className="followed-object-search"
                 data-followed-object-search
                 value={kolQuery}
                 placeholder="搜索跟进对象"
                 onChange={(event) => onQuery(event.target.value)}
               />
-            </label>
             <div className="followed-object-sort" data-followed-sort role="group" aria-label="跟进对象排序">
               {SORT_OPTIONS.map((option) => (
                 <button
@@ -268,10 +257,6 @@ export default function FollowedPane({
             </button> : null}
           </div>
         </div> : null}
-        {followEmptyKind === "reconciling" && allCards.length ? (
-          <p className="muted" data-followed-reconciling role="status" aria-live="polite">正在核对历史协作数据…</p>
-        ) : null}
-
         {/* 筛选结果计数：只在筛选/搜索缩小了名单时出现；未筛选时中栏总数已覆盖，不重复（不变量 6）。 */}
         {allCards.length > 0 && visibleKols.length > 0 && visibleKols.length < allCards.length ? (
           <p className="followed-rail-count" data-followed-rail-count>
@@ -315,6 +300,8 @@ export default function FollowedPane({
                   onCompose={() => onCompose(card)}
                   onConfirmStage={() => onConfirmStage(card)}
                   onRelease={card.source.follow_id && onRelease ? () => onRelease(card) : undefined}
+                  releaseBusy={releaseBusyId === card.source.id}
+                  releaseError={releaseErrorId === card.source.id ? releaseError || undefined : undefined}
                 />
               ))}
             </div>

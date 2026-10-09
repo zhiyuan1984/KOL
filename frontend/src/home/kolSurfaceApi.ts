@@ -15,6 +15,9 @@ import {
   type PoolKol,
 } from "./kolContract";
 
+const FOLLOWING_AUTHORITY = "kol_follow_index+verified_starry_binding";
+const FOLLOWING_COMPLETENESS = "complete";
+
 export type PoolLoad = {
   items: PoolKol[];
   source: "pool" | "board-adapter";
@@ -29,10 +32,14 @@ export type PoolLoad = {
 export type FollowingLoad = {
   items: FollowKol[];
   raw: Array<Record<string, unknown>>;
-  source: "following" | "board-adapter";
-  contract: "B.active";
+  /** `/api/home/following` is the only rendered follow-list source. */
+  source: "following";
+  contract: "B.active+verified_starry_binding";
+  authority: typeof FOLLOWING_AUTHORITY;
+  completeness: typeof FOLLOWING_COMPLETENESS;
   creates_session: false;
   follow_scope: import("../api").StarryBinding | null;
+  partial?: boolean;
   down?: boolean;
   error?: string;
 };
@@ -61,50 +68,8 @@ function isMissingEndpoint(error: unknown): boolean {
   return status === 404 || status === 405;
 }
 
-/** Stable identity across B.active rows and the legacy mailbox-scoped board projection. */
-function followingIdentity(row: Record<string, unknown>): string {
-  const uid = String(row.kol_uid || row.creator_id || "").trim();
-  if (uid) return `kol:${uid}`;
-  const collaborationId = String(row.collaboration_id || row.id || "").trim();
-  if (collaborationId) return `collaboration:${collaborationId}`;
-  return `handle:${String(row.handle || row.display_name || row.kol_name || "").replace(/^@/, "").trim()}`;
-}
-
-/**
- * #172 made B.active (`kol_follow_index`) the follow authority. Existing
- * mailbox-scoped collaborations predate that index, though, and were already
- * filtered to the current employee by GET /api/home/board. Keep those existing
- * follows visible during the migration window without writing a claim from a
- * GET request. `collaboration_id` preserves the old card/session action path.
- */
-function legacyBoardFollowing(board?: {
-  kols?: Array<Record<string, unknown>>;
-  follow_scope?: import("../api").StarryBinding;
-}): Array<Record<string, unknown>> {
-  // The board only acts as a per-employee compatibility source when its own
-  // mailbox filter is active. In auth-disabled/demo mode it contains the
-  // shared library, which must never be promoted into someone's follows.
-  if (!board?.follow_scope?.required || !board.follow_scope.bound || board.follow_scope.status === "expired") return [];
-  return (board?.kols || [])
-    .filter(isActiveFollowRow)
-    .map((row) => ({
-      ...row,
-      collaboration_id: String(row.collaboration_id || row.id || "").trim() || undefined,
-    }));
-}
-
-function mergeFollowingRows(
-  indexedRows: Array<Record<string, unknown>>,
-  board?: { kols?: Array<Record<string, unknown>>; follow_scope?: import("../api").StarryBinding },
-): Array<Record<string, unknown>> {
-  const seen = new Set(indexedRows.map(followingIdentity));
-  const legacy = legacyBoardFollowing(board).filter((row) => {
-    const identity = followingIdentity(row);
-    if (seen.has(identity)) return false;
-    seen.add(identity);
-    return true;
-  });
-  return [...indexedRows, ...legacy];
+function hasCompleteFollowingAuthority(payload: { authority?: unknown; completeness?: unknown }): boolean {
+  return payload.authority === FOLLOWING_AUTHORITY && payload.completeness === FOLLOWING_COMPLETENESS;
 }
 
 function poolRow(row: Record<string, unknown>, followed: Set<string>): boolean {
@@ -246,45 +211,44 @@ export async function cleanupPoolMissingHomepage(expectedCount: number): Promise
   return { items: unownedFirst(items), deleted: Math.max(0, Number(payload.deleted || 0)) };
 }
 
-export async function loadHomeFollowing(board?: { kols?: Array<Record<string, unknown>>; follow_scope?: import("../api").StarryBinding }): Promise<FollowingLoad> {
+/**
+ * The service has already combined local active follows with verified Starry
+ * binding history and applied the caller's authorization. Never supplement a
+ * successful or failed response with `/api/home/board` profile projections.
+ */
+export async function loadHomeFollowing(): Promise<FollowingLoad> {
   try {
-    const payload = await api.homeFollowing();
-    const indexedRows = asRows(payload).filter(isActiveFollowRow);
-    const raw = mergeFollowingRows(indexedRows, board);
+    const payload = await api.homeFollowing() as Awaited<ReturnType<typeof api.homeFollowing>> & {completeness?:string};
+    const partial=payload.authority===FOLLOWING_AUTHORITY && payload.completeness==='incomplete-source';
+    if (!partial && !hasCompleteFollowingAuthority(payload)) {
+      throw new Error("跟进名单未返回完整的服务端授权标记");
+    }
+    const raw = asRows(payload).filter(isActiveFollowRow);
     return {
       items: raw.map(toFollowKol).filter((row): row is FollowKol => Boolean(row)),
+      ...(partial ? {partial:true,down:true,error:"Starry 归属来源尚未完整核验；仅展示本地有效跟进"} : {}),
       raw,
-      // Old mailbox-bound collaborations remain a read-only compatibility
-      // projection until their B.active records are backfilled. The rendered
-      // payload is still the public follow contract, not raw board data.
-      source: raw.length > indexedRows.length ? "board-adapter" : "following",
-      contract: "B.active",
+      source: "following",
+      contract: "B.active+verified_starry_binding",
+      authority: FOLLOWING_AUTHORITY,
+      completeness: FOLLOWING_COMPLETENESS,
       creates_session: false,
-      follow_scope: payload.follow_scope || board?.follow_scope || null,
+      follow_scope: payload.follow_scope || null,
     };
   } catch (error) {
-    if (!isMissingEndpoint(error)) {
-      return {
-        items: [],
-        raw: [],
-        source: "following",
-        contract: "B.active",
-        creates_session: false,
-        follow_scope: board?.follow_scope || null,
-        down: true,
-        error: error instanceof Error ? error.message : "跟进列表读取失败",
-      };
-    }
+    return {
+      items: [],
+      raw: [],
+      source: "following",
+      contract: "B.active+verified_starry_binding",
+      authority: FOLLOWING_AUTHORITY,
+      completeness: FOLLOWING_COMPLETENESS,
+      creates_session: false,
+      follow_scope: null,
+      down: true,
+      error: error instanceof Error ? error.message : "跟进列表读取失败",
+    };
   }
-  const raw = (board?.kols || []).filter(isActiveFollowRow);
-  return {
-    items: raw.map(toFollowKol).filter((row): row is FollowKol => Boolean(row)),
-    raw,
-    source: "board-adapter",
-    contract: "B.active",
-    creates_session: false,
-    follow_scope: board?.follow_scope || null,
-  };
 }
 
 export const ANALYZE_WORK_EVENT = "kol:analyze-work";

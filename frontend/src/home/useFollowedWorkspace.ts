@@ -28,21 +28,21 @@ import type { ComposerObjectRef } from "../composer/types";
 
 export type FollowedKol = FollowedKolRecord;
 
-/**
- * A follow-list "empty" result is only conclusive after the B.active index and
- * the mailbox-scoped legacy projection have both been reconciled. The latter
- * remains necessary while older collaborations have not yet been backfilled.
- */
+type FollowReleaseStatus =
+  | { state: "active"; followId: string }
+  | { state: "released" }
+  | { state: "uncertain" };
+
+/** A successful unified server read is the only conclusive follow-list answer. */
 export type FollowListCompleteness =
   | "loading-local"
-  | "reconciling-legacy"
   | "complete"
   | "incomplete-error";
 
 export function useFollowedWorkspace(options: {
-  /** 共享 board 管线：带首入缓存与 force 刷新，错误按 surface 路由。 */
+  /** board may still load task/workbench data, but is never a follow-list source. */
   loadBoard: (surface: HomeSurface, force?: boolean) => Promise<boolean>;
-  /** board 成功后拿到的跟进索引原始行。 */
+  /** Retained caller compatibility; board KOL rows are never read by this hook. */
   boardKols: () => Array<Record<string, unknown>>;
   /** 当前绑定的 Starry 邮箱范围。 */
   followScope: StarryBinding | null;
@@ -71,8 +71,6 @@ export function useFollowedWorkspace(options: {
   onReleased: (kolId: string) => Promise<void>;
 }) {
   const {
-    loadBoard,
-    boardKols,
     followScope,
     latestFollowScope,
     setFollowScope,
@@ -91,8 +89,6 @@ export function useFollowedWorkspace(options: {
   const [readsDone, setReadsDone] = useState(0);
   const readSeq = useRef(0);
   const reconcileSeq = useRef(0);
-  /** 最近一次跟进读取的来源：board-adapter 表示端点缺失、行来自 board 投影。 */
-  const lastSourceRef = useRef<string>("following");
   const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<KolSortMode>("time");
@@ -108,9 +104,16 @@ export function useFollowedWorkspace(options: {
     tone: "info" | "error";
   } | null>(null);
   const [batchPending, setBatchPending] = useState<FollowedKolCardModel[] | null>(null);
-  const [releaseTarget, setReleaseTarget] = useState<FollowedKol | null>(null);
-  const [releaseBusy, setReleaseBusy] = useState(false);
+  /** Kept null by the click-is-confirmed flow; retained only for the current Home prop shape. */
+  const [releaseTarget] = useState<FollowedKol | null>(null);
+  const [releaseBusyId, setReleaseBusyId] = useState<string | null>(null);
+  const releaseBusyRef = useRef<string | null>(null);
+  /** Lets the row retain its failure feedback after finally clears releaseBusyId. */
+  const [releaseErrorId, setReleaseErrorId] = useState<string | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+  /** A failed/unknown release must read B.active before a subsequent write. */
+  const releaseCheckRequired = useRef(new Set<string>());
+  const verifiedFollowIds = useRef(new Map<string, string>());
 
   const cards = useMemo(
     () => rows.map((kol) => projectFollowedKolCard(kol, todoItems)),
@@ -137,14 +140,12 @@ export function useFollowedWorkspace(options: {
     [selectedCards],
   );
 
-  // 只有完整合并确认过，空数组才是空名单。读取计数保留用于请求尚未发出/完成的首帧兜底。
+  // 只有服务端完整授权名单读取成功后，空数组才是空名单。
   const loading = completeness === "loading-local"
-    || completeness === "reconciling-legacy"
     || (!rows.length && (readsInFlight > 0 || readsDone === 0));
 
   const followEmptyKind = useMemo(() => {
     if (completeness === "loading-local") return "loading";
-    if (completeness === "reconciling-legacy") return "reconciling";
     if (completeness === "incomplete-error") return "incomplete";
     if (loading) return "loading";
     if (followScope?.required && !followScope.bound) return "unbound";
@@ -155,23 +156,20 @@ export function useFollowedWorkspace(options: {
   }, [completeness, followScope, loading, rows.length]);
 
   const readSurface = useCallback(async (): Promise<FollowedKol[] | null> => {
-    // 进页会读取本地索引和合并后的兼容投影。两次可能落在同一屏，只有最后一份可以改 rows。
+    // The server has already verified the authorized local and Starry-history
+    // rows. Concurrent reads may overlap; only the newest response can paint.
     readSeq.current += 1;
     const seq = readSeq.current;
     setReadsInFlight((count) => count + 1);
     try {
-      const activeScope = followScope || latestFollowScope.current;
-      const loaded = await sharedRead("home:following", () => loadHomeFollowing({
-        kols: boardKols(),
-        follow_scope: activeScope || undefined,
-      }));
+      const loaded = await sharedRead("home:following", () => loadHomeFollowing());
       if (seq !== readSeq.current) return null;
-      lastSourceRef.current = loaded.source;
       if (loaded.follow_scope) {
         latestFollowScope.current = loaded.follow_scope;
         setFollowScope(loaded.follow_scope);
       }
       if (loaded.down) {
+        if (loaded.partial) setRows(loaded.items.map(followKolToRecord) as FollowedKol[]);
         // 读取失败不清空已经写在屏幕上的名单；空名单时才交给 down 视图。
         setError(loaded.error || "跟进列表读取失败");
         return null;
@@ -183,9 +181,9 @@ export function useFollowedWorkspace(options: {
       setReadsInFlight((count) => Math.max(0, count - 1));
       setReadsDone((count) => count + 1);
     }
-  }, [boardKols, followScope, latestFollowScope, setFollowScope]);
+  }, [latestFollowScope, setFollowScope]);
 
-  /** A direct refresh reads the current, already-known board scope as one complete snapshot. */
+  /** A direct refresh reads the unified server-authorized follow list. */
   const loadSurface = useCallback(async () => {
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
@@ -197,47 +195,21 @@ export function useFollowedWorkspace(options: {
   }, [readSurface]);
 
   const ensureLoaded = useCallback(async () => {
-    // A non-empty B.active response may be displayed immediately, but its count
-    // and an empty conclusion remain provisional until legacy mailbox rows are
-    // merged. This prevents a false "暂无" flash for existing collaborations.
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
-    // Do not paint the previous visit's result page while this entry is being
-    // refreshed. The fresh local/board snapshot will repopulate rows below.
-    setRows([]);
-    setReadsDone(0);
+    // Never erase the last known authorized list merely because a refresh is
+    // pending or fails. The completion state makes its freshness explicit.
     setError("");
     setCompleteness("loading-local");
-    const board = loadBoard("following");
     const localRows = await readSurface();
     if (seq !== reconcileSeq.current) return;
     if (!localRows) {
       setCompleteness("incomplete-error");
       return;
     }
-    // 只有「确定不可能有旧协作」时才跳过对齐：范围未绑定时 B.active 索引即完整答案。
-    // 范围未知（旧后端）或已绑定/过期时仍等 board 合并旧协作，也不闪一次假空；
-    // 端点缺失的 board-adapter 模式必须先有 board 才能投影出名单。
-    const scope = latestFollowScope.current;
-    const legacyPossible = !scope || Boolean(scope.required && scope.bound && scope.status !== "expired");
-    if (lastSourceRef.current !== "board-adapter" && !legacyPossible) {
-      setCompleteness("complete");
-      return;
-    }
-    setCompleteness("reconciling-legacy");
-    const boardReady = await board;
-    if (seq !== reconcileSeq.current) return;
-    if (!boardReady) {
-      setCompleteness("incomplete-error");
-      return;
-    }
-    const mergedRows = await readSurface();
-    if (seq !== reconcileSeq.current) return;
-    if (mergedRows) {
-      setError("");
-    }
-    setCompleteness(mergedRows ? "complete" : "incomplete-error");
-  }, [loadBoard, readSurface]);
+    setError("");
+    setCompleteness("complete");
+  }, [readSurface]);
 
   const openDetails = useCallback(
     (card: FollowedKolCardModel, focusThread?: string) => {
@@ -443,35 +415,102 @@ export function useFollowedWorkspace(options: {
     setBatchPending(null);
   }, []);
 
-  const requestRelease = useCallback((kol: FollowedKol) => {
-    setReleaseError(null);
-    setReleaseTarget(kol);
+  /** B.active is the ownership authority used to reconcile a lost/failed release response. */
+  const readReleaseStatus = useCallback(async (target: FollowedKol): Promise<FollowReleaseStatus> => {
+    try {
+      const following = await loadHomeFollowing();
+      // Without B.active, a board-adapter empty list cannot prove that it was released.
+      if (following.down || following.source !== "following") return { state: "uncertain" };
+      const followId = String(following.items.find((item) => item.kol_uid === target.kol_uid)?.follow_id || "").trim();
+      return followId ? { state: "active", followId } : { state: "released" };
+    } catch {
+      return { state: "uncertain" };
+    }
   }, []);
 
-  const cancelRelease = useCallback(() => {
-    if (releaseBusy) return;
-    setReleaseTarget(null);
-    setReleaseError(null);
-  }, [releaseBusy]);
-
-  const confirmRelease = useCallback(async () => {
-    const target = releaseTarget;
-    const followId = String(target?.follow_id || "").trim();
-    if (!target || !followId) return;
+  const commitReleasedFollow = useCallback(async (target: FollowedKol, followId: string) => {
     const kolId = target.id;
-    setReleaseBusy(true);
+    const ownershipKey = String(target.kol_uid || kolId);
+    setRows((current) => current.filter((row) => row.follow_id !== followId && row.id !== kolId && row.kol_uid !== target.kol_uid));
+    verifiedFollowIds.current.delete(ownershipKey);
+    releaseCheckRequired.current.delete(ownershipKey);
     setReleaseError(null);
+    setReleaseErrorId(null);
     try {
-      await releaseFollowedKol(followId);
-      setRows((current) => current.filter((row) => row.follow_id !== followId && row.id !== kolId));
-      setReleaseTarget(null);
       await onReleased(kolId);
     } catch (err) {
-      setReleaseError(err instanceof Error ? err.message : "释放失败");
-    } finally {
-      setReleaseBusy(false);
+      // The release committed; only the cross-surface refresh failed.
+      setError(err instanceof Error ? `已放回公海，但刷新公海失败：${err.message}` : "已放回公海，但刷新公海失败");
     }
-  }, [releaseTarget, onReleased]);
+  }, [onReleased]);
+
+  const reconcileReleaseFailure = useCallback(async (target: FollowedKol, attemptedFollowId: string, failedMessage: string) => {
+    const ownershipKey = String(target.kol_uid || target.id);
+    const status = await readReleaseStatus(target);
+    if (status.state === "released") {
+      await commitReleasedFollow(target, attemptedFollowId);
+      return;
+    }
+    setReleaseErrorId(target.id);
+    if (status.state === "active") {
+      verifiedFollowIds.current.set(ownershipKey, status.followId);
+      releaseCheckRequired.current.delete(ownershipKey);
+      setReleaseError(`${failedMessage}；已核对仍在我的跟进，可再次放回公海。`);
+      return;
+    }
+    releaseCheckRequired.current.add(ownershipKey);
+    setReleaseError(`${failedMessage}；当前无法核对放回状态，下次操作会先核对，未确认前不会重复放回。`);
+  }, [commitReleasedFollow, readReleaseStatus]);
+
+  /** “回公海” is the user's explicit confirmation; the controlled API still sends confirm=true. */
+  const requestRelease = useCallback(async (target: FollowedKol) => {
+    const kolId = target.id;
+    const ownershipKey = String(target.kol_uid || kolId);
+    let followId = verifiedFollowIds.current.get(ownershipKey) || String(target.follow_id || "").trim();
+    if (!followId || releaseBusyRef.current) return;
+    releaseBusyRef.current = kolId;
+    setReleaseBusyId(kolId);
+    setReleaseError(null);
+    setReleaseErrorId(null);
+    try {
+      if (releaseCheckRequired.current.has(ownershipKey)) {
+        const status = await readReleaseStatus(target);
+        if (status.state === "released") {
+          await commitReleasedFollow(target, followId);
+          return;
+        }
+        if (status.state === "uncertain") {
+          setReleaseErrorId(kolId);
+          setReleaseError("当前无法核对放回状态，尚未重复放回；请稍后再试。");
+          return;
+        }
+        releaseCheckRequired.current.delete(ownershipKey);
+        verifiedFollowIds.current.set(ownershipKey, status.followId);
+        followId = status.followId;
+      }
+      const released = await releaseFollowedKol(followId);
+      if (!released.ok) {
+        await reconcileReleaseFailure(target, followId, "放回公海未成功");
+        return;
+      }
+      await commitReleasedFollow(target, followId);
+    } catch (err) {
+      // Do not remove the followed row or blindly issue a second release after a failed request.
+      await reconcileReleaseFailure(target, followId, err instanceof Error ? err.message : "放回公海失败");
+    } finally {
+      releaseBusyRef.current = null;
+      setReleaseBusyId(null);
+    }
+  }, [commitReleasedFollow, readReleaseStatus, reconcileReleaseFailure]);
+
+  // Compatibility exports keep Home compiling until it removes ReleaseFollowConfirm.
+  const cancelRelease = useCallback(() => {
+    if (!releaseBusyRef.current) {
+      setReleaseError(null);
+      setReleaseErrorId(null);
+    }
+  }, []);
+  const confirmRelease = useCallback(() => undefined, []);
 
   return {
     rows,
@@ -503,8 +542,10 @@ export function useFollowedWorkspace(options: {
     confirmBatch,
     cancelBatch,
     releaseTarget,
-    releaseBusy,
+    releaseBusy: Boolean(releaseBusyId),
+    releaseBusyId,
     releaseError,
+    releaseErrorId,
     requestRelease,
     confirmRelease,
     cancelRelease,

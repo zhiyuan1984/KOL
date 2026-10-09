@@ -825,13 +825,27 @@ export function recordEffectiveCorrespondence(input: {
   if (!follow) {
     return { renewed: false, effective: true, reason: "no_active_follow" };
   }
-  const occurredAt = text(input.occurredAt) || nowIso();
-  const clock = followClock(occurredAt);
-  db.prepare(
+  const rawOccurredAt = text(input.occurredAt);
+  if (!rawOccurredAt) {
+    // A synchronized message without an event time is evidence of neither a
+    // newer interaction nor inactivity. Gateway sends supply their receipt
+    // time explicitly, so do not substitute this process's receive time here.
+    return { renewed: false, effective: true, reason: "occurred_at_missing", follow_id: String(follow.id) };
+  }
+  const occurredAtMs = Date.parse(rawOccurredAt);
+  if (!Number.isFinite(occurredAtMs)) {
+    return { renewed: false, effective: true, reason: "occurred_at_invalid", follow_id: String(follow.id) };
+  }
+  const clock = followClock(new Date(occurredAtMs).toISOString());
+  const changed = db.prepare(
     `UPDATE kol_follow_index
         SET last_effective_mail_at=?, release_due_at=?, updated_at=?, data_version=data_version+1
-      WHERE id=? AND status='active'`,
-  ).run(clock.last_effective_mail_at, clock.release_due_at, nowIso(), follow.id);
+      WHERE id=? AND status='active'
+        AND (last_effective_mail_at IS NULL OR trim(last_effective_mail_at)='' OR last_effective_mail_at<?)`,
+  ).run(clock.last_effective_mail_at, clock.release_due_at, nowIso(), follow.id, clock.last_effective_mail_at);
+  if (!changed.changes) {
+    return { renewed: false, effective: true, reason: "out_of_order", follow_id: String(follow.id) };
+  }
   return { renewed: true, effective: true, reason: "human", follow_id: String(follow.id) };
 }
 

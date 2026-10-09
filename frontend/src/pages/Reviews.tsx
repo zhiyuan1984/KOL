@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useState, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { ReviewTemplate, ReviewDraft, ReviewChoices as Choices, ReviewPreview, ReviewCommand, ReviewSource } from "../../../shared/review";
@@ -514,7 +515,7 @@ export default function Reviews() {
               </button>
             ))}
             <form className="review-search" onSubmit={e => { e.preventDefault(); setCursor(undefined); setSearch(query); }}>
-              <input aria-label="搜索标题或流程名称" placeholder="搜索标题或流程名称" value={query} maxLength={120} onChange={e => setQuery(e.target.value)} />
+              <WorkspaceSearchInput aria-label="搜索标题或流程名称" placeholder="搜索标题或流程名称" value={query} maxLength={120} onChange={e => setQuery(e.target.value)} />
             </form>
             <button title="刷新" aria-label="刷新" disabled={listLoading || detailLoading || command.busy} onClick={() => load().catch(e => setError(e.message))}>↻</button>
           </nav>

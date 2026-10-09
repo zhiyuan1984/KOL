@@ -117,7 +117,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     planSummaryLabel: "今日计划摘要",
     streamEmpty: {
       title: "从今天的工作开始",
-      body: "启动今日任务后，这里会展示 Codex 的真实规划过程与结果摘要。",
+      body: "启动今日任务，查看 Codex 规划过程与结果摘要。",
     },
   },
   todo: {
@@ -142,7 +142,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     planSummaryLabel: "待办计划摘要",
     streamEmpty: {
       title: "从待办开始",
-      body: "启动待办任务后，这里会展示 Codex 的真实规划过程与结果摘要。",
+      body: "启动待办任务，查看 Codex 规划过程与结果摘要。",
     },
   },
 };

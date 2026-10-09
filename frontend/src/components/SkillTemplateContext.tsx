@@ -33,7 +33,7 @@ export default function SkillTemplateContext({
       aria-label={`${template.title}技能交互模板`}
     >
       <header className="skill-template-context-head">
-        <span className="skill-template-context-kicker">{flat ? "技能交互模板 · 只读" : "技能说明"}</span>
+        <span className="skill-template-context-kicker">{flat ? "技能交互模板" : "技能说明"}</span>
         <strong>{template.title}</strong>
       </header>
       <div className="skill-template-context-grid">

@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useState } from "react";
 import { api, type KolLead, type KolLeadDetailResponse } from "../api";
 import { randomUuid } from "../uuid";
@@ -76,7 +77,7 @@ export default function Leads() {
       {error ? <p className="kol-error" role="alert">{error}</p> : null}
       <div className="kol-filters">
         <div className="kol-search-row">
-          <input className="kol-search" aria-label="搜索线索" placeholder="搜索账号名 / 平台" value={search}
+          <WorkspaceSearchInput className="kol-search" aria-label="搜索线索" placeholder="搜索账号名 / 平台" value={search}
             onChange={(e) => setSearch(e.target.value)} />
           <button type="button" className="kol-chip" aria-pressed={mine} onClick={() => setMine((v) => !v)}>只看我负责</button>
         </div>

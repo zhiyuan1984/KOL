@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, type CronJob, type CronRun } from "../api";
@@ -428,7 +429,7 @@ export default function Cron() {
       <header className="cron-toolbar">
         <h1>定时任务</h1>
         <label className="sr-only" htmlFor="cron-search">搜索任务</label>
-        <input id="cron-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务" />
+        <WorkspaceSearchInput id="cron-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务" />
         <label className="sr-only" htmlFor="cron-filter">筛选状态</label>
         <select id="cron-filter" value={filter} onChange={(event) => setFilter(event.target.value)}>
           <option value="all">全部状态</option><option value="draft">草稿</option><option value="published">已启用</option>
@@ -503,6 +504,7 @@ export default function Cron() {
             <p className="muted">按 {editor.zone} 时间执行。提交内容会使用今日任务的技能、专家、工作空间与连接器能力。{isNew ? "保存后先生成草稿；确认内容与范围后，再发布并启用计划。" : "保存将立即更新此任务；若任务已启用，新配置将用于后续触发。"}</p>
             <h3>任务内容</h3>
             <ComposerDock key={selected?.id || "new"} variant="workspace" value={text} onChange={setText}
+              onClearDraft={() => { setText(""); setObjectRefs([]); }}
               onSubmit={(payload) => void save(payload)} disabled={busy === "save"}
               initialDraft={selected ? composerDraft(selected) : { text: "" }}
               objectRefs={objectRefs} onObjectRefsChange={setObjectRefs} submitLabel={isNew ? "保存为草稿" : "保存更改"} />

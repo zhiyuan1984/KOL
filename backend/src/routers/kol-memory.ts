@@ -1,3 +1,4 @@
+import { postgresPool } from "../postgres/pool.js";
 /**
  * KOL memory APIs — PROD-AGENT-01 entry kinds.
  * GET pool / following = memory (no session, no model)
@@ -5,6 +6,7 @@
  * POST kol-analyze/enqueue = command: writes queued work_item only (no session, no model)
  */
 import { Hono } from "hono";
+import { readFollowingAuthority } from "../postgres/following-authority.js";
 import { parsePoolPageOptions, readPublicPoolPage } from "../postgres/public-pool.js";
 import { requireSkill, scopedUser } from "../auth.js";
 import { poolViewerBrands } from "../host/inbound-scope.js";
@@ -307,11 +309,13 @@ kolMemory.post("/home/pool/cleanup-missing-homepage", async (c) => {
   });
 });
 
-kolMemory.get("/home/following", (c) => {
+kolMemory.get("/home/following", async (c) => {
   c.header("Cache-Control", "no-store");
   const employee = currentMemoryEmployee();
-  const kols = listEmployeeFollowing(employee.id);
+  const kols = await readFollowingAuthority(employee.id);
   const followScope = currentFollowScope();
+  const health=(await postgresPool().query("SELECT state,error FROM starry_ownership_sync_state WHERE company_id=$1",[memoryCompanyId()])).rows[0];
+  const complete=!followScope.required || !followScope.bound || followScope.status==='expired' || health?.state==='ready';
   return c.json({
     entry: "memory",
     kind: "memory",
@@ -321,7 +325,9 @@ kolMemory.get("/home/following", (c) => {
     employee_id: employee.id,
     follow_scope: followScope,
     kols,
-    authority: "kol_follow_index",
+    authority: "kol_follow_index+verified_starry_binding",
+    completeness: complete ? "complete" : "incomplete-source",
+    ...(complete ? {} : {source_error: "Starry 归属来源尚未完整核验；仅展示本地有效跟进"}),
   });
 });
 

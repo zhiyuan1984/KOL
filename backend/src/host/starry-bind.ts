@@ -4,9 +4,9 @@ import { audit, getConn, nowIso } from "../db.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { HttpFail } from "./errors.js";
-import { mailboxLocalPart, namesMatch, normalizeEmail } from "./identity.js";
+import { normalizeEmail } from "./identity.js";
 import { currentMemoryEmployee } from "./kol-memory.js";
-import { isPlaceholderMailbox } from "../starrykol/mail-fields.js";
+import { matchesVerifiedMailbox } from "./starry-mailbox-match.js";
 
 export type StarryBindingStatus = "connected" | "expired" | "unbound";
 
@@ -15,6 +15,8 @@ export type PublicStarryBinding = {
   mailbox_email: string;
   mailbox_id: string;
   owner_name: string;
+  owner_open_id?: string;
+  owner_verified_at?: string | null;
   status: StarryBindingStatus;
   has_token: boolean;
   updated_at: string | null;
@@ -41,6 +43,8 @@ export function publicStarryBinding(row?: Row | null): PublicStarryBinding {
     mailbox_email: String(row.mailbox_email || ""),
     mailbox_id: String(row.mailbox_id || ""),
     owner_name: String(row.owner_name || ""),
+    owner_open_id: String(row.owner_open_id || ""),
+    owner_verified_at: row.owner_verified_at ? String(row.owner_verified_at) : null,
     status: String(row.status || "connected") === "expired" ? "expired" : "connected",
     has_token: Boolean(String(row.bearer_token || "").trim()),
     updated_at: row.updated_at ? String(row.updated_at) : null,
@@ -113,36 +117,22 @@ export function currentFollowScope(): FollowScope {
 export function matchesFollowedMailbox(
   kol: {
     owner_name?: unknown;
+    owner_open_id?: unknown;
+    verified_owner_mailbox?: unknown;
+    ownership_source_ready?: unknown;
     owner_mailbox?: unknown;
     mailbox_from?: unknown;
     mailboxEmail?: unknown;
     mailbox?: unknown;
   },
-  scope: Pick<PublicStarryBinding, "mailbox_email" | "owner_name">,
+  scope: Pick<PublicStarryBinding, "mailbox_email" | "owner_name" | "owner_open_id" | "owner_verified_at">,
   extras: Array<string | undefined | null> = [],
 ): boolean {
-  const mailbox = normalizeEmail(scope.mailbox_email);
-  const owner = String(scope.owner_name || "").trim();
-  const rowOwner = String(kol.owner_name || "").trim();
-  const candidates = [
-    kol.owner_mailbox,
-    kol.mailbox_from,
-    kol.mailboxEmail,
-    kol.mailbox,
-    ...extras,
-  ].map((value) => normalizeEmail(String(value || ""))).filter(Boolean);
-  for (const rowMailbox of candidates) {
-    if (mailbox && (rowMailbox === mailbox || mailboxLocalPart(rowMailbox) === mailboxLocalPart(mailbox))) {
-      return true;
-    }
-    // Brand placeholder (kol.lt@litime.example) must not hide a bound operator mailbox.
-    if (mailbox && isPlaceholderMailbox(rowMailbox)) {
-      const ownerBox = normalizeEmail(String(kol.owner_mailbox || ""));
-      if (!ownerBox || ownerBox === mailbox || (owner && rowOwner && namesMatch(rowOwner, owner))) return true;
-    }
-  }
-  if (owner && rowOwner && namesMatch(rowOwner, owner)) return true;
-  return false;
+  // Caller context (extras) cannot certify row ownership.
+  if (!kol.ownership_source_ready) return false;
+  const remoteOwner=String(kol.owner_open_id||"").trim();
+  if (remoteOwner && scope.owner_open_id && scope.owner_verified_at) return remoteOwner===scope.owner_open_id;
+  return matchesVerifiedMailbox({owner_mailbox:kol.verified_owner_mailbox}, scope);
 }
 
 function removeUnusedMailboxCredential(value: unknown): void {
@@ -156,6 +146,7 @@ export function saveStarryBinding(userId: string, input: {
   mailbox_email: string;
   mailbox_id?: string;
   owner_name?: string;
+  owner_open_id?: string;
   bearer?: string;
   status?: StarryBindingStatus;
 }): PublicStarryBinding {
@@ -196,6 +187,10 @@ export function saveStarryBinding(userId: string, input: {
     if (secret) removeUnusedMailboxCredential(bearer);
     throw error;
   }
+  if (input.owner_open_id) {
+    getConn().prepare("UPDATE user_starry_bindings SET owner_open_id=?,owner_verified_at=? WHERE user_id=? AND mailbox_email=?")
+      .run(input.owner_open_id, now, userId, mailbox);
+  }
   if (existing?.bearer_token !== bearer) removeUnusedMailboxCredential(existing?.bearer_token);
   audit(userId, "starry.bind", {
     mailbox_email: mailbox,
@@ -231,6 +226,7 @@ export function mailboxFromStarryRow(row: Json): {
   id: string;
   mailbox_email: string;
   owner_name: string;
+  owner_open_id: string;
   brand: string;
 } {
   const mailbox = normalizeEmail(String(row.mailboxEmail || row.mailbox_email || row.email || ""));
@@ -238,6 +234,7 @@ export function mailboxFromStarryRow(row: Json): {
     id: String(row.id || row.mailboxId || ""),
     mailbox_email: mailbox,
     owner_name: String(row.ownerUserName || row.owner_user_name || row.ownerName || row.owner || ""),
+    owner_open_id: String(row.ownerOpenId || row.owner_open_id || row.ownerUserId || row.owner_user_id || ""),
     brand: String(row.brandCode || row.brand_code || row.brandName || row.brand || ""),
   };
 }

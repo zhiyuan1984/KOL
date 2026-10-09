@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type OperationJob } from "../api";
@@ -108,7 +109,6 @@ function stoppedIntakeCopy(title?: string): string {
     : INTAKE_STOPPED_COPY;
 }
 
-const ICO_SEARCH = "M11 4.8a6.2 6.2 0 1 0 0 12.4 6.2 6.2 0 0 0 0-12.4M16.4 16.4 20 20";
 const ICO_FILTER = "M4 5h16l-6.3 7.3v5.2l-3.4-2.1v-3.1Z";
 const ICO_REPLY = "M9.5 14.5 4.5 9.5l5-5M4.5 9.5H13a6.5 6.5 0 0 1 6.5 6.5v3";
 const ICO_SPARKLE = "M12 3.8l1.9 4.9 4.9 1.9-4.9 1.9L12 17.4l-1.9-4.9-4.9-1.9 4.9-1.9ZM18.6 16.4v4M16.6 18.4h4";
@@ -1037,17 +1037,13 @@ export default function Mail() {
               />
               <div className="mail-list-tools">
                 <div className="mail-search-row">
-                  <label className="mail-search-wrap">
-                    <MailIco d={ICO_SEARCH} />
-                    <input
-                      className="mail-search"
+                  <WorkspaceSearchInput
+                      className="mail-search-wrap mail-search"
                       data-mail-search
-                      type="search"
                       placeholder="搜索联系人 / 主题 / 预览"
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                     />
-                  </label>
                   <button
                     type="button"
                     className={"mail-filter-btn" + (unboundOnly ? " is-on" : "")}
@@ -1250,6 +1246,12 @@ export default function Mail() {
                 placement="dock"
                 value={composerText}
                 onChange={setComposerText}
+                onClearDraft={() => {
+                  setComposerText("");
+                  setStageTarget("");
+                  mailCompose.clear();
+                  takeComposerDraftStash();
+                }}
                 onSubmit={(payload) => void submitComposer(payload)}
                 disabled={busy}
                 running={busy}

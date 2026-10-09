@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -61,19 +62,13 @@ export function Skills() {
           <h1 className="hub-section-title">我的技能</h1>
         </div>
         <div className="hub-tools">
-          <label className="hub-search-wrap">
-            <svg viewBox="0 0 24 24" aria-hidden>
-              <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-              <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-            </svg>
-            <input
-              className="hub-search"
+          <WorkspaceSearchInput
+              className="hub-search-wrap hub-search"
               data-hub-search
               placeholder="搜索技能"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
-          </label>
         </div>
       </header>
       <p className="hub-lead muted">已授权、可用于当前任务的技能。</p>

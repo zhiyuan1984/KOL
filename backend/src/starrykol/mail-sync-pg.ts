@@ -14,6 +14,7 @@
  * Legacy SQLite consumers (mail-memory-job, mail-summary, operations) keep
  * using the old helpers — they are a separate migration concern.
  */
+import { memoryCompanyId } from "../host/kol-memory.js";
 import { postgresPool } from "../postgres/pool.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
@@ -147,7 +148,8 @@ export async function updateBindingSyncCursorPg(input: {
 
 export async function listBoundCollaborationsPg(): Promise<Row[]> {
   const r = await postgresPool().query<Row>(
-    "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''",
+    `SELECT c.*,o.owner_open_id,o.owner_mailbox AS verified_owner_mailbox,(health.state='ready') AS ownership_source_ready FROM collaborations c LEFT JOIN starry_profile_ownership o
+      ON o.company_id=$1 AND o.kol_uid=c.kol_uid LEFT JOIN starry_ownership_sync_state health ON health.company_id=o.company_id WHERE c.kol_uid IS NOT NULL AND trim(c.kol_uid) != ''`,[memoryCompanyId()],
   );
   return r.rows;
 }
@@ -163,8 +165,8 @@ export async function collaborationByIdPg(id: string): Promise<Row | undefined> 
 export async function updateCollaborationConversationPg(conversationId: string, collabId: string): Promise<void> {
   if (!conversationId || !collabId) return;
   await postgresPool().query(
-    "UPDATE collaborations SET conversation_id=$1, updated_at=$2 WHERE id=$3",
-    [conversationId, nowIso(), collabId],
+    "UPDATE collaborations SET conversation_id=$1 WHERE id=$2",
+    [conversationId, collabId],
   );
 }
 

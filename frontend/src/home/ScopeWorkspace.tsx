@@ -151,7 +151,6 @@ export default function ScopeWorkspace({
           {centerSupplement}
           {phase === "idle" && !hasStream ? (
             <div className="scope-workspace-empty" data-scope-ai-empty>
-              <strong>{cfg.streamEmpty.title}</strong>
               <p>{cfg.streamEmpty.body}</p>
             </div>
           ) : null}

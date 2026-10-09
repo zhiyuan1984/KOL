@@ -1,3 +1,4 @@
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -192,19 +193,13 @@ export function SkillHubChrome({
         </Link>
       </nav>
       <div className="hub-tools">
-        <label className="hub-search-wrap">
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-          </svg>
-          <input
-            className="hub-search"
+        <WorkspaceSearchInput
+            className="hub-search-wrap hub-search"
             data-hub-search
             placeholder="搜索技能"
             value={q}
             onChange={(e) => onQ(e.target.value)}
           />
-        </label>
         <Link to="/skills" className={"hub-mine" + (mode === "mine" ? " on" : "")} data-hub-mine>
           <PuzzleIco />
           我的技能

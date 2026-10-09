@@ -1,3 +1,5 @@
+import type { InputRef } from "antd";
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
@@ -112,7 +114,7 @@ export default function SkillLifecycle() {
   const [coverage, setCoverage] = useState<SkillCoverage | null>(null);
   const [coverageError, setCoverageError] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
-  const searchRef = useRef<HTMLInputElement | null>(null);
+  const searchRef = useRef<InputRef | null>(null);
   const detailDialogRef = useRef<HTMLElement | null>(null);
   const { ask, dialog } = useAdminConfirm();
 
@@ -197,10 +199,7 @@ export default function SkillLifecycle() {
         </div>
         <button type="button" className="skill-governance-primary" onClick={() => setUploadOpen(true)}>上传技能</button>
       </header>
-      <label className="skill-governance-search">
-        <span aria-hidden>⌕</span>
-        <input ref={searchRef} aria-label="搜索技能" placeholder="搜索技能名称、Key 或说明" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
-      </label>
+      <WorkspaceSearchInput className="skill-governance-search" ref={searchRef} aria-label="搜索技能" placeholder="搜索技能名称、Key 或说明" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
       <div className="skill-governance-filter-row" aria-label="筛选技能">
         <div className="skill-governance-segments" aria-label="来源">
           {([['all', '全部'], ['official', '官方'], ['third_party', '第三方']] as const).map(([value, label]) => (

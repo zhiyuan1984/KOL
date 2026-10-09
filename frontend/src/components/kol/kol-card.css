@@ -172,6 +172,52 @@
 .kol-card-row [data-jev-risk] { color: var(--danger-text, var(--danger)); }
 .kol-card-row [data-jev-potential] { color: var(--success); }
 .followed-kol-list:has(> .kol-card-row), .pool-compact-list:has(> .kol-card-row) { gap: 0; }
+/* Public-pool rows are deliberately one 13px information tier. Their compactness
+   comes from token spacing and a full-width divider, never a second tiny text tier. */
+.kol-card-row[data-kol-unified="pool"] {
+  gap: var(--space-1);
+  border-bottom-color: var(--workspace-list-divider, var(--border));
+}
+.kol-card-row[data-kol-unified="pool"] :where(
+  .kol-card-state,
+  .kol-card-meta,
+  .kol-card-meta b,
+  .kol-card-evidence,
+  .kol-card-evidence > summary,
+  .kol-card-evidence-body,
+  .kol-card-error
+) {
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.kol-card-row[data-kol-unified="pool"] .kol-card-meta {
+  gap: var(--space-1) var(--space-2);
+}
+.kol-card-row[data-kol-unified="pool"] .pool-score-evidence {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+.kol-card-row[data-kol-unified="pool"] .pool-score-evidence > summary {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  min-height: var(--control-h-sm);
+  color: var(--accent-text);
+}
+.kol-card-row[data-kol-unified="pool"] .pool-score-evidence .kol-card-evidence-body {
+  margin-block-start: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+}
+.kol-card-row[data-kol-unified="pool"] .kol-card-actions[data-pool-actions] {
+  width: 100%;
+  margin-inline-start: 0;
+  justify-content: flex-end;
+}
+.kol-card-row[data-kol-unified="pool"] .kol-card-error {
+  width: 100%;
+  text-align: end;
+}
 @container (max-width: 719px) {
   .kol-card-row .kol-card-review > :not(.kol-card-actions) { flex-basis: auto; }
   .kol-card-row .kol-card-actions { margin-inline-start: 0; }

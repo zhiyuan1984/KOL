@@ -22,7 +22,7 @@
   --composer-chip-bg: #f4f4f4;
   --composer-chip-radius: 999px;
   --composer-side-btn-bg: transparent;
-  --composer-side-btn-size: var(--workspace-arrow-button-size);
+  --composer-side-btn-size: var(--workspace-arrow-button-size, 32px);
 }
 
 .composer,
@@ -144,22 +144,29 @@
 }
 
 .composer-plus,
-.composer-plus,
 .send-arrow,
 .home-composer-dock .composer-plus,
 .session-composer .composer-plus {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
-  border: 0;
+  box-sizing: border-box;
+  width: var(--composer-side-btn-size);
+  height: var(--composer-side-btn-size);
+  min-width: var(--composer-side-btn-size);
+  min-height: var(--composer-side-btn-size);
   border-radius: 999px;
-  background: transparent;
-  color: #6b6b6b;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+/* The add action is neutral: the outline gives it the same bounded geometry as
+   the send action without competing with send's primary surface. */
+.composer-plus,
+.home-composer-dock .composer-plus,
+.session-composer .composer-plus {
+  border: 1px solid var(--composer-border);
+  background: var(--composer-bg);
+  color: #6b6b6b;
 }
 
 .composer-plus:hover,
@@ -189,10 +196,11 @@
 .home-composer-dock .btn.send.send-arrow:disabled,
 .home-composer-dock .btn.send.send-arrow:not(:disabled),
 .home-composer-dock .btn.send.send-arrow:not(:disabled):hover {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  box-sizing: border-box;
+  width: var(--composer-side-btn-size);
+  height: var(--composer-side-btn-size);
+  min-width: var(--composer-side-btn-size);
+  min-height: var(--composer-side-btn-size);
   padding: 0;
   border-radius: 999px;
   border-color: transparent;
@@ -919,22 +927,54 @@
 
 /* 发现任务锁定时的退出口。原先靠 ChipRail 里那张「发现任务」芯片的 ×，但芯片与
    正文首行【发现任务】重复、还白占一行高度，所以挪进工具栏：不占额外高度。 */
-.composer-discovery-clear {
-  height: 28px;
+.composer-discovery-clear,
+.composer-clear-draft {
+  height: var(--control-h);
   margin-left: 2px;
-  padding: 0 8px;
+  padding: 0 var(--btn-text-pad-x);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-control);
   background: transparent;
-  color: #6b6b6b;
+  color: var(--text-muted);
   font: inherit;
-  font-size: 12px;
-  line-height: 20px;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
   white-space: nowrap;
   cursor: pointer;
 }
 
-.composer-discovery-clear:hover {
-  background: #f4f4f4;
-  color: #0d0d0d;
+.composer-discovery-clear:hover,
+.composer-clear-draft:hover {
+  background: var(--btn-text-hover-bg);
+  color: var(--text);
+}
+
+.composer-discovery-clear:focus-visible,
+.composer-clear-draft:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.composer-clear-draft:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* Keep the 32px visual controls equal. On narrow or coarse-input surfaces,
+   their pseudo-elements extend the hit area to the standard 44px without
+   inflating either visible circle or turning the neutral + into a primary CTA. */
+@media (max-width: 480px), (pointer: coarse) {
+  .composer-plus,
+  .composer .btn.send.send-arrow,
+  .btn.send.send-arrow {
+    position: relative;
+  }
+
+  .composer-plus::after,
+  .composer .btn.send.send-arrow::after,
+  .btn.send.send-arrow::after {
+    content: "";
+    position: absolute;
+    inset: calc((var(--composer-side-btn-size) - var(--touch-hit-min)) / 2);
+  }
 }

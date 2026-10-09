@@ -1,6 +1,7 @@
+import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Collapse } from "antd";
-import { RightOutlined, SearchOutlined } from "@ant-design/icons";
+import { RightOutlined } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import { api, type KnowledgeBaseRow, type KnowledgeDomainRow } from "../../api";
 import { AdminFormDialog } from "../../components/AdminFormDialog";
@@ -226,7 +227,7 @@ export default function CatalogView({ notify, fail }: KbFeed) {
   return (
     <article className="panel kbplanning" data-admin-kb-catalog data-density="compact" aria-busy={loading || busy || undefined}>
       <div className="kbplanning-toolbar">
-        <label className="kbplanning-search"><SearchOutlined aria-hidden="true" /><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索名称或编码" aria-label="搜索知识规划" data-admin-kb-catalog-search /></label>
+        <WorkspaceSearchInput className="kbplanning-search" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索名称或编码" aria-label="搜索知识规划" data-admin-kb-catalog-search />
         <div className="kbplanning-summary">{data ? <span>{families.length} 个业务族 · {domainOptions.length} 个业务域 · {bases.length} 个知识库</span> : null}</div>
         <button type="button" className="kbplanning-action" disabled={busy || loading} onClick={() => void reload().catch(() => {})}>刷新</button>
       </div>

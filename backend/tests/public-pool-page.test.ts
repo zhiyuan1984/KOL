@@ -63,9 +63,12 @@ describe("native PostgreSQL public pool pages", () => {
     const overdue = await readPublicPoolPage(parsePoolPageOptions({ filter: "overdue" }), "company:amperetime");
     expect(overdue.items.map((row) => row.kol_uid)).toEqual(["uid_1"]);
     expect(overdue.items[0]?.public_stage).toBe("14天无回复");
-    expect(overdue.page).toMatchObject({ total: 3, matched: 1, new_count: 2 });
+    expect(overdue.page).toMatchObject({ total: 3, matched: 1, new_count: 2, overdue_count: 1 });
     const search = await readPublicPoolPage(parsePoolPageOptions({ query: "测试2" }), "company:amperetime");
     expect(search.items.map((row) => row.kol_uid)).toEqual(["uid_2"]);
+    expect(search.page).toMatchObject({ total: 3, matched: 1, new_count: 1, overdue_count: 0 });
+    const searchStage = await readPublicPoolPage(parsePoolPageOptions({ query: "测试2", filter: "overdue" }), "company:amperetime");
+    expect(searchStage.page).toMatchObject({ total: 3, matched: 0, new_count: 1, overdue_count: 0 });
     // One stored follower becomes the displayed “100.0%”; percent is a literal,
     // so it must not expand to every row as it would with an unescaped LIKE.
     expect((await readPublicPoolPage(parsePoolPageOptions({ query: "%" }), "company:amperetime")).items.map((row) => row.kol_uid)).toEqual(["uid_1"]);
