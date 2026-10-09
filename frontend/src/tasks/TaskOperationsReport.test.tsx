@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AiTaskWorkOrderDashboard, TaskOperationsDashboard } from "../api";
 import { TaskOperationsReport } from "./TaskOperationsReport";
+import { TaskTypeBreakdown } from "./TaskTypeBreakdown";
 
 const dashboard: TaskOperationsDashboard = {
   report_version: "task-operations-dashboard.v1", period: "week", as_of: "2026-10-07T04:00:00.000Z", timezone: "Asia/Shanghai", scope: "personal", source: "legacy_agent_task_projection",
@@ -20,25 +21,50 @@ const workOrders: AiTaskWorkOrderDashboard = {
 };
 
 describe("TaskOperationsReport", () => {
-  it("renders full Agent status labels, task-type distribution, and work-order KPI values", () => {
-    const html = renderToStaticMarkup(<TaskOperationsReport dashboard={dashboard} workOrders={workOrders} period="week" loading={false} workOrdersLoading={false} error="" workOrdersError="" activeFilter="in_progress" onPeriod={() => undefined} onFilter={() => undefined} onClearFilter={() => undefined} onRetry={() => undefined} onRetryWorkOrders={() => undefined} />);
+  it("renders one six-status lifecycle group with real zero counts and separate exception entrances", () => {
+    const html = renderToStaticMarkup(<TaskOperationsReport dashboard={dashboard} workOrders={workOrders} period="week" loading={false} workOrdersLoading={false} error="" workOrdersError="" activeFilter="overdue" activeStatus="running" filteredRangeLabel="手动日期范围" onPeriod={() => undefined} onFilter={() => undefined} onClearFilter={() => undefined} onRetry={() => undefined} onRetryWorkOrders={() => undefined} />);
     expect(html).toContain("任务运营");
-    expect(html).toContain("Agent／系统任务");
-    expect(html).toContain("待启动");
-    expect(html).toContain("等待处理");
-    expect(html).toContain("任务类型分布");
-    expect(html).toContain("红人发现");
+    expect(html).toContain("手动日期范围");
+    expect(html).toContain("工单仍按周期口径");
+    ["待启动", "执行中", "等待处理", "已完成", "失败", "已取消"].forEach((label) => expect(html).toContain(label));
+    expect(html).toContain('class="task-operation-status task-operation-status-running is-active"');
+    expect(html).toMatch(/task-operation-status-cancelled[^>]*><b>0<\/b>/);
+    expect(html).not.toContain("task-status-track-segment-cancelled");
+    expect(html).toContain("查看逾期任务");
+    expect(html).toContain("查看失败任务");
+    expect(html).not.toContain("异常任务");
     expect(html).toContain("工单总量");
     expect(html).toContain("开放工单");
     expect(html).toContain("阻塞工单");
-    expect(html).toContain('aria-pressed="true"');
-    expect(html).toContain('<details class="task-operations-breakdown" open="">');
+    expect(html).toContain("Asia/Shanghai");
   });
 
-  it("does not report a false zero when work-order metrics cannot be read", () => {
-    const html = renderToStaticMarkup(<TaskOperationsReport dashboard={dashboard} workOrders={null} period="week" loading={false} workOrdersLoading={false} error="" workOrdersError="工单服务不可用" activeFilter={null} onPeriod={() => undefined} onFilter={() => undefined} onClearFilter={() => undefined} onRetry={() => undefined} onRetryWorkOrders={() => undefined} />);
+  it("keeps previous dashboard and work-order counts visible when an update fails", () => {
+    const html = renderToStaticMarkup(<TaskOperationsReport dashboard={dashboard} workOrders={workOrders} period="week" loading={false} workOrdersLoading={false} error="任务报表服务不可用" workOrdersError="工单服务不可用" activeFilter={null} onPeriod={() => undefined} onFilter={() => undefined} onClearFilter={() => undefined} onRetry={() => undefined} onRetryWorkOrders={() => undefined} />);
+    expect(html).toContain("任务运营更新失败，当前显示上次成功数据。");
+    expect(html).toContain("工单汇总更新失败，当前显示上次成功数据。");
+    expect(html).toContain(">12<");
+    expect(html).toContain(">6<");
+    expect(html).not.toContain("暂无可用的任务运营数据。");
+  });
+
+  it("does not invent task totals when no dashboard is available", () => {
+    const html = renderToStaticMarkup(<TaskOperationsReport dashboard={null} workOrders={null} period="week" loading={false} workOrdersLoading={false} error="任务报表服务不可用" workOrdersError="工单服务不可用" activeFilter={null} onPeriod={() => undefined} onFilter={() => undefined} onClearFilter={() => undefined} onRetry={() => undefined} onRetryWorkOrders={() => undefined} />);
+    expect(html).toContain("运营报表暂时无法读取。");
     expect(html).toContain("工单指标暂时无法读取");
-    expect(html).toContain("工单总量");
     expect(html).toContain(">—<");
+    expect(html).not.toContain("task-status-track");
+    expect(html).not.toContain("任务总量");
+  });
+
+  it("renders a default-collapsed type table with exact trend window and known zeroes", () => {
+    const zeroTaskTypeDashboard: TaskOperationsDashboard = { ...dashboard, task_types: [{ ...dashboard.task_types[0], in_progress: 0, completed: 0, failed: 0 }] };
+    const html = renderToStaticMarkup(<TaskTypeBreakdown dashboard={zeroTaskTypeDashboard} period="week" loading={false} error="" />);
+    expect(html).toContain('<details class="task-operations-breakdown">');
+    expect(html).not.toContain('open=""');
+    expect(html).toContain("处理中（含等待）");
+    expect(html).toContain("趋势窗口：本周 7 日");
+    expect(html).toContain("<td>0</td>");
+    expect(html).not.toContain("task-operations-type-filter");
   });
 });

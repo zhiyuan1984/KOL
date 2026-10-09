@@ -10,7 +10,7 @@ import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { taskExecutionView } from "../tasks/execution-view.js";
 import { isSkillTemplateSnapshot } from "../tasks/skill-template.js";
-import { buildTaskOperationsDashboard, taskOperationsDashboardRanges, taskOperationsPeriod, type TaskOperationsRow } from "../tasks/operations-dashboard.js";
+import { buildTaskOperationsDashboard, taskOperationsDashboardRanges, taskOperationsDateRange, taskOperationsNonQueuedStatusValues, taskOperationsOverdue, taskOperationsPeriod, taskOperationsStatusGroup, taskOperationsStatusValues, TASK_OPERATION_TERMINAL_STATUSES, type TaskOperationsDateRange, type TaskOperationsRow } from "../tasks/operations-dashboard.js";
 import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
 import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, isTodoWorkItem, OPEN_WORK_ITEM_SQL, TODO_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, todayMembershipReasons, type TaskDefinitionIndex } from "../host/home-board.js";
 import { cachedPoll, cachedPollAsync, pollEpoch } from "../host/response-cache.js";
@@ -331,6 +331,55 @@ function dateInput(value: unknown, field: string): string {
   const raw = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}/.test(raw)) throw new HttpFail(400, `invalid ${field}`);
   return raw;
+}
+
+/** Shared task-operations activity window: created_at OR completed_at is in range. */
+function appendOperationalRangeClause(clauses: string[], values: unknown[], range: TaskOperationsDateRange): void {
+  if (!range) return;
+  const created: string[] = [];
+  const completed: string[] = [];
+  const rangeValues: string[] = [];
+  if (range.start) {
+    created.push("created_at>=?");
+    completed.push("completed_at>=?");
+    rangeValues.push(range.start.toISOString());
+  }
+  if (range.end) {
+    created.push("created_at<?");
+    completed.push("completed_at<?");
+    rangeValues.push(range.end.toISOString());
+  }
+  clauses.push(`((${created.join(" AND ")}) OR (${completed.join(" AND ")}))`);
+  values.push(...rangeValues, ...rangeValues);
+}
+
+function appendLifecycleStatusClause(clauses: string[], values: unknown[], requested: string): void {
+  const lifecycle = taskOperationsStatusGroup(requested);
+  if (!lifecycle) {
+    clauses.push("status=?");
+    values.push(requested);
+    return;
+  }
+  const statuses = lifecycle === "queued"
+    ? taskOperationsNonQueuedStatusValues()
+    : taskOperationsStatusValues(lifecycle);
+  const placeholders = statuses.map(() => "?").join(",");
+  clauses.push(lifecycle === "queued"
+    ? `LOWER(COALESCE(status,'')) NOT IN (${placeholders})`
+    : `LOWER(COALESCE(status,'')) IN (${placeholders})`);
+  values.push(...statuses);
+}
+
+function appendOverdueClause(clauses: string[], values: unknown[], overdue: boolean): void {
+  const terminalPlaceholders = TASK_OPERATION_TERMINAL_STATUSES.map(() => "?").join(",");
+  const condition = `(due_at IS NOT NULL AND due_at<? AND LOWER(COALESCE(status,'')) NOT IN (${terminalPlaceholders}))`;
+  if (overdue) {
+    clauses.push(condition);
+    values.push(nowIso(), ...TASK_OPERATION_TERMINAL_STATUSES);
+    return;
+  }
+  clauses.push(`(due_at IS NULL OR due_at>=? OR LOWER(COALESCE(status,'')) IN (${terminalPlaceholders}))`);
+  values.push(nowIso(), ...TASK_OPERATION_TERMINAL_STATUSES);
 }
 
 /** Shared structured field update for PATCH and the Codex /edit endpoint. */
@@ -938,13 +987,15 @@ tasks.get("/tasks", async (c) => {
     clauses.push("owner_user_id=?");
     values.push(owner);
   }
-  for (const key of ["status", "priority", "source", "profile"] as const) {
+  for (const key of ["priority", "source", "profile"] as const) {
     const value = c.req.query(key);
     if (value) {
       clauses.push(`${key}=?`);
       values.push(key === "priority" ? normalizePriority(value) || value : value);
     }
   }
+  const requestedStatus = String(c.req.query("status") || "").trim();
+  if (requestedStatus) appendLifecycleStatusClause(clauses, values, requestedStatus);
   if (openView) clauses.push(OPEN_WORK_ITEM_SQL);
   if (view === "active") clauses.push("status IN ('pending','queued','running','starting','in_progress','waiting','waiting_approval')");
   const sort = c.req.query("sort") || "updated_desc";
@@ -969,23 +1020,22 @@ tasks.get("/tasks", async (c) => {
     values.push(like, like);
   }
   const from = String(c.req.query("from") || "").trim();
-  if (from) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new HttpFail(400, "invalid from date");
-    clauses.push("created_at>=?");
-    values.push(`${from}T00:00:00.000Z`);
-  }
   const to = String(c.req.query("to") || "").trim();
-  if (to) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) throw new HttpFail(400, "invalid to date");
-    clauses.push("created_at<?");
-    values.push(`${to}T23:59:59.999Z`);
+  const manualRange = taskOperationsDateRange(from, to, "Asia/Shanghai");
+  if (manualRange && reportPeriod && reportPeriod !== "realtime") {
+    throw new HttpFail(400, "period cannot be combined with manual date range");
   }
-  if (reportPeriod && reportPeriod !== "realtime") {
-    if (from || to) throw new HttpFail(400, "period cannot be combined with manual date range");
-    const range = taskOperationsDashboardRanges(reportPeriod, new Date(), "Asia/Shanghai").current!;
-    clauses.push("((created_at>=? AND created_at<?) OR (completed_at>=? AND completed_at<?))");
-    values.push(range.start.toISOString(), range.end.toISOString(), range.start.toISOString(), range.end.toISOString());
+  const periodRange = reportPeriod && reportPeriod !== "realtime"
+    ? taskOperationsDashboardRanges(reportPeriod, new Date(), "Asia/Shanghai").current
+    : null;
+  appendOperationalRangeClause(clauses, values, manualRange || periodRange);
+  const taskType = String(c.req.query("task_type") || "").trim();
+  if (taskType) {
+    clauses.push("task_type=?");
+    values.push(taskType);
   }
+  const overdue = taskOperationsOverdue(c.req.query("overdue"));
+  if (overdue != null) appendOverdueClause(clauses, values, overdue);
   const countWhere = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const countValues = [...values];
   if (cursor) {
@@ -1000,7 +1050,7 @@ tasks.get("/tasks", async (c) => {
   const paged = !openView && (c.req.query("cursor") !== undefined || c.req.query("limit") !== undefined);
   // This endpoint is polled every few seconds by every open tab, so an
   // unchanged data window is served from the 4s in-process cache.
-  const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${reportPeriod || ""}:${c.req.query("status") || ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
+  const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${reportPeriod || ""}:${requestedStatus}:${taskType}:${overdue ?? ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
   const payload = await cachedPollAsync(cacheKey, tasksEpoch(), async () => {
     const definitions = taskDefinitionIndex();
     const total = paged || openView
@@ -1075,6 +1125,11 @@ tasks.get("/tasks", async (c) => {
 tasks.get("/tasks/operations-dashboard", (c) => {
   const period = taskOperationsPeriod(c.req.query("period"));
   const queryText = String(c.req.query("q") || "").trim().slice(0, 200);
+  const from = String(c.req.query("from") || "").trim();
+  const to = String(c.req.query("to") || "").trim();
+  const manualRange = taskOperationsDateRange(from, to, "Asia/Shanghai");
+  if (manualRange && period !== "realtime") throw new HttpFail(400, "period cannot be combined with manual date range");
+  const taskType = String(c.req.query("task_type") || "").trim();
   const scoped = !isAdmin() || c.req.query("scope") !== "all";
   const owner = scoped ? ownerId() : "all";
   const clauses: string[] = [];
@@ -1088,8 +1143,17 @@ tasks.get("/tasks/operations-dashboard", (c) => {
     const like = `%${queryText.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
     values.push(like, like);
   }
+  if (taskType) {
+    clauses.push("task_type=?");
+    values.push(taskType);
+  }
+  // Period windows remain inside the dashboard builder so its previous-period
+  // comparison and trends keep their established semantics. Manual ranges are
+  // restricted to realtime and are filtered by the same activity predicate as
+  // the paged task projection.
+  appendOperationalRangeClause(clauses, values, manualRange);
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const cacheKey = `task-operations:${owner}:${period}:${queryText}`;
+  const cacheKey = `task-operations:${owner}:${period}:${queryText}:${from}:${to}:${taskType}`;
   const payload = cachedPoll(cacheKey, tasksEpoch(), () => {
     const rows = getConn().prepare(
       `SELECT id,task_type,title,status,due_at,created_at,completed_at,updated_at

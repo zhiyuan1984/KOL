@@ -2154,7 +2154,7 @@ export const api = {
     });
     return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`, { signal });
   },
-  taskPage: (opts: { cursor?: string; limit?: number; view?: string; q?: string; from?: string; to?: string; period?: TaskOperationsPeriod } = {}) => {
+  taskPage: (opts: { cursor?: string; limit?: number; view?: string; q?: string; from?: string; to?: string; period?: TaskOperationsPeriod; status?: string; overdue?: boolean; task_type?: string } = {}) => {
     const query = new URLSearchParams();
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<TaskListPage>(`/api/tasks?${query}`);
@@ -2173,9 +2173,12 @@ export const api = {
     Object.entries(opts).forEach(([key, value]) => { if (value != null && value !== "") query.set(key, String(value)); });
     return request<{ items: Ticket[]; page: { limit: number; next_cursor: string | null }; request_id: string; as_of: string; schema_version: string }>(`/api/tickets${query.size ? `?${query}` : ""}`);
   },
-  taskOperationsDashboard: (opts: { period?: TaskOperationsPeriod; q?: string } = {}) => {
+  taskOperationsDashboard: (opts: { period?: TaskOperationsPeriod; q?: string; from?: string; to?: string; task_type?: string } = {}) => {
     const query = new URLSearchParams({ period: opts.period || "realtime" });
     if (opts.q) query.set("q", opts.q);
+    if (opts.from) query.set("from", opts.from);
+    if (opts.to) query.set("to", opts.to);
+    if (opts.task_type) query.set("task_type", opts.task_type);
     return request<TaskOperationsDashboard>(`/api/tasks/operations-dashboard?${query}`);
   },
   aiTaskWorkOrderDashboard: (opts: { limit?: number; cursor?: string; timezone?: string; period?: "realtime" | "today" | "week" | "month" | "year"; q?: string; template?: string; status?: string } = {}) => {
@@ -3156,11 +3159,12 @@ export const api = {
   },
   adminKnowledgeDocument: (id: string) =>
     request<KnowledgeDocumentDetail>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`),
-  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false, onProgress?: (percent: number | null) => void, explanation?: string,company?:string) => {
+  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false, onProgress?: (percent: number | null) => void, explanation?: string,company?:string, applicability?: { brands: string[]; stages: string[] }) => {
     const form = new FormData();
     form.append("base_id", baseId);
     form.append("draft", String(draft));
     form.append("file", file);
+    if (applicability) { form.append("brands", applicability.brands.join(",")); form.append("stages", applicability.stages.join(",")); }
     if(explanation!==undefined){form.append('scope_flow','true');form.append('explanation',explanation);}
     if (onProgress) return new Promise<{ document: KnowledgeDocumentRow }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();

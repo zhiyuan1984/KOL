@@ -2,6 +2,8 @@ import { HttpFail } from "../host/errors.js";
 
 export const TASK_OPERATION_PERIODS = ["realtime", "today", "week", "month", "year"] as const;
 export type TaskOperationsPeriod = (typeof TASK_OPERATION_PERIODS)[number];
+export const TASK_OPERATION_STATUS_GROUPS = ["queued", "running", "waiting", "completed", "failed", "cancelled"] as const;
+export type TaskOperationsStatusGroup = (typeof TASK_OPERATION_STATUS_GROUPS)[number];
 export type TaskOperationsMetricKey = "total" | "in_progress" | "completion_rate" | "overdue_rate" | "failed" | "median_processing_hours";
 
 export type TaskOperationsRow = {
@@ -21,10 +23,13 @@ export type TaskOperationsMetrics = Record<TaskOperationsMetricKey, number | nul
   cancelled: number;
 };
 
-type TimeRange = { start: Date; end: Date } | null;
+export type TaskOperationsTimeRange = { start: Date; end: Date } | null;
+export type TaskOperationsDateRange = { start?: Date; end?: Date } | null;
+type TimeRange = TaskOperationsTimeRange;
 type DashboardRanges = { current: TimeRange; previous: TimeRange };
 
-const TERMINAL = new Set(["completed", "failed", "cancelled", "canceled", "done", "success", "succeeded"]);
+export const TASK_OPERATION_TERMINAL_STATUSES = ["completed", "failed", "cancelled", "canceled", "done", "success", "succeeded"] as const;
+const TERMINAL = new Set<string>(TASK_OPERATION_TERMINAL_STATUSES);
 const UNSTARTED = new Set(["open", "pending", "queued"]);
 const RUNNING = new Set(["running", "starting", "in_progress"]);
 const WAITING = new Set(["waiting", "waiting_approval", "needs_clarification", "waiting_external", "needs_review"]);
@@ -41,17 +46,56 @@ function parsedDate(value: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function inRange(date: Date | null, range: TimeRange): boolean {
-  return Boolean(date && (!range || (date >= range.start && date < range.end)));
+function inRange(date: Date | null, range: TaskOperationsDateRange): boolean {
+  return Boolean(date && (!range || (!range.start || date >= range.start) && (!range.end || date < range.end)));
 }
 
-function statusGroup(status: string): "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled" {
+/** Shared lifecycle projection for dashboard distribution and task-page filtering. */
+export function statusGroup(value: unknown): TaskOperationsStatusGroup {
+  const status = normalizedStatus(value);
   if (COMPLETED.has(status)) return "completed";
   if (status === "failed") return "failed";
   if (CANCELLED.has(status)) return "cancelled";
   if (RUNNING.has(status)) return "running";
   if (WAITING.has(status)) return "waiting";
   return "queued";
+}
+
+/** Returns a requested lifecycle group, without changing legacy raw-status query compatibility. */
+export function taskOperationsStatusGroup(value?: unknown): TaskOperationsStatusGroup | null {
+  const group = normalizedStatus(value);
+  return TASK_OPERATION_STATUS_GROUPS.includes(group as TaskOperationsStatusGroup)
+    ? group as TaskOperationsStatusGroup
+    : null;
+}
+
+/** Normalized persisted status values represented by a lifecycle group. */
+export function taskOperationsStatusValues(group: TaskOperationsStatusGroup): readonly string[] {
+  if (group === "completed") return [...COMPLETED];
+  if (group === "failed") return ["failed"];
+  if (group === "cancelled") return [...CANCELLED];
+  if (group === "running") return [...RUNNING];
+  if (group === "waiting") return [...WAITING];
+  return [];
+}
+
+/** Raw statuses assigned to a non-queued lifecycle group; unknown values remain queued. */
+export function taskOperationsNonQueuedStatusValues(): readonly string[] {
+  return [...new Set([
+    ...taskOperationsStatusValues("completed"),
+    ...taskOperationsStatusValues("failed"),
+    ...taskOperationsStatusValues("cancelled"),
+    ...taskOperationsStatusValues("running"),
+    ...taskOperationsStatusValues("waiting"),
+  ])];
+}
+
+export function taskOperationsOverdue(value?: unknown): boolean | null {
+  const flag = normalizedStatus(value);
+  if (!flag) return null;
+  if (flag === "true" || flag === "1") return true;
+  if (flag === "false" || flag === "0") return false;
+  throw new HttpFail(400, "invalid overdue flag");
 }
 
 function calendarParts(date: Date, timeZone: string): { year: number; month: number; day: number; hour: number } {
@@ -72,6 +116,38 @@ function addLocalDate(date: Date, timeZone: string, increment: { days?: number; 
   const parts = calendarParts(date, timeZone);
   const local = new Date(Date.UTC(parts.year + (increment.years || 0), parts.month - 1 + (increment.months || 0), parts.day + (increment.days || 0)));
   return zonedMidnight(local.getUTCFullYear(), local.getUTCMonth() + 1, local.getUTCDate(), timeZone);
+}
+
+function dateOnly(value: unknown, field: "from" | "to"): { year: number; month: number; day: number } | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) throw new HttpFail(400, `invalid ${field} date`);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) {
+    throw new HttpFail(400, `invalid ${field} date`);
+  }
+  return { year, month, day };
+}
+
+/**
+ * Inclusive YYYY-MM-DD calendar dates at Asia/Shanghai boundaries. A task is
+ * operationally in the window when either created_at or completed_at is in it.
+ */
+export function taskOperationsDateRange(from?: unknown, to?: unknown, timeZone = "Asia/Shanghai"): TaskOperationsDateRange {
+  const fromDate = dateOnly(from, "from");
+  const toDate = dateOnly(to, "to");
+  if (!fromDate && !toDate) return null;
+  const start = fromDate && zonedMidnight(fromDate.year, fromDate.month, fromDate.day, timeZone);
+  const inclusiveEnd = toDate && zonedMidnight(toDate.year, toDate.month, toDate.day, timeZone);
+  if (start && inclusiveEnd && start > inclusiveEnd) throw new HttpFail(400, "invalid date range");
+  return {
+    ...(start ? { start } : {}),
+    ...(inclusiveEnd ? { end: addLocalDate(inclusiveEnd, timeZone, { days: 1 }) } : {}),
+  };
 }
 
 export function taskOperationsPeriod(value?: unknown): TaskOperationsPeriod {
@@ -113,7 +189,7 @@ export function taskOperationsDashboardRanges(period: TaskOperationsPeriod, now 
   return { current: { start, end: period === "today" ? addLocalDate(start, timeZone, { days: 1 }) : period === "week" ? addLocalDate(start, timeZone, { days: 7 }) : period === "month" ? addLocalDate(start, timeZone, { months: 1 }) : addLocalDate(start, timeZone, { years: 1 }) }, previous: { start: prior, end: start } };
 }
 
-function isOperationalRowInRange(row: TaskOperationsRow, range: TimeRange): boolean {
+export function operationalRowInRange(row: TaskOperationsRow, range: TaskOperationsDateRange): boolean {
   return !range || inRange(parsedDate(row.created_at), range) || inRange(parsedDate(row.completed_at), range);
 }
 
@@ -216,8 +292,8 @@ export function buildTaskOperationsDashboard(
   const timezone = options.timezone || "Asia/Shanghai";
   const now = options.now || new Date();
   const ranges = taskOperationsDashboardRanges(period, now, timezone);
-  const currentRows = rows.filter((row) => isOperationalRowInRange(row, ranges.current));
-  const previousRows = rows.filter((row) => ranges.previous ? isOperationalRowInRange(row, ranges.previous) : false);
+  const currentRows = rows.filter((row) => operationalRowInRange(row, ranges.current));
+  const previousRows = rows.filter((row) => ranges.previous ? operationalRowInRange(row, ranges.previous) : false);
   const metrics = metricFor(currentRows, completedRows(rows, ranges.current), now);
   const previous = metricFor(previousRows, completedRows(rows, ranges.previous), ranges.current?.start || now);
   const pointCount = taskOperationsTrendPointCount(period);
@@ -237,7 +313,7 @@ export function buildTaskOperationsDashboard(
   currentRows.forEach((row) => { statusDistribution[statusGroup(normalizedStatus(row.status))] += 1; });
   const pointMetrics = starts.map((bucketStart) => {
     const bucketEnd = nextBucketStart(bucketStart, period, timezone);
-    const rowsInBucket = rows.filter((row) => isOperationalRowInRange(row, { start: bucketStart, end: bucketEnd }));
+    const rowsInBucket = rows.filter((row) => operationalRowInRange(row, { start: bucketStart, end: bucketEnd }));
     return metricFor(rowsInBucket, completedRows(rows, { start: bucketStart, end: bucketEnd }), bucketEnd);
   });
   return {
@@ -266,7 +342,7 @@ export function buildTaskOperationsDashboard(
       failed: taskRows.filter((row) => normalizedStatus(row.status) === "failed").length,
       trend: starts.map((bucketStart) => {
         const bucketEnd = nextBucketStart(bucketStart, period, timezone);
-        return rows.filter((row) => row.task_type === taskType && isOperationalRowInRange(row, { start: bucketStart, end: bucketEnd })).length;
+        return rows.filter((row) => row.task_type === taskType && operationalRowInRange(row, { start: bucketStart, end: bucketEnd })).length;
       }),
     })).sort((left, right) => right.total - left.total || left.task_type.localeCompare(right.task_type)),
   };
