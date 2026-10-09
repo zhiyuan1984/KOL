@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const avatar = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#456"/></svg>')}`;
 const followed = ["阶段甲", "阶段乙"].map((handle, i) => ({
   id: `card-${i}`, kol_uid: `kol-${i}`, handle, platform: "YouTube", avatar_url: avatar,
+  follow_id: `follow-${i}`, status: "active", source_kind: "local_follow",
   stage_code: "INITIAL_CONTACT", stage_label: "初步接触", suggested_stage: "已回复-有兴趣", suggested_stage_code: "INTERESTED", days_in_stage: 2,
   last_interaction_at: new Date().toISOString(), days_since_interaction: 2, followers: "76万",
   mail_threads: [{ conversation_id: `thread-${i}`, last_direction: "inbound", subject: "Re: 合作", last_snippet: "我对这次合作有兴趣", last_at: new Date().toISOString(), unread_count: 0 }],
@@ -26,7 +27,9 @@ async function fixture(page: Page) {
     else if (path === "/api/home/following") json = { entry: "memory", kind: "memory", kols: claimed ? [...followed, {
       id: "follow-pool-a", follow_id: "follow-pool-a", kol_uid: "pool-a", handle: "City Prepping", platform: "youtube", status: "active",
       stage_code: "INITIAL_CONTACT", stage_label: "初步接触", last_interaction_at: null, countdown: false,
-    }] : followed, follow_scope: { required: false, bound: false }, creates_session: false, calls_model: false };
+      source_kind: "local_follow",
+    }] : followed, authority: "kol_follow_index+verified_starry_binding", completeness: "complete",
+      follow_scope: { required: false, bound: false }, creates_session: false, calls_model: false };
     else if (path === "/api/home/board") json = { kols: followed, follow_scope: { required: false, bound: false }, workbench: {} };
     else if (path === "/api/home/pool") json = { entry: "memory", kind: "memory", items: pool, kols: pool, creates_session: false, calls_model: false };
     else if (path === "/api/kols/pool-a/claim" && request.method() === "POST") {
