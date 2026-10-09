@@ -7,8 +7,8 @@ import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { authorizeConnector, runtimeAgentForSkill, runtimeHash, type RuntimeContext } from "../runtime/execution.js";
 import { runtimeAction } from "../runtime/action-store.js";
 import { buildCrawlerImportFile, mapCandidateToCrawlerRow, creatorExternalId, isRealKolUid } from "../discovery-import.js";
-import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid, withTimeout } from "../gateway/import-creator.js";
-import { sanitizeSecret } from "../discovery-errors.js";
+import { importKolProfilesFromCrawlerConfirmed, isStarryTimeout, lookupImportedKolUid, withTimeout } from "../gateway/import-creator.js";
+import { employeeError, isConnectionClassError, sanitizeSecret } from "../discovery-errors.js";
 import type { Json } from "../types.js";
 import { getSkillTools, getToolPolicy } from "../runtime/store.js";
 import { ensureLeadFromDiscoveryCandidate } from "../ticket-domain/kol-event-bridge.js";
@@ -40,8 +40,8 @@ function poolImportError(error: unknown): unknown {
 }
 const identity = (row: Json) => `${String(row.platform).toLowerCase()}:${String(row.id)}`;
 
-/** uncertain 核对时 pageKolProfiles 的上限：核对本身失败不删行、不盲目重试。 */
-const STARRY_RECONCILE_TIMEOUT_MS = 30_000;
+/** 总预算覆盖 keyword(20s) + listAll(60s)；核对失败不删行、不盲目重试。 */
+const STARRY_RECONCILE_TIMEOUT_MS = 100_000;
 /** dispatching 行超过此时长视为孤儿（持有者已死），同样走核对。 */
 const STALE_DISPATCHING_MS = 10 * 60_000;
 
@@ -59,7 +59,7 @@ function authorizeStarryImport(action: { context_json: RuntimeContext }, actorId
 
 /**
  * 候选导入 Starry 公海（ingest / follow 共用）。
- * - allowFollowed=false（加入公海）：已有有效跟进则 409；
+ * - allowFollowed=false（加入公海/补入库）：他人的有效跟进则 409，自己的跟进允许补入库；
  * - allowFollowed=true（跟进顺带入库）：跳过跟进排斥检查，复用已存在的画像行 kol_uid，避免分叉。
  */
 async function starryImportCandidate(input: {
@@ -72,8 +72,15 @@ async function starryImportCandidate(input: {
   const importState = await postgresTransaction(async client => {
     await lock(client, row);
     await currentSnapshot(client, actionId, row, input.snapshotVersion);
-    if (!allowFollowed && await follow(client, row)) {
-      throw new HttpFail(409, { code: "candidate_followed", message: "该红人已有有效跟进关系，不能加入公海。" });
+    if (!allowFollowed) {
+      const owned = await follow(client, row);
+      if (owned && owned.employee_id !== actorId) {
+        throw new HttpFail(409, { code: "candidate_followed", message: "该红人已被其他员工跟进，不能加入公海。" });
+      }
+      if (owned) {
+        await audit(client, actorId, "discovery.runtime.ingest.follow_retry", { action_id: actionId,
+          candidate_id: candidateId, follow_id: owned.id });
+      }
     }
     const prior = (await client.query("SELECT * FROM discovery_runtime_imports WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id])).rows[0];
     if (prior) {
@@ -162,9 +169,14 @@ async function reconcileUncertainImport(client: PoolClient, input: {
       [new Date().toISOString(), actorId, "host.import_creator.reconcile_failed", JSON.stringify({
         action_id: actionId, candidate_id: candidateId, error_detail: sanitizeSecret(error), retried_import: false,
       })]);
+    const reason = isStarryTimeout(error)
+      ? "达人库无响应"
+      : isConnectionClassError(error)
+        ? "达人库连接失败"
+        : (employeeError(error) || "达人库无响应");
     throw new HttpFail(502, {
       code: "import_creator_uncertain",
-      message: "入库状态核对失败（达人库无响应），请稍后重试；未重复提交。",
+      message: `入库状态核对失败（${reason}），请稍后重试；未重复提交。`,
     });
   }
   if (!isRealKolUid(found)) return null;

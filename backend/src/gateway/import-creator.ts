@@ -56,7 +56,10 @@ export const ADD_KOL_PROFILE_TOOL = "addKolProfile";
  *（pageKolProfiles 核对），返回真实状态，不伪造完成。
  */
 const STARRY_IMPORT_TIMEOUT_MS = 120_000;
-const STARRY_LOOKUP_TIMEOUT_MS = 30_000;
+// 总预算覆盖 keyword(20s) + listAll(60s)，不让快速查询吃掉全量核对预算。
+const STARRY_LOOKUP_TIMEOUT_MS = 100_000;
+const STARRY_KEYWORD_LOOKUP_MS = 20_000;
+const STARRY_LISTALL_LOOKUP_MS = 60_000;
 
 export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -221,7 +224,7 @@ export async function lookupImportedKolUid(input: {
   if (!keyword) return "";
   const listed = await callStarryKolTool("pageKolProfiles", {
     requestJson: JSON.stringify({ pageNo: 1, pageSize: 20, keyword }),
-  }, { timeoutMs: STARRY_LOOKUP_TIMEOUT_MS });
+  }, { timeoutMs: STARRY_KEYWORD_LOOKUP_MS });
   const platform = String(input.creatorExternalId || "").split(":")[0];
   const target = { account: keyword, platform: platform || undefined };
   const provenPlatform = (item: Json) => !platform || PROFILE_PLATFORM_KEYS.some(key => String(item[key] || "").trim().toLowerCase() === platform.toLowerCase());
@@ -229,7 +232,7 @@ export async function lookupImportedKolUid(input: {
   if (hit) return realKolUidOf(hit);
   // Starry 对刚新建的档案 keyword 查不到，但 listAll 能看到：兜底扫全量，
   // 否则会把"已入库"误判为"未入库"，删行重派发后撞上达人库的重复拒绝。
-  const all = await callStarryKolTool("listAllKolProfiles", {}, { timeoutMs: STARRY_LOOKUP_TIMEOUT_MS });
+  const all = await callStarryKolTool("listAllKolProfiles", {}, { timeoutMs: STARRY_LISTALL_LOOKUP_MS });
   const allHit = pickProfileRow(listOf(asObject(all)).filter(provenPlatform), target);
   return allHit ? realKolUidOf(allHit) : "";
 }

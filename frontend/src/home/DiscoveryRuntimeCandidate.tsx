@@ -28,7 +28,7 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
           refresh();
         } else nav("/?tab=lifecycle");
       }
-      else if (verb === "ingest") nav("/?tab=pool");
+      else if (verb === "ingest") { if (row.followed) refresh(); else nav("/?tab=pool"); }
       else refresh();
       setConfirm(false);
     } catch (error) { setError(friendlyApiError(error, "操作未完成，请刷新核对当前状态。")); }
@@ -70,7 +70,7 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
         {row.ignored ? <button type="button" className="link-button" disabled={busy || !snapshot} onClick={() => void command("restore")}>恢复考虑</button> : <>
           <button type="button" className="link-button" title="R3 · 点击即确认归你跟进，其他员工受排他跟进规则限制" disabled={busy || !snapshot || row.followed} onClick={() => void command("follow")}>{busy ? "处理中…" : "跟进"}</button>
           <button type="button" className="link-button" disabled={busy || !snapshot} onClick={() => void command("ignore")}>忽略</button>
-          <button type="button" className="link-button" disabled={busy || !snapshot || row.followed} title={row.followed ? "已归你跟进，回公海是独立动作" : "R3 · 确认后将公开资料加入公海"} onClick={() => row.in_pool ? nav("/?tab=pool") : setConfirm(true)}>{row.in_pool ? "查看公海" : "加入公海"}</button>
+          <button type="button" className="link-button" disabled={busy || !snapshot} title={row.followed ? "R3 · 补写 Starry 公海（跟进时入库未完成可点此重试；他人的跟进不可操作）" : "R3 · 确认后将公开资料加入公海"} onClick={() => row.in_pool ? nav("/?tab=pool") : setConfirm(true)}>{row.in_pool ? "查看公海" : "加入公海"}</button>
         </>}
       </div>
       </div>

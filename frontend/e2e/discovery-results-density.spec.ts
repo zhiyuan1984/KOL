@@ -8,6 +8,7 @@ const template = { id: "crawler_collect", skill_id: "crawler_collect", version: 
 async function fixture(page: Page, theme = "light") {
   let state = "scoring";
   let inPool = false;
+  let followed = false;
   let snapshot = "snapshot";
   let failedImport: string | undefined;
   let runtimeReads = 0;
@@ -35,6 +36,7 @@ async function fixture(page: Page, theme = "light") {
         task_id: "density-crawl", complete: true, captured_at: "2026-10-09T01:00:00Z", candidates: Array.from({ length: 8 }, (_, i) => ({
           id: `account-${i}`, name: `Camping creator ${i + 1}`, platform: "youtube", region: "Canada", followers: 200000, avg_views_10: 15000,
           source_url: `https://youtube.com/channel/account-${i}`, snapshot_version: snapshot, in_pool: inPool && i === 0,
+          followed: followed && i === 0,
           followers_evidence: { state: "source_recorded", raw_text: "200K subscribers" },
           assessment: (() => {
             const current = states.get(`account-${i}`) || (i === 0 ? state : "unscored");
@@ -66,6 +68,7 @@ async function fixture(page: Page, theme = "light") {
     failScore: (id: string) => { failedScore = id; }, addRun: () => { extraRun = true; },
     holdScores: () => { scoreGate = new Promise<void>(resolve => { releaseScore = resolve; }); },
     releaseScores: () => { releaseScore?.(); scoreGate = undefined; },
+    setFollowed: () => { followed = true; },
     failImport: (id: string) => { failedImport = id; }, runtimeReads: () => runtimeReads };
 }
 
@@ -241,4 +244,25 @@ test.describe("touch input", () => {
     await expect(first.locator("details")).toHaveAttribute("open", "");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   });
+});
+
+test("your followed candidate can retry pool import after confirmation without leaving its session", async ({ page }) => {
+  const f = await fixture(page); f.setScore("scored"); f.setFollowed();
+  await page.goto("/s/density");
+  const first = page.locator("[data-discovery-candidate=account-0]");
+  await expect(first.locator(".discovery-candidate-heading .discovery-candidate-state")).toHaveText("已跟进");
+  await expect(first.getByRole("button", { name: "跟进", exact: true })).toBeDisabled();
+  const retry = first.getByRole("button", { name: "加入公海", exact: true });
+  await expect(retry).toBeEnabled();
+  await expect(retry).toHaveAttribute("title", /补写 Starry 公海/);
+  await retry.click();
+  expect(f.writes).toEqual([]);
+  await expect(page.getByRole("dialog")).toContainText("account-0");
+  const reads = f.runtimeReads();
+  await page.getByRole("dialog").getByRole("button", { name: "确认入库公海", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect.poll(() => f.runtimeReads()).toBeGreaterThan(reads);
+  await expect(page).toHaveURL(/\/s\/density$/);
+  expect(f.writes).toEqual(["/api/home/discovery/runtime/density-action/candidates/account-0/ingest"]);
+  await expect(first).toContainText("已跟进");
 });

@@ -22,7 +22,8 @@ describe("uncertain import reconciliation", () => {
       ] });
     expect(await lookupImportedKolUid({ creatorExternalId: "youtube:stable-channel" })).toBe("KOLREAL001");
     expect(vi.mocked(callStarryKolTool).mock.calls.map(call => call[0])).toEqual(["pageKolProfiles", "listAllKolProfiles"]);
-    expect(vi.mocked(callStarryKolTool).mock.calls[1][2]).toEqual({ timeoutMs: 30_000 });
+    expect(vi.mocked(callStarryKolTool).mock.calls[0][2]).toEqual({ timeoutMs: 20_000 });
+    expect(vi.mocked(callStarryKolTool).mock.calls[1][2]).toEqual({ timeoutMs: 60_000 });
   });
   it("does not adopt a UID from a fuzzy nickname result", async () => {
     vi.mocked(callStarryKolTool)

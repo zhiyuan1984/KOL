@@ -22,6 +22,7 @@ import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid } from "../
 vi.mock("../src/gateway/import-creator.js", () => ({
   importKolProfilesFromCrawlerConfirmed: vi.fn(),
   lookupImportedKolUid: vi.fn(),
+  isStarryTimeout: (error: unknown) => /timeout|timed?\s*out/i.test(error instanceof Error ? error.message : String(error)),
   withTimeout: vi.fn(async (operation: Promise<unknown>) => operation),
 }));
 const COMPANY = "company:amperetime";
@@ -377,4 +378,42 @@ it("rejects an invalid JEV probability response and keeps the score empty", asyn
   await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => {})).rejects.toThrow("Candidate assessment failed");
   const view = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0];
   expect(view.assessment).toMatchObject({ state: "failed", potential_score: null, risk_score: null });
+});
+
+it("ingest retries the Starry write for your own followed candidate without duplicating ownership", async () => {
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValue(new Error("test transport timeout"));
+  const first = await command(0, "follow", await version());
+  expect(first).toMatchObject({ ok: true, followed: true, starry_imported: false });
+  expect(await importState()).toBe("uncertain");
+  vi.mocked(lookupImportedKolUid).mockResolvedValue("");
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "starry-real-003" });
+  expect(await command(0, "ingest", await version())).toMatchObject({ ok: true, kol_uid: "starry-real-003", in_pool: true });
+  expect(vi.mocked(lookupImportedKolUid)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).toHaveBeenCalledTimes(2);
+  expect(await importState()).toBe("succeeded");
+  const follows = (await postgresPool().query("SELECT id,kol_uid FROM kol_follow_index WHERE status='active'")).rows;
+  expect(follows).toEqual([{ id: first.follow_id, kol_uid: "starry-real-003" }]);
+  expect((await postgresPool().query("SELECT payload FROM audit_events WHERE event_type='discovery.runtime.ingest.follow_retry'")).rows).toHaveLength(1);
+});
+
+it("ingest refuses another employee's followed candidate", async () => {
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "starry-real-004" });
+  const v = await version();
+  await command(0, "follow", v);
+  await expect(command(1, "ingest", v)).rejects.toMatchObject({ detail: { code: "candidate_scope_denied" } });
+  expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ["pageKolProfiles request timed out", "达人库无响应"],
+  ["HTTP 503 token=private https://private.example/mcp", "达人库连接失败"],
+  ["查询条件无效", "查询条件无效"],
+])("reports the employee-safe reconcile failure for %s without re-importing", async (message, reason) => {
+  await seedImportRow("uncertain");
+  vi.mocked(lookupImportedKolUid).mockRejectedValue(new Error(message));
+  await expect(command(0, "ingest", await version())).rejects.toMatchObject({ detail: {
+    code: "import_creator_uncertain", message: `入库状态核对失败（${reason}），请稍后重试；未重复提交。`,
+  } });
+  expect(await importState()).toBe("uncertain");
+  expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).not.toHaveBeenCalled();
 });

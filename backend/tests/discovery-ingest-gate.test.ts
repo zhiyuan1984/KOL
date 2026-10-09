@@ -611,7 +611,7 @@ describe("POST /api/home/discovery/ingest", () => {
           // 第一次是入库前找回（无档案）→ 才 add；第二次是超时后的核对。
           return lookups.length === 1
             ? { list: [] }
-            : { list: [{ kolUid: "KOLTIMEOUT01", kolName: "OutdoorPower", handle: "OutdoorPower" }] };
+            : { list: [{ kolUid: "KOLTIMEOUT01", kolName: "OutdoorPower", accountHandle: "OutdoorPower", primaryPlatform: "youtube" }] };
         }
         if (name === "listAllKolProfiles") return { list: [] };
         if (name === "pageMailboxes") {
