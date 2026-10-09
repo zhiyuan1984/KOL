@@ -8,7 +8,7 @@
 .knowledge-browse .knowledge-filter-bar { display: grid; grid-template-columns: max-content minmax(0, 1fr); padding: var(--space-2) var(--space-5) var(--space-3); gap: var(--space-3) var(--space-2); font-size: var(--ds-font-sm); }
 .knowledge-filter-bar > * { grid-column: 1 / -1; }
 .knowledge-filter-bar :is(.kbv-scope-rows, .knowledge-browse-filter-group) { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; min-width: 0; }
-.knowledge-browse .kbv-search { height: var(--control-h); min-height: var(--control-h); padding-block: 0; }
+.knowledge-browse .knowledge-filter-bar .workspace-search-input.kbv-search { height: var(--control-h-lg); min-height: var(--control-h-lg); padding-block: 0; }
 .knowledge-browse .kbv-search input { height: 100%; min-height: 0; padding-block: 0; font-size: var(--ds-font-sm); }
 .knowledge-browse .kbv-search svg { width: var(--icon-sm); height: var(--icon-sm); }
 .knowledge-browse .kbv-scope-rows { gap: var(--space-1); }
