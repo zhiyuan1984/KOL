@@ -1107,7 +1107,7 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--control-h-form` | ✅ | ✅ |
 | `--control-h-lg` | ✅ | ✅ |
 | `--control-h-sm` | ✅ | ✅ |
-| `--cost-meter-h` | ⚠️ | ✅ |
+| `--cost-meter-h` | ✅ | ✅ |
 | `--danger` | ✅ | ✅ |
 | `--dialog-h-max` | ✅ | ✅ |
 | `--dialog-pad` | ⚠️ | ✅ |
@@ -1200,7 +1200,6 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--workspace-tab-indicator-h` | ✅ | ✅ |
 | `--workspace-tabs-composer-gap` | ✅ | ✅ |
 | `--workspace-task-action-h` | ✅ | ✅ |
-
 
 ## 29. 任务详情 · 紧凑抽屉接入契约
 

@@ -3159,12 +3159,11 @@ export const api = {
   },
   adminKnowledgeDocument: (id: string) =>
     request<KnowledgeDocumentDetail>(`/api/admin/knowledge/documents/${encodeURIComponent(id)}`),
-  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false, onProgress?: (percent: number | null) => void, explanation?: string,company?:string, applicability?: { brands: string[]; stages: string[] }) => {
+  adminKnowledgeDocumentUpload: (baseId: string, file: File, draft = false, onProgress?: (percent: number | null) => void, explanation?: string,company?:string) => {
     const form = new FormData();
     form.append("base_id", baseId);
     form.append("draft", String(draft));
     form.append("file", file);
-    if (applicability) { form.append("brands", applicability.brands.join(",")); form.append("stages", applicability.stages.join(",")); }
     if(explanation!==undefined){form.append('scope_flow','true');form.append('explanation',explanation);}
     if (onProgress) return new Promise<{ document: KnowledgeDocumentRow }>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
