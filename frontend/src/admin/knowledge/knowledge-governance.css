@@ -17,8 +17,8 @@
 .knowledge-governance .knowledge-creation-head { display:flex; gap:var(--space-2); align-items:center; justify-content:space-between; flex-wrap:wrap; }
 .knowledge-creation-actions { display:flex; align-items:center; flex-wrap:nowrap; gap:var(--space-3); }
 .knowledge-creation-actions > button { flex:0 0 auto; white-space:nowrap; }
-#root .workbench .knowledge-governance .kbv-search { height:var(--control-h); min-height:var(--control-h); margin:0; }
-#root .workbench .knowledge-governance .kbv-search input { height:100%; min-height:0; padding-block:0; }
+#root .workbench .knowledge-governance .kbv-search { margin:0; }
+/* Search outer and inner sizes belong to WorkspaceSearchInput and shared knowledge-browse.css. */
 /* Filter rows, counters and alignment belong to shared knowledge-browse.css. */
 .knowledge-governance .knowledge-browse-filter-group { min-width:0; margin:0; padding:0; }
 #root .workbench .knowledge-governance .kbv-tabs { padding:var(--space-1) var(--space-3); gap:var(--space-1); }
