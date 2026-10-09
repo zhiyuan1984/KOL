@@ -1,0 +1,42 @@
+name: Independent task detail regression
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/independent-task-detail-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  independent-detail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend and browser
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y xvfb xdotool
+      - name: Types and model/navigation units
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          npx vitest run --config vitest.independent-detail.config.ts
+      - name: Independent and drawer regressions, native 200 percent zoom
+        working-directory: frontend
+        run: |
+          export PW_EXECUTABLE_PATH="$(node -e 'process.stdout.write(require("playwright").chromium.executablePath())')"
+          xvfb-run -a --server-args='-screen 0 1600x1200x24' npx playwright test --config playwright.independent-detail.config.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: independent-task-detail-results
+          path: frontend/test-results/independent-detail

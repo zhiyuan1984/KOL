@@ -83,3 +83,43 @@ describe("task detail navigation", () => {
     expect(readTaskListSnapshot()).toBeNull();
   });
 });
+
+
+describe("scoped independent task return", () => {
+  it("only restores the same object and authority identity", async () => {
+    const { taskListScopeKey, taskListSnapshotForReturn, taskListReturnState } = await import("./taskDetailNavigation");
+    const scope = taskListScopeKey({ id: "actor-1", company_id: "company-1", scope_version: 3 });
+    captureTaskListSnapshot({ originalUrl: "/tasks?source=business&q=MAX&period=week&page=4", openedTaskId: "task-1", scopeKey: scope, loadedBusinessPages: 3, scrollPosition: 240, outerScrollPosition: 12, shellScrollPosition: 20 });
+    expect(readTaskListSnapshot({ taskId: "task-1", scopeKey: scope })?.scrollPosition).toBe(240);
+    expect(readTaskListSnapshot({ taskId: "other-task", scopeKey: scope })).toBeNull();
+    expect(readTaskListSnapshot({ taskId: "task-1", scopeKey: taskListScopeKey({ id: "other-actor", company_id: "company-1" }) })).toBeNull();
+    expect(taskListSnapshotForReturn(taskListReturnState("task-1", scope), scope)?.loadedBusinessPages).toBe(3);
+    expect(taskListSnapshotForReturn({}, scope)).toBeNull();
+    expect(taskListReturnUrl(undefined, "task-1", scope)).toBe("/tasks?source=business&q=MAX&period=week&page=4#task-details");
+    expect(taskListReturnUrl(undefined, "other-task", scope)).toBe("/tasks#task-details");
+  });
+  it("does not treat an arbitrary legacy path as targeted provenance", () => {
+    captureTaskListSnapshot({ originalUrl: "/tasks?q=private-filter", openedTaskId: "old-task", scopeKey: "old-scope" });
+    expect(taskListReturnUrl({ taskListPath: "/tasks?q=private-filter" }, "new-task", "new-scope")).toBe("/tasks#task-details");
+    expect(taskListReturnUrl({ taskListPath: "https://outside.example/tasks", taskListTaskId: "new-task", taskListScopeKey: "new-scope" }, "new-task", "new-scope")).toBe("/tasks#task-details");
+  });
+  it("does not restore scoped state without a resolved identity", () => {
+    captureTaskListSnapshot({ originalUrl: "/tasks?q=old-filter", openedTaskId: "task-1", scopeKey: "actor-1" });
+    expect(readTaskListSnapshot({ taskId: "task-1", scopeKey: "" })).toBeNull();
+    expect(taskListReturnUrl(undefined, "task-1", "")).toBe("/tasks#task-details");
+  });
+  it("bounds recovery reads and rejects future or expired snapshots", () => {
+    const snapshot = captureTaskListSnapshot({ originalUrl: "/tasks", loadedAgentPages: 100000, loadedBusinessPages: 100000 });
+    expect(snapshot?.loadedAgentPages).toBe(50); expect(snapshot?.loadedBusinessPages).toBe(50);
+    const stored = JSON.parse([...memory.values()][0]); stored.capturedAt = Date.now() + 100000;
+    memory.set("kol:task-list-return:v1", JSON.stringify(stored));
+    expect(readTaskListSnapshot()).toBeNull();
+  });
+  it("authority version changes invalidate the identity key without copying unrelated account values", async () => {
+    const { taskListScopeKey } = await import("./taskDetailNavigation");
+    const original = taskListScopeKey({ id: "actor", company_id: "company", scope_version: 1, token: "never-copy-this" });
+    expect(original).not.toContain("never-copy-this");
+    expect(original).not.toBe(taskListScopeKey({ id: "actor", company_id: "company", scope_version: 2 }));
+    expect(taskListScopeKey(null)).toBe("");
+  });
+});

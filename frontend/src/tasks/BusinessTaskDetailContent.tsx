@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Collapse, Descriptions, Form, Input, Modal, Select, Tag, Timeline } from "antd";
+import { Alert, Button, Collapse, Descriptions, Form, Input, Modal, Select, Tag, Timeline, type DescriptionsProps } from "antd";
 import { api, type AiTaskWorkOrderAggregate } from "../api";
 import { TaskCollaborationContext } from "./TaskCollaborationContext";
 import { WorkOrderSuggestions } from "./WorkOrderSuggestions";
+import { formatDetailTime } from "./taskDetailPresentation";
 
 type BusinessTaskDetailContentProps = {
   detail: AiTaskWorkOrderAggregate;
+  timezone?: string | null;
+  extraTraceItems?: DescriptionsProps["items"];
   actionBusy: string;
   onWorkspace: () => void;
   onUnavailable: () => void;
@@ -95,14 +98,6 @@ const WORK_ORDER_STATUS_LABELS: Record<string, string> = {
 
 const TERMINAL_WORK_ORDER_STATUSES = new Set(["completed", "cancelled", "canceled"]);
 
-function formatTime(value?: string | null) {
-  if (!value) return "—";
-  const time = new Date(value);
-  return Number.isNaN(time.valueOf())
-    ? value
-    : time.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
 function eventLabel(eventType: string) {
   return EVENT_LABELS[eventType] || eventType;
 }
@@ -138,19 +133,19 @@ function displayAssignee(order: WorkOrder) {
   return parts.length ? parts.join(" · ") : "尚未分派";
 }
 
-function displayDecision(order: WorkOrder) {
+function displayDecision(order: WorkOrder, timezone?: string | null) {
   const decision = order.latest_decision;
   if (!decision) return "暂无自动化决策";
   const confidence = decision.confidence == null ? "—" : `${Math.round(decision.confidence * 100)}%`;
-  return `结果：${decision.outcome} · 状态：${decision.status} · 模式：${decision.decision_mode} · 置信度：${confidence} · ${formatTime(decision.created_at)}`;
+  return `结果：${decision.outcome} · 状态：${decision.status} · 模式：${decision.decision_mode} · 置信度：${confidence} · ${formatDetailTime(decision.created_at, timezone)}`;
 }
 
 function readableOrder(order: WorkOrder) {
   return `${order.title || "未命名工单"} · ${workOrderStatusLabel(order.status)}`;
 }
 
-function businessGoalSummary(goal: string, taskTitle: string) {
-  const full = goal.trim();
+function businessGoalSummary(goal: string | null | undefined, taskTitle: string) {
+  const full = typeof goal === "string" ? goal.trim() : "";
   const withoutRepeatedTitle = taskTitle.trim() && full.includes(taskTitle.trim())
     ? full.replace(taskTitle.trim(), "").replace(/^[\s:：,，、-]+/, "").trim()
     : full;
@@ -158,7 +153,7 @@ function businessGoalSummary(goal: string, taskTitle: string) {
     .replace(/\s*[（(]?\s*YouTube\s*(?:channel\s*)?(?:ID)?\s*[:：]?\s*UC[A-Za-z0-9_-]{20,}\s*[）)]?/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
-  return withoutRepeatedYoutubeId || full || "—";
+  return withoutRepeatedYoutubeId || full || "未提供业务目标";
 }
 
 function verifiedEventFingerprint(taskId: string, stamp: number, values: EventDraft, occurredAt: string) {
@@ -198,6 +193,8 @@ function makePendingSubmission(taskId: string, values: EventDraft): PendingSubmi
  */
 export function BusinessTaskDetailContent({
   detail,
+  timezone,
+  extraTraceItems,
   actionBusy,
   onWorkspace,
   onUnavailable,
@@ -254,6 +251,11 @@ export function BusinessTaskDetailContent({
     [detail.work_orders],
   );
   const currentBlocking = detail.current_blocking_work_order;
+  const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "本地时区";
+  const progressSummary = detail.counts.total === 0 && detail.work_orders.length === 0 ? "尚无执行工单。"
+    : detail.work_orders.length === 0 ? `共 ${detail.counts.total} 单；当前没有可见工单明细。`
+    : currentBlocking ? readableOrder(currentBlocking)
+    : [`工单 ${detail.counts.completed} / ${detail.counts.total} 已完成`, ...(detail.counts.open ? [`开放 ${detail.counts.open} 单`] : []), ...(detail.counts.waiting_review ? [`待复核 ${detail.counts.waiting_review} 单`] : [])].join(" · ");
   const openWorkOrders = useMemo(
     () => detail.work_orders.filter((order) => !TERMINAL_WORK_ORDER_STATUSES.has(order.status)),
     [detail.work_orders],
@@ -388,8 +390,8 @@ export function BusinessTaskDetailContent({
         colon={false}
         items={[
           { key: "goal", label: "业务目标", children: businessGoalSummary(detail.task.goal, detail.task.title) },
-          ...(detail.task.due_at ? [{ key: "due", label: "截止时间", children: <span className={new Date(detail.task.due_at).valueOf() < Date.now() && !["completed", "cancelled", "canceled"].includes(detail.task.status) ? "task-business-overdue" : undefined}>{formatTime(detail.task.due_at)}{new Date(detail.task.due_at).valueOf() < Date.now() && !["completed", "cancelled", "canceled"].includes(detail.task.status) ? " · 已逾期" : ""}</span> }] : []),
-          { key: "progress", label: "当前推进", children: detail.work_orders.length === 0 ? "尚无执行工单。" : currentBlocking ? readableOrder(currentBlocking) : "当前无阻塞工单。" },
+          ...(detail.task.due_at ? [{ key: "due", label: "截止时间", children: <span className={new Date(detail.task.due_at).valueOf() < Date.now() && !["completed", "cancelled", "canceled"].includes(detail.task.status) ? "task-business-overdue" : undefined}>{formatDetailTime(detail.task.due_at, timezone)}{new Date(detail.task.due_at).valueOf() < Date.now() && !["completed", "cancelled", "canceled"].includes(detail.task.status) ? " · 已逾期" : ""}</span> }] : []),
+          { key: "progress", label: "当前推进", children: progressSummary },
         ]}
       />
       <div className="task-business-actions">
@@ -446,7 +448,7 @@ export function BusinessTaskDetailContent({
         <Form.Item name="evidence_ref" label="证据引用" rules={[{ required: true, whitespace: true, message: "请填写证据引用。" }]}>
           <Input maxLength={1000} placeholder="例如：mail:thread/123" />
         </Form.Item>
-        <Form.Item name="occurred_at" label="发生时间">
+        <Form.Item name="occurred_at" label={`发生时间（本地时区：${localTimezone}）`}>
           <Input type="datetime-local" />
         </Form.Item>
         <Collapse
@@ -478,7 +480,7 @@ export function BusinessTaskDetailContent({
           key: event.id,
           children: <div className="task-business-event">
             <strong>{eventLabel(event.event_type)}</strong>
-            <p className="task-business-event-meta">{event.occurred_at === event.verified_at ? `${formatTime(event.occurred_at)} · 已核验` : `发生：${formatTime(event.occurred_at)} · 核验：${formatTime(event.verified_at)}`}</p>
+            <p className="task-business-event-meta">{event.occurred_at === event.verified_at ? `${formatDetailTime(event.occurred_at, timezone)} · 已核验` : `发生：${formatDetailTime(event.occurred_at, timezone)} · 核验：${formatDetailTime(event.verified_at, timezone)}`}</p>
             <p>{event.summary}</p>
             <Collapse
               className="task-business-event-evidence"
@@ -486,7 +488,7 @@ export function BusinessTaskDetailContent({
               items={[{ key: `evidence-${event.id}`, label: "查看证据与追溯", children: <>
                 <p>证据：{event.evidence_ref || "—"}</p>
                 <p className="task-business-event-trace">事件类型：{event.event_type} · 事件标识：{event.id}</p>
-                <p>发生：{formatTime(event.occurred_at)} · 核验：{formatTime(event.verified_at)} · 核验人：{event.verified_by || "—"}</p>
+                <p>发生：{formatDetailTime(event.occurred_at, timezone)}（原始：{event.occurred_at}） · 核验：{formatDetailTime(event.verified_at, timezone)}（原始：{event.verified_at}） · 核验人：{event.verified_by || "—"}</p>
               </> }]}
             />
           </div>,
@@ -517,7 +519,7 @@ export function BusinessTaskDetailContent({
                   { key: "stage", label: "当前阶段", children: order.stage_code || "未设定" },
                   { key: "automation", label: "自动化等级", children: order.automation_level || "—" },
                   { key: "assignee", label: "主受理", children: displayAssignee(order) },
-                  { key: "decision", label: "自动化决策", children: displayDecision(order) },
+                  { key: "decision", label: "自动化决策", children: displayDecision(order, timezone) },
                   { key: "template", label: "模板追溯", children: `${order.template_title || order.template_code} · ${order.template_code}.v${order.template_version}` },
                   { key: "assignment", label: "创建与分派追溯", children: `创建：${order.creation_mode} · 分派：${order.assignment_origin} · 路由：${order.routing_policy_code || "—"}` },
                 ]}
@@ -541,9 +543,10 @@ export function BusinessTaskDetailContent({
             items={[
               { key: "original-goal", label: "原始业务目标", children: detail.task.goal || "—" },
               { key: "source", label: "数据来源", children: detail.source },
-              { key: "as-of", label: "数据时间", children: formatTime(detail.as_of) },
+              { key: "as-of", label: "数据时间", children: formatDetailTime(detail.as_of, timezone) },
               { key: "task-id", label: "任务标识", children: detail.task.task_id },
               { key: "version", label: "任务版本", children: detail.task.data_version },
+              ...(extraTraceItems || []),
             ]}
           />,
         }]}
@@ -576,6 +579,9 @@ export function BusinessTaskDetailContent({
             { key: "event", label: "事件", children: eventLabel(pendingSubmission.values.event_type) },
             { key: "summary", label: "事实摘要", children: pendingSubmission.values.summary },
             { key: "evidence", label: "证据引用", children: pendingSubmission.values.evidence_ref },
+            { key: "occurred", label: "发生时间", children: `${formatDetailTime(pendingSubmission.occurredAt, timezone)}（${timezone || "Asia/Shanghai"}；原始 ${pendingSubmission.occurredAt}）` },
+            ...(pendingSubmission.values.evidence_keys?.trim() ? [{ key: "evidence-keys", label: "核验证据键", children: splitLines(pendingSubmission.values.evidence_keys).join("、") }] : []),
+            ...(pendingSubmission.values.completed_stages?.trim() ? [{ key: "stages", label: "完成阶段", children: splitLines(pendingSubmission.values.completed_stages).join("、") }] : []),
             { key: "order", label: "作用工单", children: pendingSubmission.values.work_order_id ? detail.work_orders.find((order) => order.work_order_id === pendingSubmission.values.work_order_id)?.title || "指定工单" : "不指定" },
           ]}
         />

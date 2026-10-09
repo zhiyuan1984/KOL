@@ -320,5 +320,5 @@ test("a restricted related module cannot close an independently authorized root 
 test("direct independent task detail safely returns to the canonical task list", async ({ page }) => {
   await fixture(page);
   await page.goto("/tasks/agent-fixture");
-  await expect(page.getByRole("link", { name: /返回任务明细/ })).toHaveAttribute("href", "/tasks");
+  await expect(page.getByRole("link", { name: /返回任务明细/ })).toHaveAttribute("href", "/tasks#task-details");
 });

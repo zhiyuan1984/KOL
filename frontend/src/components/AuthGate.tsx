@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, type Account } from "../api";
 import { clearPlanCaches } from "../home/todayPlan";
+import { clearTaskListSnapshot } from "../tasks/taskDetailNavigation";
 
 type AuthContextValue = {
   account: Account | null;
@@ -41,7 +42,10 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     try {
       const health = await fetch("/api/health", { credentials: "same-origin", cache: "no-store" }).then((response) => response.ok ? response.json() : null) as { runtime_mode?: string } | null;
       if (health?.runtime_mode === "postgres-only") {
-        setAccount(null);
+        // Resolve the established identity provider, never the retired ticket login.
+        // Missing identity metadata disables scoped UI restoration, not API authorization.
+        const resolved = await api.me().catch(() => null);
+        setAccount(resolved);
         setPostgresOnly(true);
         setState("ready");
         return;
@@ -88,6 +92,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       await api.logout();
     } finally {
       clearPlanCaches();
+      clearTaskListSnapshot();
       setAccount(null);
       setState("login");
     }
@@ -110,6 +115,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
               : await api.login({ ...adminLoginIdent(values.email), password: values.password });
             const resolved = result.account || result.user || (await api.me());
             clearPlanCaches();
+            clearTaskListSnapshot();
             setAccount({
               ...resolved,
               available_modes: resolved.available_modes || result.available_modes,
