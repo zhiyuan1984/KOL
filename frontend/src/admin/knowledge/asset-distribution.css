@@ -1,0 +1,123 @@
+/* 知识资产右栏：局部的单行分类分布；数值与颜色均复用 DESIGN 已登记 token。 */
+.knowledge-assets-summary {
+  container-name: kb-asset-distribution;
+  container-type: inline-size;
+}
+
+.knowledge-assets-summary .knowledge-assets-head {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.knowledge-assets-summary .knowledge-assets-head h3 {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+  line-height: var(--list-row-h-compact);
+}
+
+.knowledge-assets-summary .knowledge-assets-refresh,
+.knowledge-assets-summary .knowledge-empty-toggle {
+  flex: 0 0 auto;
+}
+
+.knowledge-assets-summary .knowledge-assets-scope {
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-helper);
+  margin: 0;
+}
+
+.knowledge-assets-summary .knowledge-empty-toggle {
+  margin: var(--space-1) 0;
+}
+
+.knowledge-assets-summary .knowledge-asset-facets > section {
+  padding: var(--space-2) 0;
+}
+
+.knowledge-assets-summary .knowledge-asset-facets h3 {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+  font-weight: 500;
+  line-height: var(--control-h-sm);
+  margin: 0;
+}
+
+/* 名称、比例条与计数/占比始终在同一条紧凑行；比例只对本级 facet.all。 */
+.knowledge-assets-summary .knowledge-summary-row.has-bar {
+  align-items: center;
+  display: grid;
+  flex-direction: initial;
+  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr) minmax(calc(var(--control-h-lg) + var(--space-4)), 0.8fr) auto;
+  min-height: var(--control-h-lg);
+  padding: 0 var(--space-1);
+  text-align: left;
+}
+
+.knowledge-assets-summary .ksr-name {
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-assets-summary .ksr-bar {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-chip-square);
+  display: block;
+  height: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.knowledge-assets-summary .ksr-bar i {
+  background: var(--accent);
+  border-radius: var(--radius-chip-square);
+  display: block;
+  height: 100%;
+}
+
+.knowledge-assets-summary .ksr-meta {
+  align-items: baseline;
+  color: var(--text-quiet);
+  display: inline-flex;
+  font-size: var(--ds-font-xs);
+  font-variant-numeric: tabular-nums;
+  gap: var(--space-1);
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.knowledge-assets-summary .ksr-count {
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+}
+
+.knowledge-assets-summary .ksr-ratio {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+
+/* 右栏本身窄于 480px 时不拆出第二组字段；元信息仍留在同一行。 */
+@container kb-asset-distribution (max-width: 479px) {
+  .knowledge-assets-summary .knowledge-summary-row.has-bar {
+    gap: var(--space-1);
+    grid-template-columns: minmax(0, 1fr) minmax(var(--control-h-lg), 0.65fr) auto;
+  }
+
+  .knowledge-assets-summary .knowledge-assets-head {
+    flex-wrap: wrap;
+  }
+}
+
+@media (pointer: coarse) {
+  .knowledge-assets-summary .knowledge-summary-row.has-bar,
+  .knowledge-assets-summary .knowledge-empty-toggle,
+  .knowledge-assets-summary .knowledge-assets-refresh {
+    min-height: var(--touch-hit-min);
+  }
+}
