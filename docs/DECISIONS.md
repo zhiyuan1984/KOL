@@ -4,10 +4,16 @@
 
 ## ADR-2026-10-09：Starry 入库 uncertain 状态的真核对（替代永远 409）
 
-- **状态**：已接受（`uncertain` 不再成为无恢复路径的死胡同）。
-- **决定**：重试命中 `uncertain`，或 `dispatching` 超过 10 分钟视为孤儿时，先用 `pageKolProfiles` 核对 Starry；已存在则补成功落盘，没有则删除旧状态后重新派发；核对失败则保持不确定，不重复提交。
-- **理由**：符合“真实等待有原因、不得伪造完成”的不变量；R3 导入的确认与回执保持不变。
-- **限制**：PG 集成测试需在配置 `TEST_DATABASE_URL` 的环境执行。
+- **状态**：已接受（线上 409「入库请求已提交，正在核对结果」实证：没有对账扫，uncertain 是死胡同，「正在核对」无人执行）。
+- **背景**：`discovery_runtime_imports` 状态机只有 dispatching → succeeded / uncertain；uncertain 后重试永远 409，无恢复路径。根因链：MCP client 无超时 → 导入挂起 → nginx 60s 掐断 504（已修：后端导入 120s/核对 30s 硬超时 + nginx `proxy_read_timeout 240s`）。
+- **决定**：
+  1. 重试命中 uncertain（或 dispatching 超 10 分钟视为孤儿）时，真调 `pageKolProfiles` 按平台账号核对 Starry 侧：有 → 补成功落盘（画像 + succeeded + 审计 `reconciled: true`）；没有 → 删旧行重新派发（已核对，非盲目）。
+  2. 核对本身失败（Starry 无响应）→ 502「入库状态核对失败，请稍后重试；未重复提交」，不删行、不盲目重试。
+  3. 鲜活的 dispatching（10 分钟内）仍 409「正在处理，请稍后再试」。
+- **理由**：CONST 不变量「真实等待有原因、不得伪造完成」——旧文案承诺的「正在核对」实际无人执行，属伪造状态；新路径让文案为真。R3 导入的确认与回执不变。
+- **限制**：PG 真跑待用户环境；`discovery-candidate-actions.test.ts` 新增 3 项核对测试（原「never dispatches again」按新语义重写）。
+- **追记（同日）**：跟进口 `candidate_import_pending` 是同一死锁的另一面——uncertain 行同样让「跟进」永远 409，而跟进成功后的 Starry 写入已走核对路径。决定：跟进前对 uncertain/孤儿 dispatching 复用 `reconcileUncertainImport`；Starry 有 → 补成功落盘后继续跟进；没有 → 删僵尸行走本地建档（跟进后的 Starry 写入会重新派发）；核对失败 → 502。鲜活 dispatching 仍 409，文案改为「该红人正在入库，请稍后再跟进」（诚实）。测试新增 4 项（跟进三态）。
+- **追记（同日二）**：线上实证两条——①「已跟进，但 Starry 入库未完成：写入红人档案失败，未加入跟进」自相矛盾：`employeeImportError` 的「未加入跟进」是旧流程残留（当年跟进＝入库一步），现在跟进已成功、失败的只是写公海。决定：candidate-actions 内 `poolImportMessage`/`poolImportError` 把「加入跟进」纠正为「加入公海」（跟进口 catch 与加入公海口共用；不碰共享 fallback，其它流程断言不变）。② 超时那次若 Starry 侧实际写成功了，keyword 核对会漏检（刚建档案 keyword 查不到，`findExistingKolUid` 注释有载），误判「未入库」删行重派发会撞重复拒绝。决定：`lookupImportedKolUid` 加 listAll 兜底；`host.import_creator.failed` 审计补 `error_detail`（脱敏后真实错误，用户文案仍走白名单）。测试 +1（文案纠正）。
 
 ## ADR-2026-10-08（二）：公海品牌可见性 —— 跟进后同品牌在公海不可见
 

@@ -446,6 +446,9 @@ export function friendlyError(error: unknown, fallback = "操作未完成，请�
       .replace(/collaboration not found/g, "找不到对应合作")
       .replace(/collaboration_id/g, "合作红人");
   }
+  if (/请求失败\s*\(\s*504\s*\)|gateway time-?out/i.test(raw)) {
+    return "网关超时：请求可能仍在处理中，请勿重复提交，稍后核对是否已生效。";
+  }
   return raw;
 }
 

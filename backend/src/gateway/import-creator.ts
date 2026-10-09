@@ -9,6 +9,7 @@ import {
   liveRemoteSideEffectsEnabled,
 } from "../config.js";
 import { audit } from "../db.js";
+import { sanitizeSecret } from "../discovery-errors.js";
 import {
   employeeImportError,
   FORBIDDEN_FOLLOW_TOOLS,
@@ -221,19 +222,16 @@ export async function lookupImportedKolUid(input: {
   const listed = await callStarryKolTool("pageKolProfiles", {
     requestJson: JSON.stringify({ pageNo: 1, pageSize: 20, keyword }),
   }, { timeoutMs: STARRY_LOOKUP_TIMEOUT_MS });
-  const fromList = parseImportedKolUid(listed);
-  if (isRealKolUid(fromList)) return fromList;
-  for (const row of listOf(asObject(listed))) {
-    const uid = firstString(row.kolUid, row.kol_uid, row.uid);
-    const handle = firstString(row.kolName, row.nickname, row.handle, row.account);
-    if (handle && keyword && handle.toLowerCase() === keyword.toLowerCase() && isRealKolUid(uid)) {
-      return uid;
-    }
-    if (isRealKolUid(uid) && keyword && String(uid).toLowerCase().includes(keyword.toLowerCase())) {
-      return uid;
-    }
-  }
-  return parseImportedKolUid(listed);
+  const platform = String(input.creatorExternalId || "").split(":")[0];
+  const target = { account: keyword, platform: platform || undefined };
+  const provenPlatform = (item: Json) => !platform || PROFILE_PLATFORM_KEYS.some(key => String(item[key] || "").trim().toLowerCase() === platform.toLowerCase());
+  const hit = pickProfileRow(listOf(asObject(listed)).filter(provenPlatform), target);
+  if (hit) return realKolUidOf(hit);
+  // Starry 对刚新建的档案 keyword 查不到，但 listAll 能看到：兜底扫全量，
+  // 否则会把"已入库"误判为"未入库"，删行重派发后撞上达人库的重复拒绝。
+  const all = await callStarryKolTool("listAllKolProfiles", {}, { timeoutMs: STARRY_LOOKUP_TIMEOUT_MS });
+  const allHit = pickProfileRow(listOf(asObject(all)).filter(provenPlatform), target);
+  return allHit ? realKolUidOf(allHit) : "";
 }
 
 export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreatorInput): Promise<Json> {
@@ -275,6 +273,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
         creator_external_id: input.creatorExternalId,
         candidate_id: input.candidateId || null,
         retried_import: false,
+        error_detail: sanitizeSecret(error),
       });
       try {
         const found = await withTimeout(
@@ -298,6 +297,11 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
           });
         }
       } catch (lookupError) {
+        audit(actor, "host.import_creator.failed", {
+          policy: IMPORT_CREATOR_POLICY, tool: "pageKolProfiles/listAllKolProfiles",
+          source_batch: input.sourceBatch, creator_external_id: input.creatorExternalId,
+          candidate_id: input.candidateId || null, error_detail: sanitizeSecret(lookupError), retried_import: false,
+        });
         if (lookupError instanceof HttpFail) throw lookupError;
         throw new HttpFail(502, {
           code: "import_creator_uncertain",
@@ -317,6 +321,8 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
         sent: false,
         stage_changed: false,
         decrypted: false,
+        // 脱敏后的远端真实错误：用户文案走白名单兜底时，这里保留可查的真实原因。
+        error_detail: sanitizeSecret(error),
       });
       throw new HttpFail(502, {
         code: "import_creator_failed",
@@ -441,6 +447,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
       retried: false,
       sent: false,
       stage_changed: false,
+      error_detail: sanitizeSecret(error),
     });
     if (isStarryTimeout(error)) {
       throw new HttpFail(502, {
