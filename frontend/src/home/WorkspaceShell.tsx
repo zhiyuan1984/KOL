@@ -6,6 +6,8 @@ import ResultRail from "./workspace/ResultRail";
 import type { ResultRailViewModel } from "./workspace/result-contract";
 import "./workspace/workspace-shell.css";
 import "./workspace/agent-session.css";
+// 五 tab antd 视觉语言（D1-A：视觉语言、不引依赖）：只盖视觉，不动内容与逻辑。
+import "./antd-visual.css";
 
 export type WorkspacePane = "today" | "todo" | "discovery" | "pool" | "lifecycle" | "session";
 export function revealWorkspace(sessionId: string, region: "center" | "rail", target?: string) {

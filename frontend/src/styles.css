@@ -10310,13 +10310,13 @@ body {
   margin-inline: auto;
 }
 
-/* In Today mode the task table owns the right rail; the Codex center column
-   spans the full pane width. The center grid owns the one width axis — dock
-   geometry lives in the final axis block, never in calc() here. */
+/* 五个 Home tab 与会话页（.session-shell）同一几何：内容上限 1200px 居中、
+   两侧 --page-gutter、顶部 4px。桌面 ≥1101px 生效。
+   上限与两侧留白走上方的 shared-frame 规则（.home-stage 那条），这里只收顶部留白。
+   2026-10-09 五 tab 视觉统一（D2/D3）：删掉原来的 width:100% 例外。 */
 @media (min-width: 1101px) {
   .home-pane[data-home-workspace] .home-stage {
-    width: 100%;
-    max-width: none;
+    padding-top: 4px;
   }
 }
 

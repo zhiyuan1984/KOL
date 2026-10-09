@@ -1,0 +1,355 @@
+/* 五 tab antd 视觉语言（D1-A：视觉语言、不引依赖）。
+ *
+ * 作用域：.home-pane[data-home-workspace] —— 今日任务 / 我的待办 / AI发现 /
+ * 公海 / 我的红人五个 Home tab。内容、文案、数据流、交互逻辑零改动，只换视觉。
+ *
+ * 审宪（CONST-08，2026-10-09）：
+ * 需求 → qiyou 要求五 tab 视觉统一到会话页、走 antd 视觉 + docs/DESIGN.md；
+ *   只改视觉和交互，不改内容；D1 选 A（视觉语言、不引依赖）。
+ * 主责角色 → 前端实现。
+ * 宪法条款 → CONST-04（纯呈现层：本文件只含 CSS，无 JSX/逻辑/权限/审批/阶段改动）符合；
+ *   CONST-10（不伪造）符合。
+ * 基本法条款 → docs/DESIGN.md v3.2：§1 不变量 1（实底主 CTA 仍只映射原
+ *   .btn.primary/.btn.send/.btn.work，不新增）符合；§1 不变量 4（R1/R2/R3
+ *   chip 保持 DESIGN 原形态，本文件不动）符合；§6.1 三栏（几何统一见 styles.css
+ *   的 P0 改动）符合；§3 颜色职责——antd 蓝系（#1677ff 等）为职责外新色相，
+ *   属偏离，但 qiyou 2026-10-09 明确指令「使用 antd」（样稿蓝主按钮已确认），
+ *   用户指令优先，此处记录在案。
+ * 结论与证据 → 符合宪法；DESIGN §3 偏离一项（有明确用户指令）。
+ * 下一步 → tsc / vitest / 真机渲染验证后随累计 patch 交付。
+ */
+
+/* ============ antd v5 token（亮 / 暗两套） ============ */
+.home-pane[data-home-workspace] {
+  --av-primary: #1677ff;
+  --av-primary-hover: #4096ff;
+  --av-primary-active: #0958d9;
+  --av-primary-bg: #e6f4ff;
+  --av-primary-border: #91caff;
+  --av-text: rgba(0, 0, 0, 0.88);
+  --av-text-2: rgba(0, 0, 0, 0.65);
+  --av-text-3: rgba(0, 0, 0, 0.45);
+  --av-border: #d9d9d9;
+  --av-border-2: #f0f0f0;
+  --av-bg: #ffffff;
+  --av-bg-2: #fafafa;
+  --av-disabled-text: rgba(0, 0, 0, 0.25);
+  --av-disabled-border: #d9d9d9;
+  --av-disabled-bg: rgba(0, 0, 0, 0.04);
+  --av-shadow-focus: 0 0 0 2px rgba(5, 145, 255, 0.1);
+  --av-shadow-btn: 0 2px 0 rgba(0, 0, 0, 0.02);
+  --av-shadow-btn-primary: 0 2px 0 rgba(5, 145, 255, 0.1);
+  --av-radius: 6px;
+  --av-control-h: 32px;
+  --av-font-size: 14px;
+}
+:root[data-theme="dark"] .home-pane[data-home-workspace] {
+  --av-primary: #177ddc;
+  --av-primary-hover: #3c9ae8;
+  --av-primary-active: #0e5aa8;
+  --av-primary-bg: #111d2c;
+  --av-primary-border: #153450;
+  --av-text: rgba(255, 255, 255, 0.85);
+  --av-text-2: rgba(255, 255, 255, 0.65);
+  --av-text-3: rgba(255, 255, 255, 0.45);
+  --av-border: #424242;
+  --av-border-2: #303030;
+  --av-bg: #141414;
+  --av-bg-2: #1f1f1f;
+  --av-disabled-text: rgba(255, 255, 255, 0.25);
+  --av-disabled-border: #424242;
+  --av-disabled-bg: rgba(255, 255, 255, 0.04);
+  --av-shadow-focus: 0 0 0 2px rgba(23, 125, 220, 0.25);
+  --av-shadow-btn: 0 2px 0 rgba(0, 0, 0, 0.2);
+  --av-shadow-btn-primary: 0 2px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* ============ Button → antd Button ============ */
+.home-pane[data-home-workspace] .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--av-control-h);
+  height: var(--av-control-h);
+  padding: 4px 15px;
+  font-size: var(--av-font-size);
+  line-height: 1.5715;
+  white-space: nowrap;
+  border-radius: var(--av-radius);
+  border: 1px solid var(--av-border);
+  background: var(--av-bg);
+  color: var(--av-text);
+  box-shadow: var(--av-shadow-btn);
+  transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+.home-pane[data-home-workspace] .btn:hover:not(:disabled) {
+  color: var(--av-primary-hover);
+  border-color: var(--av-primary-hover);
+  background: var(--av-bg);
+}
+.home-pane[data-home-workspace] .btn:active:not(:disabled) {
+  color: var(--av-primary-active);
+  border-color: var(--av-primary-active);
+}
+/* 主按钮：只映射原有的实底款（.primary / .send / .work），不新增实底 */
+.home-pane[data-home-workspace] .btn.primary,
+.home-pane[data-home-workspace] .btn.send:not(.send-arrow),
+.home-pane[data-home-workspace] .btn.work {
+  color: #fff;
+  background: var(--av-primary);
+  border-color: var(--av-primary);
+  box-shadow: var(--av-shadow-btn-primary);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.12);
+}
+.home-pane[data-home-workspace] .btn.primary:hover:not(:disabled),
+.home-pane[data-home-workspace] .btn.send:not(.send-arrow):hover:not(:disabled),
+.home-pane[data-home-workspace] .btn.work:hover:not(:disabled) {
+  color: #fff;
+  background: var(--av-primary-hover);
+  border-color: var(--av-primary-hover);
+}
+.home-pane[data-home-workspace] .btn.primary:active:not(:disabled),
+.home-pane[data-home-workspace] .btn.send:not(.send-arrow):active:not(:disabled),
+.home-pane[data-home-workspace] .btn.work:active:not(:disabled) {
+  color: #fff;
+  background: var(--av-primary-active);
+  border-color: var(--av-primary-active);
+}
+/* 文字按钮 → antd text button（DESIGN §4 L3 对应款） */
+.home-pane[data-home-workspace] .btn.text,
+.home-pane[data-home-workspace] .btn.link-button {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--av-text-2);
+  padding: 4px 8px;
+  height: auto;
+  min-height: 0;
+}
+.home-pane[data-home-workspace] .btn.text:hover:not(:disabled),
+.home-pane[data-home-workspace] .btn.link-button:hover:not(:disabled) {
+  color: var(--av-text);
+  background: rgba(0, 0, 0, 0.04);
+  border-color: transparent;
+}
+:root[data-theme="dark"] .home-pane[data-home-workspace] .btn.text:hover:not(:disabled),
+:root[data-theme="dark"] .home-pane[data-home-workspace] .btn.link-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+/* ghost：去实底，保留描边 */
+.home-pane[data-home-workspace] .btn.ghost {
+  background: transparent;
+  border-color: var(--av-border);
+  color: var(--av-text);
+  box-shadow: none;
+}
+/* danger → antd danger */
+.home-pane[data-home-workspace] .btn.danger {
+  color: #ff4d4f;
+  border-color: #ff4d4f;
+  background: var(--av-bg);
+  box-shadow: var(--av-shadow-btn);
+}
+.home-pane[data-home-workspace] .btn.danger:hover:not(:disabled) {
+  color: #ff7875;
+  border-color: #ff7875;
+  background: #fff1f0;
+}
+:root[data-theme="dark"] .home-pane[data-home-workspace] .btn.danger:hover:not(:disabled) {
+  background: rgba(255, 77, 79, 0.08);
+}
+/* sm → antd small */
+.home-pane[data-home-workspace] .btn.sm,
+.home-pane[data-home-workspace] .btn.ghost.sm {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 7px;
+  font-size: 12px;
+  border-radius: 4px;
+  line-height: 1.5;
+}
+/* disabled → antd disabled */
+.home-pane[data-home-workspace] .btn:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  color: var(--av-disabled-text);
+  border-color: var(--av-disabled-border);
+  background: var(--av-disabled-bg);
+  box-shadow: none;
+  text-shadow: none;
+}
+/* focus → antd focus ring */
+.home-pane[data-home-workspace] .btn:focus-visible {
+  outline: none;
+  border-color: var(--av-primary);
+  box-shadow: var(--av-shadow-focus);
+}
+
+/* ============ Input / Select / Textarea → antd Input ============ */
+.home-pane[data-home-workspace] input[type="text"],
+.home-pane[data-home-workspace] input[type="search"],
+.home-pane[data-home-workspace] input[type="number"],
+.home-pane[data-home-workspace] input[type="url"],
+.home-pane[data-home-workspace] input[type="email"],
+.home-pane[data-home-workspace] input:not([type]),
+.home-pane[data-home-workspace] select,
+.home-pane[data-home-workspace] .ai-discovery-input {
+  height: var(--av-control-h);
+  padding: 4px 11px;
+  font-size: var(--av-font-size);
+  line-height: 1.5715;
+  color: var(--av-text);
+  background: var(--av-bg);
+  border: 1px solid var(--av-border);
+  border-radius: var(--av-radius);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.home-pane[data-home-workspace] input[type="text"]:hover,
+.home-pane[data-home-workspace] input[type="search"]:hover,
+.home-pane[data-home-workspace] input[type="number"]:hover,
+.home-pane[data-home-workspace] input:not([type]):hover,
+.home-pane[data-home-workspace] select:hover,
+.home-pane[data-home-workspace] .ai-discovery-input:hover {
+  border-color: var(--av-primary-hover);
+}
+.home-pane[data-home-workspace] input[type="text"]:focus,
+.home-pane[data-home-workspace] input[type="search"]:focus,
+.home-pane[data-home-workspace] input[type="number"]:focus,
+.home-pane[data-home-workspace] input:not([type]):focus,
+.home-pane[data-home-workspace] select:focus,
+.home-pane[data-home-workspace] .ai-discovery-input:focus {
+  border-color: var(--av-primary);
+  box-shadow: var(--av-shadow-focus);
+}
+.home-pane[data-home-workspace] input::placeholder,
+.home-pane[data-home-workspace] .ai-discovery-input::placeholder {
+  color: var(--av-text-3);
+}
+.home-pane[data-home-workspace] input:disabled,
+.home-pane[data-home-workspace] select:disabled {
+  color: var(--av-disabled-text);
+  background: var(--av-disabled-bg);
+  border-color: var(--av-disabled-border);
+  cursor: not-allowed;
+}
+.home-pane[data-home-workspace] textarea:not([data-composer-input]) {
+  padding: 6px 11px;
+  font-size: var(--av-font-size);
+  line-height: 1.5715;
+  color: var(--av-text);
+  background: var(--av-bg);
+  border: 1px solid var(--av-border);
+  border-radius: var(--av-radius);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.home-pane[data-home-workspace] textarea:not([data-composer-input]):hover { border-color: var(--av-primary-hover); }
+.home-pane[data-home-workspace] textarea:not([data-composer-input]):focus {
+  border-color: var(--av-primary);
+  box-shadow: var(--av-shadow-focus);
+}
+.home-pane[data-home-workspace] select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5l3.5 3.5 3.5-3.5' fill='none' stroke='%23000' stroke-opacity='0.45' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+:root[data-theme="dark"] .home-pane[data-home-workspace] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5l3.5 3.5 3.5-3.5' fill='none' stroke='%23fff' stroke-opacity='0.45' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+/* checkbox → antd accent */
+.home-pane[data-home-workspace] input[type="checkbox"] {
+  accent-color: var(--av-primary);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* ============ 模式 Tabs → antd Tabs ============ */
+.home-pane[data-home-workspace] .home-quick-tasks {
+  gap: 32px;
+  border-bottom: 1px solid var(--av-border-2);
+}
+.home-pane[data-home-workspace] .home-quick-tasks button {
+  min-height: 44px;
+  padding: 8px 0;
+  margin: 0;
+  font-size: var(--av-font-size);
+  color: var(--av-text-2);
+  border-bottom: 2px solid transparent;
+}
+.home-pane[data-home-workspace] .home-quick-tasks button:hover {
+  color: var(--av-primary);
+}
+.home-pane[data-home-workspace] .home-quick-tasks button[aria-selected="true"] {
+  color: var(--av-primary);
+  border-bottom-color: var(--av-primary);
+  font-weight: 500;
+}
+
+/* ============ Table → antd Table ============ */
+.home-pane[data-home-workspace] .task-board-table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.home-pane[data-home-workspace] .task-board-table th {
+  background: var(--av-bg-2);
+  color: var(--av-text-2);
+  font-weight: 500;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--av-border-2);
+  white-space: nowrap;
+}
+.home-pane[data-home-workspace] .task-board-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--av-border-2);
+  color: var(--av-text);
+}
+.home-pane[data-home-workspace] .task-board-table > tbody > tr:hover > td {
+  background: var(--av-bg-2);
+}
+
+/* ============ Card → antd Card ============ */
+.home-pane[data-home-workspace] .ai-discovery-card {
+  background: var(--av-bg);
+  border: 1px solid var(--av-border-2);
+  border-radius: 8px;
+}
+
+/* ============ 文字链 → antd Link ============ */
+.home-pane[data-home-workspace] .link-button:not(.btn) {
+  color: var(--av-primary);
+  padding: 0;
+}
+.home-pane[data-home-workspace] .link-button:not(.btn):hover {
+  color: var(--av-primary-hover);
+  text-decoration: underline;
+}
+
+/* 发布核验修正（2026-10-09）：确认区原蓝色白字仅 4.10/4.20:1，
+ * 文字链在实际表面也低于 AA。仅调整色阶，不改变确认/禁用态或业务逻辑。
+ * 证据：discovery-presentation 浅/深主题 confirmation text 回归。 */
+.home-pane[data-home-workspace] .link-button:not(.btn),
+.home-pane[data-home-workspace] .link-button:not(.btn):hover {
+  color: #0958d9;
+}
+:root[data-theme="dark"] .home-pane[data-home-workspace] .link-button:not(.btn),
+:root[data-theme="dark"] .home-pane[data-home-workspace] .link-button:not(.btn):hover {
+  color: #69b1ff;
+}
+.home-pane[data-home-workspace] .btn.work[data-discovery-start-confirm]:not(:disabled) {
+  background: #0958d9;
+  border-color: #0958d9;
+  color: #fff;
+}
+:root[data-theme="dark"] .home-pane[data-home-workspace] .btn.work[data-discovery-start-confirm]:not(:disabled) {
+  background: #1668dc;
+  border-color: #1668dc;
+  color: #fff;
+}
