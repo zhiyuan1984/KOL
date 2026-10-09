@@ -11,7 +11,7 @@ import { useAccount } from "../../components/AuthGate";
 import type { FilterOption } from "./KnowledgeFilters";
 import KnowledgeBrowseFilters from "./KnowledgeBrowseFilters";
 import { KnowledgeBrowseWorkspace } from "../../components/KnowledgeBrowse";
-// Keep the mature tree library out of unrelated admin views.
+// Keep the mature planning component out of unrelated admin views.
 const CatalogView = lazy(() => import("./CatalogView"));
 import BaseView from "./BaseView";
 import IngestView from "./IngestView";
@@ -69,6 +69,8 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   const [debouncedQuery, setDebouncedQuery] = useState<string>(restore.query || "");
   useEffect(()=>{const t=setTimeout(()=>setDebouncedQuery(query),300);return ()=>clearTimeout(t);},[query]);
   const [receipt, setReceipt] = useState("");
+  const receiptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (receiptTimer.current) clearTimeout(receiptTimer.current); }, []);
   const [actionError, setActionError] = useState("");
   const [scope, setScope] = useState<KbScope>(restore.scope || EMPTY_SCOPE);
   const [brands, setBrands] = useState<string[]>(restore.brands || []);
@@ -89,9 +91,12 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   useEffect(()=>{setExpiring(params.get("expiring")==="1");},[params]);
   const notify = useCallback((message: string) => {
     setActionError("");
+    if (receiptTimer.current) clearTimeout(receiptTimer.current);
     setReceipt(message);
-  }, []);
+    if (stage === "catalog") receiptTimer.current = setTimeout(() => setReceipt(""), 3000);
+  }, [stage]);
   const fail = useCallback((cause: unknown, fallback = "操作失败") => {
+    if (receiptTimer.current) clearTimeout(receiptTimer.current);
     setReceipt("");
     setActionError(errorMessage(cause, fallback));
   }, []);
@@ -378,7 +383,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
         <WorkspaceActionContext.Provider value={actionTarget}>
         <section className="kbv-rail kbv-browser kbw-workarea" aria-label="知识治理工作区" data-knowledge-right data-workspace-mode={mode} data-kb-active-stage={stage}>
           <KnowledgeLifecycleTabs stage={stage} onChange={changeStage} />
-          {receipt ? <p className="admin-receipt status-ok" data-admin-receipt role="status">{receipt}</p> : null}
+          {receipt ? <p className={`admin-receipt status-ok${stage === "catalog" ? " kbplanning-toast" : ""}`} data-admin-receipt role="status">{receipt}</p> : null}
           {actionError ? <p className="error" role="alert">{actionError}</p> : null}
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           {mode==="list" && <button className="kbv-text-action knowledge-governance-back" onClick={()=>switchMode("list")}>查看知识列表</button>}
@@ -389,12 +394,11 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
             onScroll={()=>{if(bodyRef.current)positions.current[`${mode}:${selectedType}:${selectedId}`]=bodyRef.current.scrollTop;}}>
           {mode==="list" ? <>
             {stage === "create" ? <section data-knowledge-creation>
-              <header className="knowledge-creation-head"><h3>知识创作</h3><div className="knowledge-creation-actions">
+              <div className="knowledge-creation-actions" role="group" aria-label="知识创作操作">
                 <button type="button" className="kbv-text-action" data-kbv-upload onClick={()=>switchMode("upload")}>上传文件</button>
                 <button type="button" className="kbv-text-action" data-kbv-new onClick={()=>switchMode("create")}>新建知识</button>
-              </div></header>
-              <p className="knowledge-panel-help">新建在线知识或上传资料，保存草稿后继续加工、审批与发布。</p>
-              <button className="kbv-text-action" onClick={()=>drillView("draft")}>查看中栏草稿</button>
+                <button type="button" className="kbv-text-action" onClick={()=>drillView("draft")}>查看草稿</button>
+              </div>
             </section> : stage === "catalog" ? catalogBaseId
               ? <BaseView id={catalogBaseId} notify={notify} fail={fail} /> : <Suspense fallback={<p className="muted" role="status">正在加载知识规划…</p>}><CatalogView notify={notify} fail={fail} /></Suspense>
             : stage === "processing" ? <IngestView embedded notify={notify} fail={fail} />

@@ -18,7 +18,7 @@ vi.mock('../src/postgres/pool.js', () => ({ postgresTransaction: async (fn: (db:
   catch (error) { await db.query('ROLLBACK'); throw error; }
   finally { db.release(); }
 } }));
-import { deleteCatalogBase, editCatalogBase } from '../src/knowledge/taxonomy-mutations.js';
+import { createCatalogBase, createCatalogDomain, deleteCatalogBase, editCatalogBase } from '../src/knowledge/taxonomy-mutations.js';
 
 const enabled = process.env.KNOWLEDGE_TAXONOMY_PG_TEST === '1' && Boolean(process.env.TEST_DATABASE_URL);
 const stamp = '2026-10-08T10:00:00.000Z';
@@ -59,7 +59,16 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
   }, 150_000);
   afterAll(async () => {
     if (state.pool) { await state.pool.end(); state.pool = null; }
-    if (created && admin && /^knowledge_taxonomy_test_[a-f0-9]{32}$/.test(disposable)) await admin.query(`DROP DATABASE "${disposable}" WITH (FORCE)`);
+    if (created && admin && /^knowledge_taxonomy_test_[a-f0-9]{32}$/.test(disposable)) {
+      // pg Pool.end() can resolve before the server observes every socket close.
+      // Wait for that acknowledgement instead of FORCE-killing closing clients.
+      const deadline = Date.now() + 5_000;
+      while ((await admin.query('SELECT 1 FROM pg_stat_activity WHERE datname=$1', [disposable])).rowCount) {
+        if (Date.now() >= deadline) throw new Error('Disposable test database still has open connections');
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      await admin.query(`DROP DATABASE "${disposable}"`);
+    }
     await admin?.end();
   }, 30_000);
   beforeEach(async () => {
@@ -69,6 +78,34 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
       VALUES('family','family','Family','family',NULL,'active',$1,$1),('domain','domain','Domain','domain','family','active',$1,$1)`, [stamp]);
     await state.pool.query(`INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,version,created_at,updated_at)
       VALUES('base','base','Base','domain','structured','active',1,$1,$1)`, [stamp]);
+  });
+  it('creates catalog nodes with generated codes, defaults, and same-transaction audit receipts', async () => {
+    const family = await createCatalogDomain({ name: 'Generated family', level: 'family', code: ' ' });
+    expect(family.domain).toMatchObject({ name: 'Generated family', level: 'family', parent_id: null, status: 'active' });
+    expect(family.domain.code).toMatch(/^family_[a-f0-9]{32}$/);
+    const domain = await createCatalogDomain({ name: 'Generated domain', level: 'domain', parent_id: family.domain.id });
+    expect(domain.domain.code).toMatch(/^domain_[a-f0-9]{32}$/);
+    const base = await createCatalogBase({ name: 'Generated base', domain_id: domain.domain.id, kind: 'unstructured', settings: { source: 'test' }, external_ref: { library: 'fixture' } });
+    expect(base.base).toMatchObject({ domain_id: domain.domain.id, kind: 'unstructured', owner_user_id: 'taxonomy-test-admin', status: 'active', version: 1, settings: { source: 'test' }, external_ref: { library: 'fixture' } });
+    expect(base.base.code).toMatch(/^base_[a-f0-9]{32}$/);
+    const audits = (await state.pool.query("SELECT event_type,payload FROM audit_events WHERE event_type IN ('knowledge.domain.create','knowledge.base.create')")).rows;
+    expect(audits).toHaveLength(3);
+    expect(audits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event_type: 'knowledge.base.create', payload: expect.stringContaining(base.base.code) }),
+      expect.objectContaining({ event_type: 'knowledge.domain.create', payload: expect.stringContaining(family.domain.code) }),
+      expect.objectContaining({ event_type: 'knowledge.domain.create', payload: expect.stringContaining(domain.domain.code) }),
+    ]));
+  });
+  it('preserves explicit code conflicts and refuses archived parents for newly created nodes', async () => {
+    await expect(createCatalogDomain({ name: 'Conflict', level: 'family', code: 'family' })).rejects.toMatchObject({ status: 409, detail: { code: 'knowledge_domain_code_conflict' } });
+    await expect(createCatalogBase({ name: 'Conflict', domain_id: 'domain', kind: 'structured', code: 'base' })).rejects.toMatchObject({ status: 409, detail: { code: 'knowledge_base_code_conflict' } });
+    await state.pool.query(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at)
+      VALUES('archived-family','archived_family','Archived family','family',NULL,'archived',$1,$1),
+        ('archived-domain','archived_domain','Archived domain','domain','family','archived',$1,$1)`, [stamp]);
+    await expect(createCatalogDomain({ name: 'Unavailable child', level: 'domain', parent_id: 'archived-family' })).rejects
+      .toMatchObject({ status: 409, detail: { code: 'knowledge_taxonomy_parent_unavailable' } });
+    await expect(createCatalogBase({ name: 'Unavailable base', domain_id: 'archived-domain', kind: 'structured' })).rejects
+      .toMatchObject({ status: 409, detail: { code: 'knowledge_taxonomy_parent_unavailable' } });
   });
   it('validates installed trigger version and commits a deletion with its audit receipt', async () => {
     expect((await state.pool.query('SELECT knowledge_taxonomy_guard_version() AS version')).rows[0].version).toBe(1);

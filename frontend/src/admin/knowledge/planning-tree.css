@@ -1,40 +1,41 @@
-/* Knowledge planning: scoped compact rows, using DESIGN's existing tokens. */
-.kbplanning { --kbplanning-row-h: var(--control-h-lg); --kbplanning-indent: var(--space-5); min-width: 0; margin: 0; padding: var(--space-3) 0; border: 0; box-shadow: none; background: transparent; color: var(--text); font-size: var(--ds-font-sm); }
-.kbplanning .kbplanning-head, .kbplanning .kbplanning-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
-.kbplanning h2, .kbplanning h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; overflow-wrap: anywhere; }
-.kbplanning-head p { margin: var(--space-1) 0 0; }
-.kbplanning-head > .btn { flex-shrink: 0; min-height: var(--control-h-sm); white-space: nowrap; }
+/* Knowledge planning: Ant Design Collapse, with DESIGN's existing compact tokens. */
+.kbplanning { --kbplanning-row-h: var(--list-row-h-compact); min-width: 0; margin: 0; padding: var(--space-2) 0; border: 0; box-shadow: none; background: transparent; color: var(--text); font-size: var(--ds-font-sm); }
+.kbplanning .kbplanning-detail-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.kbplanning h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; overflow-wrap: anywhere; }
 .kbplanning-note, .kbplanning-path { color: var(--text-quiet); font-size: var(--ds-font-xs); line-height: 1.5; margin: var(--space-2) 0; overflow-wrap: anywhere; }
-.kbplanning-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-3) 0 var(--space-1); }
-.kbplanning-toolbar input[type="search"] { flex: 1 1 auto; min-width: 0; width: 100%; max-width: var(--workspace-search-max-w); height: var(--control-h); padding: 0 var(--workspace-search-pad-x); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--text); font: inherit; }
-.kbplanning-toolbar input::placeholder { color: var(--text-quiet); }
+.kbplanning-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-1); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.kbplanning-search { box-sizing: border-box; display: flex; align-items: center; flex: 0 1 var(--workspace-search-max-w); min-width: 0; width: 100%; height: var(--control-h); gap: var(--space-2); padding: 0 var(--workspace-search-pad-x); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--text-quiet); }
+.kbplanning-search .anticon { flex: 0 0 auto; font-size: var(--icon-sm); }
+.kbplanning-search input[type="search"] { box-sizing: border-box; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
+.kbplanning-search input::placeholder { color: var(--text-quiet); }
+.kbplanning-search:focus-within { border-color: var(--focus-ring); outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .kbplanning-action { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-h-sm); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--accent-text); font: inherit; white-space: nowrap; cursor: pointer; }
 .kbplanning-action:hover:not(:disabled) { background: var(--btn-text-hover-bg); }
 .kbplanning-action:disabled { color: var(--text-quiet); opacity: .6; cursor: not-allowed; }
 .kbplanning-action.is-danger { color: var(--danger); }
-.kbplanning-action:focus-visible, .kbplanning-toolbar input:focus-visible, .kbplanning-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.kbplanning-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1); color: var(--text-quiet); font-size: var(--ds-font-xs); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
-.kbplanning .kbplanning-tree.ant-tree { background: transparent; color: var(--text); font-family: inherit; font-size: var(--ds-font-sm); padding: var(--space-1) 0; }
-.kbplanning-tree.ant-tree .ant-tree-list-holder-inner { width: 100%; }
-.kbplanning-tree.ant-tree .ant-tree-treenode { width: 100%; min-width: 0; min-height: var(--kbplanning-row-h); align-items: center; padding: 0; }
-.kbplanning-tree.ant-tree .ant-tree-indent-unit { width: var(--kbplanning-indent); }
-.kbplanning-tree.ant-tree .ant-tree-switcher { flex: 0 0 var(--control-h-sm); width: var(--control-h-sm); height: var(--kbplanning-row-h); display: inline-flex; align-items: center; justify-content: center; line-height: normal; border-radius: var(--radius-control); color: var(--text-quiet); }
-.kbplanning-tree.ant-tree .ant-tree-switcher:hover { background: var(--bg-subtle); }
-.kbplanning-arrow { font-size: var(--ds-font-xs); }
-.kbplanning-tree.ant-tree .ant-tree-node-content-wrapper { flex: 1; min-width: 0; min-height: var(--kbplanning-row-h); display: flex; align-items: center; padding: 0 var(--space-1); border-radius: var(--radius-control); color: var(--text); line-height: normal; }
-.kbplanning-tree.ant-tree .ant-tree-node-content-wrapper:hover { background: var(--bg-subtle); }
-.kbplanning-tree.ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected { background: var(--btn-text-hover-bg); box-shadow: inset 2px 0 var(--accent); }
-.kbplanning-tree.ant-tree .ant-tree-node-selected .kbplanning-node-name { font-weight: 600; }
-.kbplanning-tree.ant-tree .ant-tree-treenode-active .ant-tree-node-content-wrapper { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.kbplanning-tree.ant-tree .ant-tree-title { display: block; flex: 1; min-width: 0; }
-.kbplanning-node { display: flex; align-items: baseline; gap: var(--space-2); width: 100%; min-width: 0; }
+.kbplanning-action:focus-visible, .kbplanning-link:focus-visible, .kbplanning-node:focus-visible, .kbplanning-accordion .ant-collapse-expand-icon:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.kbplanning-summary { flex: 1 1 auto; min-width: 0; color: var(--text-quiet); font-size: var(--ds-font-xs); }
+.kbplanning-toolbar > .kbplanning-action { margin-left: auto; }
+.kbplanning-branches { min-width: 0; }
+.kbplanning .kbplanning-accordion.ant-collapse { border: 0; border-radius: 0; background: transparent; color: var(--text); font-family: inherit; font-size: var(--ds-font-sm); }
+.kbplanning-accordion.ant-collapse > .ant-collapse-item { border: 0; }
+.kbplanning-accordion.ant-collapse > .ant-collapse-item > .ant-collapse-header { display: flex; align-items: center; gap: 0; min-height: var(--kbplanning-row-h); padding: 0; border-radius: 0; cursor: default; }
+.kbplanning-accordion.ant-collapse .ant-collapse-title { min-width: 0; flex: 1; }
+.kbplanning-accordion.ant-collapse .ant-collapse-expand-icon { box-sizing: border-box; flex: 0 0 var(--control-h-sm); width: var(--control-h-sm); height: var(--kbplanning-row-h); margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-control); color: var(--text-quiet); cursor: pointer; }
+.kbplanning-accordion.ant-collapse .ant-collapse-expand-icon:hover { background: var(--bg-subtle); }
+.kbplanning-accordion.ant-collapse > .ant-collapse-item > .ant-collapse-content { background: transparent; border: 0; }
+.kbplanning-accordion.ant-collapse > .ant-collapse-item > .ant-collapse-content > .ant-collapse-body { padding: 0 0 0 var(--nav-indent-level); }
+.kbplanning-leaf { min-width: 0; padding-left: var(--control-h-sm); }
+.kbplanning-node { box-sizing: border-box; display: flex; align-items: baseline; gap: var(--space-2); width: 100%; min-width: 0; min-height: var(--kbplanning-row-h); padding: var(--space-1); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.kbplanning-node:hover { background: var(--bg-subtle); }
+.kbplanning-node[aria-pressed="true"] { background: var(--btn-text-hover-bg); box-shadow: inset 2px 0 var(--accent); }
+.kbplanning-node[aria-pressed="true"] .kbplanning-node-name { font-weight: 600; }
 .kbplanning-node-name { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kbplanning-node-level, .kbplanning-node-count, .kbplanning-node-state { flex-shrink: 0; color: var(--text-quiet); font-size: var(--ds-font-xs); white-space: nowrap; }
 .kbplanning-node-state[data-state="archived"] { font-style: italic; }
 .kbplanning-empty { padding: var(--space-3) 0; margin: 0; color: var(--text-quiet); }
 .kbplanning-detached { border-top: 1px solid var(--border); margin-top: var(--space-2); }
 .kbplanning-detail { border-top: 1px solid var(--border); padding-top: var(--space-3); margin-top: var(--space-2); }
-.kbplanning-detail-head { align-items: baseline; }
 .kbplanning-facts { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-2) 0; }
 .kbplanning-facts > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); }
 .kbplanning-facts dt { color: var(--text-quiet); flex-shrink: 0; }
@@ -43,20 +44,31 @@
 .kbplanning-link { color: var(--accent-text); padding: 0 var(--space-1); text-decoration: none; }
 .kbplanning-link:hover { text-decoration: underline; }
 .kbplanning-feedback { color: var(--danger); margin: var(--space-2) 0; overflow-wrap: anywhere; }
-.kbplanning-receipt { color: var(--text); margin: var(--space-2) 0; }
+.kbplanning-footer { display: flex; justify-content: flex-end; padding-top: var(--space-2); }
+.kbplanning .kbplanning-submit, .governance-modal:has(.kbplanning-form) .kbplanning-submit { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; height: var(--control-h-sm); min-height: var(--control-h-sm); padding: 0 var(--space-2); border-radius: var(--radius-control); font-size: var(--ds-font-sm); line-height: normal; }
+.knowledge-governance .kbplanning-toast { box-sizing: border-box; position: fixed; top: var(--space-4); right: var(--space-4); z-index: 150; max-width: min(var(--dialog-w-sm), calc(100vw - var(--space-4) * 2)); margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); box-shadow: var(--shadow-scroll); font-size: var(--ds-font-sm); overflow-wrap: anywhere; }
 .kbplanning-form fieldset { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; border: 0; padding: 0; margin: 0; }
 .kbplanning-form .field { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); margin: 0; font-size: var(--ds-font-sm); color: var(--text-quiet); }
 .kbplanning-form .field > span { display: block; color: inherit; }
 .kbplanning-form .field > span > b { color: var(--danger); font-weight: inherit; }
-.kbplanning-form input, .kbplanning-form select, .kbplanning-form textarea { box-sizing: border-box; min-width: 0; width: 100%; font: inherit; color: var(--text); background: var(--fill-control); border: 1px solid transparent; border-radius: var(--radius-control); padding: var(--space-1) var(--space-2); }
+.governance-modal .kbplanning-form input, .governance-modal .kbplanning-form select, .governance-modal .kbplanning-form textarea { box-sizing: border-box; min-width: 0; width: 100%; font: inherit; color: var(--text); background: var(--fill-control); border: 1px solid transparent; border-radius: var(--radius-control); padding: var(--space-1) var(--space-2); }
 .kbplanning-form input, .kbplanning-form select { height: var(--control-h-form); }
-.kbplanning-form textarea { resize: vertical; }
+.governance-modal .kbplanning-form textarea { min-height: calc(var(--control-h-form) * 2); resize: vertical; }
 .kbplanning-form input[readonly], .kbplanning-form select:disabled { color: var(--text-quiet); background: var(--bg-subtle); }
+.kbplanning-form input:focus-visible, .kbplanning-form select:focus-visible, .kbplanning-form textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-color: var(--focus-ring); }
 .kbplanning-confirm { font-size: var(--ds-font-sm); line-height: 1.5; overflow-wrap: anywhere; }
 .kbplanning-confirm p { margin: var(--space-3) 0; }
-@media (pointer: coarse) { .kbplanning-action, .kbplanning-link { min-height: var(--touch-hit-min); } .kbplanning-tree.ant-tree .ant-tree-treenode, .kbplanning-tree.ant-tree .ant-tree-node-content-wrapper, .kbplanning-tree.ant-tree .ant-tree-switcher { min-height: var(--touch-hit-min); } }
-@media (prefers-reduced-motion: reduce) { .kbplanning-tree * { transition: none !important; animation: none !important; } }
-
-.kbplanning-form input:focus-visible, .kbplanning-form select:focus-visible, .kbplanning-form textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-color: var(--focus-ring); }
 .governance-modal:has(.kbplanning-form), .governance-modal:has(.kbplanning-confirm) { width: min(var(--dialog-w-sm), calc(100vw - var(--space-4) * 2)); }
-.governance-modal:has(.kbplanning-form) .governance-modal-head h2, .governance-modal:has(.kbplanning-confirm) .governance-modal-head h2 { font-size: var(--ds-font-sm); }
+.governance-modal:has(.kbplanning-form) .governance-modal-head { padding: var(--dialog-pad-compact-y) var(--dialog-pad-compact-x) var(--space-2); }
+.governance-modal:has(.kbplanning-form) .governance-modal-body { padding: var(--space-2) var(--dialog-pad-compact-x) var(--space-3); }
+.governance-modal:has(.kbplanning-form) .governance-modal-foot { padding: var(--space-2) var(--dialog-pad-compact-x); }
+.governance-modal:has(.kbplanning-form) .governance-modal-head h2, .governance-modal:has(.kbplanning-confirm) .governance-modal-head h2 { font-size: var(--ds-font-sm); font-weight: 600; }
+.governance-modal:has(.kbplanning-form) .governance-minor { min-height: var(--control-h-sm); padding: 0 var(--space-1); }
+@media (max-width: 720px) { .kbplanning-search { flex-basis: 100%; max-width: none; } .kbplanning-node { flex-wrap: wrap; gap: var(--space-1); } .kbplanning-node-name { flex-basis: 50%; } .kbplanning-node-count { margin-left: auto; } }
+@media (pointer: coarse) { .kbplanning-action, .kbplanning-link, .kbplanning-node, .kbplanning .kbplanning-submit, .governance-modal:has(.kbplanning-form) .kbplanning-submit, .kbplanning-accordion.ant-collapse .ant-collapse-expand-icon { min-height: var(--touch-hit-min); } }
+@media (prefers-reduced-motion: reduce) { .kbplanning-accordion * { transition: none !important; animation: none !important; } }
+/* Override the legacy knowledge-page SVG stroke rule for Ant Design's filled icons. */
+.kbplanning .anticon svg { width: var(--icon-sm); height: var(--icon-sm); fill: currentColor; stroke: none; }
+.governance-modal .kbplanning-form :is(input, select) { height: var(--control-h-form); min-height: var(--control-h-form); flex-shrink: 0; }
+#root .workbench .knowledge-governance .kbplanning .kbplanning-submit { height: var(--control-h-sm); min-height: var(--control-h-sm); padding: 0 var(--space-2); }
+@media (pointer: coarse) { #root .workbench .knowledge-governance .kbplanning .kbplanning-submit { min-height: var(--touch-hit-min); } }

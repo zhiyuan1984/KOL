@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { HttpFail } from '../host/errors.js';
-import { deleteCatalogDomain, deleteCatalogBase, editCatalogDomain, editCatalogBase } from '../knowledge/taxonomy-mutations.js';
+import { createCatalogDomain, createCatalogBase, deleteCatalogDomain, deleteCatalogBase, editCatalogDomain, editCatalogBase } from '../knowledge/taxonomy-mutations.js';
 
 /** Mounted under /api; fixed catalog routes preserve the existing admin surface. */
 export const knowledgeTaxonomyMutations = new Hono();
@@ -11,6 +11,10 @@ async function mutationBody(c: Context): Promise<Record<string, any>> {
   }
   return value as Record<string, any>;
 }
+knowledgeTaxonomyMutations.post('/admin/knowledge/domains', async c =>
+  c.json(await createCatalogDomain(await mutationBody(c)), 201));
+knowledgeTaxonomyMutations.post('/admin/knowledge/bases', async c =>
+  c.json(await createCatalogBase(await mutationBody(c)), 201));
 knowledgeTaxonomyMutations.put('/admin/knowledge/domains/:id', async c =>
   c.json(await editCatalogDomain(c.req.param('id'), await mutationBody(c))));
 knowledgeTaxonomyMutations.put('/admin/knowledge/bases/:id', async c =>

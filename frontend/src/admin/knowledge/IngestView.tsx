@@ -8,18 +8,12 @@ import {
   KB_ADMIN_EMPTY,
   KB_DOC_ACTION,
   KB_DOC_EMPTY,
-  KB_DOC_JOB_KIND_LABEL,
-  KB_DOC_JOB_STATUS_LABEL,
   formatKbTime,
   jobStatusLabel as rawJobStatusLabel,
-  kbDocProgressText,
-  kbDocStatusLabel,
 } from "../../knowledgeCopy";
 import { Link, useLocation } from "react-router-dom";
-import PublicationPanel, { stateLabel } from "./PublicationPanel";
-import type { LegacyPublicationState } from "./LegacyPublicationPanel";
-import type { KnowledgePublicationOptions } from "../../../../shared/knowledge-publication";
-import { reviewApi } from "../../reviews/api";
+import { reviewCompany } from "../../reviews/api";
+import IngestDocumentDetails from "./IngestDocumentDetails";
 import { formatBytes, textValue, useKbData, type KbFeed, type Row } from "./shared";
 
 /** 入库：非结构化资料的 上传 → 规整 → 索引 → 待审 入口；进度与终态全部真实。 */
@@ -39,15 +33,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
       api.adminKnowledgeRaw(),
       api.adminKnowledgeJobs(),
     ]);
-    const publications = Object.fromEntries(await Promise.all(documents.documents
-      .filter(doc => ["pending_review", "published", "archived"].includes(doc.status))
-      .map(async doc => [doc.id, await (async () => {
-        const options = await reviewApi<KnowledgePublicationOptions>(`/admin/knowledge/documents/${encodeURIComponent(doc.id)}/publication-v2`);
-        if (options.legacy) return reviewApi<LegacyPublicationState>(`/admin/knowledge/documents/${encodeURIComponent(doc.id)}/publication`);
-        const publication = options.publication;
-        return { label: publication ? stateLabel[publication.status === "waiting" ? publication.reviewStatus : publication.status] || publication.reviewStatus : kbDocStatusLabel(doc.status), allowed_actions: [] as string[], instance_id: publication?.instanceId || null };
-      })().catch(() => null)] as const)));
-    return { publications, health, bases: bases.bases || [], documents: documents.documents || [], raw, jobs };
+    return { health, bases: bases.bases || [], documents: documents.documents || [], raw, jobs };
   }, [location.search]);
   const { data, error, loading, reload } = useKbData(load);
 
@@ -124,7 +110,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
     try {
       const result = await api.adminKnowledgeDocumentUpload(baseId, file, false, setUploadProgress);
       void openDetail(result.document.id, true);
-      notify("已上传，开始规整与建索引；可在资料详情检查结果并提交审批；审批通过后自动发布。");
+      notify("已上传，开始规整与建索引；可从资料详情进入加工与审批。");
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
       reload();
@@ -145,60 +131,27 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
     return hit ? textValue(hit.filename || hit.source) || id : id;
   };
 
-  const renderDetail = () => (
-
-          <section id={`kbingest-detail-${detailId}`} className="kbadmin-doc-detail" data-admin-kb-doc-detail-panel={detailId}>
-            <div className="admin-section-head">
-              <h3>资料详情</h3>
-              <button className="kbadmin-action-link" type="button" onClick={() => { ++detailRequest.current; setDetailId(""); setDetail(null); }}>
-                {KB_DOC_ACTION.collapse}
-              </button>
-            </div>
-            {detailError ? <p role="alert">{detailError} <button className="kbadmin-action-link" onClick={() => void refreshDetail(detailId)}>重试读取详情</button></p> : !detail ? (
-              <p className="muted" role="status">正在加载详情…</p>
-            ) : (
-              <>
-                <p className="muted">
-                  {[detail.base?.family_name, detail.base?.domain_name, detail.base?.name].filter(Boolean).join(" / ") || "未归类"}
-                  {detail.document.error ? ` · ${detail.document.error}` : ""}
-                </p>
-                <p>原文：{detail.document.filename} · {formatBytes(detail.document.size_bytes)}</p>
-                {documents.filter(other => other.id !== detailId && other.base_id === detail.document.base_id && other.filename === detail.document.filename).map(other => <p key={other.id}>同名资料：<button className="kbadmin-action-link" onClick={() => void openDetail(other.id, true)}>{other.title} · {formatKbTime(other.updated_at)} · {kbDocStatusLabel(other.status)}</button>（独立记录，未确认版本关系）</p>)}
-                <p className="kbadmin-row-actions">
-                  <a
-                    className="kbadmin-action-link"
-                    data-admin-kb-doc-open={detail.document.id}
-                    href={`/api/admin/knowledge/documents/${encodeURIComponent(detail.document.id)}/file`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {KB_DOC_ACTION.openSource}
-                  </a>
-                </p>
-                <h4 className="kb-subhead">关联作业与加工结果</h4>
-                {!detail.jobs.length ? <p className="muted">{KB_DOC_EMPTY.jobs}</p> : null}
-                <ul className="kbadmin-doc-jobs">
-                  {detail.jobs.map((job) => (
-                    <li key={job.id} data-admin-kb-job={job.id}>
-                      {KB_DOC_JOB_KIND_LABEL[job.kind] || job.kind} · {KB_DOC_JOB_STATUS_LABEL[job.status] || job.status}
-                      {job.progress_total > 0 ? ` · ${job.progress_done}/${job.progress_total}` : ""}
-                      {" · 第 "}{job.attempt}{" 次 · "}{formatKbTime(job.finished_at || job.started_at || job.created_at) || "—"}
-                      {job.error ? <span className="error"> · {job.error}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-                <h4 className="kb-subhead">加工结果{detail.document.status === "published" ? "（已发布版本）" : "（待审稿）"}</h4>
-                {detail.text_preview ? (
-                  <pre className="kbadmin-body" data-admin-kb-doc-preview>{detail.text_preview.text}</pre>
-                ) : (
-                  <p className="muted">{KB_DOC_EMPTY.preview}</p>
-                )}
-                {["pending_review", "published", "archived"].includes(detail.document.status) && <PublicationPanel mode="review" id={detail.document.id} ownsPrimary={false} notify={notify} refreshDocument={() => { reload(); void refreshDetail(detailId); }} />}
-              </>
-            )}
-          </section>
-
-  );
+  const renderDetail = () => {
+    const doc = detail?.document;
+    return <section id={`kbingest-detail-${detailId}`} className="kbadmin-doc-detail kbingest-file-detail" data-admin-kb-doc-detail-panel={detailId}>
+      <div className="kbingest-detail-head">
+        <h3>资料详情</h3>
+        <button className="kbadmin-action-link" type="button" onClick={() => void openDetail(detailId)}>{KB_DOC_ACTION.collapse}</button>
+      </div>
+      {detailError ? <p role="alert">{detailError} <button className="kbadmin-action-link" onClick={() => void refreshDetail(detailId)}>重试读取详情</button></p>
+        : !detail || !doc ? <p className="muted" role="status">正在加载详情…</p>
+        : <IngestDocumentDetails detail={detail} documents={documents} company={reviewCompany()} onOpen={id => void openDetail(id, true)} actions={
+          <details className="kbingest-more"><summary>更多操作</summary><div>
+            {detail.actions?.start && <button className="kbadmin-action-link" type="button" onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "start"), "已开始解析；完成后待审核。")}>开始解析</button>}
+            {detail.actions?.retry && <button className="kbadmin-action-link" type="button" data-admin-kb-doc-retry={doc.id} onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "retry"), "已重新排队；从失败阶段继续。")}>{KB_DOC_ACTION.retry}</button>}
+            {detail.actions?.cancel && <button className="kbadmin-action-link" type="button" data-admin-kb-doc-cancel={doc.id} onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "cancel"), "已取消；可重试。")}>{KB_DOC_ACTION.cancel}</button>}
+            <button className="kbadmin-action-link" type="button" onClick={() => void refreshDetail(doc.id)}>刷新资料</button>
+            {doc.status === "published" && <button className="kbadmin-action-link" type="button" data-admin-kb-doc-archive={doc.id} onClick={() => ask(knowledgeDocumentArchiveConfirm(doc.title), () => run(() => api.adminKnowledgeDocumentAction(doc.id, "archive"), "已归档：不再参与检索。"))}>{KB_DOC_ACTION.archive}</button>}
+            {["draft", "uploaded", "pending_review", "failed", "cancelled"].includes(doc.status) && <button className="kbadmin-action-link kbadmin-action-danger" type="button" data-admin-kb-doc-delete={doc.id} onClick={() => ask(knowledgeDocumentDeleteConfirm(doc.title), () => run(() => api.adminKnowledgeDocumentDelete(doc.id), "资料已删除（原文件与索引已清理）。"))}>{KB_DOC_ACTION.remove}</button>}
+          </div></details>
+        } />}
+    </section>;
+  };
 
   return (
     <>
@@ -206,15 +159,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
       {error && <p className="error" role="alert">{error} <button className="kbadmin-action-link" onClick={reload}>重新加载</button></p>}
       {loading && !data && <p className="muted" role="status">正在加载入库数据…</p>}
 
-      <header className="kbingest-head">
-        <div className="kbingest-breadcrumb">{!embedded && <Link to="/admin/knowledge" data-admin-kb-home-link>← 返回知识管理</Link>}<h2>{embedded ? "知识加工" : "资料入库"}</h2></div>
-        <details className="kbingest-health">
-          <summary data-admin-kb-engine-health>PageIndex · {health ? health.ok ? "可用" : health.code === "knowledge_index_unavailable" ? "状态未获取" : "异常" : "正在检查"}</summary>
-          <p>{health?.message || (health?.ok ? "健康检查通过" : "暂未获取健康检查结果")}</p>
-          <p>运行模式：{health?.mode || "未获取"} · 引擎版本：{health?.pageindex || "未获取"}</p>
-          <button className="kbadmin-action-link" type="button" onClick={reload}>重新检查</button>
-        </details>
-      </header>
+      {!embedded && <header className="kbingest-head"><Link to="/admin/knowledge" data-admin-kb-home-link>← 返回知识管理</Link><h2>资料入库</h2></header>}
       {!embedded && <article className="kbingest-upload" data-admin-kb-doc-upload>
         <div className="kbadmin-toolbar">
           <label className="field">知识库
@@ -280,101 +225,32 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
             <table className="admin-table" data-admin-kb-documents-table>
               <thead>
                 <tr>
-                  <th>名称 / 文件信息</th>
-                  <th>知识库</th>
-                  <th>状态 / 进度</th>
-                  <th>更新时间</th>
-                  <th>操作</th>
+                  <th scope="col">文件名</th>
+                  <th scope="col">资料详情</th>
                 </tr>
               </thead>
               <tbody>
-                {uploading && file && <tr data-admin-kb-upload-progress><td>{file.name}<p className="muted">PDF · {formatBytes(file.size)}</p></td><td>{bases.find(base => base.id === baseId)?.name}</td><td colSpan={3} role="status">{uploadProgress === 100 ? "正在保存原文与创建作业记录" : `上传中 · ${uploadProgress === null ? "传输进度未获取" : `${uploadProgress}%`}`}</td></tr>}
+                {uploading && file && <tr data-admin-kb-upload-progress><td title={file.name}>{file.name}</td><td role="status">{uploadProgress === 100 ? "正在保存原文与创建作业记录" : `上传中 · ${uploadProgress === null ? "传输进度未获取" : `${uploadProgress}%`}`}</td></tr>}
                 {documents.map((doc) => {
-                  const progress = kbDocProgressText(doc);
                   const status = String(doc.status || "");
-                  const busy = ["uploaded", "normalizing", "indexing"].includes(status);
-                  const removable = ["draft", "uploaded", "pending_review", "failed", "cancelled"].includes(status);
-                  const publication = data?.publications[doc.id];
-                  const chipClass = status === "published" ? "chip kbingest-status-success" : status === "failed" ? "chip kbingest-status-error" : busy ? "chip kbingest-status-busy" : "chip";
                   return (
                     <Fragment key={doc.id}><tr className={detailId === doc.id ? "is-selected" : ""} data-admin-kb-doc={doc.id} data-admin-kb-doc-status={status}>
                       <td>
                         <button
                           className="kbadmin-title-link"
                           type="button"
-                          title={doc.title}
+                          title={doc.filename || doc.title}
                           data-admin-kb-doc-detail={doc.id}
                           aria-expanded={detailId === doc.id}
                           aria-controls={`kbingest-detail-${doc.id}`}
                           onClick={() => void openDetail(doc.id)}
                         >
-                          {detailId === doc.id ? "▾ " : "▸ "}{doc.title}
+                          <span aria-hidden="true">{detailId === doc.id ? "▾" : "▸"}</span><span className="kbingest-filename">{doc.filename || doc.title}</span>
                         </button>
-                        <p
-                          className="muted kbadmin-doc-meta"
-                          title={`${doc.filename} · PDF · ${formatBytes(Number(doc.size_bytes || 0))}`}
-                        >
-                          {doc.filename.replace(/\.pdf$/i, "") === doc.title ? "PDF" : `${doc.filename} · PDF`} · {formatBytes(Number(doc.size_bytes || 0))}
-                          {documents.some(other => other.id !== doc.id && other.base_id === doc.base_id && other.filename === doc.filename) ? " · 同名资料，详情可核对" : ""}
-                        </p>
-                        {doc.error ? <p className="error" data-admin-kb-doc-error>{doc.error}</p> : null}
                       </td>
-                      <td>{doc.base_name || doc.base_id || emptyCell}</td>
-                      <td>
-                        <span className={chipClass} data-admin-kb-doc-status-chip={status}>{publication?.label || kbDocStatusLabel(status)}</span>
-                        {["pending_review", "published", "archived"].includes(status) && !publication && <p className="muted">审批状态未获取，展开详情可重试</p>}
-                        {progress ? <p className="muted kbadmin-doc-meta" title={progress} data-admin-kb-doc-progress>{progress}</p> : null}
-                      </td>
-                      <td><time title={formatKbTime(doc.updated_at)}>{formatKbTime(doc.updated_at)?.replace(/^\d{4}\//, "") || emptyCell}</time></td>
-                      <td>
-                        <div className="kbadmin-row-actions">
-                          {status === "draft" && <button className="kbadmin-action-link" type="button" onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "start"), "已开始解析；完成后待审核。")}>开始解析</button>}
-                          {["failed", "cancelled"].includes(status) ? (
-                            <button
-                              className="kbadmin-action-link"
-                              type="button"
-                              data-admin-kb-doc-retry={doc.id}
-                              onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "retry"), "已重新排队；从失败阶段继续。")}
-                            >
-                              {KB_DOC_ACTION.retry}
-                            </button>
-                          ) : null}
-                          {busy ? <button className="kbadmin-action-link" type="button" onClick={() => void openDetail(doc.id, true)}>查看进度</button> : null}
-                          {publication?.allowed_actions.includes("submit") ? <button className="kbadmin-action-link" data-admin-kb-doc-review={doc.id} type="button" onClick={() => void openDetail(doc.id, true)}>提交审批</button> : !busy && !["draft", "failed", "cancelled"].includes(status) ? <button className="kbadmin-action-link" type="button" onClick={() => void openDetail(doc.id, true)}>{publication?.instance_id ? "查看审批进度" : status === "pending_review" ? "查看结果与审批" : "查看"}</button> : null}
-                          <details className="kbingest-more"><summary>更多</summary><div>
-                          {busy ? <button className="kbadmin-action-link" type="button" data-admin-kb-doc-cancel={doc.id} onClick={() => void run(() => api.adminKnowledgeDocumentAction(doc.id, "cancel"), "已取消；可重试。")}>{KB_DOC_ACTION.cancel}</button> : null}
-                          <button className="kbadmin-action-link" type="button" onClick={() => void openDetail(doc.id, true)}>查看结果与原因</button>
-                          {status === "published" ? (
-                            <button
-                              className="kbadmin-action-link"
-                              type="button"
-                              data-admin-kb-doc-archive={doc.id}
-                              onClick={() => ask(
-                                knowledgeDocumentArchiveConfirm(doc.title),
-                                () => run(() => api.adminKnowledgeDocumentAction(doc.id, "archive"), "已归档：不再参与检索。"),
-                              )}
-                            >
-                              {KB_DOC_ACTION.archive}
-                            </button>
-                          ) : null}
-                          {removable && !["published", "archived"].includes(status) ? (
-                            <button
-                              className="kbadmin-action-link"
-                              type="button"
-                              data-admin-kb-doc-delete={doc.id}
-                              onClick={() => ask(
-                                knowledgeDocumentDeleteConfirm(doc.title),
-                                () => run(() => api.adminKnowledgeDocumentDelete(doc.id), "资料已删除（原文件与索引已清理）。"),
-                              )}
-                            >
-                              {KB_DOC_ACTION.remove}
-                            </button>
-                          ) : null}
-                          </div></details>
-                        </div>
-                      </td>
+                      <td><button className="kbadmin-action-link" type="button" data-admin-kb-doc-details-link={doc.id} aria-expanded={detailId === doc.id} aria-controls={`kbingest-detail-${doc.id}`} onClick={() => void openDetail(doc.id, true)}>资料详情</button></td>
                     </tr>
-                    {detailId === doc.id ? <tr className="kbingest-detail-row"><td colSpan={5}>{renderDetail()}</td></tr> : null}
+                    {detailId === doc.id ? <tr className="kbingest-detail-row"><td colSpan={2}>{renderDetail()}</td></tr> : null}
                     </Fragment>
                   );
                 })}

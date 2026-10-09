@@ -699,3 +699,75 @@
 
 /* 空单元格占位：渲染 — 而不是留白格造成「缺数据」误读（§9.1）。 */
 .kb-cell-empty { color: var(--text-quiet); }
+
+/* 文件列表与资料详情：两列高密度展示，沿用 DESIGN.md 的既有 token。
+   仅覆盖资料表；原文库、提取作业和独立资料工作区不受影响。 */
+.kbingest-worktable .admin-table[data-admin-kb-documents-table] {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+[data-admin-kb-documents-table] thead { display: table-header-group; }
+[data-admin-kb-documents-table] tbody { display: table-row-group; }
+[data-admin-kb-documents-table] tr { display: table-row; }
+[data-admin-kb-documents-table] td { display: table-cell; }
+.kbingest-worktable [data-admin-kb-documents-table] th:first-child { width: auto; }
+.kbingest-worktable [data-admin-kb-documents-table] th:last-child { width: 20%; text-align: right; }
+.kbingest-worktable [data-admin-kb-documents-table] td {
+  height: var(--table-row-h-compact);
+  padding: var(--space-1) var(--space-2);
+  vertical-align: middle;
+}
+.kbingest-worktable [data-admin-kb-documents-table] td:last-child:not([colspan]) { text-align: right; white-space: nowrap; }
+.kbingest-worktable [data-admin-kb-documents-table] .kbadmin-title-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-h-sm);
+  font-weight: 500;
+  text-decoration: none;
+}
+.kbingest-worktable [data-admin-kb-documents-table] .kbadmin-title-link:hover { color: var(--accent-text); }
+.kbingest-filename { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+.kbingest-worktable [data-admin-kb-documents-table] tr.is-selected > td:not([colspan]) { background: var(--bg-subtle); }
+.kbingest-worktable [data-admin-kb-documents-table] .kbingest-detail-row > td {
+  height: auto;
+  padding: var(--space-3) var(--space-4);
+  white-space: normal;
+  text-align: left;
+  background: var(--bg-subtle);
+  overflow: visible;
+}
+.kbingest-file-detail { min-width: 0; color: var(--text); font-size: var(--ds-font-sm); }
+.kbingest-detail-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.kbingest-detail-head h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; }
+.kbingest-properties { font-family: inherit; font-size: var(--ds-font-sm); color: var(--text); }
+.kbingest-file-detail .kbingest-properties .ant-descriptions-view table { width: 100%; table-layout: fixed; }
+.kbingest-file-detail .kbingest-properties .ant-descriptions-row > td { height: auto; padding: var(--space-1) 0; border: 0; background: none; text-align: left; white-space: normal; }
+.kbingest-properties .ant-descriptions-item-container { display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; }
+.kbingest-properties .ant-descriptions-item-label { flex: 0 0 7em; color: var(--text-quiet); font-size: var(--ds-font-xs); font-family: inherit; }
+.kbingest-properties .ant-descriptions-item-content { min-width: 0; color: var(--text); font-size: var(--ds-font-sm); font-family: inherit; overflow-wrap: anywhere; }
+.kbingest-full-name { overflow-wrap: anywhere; }
+.kbingest-related { margin-top: var(--space-2); border-top: 1px solid var(--border); padding-top: var(--space-2); }
+.kbingest-related-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-1) var(--space-2); font-size: var(--ds-font-xs); color: var(--text-quiet); }
+.kbingest-related-list { list-style: none; margin: var(--space-1) 0 0; padding: 0; display: grid; }
+.kbingest-related-list li { display: flex; flex-direction: column; align-items: stretch; min-width: 0; padding: var(--space-1) 0; }
+.kbingest-related-list .kbingest-related-name { display: block; min-width: 0; max-width: 100%; padding-inline: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kbingest-related-meta { color: var(--text-quiet); font-size: var(--ds-font-xs); overflow-wrap: anywhere; }
+.kbingest-detail-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-2); padding-top: var(--space-2); margin-top: var(--space-2); border-top: 1px solid var(--border); }
+.kbingest-detail-footer .kbadmin-row-actions { gap: var(--space-2); }
+.kbingest-detail-footer .kbadmin-row-actions > .kbadmin-action-link:first-child { padding-left: 0; }
+.kbingest-detail-footer a:hover { text-decoration: underline; }
+.kbingest-detail-error { margin: var(--space-2) 0 0; overflow-wrap: anywhere; }
+.kbingest-detail-footer .kbingest-more > summary { min-height: var(--control-h-sm); display: flex; align-items: center; }
+.kbingest-detail-footer .kbingest-more > div { max-width: min(var(--dialog-w-sm), 100vw); }
+@container (min-width: 720px) {
+  .kbingest-related-list li { flex-direction: row; align-items: center; gap: var(--space-3); }
+  .kbingest-related-name { flex: 1; }
+  .kbingest-related-meta { flex: 0 0 auto; }
+}
+@media (pointer: coarse) {
+  [data-admin-kb-documents-table] button, .kbingest-detail-footer .kbingest-more > summary { min-height: var(--touch-hit-min); }
+}
