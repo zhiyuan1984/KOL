@@ -1,0 +1,34 @@
+/* Content-driven task expansion; canonical tokens from DESIGN §4/§5/§9. */
+.tasks-page .task-center-unified-table > tbody > tr.task-center-meta-row > td {
+  height: auto;
+  padding: var(--space-1) var(--space-2);
+  white-space: normal;
+  background: var(--bg-subtle);
+}
+.tasks-page .task-expanded-details { display: flex; flex-direction: column; gap: 0; min-width: 0; font-size: var(--ds-font-xs); line-height: var(--lh-control); }
+.tasks-page .task-expanded-summary { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.tasks-page .task-expanded-label,
+.tasks-page .task-expanded-facts dt { flex: 0 0 auto; color: var(--text-quiet); font-weight: 400; }
+.tasks-page .task-expanded-summary-text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--ds-font-sm); }
+.tasks-page .task-expanded-summary[data-summary-open="true"] .task-expanded-summary-text { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.tasks-page .task-expanded-full-text { flex: 0 0 auto; min-height: 0; padding: 0 var(--space-1); border: 0; background: transparent; color: var(--accent-text); font: inherit; line-height: var(--lh-control); cursor: pointer; border-radius: var(--radius-control); }
+.tasks-page .task-expanded-full-text:hover { background: var(--btn-text-hover-bg); }
+.tasks-page .task-expanded-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-4); margin: 0; padding: 0; min-width: 0; }
+.tasks-page .task-expanded-facts > div { display: inline-flex; align-items: baseline; min-width: 0; gap: var(--space-1); }
+.tasks-page .task-expanded-facts :is(dt, dd) { margin: 0; padding: 0; line-height: var(--lh-control); }
+.tasks-page .task-expanded-facts dd { color: var(--text); overflow-wrap: anywhere; }
+.tasks-page .task-expanded-empty { color: var(--text-quiet); }
+.tasks-page .task-expanded-orders-wrap { min-width: 0; overflow-x: auto; margin-top: var(--space-1); }
+.tasks-page .task-expanded-orders { width: 100%; min-width: var(--dialog-w-lg); table-layout: fixed; border-collapse: collapse; font-size: var(--ds-font-xs); }
+.tasks-page .task-expanded-order-status-col { width: calc(var(--control-h-sm) * 3 + var(--space-4)); }
+.tasks-page .task-expanded-order-owner-col { width: calc(var(--control-h-lg) * 4); }
+.tasks-page .task-expanded-order-decision-col { width: 30%; }
+.tasks-page .task-expanded-orders :is(th, td) { box-sizing: border-box; height: var(--table-row-h-compact); padding: 0 var(--space-2); border: 0; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: left; font-size: var(--ds-font-xs); line-height: var(--lh-control); white-space: nowrap; background: transparent; }
+.tasks-page .task-expanded-orders th { position: static; color: var(--text-quiet); font-weight: 500; }
+.tasks-page .task-expanded-orders tbody tr:last-child > td { border-bottom: 0; }
+.tasks-page .task-expanded-orders td > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tasks-page .task-expanded-orders .task-expanded-order-title { font-size: var(--ds-font-sm); color: var(--text); font-weight: 500; }
+.tasks-page .task-expanded-orders tbody tr:hover > td { background: var(--btn-text-hover-bg); }
+@media (pointer: coarse) {
+  .tasks-page .task-expanded-full-text { min-height: var(--touch-hit-min); }
+}
