@@ -427,6 +427,10 @@ test("智能体默认折叠、按员工独立展开且键盘可收起，不触�
   const many = page.locator('[data-employee-row="compact_many"]');
   const other = page.locator('[data-employee-row="compact_other"]');
   const toggle = many.locator(".employee-agent-toggle");
+  await expect(toggle).toHaveText("更多");
+  await expect(toggle).toHaveAccessibleName("更多");
+  await expect(toggle).toHaveAttribute("title", /展开其余 \d+ 个智能体/);
+  await expect(many.locator("[data-agent-toggle-measure]")).toHaveText("更多");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(many.locator(".employee-agent")).not.toContainText("知识问答");
   await expect(page.locator('[data-employee-row="compact_single"] .employee-agent-toggle')).toHaveCount(0);
@@ -443,6 +447,7 @@ test("智能体默认折叠、按员工独立展开且键盘可收起，不触�
   await expect(other.locator(".employee-agent-toggle")).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Space");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveText("更多");
   await page.locator("[data-employee-search]").fill("多智能体");
   await expect(page.locator("[data-employee-row]")).toHaveCount(1);
   await page.locator("[data-employee-search]").fill("没有这个员工");
@@ -462,14 +467,26 @@ for (const theme of ["light", "dark"]) {
       const ordinary = directory.locator('[data-employee-row="compact_single"] .employee-card');
       const geometry = await ordinary.evaluate((el) => {
         const avatar = el.querySelector(".employee-avatar")!;
+        const primary = el.querySelector(".employee-row-primary")!.getBoundingClientRect();
+        const secondary = el.querySelector(".employee-row-secondary")!.getBoundingClientRect();
         return { height: el.getBoundingClientRect().height, avatarWidth: avatar.getBoundingClientRect().width,
           avatarHeight: avatar.getBoundingClientRect().height, radius: getComputedStyle(avatar).borderRadius,
+          primaryHeight: primary.height, rowGap: secondary.top - primary.bottom,
+          paddingTop: getComputedStyle(el).paddingTop,
+          secondaryBorder: getComputedStyle(el.querySelector(".employee-row-secondary")!).borderTopWidth,
           cardOverflow: el.scrollWidth > el.clientWidth + 1 };
       });
       expect(geometry.avatarWidth).toBe(32);
       expect(geometry.avatarHeight).toBe(32);
       expect(geometry.radius).toBe("6px");
       expect(geometry.cardOverflow).toBe(false);
+      expect(geometry.secondaryBorder).toBe("0px");
+      expect(geometry.paddingTop).toBe("4px");
+      expect(geometry.rowGap).toBe(0);
+      if (viewport.width >= 1440) {
+        expect(geometry.height).toBeLessThanOrEqual(54);
+        expect(geometry.primaryHeight).toBe(20);
+      }
       if (viewport.width >= 1280) expect(geometry.height).toBeLessThan(92);
       for (const row of await directory.locator("[data-employee-row]").all()) {
         await expect(row.locator(".employee-actions button")).toHaveCount(3);
@@ -486,6 +503,8 @@ for (const theme of ["light", "dark"]) {
       const long = directory.locator('[data-employee-row="compact_long"]');
       const toggle = long.locator(".employee-agent-toggle");
       await expect(toggle).toBeVisible();
+      await expect(toggle).toHaveText("更多");
+      await expect(toggle).toHaveAttribute("title", "查看完整智能体名称");
       await toggle.click();
       await expect(long.locator(".employee-agent")).toHaveText("这是一个非常长的智能体名称".repeat(12));
       expect(await long.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
@@ -528,4 +547,155 @@ test("智能体加载失败保留错误，不把失败误报为未绑定", async
   release?.();
   await expect(page.locator(".governance-main [role='alert']")).toContainText("智能体目录暂不可用");
   await expect(summary).not.toHaveText("未绑定 Agent");
+});
+
+// CTA 与筛选密度：只在隔离接口下验证，不创建真实员工。
+for (const theme of ["light", "dark"]) {
+  test(`员工CTA与筛选紧凑布局：单一入口、上下留白、弹窗与短屏（${theme}）`, async ({ page }, info) => {
+    const state = await compactDirectoryFixture(page, theme);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 520 }, { width: 1100, height: 700 }, { width: 768, height: 900 }, { width: 390, height: 844 }, { width: 375, height: 520 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      const directory = page.locator("[data-admin-employees]");
+      const create = directory.locator("[data-employee-create]");
+      await expect(create).toHaveCount(1);
+      await expect(create).toHaveAccessibleName("新增员工");
+      await expect(directory.locator(".employee-create-inline")).toHaveCount(viewport.width <= 1100 ? 1 : 0);
+      await expect(directory.locator(".employee-create-footer")).toHaveCount(viewport.width > 1100 ? 1 : 0);
+      const sizes = await create.evaluate((el) => {
+        const visual = el.querySelector(".employee-create-visual")!;
+        const style = getComputedStyle(visual);
+        return { height: el.getBoundingClientRect().height, visualHeight: visual.getBoundingClientRect().height,
+          width: el.getBoundingClientRect().width, parentWidth: el.parentElement!.clientWidth,
+          font: getComputedStyle(el).fontSize, radius: style.borderRadius, color: style.color, background: style.backgroundColor };
+      });
+      expect(sizes.height).toBe(24);
+      expect(sizes.visualHeight).toBe(24);
+      expect(sizes.font).toBe("13px");
+      expect(sizes.radius).toBe("6px");
+      expect(sizes.width).toBeLessThan(sizes.parentWidth / 2);
+      expect(sizes.background).not.toBe("rgba(0, 0, 0, 0)");
+      expect(sizes.color).not.toBe(sizes.background);
+      for (const group of await directory.locator(".governance-filter-group").all()) {
+        const density = await group.evaluate((el) => ({ height: el.getBoundingClientRect().height,
+          top: getComputedStyle(el).paddingTop, bottom: getComputedStyle(el).paddingBottom,
+          buttons: [...el.querySelectorAll("button")].map((button) => button.getBoundingClientRect().height),
+          centers: [el.querySelector("strong")!, el.querySelector("button")!].map((field) => { const box = field.getBoundingClientRect(); return box.top + box.height / 2; }) }));
+        expect(density.top).toBe("4px");
+        expect(density.bottom).toBe("4px");
+        expect(density.height).toBe(33);
+        expect(density.buttons.every((height) => height === 24)).toBe(true);
+        expect(Math.abs(density.centers[0] - density.centers[1])).toBeLessThanOrEqual(1);
+      }
+      if (viewport.width <= 1100) {
+        const position = await create.evaluate((el) => {
+          const root = el.closest("[data-admin-employees]")!;
+          const filters = root.querySelectorAll(".governance-filter-group");
+          const lastFilter = filters[filters.length - 1];
+          const organization = root.querySelector(".employee-organization-filter")!;
+          const wrapper = el.parentElement!;
+          const scroll = wrapper.closest(".governance-scroll")!;
+          const box = el.getBoundingClientRect();
+          return { gapTop: box.top - lastFilter.getBoundingClientRect().bottom,
+            gapBottom: organization.getBoundingClientRect().top - box.bottom,
+            position: getComputedStyle(wrapper).position, inScroll: scroll.contains(el),
+            filterBefore: Boolean(lastFilter.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING),
+            orgAfter: Boolean(el.compareDocumentPosition(organization) & Node.DOCUMENT_POSITION_FOLLOWING) };
+        });
+        expect(position.gapTop).toBe(12);
+        expect(position.gapBottom).toBe(12);
+        expect(position.position).toBe("static");
+        expect(position.inScroll).toBe(true);
+        expect(position.filterBefore).toBe(true);
+        expect(position.orgAfter).toBe(true);
+        // 真实Tab顺序：最后一个状态选项→CTA→组织选择。
+        await directory.locator(".governance-filter-group").last().getByRole("button", { name: "停用", exact: true }).focus();
+        await page.keyboard.press("Tab");
+        await expect(create).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(directory.locator('[data-employee-department="1"]')).toBeFocused();
+        await directory.locator(".governance-rail .governance-scroll").evaluate((el) => { el.scrollTop = 0; });
+      }
+      await create.focus();
+      await page.keyboard.press("Enter");
+      const dialog = page.getByRole("dialog", { name: "新增员工", exact: true });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.locator("[data-employee-edit-save]")).toHaveText("创建员工");
+      await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+      await expect(create).toBeFocused();
+      expect(await directory.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+      await directory.locator(".governance-rail .governance-scroll").evaluate((el) => { el.scrollTop = 0; });
+      await page.screenshot({ path: info.outputPath(`cta-${theme}-${viewport.width}x${viewport.height}.png`) });
+    }
+    expect(state.writes).toEqual([]);
+    expect(state.errors).toEqual([]);
+  });
+}
+
+test("窄栏多品牌可换行，CTA不覆盖选项且筛选状态保留", async ({ page }) => {
+  const state = await compactDirectoryFixture(page);
+  const brands = ["LT", "PQ", "长品牌名称一", "长品牌名称二", "长品牌名称三", "长品牌名称四"];
+  await page.route("**/api/admin/users", (route) => route.fulfill({ json: [{ ...employee, brands }] }));
+  await page.reload();
+  await page.setViewportSize({ width: 375, height: 844 });
+  const directory = page.locator("[data-admin-employees]");
+  const group = directory.locator(".governance-filter-group").first();
+  await expect(group.locator("button")).toHaveCount(7);
+  const layout = await group.evaluate((el) => {
+    const options = el.querySelector(".governance-filter-options")!.getBoundingClientRect();
+    const bounds = el.getBoundingClientRect();
+    const buttons = [...el.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
+    return { wrapped: options.height > 24,
+      inside: buttons.every((box) => box.left >= bounds.left && box.right <= bounds.right + 1),
+      overflow: el.scrollWidth > el.clientWidth + 1 };
+  });
+  expect(layout.wrapped).toBe(true);
+  expect(layout.inside).toBe(true);
+  expect(layout.overflow).toBe(false);
+  await group.getByRole("button", { name: "长品牌名称一", exact: true }).click();
+  await expect(group.getByRole("button", { name: "长品牌名称一", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(directory.locator("[data-employee-create]")).toHaveCount(1);
+  await expect(group.getByRole("button", { name: "长品牌名称一", exact: true })).toHaveAttribute("aria-pressed", "true");
+  expect(state.writes).toEqual([]);
+  expect(state.errors).toEqual([]);
+});
+
+test.describe("触摸新增员工CTA", () => {
+  test.use({ hasTouch: true });
+  test("44px命中区、24px视觉按钮、上下12px留白且不覆盖组织", async ({ page }, info) => {
+    const state = await compactDirectoryFixture(page);
+    for (const viewport of [{ width: 390, height: 844 }, { width: 375, height: 520 }]) {
+      await page.setViewportSize(viewport);
+      const directory = page.locator("[data-admin-employees]");
+      const create = directory.locator("[data-employee-create]");
+      await expect(create).toHaveCount(1);
+      const geometry = await create.evaluate((el) => {
+        const root = el.closest("[data-admin-employees]")!;
+        const filter = root.querySelectorAll(".governance-filter-group")[1].getBoundingClientRect();
+        const org = root.querySelector(".employee-organization-filter")!.getBoundingClientRect();
+        const box = el.getBoundingClientRect();
+        const visual = el.querySelector(".employee-create-visual")!.getBoundingClientRect();
+        return { hit: box.height, visual: visual.height, top: box.top - filter.bottom, bottom: org.top - box.bottom };
+      });
+      expect(geometry.hit).toBeGreaterThanOrEqual(44);
+      expect(geometry.visual).toBe(24);
+      expect(geometry.top).toBe(12);
+      expect(geometry.bottom).toBe(12);
+      const filterHeights = await directory.locator(".governance-filter-options button").evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height));
+      expect(filterHeights.every((height) => height >= 44)).toBe(true);
+      await create.tap();
+      const dialog = page.getByRole("dialog", { name: "新增员工", exact: true });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "关闭", exact: true }).tap();
+      await expect(dialog).toHaveCount(0);
+      expect(await directory.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      await directory.locator(".governance-rail .governance-scroll").evaluate((el) => { el.scrollTop = 0; });
+      await page.screenshot({ path: info.outputPath(`cta-touch-${viewport.width}x${viewport.height}.png`) });
+    }
+    expect(state.writes).toEqual([]);
+    expect(state.errors).toEqual([]);
+  });
 });
