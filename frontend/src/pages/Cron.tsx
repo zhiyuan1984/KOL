@@ -484,7 +484,7 @@ function CronWorkbench() {
     { title: "最近结果", key: "result", width: "19%", render: (_, job) => resultCell(job) },
     { title: "操作", key: "actions", width: "15%", render: (_, job) => rowActions(job) },
   ];
-  const empty = <div className="cron-empty-state" data-cron-state="empty"><p>{jobs.length ? "没有符合条件的任务。" : "还没有定时任务。"}</p>{jobs.length > 0 && <Button type="text" onClick={() => setListParams({ q: null, status: null, attention: null, page: null })}>清除筛选</Button>}</div>;
+  const empty = loadState === "loading" ? <div className="cron-empty-state" role="status">正在读取任务列表…</div> : <div className="cron-empty-state" data-cron-state="empty"><p>{jobs.length ? "没有符合条件的任务。" : "还没有定时任务。"}</p>{jobs.length > 0 && <Button type="text" onClick={() => setListParams({ q: null, status: null, attention: null, page: null })}>清除筛选</Button>}</div>;
   const list = <div className="cron-list-body" ref={listRef} data-cron-state={loadState} aria-busy={loadState === "loading"}>
     {loadState === "error" ? <div className="cron-read-error" role="alert"><p>{listError}</p><Button type="text" onClick={() => void loadJobs(true)}>重新读取</Button></div> : mobile ? <>
       {loadState === "loading" ? <Spin /> : visible.length === 0 ? empty : <ul className="cron-mobile-list">{visible.slice((effectivePage - 1) * 20, effectivePage * 20).map(job => <li key={job.id} data-cron-job={job.job_key} data-cron-status={job.status}>
@@ -515,6 +515,7 @@ function CronWorkbench() {
     </div>
     {detailError && <p className="cron-row-error" role="alert">{detailError}</p>}
   </div>;
+  const viewTools = <div className="cron-view-tools">{(hasAttention || attentionOnly) && <Checkbox checked={attentionOnly} onChange={event => setListParams({ attention: event.target.checked ? "1" : null, page: null })}>最近失败／待接管</Checkbox>}<span className="cron-secondary">北京时间</span><Button type="text" icon={<ReloadOutlined />} aria-label="刷新定时任务列表" onClick={() => void loadJobs()} /></div>;
 
   return <div className="list-page cron-workspace" data-cron-page>
     {modalContext}
@@ -524,8 +525,8 @@ function CronWorkbench() {
     </div></header>
     {listError && loadState === "ok" && <div className="cron-stale-notice" role="status">读取失败，当前列表可能是旧状态。<Button type="text" onClick={() => void loadJobs()}>重试</Button></div>}
     <Tabs type="line" activeKey={filter} onChange={key => setListParams({ status: key === "all" ? null : key, page: null })} destroyOnHidden
-      tabBarExtraContent={<div className="cron-view-tools">{(hasAttention || attentionOnly) && <Checkbox checked={attentionOnly} onChange={event => setListParams({ attention: event.target.checked ? "1" : null, page: null })}>最近失败／待接管</Checkbox>}<span className="cron-secondary">北京时间</span><Button type="text" icon={<ReloadOutlined />} aria-label="刷新定时任务列表" onClick={() => void loadJobs()} /></div>}
-      items={PLAN_VIEWS.map(view => ({ key: view.key, label: <span>{view.label}{loadState === "ok" && <span className="cron-view-count">{counts[view.key]}</span>}</span>, children: view.key === filter ? list : null }))} />
+      tabBarExtraContent={mobile ? undefined : viewTools}
+      items={PLAN_VIEWS.map(view => ({ key: view.key, label: <span>{view.label}{loadState === "ok" && <span className="cron-view-count">{counts[view.key]}</span>}</span>, children: view.key === filter ? <>{mobile && viewTools}{list}</> : null }))} />
     <Drawer open={!!jobId} onClose={closeDrawer} keyboard={!busy.save} maskClosable={!busy.save} rootClassName="cron-workspace-drawer" size="default" title={isNew ? "新建定时任务" : detail?.title || "任务详情"}
       afterOpenChange={open => { if (!open && !jobId) requestAnimationFrame(restoreListOrigin); }} extra={<Button type="text" disabled={busy.save} onClick={closeDrawer}>返回定时任务列表</Button>} footer={edit ? composerEditor : null} destroyOnHidden>
       <section data-cron-detail={detail?.job_key || (isNew ? "new" : jobId)} className="cron-drawer-content">
