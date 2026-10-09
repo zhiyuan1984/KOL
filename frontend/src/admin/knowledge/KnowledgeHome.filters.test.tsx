@@ -63,7 +63,7 @@ describe("knowledge host filter projection", () => {
   it.each(["loading", "error"])("does not display stale lifecycle counts during %s", state => {
     fixture.loading = state === "loading"; fixture.error = state === "error" ? "统计读取失败" : "";
     render();
-    expect(container.querySelectorAll('[data-kbv-view] small')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-kbv-view] .lifecycle-count')).toHaveLength(0);
     expect(container.querySelector('[data-kbv-view="all"]')?.textContent).toBe("全部");
   });
 

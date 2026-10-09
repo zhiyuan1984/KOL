@@ -1,8 +1,4 @@
 /* Bounded knowledge asset refinement: uses DESIGN §8/§28 tokens only. */
-.knowledge-governance .kbv-filter-tools { display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-1) var(--space-2); flex-wrap:wrap; min-width:0; }
-.knowledge-governance .kbv-filter-tools > span { font-size:var(--ds-font-xs); }
-.knowledge-governance .kbv-filter-tools > div { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-1); }
-.knowledge-governance .kbv-filter-status-label { font-size:var(--ds-font-xs); color:var(--text-quiet); margin-right:var(--space-1); }
 .knowledge-governance .kbv-list-columns { display:flex; align-items:center; justify-content:space-between; gap:var(--space-2); padding:var(--space-1) var(--space-3); min-height:var(--control-h-sm); box-sizing:border-box; background:var(--bg-subtle); color:var(--text-quiet); font-size:var(--ds-font-xs); border-block:1px solid var(--border); }
 .knowledge-governance .kbv-list-columns.has-selection { padding-left:calc(var(--space-3) + var(--icon-sm) + var(--space-1)); }
 .knowledge-governance .knowledge-row-title.has-title-tail { display:flex; min-width:0; overflow:hidden; }
@@ -13,7 +9,6 @@
 .knowledge-governance .kbv-asset-strip-head { display:flex; align-items:baseline; flex-wrap:wrap; justify-content:space-between; gap:var(--space-1) var(--space-2); margin-bottom:var(--space-2); font-size:var(--ds-font-xs); color:var(--text-quiet); }
 .knowledge-governance .kbv-asset-strip-head > span { font-weight:500; }
 .knowledge-governance .kbv-asset-strip-head > small { font-size:inherit; }
-.knowledge-governance .kbv-asset-strip-segments { display:flex; gap:var(--space-2); min-width:0; flex-wrap:wrap; }
+.knowledge-governance .kbv-asset-strip-segments { display:flex; gap:0; min-width:0; flex-wrap:wrap; border:1px solid var(--border); border-radius:var(--radius-control); overflow:hidden; }
 .knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { min-width:min-content; flex-shrink:0; }
-@media (max-width:1100px) { .knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { flex-basis:calc(var(--control-h) * 4 + var(--space-2)); } }
 @media (pointer:coarse) { .knowledge-governance .kbv-filter-tools button { min-height:var(--touch-hit-min); } }

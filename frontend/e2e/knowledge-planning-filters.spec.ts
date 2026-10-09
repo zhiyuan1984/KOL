@@ -74,7 +74,7 @@ async function surface(page: Page, path = "/admin/knowledge") {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(path);
   await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
-  await expect(page.locator('[data-kbv-view="all"] small')).toHaveText("13");
+  await expect(page.locator('[data-kbv-view="all"] .lifecycle-count')).toHaveText("13");
   return { writes, reads, errors };
 }
 
@@ -112,6 +112,8 @@ test("scope cascade, types and stage remove/add stay interactive without writes"
   await page.locator('[data-kb-scope-family="product"]').click();
   await page.locator('[data-kb-scope-domain="battery-domain"]').click();
   await page.locator('[data-kb-scope-base="battery"]').click();
+  // Other families are zero while the current base is constrained; revealing them is explicit and reversible.
+  await page.locator('[data-kbv-empty-taxonomy]').click();
   await page.locator('[data-kb-scope-family="growth"]').click();
   await expect(page.locator('[data-kb-scope-domain=""]')).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('[data-kb-scope-base=""]')).toHaveAttribute("aria-pressed", "true");

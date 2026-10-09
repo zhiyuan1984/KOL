@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent } from "react";
 
-export type LifecycleOption = { id: string; label: string; count?: number | null; disabled?: boolean; dataAttributes?: Record<`data-${string}`, string> };
+export type LifecycleOption = { id: string; label: string; count?: number | null; disabled?: boolean; title?: string; dataAttributes?: Record<`data-${string}`, string> };
 
 type Props = {
   label: string;
@@ -39,6 +39,7 @@ export function LifecycleNavigation({ label, options, value, onChange, mode = "f
       aria-pressed={!views ? value === option.id : undefined}
       aria-controls={views ? `${idPrefix}-panel-${option.id}` : undefined}
       tabIndex={views && focusableId !== option.id ? -1 : 0} disabled={option.disabled}
+      title={option.title}
       data-selected={value === option.id} onClick={() => onChange(option.id)} onKeyDown={event => navigate(event, option.id)}>
       {option.label}{option.count != null ? <span className="lifecycle-count">{option.count}</span> : null}
     </button>)}

@@ -1,13 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
 // HTTP fixtures prove layout/interaction contracts, not production data or external delivery.
-async function surface(page: Page, options: { long?: boolean; empty?: boolean; failure?: boolean } = {}) {
+async function surface(page: Page, options: { long?: boolean; empty?: boolean; failure?: boolean; mixed?: boolean; emptyTaxonomy?: boolean } = {}) {
   const writes: string[] = [], errors: string[] = [], reads: string[] = [];
   const account = { id: "employee", name: "员工", available_modes: ["employee"] };
   const rows = Array.from({ length: options.empty ? 0 : 14 }, (_, i) => ({
     id: `kb-${i}`, title: i === 0 && options.long ? "很长的知识标题".repeat(30) : `合作知识 ${i + 1}`,
     body: i === 0 && options.long ? "首标题前的原文\n# 第一节\n完整第一节\n# 第二节\n完整第二节" : "Hi,\n\nPlease review the outline.\n\nBest,\nCreator Desk",
-    subject: `邮件主题 ${i + 1}`, kind: "mail_template", status: "published", brand: i % 2 ? "RO" : "LT",
+    subject: `邮件主题 ${i + 1}`, kind: options.mixed && i < 4 ? "document" : "mail_template", status: "published", brand: i % 2 ? "RO" : "LT",
     stage_codes: [i % 2 ? "TESTING" : "INITIAL_CONTACT"], current_version: 1, created_by: "publisher",
     updated_at: "2026-10-08T01:00:00Z", family_id: "growth", domain_id: "history", base_id: "legacy", favorite: false,
   }));
@@ -22,8 +22,9 @@ async function surface(page: Page, options: { long?: boolean; empty?: boolean; f
     else if (path === "/api/preferences") json = { theme: "light" };
     else if (path === "/api/cron/jobs") json = { jobs: [] };
     else if (path === "/api/knowledge/taxonomy") json = {
-      domains: [{ id: "growth", name: "品牌与用户增长中心", level: "family" }, { id: "history", name: "历史知识", level: "domain", parent_id: "growth" }],
-      bases: [{ id: "legacy", name: "历史知识", domain_id: "history" }],
+      domains: [{ id: "growth", name: "品牌与用户增长中心", level: "family" }, { id: "history", name: "历史知识", level: "domain", parent_id: "growth" },
+        ...(options.emptyTaxonomy ? [{ id: "empty-family", name: "1234", level: "family" }, { id: "empty-domain", name: "4567", level: "domain", parent_id: "empty-family" }] : [])],
+      bases: [{ id: "legacy", name: "历史知识", domain_id: "history" }, ...(options.emptyTaxonomy ? [{ id: "empty-base", name: "9999", domain_id: "empty-domain" }] : [])],
     };
     else if (path === "/api/knowledge") {
       if (options.failure) return route.fulfill({ status: 503, json: { error: "知识服务不可用" } });
@@ -145,6 +146,7 @@ test("long text preserves introduction; TOC opens target; short viewport keeps f
 test("empty and unavailable states stay honest with detail workspace reserved", async ({ page }) => {
   const state = await surface(page, { failure: true });
   await expect(page.locator('[data-kbv-list] .error')).toContainText("知识服务暂不可用");
+  await expect(page.locator('[data-kb-facet-count]')).toHaveCount(0);
   await expect(page.locator("[data-kb-row]")).toHaveCount(0);
   await expect(page.locator("[data-kb-detail]")).toBeVisible();
   await expect(page.locator('[data-kbv-list]')).not.toContainText("暂无已发布资料");
@@ -196,6 +198,16 @@ test.describe("touch input", () => {
     await expect(favorite).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator('[data-kb-use="kb-0"]')).toBeInViewport();
   });
+  test("filter touch targets reach 44px without inflating their 24px visuals", async ({ page }) => {
+    await surface(page);
+    const brand = page.locator('[data-kb-filter="brand"] [data-kb-filter-value="LT"]');
+    expect((await brand.boundingBox())!.height).toBe(24);
+    expect(await brand.evaluate(node => getComputedStyle(node, '::before').height)).toBe('44px');
+    const box = (await brand.boundingBox())!;
+    await page.touchscreen.tap(box.x + box.width / 2, box.y - 8);
+    await expect(brand).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-kbv-count]')).toHaveText('7 条知识');
+  });
 });
 
 test("stage chips can be removed and re-added without mutating taxonomy", async ({page})=>{
@@ -210,4 +222,75 @@ test("stage chips can be removed and re-added without mutating taxonomy", async 
  await expect(stages.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute('aria-pressed','true');
  await expect(page.locator('[data-kbv-count]')).toHaveText('7 条知识');
  expect(state.writes).toEqual([]);expect(state.errors).toEqual([]);
+});
+
+test("employee common filters use 13px text, whole-option indicators and real conditional counts", async ({ page }) => {
+  const state = await surface(page, { mixed: true });
+  const filters = page.locator('.knowledge-filter-bar');
+  await expect(filters.locator('[data-kb-filter="brand"] [data-kb-filter-value="LT"] small')).toHaveText('7');
+  await expect(filters.locator('[data-kb-filter="stage"] [data-kb-filter-value="INITIAL_CONTACT"] small')).toHaveText('7');
+  await expect(filters.locator('[data-kb-kind="document"] small')).toHaveText('4');
+  const fonts = await filters.locator('.kbv-scope-name, .knowledge-filter-label, .knowledge-filter-count').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).fontSize));
+  expect(fonts.every(font => font === '13px')).toBe(true);
+  const origins = await filters.locator('.knowledge-filter-row > .knowledge-filter-options').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
+  expect(Math.max(...origins) - Math.min(...origins)).toBeLessThan(1);
+  const all = filters.locator('[data-kb-scope-family=""]');
+  const indicator = await all.evaluate(node => ({ text: getComputedStyle(node).textDecorationLine, line: getComputedStyle(node, '::after').height,
+    child: [...node.children].map(child => getComputedStyle(child).textDecorationLine), gap: getComputedStyle(node).gap }));
+  expect(indicator.text).toBe('none'); expect(indicator.child.every(value => value === 'none')).toBe(true);
+  expect(indicator.line).toBe('2px'); expect(indicator.gap).toBe('4px');
+  await filters.locator('[data-kb-kind="document"]').click();
+  await expect(page.locator('[data-kbv-count]')).toHaveText('4 条知识');
+  await expect(filters.locator('[data-kb-filter="brand"] [data-kb-filter-value="LT"] small')).toHaveText('2');
+  await filters.locator('[data-kb-filter="brand"] [data-kb-filter-value="LT"]').click();
+  await expect(page.locator('[data-kbv-count]')).toHaveText('2 条知识');
+  await expect(filters.locator('[data-kb-kind="mail_template"] small')).toHaveText('5');
+  await page.locator('[data-kb-scope-clear]').click();
+  await expect(page.locator('[data-kbv-count]')).toHaveText('14 条知识');
+  await page.screenshot({ path: 'test-results/knowledge-filter-employee-final-1440.png', fullPage: true });
+  for (const width of [1024, 390, 320]) {
+    await page.setViewportSize({ width, height: 630 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const fits = await filters.locator('.knowledge-filter-options').evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1));
+    expect(fits, `${width}px options use their full row without overflowing`).toBe(true);
+  }
+  await page.screenshot({ path: 'test-results/knowledge-filter-employee-final-320.png', fullPage: true });
+  expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("employee zero taxonomy is reversible, selected zero stays visible and type names are readable", async ({ page }) => {
+  const state = await surface(page, { mixed: true, emptyTaxonomy: true });
+  const empty = page.locator('[data-kb-scope-family="empty-family"]');
+  await expect(empty).toHaveCount(0);
+  await page.locator('[data-kbv-empty-taxonomy]').click();
+  await expect(empty.locator('small')).toHaveText('0');
+  await empty.click();
+  await expect(page.locator('[data-kb-empty]')).toBeVisible();
+  await page.locator('[data-kbv-empty-taxonomy]').click();
+  await expect(empty).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('[data-kb-scope-clear]').click();
+  await expect(page.locator('[data-kb-kind="document"]')).toContainText('文档资料');
+  await expect(page.locator('[data-kbv-count]')).toHaveText('14 条知识');
+  expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
+});
+
+test("shared filter theme tokens and keyboard activation remain usable", async ({ page }) => {
+  const state = await surface(page);
+  const all = page.locator('[data-kb-scope-family=""]');
+  const before = await all.evaluate(node => getComputedStyle(node).color);
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  expect(await all.evaluate(node => getComputedStyle(node).color)).not.toBe(before);
+  await expect(all).toHaveCSS('font-size', '13px');
+  const brand = page.locator('[data-kb-filter="brand"] [data-kb-filter-value="LT"]');
+  await brand.focus(); await page.keyboard.press('Space');
+  await expect(brand).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '添加阶段', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  const picker = page.getByRole('group', { name: '可添加阶段' });
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: '取消', exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await expect(picker).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/knowledge-filter-employee-dark.png', fullPage: true });
+  expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
 });

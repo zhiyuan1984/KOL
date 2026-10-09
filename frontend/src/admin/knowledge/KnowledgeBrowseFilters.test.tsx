@@ -9,6 +9,9 @@ import { MAIN_STAGE_TABS } from "../../kolStages";
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
+  // Ant Design positions popovers using a browser-only API. Geometry is tested separately in Chromium.
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0));
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.append(container);
@@ -78,7 +81,7 @@ describe("compact knowledge filters", () => {
     expect(container.querySelector('[data-kbv-view="all"]')?.getAttribute("title")).toBeNull();
   });
 
-  it("keeps stage multiselection, remove, add, cancel and clear working", () => {
+  it("keeps stage multiselection, remove, add, cancel and clear working", async () => {
     function Harness() {
       const [selected, onChange] = useState<string[]>([]);
       return <KnowledgeBrowseFilters {...props()} selectedStages={selected} onStages={onChange} />;
@@ -91,11 +94,13 @@ describe("compact knowledge filters", () => {
     click(`[aria-label="移除阶段：${first.label}"]`);
     expect(container.querySelector(`[data-kb-filter="stage"] [data-kb-filter-value="${first.code}"]`)).toBeNull();
     click('[aria-label="添加阶段"]');
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
     const choice = [...container.querySelectorAll<HTMLButtonElement>('.knowledge-stage-picker button')].find(button => button.textContent === first.label)!;
     act(() => choice.click());
     expect(container.querySelector(`[data-kb-filter="stage"] [data-kb-filter-value="${first.code}"]`)?.getAttribute('aria-pressed')).toBe('true');
     expect(container.querySelector('.knowledge-stage-picker')).toBeNull();
     click('[aria-label="添加阶段"]');
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
     act(() => [...container.querySelectorAll<HTMLButtonElement>('.knowledge-stage-picker button')].find(button => button.textContent === "取消")!.click());
     expect(container.querySelector('.knowledge-stage-picker')).toBeNull();
     click('[data-kb-filter="stage"] [data-kb-filter-value=""]');
@@ -134,9 +139,20 @@ describe("compact knowledge filters", () => {
     const p = props(); p.query = "规格"; p.onReset = vi.fn();
     act(() => root.render(<KnowledgeBrowseFilters {...p} />));
     expect(container.querySelector('[data-kbv-count-scope]')?.textContent).toContain("随其他筛选条件变化");
-    expect(container.querySelector('.kbv-filter-status-label')?.textContent).toBe("当前条件");
+    expect(container.querySelector('.kbv-filter-status-label')?.textContent).toBe("生命周期");
     click('[data-kbv-filter-reset]');
     expect(p.onReset).toHaveBeenCalledOnce();
+  });
+  it("renders true brand and stage counts, and hides them when unavailable", () => {
+    const p = props();
+    p.stageOptions = [{ value: "", label: "全部", count: 13 }, { value: MAIN_STAGE_TABS[0].code, label: MAIN_STAGE_TABS[0].label, count: 7 }];
+    act(() => root.render(<KnowledgeBrowseFilters {...p} />));
+    expect(container.querySelector('[data-kb-filter="brand"] [data-kb-filter-value="LT"] small')?.textContent).toBe("5");
+    expect(container.querySelector(`[data-kb-filter="stage"] [data-kb-filter-value="${MAIN_STAGE_TABS[0].code}"] small`)?.textContent).toBe("7");
+    expect(container.querySelector('[data-kb-filter="stage"] [data-kb-filter-value=""] small')?.textContent).toBe("13");
+    expect(container.querySelector('[aria-label="知识状态筛选"]')?.getAttribute('role')).toBe('group');
+    act(() => root.render(<KnowledgeBrowseFilters {...p} countsReady={false} />));
+    expect(container.querySelectorAll('[data-kb-facet-count]')).toHaveLength(0);
   });
 });
 
