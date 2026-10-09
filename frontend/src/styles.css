@@ -10310,13 +10310,16 @@ body {
   margin-inline: auto;
 }
 
-/* 五个 Home tab 与会话页（.session-shell）同一几何：内容上限 1200px 居中、
-   两侧 --page-gutter、顶部 4px。桌面 ≥1101px 生效。
-   上限与两侧留白走上方的 shared-frame 规则（.home-stage 那条），这里只收顶部留白。
-   2026-10-09 五 tab 视觉统一（D2/D3）：删掉原来的 width:100% 例外。 */
+/* Home desktop frame: one top inset and an explicit shared content cap.
+   Do not restore the legacy width:100% / max-width:none exception here.
+   DESIGN §27.2 agent-session geometry retains its more-specific discovery
+   override in workspace-shell.css; independent session routes are unchanged. */
 @media (min-width: 1101px) {
   .home-pane[data-home-workspace] .home-stage {
-    padding-top: 4px;
+    width: min(100%, var(--content-max));
+    max-width: var(--content-max);
+    margin-inline: auto;
+    padding-top: var(--space-1);
   }
 }
 

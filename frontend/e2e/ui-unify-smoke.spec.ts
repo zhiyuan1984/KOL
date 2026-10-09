@@ -26,7 +26,7 @@ for (const theme of ['light', 'dark']) {
       await route.fulfill({ json });
     });
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    for (const width of [1440, 1920, 1280, 768, 375]) {
+    for (const width of [1440, 1920, 1280, 1101, 1100, 768, 375]) {
       await page.setViewportSize({ width, height: 900 });
       const samples: Array<{ width: number; left: number; top: number }> = [];
       for (const tab of ['today', 'todo', 'discovery', 'pool', 'lifecycle']) {
@@ -40,6 +40,7 @@ for (const theme of ['light', 'dark']) {
           const r = stage.getBoundingClientRect();
           return { width: r.width, left: r.left, top: r.top,
             paddingTop: getComputedStyle(stage).paddingTop,
+            maxWidth: getComputedStyle(stage).maxWidth,
             primary: style.getPropertyValue('--av-primary').trim(),
             overflow: document.documentElement.scrollWidth > innerWidth + 1 };
         });
@@ -50,7 +51,11 @@ for (const theme of ['light', 'dark']) {
           // discovery. Preserve and expose that exception rather than claiming
           // all five tabs have the same max width.
           if (tab === 'discovery') expect(sample.width).toBe(width - 260);
-          else expect(sample.width).toBeLessThanOrEqual(1200);
+          else {
+            expect(sample.width).toBeLessThanOrEqual(1200);
+            expect(sample.maxWidth).toBe('1200px');
+            expect(Math.abs(sample.left - (260 + (width - 260 - sample.width) / 2))).toBeLessThan(1);
+          }
           expect(sample.paddingTop).toBe('4px');
         }
         if (tab !== 'discovery') samples.push({ width: sample.width, left: sample.left, top: sample.top });
