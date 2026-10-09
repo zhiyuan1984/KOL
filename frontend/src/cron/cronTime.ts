@@ -344,6 +344,12 @@ export function compactFrequency(job: CronJobLike): string {
   const cronExpression = typeof job.cron_expr === "string" ? job.cron_expr.trim() : "";
   if (cronExpression) return withTimeZone(humanCron(cronExpression) || cronExpression, zone);
 
-  if (typeof job.frequency === "string" && job.frequency.trim()) return normaliseFrequencyText(job.frequency, zone);
+  if (typeof job.frequency === "string" && job.frequency.trim()) {
+    // The employee summary intentionally omits cron_expr; older server labels
+    // can contain the raw expression followed by a timezone suffix.
+    const expression = job.frequency.trim().replace(/\s*[（(][^）)]*[）)]\s*$/, "");
+    const readable = humanCron(expression);
+    return readable ? withTimeZone(readable, zone) : normaliseFrequencyText(job.frequency, zone);
+  }
   return withTimeZone("未设置频率", zone);
 }
