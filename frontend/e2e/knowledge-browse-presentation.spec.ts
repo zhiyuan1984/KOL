@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { assertFullRowLayout } from './fixtures/knowledge-fullrow-layout';
 
 // HTTP fixtures prove layout/interaction contracts, not production data or external delivery.
 async function surface(page: Page, options: { long?: boolean; empty?: boolean; failure?: boolean; mixed?: boolean; emptyTaxonomy?: boolean } = {}) {
@@ -233,8 +234,7 @@ test("employee common filters use 13px text, whole-option indicators and real co
   await expect(filters.locator('[data-kb-kind="document"] small')).toHaveText('4');
   const fonts = await filters.locator('.kbv-scope-name, .knowledge-filter-label, .knowledge-filter-count').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).fontSize));
   expect(fonts.every(font => font === '13px')).toBe(true);
-  const origins = await filters.locator('.knowledge-filter-row > .knowledge-filter-options').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
-  expect(Math.max(...origins) - Math.min(...origins)).toBeLessThan(1);
+  expect((await assertFullRowLayout(filters)).continuationLines).toBeGreaterThan(0);
   const all = filters.locator('[data-kb-scope-family=""]');
   const indicator = await all.evaluate(node => ({ text: getComputedStyle(node).textDecorationLine, line: getComputedStyle(node, '::after').height,
     child: [...node.children].map(child => getComputedStyle(child).textDecorationLine), gap: getComputedStyle(node).gap }));
@@ -252,8 +252,7 @@ test("employee common filters use 13px text, whole-option indicators and real co
   for (const width of [1024, 390, 320]) {
     await page.setViewportSize({ width, height: 630 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const fits = await filters.locator('.knowledge-filter-options').evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1));
-    expect(fits, `${width}px options use their full row without overflowing`).toBe(true);
+    expect((await assertFullRowLayout(filters)).continuationLines, `${width}px continuation rows reclaim the label space`).toBeGreaterThan(0);
   }
   await page.screenshot({ path: 'test-results/knowledge-filter-employee-final-320.png', fullPage: true });
   expect(state.writes).toEqual([]); expect(state.errors).toEqual([]);
