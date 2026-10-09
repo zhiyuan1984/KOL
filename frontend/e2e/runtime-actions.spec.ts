@@ -100,7 +100,7 @@ test("queued crawl shows position and supports dequeue", async ({ page, request 
   await page.unrouteAll({ behavior: "wait" });
 });
 
-test("uses saved candidates for analysis and distinguishes sampled views from latest ten", async ({ page, request }, testInfo) => {
+test("shows saved candidate evidence without an extra analysis action and distinguishes sampled views from latest ten", async ({ page, request }, testInfo) => {
   const response = await request.post("/api/home/discovery/workspace", { data: {
     request_id: `candidate-context-${Date.now()}`, text: "发现北美露营候选", brief: {
       platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"],
@@ -143,12 +143,8 @@ test("uses saved candidates for analysis and distinguishes sampled views from la
   await expect(results).not.toContainText("粉丝不符合当前条件");
   await expect(results.getByRole("link", { name: "主页 ↗", exact: true })).toHaveAttribute("href", "https://www.youtube.com/channel/fixture");
   await page.screenshot({ path: testInfo.outputPath("discovery-candidates.png"), fullPage: true });
-  await results.getByRole("button", { name: "让线索智能体分析候选" }).click();
-  await expect.poll(() => submitted).toMatchObject({ intent: "crawler_collect", work_item_id: saved.task_id, text: expect.stringContaining("scoped-crawl") });
-  await expect(page.locator("[data-discovery-analysis]")).toContainText("本任务候选分析的完整证据");
-  await expect(page.locator(".scope-workspace-center-scroll")).not.toContainText("本任务候选分析的完整证据");
-  await page.reload();
-  await expect(page.locator("[data-discovery-analysis]")).toContainText("本任务候选分析的完整证据");
+  await expect(results.getByRole("button", { name: "让线索智能体分析候选" })).toHaveCount(0);
+  expect(submitted).toBeNull();
 });
 
 test("recovers a saved discovery after the browser loses its initial pending message", async ({ page, request }) => {

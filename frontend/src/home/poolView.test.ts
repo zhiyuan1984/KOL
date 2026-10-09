@@ -18,7 +18,7 @@ describe("pool score placeholder", () => {
     expect(missing.title).toContain("缺 均播、互动率");
   });
 
-  it("评过但置信度不足：显示置信度并说明低于 70% 不给分", () => {
+  it("评过但资料不足：显示置信度并说明人工复核", () => {
     const placeholder = poolScorePlaceholder({
       state: "low_confidence",
       potential_confidence: 0.55,
@@ -26,7 +26,7 @@ describe("pool score placeholder", () => {
     }, []);
     expect(placeholder.state).toBe("low_confidence");
     expect(placeholder.label).toBe("已评估 · 置信度 55%");
-    expect(placeholder.title).toContain("低于 70%");
+    expect(placeholder.title).toContain("人工复核");
     expect(placeholder.title).toContain("评估于");
   });
 

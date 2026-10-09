@@ -37,6 +37,20 @@ const columns = [
   "risk_confidence", "assessment_model", "assessment_version", "assessed_at", "assessment_error", "assessment_criteria",
 ];
 
+const assessmentFields: Record<string, string> = {
+  potential_score: "potential_score", potential_probabilities: "potential_probabilities", potential_confidence: "potential_confidence",
+  risk_score: "risk_score", risk_probabilities: "risk_probabilities", risk_confidence: "risk_confidence",
+  assessment_model: "model", assessment_version: "version", assessed_at: "assessed_at", assessment_criteria: "criteria_summary",
+};
+function poolColumn(column: string): string {
+  const field = assessmentFields[column];
+  if (!field) return `p.${column}`;
+  const numeric = /_score$|_confidence$/.test(column);
+  return `CASE WHEN a.state='scored' AND (p.assessed_at IS NULL OR a.result_json->>'assessed_at' >= p.assessed_at)
+    THEN ${numeric ? `(a.result_json->>'${field}')::double precision` : `a.result_json->>'${field}'`}
+    ELSE p.${column} END AS ${column}`;
+}
+
 // Match the employee-facing metric formatting so a search for “12万” or “4.2%”
 // finds the stored numeric value, not just the raw database representation.
 function metricSearch(column: string): string {
@@ -64,7 +78,11 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
     items: Row[]; total: string; matched: string; new_count: string; library_value: string | null;
   }>(`
     WITH source AS (
-      SELECT ${columns.map((column) => `p.${column}`).join(", ")},
+      SELECT ${columns.map(poolColumn).join(", ")},
+        CASE WHEN a.state='scored' AND (p.assessed_at IS NULL OR a.result_json->>'assessed_at' >= p.assessed_at) THEN 'scored'
+          WHEN p.potential_score IS NOT NULL THEN 'scored'
+          WHEN a.state IN ('queued','scoring') THEN 'scoring'
+          WHEN a.state='failed' THEN 'failed' END AS assessment_state,
         trim(regexp_replace(COALESCE(NULLIF(p.handle, ''), p.display_name, ''), '^@', '')) AS bare_handle,
         CASE WHEN trim(COALESCE(p.homepage_url, '')) <> '' THEN trim(p.homepage_url)
           WHEN trim(regexp_replace(COALESCE(NULLIF(p.handle, ''), p.display_name, ''), '^@', '')) <> '' THEN
@@ -75,7 +93,11 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
             CASE WHEN lower(trim(p.platform)) IN ('youtube','instagram','facebook')
               THEN trim(regexp_replace(COALESCE(NULLIF(p.handle, ''), p.display_name, ''), '^@', '')) ELSE '' END
           ELSE '' END AS public_url
-      FROM kol_profile_index p WHERE p.company_id=$1 AND p.pool_status='open'
+      FROM kol_profile_index p LEFT JOIN LATERAL (
+        SELECT state,result_json FROM kol_candidate_assessments
+        WHERE company_id=p.company_id AND platform=lower(p.platform) AND creator_id=p.platform_creator_id
+        ORDER BY (state='scored') DESC, updated_at DESC LIMIT 1
+      ) a ON true WHERE p.company_id=$1 AND p.pool_status='open'
         AND p.ingest_source IS DISTINCT FROM 'discovery-candidate'
         AND NOT EXISTS (SELECT 1 FROM kol_follow_index f JOIN kol_profile_index owned
           ON owned.company_id=f.company_id AND owned.kol_uid=f.kol_uid

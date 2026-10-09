@@ -6,6 +6,7 @@ import { criteriaState, criteriaSummary, type KolScoringCriteria } from "./kol-s
 
 const JEV_OPENROUTER_BASE_URL = "https://openrouter.ai/api";
 export const ASSESSMENT_VERSION = "jev-kol-v1";
+export const KOL_ASSESSMENT_VERSION = ASSESSMENT_VERSION;
 
 type FetchLike = typeof fetch;
 let jevFetchOverride: FetchLike | null = null;
@@ -156,6 +157,17 @@ export async function assessPublicKolWithJev(
   });
   void (response as { model?: string });
   const answers = response.answers as { potential?: AssessmentAnswer; risk?: AssessmentAnswer };
+  for (const [answer, choices] of [[answers.potential, ["high_potential", "watch", "insufficient"]],
+    [answers.risk, ["high_risk", "watch", "normal", "insufficient"]]] as const) {
+    if (!answer || !choices.includes(String(answer.choice) as never)
+      || (answer.confidence != null && (!Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1))
+      || (answer.probabilities && (!Object.keys(answer.probabilities).length
+        || Object.entries(answer.probabilities).some(([choice, probability]) => !choices.includes(choice as never)
+          || !Number.isFinite(probability) || probability < 0)
+        || Object.values(answer.probabilities).reduce((sum, p) => sum + p, 0) <= 0))) {
+      throw new Error("评分响应不完整或无效。");
+    }
+  }
   const potential = selected(answers.potential);
   const risk = selected(answers.risk);
   const potentialProbabilities = probabilityMap(answers.potential || {});
@@ -172,10 +184,10 @@ export async function assessPublicKolWithJev(
   );
   return {
     potential_score: potentialScore,
-    potential_confidence: potential.confidence || null,
+    potential_confidence: answers.potential?.confidence == null ? null : potential.confidence,
     potential_probabilities: Object.keys(potentialProbabilities).length ? JSON.stringify(potentialProbabilities) : null,
     risk_score: riskScore,
-    risk_confidence: risk.confidence || null,
+    risk_confidence: answers.risk?.confidence == null ? null : risk.confidence,
     risk_probabilities: Object.keys(riskProbabilities).length ? JSON.stringify(riskProbabilities) : null,
     model: currentModel,
     version: ASSESSMENT_VERSION,

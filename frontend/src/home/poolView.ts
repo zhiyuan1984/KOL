@@ -17,7 +17,7 @@ export function metricNumber(value?: string) {
 }
 
 export type PoolScorePlaceholder = {
-  state: "unscored" | "low_confidence" | "failed";
+  state: "scoring" | "unscored" | "low_confidence" | "failed";
   label: string;
   title: string;
 };
@@ -29,7 +29,7 @@ export type PoolScorePlaceholder = {
  */
 export function poolScorePlaceholder(
   assessment: {
-    state?: "scored" | "unscored" | "low_confidence" | "failed";
+    state?: "scored" | "scoring" | "unscored" | "low_confidence" | "failed";
     potential_confidence?: number | null;
     assessed_at?: string | null;
     criteria_summary?: string;
@@ -40,14 +40,17 @@ export function poolScorePlaceholder(
   const at = assessment?.assessed_at ? new Date(assessment.assessed_at) : null;
   const atLabel = at && !Number.isNaN(at.getTime()) ? `评估于 ${at.toLocaleDateString("zh-CN")}。` : "";
   const criteriaLabel = assessment?.criteria_summary ? `口径 ${assessment.criteria_summary}。` : "";
+  if (assessment?.state === "scoring") {
+    return { state: "scoring", label: "评分中…", title: "正在依据已保存的公开资料与发现条件评分，可继续筛选。" };
+  }
   if (assessment?.state === "failed") {
-    return { state: "failed", label: "评分失败", title: `Jev 评分调用失败（已记录，可重试）。${atLabel}${criteriaLabel}` };
+    return { state: "failed", label: "评分失败", title: `评分调用失败（已记录，可重试）。${atLabel}${criteriaLabel}` };
   }
   if (assessment?.state === "low_confidence" || (assessment?.assessed_at && assessment?.potential_confidence != null)) {
     return {
       state: "low_confidence",
       label: `已评估 · 置信度 ${confidence}%`,
-      title: `Jev 评估已完成，但置信度低于 70% 不给分：公开资料不足或信号不明确。${atLabel}${criteriaLabel}`,
+      title: `评分已完成，公开资料不足或信号不明确，需要人工复核。${atLabel}${criteriaLabel}`,
     };
   }
   const missing = missingMetrics.length ? `缺 ${missingMetrics.join("、")}；` : "";

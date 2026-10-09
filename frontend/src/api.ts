@@ -1,5 +1,12 @@
 export type HomePoolPage = { offset: number; limit: number; total: number; matched: number; new_count: number; next_offset: number | null };
 export type HomePoolOptions = { query?: string; filter?: string; sort?: string; offset?: number; limit?: number };
+export type CandidateAssessment = {
+  state: "unscored" | "scoring" | "scored" | "failed";
+  potential_score?: number | null; risk_score?: number | null;
+  potential_confidence?: number | null; risk_confidence?: number | null;
+  potential_probabilities?: string | null; risk_probabilities?: string | null;
+  version?: string; assessed_at?: string | null; criteria_summary?: string; source_url?: string | null; error?: string | null;
+};
 
 export type RuntimeActionView = {
   events?: Array<{ sequence: string; source: string; state: string; recorded_at: string }>;
@@ -20,6 +27,7 @@ export type RuntimeActionView = {
       id: string; name: string; platform: string; source_url: string | null; followers: number | null; avg_views_10: number | null; region: string | null;
         sampled_views_count?: number; sampled_views_avg?: number | null;
         avatar_url?: string | null; direction?: string | null; ignored?: boolean; followed?: boolean; in_pool?: boolean; snapshot_version?: string;
+        assessment?: CandidateAssessment;
       followers_evidence?: { state: "source_recorded" | "missing_source" | "unavailable"; raw_text: string | null;
         source_field: string | null; captured_at: string | null; parser_version: string | null };
     }> } | null } | null;
@@ -2080,7 +2088,7 @@ export const api = {
   replyContext: (sessionId: string) => request<ReplyContext>(`/api/queries/mail.reply-context?session_id=${encodeURIComponent(sessionId)}`),
   runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
   retryCrawlResults: (actionId: string) => request<{ state: string }>("/api/actions/runtime.crawl.results.retry", { method: "POST", body: JSON.stringify({ action_id: actionId }) }),
-  discoveryCandidateCommand: (actionId: string, candidateId: string, verb: "follow" | "ignore" | "restore" | "ingest", snapshotVersion: string) =>
+  discoveryCandidateCommand: (actionId: string, candidateId: string, verb: "follow" | "ignore" | "restore" | "ingest" | "score", snapshotVersion: string) =>
     request<{ ok: boolean; lead_id?: string; starry_imported?: boolean; starry_error?: string }>(`/api/home/discovery/runtime/${encodeURIComponent(actionId)}/candidates/${encodeURIComponent(candidateId)}/${verb}`, {
       method: "POST", body: JSON.stringify({ snapshot_version: snapshotVersion, confirmed: verb === "follow" || verb === "ingest" }),
       // Starry 文件导入是长耗时 L3 操作，后端幂等，前端给足 3 分钟。

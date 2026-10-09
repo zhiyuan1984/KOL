@@ -6,6 +6,7 @@ import { executionHandler } from "./handlers.js";
 import { ExecutionNotDispatched } from "./failure.js";
 import "../runtime/action-worker.js";
 import "../crawl/runtime-gates.js";
+import "../crawl/assessments.js";
 import "../knowledge/publication.js";
 import { pgExecutionJobById } from "./postgres-store.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";

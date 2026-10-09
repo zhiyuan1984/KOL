@@ -1,6 +1,7 @@
 import { HttpFail } from "../host/errors.js";
 import { normalizeMcpContent } from "../mcp/remote.js";
-import { postgresPool } from "../postgres/pool.js";
+import { postgresPool, postgresTransaction } from "../postgres/pool.js";
+import { enqueueCandidateAssessments } from "./assessments.js";
 import { authorizeConnector, runtimeErrorCode, SkillExecution, type RuntimeContext } from "../runtime/execution.js";
 import { isPlatformPrincipal } from "../runtime/platform-principal.js";
 import { authorizeBackgroundCrawl, backgroundToolRuntime, type BackgroundToolInvoker } from "./background-crawl.js";
@@ -95,8 +96,11 @@ export async function collectCrawlResults(executionJob: ClaimedExecutionJob, che
     else authorizeConnector(job.context_json, "claw");
     const result = { schema: "crawl_candidates/v1", task_id: job.remote_task_id, platform,
       captured_at: new Date().toISOString(), complete, total, candidates, collection_state: job.state };
-    await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state=$2,result_json=$3,result_error=NULL,updated_at=now() WHERE id=$1",
-      [id, complete ? "ready" : "partial", JSON.stringify(result)]);
+    await postgresTransaction(async client => {
+      await client.query("UPDATE runtime_crawl_jobs SET result_state=$2,result_json=$3,result_error=NULL,updated_at=now() WHERE id=$1",
+        [id, complete ? "ready" : "partial", JSON.stringify(result)]);
+      if (!isPlatformPrincipal(job.context_json.userId)) await enqueueCandidateAssessments(id, job.context_json, candidates, client);
+    });
     // 一期去重：回填即记池（跨运行去重基准）。失败不阻塞回填本身。
     try {
       const windowDaysRaw = Number(job.args_json?.dedup_window_days);

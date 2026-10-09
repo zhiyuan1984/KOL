@@ -174,6 +174,10 @@ describe("discovery workspace persistence and result isolation", () => {
     if (["ready", "empty"].includes(mode)) {
       await expect(read()).resolves.toMatchObject({ state: "ready", count: mode === "empty" ? 0 : 1 });
       await read(); expect(calls).toBe(1);
+      const scores = (await postgresPool().query("SELECT * FROM kol_candidate_assessments WHERE source_action_id='result-job'")).rows;
+      expect(scores).toHaveLength(mode === "empty" ? 0 : 1);
+      const scoringJobs = (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows;
+      expect(scoringJobs).toHaveLength(mode === "empty" ? 0 : 1);
       await postgresPool().query(`INSERT INTO runtime_actions(id,actor_id,session_id,context_json,connector_id,tool_name,args_json,snapshot,proposal_key,state)
         VALUES('result-job',$1,$2,$3,'claw','start_crawl','{}','test','context-test','succeeded')`, [ctx.userId, ctx.sessionId, JSON.stringify(ctx)]);
       const snapshots = await discoveryResultContext(ctx);

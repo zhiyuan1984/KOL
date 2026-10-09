@@ -7,6 +7,7 @@ import { reviewSchema } from "../src/approval/review-schema.js";
 import { crawlQueueStateMigration, runtimeActionSchema } from "../src/runtime/action-schema.js";
 import { crawlResultSchema } from "../src/crawl/result-schema.js";
 import { candidateActionsSchema } from "../src/crawl/candidate-actions-schema.js";
+import { candidateAssessmentSchema } from "../src/crawl/assessment-schema.js";
 import { runtimeActionEventSchema } from "../src/runtime/action-event-schema.js";
 
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
@@ -63,6 +64,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261007_crawl_queue_state", statements: crawlQueueStateMigration },
   { id: "20261004_discovery_results", statements: [crawlResultSchema] },
   { id: "20261005_discovery_candidate_actions", statements: [candidateActionsSchema] },
+  { id: "20261009_discovery_assessments", statements: [candidateAssessmentSchema] },
   { id: "20261005_runtime_action_events", statements: [runtimeActionEventSchema] },
   {
     id: "20261003_managed_agents",

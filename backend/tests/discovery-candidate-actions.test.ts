@@ -14,6 +14,9 @@ import { runtimeCandidateCommand, runtimeCandidateViews } from "../src/crawl/can
 import { readPublicPoolPage, parsePoolPageOptions } from "../src/postgres/public-pool.js";
 import { discoveryResultContext } from "../src/crawl/context.js";
 import type { RuntimeContext } from "../src/runtime/execution.js";
+import { enqueueCandidateAssessments, scoreDiscoveryCandidate } from "../src/crawl/assessments.js";
+import { postgresTransaction } from "../src/postgres/pool.js";
+import { setKolJevFetch } from "../src/host/kol-jev-assessment.js";
 import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid } from "../src/gateway/import-creator.js";
 
 vi.mock("../src/gateway/import-creator.js", () => ({
@@ -72,7 +75,7 @@ beforeEach(async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockReset();
   vi.mocked(lookupImportedKolUid).mockReset();
 });
-afterEach(() => { resetConn(); fs.rmSync(temp, { recursive: true, force: true }); });
+afterEach(() => { setKolJevFetch(); delete process.env.OPENROUTER_API_KEY; resetConn(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 it("atomically assigns one employee, hides other employees, and does not repeat a successful import", async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "KOLCLAIM001" });
@@ -274,4 +277,99 @@ it("never migrates a placeholder follow over another employee's target UID owner
   expect(await importState()).toBe("uncertain");
   expect((await postgresPool().query("SELECT employee_id FROM kol_follow_index WHERE id='other-owner'")).rows[0].employee_id).toBe(users[1].id);
   expect((await postgresPool().query("SELECT kol_uid FROM kol_follow_index WHERE employee_id=$1 AND status='active'", [users[0].id])).rows[0].kol_uid).toBe(`candidate:youtube:${candidate.id}`);
+});
+
+async function enqueueScore() {
+  await acting(0, () => postgresTransaction(client => enqueueCandidateAssessments("action-0", ctx(users[0].id), [candidate], client)));
+  return (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score' ORDER BY created_at DESC")).rows[0];
+}
+const assessment = { potential_score: 83, risk_score: 25, potential_confidence: 0.8, risk_confidence: 0.9,
+  potential_probabilities: '{"high_potential":0.66,"watch":0.34}', risk_probabilities: '{"normal":0.9,"watch":0.1}',
+  model: "jev-1.13", version: "jev-kol-v1", assessed_at: "2026-10-09T01:01:00Z", criteria_summary: "关键词 camping" };
+
+it("deduplicates scoring, persists before import, and reuses the same score after import and reconnect", async () => {
+  const job = await enqueueScore(); await enqueueScore();
+  expect((await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows).toHaveLength(1);
+  expect((await postgresPool().query("SELECT * FROM kol_candidate_assessments")).rows).toHaveLength(1);
+  expect((await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0].assessment).toMatchObject({ state: "scoring", potential_score: null });
+  const scorer = vi.fn().mockResolvedValue(assessment);
+  await scoreDiscoveryCandidate({ ...job, attempts: 1 }, async () => {}, scorer);
+  await scoreDiscoveryCandidate({ ...job, attempts: 1 }, async () => {}, scorer);
+  expect(scorer).toHaveBeenCalledTimes(1);
+  expect(scorer.mock.calls[0][0].avg_plays).toBeNull();
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "starry-scored" });
+  await command(0, "ingest", await version());
+  resetConn();
+  const view = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0];
+  expect(view.assessment).toMatchObject({ state: "scored", potential_score: 83, version: "jev-kol-v1" });
+  const pool = await readPublicPoolPage(parsePoolPageOptions({}), COMPANY);
+  expect(pool.items.find(row => row.kol_uid === "starry-scored")).toMatchObject({ potential_score: 83, risk_score: 25,
+    assessment_state: "scored", assessed_at: assessment.assessed_at, assessment_criteria: assessment.criteria_summary });
+  expect((await postgresPool().query("SELECT kol_uid FROM kol_candidate_assessments")).rows[0].kol_uid).toBe("starry-scored");
+});
+
+it("records scoring failure without a zero, supports explicit retry, and never overwrites a success on replay", async () => {
+  const job = await enqueueScore();
+  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => {}, vi.fn().mockRejectedValue(new Error("secret transport body")))).rejects.toThrow("Candidate assessment failed");
+  const failed = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0].assessment as Record<string, unknown>;
+  expect(failed).toMatchObject({ state: "failed", potential_score: null }); expect(JSON.stringify(failed)).not.toContain("secret");
+  await command(0, "score", await version());
+  expect((await postgresPool().query("SELECT state FROM kol_candidate_assessments")).rows[0].state).toBe("queued");
+  const retry = (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score' ORDER BY created_at DESC")).rows[0];
+  await scoreDiscoveryCandidate({ ...retry, attempts: 1 }, async () => {}, vi.fn().mockResolvedValue(assessment));
+  await enqueueScore();
+  expect((await postgresPool().query("SELECT state FROM kol_candidate_assessments")).rows[0].state).toBe("scored");
+});
+
+it("rechecks ownership before scoring and refuses another employee's candidate", async () => {
+  const job = await enqueueScore();
+  await command(1, "follow", await version(1));
+  const scorer = vi.fn().mockResolvedValue(assessment);
+  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => {}, scorer)).rejects.toThrow("Candidate assessment failed");
+  expect(scorer).not.toHaveBeenCalled();
+});
+
+it("dispatches the durable job through the existing JEV SDK with this task's conditions and preserves zero confidence", async () => {
+  const db = postgresPool();
+  for (const [session, keyword] of [[ctx(users[0].id).sessionId, "camping"], ["unrelated-session", "unrelated-keyword"]]) {
+    await db.query("INSERT INTO sessions(id,title,created_at,updated_at) VALUES($1,'discovery','now','now')", [session]);
+    await db.query(`INSERT INTO tickets(id,owner_user_id,task_type,title,skill,profile,session_id,input,created_at,updated_at)
+      VALUES($1,$2,'discovery','Discovery','crawler_collect','lead',$1,$3,'now','now')`,
+    [session, users[0].id, JSON.stringify({ discovery_workspace: { brief: { platforms: ["youtube"],
+      region: "global_en", keywords: [keyword], min_followers: 10000, min_avg_plays_10: 5000 } } })]);
+  }
+  process.env.OPENROUTER_API_KEY = "test-only-key";
+  const fetcher = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as { state: { public_profile: string; target_criteria: string } };
+    const profile = JSON.parse(body.state.public_profile).public_profile;
+    expect(profile).toMatchObject({ handle: candidate.id, average_plays: "未提供" });
+    expect(body.state.target_criteria).toContain("camping");
+    expect(body.state.target_criteria).not.toContain("unrelated-keyword");
+    return new Response(JSON.stringify({ model: "typesafe/jev-1.13", answers: {
+      potential: { type: "choice", choice: "high_potential", confidence: 0, probabilities: { high_potential: 0.66, watch: 0.34 } },
+      risk: { type: "choice", choice: "normal", confidence: 0.9 },
+    } }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  setKolJevFetch(fetcher);
+  const job = await enqueueScore();
+  const { processExecutionJobById } = await import("../src/execution-jobs/dispatcher.js");
+  expect(await processExecutionJobById(job.id, "score-test-worker")).toMatchObject({ handled: true, outcome: "processed" });
+  expect(await processExecutionJobById(job.id, "score-test-worker")).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  const view = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0];
+  expect(view.assessment).toMatchObject({ state: "scored", potential_score: 83, potential_confidence: 0,
+    risk_score: 20, criteria_summary: expect.stringContaining("camping") });
+  expect((await db.query("SELECT status FROM execution_jobs WHERE id=$1", [job.id])).rows[0].status).toBe("succeeded");
+});
+
+it("rejects an invalid JEV probability response and keeps the score empty", async () => {
+  process.env.OPENROUTER_API_KEY = "test-only-key";
+  setKolJevFetch(async () => new Response(JSON.stringify({ answers: {
+    potential: { type: "choice", choice: "high_potential", confidence: 0.9, probabilities: { invented_choice: 1 } },
+    risk: { type: "choice", choice: "normal", confidence: 0.9 },
+  } }), { status: 200, headers: { "content-type": "application/json" } }));
+  const job = await enqueueScore();
+  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => {})).rejects.toThrow("Candidate assessment failed");
+  const view = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0];
+  expect(view.assessment).toMatchObject({ state: "failed", potential_score: null, risk_score: null });
 });

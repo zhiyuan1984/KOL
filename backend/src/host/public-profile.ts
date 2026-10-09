@@ -9,8 +9,8 @@ function numericOrNull(value: unknown): number | null {
 /** Public projection shared by reads and command receipts; never exposes internal assessment errors. */
 export function publicProfileFields(row: Row | Json): Json {
   const score = numericOrNull(row.potential_score);
-  const assessmentState = score != null ? "scored" : String(row.assessment_error || "").trim() ? "failed"
-    : String(row.assessed_at || "").trim() ? "low_confidence" : "unscored";
+  const assessmentState = row.assessment_state || (score != null ? "scored" : String(row.assessment_error || "").trim() ? "failed"
+    : String(row.assessed_at || "").trim() ? "low_confidence" : "unscored");
   return {
     id: row.id,
     company_id: row.company_id,

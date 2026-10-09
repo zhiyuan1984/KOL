@@ -12,6 +12,7 @@ import { sanitizeSecret } from "../discovery-errors.js";
 import type { Json } from "../types.js";
 import { getSkillTools, getToolPolicy } from "../runtime/store.js";
 import { ensureLeadFromDiscoveryCandidate } from "../ticket-domain/kol-event-bridge.js";
+import { candidateAssessmentKey, candidateAssessmentView, crawlScoringCriteria, retryCandidateAssessment } from "./assessments.js";
 
 function user() {
   const actor = scopedUser();
@@ -194,6 +195,8 @@ async function reconcileUncertainImport(client: PoolClient, input: {
 }
 /** 保留同一 follow_id；真实编号已有归属或身份冲突时拒绝合并。 */
 async function adoptImportedUid(client: PoolClient, row: Json, kolUid: string, actorId: string) {
+  await client.query(`UPDATE kol_candidate_assessments SET kol_uid=$4
+    WHERE company_id=$1 AND platform=$2 AND creator_id=$3`, [company, String(row.platform).toLowerCase(), row.id, kolUid]);
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`discovery-uid:${company}:${kolUid}`]);
   const formal = (await client.query("SELECT * FROM kol_profile_index WHERE company_id=$1 AND kol_uid=$2 FOR UPDATE", [company, kolUid])).rows[0];
   if (formal && (String(formal.platform).toLowerCase() !== String(row.platform).toLowerCase() ||
@@ -253,6 +256,13 @@ export async function runtimeCandidateViews(context: RuntimeContext, actionId: s
   const actor = mapUser(actorRow);
   const client = await postgresPool().connect();
   try {
+    const criteria = await crawlScoringCriteria(actionId, client);
+    const assessments = (await client.query(`SELECT a.* FROM kol_candidate_assessments a
+      JOIN jsonb_to_recordset($2::jsonb) AS x(platform text,id text,key text)
+      ON a.platform=lower(x.platform) AND a.creator_id=x.id AND a.assessment_key=x.key
+      WHERE a.company_id=$1`, [company, JSON.stringify(candidates.map(row => ({ platform: row.platform,
+        id: String(row.id), key: candidateAssessmentKey(row, criteria) })))])).rows;
+    const scores = new Map(assessments.map(a => [`${a.platform}:${a.creator_id}`, a]));
     const decisions = (await client.query(`SELECT DISTINCT ON (d.candidate_id) d.candidate_id,d.ignored
       FROM discovery_runtime_decisions d JOIN runtime_actions a ON a.id=d.action_id
       WHERE d.actor_id=$1 AND a.actor_id=$1 AND (d.action_id=$2 OR a.session_id=$3)
@@ -275,6 +285,7 @@ export async function runtimeCandidateViews(context: RuntimeContext, actionId: s
       if (owned && owned.employee_id !== actor.id && !isAdmin(actor)) continue;
       const known = matches.find(p => p.ingest_source !== "discovery-candidate");
       out.push({ ...row, ignored: ignored.has(String(row.id)), followed: owned?.employee_id === actor.id,
+        assessment: candidateAssessmentView(scores.get(identity(row))),
         in_pool: Boolean(known && known.ingest_source !== "discovery-candidate" && known.pool_status === "open" && !owned),
         snapshot_version: stamp(row) });
     }
@@ -294,6 +305,10 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
   if (input.snapshot_version !== stamp(row)) throw new HttpFail(409, { code: "candidate_changed", message: "候选资料已更新，请刷新后再操作。" });
   const checked = await runtimeCandidateViews(action.context_json, actionId, [row]);
   if (!checked.length) throw new HttpFail(403, { code: "candidate_scope_denied", message: "该红人已有有效跟进关系，当前不可操作。" });
+  if (verb === "score") {
+    await retryCandidateAssessment(actionId, action.context_json, row);
+    return { ok: true, assessment_state: "scoring" };
+  }
   if (verb === "ignore" || verb === "restore") {
     await postgresTransaction(async client => {
       await lock(client, row);

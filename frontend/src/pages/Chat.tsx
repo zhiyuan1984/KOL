@@ -1482,11 +1482,7 @@ export default function Chat() {
             </section>
             <WorkOrderSuggestions key={taskWorkspace.task.task.task_id} taskId={taskWorkspace.task.task.task_id} onChanged={()=>taskWorkspace.refresh()} />
           </> : discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
-            onRefresh={reload}
-            analyzing={pending || (status === "running" && !runtimeActions.some((action) => action.state === "pending" && !action.execution))} onAnalyze={taskId => void send({
-              text: `请基于本任务已保存的发现条件与采集 ${taskId} 的候选快照，整理可复核简报：候选证据、符合与不符合的条件、无法核验项和下一步。区分采集样本均播与真实最近10条均播；不要重新采集、导入或发信。`,
-              intent: "crawler_collect",
-            })} /> : undefined}
+            onRefresh={reload} /> : undefined}
           focusedMail={focusedMail}
         />
       ) : null}

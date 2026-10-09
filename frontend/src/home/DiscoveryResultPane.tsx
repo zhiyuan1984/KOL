@@ -119,7 +119,7 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
             { id: "existing", label: "已在库", count: existingCount },
           ].map((option) => ({ ...option, dataAttributes: { "data-discovery-result-filter": option.id } }))} />
       </div>
-      <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
+      {!startAction ? <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
             <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 已跟进 ${followUpCount} 人` : ""}`}</span>
             <label className="discovery-candidate-select">
               <input
@@ -141,7 +141,7 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
             >
               {`入库公海（${selected.length}）`}
             </button>
-          </div>
+          </div> : null}
     </div>);
   if (region === "header") {
     return <div className="discovery-result-header" data-discovery-result-header>
@@ -204,7 +204,6 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
       {state.analysisError ? <p role="alert">{state.analysisError}</p> : null}
       {state.analysisReadError ? <p role="alert">{state.analysisReadError}</p> : null}
       {startAction ? <DiscoveryRuntimeResults actions={state.actions} brief={brief} onRefresh={state.reloadActions}
-        analyzing={state.analyzing} onAnalyze={state.analyzeCandidates}
         candidateIds={visible.map(row => row.id)} selectedIds={selectedIds} onSelect={toggleSelected} /> : showResults ? (
         <section className="discovery-result-detail" aria-label="结果明细">
           {region === "all" ? <header className="discovery-result-detail-head">
