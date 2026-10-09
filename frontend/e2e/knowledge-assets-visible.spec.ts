@@ -138,6 +138,7 @@ test('admin shared filters show real counts, aligned 13px rows and a compact glo
   await expect(filters.locator('[data-kb-filter="stage"] [data-kb-filter-value="INITIAL_CONTACT"] small')).toHaveText('13');
   const fonts = await filters.locator('.kbv-scope-name, .knowledge-filter-label, .knowledge-filter-count').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).fontSize));
   expect(fonts.every(font => font === '13px')).toBe(true);
+  expect((await filters.locator('.workspace-search-input').boundingBox())!.height).toBe(32);
   const origins = await filters.locator('.knowledge-filter-row > .knowledge-filter-options').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
   expect(Math.max(...origins) - Math.min(...origins)).toBeLessThan(1);
   await expect(page.locator('[data-kb-status="archived"]')).toContainText('已下架');
