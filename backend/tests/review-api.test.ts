@@ -149,6 +149,24 @@ async function executeReview(actor: string, command: unknown, key: string) {
   return response.json();
 }
 describe("approval optimization boundaries on PostgreSQL", () => {
+  it("counts all scoped unread notifications beyond the visible list and only marks the owner's notice read", async () => {
+    const t = await publish();
+    const receipt = await executeReview("employee", { action: "submit", templateId: t.id, templateVersion: 1, title: "通知计数", values: {} }, "notification-submit");
+    const db = getConn();
+    txImmediate(() => {
+      for (let n = 0; n < 120; n++) db.prepare("INSERT INTO review_notifications(id,tenant,instance_id,user_id,message,created_at) VALUES(?,?,?,?,?,?)")
+        .run(`notice-${n}`, "review-test-a", receipt.resourceId, "review-reviewer", "核对申请", "2026-10-09T00:00:00Z");
+    });
+    const inbox = () => req("reviewer", "/approvals/v2/notifications/inbox").then(r => r.json());
+    const initial = await inbox(); expect(initial.items).toHaveLength(100); expect(initial.unreadCount).toBeGreaterThanOrEqual(120);
+    expect((await req(undefined, "/approvals/v2/notifications/inbox")).status).toBe(401);
+    expect(await (await req("outsider", "/approvals/v2/notifications/inbox")).json()).toEqual({ items: [], unreadCount: 0 });
+    expect((await req("employee", "/approvals/v2/notifications/notice-0/read", {})).status).toBe(404);
+    expect((await inbox()).unreadCount).toBe(initial.unreadCount);
+    expect((await req("reviewer", "/approvals/v2/notifications/notice-0/read", {})).status).toBe(200);
+    expect((await inbox()).unreadCount).toBe(initial.unreadCount - 1);
+    expect((await req("reviewer", "/approvals/v2/notifications/inbox", undefined, { "X-Review-Company": "review-test-b" })).status).toBe(403);
+  });
   it("offers admin-only starters and copies either version into an independent unpublished draft", async () => {
     expect((await req("employee", "/admin/approval-types/v2/starters")).status).toBe(403);
     expect(await (await req("admin", "/admin/approval-types/v2/starters")).json()).toHaveLength(6);

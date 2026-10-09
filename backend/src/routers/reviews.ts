@@ -219,6 +219,9 @@ reviews.get("/approvals/v2/instances/:id", async (c) => {
 reviews.get("/approvals/v2/notifications", (c) =>
   c.json(service(c.req.header("X-Review-Company")).notifications()),
 );
+reviews.get("/approvals/v2/notifications/inbox", (c) =>
+  c.json(service(c.req.header("X-Review-Company")).notificationInbox()),
+);
 reviews.post("/approvals/v2/notifications/:id/read", (c) =>
   c.json(
     reviewTx((db) =>

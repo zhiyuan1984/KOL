@@ -20,6 +20,7 @@ async function workbench(page: Page) {
     if (path === "companies") return route.fulfill({ json: [{ id: "test", name: "测试组织" }] });
     if (path === "templates") return route.fulfill({ json: [{ id: "flow", version: 4, publishedVersion: 4, definition }] });
     if (path === "notifications" || path === "drafts") return route.fulfill({ json: [] });
+    if (path === "notifications/inbox") return route.fulfill({ json: { items: [], unreadCount: 0 } });
     if (path === "instance-page") { requests.push(url.search); return route.fulfill({ json: { items: [item, { ...item, id: "b", createdAt: "2026-10-05T07:03:00Z" }], nextCursor: null } }); }
     if (path === "instances/a" || path === "instances/b") return route.fulfill({ json: { ...item, id: path.endsWith("/b") ? "b" : "a" } });
     if (path === "prepare") return route.fulfill({ json: { confirmationId: "confirmed", summary: { name: "资料审批", version: 4, consequence: "记录决定" } } });

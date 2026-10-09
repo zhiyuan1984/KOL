@@ -53,6 +53,7 @@ async function fixture(page: Page) {
       });
     if (p === "templates") return route.fulfill({ json: [template] });
     if (p === "notifications") return route.fulfill({ json: [] });
+    if (p === "notifications/inbox") return route.fulfill({ json: { items: [], unreadCount: 0 } });
     if (p === "instance-page")
       return route.fulfill({ json: { items: [], nextCursor: null } });
     if (p === "instances") return route.fulfill({ json: [] });
@@ -139,6 +140,73 @@ async function openEditor(page: Page) {
   await main.getByRole("button", { name: "编辑流程", exact: true }).click();
   return main;
 }
+
+test("notification bell shows total unread, marks opened notices read, and closes from keyboard", async ({ page }) => {
+  await fixture(page);
+  let read = false;
+  await page.route("**/api/approvals/v2/notifications/inbox", route => route.fulfill({ json: { unreadCount: read ? 111 : 112, items: [
+    { id: "notice", instance_id: "instance", message: "需要核对申请材料", created_at: "2026-10-09T00:00:00Z", read_at: read ? "now" : null },
+  ] } }));
+  await page.route("**/api/approvals/v2/notifications/notice/read", route => { read = true; return route.fulfill({ json: { id: "notice", readAt: "now" } }); });
+  await page.goto("/approvals");
+  const bell = page.getByRole("button", { name: "站内通知，112 条未读", exact: true });
+  await expect(bell.locator("svg")).toHaveCount(1);
+  await expect(bell.locator(".review-inbox-badge")).toHaveText("112");
+  await bell.focus(); await page.keyboard.press("Enter");
+  const panel = page.getByRole("region", { name: "站内通知列表" });
+  await expect(panel).toBeVisible(); await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0); await expect(bell).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 640 });
+  await bell.click(); await expect(panel).toBeVisible();
+  const bounds = await panel.boundingBox(); expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  await panel.getByRole("button", { name: "需要核对申请材料" }).click();
+  await expect(page.getByRole("button", { name: "站内通知，111 条未读", exact: true })).toBeVisible();
+  await expect(panel.getByText("已读", { exact: true })).toBeVisible();
+  await page.getByRole("heading", { name: "审批中心" }).click(); await expect(panel).toHaveCount(0);
+});
+
+test("notification failures preserve unread and offer retry without claiming an empty inbox", async ({ page }) => {
+  await fixture(page); let fail = true, markedRead = false;
+  await page.route("**/api/approvals/v2/notifications/inbox", route => fail ? route.fulfill({ status: 503, json: { detail: "通知暂不可用" } }) : route.fulfill({ json: { unreadCount: 1, items: [{ id: "notice", instance_id: "instance", message: "打开待处理审批", created_at: "2026-10-09T00:00:00Z", read_at: null }] } }));
+  await page.route("**/api/approvals/v2/notifications/notice/read", route => { markedRead = true; return route.fulfill({ json: {} }); });
+  await page.route("**/api/approvals/v2/instances/instance", route => route.fulfill({ status: 503, json: { detail: "审批详情暂不可用" } }));
+  await page.goto("/approvals");
+  await page.getByRole("button", { name: /站内通知.*加载失败/ }).click();
+  const panel = page.getByRole("region", { name: "站内通知列表" });
+  await expect(panel.getByRole("alert")).toContainText("通知暂不可用"); await expect(panel.getByText("暂无站内通知")).toHaveCount(0);
+  fail = false; await panel.getByRole("button", { name: "重试通知加载" }).click();
+  await expect(page.getByRole("button", { name: "站内通知，1 条未读", exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "打开待处理审批" }).click();
+  await expect(panel.getByRole("alert")).toContainText("通知仍保留未读"); expect(markedRead).toBe(false);
+  await expect(panel.getByText("未读", { exact: true })).toBeVisible();
+});
+
+test("new approval entry explains missing published flows and recovers after configuration", async ({ page }) => {
+  const f = await fixture(page); let configured = false;
+  await page.route("**/api/approvals/v2/templates", route => route.fulfill({ json: configured ? [f.getTemplate()] : [] }));
+  await page.goto("/approvals");
+  const main = page.locator("main.review-page");
+  await main.getByRole("button", { name: "发起审批", exact: true }).click();
+  const empty = main.getByRole("region", { name: "审批流程未就绪" });
+  await expect(empty).toContainText("尚无已发布且启用的普通审批流程");
+  await expect(empty.getByRole("link", { name: "配置并发布审批流程" })).toHaveAttribute("href", "/admin/approval-types?reviewCompany=test");
+  await expect(main.getByRole("button", { name: "提交审批", exact: true })).toHaveCount(0); expect(f.commands).toHaveLength(0);
+  configured = true; await empty.getByRole("button", { name: "重新读取流程" }).click();
+  await expect(main.getByLabel("审批类型")).toHaveValue("template"); await expect(main.getByLabel("申请标题")).toBeVisible();
+  await expect(main.getByRole("button", { name: "提交审批", exact: true })).toBeEnabled(); expect(f.commands).toHaveLength(0);
+});
+
+test("employee without flow management sees the setup contact and paused intake stays blocked", async ({ page }) => {
+  await fixture(page); let paused = false;
+  await page.route("**/api/approvals/v2/context", route => route.fulfill({ json: { tenant: "test", actor: "employee", admin: false, people: [], intake: { allowed: !paused, reason: paused ? "当前组织暂不接收新申请" : "" } } }));
+  await page.route("**/api/approvals/v2/templates", route => route.fulfill({ json: [] }));
+  await page.goto("/approvals"); const main = page.locator("main.review-page");
+  await main.getByRole("button", { name: "发起审批", exact: true }).click();
+  await expect(main.getByRole("region", { name: "审批流程未就绪" })).toContainText("请联系组织管理员");
+  await expect(main.getByRole("link", { name: "配置并发布审批流程" })).toHaveCount(0);
+  paused = true; await page.reload();
+  await expect(main.getByRole("button", { name: "发起审批", exact: true })).toBeDisabled(); await expect(main.getByRole("status").filter({ hasText: "当前组织暂不接收新申请" })).toBeVisible();
+});
 async function addStep(page: Page, name: string, source = "负责人评审") {
   const main = page.locator("main.review-page");
   await main.getByRole("button", { name: `在${source}之后添加步骤`, exact: true }).click();

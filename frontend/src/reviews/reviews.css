@@ -214,8 +214,19 @@
 .review-workbench > .review-toolbar { flex-shrink: 0; margin-top: 0; }
 .review-workbench > .review-toolbar h1 { margin-right: auto; }
 .review-workbench > .review-toolbar > .review-toolbar { margin: 0; }
-.review-workbench > .review-toolbar details { position: relative; }
-.review-workbench > .review-toolbar details[open] > ul { position: absolute; right: 0; z-index: 2; background: var(--bg); border: 1px solid var(--border); padding: var(--space-3); width: var(--dialog-w-sm); max-width: 80vw; max-height: 50dvh; overflow: auto; }
+.review-inbox { position: relative; margin-inline-start: auto; order: 1; }
+.review-page .review-inbox-trigger { position: relative; display: inline-flex; align-items: center; justify-content: center; width: var(--control-h-lg); height: var(--control-h-lg); padding: var(--space-1); border-color: transparent; background: transparent; color: var(--text-muted); }
+.review-page .review-inbox-trigger:hover { background: var(--btn-text-hover-bg); }
+.review-inbox-trigger svg { width: var(--control-h-sm); height: var(--control-h-sm); }
+.review-inbox-badge { position: absolute; inset-block-start: calc(-1 * var(--space-1)); inset-inline-end: calc(-1 * var(--space-2)); min-width: var(--badge-h); height: var(--badge-h); padding-inline: var(--space-1); border-radius: var(--badge-h); background: var(--accent); color: var(--primary-fg); font-size: var(--ds-font-xs); font-weight: 600; line-height: var(--badge-h); text-align: center; }
+.review-inbox-warning { position: absolute; inset-block-end: 0; inset-inline-start: 0; color: var(--danger); font-weight: 600; }
+.review-inbox-panel { position: absolute; inset-inline-end: 0; inset-block-start: calc(100% + var(--space-2)); z-index: 3; width: min(var(--dialog-w-sm), calc(100vw - var(--space-6) * 2)); max-height: 60dvh; overflow: auto; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg); }
+.review-inbox-panel .review-toolbar { margin-top: 0; justify-content: space-between; }
+.review-inbox-panel .review-list { margin-bottom: 0; }
+.review-empty { padding: var(--space-3); }
+@media (pointer: coarse) {
+  .review-page .review-inbox-trigger { min-width: var(--touch-hit-min); min-height: var(--touch-hit-min); }
+}
 .review-workspace { display: flex; flex: 1; min-height: 0; min-width: 0; gap: var(--space-4); }
 .review-list-pane { flex: 1; min-width: 0; overflow: auto; }
 .review-list-tools { position: sticky; top: 0; background: var(--bg); z-index: 1; margin-top: 0; }

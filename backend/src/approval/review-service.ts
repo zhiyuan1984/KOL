@@ -661,6 +661,12 @@ export class ReviewService {
       )
       .all(this.ctx.tenant, this.ctx.actor);
   }
+  notificationInbox() {
+    const row = this.db.prepare(
+      "SELECT COUNT(*) AS count FROM review_notifications n JOIN review_participants p ON p.tenant=n.tenant AND p.instance_id=n.instance_id AND p.user_id=n.user_id WHERE n.tenant=? AND n.user_id=? AND n.read_at IS NULL",
+    ).get(this.ctx.tenant, this.ctx.actor) as { count: number };
+    return { items: this.notifications(), unreadCount: Number(row.count) };
+  }
   readNotification(id: string) {
     if (
       this.db

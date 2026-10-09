@@ -106,7 +106,9 @@ export default function Reviews() {
       reviewApi<ReviewDraft[]>("/approvals/v2/drafts"),
     ]);
     setContext(ctx);
-    setTemplates(ts.filter(t=>t.definition.subjectType !== "knowledge_publication"));
+    const ordinary = ts.filter(t=>t.definition.subjectType !== "knowledge_publication");
+    setTemplates(ordinary);
+    setTemplateId(current => current || ordinary[0]?.id || "");
     await loadList();
     setDrafts(savedDrafts);
     const requestedDraft = new URLSearchParams(location.search).get("draft");
@@ -284,9 +286,12 @@ export default function Reviews() {
     setReason("");
     try {
       const detail = await reviewApi<InstanceView>(`/approvals/v2/instances/${i.id}`);
-      if (request === detailRequest.current) setSelected(detail);
+      if (request !== detailRequest.current) return false;
+      setSelected(detail);
+      return true;
     } catch (e) {
       if (request === detailRequest.current) setError((e as Error).message);
+      return false;
     } finally {
       if (request === detailRequest.current) setDetailLoading(false);
     }
@@ -296,7 +301,7 @@ export default function Reviews() {
       <header className="review-toolbar">
         <h1>审批中心</h1>
         <ReviewOrganization />
-        {context && <ReviewInbox refreshKey={command.receipt} onOpen={async id => { setCreating(false); await show({ id } as InstanceView); }} />}
+        {context && <ReviewInbox refreshKey={command.receipt} onOpen={async id => { setCreating(false); if (!await show({ id } as InstanceView)) throw new Error("未能打开审批，请重试；通知仍保留未读。"); }} />}
         <Link to="/approvals/legacy">旧审批单据</Link>
         {new URLSearchParams(location.search).get("session") && <Link to={`/s/${encodeURIComponent(new URLSearchParams(location.search).get("session")!)}`}>返回来源会话</Link>}
         {!creating && <button disabled={assistantBusy || !templates.length} onClick={() => setAssistantOpen(!assistantOpen)} aria-expanded={assistantOpen}>AI 辅助填写</button>}
@@ -304,13 +309,13 @@ export default function Reviews() {
           <button
             className={!selected && !command.busy ? "primary" : ""}
             disabled={
-              !context || !templates.length || context.intake?.allowed === false
+              !context || context.intake?.allowed === false
             }
             onClick={() => {
               setCreating(true);
               if (!templateId) setTemplateId(templates[0]?.id || "");
             }}
-            title={!templates.length ? "暂无可发起的流程" : context?.intake?.allowed === false ? context.intake.reason : undefined}
+            title={context?.intake?.allowed === false ? context.intake.reason : undefined}
           >
             发起审批
           </button>
@@ -357,6 +362,17 @@ export default function Reviews() {
       )}
       {loading ? (
         <p role="status">正在加载当前组织的评审…</p>
+      ) : creating && !templates.length ? (
+        <section className="review-empty" aria-label="审批流程未就绪">
+          <h2>发起审批</h2>
+          <p role="status">当前组织尚无已发布且启用的普通审批流程，暂时无法提交申请。</p>
+          <p>流程草稿需由组织管理员核对并发布后使用；知识发布流程仅用于知识治理。</p>
+          <div className="review-toolbar">
+            {context?.admin ? <Link to={`/admin/approval-types?reviewCompany=${encodeURIComponent(context.tenant)}`}>配置并发布审批流程</Link> : <span>请联系组织管理员配置并发布审批流程。</span>}
+            <button type="button" onClick={() => { setError(""); void load().catch(e => setError(e.message)); }}>重新读取流程</button>
+            <button type="button" onClick={() => setCreating(false)}>返回审批列表</button>
+          </div>
+        </section>
       ) : creating ? (
         <form
           onSubmit={(e) => {
@@ -424,7 +440,7 @@ export default function Reviews() {
               </button>
               <button type="button" disabled={!template || saving || command.busy || previewBusy} onClick={() => void checkApplication()}>核对申请与路径</button>
               <button
-                disabled={saving || command.busy || previewBusy || context?.intake?.allowed === false}
+                disabled={!template || saving || command.busy || previewBusy || context?.intake?.allowed === false}
                 className={command.busy ? "" : "primary"}
                 type="submit"
               >
