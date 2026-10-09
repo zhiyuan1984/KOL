@@ -68,3 +68,11 @@ npx playwright test --config playwright.ui-unify.config.ts
 使用活动目录和旧 SHA 守卫、备份 tracked overlay/未追踪源码哈希/旧 dist/进程 ID；不执行 `git reset --hard`，生产非本次覆盖层保持。仅交集候选行暂存原覆盖并重放；所有后端、数据库、环境、systemd 路径和 worker 源码不变。构建完成后换前端资源，保留旧 content-hashed assets 供已打开页面请求；仅刷新 Web 版本缓存，不重启 outbox 或执行 worker。失败自动恢复旧 HEAD、原候选 overlay 和旧 dist。
 
 公网 `/api/version` 和 `/ui-release.json` 用于分别核验运行版本与卡片前端源 SHA，避免“main 有变更、线上仍显示旧卡片”的误判。生产实测 SHA、备份路径及最终截图另见交付回执。
+
+## 上线后真实作用域补充核验
+
+首轮 `ac91395d` 生产只读核验确认头像 24px、圆角 6px、cover、名称 13px/500、Checkbox 14px 和无溢出均正确，但辅助字号实测为 13px。原因是旧 `#root .workbench :where(:not(svg):not(svg *))` 带 `font-size: 13px !important`，还会压平共享卡片的 12px helper 与 14px icon。
+
+最终修正：该 shell 重置仅排除 `.kol-card-row` 及其后代，其余工作台样式保持；KOL 字階仍只由 `kol-card.css` 和原有 token 管理，不在共享组件反打 `!important`。三组件 fixture 增加真实 `.workbench` 宿主；真实 Home 回归补辅助 12px、状态 12px、图标 14px 断言。新版本上线后再次读 DOM 核验，而不是只凭隔离截图判断完成。最终源 SHA 和实测值见交付回执。
+
+最终作用域补测：带真实 `#root .workbench` 的三卡片矩阵 9 / 9 通过；真实 Home 字阶/选择、领取取消、焦点保护 3 / 3 通过；补测发现呈现与密度 36 项通过，SSE 前提同步进一步包含初始阅读位置恢复，并发浅/深重复 4 / 4 通过；最终 TypeScript + Vite 构建通过。Home 的两条 meta 行逐一断言，状态通过既有 `data-stage-label` 定位，不假定业务组件都复制同一 class。

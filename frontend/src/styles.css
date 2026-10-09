@@ -15266,9 +15266,11 @@ button.today-brief-primary-btn:disabled {
 .task-center-system-toggle small { margin-top: 2px; color: var(--text-muted); font-size: var(--ds-font-helper, 12px); }
 .task-center-system-toggle > span:last-child { color: var(--accent-text); font-size: var(--ds-font-sm, 13px); white-space: nowrap; }
 
-/* User-directed compact typography: one text size across workbench surfaces.
-   Icons retain their geometry; technical logs retain the documented mono face. */
-#root .workbench, #root .workbench :where(:not(svg):not(svg *)) {
+/* User-directed compact typography outside shared KOL cards.
+   DESIGN §24.6 cards own their approved text/helper/icon token tiers; do not
+   flatten their 12px helper text or 14px icons back to the shell's 13px reset.
+   Other workbench surfaces and the documented mono face are unchanged. */
+#root .workbench, #root .workbench :where(:not(svg):not(svg *):not(.kol-card-row):not(.kol-card-row *)) {
   font-size: var(--ds-font-sm) !important;
   font-family: var(--sans) !important;
 }

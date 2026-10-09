@@ -178,7 +178,7 @@ function FixtureApp() {
     data-zoom={zoom}
     style={{ "--fixture-card-width": `${containerWidth}px`, "--fixture-stage-width": `${containerWidth * 3 + 32}px` } as React.CSSProperties}
   >
-    <main className="kol-card-fixture" data-fixture-container={containerWidth}>
+    <main className="kol-card-fixture workbench" data-fixture-container={containerWidth}>
       <p className="fixture-note">隔离渲染：真实三入口组件、同一对象事实；所有动作只到传入回调或由 Playwright 拦截的 /api。</p>
       <section className="fixture-stage" aria-label="统一 KOL 卡片对照">
         <div className="fixture-card-grid" data-fixture-card-grid>

@@ -41,6 +41,11 @@ test("real Home routes use shared KOL geometry and selection never writes", asyn
     await expect(card.locator("[data-kol-name]")).toHaveCSS("font-size", "13px");
     await expect(card.locator("[data-kol-name]")).toHaveCSS("font-weight", "500");
     await expect(card.locator(".ant-checkbox")).toHaveCSS("width", "14px");
+    const metas = await card.locator('[data-kol-layout="meta"]').all();
+    expect(metas.length).toBeGreaterThan(0);
+    for (const meta of metas) await expect(meta).toHaveCSS("font-size", "12px");
+    await expect(card.locator("[data-stage-label]").first()).toHaveCSS("font-size", "12px");
+    await expect(card.locator(".kol-card-icon").first()).toHaveCSS("font-size", "14px");
     await card.getByRole("checkbox").check();
     await expect(card.getByRole("checkbox")).toBeChecked();
     expect(f.writes).toEqual([]);

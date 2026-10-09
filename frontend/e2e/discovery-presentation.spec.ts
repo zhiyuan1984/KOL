@@ -546,11 +546,14 @@ for (const theme of ["light", "dark"]) {
       await expect(pane).toBeVisible();
       await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
       await expect.poll(() => clients.size).toBe(1);
-      await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
-      // The native scroll event updates follow-tail intent on the next frame;
-      // emit only after that precondition is observable, rather than racing it.
-      await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
-      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      // Establish follow-tail only after initial reading-position restoration
+      // and the native scroll event have settled. Assertions after emit are
+      // intentionally unchanged: no forced scrolling may mask a regression.
+      await expect.poll(async () => {
+        await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        return pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight);
+      }).toBeLessThanOrEqual(1);
       const emit = (revision: number) => {
         const message = { id: "sse-scroll-message", session_id: task.session_id, kind: "text", payload: {
           text: Array.from({ length: 12 + revision * 4 }, (_, i) => `流式段落 ${i}：受控事件验收。`).join("\n\n") + `\n\nSSE版本${revision}`,
