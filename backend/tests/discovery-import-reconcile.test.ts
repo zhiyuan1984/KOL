@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/db.js", () => ({ audit: vi.fn() }));
-vi.mock("../src/config.js", () => ({ codexMode: () => "stub", liveRemoteSideEffectsEnabled: () => false }));
+vi.mock("../src/db.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/db.js")>();
+  return { ...actual, audit: vi.fn() };
+});
+vi.mock("../src/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/config.js")>();
+  return { ...actual, codexMode: () => "stub", liveRemoteSideEffectsEnabled: () => false };
+});
 vi.mock("../src/starrykol/connection.js", () => ({ starryKolMcpConfigured: () => true }));
-vi.mock("../src/starrykol/service.js", () => ({ callStarryKolTool: vi.fn() }));
+vi.mock("../src/starrykol/service.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/starrykol/service.js")>();
+  return { ...actual, callStarryKolTool: vi.fn() };
+});
 vi.mock("../src/gateway/discovery-harness.js", () => ({ rejectDiscoveryHarnessTool: vi.fn() }));
 
 import { audit } from "../src/db.js";

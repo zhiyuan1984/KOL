@@ -19,6 +19,7 @@ import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json, Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { postgresPool } from "../src/postgres/pool.js";
 
 const starryCalls: Array<{ name: string; args: Json }> = [];
 let tmp = "";
@@ -145,6 +146,12 @@ beforeEach(async () => {
   }];
   resetConn();
   seedAll();
+  // Same canonical schema as candidate-action tests, only in this isolated test DB.
+  const schema = fs.readFileSync(new URL("../scripts/apply-postgres-schema.ts", import.meta.url), "utf8");
+  const leadCreate = schema.match(/`(CREATE TABLE IF NOT EXISTS kol_leads \([\s\S]*?\n    \))`/);
+  if (!leadCreate) throw new Error("kol_leads schema not found");
+  await postgresPool().query(leadCreate[1]);
+  await postgresPool().query(fs.readFileSync(new URL("../migrations/030_pool_brand_visibility.sql", import.meta.url), "utf8"));
   configureCrawlerFixture();
   bindStarryMailbox();
   resetCollectorConnectionCache();
@@ -500,6 +507,33 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
   });
 
+  it.each([
+    { success: false, message: "联系邮箱已被其他红人占用", data: {} },
+    { code: 422, message: "平台字段校验失败", data: {} },
+  ])("returns the original explicit Starry business error through the ingest API: %j", async (response) => {
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        starryCalls.push({ name, args });
+        if (name === "pageKolProfiles" || name === "listAllKolProfiles") return { list: [] };
+        if (name === "pageMailboxes") return { list: [{ id: 6, mailboxEmail: BOUND_MAILBOX, ownerOpenId: BOUND_OWNER_OPEN_ID }] };
+        if (name === "addKolProfile") return response;
+        throw new Error(`unexpected tool ${name}`);
+      },
+      async close() {},
+    }));
+    const ready = await readyRun();
+    const item = await ingestFirst(ready.candidates, ready.runId, ready.briefVersion);
+    expect(item).toMatchObject({ status: "failed", kol_uid: null, error: {
+      code: "import_creator_failed", message: `Starry 建档未成功：${response.message}`,
+    } });
+    expect(starryTools(["addKolProfile"])).toHaveLength(1);
+    expect(starryTools(["importKolProfilesFromCrawler"])).toHaveLength(0);
+    expect(listAudit("host.add_kol_profile.failed")[0].payload).toMatchObject({
+      reason: "starry_rejected", starry_response: JSON.stringify(response),
+    });
+    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+  });
+
   it("5. partial failure keeps successful kolUids", async () => {
     let imports = 0;
     setStarryKolClientFactory(() => ({
@@ -591,7 +625,7 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(voided.status).toBe("voided");
   });
 
-  it("7. timeout path looks up Starry before retry and does not blind-retry import", async () => {
+  it("7. enrichment timeout remains uncertain and does not infer success from profile existence", async () => {
     let imported = 0;
     const lookups: Json[] = [];
     setStarryKolClientFactory(() => ({
@@ -630,12 +664,13 @@ describe("POST /api/home/discovery/ingest", () => {
     });
     expect(ingested.status).toBe(200);
     expect((ingested.body.items as Json[])[0]).toMatchObject({
-      status: "imported",
-      kol_uid: "KOLTIMEOUT01",
-      looked_up_after_timeout: true,
+      status: "failed",
+      kol_uid: null,
+      error: { code: "import_creator_uncertain" },
+      looked_up_after_timeout: false,
       retried: false,
     });
-    // 超时只 import 了一次：核对到编号后不再盲目重试。
+    // 已有建档 UID 不能证明本次补资料成功；不重复提交、不改本地公海。
     expect(imported).toBe(1);
     expect(starryCalls.map((row) => row.name)).toEqual([
       "pageKolProfiles",
@@ -643,8 +678,8 @@ describe("POST /api/home/discovery/ingest", () => {
       "pageMailboxes",
       "addKolProfile",
       "importKolProfilesFromCrawler",
-      "pageKolProfiles",
     ]);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: number }).n)).toBe(0);
     expect(listAudit("host.import_creator.timeout_lookup").length).toBe(1);
   });
 

@@ -29,7 +29,7 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
       if (!result.ok) throw new Error("操作结果尚未确认，请刷新核对。");
       if (verb === "follow") {
         if (result.starry_imported === false) {
-          setError(`已跟进，但 Starry 入库未完成：${result.starry_error || "未知原因"}。`);
+          setError(`已跟进，但 Starry 入库未完成：${String(result.starry_error || "未知原因").replace(/[。.!！]+$/, "")}。`);
           refresh();
         } else nav("/?tab=lifecycle");
       }

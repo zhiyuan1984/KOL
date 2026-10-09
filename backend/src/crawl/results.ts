@@ -12,6 +12,7 @@ import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import type { PoolClient } from "pg";
 import { followerEvidence } from "./candidate-evidence.js";
 import { DEFAULT_DEDUP_WINDOW_DAYS, dedupeSightings } from "./dedup.js";
+import { candidateContactEmail } from "../discovery-import.js";
 
 export async function enqueueCrawlResults(id: string, actor: string, attempt = "initial", client?: PoolClient): Promise<void> {
   await pgEnqueueExecutionJob({ job_type: "crawler.results", tenant_ref: "runtime", actor_ref: actor,
@@ -33,8 +34,10 @@ export function candidateView(value: Json, platform: string): Json {
   const avatarRaw = [value.avatar_url, value.avatar, value.profile_pic, value.profile_image,
     value.thumbnail, value.thumb_url, value.pic_url, value.head_img]
     .find((v): v is string => typeof v === "string" && /^https?:\/\//i.test(v)) || null;
+  const contactEmail = candidateContactEmail({ ...value, contact_email: value.contact_email || value.contactEmail });
   return { id: String(value.platform_creator_id || value.creator_id || value.user_id || value.id || ""),
     name: String(value.nickname || value.name || value.handle || "未提供名称"), platform, source_url: url,
+    ...(contactEmail ? { contact_email: contactEmail } : {}),
     avatar_url: avatarRaw,
     direction: typeof value.direction === "string" ? value.direction : null,
     followers: number(value.followers ?? value.follower_count ?? value.fans),
