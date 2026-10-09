@@ -733,7 +733,8 @@ misc.post("/me/starry-binding", async (c) => {
   const saved = saveStarryBinding(user.id, {
     mailbox_email: chosen.mailbox_email,
     mailbox_id: chosen.id || String(body.mailbox_id || ""),
-    owner_name: chosen.owner_name || String(body.owner_name || ""),
+    owner_name: chosen.owner_name,
+    owner_open_id: chosen.owner_open_id,
     bearer,
   });
   resetStarryHomeLibrarySync();

@@ -23,11 +23,14 @@ test("我的红人先读本地记忆并直接渲染互动结果", async ({ page 
       creates_session: false,
       calls_model: false,
       index: "我的跟进",
-      authority: "kol_follow_index",
+      authority: "kol_follow_index+verified_starry_binding",
+      completeness: "complete",
       follow_scope: { required: false, bound: false, mailbox_email: "", mailbox_id: "", owner_name: "", status: "unbound", has_token: false, updated_at: null },
       kols: [{
         kol_uid: "KOL_MEMORY_FIRST",
         follow_id: "follow_memory_first",
+        source_kind: "kol_follow_index",
+        status: "active",
         identity: { display: "@MemoryFirst", platform: "YouTube" },
         stage: { code: "INTERESTED", label: "已回复-有兴趣" },
         dwell: { days: 2 },
@@ -75,8 +78,8 @@ test("我的红人先读本地记忆并直接渲染互动结果", async ({ page 
   await expect(card.locator('[data-stage-code="INTERESTED"]')).toBeVisible();
   await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 1 位");
   await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
-  // 本地索引和历史协作投影并行读取；非空索引可立即显示，但最终统计等两源合并。
+  // 完整名单只来自 following；board 不再是名单读取的必要依赖。
   expect(resultRequests).toContain("/api/home/following");
-  expect(resultRequests).toContain("/api/home/board");
+
   expect(sessionPosts).toEqual([]);
 });

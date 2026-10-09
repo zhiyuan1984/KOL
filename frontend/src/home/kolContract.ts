@@ -1,7 +1,8 @@
 /**
  * P0 employee workbench contract — aligned to PR #172 (A/B/C memory).
  * Pool cards: publicProfileFields only.
- * Follow cards: B.active ∩ self + followClock. No C thread on the list.
+ * Follow cards: server-authorized local active follows plus verified Starry
+ * binding history, with followClock. No C thread on the list.
  */
 
 /** 公海评分接口仍按 8 个一批发送；它不是用户选择上限。 */
@@ -133,6 +134,8 @@ export type FollowKol = {
   kol_uid: string;
   follow_id?: string;
   collaboration_id?: string;
+  /** Server-returned authority provenance; never inferred from owner/display fields. */
+  source_kind?: string;
   identity: { display: string; platform: string; avatar_url?: string };
   metrics?: { followers?: string; avg_plays?: string; engagement?: string; engagement_source?: string };
   assessment?: PoolJevAssessment;
@@ -415,10 +418,18 @@ export function isOpenPoolRow(row: Record<string, unknown>): boolean {
 
 export function isActiveFollowRow(row: Record<string, unknown>): boolean {
   if (row.unbound) return false;
-  const status = text(row.creator_status || row.status);
-  if (row.follow_id || status === "active") return status === "active" || !status;
-  if (status === "discovered" || status === "pool" || status === "released" || status === "claimed") return false;
-  return Boolean(row.id || row.kol_uid || row.handle);
+  // `creator_status` is the source record's lifecycle when present; it wins
+  // over the transport-level status. An ID without an explicit active status
+  // is not authorization to surface a person in this employee's follow list.
+  const status = text(row.creator_status || row.status).toLowerCase();
+  if (status !== "active") return false;
+
+  // Local follows carry `follow_id`, including discovery candidates that have
+  // no verified email yet. Verified historical rows intentionally have no
+  // local follow ID; their source_kind is the server's explicit authority.
+  if (text(row.follow_id)) return true;
+  const sourceKind = text(row.source_kind).toLowerCase();
+  return sourceKind === "starry_binding" || sourceKind === "kol_follow_index" || sourceKind === "discovery_candidate";
 }
 
 export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
@@ -487,6 +498,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       kol_uid: kolUid || handle,
       follow_id: text(row.follow_id) || undefined,
       collaboration_id: text(row.collaboration_id) || undefined,
+      source_kind: text(row.source_kind) || undefined,
       identity: {
         display: text(identity.display) || (handle ? `@${handle}` : "未指定红人"),
         platform: text(identity.platform),
@@ -530,6 +542,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
     kol_uid: kolUid || handle,
     follow_id: text(row.follow_id) || undefined,
     collaboration_id: text(row.collaboration_id) || undefined,
+    source_kind: text(row.source_kind) || undefined,
     identity: {
       display: handle ? `@${handle}` : "未指定红人",
       platform: text(row.platform),
@@ -650,7 +663,7 @@ export function runningBadgeHref(input: {
   return "/tasks";
 }
 
-/** Map B.active follow contract onto the existing followed-kol-card model. */
+/** Map the unified server-authorized follow contract onto the existing card model. */
 export function followKolToRecord(item: FollowKol): {
   id: string;
   handle: string;

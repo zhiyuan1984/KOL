@@ -50,6 +50,8 @@ type SchemaMigration = {
 };
 
 const migrations: SchemaMigration[] = [
+  { id: "20261009_kol_authority_sync_health", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "033_kol_authority_sync_health.sql"), "utf8")] },
+  { id: "20261009_kol_source_authority", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "032_kol_source_authority.sql"), "utf8")] },
   { id: "20261005_public_pool_read_indexes", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "023_public_pool_read_indexes.sql"), "utf8")] },
   { id: "20261004_generic_reviews", statements: reviewSchema },
   { id: "20261004_review_operations", statements: reviewSchema },

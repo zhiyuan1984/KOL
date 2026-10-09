@@ -353,7 +353,7 @@ describe("kol follow/pool memory P0", () => {
       accepted: true,
       status: "running",
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect.poll(async () => (await request("GET", "/api/home/pool/sync")).body.status).toBe("succeeded");
     const response = await request("GET", "/api/home/pool/sync");
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ ok: true, status: "succeeded", count: 3, tool: "pageKolProfiles" });

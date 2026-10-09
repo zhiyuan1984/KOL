@@ -1,3 +1,4 @@
+import { memoryCompanyId } from "./kol-memory.js";
 import { DEMO_USER } from "../config.js";
 import { getConn } from "../db.js";
 import { BY_CODE, MAIN_STAGES, SIDE_STAGES, label, nextCode, normalizeStage } from "../stages.js";
@@ -860,12 +861,16 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
   const owner = ownerId();
   const followScope = currentFollowScope();
   const definitions = taskDefinitionIndex();
+  const ownershipByUid=new Map((conn.prepare(`SELECT o.kol_uid,o.owner_open_id,o.owner_mailbox FROM starry_profile_ownership o
+    JOIN starry_ownership_sync_state health ON health.company_id=o.company_id AND health.state='ready' WHERE o.company_id=?`).all(memoryCompanyId()) as Row[])
+    .map(row=>[String(row.kol_uid),row]));
   const collabs = (conn.prepare(
     "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != '' ORDER BY display_name",
   ).all() as Row[]).filter((row) => {
     if (!followScope.required) return true;
     if (!followScope.bound || followScope.status === "expired") return false;
-    return matchesFollowedMailbox(row, followScope);
+    const ownership=ownershipByUid.get(String(row.kol_uid));
+    return matchesFollowedMailbox({...row,owner_open_id:ownership?.owner_open_id,verified_owner_mailbox:ownership?.owner_mailbox,ownership_source_ready:Boolean(ownership)}, followScope);
   });
   const allCollabs = conn.prepare("SELECT * FROM collaborations").all() as Row[];
   // A creator can have more than one Collaboration. Keep the count in the

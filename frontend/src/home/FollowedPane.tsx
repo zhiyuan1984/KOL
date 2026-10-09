@@ -47,18 +47,15 @@ function useSlowWait(active: boolean, ms = 3000): boolean {
 
 function followEmptyCopy(kind: string, scope: StarryBinding | null) {
   if (kind === "loading") {
-    return { title: "正在读取跟进名单…", body: "读完这里会显示你在跟的红人与合作对象；读取完成前不下结论。" };
-  }
-  if (kind === "reconciling") {
     return {
       title: "正在核对跟进名单…",
-      body: "已读取本地跟进索引，正在核对当前邮箱名下的历史协作记录；完成前不会显示“暂无”。",
+      body: "正在读取服务端核对的授权名单；读取完成前不显示“暂无”。",
     };
   }
   if (kind === "incomplete") {
     return {
       title: "跟进名单暂时无法确认",
-      body: "未能完成当前邮箱范围的名单核对，因此暂不显示“暂无”。可重试或交给 Agent 排查。",
+      body: "未能完成服务端授权名单核对，因此暂不显示“暂无”。可重试或交给 Agent 排查。",
     };
   }
   if (kind === "unbound") {
@@ -72,10 +69,9 @@ function followEmptyCopy(kind: string, scope: StarryBinding | null) {
   }
   if (kind === "mailbox") {
     const mailbox = scope?.mailbox_email || "当前邮箱";
-    const scopeLabel = scope?.owner_name ? `${scope.owner_name}（${mailbox}）` : mailbox;
     return {
       title: "还没有领取跟进的红人",
-      body: `这里显示 ${scopeLabel} 名下的跟进名单。可先从公海领取已有红人，或通过 AI 发现寻找新红人。`,
+      body: `这里显示服务端为 ${mailbox} 核对的授权跟进名单。可先从公海领取已有红人，或通过 AI 发现寻找新红人。`,
     };
   }
   if (kind === "down") {
@@ -161,7 +157,7 @@ export default function FollowedPane({
   const selectedCards = visibleKols.filter((card) => selectedKolIds.includes(card.id));
   const bulkLabel = followedBulkCtaLabel(selectedCards);
   const queryDown = Boolean(down);
-  const loading = !queryDown && (followEmptyKind === "loading" || followEmptyKind === "reconciling");
+  const loading = !queryDown && followEmptyKind === "loading";
   const slowLoading = useSlowWait(loading);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
 
@@ -261,10 +257,6 @@ export default function FollowedPane({
             </button> : null}
           </div>
         </div> : null}
-        {followEmptyKind === "reconciling" && allCards.length ? (
-          <p className="muted" data-followed-reconciling role="status" aria-live="polite">正在核对历史协作数据…</p>
-        ) : null}
-
         {/* 筛选结果计数：只在筛选/搜索缩小了名单时出现；未筛选时中栏总数已覆盖，不重复（不变量 6）。 */}
         {allCards.length > 0 && visibleKols.length > 0 && visibleKols.length < allCards.length ? (
           <p className="followed-rail-count" data-followed-rail-count>

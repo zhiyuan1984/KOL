@@ -23,6 +23,8 @@ function row(index: number) {
     stage_code: "INITIAL_CONTACT",
     stage_label: "初步接触",
     days_in_stage: index,
+    source_kind: "kol_follow_index",
+    status: "active",
     mail_threads: [{
       conversation_id: `thread_${index}`,
       subject: `Re: collab ${index}`,
@@ -41,7 +43,8 @@ function followingEnvelope(kols: Array<Record<string, unknown>>) {
     creates_session: false,
     calls_model: false,
     index: "我的跟进",
-    authority: "kol_follow_index",
+    authority: "kol_follow_index+verified_starry_binding",
+    completeness: "complete",
     follow_scope: {
       required: false,
       bound: false,
@@ -178,7 +181,7 @@ test("读取没回来之前不许说「还没有跟进中的红人」，也不�
 
   const rail = page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail]');
   await expect(page.locator('[data-follow-empty="loading"]')).toBeVisible();
-  await expect(page.locator('[data-follow-empty="loading"]')).toContainText("正在读取跟进名单");
+  await expect(page.locator('[data-follow-empty="loading"]')).toContainText("正在核对跟进名单");
   await expect(rail).not.toContainText("还没有跟进中的红人");
   await expect(rail).not.toContainText("位在跟");
 
@@ -189,9 +192,7 @@ test("读取没回来之前不许说「还没有跟进中的红人」，也不�
   expect((await rail.innerText()).includes("目前跟进了")).toBe(false);
 });
 
-test("本地索引为空时，在历史协作投影合并前不下暂无结论", async ({ page }) => {
-  // board 桩挂起直到「对账中」断言完成：壳级预热（SHELL_READ_DELAY_MS=350ms）可能先于
-  // 点击发出这次读，用固定时延会随机器快慢漂移，这里用显式闸门消除时序依赖。
+test("following 明确成功为空时不等 board，也不补入其他负责人的记录", async ({ page }) => {
   let finishBoard!: () => void;
   const boardGate = new Promise<void>((resolve) => { finishBoard = resolve; });
   const scope = {
@@ -209,59 +210,10 @@ test("本地索引为空时，在历史协作投影合并前不下暂无结论",
   }));
   await page.route("**/api/home/board*", async (route) => {
     await boardGate;
-    await route.fulfill({ json: { kols: [row(1)], follow_scope: scope, workbench: {} } });
-  });
-
-  await openFollowed(page);
-
-  const center = page.locator('[data-home-pane="lifecycle"] [data-scope-ai-workspace]');
-  await expect(page.locator('[data-follow-empty="reconciling"]')).toBeVisible();
-  await expect(page.locator('[data-follow-empty="reconciling"]')).toContainText("正在核对跟进名单");
-  await expect(page.locator('[data-follow-empty="mailbox"]')).toHaveCount(0);
-  await expect(page.locator("[data-follow-empty-actions]")).toHaveCount(0);
-  await expect(center.locator("[data-followed-overview-count]")).toHaveCount(0);
-  await expect(page.locator("[data-followed-lifecycle-grid]")).toHaveCount(0);
-
-  finishBoard();
-  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
-  await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
-  await expect(center.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 1 位");
-  await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
-});
-
-test("先展示本地名单，历史记录拼接完成后原位更新并提示", async ({ page }) => {
-  let finishBoard!: () => void;
-  const boardGate = new Promise<void>((resolve) => { finishBoard = resolve; });
-  let followingReads = 0;
-
-  // 两端必须自洽：board 桩声明「已绑定邮箱范围」，following 桩也必须给出同一范围，
-  // 否则前端会把「本地索引即完整答案」当成结论，不再等旧协作对账。
-  const boundScope = {
-    required: true,
-    bound: true,
-    mailbox_email: "larry.zhao@amperetime.com",
-    mailbox_id: "mb_larry",
-    owner_name: "赵良玉",
-    status: "connected",
-    has_token: true,
-    updated_at: null,
-  };
-  await page.route("**/api/home/following", (route) => {
-    followingReads += 1;
-    return route.fulfill({ json: { ...followingEnvelope([row(1), row(2)]), follow_scope: boundScope } });
-  });
-  await page.route("**/api/home/board*", async (route) => {
-    await boardGate;
     await route.fulfill({
       json: {
-        kols: [row(1), row(2), row(3)],
-        follow_scope: {
-          required: true,
-          bound: true,
-          mailbox_email: "larry.zhao@amperetime.com",
-          owner_name: "赵良玉",
-          status: "connected",
-        },
+        kols: [{ ...row(1), handle: "其他负责人", owner_name: "其他负责人" }],
+        follow_scope: scope,
         workbench: {},
       },
     });
@@ -269,15 +221,39 @@ test("先展示本地名单，历史记录拼接完成后原位更新并提示",
 
   await openFollowed(page);
 
-  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
-  await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
-  await expect(page.locator("[data-followed-interaction]")).toContainText("2 位已加载 · 正在核对最新数据");
-  await expect(page.locator('[data-follow-empty="mailbox"]')).toHaveCount(0);
+  const center = page.locator('[data-home-pane="lifecycle"] [data-scope-ai-workspace]');
+  await expect(page.locator('[data-follow-empty="mailbox"]')).toBeVisible();
+  await expect(page.locator('[data-followed-summary-pending]')).toHaveCount(0);
+  await expect(center.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 0 位");
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
+  await expect(page.locator('[data-followed-kol="其他负责人"]')).toHaveCount(0);
 
   finishBoard();
+  await expect(page.locator('[data-followed-kol="其他负责人"]')).toHaveCount(0);
+  await expect(center.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 0 位");
+});
 
-  await expect(page.locator('[data-followed-kol="红人3"]')).toBeVisible();
-  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 3 位");
+test("服务端刷新失败时保留已经授权的 following rows", async ({ page }) => {
+  let followingReads = 0;
+
+  await stubBoard(page);
+  await page.route("**/api/home/following", (route) => {
+    followingReads += 1;
+    if (followingReads === 1) return route.fulfill({ json: followingEnvelope([row(1), row(2)]) });
+    return route.fulfill({ status: 503, json: { error: "following refresh pending failed" } });
+  });
+
+  await openFollowed(page);
+
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+  await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
+  await page.locator('[data-home-mode="today"]').click();
+  await page.locator('[data-home-mode="lifecycle"]').click();
+
+  await expect(page.locator("[data-follow-refresh-error]")).toBeVisible();
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+  await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
+  await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
   expect(followingReads).toBeGreaterThanOrEqual(2);
 });
 
@@ -358,7 +334,8 @@ test("我的红人右栏与今日任务、公海共用 DESIGN 记录的工作台
     expect(pool).toBe(today);
     expect(today).toBeGreaterThanOrEqual(360);
     expect(today).toBeLessThanOrEqual(820);
-    if (viewport >= 1966) expect(today).toBe(820);
+    // 宽屏也以实际工作台宽度计算 clamp；页面内容区有最大宽度时，不应把视口宽度误当成工作台宽度。
+    expect(Math.abs(today - expected)).toBeLessThanOrEqual(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   }
 });
