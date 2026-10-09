@@ -1804,7 +1804,7 @@
 /* 步骤条：圆圈序号 + 连接线（原芯片式改为 antd Steps 形态；按钮文本顺序不变） */
 .connector-wizard-steps {
   align-items: center;
-  gap: 0;
+  gap: var(--wizard-step-gap);
 }
 .connector-wizard-steps li {
   display: inline-flex;
@@ -1825,7 +1825,7 @@
   border: 0;
   background: transparent;
   padding: 0 var(--space-1);
-  height: auto;
+  height: var(--wizard-step-h);
   gap: var(--space-2);
   color: var(--text-muted);
   font-size: var(--ds-font-sm);
@@ -1855,9 +1855,9 @@
   font-weight: 600;
 }
 .connector-wizard-step.on .connector-wizard-step-n {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-fg);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  border-color: var(--accent);
+  color: var(--accent-text);
 }
 .connector-wizard-step:disabled {
   color: var(--text-muted);
@@ -1878,6 +1878,17 @@
 }
 .connector-enable-info {
   gap: var(--space-3);
+  container-type: inline-size;
+}
+/* 显式外框尺寸避免全局按钮的行高与 padding 把 32px 控件撑到 34px。 */
+.connector-panel.is-form:has(.connector-wizard-steps) .btn {
+  height: var(--control-h-form);
+  padding: 0 var(--space-3);
+}
+.connector-panel.is-form:has(.connector-wizard-steps) .btn.text {
+  height: var(--control-h-sm);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-1);
 }
 
 /* antd Alert 形态：图标 + 加粗标题 + 说明文字 */
@@ -1946,7 +1957,7 @@
 /* antd Descriptions 形态：三列 bordered 描述表 */
 .enable-facts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   margin: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -1958,11 +1969,19 @@
   border-top: 1px solid var(--border-quiet);
   min-width: 0;
 }
-.enable-facts-item:nth-child(-n+3) {
+.enable-facts-item:first-child {
   border-top: 0;
 }
-.enable-facts-item:not(:nth-child(3n+1)) {
-  border-left: 1px solid var(--border-quiet);
+@container (min-width: 720px) {
+  .enable-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .enable-facts-item:nth-child(-n+3) {
+    border-top: 0;
+  }
+  .enable-facts-item:not(:nth-child(3n+1)) {
+    border-left: 1px solid var(--border-quiet);
+  }
 }
 .enable-facts-item dt {
   margin: 0 0 var(--space-1);
