@@ -164,7 +164,9 @@ for (const width of [375, 768]) test(`detail at ${width}px has single-column fie
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("线索已建档", { exact: true })).toBeVisible();
   const bounds = await dialog.evaluate(el => ({ width: el.getBoundingClientRect().width, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
-  expect(bounds.width).toBeLessThanOrEqual(width);
+  // Chromium compositor measurements can differ by ~0.00003px during translation.
+  // Subpixel tolerance does not hide an actual CSS-pixel horizontal overflow.
+  expect(bounds.width).toBeLessThanOrEqual(width + 0.5);
   expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth + 1);
   await expect(dialog.getByRole("button", { name: "返回任务明细" })).toBeVisible();
   await page.screenshot({ path: screenshotPath(`detail-${width}.png`), fullPage: true, animations: "disabled" });
