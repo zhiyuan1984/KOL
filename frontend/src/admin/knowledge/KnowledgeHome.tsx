@@ -387,8 +387,8 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
           {(view !== "all" || assetTypeFilter || expiring) ? <p className="kbv-filter-note" data-kbv-filter-note role="status">
             <span>当前查看：{[view !== "all" ? VIEW_OPTIONS.find(option => option.value === view)?.label : "",
               assetTypeFilter === "document" ? "非结构化资料" : assetTypeFilter === "entry" ? "知识条目" : "",
-              expiring ? "30 天内到期与已过期" : ""].filter(Boolean).join(" · ")}（{total} 条）</span>
-            <button type="button" className="kbv-text-action" data-kbv-filter-note-clear onClick={clearFilterAxis}>清除这部分筛选</button>
+              expiring ? "30 天内到期与已过期" : ""].filter(Boolean).join(" · ")}（{loading ? "正在更新" : error ? "计数暂不可用" : `${total} 条`}）</span>
+            <button type="button" className="kbv-text-action" data-kbv-filter-note-clear onClick={clearFilterAxis}>{[view !== "all", Boolean(assetTypeFilter), expiring].filter(Boolean).length > 1 ? "清除上述条件" : "清除此条件"}</button>
           </p> : null}
           {error ? <p className="kbv-empty" role="alert">知识列表读取失败：{errorMessage(error)} <button className="kbv-text-action" onClick={reloadList}>重试</button></p>
           : <LibraryPane rows={rows} totalCount={total} page={page} pageCount={pageCount} selectedId={selectedId}

@@ -129,3 +129,26 @@ test('right-hand distribution keeps same-level count denominators and direct sco
   await expect(right).toContainText('全局共 13 条');
   expect(s.writes).toEqual([]); expect(s.errors).toEqual([]);
 });
+
+test('admin shared filters show real counts, aligned 13px rows and a compact global lifecycle strip', async ({ page }) => {
+  const s = await fixture(page), filters = page.locator('.knowledge-filter-bar');
+  await expect(page.locator('.kbv-filter-status-label')).toHaveText('生命周期');
+  await expect(page.locator('[data-kbv-view="all"]')).toHaveText('全部13');
+  await expect(filters.locator('[data-kb-filter="brand"] [data-kb-filter-value=""] small')).toHaveText('13');
+  await expect(filters.locator('[data-kb-filter="stage"] [data-kb-filter-value="INITIAL_CONTACT"] small')).toHaveText('13');
+  const fonts = await filters.locator('.kbv-scope-name, .knowledge-filter-label, .knowledge-filter-count').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).fontSize));
+  expect(fonts.every(font => font === '13px')).toBe(true);
+  const origins = await filters.locator('.knowledge-filter-row > .knowledge-filter-options').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
+  expect(Math.max(...origins) - Math.min(...origins)).toBeLessThan(1);
+  await expect(page.locator('[data-kb-status="archived"]')).toContainText('已下架');
+  const strip = page.locator('.kbv-asset-strip-segments');
+  expect((await strip.boundingBox())!.height).toBeLessThan(100);
+  await page.locator('[data-kbv-view="pending"]').click();
+  await expect(page.locator('[data-kbv-record]')).toHaveCount(6);
+  await expect(page.locator('[data-kbv-filter-note-clear]')).toHaveText('清除此条件');
+  await expect(page.locator('[data-kb-status="published"] .kbv-asset-seg-num')).toHaveText('5');
+  await page.locator('[data-kbv-filter-note-clear]').click();
+  await expect(page.locator('[data-kbv-record]')).toHaveCount(13);
+  await page.screenshot({ path: 'test-results/knowledge-filter-admin-final-1440.png', fullPage: true });
+  expect(s.writes).toEqual([]); expect(s.errors).toEqual([]);
+});
