@@ -158,6 +158,11 @@
 .kol-card-row .kol-card-evidence { width: 100%; min-width: 0; font-size: var(--ds-font-xs); line-height: var(--ds-line-helper); }
 .kol-card-row .kol-card-evidence > summary { cursor: pointer; color: var(--accent-text); min-height: var(--control-h-sm); line-height: var(--control-h-sm); }
 .kol-card-row .kol-card-evidence-body { display: grid; gap: var(--space-1); padding: var(--space-2); background: var(--bg-subtle); }
+.kol-card-row .kol-card-detail { margin: 0; font-size: var(--ds-font-xs); line-height: var(--ds-line-helper); }
+.kol-card-row .kol-card-detail > div { min-width: 0; }
+.kol-card-row .kol-card-detail dt { color: var(--text-quiet); }
+.kol-card-row .kol-card-detail dd { margin: 0; overflow-wrap: anywhere; }
+.kol-card-row .kol-card-error { color: var(--danger-text, var(--danger)); font-size: var(--ds-font-xs); }
 .kol-card-row .kol-card-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 var(--space-1); min-width: 0; width: 100%; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); }
 .kol-card-row .kol-card-summary-label { color: var(--text-quiet); font-size: var(--ds-font-xs); }
 .kol-card-row .kol-card-summary-text { flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
+import DiscoveryResultPane from "./DiscoveryResultPane";
+import type { DiscoveryState } from "./useDiscovery";
 import type { HomeDiscoveryCandidate } from "./discoveryHome";
 
 const candidate: HomeDiscoveryCandidate = {
@@ -79,12 +81,13 @@ describe("discovery lead row", () => {
     expect(render({ email: "" })).not.toContain("data-lead-email");
   });
 
-  it("uses the collected avatar when available and a cartoon fallback otherwise", () => {
+  it("uses shared source avatars or a neutral initial without fabricated portraits", () => {
     const fallback = render();
-    expect(fallback).toContain('data-discovery-avatar="cartoon"');
-    expect(fallback).toContain("默认头像");
+    expect(fallback).toContain('data-kol-avatar="fallback"');
+    expect(fallback).toContain('data-kol-unified="discovery"');
+    expect(fallback).not.toContain("discovery-lead-avatar");
     expect(render({ avatarUrl: "https://images.example/clean-glow.jpg" }))
-      .toContain('data-discovery-avatar="source"');
+      .toContain('data-kol-avatar="source"');
   });
 
   it("renders the source URL as a link whenever the candidate has one", () => {
@@ -144,5 +147,24 @@ describe("discovery lead row", () => {
     expect(html).toContain("缺联系邮箱");
     expect(html).toContain("disabled");
     expect(html).toContain("缺少经采集验证的联系邮箱，不能入库。");
+  });
+
+  it("the saved-run fallback in DiscoveryResultPane actually mounts the shared row", () => {
+    const noop = () => undefined;
+    const state = {
+      sessionId: "fixture-session", run: { id: "fixture-run" }, runId: "fixture-run",
+      available: [candidate], visible: [candidate], resultFilter: "all", setResultFilter: noop,
+      selected: [], selectableVisible: [candidate], selectedIds: [], selectedPlatforms: [],
+      followUpIds: [], followUpCount: 0, expandedIds: [], actions: [], analysisMessages: [],
+      startAction: null, startPhase: "succeeded", crawlPhase: "succeeded", stage: "success",
+      toggleSelected: noop, toggleExpanded: noop, ignoreCandidate: noop, selectAll: noop,
+      openIngest: noop, confirmIngest: noop, cancelIngest: noop, refreshAnalysis: noop,
+      followUpCandidate: noop, ingestCandidate: noop,
+    } as unknown as DiscoveryState;
+    const html = renderToStaticMarkup(createElement(DiscoveryResultPane, { state, brief }));
+    expect(html).toContain('data-kol-unified="discovery"');
+    expect(html).toContain('data-candidate-id="c1"');
+    expect(html).not.toContain('class="discovery-lead');
+    expect(html).toContain("cl***@mailcreators.example");
   });
 });

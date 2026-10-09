@@ -66,6 +66,8 @@ for (const theme of ["light", "dark"]) {
       expect(state.errors).toEqual([]);
       expect(state.writes).toEqual([]);
       await page.screenshot({ path: info.outputPath(`${entry.pane}-${entry.discovery ? "discovery" : "chat"}-${entry.url.startsWith("/?") ? "home" : "session"}.png`) });
+      // 先卸载旧页停止轮询，再撤销 fixture，避免请求落到不存在的本地后端。
+      await page.goto("about:blank");
       await page.unrouteAll({ behavior: "wait" });
     }
   });

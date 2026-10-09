@@ -2387,7 +2387,6 @@ summary:focus-visible,
   resize: vertical;
 }
 /* 候选行里的平台/在库是「状态 Tag」：满圆角，与 Filter chip 区分开（§3 圆角层级）。 */
-.discovery-lead .discovery-chip-soft { border-radius: var(--ds-radius-tag); background: var(--ds-surface); }
 
 /* Crawl status / Completed：单行状态卡。左沿与检索区/工具栏/列表一致（只留纵向内边距）。 */
 .discovery-status-card {
@@ -3561,9 +3560,6 @@ summary:focus-visible,
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-}
-.pool-kol-card [data-pool-profile-link] {
-  color: inherit;
 }
 /* 我的红人：连续对象清单。阶段导航、搜索与批量动作固定在列表顶部，
    每位红人只保留身份、最近互动和下一步，避免把右栏做成卡片墙。 */
@@ -12456,39 +12452,12 @@ button.today-brief-primary-btn:disabled {
   padding: 0;
   list-style: none;
 }
-/* 线索证据行：身份、指标、理由、操作上下组合；正文列可收缩。 */
-.discovery-lead { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: start; gap: var(--space-1) var(--space-2); min-width: 0; min-height: 0; padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
-.discovery-lead-select { grid-column: 1; grid-row: 1; display: inline-flex; align-items: start; }
-.discovery-lead-select input { margin: 0; width: var(--icon-sm); height: var(--icon-sm); }
-.discovery-lead-avatar { grid-column: 2; grid-row: 1; width: var(--control-h-sm); height: var(--control-h-sm); border-radius: var(--radius-control); background: var(--color-ash); color: var(--text-quiet); object-fit: cover; overflow: hidden; }
-/* 审查：需求→收回头像下方留白；主责→UI/UX、前端；宪法→CONST-04/08/10；
-   基本法→TECH-FE-02/03；结论→符合；证据→仅调整网格，身份行保留选择框与头像，
-   后续信息跨整行，动作与数据不变；下一步→构建与差异校验。 */
-.discovery-lead-main { display: contents; }
-.discovery-lead-identity { grid-column: 3; grid-row: 1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; min-width: 0; }
-.discovery-lead-nickname { color: var(--text); font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); font-weight: 500; overflow-wrap: anywhere; }
-.discovery-lead-identity .discovery-chip { height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
-.discovery-lead-tag { color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
-.discovery-lead-tag.is-followup { display: inline-flex; align-items: center; min-height: var(--badge-h); padding-inline: var(--space-1); border: 1px solid var(--accent); border-radius: var(--radius-control); font-weight: 500; color: var(--accent-text); }
-/* 入库就绪态按用户要求展示为纯绿色文字，不用描边 chip。 */
-.discovery-lead-tag.is-readiness { display: inline-flex; align-items: center; font-weight: 500; }
-.discovery-lead-tag.is-readiness.is-ready { color: var(--color-success-vivid); }
-.discovery-lead-tag.is-readiness.is-needs_review { color: var(--color-warning-vivid); }
-.discovery-lead-meta { grid-column: 1 / -1; min-width: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: 0; color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); overflow-wrap: anywhere; }
-.discovery-lead-reason { grid-column: 1 / -1; min-width: 0; margin: 0; color: var(--text-muted); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); overflow-wrap: anywhere; }
-.discovery-lead:not(.is-expanded) .discovery-lead-reason { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.discovery-lead-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: start; gap: var(--space-1); min-width: 0; }
 .discovery-follow-quiet { display: inline-flex; align-items: center; min-height: var(--control-h-sm); margin: 0; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--accent-text); font: inherit; font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); text-decoration: none; cursor: pointer; }
 .discovery-follow-quiet:hover:not(:disabled) { background: var(--btn-text-hover-bg); }
 .discovery-follow-quiet:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
 .discovery-follow-quiet[data-discovery-followup][aria-pressed="true"] { font-weight: 600; }
 .discovery-follow-quiet:disabled { opacity: .45; cursor: not-allowed; }
 .discovery-follow-quiet.is-disabled, .discovery-follow-quiet[aria-disabled="true"] { color: var(--text-muted); cursor: not-allowed; }
-.discovery-lead-detail { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); margin: 0; padding-top: var(--space-2); border-top: 1px dashed var(--border); }
-.discovery-lead-detail-item { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0; }
-.discovery-lead-detail-item dt { color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
-.discovery-lead-detail-item dd { margin: 0; color: var(--text); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); overflow-wrap: anywhere; }
-.discovery-lead-select input:disabled { cursor: not-allowed; opacity: .55; }
 @media (pointer: coarse) { .discovery-follow-quiet { min-height: var(--touch-hit-min); } }
 
 /* ── T7：成功态暗色 / 对比度 ── */
@@ -13652,7 +13621,6 @@ button.today-brief-primary-btn:disabled {
   border-bottom: 1px solid var(--border);
 }
 .pool-search,
-.pool-control,
 .pool-select-all {
   min-width: 0;
 }
@@ -13669,8 +13637,7 @@ button.today-brief-primary-btn:disabled {
   pointer-events: none;
 }
 .pool-compact-toolbar input[type="search"],
-.pool-compact-toolbar select,
-.pool-analyze-button {
+.pool-compact-toolbar select {
   height: var(--control-h-lg);
   min-height: var(--control-h-lg);
   border: 1px solid var(--control-border);
@@ -13686,23 +13653,6 @@ button.today-brief-primary-btn:disabled {
 .pool-search input {
   width: 100%;
   padding-left: 32px;
-}
-.pool-control select {
-  min-width: 88px;
-  cursor: pointer;
-}
-.pool-analyze-button {
-  white-space: nowrap;
-  cursor: pointer;
-  color: var(--pool-action);
-  font-weight: 500;
-}
-.pool-analyze-button:hover:not(:disabled) {
-  border-color: var(--control-border-hover);
-}
-.pool-analyze-button:disabled {
-  color: var(--text-muted);
-  cursor: default;
 }
 .pool-select-all {
   display: inline-flex;
@@ -13728,180 +13678,10 @@ button.today-brief-primary-btn:disabled {
   display: block;
   width: 100%;
 }
-.pool-row-content {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.pool-row-heading {
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.pool-row-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-  font-size: var(--ds-font-section);
-  line-height: var(--ds-line-section);
-  font-weight: 600;
-}
-.pool-row-status {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  height: var(--badge-h);
-  padding: 0 7px;
-  border-radius: var(--radius-control);
-  background: var(--ds-surface);
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-  white-space: nowrap;
-}
-.pool-row-status[data-overdue="true"] {
-  background: var(--pool-danger-bg);
-  color: var(--danger);
-  font-weight: 600;
-}
-.pool-row-meta,
-.pool-row-facts,
-.pool-row-intro {
-  min-width: 0;
-  font-size: var(--ds-font-sm);
-  line-height: var(--ds-line-sm);
-}
-.pool-row-meta,
-.pool-row-facts,
-.pool-row-metrics {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0 var(--space-2);
-}
-.pool-row-meta {
-  color: var(--text-muted);
-}
-.pool-profile-link {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-muted);
-}
-.pool-profile-link:hover {
-  color: var(--accent-text);
-}
-.pool-row-meta span + span::before,
-.pool-row-facts > span + span::before,
-.pool-row-metrics span + span::before {
-  content: "·";
-  margin-right: var(--space-2);
-  color: color-mix(in srgb, var(--text-muted) 48%, transparent);
-}
-.pool-row-facts,
-.pool-row-intro {
-  color: var(--text-muted);
-}
-.pool-row-facts {
-  overflow: hidden;
-  white-space: nowrap;
-}
-.pool-row-metrics {
-  min-width: 0;
-  overflow: hidden;
-}
-.pool-row-metrics span {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: none;
-}
-.pool-row-ingested {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: none;
-}
-.pool-row-metrics b {
-  color: var(--text);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-.pool-row-intro {
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-wrap: pretty;
-}
-.pool-row-reason {
-  display: grid;
-  gap: 1px;
-  min-width: 76px;
-  padding: 1px var(--space-2) 1px var(--space-3);
-  border-left: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-  white-space: nowrap;
-}
-.pool-row-reason strong {
-  color: var(--text);
-  font-size: var(--ds-font-sm);
-  line-height: var(--ds-line-sm);
-  font-weight: 500;
-}
-.pool-more-wrap {
-  position: relative;
-}
-.pool-more-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--control-h-lg);
-  height: var(--control-h-lg);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.pool-more-button:hover {
-  background: var(--ds-surface);
-  color: var(--text);
-}
 .pool-inline-icon {
   width: var(--icon-sm);
   height: var(--icon-sm);
   flex: none;
-}
-.pool-more-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 2;
-  min-width: 144px;
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--bg);
-  box-shadow: var(--shadow-quiet);
-  font-size: var(--ds-font-sm);
-  line-height: var(--ds-line-sm);
-}
-.pool-more-menu a {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent-text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .pool-claim-confirm {
   display: flex;
@@ -13982,8 +13762,7 @@ button.today-brief-primary-btn:disabled {
   .pool-compact-toolbar {
     grid-template-columns: minmax(12rem, 1fr) auto auto;
   }
-  .pool-select-all,
-  .pool-analyze-button {
+  .pool-select-all {
     justify-self: start;
   }
 }
@@ -13991,15 +13770,12 @@ button.today-brief-primary-btn:disabled {
   .pool-compact-toolbar {
     grid-template-columns: minmax(0, 1fr);
   }
-  .pool-control select,
-  .pool-analyze-button,
   .pool-select-all {
     width: 100%;
   }
   .pool-select-all {
     justify-content: flex-start;
   }
-  .pool-row-reason { order: 3; }
 }
 @media (pointer: coarse) {
   .pool-compact-pane :is(button, a, input, select) {
@@ -14012,19 +13788,6 @@ button.today-brief-primary-btn:disabled {
 
 /* 公海行紧凑改版（2026-10-07）：三行 64px 起，决策行优先；领取降为 L3 文字按钮。
    以 .pool-compact-pane 作用域覆盖，不动 .pool-kol-row 基线（DiscoveryRuntimeCandidate 共用）。 */
-.pool-compact-pane .pool-row-content { display: grid; gap: 2px; min-width: 0; }
-.pool-compact-pane .pool-row-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
-.pool-compact-pane .pool-row-decision,
-.pool-compact-pane .pool-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--space-2); min-width: 0; }
-.pool-compact-pane .pool-row-decision { font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); color: var(--text-muted); }
-.pool-compact-pane .pool-row-decision b { color: var(--text); font-weight: 500; }
-.pool-compact-pane .pool-row-meta { font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); color: var(--text-muted); }
-.pool-compact-pane .pool-row-decision > span + span::before,
-.pool-compact-pane .pool-row-meta > span + span::before {
-  content: "·";
-  margin-right: var(--space-2);
-  color: color-mix(in srgb, var(--text-muted) 48%, transparent);
-}
 /* D2：行内重复出现（每行都有）的动作一律 L3（DESIGN.md §4.2，不变量 8）；
    R3 合规由行内确认（ClaimFollowConfirm）＋ 4s 撤销回执保证。 */
 /* D5：领取确认条收紧为 helper 字号，确认 L2 / 取消 L3，减少行高跳动。 */
@@ -14091,38 +13854,6 @@ button.today-brief-primary-btn:disabled {
 .pool-compact-list {
   border-top: 1px solid var(--ds-border);
 }
-.pool-row-content {
-  gap: 3px;
-}
-.pool-row-facts {
-  align-self: stretch;
-  justify-content: center;
-  padding: 0 var(--space-3);
-  border-left: 1px solid var(--ds-border);
-  border-right: 1px solid var(--ds-border);
-  overflow: hidden;
-  white-space: normal;
-}
-.pool-row-metrics {
-  flex-wrap: wrap;
-}
-.pool-row-missing-data {
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-}
-.pool-row-reason {
-  min-width: 88px;
-  padding: 1px 0;
-  border-left: 0;
-}
-@media (max-width: 1200px) {
-  .pool-row-facts {
-    grid-column: 3;
-    justify-content: flex-start;
-    padding: 0;
-    border: 0;
-  }
-}
 @media (max-width: 900px) {
   .pool-summary { display: none; }
 }
@@ -14186,93 +13917,17 @@ button.today-brief-primary-btn:disabled {
   width: clamp(176px, 20vw, 224px);
 }
 .pool-compact-toolbar input[type="search"],
-.pool-compact-toolbar select,
-.pool-analyze-button {
+.pool-compact-toolbar select {
   height: 32px;
   min-height: 32px;
   font-size: var(--ds-font-sm);
-}
-.pool-control select {
-  min-width: 76px;
-  padding-inline: 9px 26px;
 }
 .pool-select-all {
   min-height: 32px;
   font-size: var(--ds-font-helper);
 }
-.pool-analyze-button {
-  padding-inline: 10px;
-  font-size: var(--ds-font-helper);
-}
 .pool-compact-list {
   border-top: 1px solid var(--border-subtle, var(--ds-border));
-}
-.pool-row-content {
-  gap: 1px;
-  padding-top: 0;
-}
-.pool-row-heading {
-  gap: 8px;
-  min-height: 22px;
-}
-.pool-row-name {
-  font-size: 15px;
-  line-height: 20px;
-}
-.pool-row-status {
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 6px;
-  background: var(--pool-status-new-bg);
-  color: var(--pool-status-new-text);
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 500;
-}
-.pool-row-status[data-overdue="true"] {
-  background: var(--pool-status-overdue-bg);
-  color: var(--pool-status-overdue-text);
-  font-weight: 600;
-}
-.pool-row-meta,
-.pool-row-facts,
-.pool-row-intro {
-  font-size: 12px;
-  line-height: 18px;
-}
-.pool-row-meta,
-.pool-row-facts,
-.pool-row-metrics {
-  gap: 0 8px;
-}
-.pool-row-meta {
-  color: var(--text-secondary, var(--text-muted));
-}
-.pool-row-facts {
-  display: flex;
-  align-items: center;
-  align-self: auto;
-  justify-content: flex-start;
-  padding: 0;
-  border: 0;
-  color: var(--text-secondary, var(--text-muted));
-  white-space: nowrap;
-}
-.pool-row-metrics {
-  flex-wrap: nowrap;
-  overflow: visible;
-}
-.pool-row-metrics span,
-.pool-row-ingested {
-  gap: 3px;
-}
-.pool-row-intro {
-  color: var(--text-secondary, var(--text-muted));
-}
-.pool-more-button {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
 }
 @media (max-width: 1100px) {
   .pool-compact-header {
@@ -14295,13 +13950,6 @@ button.today-brief-primary-btn:disabled {
   .pool-search {
     flex-basis: 100%;
   }
-  .pool-row-facts {
-    flex-wrap: wrap;
-    white-space: normal;
-  }
-  .pool-row-metrics {
-    flex-wrap: wrap;
-  }
 }
 @media (max-width: 420px) {
   .scope-workspace.is-result-focus .pool-compact-pane {
@@ -14313,17 +13961,9 @@ button.today-brief-primary-btn:disabled {
   .pool-compact-toolbar > :not(.pool-search) {
     flex: 1 1 auto;
   }
-  .pool-control select,
-  .pool-analyze-button {
-    width: 100%;
-  }
 }
 
 /* The status is the single public-sea reason, so it must scan with—not away from—the identity. */
-.pool-row-name {
-  flex: 0 1 auto;
-  max-width: min(70%, 32rem);
-}
 
 /* 公海恢复为对象工作台右栏：中栏永远留给人机协作与提问框。 */
 .scope-task-rail [data-result-rail="pool"] {
@@ -14359,75 +13999,12 @@ button.today-brief-primary-btn:disabled {
   grid-column: 1 / -1;
   width: 100%;
 }
-.scope-task-rail .pool-control,
-.scope-task-rail .pool-control select,
-.scope-task-rail .pool-analyze-button {
-  min-width: 0;
-}
 .scope-task-rail .pool-select-all {
   grid-column: 1 / 2;
   justify-self: start;
 }
-.scope-task-rail .pool-analyze-button {
-  grid-column: 2 / -1;
-  justify-self: end;
-}
 .scope-task-rail .pool-compact-list {
   border-top-color: var(--ds-border);
-}
-.scope-task-rail .pool-row-name {
-  max-width: calc(100% - 4px);
-  font-size: var(--ds-font-body);
-  line-height: var(--ds-line-body);
-}
-.scope-task-rail .pool-row-status {
-  height: var(--badge-h);
-  padding-inline: 6px;
-  font-size: var(--ds-font-helper);
-}
-.scope-task-rail .pool-row-meta,
-.scope-task-rail .pool-row-facts,
-.scope-task-rail .pool-row-intro {
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-}
-.scope-task-rail .pool-row-facts {
-  grid-column: auto;
-  flex-wrap: nowrap;
-  gap: 0 var(--ds-space-2);
-  overflow: hidden;
-  white-space: nowrap;
-}
-.scope-task-rail .pool-row-metrics {
-  flex-wrap: nowrap;
-  overflow: hidden;
-}
-.scope-task-rail .pool-row-intro {
-  grid-column: auto;
-}
-.scope-task-rail .pool-more-wrap {
-  grid-column: 2;
-}
-.scope-task-rail .pool-more-button {
-  width: var(--icon-btn);
-  height: var(--icon-btn);
-}
-.scope-task-rail .pool-row-reason {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-  margin-top: var(--ds-space-1);
-  padding: 0 0 0 var(--ds-space-2);
-  border-left: 1px solid var(--ds-border);
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-}
-.scope-task-rail .pool-row-reason strong {
-  color: var(--text);
-  font-size: var(--ds-font-helper);
-  font-weight: 500;
 }
 @media (max-width: 1100px) {
 .scope-task-rail .pool-compact-header {
@@ -14437,16 +14014,6 @@ button.today-brief-primary-btn:disabled {
 
 /* 公海右栏是高密度线索表。状态标签已完整表达入海状态，不重复再写「公海原因」。
    L3 保留确认语义，但视觉尺寸回到工作台的 24 / 28px 控件阶梯。 */
-.scope-task-rail .pool-profile-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  color: var(--accent-text);
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
 .scope-task-rail .pool-claim-confirm {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -14589,8 +14156,6 @@ button.today-brief-primary-btn:disabled {
   background: var(--ds-surface);
 }
 .pool-interaction .pool-search { grid-area: search; width: 100%; }
-.pool-interaction .pool-control:first-of-type { grid-area: filter; }
-.pool-interaction .pool-control:last-of-type { grid-area: sort; }
 .pool-interaction .pool-select-all { grid-area: selection; }
 .pool-interaction .pool-interaction-actions {
   grid-area: analyze;
@@ -14678,9 +14243,7 @@ button.today-brief-primary-btn:disabled {
       "analyze";
     grid-template-columns: minmax(0, 1fr);
   }
-  .pool-interaction .pool-control select,
-  .pool-interaction .pool-interaction-actions,
-  .pool-interaction .pool-analyze-button { width: 100%; }
+  .pool-interaction .pool-interaction-actions { width: 100%; }
   .pool-interaction .pool-interaction-actions { justify-content: space-between; }
   .pool-interaction .pool-agent-starters,
   .pool-interaction .pool-maintenance { grid-template-columns: minmax(0, 1fr); }
@@ -14985,21 +14548,6 @@ button.today-brief-primary-btn:disabled {
 }
 
 .scope-task-rail .pool-compact-toolbar { display: grid; gap: var(--ds-space-1); }
-.scope-task-rail .pool-row-meta { flex-wrap: wrap; }
-.scope-task-rail .pool-row-score {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: var(--ds-line-helper);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.scope-task-rail .pool-profile-link + span::before {
-  content: "·";
-  margin-right: var(--ds-space-1);
-  color: color-mix(in srgb, var(--text-muted) 48%, transparent);
-}
 /* Task center: quiet, dense workbench layout for queued and historical work items. */
 .tasks-page { width: min(100%, var(--content-max, 1200px)); box-sizing: border-box; margin: 0 auto; padding: var(--space-5, 20px) var(--space-6, 24px) var(--space-7, 32px); }
 .tasks-page-head { display: none; }
@@ -16251,36 +15799,6 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
     transition: none;
   }
 }
-/* Runtime candidates share the discovery row grammar in every session entry.
-   Their content classes are independent of the public-pool grid placement. */
-.discovery-runtime-candidate {
-  display: block; min-width: 0; padding: var(--space-2) 0;
-  border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
-  background: transparent; box-sizing: border-box;
-}
-.discovery-runtime-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); min-width: 0; }
-.discovery-runtime-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0; }
-.discovery-runtime-avatar {
-  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
-  width: var(--control-h-sm); height: var(--control-h-sm); overflow: hidden;
-  border-radius: var(--radius-control); background: var(--color-ash); color: var(--text-quiet);
-  font-size: var(--ds-font-helper); font-weight: 500; object-fit: cover;
-}
-.discovery-runtime-name { font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); font-weight: 500; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
-.discovery-runtime-status { display: inline-flex; align-items: center; min-height: var(--badge-h); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); color: var(--text-quiet); }
-.discovery-runtime-meta, .discovery-runtime-facts {
-  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0;
-  font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); color: var(--text-quiet); overflow-wrap: anywhere;
-}
-.discovery-runtime-facts > span { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); min-width: 0; }
-.discovery-runtime-facts b { color: var(--text); font-weight: 500; overflow-wrap: anywhere; }
-.discovery-runtime-meta a { color: var(--accent-text); }
-.discovery-runtime-candidate p { margin: 0; font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); overflow-wrap: anywhere; }
-.discovery-runtime-candidate .discovery-candidate-fit { color: var(--text-muted); }
-.discovery-runtime-candidate details { margin: 0; min-width: 0; font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); color: var(--text-quiet); }
-.discovery-runtime-candidate summary { cursor: pointer; }
-.discovery-runtime-candidate .discovery-runtime-actions { grid-column: auto; margin: 0; gap: var(--space-1); }
-.discovery-runtime-candidate .discovery-follow-quiet { font-size: var(--ds-font-sm); }
 
 /* 固定右栏头与唯一内容滚动区；独立于各任务的内容组件。 */
 .home-pane[data-home-workspace] .scope-task-rail.has-fixed-header { display: flex; flex-direction: column; overflow: clip; min-height: 0; padding: 0; }

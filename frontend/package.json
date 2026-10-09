@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build --configLoader runner",
     "preview": "vite preview --host 127.0.0.1 --port 4177",
     "typecheck": "tsc --noEmit",
+    "check:kol-presentation": "node scripts/check-kol-presentation.mjs",
     "test:e2e": "playwright test",
     "test:e2e:changed": "node scripts/select-e2e.mjs",
     "test:e2e:employees": "playwright test --config=playwright.employees.config.ts",

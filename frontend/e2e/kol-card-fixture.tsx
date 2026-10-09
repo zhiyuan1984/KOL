@@ -7,6 +7,8 @@ import { projectFollowedKolCard, type FollowedKolRecord } from "../src/followedK
 import PoolPane from "../src/home/PoolPane";
 import type { PoolKol } from "../src/home/kolContract";
 import DiscoveryRuntimeCandidate, { type Candidate } from "../src/home/DiscoveryRuntimeCandidate";
+import DiscoveryLeadRow from "../src/home/DiscoveryLeadRow";
+import { asHomeCandidate } from "../src/home/discoveryHome";
 import type { DiscoveryBrief } from "../src/home/discoveryTemplate";
 import "../src/styles.css";
 import "../src/home/followed.css";
@@ -167,6 +169,30 @@ function DiscoveryFixture({ row = candidate, edge }: { row?: Candidate; edge?: s
   </>;
 }
 
+function LegacyDiscoveryFixture() {
+  const [selected, setSelected] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [calls, setCalls] = useState({ ingest: 0, follow: 0, ignore: 0 });
+  const row = asHomeCandidate({ ...candidate, id: "fixture-legacy", nickname: DISPLAY_NAME,
+    handle: "fixture-legacy", platform_creator_id: "fixture-platform-id", avg_plays_10: 18000,
+    email: "fixture@example.test", confidence: 0.8, sample_size: 10,
+    ingest_readiness: new URLSearchParams(location.search).has("blocked") ? "needs_contact" : "ready",
+    ingest_block_reason: "缺少经采集验证的联系邮箱，不能入库。",
+    matched_keywords: ["camping"], match_reason: "露营与离网电源内容符合任务条件" })!;
+  const run = async (kind: "ingest" | "follow") => {
+    setCalls(value => ({ ...value, [kind]: value[kind] + 1 }));
+    await new Promise(resolve => setTimeout(resolve, 80));
+    if (new URLSearchParams(location.search).has("fail")) throw new Error("隔离回调失败，可原位重试");
+  };
+  return <>
+    <output data-fixture-legacy-calls>{JSON.stringify(calls)}</output>
+    <DiscoveryLeadRow candidate={row} brief={brief} selected={selected} expanded={expanded} followedUp={false}
+      onToggleSelect={setSelected} onToggleExpand={() => setExpanded(value => !value)}
+      onIngestCandidate={() => run("ingest")} onFollowUpCandidate={() => run("follow")}
+      onIgnore={() => setCalls(value => ({ ...value, ignore: value.ignore + 1 }))} />
+  </>;
+}
+
 function FixtureApp() {
   const query = new URLSearchParams(window.location.search);
   const theme = query.get("theme") === "dark" ? "dark" : "light";
@@ -193,6 +219,7 @@ function FixtureApp() {
           <section className="fixture-card-host" data-fixture-card="pool"><PoolFixture /></section>
           <section className="fixture-card-host" data-fixture-card="discovery"><DiscoveryFixture /></section>
         </div>
+        {query.has("legacy") ? <section className="fixture-card-host" data-fixture-card="legacy"><LegacyDiscoveryFixture /></section> : null}
       </section>
       <section className="fixture-edge-grid" aria-label="头像与长内容边界样本">
         <section className="fixture-card-host" data-fixture-edge="missing-avatar">

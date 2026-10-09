@@ -57,7 +57,3 @@
 .scope-workspace[data-agent-visual] .composer.composer--workspace textarea {
   font-size: var(--agent-font); line-height: var(--agent-compact-line);
 }
-.scope-workspace[data-agent-visual] :is(.discovery-runtime-meta, .discovery-runtime-facts,
-  .discovery-runtime-candidate p, .discovery-runtime-candidate details, .discovery-runtime-status) {
-  font-size: var(--agent-font); line-height: var(--agent-compact-line);
-}

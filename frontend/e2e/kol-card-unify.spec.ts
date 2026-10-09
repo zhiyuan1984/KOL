@@ -332,3 +332,58 @@ test('insufficient suggestion uses explicit text roles without resizing the lead
   await expect(suggestion.locator('.kol-card-why')).toHaveCSS('font-size', '12px');
   for (const icon of await page.locator('[data-fixture-card] .kol-card-icon').all()) await expect(icon).toHaveCSS('font-size', '14px');
 });
+
+for (const theme of ["light", "dark"]) {
+  test(`legacy result branch uses shared cards and preserves callbacks: ${theme}`, async ({ page }) => {
+    await page.route("**/api/**", route => route.abort());
+    for (const width of [360, 479, 480, 719, 720, 820]) {
+      await page.goto(fixtureUrl({ legacy: 1, container: width, theme }));
+      const legacy = page.locator('[data-fixture-card="legacy"] .kol-card-row');
+      await expect(legacy).toHaveAttribute("data-kol-unified", "discovery");
+      await expect(legacy.locator(".kol-card-avatar")).toHaveCSS("width", "24px");
+      await expect(legacy.locator(".kol-card-meta").first()).toHaveCSS("font-size", "12px");
+      expect(await legacy.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
+    }
+    const legacy = page.locator('[data-fixture-card="legacy"]');
+    const calls = page.locator("[data-fixture-legacy-calls]");
+    await legacy.getByRole("checkbox").check();
+    await legacy.getByRole("button", { name: "查看线索详情" }).click();
+    await expect(legacy.locator("[data-lead-detail]")).toContainText("推荐分构成");
+    await legacy.getByRole("button", { name: "加入公海", exact: true }).click();
+    await expect(calls).toContainText('"ingest":0');
+    await legacy.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(calls).toContainText('"ingest":0');
+    await legacy.getByRole("button", { name: "加入公海", exact: true }).click();
+    await legacy.getByRole("button", { name: "确认加入公海", exact: true }).evaluate(el => {
+      (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click();
+    });
+    await expect(calls).toContainText('"ingest":1');
+    await expect(legacy.locator("[data-lead-ingest-confirm]")).toHaveCount(0);
+    await legacy.getByRole("button", { name: "跟进", exact: true }).click();
+    await expect(calls).toContainText('"follow":0');
+    await legacy.getByRole("button", { name: "确认跟进", exact: true }).evaluate(el => {
+      (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click();
+    });
+    await expect(calls).toContainText('"follow":1');
+    await expect(legacy.locator("[data-lead-followup-confirm]")).toHaveCount(0);
+    await legacy.getByRole("button", { name: "忽略", exact: true }).click();
+    await expect(calls).toContainText('"ignore":1');
+  });
+}
+
+test("legacy confirmed failure retains confirmation and retries without duplicate writes; blocked selection remains disabled", async ({ page }) => {
+  await page.route("**/api/**", route => route.abort());
+  await page.goto(fixtureUrl({ legacy: 1, fail: 1, container: 360 }));
+  const legacy = page.locator('[data-fixture-card="legacy"]');
+  await legacy.getByRole("button", { name: "加入公海", exact: true }).click();
+  await legacy.getByRole("button", { name: "确认加入公海", exact: true }).click();
+  await expect(legacy.getByRole("alert")).toContainText("可原位重试");
+  await legacy.getByRole("button", { name: "确认加入公海", exact: true }).click();
+  await expect(page.locator("[data-fixture-legacy-calls]")).toContainText('"ingest":2');
+  await expect(legacy.getByRole("alert")).toBeVisible();
+  await legacy.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(legacy.getByRole("alert")).toHaveCount(0);
+  await page.goto(fixtureUrl({ legacy: 1, blocked: 1, container: 360 }));
+  await expect(legacy.getByRole("checkbox")).toBeDisabled();
+  await expect(legacy.locator("[data-lead-readiness]").last()).toHaveText("缺联系邮箱");
+});

@@ -396,14 +396,6 @@
   line-height: var(--ds-line-helper);
   overflow-wrap: anywhere;
 }
-.discovery-lead-avatar.is-cartoon {
-  color: var(--accent-text);
-}
-.discovery-lead-avatar.is-cartoon svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
 .discovery-result-detail {
   min-width: 0;
 }
@@ -561,7 +553,6 @@
   font-size: var(--ds-font-body);
   line-height: var(--ds-line-body);
 }
-.discovery-lead-select input:disabled { cursor: not-allowed; opacity: 0.55; }
 @media (max-width: 480px) {
   .discovery-conversion-overview dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .discovery-run-bar .discovery-ingest-trigger { margin-left: 0; }
