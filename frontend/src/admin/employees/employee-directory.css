@@ -118,10 +118,14 @@
 [data-admin-employees] .governance-main { container-type: inline-size; }
 [data-admin-employees] .governance-filter-group strong,
 [data-admin-employees] .governance-employee-number { font-size: var(--ds-font-sm); }
+[data-admin-employees] .governance-filter-group { display: flex; align-items: center; gap: var(--space-2); padding-block: var(--space-1); line-height: var(--ds-line-sm); }
+[data-admin-employees] .governance-filter-group strong { flex: 0 0 auto; margin: 0; }
+[data-admin-employees] .governance-filter-options { min-width: 0; gap: var(--space-1); }
+[data-admin-employees] .governance-filter-group .governance-filter-options button { min-height: var(--control-h-sm); padding: 0 var(--space-1); line-height: var(--ds-line-sm); }
 .employee-search-wrap { margin-bottom: var(--space-3); }
 .employee-search-wrap svg { width: var(--space-4); height: var(--space-4); flex-shrink: 0; stroke: currentColor; stroke-width: 1.5; fill: none; color: var(--text-muted); }
 .employee-search-wrap:focus-within { outline: var(--focus-ring); }
-.employee-organization-filter { display: grid; gap: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-3); }
+.employee-organization-filter { display: grid; gap: var(--space-3); margin-top: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-3); }
 .employee-organization-filter h3 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; }
 .employee-organization-filter label { display: grid; gap: var(--space-1); }
 .employee-organization-filter select,
@@ -133,6 +137,18 @@
 [data-admin-employees] button:focus-visible,
 .employee-organization-filter select:focus-visible,
 .employee-organization-filter input:focus-visible { outline: var(--focus-ring); }
+/* CTA的实底画在24px视觉层，按钮外框用于触摸命中，不拉宽/放大视觉按钮。 */
+.employee-create-inline { display: flex; justify-content: flex-start; margin-block: var(--space-3); }
+.employee-create-inline + .employee-organization-filter { margin-top: 0; }
+[data-admin-employees] button.employee-create-cta { display: inline-flex; align-items: center; justify-content: center; width: auto; height: var(--control-h-sm); min-height: var(--control-h-sm); padding: 0; border: 0; border-radius: var(--radius-control); background: transparent; box-shadow: none; color: var(--primary-fg); font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); }
+.employee-create-visual { display: inline-flex; align-items: center; height: var(--control-h-sm); padding-inline: var(--space-2); border-radius: var(--radius-control); background: var(--primary); color: var(--primary-fg); transition: background var(--duration-control); }
+[data-admin-employees] button.employee-create-cta:hover:not(:disabled) { background: transparent; color: var(--primary-fg); text-decoration: none; }
+.employee-create-cta:hover:not(:disabled) .employee-create-visual,
+.employee-create-cta:active:not(:disabled) .employee-create-visual { background: var(--primary-hover); }
+[data-admin-employees] button.employee-create-cta:focus-visible { outline: var(--focus-ring); outline-offset: var(--space-1); box-shadow: none; }
+.employee-create-cta:disabled { cursor: not-allowed; }
+.employee-create-cta:disabled .employee-create-visual { background: var(--fill-control); color: var(--text-muted); }
+@media (prefers-reduced-motion: reduce) { .employee-create-visual { transition: none; } }
 /* 紧凑双行：身份与 Agent｜邮箱与操作组。启停只保留操作区一个入口。 */
 [data-admin-employees] .governance-list { display: grid; gap: var(--space-2); border: 0; border-radius: 0; overflow: visible; }
 [data-admin-employees] .governance-employee-row { display: block; padding: 0; border: 0; background: transparent; cursor: default; }
@@ -200,6 +216,8 @@
   [data-admin-employees] .employee-card button,
   [data-admin-employees] .employee-card .employee-agent-toggle,
   .employee-dialog-layer:is([data-employee-dialog='edit'], [data-employee-dialog='create']) button { min-height: 44px; }
+  [data-admin-employees] .governance-filter-group .governance-filter-options button,
+  [data-admin-employees] button.employee-create-cta { min-height: var(--touch-hit-min); }
 }
 @media (max-width: 860px) {
   .employee-directory-head { align-items: flex-start; flex-direction: column; }
