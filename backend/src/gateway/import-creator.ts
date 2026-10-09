@@ -20,8 +20,9 @@ import {
   type CrawlerImportFile,
 } from "../discovery-import.js";
 import { HttpFail } from "../host/errors.js";
-import { callStarryKolTool } from "../starrykol/service.js";
+import { callStarryKolTool, normalizeStarryKolResult } from "../starrykol/service.js";
 import type { Json } from "../types.js";
+import { starryBodyFailure, starryResponseDigest } from "./starry-response.js";
 
 export type ImportCreatorInput = {
   file: CrawlerImportFile;
@@ -334,12 +335,44 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       });
     }
   }
-  const echoed = parseImportedKolUid(data);
+  const bodyFailure = starryBodyFailure(data);
+  if (bodyFailure.failed) {
+    audit(actor, "host.import_creator.failed", {
+      policy: IMPORT_CREATOR_POLICY, tool: IMPORT_CREATOR_TOOL,
+      source_batch: input.sourceBatch, creator_external_id: input.creatorExternalId,
+      candidate_id: input.candidateId || null, reason: "starry_rejected",
+      starry_response: starryResponseDigest(data), retried: false, sent: false, stage_changed: false,
+    });
+    throw new HttpFail(502, {
+      code: "import_creator_failed",
+      message: bodyFailure.message ? `Starry 建档未成功：${bodyFailure.message}` : "Starry 明确拒绝了档案写入，未加入公海。",
+      policy: IMPORT_CREATOR_POLICY,
+    });
+  }
+  const echoed = parseImportedKolUid(normalizeStarryKolResult(data));
   // 更新回包（totalCount/updatedCount…）不带 uid 时，用第一步 addKolProfile 拿到的 uid；
   // 仍然拿不到就诚实失败，不编造编号。
-  const kolUid = isRealKolUid(echoed)
+  let kolUid = isRealKolUid(echoed)
     ? echoed
     : (isRealKolUid(input.knownKolUid) ? String(input.knownKolUid).trim() : "");
+  let lookedUpAfterMissingUid = false;
+  if (!isRealKolUid(kolUid)) {
+    try {
+      const found = await withTimeout(
+        lookupImportedKolUid({ keyword: input.lookupKeyword, creatorExternalId: input.creatorExternalId }),
+        STARRY_LOOKUP_TIMEOUT_MS, "pageKolProfiles",
+      );
+      if (isRealKolUid(found)) {
+        kolUid = found;
+        lookedUpAfterMissingUid = true;
+      }
+    } catch (error) {
+      audit(actor, "host.import_creator.missing_uid_lookup_failed", {
+        source_batch: input.sourceBatch, creator_external_id: input.creatorExternalId,
+        error_detail: sanitizeSecret(error), retried: false,
+      });
+    }
+  }
   if (!isRealKolUid(kolUid)) {
     audit(actor, "host.import_creator.failed", {
       policy: IMPORT_CREATOR_POLICY,
@@ -348,6 +381,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       creator_external_id: input.creatorExternalId,
       candidate_id: input.candidateId || null,
       reason: "missing_kol_uid",
+      starry_response: starryResponseDigest(data),
       sent: false,
       stage_changed: false,
     });
@@ -379,6 +413,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     sent: false,
     stage_changed: false,
     looked_up_after_timeout: lookedUpAfterTimeout,
+    looked_up_after_missing_uid: lookedUpAfterMissingUid,
     retried: false,
     data,
   };
@@ -466,7 +501,39 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
       policy: IMPORT_CREATOR_POLICY,
     });
   }
-  const kolUid = parseImportedKolUid(data);
+  const bodyFailure = starryBodyFailure(data);
+  if (bodyFailure.failed) {
+    audit(actor, "host.add_kol_profile.failed", {
+      policy: IMPORT_CREATOR_POLICY, tool: ADD_KOL_PROFILE_TOOL,
+      source_batch: input.sourceBatch, creator_external_id: input.creatorExternalId,
+      candidate_id: input.candidateId || null, reason: "starry_rejected",
+      starry_response: starryResponseDigest(data), retried: false, sent: false, stage_changed: false,
+    });
+    throw new HttpFail(502, {
+      code: "import_creator_failed",
+      message: bodyFailure.message ? `Starry 建档未成功：${bodyFailure.message}` : "Starry 明确拒绝了建档，未加入公海。",
+      policy: IMPORT_CREATOR_POLICY,
+    });
+  }
+  let kolUid = parseImportedKolUid(normalizeStarryKolResult(data));
+  let lookedUpAfterMissingUid = false;
+  if (!isRealKolUid(kolUid)) {
+    try {
+      const found = await withTimeout(
+        lookupImportedKolUid({ creatorExternalId: input.creatorExternalId }),
+        STARRY_LOOKUP_TIMEOUT_MS, "pageKolProfiles",
+      );
+      if (isRealKolUid(found)) {
+        kolUid = found;
+        lookedUpAfterMissingUid = true;
+      }
+    } catch (error) {
+      audit(actor, "host.add_kol_profile.missing_uid_lookup_failed", {
+        source_batch: input.sourceBatch, creator_external_id: input.creatorExternalId,
+        error_detail: sanitizeSecret(error), retried: false,
+      });
+    }
+  }
   if (!isRealKolUid(kolUid)) {
     audit(actor, "host.add_kol_profile.failed", {
       policy: IMPORT_CREATOR_POLICY,
@@ -475,6 +542,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
       creator_external_id: input.creatorExternalId,
       candidate_id: input.candidateId || null,
       reason: "missing_kol_uid",
+      starry_response: starryResponseDigest(data),
       sent: false,
       stage_changed: false,
     });
@@ -491,6 +559,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
     creator_external_id: input.creatorExternalId,
     candidate_id: input.candidateId || null,
     kol_uid: kolUid,
+    looked_up_after_missing_uid: lookedUpAfterMissingUid,
     owner_open_id: ownerOpenId,
     mailbox_email: String(input.owner?.mailboxEmail || ""),
     sent: false,
@@ -502,6 +571,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
     ok: true,
     created: true,
     kol_uid: kolUid,
+    looked_up_after_missing_uid: lookedUpAfterMissingUid,
     source_batch: input.sourceBatch,
     creator_external_id: input.creatorExternalId,
     tool: ADD_KOL_PROFILE_TOOL,

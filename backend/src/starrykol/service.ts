@@ -674,7 +674,11 @@ async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<
     : createManagedClient("starrykol", scopedUser()?.id || "",
       callScope.getStore()?.credentialAccountId || boundStarryCredentialId(scopedUser()?.id), timeoutMs);
   try {
-    return normalizeStarryKolResult(await client.callTool(name, args));
+    const result = await client.callTool(name, args);
+    // These gateways must inspect/audit success, code and message before unwrapping data.
+    // Other read/write tool contracts keep their existing normalized shape.
+    if (name === "addKolProfile" || name === "importKolProfilesFromCrawler") return result;
+    return normalizeStarryKolResult(result);
   } catch (error) {
     if (error instanceof HttpFail) throw error;
     const message = error instanceof Error ? error.message : String(error);

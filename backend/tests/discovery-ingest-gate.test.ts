@@ -19,6 +19,7 @@ import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json, Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { postgresPool } from "../src/postgres/pool.js";
 
 const starryCalls: Array<{ name: string; args: Json }> = [];
 let tmp = "";
@@ -145,6 +146,12 @@ beforeEach(async () => {
   }];
   resetConn();
   seedAll();
+  // Same canonical schema as candidate-action tests, only in this isolated test DB.
+  const schema = fs.readFileSync(new URL("../scripts/apply-postgres-schema.ts", import.meta.url), "utf8");
+  const leadCreate = schema.match(/`(CREATE TABLE IF NOT EXISTS kol_leads \([\s\S]*?\n    \))`/);
+  if (!leadCreate) throw new Error("kol_leads schema not found");
+  await postgresPool().query(leadCreate[1]);
+  await postgresPool().query(fs.readFileSync(new URL("../migrations/030_pool_brand_visibility.sql", import.meta.url), "utf8"));
   configureCrawlerFixture();
   bindStarryMailbox();
   resetCollectorConnectionCache();
@@ -498,6 +505,33 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(item.error).toMatchObject({ code: "import_creator_no_owner_open_id" });
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
+  });
+
+  it.each([
+    { success: false, message: "联系邮箱已被其他红人占用", data: {} },
+    { code: 422, message: "平台字段校验失败", data: {} },
+  ])("returns the original explicit Starry business error through the ingest API: %j", async (response) => {
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        starryCalls.push({ name, args });
+        if (name === "pageKolProfiles" || name === "listAllKolProfiles") return { list: [] };
+        if (name === "pageMailboxes") return { list: [{ id: 6, mailboxEmail: BOUND_MAILBOX, ownerOpenId: BOUND_OWNER_OPEN_ID }] };
+        if (name === "addKolProfile") return response;
+        throw new Error(`unexpected tool ${name}`);
+      },
+      async close() {},
+    }));
+    const ready = await readyRun();
+    const item = await ingestFirst(ready.candidates, ready.runId, ready.briefVersion);
+    expect(item).toMatchObject({ status: "failed", kol_uid: null, error: {
+      code: "import_creator_failed", message: `Starry 建档未成功：${response.message}`,
+    } });
+    expect(starryTools(["addKolProfile"])).toHaveLength(1);
+    expect(starryTools(["importKolProfilesFromCrawler"])).toHaveLength(0);
+    expect(listAudit("host.add_kol_profile.failed")[0].payload).toMatchObject({
+      reason: "starry_rejected", starry_response: JSON.stringify(response),
+    });
+    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
 
   it("5. partial failure keeps successful kolUids", async () => {
