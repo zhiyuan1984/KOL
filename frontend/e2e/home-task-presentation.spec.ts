@@ -86,6 +86,12 @@ for (const theme of ["light", "dark"]) {
       await page.setViewportSize(viewport);
       const samples: unknown[] = [];
       for (const scope of ["today", "todo"] as const) {
+        // Each geometry case starts a new read; restoration is covered by the
+        // shared shell suite, not by carrying the previous viewport's tail here.
+        await page.addInitScript(() => {
+          sessionStorage.removeItem('ui:workspace-reading:today:center');
+          sessionStorage.removeItem('ui:workspace-reading:todo:center');
+        });
         await page.goto(`/?tab=${scope}`);
         const root = page.locator(`[data-home-pane="${scope}"]`);
         await expect(root.locator("[data-skill-template-context]")).toBeVisible();
