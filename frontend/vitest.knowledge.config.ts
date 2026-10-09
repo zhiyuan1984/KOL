@@ -4,6 +4,7 @@ export default defineConfig({
   esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
+    setupFiles: ["src/test/knowledge-browser-env.ts"],
     include: [
       "src/admin/knowledge/*.test.ts",
       "src/admin/knowledge/*.test.tsx",
