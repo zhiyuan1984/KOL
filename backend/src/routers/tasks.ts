@@ -530,7 +530,10 @@ tasks.get("/task-definitions", (c) => {
       skill: definition.id,
       skill_id: definition.id,
       granted: granted.has(definition.id),
-      ...(granted.has(definition.id) && definition.employee_visible ? { ui_template: skillTemplate(definition) } : {}),
+      // Built-in workspace context is readable even when its planner is not a
+      // catalog/picker item. This does not change grants or execution routing.
+      ...(granted.has(definition.id) && (definition.employee_visible || definition.id === "todo_plan")
+        ? { ui_template: skillTemplate(definition) } : {}),
     };
   }));
 });

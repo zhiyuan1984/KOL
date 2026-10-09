@@ -80,6 +80,34 @@ describe("one Skill / one knowledge interaction template", () => {
     expect(template.description).not.toMatch(/Codex|MCP|Host/);
   });
 
+  it("returns the authorized todo workspace explanation without making its planner a catalog skill", async () => {
+    const definition = requireTaskDefinition("todo_plan");
+    expect(definition.employee_visible).toBe(false);
+    const definitions = (await request("GET", "/api/task-definitions")).body as unknown as Json[];
+    const row = definitions.find(item => item.id === "todo_plan")!;
+    expect(row.granted).toBe(true);
+    expect(row.ui_template).toEqual(skillTemplate(definition));
+    expect(row.ui_template.steps).toHaveLength(3);
+    expect(row.ui_template.output.title).toBe("待办摘要、排序原因与下一步行动");
+    expect(row.ui_template.constraints.join(" ")).toContain("不创建或修改正式任务");
+    const catalog = (await request("GET", "/api/knowledge/skill-templates")).body as unknown as Json[];
+    expect(catalog.some(item => item.skill_id === "todo_plan")).toBe(false);
+  });
+
+  it("does not expose the workspace explanation to an ungranted employee", async () => {
+    process.env.AUTH_MODE = "enabled";
+    const now = new Date().toISOString();
+    getConn().prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`).run("todo-template-denied", "todo-template-denied", "Template user", "no-login", '["employee"]', '[]', "", 1, now, now);
+    const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get("todo-template-denied") as Json);
+    const { tasks } = await import("../src/routers/tasks.js");
+    const response = await withScopedUser(user, () => tasks.request("/task-definitions"));
+    expect(response.status).toBe(200);
+    const row = ((await response.json()) as Json[]).find(item => item.id === "todo_plan")!;
+    expect(row.granted).toBe(false);
+    expect(row).not.toHaveProperty("ui_template");
+  });
+
   it("only puts required user fields into the starter, not optional inputs or purpose", () => {
     const definition = { ...requireTaskDefinition(skillId), required_inputs: ["handle", "limit"], input_schema: [
       { key: "handle", label: "达人", kind: "text" as const, required: true },
