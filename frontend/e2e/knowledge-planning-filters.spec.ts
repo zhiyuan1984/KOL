@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { assertFullRowLayout } from './fixtures/knowledge-fullrow-layout';
 
 // HTTP fixtures exercise frontend state and layout only; they do not prove production data.
 async function surface(page: Page, path = "/admin/knowledge") {
@@ -78,7 +79,7 @@ async function surface(page: Page, path = "/admin/knowledge") {
   return { writes, reads, errors };
 }
 
-test("compact groups fill the option column with top-aligned labels and authoritative counts", async ({ page }) => {
+test("compact groups flow after their labels and every continuation reclaims the row width", async ({ page }) => {
   const state = await surface(page);
   const middle = page.locator("[data-knowledge-middle]");
   await expect(middle.locator('[data-kb-filter="taxonomy"] .kbv-scope-row')).toHaveCount(3);
@@ -90,18 +91,9 @@ test("compact groups fill the option column with top-aligned labels and authorit
   await expect(middle.locator('[data-kb-scope-family="__none__"]')).toContainText("未归属业务族");
   await expect(middle.locator('[data-kbv-view]')).toHaveText(["全部13", "草稿2", "待审批6", "已发布3", "已下架0"]);
   await expect(page.locator('[data-kb-lifecycle-tabs] [role="tab"]')).toHaveText(["知识规划", "知识创作", "知识加工", "发布审批", "知识资产"]);
-  const geometry = await middle.locator('.knowledge-filter-bar').evaluate(bar => {
-    const rows = [...bar.querySelectorAll('.kbv-scope-row, .kbv-chip-row')];
-    return rows.map(row => {
-      const label = row.querySelector('.kbv-scope-name')!.getBoundingClientRect();
-      const options = row.querySelector('.kbv-scope-tabs, .knowledge-filter-options, .knowledge-stage-chips')!.getBoundingClientRect();
-      return { labelTop: label.top, optionTop: options.top, optionRight: options.right, rowRight: row.getBoundingClientRect().right };
-    });
-  });
-  for (const row of geometry) {
-    expect(Math.abs(row.labelTop - row.optionTop)).toBeLessThanOrEqual(1);
-    expect(Math.abs(row.optionRight - row.rowRight)).toBeLessThanOrEqual(1);
-  }
+  const geometry = await assertFullRowLayout(middle.locator('.knowledge-filter-bar'));
+  expect(geometry.rowCount).toBe(6);
+  expect(geometry.continuationLines).toBeGreaterThan(0);
   expect(state.errors).toEqual([]);
   expect(state.writes).toEqual([]);
   await page.screenshot({ path: "test-results/knowledge-planning-compact-filters.png", fullPage: true });

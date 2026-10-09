@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { assertFullRowLayout } from './fixtures/knowledge-fullrow-layout';
 
 async function fixture(page: Page) {
   const account = { id: 'asset-visible-admin', name: '管理员', available_modes: ['admin', 'employee'] };
@@ -139,8 +140,7 @@ test('admin shared filters show real counts, aligned 13px rows and a compact glo
   const fonts = await filters.locator('.kbv-scope-name, .knowledge-filter-label, .knowledge-filter-count').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).fontSize));
   expect(fonts.every(font => font === '13px')).toBe(true);
   expect((await filters.locator('.workspace-search-input').boundingBox())!.height).toBe(32);
-  const origins = await filters.locator('.knowledge-filter-row > .knowledge-filter-options').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x));
-  expect(Math.max(...origins) - Math.min(...origins)).toBeLessThan(1);
+  expect((await assertFullRowLayout(filters)).continuationLines).toBeGreaterThan(0);
   await expect(page.locator('[data-kb-status="archived"]')).toContainText('已下架');
   const strip = page.locator('.kbv-asset-strip-segments');
   expect((await strip.boundingBox())!.height).toBeLessThan(100);
@@ -151,5 +151,10 @@ test('admin shared filters show real counts, aligned 13px rows and a compact glo
   await page.locator('[data-kbv-filter-note-clear]').click();
   await expect(page.locator('[data-kbv-record]')).toHaveCount(13);
   await page.screenshot({ path: 'test-results/knowledge-filter-admin-final-1440.png', fullPage: true });
+  for (const width of [1024, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect((await assertFullRowLayout(filters)).continuationLines).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
   expect(s.writes).toEqual([]); expect(s.errors).toEqual([]);
 });
