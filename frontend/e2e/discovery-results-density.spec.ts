@@ -10,6 +10,7 @@ async function fixture(page: Page, theme = "light") {
   let inPool = false;
   let snapshot = "snapshot";
   let failedImport: string | undefined;
+  let runtimeReads = 0;
   const writes: string[] = [];
   await page.route("**/api/**", async route => {
     const path = new URL(route.request().url()).pathname;
@@ -22,7 +23,9 @@ async function fixture(page: Page, theme = "light") {
       status: "completed", skill_id: "crawler_collect", input: { discovery_workspace: { kind: "discovery", version: 1,
         agent_id: "lead", profile: "lead", brief, template, submitted_text: "发现候选" } } } };
     else if (path === "/api/sessions/density") json = { agent_status: "listening", messages: [] };
-    else if (path === "/api/queries/runtime.actions") json = { actions: [{ id: "density-action", skill_id: "crawler_collect", operation: "start_crawl", state: "succeeded",
+    else if (path === "/api/queries/runtime.actions") {
+      runtimeReads++;
+      json = { actions: [{ id: "density-action", skill_id: "crawler_collect", operation: "start_crawl", state: "succeeded",
       arguments: {}, confirmation_version: "v1", receipt: { task_id: "density-crawl" }, crawl: { id: "density-action", state: "succeeded", result_state: "ready", result_json: {
         task_id: "density-crawl", complete: true, captured_at: "2026-10-09T01:00:00Z", candidates: Array.from({ length: 8 }, (_, i) => ({
           id: `account-${i}`, name: `Camping creator ${i + 1}`, platform: "youtube", region: "Canada", followers: 200000, avg_views_10: 15000,
@@ -31,6 +34,7 @@ async function fixture(page: Page, theme = "light") {
           assessment: i === 0 ? { state, ...(state === "scored" ? { potential_score: 83, risk_score: 25, potential_confidence: 0.8,
             risk_confidence: 0.9, version: "jev-kol-v1", assessed_at: "2026-10-09T01:01:00Z", criteria_summary: "平台 youtube · 关键词 camping" } : {}) } : { state: "unscored" },
         })) } } }] };
+    }
     else if (path.includes("/api/home/discovery/runtime/")) {
       writes.push(path);
       if (path.endsWith("/ingest") && failedImport && path.includes(`/${failedImport}/`)) {
@@ -43,7 +47,7 @@ async function fixture(page: Page, theme = "light") {
     await route.fulfill({ json });
   });
   return { writes, setScore: (next: string) => { state = next; }, changeSnapshot: () => { snapshot = "changed"; },
-    failImport: (id: string) => { failedImport = id; } };
+    failImport: (id: string) => { failedImport = id; }, runtimeReads: () => runtimeReads };
 }
 
 test("scores update in place, survive reload and batch import requires confirmation", async ({ page }) => {
@@ -53,8 +57,10 @@ test("scores update in place, survive reload and batch import requires confirmat
   await expect(first.locator("[data-candidate-score]")).toHaveText("评分中…");
   await expect(page.getByRole("button", { name: "让线索智能体分析候选" })).toHaveCount(0);
   f.setScore("scored");
-  await page.evaluate(() => window.dispatchEvent(new Event("discovery:candidates-refresh")));
+  // The crawl is already terminal. Scoring must finish visibly without a
+  // refresh, an artificial event, or another scoring request.
   await expect(first.locator("[data-candidate-score]")).toContainText("83");
+  expect(f.writes).toEqual([]);
   await page.reload();
   await expect(first.locator("[data-candidate-score]")).toContainText("83");
   await first.locator("summary").click();
@@ -68,6 +74,20 @@ test("scores update in place, survive reload and batch import requires confirmat
   await expect(first).toContainText("已加入公海");
   expect(f.writes.filter(p => p.endsWith("/ingest"))).toHaveLength(1);
   expect(f.writes.some(p => /follow|send|stage/.test(p))).toBeFalsy();
+  await page.clock.install();
+  const settledReads = f.runtimeReads();
+  await page.clock.runFor(6000);
+  expect(f.runtimeReads()).toBe(settledReads);
+});
+
+test("a completed crawl refreshes a scoring failure without another scoring request", async ({ page }) => {
+  const f = await fixture(page);
+  await page.goto("/s/density");
+  const score = page.locator("[data-discovery-candidate=account-0] [data-candidate-score]");
+  await expect(score).toHaveText("评分中…");
+  f.setScore("failed");
+  await expect(score).toHaveText("评分失败");
+  expect(f.writes).toEqual([]);
 });
 
 test("failed and unscored candidates have no invented zero score and retry independently", async ({ page }) => {

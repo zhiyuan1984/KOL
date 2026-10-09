@@ -201,7 +201,8 @@ export default function useDiscovery({
   const runFromAnotherTask = Boolean(
     activeRun && activeTaskId && activeRun.work_item_id && activeRun.work_item_id !== activeTaskId,
   );
-  const actionsSettled = START_DONE.includes(startPhase) && CRAWL_DONE.includes(String(crawlPhase));
+  const scoresPending = actions.some(action => action.crawl?.result_json?.candidates.some(candidate => candidate.assessment?.state === "scoring"));
+  const actionsSettled = START_DONE.includes(startPhase) && CRAWL_DONE.includes(String(crawlPhase)) && !scoresPending;
 
   // 提交（哪怕后端复用了同一个任务）就把卡片收回只读：那之后中栏是过程流的地盘。
   useEffect(() => {
@@ -414,7 +415,7 @@ export default function useDiscovery({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTaskId]);
 
-  // 实际采集参数、确认与回执都来自会话的受控动作；采集取得终态后停表。
+  // 采集与候选评分都有独立终态；评分仍在进行时继续读取回执，不能随采集一起停表。
   useEffect(() => {
     if (!sessionId) {
       setActions([]);
