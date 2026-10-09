@@ -165,9 +165,12 @@ describe("admin identity and Starry mailbox bind", () => {
       mailbox_email: "larry.zhao@amperetime.com",
       owner_name: "赵良玉",
     });
-    expect(kols.map((row) => row.handle)).toEqual(["营地灯测评娘"]);
-    expect(kols[0].owner_name).toBe("赵良玉");
-    expect(String(kols[0].current_stage)).toContain("初步接触");
+    // The mock paginated source certifies Larry's stable ID. A mismatched
+    // legacy display-name-only record must not be rescued by the name.
+    expect(kols.map((row) => row.handle)).toEqual([]);
+    const following = await call("GET", "/api/home/following");
+    expect(following.json).toMatchObject({authority:"kol_follow_index+verified_starry_binding",completeness:"incomplete-source"});
+
     expect(kols.some((row) => row.handle === "户外电源达人")).toBe(false);
 
     const other = await call("POST", "/api/admin/users", {

@@ -59,23 +59,23 @@ export default function FollowedInteraction({
   const intro = (
     <section className="followed-interaction-intro" aria-label="当前跟进概览">
       <p>{summaryReady
-        ? "名单来自当前已授权邮箱"
+        ? "名单已由服务端按当前授权范围核对"
         : cards.length
-          ? `${cards.length} 位已加载 · 正在核对最新数据…`
-          : "正在核对当前已授权名单…"}</p>
+          ? `${cards.length} 位已加载 · 正在核对服务端授权名单…`
+          : "正在核对服务端授权名单…"}</p>
       {selectedCount ? <span className="followed-selection-note">已选择 {selectedCount} 位，可在下方继续提问</span> : null}
     </section>
   );
 
   if (!summaryReady) {
     const copy = completeness === "incomplete-error"
-      ? "当前可见对象已保留；邮箱范围的历史协作记录暂无法完成核对，下面的阶段统计不会把不完整数据当成最终结论。"
-      : "正在合并本地跟进索引与当前邮箱名下的历史协作记录；完成前不会显示 0 位或空阶段统计。";
+      ? "当前可见对象已保留；服务端授权名单暂无法完成核对，下面的阶段统计不会把不完整数据当成最终结论。"
+      : "正在读取服务端核对的授权名单；完成前不会显示 0 位或空阶段统计。";
     return (
       <div className="followed-interaction" data-followed-interaction data-followed-summary-state={completeness}>
         {intro}
         <section className="followed-summary-pending" data-followed-summary-pending role="status" aria-live="polite">
-          <strong>{completeness === "incomplete-error" ? "名单核对未完成" : "正在核对跟进名单…"}</strong>
+          <strong>{completeness === "incomplete-error" ? "名单核对未完成" : "正在核对服务端授权名单…"}</strong>
           <p>{copy}</p>
           {completeness === "incomplete-error" && cards.length ? (
             <div className="followed-partial-summary" data-followed-partial-summary>

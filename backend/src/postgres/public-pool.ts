@@ -99,6 +99,12 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
         ORDER BY (state='scored') DESC, updated_at DESC LIMIT 1
       ) a ON true WHERE p.company_id=$1 AND p.pool_status='open'
         AND p.ingest_source IS DISTINCT FROM 'discovery-candidate'
+        AND NOT EXISTS (SELECT 1 FROM starry_profile_ownership o WHERE o.company_id=p.company_id AND o.kol_uid=p.kol_uid
+          AND EXISTS (SELECT 1 FROM user_starry_bindings b WHERE b.status='connected' AND
+            ((NULLIF(o.owner_open_id,'')=NULLIF(b.owner_open_id,'') AND b.owner_verified_at IS NOT NULL)
+              OR NULLIF(o.owner_mailbox,'')=lower(trim(b.mailbox_email))))
+          AND NOT EXISTS (SELECT 1 FROM kol_follow_index released WHERE released.company_id=p.company_id
+            AND released.kol_uid=p.kol_uid AND released.status='released'))
         AND NOT EXISTS (SELECT 1 FROM kol_follow_index f JOIN kol_profile_index owned
           ON owned.company_id=f.company_id AND owned.kol_uid=f.kol_uid
           WHERE f.company_id=p.company_id AND f.status='active' AND

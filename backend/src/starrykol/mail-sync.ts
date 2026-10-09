@@ -34,7 +34,8 @@ import {
   messageTitle,
   messageTo,
 } from "./mail-fields.js";
-import { executeStarryKolTask } from "./service.js";
+import { verifyExistingStarryBindings } from "../postgres/kol-source-authority.js";
+import { executeStarryKolTask, listStarryMailboxes } from "./service.js";
 import { observeReplyMail } from "../mail/reply-source.js";
 import { postgresPool } from "../postgres/pool.js";
 import { replyMessageBody } from "./mail-fields.js";
@@ -639,6 +640,11 @@ export async function syncFollowedKolMail(mailboxOverride = "", options?: { chec
 async function syncFollowedKolMailInner(mailboxOverride: string): Promise<FollowedMailSync> {
   await syncCheckpoint();
   const syncedAt = nowIso();
+  if (currentFollowScope().required && currentFollowScope().bound) {
+    // Read-only verification refreshes only a previously selected binding.
+    try { await verifyExistingStarryBindings(safeEmployeeId(), await listStarryMailboxes()); }
+    catch (error) { await mailSyncAudit(safeEmployeeId(), "starrykol.binding_verification_failed", { error: error instanceof Error ? error.message : String(error) }); }
+  }
   const scope = currentFollowScope();
   const mailbox = mailboxOverride || boundMailboxEmail() || scope.mailbox_email || "";
   const collabs = await followedCollaborations(mailbox);

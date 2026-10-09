@@ -3,6 +3,7 @@
  * pageKolProfiles / getKolProfileDetail → A
  * pageEmailConversations only for B.active → C with effective=0/1
  */
+import { persistStarryOwnership } from "../postgres/kol-source-authority.js";
 import { audit, nowIso } from "../db.js";
 import { mailPreview } from "./mail-preview.js";
 import { conversationIdOf, conversationSubject, firstString, listOf, messageOccurredAt } from "../starrykol/mail-fields.js";
@@ -72,6 +73,7 @@ export async function syncKolProfileIndex(pageSize = 50): Promise<{
       const data = await pageKolProfiles({ pageNo, pageSize });
       const rows = listOf(data);
       for (const profile of rows) {
+        await persistStarryOwnership([profile], memoryCompanyId(), syncedAt);
         upsertAFromProfile(profile, syncedAt);
         const kolUid = firstString(profile.kolUid, profile.kol_uid);
         let merged = profile;
@@ -79,6 +81,7 @@ export async function syncKolProfileIndex(pageSize = 50): Promise<{
           try {
             const detail = await getKolProfileDetail(kolUid);
             merged = { ...profile, ...detail };
+            await persistStarryOwnership([merged], memoryCompanyId(), syncedAt);
             upsertAFromProfile(merged, syncedAt);
           } catch (error) {
             // 详情是可选补全，但失败必须留痕：此前静默吞掉，主页/头像等字段缺了没人知道。
