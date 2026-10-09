@@ -2053,3 +2053,60 @@
 .btn.text.danger {
   color: var(--danger);
 }
+
+/* Dense connector list (2026-10-09): reference-card rhythm + Ant Design compact metadata. */
+.connector-hub .connector-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.connector-hub .connector-card {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 72px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  transition: border-color var(--duration-control), background var(--duration-control);
+}
+.connector-hub .connector-card-linkable:hover { border-color: var(--control-border); background: var(--surface-hover); }
+.connector-hub .connector-card > .connector-mark { width: 40px; height: 40px; border-radius: var(--radius-control); background: var(--ds-surface); }
+.connector-hub .connector-card-title { min-width: 0; align-items: center; gap: var(--space-2); line-height: var(--lh-control); }
+.connector-hub .connector-card-title strong { font-size: var(--ds-font-sm); font-weight: 600; }
+.connector-hub .connector-card-purpose { margin-top: 2px; font-size: var(--ds-font-xs); line-height: 16px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.connector-hub .connector-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin-top: var(--space-2); font-size: var(--ds-font-xs); line-height: 16px; }
+.connector-dense-tag, .connector-dense-status { margin: 0; height: var(--badge-h); padding-inline: var(--space-2); border-radius: var(--radius-control); font-size: var(--ds-font-xs); line-height: 18px; }
+.connector-dense-tag { color: var(--text-muted); border-color: var(--border); background: var(--ds-surface); }
+.connector-dense-status { font-weight: 500; background: var(--bg); }
+.connector-dense-status { cursor: pointer; font-family: inherit; }
+.connector-dense-status-enabled { color: var(--success); border-color: var(--success); }
+.connector-dense-status-error { color: var(--danger); border-color: var(--danger); }
+.connector-dense-status-pending, .connector-dense-status-verified { color: var(--warning); border-color: var(--warning); }
+.connector-dense-status-draft, .connector-dense-status-disabled { color: var(--text-muted); border-color: var(--control-border); }
+.connector-dense-fact { color: var(--text-muted); white-space: nowrap; }
+.connector-dense-error { color: var(--danger); font-weight: 500; }
+.connector-hub .connector-card-side { flex-direction: row; align-items: center; gap: var(--space-1); }
+.connector-row-action.ant-btn { height: var(--control-h-sm); padding-inline: var(--space-1); color: var(--accent-text); font-size: var(--ds-font-xs); }
+.connector-row-action.ant-btn:hover, .connector-row-action.ant-btn:focus-visible { color: var(--accent-text); background: var(--surface-hover); }
+.connector-row-action .anticon { font-size: var(--icon-sm); }
+.connector-hub .connector-added { width: var(--control-h-sm); height: var(--control-h-sm); color: var(--success); }
+.connector-hub .connector-added svg { width: var(--icon-sm); height: var(--icon-sm); }
+.connector-row-chevron { color: var(--text-muted); font-size: var(--icon-sm); }
+@media (max-width: 720px) {
+  .connector-hub .connector-card { grid-template-columns: 36px minmax(0, 1fr) auto; padding: var(--space-3); }
+  .connector-hub .connector-card > .connector-mark { width: 36px; height: 36px; }
+  .connector-hub .connector-card-side .connector-row-action { display: none; }
+  .connector-hub .connector-card-meta { gap: 2px var(--space-2); }
+}
+@media (prefers-reduced-motion: reduce) { .connector-hub .connector-card { transition: none; } }
+
+/* Browse modal keeps its compact 32px search contract even on coarse-pointer emulation. */
+#root .connector-browse .connector-search {
+  height: var(--control-h-form) !important;
+  min-height: var(--control-h-form) !important;
+  box-sizing: border-box;
+}
+#root .connector-browse .connector-search.ant-input {
+  height: var(--control-h-form) !important;
+  min-height: 0 !important;
+  padding-block: 0 !important;
+  box-sizing: border-box;
+}

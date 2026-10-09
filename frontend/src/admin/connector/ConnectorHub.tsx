@@ -1,4 +1,6 @@
 import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
+import { Button, Tag } from "antd";
+import { RightOutlined, SettingOutlined, ToolOutlined } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
@@ -32,6 +34,13 @@ const BUILTIN_CATALOG = [
 ] as const;
 
 type HealthCounts = { total: number; enabled: number; registered: number; pending: number; errors: number };
+
+function compactDate(value: string): string {
+  if (!value) return "未记录";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+}
 
 function connectorHealthCounts(cards: ConnectorCardView[]): HealthCounts {
   const counts: HealthCounts = { total: cards.length, enabled: 0, registered: 0, pending: 0, errors: 0 };
@@ -376,52 +385,60 @@ function ConnectorCard({ card, onOpen, onViewTools, onOpenConfig, plain = false 
           >
             <strong>{card.label}</strong>
           </Link>
+          {!plain && onOpenConfig && (
+            <button
+              type="button"
+              className={`connector-dense-status connector-dense-status-${status.key}`}
+              data-connector-status-entry
+              title={connectorStatusNote(card)}
+              onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
+            >
+              {status.label}
+            </button>
+          )}
         </div>
         <p className="connector-card-purpose">{card.purpose || "未填写业务用途"}</p>
         {!plain && (
-          <p className="connector-card-meta">
-            {onOpenConfig ? (
-              <button
-                type="button"
-                className="connector-card-status"
-                data-connector-status-entry
-                title={connectorStatusNote(card)}
-                onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
-              >
-                {status.label}
-              </button>
-            ) : (
-              <span className="connector-card-status" title={connectorStatusNote(card)}>{status.label}</span>
-            )}
-            <span className="connector-card-dot" aria-hidden>·</span>
-            <span>{card.lastVerifiedAt ? `最近验证 ${card.lastVerifiedAt}` : "尚未测试"}</span>
-            {card.approvedToolCount > 0 && (
-              <>
-                <span className="connector-card-dot" aria-hidden>·</span>
-                <span>{card.approvedToolCount} 个已审阅接口</span>
-              </>
-            )}
-            {onViewTools && (
-              <>
-                <span className="connector-card-dot" aria-hidden>·</span>
-                <button
-                  type="button"
-                  className="connector-card-toolslink"
-                  data-connector-tools-entry
-                  onClick={(event) => { event.stopPropagation(); onViewTools(); }}
-                >
-                  查看工具
-                </button>
-              </>
-            )}
-          </p>
+          <div className="connector-card-meta" aria-label="连接器关键信息">
+            <Tag className="connector-dense-tag">{card.kind === "app" ? "应用" : card.protocol === "http" ? "HTTP API" : "MCP"}</Tag>
+            <span className="connector-dense-fact">{card.credentialRegistered ? "凭据已登记" : "未登记凭据"}</span>
+            <span className="connector-dense-fact">验证 {compactDate(card.lastVerifiedAt)}</span>
+            <span className="connector-dense-fact">更新 {compactDate(card.updatedAt)}</span>
+            {card.approvedToolCount > 0 && <span className="connector-dense-fact">接口 {card.approvedToolCount} 已审阅</span>}
+            {card.lastError && <span className="connector-dense-error" title={card.lastError}>最近一次验证有异常</span>}
+          </div>
         )}
       </div>
       <div className="connector-card-side">
+        {!plain && onOpenConfig && (
+          <Button
+            type="text"
+            size="small"
+            className="connector-row-action"
+            icon={<SettingOutlined />}
+            title={connectorStatusNote(card)}
+            onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
+          >
+            配置
+          </Button>
+        )}
+        {!plain && onViewTools && (
+          <Button
+            type="text"
+            size="small"
+            className="connector-row-action"
+            icon={<ToolOutlined />}
+            data-connector-tools-entry
+            onClick={(event) => { event.stopPropagation(); onViewTools(); }}
+          >
+            工具
+          </Button>
+        )}
         <span className="connector-added">
           <svg viewBox="0 0 16 16" aria-hidden><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
           <span className="sr-only">已加入目录</span>
         </span>
+        <RightOutlined className="connector-row-chevron" aria-hidden />
       </div>
     </article>
   );
