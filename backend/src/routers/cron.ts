@@ -1,9 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { nid } from "../ids.js";
-import { requireTicketPrincipal, ticketIsAdmin, ticketPrincipal } from "../ticket-domain/auth.js";
+import { requireTicketPrincipal, ticketIsAdmin, ticketPrincipal, type TicketPrincipal } from "../ticket-domain/auth.js";
 import { assertHandlerGates, assertCanMutateJob, assertCanSeeJob, assertJobRunnable, canSeeJob } from "../cron/authz.js";
 import { handlerContract, isCronHandlerKey } from "../cron/handlers.js";
+import { cronPublicReadFields } from "../cron/public-read-model.js";
 import { nextScheduledAt, type ScheduleWindow } from "../cron/schedule.js";
 import { DEFAULT_EXPERT } from "../cron/contracts.js";
 import { normalizeSystemTemplate } from "../cron/contracts.js";
@@ -45,6 +46,14 @@ function parseJson(raw: unknown): Json {
   }
 }
 
+function cronPublicForViewer(job: Row, actor: TicketPrincipal): Json {
+  return { ...pgCronPublicJob(job), ...cronPublicReadFields(job, actor) };
+}
+
+function cronPublicSummaryForViewer(job: Row, actor: TicketPrincipal): Json {
+  return { ...pgCronPublicJobSummary(job), ...cronPublicReadFields(job, actor) };
+}
+
 function validateCondition(handlerKey: string, value: unknown): Json {
   const condition = value && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
   if (handlerKey === "discovery-search") {
@@ -84,9 +93,9 @@ function authorizeTick(c: { req: { header: (name: string) => string | undefined 
   throw new HttpFail(403, { code: "tick_forbidden", message: "需要管理员或 CRON_TICK_SECRET" });
 }
 
-async function visibleJobs(): Promise<Json[]> {
+async function visibleJobs(actor: TicketPrincipal): Promise<Json[]> {
   await pgEnsureSystemCronJobs();
-  return (await pgListCronJobs()).filter((job) => canSeeJob(job)).map(pgCronPublicJobSummary);
+  return (await pgListCronJobs()).filter((job) => canSeeJob(job, actor)).map((job) => cronPublicSummaryForViewer(job, actor));
 }
 
 function attention(jobs: Json[]): { failed: number; needs_takeover: number } {
@@ -97,7 +106,8 @@ function attention(jobs: Json[]): { failed: number; needs_takeover: number } {
 }
 
 cron.get("/cron/jobs", async (c) => {
-  const jobs = await visibleJobs();
+  const actor = requireTicketPrincipal();
+  const jobs = await visibleJobs(actor);
   return c.json({ jobs, alerts: attention(jobs) });
 });
 
@@ -144,22 +154,22 @@ cron.post("/cron/jobs", async (c) => {
     takeover_policy: body.takeover_policy && typeof body.takeover_policy === "object" ? body.takeover_policy as Json : { after_minutes: 30 },
     next_run_at: next,
   });
-  return c.json(pgCronPublicJob(job), 201);
+  return c.json(cronPublicForViewer(job, user), 201);
 });
 
 cron.get("/cron/jobs/:id", async (c) => {
   await pgEnsureSystemCronJobs();
   const job = await pgCronJobById(c.req.param("id"));
   if (!job) throw new HttpFail(404, "cron job not found");
-  assertCanSeeJob(job);
-  return c.json({ job: pgCronPublicJob(job), runs: (await pgListCronRuns(String(job.id), 20)).map(pgCronPublicRun) });
+  const actor = assertCanSeeJob(job);
+  return c.json({ job: cronPublicForViewer(job, actor), runs: (await pgListCronRuns(String(job.id), 20)).map(pgCronPublicRun) });
 });
 
 cron.patch("/cron/jobs/:id", async (c) => {
   await pgEnsureSystemCronJobs();
   const job = await pgCronJobById(c.req.param("id"));
   if (!job) throw new HttpFail(404, "cron job not found");
-  assertCanMutateJob(job);
+  const actor = assertCanMutateJob(job);
   const body = parseBody(await c.req.json().catch(() => ({})));
   const system = pgCronSystemJob(job);
   if (system && (body.handler_key || body.execute_as || body.job_key || body.capability_expert_id || body.owner_account_id)) {
@@ -201,21 +211,22 @@ cron.patch("/cron/jobs/:id", async (c) => {
     published_rev: Number(job.published_rev || 1) + (bump ? 1 : 0), next_run_at: nextRun,
   });
   if (!updated) throw new HttpFail(404, "cron job not found");
-  return c.json({ job: pgCronPublicJob(updated) });
+  const publicJob = await pgCronJobById(String(updated.id));
+  return c.json({ job: cronPublicForViewer(publicJob || updated, actor) });
 });
 
 cron.post("/cron/jobs/:id/run", async (c) => {
   await pgEnsureSystemCronJobs();
   const job = await pgCronJobById(c.req.param("id"));
   if (!job) throw new HttpFail(404, "cron job not found");
-  assertCanSeeJob(job);
+  const actor = assertCanSeeJob(job);
   assertJobRunnable(job);
   assertHandlerGates(String(job.handler_key));
-  const result = await runCronJobNow(String(job.id), ticketPrincipal());
+  const result = await runCronJobNow(String(job.id), actor);
   if (String(job.handler_key) !== "ai-task") return c.json({ run_id: result.run_id });
   const run = await pgCronRunById(result.run_id);
   return c.json({ run_id: result.run_id, session_id: run?.session_id || undefined, run: run ? pgCronPublicRun(run) : undefined,
-    job: pgCronPublicJobSummary((await pgCronJobById(String(job.id)))!) });
+    job: cronPublicSummaryForViewer((await pgCronJobById(String(job.id)))!, actor) });
 });
 
 cron.get("/cron/jobs/:id/runs", async (c) => {
@@ -232,8 +243,8 @@ cron.get("/cron/runs/:runId", async (c) => {
   if (!run) throw new HttpFail(404, "cron run not found");
   const job = await pgCronJobById(String(run.job_id));
   if (!job) throw new HttpFail(404, "cron job not found");
-  assertCanSeeJob(job);
-  return c.json({ run: pgCronPublicRun(run), job: pgCronPublicJob(job) });
+  const actor = assertCanSeeJob(job);
+  return c.json({ run: pgCronPublicRun(run), job: cronPublicForViewer(job, actor) });
 });
 
 cron.post("/cron/internal/tick", async (c) => {

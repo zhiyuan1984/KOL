@@ -378,7 +378,7 @@ export default function Workbench() {
         </div>
       </aside>
       <main className="main">
-        <RouteErrorBoundary key={loc.pathname} label="workbench">
+        <RouteErrorBoundary key={loc.pathname === "/cron" || loc.pathname.startsWith("/cron/") ? "/cron" : loc.pathname} label="workbench">
           <Suspense fallback={<RouteLoadingFallback />}>
             <Outlet />
           </Suspense>
