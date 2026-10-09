@@ -953,7 +953,7 @@ summary:focus-visible,
   flex-direction: column;
   overflow: hidden;
 }
-.main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page) {
+.main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
@@ -8336,7 +8336,7 @@ body {
   height: var(--scrollbar-size);
 }
 
-.main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page) {
+.main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
   width: 100%;
   max-width: var(--content-max);
   margin-inline: auto;
@@ -9844,7 +9844,7 @@ body {
   .kb-drawer { width: min(100vw, 440px); }
   .list-page.kb-page.has-drawer { padding-right: 0; }
   .main { padding: 0; }
-  .main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.kbv-page) { padding: 16px 14px 36px; }
+  .main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.kbv-page):not(.tasks-page) { padding: 16px 14px 36px; }
   /* 管理面在窄视口与员工端同规则：导航走 .sidebar 抽屉（由 .mobile-top ☰ 打开），
      不再把导航压成横向顶条。 */
   .admin-body { padding: var(--space-3) var(--space-3) var(--space-5); }
@@ -17131,4 +17131,99 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   .compact-button--primary::before { background: var(--primary); }
   .compact-button--primary:hover::before { background: var(--primary-hover); }
   .compact-button--text:hover::before { background: var(--btn-text-hover-bg); }
+}
+
+/* Task center compact BI list: four aligned columns, stable Ant Design action slots.
+   Preserve routes/data/gates; DESIGN §2/§4/§5/§9 provides all size/colour tokens. */
+.tasks-page {
+  --task-list-row-h: var(--table-row-h-compact);
+  --task-center-status-w: calc(var(--control-h-sm) * 3 + var(--space-4));
+  --task-center-time-w: calc(var(--control-h-lg) * 3 + var(--space-4));
+  --task-center-detail-w: calc(var(--control-h-lg) + var(--space-2));
+  --task-center-secondary-w: calc(var(--control-h-lg) * 3);
+  --task-center-actions-w: calc(var(--task-center-detail-w) + var(--task-center-secondary-w) + var(--control-h-sm) + var(--space-1) * 2 + var(--space-2) * 2);
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+.tasks-page .task-center-unified-table { width: 100%; table-layout: fixed; min-width: 0; }
+.tasks-page .task-center-unified-table .task-center-col-task { width: auto !important; }
+.tasks-page .task-center-unified-table .task-center-col-status { width: var(--task-center-status-w) !important; }
+.tasks-page .task-center-unified-table .task-center-col-time { width: var(--task-center-time-w) !important; }
+.tasks-page .task-center-unified-table .task-center-col-actions { width: var(--task-center-actions-w) !important; }
+.tasks-page .task-center-unified-table > tbody > tr:not(.task-center-meta-row) > td {
+  height: var(--task-list-row-h);
+  padding-block: 0;
+  padding-inline: var(--space-2);
+  background: var(--bg);
+}
+.tasks-page .task-center-unified-table > thead > tr > th { height: var(--table-header-h); padding-inline: var(--space-2); }
+.tasks-page .task-center-unified-table > thead > tr > th:last-child { text-align: right; }
+.tasks-page .task-center-unified-table > tbody > tr:not(.task-center-meta-row):is(:hover, :focus-within, .is-expanded) > td { background: var(--bg-subtle); }
+.tasks-page .task-center-task-content { width: 100%; }
+.tasks-page .task-center-task-content strong { flex: 1 1 auto; }
+.tasks-page .task-center-unified-table td[data-label="更新时间"] { color: var(--text-quiet); font-family: var(--mono); font-size: var(--ds-font-xs); font-variant-numeric: tabular-nums; }
+.tasks-page .task-center-actions {
+  display: grid;
+  grid-template-columns: var(--task-center-detail-w) var(--task-center-secondary-w) var(--control-h-sm);
+  align-items: center;
+  justify-content: end;
+  gap: var(--space-1);
+  width: 100%;
+}
+.tasks-page .task-center-detail-slot,
+.tasks-page .task-center-secondary-slot { display: flex; align-items: center; min-width: 0; }
+.tasks-page .task-center-detail-slot { justify-content: flex-start; }
+.tasks-page .task-center-secondary-slot { justify-content: flex-end; }
+.tasks-page .task-center-actions button,
+.tasks-page .task-center-actions a {
+  box-sizing: border-box;
+  min-height: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding-inline: var(--space-1);
+  justify-content: center;
+  line-height: var(--lh-control-sm);
+}
+.tasks-page .task-center-actions .task-center-fold.ant-btn { width: var(--control-h-sm); min-width: 0; min-height: var(--control-h-sm); height: var(--control-h-sm); padding: 0; }
+.tasks-page .task-center-fold .anticon { font-size: var(--icon-sm); }
+.tasks-page .task-center-actions .task-center-action-placeholder { width: 100%; visibility: hidden; pointer-events: none; }
+.tasks-page .task-center-actions button:disabled { cursor: default; }
+.tasks-page .task-center-actions button:disabled:hover { background: transparent; }
+.tasks-page .task-center-meta-row > td { padding: var(--space-2) var(--space-3); white-space: normal; }
+.tasks-page .task-center-inline-meta { gap: var(--space-1) var(--space-4); font-size: var(--ds-font-xs); line-height: var(--lh-control); }
+.tasks-page .task-center-inline-meta :is(dt, dd) { white-space: normal; }
+.tasks-page .tasks-tabs button { min-height: var(--workspace-tab-h); border-bottom-width: var(--workspace-tab-indicator-h); }
+.tasks-page .tasks-tab-count { background: transparent; color: var(--text-quiet); }
+.tasks-page .task-center-pagination { font-size: var(--ds-font-xs); }
+@media (max-width: 760px) {
+  .tasks-page .task-center-table-wrap { overflow-x: auto; }
+  .tasks-page .task-center-unified-table { min-width: var(--dialog-w-lg); }
+  .tasks-page .task-center-inline-meta { display: flex; flex-wrap: wrap; }
+  .tasks-page .task-center-inline-meta .task-center-meta-summary { flex-basis: 100%; }
+}
+@media (pointer: coarse) {
+  .tasks-page { --task-list-row-h: var(--table-row-h); }
+  .tasks-page .task-center-actions :is(button, a),
+  .tasks-page .task-center-actions .task-center-fold.ant-btn { min-height: var(--touch-hit-min); height: var(--touch-hit-min); }
+}
+
+.tasks-page .task-center-meta-row .task-work-order-detail-panel { min-width: 0; padding: 0; }
+.tasks-page .task-center-meta-row .task-work-order-detail-panel h3 { margin: 0 0 var(--space-1); font-size: var(--ds-font-sm); line-height: var(--lh-control); }
+.tasks-page .task-center-meta-row .task-work-order-detail-panel > p { margin: 0; font-size: var(--ds-font-xs); line-height: var(--lh-control); }
+
+@media (max-width: 760px) {
+  .tasks-page { padding: var(--space-3); }
+  .tasks-page .tasks-tabs { flex-wrap: nowrap; }
+  .tasks-page .task-center-unified-table { display: table; width: 100%; }
+  .tasks-page .task-center-unified-table > colgroup { display: table-column-group; }
+  .tasks-page .task-center-unified-table > thead { display: table-header-group; }
+  .tasks-page .task-center-unified-table > tbody { display: table-row-group; }
+  .tasks-page .task-center-unified-table > :is(thead, tbody) > tr { display: table-row; width: auto; padding: 0; border: 0; }
+  .tasks-page .task-center-unified-table > :is(thead, tbody) > tr > :is(th, td) { display: table-cell; width: auto; border-bottom: 1px solid var(--border); }
+  .tasks-page .task-center-unified-table > tbody > tr > td[data-label]::before { display: none; content: none; }
 }
