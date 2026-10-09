@@ -35,7 +35,7 @@ test("跟进面读失败只在它自己的位置上说一次，并带重试与�
     followingHits += 1;
     if (down) return route.fulfill(GATEWAY_HTML);
     return route.fulfill({
-      json: { entry: "memory", kind: "memory", creates_session: false, index: "我的跟进", kols: [] },
+      json: { entry: "memory", kind: "memory", creates_session: false, index: "我的跟进", kols: [], authority:"kol_follow_index+verified_starry_binding",completeness:"complete" },
     });
   });
 
@@ -69,7 +69,7 @@ test("跟进面读失败只在它自己的位置上说一次，并带重试与�
   expect(sessionPosts).toEqual([]);
 });
 
-test("历史协作投影读取失败时，本地空索引不能被表述为暂无", async ({ page }) => {
+test("服务端归属来源未完整核验时，本地空索引不能被表述为暂无", async ({ page }) => {
   await page.route("**/api/home/board*", (route) => route.fulfill(GATEWAY_HTML));
   await page.route("**/api/home/following", (route) => route.fulfill({
     json: {
@@ -77,6 +77,8 @@ test("历史协作投影读取失败时，本地空索引不能被表述为暂�
       kind: "memory",
       creates_session: false,
       index: "我的跟进",
+      authority:"kol_follow_index+verified_starry_binding",
+      completeness:"incomplete-source",
       follow_scope: {
         required: true,
         bound: true,

@@ -1,5 +1,7 @@
 import { pageKolProfiles } from '../host/starry-connectors.js';
 import { firstString } from './mail-fields.js';
+import { runPlatformSkillTool } from '../runtime/platform-run.js';
+import { normalizeStarryKolResult,starryKolRows,starryKolUsesLocalDouble,executeStarryKolTask } from './service.js';
 import { memoryCompanyId } from '../host/kol-memory.js';
 import { persistStarryOwnership } from '../postgres/kol-source-authority.js';
 import { postgresPool } from '../postgres/pool.js';
@@ -12,6 +14,8 @@ export async function syncStarryOwnershipIndex(): Promise<{ count: number }> {
   const company=memoryCompanyId();
   let expected:number|null=null;
   try {
+    const expectedRows=starryKolRows(starryKolUsesLocalDouble() ? await executeStarryKolTask('creator_library_all',{}) : normalizeStarryKolResult(await runPlatformSkillTool('creator_library_all','starrykol','listAllKolProfiles',{})));
+    const expectedIds=new Set(expectedRows.map(r=>firstString(r.kolUid,r.kol_uid)).filter(Boolean));
     for(let page=1;page<=40;page++) {
       const data=await pageKolProfiles({pageNo:page,pageSize:50});
       const key=['list','records','rows','items'].find(k=>Array.isArray(data[k]));
@@ -24,6 +28,9 @@ export async function syncStarryOwnershipIndex(): Promise<{ count: number }> {
       rows.push(...batch);
       if(rows.length>total || (!batch.length&&rows.length<total))throw new Error('starry_ownership_count_mismatch');
       if(rows.length===total) {
+        const seen=new Set(rows.map(r=>firstString(r.kolUid,r.kol_uid)));
+        const missing=[...expectedIds].filter(id=>!seen.has(id));
+        if(missing.length)throw new Error('starry_source_uid_conflict: listAll='+expectedIds.size+',page='+rows.length+',missing='+missing.length);
         await persistStarryOwnership(rows,company,version,true);
         return {count:rows.length};
       }

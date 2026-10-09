@@ -1,3 +1,4 @@
+import { scopedUser } from "../auth.js";
 import { syncStarryOwnershipIndex } from "./ownership-sync.js";
 import { BRAND_MAILBOXES } from "../config.js";
 import { audit, getConn, nowIso, onConnReset, tx } from "../db.js";
@@ -358,7 +359,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
       }
     });
     let ownershipError="";
-    try {
+    if (scopedUser()) try {
       const ownership=await syncStarryOwnershipIndex();
       audit("host", "starrykol.ownership_sync", ownership);
     } catch (error) {
@@ -366,7 +367,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
       audit("host", "starrykol.ownership_sync_failed", { error: error instanceof Error ? error.message : String(error) });
     }
     const result: StarryLibrarySync = {
-      ownership_ok: !ownershipError,
+      ...(scopedUser() ? {ownership_ok: !ownershipError} : {}),
       ...(ownershipError ? {ownership_error:ownershipError} : {}),
       ok: true,
       source: "starry",
