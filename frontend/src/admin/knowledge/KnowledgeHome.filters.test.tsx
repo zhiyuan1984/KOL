@@ -26,7 +26,7 @@ vi.mock("./BaseView", () => ({ default: () => null }));
 vi.mock("./IngestView", () => ({ default: () => null }));
 vi.mock("./BindingsView", () => ({ default: () => null }));
 vi.mock("./ReviewView", () => ({ default: () => null }));
-vi.mock("./EntryEditor", () => ({ default: () => null }));
+vi.mock("./EntryEditor", () => ({ default: ({ onDirty }: { onDirty: (value: boolean) => void }) => <button data-test-dirty onClick={() => onDirty(true)}>修改草稿</button> }));
 vi.mock("./WorkspaceEntry", () => ({ default: () => null }));
 vi.mock("./UploadDialog", () => ({ default: () => null }));
 vi.mock("./DocumentRail", () => ({ default: () => null }));
@@ -39,7 +39,7 @@ beforeEach(() => {
   sessionStorage.clear(); fixture.loading = false; fixture.error = "";
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); router.dispose(); container.remove(); });
+afterEach(() => { act(() => root.unmount()); router.dispose(); container.remove(); vi.restoreAllMocks(); });
 function render(path = "/admin/knowledge") {
   router = createMemoryRouter([{ path: "*", element: <KnowledgeHome /> }], { initialEntries: [path] });
   act(() => root.render(<RouterProvider router={router} />));
@@ -65,6 +65,22 @@ describe("knowledge host filter projection", () => {
     render();
     expect(container.querySelectorAll('[data-kbv-view] small')).toHaveLength(0);
     expect(container.querySelector('[data-kbv-view="all"]')?.textContent).toBe("全部");
+  });
+
+  it("keeps the editor and filters when clearing is cancelled with an unsaved draft", () => {
+    render("/admin/knowledge?stage=create&mode=create");
+    act(() => container.querySelector<HTMLButtonElement>('[data-kb-kind="mail_template"]')!.click());
+    act(() => container.querySelector<HTMLButtonElement>('[data-test-dirty]')!.click());
+    const confirmation = vi.spyOn(window, "confirm").mockReturnValue(false);
+    act(() => container.querySelector<HTMLButtonElement>('[data-kbv-filter-reset]')!.click());
+    expect(confirmation).toHaveBeenCalledOnce();
+    expect(router.state.location.search).toContain("mode=create");
+    expect(container.querySelector('[data-kb-kind="mail_template"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector('[data-test-dirty]')).not.toBeNull();
+    confirmation.mockReturnValue(true);
+    act(() => container.querySelector<HTMLButtonElement>('[data-kbv-filter-reset]')!.click());
+    expect(router.state.location.search).not.toContain("mode=create");
+    expect(container.querySelector('[data-kb-kind=""]')?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("preserves a hidden legacy stage and names its panel without a nonexistent tab reference", () => {

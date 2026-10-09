@@ -42,15 +42,20 @@ export function StageFilterGroup({ selected, onChange }: { selected: string[]; o
   </div>;
 }
 
-export function KnowledgeListRow({ row, selected, kind, onOpen, leading, openAttributes, recordAttributes }: {
+export function KnowledgeListRow({ row, selected, kind, onOpen, leading, openAttributes, recordAttributes, preserveTitleTail = false }: {
   row: KnowledgeRow; selected: boolean; kind: string; onOpen: () => void; leading?: ReactNode;
   openAttributes?: Record<string, string>; recordAttributes?: Record<string, string>;
+  preserveTitleTail?: boolean;
 }) {
+  const letters = Array.from(row.title);
+  const splitTitle = preserveTitleTail && letters.length > 48;
   return <article className="knowledge-list-row" data-kb-row={row.id} {...recordAttributes}>
     {leading}
     <button type="button" className="knowledge-list-open" data-knowledge={row.id} data-kind={row.kind}
       data-cited={row.cited ? "true" : "false"} data-kb-open={row.id} {...openAttributes} aria-current={selected} onClick={onOpen}>
-      <span className="knowledge-row-title" title={row.title}>{row.title}</span>
+      <span className={`knowledge-row-title${splitTitle ? " has-title-tail" : ""}`} title={row.title}>
+        {splitTitle ? <><span className="knowledge-title-start">{letters.slice(0, -12).join("")}</span><span className="knowledge-title-tail">{letters.slice(-12).join("")}</span></> : row.title}
+      </span>
       <span className="knowledge-row-kind">{kind}</span>
     </button>
   </article>;

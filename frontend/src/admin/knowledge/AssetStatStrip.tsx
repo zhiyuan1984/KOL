@@ -44,12 +44,15 @@ export default function AssetStatStrip({ stats, loading, error, reload, view, on
 
   return (
     <section className="kbv-asset-strip" data-kbv-asset-strip aria-label="按知识资产状态筛选">
+      <header className="kbv-asset-strip-head">
+        <span>组织资产概览</span><small>全局主状态 · 不随筛选变化</small>
+      </header>
       {error ? (
         <p role="alert">资产分布读取失败：{error} <button type="button" className="kbv-text-action" onClick={reload}>重试</button></p>
       ) : !stats ? (
         <p className="muted" role="status">正在加载资产分布…</p>
       ) : (
-        segments.map((segment) => {
+        <div className="kbv-asset-strip-segments">{segments.map((segment) => {
           const active = view === segment.view;
           return (
             <button
@@ -79,7 +82,7 @@ export default function AssetStatStrip({ stats, loading, error, reload, view, on
               </span>
             </button>
           );
-        })
+        })}</div>
       )}
     </section>
   );

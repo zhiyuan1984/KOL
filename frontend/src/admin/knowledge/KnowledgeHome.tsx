@@ -19,6 +19,7 @@ import BindingsView from "./BindingsView";
 import { KnowledgeAssetsPanel, KnowledgeGraphPanel } from "./KnowledgeGovernancePanels";
 import "../../knowledge-browse.css";
 import "./knowledge-governance.css";
+import "./knowledge-assets-visible.css";
 import LibraryPane, { type KbView } from "./LibraryPane";
 import AssetStatStrip from "./AssetStatStrip";
 import UploadDialog from "./UploadDialog";
@@ -41,7 +42,10 @@ const VIEW_OPTIONS: Array<{ value: KbView; label: string }> = [
   { value: "published", label: "已发布" },
   { value: "disabled", label: "已下架" },
 ];
-const KIND_OPTIONS = KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: kindLabel(spec.code) }));
+const KIND_OPTIONS = [
+  { value: "document", label: "文档资料" },
+  ...KNOWLEDGE_KIND_SPECS.map((spec) => ({ value: spec.code, label: kindLabel(spec.code) })),
+];
 const SCOPE_NONE = "__none__";
 type KbScope = { familyId: string; domainId: string; baseId: string };
 const EMPTY_SCOPE: KbScope = { familyId: "", domainId: "", baseId: "" };
@@ -187,12 +191,14 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
 
   /** 空态恢复动作（§9.3）：清掉全部筛选条件，含 URL 上的下钻轴。 */
   const resetAllFilters = useCallback(() => {
+    if (dirtyRef.current && !window.confirm("当前有未保存内容，放弃修改并清除筛选？")) return;
+    onDirty(false);
     setQuery(""); setScope(EMPTY_SCOPE); setBrands([]); setStages([]); setKind("");
-    setView("all"); setAssetTypeFilter(""); setExpiring(false);
+    setView("all"); setAssetTypeFilter(""); setExpiring(false); setPage(1);
     const next = new URLSearchParams(params);
     ["view", "asset", "expiring", "mode", "assetId", "assetType", "document"].forEach((key) => next.delete(key));
     setParams(next);
-  }, [params, setParams]);
+  }, [params, setParams, onDirty]);
 
   // The __none__ facet means a missing foreign key. Named “未分类” catalog nodes
   // are real records, so keep their IDs/names and label only the missing relation explicitly.
@@ -369,6 +375,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
       <KnowledgeBrowseWorkspace detailOpen={mode !== "list" || stage !== "published"}>
         <section className="kbv-list knowledge-governance-list" aria-label="知识列表" data-knowledge-middle aria-busy={loading}>
           <KnowledgeBrowseFilters countsReady={Boolean(data && !loading && !error)} query={query} onQuery={setQuery} scope={scope}
+            onReset={resetAllFilters}
             onFamily={id => setScope({ familyId: id, domainId: "", baseId: "" })}
             onDomain={id => setScope(current => ({ ...current, domainId: id, baseId: "" }))}
             onBase={id => setScope(current => ({ ...current, baseId: id }))}

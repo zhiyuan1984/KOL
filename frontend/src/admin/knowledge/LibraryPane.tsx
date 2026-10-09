@@ -24,7 +24,7 @@ type Props = {
   onBatchArchive?: (ids: string[]) => void;
 };
 
-/** 右栏浏览区：平面分页列表；点击条目在工作区原位进入详情。 */
+/** 中栏浏览区：平面分页列表；点击条目在右栏工作区进入详情。 */
 export default function LibraryPane({
   rows, totalCount, page, pageCount, selectedId, onSelect, onPrevious, onNext, loading, onReset,
   selection, onToggleSelect, onBatchRenew, onBatchArchive,
@@ -109,6 +109,9 @@ export default function LibraryPane({
         </div>
       ) : (
         <div className="kbv-browser-records" data-kbv-records>
+          <div className={`kbv-list-columns${onToggleSelect ? " has-selection" : ""}`} data-kbv-list-columns aria-hidden="true">
+            <span>知识名称</span><span>类型</span>
+          </div>
           {rows.map((row) => (
             <RecordRow
               key={row.id}
@@ -132,7 +135,9 @@ function RecordRow({ row, selected, checked, onToggleSelect, onSelect }: {
   onToggleSelect?: (id: string) => void;
   onSelect: (id: string) => void;
 }) {
-  return <KnowledgeListRow row={row} selected={selected} kind={row.asset_type === "document" ? "PDF 文档" : kindLabel(row.kind)}
+  // workspace-v1 exposes asset identity but not the original media format.
+  // Do not infer PDF from the document asset type (video/audio also live here).
+  return <KnowledgeListRow row={row} selected={selected} kind={row.asset_type === "document" ? "文档资料" : kindLabel(row.kind)} preserveTitleTail={row.asset_type === "document"}
     onOpen={()=>onSelect(row.id)} openAttributes={{ "data-kbv-record": row.id }} recordAttributes={{ "data-kbv-record-wrap": row.id }}
     leading={onToggleSelect ? <input type="checkbox" className="kbv-record-check" aria-label={`选择：${row.title}`} checked={checked} onChange={()=>onToggleSelect(row.id)} /> : null} />;
 }

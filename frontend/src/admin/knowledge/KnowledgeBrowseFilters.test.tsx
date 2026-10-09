@@ -101,6 +101,43 @@ describe("compact knowledge filters", () => {
     click('[data-kb-filter="stage"] [data-kb-filter-value=""]');
     expect(container.querySelectorAll('.knowledge-stage-chip [aria-pressed="true"]')).toHaveLength(0);
   });
+
+  it("collapses empty taxonomy without deleting it, and lets users expand and collapse", () => {
+    const p = props();
+    p.familyOptions.push({ value: "empty-family", label: "1234", count: 0 });
+    p.baseOptions.push({ value: "empty-base", label: "9999", count: 0 });
+    act(() => root.render(<KnowledgeBrowseFilters {...p} />));
+    expect(container.querySelector('[data-kb-scope-family="empty-family"]')).toBeNull();
+    expect(container.querySelector('[data-kb-scope-base="empty-base"]')).toBeNull();
+    expect(container.querySelector('[data-kbv-empty-taxonomy]')?.textContent).toBe("显示空分类（2）");
+    click('[data-kbv-empty-taxonomy]');
+    expect(container.querySelector('[data-kb-scope-family="empty-family"]')?.textContent).toBe("12340");
+    expect(container.querySelector('[data-kbv-empty-taxonomy]')?.getAttribute('aria-expanded')).toBe('true');
+    click('[data-kbv-empty-taxonomy]');
+    expect(container.querySelector('[data-kb-scope-family="empty-family"]')).toBeNull();
+  });
+
+  it("keeps a selected zero-count category visible and does not collapse unknown counts", () => {
+    const p = props();
+    p.familyOptions.push({ value: "selected-empty", label: "空分类", count: 0 });
+    p.baseOptions.push({ value: "other-empty", label: "暂时为空", count: 0 });
+    p.scope.familyId = "selected-empty";
+    act(() => root.render(<KnowledgeBrowseFilters {...p} />));
+    expect(container.querySelector('[data-kb-scope-family="selected-empty"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('[data-kb-scope-base="other-empty"]')).toBeNull();
+    act(() => root.render(<KnowledgeBrowseFilters {...p} countsReady={false} />));
+    expect(container.querySelector('[data-kb-scope-base="other-empty"]')?.textContent).toBe("暂时为空");
+    expect(container.querySelector('[data-kbv-empty-taxonomy]')).toBeNull();
+  });
+
+  it("distinguishes conditional counts and clears filters through the host callback", () => {
+    const p = props(); p.query = "规格"; p.onReset = vi.fn();
+    act(() => root.render(<KnowledgeBrowseFilters {...p} />));
+    expect(container.querySelector('[data-kbv-count-scope]')?.textContent).toContain("随其他筛选条件变化");
+    expect(container.querySelector('.kbv-filter-status-label')?.textContent).toBe("当前条件");
+    click('[data-kbv-filter-reset]');
+    expect(p.onReset).toHaveBeenCalledOnce();
+  });
 });
 
 describe("knowledge right navigation", () => {
