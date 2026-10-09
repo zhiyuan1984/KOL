@@ -625,7 +625,7 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(voided.status).toBe("voided");
   });
 
-  it("7. timeout path looks up Starry before retry and does not blind-retry import", async () => {
+  it("7. enrichment timeout remains uncertain and does not infer success from profile existence", async () => {
     let imported = 0;
     const lookups: Json[] = [];
     setStarryKolClientFactory(() => ({
@@ -664,12 +664,13 @@ describe("POST /api/home/discovery/ingest", () => {
     });
     expect(ingested.status).toBe(200);
     expect((ingested.body.items as Json[])[0]).toMatchObject({
-      status: "imported",
-      kol_uid: "KOLTIMEOUT01",
-      looked_up_after_timeout: true,
+      status: "failed",
+      kol_uid: null,
+      error: { code: "import_creator_uncertain" },
+      looked_up_after_timeout: false,
       retried: false,
     });
-    // 超时只 import 了一次：核对到编号后不再盲目重试。
+    // 已有建档 UID 不能证明本次补资料成功；不重复提交、不改本地公海。
     expect(imported).toBe(1);
     expect(starryCalls.map((row) => row.name)).toEqual([
       "pageKolProfiles",
@@ -677,8 +678,8 @@ describe("POST /api/home/discovery/ingest", () => {
       "pageMailboxes",
       "addKolProfile",
       "importKolProfilesFromCrawler",
-      "pageKolProfiles",
     ]);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: number }).n)).toBe(0);
     expect(listAudit("host.import_creator.timeout_lookup").length).toBe(1);
   });
 

@@ -43,3 +43,16 @@ describe("candidate avatar normalization", () => {
     expect(candidateView({ id: "a" }, "youtube").avatar_url).toBeNull();
   });
 });
+
+describe("candidate contact normalization", () => {
+  it.each([
+    { contact_email: "real@example.com" }, { contactEmail: "real@example.com" }, { email: "real@example.com" },
+    { payload: { contactEmail: "real@example.com" } },
+  ])("preserves the email actually supplied by the crawler %j", value => {
+    expect(candidateView({ id: "channel", ...value }, "youtube").contact_email).toBe("real@example.com");
+  });
+  it("does not invent contact data from channel name or homepage", () => {
+    const row = candidateView({ id: "channel", name: "Real", profile_url: "https://youtube.com/@real" }, "youtube");
+    expect(row).not.toHaveProperty("contact_email");
+  });
+});

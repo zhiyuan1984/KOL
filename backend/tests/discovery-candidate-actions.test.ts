@@ -17,14 +17,22 @@ import type { RuntimeContext } from "../src/runtime/execution.js";
 import { enqueueCandidateAssessments, scoreDiscoveryCandidate } from "../src/crawl/assessments.js";
 import { postgresTransaction } from "../src/postgres/pool.js";
 import { setKolJevFetch } from "../src/host/kol-jev-assessment.js";
-import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid } from "../src/gateway/import-creator.js";
+import { addKolProfileConfirmed, findExistingKolUid, importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid } from "../src/gateway/import-creator.js";
+import { importRuntimeCandidateProfile } from "../src/gateway/runtime-discovery-import.js";
+import { starryBindingRow } from "../src/host/starry-bind.js";
+import { resolveStarryOwnerForMailbox } from "../src/starrykol/service.js";
 
 vi.mock("../src/gateway/import-creator.js", () => ({
+  addKolProfileConfirmed: vi.fn(),
+  findExistingKolUid: vi.fn(),
   importKolProfilesFromCrawlerConfirmed: vi.fn(),
   lookupImportedKolUid: vi.fn(),
   isStarryTimeout: (error: unknown) => /timeout|timed?\s*out/i.test(error instanceof Error ? error.message : String(error)),
   withTimeout: vi.fn(async (operation: Promise<unknown>) => operation),
 }));
+vi.mock("../src/gateway/runtime-discovery-import.js", () => ({ importRuntimeCandidateProfile: vi.fn() }));
+vi.mock("../src/host/starry-bind.js", async original => ({ ...await original<Record<string, unknown>>(), starryBindingRow: vi.fn() }));
+vi.mock("../src/starrykol/service.js", async original => ({ ...await original<Record<string, unknown>>(), resolveStarryOwnerForMailbox: vi.fn() }));
 const COMPANY = "company:amperetime";
 const candidate = { id: "stable-channel", name: "Camping channel", platform: "youtube", source_url: "https://youtube.com/channel/stable-channel", followers: 3000000, avg_views_10: null, region: null };
 let temp: string;
@@ -75,6 +83,12 @@ beforeEach(async () => {
   }
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockReset();
   vi.mocked(lookupImportedKolUid).mockReset();
+  vi.mocked(addKolProfileConfirmed).mockReset();
+  vi.mocked(findExistingKolUid).mockReset();
+  // Historical tests below isolate ownership and legacy uncertain receipts, not remote orchestration.
+  vi.mocked(importRuntimeCandidateProfile).mockReset().mockImplementation(async args =>
+    importKolProfilesFromCrawlerConfirmed({ file: { fileName: "legacy-test.csv", fileBase64: "", csv: "", rows: [] },
+      sourceBatch: args.sourceBatch, actor: args.actorId, creatorExternalId: `youtube:${candidate.id}` }));
 });
 afterEach(() => { setKolJevFetch(); delete process.env.OPENROUTER_API_KEY; resetConn(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -416,4 +430,94 @@ it.each([
   } });
   expect(await importState()).toBe("uncertain");
   expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).not.toHaveBeenCalled();
+});
+
+async function useRealTwoStage(contact = true) {
+  const actual = await vi.importActual<typeof import("../src/gateway/runtime-discovery-import.js")>("../src/gateway/runtime-discovery-import.js");
+  vi.mocked(importRuntimeCandidateProfile).mockImplementation(actual.importRuntimeCandidateProfile);
+  vi.mocked(findExistingKolUid).mockResolvedValue(null);
+  vi.mocked(addKolProfileConfirmed).mockResolvedValue({ kol_uid: "KOLTWOSTAGE001" });
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "KOLTWOSTAGE001" });
+  vi.mocked(starryBindingRow).mockReturnValue({ mailbox_id: "5", mailbox_email: "employee@example.com" });
+  vi.mocked(resolveStarryOwnerForMailbox).mockResolvedValue({ ownerOpenId: "19" });
+  setToolPolicy("starrykol", "addKolProfile", { enabled: true, risk: "L3", access: "write", schema_hash: "b".repeat(64) }, 0);
+  setSkillTool("creator_discovery", "starrykol", "addKolProfile", true, 0);
+  if (contact) await postgresPool().query(`UPDATE runtime_crawl_jobs SET result_json=jsonb_set(result_json,'{candidates,0,contact_email}','"real@example.com"')`);
+  return acting(0, async () => {
+    const data = (await postgresPool().query("SELECT result_json FROM runtime_crawl_jobs WHERE id='action-0'")).rows[0];
+    return (await runtimeCandidateViews(ctx(users[0].id), "action-0", data.result_json.candidates))[0].snapshot_version;
+  });
+}
+it("runtime performs add then enrichment with the UID and keeps independent pool semantics", async () => {
+  const snapshot = await useRealTwoStage();
+  expect(await command(0, "ingest", snapshot)).toMatchObject({ in_pool: true, kol_uid: "KOLTWOSTAGE001" });
+  await command(0, "ingest", snapshot);
+  expect(addKolProfileConfirmed).toHaveBeenCalledTimes(1); expect(importKolProfilesFromCrawlerConfirmed).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(importKolProfilesFromCrawlerConfirmed).mock.calls[0][0].file.csv).toContain("KOLTWOSTAGE001");
+  expect((await postgresPool().query("SELECT * FROM kol_follow_index")).rowCount).toBe(0);
+});
+it("runtime missing email preserves follow but never sends a no-UID CSV", async () => {
+  const snapshot = await useRealTwoStage(false);
+  const first = await command(0, "follow", snapshot);
+  expect(first).toMatchObject({ followed: true, starry_imported: false, starry_error: expect.stringContaining("真实联系邮箱") });
+  await expect(command(0, "ingest", snapshot)).rejects.toMatchObject({ detail: { code: "import_creator_no_contact_email" } });
+  expect(addKolProfileConfirmed).not.toHaveBeenCalled(); expect(importKolProfilesFromCrawlerConfirmed).not.toHaveBeenCalled();
+  expect((await postgresPool().query("SELECT id FROM kol_follow_index WHERE status='active'")).rows).toEqual([{ id: first.follow_id }]);
+});
+it("runtime checks the new create binding and L3 write policy before dispatch", async () => {
+  const snapshot = await useRealTwoStage();
+  const binding = getConn().prepare("SELECT version FROM runtime_skill_tools WHERE skill_id='creator_discovery' AND connector_id='starrykol' AND tool_name='addKolProfile'").get() as { version: number };
+  setSkillTool("creator_discovery", "starrykol", "addKolProfile", false, Number(binding.version));
+  await expect(command(0, "ingest", snapshot)).rejects.toMatchObject({ detail: { code: "runtime_tool_not_granted" } });
+  expect(addKolProfileConfirmed).not.toHaveBeenCalled(); expect(importKolProfilesFromCrawlerConfirmed).not.toHaveBeenCalled();
+});
+it("runtime resumes a failed enrichment from persisted UID without adding a second profile", async () => {
+  const snapshot = await useRealTwoStage();
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValueOnce(new Error("enrichment failed"));
+  await expect(command(0, "ingest", snapshot)).rejects.toThrow("enrichment failed");
+  const saved = (await postgresPool().query("SELECT * FROM discovery_runtime_imports")).rows[0];
+  expect(saved).toMatchObject({ state: "uncertain", kol_uid: "KOLTWOSTAGE001", receipt: { phase: "profile_ready" } });
+  expect((await postgresPool().query("SELECT * FROM kol_profile_index WHERE ingest_source='discovery-ingest'")).rowCount).toBe(0);
+  expect(await command(0, "ingest", snapshot)).toMatchObject({ kol_uid: "KOLTWOSTAGE001" });
+  expect(addKolProfileConfirmed).toHaveBeenCalledTimes(1); expect(importKolProfilesFromCrawlerConfirmed).toHaveBeenCalledTimes(2);
+  expect(lookupImportedKolUid).not.toHaveBeenCalled();
+});
+it("runtime refuses to repeat a crashed or uncertain add when exact reconciliation is empty", async () => {
+  const snapshot = await useRealTwoStage();
+  vi.mocked(addKolProfileConfirmed).mockRejectedValue(new Error("add timeout"));
+  await expect(command(0, "ingest", snapshot)).rejects.toThrow("add timeout");
+  expect((await postgresPool().query("SELECT receipt FROM discovery_runtime_imports")).rows[0].receipt).toMatchObject({ phase: "add_uncertain" });
+  await expect(command(0, "ingest", snapshot)).rejects.toMatchObject({ detail: { code: "import_creator_uncertain" } });
+  expect(addKolProfileConfirmed).toHaveBeenCalledTimes(1); expect(importKolProfilesFromCrawlerConfirmed).not.toHaveBeenCalled();
+});
+it("runtime still requires explicit confirmation before either stage", async () => {
+  const snapshot = await useRealTwoStage();
+  await expect(command(0, "ingest", snapshot, false)).rejects.toMatchObject({ detail: { code: "l3_confirm_required" } });
+  expect(addKolProfileConfirmed).not.toHaveBeenCalled(); expect(findExistingKolUid).not.toHaveBeenCalled();
+});
+it("post-follow enrichment retry keeps the same follow id and completes only after second stage", async () => {
+  const snapshot = await useRealTwoStage();
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValueOnce(new Error("enrichment failed"));
+  const first = await command(0, "follow", snapshot);
+  expect(first).toMatchObject({ followed: true, starry_imported: false });
+  const second = await command(0, "follow", snapshot);
+  expect(second).toMatchObject({ follow_id: first.follow_id, starry_imported: true });
+  expect(addKolProfileConfirmed).toHaveBeenCalledTimes(1);
+  expect((await postgresPool().query("SELECT id FROM kol_follow_index WHERE status='active'")).rowCount).toBe(1);
+});
+
+it("runtime denies add when its policy is not L3/write", async () => {
+  const snapshot = await useRealTwoStage();
+  const policy = getConn().prepare("SELECT version FROM runtime_tool_policies WHERE connector_id='starrykol' AND tool_name='addKolProfile'").get() as { version: number };
+  setToolPolicy("starrykol", "addKolProfile", { enabled: true, risk: "L1", access: "read", schema_hash: "b".repeat(64) }, Number(policy.version));
+  await expect(command(0, "ingest", snapshot)).rejects.toMatchObject({ detail: { code: "runtime_tool_not_granted" } });
+  expect(addKolProfileConfirmed).not.toHaveBeenCalled(); expect(importKolProfilesFromCrawlerConfirmed).not.toHaveBeenCalled();
+});
+it("runtime can enrich an exact existing remote profile without email or new-create binding", async () => {
+  const snapshot = await useRealTwoStage(false);
+  vi.mocked(findExistingKolUid).mockResolvedValue({ kol_uid: "KOLTWOSTAGE001", via: "keyword", profile: {} });
+  const binding = getConn().prepare("SELECT version FROM runtime_skill_tools WHERE skill_id='creator_discovery' AND connector_id='starrykol' AND tool_name='addKolProfile'").get() as { version: number };
+  setSkillTool("creator_discovery", "starrykol", "addKolProfile", false, Number(binding.version));
+  expect(await command(0, "ingest", snapshot)).toMatchObject({ kol_uid: "KOLTWOSTAGE001" });
+  expect(addKolProfileConfirmed).not.toHaveBeenCalled(); expect(importKolProfilesFromCrawlerConfirmed).toHaveBeenCalledTimes(1);
 });

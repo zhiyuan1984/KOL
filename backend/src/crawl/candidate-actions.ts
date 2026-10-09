@@ -6,8 +6,9 @@ import { DEFAULT_COMPANY_ID } from "../host/kol-memory.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { authorizeConnector, runtimeAgentForSkill, runtimeHash, type RuntimeContext } from "../runtime/execution.js";
 import { runtimeAction } from "../runtime/action-store.js";
-import { buildCrawlerImportFile, mapCandidateToCrawlerRow, creatorExternalId, isRealKolUid } from "../discovery-import.js";
-import { importKolProfilesFromCrawlerConfirmed, isStarryTimeout, lookupImportedKolUid, withTimeout } from "../gateway/import-creator.js";
+import { creatorExternalId, isRealKolUid } from "../discovery-import.js";
+import { isStarryTimeout, lookupImportedKolUid, withTimeout } from "../gateway/import-creator.js";
+import { importRuntimeCandidateProfile } from "../gateway/runtime-discovery-import.js";
 import { employeeError, isConnectionClassError, sanitizeSecret } from "../discovery-errors.js";
 import type { Json } from "../types.js";
 import { getSkillTools, getToolPolicy } from "../runtime/store.js";
@@ -46,14 +47,14 @@ const STARRY_RECONCILE_TIMEOUT_MS = 100_000;
 const STALE_DISPATCHING_MS = 10 * 60_000;
 
 /** Starry 公海导入的授权门禁（抽出供 ingest / follow 复用）。 */
-function authorizeStarryImport(action: { context_json: RuntimeContext }, actorId: string): void {
+function authorizeStarryImport(action: { context_json: RuntimeContext }, actorId: string, tool = "importKolProfilesFromCrawler"): void {
   const importContext = { ...action.context_json, agentId: runtimeAgentForSkill("creator_discovery", actorId), skillId: "creator_discovery" };
   authorizeConnector(importContext, "starrykol");
-  const tool = "importKolProfilesFromCrawler";
   const binding = getSkillTools(importContext.skillId, "starrykol").find(item => item.tool_name === tool);
   const policy = getToolPolicy("starrykol", tool);
   if (!binding?.enabled || !policy?.enabled || policy.risk !== "L3" || policy.access !== "write") {
-    throw new HttpFail(403, { code: "runtime_tool_not_granted", message: "当前智能体未获准将候选导入正式公海。" });
+    throw new HttpFail(403, { code: "runtime_tool_not_granted", message: tool === "addKolProfile"
+      ? "当前智能体未获准新建 Starry 档案，未加入公海。" : "当前智能体未获准将候选导入正式公海。" });
   }
 }
 
@@ -95,6 +96,13 @@ async function starryImportCandidate(input: {
       if (prior.state !== "uncertain" && !orphaned) {
         throw new HttpFail(409, { code: "import_creator_uncertain", message: "入库请求已提交，正在处理；请稍后再试。" });
       }
+      // Two-stage receipts distinguish an existing profile from a completed enrichment write.
+      if (["preflight", "profile_ready", "add_uncertain"].includes(String(prior.receipt?.phase))) {
+        await client.query(`UPDATE discovery_runtime_imports SET state='dispatching',updated_at=now()
+          WHERE company_id=$1 AND platform=$2 AND creator_id=$3`, [company, row.platform, row.id]);
+        return { resume: true as const, knownKolUid: prior.receipt.phase === "profile_ready" ? String(prior.kol_uid || "") : "",
+          addUncertain: prior.receipt.phase === "add_uncertain" };
+      }
       const reconciled = await reconcileUncertainImport(client, {
         row, actionId, actorId, sourceBatch, candidateId, allowFollowed,
       });
@@ -119,12 +127,30 @@ async function starryImportCandidate(input: {
       snapshot_version: input.snapshotVersion, confirmed: true, risk: "L3", via: allowFollowed ? "follow" : "ingest" });
     return null;
   });
-  if (importState) return importState;
+  if (importState && typeof importState.kol_uid === "string") return { kol_uid: importState.kol_uid, reused: Boolean(importState.reused) };
   try {
-    const file = buildCrawlerImportFile([mapCandidateToCrawlerRow({ platform: row.platform, platform_creator_id: row.id,
-      nickname: row.name, profile_url: row.source_url })]);
-    const receipt = await importKolProfilesFromCrawlerConfirmed({ file, sourceBatch, actor: actorId,
-      creatorExternalId: creatorExternalId(row.platform, row.id), candidateId });
+    const authorizeStage = async (tool: string) => {
+      const current = await runtimeAction(actionId, actorId);
+      authorizeStarryImport(current, actorId, tool);
+      await postgresTransaction(async client => {
+        await lock(client, row);
+        await currentSnapshot(client, actionId, row, input.snapshotVersion);
+        const owned = await follow(client, row);
+        if (owned && owned.employee_id !== actorId) throw new HttpFail(409, { code: "candidate_followed",
+          message: "该红人已被其他员工跟进，未提交档案写入。" });
+      });
+    };
+    const receipt = await importRuntimeCandidateProfile({ candidate: row, actorId, sourceBatch,
+      knownKolUid: importState && "resume" in importState ? importState.knownKolUid : undefined,
+      addUncertain: Boolean(importState && "resume" in importState && importState.addUncertain),
+      authorizeCreate: () => authorizeStage("addKolProfile"),
+      authorizeImport: () => authorizeStage("importKolProfilesFromCrawler"),
+      checkpoint: async checkpoint => {
+        await postgresPool().query(`UPDATE discovery_runtime_imports SET kol_uid=$4,receipt=$5,updated_at=now()
+          WHERE company_id=$1 AND platform=$2 AND creator_id=$3`, [company, row.platform, row.id,
+          checkpoint.kol_uid || null, JSON.stringify(checkpoint)]);
+      },
+    });
     await postgresTransaction(async client => {
       await lock(client, row);
       const now = new Date().toISOString();
@@ -359,7 +385,8 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
         // uncertain / 孤儿 dispatching：跟进前真去 Starry 核对一次，不再永远 409。
         // Starry 已有 → 补成功落盘后继续跟进；没有 → 删掉僵尸行，跟进走本地建档，
         // 跟进成功后的 Starry 写入会重新入库；核对本身失败 → 502 诚实报错。
-        const reconciled = await reconcileUncertainImport(client, {
+        const twoStage = ["preflight", "profile_ready", "add_uncertain"].includes(String(importing.receipt?.phase));
+        const reconciled = twoStage ? true : await reconcileUncertainImport(client, {
           row, actionId, actorId: actor.id, sourceBatch: `runtime:${actionId}`, candidateId, allowFollowed: true,
         });
         if (!reconciled) {

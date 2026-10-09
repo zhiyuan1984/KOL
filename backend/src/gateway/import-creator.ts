@@ -200,19 +200,42 @@ async function safeStarryList(tool: string, args: Json, actor: string): Promise<
  */
 export async function findExistingKolUid(
   target: KolLookupTarget,
-  opts: { actor?: string } = {},
+  opts: { actor?: string; strict?: boolean } = {},
 ): Promise<ExistingKolProfile | null> {
   const actor = opts.actor || "host";
+  const list = async (tool: string, args: Json): Promise<Json> => {
+    if (!opts.strict) return safeStarryList(tool, args, actor);
+    try {
+      const response = await callStarryKolTool(tool, args, { timeoutMs: tool === "pageKolProfiles" ? STARRY_KEYWORD_LOOKUP_MS : STARRY_LISTALL_LOOKUP_MS });
+      const nested = asObject(response.data);
+      if (starryBodyFailure(response).failed || ![response.list, response.records, nested.list, nested.records].some(Array.isArray)) {
+        throw new Error("Starry profile lookup response unavailable or invalid");
+      }
+      return response;
+    } catch (error) {
+      audit(actor, "host.find_existing_kol_uid.failed", { tool, error_detail: sanitizeSecret(error), retried: false });
+      throw new HttpFail(502, { code: "import_creator_lookup_failed", message: "Starry 档案核对失败，未提交新建档，请稍后重试。" });
+    }
+  };
+  const pick = (data: Json): Json | undefined => {
+    const rows = listOf(asObject(data)).filter(row => !opts.strict ||
+      (Boolean(normalizeProfileUrl(target.profileUrl)) && PROFILE_URL_KEYS.some(key => normalizeProfileUrl(row[key]) === normalizeProfileUrl(target.profileUrl))) ||
+      PROFILE_PLATFORM_KEYS.some(key => String(row[key] || "").trim().toLowerCase() === String(target.platform || "").toLowerCase()));
+    if (opts.strict && rows.filter(row => realKolUidOf(row) && profileRowMatches(row, target)).length > 1) {
+      throw new HttpFail(409, { code: "candidate_identity_conflict", message: "Starry 匹配到多个档案，未重复建档，请人工核对身份。" });
+    }
+    return pickProfileRow(rows, target);
+  };
   const keyword = firstString(target.keyword, target.account);
   if (keyword) {
-    const listed = await safeStarryList("pageKolProfiles", {
+    const listed = await list("pageKolProfiles", {
       requestJson: JSON.stringify({ pageNo: 1, pageSize: 20, keyword }),
-    }, actor);
-    const hit = pickProfileRow(listOf(asObject(listed)), target);
+    });
+    const hit = pick(listed);
     if (hit) return { kol_uid: realKolUidOf(hit), via: "keyword", profile: hit };
   }
-  const all = await safeStarryList("listAllKolProfiles", {}, actor);
-  const hit = pickProfileRow(listOf(asObject(all)), target);
+  const all = await list("listAllKolProfiles", {});
+  const hit = pick(all);
   return hit ? { kol_uid: realKolUidOf(hit), via: "list_all", profile: hit } : null;
 }
 
@@ -279,6 +302,11 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
         retried_import: false,
         error_detail: sanitizeSecret(error),
       });
+      if (isRealKolUid(input.knownKolUid)) {
+        throw new HttpFail(502, { code: "import_creator_uncertain",
+          message: "Starry 档案已存在，但平台资料补入超时、结果未确认；未误报入库成功。",
+          policy: IMPORT_CREATOR_POLICY, retried: false });
+      }
       try {
         const found = await withTimeout(
           lookupImportedKolUid({
@@ -350,6 +378,11 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     });
   }
   const echoed = parseImportedKolUid(normalizeStarryKolResult(data));
+  if (isRealKolUid(input.knownKolUid) && isRealKolUid(echoed) && echoed !== input.knownKolUid) {
+    audit(actor, "host.import_creator.failed", { candidate_id: input.candidateId || null,
+      reason: "kol_uid_mismatch", starry_response: starryResponseDigest(data), retried: false });
+    throw new HttpFail(502, { code: "candidate_identity_conflict", message: "Starry 回传编号与本次建档编号不一致，未改变本地归属。" });
+  }
   // 更新回包（totalCount/updatedCount…）不带 uid 时，用第一步 addKolProfile 拿到的 uid；
   // 仍然拿不到就诚实失败，不编造编号。
   let kolUid = isRealKolUid(echoed)

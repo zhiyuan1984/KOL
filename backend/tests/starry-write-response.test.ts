@@ -13,7 +13,7 @@ vi.mock("../src/gateway/discovery-harness.js", () => ({ rejectDiscoveryHarnessTo
 
 import { audit } from "../src/db.js";
 import { buildCrawlerImportFile } from "../src/discovery-import.js";
-import { addKolProfileConfirmed, importKolProfilesFromCrawlerConfirmed } from "../src/gateway/import-creator.js";
+import { addKolProfileConfirmed, findExistingKolUid, importKolProfilesFromCrawlerConfirmed } from "../src/gateway/import-creator.js";
 import { starryBodyFailure, starryResponseDigest } from "../src/gateway/starry-response.js";
 import { callStarryKolTool, setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
@@ -155,5 +155,36 @@ describe("Starry write response diagnostics", () => {
   });
   it("does not infer rejection from an unmarked informational message", () => {
     expect(starryBodyFailure({ message: "已处理，请核对" })).toEqual({ failed: false, message: "" });
+  });
+  it("strict lookup rejects transport errors rather than creating again", async () => {
+    call.mockRejectedValue(new Error("network unavailable"));
+    await expect(findExistingKolUid({ account: "stable-channel", platform: "youtube" }, { strict: true }))
+      .rejects.toMatchObject({ detail: { code: "import_creator_lookup_failed" } });
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+  it("strict lookup rejects ambiguous exact identities", async () => {
+    call.mockResolvedValue({ list: [exactProfile, { ...exactProfile, kolUid: "KOLSECOND001" }] });
+    await expect(findExistingKolUid({ account: "stable-channel", platform: "youtube" }, { strict: true }))
+      .rejects.toMatchObject({ detail: { code: "candidate_identity_conflict" } });
+  });
+  it("strict lookup rejects invalid structures instead of treating them as empty lists", async () => {
+    call.mockResolvedValue({ message: "please retry" });
+    await expect(findExistingKolUid({ account: "stable-channel", platform: "youtube" }, { strict: true }))
+      .rejects.toMatchObject({ detail: { code: "import_creator_lookup_failed" } });
+  });
+  it("strict lookup does not use a same handle lacking platform proof", async () => {
+    call.mockResolvedValue({ list: [{ kolUid: "KOLREAL001", accountHandle: "stable-channel" }] });
+    await expect(findExistingKolUid({ account: "stable-channel", platform: "youtube" }, { strict: true })).resolves.toBeNull();
+  });
+  it("rejects a returned UID different from the confirmed profile UID", async () => {
+    call.mockResolvedValue({ kolUid: "KOLDIFFERENT001" });
+    await expect(importKolProfilesFromCrawlerConfirmed({ ...importer, knownKolUid: "KOLKNOWN001" }))
+      .rejects.toMatchObject({ detail: { code: "candidate_identity_conflict" } });
+  });
+  it("does not treat profile existence as proof of a timed-out enrichment", async () => {
+    call.mockRejectedValue(new Error("import request timed out"));
+    await expect(importKolProfilesFromCrawlerConfirmed({ ...importer, knownKolUid: "KOLKNOWN001" }))
+      .rejects.toMatchObject({ detail: { code: "import_creator_uncertain" } });
+    expect(call).toHaveBeenCalledTimes(1);
   });
 });
