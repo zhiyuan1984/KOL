@@ -1,4 +1,5 @@
-/* Candidate screening uses the workbench density and DESIGN.md tokens. */
+/* Result-level controls own this file. KOL rows are shared in
+   components/kol/kol-card.css (DESIGN §24.6 / §26.3). */
 .discovery-runtime-results { min-width: 0; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); container-type: inline-size; }
 .discovery-results-summary { padding: var(--space-2) var(--space-3); background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
 .discovery-results-summary > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
@@ -12,41 +13,8 @@
 .discovery-candidate-batch { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border); }
 .discovery-candidate-batch label { display: inline-flex; align-items: center; gap: var(--space-1); }
 .discovery-candidate-batch > button { margin-inline-start: auto; }
-.discovery-runtime-results .discovery-runtime-candidate { display: block; min-width: 0; margin: 0; padding: var(--space-2); border-bottom: 1px solid var(--border); background: var(--bg); overflow-wrap: anywhere; }
-.discovery-runtime-candidate[data-selected] { background: var(--bg-elevated); }
-.discovery-candidate-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
-.discovery-candidate-selection { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-h-sm); min-height: var(--control-h-sm); }
-.discovery-candidate-heading .pool-row-avatar { width: var(--control-h-sm); height: var(--control-h-sm); flex: none; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); }
-.discovery-candidate-name { font-weight: 600; min-width: 0; }
-.discovery-candidate-state { color: var(--text-muted); }
-.discovery-candidate-score { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
-.discovery-candidate-score[data-candidate-score="scoring"] { color: var(--accent-text); }
-.discovery-candidate-score[data-candidate-score="failed"] { color: var(--danger); }
-.discovery-candidate-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin-block: var(--space-1); color: var(--text-muted); }
-.discovery-candidate-meta .pool-row-metrics { flex-wrap: wrap; overflow: visible; gap: var(--space-1) var(--space-3); }
-.discovery-candidate-meta .pool-row-metrics span + span::before { content: none; }
-.discovery-candidate-meta .pool-profile-link { color: var(--accent-text); }
-.discovery-candidate-review { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); }
-.discovery-runtime-results .discovery-candidate-fit { margin: 0; color: var(--text-muted); }
-.discovery-runtime-results .discovery-runtime-candidate .discovery-candidate-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); margin-block: 0; margin-inline-start: auto; margin-inline-end: 0; }
-.discovery-runtime-results .link-button { border: 0; background: none; color: var(--accent-text); min-height: var(--control-h-sm); padding: 0 var(--space-1); border-radius: var(--radius-control); font: inherit; cursor: pointer; }
-.discovery-runtime-results .link-button:hover { background: var(--surface-hover); }
-.discovery-runtime-results .link-button:disabled { color: var(--text-muted); cursor: default; opacity: 0.6; }
-.discovery-runtime-results :is(button, input, summary):focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
-.discovery-runtime-results .discovery-candidate-evidence { margin-block-start: var(--space-1); }
-.discovery-candidate-evidence summary { cursor: pointer; color: var(--accent-text); }
-.discovery-candidate-evidence[open] { background: var(--bg-elevated); padding: var(--space-2); border-radius: var(--radius-control); }
-.discovery-runtime-results .discovery-candidate-evidence p, .discovery-runtime-results .discovery-batch-receipt { margin: var(--space-1) 0; }
-@container (max-width: 479px) {
-  .discovery-candidate-meta { align-items: flex-start; gap: var(--space-1) var(--space-2); }
-  .discovery-candidate-meta .pool-row-metrics { width: 100%; }
-  .discovery-candidate-score { margin-inline-start: 0; }
-  .discovery-candidate-review { display: block; }
-  .discovery-runtime-results .discovery-runtime-candidate .discovery-candidate-actions { margin-inline-start: 0; }
-}
+.discovery-runtime-results .discovery-batch-receipt { margin: var(--space-1) 0; }
 @media (pointer: coarse) {
-  .discovery-runtime-results .discovery-runtime-candidate :is(button, summary), .discovery-runtime-results .discovery-candidate-batch :is(button, label), .discovery-runtime-results .discovery-scoring-toolbar button { min-width: var(--touch-hit-min); min-height: var(--touch-hit-min); }
-  .discovery-candidate-selection { min-width: var(--touch-hit-min); min-height: var(--touch-hit-min); }
-  .discovery-candidate-heading input { margin: 0; }
+  .discovery-runtime-results .discovery-candidate-batch :is(button, label), .discovery-runtime-results .discovery-scoring-toolbar button { min-width: var(--touch-hit-min); min-height: var(--touch-hit-min); }
 }
 @media (max-height: 600px) { .discovery-results-summary { padding-block: var(--space-1); } }

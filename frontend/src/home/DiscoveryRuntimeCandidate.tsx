@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type RuntimeActionView } from "../api";
 import { friendlyApiError } from "../labels";
-import { PoolAvatar, FactIcon } from "./PoolPane";
+import { KolCardActions, KolCardEvidence, KolCardIdentity, KolCardMeta, KolCardReview, KolCardSelection, KolCardShell } from "../components/kol/KolCardShell";
+import KolAvatar from "../components/kol/KolAvatar";
+import KolAction from "../components/kol/KolCardActions";
+import { KolFactIcon } from "../components/kol/KolFactIcon";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import { platformLabel, type DiscoveryBrief } from "./discoveryTemplate";
 
@@ -13,11 +16,13 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
 }) {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState(false);
   const snapshot = row.snapshot_version;
   async function command(verb: "follow" | "ignore" | "restore" | "ingest") {
-    if (busy || !snapshot) return;
+    if (submitting.current || busy || !snapshot) return;
+    submitting.current = true;
     setBusy(true); setError("");
     try {
       const result = await api.discoveryCandidateCommand(actionId, row.id, verb, snapshot);
@@ -32,7 +37,7 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
       else refresh();
       setConfirm(false);
     } catch (error) { setError(friendlyApiError(error, "操作未完成，请刷新核对当前状态。")); }
-    finally { setBusy(false); }
+    finally { submitting.current = false; setBusy(false); }
   }
   const followersMatch = row.followers != null && row.followers >= brief.min_followers
     && (brief.max_followers == null || row.followers <= brief.max_followers);
@@ -42,39 +47,37 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
   const scoreState = assessment?.state || "unscored";
   const score = scoreState === "scored" ? assessment?.potential_score : null;
   const confidence = assessment?.potential_confidence;
-  return <article className="discovery-runtime-candidate" data-kol-work-card data-discovery-candidate={row.id} data-selected={selected || undefined}>
-    <div className="discovery-candidate-heading">
-    {onSelect ? <label className="discovery-candidate-selection"><input type="checkbox" aria-label={`选择 ${row.name}`} checked={Boolean(selected)}
-      disabled={!snapshot || row.followed || row.in_pool || row.ignored} onChange={event => onSelect(event.target.checked)} /></label> : null}
-    <PoolAvatar card={{ kol_uid: row.id, identity: { display: row.name, platform: row.platform, avatar_url: row.avatar_url || undefined }, metrics: {} }} />
-      <strong className="discovery-candidate-name">{row.name}</strong>
-      <span className="discovery-candidate-state">{row.followed ? "已跟进" : row.in_pool ? "已加入公海" : row.ignored ? "已忽略" : "候选"}</span>
-      <span className="discovery-candidate-score" data-candidate-score={scoreState} role={scoreState === "scoring" ? "status" : undefined}>
+  return <KolCardShell variant="discovery" data-kol-work-card data-discovery-candidate={row.id} data-selected={selected || undefined}>
+    <KolCardIdentity className="discovery-candidate-heading">
+    {onSelect ? <KolCardSelection className="discovery-candidate-selection" aria-label={`选择 ${row.name}`} checked={Boolean(selected)}
+      disabled={!snapshot || row.followed || row.in_pool || row.ignored} onChange={event => onSelect(event.target.checked)} /> : null}
+    <KolAvatar name={row.name} src={row.avatar_url} identityKey={row.id} />
+      <strong className="kol-card-name" data-kol-name title={row.name}>{row.name}</strong>
+      <span className="kol-card-state discovery-candidate-state">{row.followed ? "已跟进" : row.in_pool ? "已加入公海" : row.ignored ? "已忽略" : "候选"}</span>
+      <span className="kol-card-score" data-candidate-score={scoreState} role={scoreState === "scoring" ? "status" : undefined}>
         {score != null ? <>评分 <b>{Math.round(score)}</b> / 100{confidence != null && confidence < 0.7 ? " · 需复核" : ""}</>
           : scoreState === "scoring" ? assessment?.execution_state === "queued" ? "排队评分" : "评分中…" : scoreState === "failed" ? "评分失败" : scoreState === "scored" ? "评分资料不足" : "未评分"}
       </span>
-    </div>
-      <div className="discovery-candidate-meta"><span>{platformLabel(row.platform)}</span>
+    </KolCardIdentity>
+      <KolCardMeta><span>{platformLabel(row.platform)}</span>
         <span>{row.region || "地区待核验"}</span>
-        <span className="pool-row-metrics">
-        <span><FactIcon type="followers" />粉丝 <b>{row.followers == null ? "无法核验" : row.followers.toLocaleString()}</b></span>
-        <span><FactIcon type="avg-plays" />近10条均播 <b>{row.avg_views_10 == null ? "无法核验" : Math.round(row.avg_views_10).toLocaleString()}</b></span>
-      </span>
-        {source ? <a className="pool-profile-link" href={source} target="_blank" rel="noopener noreferrer">主页 ↗</a> : <span>主页未提供</span>}
-      </div>
-      <div className="discovery-candidate-review">
-      <p className="discovery-candidate-fit">{followerVerified ? followersMatch ? "粉丝符合当前条件" : "粉丝不符合当前条件" : "粉丝缺少可核验来源"}
+        <span><KolFactIcon type="followers" />粉丝 <b>{row.followers == null ? "无法核验" : row.followers.toLocaleString()}</b></span>
+        <span><KolFactIcon type="avg-plays" />近10条均播 <b>{row.avg_views_10 == null ? "无法核验" : Math.round(row.avg_views_10).toLocaleString()}</b></span>
+        {source ? <a className="kol-card-link" href={source} target="_blank" rel="noopener noreferrer">主页 <KolFactIcon type="external" /></a> : <span>主页未提供</span>}
+      </KolCardMeta>
+      <KolCardReview>
+      <p>{followerVerified ? followersMatch ? "粉丝符合当前条件" : "粉丝不符合当前条件" : "粉丝缺少可核验来源"}
         {row.avg_views_10 != null ? row.avg_views_10 >= brief.min_avg_plays_10 ? " · 均播符合当前条件" : " · 均播低于当前门槛" : " · 近10条资料不足"}</p>
-      <div className="discovery-candidate-actions">
-        {!row.ignored ? <span className="discovery-candidate-state">R3</span> : null}
-        {row.ignored ? <button type="button" className="link-button" disabled={busy || !snapshot} onClick={() => void command("restore")}>恢复考虑</button> : <>
-          <button type="button" className="link-button" title="R3 · 点击即确认归你跟进，其他员工受排他跟进规则限制" disabled={busy || !snapshot || row.followed} onClick={() => void command("follow")}>{busy ? "处理中…" : "跟进"}</button>
-          <button type="button" className="link-button" disabled={busy || !snapshot} onClick={() => void command("ignore")}>忽略</button>
-          <button type="button" className="link-button" disabled={busy || !snapshot} title={row.followed ? "R3 · 补写 Starry 公海（跟进时入库未完成可点此重试；他人的跟进不可操作）" : "R3 · 确认后将公开资料加入公海"} onClick={() => row.in_pool ? nav("/?tab=pool") : setConfirm(true)}>{row.in_pool ? "查看公海" : "加入公海"}</button>
+      <KolCardActions>
+        {!row.ignored ? <span className="kol-card-state">R3</span> : null}
+        {row.ignored ? <KolAction disabled={busy || !snapshot} onClick={() => void command("restore")}>恢复考虑</KolAction> : <>
+          <KolAction title="R3 · 点击即确认归你跟进，其他员工受排他跟进规则限制" disabled={busy || !snapshot || row.followed} onClick={() => void command("follow")}>{busy ? "处理中…" : "跟进"}</KolAction>
+          <KolAction disabled={busy || !snapshot} onClick={() => void command("ignore")}>忽略</KolAction>
+          <KolAction disabled={busy || !snapshot} title={row.followed ? "R3 · 补写 Starry 公海（跟进时入库未完成可点此重试；他人的跟进不可操作）" : "R3 · 确认后将公开资料加入公海"} onClick={() => row.in_pool ? nav("/?tab=pool") : setConfirm(true)}>{row.in_pool ? "查看公海" : "加入公海"}</KolAction>
         </>}
-      </div>
-      </div>
-      <details className="discovery-candidate-evidence"><summary>资料与筛选依据{scoreState === "scored" ? " · 评分依据" : ""}</summary>
+      </KolCardActions>
+      </KolCardReview>
+      <KolCardEvidence label={<>资料与筛选依据{scoreState === "scored" ? " · 评分依据" : ""}</>}>
         <p>资料取得时间：{new Date(capturedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</p>
         <p>方向：{row.direction || "待核验"}；地区和方向需按来源核验。</p>
         {row.followers_evidence?.raw_text ? <p>粉丝来源原文：{row.followers_evidence.raw_text}</p> : null}
@@ -89,7 +92,7 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
           <p>评分时间：{assessment?.assessed_at ? new Date(assessment.assessed_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }) : "未提供"}；规则版本：{assessment?.version?.replace(/^jev-kol-/, "") || "未提供"}。</p>
         </> : null}
         {!row.ignored && !row.followed ? <p>R3 · 跟进：点击即确认归你跟进；加入公海另行确认。</p> : null}
-      </details>
+      </KolCardEvidence>
       {!snapshot ? <p role="status">此历史结果缺少资料版本，请刷新核对后操作。</p> : null}
       {error && !confirm ? <p role="alert">{error}</p> : null}
     <DiscoveryIngestConfirm open={confirm} busy={busy} error={error} risk="R3" confirmText="确认入库公海"
@@ -98,5 +101,5 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
         { label: "资料", value: `公开身份与主页；本次发现于 ${new Date(capturedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}` },
         { label: "操作", value: "加入正式公海；不取得个人跟进、不发信、不改变阶段。已有指标保留，缺失联系方式不补造。" },
       ]} onConfirm={() => void command("ingest")} onCancel={() => { if (!busy) { setConfirm(false); setError(""); } }} />
-  </article>;
+  </KolCardShell>;
 }

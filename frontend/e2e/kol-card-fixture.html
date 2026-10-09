@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KOL card isolated fixture</title>
+    <style>
+      /* Fixture host geometry only. It never selects or overrides production card styles. */
+      html, body, #root { min-width: 0; margin: 0; }
+      [data-fixture-root] { width: 100%; min-width: 0; }
+      [data-fixture-root][data-zoom="2"] { width: 50%; zoom: 2; }
+      .kol-card-fixture { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px; }
+      .fixture-note { margin: 0 0 8px; color: var(--text-quiet); font-size: 12px; line-height: 18px; }
+      .fixture-stage { box-sizing: border-box; width: min(100%, var(--fixture-stage-width)); min-width: 0; margin-inline: auto; }
+      .fixture-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--fixture-card-width)), var(--fixture-card-width))); justify-content: center; gap: 16px; min-width: 0; }
+      .fixture-card-host { box-sizing: border-box; width: 100%; max-width: var(--fixture-card-width); min-width: 0; }
+      .fixture-edge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 360px)); justify-content: center; gap: 16px; width: min(100%, 752px); min-width: 0; margin: 16px auto 0; }
+      .fixture-edge-grid .fixture-card-host { max-width: 360px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- E2E-only Vite entry: vite.config.ts builds index.html exclusively. -->
+    <script type="module" src="/e2e/kol-card-fixture.tsx"></script>
+  </body>
+</html>

@@ -3174,10 +3174,6 @@ summary:focus-visible,
   font-weight: 600;
   white-space: nowrap;
 }
-.followed-kol-card .kol-chip.is-unread {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 .home-mode-pane h2 .btn { margin-left: 10px; vertical-align: middle; }
 .kol-card-body {
   min-width: 0;
@@ -3290,8 +3286,7 @@ summary:focus-visible,
 }
 .followed-kol-column .followed-object-toolbar,
 .followed-kol-column .followed-batch-bar,
-.followed-kol-column .followed-kol-item,
-.followed-kol-column .followed-kol-card {
+.followed-kol-column .followed-kol-item {
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -3317,46 +3312,9 @@ summary:focus-visible,
   list-style: none;
   overflow-x: hidden;
 }
-.followed-kol-card {
-  display: grid;
-  justify-items: stretch;
-  gap: var(--space-3);
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-cards);
-  background: var(--bg);
-  overflow-y: visible;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  white-space: normal;
-  text-align: left;
-  box-sizing: border-box;
-}
-.followed-kol-card * {
-  min-width: 0;
-  box-sizing: border-box;
-}
-.followed-kol-card .kol-split-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.1em;
-  margin-right: 6px;
-  color: var(--text-muted);
-  font-size: 0.95em;
-  line-height: 1;
-}
-.followed-kol-card:hover {
-  background: color-mix(in srgb, var(--text) 4%, var(--bg));
-}
 /* 风险不再染整条左边界：那个形状与「选中」同构，且只靠颜色。
    状态色改为紧贴文案的局部标记（DESIGN.md §不变量 4）。 */
-.kol-band,
-.followed-kol-card .kol-band,
-.followed-kol-card .kol-state-block {
+.kol-band {
   min-width: 0;
   max-width: 100%;
   width: 100%;
@@ -3370,21 +3328,6 @@ summary:focus-visible,
   gap: var(--space-2);
 }
 /* 头像 = 图标砖：小圆角方形，淡辅助底 + 辅助字形（DESIGN.md §颜色「图标砖与图标字形」）。 */
-.kol-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--kol-avatar-size);
-  height: var(--kol-avatar-size);
-  flex: 0 0 auto;
-  margin-top: 0;
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-  color: var(--accent-text);
-  font-size: var(--ds-font-sm);
-  font-weight: 600;
-  line-height: 1;
-}
 /* 身份块两行：第一行身份、第二行元信息（普通属性 + 14 日计时同一条弱化行）。 */
 .kol-identity-main {
   min-width: 0;
@@ -3425,12 +3368,6 @@ summary:focus-visible,
   word-break: break-word;
 }
 /* 行内图标只取 --icon-sm 一档，不撑高、不折行。 */
-.followed-kol-card .kol-ico {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-  flex: 0 0 auto;
-  vertical-align: -0.125em;
-}
 /* 阶段标签：短标签 + 淡辅助底 + 细描边，与行内其它标记同档高（--badge-h）。 */
 .kol-stage-badge {
   display: inline-flex;
@@ -3488,20 +3425,10 @@ summary:focus-visible,
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.followed-kol-card .kol-chip {
-  font-size: var(--ds-font-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .kol-chip-row > .kol-chip + .kol-chip::before {
   content: "·";
   margin-right: 6px;
   color: var(--text-muted);
-}
-.followed-kol-card .kol-stage,
-.followed-kol-card .kol-stage-stay {
-  white-space: nowrap;
 }
 /* 未读是信息性标记（辅助色职责），不是风险：红色只留给异常与失败。 */
 .kol-chip.is-unread {
@@ -3532,25 +3459,6 @@ summary:focus-visible,
   background: var(--bg-elevated);
   color: var(--text);
 }
-.followed-kol-card .kol-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-  width: 100%;
-  min-width: 0;
-}
-.followed-kol-card .kol-band-state,
-.followed-kol-card .kol-band-fact,
-.followed-kol-card .kol-band-recommend {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
-  align-items: start;
-}
-.followed-kol-card .kol-band-recommend {
-  gap: 2px;
-}
 .kol-state-block {
   min-width: 0;
   max-width: 100%;
@@ -3569,17 +3477,6 @@ summary:focus-visible,
 .kol-band-label {
   display: none;
 }
-.followed-kol-card .kol-name,
-.followed-kol-card .kol-suggestion,
-.followed-kol-card .kol-mail-digest,
-.followed-kol-card .kol-judgment,
-.followed-kol-card .kol-evidence,
-.followed-kol-card .kol-state-block p,
-.followed-kol-card .kol-cta-btn {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
 .kol-state-block p {
   margin: 0;
   min-width: 0;
@@ -3588,123 +3485,10 @@ summary:focus-visible,
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.followed-kol-card .kol-split-kicker {
-  margin: 0;
-  font-size: var(--ds-font-sm);
-  font-weight: 500;
-  line-height: 1.4;
-  letter-spacing: 0;
-  color: var(--text-muted);
-}
 /* 「AI 建议 · 理由」同一条弱化行：判断来自谁 + 依据，各自只占一级信息。 */
-.followed-kol-card .kol-ai-why {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 4px;
-  margin: 0;
-  font-size: var(--ds-font-sm);
-  line-height: 1.4;
-}
-.followed-kol-card .kol-ai-why .kol-split-kicker::after {
-  content: "·";
-  margin-left: 4px;
-  color: var(--text-muted);
-}
 /* 一级：当前建议 —— 与姓名同档，靠字重与颜色抢注意力，不靠字号。 */
-.followed-kol-card .kol-suggestion,
-.followed-kol-card [data-recommended-action] .kol-suggestion {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  font-weight: 600;
-  font-size: var(--ds-font-body);
-  line-height: var(--leading-tight);
-  color: var(--text);
-}
 /* AI 可信度：证据不足时图标 + 弱化色，不把猜测装成结论。 */
-.followed-kol-card [data-confidence="low"] .kol-suggestion {
-  font-weight: 500;
-  color: var(--text-muted);
-}
-.followed-kol-card .kol-judgment,
-.followed-kol-card [data-action-why] {
-  font-size: var(--ds-font-sm);
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-.followed-kol-card .kol-mail-digest,
-.followed-kol-card [data-latest-fact] .kol-mail-digest {
-  font-size: var(--ds-font-body);
-  color: var(--text);
-  line-height: var(--leading-tight);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.followed-kol-card .kol-mail-meta {
-  margin: 0;
-  font-size: var(--ds-font-sm);
-  color: var(--text-muted);
-  line-height: 1.35;
-  font-variant-numeric: tabular-nums;
-}
-.followed-kol-card .kol-evidence-disclosure {
-  margin: 0;
-}
 /* 依据入口：展开态由 <details> 自己驱动，箭头是统一 SVG，不用文本字符。 */
-.followed-kol-card .kol-evidence-disclosure summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: var(--ds-font-sm);
-  line-height: 1.35;
-  list-style: none;
-}
-.followed-kol-card .kol-evidence-disclosure .kol-when-open {
-  display: none;
-}
-.followed-kol-card .kol-evidence-disclosure[open] .kol-when-open {
-  display: inline;
-}
-.followed-kol-card .kol-evidence-disclosure[open] .kol-when-closed {
-  display: none;
-}
-.followed-kol-card .kol-evidence-disclosure .kol-chevron {
-  transition: transform 120ms ease;
-}
-.followed-kol-card .kol-evidence-disclosure[open] .kol-chevron {
-  transform: rotate(180deg);
-}
-@media (prefers-reduced-motion: reduce) {
-  .followed-kol-card .kol-evidence-disclosure .kol-chevron { transition: none; }
-}
-.followed-kol-card .kol-evidence-disclosure summary:hover,
-.followed-kol-card .kol-evidence-disclosure summary:focus-visible {
-  color: var(--text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.followed-kol-card .kol-evidence-disclosure summary::-webkit-details-marker {
-  display: none;
-}
-.followed-kol-card .kol-evidence,
-.followed-kol-card [data-action-evidence] p {
-  font-size: var(--font-sm);
-  color: var(--text-muted);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-break: break-word;
-}
 .kol-band-actions {
   display: flex;
   flex-wrap: wrap;
@@ -3714,65 +3498,9 @@ summary:focus-visible,
   min-width: 0;
   padding-top: 2px;
 }
-.followed-kol-card .kol-cta-secondary,
-.followed-kol-card .kol-cta-primary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  min-width: 0;
-}
-.followed-kol-card .kol-cta-primary {
-  margin-left: 0;
-}
-.followed-kol-card .kol-cta-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex: 0 1 auto;
-  max-width: 100%;
-  min-width: 0;
-  height: auto;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  text-align: center;
-}
 /* 文字链接默认不加下划线：靠颜色与位置识别，hover / focus 才强化。 */
-.followed-kol-card .kol-cta-link {
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--ds-font-sm);
-  line-height: 1.35;
-  cursor: pointer;
-  text-decoration: none;
-}
-.followed-kol-card .kol-cta-link:hover,
-.followed-kol-card .kol-cta-link:focus-visible {
-  color: var(--text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
 /* 行内 CTA 不是胶囊：胶囊只留给身份/状态语义（DESIGN.md §控件尺寸）。 */
-.followed-kol-card .kol-cta-primary .kol-cta-work {
-  border-radius: var(--radius-control);
-}
 /* Row CTAs stay ghost; the one filled --primary CTA lives on the bulk top bar. */
-.followed-kol-card .kol-cta-primary .kol-cta-work.btn.ghost {
-  background: var(--bg);
-  color: var(--text);
-  border-color: var(--border);
-}
-
-.followed-kol-card .kol-cta-primary .kol-cta-work:hover:not(:disabled),
-.followed-kol-card .kol-cta-primary .kol-cta-work:focus-visible {
-  background: color-mix(in srgb, var(--text) 4%, var(--bg));
-  color: var(--text);
-  border-color: var(--border-strong);
-}
 .followed-brief {
   margin: 0 0 16px;
   padding: 0;
@@ -3836,10 +3564,6 @@ summary:focus-visible,
 }
 .pool-kol-card [data-pool-profile-link] {
   color: inherit;
-}
-
-.followed-kol-card[data-selected] {
-  background: color-mix(in srgb, var(--text) 4%, var(--bg));
 }
 /* 我的红人：连续对象清单。阶段导航、搜索与批量动作固定在列表顶部，
    每位红人只保留身份、最近互动和下一步，避免把右栏做成卡片墙。 */
@@ -4056,19 +3780,8 @@ summary:focus-visible,
   gap: 10px;
   border-bottom: 0;
 }
-.followed-kol-column .followed-kol-card {
-  gap: 0;
-  padding: var(--space-2) var(--space-1);
-  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--accent));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-elevated) 42%, var(--bg));
-}
 /* 勾选框与第一行的 28px 行框居中：(28 − 16) / 2。 */
 .followed-kol-column .followed-kol-select { margin-top: 6px; }
-.followed-kol-column .followed-kol-card:hover,
-.followed-kol-column .followed-kol-card[data-selected] {
-  background: color-mix(in srgb, var(--accent) 3%, var(--bg));
-}
 .followed-kol-column .kol-band-identity { gap: var(--space-2); }
 .followed-kol-column .kol-identity-line { column-gap: var(--space-2); }
 .followed-kol-column .kol-chip-row { gap: 0 6px; }
@@ -4077,177 +3790,20 @@ summary:focus-visible,
   gap: 6px;
 }
 /* 只藏事实层的 kicker：建议层的来源说明保留，用来区分保存记录与事实摘录。 */
-.followed-kol-card .kol-band-fact .kol-split-kicker { display: none; }
 .followed-kol-column .kol-mail-meta,
 .followed-kol-column .kol-judgment { font-size: var(--ds-font-sm); }
 .followed-kol-column .kol-band-actions { justify-content: space-between; }
 .followed-kol-column .kol-cta-secondary { gap: 10px; }
 .followed-kol-column .kol-cta-link { font-size: var(--ds-font-sm); }
 /* 信息上下铺满，不做左右两栏；每层内部横向排满，行内排不下时自己换行。 */
-.followed-kol-card .kol-split {
-  row-gap: var(--space-1);
-}
 /* 事实层：正文与邮件来源同行（来源靠右），不再各占一行。 */
-.followed-kol-card .kol-band-fact .kol-state-block {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 var(--space-3);
-}
 /* flex-basis 取 0：否则换行判定用「内容宽度」，来源 meta 会被挤到自己一行。 */
-.followed-kol-card .kol-band-fact .kol-mail-digest {
-  flex: 1 1 0;
-  min-width: 10rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.followed-kol-card .kol-band-fact .kol-mail-meta {
-  flex: 0 0 auto;
-}
 /* 建议层：左侧建议 + 理由，右侧「依据/互动/详情 + 主 CTA」，两者垂直居中成一组。 */
-.followed-kol-card .kol-band-recommend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  /* 这层是 flex 行，不是网格：不留 grid 轨道声明，否则「单列」类断言会读到陈旧轨道。 */
-  grid-template-columns: none;
-  column-gap: var(--space-3);
-  row-gap: 2px;
-}
-.followed-kol-card .kol-band-recommend > [data-recommended-action] {
-  flex: 1 1 12rem;
-  display: grid;
-  gap: 2px;
-}
 /* width:auto 是关键：.kol-band 组的 width:100% 会让这组动作的 flex 基准 = 整行，
    于是永远换行、每个对象白多一行。这里必须按内容宽度参与排布。 */
-.followed-kol-card .kol-band-recommend > .kol-band-actions {
-  flex: 0 0 auto;
-  width: auto;
-  margin-left: auto;
-  padding-top: 0;
-}
 /* 只有展开的判断依据才引入局部分隔线。 */
-.followed-kol-card .kol-evidence-disclosure[open] {
-  flex: 1 1 100%;
-  margin-top: var(--space-1);
-  padding-top: var(--space-1);
-  border-top: 1px solid var(--line);
-}
 /* 卡片主 CTA 与工具行同档（32px），不再比同屏其它控件高一头。 */
-.followed-kol-card .kol-cta-btn.btn.sm {
-  height: var(--control-h-lg);
-  min-height: var(--control-h-lg);
-  padding: 0 12px;
-}
 /* 跟进卡片的最终密度：头像承担身份锚点，其余信息共享整行内容宽度。 */
-.followed-kol-column .followed-kol-card {
-  --kol-avatar-size: 40px;
-  padding: 10px 8px 9px;
-  gap: 8px;
-  background: color-mix(in srgb, var(--bg-elevated) 42%, var(--bg));
-}
-.followed-kol-column .followed-kol-card .kol-avatar {
-  width: var(--kol-avatar-size);
-  height: var(--kol-avatar-size);
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 8%, transparent);
-}
-.followed-kol-column .followed-kol-card .kol-avatar img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-}
-.followed-kol-column .followed-kol-card .kol-avatar[data-avatar-source="fallback"] {
-  border-color: color-mix(in srgb, var(--border-strong) 70%, var(--border));
-}
-.followed-kol-column .followed-kol-card .kol-identity-main {
-  align-content: flex-start;
-  row-gap: 3px;
-}
-.followed-kol-column .followed-kol-card .kol-profile-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  width: 100%;
-  margin: 0;
-  padding-top: 3px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: 1.35;
-}
-.followed-kol-column .followed-kol-card .kol-profile-metrics strong {
-  color: var(--accent-text);
-  font-weight: 600;
-}
-.followed-kol-column .followed-kol-card .kol-profile-metrics,
-.followed-kol-column .followed-kol-card .kol-product-meta,
-.followed-kol-column .followed-kol-card .kol-mail-meta {
-  margin-left: calc(-1 * (var(--kol-avatar-size) + var(--space-2)));
-  width: calc(100% + var(--kol-avatar-size) + var(--space-2));
-}
-.followed-kol-column .followed-kol-card .kol-band-fact,
-.followed-kol-column .followed-kol-card .kol-band-recommend {
-  padding-top: 7px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-}
-.followed-kol-column .followed-kol-card .kol-band-recommend {
-  align-items: flex-start;
-  padding-top: 8px;
-  border-top-color: color-mix(in srgb, var(--accent) 18%, var(--border));
-}
-.followed-kol-column .followed-kol-card .kol-band-fact {
-  padding-top: 8px;
-  padding-bottom: 8px;
-}
-.followed-kol-column .followed-kol-card .kol-band-fact .kol-state-block {
-  display: block;
-}
-.followed-kol-column .followed-kol-card .kol-band-recommend {
-  display: block;
-}
-.followed-kol-column .followed-kol-card .kol-band-recommend > [data-recommended-action] {
-  display: block;
-  width: 100%;
-}
-.followed-kol-column .followed-kol-card .kol-band-recommend > .kol-band-actions {
-  display: flex;
-  width: 100%;
-  margin-top: 9px;
-  padding-top: 8px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-}
-.followed-kol-column .followed-kol-card .kol-band-label {
-  display: block;
-  margin: 0 0 3px;
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  font-weight: 600;
-  line-height: 1.35;
-}
-.followed-kol-column .followed-kol-card .kol-product-meta {
-  width: 100%;
-  margin: 0;
-  padding-top: 3px;
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: 1.35;
-}
-.followed-kol-column .followed-kol-card .kol-band-actions {
-  align-self: center;
-}
-.followed-kol-column .followed-kol-card:hover,
-.followed-kol-column .followed-kol-card[data-selected="true"] {
-  background: color-mix(in srgb, var(--accent) 4%, var(--bg-elevated));
-}
 /* 触摸模态只扩大命中区，不改视觉尺寸、不动布局边界（DESIGN.md §控件尺寸）。
    负外边距正好抵掉撑大的内边距与最小宽高，勾选框位置与静止态逐像素相同。 */
 @media (pointer: coarse) {
@@ -7989,7 +7545,6 @@ summary:focus-visible,
 .muted { color: var(--muted); font-size: var(--font-sm); }
 .error { color: var(--red); font-size: var(--font-sm); }
 [data-confirm-stage-feedback] { margin: 8px 0 0; line-height: 1.45; }
-.followed-kol-card [data-confirm-stage-feedback] { margin-top: 4px; }
 .error-card {
   background: color-mix(in srgb, var(--danger) 8%, var(--bg));
   border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
@@ -14173,60 +13728,6 @@ button.today-brief-primary-btn:disabled {
   display: block;
   width: 100%;
 }
-.pool-kol-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: 16px 48px minmax(0, 1fr) auto;
-  gap: var(--space-3);
-  align-items: start;
-  min-height: 108px;
-  padding: var(--space-3) var(--space-3);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-  transition: opacity var(--duration-exit) ease, background var(--duration-control) ease, border-color var(--duration-control) ease;
-  box-sizing: border-box;
-}
-.pool-kol-row::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: transparent;
-}
-.pool-kol-row:hover {
-  background: var(--ds-surface);
-}
-.pool-kol-row[data-selected="true"] {
-  background: var(--pool-row-selected);
-}
-.pool-kol-row[data-selected="true"]::before {
-  background: var(--text);
-}
-.pool-kol-row[data-claimed="true"] {
-  opacity: .52;
-}
-.pool-row-select {
-  padding-top: 16px;
-}
-.pool-row-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--ds-surface);
-  color: var(--text-muted);
-  font-size: var(--ds-font-section);
-  line-height: var(--ds-line-section);
-  font-weight: 600;
-}
-.pool-row-avatar[data-kol-avatar="source"] {
-  display: block;
-  object-fit: cover;
-}
 .pool-row-content {
   min-width: 0;
   display: grid;
@@ -14339,12 +13840,6 @@ button.today-brief-primary-btn:disabled {
   text-overflow: ellipsis;
   text-wrap: pretty;
 }
-.pool-row-actions {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-1);
-  padding-top: 4px;
-}
 .pool-row-reason {
   display: grid;
   gap: 1px;
@@ -14361,28 +13856,6 @@ button.today-brief-primary-btn:disabled {
   font-size: var(--ds-font-sm);
   line-height: var(--ds-line-sm);
   font-weight: 500;
-}
-.pool-claim-button {
-  height: var(--control-h-lg);
-  min-height: var(--control-h-lg);
-  padding: 0 12px;
-  border: 1px solid var(--accent-text);
-  border-radius: var(--radius-control);
-  background: var(--bg);
-  color: var(--accent-text);
-  font: inherit;
-  font-size: var(--ds-font-sm);
-  line-height: var(--lh-control);
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.pool-claim-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-}
-.pool-claim-button:disabled {
-  opacity: .72;
-  cursor: default;
 }
 .pool-more-wrap {
   position: relative;
@@ -14526,15 +13999,6 @@ button.today-brief-primary-btn:disabled {
   .pool-select-all {
     justify-content: flex-start;
   }
-  .pool-kol-row {
-    grid-template-columns: 16px 48px minmax(0, 1fr);
-    padding-inline: var(--space-2);
-  }
-  .pool-row-actions {
-    grid-column: 3;
-    padding-top: 0;
-    flex-wrap: wrap;
-  }
   .pool-row-reason { order: 3; }
 }
 @media (pointer: coarse) {
@@ -14545,19 +14009,9 @@ button.today-brief-primary-btn:disabled {
     min-height: 44px;
   }
 }
-@media (prefers-reduced-motion: reduce) { .pool-kol-row { transition: none; } }
 
 /* 公海行紧凑改版（2026-10-07）：三行 64px 起，决策行优先；领取降为 L3 文字按钮。
    以 .pool-compact-pane 作用域覆盖，不动 .pool-kol-row 基线（DiscoveryRuntimeCandidate 共用）。 */
-.pool-compact-pane .pool-kol-row {
-  grid-template-columns: 20px 40px minmax(0, 1fr) auto;
-  align-items: start;
-  min-height: 64px;
-  padding: var(--space-2) var(--space-3);
-  gap: var(--space-1) var(--space-3);
-}
-.pool-compact-pane .pool-row-select { padding-top: 10px; }
-.pool-compact-pane .pool-row-avatar { width: 40px; height: 40px; }
 .pool-compact-pane .pool-row-content { display: grid; gap: 2px; min-width: 0; }
 .pool-compact-pane .pool-row-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
 .pool-compact-pane .pool-row-decision,
@@ -14573,22 +14027,6 @@ button.today-brief-primary-btn:disabled {
 }
 /* D2：行内重复出现（每行都有）的动作一律 L3（DESIGN.md §4.2，不变量 8）；
    R3 合规由行内确认（ClaimFollowConfirm）＋ 4s 撤销回执保证。 */
-.pool-compact-pane .pool-claim-button {
-  height: var(--btn-text-h);
-  min-height: var(--btn-text-h);
-  padding: 0 var(--btn-text-pad-x);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--accent-text);
-  font-size: var(--ds-font-sm);
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.pool-compact-pane .pool-claim-button:hover:not(:disabled) { background: var(--btn-text-hover-bg); }
-.pool-compact-pane .pool-claim-button:disabled { opacity: .55; cursor: default; }
 /* D5：领取确认条收紧为 helper 字号，确认 L2 / 取消 L3，减少行高跳动。 */
 .pool-compact-pane .pool-claim-confirm {
   margin-top: var(--space-1);
@@ -14601,10 +14039,6 @@ button.today-brief-primary-btn:disabled {
   border: 0;
   background: transparent;
   color: var(--text-muted);
-}
-@media (max-width: 620px) {
-  .pool-compact-pane .pool-kol-row { grid-template-columns: 20px 40px minmax(0, 1fr); }
-  .pool-compact-pane .pool-row-actions { grid-column: 3; padding-top: 0; }
 }
 
 /* Public-pool focus pass: the object list is the working surface, not a narrow result rail. */
@@ -14657,17 +14091,6 @@ button.today-brief-primary-btn:disabled {
 .pool-compact-list {
   border-top: 1px solid var(--ds-border);
 }
-.pool-kol-row {
-  grid-template-columns: 16px 48px minmax(17rem, 1fr) minmax(11rem, .7fr) auto;
-  align-items: center;
-  min-height: 92px;
-  padding: var(--space-3) var(--space-2);
-  border-bottom-color: var(--ds-border);
-}
-.pool-row-select {
-  align-self: start;
-  padding-top: 14px;
-}
 .pool-row-content {
   gap: 3px;
 }
@@ -14687,36 +14110,17 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
 }
-.pool-row-actions {
-  display: grid;
-  grid-template-columns: auto auto auto;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 220px;
-}
 .pool-row-reason {
   min-width: 88px;
   padding: 1px 0;
   border-left: 0;
 }
-.pool-claim-button {
-  border-radius: var(--ds-radius-input);
-  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
-}
 @media (max-width: 1200px) {
-  .pool-kol-row {
-    grid-template-columns: 16px 48px minmax(0, 1fr) auto;
-    align-items: start;
-  }
   .pool-row-facts {
     grid-column: 3;
     justify-content: flex-start;
     padding: 0;
     border: 0;
-  }
-  .pool-row-actions {
-    grid-row: span 2;
-    min-width: 0;
   }
 }
 @media (max-width: 900px) {
@@ -14731,9 +14135,6 @@ button.today-brief-primary-btn:disabled {
     border-radius: 0;
   }
   .pool-compact-header { align-items: start; }
-  .pool-row-actions {
-    grid-row: auto;
-  }
 }
 
 /* Reference-driven public-pool density pass: a scan-first lead queue, not a set of profile cards. */
@@ -14806,25 +14207,6 @@ button.today-brief-primary-btn:disabled {
 .pool-compact-list {
   border-top: 1px solid var(--border-subtle, var(--ds-border));
 }
-.pool-kol-row {
-  grid-template-columns: 16px 56px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
-  min-height: 112px;
-  padding: 12px 16px;
-  border-bottom-color: var(--border-subtle, var(--ds-border));
-}
-.pool-row-select {
-  align-self: start;
-  padding-top: 20px;
-}
-.pool-row-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 6px;
-  font-size: 18px;
-  line-height: 24px;
-}
 .pool-row-content {
   gap: 1px;
   padding-top: 0;
@@ -14887,23 +14269,6 @@ button.today-brief-primary-btn:disabled {
 .pool-row-intro {
   color: var(--text-secondary, var(--text-muted));
 }
-.pool-row-actions {
-  display: flex;
-  grid-row: auto;
-  grid-column: auto;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  padding-top: 0;
-}
-.pool-claim-button {
-  height: 32px;
-  min-height: 32px;
-  padding: 0 11px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-}
 .pool-more-button {
   width: 32px;
   height: 32px;
@@ -14930,29 +14295,12 @@ button.today-brief-primary-btn:disabled {
   .pool-search {
     flex-basis: 100%;
   }
-  .pool-kol-row {
-    grid-template-columns: 16px 48px minmax(0, 1fr);
-    gap: 10px;
-    min-height: 0;
-    padding: 12px;
-  }
-  .pool-row-avatar {
-    width: 48px;
-    height: 48px;
-  }
-  .pool-row-select {
-    padding-top: 16px;
-  }
   .pool-row-facts {
     flex-wrap: wrap;
     white-space: normal;
   }
   .pool-row-metrics {
     flex-wrap: wrap;
-  }
-  .pool-row-actions {
-    grid-column: 3;
-    justify-content: flex-start;
   }
 }
 @media (max-width: 420px) {
@@ -15027,21 +14375,6 @@ button.today-brief-primary-btn:disabled {
 .scope-task-rail .pool-compact-list {
   border-top-color: var(--ds-border);
 }
-.scope-task-rail .pool-kol-row {
-  grid-template-columns: 16px 56px minmax(0, 1fr) auto;
-  gap: var(--ds-space-2);
-  min-height: 112px;
-  padding: var(--ds-space-2) 0;
-}
-.scope-task-rail .pool-row-select {
-  padding-top: 16px;
-}
-.scope-task-rail .pool-row-avatar {
-  width: 56px;
-  height: 56px;
-  font-size: var(--ds-font-section);
-  line-height: var(--ds-line-section);
-}
 .scope-task-rail .pool-row-name {
   max-width: calc(100% - 4px);
   font-size: var(--ds-font-body);
@@ -15072,23 +14405,6 @@ button.today-brief-primary-btn:disabled {
 .scope-task-rail .pool-row-intro {
   grid-column: auto;
 }
-.scope-task-rail .pool-row-actions {
-  display: grid;
-  grid-column: 4;
-  grid-row: 1 / span 3;
-  grid-template-columns: minmax(0, auto) var(--icon-btn);
-  grid-template-rows: var(--control-h-lg) auto;
-  align-content: start;
-  align-items: start;
-  gap: var(--ds-space-1) var(--ds-space-1);
-  min-width: 132px;
-  padding-top: 0;
-}
-.scope-task-rail .pool-claim-button {
-  grid-column: 1;
-  min-width: 96px;
-  padding-inline: var(--ds-space-2);
-}
 .scope-task-rail .pool-more-wrap {
   grid-column: 2;
 }
@@ -15114,23 +14430,6 @@ button.today-brief-primary-btn:disabled {
   font-weight: 500;
 }
 @media (max-width: 1100px) {
-  .scope-task-rail .pool-kol-row {
-    grid-template-columns: 16px 44px minmax(0, 1fr) auto;
-    gap: 6px;
-  }
-  .scope-task-rail .pool-row-avatar {
-    width: 44px;
-    height: 44px;
-  }
-  .scope-task-rail .pool-row-actions {
-    min-width: 118px;
-  }
-  .scope-task-rail .pool-claim-button {
-    min-width: 86px;
-    padding-inline: 6px;
-  }
-}
-@media (max-width: 1100px) {
 .scope-task-rail .pool-compact-header {
   padding-right: calc(var(--icon-btn) + var(--ds-space-2));
 }
@@ -15138,36 +14437,6 @@ button.today-brief-primary-btn:disabled {
 
 /* 公海右栏是高密度线索表。状态标签已完整表达入海状态，不重复再写「公海原因」。
    L3 保留确认语义，但视觉尺寸回到工作台的 24 / 28px 控件阶梯。 */
-.scope-task-rail .pool-kol-row {
-  grid-template-columns: 16px 40px minmax(0, 1fr) auto;
-  gap: var(--ds-space-2);
-  min-height: 96px;
-  padding: var(--ds-space-2) 0;
-}
-.scope-task-rail .pool-row-select {
-  padding-top: 12px;
-}
-.scope-task-rail .pool-row-avatar {
-  width: 40px;
-  height: 40px;
-  font-size: var(--ds-font-body);
-  line-height: var(--ds-line-body);
-}
-.scope-task-rail .pool-row-actions {
-  display: block;
-  grid-column: 4;
-  grid-row: 1;
-  min-width: 80px;
-  padding: 0;
-}
-.scope-task-rail .pool-claim-button {
-  min-width: 80px;
-  min-height: var(--control-h);
-  height: var(--control-h);
-  padding-inline: var(--ds-space-2);
-  font-size: var(--ds-font-sm);
-  line-height: var(--lh-control);
-}
 .scope-task-rail .pool-profile-link {
   display: inline-flex;
   align-items: center;
@@ -15205,40 +14474,6 @@ button.today-brief-primary-btn:disabled {
 }
 
 /* 公海桌面行保持原有动作与头像尺度；资料维护另占一行，避免挤压领取动作。 */
-.scope-task-rail .pool-kol-row {
-  grid-template-columns: 16px 56px minmax(0, 1fr) auto;
-  gap: var(--ds-space-2);
-  min-height: 112px;
-  padding: var(--ds-space-2) 0;
-}
-.scope-task-rail .pool-row-select {
-  padding-top: 16px;
-}
-.scope-task-rail .pool-row-avatar {
-  width: 56px;
-  height: 56px;
-  font-size: var(--ds-font-section);
-  line-height: var(--ds-line-section);
-}
-.scope-task-rail .pool-row-actions {
-  display: grid;
-  grid-column: 4;
-  grid-row: 1 / span 3;
-  grid-template-columns: minmax(0, auto);
-  grid-template-rows: var(--control-h-lg);
-  align-content: start;
-  align-items: start;
-  min-width: 96px;
-  padding-top: 0;
-}
-.scope-task-rail .pool-claim-button {
-  min-width: 96px;
-  min-height: var(--control-h-lg);
-  height: var(--control-h-lg);
-  padding-inline: var(--ds-space-2);
-  font-size: var(--ds-font-sm);
-  line-height: var(--lh-control);
-}
 .scope-task-rail .pool-claim-confirm button {
   min-height: var(--control-h);
   height: var(--control-h);
@@ -15325,20 +14560,6 @@ button.today-brief-primary-btn:disabled {
 .pool-cleanup-confirm [data-pool-cleanup-confirm-button] {
   border-color: var(--danger);
   color: var(--danger);
-}
-@media (max-width: 1100px) {
-  .scope-task-rail .pool-kol-row {
-    grid-template-columns: 16px 48px minmax(0, 1fr) auto;
-    gap: 6px;
-  }
-  .scope-task-rail .pool-row-avatar {
-    width: 48px;
-    height: 48px;
-  }
-  .scope-task-rail .pool-row-actions,
-  .scope-task-rail .pool-claim-button {
-    min-width: 86px;
-  }
 }
 
 /* 公海的范围定义与 Agent 对话属于中栏：右栏只留下稳定对象行与受控领取。 */
@@ -15621,17 +14842,6 @@ button.today-brief-primary-btn:disabled {
 .scope-task-rail .pool-select-all input { width: var(--icon-sm); height: var(--icon-sm); }
 .scope-task-rail .pool-toolbar-sort {
   padding-left: calc(var(--icon-sm) + var(--ds-space-2));
-}
-.scope-task-rail .pool-row-actions {
-  min-width: 76px;
-}
-.scope-task-rail .pool-claim-button {
-  min-width: 76px;
-  min-height: var(--control-h);
-  height: var(--control-h);
-  padding-inline: 6px;
-  font-size: var(--ds-font-helper);
-  line-height: var(--lh-control-sm);
 }
 .pool-interaction :is(button, input):focus-visible,
 .scope-task-rail .pool-compact-toolbar :is(button, input):focus-visible {

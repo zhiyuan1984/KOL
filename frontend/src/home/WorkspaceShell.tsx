@@ -4,6 +4,7 @@ import { useWorkspaceScroll } from "../hooks/useWorkspaceScroll";
 import { useInsetScrollbar } from "../hooks/useInsetScrollbar";
 import ResultRail from "./workspace/ResultRail";
 import type { ResultRailViewModel } from "./workspace/result-contract";
+import { TaskTheme as ProjectControlTheme } from "../tasks/TaskTheme";
 import "./workspace/workspace-shell.css";
 import "./workspace/agent-session.css";
 // 五 tab antd 视觉语言（D1-A：视觉语言、不引依赖）：只盖视觉，不动内容与逻辑。
@@ -102,7 +103,7 @@ export default function WorkspaceShell({ pane, railLabel, railToggleLabel, railS
       {!railCollapsed ? railHeader : null}
       <div ref={result.ref} className="scope-task-rail-scroll" data-preserve-position={preserveRailPosition || undefined}>
         <div className="scope-task-rail-body" data-scope-rail-body>
-          <ResultRail pane={pane} view={resultView}>{rail}</ResultRail>
+          <ProjectControlTheme><ResultRail pane={pane} view={resultView}>{rail}</ResultRail></ProjectControlTheme>
         </div>
       </div>
       {railScrollJump && result.position.updated ? <button type="button" className="scope-scroll-jump" data-scope-rail-jump

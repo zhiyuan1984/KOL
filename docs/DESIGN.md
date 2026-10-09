@@ -841,6 +841,19 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 - 头像复用 `--control-h-sm`，复选框视觉复用 `--icon-sm`；重复文字动作复用紧凑控件档，触摸仍达到 `--touch-hit-min`。无来源 URL 明确显示不可用，不伪造链接。
 - 元信息换行；理由默认两行摘要，展开行显示全文、来源、采集时间、分数构成与缺失项。选择与展开使用稳定候选 ID，更新、筛选与异步回执不得重建用户意图。
 
+#### 26.3.1 三入口共享 KOL 信息行（2026-10-09）
+
+用户确认：我的红人、公海以 AI发现候选行作为紧凑呈现基准。共享的是头像、身份、全宽信息、动作及证据插槽，不合并业务状态、指标口径或确认路径。
+
+- `KolCardShell` 为语义 article；身份行为选择框、头像、名称与真实状态，下方指标、事实、建议和证据使用整行内容宽度，不给大头像或动作永久预留纵向列。
+- `KolAvatar` 使用现有 `--control-h-sm` 方形外框、`--radius-control`、图片等比居中 cover；无图/失败统一中性首字回退，源 URL/对象变化后重新尝试。选择框与指标图标复用 `--icon-sm`。
+- 姓名遵循 §24.6 行标题档，主信息/动作遵循 `--ds-font-sm`，辅助使用 `--ds-font-xs`；间距和内边距只复用 `--space-1/2/3`。没有内容的插槽不占空行。
+- 动作使用共享 Ant Design text/small 控件；默认 L3，外链为 L4。我的红人保留已有单卡焦点/真实指针强调及 anti-focus-steal 状态契约，不新增多卡实底。busy/disabled、确认与回执仍由原调用方控制。
+- 摘要真实超出两行时显示展开全文入口；重要风险、倒计时和缺项/复核结论不折叠丢失。窄容器依据 §24.6 收为单列，触摸只扩展命中区，主题与短高度继续按 §11–13 验收。
+- 不再引用公海旧 avatar/grid 类，不在三个业务文件各自复制尺寸；旧尺寸规则只在确认无调用方后删除。既有 Home 桌面 frame 和独立会话地址不变。
+
+审宪：需求 → 三入口高密度统一；主责角色 → UI/UX、前端、测试；宪法 → CONST-04/05/08/09/10；基本法 → TECH-FE-01/02/03、TECH-TEST-01/02/03/04；结论 → **符合**，仅呈现与展开交互，不修改权限、阶段、归属或正式写入；实施资产与实际测试结果另见 verification/kol-card-unify-20261009.md。
+
 ### 26.4 接入登记与样式归属
 
 | 页面区域 | 实施资产 | 样式归属 | 可观察结果 |
@@ -850,9 +863,10 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | 条件表单 | `DiscoverySearchCard` / `SkillParamCard` | `discovery-workspace.css` | 文字勾选、关键词可编辑、提交后摘要 |
 | 固定结果头 | `WorkspaceShell` / `DiscoveryResultPane` | `styles.css` / `discovery-workspace.css` | 状态、筛选与批量控件始终可用 |
 | 候选筛选 | `LifecycleNavigation` | `lifecycle-workspace.css` | 共享导航语义、按本次集合计数 |
-| 红人线索行 | `DiscoveryLeadRow` / `DiscoveryRuntimeCandidate` | `styles.css` | 动作位于正文下方、完整证据可展开；runtime 内容类不继承公海网格列与裁切 |
+| 三入口 KOL 信息行 | `FollowedKolWorkCard` / `PoolRow` / `DiscoveryRuntimeCandidate` → `components/kol/KolCardShell` | `components/kol/kol-card.css` | 同一头像、全宽正文、L3文字动作、完整证据可展开 |
+| 兼容发现线索投影 | `DiscoveryLeadRow` | `styles.css` | 原业务投影保留，不继承已退休的公海头像/卡片网格类 |
 
-`styles.css` 负责共享 token、Home 导航、工作台几何与线索行；发现两份 CSS 负责条件和事件内容。禁止在发现内容 CSS 再复制整套线索行。`LifecycleNavigation` 可接收调用方 data 属性用于稳定定位，不解释业务状态。Token 登记表仅证明定义与引用一致；页面接入以本节资产和可观察结果单独核查。
+`styles.css` 负责共享 token、Home 导航、工作台几何及兼容投影；三入口 KOL 行只由 `components/kol/kol-card.css` 管理，`discovery-results.css` 只保留结果头、批量和评分工具条。发现内容 CSS 不复制整套线索行。`LifecycleNavigation` 可接收调用方 data 属性用于稳定定位，不解释业务状态。Token 登记表仅证明定义与引用一致；页面接入以本节资产和可观察结果单独核查。
 
 ### 26.5 审宪记录与证据边界
 

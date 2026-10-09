@@ -7,6 +7,10 @@ import { isHighPoolScore, isPoolOverdue, poolScorePlaceholder } from "./poolView
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import ClaimFollowConfirm from "./ClaimFollowConfirm";
 import type { HomePoolPage } from "../api";
+import { KolCardActions, KolCardEvidence, KolCardIdentity, KolCardMeta, KolCardReview, KolCardSelection, KolCardShell } from "../components/kol/KolCardShell";
+import KolAvatar from "../components/kol/KolAvatar";
+import KolAction from "../components/kol/KolCardActions";
+import { KolFactIcon } from "../components/kol/KolFactIcon";
 
 type PoolMetric = { key: "followers" | "avg-plays" | "engagement"; label: string; value: string };
 
@@ -25,32 +29,11 @@ function SortDirectionIcon({ direction, active }: { direction: "asc" | "desc"; a
   </svg>;
 }
 
-function ExternalLinkIcon() {
-  return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none">
-    <path d="M9 2.5h4.5V7M13.25 2.75 7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M13 9.25v2.25A2 2 0 0 1 11 13.5H4.5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-  </svg>;
-}
-
-export function FactIcon({ type }: { type: "followers" | "avg-plays" | "engagement" | "ingested" }) {
-  if (type === "followers") return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.4" /><path d="M3 13c.5-2.4 2.1-3.6 5-3.6s4.5 1.2 5 3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>;
-  if (type === "avg-plays") return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="M3 13V9m3 4V5m4 8V7m3 6V3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>;
-  if (type === "engagement") return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="M8 13.25s4.75-2.55 4.75-6.25A2.35 2.35 0 0 0 8.7 5.45L8 6.2l-.7-.75A2.35 2.35 0 0 0 3.25 7c0 3.7 4.75 6.25 4.75 6.25Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>;
-  return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" /><path d="M5 2.5v2M11 2.5v2M2.5 6.5h11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>;
-}
-
 function ingested(value?: string | null) {
   const date = value ? new Date(value) : null;
   return date && !Number.isNaN(date.getTime())
     ? `入库 ${date.toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" })}`
     : "入库时间未知";
-}
-
-export function PoolAvatar({ card, className = "pool-row-avatar" }: { card: PoolKol; className?: string }) {
-  const [failed, setFailed] = useState(false);
-  const name = card.identity.display.replace(/^@/, "");
-  if (card.identity.avatar_url && !failed) return <img className={className} data-kol-avatar="source" src={card.identity.avatar_url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
-  return <span className={className} data-kol-avatar="fallback" aria-hidden>{name.slice(0, 1) || "红"}</span>;
 }
 
 /** 已有评分取潜力分；与名称旁的「高潜/高风险」徽章并存，二者语义不同。 */
@@ -61,7 +44,7 @@ function PoolScore({ card }: { card: PoolKol }) {
   const at = card.assessment?.assessed_at ? new Date(card.assessment.assessed_at) : null;
   const atLabel = at && !Number.isNaN(at.getTime()) ? ` · 评估于 ${at.toLocaleDateString("zh-CN")}` : "";
   const criteria = card.assessment?.criteria_summary ? ` · 口径 ${card.assessment.criteria_summary}` : "";
-  return <span className="pool-row-score" data-pool-score="potential" title={`公开资料评估 · 置信度 ${confidence}%${atLabel}${criteria}`}>评分 {raw} · 置信度 {confidence}%</span>;
+  return <span className="kol-card-score" data-pool-score="potential" title={`公开资料评估 · 置信度 ${confidence}%${atLabel}${criteria}`}>评分 {raw} · 置信度 {confidence}%</span>;
 }
 
 function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, onSelect, onClaim, onConfirm, onCancel }: {
@@ -92,30 +75,37 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
     ingested(card.ingested_at),
   ].filter((bit): bit is string => Boolean(bit));
 
-  return <article className="pool-kol-row" data-pool-kol={card.kol_uid} data-pool-card data-kol-work-card data-selected={selected || undefined} data-claimed={claimed || undefined} data-pool-quality={metrics.length ? "ready" : "partial"}>
-    <label className="pool-row-select"><input type="checkbox" data-pool-select={card.kol_uid} checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span className="sr-only">选择 {card.identity.display}</span></label>
-    <PoolAvatar card={card} />
-    <div className="pool-row-content">
-      <div className="pool-row-heading"><strong className="pool-row-name" data-kol-identity data-kol-name>{card.identity.display}</strong>
-        <span className="pool-row-status" data-public-stage data-stage-code={card.public_stage?.code || undefined} data-overdue={isPoolOverdue(card) || undefined} data-stage-label>{stage}</span>
-        {highPotential && <span className="pool-jev-badge is-potential" data-jev-potential title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.potential_confidence || 0) * 100)}%`}>高潜 {card.assessment?.potential_score}</span>}
-        {highRisk && <span className="pool-jev-badge is-risk" data-jev-risk title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.risk_confidence || 0) * 100)}%`}>高风险 {card.assessment?.risk_score}</span>}</div>
-      <div className="pool-row-decision" data-pool-metrics>
+  return <KolCardShell variant="pool" data-pool-kol={card.kol_uid} data-pool-card data-kol-work-card data-selected={selected || undefined} data-claimed={claimed || undefined} data-pool-quality={metrics.length ? "ready" : "partial"}>
+    <KolCardIdentity>
+      <KolCardSelection data-pool-select={card.kol_uid} aria-label={`选择 ${card.identity.display}`} checked={selected} onChange={(event) => onSelect(event.target.checked)} />
+      <KolAvatar name={card.identity.display} src={card.identity.avatar_url} identityKey={card.kol_uid} />
+      <strong className="kol-card-name" data-kol-identity data-kol-name title={card.identity.display}>{card.identity.display}</strong>
+      <span className="kol-card-state" data-public-stage data-stage-code={card.public_stage?.code || undefined} data-overdue={isPoolOverdue(card) || undefined} data-stage-label>{stage}</span>
+      {highPotential && <span className="kol-card-state" data-jev-potential title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.potential_confidence || 0) * 100)}%`}>高潜</span>}
+      {highRisk && <span className="kol-card-state" data-jev-risk title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.risk_confidence || 0) * 100)}%`}>高风险 {card.assessment?.risk_score}</span>}
+      <PoolScore card={card} />
+    </KolCardIdentity>
+      <KolCardMeta data-pool-metrics>
         {card.identity.platform && <span data-kol-chip="platform">{card.identity.platform}</span>}
-        {metrics.length ? metrics.map((metric) => <span key={metric.key} data-pool-metric={metric.key}><FactIcon type={metric.key} />{metric.label} <b>{metric.value}</b></span>) : <span className="pool-row-missing-data">公开指标待补充</span>}
-      </div>
-      <div className="pool-row-meta" data-kol-scope>
-        {contextBits.map((bit, index) => <span key={index}>{bit}</span>)}
-        {card.identity.profile_url && <a className="pool-profile-link" href={card.identity.profile_url} target="_blank" rel="noopener noreferrer" aria-label={`打开 ${card.identity.display} 的平台主页`} title={`打开 ${card.identity.display} 的平台主页`}>主页 <ExternalLinkIcon /></a>}
-        <PoolScore card={card} />
+        {card.region && <span>{card.region}</span>}
+        {metrics.length ? metrics.map((metric) => <span key={metric.key} data-pool-metric={metric.key}><KolFactIcon type={metric.key} />{metric.label} <b>{metric.value}</b></span>) : <span>公开指标待补充</span>}
+        {card.identity.profile_url && <a className="kol-card-link" href={card.identity.profile_url} target="_blank" rel="noopener noreferrer" aria-label={`打开 ${card.identity.display} 的平台主页`} title={`打开 ${card.identity.display} 的平台主页`}>主页 <KolFactIcon type="external" /></a>}
+      </KolCardMeta>
+      <KolCardReview>
+      <KolCardMeta data-kol-scope>
+        {contextBits.filter(bit => bit !== card.region).map((bit, index) => <span key={index}>{bit}</span>)}
         {scorePlaceholder && (
-          <span className="pool-row-score is-missing" data-pool-score="missing" data-pool-score-state={scorePlaceholder.state} title={scorePlaceholder.title}>{scorePlaceholder.label}</span>
+          <span data-pool-score="missing" data-pool-score-state={scorePlaceholder.state} title={scorePlaceholder.title}>{scorePlaceholder.label}</span>
         )}
-      </div>
+      </KolCardMeta>
+      <KolCardActions><KolAction data-pool-claim data-home-entry="claim-kol" disabled={claimBusy || claimed} onClick={onClaim}>{claimed ? "已领取 ✓" : claimBusy ? "正在领取…" : "领取跟进"}</KolAction></KolCardActions>
+      </KolCardReview>
+      {card.assessment?.criteria_summary && <KolCardEvidence label="评分依据">
+        <p>{card.assessment.criteria_summary}</p>
+        {card.assessment.assessed_at && <p>评估于 {new Date(card.assessment.assessed_at).toLocaleString("zh-CN")}</p>}
+      </KolCardEvidence>}
       {claimTarget && <ClaimFollowConfirm card={card} busy={claimBusy} error={claimError} onConfirm={onConfirm} onCancel={onCancel} />}
-    </div>
-    <div className="pool-row-actions"><button type="button" className="pool-claim-button" data-pool-claim data-home-entry="claim-kol" disabled={claimBusy || claimed} onClick={onClaim}>{claimed ? "已领取 ✓" : claimBusy ? "正在领取…" : "领取跟进"}</button></div>
-  </article>;
+  </KolCardShell>;
 }
 
 function SortButton({ field, label, sort, onToggle }: { field: PoolSortField; label: string; sort: PoolSort; onToggle: (field: PoolSortField) => void }) {

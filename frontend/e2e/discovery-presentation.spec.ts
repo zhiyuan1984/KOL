@@ -367,7 +367,7 @@ test('follow opens my creators directly, and import opens public pool after conf
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveAccessibleName('入库公海');
-  await dialog.getByRole('button', { name: '确认入库', exact: true }).click();
+  await dialog.getByRole('button', { name: '确认入库公海', exact: true }).click();
   await expect(page).toHaveURL(/tab=pool$/);
   expect(requests.some(path => path.endsWith('/channel-stable/ingest'))).toBeTruthy();
 });
@@ -380,18 +380,20 @@ test('bulk runtime import waits for confirmation and submits the current candida
   });
   await page.goto(`/s/${task.session_id}`);
   await page.getByRole('checkbox', { name: '选择 Camping creator', exact: true }).check();
-  await page.locator('[data-discovery-ingest]').click();
-  await expect(page.getByRole('dialog')).toHaveAccessibleName('批量入库公海');
-  await expect(page.getByRole('dialog').locator('.discovery-confirm-row', { has: page.locator('dt', { hasText: /^数量$/ }) }).locator('dd')).toHaveText('1 条线索');
-  await expect(page.getByRole('dialog')).toContainText('不建联、不发信、不改阶段、不认领跟进');
+  const bulk = page.getByRole('button', { name: '加入公海（1）', exact: true });
+  await bulk.click();
+  await expect(page.getByRole('dialog')).toHaveAccessibleName('入库公海');
+  await expect(page.getByRole('dialog')).toContainText('Camping creator（youtube / channel-stable）');
+  await expect(page.getByRole('dialog')).toContainText('将已选 1 位');
+  await expect(page.getByRole('dialog')).toContainText('不领取跟进、不发信、不改变阶段');
   expect(imports).toEqual([]);
   await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click();
   expect(imports).toEqual([]);
-  await page.locator('[data-discovery-ingest]').click();
-  await page.getByRole('dialog').getByRole('button', { name: '确认入库', exact: true }).evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
+  await bulk.click();
+  await page.getByRole('dialog').getByRole('button', { name: '确认入库公海', exact: true }).evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
   await expect.poll(() => imports.length).toBe(1);
   expect(imports[0]).toEqual({ snapshot_version: 'candidate-version', confirmed: true });
-  await expect(page.locator('[data-discovery-toast]')).toContainText('已取得 1 位候选的入库回执');
+  await expect(page.locator('.discovery-batch-receipt')).toHaveText('本次已确认加入公海 1 位；0 位未完成。');
 });
 
 test('ignore survives reload, can be restored, and failed follow stays in the task', async ({ page }) => {
@@ -450,7 +452,7 @@ test('unlimited upper followers remains optional and candidate cards fit the rig
   }
 });
 
-test('saved discovery entries keep candidate content in one column with actions below evidence', async ({ page }, info) => {
+test('saved discovery entries keep shared full-width candidate content and actions before expandable evidence', async ({ page }, info) => {
   test.setTimeout(60000);
   await intercept(page, 0, true, true);
   const measurements = [];
@@ -463,21 +465,25 @@ test('saved discovery entries keep candidate content in one column with actions 
       await expect(card).toBeVisible();
       await expect(page.locator('[data-discovery-remote-state]')).toHaveText('采集完成');
       const layout = await card.evaluate(el => {
-        const content = el.querySelector('.pool-row-content, .discovery-runtime-content')!;
-        const children = [...content.children].map(child => ({
+        const children = [...el.children].map(child => ({
           tag: child.tagName, className: child.className, x: child.getBoundingClientRect().x,
           top: child.getBoundingClientRect().top, bottom: child.getBoundingClientRect().bottom,
           width: child.getBoundingClientRect().width, scrollWidth: child.scrollWidth, clientWidth: child.clientWidth,
         }));
-        const actions = content.querySelector('.discovery-candidate-actions, .discovery-runtime-actions')!;
-        return { columns: getComputedStyle(content).gridTemplateColumns, actionsDisplay: getComputedStyle(actions).display, children };
+        const actions = el.querySelector('[data-kol-layout="actions"]')!;
+        const evidence = el.querySelector('.kol-card-evidence')!;
+        const meta = el.querySelector('[data-kol-layout="meta"]')!;
+        const style = getComputedStyle(el);
+        return { rootDisplay: style.display, actionsDisplay: getComputedStyle(actions).display, children,
+          fullWidth: el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), metaWidth: meta.getBoundingClientRect().width,
+          actionsBottom: actions.getBoundingClientRect().bottom, evidenceTop: evidence.getBoundingClientRect().top };
       });
       measurements.push({ path, width, ...layout });
       await page.screenshot({ path: info.outputPath(`candidate-${width}-${path.startsWith('/s/') ? 'session' : 'home'}.png`) });
+      expect(layout.rootDisplay).toBe('flex');
       expect(layout.actionsDisplay).toBe('flex');
-      const actions = layout.children.find(child => /discovery-(candidate|runtime)-actions/.test(child.className))!;
-      const evidence = layout.children.find(child => child.tag === 'DETAILS')!;
-      expect(actions.top).toBeGreaterThanOrEqual(evidence.bottom);
+      expect(Math.abs(layout.metaWidth - layout.fullWidth)).toBeLessThanOrEqual(1);
+      expect(layout.actionsBottom).toBeLessThanOrEqual(layout.evidenceTop);
       expect(layout.children.every(child => Math.abs(child.x - layout.children[0].x) <= 1)).toBe(true);
       expect(layout.children.filter(child => child.scrollWidth > child.clientWidth + 1)).toEqual([]);
     }
@@ -541,6 +547,10 @@ for (const theme of ["light", "dark"]) {
       await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBe(0);
       await expect.poll(() => clients.size).toBe(1);
       await pane.evaluate(el => { el.scrollTop = el.scrollHeight; });
+      // The native scroll event updates follow-tail intent on the next frame;
+      // emit only after that precondition is observable, rather than racing it.
+      await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       const emit = (revision: number) => {
         const message = { id: "sse-scroll-message", session_id: task.session_id, kind: "text", payload: {
           text: Array.from({ length: 12 + revision * 4 }, (_, i) => `流式段落 ${i}：受控事件验收。`).join("\n\n") + `\n\nSSE版本${revision}`,

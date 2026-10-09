@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../api";
 import { friendlyApiError } from "../labels";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
@@ -13,6 +13,7 @@ export default function DiscoveryCandidateBatch({ rows, actionId, brief, capture
   const selectedIds = onSelect ? controlledIds || [] : localIds;
   const [confirmRows, setConfirmRows] = useState<Candidate[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState("");
   const eligible = rows.filter(row => row.snapshot_version && !row.followed && !row.in_pool && !row.ignored);
@@ -22,7 +23,8 @@ export default function DiscoveryCandidateBatch({ rows, actionId, brief, capture
     else setSelectedIds(ids => checked ? [...new Set([...ids, id])] : ids.filter(value => value !== id));
   }
   async function ingest() {
-    if (busy || !confirmRows) return;
+    if (submitting.current || busy || !confirmRows) return;
+    submitting.current = true;
     setBusy(true); setError("");
     let completed = 0;
     try {
@@ -36,6 +38,7 @@ export default function DiscoveryCandidateBatch({ rows, actionId, brief, capture
     } catch (failure) { setError(friendlyApiError(failure, "入库未全部完成，请核对未完成候选后再确认。")); }
     finally {
       setReceipt(`本次已确认加入公海 ${completed} 位；${confirmRows.length - completed} 位未完成。`);
+      submitting.current = false;
       setBusy(false); refresh();
     }
   }
