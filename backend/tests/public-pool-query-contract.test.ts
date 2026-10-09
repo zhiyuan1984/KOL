@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { postgresQuery, attachLeadAssessments } = vi.hoisted(() => ({
+const { postgresQuery, healthQuery, attachLeadAssessments } = vi.hoisted(() => ({
   postgresQuery: vi.fn(),
+  healthQuery: vi.fn(async () => ({ rows: [] })),
   attachLeadAssessments: vi.fn(async (rows: unknown[]) => rows),
 }));
 
-vi.mock("../src/postgres/pool.js", () => ({ postgresQuery }));
+vi.mock("../src/postgres/pool.js", () => ({ postgresQuery, postgresPool: () => ({ query: healthQuery }) }));
 vi.mock("../src/ticket-domain/kol-lead-scoring.js", () => ({ attachLeadAssessments }));
 
 import { parsePoolPageOptions, readPublicPoolPage } from "../src/postgres/public-pool.js";
@@ -13,6 +14,7 @@ import { parsePoolPageOptions, readPublicPoolPage } from "../src/postgres/public
 describe("public pool page contract", () => {
   beforeEach(() => {
     postgresQuery.mockReset();
+    healthQuery.mockClear();
     attachLeadAssessments.mockClear();
   });
 
