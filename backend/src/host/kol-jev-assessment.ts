@@ -5,7 +5,7 @@ import { memoryCompanyId } from "./kol-memory.js";
 import { criteriaState, criteriaSummary, type KolScoringCriteria } from "./kol-scoring-criteria.js";
 
 const JEV_OPENROUTER_BASE_URL = "https://openrouter.ai/api";
-const ASSESSMENT_VERSION = "jev-kol-v1";
+export const ASSESSMENT_VERSION = "jev-kol-v1";
 
 type FetchLike = typeof fetch;
 let jevFetchOverride: FetchLike | null = null;

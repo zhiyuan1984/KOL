@@ -563,6 +563,38 @@ function ingestItem(row: unknown): HomeDiscoveryIngestItem {
   };
 }
 
+/** 二期：首页候选卡片「加入公海」——单候选 Starry 入库（L3，调用方需先二次确认）。 */
+export async function ingestHomeDiscoveryCandidate(
+  id: string,
+  runId?: string,
+): Promise<{ ok: boolean; kol_uid?: string; already_imported?: boolean }> {
+  const row = asRecord(await api.ingestHomeDiscoveryCandidate(id, {
+    confirmed: true, ...(runId ? { run_id: runId } : {}),
+  }));
+  return {
+    ok: row.ok !== false,
+    kol_uid: asString(row.kol_uid) || undefined,
+    already_imported: Boolean(row.already_imported),
+  };
+}
+
+/** 二期：首页候选卡片「跟进」——创建线索 + 更新 Starry 库表（调用方需先二次确认）。 */
+export async function followHomeDiscoveryCandidate(
+  id: string,
+  runId?: string,
+): Promise<{ ok: boolean; lead_id?: string; reused?: boolean; starry_imported?: boolean; starry_error?: string }> {
+  const row = asRecord(await api.followHomeDiscoveryCandidate(id, {
+    confirmed: true, ...(runId ? { run_id: runId } : {}),
+  }));
+  return {
+    ok: row.ok !== false,
+    lead_id: asString(row.lead_id) || undefined,
+    reused: Boolean(row.reused),
+    starry_imported: row.starry_imported === undefined ? undefined : Boolean(row.starry_imported),
+    starry_error: asString(row.starry_error) || undefined,
+  };
+}
+
 export async function ingestHomeDiscovery(input: {
   run_id: string;
   candidate_ids: string[];

@@ -15,6 +15,13 @@ describe("friendlyApiError", () => {
     expect(message).not.toContain("请求失败");
   });
 
+  it("maps a bare 504 to honest gateway-timeout copy", () => {
+    const message = friendlyApiError(new Error("请求失败 (504)"), "操作未完成，请刷新核对当前状态。");
+    expect(message).toContain("网关超时");
+    expect(message).toContain("请勿重复提交");
+    expect(message).not.toContain("请求失败 (504)");
+  });
+
   it("keeps an unknown failure's own message", () => {
     expect(friendlyApiError(new Error("请求失败 (502)"), "发现任务没有提交。")).toBe("请求失败 (502)");
   });

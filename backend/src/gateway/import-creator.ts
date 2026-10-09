@@ -9,6 +9,7 @@ import {
   liveRemoteSideEffectsEnabled,
 } from "../config.js";
 import { audit } from "../db.js";
+import { employeeError } from "../discovery-errors.js";
 import {
   employeeImportError,
   FORBIDDEN_FOLLOW_TOOLS,
@@ -37,8 +38,7 @@ export type ImportCreatorInput = {
 };
 
 export type AddKolProfileInput = {
-  kolName: string;
-  contactEmail: string;
+  kolName: string;  contactEmail: string;
   dataSource?: string;
   /** 负责人字段（ownerOpenId 必填）：`resolveStarryOwnerForMailbox` 的结果。 */
   owner: Json;
@@ -49,6 +49,29 @@ export type AddKolProfileInput = {
 };
 
 export const ADD_KOL_PROFILE_TOOL = "addKolProfile";
+
+/**
+ * Starry MCP 调用的硬上限：底层 managed client 没有超时，无限挂起会被
+ * nginx 60s 掐断（504）。超时后走既有的 isStarryTimeout 兜底路径
+ *（pageKolProfiles 核对），返回真实状态，不伪造完成。
+ */
+const STARRY_IMPORT_TIMEOUT_MS = 120_000;
+// 核对总预算：必须覆盖 keyword(20s) + listAll(60s) 两段，不能比分段预算小。
+const STARRY_LOOKUP_TIMEOUT_MS = 100_000;
+
+export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} request timed out`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 const CONTACT_EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
@@ -190,6 +213,11 @@ export async function findExistingKolUid(
   return hit ? { kol_uid: realKolUidOf(hit), via: "list_all", profile: hit } : null;
 }
 
+/** keyword 核对的单次预算：快失败，不吃掉 listAll 的预算。 */
+const STARRY_KEYWORD_LOOKUP_MS = 20_000;
+/** listAll 兜底的单次预算：池大时扫全量慢，单独给足。 */
+const STARRY_LISTALL_LOOKUP_MS = 60_000;
+
 /** Timeout / uncertain path: query Starry first. Never blindly retry import. */
 export async function lookupImportedKolUid(input: {
   keyword?: string;
@@ -197,12 +225,22 @@ export async function lookupImportedKolUid(input: {
 }): Promise<string> {
   const keyword = firstString(input.keyword, String(input.creatorExternalId || "").split(":").pop());
   if (!keyword) return "";
-  const listed = await callStarryKolTool("pageKolProfiles", {
+  const listed = await withTimeout(callStarryKolTool("pageKolProfiles", {
     requestJson: JSON.stringify({ pageNo: 1, pageSize: 20, keyword }),
-  });
+  }), STARRY_KEYWORD_LOOKUP_MS, "pageKolProfiles");
   const fromList = parseImportedKolUid(listed);
   if (isRealKolUid(fromList)) return fromList;
-  for (const row of listOf(asObject(listed))) {
+  const hit = matchImportedUid(listOf(asObject(listed)), keyword);
+  if (hit) return hit;
+  // Starry 对刚新建的档案 keyword 查不到，但 listAll 能看到：兜底扫全量，
+  // 否则会把"已入库"误判为"未入库"，删行重派发后撞上达人库的重复拒绝。
+  const all = await withTimeout(callStarryKolTool("listAllKolProfiles", {}), STARRY_LISTALL_LOOKUP_MS, "listAllKolProfiles");
+  return matchImportedUid(listOf(asObject(all)), keyword);
+}
+
+/** 按平台账号匹配 Starry 侧的真实档案编号（keyword 与 listAll 两路复用）。 */
+function matchImportedUid(rows: Json[], keyword: string): string {
+  for (const row of rows) {
     const uid = firstString(row.kolUid, row.kol_uid, row.uid);
     const handle = firstString(row.kolName, row.nickname, row.handle, row.account);
     if (handle && keyword && handle.toLowerCase() === keyword.toLowerCase() && isRealKolUid(uid)) {
@@ -212,7 +250,7 @@ export async function lookupImportedKolUid(input: {
       return uid;
     }
   }
-  return parseImportedKolUid(listed);
+  return "";
 }
 
 export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreatorInput): Promise<Json> {
@@ -237,10 +275,14 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
   let data: Json;
   let lookedUpAfterTimeout = false;
   try {
-    data = await callStarryKolTool(IMPORT_CREATOR_TOOL, {
-      fileName: input.file.fileName,
-      fileBase64: input.file.fileBase64,
-    });
+    data = await withTimeout(
+      callStarryKolTool(IMPORT_CREATOR_TOOL, {
+        fileName: input.file.fileName,
+        fileBase64: input.file.fileBase64,
+      }),
+      STARRY_IMPORT_TIMEOUT_MS,
+      "importKolProfilesFromCrawler",
+    );
   } catch (error) {
     if (isStarryTimeout(error)) {
       audit(actor, "host.import_creator.timeout_lookup", {
@@ -252,10 +294,14 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
         retried_import: false,
       });
       try {
-        const found = await lookupImportedKolUid({
-          keyword: input.lookupKeyword,
-          creatorExternalId: input.creatorExternalId,
-        });
+        const found = await withTimeout(
+          lookupImportedKolUid({
+            keyword: input.lookupKeyword,
+            creatorExternalId: input.creatorExternalId,
+          }),
+          STARRY_LOOKUP_TIMEOUT_MS,
+          "pageKolProfiles",
+        );
         if (isRealKolUid(found)) {
           lookedUpAfterTimeout = true;
           data = { kolUid: found, looked_up_after_timeout: true, retried: false };
@@ -288,6 +334,8 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
         sent: false,
         stage_changed: false,
         decrypted: false,
+        // 脱敏后的远端真实错误：用户文案走白名单兜底时，这里保留可查的真实原因。
+        error_detail: employeeError(error),
       });
       throw new HttpFail(502, {
         code: "import_creator_failed",
@@ -299,9 +347,27 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
   const echoed = parseImportedKolUid(data);
   // 更新回包（totalCount/updatedCount…）不带 uid 时，用第一步 addKolProfile 拿到的 uid；
   // 仍然拿不到就诚实失败，不编造编号。
-  const kolUid = isRealKolUid(echoed)
+  let kolUid = isRealKolUid(echoed)
     ? echoed
     : (isRealKolUid(input.knownKolUid) ? String(input.knownKolUid).trim() : "");
+  let lookedUpAfterMissingUid = false;
+  if (!isRealKolUid(kolUid)) {
+    // Starry 建档成功但回包不带编号是已知行为：先按平台账号核对一次，
+    // 找到了就用 Starry 侧的真实编号，找不到才诚实失败。
+    try {
+      const found = await withTimeout(
+        lookupImportedKolUid({ keyword: input.lookupKeyword, creatorExternalId: input.creatorExternalId }),
+        STARRY_LOOKUP_TIMEOUT_MS,
+        "pageKolProfiles",
+      );
+      if (isRealKolUid(found)) {
+        kolUid = String(found);
+        lookedUpAfterMissingUid = true;
+      }
+    } catch {
+      // 核对失败不改变结论：下面走诚实失败。
+    }
+  }
   if (!isRealKolUid(kolUid)) {
     audit(actor, "host.import_creator.failed", {
       policy: IMPORT_CREATOR_POLICY,
@@ -341,6 +407,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     sent: false,
     stage_changed: false,
     looked_up_after_timeout: lookedUpAfterTimeout,
+    looked_up_after_missing_uid: lookedUpAfterMissingUid,
     retried: false,
     data,
   };
@@ -393,9 +460,13 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
   };
   let data: Json;
   try {
-    data = await callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
-      requestJson: JSON.stringify(body),
-    });
+    data = await withTimeout(
+      callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
+        requestJson: JSON.stringify(body),
+      }),
+      STARRY_IMPORT_TIMEOUT_MS,
+      "addKolProfile",
+    );
   } catch (error) {
     const reason = isStarryTimeout(error) ? "timeout" : "failed";
     audit(actor, "host.add_kol_profile.failed", {
@@ -423,7 +494,20 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
       policy: IMPORT_CREATOR_POLICY,
     });
   }
-  const kolUid = parseImportedKolUid(data);
+  let kolUid = parseImportedKolUid(data);
+  if (!isRealKolUid(kolUid)) {
+    // 建档成功但回包不带编号：按平台账号核对一次，找不到才诚实失败。
+    try {
+      const found = await withTimeout(
+        lookupImportedKolUid({ creatorExternalId: input.creatorExternalId }),
+        STARRY_LOOKUP_TIMEOUT_MS,
+        "pageKolProfiles",
+      );
+      if (isRealKolUid(found)) kolUid = String(found);
+    } catch {
+      // 核对失败不改变结论：下面走诚实失败。
+    }
+  }
   if (!isRealKolUid(kolUid)) {
     audit(actor, "host.add_kol_profile.failed", {
       policy: IMPORT_CREATOR_POLICY,

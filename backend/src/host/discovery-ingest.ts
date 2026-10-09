@@ -277,7 +277,8 @@ async function ownerFieldsForIngest(): Promise<Json> {
   });
 }
 
-async function ingestOne(input: {
+/** 单候选 Starry 入库（二期卡片「加入公海」复用批量同一写入路径）。 */
+export async function ingestOne(input: {
   candidate: Row;
   source_batch: string;
   run_id: string;

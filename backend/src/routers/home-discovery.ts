@@ -4,11 +4,12 @@ import {
   cancelHomeDiscoveryRun,
   createHomeDiscoveryPlan,
   discoveryTemplate,
+  followHomeDiscoveryCandidate,
   getHomeDiscoveryRun,
   homeDiscoveryCandidateIngestPlaceholder,
-  homeDiscoveryFollowForbidden,
   homeDiscoveryIngestPlaceholder,
   ignoreHomeDiscoveryCandidate,
+  ingestHomeDiscoveryCandidate,
   listHomeDiscoveryCandidates,
   listHomeDiscoveryRuns,
   retryHomeDiscoveryRun,
@@ -84,10 +85,12 @@ homeDiscovery.post("/home/discovery/candidates/:id/ignore", (c) => {
   return c.json(ignoreHomeDiscoveryCandidate(c.req.param("id")));
 });
 
-homeDiscovery.post("/home/discovery/candidates/:id/ingest", (c) => {
-  return c.json(homeDiscoveryCandidateIngestPlaceholder(c.req.param("id")), 501);
+homeDiscovery.post("/home/discovery/candidates/:id/ingest", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  return c.json(await ingestHomeDiscoveryCandidate(c.req.param("id"), body));
 });
 
-homeDiscovery.post("/home/discovery/candidates/:id/follow", (c) => {
-  return c.json(homeDiscoveryFollowForbidden(c.req.param("id")), 403);
+homeDiscovery.post("/home/discovery/candidates/:id/follow", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  return c.json(await followHomeDiscoveryCandidate(c.req.param("id"), body), 201);
 });

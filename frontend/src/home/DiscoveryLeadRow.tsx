@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { displayMetric, type HomeDiscoveryCandidate } from "./discoveryHome";
 import {
   briefFitText,
@@ -33,16 +34,20 @@ function CartoonAvatar() {
 /**
  * Creator lead / Row：身份、指标、理由和文字操作依次排列，点「查看详情」展开二级指标。
  * 所有缺失都渲染缺失文案，不编造；无 URL 时「看来源」禁用。
+ *
+ * 二期 CTA：「加入公海」（L2，全卡唯一，入 Starry 库）与「跟进」（L3，创建线索 +
+ * 更新 Starry 库表）。两个都是 consequential 动作，行内二次确认后执行。
  */
 export default function DiscoveryLeadRow({
   candidate,
   brief,
   selected,
   expanded,
-  followUp,
+  followedUp,
   onToggleSelect,
   onToggleExpand,
-  onToggleFollowUp,
+  onIngestCandidate,
+  onFollowUpCandidate,
   onIgnore,
 }: {
   candidate: HomeDiscoveryCandidate;
@@ -50,13 +55,32 @@ export default function DiscoveryLeadRow({
   brief: DiscoveryBrief;
   selected: boolean;
   expanded: boolean;
-  /** 行内「跟进」标记态：分拣意图，真正的排他认领在公海完成。 */
-  followUp: boolean;
+  /** 已跟进（线索已创建）：隐藏「跟进」按钮，显示状态。 */
+  followedUp: boolean;
   onToggleSelect: (on: boolean) => void;
   onToggleExpand: () => void;
-  onToggleFollowUp: (on: boolean) => void;
+  onIngestCandidate: () => Promise<void>;
+  onFollowUpCandidate: () => Promise<void>;
   onIgnore: () => void;
 }) {
+  const [confirming, setConfirming] = useState<"ingest" | "follow" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const runAction = async (kind: "ingest" | "follow") => {
+    if (busy) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      if (kind === "ingest") await onIngestCandidate();
+      else await onFollowUpCandidate();
+      setConfirming(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "操作没有完成。");
+    } finally {
+      setBusy(false);
+    }
+  };
   const source = sourceState(candidate);
   const plays = playsValue(candidate);
   const note = sampleNote(candidate);
@@ -116,8 +140,8 @@ export default function DiscoveryLeadRow({
           {candidate.in_library && !["already_in_library", "already_followed"].includes(candidate.ingestReadiness) ? (
             <span className="discovery-chip discovery-chip-soft" data-discovery-in-library>已在库</span>
           ) : null}
-          {followUp ? (
-            <span className="discovery-lead-tag is-followup" data-lead-followup>待跟进</span>
+          {followedUp ? (
+            <span className="discovery-lead-tag is-followup" data-lead-followup>已跟进</span>
           ) : null}
           <span className={`discovery-lead-tag is-readiness is-${candidate.ingestReadiness}`} data-lead-readiness>
             {readiness}
@@ -172,17 +196,71 @@ export default function DiscoveryLeadRow({
         >
           {expanded ? "收起" : "查看详情"}
         </button>
-        {selectable ? (
-          <button
-            type="button"
-            className="discovery-follow-quiet"
-            data-discovery-followup={candidate.id}
-            aria-pressed={followUp}
-            title="标记为待跟进并自动加入入库选择；入库后去公海认领"
-            onClick={() => onToggleFollowUp(!followUp)}
-          >
-            {followUp ? "取消跟进" : "跟进"}
-          </button>
+        {!candidate.in_library ? (
+          confirming === "ingest" ? (
+            <>
+              <button
+                type="button"
+                className="discovery-follow-quiet"
+                data-lead-ingest-confirm={candidate.id}
+                disabled={busy}
+                onClick={() => void runAction("ingest")}
+              >
+                {busy ? "入库中…" : "确认加入公海"}
+              </button>
+              <button
+                type="button"
+                className="discovery-follow-quiet"
+                disabled={busy}
+                onClick={() => { if (!busy) { setConfirming(null); setActionError(null); } }}
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="discovery-follow-quiet"
+              data-lead-ingest={candidate.id}
+              title="将公开资料写入 Starry 并进入公海（L3，需确认）"
+              onClick={() => setConfirming("ingest")}
+            >
+              加入公海
+            </button>
+          )
+        ) : null}
+        {!followedUp ? (
+          confirming === "follow" ? (
+            <>
+              <button
+                type="button"
+                className="discovery-follow-quiet"
+                data-lead-followup-confirm={candidate.id}
+                disabled={busy}
+                onClick={() => void runAction("follow")}
+              >
+                {busy ? "创建中…" : "确认跟进"}
+              </button>
+              <button
+                type="button"
+                className="discovery-follow-quiet"
+                disabled={busy}
+                onClick={() => { if (!busy) { setConfirming(null); setActionError(null); } }}
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="discovery-follow-quiet"
+              data-discovery-followup={candidate.id}
+              title="创建线索并更新 Starry 库表"
+              onClick={() => setConfirming("follow")}
+            >
+              跟进
+            </button>
+          )
         ) : null}
         <button
           type="button"
@@ -193,6 +271,9 @@ export default function DiscoveryLeadRow({
           忽略
         </button>
       </div>
+      {actionError ? (
+        <p className="discovery-lead-action-error" data-lead-action-error role="alert">{actionError}</p>
+      ) : null}
 
       {expanded ? (
         <dl className="discovery-lead-detail" data-lead-detail>

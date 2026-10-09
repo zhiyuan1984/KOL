@@ -21,8 +21,16 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
     try {
       const result = await api.discoveryCandidateCommand(actionId, row.id, verb, snapshot);
       if (!result.ok) throw new Error("操作结果尚未确认，请刷新核对。");
-      if (verb === "follow") nav("/?tab=lifecycle");
-      else if (verb === "ingest") nav("/?tab=pool");
+      if (verb === "follow") {
+        // 跟进成功后会顺带写 Starry 公海；失败不破坏跟进，但必须如实告知。
+        if (result.starry_imported === false) {
+          setError(`已跟进，但 Starry 入库未完成：${result.starry_error || "未知原因"}。`);
+          refresh();
+        } else {
+          nav("/?tab=lifecycle");
+        }
+      }
+      else if (verb === "ingest") { if (row.followed) refresh(); else nav("/?tab=pool"); }
       else refresh();
       setConfirm(false);
     } catch (error) { setError(friendlyApiError(error, "操作未完成，请刷新核对当前状态。")); }
@@ -56,17 +64,19 @@ export default function DiscoveryRuntimeCandidate({ row, actionId, brief, captur
         {row.ignored ? <button type="button" className="pool-claim-button" disabled={busy || !snapshot} onClick={() => void command("restore")}>恢复考虑</button> : <>
           <button type="button" className="pool-claim-button is-quiet" title="点击即确认归你跟进，其他员工受排他跟进规则限制（L3）" disabled={busy || !snapshot} onClick={() => void command("follow")}>{busy ? "处理中…" : "跟进"}</button>
           <button type="button" className="pool-claim-button is-quiet" disabled={busy || !snapshot} onClick={() => void command("ignore")}>忽略</button>
-          <button type="button" className="pool-claim-button" disabled={busy || !snapshot || row.followed} title={row.followed ? "已归你跟进，回公海是独立动作" : undefined} onClick={() => row.in_pool ? nav("/?tab=pool") : setConfirm(true)}>加入公海</button>
+          <button type="button" className="pool-claim-button" disabled={busy || !snapshot} title={row.followed ? "补写 Starry 公海（跟进时入库未完成可点此重试；他人的跟进不可操作）" : undefined} onClick={() => row.in_pool ? nav("/?tab=pool") : setConfirm(true)}>加入公海</button>
         </>}
       </div>
       {!snapshot ? <p role="status">此历史结果缺少资料版本，请刷新核对后操作。</p> : null}
       {error && !confirm ? <p role="alert">{error}</p> : null}
     </div>
-    <DiscoveryIngestConfirm open={confirm} busy={busy} error={error} onConfirm={() => void command("ingest")} onCancel={() => { if (!busy) { setConfirm(false); setError(""); } }}>
-      <p>需要确认（L3）· 将 {row.name} 的公开资料加入正式公海。</p>
-      <p>平台：{platformLabel(row.platform)} · 平台账号：{row.id}</p>
-      <p>来源批次：本次发现任务；当前资料取得于 {new Date(capturedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}。</p>
-      <p>导入公开身份和主页；已有指标保留在本地资料索引。缺失联系方式不补造；本次操作不取得个人跟进、不发信、不改变阶段。</p>
-    </DiscoveryIngestConfirm>
+    <DiscoveryIngestConfirm open={confirm} busy={busy} error={error} onConfirm={() => void command("ingest")} onCancel={() => { if (!busy) { setConfirm(false); setError(""); } }}
+      rows={[
+        { label: "对象", value: row.name },
+        { label: "平台", value: <>{platformLabel(row.platform)} · <code>{row.id}</code></> },
+        { label: "来源", value: <>本次发现任务 · {new Date(capturedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</> },
+        { label: "说明", value: "导入公开身份和主页；缺失联系方式不补造；不建联、不发信、不改阶段、不取个人跟进" },
+      ]}
+    />
   </article>;
 }

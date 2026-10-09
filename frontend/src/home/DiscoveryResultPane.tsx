@@ -26,7 +26,8 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
     selectedIds,
     selectedPlatforms,
     followUpIds,
-    toggleFollowUp,
+    followUpCandidate,
+    ingestCandidate,
     followUpCount,
     inFlight,
     stage,
@@ -121,7 +122,7 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
           ].map((option) => ({ ...option, dataAttributes: { "data-discovery-result-filter": option.id } }))} />
       </div>
       <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
-            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 待跟进 ${followUpCount} 人` : ""}`}</span>
+            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 已跟进 ${followUpCount} 人` : ""}`}</span>
             <label className="discovery-candidate-select">
               <input
                 type="checkbox"
@@ -218,10 +219,11 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
                     brief={brief}
                     selected={selectedIds.includes(candidate.id)}
                     expanded={expandedIds.includes(candidate.id)}
-                    followUp={followUpIds.includes(candidate.id)}
+                    followedUp={followUpIds.includes(candidate.id)}
                     onToggleSelect={(on) => toggleSelected(candidate.id, on)}
                     onToggleExpand={() => toggleExpanded(candidate.id)}
-                    onToggleFollowUp={(on) => toggleFollowUp(candidate.id, on)}
+                    onIngestCandidate={() => ingestCandidate(candidate.id, candidate.run_id)}
+                    onFollowUpCandidate={() => followUpCandidate(candidate.id, candidate.run_id)}
                     onIgnore={() => ignoreCandidate(candidate.id)}
                   />
                 </li>
@@ -272,17 +274,17 @@ export default function DiscoveryResultPane({ state, brief, region = "all" }: { 
         busy={ingestBusy}
         error={ingestError}
         confirmDisabled={!selected.length}
+        title="批量入库公海"
+        rows={[
+          { label: "数量", value: `${selected.length} 条线索` },
+          { label: "平台", value: selectedPlatforms.length ? selectedPlatforms.map((code) => platformLabel(code)).join("、") : "无" },
+          { label: "来源", value: `运行 ${run?.id || runId || "无"}` },
+          ...(reviewSelected ? [{ label: "复核", value: `${reviewSelected} 条需人工复核评分与来源证据` }] : []),
+          { label: "说明", value: "写入 Starry 并进入公海；不建联、不发信、不改阶段、不认领跟进" },
+        ]}
         onConfirm={() => void confirmIngest()}
         onCancel={() => void cancelIngest()}
-      >
-        <p data-discovery-ingest-summary>
-          {`将把 ${selected.length} 条线索写入 Starry 并进入公海。`}
-          {` 平台：${selectedPlatforms.length ? selectedPlatforms.map((code) => platformLabel(code)).join("、") : "无"}。`}
-          {` 来源运行：${run?.id || runId || "无"}。`}
-          {reviewSelected ? ` 其中 ${reviewSelected} 条仍需人工复核其评分与来源证据。` : ""}
-          不会建联，不会发信，也不会改阶段或认领跟进。
-        </p>
-      </DiscoveryIngestConfirm>
+      />
     </div>
   );
 }
