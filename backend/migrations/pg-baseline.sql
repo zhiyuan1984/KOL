@@ -1903,7 +1903,9 @@ CREATE TABLE public.skill_lifecycle (
     business_stage text,
     tags text,
     updated_at text NOT NULL,
-    origin text DEFAULT 'official'::text NOT NULL
+    origin text DEFAULT 'official'::text NOT NULL,
+    biz_family text,
+    biz_domain text
 );
 
 

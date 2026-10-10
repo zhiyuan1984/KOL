@@ -177,6 +177,11 @@ export function useFollowedWorkspace(options: {
       const nextRows = loaded.items.map(followKolToRecord) as FollowedKol[];
       setRows(nextRows);
       return nextRows;
+    } catch (cause) {
+      if (seq === readSeq.current) {
+        setError(cause instanceof Error ? cause.message : "跟进名单核对失败，请重试");
+      }
+      return null;
     } finally {
       setReadsInFlight((count) => Math.max(0, count - 1));
       setReadsDone((count) => count + 1);

@@ -67,6 +67,15 @@ describe("unified /api/home/following authority", () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0].kol_uid).toBe("KOL_LOCAL");
   });
+  it("shows a terminal timeout reason while preserving authorized local rows", async () => {
+    mocks.homeFollowing.mockResolvedValue({authority:"kol_follow_index+verified_starry_binding",completeness:"incomplete-source",
+      source_error_code:"starry_authorization_timeout",
+      kols:[{kol_uid:"KOL_LOCAL",handle:"Local",follow_id:"f-local",source_kind:"local_follow",status:"active"}]});
+    const result = await loadHomeFollowing();
+    expect(result).toMatchObject({down:true,partial:true});
+    expect(result.error).toContain("本次读取已结束");
+    expect(result.items).toHaveLength(1);
+  });
 
   it("does not treat an unknown status plus an ID as an active follow", () => {
     expect(isActiveFollowRow({ id: "stale-profile", kol_uid: "kol-stale", status: "unknown" })).toBe(false);

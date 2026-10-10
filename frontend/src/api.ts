@@ -2955,11 +2955,28 @@ export const api = {
     }),
   skillStageHistory: (id: string) =>
     request<{ history: Array<Record<string, unknown>> }>(`/api/admin/skills/${encodeURIComponent(id)}/stage-history`),
-  skillLifecycleMetaSave: (id: string, body: { owner?: string; business_stage?: string; tags?: string[] }) =>
+  skillLifecycleMetaSave: (id: string, body: { owner?: string; business_stage?: string; tags?: string[]; biz_family?: string; biz_domain?: string }) =>
     request<{ lifecycle: Record<string, unknown> }>(`/api/admin/skills/${encodeURIComponent(id)}/lifecycle`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  skillPublishCheck: (id: string) =>
+    request<{
+      id: string;
+      risk: "L1" | "L2" | "L3" | null;
+      can_publish: boolean;
+      reasons: string[];
+      checks: Record<string, { ok: boolean; detail: string; required?: boolean; status?: string }>;
+    }>(`/api/admin/skills/${encodeURIComponent(id)}/publish-check`),
+  createSkillPublishApproval: (id: string) =>
+    request<{ approval_id: string; status: string; reused?: boolean }>(
+      `/api/admin/skills/${encodeURIComponent(id)}/publish-approvals`,
+      { method: "POST" },
+    ),
+  legacySkillGrants: () =>
+    request<{ deprecated: boolean; notice: string; count: number; grants: Array<Record<string, unknown>> }>(
+      "/api/admin/skills/legacy-grants",
+    ),
   skillVersions: (id: string) =>
     request<{ versions: Array<Record<string, unknown>> }>(`/api/admin/skills/${encodeURIComponent(id)}/versions`),
   publishSkillVersion: (id: string, description?: string) =>

@@ -59,6 +59,11 @@ describe("discovery start phase", () => {
     expect(discoveryStartPhase(action({ state: "uncertain" }), false)).toBe("uncertain");
     expect(discoveryStartPhase(action({ state: "cancelled" }), false)).toBe("cancelled");
   });
+  it("does not relabel uncertain execution or a saved rejection as starting", () => {
+    expect(discoveryStartPhase(action({ execution: { id: "e1", status: "uncertain", error_code: "execution_handler_error" } }), false)).toBe("uncertain");
+    expect(discoveryStartPhase(action({ state: "rejected", error_code: "runtime_action_snapshot_stale",
+      execution: { id: "e1", status: "failed", error_code: "runtime_action_snapshot_stale" } }), false)).toBe("rejected");
+  });
 });
 
 describe("discovery actual parameters", () => {

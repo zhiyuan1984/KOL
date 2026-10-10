@@ -72,6 +72,7 @@ export type PoolJevAssessment = {
   risk_probabilities?: Record<string, number> | null;
   risk_confidence?: number | null;
   model?: string;
+  version?: string;
   assessed_at?: string | null;
   /** scored = 有分；low_confidence = 评过但置信度不足；failed = 调用失败；unscored = 从未评过。 */
   state?: "scored" | "scoring" | "unscored" | "low_confidence" | "failed";
@@ -259,6 +260,7 @@ function assessmentFromRow(row: Record<string, unknown>): PoolJevAssessment {
     risk_probabilities: probabilityObject(row.risk_probabilities),
     risk_confidence: row.risk_confidence == null || row.risk_confidence === "" ? null : Number(row.risk_confidence),
     model: text(row.assessment_model) || undefined,
+    version: text(row.assessment_version) || undefined,
     assessed_at: text(row.assessed_at) || null,
     state: (["scored", "scoring", "unscored", "low_confidence", "failed"] as const).find((value) => value === text(row.assessment_state)) || undefined,
     criteria_summary: text(row.assessment_criteria) || undefined,
@@ -474,16 +476,7 @@ export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
     unowned: isUnownedRow(row),
     has_conversation: hasConversation(row),
     sea_reason: reason,
-    assessment: {
-      potential_score: row.potential_score == null || row.potential_score === "" ? null : Number(row.potential_score),
-      potential_confidence: row.potential_confidence == null || row.potential_confidence === "" ? null : Number(row.potential_confidence),
-      risk_score: row.risk_score == null || row.risk_score === "" ? null : Number(row.risk_score),
-      risk_confidence: row.risk_confidence == null || row.risk_confidence === "" ? null : Number(row.risk_confidence),
-      model: text(row.assessment_model) || undefined,
-      assessed_at: text(row.assessed_at) || null,
-      state: (["scored", "scoring", "unscored", "low_confidence", "failed"] as const).find((value) => value === text(row.assessment_state)) || undefined,
-      criteria_summary: text(row.assessment_criteria) || undefined,
-    },
+    assessment: assessmentFromRow(row),
   };
 }
 

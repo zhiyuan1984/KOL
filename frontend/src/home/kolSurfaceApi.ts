@@ -218,7 +218,7 @@ export async function cleanupPoolMissingHomepage(expectedCount: number): Promise
  */
 export async function loadHomeFollowing(): Promise<FollowingLoad> {
   try {
-    const payload = await api.homeFollowing() as Awaited<ReturnType<typeof api.homeFollowing>> & {completeness?:string};
+    const payload = await api.homeFollowing() as Awaited<ReturnType<typeof api.homeFollowing>> & {completeness?:string;source_error_code?:string};
     const partial=payload.authority===FOLLOWING_AUTHORITY && payload.completeness==='incomplete-source';
     if (!partial && !hasCompleteFollowingAuthority(payload)) {
       throw new Error("跟进名单未返回完整的服务端授权标记");
@@ -226,7 +226,9 @@ export async function loadHomeFollowing(): Promise<FollowingLoad> {
     const raw = asRows(payload).filter(isActiveFollowRow);
     return {
       items: raw.map(toFollowKol).filter((row): row is FollowKol => Boolean(row)),
-      ...(partial ? {partial:true,down:true,error:"Starry 归属来源尚未完整核验；仅展示本地有效跟进"} : {}),
+      ...(partial ? {partial:true,down:true,error:payload.source_error_code === "starry_authorization_timeout"
+        ? "Starry 授权核验超时，本次读取已结束；仅展示本地有效跟进，可重试核对。"
+        : "Starry 归属来源尚未完整核验；仅展示本地有效跟进"} : {}),
       raw,
       source: "following",
       contract: "B.active+verified_starry_binding",

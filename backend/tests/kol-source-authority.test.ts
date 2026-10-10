@@ -203,6 +203,29 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
     expect(verified.rows[0]?.owner_verified_at).toBeTruthy();
   });
 
+  it("uses a current authorized subset without claiming company completeness or returning other owners", async () => {
+    const employee = 'employee-scope';
+    await seedUser(employee);
+    await postgresPool().query(`INSERT INTO user_starry_bindings(user_id,mailbox_email,owner_open_id,owner_verified_at,status,updated_at)
+      VALUES($1,'scope@verified.test','273',$2,'connected',$2)`, [employee,NOW]);
+    for (const uid of ['KOL_LARRY','KOL_OTHER','KOL_REVOKED','KOL_RELEASED']) {
+      seedProfile(uid);
+      await seedStarryCollaboration({id:`col-${uid}`,kolUid:uid});
+    }
+    await seedFollow({id:'f-scope-released',kolUid:'KOL_RELEASED',employeeId:employee,status:'released'});
+    const snapshot = [
+      {kol_uid:'KOL_LARRY',owner_open_id:'273',owner_mailbox:''},
+      {kol_uid:'KOL_OTHER',owner_open_id:'197',owner_mailbox:''},
+      {kol_uid:'KOL_RELEASED',owner_open_id:'273',owner_mailbox:''},
+    ];
+    const rows = await readFollowingAuthority(employee,COMPANY_ID,snapshot);
+    expect(followingIds(rows as Record<string,unknown>[])).toEqual(['KOL_LARRY']);
+    expect((await postgresPool().query('SELECT * FROM starry_ownership_sync_state WHERE company_id=$1',[COMPANY_ID])).rows).toEqual([]);
+    expect(await readFollowingAuthority(employee,COMPANY_ID,[])).toEqual([]);
+    await postgresPool().query("UPDATE user_starry_bindings SET status='expired' WHERE user_id=$1",[employee]);
+    expect(await readFollowingAuthority(employee,COMPANY_ID,snapshot)).toEqual([]);
+  });
+
   it("keeps an active local discovery follow readable even without any mailbox binding", async () => {
     const actor: FollowActor = { id: "employee-local", name: "Local Employee", brands: ["LT"] };
     await seedUser(actor.id, actor.id, actor.name);

@@ -30,7 +30,7 @@ export const FORBIDDEN_MEMORY_STARRY_TOOLS = [
 
 const ALLOWED = new Set<string>(MEMORY_STARRY_TOOLS);
 
-export async function callMemoryStarryTool(name: string, args: Json = {}): Promise<Json> {
+export async function callMemoryStarryTool(name: string, args: Json = {}, options: { timeoutMs?: number } = {}): Promise<Json> {
   if (name === "decryptKolContact" || (FORBIDDEN_MEMORY_STARRY_TOOLS as readonly string[]).includes(name)) {
     throw new HttpFail(403, {
       code: "starry_tool_forbidden",
@@ -45,16 +45,16 @@ export async function callMemoryStarryTool(name: string, args: Json = {}): Promi
       tool: name,
     });
   }
-  return callStarryKolTool(name, args);
+  return callStarryKolTool(name, args, options);
 }
 
-export function pageKolProfiles(args: Json = {}): Promise<Json> {
+export function pageKolProfiles(args: Json = {}, options: { timeoutMs?: number } = {}): Promise<Json> {
   const requestJson = args.requestJson ?? JSON.stringify({
     pageNo: Number(args.pageNo || 1),
     pageSize: Number(args.pageSize || 50),
     ...(args.keyword ? { keyword: args.keyword } : {}),
   });
-  return callMemoryStarryTool("pageKolProfiles", { requestJson });
+  return callMemoryStarryTool("pageKolProfiles", { requestJson }, options);
 }
 
 export function getKolProfileDetail(kolUid: string): Promise<Json> {

@@ -34,6 +34,7 @@ export default function SkillLifecycleV2() {
   const [busy, setBusy] = useState(false);
   const [metricsDays, setMetricsDays] = useState(7);
   const [coverage, setCoverage] = useState<SkillCoverage | null>(null);
+  const [legacyGrants, setLegacyGrants] = useState<{ notice: string; count: number } | null>(null);
   const { ask, dialog } = useAdminConfirm();
   const load = useCallback(async () => {
     // 实现度读数是运行时覆盖的独立读模型：读不到不能让整个技能页失效，详情里降级为「未读取」。
@@ -50,6 +51,12 @@ export default function SkillLifecycleV2() {
     setCoverage(coverageResult.status === "fulfilled" ? coverageResult.value : null);
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    // user_skill_grants 已退役：有残留记录时提示迁移，不阻塞页面。
+    api.legacySkillGrants()
+      .then((result) => { if (result.count > 0) setLegacyGrants({ notice: result.notice, count: result.count }); })
+      .catch(() => {});
+  }, []);
   const coverageById = useMemo(() => new Map((coverage?.skills || []).map((row) => [row.skill_id, row])), [coverage]);
   const selected = skills.find((skill) => skill.id === selectedId) || null;
   const visible = useMemo(() => skills.filter((skill) => {
@@ -100,6 +107,7 @@ export default function SkillLifecycleV2() {
       <div className="governance-scroll">
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="governance-notice" role="status">{notice}</p>}
+        {legacyGrants && <p className="skill-governance-notice" role="note">直接技能授权已退役：残留 {legacyGrants.count} 条待迁移记录（{legacyGrants.notice}）</p>}
         {selected ? <div className="skill-v2-detail">{selected.document_query && <SkillKnowledgeRange key={`range-${selected.id}`} skillId={selected.id} />}<DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelectedId("")} /></div>
           : <p className="governance-empty">选择一项技能查看详情。</p>}
       </div>

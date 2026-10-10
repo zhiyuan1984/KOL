@@ -111,6 +111,11 @@ describe("published skills on the Codex harness", () => {
     const draftEntry = (draft.body.skills as Json[]).find((row) => row.id === "daily_brief");
     expect((draftEntry?.lifecycle as Json).stage).toBe("draft");
     for (const stage of ["editing", "testing", "published"]) {
+      if (stage === "published") {
+        // 负责人必填（2026-10-10）
+        const setOwner = await request("PATCH", "/api/admin/skills/daily_brief/lifecycle", { owner: "测试负责人" });
+        expect(setOwner.status, JSON.stringify(setOwner.body)).toBe(200);
+      }
       const moved = await request("POST", "/api/admin/skills/daily_brief/stage", { stage });
       expect(moved.status, JSON.stringify(moved.body)).toBe(200);
     }

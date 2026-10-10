@@ -60,6 +60,8 @@ export default function FollowedInteraction({
     <section className="followed-interaction-intro" aria-label="当前跟进概览">
       <p>{summaryReady
         ? "名单已由服务端按当前授权范围核对"
+        : completeness === "incomplete-error"
+          ? cards.length ? `${cards.length} 位已加载 · 名单核对未完成` : "名单核对未完成"
         : cards.length
           ? `${cards.length} 位已加载 · 正在核对服务端授权名单…`
           : "正在核对服务端授权名单…"}</p>
