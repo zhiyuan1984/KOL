@@ -40,6 +40,7 @@ import {
 import { starryLibraryStatus } from "../starrykol/library-sync.js";
 import { HttpFail } from "../host/errors.js";
 import { currentFollowScope } from "../host/starry-bind.js";
+import { readAuthorizedOwnershipSnapshot, type AuthorizedOwnershipSnapshot } from "../starrykol/authorized-ownership.js";
 import { nid } from "../ids.js";
 import { ensureTicketForWorkItem } from "../tickets.js";
 import { taskDefinition } from "../tasks/registry.js";
@@ -312,10 +313,18 @@ kolMemory.post("/home/pool/cleanup-missing-homepage", async (c) => {
 kolMemory.get("/home/following", async (c) => {
   c.header("Cache-Control", "no-store");
   const employee = currentMemoryEmployee();
-  const kols = await readFollowingAuthority(employee.id);
   const followScope = currentFollowScope();
-  const health=(await postgresPool().query("SELECT state,error FROM starry_ownership_sync_state WHERE company_id=$1",[memoryCompanyId()])).rows[0];
-  const complete=!followScope.required || !followScope.bound || followScope.status==='expired' || health?.state==='ready';
+  let snapshot: AuthorizedOwnershipSnapshot | undefined;
+  let sourceError = "";
+  if (followScope.required && followScope.bound && followScope.status === 'connected') {
+    try { snapshot = await readAuthorizedOwnershipSnapshot(employee.id); }
+    catch (error) {
+      sourceError = error instanceof Error ? error.message : String(error);
+      audit(employee.id, 'starrykol.following_authorization_failed', { error: sourceError });
+    }
+  }
+  const kols = await readFollowingAuthority(employee.id, memoryCompanyId(), snapshot?.rows || []);
+  const complete = !sourceError;
   return c.json({
     entry: "memory",
     kind: "memory",
@@ -326,6 +335,8 @@ kolMemory.get("/home/following", async (c) => {
     follow_scope: followScope,
     kols,
     authority: "kol_follow_index+verified_starry_binding",
+    source_scope: "current-user-authorized",
+    ...(snapshot ? {source_version: snapshot.source_version, authorized_profile_count: snapshot.total} : {}),
     completeness: complete ? "complete" : "incomplete-source",
     ...(complete ? {} : {source_error: "Starry 归属来源尚未完整核验；仅展示本地有效跟进"}),
   });
