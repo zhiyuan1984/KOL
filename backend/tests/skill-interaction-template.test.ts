@@ -117,6 +117,12 @@ describe("one Skill / one knowledge interaction template", () => {
     expect(skillTemplate(definition).starter).toBe("达人库查询\n达人：[达人]");
   });
 
+  it("prefers the SKILL.md hand-written starter over the generated placeholder format", () => {
+    const definition = requireTaskDefinition("confirm_stage");
+    expect(definition.starter).toBe("提出阶段变更 [红人] 到 [目标阶段]");
+    expect(skillTemplate(definition).starter).toBe("提出阶段变更 [红人] 到 [目标阶段]");
+  });
+
   it("does not synthesize an unregistered procedure for legacy skills", () => {
     const template = skillTemplate({ ...requireTaskDefinition(skillId), interaction: undefined });
     expect(template.steps).toEqual([]);

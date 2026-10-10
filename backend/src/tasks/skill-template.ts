@@ -36,7 +36,8 @@ export function skillTemplate(definition: TaskDefinition, runtimeRevision?: stri
     // Legacy skills remain readable but do not invent execution steps.
     steps: definition.interaction?.steps || [],
     inputs,
-    starter: [definition.title, ...required.map((field) => `${field.label}：[${field.label}]`)].join("\n"),
+    // SKILL.md 手写的 starter 优先（作者措辞即契约）；没写才按必填字段生成占位格式。
+    starter: definition.starter?.trim() || [definition.title, ...required.map((field) => `${field.label}：[${field.label}]`)].join("\n"),
     output: { type: definition.result_type || definition.output, title: definition.interaction?.output_title || "任务结果" },
     constraints: definition.interaction?.constraints || [],
     evidence: definition.interaction?.evidence || [],
