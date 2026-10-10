@@ -202,7 +202,8 @@ export default function useDiscovery({
     activeRun && activeTaskId && activeRun.work_item_id && activeRun.work_item_id !== activeTaskId,
   );
   const scoresPending = actions.some(action => action.crawl?.result_json?.candidates.some(candidate => candidate.assessment?.state === "scoring"));
-  const actionsSettled = START_DONE.includes(startPhase) && CRAWL_DONE.includes(String(crawlPhase)) && !scoresPending;
+  const resultReadPending = ["pending", "running"].includes(String(startAction?.crawl?.result_state || ""));
+  const actionsSettled = START_DONE.includes(startPhase) && CRAWL_DONE.includes(String(crawlPhase)) && !scoresPending && !resultReadPending;
 
   // 提交（哪怕后端复用了同一个任务）就把卡片收回只读：那之后中栏是过程流的地盘。
   useEffect(() => {
@@ -231,7 +232,11 @@ export default function useDiscovery({
       const current = sessionResult.run;
       setActiveRun(current);
       setCandidates(sessionResult.candidates);
-      if (activeTaskId) setEvents(await loadTaskEvents(activeTaskId).catch(() => []));
+      if (activeTaskId) {
+        const nextEvents = await loadTaskEvents(activeTaskId).catch(() => []);
+        if (!isCurrent()) return;
+        setEvents(nextEvents);
+      }
       if (current && sessionResult.candidates.length) {
         setEmptyKind("idle");
         return;
@@ -246,8 +251,16 @@ export default function useDiscovery({
         setEmptyKind("idle");
         return;
       }
+      // No action, an unconfirmed proposal or a missing/partial result is not
+      // evidence of an empty search. Only a complete task snapshot can say zero.
+      const crawl = sessionResult.action?.crawl;
+      const snapshot = crawl?.result_json;
+      if (crawl?.result_state !== "ready" || snapshot?.complete !== true || !Array.isArray(snapshot.candidates)) {
+        setEmptyKind("idle");
+        return;
+      }
       setEmptyKind("filtered");
-      setEmptyMessage("本次线索智能体结果中没有候选。");
+      setEmptyMessage("本任务的完整采集快照为 0 条候选；这不是筛选条件排除后的结论。可核对采集回执后再决定是否调整条件。");
       return;
     }
     const listed = await loadDiscoveryRuns();
@@ -877,7 +890,9 @@ export default function useDiscovery({
   // The persisted request identifies this report after reload as well as live.
   let analysisRequest = -1;
   session.messages.forEach((message, index) => {
-    if (message.kind === "me" && String((message.payload as Record<string, unknown>).text || "").startsWith("请基于本任务已保存的发现条件与采集 ")) analysisRequest = index;
+    // An earlier analysis request must not relabel a later, unrelated turn.
+    if (message.kind === "me") analysisRequest = String((message.payload as Record<string, unknown>).text || "")
+      .startsWith("请基于本任务已保存的发现条件与采集 ") ? index : -1;
   });
   const analysisMessages = !session.err && session.sessionLoaded && analysisRequest >= 0
     ? session.messages.slice(analysisRequest + 1).filter(message => !["me", "operation", "process", "system"].includes(message.kind)) : [];
@@ -934,7 +949,7 @@ export default function useDiscovery({
     stopStart: () => void stopStart(),
     dequeueStart: () => void dequeueStart(),
     analyzeCandidates: (taskId: string) => void analyzeCandidates(taskId),
-    analyzing: analyzing || (session.sessionLoaded && session.agentStatus === "running"),
+    analyzing: analyzing || (!session.err && session.sessionLoaded && analysisRequest >= 0 && session.agentStatus === "running"),
     analysisMessages,
     analysisReadError: session.err,
     refreshAnalysis: session.reload,

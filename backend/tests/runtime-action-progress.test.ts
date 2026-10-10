@@ -20,6 +20,16 @@ describe("durable confirmation progress", () => {
     expect(progress.summary).toContain("本次启动未执行");
     expect(canRetryRuntimeCrawl(action, null)).toBe(true);
   });
+  it("allows a new proposal only for a persisted pre-dispatch stale rejection", () => {
+    const action = { state: "rejected", error_code: "runtime_action_snapshot_stale" };
+    const progress = runtimeActionProgress(action, null, { status: "failed" });
+    expect(progress).toMatchObject({ state: "rejected", label: "采集未启动 · 确认已失效", replace_result: true });
+    expect(progress.summary).toContain("本次采集未下发");
+    expect(canRetryRuntimeCrawl(action, null)).toBe(true);
+    for (const state of ["pending", "dispatching", "uncertain", "succeeded"]) {
+      expect(canRetryRuntimeCrawl({ ...action, state }, null)).toBe(false);
+    }
+  });
   it("keeps uncertain and in-flight writes out of the retry path", () => {
     for (const state of ["pending", "dispatching", "uncertain", "succeeded"]) {
       expect(canRetryRuntimeCrawl({ state, error_code: "runtime_probe_crawl_busy" }, null)).toBe(false);

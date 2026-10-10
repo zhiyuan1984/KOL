@@ -29,6 +29,17 @@ command -v node >/dev/null 2>&1 || die "缺少 node"
 command -v npm >/dev/null 2>&1 || die "缺少 npm"
 [ -f "$ROOT/frontend/package.json" ] || die "未找到 frontend/，请从仓库根目录运行 scripts/deploy.sh"
 
+# Runtime skill fingerprints include the resolved manifest path. Restarting a
+# worker pinned to another release is not a deployment of this working tree.
+for unit in lingong lingong-outbox lingong-execution-worker@1 lingong-execution-worker@2; do
+  working_dir="$(systemctl show "$unit" -p WorkingDirectory --value)"
+  entry="start.sh"
+  [ "$unit" = "lingong" ] || entry="worker.sh"
+  actual_start="$(systemctl show "$unit" -p ExecStart --value)"
+  [ "$working_dir" = "$ROOT" ] && [[ "$actual_start" == *"path=$ROOT/scripts/$entry ;"* ]] \
+    || die "$unit 不使用本次发布路径 $ROOT；请先统一 WorkingDirectory 与 ExecStart，未构建、未重启"
+done
+
 need_install() {
   local dir="$1" marker="$2"
   [ ! -e "$dir/node_modules/$marker" ] && return 0

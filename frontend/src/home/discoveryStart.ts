@@ -48,8 +48,11 @@ export function discoveryStartPhase(
   if (!action) return "waiting_proposal";
   const state = String(action.state || "").toLowerCase();
   const execution = action.execution && String(action.execution.status || "").toLowerCase();
+  if (state === "rejected") return "rejected";
   if (state === "pending") {
     if (!action.execution) return "pending";
+    if (execution === "uncertain") return "uncertain";
+    if (execution === "cancelled") return "cancelled";
     return execution === "failed" ? "failed" : "dispatching";
   }
   if (execution === "failed" || state === "failed") return "failed";
@@ -99,7 +102,7 @@ export const DISCOVERY_START_COPY: Record<DiscoveryStartPhase, { label: string; 
   },
   rejected: {
     label: "未执行",
-    detail: "本次确认已取消，未发起采集。",
+    detail: "本次请求未执行；请核对服务端原因后重新确认范围。",
   },
   uncertain: {
     label: "结果待核实",
