@@ -1,10 +1,14 @@
 import { postgresPool } from './pool.js';
 import { followClock, memoryCompanyId } from '../host/kol-memory.js';
 import { normalizeStage, label } from '../stages.js';
+import { authDisabled, scopedUser } from '../auth.js';
+import type { AuthorizedOwnership } from '../starrykol/authorized-ownership.js';
 import type { Json, Row } from '../types.js';
 
 /** The only employee follow-list composition boundary. Names never authorize rows. */
-export async function readFollowingAuthority(employeeId: string, companyId=memoryCompanyId()): Promise<Json[]> {
+export async function readFollowingAuthority(employeeId: string, companyId=memoryCompanyId(), authorizedOwnership?: AuthorizedOwnership[]): Promise<Json[]> {
+  if (!authDisabled() && (scopedUser()?.id !== employeeId || authorizedOwnership === undefined))
+    throw new Error('starry_ownership_current_authorization_required');
   const indexed:Json[]=await readLocalFollowing(employeeId,companyId);
   const rows=(await postgresPool().query<Row>(`
     SELECT DISTINCT ON (c.kol_uid) c.id,c.kol_uid,c.handle,c.display_name,c.platform,c.brand,
@@ -13,8 +17,12 @@ export async function readFollowingAuthority(employeeId: string, companyId=memor
       p.potential_score,p.risk_score,p.assessed_at,p.platform_creator_id
     FROM collaborations c
     LEFT JOIN kol_profile_index p ON p.company_id=$1 AND p.kol_uid=c.kol_uid
-    LEFT JOIN starry_profile_ownership o ON o.company_id=$1 AND o.kol_uid=c.kol_uid
-    WHERE EXISTS (SELECT 1 FROM starry_ownership_sync_state health WHERE health.company_id=$1 AND health.state='ready') AND c.source='starry' AND NULLIF(c.kol_uid,'') IS NOT NULL
+    ${authorizedOwnership === undefined
+      ? "LEFT JOIN starry_profile_ownership o ON o.company_id=$1 AND o.kol_uid=c.kol_uid"
+      : "JOIN jsonb_to_recordset($3::jsonb) AS o(kol_uid text,owner_open_id text,owner_mailbox text) ON o.kol_uid=c.kol_uid"}
+    WHERE ${authorizedOwnership === undefined
+      ? "EXISTS (SELECT 1 FROM starry_ownership_sync_state health WHERE health.company_id=$1 AND health.state='ready') AND"
+      : ""} c.source='starry' AND NULLIF(c.kol_uid,'') IS NOT NULL
       AND EXISTS (SELECT 1 FROM user_starry_bindings b WHERE b.user_id=$2 AND b.status='connected' AND
         ((NULLIF(o.owner_open_id,'')=NULLIF(b.owner_open_id,'') AND b.owner_verified_at IS NOT NULL)
           OR (COALESCE(o.owner_open_id,'')='' AND lower(trim(b.mailbox_email)) NOT LIKE '%.example' AND lower(trim(b.mailbox_email)) NOT LIKE '%.invalid'
@@ -26,7 +34,8 @@ export async function readFollowingAuthority(employeeId: string, companyId=memor
             AND NULLIF(owned.platform_creator_id,'')=NULLIF(p.platform_creator_id,''))))
       AND NOT EXISTS (SELECT 1 FROM kol_follow_index f WHERE f.company_id=$1 AND f.employee_id=$2
         AND f.kol_uid=c.kol_uid AND f.status='released')
-    ORDER BY c.kol_uid,c.id`,[companyId,employeeId])).rows;
+    ORDER BY c.kol_uid,c.id`,authorizedOwnership === undefined
+      ? [companyId,employeeId] : [companyId,employeeId,JSON.stringify(authorizedOwnership)])).rows;
   const seen=new Set(indexed.map(r=>String(r.kol_uid)));
   const ids=rows.filter(r=>!seen.has(String(r.kol_uid))).map(r=>String(r.id));
   const threads=ids.length?(await postgresPool().query<Row>(`SELECT t.collaboration_id,t.conversation_id,t.subject,t.unread_count,t.last_snippet,t.last_at,t.last_direction
