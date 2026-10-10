@@ -279,6 +279,66 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
     expect(poolIds(await readPublicPoolPage({query:'',filter:'all',sort:'default',offset:0,limit:50},COMPANY_ID))).toContain('KOL_LEGACY_BOX');
   });
 
+  it("shows 14 crawler public profiles despite failed Starry snapshots and legacy owner names, without exposing private fields", async () => {
+    for (let n = 0; n < 14; n++) {
+      const kolUid = `KOL_CRAWLER_${n}`;
+      seedProfile(kolUid, { ingestSource: 'crawler' });
+      await seedStarryCollaboration({ id: `col-crawler-${n}`, kolUid, ownerName: 'Legacy Owner' });
+    }
+    await postgresPool().query(`INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,error,updated_at)
+      VALUES($1,'failed','stale-v1',14,'starry_source_uid_conflict',$2)`,[COMPANY_ID,NOW]);
+    const options = { query: '', filter: 'all' as const, sort: 'default' as const, offset: 0, limit: 50 };
+    const page = await readPublicPoolPage(options, COMPANY_ID, ['LT']);
+    expect(page.page).toMatchObject({total:14,matched:14,new_count:14,overdue_count:0});
+    expect(page.items).toHaveLength(14);
+    for (const row of page.items) {
+      expect(row).toMatchObject({ingest_source:'crawler',followers:'120000',avg_plays:'8000'});
+      for (const key of ['email','owner_mailbox','owner_name','contract','assessment_error']) expect(row).not.toHaveProperty(key);
+    }
+    expect((await readPublicPoolPage({...options,query:'no-such-crawler'},COMPANY_ID,['LT'])).page)
+      .toMatchObject({total:14,matched:0});
+    expect((await readPublicPoolPage({...options,filter:'overdue'},COMPANY_ID,['LT'])).page)
+      .toMatchObject({total:14,matched:0});
+    expect((await readPublicPoolPage({...options,offset:50},COMPANY_ID,['LT'])).items).toEqual([]);
+    await postgresPool().query("DELETE FROM kol_profile_index WHERE ingest_source='crawler'");
+    expect((await readPublicPoolPage(options,COMPANY_ID,['LT'])).page).toMatchObject({total:0,matched:0});
+  });
+
+  it("still hides crawler profiles with verified owners, local follows, same-account aliases or same-brand locks", async () => {
+    await seedUser('crawler-owner');
+    for (const uid of ['KOL_FREE','KOL_REMOTE','KOL_LOCAL','KOL_ALIAS','KOL_LOCKED','KOL_CROSS_COMPANY'])
+      seedProfile(uid,{ingestSource:'crawler'});
+    await postgresPool().query("UPDATE kol_profile_index SET company_id='company:other' WHERE kol_uid='KOL_CROSS_COMPANY'");
+    await postgresPool().query("UPDATE kol_profile_index SET platform_creator_id='KOL_LOCAL-creator' WHERE kol_uid='KOL_ALIAS'");
+    await seedFollow({id:'crawler-active',kolUid:'KOL_LOCAL',employeeId:'crawler-owner'});
+    await persistStarryOwnership([{kolUid:'KOL_REMOTE',ownerOpenId:'crawler-remote-owner'}],COMPANY_ID,'crawler-protection-v1',true);
+    await postgresPool().query(`INSERT INTO user_starry_bindings(user_id,mailbox_email,owner_open_id,owner_verified_at,status,updated_at)
+      VALUES('crawler-owner','crawler@verified.test','crawler-remote-owner',$1,'connected',$1)`,[NOW]);
+    await postgresPool().query("UPDATE starry_ownership_sync_state SET state='failed' WHERE company_id=$1",[COMPANY_ID]);
+    await postgresPool().query(`INSERT INTO kol_leads(id,platform,account_handle,source)
+      VALUES('crawler-lock-lead','youtube','locked-channel','crawler')`);
+    await postgresPool().query(`INSERT INTO kol_pool_brand_locks(id,platform,platform_creator_id,brand,lead_id)
+      VALUES('crawler-brand-lock','youtube','kol_locked-creator','LT','crawler-lock-lead')`);
+    const options = { query:'',filter:'all' as const,sort:'default' as const,offset:0,limit:50 };
+    const page = await readPublicPoolPage(options,COMPANY_ID,['LT']);
+    expect(poolIds(page)).toEqual(['KOL_FREE']);
+    expect(page.page).toMatchObject({total:1,matched:1});
+    expect(poolIds(await readPublicPoolPage(options,COMPANY_ID,['TB'])).sort()).toEqual(['KOL_FREE','KOL_LOCKED']);
+  });
+
+  it("does not exempt legacy profiles, but a failed Starry snapshot cannot block a valid crawler search miss", async () => {
+    seedProfile('KOL_CRAWLER_MIXED',{ingestSource:'crawler'});
+    seedProfile('KOL_STARRY_UNVERIFIED',{ingestSource:'starry.pageKolProfiles'});
+    await seedStarryCollaboration({id:'col-starry-unverified',kolUid:'KOL_STARRY_UNVERIFIED',ownerName:'Legacy Owner'});
+    await postgresPool().query(`INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,error,updated_at)
+      VALUES($1,'failed','stale-v1',2,'starry_source_uid_conflict',$2)`,[COMPANY_ID,NOW]);
+    const options = {query:'',filter:'all' as const,sort:'default' as const,offset:0,limit:50};
+    expect(poolIds(await readPublicPoolPage(options,COMPANY_ID))).toEqual(['KOL_CRAWLER_MIXED']);
+    expect((await readPublicPoolPage({...options,query:'not-found'},COMPANY_ID)).page).toMatchObject({total:1,matched:0});
+    await postgresPool().query("DELETE FROM kol_profile_index WHERE ingest_source='crawler'");
+    await expect(readPublicPoolPage(options,COMPANY_ID)).rejects.toThrow('不能据此判断公海为空');
+  });
+
   it("repairs only the canonical active sriphy identity and leaves the follow relationship, stage, and remote owner intact", async () => {
     await seedUser("sriphy", "sriphy", "Canonical Sriphy");
     seedProfile("KOL_SRIPHY", { platformCreatorId: "sriphy-creator" });
