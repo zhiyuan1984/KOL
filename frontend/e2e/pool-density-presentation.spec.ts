@@ -66,7 +66,7 @@ function followedRow() {
   };
 }
 
-async function installStatefulPoolFixture(page: Page, claimMode: ClaimMode = "success") {
+async function installStatefulPoolFixture(page: Page, claimMode: ClaimMode = "success", primaryOverrides: Record<string, unknown> = {}) {
   const mutations: Mutation[] = [];
   const errors: string[] = [];
   const poolReads: string[] = [];
@@ -117,7 +117,8 @@ async function installStatefulPoolFixture(page: Page, claimMode: ClaimMode = "su
       const filter = url.searchParams.get("filter") || "all";
       const offset = Number(url.searchParams.get("offset") || 0);
       const limit = Number(url.searchParams.get("limit") || 50);
-      const available = poolRows.filter((row) => !claimed || row.kol_uid !== primaryUid);
+      const available = poolRows.map((row) => row.kol_uid === primaryUid ? { ...row, ...primaryOverrides } : row)
+        .filter((row) => !claimed || row.kol_uid !== primaryUid);
       const matching = available.filter((row) => matchesPool(row, query, filter));
       await route.fulfill({ json: {
         entry: "memory", kind: "memory", creates_session: false, calls_model: false,
@@ -348,6 +349,64 @@ test("pool density keeps public status evidence adjacent to the name, uses 32px 
     }
   }
 
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+const historicalCriteria = "平台 youtube · 地区 global_en · 方向 backup_power/vanlife/portable_power/road_trip · 关键词 backup power, power outage prep, emergency power, van life, RV travel, RV living, portable power station, solar generator · 粉丝 1万–200万 · 近10条均播 ≥5000";
+
+test("historical insufficient score shows probability evidence rather than target criteria and wraps all long fields", async ({ page }, info) => {
+  const fixture = await installStatefulPoolFixture(page, "success", {
+    handle: "South Florida Fishing Channel", platform: "", followers: "", avg_plays: "", engagement: "", region: "",
+    direction: "backup_power/vanlife/portable_power/road_trip/".repeat(4),
+    potential_score: 1, potential_probabilities: '{"watch":0.01,"high_potential":0,"insufficient":0.99}',
+    potential_confidence: 0.98, assessment_model: "jev-1.13", assessment_version: "jev-kol-v1",
+    assessed_at: "2026-09-29T04:26:26.787Z", assessment_criteria: historicalCriteria,
+  });
+  for (const width of [1920, 1280, 904, 768, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPool(page);
+    const card = page.locator(`[data-pool-kol="${primaryUid}"]`);
+    const summary = card.locator("[data-pool-score-evidence] > summary");
+    await expect(card.locator("[data-pool-score-conclusion]")).toContainText("资料不足");
+    await expect(card.locator("[data-pool-score='potential']")).toHaveText("参考评分 1/100 · 模型置信度 98%");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect(card.locator("[data-pool-score-evidence]")).toHaveAttribute("open", "");
+    await expect(card.locator("[data-pool-score-probabilities]")).toContainText("资料不足 99%");
+    await expect(card.locator("[data-pool-score-calculation]")).toContainText("= 0.5，四舍五入为 1/100");
+    await expect(card.locator("[data-pool-score-criteria]")).toContainText("目标条件不是已核实的红人指标");
+    await expect(card.locator("[data-pool-score-source]")).toContainText("jev-1.13 · 版本 jev-kol-v1");
+    await expect(card.locator("[data-pool-score-missing]")).toContainText("粉丝数、近10条均播、互动率");
+    const bounds = await card.evaluate((row) => {
+      const rect = row.getBoundingClientRect();
+      return [...row.querySelectorAll("[data-pool-score-evidence], .kol-card-evidence-body, .kol-card-evidence-body p, [data-pool-direction]")].map((node) => ({
+        fits: node.getBoundingClientRect().right <= rect.right + 1,
+        overflow: (node as HTMLElement).scrollWidth > (node as HTMLElement).clientWidth + 1,
+      }));
+    });
+    expect(bounds.every((bound) => bound.fits && !bound.overflow)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    if (width === 904 || width === 375) await card.screenshot({ path: info.outputPath(`pool-score-evidence-${width}.png`) });
+    await card.locator("[data-pool-score-source]").scrollIntoViewIfNeeded();
+    await expect(card.locator("[data-pool-score-source]")).toBeInViewport();
+    await card.locator("[data-pool-claim]").scrollIntoViewIfNeeded();
+    await expect(card.locator("[data-pool-claim]")).toBeInViewport();
+    await summary.click();
+  }
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test("a score without saved criteria or probabilities still offers an honest evidence entry", async ({ page }) => {
+  const fixture = await installStatefulPoolFixture(page, "success", { potential_score: 85, potential_confidence: null });
+  await openPool(page);
+  const card = page.locator(`[data-pool-kol="${primaryUid}"]`);
+  await expect(card.locator("[data-pool-score='potential']")).toContainText("模型置信度未提供");
+  await card.locator("[data-pool-score-evidence] > summary").click();
+  await expect(card.locator(".kol-card-evidence-body")).toContainText("历史评分未保存分类概率");
+  await expect(card.locator("[data-pool-score-criteria]")).toContainText("未保存目标条件");
+  await expect(card.locator("[data-pool-score-calculation]")).toHaveCount(0);
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

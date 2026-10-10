@@ -11,6 +11,7 @@ import { KolCardActions, KolCardEvidence, KolCardIdentity, KolCardMeta, KolCardS
 import KolAvatar from "../components/kol/KolAvatar";
 import KolAction from "../components/kol/KolCardActions";
 import { KolFactIcon } from "../components/kol/KolFactIcon";
+import { poolScoreEvidence } from "./poolScoreEvidence";
 
 type PoolMetric = { key: "followers" | "avg-plays" | "engagement"; label: string; value: string };
 
@@ -29,21 +30,29 @@ function ingested(value?: string | null) {
     : "入库时间未知";
 }
 
-/** 已有评分取潜力分；与名称旁的「高潜/高风险」徽章并存，二者语义不同。 */
+/** 已有评分取潜力分；资料不足不是红人质量差，置信度不是合作成功率。 */
 function PoolScore({ card }: { card: PoolKol }) {
-  const raw = card.assessment?.potential_score;
-  if (raw == null || Number.isNaN(Number(raw))) return null;
-  const confidence = Math.round(Number(card.assessment?.potential_confidence || 0) * 100);
-  const at = card.assessment?.assessed_at ? new Date(card.assessment.assessed_at) : null;
-  const atLabel = at && !Number.isNaN(at.getTime()) ? ` · 评估于 ${at.toLocaleDateString("zh-CN")}` : "";
-  const criteria = card.assessment?.criteria_summary ? ` · 口径 ${card.assessment.criteria_summary}` : "";
-  return <>
-    <span className="kol-card-score" data-pool-score="potential" title={`公开资料评估 · 置信度 ${confidence}%${atLabel}${criteria}`}>评分 {raw} · 置信度 {confidence}%</span>
-    {card.assessment?.criteria_summary ? <KolCardEvidence className="pool-score-evidence" label="评分依据" data-pool-score-evidence>
-      <p>{card.assessment.criteria_summary}</p>
-      {card.assessment.assessed_at ? <p>评估于 {new Date(card.assessment.assessed_at).toLocaleString("zh-CN")}</p> : null}
-    </KolCardEvidence> : null}
-  </>;
+  const assessment = card.assessment;
+  const raw = assessment?.potential_score;
+  if (!assessment || raw == null || !Number.isFinite(Number(raw))) return null;
+  const evidence = poolScoreEvidence(assessment);
+  const at = assessment.assessed_at ? new Date(assessment.assessed_at) : null;
+  const missing = [card.metrics.followers ? null : "粉丝数", card.metrics.avg_plays ? null : "近10条均播", card.metrics.engagement ? null : "互动率", card.direction ? null : "内容方向"].filter(Boolean);
+  return <div className="pool-score-section" data-pool-score-section>
+    <div className="pool-score-summary">
+      {evidence.insufficient ? <span data-pool-score-conclusion>资料不足，暂不能判断合作潜力</span> : null}
+      <span className="kol-card-score" data-pool-score="potential" title="公开资料的模型参考评分；模型置信度不代表红人质量或合作成功率">参考评分 {raw}/100 · {evidence.confidenceLabel}</span>
+    </div>
+    <KolCardEvidence className="pool-score-evidence" label="评分依据" data-pool-score-evidence>
+      {evidence.distribution ? <p data-pool-score-probabilities>模型分类概率：{evidence.distribution}</p> : <p>历史评分未保存分类概率，无法核对分数计算过程。</p>}
+      {evidence.calculation ? <p data-pool-score-calculation>分数计算：{evidence.calculation}</p> : <p>当前记录没有可核对的概率加权计算依据，保留原始分数供参考，不反推或补造依据。</p>}
+      <p>{evidence.insufficient ? "资料不足的低分不等于红人质量差。" : "评分仅供人工复核参考。"}模型置信度表示模型对分类判断的把握，不代表合作成功率。</p>
+      <p data-pool-score-criteria>评分目标口径：{assessment.criteria_summary || "未保存目标条件，无法确认当时的筛选口径。"}目标条件不是已核实的红人指标。</p>
+      {missing.length ? <p data-pool-score-missing>当前公开资料缺项：{missing.join("、")}。</p> : null}
+      <p>本卡片未提供评分时的输入快照或逐项理由，无法还原当时每项指标的判断；当前资料不冒充历史评分输入。</p>
+      <p data-pool-score-source>评分来源：{assessment.model || "模型未记录"} · 版本 {assessment.version || "未记录"}{at && !Number.isNaN(at.getTime()) ? ` · 评估于 ${at.toLocaleString("zh-CN")}` : " · 评估时间未记录"}</p>
+    </KolCardEvidence>
+  </div>;
 }
 
 function PoolRow({ card, selected, claimBusy, claimError, claimed, onSelect, onClaim, onRelease, onRefresh }: {
@@ -79,12 +88,12 @@ function PoolRow({ card, selected, claimBusy, claimError, claimed, onSelect, onC
       <span className="kol-card-state" data-public-stage data-stage-code={card.public_stage?.code || undefined} data-overdue={isPoolOverdue(card) || undefined} data-stage-label>{stage}</span>
       {highPotential && <span className="kol-card-state" data-jev-potential title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.potential_confidence || 0) * 100)}%`}>高潜</span>}
       {highRisk && <span className="kol-card-state" data-jev-risk title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.risk_confidence || 0) * 100)}%`}>高风险 {card.assessment?.risk_score}</span>}
-      <PoolScore card={card} />
     </KolCardIdentity>
+    <PoolScore card={card} />
     <KolCardMeta data-pool-metrics>
       {card.identity.platform && <span data-kol-chip="platform">{card.identity.platform}</span>}
       {card.region && <span>{card.region}</span>}
-      {direction && <span>{direction}</span>}
+      {direction && <span data-pool-direction>{direction}</span>}
       <span data-pool-ingested>{ingested(card.ingested_at)}</span>
       {metrics.length ? metrics.map((metric) => <span key={metric.key} data-pool-metric={metric.key}><KolFactIcon type={metric.key} />{metric.label} <b>{metric.value}</b></span>) : <span>公开指标待补充</span>}
       {scorePlaceholder && <span data-pool-score="missing" data-pool-score-state={scorePlaceholder.state} title={scorePlaceholder.title}>{scorePlaceholder.label}</span>}
