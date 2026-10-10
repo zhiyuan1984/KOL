@@ -69,7 +69,8 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
     startPhase === "succeeded" || crawlPhase === "succeeded" || stage === "success"
   );
   const activeCrawl = ["queued", "starting", "running", "stopping", "crawling", "uploading", "analyzing"].includes(String(crawlPhase || "").toLowerCase())
-    || ["dispatching", "starting", "running"].includes(startPhase);
+    || ["dispatching", "starting", "running"].includes(startPhase)
+    || ["pending", "running"].includes(String(startAction?.crawl?.result_state || ""));
   const selecting = selected.length > 0;
   const readyCount = available.filter((candidate) => candidate.ingestReadiness === "ready").length;
   const reviewCount = available.filter((candidate) => candidate.ingestReadiness === "needs_review").length;
@@ -266,15 +267,15 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
         </p>
       ) : null}
 
-      {!showResults && !failure && (activeCrawl || (inFlight && !["waiting_proposal", "pending"].includes(startPhase))) ? (
+      {!state.analyzing && !showResults && !failure && (activeCrawl || (inFlight && !["waiting_proposal", "pending"].includes(startPhase))) ? (
         <div className="task-empty" data-discovery-empty="waiting-results" role="status">
           <strong>正在等待候选结果</strong>
           <p>远端仍在采集或读取结果；当前没有候选不等于筛选无结果。</p>
         </div>
       ) : null}
-      {!inFlight && !activeCrawl && !showResults && !failure && emptyKind !== "idle" && emptyKind !== "down" ? (
+      {!state.analyzing && !inFlight && !activeCrawl && !showResults && !failure && emptyKind !== "idle" && emptyKind !== "down" ? (
         <div className="task-empty" data-discovery-empty={emptyKind}>
-          <strong>筛选无结果</strong>
+          <strong>{startAction ? "本次采集未返回候选" : "筛选无结果"}</strong>
           <p>{emptyMessage}</p>
         </div>
       ) : null}
