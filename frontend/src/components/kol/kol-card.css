@@ -193,9 +193,32 @@
 .kol-card-row[data-kol-unified="pool"] .kol-card-meta {
   gap: var(--space-1) var(--space-2);
 }
+.kol-card-row[data-kol-unified="pool"] .kol-card-meta > span {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.kol-card-row[data-kol-unified="pool"] .kol-card-meta > [data-pool-metric] {
+  display: inline-flex;
+  flex-wrap: wrap;
+}
+.kol-card-row[data-kol-unified="pool"] .pool-score-section {
+  width: 100%;
+  min-width: 0;
+}
+.kol-card-row[data-kol-unified="pool"] .pool-score-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.kol-card-row[data-kol-unified="pool"] .pool-score-summary .kol-card-score {
+  margin-inline-start: 0;
+}
 .kol-card-row[data-kol-unified="pool"] .pool-score-evidence {
-  flex: 0 0 auto;
-  width: auto;
+  width: 100%;
   min-width: 0;
 }
 .kol-card-row[data-kol-unified="pool"] .pool-score-evidence > summary {
@@ -208,6 +231,14 @@
 .kol-card-row[data-kol-unified="pool"] .pool-score-evidence .kol-card-evidence-body {
   margin-block-start: var(--space-1);
   padding: var(--space-1) var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.kol-card-row[data-kol-unified="pool"] .pool-score-evidence .kol-card-evidence-body > * {
+  min-width: 0;
 }
 .kol-card-row[data-kol-unified="pool"] .kol-card-actions[data-pool-actions] {
   width: 100%;
