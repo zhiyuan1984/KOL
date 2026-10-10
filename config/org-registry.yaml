@@ -1,7 +1,7 @@
 {
   "version": 2,
   "status": "confirmed",
-  "revision": "2026-10-03 员工档案卡刷新（18 张卡 + 2 张头像，D:/项目/KOL/employee）：更正 钟剑奎/刁楚聪 姓名、钟剑奎 职务为广告投放主管、组织名 数智中心→数字智能中心、PQ-RO-TB 组负责人为钟剑奎；补 研究院/数字智能中心 分支与广告投放部；补 邮箱、工号、入职时间；人员由 14 人增至 19 人；2026-10-05 登录账户从鄢棽（sriphy）切换为黄启友（jeffrey，login 账号 jeffrey.huang@amperetime.com）：黄启友获得鄢棽原有邮箱与权限（见 agent_bindings 追加），鄢棽侧保留",
+  "revision": "2026-10-03 员工档案卡刷新（18 张卡 + 2 张头像，D:/项目/KOL/employee）：更正 钟剑奎/刁楚聪 姓名、钟剑奎 职务为广告投放主管、组织名 数智中心→数字智能中心、PQ-RO-TB 组负责人为钟剑奎；补 研究院/数字智能中心 分支与广告投放部；补 邮箱、工号、入职时间；人员由 14 人增至 19 人；2026-10-05 登录账户从鄢棽（sriphy）切换为黄启友（jeffrey，login 账号 jeffrey.huang@amperetime.com）：黄启友获得鄢棽原有邮箱与权限（见 agent_bindings 追加），鄢棽侧保留；2026-10-11 按用户提供的员工档案卡补齐王想（1083，xiang.wang@amperetime.com，AI产品组），在册人员增至20人，不新增Agent或品牌/区域授权",
   "companies": [
     {
       "id": "company:amperetime",
@@ -354,6 +354,23 @@
       "scope_basis": null,
       "source": "员工档案卡 2026-10-03（AI产品经理；研究院/数字智能中心/产品部/AI产品组；直属上级 黄启友；入职 2026-03-02）；账号取自 Starry KOL MCP listMailboxOwnerOptions 只读调用 2026-10-03",
       "pending_fields": ["employment_status", "effective_at", "brand_scope", "region_scope"]
+    },
+    {
+      "person_ref": "person:wang_xiang",
+      "display_name": "王想",
+      "role": "member",
+      "title": "AI产品经理",
+      "org_unit": "org:ai_product",
+      "user_ref": null,
+      "account_username": "xiang.wang@amperetime.com",
+      "email": "xiang.wang@amperetime.com",
+      "avatar": "employees/wang_xiang.png",
+      "employee_no": "1083",
+      "region_scope": [],
+      "brand_scope": [],
+      "scope_basis": null,
+      "source": "用户提供的员工档案卡 2026-10-11（王想；AI产品经理；工号1083；研究院/数字智能中心/产品部/AI产品组；直属上级 黄启友；入职 2026-06-22）",
+      "pending_fields": ["user_ref", "employment_status", "effective_at", "brand_scope", "region_scope"]
     }
   ],
   "department_head_scope_policy": {

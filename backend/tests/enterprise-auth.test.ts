@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
+import { importOrganizationAccounts } from "../src/runtime/org-account-import.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
@@ -331,7 +332,7 @@ describe("production account and enterprise controls", () => {
     const directory = await call("GET", "/api/admin/organization-people");
     expect(directory.response.status).toBe(200);
     const people = directory.json.people as Array<Record<string, unknown>>;
-    expect(people).toHaveLength(19);
+    expect(people).toHaveLength(20);
     const names = people.map((row) => String(row.display_name));
     expect(names).toEqual([...names].sort());
     expect(people.find((row) => row.person_ref === "person:ye_guanwang")).toMatchObject({
@@ -351,6 +352,24 @@ describe("production account and enterprise controls", () => {
     await createEmployee("org-directory");
     const cookie = await employeeLogin("org-directory");
     expect((await call("GET", "/api/admin/organization-people", undefined, cookie)).response.status).toBe(403);
+  });
+
+  it("returns 王想 in the admin employee directory after confirmed organization account import", async () => {
+    importOrganizationAccounts(true);
+    const directory = await call("GET", "/api/admin/users");
+    expect(directory.response.status).toBe(200);
+    const employee = (directory.json as unknown as Array<Record<string, unknown>>).find((row) => row.id === "usr_org_wang_xiang");
+    expect(employee).toMatchObject({
+      name: "王想", username: "xiang.wang@amperetime.com", email: "xiang.wang@amperetime.com",
+      employee_no: "1083", position: "AI产品经理", person_ref: "person:wang_xiang", active: true,
+      site: "org:ai_product", org_unit_ids: ["org:ai_product"], primary_org_unit_id: "org:ai_product",
+      avatar_url: "/avatars/employees/wang_xiang.png", roles: ["employee"], brands: [],
+      mailbox_count: 0, kol_count: 0,
+    });
+    expect(employee).not.toHaveProperty("password_hash");
+    const access = await call("GET", "/api/admin/users/usr_org_wang_xiang/agents");
+    expect(access.response.status).toBe(200);
+    expect(access.json.agents).toEqual([]);
   });
 
   it("returns the session payload's linked employee avatar from the organization person table", async () => {
