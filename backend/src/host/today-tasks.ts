@@ -53,7 +53,8 @@ export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
       view: row?.view === "today" || row?.view === "todo" ? row.view : undefined,
     });
   }
-  if (!items.length) return null;
+  // Missing/malformed rows are invalid; a present empty array is not.
+  if (list.length > 0 && !items.length) return null;
   return { items, planned_at: typeof root.planned_at === "string" ? root.planned_at : undefined };
 }
 
@@ -94,7 +95,7 @@ export function writeTodayTaskResults(input: {
 }): { ok: true; artifact_id: string } | { ok: false; reason: string } {
   const scope = input.scope ?? "today";
   const parsed = parseTodayTaskResults(input.results);
-  if (!parsed) return { ok: false, reason: "Codex did not produce display task rows" };
+  if (!parsed) return { ok: false, reason: "规划结果缺少有效的任务展示列表" };
   const now = nowIso();
   const artifactId = nid("art");
   ensureResultArtifactColumn(scope);
@@ -163,7 +164,8 @@ export function loadTodayTaskResults(owner: string, scope: PlanScope = "today"):
     if (row) {
       try {
         const parsed = parseTodayTaskResults(JSON.parse(row.payload));
-        if (parsed?.items.length) return dropClosedItems(parsed);
+        // Empty is authoritative too: do not resurrect an older memory list.
+        if (parsed) return dropClosedItems(parsed);
       } catch {
         /* fall through to display memory */
       }

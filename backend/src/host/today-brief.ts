@@ -85,7 +85,11 @@ function hasDisplayTasks(brief: Record<string, unknown>): boolean {
     ? brief.display_tasks
     : Array.isArray(brief.todo_layout)
       ? brief.todo_layout
-      : [];
+      : null;
+  if (!list) return false;
+  // An explicit empty row set is a valid snapshot when the authorized task
+  // catalog is empty. The run's coverage check still protects non-empty packs.
+  if (list.length === 0) return true;
   return list.some((item) => {
     const row = asRecord(item);
     return Boolean(String(row?.work_item_id || row?.id || "").trim());
@@ -138,7 +142,7 @@ export function validateTodayBrief(value: unknown): TodayBriefValidation {
     return { ok: false, reason: "missing sections", brief: null };
   }
   if (!hasDisplayTasks(brief)) {
-    return { ok: false, reason: "Codex did not produce display_tasks", brief: null };
+    return { ok: false, reason: "规划结果缺少有效的任务展示列表", brief: null };
   }
   const primary = asRecord(brief.primary) || {};
   const primaryVerb = String(primary.verb || primary.action || "").trim().toLowerCase();
