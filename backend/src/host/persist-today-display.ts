@@ -12,7 +12,7 @@ export function persistTodayDisplayFromBrief(input: {
 }): { ok: true } | { ok: false; reason: string } {
   const scope = input.scope ?? "today";
   const parsed = parseTodayTaskResults(input.brief);
-  if (!parsed) return { ok: false, reason: "Codex did not produce display_tasks" };
+  if (!parsed) return { ok: false, reason: "规划结果缺少有效的任务展示列表" };
   const written = writeTodayTaskResults({
     owner: input.owner,
     workItemId: input.workItemId,
