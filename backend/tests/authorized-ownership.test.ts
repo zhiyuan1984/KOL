@@ -11,6 +11,7 @@ import { readAuthorizedOwnershipSnapshot } from '../src/starrykol/authorized-own
 const row = (kolUid: string, ownerOpenId = '273') => ({ kolUid, ownerOpenId });
 beforeEach(() => {
   state.page.mockReset(); state.user = 'employee'; state.scope.status = 'connected'; state.scope.updated_at = 'v1';
+  state.scope.owner_open_id = '273'; state.scope.owner_verified_at = 'v1';
 });
 describe('request-local Starry authorization snapshot', () => {
   it('uses the current authorized total, not public listAll, and rechecks its anchor', async () => {
@@ -44,6 +45,20 @@ describe('request-local Starry authorization snapshot', () => {
   it('fails closed if the binding expires during the call', async () => {
     state.page.mockImplementation(async () => { state.scope.status = 'expired'; return {total:1,list:[row('A')]}; });
     await expect(readAuthorizedOwnershipSnapshot('employee')).rejects.toThrow('binding_unverified');
+  });
+  it('allows concurrent recertification of the same owner without treating its timestamp as a rebind', async () => {
+    state.page.mockImplementation(async () => {
+      state.scope.owner_verified_at = `recertified-${state.page.mock.calls.length}`;
+      return {total:1,list:[row('A')]};
+    });
+    expect((await readAuthorizedOwnershipSnapshot('employee')).rows).toHaveLength(1);
+  });
+  it('still rejects a genuine owner change during the read', async () => {
+    state.page.mockImplementation(async () => {
+      state.scope.owner_open_id = '197';
+      return {total:1,list:[row('A')]};
+    });
+    await expect(readAuthorizedOwnershipSnapshot('employee')).rejects.toThrow('binding_changed');
   });
   it('rejects count-stable ownership changes in the rechecked anchor', async () => {
     state.page.mockResolvedValueOnce({total:1,list:[row('A')]}).mockResolvedValueOnce({total:1,list:[row('A','197')]});

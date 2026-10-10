@@ -19,8 +19,10 @@ function bindingFingerprint(employeeId: string): string {
   const scope = currentFollowScope();
   if (!scope.bound || scope.status !== 'connected' || !scope.owner_verified_at)
     throw new Error('starry_ownership_binding_unverified');
+  // Background mailbox reads may re-certify the same identity concurrently.
+  // Verification time alone is not a binding change; losing verification is.
   return JSON.stringify([employeeId, scope.mailbox_id, scope.mailbox_email, scope.owner_open_id,
-    scope.owner_verified_at, scope.updated_at, scope.status]);
+    Boolean(scope.owner_verified_at), scope.updated_at, scope.status]);
 }
 function pageRows(data: Json): { total: number; rows: AuthorizedOwnership[] } {
   const key = ['list', 'records', 'rows', 'items'].find(k => Array.isArray(data[k]));
