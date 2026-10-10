@@ -135,3 +135,34 @@ test("an incomplete empty snapshot is not a final zero candidate result", async 
   await expect(page.locator('[data-discovery-empty="filtered"]')).toHaveCount(0);
   expect(f.writes).toEqual([]);
 });
+
+test("a saved stale rejection exposes review-and-retry, never starts automatically", async ({ page }) => {
+  const f = await fixture(page, { action: "pending" });
+  await page.route("**/api/queries/runtime.actions?**", route => route.fulfill({ json: { actions: [{
+    id: "action-stale", operation: "start_crawl", skill_id: "crawler_collect", state: "rejected",
+    arguments: { platforms: ["youtube"], keywords: "camping", crawler_type: "search" },
+    error_code: "runtime_action_snapshot_stale", confirmation_version: "v1", can_retry: true,
+    execution: { id: "stale-job", status: "failed", error_code: "runtime_action_snapshot_stale" },
+    progress: { state: "rejected", label: "采集未启动 · 确认已失效", summary: "本次采集未下发，请重新核对范围。" },
+  }] } }));
+  await page.goto(`/s/${id}`);
+  await expect(page.locator('[data-discovery-event="confirm"]')).toHaveAttribute("data-discovery-event-state", "rejected");
+  await expect(page.locator("[data-discovery-start-retry]")).toBeVisible();
+  await expect(page.locator("[data-discovery-start-confirm]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-execution-progress]")).toContainText("本次采集未下发");
+  expect(f.writes).toEqual([]);
+});
+
+test("unknown dispatched outcome is not relabeled as starting or made retryable", async ({ page }) => {
+  const f = await fixture(page, { action: "pending" });
+  await page.route("**/api/queries/runtime.actions?**", route => route.fulfill({ json: { actions: [{
+    id: "action-unknown", operation: "start_crawl", skill_id: "crawler_collect", state: "pending", arguments: {},
+    can_retry: false, execution: { id: "unknown-job", status: "uncertain", error_code: "execution_handler_error" },
+    progress: { state: "uncertain", label: "结果待核实", summary: "请核对已有任务，不要重新启动。" },
+  }] } }));
+  await page.goto(`/s/${id}`);
+  await expect(page.locator('[data-discovery-event="confirm"]')).toHaveAttribute("data-discovery-event-state", "uncertain");
+  await expect(page.locator("[data-discovery-start-confirm]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-start-retry]")).toHaveCount(0);
+  expect(f.writes).toEqual([]);
+});

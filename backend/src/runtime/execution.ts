@@ -18,7 +18,7 @@ import { DOCUMENT_TOOL, documentDependencies, documentToolSchema, hasDocumentToo
 import { runtimeKnowledgeManifest } from '../knowledge/scopes.js';
 import { scopeDescription } from '../knowledge/scope-contract.js';
 import {isKnowledgePreview,previewManifest} from './knowledge-preview.js';
-import { proposeRuntimeAction, runtimeAction, claimRuntimeAction, finishRuntimeAction } from "./action-store.js";
+import { proposeRuntimeAction, runtimeAction, claimRuntimeAction, finishRuntimeAction, rejectPendingRuntimeAction } from "./action-store.js";
 import { assertRuntimeActionAllowed, runtimeActionGate, runtimeToolPresentation, validateRuntimeToolScope } from "./action-gates.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 import { assertRuntimeToolArguments, RuntimeToolArgumentsInvalid } from "./tool-arguments.js";
@@ -390,6 +390,7 @@ export class SkillExecution {
     let client: RuntimeRemote | undefined;
     let dispatched = false;
     let claimedHere = false;
+    let preClaimSnapshot: string | undefined;
     const started = Date.now();
     try {
       this.active();
@@ -474,6 +475,7 @@ export class SkillExecution {
             structuredContent: { action_id: action.id, status: action.state, confirmation_required: true } };
         }
         const action = await runtimeAction(this.confirmedActionId, this.context.userId);
+        preClaimSnapshot = action.snapshot;
         if (action.snapshot !== snapshot) reject("runtime_action_snapshot_stale", 409);
         const gate = runtimeActionGate(handle.connectorId, handle.remoteName);
         await gate.validate(this.context, args);
@@ -508,7 +510,10 @@ export class SkillExecution {
       const code = runtimeErrorCode(error);
       const rejectionSaved = claimedHere
         ? await finishRuntimeAction(this.confirmedActionId!, dispatched ? "uncertain" : "rejected", null, code)
-        : false;
+        : !dispatched && this.confirmedActionId && preClaimSnapshot && code === "runtime_action_snapshot_stale"
+          ? await rejectPendingRuntimeAction(this.confirmedActionId, this.context.userId,
+            preClaimSnapshot, code)
+          : false;
       audit(this.context.userId, "runtime.tool.denied_or_failed", { ...trace, code, dispatched, duration_ms: Date.now() - started });
       if (rejectionSaved && !dispatched) {
         throw new ExecutionNotDispatched(error instanceof HttpFail ? error.status : 502, runtimeErrorDetail(error), code);

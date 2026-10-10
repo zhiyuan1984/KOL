@@ -15,7 +15,7 @@ import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { getToolPolicy, setAgentSkill, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
 import { SkillExecution, runtimeHash, toolSchemaHash } from "../src/runtime/execution.js";
-import { runtimeAction } from "../src/runtime/action-store.js";
+import { runtimeAction, rejectPendingRuntimeAction } from "../src/runtime/action-store.js";
 import { pgEnqueueExecutionJob, pgExecutionJobById, pgRecoverExpiredExecutionJobs, pgClaimExecutionJobById, pgFailExecutionJob } from "../src/execution-jobs/postgres-store.js";
 import { assertNoRuntimeCrawl } from "../src/crawl/runtime-gates.js";
 import type { Json } from "../src/types.js";
@@ -163,6 +163,27 @@ it("keeps an error response uncertain even when its text looks like a local busy
   expect(await pgExecutionJobById(id)).toMatchObject({ status: "uncertain", next_attempt_at: null, attempts: 1 });
   expect(await completedWorker(id)).toEqual({ result: null });
   expect(calls.map(call => call.name)).toEqual(["start_crawl"]);
+});
+
+it("persists stale confirmation as a proven pre-dispatch rejection and never redelivers it", async () => {
+  const { action, id } = await queueStart();
+  await postgresPool().query("UPDATE runtime_actions SET args_json=$2 WHERE id=$1", [action.id,
+    JSON.stringify({ ...action.args_json, keywords: "changed-after-confirmation" })]);
+  expect(await completedWorker(id)).toMatchObject({ result: { outcome: "failed" } });
+  expect(await runtimeAction(action.id, context.userId)).toMatchObject({ state: "rejected", error_code: "runtime_action_snapshot_stale", receipt_json: null });
+  expect(await pgExecutionJobById(id)).toMatchObject({ status: "failed", error_code: "runtime_action_snapshot_stale", attempts: 1, next_attempt_at: null });
+  expect(await completedWorker(id)).toEqual({ result: null });
+  expect(calls).toEqual([]);
+  expect((await postgresPool().query("SELECT count(*)::int AS n FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].n).toBe(0);
+});
+
+it("cannot reject another actor, a changed snapshot or a concurrent claim", async () => {
+  const { action } = await queueStart();
+  expect(await rejectPendingRuntimeAction(action.id, "another-user", action.snapshot, "runtime_action_snapshot_stale")).toBe(false);
+  expect(await rejectPendingRuntimeAction(action.id, context.userId, "old-snapshot", "runtime_action_snapshot_stale")).toBe(false);
+  await postgresPool().query("UPDATE runtime_actions SET state='dispatching' WHERE id=$1", [action.id]);
+  expect(await rejectPendingRuntimeAction(action.id, context.userId, action.snapshot, "runtime_action_snapshot_stale")).toBe(false);
+  expect(await runtimeAction(action.id, context.userId)).toMatchObject({ state: "dispatching", error_code: null });
 });
 
 it("refuses a stale worker's pre-dispatch failure after lease ownership changes", async () => {
