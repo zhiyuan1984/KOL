@@ -1,7 +1,7 @@
-import type { InputRef } from "antd";
+import { Modal, type InputRef } from "antd";
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useBlocker } from "react-router-dom";
 import { api } from "../api";
 import type { SkillTemplate } from "../api";
 import { SkillConnectorBindings } from "../components/SkillConnectorBindings";
@@ -174,6 +174,83 @@ function skillContract(skill: SkillRow): Record<string, unknown> {
   };
 }
 
+/**
+ * A detail panel can be mounted by both lifecycle entries.  Keep its dirty
+ * state at the entry boundary so a route transition (including browser Back
+ * and the shell sidebar) is stopped before React unmounts the editor.
+ *
+ * `clearDirty()` intentionally happens immediately before `proceed()`, which
+ * matches AccountSettings' current blocker release ordering and prevents a
+ * second blocked transition from racing the accepted discard.
+ */
+export function useUnsavedDetailGuard() {
+  const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  const confirming = useRef(false);
+  const [modal, modalHolder] = Modal.useModal();
+  const onDirtyChange = useCallback((next: boolean) => {
+    dirtyRef.current = next;
+    setDirty(next);
+  }, []);
+  const clearDirty = useCallback(() => onDirtyChange(false), [onDirtyChange]);
+  const blocker = useBlocker(dirty);
+
+  const confirmDiscard = useCallback((afterDiscard: () => void) => {
+    if (!dirtyRef.current) {
+      afterDiscard();
+      return;
+    }
+    if (confirming.current) return;
+    confirming.current = true;
+    void modal.confirm({
+      title: "放弃未保存的修改？",
+      content: "当前技能的修改尚未保存。",
+      okText: "放弃修改",
+      cancelText: "继续编辑",
+      autoFocusButton: "cancel",
+    }).then((leave) => {
+      if (!leave) return;
+      clearDirty();
+      afterDiscard();
+    }, () => undefined).finally(() => { confirming.current = false; });
+  }, [clearDirty, modal]);
+
+  useEffect(() => {
+    if (blocker.state !== "blocked") {
+      confirming.current = false;
+      return;
+    }
+    if (confirming.current) return;
+    confirming.current = true;
+    void modal.confirm({
+      title: "放弃未保存的修改？",
+      content: "当前技能的修改尚未保存。",
+      okText: "放弃修改",
+      cancelText: "继续编辑",
+      autoFocusButton: "cancel",
+    }).then((leave) => {
+      if (leave) {
+        clearDirty();
+        blocker.proceed();
+      } else {
+        blocker.reset();
+      }
+    }, () => { blocker.reset(); });
+  }, [blocker, clearDirty, modal]);
+
+  useEffect(() => {
+    const unload = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", unload);
+    return () => window.removeEventListener("beforeunload", unload);
+  }, [dirty]);
+
+  return { dirty, onDirtyChange, confirmDiscard, modalHolder };
+}
+
 export default function SkillLifecycle() {
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [selected, setSelected] = useState<string>("");
@@ -189,6 +266,7 @@ export default function SkillLifecycle() {
   const searchRef = useRef<InputRef | null>(null);
   const detailDialogRef = useRef<HTMLElement | null>(null);
   const { ask, dialog } = useAdminConfirm();
+  const { onDirtyChange, confirmDiscard, modalHolder } = useUnsavedDetailGuard();
 
   const load = useCallback(async () => {
     // 实现度与工具依赖是独立的读模型：读不到也不能让整个技能页失效。
@@ -261,9 +339,18 @@ export default function SkillLifecycle() {
     );
   }
 
+  const selectSkill = useCallback((id: string) => {
+    if (id === selected) return;
+    confirmDiscard(() => setSelected(id));
+  }, [confirmDiscard, selected]);
+  const closeDetail = useCallback(() => {
+    confirmDiscard(() => setSelected(""));
+  }, [confirmDiscard]);
+
   return (
     <div className="skill-governance-page">
       {dialog}
+      {modalHolder}
       <header className="skill-governance-header">
         <div>
           <h1>技能管理</h1>
@@ -315,7 +402,7 @@ export default function SkillLifecycle() {
             : s.source === "bundled" || !(s.lifecycle?.tags || []).includes("第三方");
           const cov = coverageById.get(s.id);
           return (
-            <button type="button" className="skill-governance-row" key={s.id} onClick={() => setSelected(s.id)}>
+            <button type="button" className="skill-governance-row" key={s.id} onClick={() => selectSkill(s.id)}>
               <span className="skill-governance-row-main">
                 <strong>{s.label}</strong>
                 <span className="skill-governance-row-meta">
@@ -347,9 +434,9 @@ export default function SkillLifecycle() {
         {!filtered.length && <div className="skill-governance-empty">{keyword ? "没有匹配的技能" : "当前筛选下暂无技能"}</div>}
       </div>
       {current && (
-        <div className="skill-governance-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(""); }}>
+        <div className="skill-governance-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDetail(); }}>
           <section ref={detailDialogRef} tabIndex={-1} className="skill-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-detail-title">
-            <DetailPanel key={current.id} skill={current} coverageRow={coverageById.get(current.id) || null} onStage={moveStage} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelected("")} />
+            <DetailPanel key={current.id} skill={current} coverageRow={coverageById.get(current.id) || null} onStage={moveStage} onChanged={load} onDirtyChange={onDirtyChange} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={closeDetail} />
           </section>
         </div>
       )}
@@ -456,9 +543,11 @@ export function DetailPanel(props: {
   coverageRow: SkillCoverageRow | null;
   onStage: (stage: string, needReason?: boolean) => void;
   onChanged: () => Promise<void>;
+  /** 旧入口可不提供；V2 和新入口据此保护切换、关闭及路由离开。 */
+  onDirtyChange?: (dirty: boolean) => void;
   metricsDays: number;
   onMetricsDays: (d: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
 }) {
   const { skill, onStage, onChanged } = props;
   const lc = skill.lifecycle;
@@ -490,23 +579,69 @@ export function DetailPanel(props: {
   const [contractText, setContractText] = useState(() => JSON.stringify(skillContract(skill), null, 2));
   const [contractError, setContractError] = useState("");
   const [contractBusy, setContractBusy] = useState(false);
+  const [contentDirty, setContentDirty] = useState(false);
+  const [contractDirty, setContractDirty] = useState(false);
+  const [presentationDirty, setPresentationDirty] = useState(false);
+  const [tagDirty, setTagDirty] = useState(false);
+  const [ownerDirty, setOwnerDirty] = useState(false);
+  const [bizDirty, setBizDirty] = useState(false);
+  const [tagBusy, setTagBusy] = useState(false);
+  const [tagError, setTagError] = useState("");
+  const contentDirtyRef = useRef(false);
+  const contractDirtyRef = useRef(false);
+  const contentRevisionRef = useRef(0);
+  const contractRevisionRef = useRef(0);
   const maxTrend = Math.max(1, ...(metrics?.trend.map((t) => t.n) || [1]));
+
+  const markContentDirty = useCallback(() => {
+    contentDirtyRef.current = true;
+    contentRevisionRef.current += 1;
+    setContentDirty(true);
+  }, []);
+  const clearContentDirty = useCallback(() => {
+    contentDirtyRef.current = false;
+    setContentDirty(false);
+  }, []);
+  const markContractDirty = useCallback(() => {
+    contractDirtyRef.current = true;
+    contractRevisionRef.current += 1;
+    setContractDirty(true);
+  }, []);
+  const clearContractDirty = useCallback(() => {
+    contractDirtyRef.current = false;
+    setContractDirty(false);
+  }, []);
+  const anyDirty = contentDirty || contractDirty || presentationDirty || tagDirty || ownerDirty || bizDirty;
+
+  useEffect(() => {
+    props.onDirtyChange?.(anyDirty);
+  }, [anyDirty, props.onDirtyChange]);
 
   useEffect(() => {
     let active = true;
-    setContentLoading(true);
+    // A parent refresh can arrive while the administrator types.  Do not hide
+    // or replace local fields in that case; only untouched sections hydrate.
+    if (!contentDirtyRef.current && !contractDirtyRef.current) setContentLoading(true);
     void Promise.all([api.adminSkillSop(skill.id), api.adminSkillDraft(skill.id)]).then(([source, draft]) => {
       if (!active) return;
-      setTitleText(String(draft.patch.title ?? skill.title ?? skill.label));
-      setSummaryText(String(draft.patch.description ?? draft.patch._sop_summary ?? source.summary ?? skill.description ?? ""));
-      setBodyText(String(draft.patch.body ?? draft.patch._sop_body ?? source.body ?? ""));
+      if (!contentDirtyRef.current) {
+        setTitleText(String(draft.patch.title ?? skill.title ?? skill.label));
+        setSummaryText(String(draft.patch.description ?? draft.patch._sop_summary ?? source.summary ?? skill.description ?? ""));
+        setBodyText(String(draft.patch.body ?? draft.patch._sop_body ?? source.body ?? ""));
+      }
       const contractKeys = new Set(["required_inputs", "input_schema", "result_type", "result_schema", "next_actions", "memory_policy", "supports"]);
       const contractPatch = Object.fromEntries(Object.entries(draft.patch).filter(([key]) => contractKeys.has(key)));
-      setContractText(JSON.stringify({ ...skillContract(skill), ...contractPatch }, null, 2));
-      setContentNotice(draft.updated_at ? "有未发布草稿；员工仍使用当前已发布版本。" : "");
+      if (!contractDirtyRef.current) setContractText(JSON.stringify({ ...skillContract(skill), ...contractPatch }, null, 2));
+      if (!contentDirtyRef.current && !contractDirtyRef.current) {
+        setContentNotice(draft.updated_at ? "有未发布草稿；员工仍使用当前已发布版本。" : "");
+      }
     }).catch((cause) => {
-      if (active) setContentNotice(cause instanceof Error ? cause.message : "无法读取技能内容");
-    }).finally(() => { if (active) setContentLoading(false); });
+      if (active && !contentDirtyRef.current && !contractDirtyRef.current) {
+        setContentNotice(cause instanceof Error ? cause.message : "无法读取技能内容");
+      }
+    }).finally(() => {
+      if (active && !contentDirtyRef.current && !contractDirtyRef.current) setContentLoading(false);
+    });
     return () => { active = false; };
   }, [skill.id, skill.title, skill.label, skill.description]);
 
@@ -541,6 +676,7 @@ export function DetailPanel(props: {
       setContractError(error instanceof Error ? error.message : "JSON 格式错误");
       return;
     }
+    const saveRevision = contractRevisionRef.current;
     setContractBusy(true);
     setContractError("");
     try {
@@ -553,6 +689,9 @@ export function DetailPanel(props: {
         ...(value.memory_policy && typeof value.memory_policy === "object" ? { memory_policy: value.memory_policy as Record<string, unknown> } : {}),
         supports: value.supports && typeof value.supports === "object" ? value.supports as Record<string, boolean> : { cancel: false, retry: false, resume: false },
       });
+      // A save only clears the exact text submitted.  Typing during a pending
+      // request leaves the later edit protected.
+      if (contractRevisionRef.current === saveRevision) clearContractDirty();
       await onChanged();
       setContractError("运行契约已保存为未发布草稿；员工继续使用当前版本。");
     } catch (error) {
@@ -607,6 +746,7 @@ export function DetailPanel(props: {
     try {
       await api.skillLifecycleMetaSave(skill.id, { owner: ownerValue.trim() || undefined });
       setOwnerOpen(false);
+      setOwnerDirty(false);
       await onChanged();
     } catch (cause) {
       setOwnerError(cause instanceof Error ? cause.message : "设置负责人失败");
@@ -624,6 +764,7 @@ export function DetailPanel(props: {
         biz_domain: bizDomain.trim() || undefined,
       });
       setBizOpen(false);
+      setBizDirty(false);
       await onChanged();
     } catch (cause) {
       setBizError(cause instanceof Error ? cause.message : "保存业务分类失败");
@@ -635,6 +776,7 @@ export function DetailPanel(props: {
   const [activeTab, setActiveTab] = useState<"overview" | "dependencies" | "access" | "release">("overview");
 
   async function saveSkillContent() {
+    const saveRevision = contentRevisionRef.current;
     setContentBusy(true);
     setContentNotice("");
     try {
@@ -645,6 +787,7 @@ export function DetailPanel(props: {
         await api.saveAdminSkillDraft(skill.id, { title: titleText, description: summaryText, body: bodyText });
         setContentNotice(lc?.origin === "third_party" ? "草稿已保存；来源已从第三方转为官方，发布前员工仍使用现行版本。" : "技能内容已保存为未发布草稿。");
       }
+      if (contentRevisionRef.current === saveRevision) clearContentDirty();
       await onChanged();
     } catch (cause) {
       setContentNotice(cause instanceof Error ? cause.message : "保存技能内容失败");
@@ -653,12 +796,29 @@ export function DetailPanel(props: {
     }
   }
 
+  const saveTag = async () => {
+    if (!tagInput.trim()) return;
+    setTagBusy(true);
+    setTagError("");
+    try {
+      await api.skillLifecycleMetaSave(skill.id, { tags: [...(lc?.tags || []).filter((tag) => tag !== "第三方"), tagInput.trim()] });
+      setTagInput("");
+      setTagDirty(false);
+      await onChanged();
+    } catch (cause) {
+      setTagError(cause instanceof Error ? cause.message : "添加标签失败");
+    } finally {
+      setTagBusy(false);
+    }
+  };
+
   const official = lc?.origin ? lc.origin === "official" : skill.source === "bundled" || !(lc?.tags || []).includes("第三方");
   const stageActions = NEXT_ACTIONS[lc?.stage || "draft"] || [];
 
   return (
     <>
       <header className="skill-detail-header">
+        {anyDirty && <span className="muted" role="status" data-skill-unsaved>未保存修改</span>}
         <div className="skill-detail-heading">
           <div className="skill-detail-kicker"><span className={`skill-origin-tag${official ? " is-official" : " is-third-party"}`}>{official ? "官方技能" : "第三方技能"}</span><span className="skill-stage-label"><StageDot stage={lc?.stage || "draft"} />{lc?.stage_label || "未配置阶段"}</span></div>
           <h2 id="skill-detail-title">{skill.label}</h2>
@@ -672,7 +832,7 @@ export function DetailPanel(props: {
               {stageActions.map((action) => <button type="button" key={action.stage} onClick={() => onStage(action.stage, action.needReason)}>{action.label}</button>)}
             </div>
           </details>
-          <button type="button" className="skill-governance-icon" aria-label="关闭技能详情" onClick={props.onClose}>×</button>
+          {props.onClose && <button type="button" className="skill-governance-icon" aria-label="关闭技能详情" onClick={props.onClose}>×</button>}
         </div>
       </header>
       <div className="skill-detail-description">{skill.description || "暂无技能说明。"}</div>
@@ -695,13 +855,15 @@ export function DetailPanel(props: {
           <section className="skill-detail-card" aria-labelledby="skill-markdown-heading">
             <div className="skill-section-head"><div><h3 id="skill-markdown-heading">技能内容</h3><p>{skill.source === "bundled" ? "内置技能名称不可改；保存后先形成未发布草稿。" : "保存后先形成未发布草稿；编辑第三方内容会将来源转为官方。"}</p></div></div>
             {contentLoading ? <p className="muted">正在读取技能内容…</p> : <>
-              <label className="skill-content-field">技能名称<input value={titleText} disabled={skill.source === "bundled"} onChange={(event) => setTitleText(event.target.value)} /></label>
-              <label className="skill-content-field">简介<input value={summaryText} onChange={(event) => setSummaryText(event.target.value)} maxLength={200} /></label>
-              <label className="skill-content-field">技能说明（Markdown）<textarea value={bodyText} onChange={(event) => setBodyText(event.target.value)} rows={14} spellCheck={false} /></label>
+              <label className="skill-content-field">技能名称<input value={titleText} disabled={skill.source === "bundled"} onChange={(event) => { setTitleText(event.target.value); markContentDirty(); }} /></label>
+              <label className="skill-content-field">简介<input value={summaryText} onChange={(event) => { setSummaryText(event.target.value); markContentDirty(); }} maxLength={200} /></label>
+              <label className="skill-content-field">技能说明（Markdown）<textarea value={bodyText} onChange={(event) => { setBodyText(event.target.value); markContentDirty(); }} rows={14} spellCheck={false} /></label>
               <div className="skill-contract-actions"><button type="button" className="skill-governance-primary" disabled={contentBusy || !bodyText.trim() || !summaryText.trim()} onClick={() => void saveSkillContent()}>{contentBusy ? "保存中…" : "保存草稿"}</button><span role="status">{contentNotice || `来源：${official ? "官方" : "第三方"} · 未发布草稿不会改变员工当前使用的版本。`}</span></div>
             </>}
           </section>
-          <SkillPresentationEditor skill={skill} onSaved={onChanged} />
+          <div onChangeCapture={() => setPresentationDirty(true)}>
+            <SkillPresentationEditor skill={skill} onSaved={async () => { setPresentationDirty(false); await onChanged(); }} />
+          </div>
           <section className="skill-detail-card">
             <h3>核心信息</h3>
             <div className="skill-detail-fields">
@@ -717,12 +879,10 @@ export function DetailPanel(props: {
             </div>
             <div className="skill-detail-metadata">
               {(lc?.tags || []).filter((tag) => tag !== "第三方").map((tag) => <span className="skill-meta-tag" key={tag}>#{tag}</span>)}
-              <input className="skill-inline-input" placeholder="添加标签并按 Enter" value={tagInput} onChange={(event) => setTagInput(event.target.value)} onKeyDown={async (event) => {
+              <input className="skill-inline-input" placeholder="添加标签并按 Enter" value={tagInput} disabled={tagBusy} onChange={(event) => { setTagInput(event.target.value); setTagDirty(true); setTagError(""); }} onKeyDown={(event) => {
                 if (event.key === "Enter" && tagInput.trim()) {
                   event.preventDefault();
-                  await api.skillLifecycleMetaSave(skill.id, { tags: [...(lc?.tags || []).filter((tag) => tag !== "第三方"), tagInput.trim()] });
-                  setTagInput("");
-                  await onChanged();
+                  void saveTag();
                 }
               }} />
               <button type="button" className="skill-governance-secondary" onClick={() => {
@@ -736,18 +896,19 @@ export function DetailPanel(props: {
                 setBizError("");
                 setBizOpen(true);
               }}>设置业务分类</button>
+              {tagError && <span className="error" role="alert">{tagError}</span>}
             </div>
             {bizOpen && <div className="skill-biz-form" role="group" aria-label="设置业务分类">
-              <input className="skill-inline-input" placeholder="业务族（复用知识侧字典）" value={bizFamily} onChange={(event) => setBizFamily(event.target.value)} />
-              <input className="skill-inline-input" placeholder="业务域（复用知识侧字典）" value={bizDomain} onChange={(event) => setBizDomain(event.target.value)} />
+              <input className="skill-inline-input" placeholder="业务族（复用知识侧字典）" value={bizFamily} disabled={bizBusy} onChange={(event) => { setBizFamily(event.target.value); setBizDirty(true); }} />
+              <input className="skill-inline-input" placeholder="业务域（复用知识侧字典）" value={bizDomain} disabled={bizBusy} onChange={(event) => { setBizDomain(event.target.value); setBizDirty(true); }} />
               <button type="button" className="skill-governance-secondary" disabled={bizBusy} onClick={() => void submitBiz()}>{bizBusy ? "保存中…" : "保存"}</button>
-              <button type="button" className="skill-governance-minor" onClick={() => setBizOpen(false)}>取消</button>
+              <button type="button" className="skill-governance-minor" disabled={bizBusy} onClick={() => { setBizOpen(false); setBizDirty(false); }}>取消</button>
               {bizError && <span className="error" role="alert">{bizError}</span>}
             </div>}
           </section>
           <section className="skill-detail-card" aria-labelledby="skill-contract-heading">
             <div className="skill-section-head"><div><h3 id="skill-contract-heading">运行契约</h3><p>{skill.source === "bundled" ? "内置技能的运行契约随平台代码维护，此处只读。" : "输入字段、结果类型、动作、记忆策略和异步能力；修改先存为草稿。"}</p></div></div>
-            <textarea aria-label="技能参数与运行契约 JSON" value={contractText} onChange={(event) => setContractText(event.target.value)} rows={10} spellCheck={false} readOnly={skill.source === "bundled"} />
+            <textarea aria-label="技能参数与运行契约 JSON" value={contractText} onChange={(event) => { setContractText(event.target.value); markContractDirty(); }} rows={10} spellCheck={false} readOnly={skill.source === "bundled"} />
             {skill.source !== "bundled" && <div className="skill-contract-actions"><button type="button" className="skill-governance-primary" disabled={contractBusy} onClick={() => void saveContract()}>{contractBusy ? "保存中…" : "保存契约草稿"}</button><span role="status">{contractError || "未发布草稿不会改变员工当前使用的版本。"}</span></div>}
           </section>
         </div>}
@@ -810,9 +971,9 @@ export function DetailPanel(props: {
         confirmLabel="保存负责人"
         busy={ownerBusy}
         error={ownerError}
-        onChange={setOwnerValue}
+        onChange={(value) => { setOwnerValue(value); setOwnerDirty(true); }}
         onConfirm={() => void submitOwner()}
-        onCancel={() => { setOwnerOpen(false); setOwnerError(""); }}
+        onCancel={() => { setOwnerOpen(false); setOwnerError(""); setOwnerDirty(false); }}
       />
     </>
   );
