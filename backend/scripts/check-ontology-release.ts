@@ -8,6 +8,10 @@ import { closePostgresPool, postgresPool, postgresTransaction } from "../src/pos
 const backend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = path.resolve(backend, "..");
 
+// 与服务启动使用同一份已有配置；Node 22 原生解析，不执行 shell 内容。
+// 已导出的环境变量优先，隔离测试和运维调用不会被 .env 覆盖。
+if (fs.existsSync(path.join(root, ".env"))) process.loadEnvFile(path.join(root, ".env"));
+
 const SCOPES = {
   objects: "config/objects-registry.yaml",
   events: "config/event-catalog.yaml",
