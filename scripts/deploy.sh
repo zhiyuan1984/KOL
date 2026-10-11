@@ -18,6 +18,12 @@ die() { echo "$*" >&2; exit 1; }
 
 if [ "${1:-}" = "--sync" ] && [ -z "${DEPLOY_RESYNCED:-}" ]; then
   # reset 可能替换本脚本本身，而 bash 不能安全地边改边读同一个脚本，所以重新执行新版本。
+  # 把仍在运行的工作树 HEAD 作为真实部署基线传给 reset 后的新脚本；这不是
+  # 可跳过门禁的开关，后续仍会由 PG 发布账本核对其内容摘要。
+  if [ -z "${ONTOLOGY_RELEASE_BASE:-}" ]; then
+    ONTOLOGY_RELEASE_BASE="$(git rev-parse --verify HEAD)" || die "无法读取当前运行版本 Git commit，未 fetch/reset"
+    export ONTOLOGY_RELEASE_BASE
+  fi
   git fetch github
   git reset --hard github/main
   export DEPLOY_RESYNCED=1
@@ -64,6 +70,19 @@ if need_install "$ROOT/frontend" "vite"; then
   install_pkg "$ROOT/frontend"
 fi
 
+# 本体 registry 发布是独立的真实 PG 审批门禁。首次治理安装会明确输出
+# bootstrap/approval_not_claimed，并只在服务健康后写入事实基线；之后不接受
+# 环境跳过。门禁位于构建和 dist 替换之前，失败时不改静态产物、不中断服务。
+ONTOLOGY_GATE="$ROOT/backend/node_modules/.bin/tsx"
+[ -x "$ONTOLOGY_GATE" ] || die "缺少 backend/node_modules/.bin/tsx，未构建、未重启"
+echo "检查本体 registry 发布门禁（真实 PostgreSQL 审批/发布账本）"
+"$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts"
+
+record_ontology_release() {
+  echo "服务健康，记录本体 registry 发布事实基线"
+  "$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts" --record
+}
+
 echo "构建前端 → frontend/dist.new（旧进程继续对外服务）"
 rm -rf "$ROOT/frontend/dist.new"
 (cd "$ROOT/frontend" && VITE_OUT_DIR=dist.new npm run build)
@@ -85,6 +104,7 @@ for _ in $(seq 1 60); do
   version_body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/version" 2>/dev/null || true)"
   if [ -n "$version_body" ]; then
     echo "服务已恢复：$version_body"
+    record_ontology_release
     exit 0
   fi
   # The PostgreSQL-only surface intentionally retires /api/version together
@@ -94,6 +114,7 @@ for _ in $(seq 1 60); do
   if printf '%s' "$health_body" | grep -q '"runtime_mode":"postgres-only"' \
     && printf '%s' "$health_body" | grep -q '"authority_store":"postgresql"'; then
     echo "PostgreSQL-only 服务已恢复：$health_body"
+    record_ontology_release
     exit 0
   fi
   sleep 1

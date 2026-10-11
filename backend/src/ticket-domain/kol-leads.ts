@@ -398,16 +398,126 @@ export async function kolLeadDetail(
   return { lead, task };
 }
 
+function parsePayload(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+  if (typeof raw === "string") {
+    try {
+      const v = JSON.parse(raw);
+      if (v && typeof v === "object") return v as Record<string, unknown>;
+    } catch { /* 非 JSON 文本按空对象处理 */ }
+  }
+  return {};
+}
+
+export type KolLeadTimelineEvent = {
+  event_type: string;
+  occurred_at: string;
+  summary: string | null;
+  source: string | null;
+  verified: boolean;
+  payload: Record<string, unknown>;
+};
+
+/** 线索对象事件时间线（本体落地：对象详情页统一入口的时间线段）。
+ * 合并两条来源：工单域已核验业务事件（work_order_verified_events，事实最丰富）
+ * + PG 统一事件表中的线索级事件（阶段变更/归档等）；镜像行按 payload.verified_event_id 去重。 */
+export async function kolLeadEvents(
+  actorId: string, isAdmin: boolean, leadId: string, limit = 50, opts?: { leaderMemberIds?: string[] },
+): Promise<{ events: KolLeadTimelineEvent[] }> {
+  const lead = await requireLead(actorId, isAdmin, leadId, opts);
+  const events: KolLeadTimelineEvent[] = [];
+  if (lead.followup_task_id) {
+    const verified = await postgresPool().query<{
+      event_type: string; summary: string; occurred_at: string; source_system: string | null; created_at: string;
+    }>(`SELECT event_type, summary, occurred_at, source_system, created_at
+        FROM work_order_verified_events WHERE task_id=$1
+        ORDER BY occurred_at DESC, created_at DESC LIMIT $2`, [lead.followup_task_id, limit]);
+    for (const row of verified.rows) {
+      events.push({
+        event_type: row.event_type, occurred_at: new Date(row.occurred_at).toISOString(),
+        summary: row.summary, source: row.source_system || "kol-workbench",
+        verified: true, payload: {},
+      });
+    }
+  }
+  const unified = await postgresPool().query<{
+    event_type: string; occurred_at: string; source: string | null; payload: unknown;
+  }>(`SELECT event_type, occurred_at, source, payload
+      FROM business_events
+      WHERE (object_id=$1 OR ($2::text IS NOT NULL AND object_id=$2))
+        AND position('"verified_event_id"' in payload) = 0
+      ORDER BY occurred_at DESC LIMIT $3`, [leadId, lead.followup_task_id, limit]);
+  for (const row of unified.rows) {
+    events.push({
+      event_type: row.event_type, occurred_at: new Date(row.occurred_at).toISOString(),
+      summary: null, source: row.source, verified: false,
+      payload: parsePayload(row.payload),
+    });
+  }
+  events.sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : a.occurred_at > b.occurred_at ? -1 : 0));
+  return { events: events.slice(0, limit) };
+}
+
+/** 初次建联自动建单规则的真实状态（本体落地：规则从静态文案变成可查的配置）。
+ * 查已发布的、触发 lead.created 的工单模板；表不存在或无模板都如实返回未配置。 */
+export async function kolLeadAutomationStatus(): Promise<{
+  configured: boolean;
+  template: { code: string; version: number | string; title: string; status: string; automation_level: string | null } | null;
+}> {
+  const exists = await postgresPool().query<{ ok: string | null }>(
+    `SELECT to_regclass('public.work_order_templates') AS ok`);
+  if (!exists.rows[0]?.ok) return { configured: false, template: null };
+  const rows = await postgresPool().query<{
+    template_code: string; version: number | string; title: string; status: string; automation_level: string | null;
+  }>(`SELECT template_code, version, COALESCE(title, template_code) AS title, status, automation_level
+      FROM work_order_templates
+      WHERE template_code='kol_first_contact' AND trigger_event_types @> '["lead.created"]'::jsonb AND status='published'
+      ORDER BY version DESC LIMIT 1`);
+  const row = rows.rows[0];
+  if (!row) return { configured: false, template: null };
+  return {
+    configured: true,
+    template: {
+      code: row.template_code, version: row.version, title: row.title,
+      status: row.status, automation_level: row.automation_level,
+    },
+  };
+}
+
+/** 本体落地：线索的人为变更（阶段推进/归档）必须同时落 PG 统一事件（business_events）。
+ * 与 kol_leads 行更新同事务；幂等键绑定 data_version，一次变更只产生一条事件。 */
+async function insertLeadBusinessEvent(
+  client: { query: (text: string, params: unknown[]) => Promise<unknown> },
+  leadId: string, eventType: string, payload: Record<string, unknown>,
+  idempotencyKey: string, actorId: string,
+) {
+  const now = new Date().toISOString();
+  await client.query(
+    `INSERT INTO business_events
+      (id,event_type,object_type,object_id,occurred_at,received_at,source,source_version,actor_type,actor_id,payload,evidence,idempotency_key,correlation_id,created_at)
+      VALUES ($1,$2,'creator_candidate',$3,$4,$4,'kol-workbench','v1','human',$7,$5,'{}',$6,$3,$4)
+      ON CONFLICT DO NOTHING`,
+    [nid("evt"), eventType, leadId, now, JSON.stringify(payload), idempotencyKey, actorId],
+  );
+}
+
 export async function updateKolLead(actorId: string, isAdmin: boolean, leadId: string, raw: Record<string, unknown>) {
   const lead = await requireLead(actorId, isAdmin, leadId);
+  const expectedVersion = Number(raw.expected_version);
+  if (raw.confirmed !== true) throw new HttpFail(422, { code: "kol_lead_confirmation_required" });
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw new HttpFail(422, { code: "kol_lead_version_required" });
+  if (expectedVersion !== lead.data_version) throw new HttpFail(409, { code: "kol_lead_version_conflict" });
   const sets: string[] = [];
   const params: unknown[] = [];
   let i = 1;
+  let stageChange: { from: string; to: string } | null = null;
+  let archivedNow = false;
   if (raw.lead_stage !== undefined) {
     const stage = oneOf(raw.lead_stage, "lead_stage", LEAD_STAGES, true);
     if (lead.lead_stage === "converted" && stage !== "converted") {
       throw new HttpFail(409, { code: "kol_lead_converted_locked" });
     }
+    if (stage !== lead.lead_stage) stageChange = { from: lead.lead_stage, to: stage };
     sets.push(`lead_stage=$${i++}`); params.push(stage);
   }
   if (raw.owner_principal_id !== undefined) {
@@ -419,12 +529,32 @@ export async function updateKolLead(actorId: string, isAdmin: boolean, leadId: s
   if (raw.is_archived !== undefined) {
     sets.push(`is_archived=$${i++}`); params.push(Boolean(raw.is_archived));
     sets.push(`archived_reason=$${i++}`); params.push(text(raw.archived_reason, "archived_reason", 500) || null);
+    if (Boolean(raw.is_archived) && !lead.is_archived) archivedNow = true;
   }
   if (!sets.length) throw new HttpFail(422, { code: "nothing_to_update" });
   sets.push(`data_version=data_version+1`, `updated_at=now()`);
-  await postgresPool().query(`UPDATE kol_leads SET ${sets.join(", ")} WHERE id=$${i}`, [...params, leadId]);
+  const newVersion = await postgresTransaction(async (client) => {
+    const updated = await client.query<{ data_version: number }>(
+      `UPDATE kol_leads SET ${sets.join(", ")} WHERE id=$${i} AND data_version=$${i + 1} RETURNING data_version`,
+      [...params, leadId, expectedVersion],
+    );
+    if (!updated.rows[0]) throw new HttpFail(409, { code: "kol_lead_version_conflict" });
+    const dataVersion = Number(updated.rows[0]!.data_version);
+    if (stageChange) {
+      await insertLeadBusinessEvent(client, leadId, "lead.stage_changed",
+        { from_stage: stageChange.from, to_stage: stageChange.to, actor_id: actorId },
+        `lead-be:stage:${leadId}:${dataVersion}`, actorId);
+    }
+    if (archivedNow) {
+      await insertLeadBusinessEvent(client, leadId, "lead.archived",
+        { archived_reason: text(raw.archived_reason, "archived_reason", 500) || null, actor_id: actorId },
+        `lead-be:archived:${leadId}:${dataVersion}`, actorId);
+    }
+    return dataVersion;
+  });
+  void newVersion;
   // 归档即释锁（同身份同品牌还有其他有效线索时保留）；失败只记日志。
-  if (raw.is_archived !== undefined && Boolean(raw.is_archived)) {
+  if (archivedNow) {
     try {
       await releasePoolBrandLock(leadId);
     } catch (error) {
@@ -476,8 +606,17 @@ export async function convertKolLead(actorId: string, isAdmin: boolean, leadId: 
      JSON.stringify(raw.deliverable_plan && typeof raw.deliverable_plan === "object" ? raw.deliverable_plan : {}),
      text(raw.settlement_terms, "settlement_terms", 2000), task.task_id, owner, now],
   );
-  await postgresPool().query(
-    `UPDATE kol_leads SET lead_stage='converted', data_version=data_version+1, updated_at=now() WHERE id=$1`, [leadId]);
+  await postgresTransaction(async (client) => {
+    const updated = await client.query<{ data_version: number }>(
+      `UPDATE kol_leads SET lead_stage='converted', data_version=data_version+1, updated_at=now() WHERE id=$1 RETURNING data_version`, [leadId]);
+    const version = Number(updated.rows[0]!.data_version);
+    await insertLeadBusinessEvent(client, leadId, "lead.stage_changed",
+      { from_stage: lead.lead_stage, to_stage: "converted", actor_id: actorId, coop_id: coopId },
+      `lead-be:stage:${leadId}:${version}`, actorId);
+    await insertLeadBusinessEvent(client, leadId, "lead.converted",
+      { lead_id: leadId, coop_id: coopId, actor_id: actorId },
+      `lead-be:converted:${leadId}:${version}`, actorId);
+  });
   let cancelled = 0;
   if (lead.followup_task_id) {
     cancelled = await cancelOpenWorkOrders(lead.followup_task_id, actorId, `线索转化建项目 ${coopId}`);

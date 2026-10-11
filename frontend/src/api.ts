@@ -662,6 +662,7 @@ export type KolLeadCreateInput = {
   idempotency_key: string;
 };
 export type KolLeadUpdateInput = {
+  confirmed: true; expected_version: number;
   lead_stage?: string; owner_principal_id?: string | null; category?: string;
   follower_count?: number | null; is_archived?: boolean; archived_reason?: string;
 };
@@ -676,6 +677,50 @@ export type KolLeadListResponse = {
 export type KolLeadDetailResponse = {
   lead: KolLead; task: AiTaskWorkOrderAggregate | null;
   request_id: string; as_of: string; schema_version: string;
+};
+export type KolLeadTimelineEvent = {
+  event_type: string; occurred_at: string; summary: string | null;
+  source: string | null; verified: boolean; payload: Record<string, unknown>;
+};
+export type KolLeadAutomationStatus = {
+  configured: boolean;
+  template: { code: string; version: number | string; title: string; status: string; automation_level: string | null } | null;
+};
+/** 管理端驾驶舱：线索漏斗看板响应（GET /api/kol/admin/lead-funnel） */
+export type AdminLeadFunnelResponse = {
+  kpis: {
+    total: number; active: number; new_this_week: number; converted_this_month: number;
+    avg_stay_days: number | null; stuck_count: number; conversion_rate: number | null;
+  };
+  funnel: Array<{ stage: string; label: string; count: number; conversion_to_next: number | null; terminal: boolean }>;
+  stuck: Array<{ id: string; display_name: string; lead_stage: string; stay_days: string; owner_principal_id: string | null }>;
+  loss: Array<{ reason: string; rejected: string; archived: string }>;
+  rules: {
+    first_contact_template: { template_code: string; version: string; title: string; status: string } | null;
+    converted_lock: { enabled: boolean; note: string };
+  };
+  audit: Array<{ actor_id: string | null; display_name: string; event_type: string; payload: unknown; occurred_at: string }>;
+  request_id: string; as_of: string;
+};
+/** 管理端驾驶舱：项目交付看板响应（GET /api/kol/admin/project-delivery） */
+export type AdminProjectDeliveryResponse = {
+  kpis: {
+    active: number; exception_count: number; overdue_count: number;
+    pending_acceptance: number; completed_this_week: number; on_time_rate: number | null;
+  };
+  exceptions: Array<{
+    id: string; title: string; exception_kind: string | null; exception_label: string;
+    owner_principal_id: string | null; stay_days: number;
+  }>;
+  stage_distribution: Array<{ stage: string; label: string; count: number }>;
+  overdue: Array<{
+    coop_id: string; coop_title: string; wo_id: string; wo_title: string;
+    due_at: string; overdue_days: string; owner_principal_id: string | null;
+  }>;
+  pending_acceptance: Array<{
+    coop_id: string; coop_title: string; wo_id: string; wo_title: string; waiting_days: string;
+  }>;
+  request_id: string; as_of: string;
 };
 export type KolCooperation = {
   id: string; lead_id: string; converted_from_work_order_id: string | null;
@@ -2264,6 +2309,12 @@ export const api = {
   kolLeadRecordEvent: (id: string, body: { event_type: string; summary: string; evidence_ref?: string; evidence?: Record<string, unknown>; idempotency_key: string }) => request<{ lead_id: string; event_type: string; request_id: string }>(`/api/kol/leads/${encodeURIComponent(id)}/lead-events`, {
     method: "POST", headers: { "Idempotency-Key": body.idempotency_key }, body: JSON.stringify(body),
   }),
+  kolLeadEvents: (id: string, limit = 50) => request<{ events: KolLeadTimelineEvent[]; request_id: string }>(`/api/kol/leads/${encodeURIComponent(id)}/events?limit=${limit}`),
+  kolLeadAutomationStatus: () => request<KolLeadAutomationStatus>(`/api/kol/leads/automation-status`),
+  /** 管理端驾驶舱：线索漏斗看板（只读聚合，仅管理员） */
+  adminLeadFunnel: () => request<AdminLeadFunnelResponse>(`/api/kol/admin/lead-funnel`),
+  /** 管理端驾驶舱：项目交付看板（只读聚合，仅管理员） */
+  adminProjectDelivery: () => request<AdminProjectDeliveryResponse>(`/api/kol/admin/project-delivery`),
   kolCooperationList: (opts: { stage?: string; mine?: boolean; search?: string; limit?: number; offset?: number } = {}) => {
     const query = new URLSearchParams();
     if (opts.stage) query.set("stage", opts.stage);

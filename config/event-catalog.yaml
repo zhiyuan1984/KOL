@@ -1891,6 +1891,685 @@
       "status": "built",
       "carrier": "knowledge_publications + review_events + execution_jobs + execution_outbox",
       "source_ref": "事件清单 §8（知识发布实施事件）"
+    },
+    {
+      "code": "mail.reply_verified",
+      "name": "邮件回复已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "email",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §6（工单域验证事件）"
+    },
+    {
+      "code": "mail.commitment_verified",
+      "name": "邮件承诺已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "email",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "commitment",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §6（工单域验证事件）"
+    },
+    {
+      "code": "deadline.quote",
+      "name": "报价期限已登记",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "quote",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "due_at",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "deadline.contract",
+      "name": "合同期限已登记",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "contract",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "due_at",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "deadline.sample",
+      "name": "样品期限已登记",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "sample",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "due_at",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "deadline.content",
+      "name": "内容期限已登记",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "due_at",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "risk.detected",
+      "name": "风险事件已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "risk",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "risk_type",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §9（工单域验证事件）"
+    },
+    {
+      "code": "approval_or_material.missing",
+      "name": "审批或资料缺失已确认",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "approval",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "missing",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §8（工单域验证事件）"
+    },
+    {
+      "code": "lead.created",
+      "name": "线索建档已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）"
+    },
+    {
+      "code": "lead.converted",
+      "name": "线索转化已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）"
+    },
+    {
+      "code": "lead.reply_received",
+      "name": "达人回复已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）"
+    },
+    {
+      "code": "lead.followup_due",
+      "name": "跟进到期已确认",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "due_at",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）"
+    },
+    {
+      "code": "lead.sample_requested",
+      "name": "索要样品已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）"
+    },
+    {
+      "code": "lead.intent_confirmed",
+      "name": "意向确认已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）"
+    },
+    {
+      "code": "lead.high_potential_detected",
+      "name": "高潜线索已识别",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "score",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）"
+    },
+    {
+      "code": "lead.stage_changed",
+      "name": "线索阶段已变更",
+      "category": "human_action",
+      "producer": "lead_stage_advance",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "kol_leads + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "from_stage",
+        "to_stage",
+        "actor_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）；本体落地：线索阶段推进必须落事件"
+    },
+    {
+      "code": "lead.archived",
+      "name": "线索已归档",
+      "category": "human_action",
+      "producer": "lead_archive",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "kol_leads + business_events",
+      "object_type": "creator_candidate",
+      "payload": [
+        "archived_reason",
+        "actor_id"
+      ],
+      "source_ref": "事件清单 §2（工单域验证事件）；本体落地：归档动作必须落事件"
+    },
+    {
+      "code": "coop.created",
+      "name": "合作项目创建已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "collaboration",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "coop.contract_requested",
+      "name": "请求合同已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "contract",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.sample_shipment_requested",
+      "name": "申请寄样已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "sample",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.sample_reship_requested",
+      "name": "申请补寄已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "sample",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.script_submitted",
+      "name": "脚本提交已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "delivery_version",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.script_revision_requested",
+      "name": "改稿要求已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.schedule_change_requested",
+      "name": "排期变更申请已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.production_deadline_near",
+      "name": "临近交付期已识别",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "due_at",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.production_delayed",
+      "name": "拍摄延期已确认",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.deliverable_submitted",
+      "name": "交付物提交已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "delivery_version",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.publish_scheduled",
+      "name": "发布排期已确认",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "schedule",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.publish_verified",
+      "name": "发布已核验",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "content",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "publish_link",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.settlement_due",
+      "name": "结算到期已确认",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "settlement",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "due_at",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.invoice_received",
+      "name": "收到发票已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "settlement",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
+    },
+    {
+      "code": "kol.sentiment_negative",
+      "name": "负面舆情已识别",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "risk",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §9（工单域验证事件）"
+    },
+    {
+      "code": "kol.violation_detected",
+      "name": "违规已检测",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "risk",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §9（工单域验证事件）"
+    },
+    {
+      "code": "kol.dispute_raised",
+      "name": "纠纷发起已记录",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "risk",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §9（工单域验证事件）"
+    },
+    {
+      "code": "kol.settlement_completed",
+      "name": "结算完成已验证",
+      "category": "human_action",
+      "producer": "work_order_verified_event",
+      "clauses": [
+        "BIZ-16",
+        "ticket-domain"
+      ],
+      "status": "built",
+      "carrier": "work_order_verified_events + business_events",
+      "object_type": "settlement",
+      "payload": [
+        "summary",
+        "evidence_ref",
+        "task_id"
+      ],
+      "source_ref": "事件清单 §5（工单域验证事件）"
     }
   ]
 }

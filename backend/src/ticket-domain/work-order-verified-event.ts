@@ -2,7 +2,7 @@ import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import type { Json } from "../types.js";
-import { FORMAL_BUSINESS_EVENT_TYPE_SET } from "./event-contracts.js";
+import { FORMAL_BUSINESS_EVENT_TYPE_SET, FORMAL_EVENT_OBJECT_TYPES } from "./event-contracts.js";
 import { taskWorkOrderAggregate } from "./task-work-orders.js";
 
 type EventRow = {
@@ -101,6 +101,52 @@ export async function recordVerifiedWorkOrderEvent(
         event.summary, event.evidence_ref, JSON.stringify(event.evidence), JSON.stringify(event.payload), actorId, now, event.idempotency_key],
     );
     if (!inserted.rows[0]) throw new Error("verified work-order event insert failed");
-    return { event: publicEvent(inserted.rows[0], false) };
+    // 本体统一事件：verified fact 同时落统一业务事件表（PG business_events），
+    // 与 email.received 同表；事件码命名唯一真相源为 config/event-catalog.yaml。
+    // 同事务写入，幂等键命名空间隔离（woe-be:），重放路径不重复写。
+    const verifiedRow = inserted.rows[0];
+    // 事实以真正的业务对象关联；没有可追溯对象 ID 的通用核验，诚实关联父任务，
+    // 不把 Task id 伪装成邮件/样品/线索 ID。类型候选仍保留在 payload 中供核验。
+    const catalogObjectType = FORMAL_EVENT_OBJECT_TYPES[event.event_type as keyof typeof FORMAL_EVENT_OBJECT_TYPES];
+    const objectKeys: Record<string, string[]> = {
+      creator_candidate: ["lead_id"], collaboration: ["coop_id", "collaboration_id"],
+      email: ["email_id", "message_id"], quote: ["quote_id"], contract: ["contract_id"],
+      sample: ["sample_id"], content: ["content_id", "deliverable_id"],
+      settlement: ["settlement_id", "invoice_id"], risk: ["risk_id"], approval: ["approval_id"],
+    };
+    const identity = (objectKeys[catalogObjectType] || []).map((key) => event.payload[key] ?? event.evidence[key])
+      .find((value) => typeof value === "string" && value.trim());
+    const objectType = identity ? catalogObjectType : "follow_task";
+    const objectId = typeof identity === "string" ? identity.trim() : task.task.task_id;
+    if (objectType === "creator_candidate" || objectType === "collaboration") {
+      const linked = objectType === "creator_candidate"
+        ? await client.query("SELECT id FROM kol_leads WHERE id=$1 AND followup_task_id=$2", [objectId, task.task.task_id])
+        : await client.query("SELECT id FROM kol_cooperations WHERE id=$1 AND project_task_id=$2", [objectId, task.task.task_id]);
+      if (!linked.rows[0]) throw new HttpFail(422, { code: "verified_event_object_task_mismatch" });
+    }
+    await client.query(
+      `INSERT INTO business_events
+       (id,event_type,object_type,object_id,occurred_at,received_at,source,source_version,actor_type,actor_id,
+        payload,evidence,idempotency_key,correlation_id,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [
+        nid("evt"),
+        event.event_type,
+        objectType,
+        objectId,
+        event.occurred_at,
+        now.toISOString(),
+        "ticket-domain",
+        event.source_version || null,
+        "human",
+        actorId,
+        JSON.stringify({ ...event.payload, catalog_object_type: catalogObjectType, verified_event_id: verifiedRow.id, task_id: task.task.task_id }),
+        JSON.stringify(event.evidence),
+        `woe-be:${event.idempotency_key}`,
+        task.task.task_id,
+        now.toISOString(),
+      ],
+    );
+    return { event: publicEvent(verifiedRow, false) };
   }, { isolation: "SERIALIZABLE" });
 }

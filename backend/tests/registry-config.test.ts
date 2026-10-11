@@ -48,4 +48,20 @@ describe("ontology config registries", () => {
     expect(tickets.kinds.map((kind) => kind.code)).toContain("general");
     expect(tickets.channels.map((channel) => channel.code)).toContain("email");
   });
+
+  it("registers every formal wave event code in the event catalog with a matching object type", async () => {
+    const contracts = await import("../src/ticket-domain/event-contracts.js");
+    const catalog = readConfig("event-catalog.yaml") as {
+      events: Array<{ code: string; object_type: string }>;
+    };
+    const objectTypeByCode = new Map(catalog.events.map((event) => [event.code, event.object_type]));
+    const codes = contracts.FORMAL_BUSINESS_EVENT_TYPES as readonly string[];
+    expect(codes.length).toBeGreaterThan(0);
+    for (const code of codes) {
+      expect(objectTypeByCode.has(code), `event catalog missing formal code ${code}`).toBe(true);
+      expect(objectTypeByCode.get(code)).toBe(
+        (contracts.FORMAL_EVENT_OBJECT_TYPES as Record<string, string>)[code],
+      );
+    }
+  });
 });

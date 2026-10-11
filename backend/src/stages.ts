@@ -198,7 +198,7 @@ export const APPROVAL_REQUIRED_MODES = new Set<AdvancementMode>([
   "财务事实 / 审批",
 ]);
 
-export type WorkApprovalKind = "expense" | "stage" | "content" | "settlement" | "skill_publish";
+export type WorkApprovalKind = "expense" | "stage" | "content" | "settlement" | "skill_publish" | "ontology_change";
 
 /** Official stage hops that must queue a work approval before Host writes. */
 export function approvalKindForStage(code: string): WorkApprovalKind | null {

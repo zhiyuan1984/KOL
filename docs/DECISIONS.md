@@ -2,6 +2,18 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-11：本体事件码统一 + 本体变更走审批 + 对象详情页统一入口
+
+- **状态**：已接受（用户 2026-10-11 裁决：三项全按"统一"办）。
+- **背景**：本体三表落地后出现三处口径漂移——① `ticket-domain/event-contracts.ts` 的 33 个 FORMAL 事件码与 `config/event-catalog.yaml` 零交集（工单域 deadline sweep、风险事件走另一套码）；② 本体注册表变更无治理流程（YAML 直改）；③ 员工端无对象统一入口（对象信息散在各 tab）。
+- **决定**：
+  1. **事件码统一**：`config/event-catalog.yaml` 为命名唯一真相源，新增 33 个 formal 事件（object_type 按本体映射：mail.*→email、deadline.*→quote/contract/sample/content、risk.*→risk、lead.*→creator_candidate、kol.*→sample/content/settlement/risk、coop.*→collaboration/contract）；`FORMAL_EVENT_OBJECT_TYPES` 为运行时 object_type 映射；`validate-registry.mjs` + `registry-config.test.ts` 双重校验 formal 码全量登记且 object_type 一致；`recordVerifiedWorkOrderEvent` 成功后同事务写 PG `business_events`（与 `email.received` 同表，幂等键 `woe-be:` 命名空间隔离，重放不重复写）。
+  2. **本体变更走审批**：新审批 kind `ontology_change`，复用统一审批引擎，CEO 终审单节点；终审通过本身即放行凭证（无额外副作用，同 `skill_publish` 模式）；`POST /admin/ontology/change-approvals` 发起（scope=objects/events/tickets/rules，base_version 绑定提交时基线，一次审批只放行一次变更）；文件级变更仍走 Git，审批是治理凭证；`assertOntologyChangeAllowed` 为本体管理页门禁。
+  3. **对象详情页统一入口**：员工端对象详情页 = 属性快照 + 事件时间线 + 动作栏（R1/R2/R3，R3 走确认卡；动作产生事件回写时间线）；管理侧本体管理页 = 对象注册表浏览 + 事件目录查询 + 变更审批入口。先出可交互原型供确认，再开发。
+- **理由**：CONST-02（平台承载、业务专家定义对象）、CONST-03（确定的规则要有程序执行点——事件码校验与门禁）、CONST-05（授权与副作用分离）、BIZ-01/02（对象与来源口径）、PROD-PLAT-03（配置及版本）。
+- **实施更新（2026-10-11 集成）**：已建立沙箱隔离 PostgreSQL，验证统一账本、线索时间线、幂等、权限、确认版本和发布门禁；管理看板与本体浏览/审批入口已接入。生产兼容应用的 `getConn` 在 `DATABASE_URL` 存在时连接 PG，不应将该环境误报为 SQLite。整个仓库历史桥清除不属于本轮完成。首装治理基线明确记 `bootstrap/approval_not_claimed`，后续注册表变更必须真实审批放行。详情与边界见 [集成记录](changes/ontology-leads-dashboards-20261011.md)。
+- **审查记录**：需求「本体三项统一」→ 主责 KOL 业务专家（对象/事件口径，CONST-04）+ 后端专家 + 前端专家 → CONST-02/03/05/08 → BUSINESS BIZ-01/02/16、PRODUCT PROD-PLAT-03、TECHNOLOGY TECH-BE-04 → **符合**：只做命名统一与治理增补，不改审批引擎语义、不改 verified event 主流程（同事务新增写行为，原子）；证据：`validate-registry --require-all` 通过、后端 tsc 零报错、`registry-config` 4/4、`ontology-change` 3/3 → 下一步：用户环境跑 PG 集成测试，原型确认后开工对象详情页。
+
 ## ADR-2026-10-09：发现去重评分 v8 累积补丁增量集成
 
 - **范围**：用户要求合并附件 `discovery-dedup-score-from-212cd3b6(8).patch` 到 main、push 并部署。main 已含 v7、精确身份核对、真实 UID 归属迁移及持久化候选评分，故采用三方合并，仅纳入 v8 新增行为，不用旧基线的累积文件覆盖新实现。

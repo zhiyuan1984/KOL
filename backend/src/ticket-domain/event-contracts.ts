@@ -38,6 +38,47 @@ export type FormalBusinessEventType = typeof FORMAL_BUSINESS_EVENT_TYPES[number]
 
 export const FORMAL_BUSINESS_EVENT_TYPE_SET = new Set<string>(FORMAL_BUSINESS_EVENT_TYPES);
 
+/**
+ * Formal 事件码 → 本体对象类型（与 config/event-catalog.yaml 登记一致）。
+ * 命名唯一真相源是事件目录；本表是运行时写入 business_events 时的 object_type 映射，
+ * 由 validate-registry.mjs 与 registry-config.test.ts 校验两者一致。
+ */
+export const FORMAL_EVENT_OBJECT_TYPES: Record<FormalBusinessEventType, string> = {
+  "mail.reply_verified": "email",
+  "mail.commitment_verified": "email",
+  "deadline.quote": "quote",
+  "deadline.contract": "contract",
+  "deadline.sample": "sample",
+  "deadline.content": "content",
+  "risk.detected": "risk",
+  "approval_or_material.missing": "approval",
+  "lead.created": "creator_candidate",
+  "lead.converted": "creator_candidate",
+  "lead.reply_received": "creator_candidate",
+  "lead.followup_due": "creator_candidate",
+  "lead.sample_requested": "creator_candidate",
+  "lead.intent_confirmed": "creator_candidate",
+  "lead.high_potential_detected": "creator_candidate",
+  "coop.created": "collaboration",
+  "coop.contract_requested": "contract",
+  "kol.sample_shipment_requested": "sample",
+  "kol.sample_reship_requested": "sample",
+  "kol.script_submitted": "content",
+  "kol.script_revision_requested": "content",
+  "kol.schedule_change_requested": "content",
+  "kol.production_deadline_near": "content",
+  "kol.production_delayed": "content",
+  "kol.deliverable_submitted": "content",
+  "kol.publish_scheduled": "content",
+  "kol.publish_verified": "content",
+  "kol.settlement_due": "settlement",
+  "kol.invoice_received": "settlement",
+  "kol.sentiment_negative": "risk",
+  "kol.violation_detected": "risk",
+  "kol.dispute_raised": "risk",
+  "kol.settlement_completed": "settlement",
+};
+
 export const FORMAL_BUSINESS_EVENT_LABELS: Record<FormalBusinessEventType, string> = {
   "mail.reply_verified": "已验证邮件回复",
   "mail.commitment_verified": "已验证邮件承诺",

@@ -16,6 +16,7 @@ export const APPROVAL_KIND_LABEL: Record<WorkApprovalKind, string> = {
   content: "内容审核",
   settlement: "结算审批",
   skill_publish: "技能发布",
+  ontology_change: "本体变更",
 };
 
 function parseJson(value: unknown, fallback: Json = {}): Json {

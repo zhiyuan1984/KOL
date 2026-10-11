@@ -1,6 +1,8 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useState } from "react";
-import { api, type KolLead, type KolLeadDetailResponse } from "../api";
+import { useSearchParams } from "react-router-dom";
+import { Button, Descriptions, Empty, Input, Modal, Select, Steps, Tag, Timeline } from "antd";
+import { api, type KolLead, type KolLeadAutomationStatus, type KolLeadDetailResponse, type KolLeadTimelineEvent } from "../api";
 import { randomUuid } from "../uuid";
 import {
   apiErrorMessage, formatFollowers, formatTime,
@@ -11,13 +13,39 @@ import "./kol-lead-coop.css";
 
 const TERMINAL_STAGES = new Set(["rejected", "converted"]);
 
-function StageChip({ stage }: { stage: string }) {
-  const done = stage === "converted";
-  return <span className={`kol-stage-chip${done ? " is-done" : ""}`}>{LEAD_STAGE_LABELS[stage] || stage}</span>;
+/** 线索主流程（步骤条用）：待建联 → 建联中 → 报价谈判 → 样品待发 → 意向待定 → 已转化。
+ * 已拒绝是异常终态，不进主流程，单独用 Tag 展示。 */
+const LEAD_FLOW_STAGES = ["pending_contact", "contacting", "price_negotiating", "sample_pending", "intent_pending"];
+const LEAD_FLOW_ITEMS = [...LEAD_FLOW_STAGES, "converted"];
+
+function stageTagColor(stage: string): string | undefined {
+  if (stage === "converted") return "green";
+  if (stage === "rejected") return "red";
+  if (stage === "contacting" || stage === "price_negotiating") return "blue";
+  return undefined;
+}
+
+function StageTag({ stage }: { stage: string }) {
+  return <Tag color={stageTagColor(stage)}>{LEAD_STAGE_LABELS[stage] || stage}</Tag>;
+}
+
+/** 线索阶段步骤条：主流程 5 步 + 已转化终点；已拒绝是异常终态不进主流程。
+ * 点击步骤 = 发起阶段变更（R3，需确认）；点"已转化"且当前为意向待定时走转化抽屉。 */
+function LeadStageSteps({ stage, onChange }: { stage: string; onChange: (next: number) => void }) {
+  const current = LEAD_FLOW_STAGES.indexOf(stage);
+  return (
+    <Steps
+      size="small"
+      current={current < 0 ? 0 : current}
+      onChange={onChange}
+      items={LEAD_FLOW_ITEMS.map((s) => ({ title: LEAD_STAGE_LABELS[s] || s }))}
+    />
+  );
 }
 
 export default function Leads() {
-  const [stage, setStage] = useState("");
+  const [query] = useSearchParams();
+  const [stage, setStage] = useState(query.get("stage") || "");
   const [source, setSource] = useState("");
   const [mine, setMine] = useState(false);
   const [search, setSearch] = useState("");
@@ -31,6 +59,13 @@ export default function Leads() {
   const [showCreate, setShowCreate] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
   const [busy, setBusy] = useState("");
+  const [eventsRefreshKey, setEventsRefreshKey] = useState(0);
+  const [automationError, setAutomationError] = useState(false);
+  const [automation, setAutomation] = useState<KolLeadAutomationStatus | null>(null);
+
+  useEffect(() => {
+    api.kolLeadAutomationStatus().then(setAutomation, () => { setAutomation(null); setAutomationError(true); });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -48,23 +83,57 @@ export default function Leads() {
     catch (e) { setError(apiErrorMessage(e)); } finally { setDetailLoading(false); }
   }, []);
 
+  useEffect(() => { setStage(query.get("stage") || ""); const id = query.get("id"); if (id) void openDetail(id); }, [query, openDetail]);
   const refreshDetail = useCallback(async () => {
     if (selectedId) { await openDetail(selectedId); }
+    setEventsRefreshKey((k) => k + 1);
     await load();
   }, [selectedId, openDetail, load]);
 
-  const advanceStage = async (next: string) => {
-    if (!selectedId || !next) return;
-    setBusy("stage");
-    try { await api.kolLeadUpdate(selectedId, { lead_stage: next }); await refreshDetail(); }
-    catch (e) { setError(apiErrorMessage(e)); } finally { setBusy(""); }
+  const advanceStage = (next: string) => {
+    if (!selectedId || !next || !detail) return;
+    const fromLabel = LEAD_STAGE_LABELS[detail.lead.lead_stage] || detail.lead.lead_stage;
+    const toLabel = LEAD_STAGE_LABELS[next] || next;
+    Modal.confirm({
+      title: "确认推进阶段",
+      content: `从「${fromLabel}」推进到「${toLabel}」？这次变更会记入时间线。`,
+      okText: "确认推进",
+      cancelText: "取消",
+      onOk: async () => {
+        setBusy("stage");
+        try { await api.kolLeadUpdate(selectedId, { lead_stage: next, confirmed: true, expected_version: detail.lead.data_version }); await refreshDetail(); }
+        catch (e) { setError(apiErrorMessage(e)); }
+        finally { setBusy(""); }
+      },
+    });
   };
 
-  const archive = async () => {
-    if (!selectedId || !window.confirm("确认归档这条线索吗？")) return;
-    setBusy("archive");
-    try { await api.kolLeadUpdate(selectedId, { is_archived: true, archived_reason: "手动归档" }); setSelectedId(null); setDetail(null); await load(); }
-    catch (e) { setError(apiErrorMessage(e)); } finally { setBusy(""); }
+  const onStepChange = (next: number) => {
+    if (!detail || TERMINAL_STAGES.has(detail.lead.lead_stage)) return;
+    if (next >= LEAD_FLOW_STAGES.length) {
+      // 点"已转化"：走原来的标记转化抽屉（带表单），不直接 PATCH
+      if (detail.lead.lead_stage === "intent_pending") setShowConvert(true);
+      return;
+    }
+    const target = LEAD_FLOW_STAGES[next]!;
+    if (target === detail.lead.lead_stage) return;
+    advanceStage(target);
+  };
+
+  const archive = () => {
+    if (!selectedId || !detail) return;
+    Modal.confirm({
+      title: "确认归档",
+      content: "归档后这条线索将不再跟进，并记入时间线。确认归档吗？",
+      okText: "确认归档",
+      cancelText: "取消",
+      onOk: async () => {
+        setBusy("archive");
+        try { await api.kolLeadUpdate(selectedId, { is_archived: true, archived_reason: "手动归档", confirmed: true, expected_version: detail.lead.data_version }); setSelectedId(null); setDetail(null); await load(); }
+        catch (e) { setError(apiErrorMessage(e)); }
+        finally { setBusy(""); }
+      },
+    });
   };
 
   return (
@@ -106,7 +175,7 @@ export default function Leads() {
             leads.map((lead) => (
               <button key={lead.id} type="button" role="option" aria-selected={selectedId === lead.id}
                 className="kol-row" onClick={() => void openDetail(lead.id)}>
-                <span className="kol-row-top"><strong>{lead.display_name}</strong><StageChip stage={lead.lead_stage} /></span>
+                <span className="kol-row-top"><strong>{lead.display_name}</strong><StageTag stage={lead.lead_stage} /></span>
                 <span className="kol-row-meta">
                   <span>{lead.platform} · {lead.account_handle}</span>
                   {lead.brand ? <span>品牌 {lead.brand}</span> : null}
@@ -118,44 +187,54 @@ export default function Leads() {
             ))}
         </div>
         <div className="kol-detail" aria-live="polite">
-          {detailLoading ? <p className="muted">加载中…</p> : !detail ? <p className="kol-empty">选择一条线索查看跟进动态</p> : (
+          {detailLoading ? <p className="muted">加载中…</p> : !detail ? <p className="kol-empty">选择一条线索查看详情</p> : (
             <>
-              <div className="kol-detail-head">
-                <h2>{detail.lead.display_name}</h2>
-                <div className="kol-row-meta">
-                  <span>{detail.lead.platform} · {detail.lead.account_handle}</span>
-                  <span>来源 {LEAD_SOURCE_LABELS[detail.lead.source] || detail.lead.source}</span>
-                  {detail.lead.has_contact ? <span>有联系方式（已脱敏）</span> : null}
+              <section className="kol-section" aria-label="属性快照">
+                <h3>属性快照<span className="kol-obj-kind">对象 · creator_candidate</span></h3>
+                <div className="kol-detail-head">
+                  <h2>{detail.lead.display_name}</h2>
+                  <div className="kol-row-meta">
+                    <span>稳定标识 {detail.lead.platform} · {detail.lead.account_handle}</span>
+                    <span>来源 {LEAD_SOURCE_LABELS[detail.lead.source] || detail.lead.source}</span>
+                    {detail.lead.has_contact ? <span>有联系方式（已脱敏）</span> : null}
+                  </div>
                 </div>
-              </div>
-              <dl className="kol-meta-grid">
-                <div><dt>阶段</dt><dd><StageChip stage={detail.lead.lead_stage} /></dd></div>
-                <div><dt>粉丝</dt><dd>{formatFollowers(detail.lead.follower_count)}</dd></div>
-                <div><dt>品类</dt><dd>{detail.lead.category || "—"}</dd></div>
-                <div><dt>品牌</dt><dd>{detail.lead.brand || "—"}</dd></div>
-                <div><dt>更新时间</dt><dd>{formatTime(detail.lead.updated_at)}</dd></div>
-              </dl>
-              <div className="kol-actions">
+                <Descriptions size="small" column={3}>
+                  <Descriptions.Item label="阶段"><StageTag stage={detail.lead.lead_stage} /></Descriptions.Item>
+                  <Descriptions.Item label="粉丝">{formatFollowers(detail.lead.follower_count)} <span className="kol-hint">采集</span></Descriptions.Item>
+                  <Descriptions.Item label="品类">{detail.lead.category || <span className="kol-hint">未采集</span>}</Descriptions.Item>
+                  <Descriptions.Item label="品牌">{detail.lead.brand || <span className="kol-hint">未采集</span>}</Descriptions.Item>
+                  <Descriptions.Item label="平台稳定编号">{detail.lead.platform_creator_id || "—"}</Descriptions.Item>
+                  <Descriptions.Item label="来源批次">{detail.lead.source_ref || "—"}</Descriptions.Item>
+                  <Descriptions.Item label="更新时间">{formatTime(detail.lead.updated_at)}</Descriptions.Item>
+                </Descriptions>
+              </section>
+              <section className="kol-section" aria-label="动作">
+                <h3>动作<Tag> R3 · 正式写入需确认</Tag></h3>
                 {!TERMINAL_STAGES.has(detail.lead.lead_stage) ? <>
-                  <select aria-label="推进到阶段" id="lead-stage-select" defaultValue=""
-                    onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) void advanceStage(v); }}
-                    disabled={busy === "stage"}>
-                    <option value="">推进阶段…</option>
-                    {LEAD_STAGE_ORDER.filter((s) => s !== detail.lead.lead_stage && !TERMINAL_STAGES.has(s)).map((s) => (
-                      <option key={s} value={s}>{LEAD_STAGE_LABELS[s]}</option>
-                    ))}
-                  </select>
-                  {detail.lead.lead_stage === "intent_pending"
-                    ? <button type="button" className="btn primary" onClick={() => setShowConvert(true)}>标记转化</button>
-                    : null}
-                  <button type="button" className="btn ghost" disabled={busy === "archive"} onClick={() => void archive()}>归档</button>
+                  <LeadStageSteps stage={detail.lead.lead_stage} onChange={onStepChange} />
+                  <div className="kol-actions" style={{ marginTop: 8 }}>
+                    {detail.lead.lead_stage === "intent_pending"
+                      ? <Button type="primary" onClick={() => setShowConvert(true)}>标记转化</Button>
+                      : null}
+                    <Button onClick={() => archive()} loading={busy === "archive"}>归档</Button>
+                  </div>
                 </> : <span className="kol-hint">该线索已终态（{LEAD_STAGE_LABELS[detail.lead.lead_stage]}）</span>}
-              </div>
-              <section className="kol-section" aria-label="跟进动态">
-                <h3>跟进动态</h3>
-                {!TERMINAL_STAGES.has(detail.lead.lead_stage) ? <RecordLeadEventForm leadId={detail.lead.id} onDone={() => void refreshDetail()} /> : null}
+                <p className="kol-hint">此处推进的是线索跟进阶段（5 步主流程 + 已转化），不是合作项目阶段（15+exception）；点击步骤条即发起阶段变更（R3，需确认），完成后记入下方时间线。</p>
+              </section>
+              <section className="kol-section" aria-label="事件时间线">
+                <h3>事件时间线</h3>
+                {!TERMINAL_STAGES.has(detail.lead.lead_stage)
+                  ? <><RecordLeadEventForm leadId={detail.lead.id} onDone={() => void refreshDetail()} />
+                    <p className="kol-hint"><Tag> R3 · 事实记录</Tag> 仅写已核验事实，写入统一事件（lead.*）</p></>
+                  : null}
+                <LeadTimeline leadId={detail.lead.id} refreshKey={eventsRefreshKey} />
+                <h4 className="kol-subhead">相关工单</h4>
                 {!detail.task || detail.task.work_orders.length === 0
-                  ? <p className="muted">暂无工单。建档后会自动创建初次建联工单（需管理端发布模板并开启自动化）。</p>
+                  ? <p className="muted">{automationError ? "自动建单规则状态读取失败，请刷新页面重试；不能据此判断未配置。" : automation === null ? "自动建单规则状态读取中…"
+                    : automation.configured && automation.template
+                      ? `暂无工单。已发布初次建联模板：${automation.template.title}（${automation.template.code} v${automation.template.version}）。是否自动建单还需执行发布启用、判断通过与真实执行回执。`
+                      : "暂无工单。自动建单规则未配置：建档后不会自动创建初次建联工单（需管理端发布模板并开启自动化）。"}</p>
                   : <ol className="kol-wo-list">
                     {detail.task.work_orders.map((wo) => (
                       <li key={wo.work_order_id}>
@@ -173,6 +252,68 @@ export default function Leads() {
       {showConvert && detail ? <ConvertLeadDrawer lead={detail.lead} onClose={() => setShowConvert(false)}
         onDone={() => { setShowConvert(false); void refreshDetail(); }} /> : null}
     </main>
+  );
+}
+
+const LEAD_TIMELINE_EVENT_NAMES: Record<string, string> = {
+  "lead.created": "线索已建档",
+  "lead.reply_received": "达人回复",
+  "lead.followup_due": "跟进到期",
+  "lead.sample_requested": "索要样品",
+  "lead.intent_confirmed": "意向确认",
+  "lead.high_potential_detected": "高潜线索",
+  "lead.stage_changed": "阶段变更",
+  "lead.archived": "已归档",
+  "lead.converted": "已转化",
+};
+
+function timelineSummary(ev: KolLeadTimelineEvent): string | null {
+  if (ev.summary) return ev.summary;
+  if (ev.event_type === "lead.stage_changed") {
+    const from = String(ev.payload.from_stage || "");
+    const to = String(ev.payload.to_stage || "");
+    return `阶段：${LEAD_STAGE_LABELS[from] || from} → ${LEAD_STAGE_LABELS[to] || to}`;
+  }
+  if (ev.event_type === "lead.archived") {
+    const reason = String(ev.payload.archived_reason || "").trim();
+    return reason ? `归档原因：${reason}` : "已归档";
+  }
+  return null;
+}
+
+function LeadTimeline({ leadId, refreshKey }: { leadId: string; refreshKey: number }) {
+  const [events, setEvents] = useState<KolLeadTimelineEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError("");
+    api.kolLeadEvents(leadId).then(
+      (r) => { if (!cancelled) { setEvents(r.events); setLoading(false); } },
+      (e) => { if (!cancelled) { setError(apiErrorMessage(e)); setLoading(false); } },
+    );
+    return () => { cancelled = true; };
+  }, [leadId, refreshKey]);
+  if (loading) return <p className="muted">事件加载中…</p>;
+  if (error) return <p className="kol-error" role="alert">{error}</p>;
+  if (events.length === 0) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无事件，上面的动作会产生事件并显示在这里" />;
+  return (
+    <Timeline
+      items={events.map((ev, idx) => ({
+        color: ev.verified ? "green" : undefined,
+        children: (
+          <div key={`${ev.event_type}-${ev.occurred_at}-${idx}`}>
+            <span className="kol-tl-top">
+              <strong>{LEAD_TIMELINE_EVENT_NAMES[ev.event_type] || ev.event_type}</strong>
+              {ev.verified ? <Tag color="green">已核验</Tag> : null}
+              <span className="kol-tl-code">{ev.event_type}</span>
+              <span className="kol-tl-time">{formatTime(ev.occurred_at)}</span>
+            </span>
+            {timelineSummary(ev) ? <div className="kol-tl-summary">{timelineSummary(ev)}</div> : null}
+          </div>
+        ),
+      }))}
+    />
   );
 }
 
@@ -202,12 +343,11 @@ function RecordLeadEventForm({ leadId, onDone }: { leadId: string; onDone: () =>
 
   return (
     <form className="kol-actions" style={{ marginBottom: 8 }} onSubmit={(e) => void submit(e)} aria-label="记录跟进事件">
-      <select aria-label="事件类型" value={eventType} onChange={(e) => setEventType(e.target.value)} disabled={busy}>
-        {LEAD_EVENT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-      <input aria-label="事实摘要" placeholder="仅写已核验事实，如：达人已回复报价邮件" value={summary}
-        onChange={(e) => setSummary(e.target.value)} style={{ minWidth: 220, flex: 1 }} disabled={busy} />
-      <button type="submit" className="btn ghost" disabled={busy}>{busy ? "提交中…" : "记录事件"}</button>
+      <Select aria-label="事件类型" value={eventType} onChange={setEventType} options={LEAD_EVENT_OPTIONS}
+        style={{ width: 130 }} disabled={busy} />
+      <Input aria-label="事实摘要" placeholder="仅写已核验事实，如：达人已回复报价邮件" value={summary}
+        onChange={(e) => setSummary(e.target.value)} style={{ minWidth: 200, flex: 1 }} disabled={busy} />
+      <Button htmlType="submit" loading={busy}>记录事件</Button>
       {error ? <span className="kol-error" role="alert">{error}</span> : null}
     </form>
   );

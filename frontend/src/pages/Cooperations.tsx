@@ -1,6 +1,6 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, type KolCooperation, type KolCooperationDetailResponse } from "../api";
 import { MAIN_STAGE_TABS, EXCEPTION_TAB } from "../kolStages";
 import { randomUuid } from "../uuid";
@@ -26,7 +26,8 @@ function StageChip({ stage, exceptionKind }: { stage: string; exceptionKind?: st
 }
 
 export default function Cooperations() {
-  const [stage, setStage] = useState("");
+  const [query] = useSearchParams();
+  const [stage, setStage] = useState(query.get("stage") || "");
   const [mine, setMine] = useState(false);
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<KolCooperation[]>([]);
@@ -57,6 +58,7 @@ export default function Cooperations() {
     catch (e) { setError(apiErrorMessage(e)); } finally { setDetailLoading(false); }
   }, []);
 
+  useEffect(() => { setStage(query.get("stage") || ""); const id = query.get("id"); if (id) void openDetail(id); }, [query, openDetail]);
   const refreshDetail = useCallback(async () => {
     if (selectedId) await openDetail(selectedId);
     await load();
