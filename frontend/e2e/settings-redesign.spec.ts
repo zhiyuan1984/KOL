@@ -53,6 +53,16 @@ test('asynchronous preferences display persisted values, failed save does not ap
 test('read failure is not an empty successful state and retry is visible', async ({ page }) => {
   const state = await mock(page); state.failRead(); await page.goto('/settings'); await expect(page.getByRole('alert')).toContainText('无法读取个人资料'); await expect(page.getByRole('button', { name: '重试' })).toBeVisible(); await expect(page.getByLabel('姓名', { exact: true })).toHaveCount(0);
 });
+test('cancel restores the latest saved preferences and clearing brand does not offer unmatched mailboxes', async ({ page }) => {
+  await mock(page); await page.goto('/settings?tab=preferences');
+  await page.locator('#theme').click(); await page.getByText('浅色', { exact: true }).click();
+  await page.getByRole('button', { name: '保存偏好' }).click(); await expect(page.getByRole('status')).toContainText('工作偏好已保存');
+  await page.locator('#theme').click(); await page.getByText('深色', { exact: true }).click();
+  await page.getByRole('button', { name: '取消修改' }).click(); await expect(page.locator('#theme').locator('..')).toContainText('浅色');
+  await page.locator('#default_brand').click(); await page.getByText('每次选择', { exact: true }).first().click();
+  await expect(page.locator('#default_mailbox').locator('..')).toContainText('每次选择');
+  await page.locator('#default_mailbox').click(); await expect(page.locator('.ant-select-dropdown:visible')).not.toContainText('work@litime.com');
+});
 test('password mismatch retains input and makes no request, leaving asks before discarding', async ({ page }) => {
   const state = await mock(page); await page.goto('/settings?tab=security');
   await page.getByLabel('当前密码', { exact: true }).fill('old-password'); await page.getByLabel('新密码', { exact: true }).fill('new-password-123'); await page.getByLabel('确认新密码', { exact: true }).fill('wrong-password-123');
