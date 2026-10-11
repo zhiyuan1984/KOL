@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import {
   authDisabled,
@@ -10,19 +11,28 @@ import {
   scopedUser,
   tokenDigest,
 } from "../auth.js";
+import type { AppUser } from "../auth.js";
 import { audit, databaseEngine, getConn, nowIso, tx } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { uploadsDir } from "../host/attachments.js";
 import { SKILL_CATALOG } from "../host/skills-catalog.js";
+import { allowedFromMailboxes, authorizedSenderBrand } from "../host/pep.js";
+import { departmentHeadAccessForUser } from "../contract-scope.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
 import { hasBundledIcon } from "./connector-icons.js";
 import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
-import { avatarUrlForUser, listOrganizationMemberships, listOrganizationPeople } from "../runtime/organization-tree.js";
+import {
+  avatarUrlForUser,
+  listOrganizationMemberships,
+  listOrganizationPeople,
+  listOrganizationUnits,
+  organizationCompanyName,
+} from "../runtime/organization-tree.js";
 import { getConnectorConfig } from "../runtime/store.js";
-import { listOrganizationUnits, syncUserOrganization } from "../runtime/organization-tree.js";
+import { syncUserOrganization } from "../runtime/organization-tree.js";
 
 export const enterprise = new Hono();
 
@@ -237,6 +247,226 @@ function roles(value: unknown): string[] {
   const values = Array.isArray(value) ? value.map(String) : [];
   if (!values.length || values.some((role) => !allowed.has(role))) throw new HttpFail(400, "roles must contain employee/admin");
   return [...new Set(values)];
+}
+
+type SettingsBrandDefinition = { id: string; code: string; label: string; status: string };
+type SettingsMailbox = { id: string; email: string; brand: string; status: string; is_default: boolean };
+type SettingsOrganization = {
+  managed: boolean;
+  person?: { person_ref: string; display_name: string; email: string | null; employee_no: string | null };
+  membership?: { company_id: string; org_unit_id: string; position: string | null };
+  membership_unit_ids: string[];
+};
+
+const SETTINGS_PREFERENCE_KEYS = new Set([
+  "analytics_cookies",
+  "theme",
+  "locale",
+  "model_tier",
+  "notifications",
+  "left_sidebar_collapsed",
+  "right_workbench_collapsed",
+  "default_brand",
+  "default_mailbox",
+]);
+const SETTINGS_BOOLEAN_PREFERENCES = new Set([
+  "analytics_cookies",
+  "notifications",
+  "left_sidebar_collapsed",
+  "right_workbench_collapsed",
+]);
+const SETTINGS_ENUM_PREFERENCES: Record<string, readonly string[]> = {
+  theme: ["system", "light", "dark"],
+  locale: ["zh-CN", "en"],
+  model_tier: ["fast", "balanced", "quality"],
+};
+const BRAND_REGISTRY_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../config/brand-registry.yaml");
+
+/** Registry labels are presentation metadata; authorization remains the live PEP/organization check below. */
+function settingsBrandDefinitions(): SettingsBrandDefinition[] {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(BRAND_REGISTRY_PATH, "utf8")) as {
+      brands?: Array<{ id?: unknown; code?: unknown; display_name?: unknown; status?: unknown }>;
+    };
+    return (parsed.brands || [])
+      .map((brand) => ({
+        id: String(brand.id || ""),
+        code: String(brand.code || "").trim().toUpperCase(),
+        label: String(brand.display_name || brand.code || "").trim(),
+        status: String(brand.status || "active"),
+      }))
+      .filter((brand) => brand.id && brand.code && brand.label && brand.status === "active");
+  } catch {
+    // A registry read failure must fail closed: this endpoint must not invent selectable brands.
+    return [];
+  }
+}
+
+function settingsBrandCode(value: unknown, definitions = settingsBrandDefinitions()): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const found = definitions.find((brand) => brand.id === raw || brand.code === raw.toUpperCase());
+  return found?.code || null;
+}
+
+/** Current, active authority facts only; historical/ended memberships never authorize settings choices. */
+function settingsOrganization(user: AppUser): SettingsOrganization {
+  // Ensures the organization tables exist before direct, bounded lookup queries.
+  listOrganizationUnits();
+  const db = getConn();
+  const person = db.prepare(
+    "SELECT person_ref,display_name,email,employee_no,status FROM organization_people WHERE user_id=? AND status='active'",
+  ).get(user.id) as { person_ref: string; display_name: string; email: string | null; employee_no: string | null } | undefined;
+  if (!person) return { managed: false, membership_unit_ids: [] };
+  const now = nowIso();
+  const memberships = db.prepare(
+    `SELECT company_id,org_unit_id,position,relation FROM organization_memberships
+      WHERE person_ref=? AND status='active'
+        AND (effective_from IS NULL OR effective_from<=?)
+        AND (effective_to IS NULL OR effective_to>?)
+      ORDER BY CASE relation WHEN 'primary' THEN 0 ELSE 1 END, org_unit_id`,
+  ).all(person.person_ref, now, now) as Array<{ company_id: string; org_unit_id: string; position: string | null; relation: string }>;
+  const primary = memberships.find((membership) => membership.relation === "primary") || memberships[0];
+  return {
+    managed: true,
+    person,
+    membership: primary ? {
+      company_id: String(primary.company_id),
+      org_unit_id: String(primary.org_unit_id),
+      position: primary.position ? String(primary.position) : null,
+    } : undefined,
+    membership_unit_ids: memberships.map((membership) => String(membership.org_unit_id)),
+  };
+}
+
+function settingsAuthorizedBrands(user: AppUser, organization: SettingsOrganization, definitions = settingsBrandDefinitions()): string[] {
+  // Reuse the existing sender PEP first; organization scope can only narrow it, never broaden it.
+  const senderAllowed = new Set(allowedFromMailboxes(user, null).map((row) => row.brand));
+  if (!organization.managed || !organization.person) return definitions
+    .map((brand) => brand.code)
+    .filter((code) => senderAllowed.has(code));
+
+  const departmentHead = departmentHeadAccessForUser(user);
+  if (departmentHead?.company_wide && departmentHead.brand_scope === "all") return definitions
+    .map((brand) => brand.code)
+    .filter((code) => senderAllowed.has(code));
+
+  const db = getConn();
+  const now = nowIso();
+  const unitIds = organization.membership_unit_ids;
+  const predicates = ["(subject_type='person' AND subject_id=?)"];
+  const values: unknown[] = [organization.person.person_ref];
+  if (unitIds.length) {
+    predicates.push(`(subject_type='organization_unit' AND subject_id IN (${unitIds.map(() => "?").join(",")}))`);
+    values.push(...unitIds);
+  }
+  const rows = db.prepare(
+    `SELECT brand_id FROM scope_memberships
+      WHERE status='active' AND brand_id IS NOT NULL
+        AND (effective_from IS NULL OR effective_from<=?)
+        AND (effective_to IS NULL OR effective_to>?)
+        AND (${predicates.join(" OR ")})`,
+  ).all(now, now, ...values) as Array<{ brand_id: string | null }>;
+  const scoped = new Set(rows.map((row) => settingsBrandCode(row.brand_id, definitions)).filter((code): code is string => Boolean(code)));
+  return definitions.map((brand) => brand.code).filter((code) => senderAllowed.has(code) && scoped.has(code));
+}
+
+function settingsMailboxes(user: AppUser, definitions = settingsBrandDefinitions()): SettingsMailbox[] {
+  const rows = getConn().prepare(
+    `SELECT b.mailbox_email,b.mailbox_id,b.status,b.is_default,o.brand AS owner_brand,o.status AS owner_status
+       FROM user_starry_bindings b
+       LEFT JOIN mailbox_owners o ON lower(o.email)=lower(b.mailbox_email)
+      WHERE b.user_id=?
+      ORDER BY b.is_default DESC,b.updated_at ASC,b.mailbox_email COLLATE NOCASE`,
+  ).all(user.id) as Array<Row>;
+  return rows.map((row) => {
+    const email = String(row.mailbox_email || "").trim().toLowerCase();
+    const brand = settingsBrandCode(row.owner_brand, definitions) || "";
+    const rawStatus = String(row.status || "connected");
+    const ownerActive = !row.owner_brand || String(row.owner_status || "active") === "active";
+    // Public status is a closed enum; unknown/revoked states never become usable.
+    const status = rawStatus === "expired" ? "expired"
+      : rawStatus === "connected" && brand && ownerActive ? "connected" : "unverified";
+    return {
+      id: String(row.mailbox_id || email),
+      email,
+      brand,
+      status,
+      is_default: Boolean(Number(row.is_default || 0)),
+    };
+  }).filter((mailbox) => Boolean(mailbox.email));
+}
+
+function selectableSettingsMailbox(user: AppUser, mailbox: SettingsMailbox | undefined, brand: string): boolean {
+  if (!mailbox || mailbox.status !== "connected" || !mailbox.brand || mailbox.brand !== brand) return false;
+  return authorizedSenderBrand(mailbox.email, user, brand)?.brand === brand;
+}
+
+/** Never return unknown historical preference JSON; selected brand/mailbox remains valid only under current authority. */
+function settingsPreferences(
+  user: AppUser,
+  row: Row | undefined,
+  brands: string[],
+  mailboxes: SettingsMailbox[],
+): Json {
+  const parsed = parseJson(row?.preferences, {});
+  const stored = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Json : {};
+  const preferences: Json = { analytics_cookies: Boolean(row?.analytics_cookies) };
+  for (const [key, allowed] of Object.entries(SETTINGS_ENUM_PREFERENCES)) {
+    if (allowed.includes(String((stored as Json)[key] || ""))) preferences[key] = String((stored as Json)[key]);
+  }
+  for (const key of SETTINGS_BOOLEAN_PREFERENCES) {
+    if (key !== "analytics_cookies" && typeof (stored as Json)[key] === "boolean") preferences[key] = (stored as Json)[key];
+  }
+  const defaultBrand = String((stored as Json).default_brand || "");
+  preferences.default_brand = brands.includes(defaultBrand) ? defaultBrand : "";
+  const defaultMailbox = String((stored as Json).default_mailbox || "").trim().toLowerCase();
+  const mailbox = mailboxes.find((candidate) => candidate.email === defaultMailbox && candidate.is_default);
+  preferences.default_mailbox = brands.includes(defaultBrand) && selectableSettingsMailbox(user, mailbox, defaultBrand) ? defaultMailbox : "";
+  return preferences;
+}
+
+function settingsProfile(user: AppUser, organization: SettingsOrganization): Json {
+  const membership = organization.membership;
+  const units = membership ? listOrganizationUnits(membership.company_id) : [];
+  const byId = new Map(units.map((unit) => [unit.id, unit]));
+  const path: string[] = [];
+  const seen = new Set<string>();
+  let unit = membership ? byId.get(membership.org_unit_id) : undefined;
+  while (unit && !seen.has(unit.id)) {
+    seen.add(unit.id);
+    path.unshift(unit.display_name);
+    unit = unit.parent_id ? byId.get(unit.parent_id) : undefined;
+  }
+  // Department heads establish organization authority but are not necessarily a direct manager.
+  const manager = getConn().prepare("SELECT name FROM users WHERE id=(SELECT manager_user_id FROM users WHERE id=?)")
+    .get(user.id) as { name?: string } | undefined;
+  return {
+    name: organization.managed ? organization.person?.display_name || "" : user.name,
+    email: organization.managed ? organization.person?.email || "" : user.email || "",
+    phone: user.phone || "",
+    employee_no: organization.person?.employee_no || "",
+    position: membership?.position || "",
+    company_name: membership ? organizationCompanyName(membership.company_id) : "",
+    organization_path: path,
+    manager_name: String(manager?.name || ""),
+    managed: organization.managed,
+  };
+}
+
+function settingsContext(user: AppUser): Json {
+  const definitions = settingsBrandDefinitions();
+  const organization = settingsOrganization(user);
+  const authorizedBrands = settingsAuthorizedBrands(user, organization, definitions);
+  const mailboxes = settingsMailboxes(user, definitions);
+  const preferenceRow = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
+  return {
+    profile: settingsProfile(user, organization),
+    brands: definitions.filter((brand) => authorizedBrands.includes(brand.code)).map((brand) => ({ id: brand.code, label: brand.label })),
+    mailboxes,
+    preferences: settingsPreferences(user, preferenceRow, authorizedBrands, mailboxes),
+    editable_fields: organization.managed ? [] : ["name", "email", "phone"],
+  };
 }
 
 enterprise.get("/admin/organization-people", (c) => {
@@ -525,40 +755,110 @@ enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
   return c.json({ ok: true, user_id: uid, roles: values });
 });
 
+enterprise.get("/me/settings-context", (c) => {
+  const user = scopedUser();
+  if (!user) throw new HttpFail(401, "authentication required");
+  return c.json(settingsContext(user));
+});
+
 enterprise.get("/preferences", (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const row = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
-  return c.json({
-    analytics_cookies: Boolean(row?.analytics_cookies),
-    ...(parseJson(row?.preferences, {}) as Json),
-  });
+  return c.json((settingsContext(user) as Record<string, Json>).preferences);
 });
 
 enterprise.patch("/preferences", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const body = (await c.req.json()) as Json;
+  const body = (await c.req.json()) as Record<string, unknown>;
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpFail(400, "preferences must be an object");
+  const fields = Object.keys(body);
+  if (fields.some((key) => !SETTINGS_PREFERENCE_KEYS.has(key))) throw new HttpFail(400, "unknown preference field");
   const current = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
-  const analytics = body.analytics_cookies === undefined
-    ? Number(current?.analytics_cookies || 0)
-    : body.analytics_cookies === true ? 1 : 0;
-  const existing = parseJson(current?.preferences, {}) as Json;
-  const rest = { ...body }; delete rest.analytics_cookies;
-  const merged = { ...existing, ...rest };
-  getConn().prepare(
-    `INSERT INTO user_preferences (user_id,analytics_cookies,preferences,updated_at) VALUES (?,?,?,?)
-     ON CONFLICT(user_id) DO UPDATE SET analytics_cookies=excluded.analytics_cookies,
-       preferences=excluded.preferences,updated_at=excluded.updated_at`,
-  ).run(user.id, analytics, JSON.stringify(merged), nowIso());
-  audit(user.id, "preference.update", { fields: Object.keys(body) });
-  return c.json({ analytics_cookies: Boolean(analytics), ...merged });
+  const definitions = settingsBrandDefinitions();
+  const brands = settingsAuthorizedBrands(user, settingsOrganization(user), definitions);
+  const mailboxes = settingsMailboxes(user, definitions);
+  const stored = settingsPreferences(user, current, brands, mailboxes) as Record<string, unknown>;
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
+  const next: Record<string, unknown> = {};
+  for (const [key, allowed] of Object.entries(SETTINGS_ENUM_PREFERENCES)) {
+    const value = has(key) ? body[key] : stored[key];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !allowed.includes(value)) throw new HttpFail(400, `invalid ${key}`);
+    next[key] = value;
+  }
+  for (const key of SETTINGS_BOOLEAN_PREFERENCES) {
+    if (key === "analytics_cookies") continue;
+    const value = has(key) ? body[key] : stored[key];
+    if (value === undefined) continue;
+    if (typeof value !== "boolean") throw new HttpFail(400, `invalid ${key}`);
+    next[key] = value;
+  }
+  const analytics = has("analytics_cookies") ? body.analytics_cookies : Boolean(current?.analytics_cookies);
+  if (typeof analytics !== "boolean") throw new HttpFail(400, "invalid analytics_cookies");
+  const requestedBrand = has("default_brand") ? body.default_brand : stored.default_brand;
+  if (requestedBrand != null && typeof requestedBrand !== "string") throw new HttpFail(400, "invalid default_brand");
+  const defaultBrand = requestedBrand == null || requestedBrand === "" ? "" : settingsBrandCode(requestedBrand, definitions);
+  if (requestedBrand != null && requestedBrand !== "" && (!defaultBrand || !brands.includes(defaultBrand))) {
+    throw new HttpFail(400, "invalid default_brand");
+  }
+  next.default_brand = defaultBrand || "";
+  let defaultMailbox = String(stored.default_mailbox || "").trim().toLowerCase();
+  let selected: SettingsMailbox | undefined;
+  if (has("default_mailbox")) {
+    const requested = body.default_mailbox;
+    if (requested == null || requested === "") defaultMailbox = "";
+    else if (typeof requested !== "string") throw new HttpFail(400, "invalid default_mailbox");
+    else {
+      selected = mailboxes.find((mailbox) => mailbox.email === requested.trim().toLowerCase() || mailbox.id === requested.trim());
+      if (!selected || !defaultBrand || selected.brand !== defaultBrand || !brands.includes(defaultBrand) ||
+        !selectableSettingsMailbox(user, selected, defaultBrand)) {
+        throw new HttpFail(400, "default_mailbox must be a current authorized connected mailbox for default_brand");
+      }
+      defaultMailbox = selected.email;
+    }
+  }
+  // Brand changes require a compatible explicit/current selection; never choose a fallback mailbox.
+  if (defaultMailbox) {
+    const mailbox = selected || mailboxes.find((candidate) => candidate.email === defaultMailbox);
+    if (!defaultBrand || !mailbox || mailbox.brand !== defaultBrand || !brands.includes(defaultBrand) ||
+      !selectableSettingsMailbox(user, mailbox, defaultBrand)) {
+      throw new HttpFail(400, "select a current authorized mailbox matching default_brand");
+    }
+    next.default_mailbox = defaultMailbox;
+  }
+  next.default_mailbox = defaultMailbox;
+  tx((db) => {
+    if (has("default_mailbox")) {
+      db.prepare("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=?").run(user.id);
+      if (defaultMailbox) db.prepare("UPDATE user_starry_bindings SET is_default=1 WHERE user_id=? AND lower(mailbox_email)=lower(?)")
+        .run(user.id, defaultMailbox);
+    }
+    db.prepare(`INSERT INTO user_preferences (user_id,analytics_cookies,preferences,updated_at) VALUES (?,?,?,?)
+      ON CONFLICT(user_id) DO UPDATE SET analytics_cookies=excluded.analytics_cookies,preferences=excluded.preferences,updated_at=excluded.updated_at`)
+      .run(user.id, analytics ? 1 : 0, JSON.stringify(next), nowIso());
+  });
+  audit(user.id, "preference.update", { fields });
+  const updated = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
+  return c.json(settingsPreferences(user, updated, brands, settingsMailboxes(user, definitions)));
+});
+
+enterprise.get("/me/settings-sessions", (c) => {
+  const user = scopedUser();
+  if (!user) throw new HttpFail(401, "authentication required");
+  const rows = getConn().prepare("SELECT id,title,archived_at FROM sessions WHERE owner_user_id=? AND deleted_at IS NULL ORDER BY updated_at DESC,id")
+    .all(user.id) as Row[];
+  return c.json(rows.map((row) => ({ id: String(row.id), title: String(row.title || ""), archived_at: row.archived_at ? String(row.archived_at) : null })));
 });
 
 function memoryRow(id: string): Row {
   const row = getConn().prepare("SELECT * FROM memory_entries WHERE id=?").get(id) as Row | undefined;
   if (!row) throw new HttpFail(404, "memory not found");
   return row;
+}
+function settingsMemory(row: Row): Json {
+  return { id: String(row.id), title: String(row.title || ""), body_md: String(row.body_md || ""),
+    scope: String(row.scope || "private"), enabled: Boolean(Number(row.enabled)), version: Number(row.version || 1), editable: true };
 }
 
 function assertMemoryOwner(row: Row): void {
@@ -570,9 +870,9 @@ enterprise.get("/memory", (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   const rows = getConn().prepare(
-    "SELECT * FROM memory_entries WHERE owner_user_id=? OR scope='team' ORDER BY updated_at DESC",
-  ).all(user.id);
-  return c.json(rows);
+    "SELECT * FROM memory_entries WHERE owner_user_id=? ORDER BY updated_at DESC",
+  ).all(user.id) as Row[];
+  return c.json(rows.map(settingsMemory));
 });
 
 enterprise.post("/memory", async (c) => {
@@ -580,14 +880,15 @@ enterprise.post("/memory", async (c) => {
   if (!user) throw new HttpFail(401, "authentication required");
   const body = (await c.req.json()) as Json;
   const scope = String(body.scope === "workspace" ? "team" : body.scope || "private");
-  if (!["private", "team"].includes(scope)) throw new HttpFail(400, "scope must be private/team");
+  if (scope === "team") throw new HttpFail(409, "team memory publishing is temporarily unavailable");
+  if (scope !== "private") throw new HttpFail(400, "scope must be private");
   const id = nid("mem"); const now = nowIso();
   getConn().prepare(
     "INSERT INTO memory_entries (id,owner_user_id,title,body_md,scope,enabled,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
   ).run(id, user.id, String(body.title || "记忆"), String(body.body_md ?? body.content ?? ""), scope,
     body.enabled === false ? 0 : 1, 1, now, now);
   audit(user.id, "memory.create", { memory_id: id, scope });
-  return c.json(memoryRow(id), 201);
+  return c.json(settingsMemory(memoryRow(id)), 201);
 });
 
 enterprise.patch("/memory/:id", async (c) => {
@@ -596,13 +897,14 @@ enterprise.patch("/memory/:id", async (c) => {
   const body = (await c.req.json()) as Json;
   const scope = body.scope === undefined ? row.scope : String(body.scope === "workspace" ? "team" : body.scope);
   if (!["private", "team"].includes(String(scope))) throw new HttpFail(400, "scope must be private/team");
+  if (scope === "team" && String(row.scope) !== "team") throw new HttpFail(409, "team memory publishing is temporarily unavailable");
   getConn().prepare(
     "UPDATE memory_entries SET title=?,body_md=?,scope=?,enabled=?,version=version+1,updated_at=? WHERE id=?",
   ).run(body.title === undefined ? row.title : String(body.title),
     body.body_md === undefined && body.content === undefined ? row.body_md : String(body.body_md ?? body.content), scope,
     body.enabled === undefined ? row.enabled : body.enabled ? 1 : 0, nowIso(), row.id);
   audit(user.id, "memory.update", { memory_id: row.id });
-  return c.json(memoryRow(String(row.id)));
+  return c.json(settingsMemory(memoryRow(String(row.id))));
 });
 
 enterprise.delete("/memory/:id", (c) => {
