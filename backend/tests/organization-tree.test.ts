@@ -79,16 +79,16 @@ describe("organization tree persistence", () => {
 
   it("人员、成员关系与范围关系按组织图落库，未提供的字段保持为空", () => {
     const people = listOrganizationPeople();
-    expect(people).toHaveLength(19);
+    expect(people).toHaveLength(20);
     const zhang = people.find((person) => person.person_ref === "person:zhang_huiling");
     expect(zhang).toMatchObject({ display_name: "张慧玲", user_id: null, user_ref: null });
     expect(people.find((person) => person.person_ref === "person:liu_min")?.user_ref).toBe("user:liu_min");
     expect(people.find((person) => person.person_ref === "person:ye_guanwang")?.avatar_url).toBe("/avatars/employees/ye_guanwang.png");
     expect(people.find((person) => person.person_ref === "person:liu_min")?.avatar_url).toBeNull();
-    expect(people.filter((person) => person.avatar_url)).toHaveLength(18);
+    expect(people.filter((person) => person.avatar_url)).toHaveLength(19);
 
     const memberships = listOrganizationMemberships(COMPANY);
-    expect(memberships).toHaveLength(19);
+    expect(memberships).toHaveLength(20);
     const zhong = memberships.find((row) => row.person_ref === "person:zhong_jiankui");
     expect(zhong).toMatchObject({ org_unit_id: "org:promotion_department", position: "广告投放主管", relation: "primary", status: "active" });
     expect(zhong?.effective_from).toBeNull();
@@ -110,6 +110,24 @@ describe("organization tree persistence", () => {
       "org:pq_ro_tb_team:brand:tb",
     ]);
     expect(currentOrgVersion(COMPANY)).toBe(1);
+  });
+
+  it("王想档案按截图落库，保留四级组织链，不自动继承同事的Agent与业务范围", () => {
+    expect(listOrganizationPeople().find((person) => person.person_ref === "person:wang_xiang")).toMatchObject({
+      display_name: "王想", email: "xiang.wang@amperetime.com", employee_no: "1083",
+      avatar_url: "/avatars/employees/wang_xiang.png", starry_open_id: null, user_id: null,
+    });
+    expect(listOrganizationMemberships(COMPANY).find((row) => row.person_ref === "person:wang_xiang")).toMatchObject({
+      org_unit_id: "org:ai_product", position: "AI产品经理", relation: "primary", effective_from: null,
+    });
+    const units = new Map(listOrganizationUnits(COMPANY).map((unit) => [unit.id, unit]));
+    const chain: string[] = [];
+    let current: string | null = "org:ai_product";
+    while (current) { chain.unshift(units.get(current)!.display_name); current = units.get(current)!.parent_id; }
+    expect(chain).toEqual(["研究院", "数字智能中心", "产品部", "AI产品组"]);
+    expect(listScopeMemberships("person", "person:wang_xiang")).toEqual([]);
+    expect(effectiveAgentUsers("agent:kol").person_refs).not.toContain("person:wang_xiang");
+    expect(effectiveAgentUsers("agent:workspace-planner").person_refs).not.toContain("person:wang_xiang");
   });
 
   it("回填是幂等的：重复执行不产生重复行", () => {

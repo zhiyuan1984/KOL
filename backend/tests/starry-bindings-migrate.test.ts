@@ -125,7 +125,7 @@ describe("user_starry_bindings multi-mailbox migration", () => {
     expect(starryBindingRow("usr_b")?.mailbox_email).toBe("first@example.com");
   });
 
-  it("unbind deletes only the named mailbox and promotes the oldest remaining default", () => {
+  it("unbind deletes only the named mailbox and leaves remaining mailboxes without an implicit default", () => {
     getConn();
     seedUser("usr_c");
     saveStarryBinding("usr_c", { mailbox_email: "old@example.com" });
@@ -143,6 +143,7 @@ describe("user_starry_bindings multi-mailbox migration", () => {
     saveStarryBinding("usr_c", { mailbox_email: "a@example.com" });
     saveStarryBinding("usr_c", { mailbox_email: "b@example.com" });
     clearStarryBinding("usr_c", "a@example.com");
-    expect(Number(starryBindingRow("usr_c", "b@example.com")?.is_default)).toBe(1);
+    expect(Number(starryBindingRow("usr_c", "b@example.com")?.is_default)).toBe(0);
+    expect(starryBindingRow("usr_c")).toBeUndefined();
   });
 });

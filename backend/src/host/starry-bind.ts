@@ -66,8 +66,8 @@ export function starryBindingRow(userId: string, mailbox?: string): Row | undefi
       "SELECT * FROM user_starry_bindings WHERE user_id=? AND mailbox_email=?",
     ).get(userId, box) as Row | undefined;
   }
-  // No mailbox given: the default binding, else the oldest one.
-  return starryBindingRows(userId)[0];
+  // No mailbox given: only the explicit default. Never fall back to another mailbox.
+  return starryBindingRows(userId).find((row) => Boolean(Number(row.is_default || 0)));
 }
 
 export function safeEmployeeId(): string {
@@ -209,14 +209,8 @@ export function clearStarryBinding(userId: string, mailbox?: string): PublicStar
   const wasDefault = Boolean(Number(target.is_default || 0));
   getConn().prepare("DELETE FROM user_starry_bindings WHERE user_id=? AND mailbox_email=?")
     .run(userId, String(target.mailbox_email || ""));
-  // Removing the default mailbox promotes the oldest remaining one so a default always exists.
-  if (wasDefault) {
-    const rows = starryBindingRows(userId);
-    if (rows.length) {
-      getConn().prepare("UPDATE user_starry_bindings SET is_default=1 WHERE user_id=? AND mailbox_email=?")
-        .run(userId, String(rows[0].mailbox_email || ""));
-    }
-  }
+  // Removing a default leaves no default; another mailbox requires an explicit selection.
+  if (wasDefault) getConn().prepare("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=?").run(userId);
   removeUnusedMailboxCredential(target.bearer_token);
   audit(userId, "starry.unbind", { mailbox_email: String(target.mailbox_email || "") });
   return publicStarryBinding(starryBindingRow(userId));

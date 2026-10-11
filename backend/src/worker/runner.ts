@@ -617,7 +617,7 @@ export function writeBox(
     if (user) {
       const entries = getConn().prepare(
         `SELECT scope,body_md FROM memory_entries
-          WHERE enabled=1 AND (owner_user_id=? OR scope='team')
+          WHERE enabled=1 AND owner_user_id=?
           ORDER BY updated_at DESC LIMIT 20`,
       ).all(user.id) as Row[];
       memory = entries.map((entry) =>
