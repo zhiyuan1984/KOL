@@ -47,18 +47,19 @@ export function PreferenceSettings({ onDirty }: DirtyProps) {
   const result = useLoad(settingsClient.context, '无法读取工作偏好，请重试。');
   const [form] = Form.useForm(); const brand = Form.useWatch('default_brand', form) as string | undefined;
   const [busy, setBusy] = useState(false); const [feedback, setFeedback] = useState<Feedback>(null);
-  useEffect(() => { if (result.data) form.setFieldsValue({ ...defaults, ...result.data.preferences }); }, [result.data, form]);
-  const options = result.data?.mailboxes.filter(row => row.status === 'connected' && (!brand || row.brand === brand)) || [];
+  const [baseline, setBaseline] = useState<Record<string, unknown>>({ ...defaults });
+  useEffect(() => { if (result.data) { const values = { ...defaults, ...result.data.preferences }; setBaseline(values); form.setFieldsValue(values); } }, [result.data, form]);
+  const options = result.data?.mailboxes.filter(row => row.status === 'connected' && Boolean(brand) && row.brand === brand) || [];
   return <LoadState {...result} retry={result.reload}><Form form={form} layout="vertical" className="settings-editor" disabled={busy} onFinish={async values => {
     setBusy(true); setFeedback(null);
-    try { const saved = await api.savePreferences(values); form.setFieldsValue({ ...defaults, ...saved }); applyPreferences(saved); onDirty(false); setFeedback({ kind: 'success', text: '工作偏好已保存。' }); }
+    try { const saved = await api.savePreferences(values); const nextValues = { ...defaults, ...saved }; setBaseline(nextValues); form.setFieldsValue(nextValues); applyPreferences(saved); onDirty(false); setFeedback({ kind: 'success', text: '工作偏好已保存。' }); }
     catch (e) { setFeedback({ kind: 'error', text: settingsError(e, '工作偏好未保存，请重试。') }); }
     finally { setBusy(false); }
   }} onValuesChange={changed => {
     onDirty(true); setFeedback(null);
     if ('default_brand' in changed) {
       const current = form.getFieldValue('default_mailbox') as string;
-      if (current && !result.data?.mailboxes.some(row => row.email === current && row.status === 'connected' && (!changed.default_brand || row.brand === changed.default_brand))) {
+      if (current && !result.data?.mailboxes.some(row => row.email === current && row.status === 'connected' && Boolean(changed.default_brand) && row.brand === changed.default_brand)) {
         form.setFieldValue('default_mailbox', ''); setFeedback({ kind: 'error', text: '原邮箱与当前品牌不匹配，请重新选择。' });
       }
     }
@@ -74,7 +75,7 @@ export function PreferenceSettings({ onDirty }: DirtyProps) {
       <Form.Item name="default_mailbox" label="默认跟进邮箱" extra="仅可选择已连接且与品牌匹配的邮箱。"><Select showSearch optionFilterProp="label" options={[{ value: '', label: '每次选择' }, ...options.map(row => ({ value: row.email, label: `${row.email}${row.brand ? ` · ${row.brand}` : ''}` }))]} /></Form.Item>
       {!options.length && <p className="settings-help">暂无符合条件的邮箱，可在“账号与邮箱”中查看或恢复连接。</p>}
     </section>
-    <FeedbackLine value={feedback} /><div className="settings-actions"><Button htmlType="submit" type="primary" className="settings-primary" loading={busy}>保存偏好</Button><Button type="text" onClick={() => { form.setFieldsValue({ ...defaults, ...result.data?.preferences }); onDirty(false); setFeedback(null); }}>取消修改</Button></div>
+    <FeedbackLine value={feedback} /><div className="settings-actions"><Button htmlType="submit" type="primary" className="settings-primary" loading={busy}>保存偏好</Button><Button type="text" onClick={() => { form.setFieldsValue(baseline); onDirty(false); setFeedback(null); }}>取消修改</Button></div>
   </Form></LoadState>;
 }
 
