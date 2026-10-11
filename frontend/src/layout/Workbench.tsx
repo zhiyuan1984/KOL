@@ -39,7 +39,6 @@ export default function Workbench() {
   const { account } = useAccount();
   const { admin, debug } = useViewMode();
   const [me, setMe] = useState<Account | null>(account);
-  const [appVersion, setAppVersion] = useState("");
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ui:left-collapsed") === "true");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingNav, setPendingNav] = useState<string | null>(null);
@@ -63,13 +62,6 @@ export default function Workbench() {
     const timer = window.setTimeout(() => setNavStuck(true), 8000);
     return () => window.clearTimeout(timer);
   }, [pendingNav]);
-
-  useEffect(() => {
-    const cancel = scheduleShellRead(() => {
-      void api.version().then((row) => setAppVersion(String(row?.version || ""))).catch(() => undefined);
-    });
-    return cancel;
-  }, []);
 
   useEffect(() => {
     const applySessions = (rows: SessionRow[]) => {
@@ -353,24 +345,6 @@ export default function Workbench() {
               <span className="nav-badge warn">{Number(me?.exam_todo_count) === 1 ? "待完成" : me?.exam_todo_count}</span>
             )}
           </NavLink>
-          <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="云盘">
-            <Ico path="M7 17h10a4 4 0 0 0 .4-8 5 5 0 0 0-9.6-1.2A3.5 3.5 0 0 0 7 17z" />
-            <span className="sidebar-label">云盘</span>
-            <span className="nav-tag">非本期</span>
-          </div>
-          <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="手机遥控电脑">
-            <Ico path="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M10 6h4 M11 18h2" />
-            <span className="sidebar-label">手机遥控电脑</span>
-            <span className="nav-tag">非本期</span>
-          </div>
-        </nav>
-
-        <nav className="nav-group" aria-label="项目">
-          <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="创建新项目">
-            <Ico path="M12 7v10 M7 12h10" />
-            <span className="sidebar-label">创建新项目</span>
-            <span className="nav-tag">非本期</span>
-          </div>
         </nav>
           </>
         )}
@@ -378,9 +352,6 @@ export default function Workbench() {
         </div>
 
         <div className="sidebar-foot">
-          {appVersion ? (
-            <div className="sidebar-version" data-app-version={appVersion}>v {appVersion}</div>
-          ) : null}
           <AccountBar account={me} />
         </div>
       </aside>
