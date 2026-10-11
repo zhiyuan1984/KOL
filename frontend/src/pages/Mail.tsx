@@ -1,10 +1,9 @@
-import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type OperationJob } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
-import { applyComposerDraft, takeComposerDraftStash } from "../composer/draft";
+import { takeComposerDraftStash } from "../composer/draft";
 import { applyAddressesToText } from "../composer/addresses";
 import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
 import type { ComposerDraftStash } from "../composer/types";
@@ -115,6 +114,11 @@ const ICO_SPARKLE = "M12 3.8l1.9 4.9 4.9 1.9-4.9 1.9L12 17.4l-1.9-4.9-4.9-1.9 4.
 const ICO_WAND = "M5 19 18.8 5.2M15.4 3.8l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8ZM6.2 5.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5ZM18.1 14.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5Z";
 const ICO_TRANSLATE = "M4 5h9M8.5 5v2.2c0 3-1.3 5.2-4 6.8M6 9.2c1.4 1.6 3.1 2.8 5.3 3.6M15 13l-3.2 7M18.2 13l3.2 7M13.8 17h5.6";
 const ICO_DOC = "M7 3.5h6.5L18 8v12.5H7ZM13.5 3.5V8H18";
+/** 沉浸式左导航图标 */
+const ICO_INBOX = "M4 5h16v13H4z M4 10l8 5.5L20 10";
+const ICO_UNREAD = "M4 6h16v12H4z M4 6l8 7 8-7";
+const ICO_SENT = "M4 12.5 20 5l-6.5 15-2.8-6.3z M10.7 13.2 20 5";
+const ICO_STAR = "M12 4.5l2.3 5 5.2.7-3.9 3.7.9 5.2-4.5-2.5-4.5 2.5.9-5.2-3.9-3.7 5.2-.7z";
 
 function MailIco({ d }: { d: string }) {
   return (
@@ -197,6 +201,7 @@ export default function Mail() {
   const [stageTarget, setStageTarget] = useState("");
   const [memoryBusy, setMemoryBusy] = useState<"summary" | "translation" | null>(null);
   const [composerText, setComposerText] = useState("");
+  const [localDraft, setLocalDraft] = useState<{ version: number; draft: ComposerDraftStash }>({ version: 0, draft: { text: "" } });
   const mailCompose = useMailComposeFlow({
     onApplyBody: setComposerText,
     onApplyAddresses: (from, to) => {
@@ -215,6 +220,13 @@ export default function Mail() {
   const [pane, setPane] = useState<MailPane>(() => (params.get("m") ? "detail" : "list"));
   const [busy, setBusy] = useState(false);
   const [folds, setFolds] = useState<Record<MailFoldKey, boolean>>(readMailFolds);
+  /** 沉浸式：左导航目录状态（星标 / 阶段筛选） */
+  const [starredOnly, setStarredOnly] = useState(false);
+  const [stageFilter, setStageFilter] = useState("");
+  /** 沉浸式：阅读区 AI 提问框输入 */
+  const [aiText, setAiText] = useState("");
+  const stageSectionRef = useRef<HTMLDivElement | null>(null);
+  const topSearchRef = useRef<HTMLInputElement | null>(null);
   const syncPollRef = useRef<number | null>(null);
   const syncPollGeneration = useRef(0);
   const startedRef = useRef<Set<string>>(new Set());
@@ -238,6 +250,8 @@ export default function Mail() {
     else if (tab === "unread") rows = rows.filter((row) => row.unread_count > 0);
     else if (tab === "read") rows = rows.filter((row) => row.unread_count <= 0);
     if (unboundOnly) rows = rows.filter((row) => row.match_state === "unbound");
+    if (starredOnly) rows = rows.filter((row) => starOverrides[row.id || row.conversation_id] ?? Boolean(row.starred));
+    if (stageFilter) rows = rows.filter((row) => String(row.stage_code || "") === stageFilter);
     const q = query.trim().toLowerCase();
     if (q) {
       rows = rows.filter((row) =>
@@ -245,7 +259,7 @@ export default function Mail() {
           .some((field) => String(field || "").toLowerCase().includes(q)));
     }
     return rows;
-  }, [conversations, tab, unboundOnly, query]);
+  }, [conversations, tab, unboundOnly, query, starredOnly, starOverrides, stageFilter]);
 
   const groups = useMemo(() => groupByPeer(visibleConversations), [visibleConversations]);
 
@@ -414,6 +428,7 @@ export default function Mail() {
       setKolStage(null);
       return;
     }
+    setKolStage(null);
     let cancelled = false;
     void api.mailCollaborationStage(conversationId)
       .then((res) => {
@@ -445,6 +460,7 @@ export default function Mail() {
       setPersonDigest(null);
       return;
     }
+    setPersonDigest(null);
     let cancelled = false;
     void loadMailPersonDigest(mailbox, peer)
       .then((digest) => {
@@ -688,8 +704,10 @@ export default function Mail() {
    * later navigation from prefilling another page's composer with it.
    */
   const applyLocalDraft = (draft: ComposerDraftStash) => {
-    applyComposerDraft(draft);
-    takeComposerDraftStash();
+    // The dock mounts lazily. Keep its first draft locally, never broadcast it
+    // to the retained workbench underneath the mail overlay.
+    setComposerText(draft.text || "");
+    setLocalDraft((current) => ({ version: current.version + 1, draft }));
   };
 
   /** 回复 / 生成回复 prefill the on-page composer; they never navigate away. */
@@ -767,6 +785,7 @@ export default function Mail() {
   const submitComposer = async (payload: ComposerSubmit) => {
     const text = String(payload.text || "").trim();
     if (!text || busy) return;
+    const binding = payload.intent === "mail_ask" ? null : stageChangeBinding;
     intakeCancelled.current = false;
     setBusy(true);
     setError("");
@@ -803,14 +822,14 @@ export default function Mail() {
         knowledge_id: payload.knowledge_id,
         // 通讯页阶段变更：文本里已有 @红人，再显式带上合作绑定，
         // 避免 handle 歧义导致 422 needs_clarification。
-        collaboration_id: payload.collaboration_id || stageChangeBinding?.collaboration_id,
+        collaboration_id: payload.collaboration_id || binding?.collaboration_id,
         entities: {
           ...(payload.entities || {}),
-          ...(stageChangeBinding
+          ...(binding
             ? {
-                handle: stageChangeBinding.handle,
-                ...(stageChangeBinding.targetCode
-                  ? { stage_code: stageChangeBinding.targetCode, proposed_stage: stageChangeBinding.targetCode }
+                handle: binding.handle,
+                ...(binding.targetCode
+                  ? { stage_code: binding.targetCode, proposed_stage: binding.targetCode }
                   : {}),
               }
             : {}),
@@ -960,6 +979,79 @@ export default function Mail() {
     setStarOverrides((prev) => ({ ...prev, [key]: next }));
   };
 
+  /** 行内星标：与 toggleStar 同一语义，作用于指定行。 */
+  const toggleStarOf = (row: MailConversation) => {
+    const key = row.id || row.conversation_id;
+    const next = !(starOverrides[key] ?? Boolean(row.starred));
+    void api.updateMailConversation(key, { starred: next });
+    setStarOverrides((prev) => ({ ...prev, [key]: next }));
+  };
+
+  /** 沉浸式：返回工作台（有历史则后退，否则回首页）。 */
+  const goBack = useCallback(() => {
+    if (Number(window.history.state?.idx || 0) > 0) nav(-1);
+    else nav("/", { replace: true });
+  }, [nav]);
+
+  /** 沉浸式：只聚焦会话（不展开时间线），供行内快捷操作使用。 */
+  const focusConversation = (row: MailConversation) => {
+    const next = new URLSearchParams(params);
+    next.set("c", row.conversation_id);
+    next.delete("m");
+    setParams(next, { replace: true });
+    setPane("detail");
+  };
+
+  /** 沉浸式：滚动到阶段变更区（独立动作，确认仍在原流程里做）。 */
+  const scrollToStage = () => {
+    setPane("detail");
+    requestAnimationFrame(() => stageSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+
+  /** 沉浸式：顶栏「写信」——空白写信，收发件按当前邮箱/会话自动带出。 */
+  const startBlankCompose = () => {
+    const ctx = mailContextOf();
+    setComposerText("");
+    setStageTarget("");
+    setLocalDraft((current) => ({ version: current.version + 1, draft: { text: "" } }));
+    setPane("detail");
+    void mailCompose.prepare({
+      body: "",
+      mailbox: ctx.mailbox,
+      conversation_id: ctx.conversation_id,
+      collaboration_id: ctx.collaboration_id,
+    });
+  };
+
+  /** 沉浸式键盘：j/k 移动选中，e 标记已读，/ 聚焦搜索，Esc 返回工作台。 */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      if (e.key === "Escape") {
+        if (!moreOpen && !el?.closest("[data-mi-dockfloat]")) goBack();
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        topSearchRef.current?.focus();
+        return;
+      }
+      const rows = visibleConversations;
+      if (e.key === "j" || e.key === "k") {
+        if (!rows.length) return;
+        const idx = rows.findIndex((r) => r.conversation_id === selectedConversation?.conversation_id);
+        const target = idx === -1 ? rows[0] : rows[e.key === "j" ? Math.min(idx + 1, rows.length - 1) : Math.max(idx - 1, 0)];
+        if (target) focusConversation(target);
+      } else if (e.key === "e") {
+        if (selectedConversation) markRead(selectedConversation);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
+
   const countOf = (row: MailConversation): number =>
     Number(row.message_count || 0) || (threads[row.conversation_id]?.messages.length ?? 0);
 
@@ -980,8 +1072,66 @@ export default function Mail() {
   const translation = String(currentMessage?.translation_zh || "").trim();
   const visibleLetters = lettersMore ? letters : letters.slice(0, TASK_CHIP_LIMIT);
 
+  /** 沉浸式：阶段筛选选项来自列表实际出现的 stage_code，不写死业务口径。 */
+  const stageOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    conversations.forEach((row) => {
+      const code = String(row.stage_code || "").trim();
+      if (code) map.set(code, (map.get(code) || 0) + 1);
+    });
+    return [...map.entries()].map(([code, count]) => ({ code, label: stageLabel(code) || code, count }));
+  }, [conversations]);
+  const unreadTotal = useMemo(() => conversations.filter((r) => r.unread_count > 0).length, [conversations]);
+  const starredTotal = useMemo(
+    () => conversations.filter((r) => starOverrides[r.id || r.conversation_id] ?? Boolean(r.starred)).length,
+    [conversations, starOverrides],
+  );
+  const folderLabel = tab === "sent" ? "发件箱" : starredOnly ? "星标" : tab === "unread" ? "未读" : tab === "read" ? "已读" : "收件箱";
+
+  /**
+   * 沉浸式 AI 问：发起瞬间从已加载的 thread/digest/阶段拼出实时上下文，
+   * 随问题走现有 composer intake 进 Codex 流程（CONST-07），不新增后端。
+   */
+  const buildAiContext = (): string => {
+    const lines = [`【实时上下文·通讯】当前邮箱：${activeBox || "未选择"}`];
+    const c = selectedConversation;
+    if (c) {
+      lines.push(`当前会话：${peerOf(c)}${c.peer_email ? ` <${c.peer_email}>` : ""}｜主题：${c.subject || "（无主题）"}`);
+      if (c.handle) lines.push(`绑定红人：@${String(c.handle).replace(/^@/, "")}`);
+      if (kolStage?.stage_label) lines.push(`合作阶段：${kolStage.stage_label}`);
+      else if (c.stage_code) lines.push(`合作阶段：${stageLabel(c.stage_code) || c.stage_code}`);
+      [...(detailThread?.messages || [])].sort((a, b) => occurredAtMs(a.occurred_at) - occurredAtMs(b.occurred_at)).slice(-3).forEach((m) => {
+        const dir = m.direction === "outbound" ? "我方发件" : "对方来信";
+        const body = String(m.snippet || m.body_text || "").replace(/\s+/g, " ").slice(0, 180);
+        if (body) lines.push(`- ${dir}：${body}`);
+      });
+      const digest = String(personDigest?.digest_text || "").replace(/\s+/g, " ").slice(0, 200);
+      if (digest) lines.push(`往来摘要：${digest}`);
+    } else {
+      lines.push(`列表共 ${visibleConversations.length} 个会话，未选中具体会话`);
+    }
+    return lines.join("\n");
+  };
+
+  const askAi = (raw: string) => {
+    const q = raw.trim();
+    if (!q || busy) return;
+    setAiText("");
+    void submitComposer({ text: `${q}\n\n${buildAiContext()}`, intent: "mail_ask" } as ComposerSubmit);
+  };
+
+  /** 沉浸式 AI 提问框携带的上下文 tag（让用户看得见 AI 知道多少）。 */
+  const aiCtxTag = selectedConversation
+    ? [
+        detailThread ? `${detailThread.messages.length} 封原文` : `${countOf(selectedConversation)} 封往来 · 原文未加载`,
+        personDigest?.digest_text ? "AI 摘要" : null,
+        selectedConversation.handle ? `@${String(selectedConversation.handle).replace(/^@/, "")}` : null,
+        kolStage?.stage_label || null,
+      ].filter(Boolean).join(" · ")
+    : "当前邮箱";
+
   return (
-    <div className="list-page mail-page" data-mail-page data-mail-source={workspace?.source || undefined}>
+    <div className="list-page mail-page mail-immersive" data-mail-page data-mail-immersive data-mail-source={workspace?.source || undefined}>
       {loadState === "loading" ? (
         <div className="mail-split mail-pane-skeleton" data-mail-state="loading" aria-busy="true">
           <div className="mail-list">
@@ -1008,8 +1158,8 @@ export default function Mail() {
       ) : null}
 
       {loadState === "ok" && bound ? (
-        <div className="mail-panes" role="group" aria-label="邮件面板" data-mail-panes>
-          {PANE_TABS.map((item) => (
+        <div className="mail-panes mi-panes" role="group" aria-label="邮件面板" data-mail-panes>
+          {PANE_TABS.filter((item) => item.key !== "interact").map((item) => (
             <button
               key={item.key}
               type="button"
@@ -1023,55 +1173,182 @@ export default function Mail() {
         </div>
       ) : null}
 
+      {(
+        <header className="mi-topbar" data-mi-topbar>
+          <button type="button" className="mi-back" data-mi-back onClick={goBack} title="返回工作台（Esc）">
+            <span aria-hidden="true">‹</span> 返回工作台
+          </button>
+          <h1 className="mi-title">通讯</h1>
+          <label className="mi-searchwrap">
+            <MailIco d={ICO_SPARKLE} />
+            <input
+              ref={topSearchRef}
+              className="mi-search"
+              data-mi-search
+              type="search"
+              aria-label="搜索通讯或回车问 AI"
+              placeholder="搜索联系人 / 主题 / 预览，回车问 AI"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) askAi(query);
+              }}
+            />
+          </label>
+          <span className="mi-sync" data-mi-sync>
+            <span className={"mi-syncdot" + (syncing ? " is-syncing" : "")} aria-hidden="true" />
+            {syncing ? "正在收取…" : box?.synced_at ? `已同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
+          </span>
+          <button type="button" className={"btn sm" + (mailCompose.active || composerText.trim() || busy ? " ghost" : " primary")} data-mi-compose disabled={loadState !== "ok" || !bound} onClick={startBlankCompose}>
+            ＋ 写信
+          </button>
+        </header>
+      )}
+
       {loadState === "ok" && bound ? (
-        <div className="mail-split" data-mail-state="ok" data-mail-pane-active={pane}>
-          <aside className="mail-list" data-mail-list data-mail-entry="list-mailbox-mail">
-            <div className="mail-list-top" data-mail-list-top>
-              <MailboxSwitcher
-                current={activeBox}
-                bindings={bindings}
-                syncing={syncing}
-                onSelect={openBox}
-                onSync={() => void sync()}
-                showSync={false}
-              />
-              <div className="mail-list-tools">
-                <div className="mail-search-row">
-                  <WorkspaceSearchInput
-                      className="mail-search-wrap mail-search"
-                      data-mail-search
-                      placeholder="搜索联系人 / 主题 / 预览"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                    />
+        <div className="mail-split mi-grid" data-mail-state="ok" data-mail-pane-active={pane === "interact" ? "detail" : pane}>
+          <nav className="mi-rail" aria-label="通讯导航" data-mi-rail>
+            <MailboxSwitcher
+              current={activeBox}
+              bindings={bindings}
+              syncing={syncing}
+              onSelect={openBox}
+              onSync={() => void sync()}
+              showSync={false}
+            />
+            <div className="mi-folders" role="tablist" aria-label="邮件目录">
+              <button
+                type="button" role="tab" aria-selected={tab === "inbox" && !starredOnly}
+                className={"mi-folder" + (tab === "inbox" && !starredOnly ? " is-on" : "")}
+                onClick={() => { setTab("inbox"); setStarredOnly(false); }}
+              >
+                <MailIco d={ICO_INBOX} />收件箱<span className="mi-count">{conversations.length}</span>
+              </button>
+              <button
+                type="button" role="tab" aria-selected={tab === "unread" && !starredOnly}
+                className={"mi-folder" + (tab === "unread" && !starredOnly ? " is-on" : "")}
+                onClick={() => { setTab("unread"); setStarredOnly(false); }}
+              >
+                <MailIco d={ICO_UNREAD} />未读<span className="mi-count">{unreadTotal}</span>
+              </button>
+              <button
+                type="button" role="tab" aria-selected={tab === "sent" && !starredOnly}
+                className={"mi-folder" + (tab === "sent" && !starredOnly ? " is-on" : "")}
+                onClick={() => { setTab("sent"); setStarredOnly(false); }}
+              >
+                <MailIco d={ICO_SENT} />发件箱
+              </button>
+              <button
+                type="button" role="tab" aria-selected={starredOnly}
+                className={"mi-folder" + (starredOnly ? " is-on" : "")}
+                onClick={() => setStarredOnly((v) => !v)}
+              >
+                <MailIco d={ICO_STAR} />星标<span className="mi-count">{starredTotal}</span>
+              </button>
+            </div>
+            <div className="mi-stages">
+              <p className="mail-pane-label">合作阶段筛选</p>
+              <div className="mi-stagechips">
+                <button
+                  type="button"
+                  className={"mi-stagechip" + (!stageFilter ? " is-on" : "")}
+                  aria-pressed={!stageFilter}
+                  onClick={() => setStageFilter("")}
+                >
+                  全部<span className="mi-count">{conversations.length}</span>
+                </button>
+                {stageOptions.map((opt) => (
                   <button
+                    key={opt.code}
                     type="button"
-                    className={"mail-filter-btn" + (unboundOnly ? " is-on" : "")}
-                    data-mail-filter-unbound
-                    aria-pressed={unboundOnly}
-                    title="只看未建档"
-                    onClick={() => setUnboundOnly((v) => !v)}
+                    className={"mi-stagechip" + (stageFilter === opt.code ? " is-on" : "")}
+                    aria-pressed={stageFilter === opt.code}
+                    onClick={() => setStageFilter((v) => (v === opt.code ? "" : opt.code))}
                   >
-                    <MailIco d={ICO_FILTER} />
+                    {opt.label}<span className="mi-count">{opt.count}</span>
                   </button>
-                </div>
-                <div className="mail-list-tabs" role="tablist" data-mail-list-tabs>
-                  {MAIL_TABS.map((item) => (
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={"mi-unboundonly" + (unboundOnly ? " is-on" : "")}
+              data-mail-filter-unbound
+              aria-pressed={unboundOnly}
+              onClick={() => setUnboundOnly((v) => !v)}
+            >
+              <MailIco d={ICO_FILTER} />只看未建档
+            </button>
+            {letters.length ? (
+              <div className="mi-letters">
+                <p className="mail-pane-label">{MAIL_COMPOSE_ACTION_COPY}</p>
+                <div className="mail-task-chips" data-mail-task-chips>
+                  {visibleLetters.map((letter) => (
                     <button
-                      key={item.key}
+                      key={letter.stage}
                       type="button"
-                      role="tab"
-                      aria-selected={tab === item.key}
-                      onClick={() => setTab(item.key)}
+                      className="mail-task-chip"
+                      data-mail-task-chip={letter.stage}
+                      title={letter.prompt}
+                      onClick={() => pickLetter(letter)}
                     >
-                      {item.label}
-                      {item.key === "inbox" && conversations.length > 0 ? (
-                        <span className="mail-count-pill">{conversations.length}</span>
-                      ) : null}
+                      {letter.chip}
                     </button>
                   ))}
+                  {letters.length > TASK_CHIP_LIMIT ? (
+                    <details
+                      className="mail-task-disclosure"
+                      open={lettersMore}
+                      onToggle={(event) => setLettersMore(event.currentTarget.open)}
+                    >
+                      <summary
+                        data-mail-task-more
+                        aria-expanded={lettersMore}
+                        title={lettersMore ? "收起更多邮件任务" : "查看全部邮件任务"}
+                      >
+                        <span>{lettersMore ? "收起" : "更多"}</span>
+                        <span className="mail-accordion-icon" aria-hidden="true">{lettersMore ? "▴" : "▾"}</span>
+                      </summary>
+                    </details>
+                  ) : null}
                 </div>
               </div>
+            ) : null}
+            <div className="mi-railfoot">
+              {workspace?.source === "fallback" ? (
+                <p className="muted" data-mail-fallback>
+                  通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
+                </p>
+              ) : null}
+              <div className="mail-list-statusbar">
+                <p className="muted mail-hero-meta" data-mail-box>
+                  {box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
+                  {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
+                </p>
+                <button
+                  type="button"
+                  className="mail-list-sync"
+                  data-mail-sync
+                  data-mail-entry="sync-mailbox-mail"
+                  disabled={syncing}
+                  onClick={() => void sync()}
+                >
+                  {syncing ? "正在收取…" : "收取"}
+                </button>
+                {syncJob && ["queued", "running", "retrying"].includes(syncJob.status) && <>
+                  <button type="button" className="mail-list-sync" onClick={() => void controlSync("cancel")}>取消同步</button>
+                  {!syncing && <button type="button" className="mail-list-sync" onClick={() => void pollForSync(syncJob.id)}>刷新状态</button>}
+                </>}
+                {syncJob?.status === "failed" && <button type="button" className="mail-list-sync" onClick={() => void controlSync("retry")}>重试同步</button>}
+              </div>
+              <p className="mi-keys muted">j/k 移动 · e 标为已读 · / 搜索 · Esc 返回</p>
+            </div>
+          </nav>
+
+          <aside className="mail-list" data-mail-list data-mail-entry="list-mailbox-mail">
+            <div className="mi-listhead" data-mi-listhead>
+              <strong>{folderLabel}</strong>
+              <span className="muted">{visibleConversations.length} 个会话</span>
             </div>
 
             <div className="mail-list-scroll" data-mail-list-scroll>
@@ -1099,7 +1376,22 @@ export default function Mail() {
                         const rows = expanded ? timelineOf(threads[row.conversation_id]?.messages || []) : [];
                         const newestId = rows[0]?.id || "";
                         return (
-                          <div key={row.id + row.conversation_id} className="mail-tree-conversation">
+                          <div key={row.id + row.conversation_id} className="mail-tree-conversation" data-mi-row>
+                            <div className="mi-hoverbar" data-mi-hoverbar>
+                              <button
+                                type="button" title="标记已读"
+                                onClick={(e) => { e.stopPropagation(); markRead(row); }}
+                              >✓</button>
+                              <button
+                                type="button" title="推进阶段"
+                                disabled={!row.collaboration_id}
+                                onClick={(e) => { e.stopPropagation(); focusConversation(row); scrollToStage(); }}
+                              >⇄</button>
+                              <button
+                                type="button" title={starredOf(row) ? "取消星标" : "加星标"}
+                                onClick={(e) => { e.stopPropagation(); toggleStarOf(row); }}
+                              >{starredOf(row) ? "★" : "☆"}</button>
+                            </div>
                             <ConversationItem
                               row={row}
                               expanded={expanded}
@@ -1135,134 +1427,31 @@ export default function Mail() {
             </div>
           </aside>
 
-          <section className="mail-interact" data-mail-interact>
-            {letters.length ? (
-              <div className="mail-interact-tasks">
-                <p className="mail-pane-label">{MAIL_COMPOSE_ACTION_COPY}</p>
-                <div className="mail-task-chips" data-mail-task-chips>
-                  {visibleLetters.map((letter) => (
-                    <button
-                      key={letter.stage}
-                      type="button"
-                      className="mail-task-chip"
-                      data-mail-task-chip={letter.stage}
-                      title={letter.prompt}
-                      onClick={() => pickLetter(letter)}
-                    >
-                      {letter.chip}
-                    </button>
-                  ))}
-                  {letters.length > TASK_CHIP_LIMIT ? (
-                    <details
-                      className="mail-task-disclosure"
-                      open={lettersMore}
-                      onToggle={(event) => setLettersMore(event.currentTarget.open)}
-                    >
-                      <summary
-                        data-mail-task-more
-                        aria-expanded={lettersMore}
-                        title={lettersMore ? "收起更多邮件任务" : "查看全部邮件任务"}
-                      >
-                        <span>{lettersMore ? "收起" : "更多"}</span>
-                        <span className="mail-accordion-icon" aria-hidden="true">{lettersMore ? "▴" : "▾"}</span>
-                      </summary>
-                    </details>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-            <div className="mail-interact-feedback" data-mail-interact-feedback>
-              {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
-              {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
-              {workspace?.source === "fallback" ? (
-                <p className="muted" data-mail-fallback>
-                  通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
-                </p>
-              ) : null}
-              <div className="mail-list-statusbar">
-                <p className="muted mail-hero-meta" data-mail-box>
-                  {box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
-                  {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
-                </p>
-                <button
-                  type="button"
-                  className="mail-list-sync"
-                  data-mail-sync
-                  data-mail-entry="sync-mailbox-mail"
-                  disabled={syncing}
-                  onClick={() => void sync()}
-                >
-                  {syncing ? "正在收取…" : "收取"}
-                </button>
-                {syncJob && ["queued", "running", "retrying"].includes(syncJob.status) && <>
-                  <button type="button" className="mail-list-sync" onClick={() => void controlSync("cancel")}>取消同步</button>
-                  {!syncing && <button type="button" className="mail-list-sync" onClick={() => pollForSync(syncJob.id)}>刷新状态</button>}
-                </>}
-                {syncJob?.status === "failed" && <button type="button" className="mail-list-sync" onClick={() => void controlSync("retry")}>重试同步</button>}
-              </div>
-            </div>
-            <div className="mail-interact-dock">
-              {kolStage ? (
-                <div className="mail-stage-change" data-mail-stage-change>
-                  <p className="mail-pane-label">合作红人阶段</p>
-                  <div className="mail-stage-change-row">
-                    <span>合作红人：</span>
-                    <button
-                      type="button"
-                      className="mail-stage-kol"
-                      data-mail-stage-kol
-                      title="点选后将提问框文本替换为该红人的阶段变更"
-                      onClick={applyStageChangeDraft}
-                    >
-                      @{kolStage.handle || kolStage.display_name}
-                    </button>
-                    <span className="muted" data-mail-stage-current>
-                      当前阶段：{kolStage.stage_label || kolStage.stage_code || "—"}
-                    </span>
-                  </div>
-                  <label className="mail-stage-target" data-mail-stage-target-wrap>
-                    <span>目标阶段</span>
-                    <select
-                      value={stageTarget}
-                      onChange={(event) => onStageTargetChange(event.target.value)}
-                      data-mail-stage-target
-                      aria-label="目标阶段"
-                    >
-                      <option value="">请选择目标阶段</option>
-                      {stageChangeTargets.map((item) => (
-                        <option key={item.code} value={item.code} title={item.note}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <p className="muted" data-mail-stage-hint>
-                    点红人将提问框文本替换为「提出阶段变更 @红人 到 …」；提交后在会话中确认，不直接改阶段。
-                  </p>
-                </div>
-              ) : null}
-              <ComposerDock
-                variant="workspace"
-                placement="dock"
-                value={composerText}
-                onChange={setComposerText}
-                onClearDraft={() => {
-                  setComposerText("");
-                  setStageTarget("");
-                  mailCompose.clear();
-                  takeComposerDraftStash();
-                }}
-                onSubmit={(payload) => void submitComposer(payload)}
-                disabled={busy}
-                running={busy}
-                onStop={stopIntake}
-                contextChips={composerChips}
-                mailCompose={mailCompose}
-              />
-            </div>
-          </section>
+
 
           <aside className="mail-detail" data-mail-side data-mail-thread data-mail-entry="open-mail-thread">
+            <div className="mi-threadbar" data-mi-threadbar>
+              <span className="mi-tsubject" title={selectedConversation?.subject || ""}>
+                {selectedConversation?.subject || "邮件详情"}
+              </span>
+              {selectedConversation?.handle ? (
+                <span className="mi-kolchip">@{String(selectedConversation.handle).replace(/^@/, "")}</span>
+              ) : null}
+              {kolStage?.stage_label ? (
+                <span className="mi-stagechip is-on">{kolStage.stage_label}</span>
+              ) : null}
+              <span className="mi-tspacer" />
+              <button
+                type="button"
+                className="btn ghost sm"
+                data-mi-goto-stage
+                disabled={!kolStage}
+                title={kolStage ? "跳转到阶段变更" : "未绑定合作红人"}
+                onClick={scrollToStage}
+              >
+                ⇄ 推进阶段
+              </button>
+            </div>
             <div className="mail-detail-head">
               <div className="mail-thread-head">
                 <h2>
@@ -1439,7 +1628,130 @@ export default function Mail() {
                 </div>
               ) : null}
             </MailFold>
+            <div className="mi-stagewrap" ref={stageSectionRef} data-mi-stagewrap>
+                            {kolStage ? (
+                              <div className="mail-stage-change" data-mail-stage-change>
+                                <p className="mail-pane-label">合作红人阶段</p>
+                                <div className="mail-stage-change-row">
+                                  <span>合作红人：</span>
+                                  <button
+                                    type="button"
+                                    className="mail-stage-kol"
+                                    data-mail-stage-kol
+                                    title="点选后将提问框文本替换为该红人的阶段变更"
+                                    onClick={applyStageChangeDraft}
+                                  >
+                                    @{kolStage.handle || kolStage.display_name}
+                                  </button>
+                                  <span className="muted" data-mail-stage-current>
+                                    当前阶段：{kolStage.stage_label || kolStage.stage_code || "—"}
+                                  </span>
+                                </div>
+                                <label className="mail-stage-target" data-mail-stage-target-wrap>
+                                  <span>目标阶段</span>
+                                  <select
+                                    value={stageTarget}
+                                    onChange={(event) => onStageTargetChange(event.target.value)}
+                                    data-mail-stage-target
+                                    aria-label="目标阶段"
+                                  >
+                                    <option value="">请选择目标阶段</option>
+                                    {stageChangeTargets.map((item) => (
+                                      <option key={item.code} value={item.code} title={item.note}>
+                                        {item.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <p className="muted" data-mail-stage-hint>
+                                  点红人将提问框文本替换为「提出阶段变更 @红人 到 …」；提交后在会话中确认，不直接改阶段。
+                                </p>
+                              </div>
+                            ) : null}
+
+            </div>
+            <div className="mi-aibar" data-mi-aibar>
+              {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
+              {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
+              <div className="mi-airow">
+                <span className="mi-spark" aria-hidden="true">✦</span>
+                <input
+                  className="mi-aiinput"
+                  data-mi-aiinput
+                  value={aiText}
+                  aria-label="就当前会话问 AI"
+                  placeholder="就当前会话问 AI，回车进入 Codex…"
+                  onChange={(e) => setAiText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) askAi(aiText);
+                  }}
+                />
+                {busy ? (
+                  <button type="button" className="btn ghost sm" data-mi-aistop onClick={stopIntake}>停止</button>
+                ) : null}
+                <span className="mi-ctx" title="本次提问携带的实时上下文">{aiCtxTag}</span>
+              </div>
+              <div className="mi-aichips">
+                <button type="button" className="mi-aichip" data-mi-ai-summary
+                  disabled={memoryBusy !== null || !selectedConversation}
+                  onClick={() => void generateMailMemory("summary")}>
+                  {memoryBusy === "summary" ? "生成中…" : "生成摘要"}
+                </button>
+                <button type="button" className="mi-aichip" data-mi-ai-translate
+                  disabled={memoryBusy !== null || !currentMessage}
+                  onClick={() => void generateMailMemory("translation")}>
+                  {memoryBusy === "translation" ? "生成中…" : "中文翻译"}
+                </button>
+                <button type="button" className="mi-aichip" data-mi-ai-reply
+                  disabled={!selectedConversation} onClick={generateReply}>
+                  起草回复
+                </button>
+                <button type="button" className="mi-aichip" data-mi-ai-analyze
+                  disabled={!selectedConversation || busy} onClick={() => void analyze()}>
+                  快速分析
+                </button>
+              </div>
+            </div>
           </aside>
+        </div>
+      ) : null}
+
+      {(mailCompose.active || composerText.trim() || busy) && loadState === "ok" && bound ? (
+        <div className="mi-dockfloat" data-mi-dockfloat>
+          <div className="mi-dockfloat-head">
+            <span>{mailCompose.active ? "写合作邮件" : "任务提问"}</span>
+            <button
+              type="button" className="mi-dockfloat-close" title="关闭"
+              disabled={busy}
+              onClick={() => {
+                mailCompose.clear();
+                setComposerText("");
+                setStageTarget("");
+                setLocalDraft((current) => ({ version: current.version + 1, draft: { text: "" } }));
+              }}
+            >✕</button>
+          </div>
+          <ComposerDock
+            key={localDraft.version}
+            initialDraft={localDraft.draft}
+            variant="workspace"
+            placement="dock"
+            value={composerText}
+            onChange={setComposerText}
+            onClearDraft={() => {
+              setComposerText("");
+              setStageTarget("");
+              setLocalDraft((current) => ({ ...current, draft: { text: "" } }));
+              mailCompose.clear();
+              takeComposerDraftStash();
+            }}
+            onSubmit={(payload) => void submitComposer(payload)}
+            disabled={busy}
+            running={busy}
+            onStop={stopIntake}
+            contextChips={composerChips}
+            mailCompose={mailCompose}
+          />
         </div>
       ) : null}
 

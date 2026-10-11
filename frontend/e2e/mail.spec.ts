@@ -118,7 +118,7 @@ test("sidebar 通讯 sits under 定时任务 and /mail uses board fallback", asy
   await expect(page.locator('[data-mail-thread-row="u-9"] [data-mail-unbound-chip]')).toHaveText("未建档");
   await expect(page.locator("[data-mail-page]")).not.toContainText("下一步");
   await expect(page.locator("[data-mail-page]")).not.toContainText("历史邮件往来摘要");
-  await page.locator("[data-mail-search]").fill("zzzz-没有这封邮件");
+  await page.locator("[data-mi-search]").fill("zzzz-没有这封邮件");
   await expect(page.locator("[data-mail-empty-list]")).toHaveText("没有匹配的会话。");
   expect(sessionPosts).toEqual([]);
 });
@@ -149,6 +149,7 @@ test("未建档会话的快速分析只提示，不入队", async ({ page }) => 
     await route.fulfill({ status: 201, json: { creates_session: false } });
   });
   await page.goto("/mail?box=larry.zhao@amperetime.com&c=u-9");
+  if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
   await page.locator("[data-mail-analyze]").click();
   await expect(page.locator("[data-mail-notice]")).toContainText("未建档，无法入队分析。");
   await expect(page).toHaveURL(/\/mail\?/);
@@ -191,6 +192,7 @@ const FORMAL_CONVERSATION = {
   // The real GET /api/queries/mail.conversations LEFT JOINs collaborations and returns these.
   kol_uid: "KOL_X",
   handle: "小美妆日记",
+  stage_code: "QUOTE_PENDING",
 };
 
 const FORMAL_THREAD = {
@@ -307,6 +309,7 @@ test("通讯阶段变更点红人、选目标后提交显式合作与阶段绑�
   }));
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-stage-current]")).toHaveText("当前阶段：报价待确认");
+  await page.locator("[data-mi-ai-reply]").click();
   await page.locator("[data-composer-input]").fill("已有的其它草稿");
   await page.locator("[data-mail-stage-kol]").click();
   await expect(page.locator("[data-composer-input]")).toHaveValue("提出阶段变更 @小美妆日记 到 [目标阶段]");
@@ -368,6 +371,7 @@ test("回复 prefills the on-page composer; 快速分析 enqueues on click witho
 
   // 回复 stays on /mail and only fills the 提问框 in place.
   await page.goto("/mail?c=3901");
+  if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
   await page.locator("[data-mail-reply]").click();
   await expect(page).toHaveURL(/\/mail\?/);
   await expect(page.locator("[data-composer-draft-chip='mailbox']")).toContainText("larry.zhao@amperetime.com");
@@ -385,6 +389,7 @@ test("回复 prefills the on-page composer; 快速分析 enqueues on click witho
 
   // 快速分析 is the action itself: the click enqueues, with no send and no session.
   const enqueue = page.waitForRequest((request) => request.url().includes("/api/home/kol-analyze/enqueue"));
+  if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
   await page.locator("[data-mail-analyze]").click();
   const body = JSON.parse((await enqueue).postData() || "{}");
   // analyzePeopleOf sends the record uid and its handle, exactly like the old page.
@@ -410,6 +415,7 @@ test("L3 uses each message title instead of the L2 conversation subject", async 
 test("context chips insert at the saved selection and × only dismisses that chip", async ({ page }) => {
   await mockFormalMail(page);
   await page.goto("/mail?c=3901");
+  if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
   await page.locator("[data-mail-reply]").click();
 
   const input = page.locator("[data-composer-input]");
@@ -482,6 +488,7 @@ test("composer submit opens the run session and never the home page", async ({ p
     await route.fulfill({ json: { task: { id: "tsk_9" }, session_id: "ses_9" } });
   });
   await page.goto("/mail?c=3901");
+  await page.locator("[data-mi-ai-reply]").click();
   await page.locator("textarea").fill("写合作邮件");
   await page.locator("[data-send]").click();
   await expect(page).toHaveURL(/\/s\/ses_9/);
@@ -566,17 +573,19 @@ test("右栏三个折叠可按，点邮件自动展开原文", async ({ page }) 
   await expect(page.locator("[data-mail-fold='summary']")).toContainText("往来摘要");
   await expect(page.locator("[data-mail-fold='translation']")).toContainText("中文翻译");
   await expect(page.locator("[data-mail-fold='original']")).toContainText("原文");
-  await expect(page.locator("[data-mail-digest-tag]")).toContainText("AI 生成");
-  await expect(page.locator("[data-mail-digest-tag]")).toContainText("codex");
+  await expect(page.locator("[data-mail-summary-card]")).toHaveAttribute("data-summary-source", "codex_memory");
+  await expect(page.locator("[data-digest-label]")).toHaveText("往来要点");
 
-  // 逐个可折叠。
+  // D7 默认翻译/原文收起，先显式展开，再验证可折叠。
+  await expect(page.locator("[data-mail-fold-head='translation']")).toHaveAttribute("aria-expanded", "false");
+  await page.locator("[data-mail-fold-head='translation']").click();
+  await expect(page.locator("[data-mail-translation]")).toBeVisible();
   await page.locator("[data-mail-fold-head='translation']").click();
   await expect(page.locator("[data-mail-fold-head='translation']")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("[data-mail-translation]")).toBeHidden();
   await page.locator("[data-mail-fold-head='translation']").click();
   await expect(page.locator("[data-mail-translation]")).toBeVisible();
 
-  await page.locator("[data-mail-fold-head='original']").click();
   await expect(page.locator("[data-mail-fold-head='original']")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("[data-mail-content]")).toBeHidden();
 
@@ -631,51 +640,47 @@ test("当前邮箱没有绑定行时，切换器仍然报出这个邮箱", async
   await expect(page.locator("[data-mail-box-current]")).not.toContainText("eu@litime.com");
 });
 
-test("four independent mail rails place mailbox controls in the second rail", async ({ page }) => {
+test("immersive mail renders topbar plus rail/list/detail columns", async ({ page }) => {
   await mockFormalMail(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
   await page.locator("[data-mail-timeline-item]").first().click();
 
-  // No cross-rail header remains: the application rail plus the three mail rails
-  // start as one independent four-column workbench.
-  await expect(page.locator("[data-mail-page] .mail-hero")).toHaveCount(0);
-  const navigation = await page.locator(".sidebar").boundingBox();
-  const list = await page.locator("[data-mail-list]").boundingBox();
-  const interact = await page.locator("[data-mail-interact]").boundingBox();
-  const side = await page.locator("[data-mail-side]").boundingBox();
-  expect(navigation && list && navigation.x < list.x).toBeTruthy();
-  expect(list?.width).toBeGreaterThanOrEqual(260);
-  expect(list?.width).toBeLessThanOrEqual(345);
-  expect(interact?.width).toBeGreaterThan(0);
-  expect(side?.width).toBeGreaterThanOrEqual(320);
-  expect(list?.y).toBe(interact?.y);
-  expect(interact?.y).toBe(side?.y);
+  // 沉浸式：全屏覆盖工作台，顶栏带返回 / 搜索 / 写信。
+  await expect(page.locator("[data-mail-immersive]")).toBeVisible();
+  await expect(page.locator("[data-mi-back]")).toContainText("返回工作台");
+  await expect(page.locator("[data-mi-search]")).toBeVisible();
+  await expect(page.locator("[data-mi-compose]")).toBeVisible();
 
-  await expect(page.locator("[data-mail-list-top] [data-mail-box-current]")).toBeVisible();
-  const footer = await page.locator("[data-mail-list-footer]").boundingBox();
-  const status = page.locator("[data-mail-list-footer] [data-mail-box]");
-  const sync = page.locator("[data-mail-list-footer] [data-mail-sync]");
-  const statusBox = await status.boundingBox();
-  const syncBox = await sync.boundingBox();
-  expect(footer && list && Math.abs((footer.y + footer.height) - (list.y + list.height))).toBeLessThanOrEqual(1);
-  expect(statusBox && syncBox && statusBox.x < syncBox.x).toBeTruthy();
-  expect(statusBox && syncBox && Math.abs(
-    (statusBox.y + statusBox.height / 2) - (syncBox.y + syncBox.height / 2),
-  )).toBeLessThanOrEqual(1);
-  const [statusFontSize, syncFontSize, syncHeight] = await Promise.all([
-    status.evaluate((el) => getComputedStyle(el).fontSize),
-    sync.evaluate((el) => getComputedStyle(el).fontSize),
-    sync.evaluate((el) => getComputedStyle(el).height),
-  ]);
-  expect(syncFontSize).toBe(statusFontSize);
-  expect(syncHeight).toBe("24px");
+  // 三栏：左导航 / 会话列表 / 阅读，同一起点、各自滚动。
+  const rail = await page.locator("[data-mi-rail]").boundingBox();
+  const list = await page.locator("[data-mail-list]").boundingBox();
+  const side = await page.locator("[data-mail-side]").boundingBox();
+  expect(rail && list && rail.x < list.x).toBeTruthy();
+  expect(list && side && list.x < side.x).toBeTruthy();
+  expect(rail?.width).toBeGreaterThanOrEqual(200);
+  expect(list?.width).toBeGreaterThanOrEqual(360);
+  expect(list?.width).toBeLessThanOrEqual(440);
+  expect(side?.width).toBeGreaterThanOrEqual(320);
+  expect(rail?.y).toBe(list?.y);
+  expect(list?.y).toBe(side?.y);
+
+  // 邮箱切换器在左导航顶部；同步状态收进左导航底部。
+  await expect(page.locator("[data-mi-rail] [data-mail-box-current]")).toBeVisible();
+  await expect(page.locator("[data-mi-rail] [data-mail-box]")).toContainText("同步");
+  await expect(page.locator("[data-mi-rail] [data-mail-sync]")).toBeVisible();
+
+  // 阅读区：sticky 阶段条 + AI 提问框 + 阶段变更区。
+  await expect(page.locator("[data-mi-threadbar]")).toBeVisible();
+  await expect(page.locator("[data-mi-aibar]")).toBeVisible();
+  await expect(page.locator("[data-mi-aiinput]")).toBeVisible();
+  await expect(page.locator("[data-mi-stagewrap]")).toBeAttached();
 
   const scrollModes = await page.locator(
-    ".sidebar-scroll, [data-mail-list-scroll], [data-mail-interact], [data-mail-side]",
+    "[data-mi-rail], [data-mail-list-scroll], [data-mail-side]",
   ).evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).overflowY));
-  expect(scrollModes).toEqual(["auto", "auto", "auto", "auto"]);
+  expect(scrollModes).toEqual(["auto", "auto", "auto"]);
 
   const selected = page.locator("[data-mail-timeline-item][data-mail-selected='true']");
   await expect(selected).toHaveCount(1);
@@ -691,16 +696,10 @@ test("≤1100px 单栏用页级面板切换，选邮件自动进详情", async (
 
   const switcher = page.locator("[data-mail-panes]");
   await expect(switcher).toBeVisible();
-  await expect(switcher.locator("[data-mail-pane]")).toHaveCount(3);
+  await expect(switcher.locator("[data-mail-pane]")).toHaveCount(2);
   await expect(page.locator("[data-mail-pane='list']")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-mail-list]")).toBeVisible();
-  await expect(page.locator("[data-mail-interact]")).toBeHidden();
   await expect(page.locator("[data-mail-side]")).toBeHidden();
-
-  await page.locator("[data-mail-pane='interact']").click();
-  await expect(page.locator("[data-mail-interact]")).toBeVisible();
-  await expect(page.locator("[data-mail-list]")).toBeHidden();
-  await expect(page.locator("[data-mail-pane='interact']")).toHaveAttribute("aria-pressed", "true");
 
   // 选一封邮件 → 自动切到详情：正文与折叠面板都够得着（三栏时不应重复渲染）。
   await page.locator("[data-mail-pane='list']").click();
@@ -753,6 +752,7 @@ test("停止 intake 只停本页等待，并说明任务仍会落在服务器", 
     });
   });
   await page.goto("/mail?c=3901");
+  await page.locator("[data-mi-ai-reply]").click();
   await page.locator("textarea").fill("写合作邮件");
   await page.locator("[data-send]").click();
   await expect(page.locator("[data-stop-run]")).toBeVisible();
@@ -827,14 +827,15 @@ test("保留的 data-mail-* 契约全部渲染", async ({ page }) => {
     "[data-mail-page]",
     "[data-mail-panes]",
     "[data-mail-pane='list']",
-    "[data-mail-pane='interact']",
     "[data-mail-pane='detail']",
     "[data-mail-source='api']",
     "[data-mail-list]",
     "[data-mail-entry='list-mailbox-mail']",
-    "[data-mail-search]",
+    "[data-mi-search]",
+    "[data-mi-back]",
+    "[data-mi-compose]",
+    "[data-mi-rail]",
     "[data-mail-filter-unbound]",
-    "[data-mail-list-tabs]",
     "[data-mail-correspondent]",
     "[data-mail-thread-count]",
     "[data-mail-thread-row]",
@@ -845,7 +846,10 @@ test("保留的 data-mail-* 契约全部渲染", async ({ page }) => {
     "[data-mail-selected]",
     "[data-mail-time]",
     "[data-mail-read-state]",
-    "[data-mail-interact]",
+    "[data-mi-threadbar]",
+    "[data-mi-stagewrap]",
+    "[data-mi-aibar]",
+    "[data-mi-aiinput]",
     "[data-mail-task-chip]",
     "[data-mail-side]",
     "[data-mail-thread]",
@@ -859,7 +863,6 @@ test("保留的 data-mail-* 契约全部渲染", async ({ page }) => {
     "[data-digest-label]",
     "[data-digest-body]",
     "[data-summary-source='codex_memory']",
-    "[data-mail-digest-tag]",
     "[data-mail-translation]",
     "[data-mail-translation-for]",
     "[data-mail-content]",
@@ -900,7 +903,7 @@ test("首屏骨架保留三栏形状", async ({ page }) => {
 });
 
 test("a long person digest is clamped with an expand toggle", async ({ page }) => {
-  const longDigest = "去信寒暄跟进，尚未落到报价、档期或明确兴趣。".repeat(12);
+  const longDigest = "去信寒暄跟进，尚未落到报价、档期或明确兴趣。".repeat(50);
   await mockFormalMail(page, { ...PERSON_DIGEST, digest_text: longDigest });
   await page.goto("/mail?c=3901");
 
@@ -959,3 +962,115 @@ test("mail sync cancellation uses the job action and preserves a truthful status
   await expect(page.getByText("已取消后续同步，已读取的数据保留。", { exact: true })).toBeVisible();
   await expect(page.locator("[data-mail-sync]")).toBeEnabled();
 });
+
+// 沉浸式交付验收：模拟 API 的浏览器测试，不冒充真实 Codex/外发验收。
+test("沉浸式阶段和星标筛选即时更新，取消星标即时移出", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.route("**/api/queries/mail.conversations**", (route) => route.fulfill({ json: {
+    mailbox: FORMAL_BOX.mailbox, conversations: [FORMAL_CONVERSATION, {
+      ...FORMAL_CONVERSATION, id: "thr_other", conversation_id: "3902", peer_email: "other@example.com",
+      peer_name: "Other", handle: "Other", stage_code: "NEGOTIATING", starred: true,
+    }],
+  } }));
+  await page.route("**/api/actions/mail.star", (route) => route.fulfill({ json: { ok: true } }));
+  await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mi-listhead]")).toContainText("2 个会话");
+  await page.locator(".mi-stagechips button").filter({ hasText: "商务谈判" }).click();
+  await expect(page.locator("[data-mi-listhead]")).toContainText("1 个会话");
+  await expect(page.locator("[data-mail-correspondent]")).toContainText("other@example.com");
+  await page.locator(".mi-stagechips button").filter({ hasText: "全部" }).click();
+  await page.locator(".mi-folder").filter({ hasText: "星标" }).click();
+  await expect(page.locator("[data-mi-listhead]")).toContainText("1 个会话");
+  await page.locator("[data-mail-correspondent]").click();
+  await page.locator("[data-mi-row]").hover();
+  await page.locator('[data-mi-hoverbar] button[title="取消星标"]').click();
+  await expect(page.locator("[data-mi-listhead]")).toContainText("0 个会话");
+});
+
+test("自由 AI 提问按时间取最新三封且不继承阶段草稿绑定", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.route("**/api/queries/mail.collaboration-stage?**", (route) => route.fulfill({ json: {
+    found: true, collaboration_id: "col_xiaomei", handle: "小美妆日记", stage_code: "QUOTE_PENDING", stage_label: "报价待确认",
+  } }));
+  await page.route("**/api/queries/mail.conversation?**", (route) => route.fulfill({ json: {
+    ...FORMAL_THREAD, messages: [5, 4, 3, 2, 1].map((day) => ({
+      ...FORMAL_THREAD.messages[0], id: `m${day}`, occurred_at: `2026-10-0${day}T10:00:00Z`, snippet: `NEWEST-MARK-${day}`,
+    })),
+  } }));
+  const payloads: Record<string, unknown>[] = [];
+  await page.route("**/api/tasks/from-text", (route) => {
+    payloads.push(route.request().postDataJSON());
+    return route.fulfill({ json: { task: { id: "tsk_ai" } } });
+  });
+  await page.route("**/api/tasks/tsk_ai/run", (route) => route.fulfill({ status: 202, json: { session_id: "ses_ai" } }));
+  await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(5);
+  await page.locator("[data-mail-stage-kol]").click();
+  await page.locator("[data-mail-stage-target]").selectOption("NEGOTIATING");
+  await page.locator("[data-mi-dockfloat-close], .mi-dockfloat-close").click();
+  await page.locator("[data-mi-aiinput]").fill("请分析这次合作");
+  await page.locator("[data-mi-aiinput]").press("Enter");
+  await expect(page).toHaveURL(/\/s\/ses_ai/);
+  expect(payloads).toHaveLength(1);
+  const payload = payloads[0];
+  expect(payload.intent).toBe("mail_ask");
+  expect(payload.collaboration_id).toBeUndefined();
+  expect(payload.entities).toEqual({});
+  const text = String(payload.text);
+  expect(text).toContain("请分析这次合作");
+  expect(text).toContain("报价待确认");
+  expect(text).toContain("NEWEST-MARK-5");
+  expect(text).toContain("NEWEST-MARK-4");
+  expect(text).toContain("NEWEST-MARK-3");
+  expect(text).not.toContain("NEWEST-MARK-2");
+  expect(text).not.toContain("NEWEST-MARK-1");
+});
+
+test("顶栏搜索只过滤，中文输入法回车不误提交，Esc 无应用历史回首页", async ({ page }) => {
+  await mockFormalMail(page);
+  let posts = 0;
+  await page.route("**/api/tasks/from-text", (route) => { posts += 1; return route.fulfill({ json: {} }); });
+  await page.goto("/mail?c=3901");
+  const search = page.locator("[data-mi-search]");
+  await search.fill("zzzz");
+  await expect(page.locator("[data-mail-empty-list]")).toBeVisible();
+  await search.evaluate((el) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, isComposing: true })));
+  expect(posts).toBe(0);
+  await search.press("Escape");
+  await expect(page).not.toHaveURL(/\/mail/);
+});
+
+test("打开通讯和局部写信后返回，工作台 DOM、草稿与滚动原位保留", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.goto("/cron");
+  await expect(page.locator('[data-nav="mail"]')).toBeVisible();
+  await page.locator("[data-cron-page]").evaluate((el) => { el.setAttribute("data-retained-probe", "same-node"); });
+  await page.locator('[data-nav="mail"]').click();
+  await expect(page.locator("[data-mail-background]")).toHaveAttribute("inert", "");
+  await page.locator("[data-mi-ai-reply]").click();
+  await expect(page.locator("[data-mi-dockfloat] [data-composer-input]")).toHaveValue(/回复草稿/);
+  await page.locator("[data-mi-back]").click();
+  await expect(page).toHaveURL(/\/cron$/);
+  await expect(page.locator("[data-cron-page]")).toHaveAttribute("data-retained-probe", "same-node");
+  await expect(page.locator("[data-mail-immersive]")).toHaveCount(0);
+});
+
+for (const viewport of [{ width: 375, height: 667 }, { width: 768, height: 1024 }, { width: 1280, height: 720 }, { width: 1920, height: 1080 }, { width: 1280, height: 400 }]) {
+  test(`沉浸式渲染 ${viewport.width}x${viewport.height} 无越界且写信可关闭`, async ({ page }, testInfo) => {
+    await mockFormalMail(page);
+    await page.setViewportSize(viewport);
+    await page.goto("/mail?c=3901");
+    await expect(page.locator("[data-mi-search]")).toBeVisible();
+    const root = await page.locator("[data-mail-immersive]").boundingBox();
+    expect(root?.x).toBe(0); expect(root?.y).toBe(0);
+    expect(root?.width).toBe(viewport.width); expect(root?.height).toBe(viewport.height);
+    if (viewport.width <= 1100) await page.locator('[data-mail-pane="detail"]').click();
+    await page.locator("[data-mi-ai-reply]").click();
+    const dock = await page.locator("[data-mi-dockfloat]").boundingBox();
+    expect(dock && dock.x >= 0 && dock.x + dock.width <= viewport.width).toBeTruthy();
+    expect(dock && dock.y >= 0 && dock.y + dock.height <= viewport.height).toBeTruthy();
+    await page.screenshot({ path: testInfo.outputPath(`mail-${viewport.width}x${viewport.height}.png`), fullPage: false });
+    await page.locator(".mi-dockfloat-close").click();
+    await expect(page.locator("[data-mi-dockfloat]")).toHaveCount(0);
+  });
+}

@@ -12,6 +12,7 @@ import { DEMO_USER } from "../src/config.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { mailPreview } from "../src/host/mail-preview.js";
 import { letterSummaryRecord } from "../src/host/mail-summary.js";
+import { listMailboxConversations } from "../src/host/mail-memory.js";
 import { matchesFollowedMailbox, saveStarryBinding } from "../src/host/starry-bind.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -529,15 +530,37 @@ describe("mailbox memory P0", () => {
     expect(opened.body.digest_text).toBe("两封往来摘要");
   });
 
-  it("returns kol_uid/handle on the conversation list so the page needs no board fetch", async () => {
+  it("projects collaboration stage_code through the PostgreSQL mailbox list and conversation route", async () => {
     bindLarry();
-    await ensureFollowedMailSync(true);
+    getConn().prepare("UPDATE collaborations SET stage_code=? WHERE id='col_xiaomei'")
+      .run("QUOTE_PENDING");
+    const now = new Date().toISOString();
+    // This is a real row in the fresh PostgreSQL test database. Keeping the
+    // projection test local avoids making a read-path assertion depend on the
+    // separate external-mail synchronization fixture.
+    getConn().prepare(
+      `INSERT INTO kol_mail_threads
+         (id, collaboration_id, conversation_id, subject, mailbox, unread_count, last_at, match_state, created_at, updated_at)
+       VALUES ('thr_stage_projection', 'col_xiaomei', 'stage-3901', 'Stage projection', 'larry.zhao@amperetime.com', 0, ?, 'matched', ?, ?)`,
+    ).run(now, now, now);
+    // listMailboxConversations runs the LIST_COLUMNS PostgreSQL query and maps
+    // every row through conversationRowOf before the HTTP operation sees it.
+    const mailboxThread = listMailboxConversations("larry.zhao@amperetime.com")
+      .find((row) => row.conversation_id === "stage-3901");
+    expect(mailboxThread).toMatchObject({
+      collaboration_id: "col_xiaomei",
+      stage_code: "QUOTE_PENDING",
+    });
+
     const listed = await request("GET", "/api/queries/mail.conversations");
-    const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
+    expect(listed.status).toBe(200);
+    expect(Array.isArray(listed.body.conversations)).toBe(true);
+    const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "stage-3901");
     expect(thread).toMatchObject({
       collaboration_id: "col_xiaomei",
       kol_uid: "KOL51DA646D8D8A4544BB93",
       handle: "小美妆日记",
+      stage_code: "QUOTE_PENDING",
     });
   });
 

@@ -110,6 +110,7 @@ export function normalizeConversation(raw: Record<string, unknown>, mailbox = ""
     digest_text: text(raw.digest_text) || undefined,
     kol_uid: text(raw.kol_uid) || undefined,
     handle: text(raw.handle) || undefined,
+    stage_code: text(raw.stage_code) || undefined,
   };
 }
 

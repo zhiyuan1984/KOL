@@ -2,6 +2,31 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-11：通讯页沉浸式全屏（三栏 + AI 提问框双入口）
+
+- **状态**：已接受（用户 2026-10-11 对 Gmail 截图评审后逐项确认 D1–D7，`干` = 整包采纳）。
+- **背景**：通讯页 (`/mail`) 嵌在工作台三栏（列表/任务提问/详情）里，阅读宽度被挤压；Gmail 式「找→读→回」一屏闭环值得借，但标签膨胀、会话堆叠、推广混入三个坑不借。用户要求：点「通讯」进全局沉浸式全屏，返回箭头回工作台。
+- **审宪记录**：需求 → 主责角色（UI/UX 专家布局导航 + 前端专家实现 + 智能体产品经理 AI 入口契约）→ 宪法条款（CONST-07 AI 提问框进 Codex 思考流程；CONST-05 外发/阶段变更走已发布确认；CONST-04 前端不重写业务规则）→ 基本法（DESIGN.md 布局 token；ia-information-architecture.md §1.1 不新增路由/强制跳转；AGENTS.md 关键不变量）→ **结论：符合，带两处修正**：①自由文本 AI 问复用现有 composer intake（from-text→run→`/s/`），不自建直调链路；②P2「发送后联动阶段」违反「发送 ≠ 推进阶段」不变量，改为写信时 sticky 阶段条常驻、推进阶段保持独立动作与独立确认 → 下一步：实施。
+- **决定**：
+  1. `/mail` 路由不动，页面自身渲染为 `position: fixed` 全屏覆盖层（工作台保留在底下，返回零状态丢失）；顶栏 `‹ 返回工作台`（历史后退，无历史回 `/`），Esc 同效。
+  2. 三栏：左导航（MailboxSwitcher 迁移 + 目录/未读/发件箱/星标 + 合作阶段筛选 + 只看未建档 + 快捷写信 + 同步状态）/ 会话列表（400px，悬停快捷操作：标为已读/推进阶段/星标）/ 阅读（sticky 阶段条 + 三折叠 + 阶段变更区 + AI 提问框）。
+  3. 阶段筛选选项来自列表实际 `stage_code`（`stageLabel` 口径），不写死四档；后端只加一列：`LIST_COLUMNS` 追加已 JOIN 的 `collaborations.stage_code`（`conversationRowOf` 透传，前端 `normalizeConversation` 透传）。
+  4. AI 提问框双入口：顶栏搜索（输入过滤列表，回车问 AI）+ 阅读区 AI 条（✦ 输入 + 上下文 tag + 生成摘要/中文翻译/起草回复/快速分析四个显式技能 chip）；自由文本发起瞬间前端拼出实时上下文（thread 最新 3 封/digest/阶段/红人）随问题进 Codex，零后端改动。
+  5. 写信/提问 ComposerDock 改为右下浮层（Gmail 式），仅在 `mailCompose.active || composerText || busy` 时挂载。
+  6. D7：三折叠默认摘要展开、翻译/原文收起（`readMailFolds` 默认值；用户已存偏好不受影响）。
+  7. e2e `mail.spec.ts` 同步更新（interact 面板相关断言改为 rail/threadbar/aibar；`[data-mail-list-footer]` 在源码中不存在，属旧测试 stale，一并修正）。
+- **理由**：CONST-07（AI 问走 Codex）；CONST-10（阶段筛选/归档等不用占位冒充——归档后端无能力，不做；hover 只有已存在的三个动作）；「发送 ≠ 推进阶段」不变量。
+- **限制**：真机渲染与 PG 集成待用户环境；`GET /api/events` 仍读 SQLite 与本 patch 无关。
+
+### 同日走查追记：背景路由保留、草稿隔离和 PG 透传
+
+- **审查链**：需求「真机渲染走查 + PG stage_code 透传」→ 前端专家、UI/UX 专家、后端专家、测试经理 → CONST-04/05/07/10、TECH-FE-01/03、TECH-BE-01、TECH-TEST-01/03、DESIGN 三轴适配 → **符合**：仅修呈现和读投影，不放松外发/阶段确认与身份边界。
+- **修正**：`fixed` 本身只覆盖壳层，不能保留被路由卸载的页面。App 对从工作台进入 `/mail` 的场景保留背景 location 和页面实例，并将背景 inert；原有深链保持。返回按 React Router 历史 idx 判定，不按浏览器总历史长度误退站外。
+- **草稿**：延迟挂载 ComposerDock 时同步广播会丢首个技能芯片，还会污染背景工作台。改用邮件局部 initialDraft，不发布全局草稿事件；关闭/空白写信清理本地锁。自由 `mail_ask` 不继承正在编辑的阶段变更绑定；中文输入法确认键不提交。
+- **事实**：阶段/星标筛选补齐 memo 依赖；AI 最近三封显式按时间排序；切会话清理上一人的摘要与阶段；手机、平板、矮屏增加可滚动区域、触摸命中区、键盘焦点与减弱动效。
+- **PG 边界**：真实隔离 PostgreSQL 已证明 `c.stage_code → conversationRowOf → listMailboxConversations → GET /api/queries/mail.conversations`。`KOL_RUNTIME_MODE=postgres-only` 的专用 app 当前邮件端点为 `503 workbench_identity_provider_required`；不能把兼容邮件读路径的通过声明为 PG-only 邮件可用，也不绕过身份门禁挂载 legacy 路由。
+- **未执行**：物理手机/员工电脑操作、真实 Codex 回答、实际邮件外发、正式阶段写入、生产部署；浏览器接口夹具与真实 PG 读投影证据分别记录。
+
 ## ADR-2026-10-09：发现去重评分 v8 累积补丁增量集成
 
 - **范围**：用户要求合并附件 `discovery-dedup-score-from-212cd3b6(8).patch` 到 main、push 并部署。main 已含 v7、精确身份核对、真实 UID 归属迁移及持久化候选评分，故采用三方合并，仅纳入 v8 新增行为，不用旧基线的累积文件覆盖新实现。

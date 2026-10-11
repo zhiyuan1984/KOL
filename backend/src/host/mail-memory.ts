@@ -31,6 +31,7 @@ export type ConversationRow = {
   digest_text?: string;
   kol_uid?: string;
   handle?: string;
+  stage_code?: string;
 };
 
 export type MessageRow = {
@@ -123,6 +124,7 @@ export function conversationRowOf(row: Row | Json): ConversationRow {
     ...(digestText ? { digest_text: digestText } : {}),
     ...(row.kol_uid ? { kol_uid: String(row.kol_uid) } : {}),
     ...(row.handle ? { handle: String(row.handle) } : {}),
+    ...(row.stage_code ? { stage_code: String(row.stage_code) } : {}),
   };
 }
 
@@ -261,7 +263,7 @@ export function setConversationStarred(threadId: string, starred: boolean): void
 const LIST_COLUMNS = `t.id, t.mailbox, t.conversation_id, t.collaboration_id, t.match_state, t.subject,
        t.peer_email, t.peer_name, t.last_from, t.last_from_name, t.last_at, t.last_direction, t.last_preview,
        t.unread_count, t.starred, t.last_receipt, t.digest_source,
-       c.kol_uid, c.handle, IFNULL(mc.message_count, 0) AS message_count`;
+       c.kol_uid, c.handle, c.stage_code, IFNULL(mc.message_count, 0) AS message_count`;
 
 const LIST_JOINS = `FROM kol_mail_threads t
          LEFT JOIN collaborations c ON c.id=t.collaboration_id

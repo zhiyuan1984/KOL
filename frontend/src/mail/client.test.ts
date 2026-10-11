@@ -69,6 +69,7 @@ describe("mail client vs PR #177 shapes", () => {
       unread_count: 2,
       last_receipt: "",
       digest_source: "body_analysis",
+      stage_code: "QUOTE_PENDING",
     });
     expect(row).toMatchObject({
       id: "thr_1",
@@ -76,6 +77,7 @@ describe("mail client vs PR #177 shapes", () => {
       match_state: "matched",
       last_preview: "想和贵品牌litime合作",
       digest_source: "body_analysis",
+      stage_code: "QUOTE_PENDING",
     });
   });
 

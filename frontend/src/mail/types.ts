@@ -54,6 +54,7 @@ export type MailConversation = {
   digest_text?: string;
   kol_uid?: string;
   handle?: string;
+  stage_code?: string;
 };
 
 /** GET /api/queries/mail.conversation?id=:id messages[] — MessageRow */

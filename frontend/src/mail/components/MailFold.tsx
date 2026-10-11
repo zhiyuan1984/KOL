@@ -6,9 +6,10 @@ export const MAIL_FOLD_KEYS: MailFoldKey[] = ["summary", "translation", "origina
 
 const STORE_PREFIX = "mail:fold:";
 
-/** Fold state is remembered per block; a missing key means "open". */
+/** Fold state is remembered per block; missing keys use the D7 defaults. */
 export function readMailFolds(): Record<MailFoldKey, boolean> {
-  const folds = { summary: true, translation: true, original: true } as Record<MailFoldKey, boolean>;
+  // D7（沉浸式通讯）：摘要默认展开置顶，翻译/原文默认收起；用户手动改过则尊重 localStorage。
+  const folds = { summary: true, translation: false, original: false } as Record<MailFoldKey, boolean>;
   for (const key of MAIL_FOLD_KEYS) {
     try {
       const raw = localStorage.getItem(STORE_PREFIX + key);

@@ -1,6 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useRef } from "react";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, type Location } from "react-router-dom";
 import Workbench from "./layout/Workbench";
 import AuthGate, { useAccount } from "./components/AuthGate";
 import { ViewModeProvider } from "./viewMode";
@@ -43,13 +43,17 @@ function HomeEntry() {
   return postgresOnly ? <Navigate to="/tasks" replace /> : <Home />;
 }
 
-export default function App() {
-  return (
-    <RouteErrorBoundary label="app">
-      <Suspense fallback={<RouteFallback />}>
-        <Routes>
-          <Route path="/share/:token" element={<SharedSession />} />
-          <Route path="*" element={<AuthGate><ViewModeProvider><Suspense fallback={<RouteFallback />}><Routes>
+/** Only mail is an overlay: freeze the previous location and its mounted page.
+ * Direct /mail links keep their existing route; other deep links are unchanged. */
+function WorkbenchRoutes() {
+  const location = useLocation();
+  const previous = useRef<Location | null>(null);
+  const onMail = location.pathname === "/mail";
+  if (!onMail) previous.current = location;
+  const background = onMail ? previous.current : null;
+  return <>
+        <div style={{ display: "contents" }} inert={!!background} aria-hidden={background ? true : undefined} data-mail-background={background ? true : undefined}>
+        <Routes location={background || location}>
           <Route element={<Workbench />}>
             <Route path="/" element={<HomeEntry />} />
             <Route path="/work" element={<Navigate to="/" replace />} />
@@ -81,7 +85,19 @@ export default function App() {
             <Route path="/settings" element={<AccountSettings />} />
             <Route path="/admin/*" element={<AdminConsole />} />
           </Route>
-        </Routes></Suspense></ViewModeProvider></AuthGate>} />
+        </Routes>
+        </div>
+        {background ? <Suspense fallback={<RouteFallback />}><Mail /></Suspense> : null}
+  </>;
+}
+
+export default function App() {
+  return (
+    <RouteErrorBoundary label="app">
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/share/:token" element={<SharedSession />} />
+          <Route path="*" element={<AuthGate><ViewModeProvider><Suspense fallback={<RouteFallback />}><WorkbenchRoutes /></Suspense></ViewModeProvider></AuthGate>} />
         </Routes>
       </Suspense>
     </RouteErrorBoundary>
