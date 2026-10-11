@@ -1,65 +1,42 @@
-# 全局布局实施登记
+# 全局布局覆盖登记
 
-基线 c6a8cb37。状态以最终报告为准；这里列结构迁移，不代替真实用户任务或生产能力验证。
+基线：`c6a8cb37`。本文件登记结构范围；最终运行结果以验收报告和对应日志为准。统一的是同类信息阅读规则，不是把所有页面强制改成相同结构。
 
-## 实际路由基线
+## 实际路由分母
 
-- `/`
-- `/work`
-- `/s/:id`
-- `/tasks`
-- `/tasks/:taskId`
-- `/leads`
-- `/cooperations`
-- `/pipeline`
-- `/cron`
-- `/cron/:jobId`
-- `/mail`
-- `/skills`
-- `/agents/:id`
-- `/agents`
-- `/teams`
-- `/kb`
-- `/market/skills`
-- `/partners`
-- `/market/kb`
-- `/exam/:assignmentId`
-- `/exam`
-- `/approvals/:id`
-- `/approvals/legacy`
-- `/reviews/:id`
-- `/approvals`
-- `/admin/approval-types/legacy`
-- `/admin/approval-types`
-- `/settings`
-- `/admin/*`
-- `/share/:token`
-- `*`
-
-
-## 本批组件入口
-
-| 页面组件 | 结构处理 |
+| 范围 | 当前入口 |
 |---|---|
-| AccountSettings.tsx | 共享模式已接入 |
-| Tasks.tsx | 共享模式已接入 |
-| Mail.tsx | 共享模式已接入 |
-| Leads.tsx | 共享模式已接入 |
-| Cooperations.tsx | 共享模式已接入 |
-| Knowledge.tsx | 共享模式已接入 |
-| Approvals.tsx | 共享模式已接入 |
-| Reviews.tsx | 既有表格/子组件保留 |
-| AdminConsole.tsx | 既有表格/子组件保留 |
-| AdminAgents.tsx | 共享模式已接入 |
-| AdminWorkOrders.tsx | 共享模式已接入 |
-| AdminOntology.tsx | 共享模式已接入 |
+| 工作与任务 | `/`、`/work`、`/s/:id`、`/tasks`、`/tasks/:taskId` |
+| 经营跟进 | `/leads`、`/cooperations`、`/pipeline`、`/partners` |
+| 通讯与计划 | `/mail`、`/cron`、`/cron/:jobId` |
+| 能力与知识 | `/skills`、`/agents`、`/agents/:id`、`/teams`、`/kb`、`/market/skills`、`/market/kb` |
+| 审批与考试 | `/approvals`、`/approvals/:id`、`/approvals/legacy`、`/reviews/:id`、`/exam`、`/exam/:assignmentId` |
+| 治理与个人环境 | `/settings`、`/admin/*`、`/admin/approval-types`、`/admin/approval-types/legacy` |
+| 分享与兜底 | `/share/:token`、`*` |
 
-个人设置六类由SettingsPanels、StarryBindForm、MemorySettings、PrivacySettings接入；人员目录卡保留成熟紧凑结构；EmployeeDirectoryV2绑定详情及EmployeeEditDialog接入。
+`/admin/*`是管理子路由集合，不把一个通配符算作所有管理页面已完成。
 
-## 保留/未迁移
+## 本批实际处理
 
-Home/Chat协作工作区、发现、公海、我跟进、Pipeline、定时任务、数字员工/技能浏览、考试、运营报表、调度监控、成本、管理知识生命周期/动态审批表单、连接器向导继续用其专业组件；本批不强压布局。连接器配置已采用局部横向标签，正文/headers/动态动作JSON为复杂例外。没有新建组织/品牌/区域维护页面；这些引用在本体/组织/偏好入口保持现行职责。非本批接口未进行全站安全审计。
+| 页面/组件 | 本批实现 | 保留边界 |
+|---|---|---|
+| 设置六分类 | 资料属性左右排列；偏好/密码横向短表单；邮箱、记忆、本人对话接入共享记录行 | 合法默认、分类取数、失败、确认、未保存保护和账号回执继续保留 |
+| 任务中心 | 共享短属性与原44px任务行共存 | 任务状态、查询、业务工单范围不变 |
+| 通讯 | 同步记录、动作与联系人属性复用共享模式 | 正文、收信、回复确认、原邮箱权限不变 |
+| 线索/合作 | 摘要记录和详情属性复用；长线索名可聚焦展开 | 阶段、请求、筛选与业务动作不变 |
+| 知识 | 来源属性复用 | 分类与完整正文不压成单行 |
+| 审批详情 | 当前ReviewDetail及旧Approvals展示属性复用 | 现行Reviews表格和动态审批表单保留 |
+| 人员 | EmployeeEditDialog短字段横向布局 | EmployeeDirectoryV2目录卡与绑定详情完整恢复基线；保持紧凑卡、32px头像及全部原几何/确认断言 |
+| Agent | 治理属性与非表格记录复用 | 技能折叠、发布、绑定预览/撤销不变 |
+| 工单/本体 | 只读属性与适用短字段复用 | Table、长审批依据、执行与发布门禁不变 |
+| 管理留存 | 原生短字段横向布局 | 敏感策略原确认与写入不变 |
 
-实际迁移细节与例外见九份migration-*.md；这些代理报告的本地缺node_modules为初步状态，最终真实类型及浏览器门禁以后续主任务日志为准。
+## 专业例外与未迁移
 
-最终人员边界：EmployeeDirectoryV2完整恢复生产基线，包含目录卡与绑定详情；本批只改EmployeeEditDialog短字段横向布局。未迁移绑定详情明确保留，不宣称共享模式已接入。人员原有几何、完整Agent展开及确认测试保留。
+Home/Chat协作工作区、发现、公海、我跟进、Pipeline、定时任务、数字员工/技能浏览、考试、运营报表、调度监控、成本、管理知识生命周期、动态审批表单、连接器向导维持专业组件。本批没有新建公司/组织/品牌/区域维护页，也没有改主数据、schema或授权事实源。
+
+人员目录强制RecordRow迁移在真实几何门禁出现646px拉伸，因此已撤回。人员目录及绑定详情不是本批共享迁移成绩；原Card与原测试保留。共享模式不是为了覆盖率数字而破坏达标组件。
+
+## 证据口径
+
+九份迁移报告为实施过程材料，其中初步缺依赖或静态测试不代表最终门禁。最终真实TypeScript、单元、编译产物浏览器回归、生产只读验收以后续主任务日志为准。未做真人任务效率实验、全站后端安全审计和所有专业页面200%缩放验证；不得宣称全站完成或全站零泄露。

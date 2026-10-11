@@ -281,6 +281,7 @@ test("business entry freezes the read source in the same employee draft", async 
 });
 test("AI draft result shows its gaps and opens the employee draft without submitting", async ({ page }) => {
   const f = await fixture(page);
+  await page.route("**/api/queries/runtime.actions?**", route => route.fulfill({ json: { actions: [] } }));
   await page.route("**/api/sessions/review-ai**", route => {
     if (new URL(route.request().url()).pathname.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: "" });
     return route.fulfill({ json: { id: "review-ai", agent_status: "listening", messages: [{ id: "ai-draft", role: "assistant", kind: "task_result_card", created_at: "2026-10-09T00:00:00Z", payload: { type: "task_result", artifact_type: "review_draft", review_draft_id: "restored", review_company: "test", source_session_id: "review-ai", title: "审批申请草稿", summary: "R2 草稿已保存，尚未提交。", sections: [{ title: "待补充与核对", items: ["补充原始材料"] }], recommended_actions: [{ label: "核对申请草稿", href: "/approvals?draft=restored&reviewCompany=test&session=review-ai" }] } }] } });
