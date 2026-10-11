@@ -17,6 +17,7 @@ import { MailFold, MAIL_FOLD_KEYS, readMailFolds, writeMailFold, type MailFoldKe
 import { MailboxSwitcher } from "../mail/components/MailboxSwitcher";
 import { MailTimelineItem, type MailReadState } from "../mail/components/MailTimelineItem";
 import { PlainText } from "../mail/components/PlainText";
+import { ActionGroup, PropertyList, RecordRow, TruncatableText } from "../components/InformationLayout";
 import { isAnalyzeEnqueuePrefill, mailAnalyzeDraft, mailReplyDraft } from "../mail/composerDraft";
 import { formatMailTime } from "../mail/format";
 import { firstConversationOf, groupByPeer } from "../mail/groups";
@@ -24,6 +25,7 @@ import { selectedConversationOf, selectedMessageOf, timelineOf } from "../mail/s
 import { occurredAtMs } from "../mail-time";
 import { pipelineStageTargets, type PipelineStageTarget } from "../stageTargets";
 import { stageLabel } from "../labels";
+import "./global-layout-mail.css";
 import {
   MAIL_ANALYZE_PREFILL_PREFIX,
   MAIL_ANALYZE_UNBOUND_COPY,
@@ -1320,27 +1322,29 @@ export default function Mail() {
                   通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
                 </p>
               ) : null}
-              <div className="mail-list-statusbar">
-                <p className="muted mail-hero-meta" data-mail-box>
-                  {box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
-                  {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
-                </p>
-                <button
-                  type="button"
-                  className="mail-list-sync"
-                  data-mail-sync
-                  data-mail-entry="sync-mailbox-mail"
-                  disabled={syncing}
-                  onClick={() => void sync()}
-                >
-                  {syncing ? "正在收取…" : "收取"}
-                </button>
-                {syncJob && ["queued", "running", "retrying"].includes(syncJob.status) && <>
-                  <button type="button" className="mail-list-sync" onClick={() => void controlSync("cancel")}>取消同步</button>
-                  {!syncing && <button type="button" className="mail-list-sync" onClick={() => void pollForSync(syncJob.id)}>刷新状态</button>}
-                </>}
-                {syncJob?.status === "failed" && <button type="button" className="mail-list-sync" onClick={() => void controlSync("retry")}>重试同步</button>}
-              </div>
+              <RecordRow
+                className="mail-sync-record"
+                title="邮箱状态"
+                meta={<span className="muted mail-hero-meta" data-mail-box>{box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}</span>}
+                status={<span>未读 {Number(box?.total_unread ?? box?.unread ?? 0)}</span>}
+                actions={<ActionGroup className="mail-sync-actions">
+                  <button
+                    type="button"
+                    className="mail-list-sync"
+                    data-mail-sync
+                    data-mail-entry="sync-mailbox-mail"
+                    disabled={syncing}
+                    onClick={() => void sync()}
+                  >
+                    {syncing ? "正在收取…" : "收取"}
+                  </button>
+                  {syncJob && ["queued", "running", "retrying"].includes(syncJob.status) && <>
+                    <button type="button" className="mail-list-sync" onClick={() => void controlSync("cancel")}>取消同步</button>
+                    {!syncing && <button type="button" className="mail-list-sync" onClick={() => void pollForSync(syncJob.id)}>刷新状态</button>}
+                  </>}
+                  {syncJob?.status === "failed" && <button type="button" className="mail-list-sync" onClick={() => void controlSync("retry")}>重试同步</button>}
+                </ActionGroup>}
+              />
               <p className="mi-keys muted">j/k 移动 · e 标为已读 · / 搜索 · Esc 返回</p>
             </div>
           </nav>
@@ -1431,9 +1435,7 @@ export default function Mail() {
 
           <aside className="mail-detail" data-mail-side data-mail-thread data-mail-entry="open-mail-thread">
             <div className="mi-threadbar" data-mi-threadbar>
-              <span className="mi-tsubject" title={selectedConversation?.subject || ""}>
-                {selectedConversation?.subject || "邮件详情"}
-              </span>
+              <TruncatableText className="mi-tsubject" text={selectedConversation?.subject || "邮件详情"} />
               {selectedConversation?.handle ? (
                 <span className="mi-kolchip">@{String(selectedConversation.handle).replace(/^@/, "")}</span>
               ) : null}
@@ -1468,10 +1470,15 @@ export default function Mail() {
                   </button>
                 </h2>
                 {detailPeer ? (
-                  <p className="muted" data-mail-thread-sub>
-                    {detailPeer}
-                    {detailPeerEmail && detailPeerEmail !== detailPeer ? ` · ${detailPeerEmail}` : ""}
-                  </p>
+                  <PropertyList
+                    className="mail-detail-properties"
+                    data-mail-thread-sub
+                    labelWidth="short"
+                    items={[
+                      { key: "peer", label: "联系人", value: detailPeer },
+                      ...(detailPeerEmail && detailPeerEmail !== detailPeer ? [{ key: "email", label: "邮箱", value: detailPeerEmail }] : []),
+                    ]}
+                  />
                 ) : null}
               </div>
               <div className="mail-mobiletabs" role="tablist" data-mail-mobiletabs>
@@ -1570,7 +1577,7 @@ export default function Mail() {
                 </p>
               )}
               {selectedConversation ? (
-                <div className="mail-thread-actions" data-mail-thread-actions>
+                <ActionGroup className="mail-thread-actions" data-mail-thread-actions>
                   <button type="button" className="btn ghost" data-mail-reply onClick={reply}>
                     <MailIco d={ICO_REPLY} />
                     回复
@@ -1625,7 +1632,7 @@ export default function Mail() {
                       </div>
                     ) : null}
                   </div>
-                </div>
+                </ActionGroup>
               ) : null}
             </MailFold>
             <div className="mi-stagewrap" ref={stageSectionRef} data-mi-stagewrap>

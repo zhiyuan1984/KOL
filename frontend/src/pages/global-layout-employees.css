@@ -1,0 +1,11 @@
+/* Preserve the mature compact employee cards; adapt only binding details and edit forms. */
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-records,
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-preview-records { display: grid; gap: var(--space-1); }
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-record,
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-preview-record { padding-inline: 0; border-inline: 0; border-radius: 0; background: transparent; }
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-record .ui-record-detail { padding-block: var(--space-1) 0; }
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-record .ui-properties { margin: 0; }
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-source { color: var(--text-quiet); }
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-inherited { color: var(--text-quiet); font-size: var(--ds-font-xs); white-space: nowrap; }
+:is([data-admin-employees], .employee-dialog-layer[data-employee-dialog='bind']) .employee-binding-preview { display: grid; gap: var(--space-1); }
+.employee-dialog-layer .employee-form-grid.ui-native-form { grid-template-columns: minmax(0, 1fr); }

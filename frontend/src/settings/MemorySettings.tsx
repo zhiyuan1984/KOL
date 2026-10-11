@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Button, Checkbox, Drawer, Form, Input, Modal, Pagination } from 'antd';
 import { api } from '../api';
+import { ActionGroup, HorizontalForm, RecordRow, TruncatableText } from '../components/InformationLayout';
 import { memoryDeleteConfirm } from '../adminConfirm';
 import type { SettingsReceipt } from '../settingsReceipt';
 import { settingsError } from '../settingsClient';
@@ -32,14 +33,11 @@ export function MemorySettings({ onDirty, onReceipt }: DirtyProps & { onReceipt:
     <div className="settings-list-tools"><Input.Search aria-label="搜索记忆" placeholder="搜索记忆" value={query} allowClear onChange={e => { setQuery(e.target.value); setPage(1); }} /><Button type={editing ? 'text' : 'primary'} className={editing ? '' : 'settings-primary'} onClick={() => open({ enabled: true, scope: 'private', editable: true })}>新建记忆</Button></div>
     <LoadState {...result} retry={result.reload}>
       {!rows.length && <p className="settings-help">{query ? '没有匹配的记忆。' : '尚无记忆。可以记录下次任务需要复用的偏好。'}</p>}
-      {rows.slice((page - 1) * 10, page * 10).map(memory => <div className="settings-list-row" key={memory.id}>
-        <div><span>{memory.title || '未命名记忆'}</span><p className="settings-help">{memory.scope === 'team' ? '团队共享' : '仅自己'} · {memory.enabled === false ? '已停用' : '已启用'}</p></div>
-        <div className="settings-row-actions"><Button type="text" onClick={() => open(memory)}>{memory.editable === false ? '查看' : '编辑'}</Button>{memory.editable !== false && <Button type="text" danger disabled={busy} data-memory-delete={memory.id} onClick={() => void remove(memory)}>删除</Button>}</div>
-      </div>)}
+      {rows.slice((page - 1) * 10, page * 10).map(memory => <RecordRow key={memory.id} data-memory-row={memory.id} title={<TruncatableText text={memory.title || '未命名记忆'} />} meta={memory.scope === 'team' ? '团队共享' : '仅自己'} status={memory.enabled === false ? '已停用' : '已启用'} actions={<ActionGroup><Button type="text" onClick={() => open(memory)}>{memory.editable === false ? '查看' : '编辑'}</Button>{memory.editable !== false && <Button type="text" danger disabled={busy} data-memory-delete={memory.id} onClick={() => void remove(memory)}>删除</Button>}</ActionGroup>} />)}
       {rows.length > 10 && <Pagination current={page} total={rows.length} pageSize={10} showSizeChanger={false} onChange={setPage} />}
     </LoadState>{!editing && <FeedbackLine value={feedback} />}
     <Drawer title={editing?.id ? '记忆详情' : '新建记忆'} open={Boolean(editing)} onClose={() => void close()} className="settings-memory-drawer" width="min(100vw, var(--drawer-w-sm))" destroyOnHidden maskClosable={!changed && !busy} keyboard={!busy} afterOpenChange={visible => { if (visible) form.setFieldsValue({ title: '', body_md: '', enabled: true, ...editing }); }}>
-      <Form form={form} layout="vertical" disabled={busy || editing?.editable === false} onValuesChange={() => { setChanged(true); onDirty(true); setFeedback(null); }} onFinish={async values => {
+      <HorizontalForm form={form} disabled={busy || editing?.editable === false} onValuesChange={() => { setChanged(true); onDirty(true); setFeedback(null); }} onFinish={async values => {
         setBusy(true); setFeedback(null);
         try {
           const body = { title: String(values.title), body_md: String(values.body_md), scope: editing?.scope || 'private', enabled: Boolean(values.enabled) };
@@ -50,12 +48,12 @@ export function MemorySettings({ onDirty, onReceipt }: DirtyProps & { onReceipt:
         finally { setBusy(false); }
       }}>
         <Form.Item label="标题" name="title" rules={[{ required: true, whitespace: true, message: '请填写标题。' }]}><Input /></Form.Item>
-        <Form.Item label="内容" name="body_md" rules={[{ required: true, whitespace: true, message: '请填写内容。' }]}><Input.TextArea rows={7} /></Form.Item>
-        <Form.Item name="enabled" valuePropName="checked"><Checkbox>在适用任务中使用</Checkbox></Form.Item>
+        <Form.Item className="ui-field-stacked" label="内容" name="body_md" rules={[{ required: true, whitespace: true, message: '请填写内容。' }]}><Input.TextArea rows={7} /></Form.Item>
+        <Form.Item name="enabled" label="使用状态" valuePropName="checked"><Checkbox>在适用任务中使用</Checkbox></Form.Item>
         <p className="settings-help">{editing?.scope === 'team' ? '这条记忆保留原有团队范围；个人设置不扩大共享范围。' : '仅自己可见，不改变企业资料和业务权限。'}</p>
         {editing?.version && <details className="settings-details"><summary>版本信息</summary><p>版本 {editing.version}</p></details>}
         <FeedbackLine value={feedback} />{editing?.editable !== false && <Button htmlType="submit" type="primary" className="settings-primary" loading={busy}>保存记忆</Button>}
-      </Form>
+      </HorizontalForm>
     </Drawer>{holder}
   </section>;
 }

@@ -5,6 +5,17 @@ import { emptyReviewDefinition } from "../../shared/review";
 
 /** Browser interaction fixtures only; authenticated persistence is tested in review-api.test.ts. */
 async function fixture(page: Page) {
+  if (process.env.GLOBAL_LAYOUT_TEST) {
+    const account = { id: "layout-admin", name: "测试管理员", roles: ["admin"], available_modes: ["employee", "admin"] };
+    await page.route("**/api/**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/api/auth/status") return route.fulfill({ json: { authenticated: true, account, user: account } });
+      if (path === "/api/me") return route.fulfill({ json: account });
+      if (path === "/api/preferences") return route.fulfill({ json: { theme: "light" } });
+      if (path.startsWith("/api/tasks/by-session/")) return route.fulfill({ status: 404, json: { error: "task_not_found" } });
+      return route.fulfill({ json: [] });
+    });
+  }
   const definition = emptyReviewDefinition();
   definition.name = "内容评审";
   definition.fields = [
@@ -682,5 +693,18 @@ test("money configuration and employee submission preserve exact decimal strings
   await expect(main.getByText(/回执 receipt/)).toBeVisible();
   expect(f.commands[0].command).toMatchObject({
     values: { content: { amount: "9007199254740993.01", currency: "CNY" } },
+  });
+});
+
+// Global-layout gate uses a Vite-only server: explicitly stub common authentication.
+test.beforeEach(async ({ page }) => {
+  if (!process.env.GLOBAL_LAYOUT_TEST) return;
+  const account = { id: "layout-admin", name: "测试管理员", roles: ["admin"], available_modes: ["employee", "admin"] };
+  await page.route("**/api/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/status") return route.fulfill({ json: { authenticated: true, account, user: account } });
+    if (path === "/api/me") return route.fulfill({ json: account });
+    if (path === "/api/preferences") return route.fulfill({ json: { theme: "light" } });
+    return route.fulfill({ json: [] });
   });
 });

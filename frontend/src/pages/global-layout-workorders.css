@@ -1,0 +1,62 @@
+/* Page-only composition for AdminWorkOrders; shared dimensions stay in information-layout.css. */
+.work-order-governance .work-order-source-detail {
+  margin-top: var(--space-1);
+}
+
+.work-order-governance .work-order-source-properties,
+.work-order-governance .work-order-template-detail .ui-properties {
+  margin-top: var(--space-2);
+}
+
+.work-order-governance .work-order-source-detail > p,
+.work-order-governance .work-order-template-detail > p {
+  margin: var(--space-2) 0 0;
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-helper);
+  overflow-wrap: anywhere;
+}
+
+.work-order-governance .work-order-template-title {
+  display: block;
+  min-width: 0;
+}
+
+.work-order-governance .work-order-template-detail > summary {
+  cursor: pointer;
+}
+
+.work-order-governance .work-order-template-actions {
+  justify-content: flex-end;
+}
+
+.work-order-governance .work-order-binding-form .ant-form-item {
+  margin-bottom: var(--space-2);
+}
+
+.work-order-governance .work-order-binding-form .ant-form-item-control-input-content > :is(input:not([type="checkbox"]), select, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-h-form);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+
+.work-order-governance .work-order-binding-form .ant-form-item-control-input-content > textarea {
+  resize: vertical;
+}
+
+.work-order-governance .work-order-binding-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}

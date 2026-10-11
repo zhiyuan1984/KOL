@@ -140,14 +140,16 @@ async function stubAgentBackend(page: Page, seed: AgentRow[]) {
       agent.version += 1;
       return route.fulfill({ json: agent });
     }
-    if (method === "POST" && sub === "bindings" && sub2 === "preview") {
+    if (method === "POST" && sub === "bindings" && sub2 === "bulk-preview") {
       const input = body();
       state.previews.push(input);
       const agent = find(id);
       if (!agent) return route.fulfill({ status: 404, json: { detail: "Agent 不存在" } });
-      const targetId = String(input.target_id || input.user_id || "");
+      const targets = Array.isArray(input.targets) ? input.targets as Json[] : [];
+      const target = targets[0] || {};
+      const targetId = String(target.target_id || target.user_id || "");
       const added: Json[] = [];
-      if (input.target_type === "organization_unit" && targetId === "org:lt_team") {
+      if (target.target_type === "organization_unit" && targetId === "org:lt_team") {
         added.push({
           person_ref: "person:ye_guanwang", user_id: "usr_lead", display_name: "叶观旺", via: "unit_head",
           via_unit_id: "org:lt_team", via_unit_display_name: "LT组", binding_id: "binding-kol-lt",
@@ -165,14 +167,18 @@ async function stubAgentBackend(page: Page, seed: AgentRow[]) {
         },
       });
     }
-    if (method === "POST" && sub === "bindings" && !sub2) {
+    if (method === "POST" && sub === "bindings" && sub2 === "bulk") {
       const input = body();
       state.binds.push(input);
       const agent = find(id);
       if (!agent) return route.fulfill({ status: 404, json: { detail: "Agent 不存在" } });
-      const bindingId = input.target_type === "organization_unit" && input.target_id === "org:lt_team" ? "binding-kol-lt" : `binding-${agent.bindings.length + 1}`;
+      const targets = Array.isArray(input.targets) ? input.targets as Json[] : [];
+      const target = targets[0] || {};
+      const targetType = String(target.target_type || "person");
+      const targetId = String(target.target_id || target.user_id || "");
+      const bindingId = targetType === "organization_unit" && targetId === "org:lt_team" ? "binding-kol-lt" : `binding-${agent.bindings.length + 1}`;
       agent.bindings = [...agent.bindings, {
-        id: bindingId, agent_id: id, target_type: input.target_type, target_id: input.target_id || input.user_id,
+        id: bindingId, agent_id: id, target_type: targetType, target_id: targetId,
         company_id: COMPANY, status: "active", binding_version: 1, org_version: agent.coverage.org_version + 1,
         reason: input.reason || null, created_by: "sriphy", created_at: stamp, updated_at: stamp,
       }];
@@ -186,7 +192,7 @@ async function stubAgentBackend(page: Page, seed: AgentRow[]) {
         person_refs: [...agent.coverage.person_refs, "person:ye_guanwang"],
         user_ids: [...agent.coverage.user_ids, "usr_lead"],
       };
-      return route.fulfill({ json: agent });
+      return route.fulfill({ json: { agent } });
     }
     if (method === "POST" && sub === "bindings" && sub2 && segments[7] === "revoke-preview") {
       const agent = find(id);
@@ -231,59 +237,94 @@ function filterGroup(page: Page, label: string) {
   return page.locator(".governance-filter-group").filter({ hasText: label });
 }
 
-test("Agent 页状态与绑定类型两组筛选恒一项选中，点已选中项不取消", async ({ page }) => {
+test("Agent 页状态与绑定类型两组筛选恒一项选中；默认人员范围可主动扩至全部后逐项筛选", async ({ page }) => {
   const native = guardNativeDialogs(page);
   await stubAgentBackend(page, [AGENT_KOL, AGENT_SALES, AGENT_DRAFT]);
   await page.goto("/admin/agents");
   const root = page.locator("[data-admin-page='agents']");
   await expect(root).toBeVisible();
   await expect(page.getByRole("button", { name: "新增 Agent" })).toBeVisible();
-  await expect(page.locator(".governance-agent-row")).toHaveCount(3);
-  await expect(page.locator(".governance-count").first()).toHaveText("3 / 3 个 Agent");
-
-  await expect(filterGroup(page, "绑定类型").locator("button")).toHaveCount(4);
+  const statusGroup = filterGroup(page, "发布状态");
+  const bindingGroup = filterGroup(page, "绑定类型");
+  const summary = root.locator("[aria-label='Agent 摘要']");
+  await expect(bindingGroup.locator("button")).toHaveCount(7);
   for (const label of ["发布状态", "绑定类型"]) {
     await expect(filterGroup(page, label).locator("[aria-pressed=true]")).toHaveCount(1);
   }
+  // 现行默认是「人员」，不是全量；点已选中项不取消。
+  await expect(bindingGroup.getByRole("button", { name: /^人员\s*\d*$/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".governance-agent-row")).toHaveCount(1);
+  await expect(page.locator(".governance-agent-row")).toContainText("KOL 助理");
+  await expect(page.locator(".governance-count").first()).toHaveText("1 / 3 个 Agent");
+  await bindingGroup.getByRole("button", { name: /^人员\s*\d*$/ }).click();
+  await expect(bindingGroup.getByRole("button", { name: /^人员\s*\d*$/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".governance-agent-row")).toHaveCount(1);
 
-  const statusGroup = filterGroup(page, "发布状态");
-  const bindingGroup = filterGroup(page, "绑定类型");
-  await statusGroup.getByRole("button", { name: "已发布", exact: true }).click();
+  // 主动切至全范围，再验证全部筛选项；已渲染对象选中后由共享摘要呈现该对象。
+  await bindingGroup.getByRole("button", { name: /^全部\s*\d*$/ }).click();
+  await expect(bindingGroup.getByRole("button", { name: /^全部\s*\d*$/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".governance-agent-row")).toHaveCount(3);
+  await expect(page.locator(".governance-count").first()).toHaveText("3 / 3 个 Agent");
+  await page.locator(".governance-agent-row", { hasText: "商务 Agent" }).click();
+  await expect(summary).toContainText("商务 Agent");
+  await expect(summary).toContainText("已发布");
+
+  await statusGroup.getByRole("button", { name: /^已发布\s*\d*$/ }).click();
   await expect(statusGroup.locator("[aria-pressed=true]")).toHaveCount(1);
   await expect(page.locator(".governance-agent-row")).toHaveCount(2);
   // 点已选中项不取消：仍是同一项选中，列表不变。
-  await statusGroup.getByRole("button", { name: "已发布", exact: true }).click();
+  await statusGroup.getByRole("button", { name: /^已发布\s*\d*$/ }).click();
   await expect(statusGroup.locator("[aria-pressed=true]")).toHaveCount(1);
-  await expect(statusGroup.getByRole("button", { name: "已发布", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(statusGroup.getByRole("button", { name: /^已发布\s*\d*$/ })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".governance-agent-row")).toHaveCount(2);
 
-  await statusGroup.getByRole("button", { name: "草稿", exact: true }).click();
+  await bindingGroup.getByRole("button", { name: /^公司\s*\d*$/ }).click();
+  await expect(page.locator(".governance-agent-row")).toHaveCount(2);
+  await bindingGroup.getByRole("button", { name: /^一级部门\s*\d*$/ }).click();
+  await expect(page.locator(".governance-agent-row")).toHaveCount(0);
+  await expect(page.locator(".governance-empty")).toContainText("没有符合条件的 Agent");
+  await bindingGroup.getByRole("button", { name: /^二级部门\s*\d*$/ }).click();
+  await expect(page.locator(".governance-agent-row")).toHaveCount(0);
+  await bindingGroup.getByRole("button", { name: /^三级部门\s*\d*$/ }).click();
   await expect(page.locator(".governance-agent-row")).toHaveCount(1);
-  await bindingGroup.getByRole("button", { name: "组织单元", exact: true }).click();
+  await expect(page.locator(".governance-agent-row")).toContainText("商务 Agent");
+  await bindingGroup.getByRole("button", { name: /^人员\s*\d*$/ }).click();
+  await expect(page.locator(".governance-agent-row")).toHaveCount(1);
+  await expect(page.locator(".governance-agent-row")).toContainText("KOL 助理");
+  // 列表虽因筛选不再显示商务 Agent，共享摘要仍对应刚才选择的对象。
+  await expect(summary).toContainText("商务 Agent");
+  await bindingGroup.getByRole("button", { name: /^未绑定\s*\d*$/ }).click();
+  await expect(page.locator(".governance-agent-row")).toHaveCount(0);
+  await bindingGroup.getByRole("button", { name: /^全部\s*\d*$/ }).click();
+  await expect(page.locator(".governance-agent-row")).toHaveCount(2);
+
+  await statusGroup.getByRole("button", { name: /^草稿\s*\d*$/ }).click();
+  await expect(page.locator(".governance-agent-row")).toHaveCount(1);
+  await bindingGroup.getByRole("button", { name: /^三级部门\s*\d*$/ }).click();
   await expect(bindingGroup.locator("[aria-pressed=true]")).toHaveCount(1);
   await expect(page.locator(".governance-agent-row")).toHaveCount(0);
   await expect(page.locator(".governance-empty")).toContainText("没有符合条件的 Agent");
-  await bindingGroup.getByRole("button", { name: "人员", exact: true }).click();
+  await bindingGroup.getByRole("button", { name: /^人员\s*\d*$/ }).click();
   await expect(page.locator(".governance-agent-row")).toHaveCount(0);
-  await bindingGroup.getByRole("button", { name: "未绑定", exact: true }).click();
+  await bindingGroup.getByRole("button", { name: /^未绑定\s*\d*$/ }).click();
   await expect(bindingGroup.locator("[aria-pressed=true]")).toHaveCount(1);
   await expect(page.locator(".governance-agent-row")).toHaveCount(1);
   await expect(page.locator(".governance-agent-row")).toContainText("空草稿");
 
-  await statusGroup.getByRole("button", { name: "全部", exact: true }).click();
+  await statusGroup.getByRole("button", { name: /^全部\s*\d*$/ }).click();
   // 绑定类型「未绑定」仍生效：只剩空草稿。
   await expect(page.locator(".governance-agent-row")).toHaveCount(1);
   await expect(page.locator(".governance-agent-row")).toContainText("空草稿");
-  await statusGroup.getByRole("button", { name: "已发布", exact: true }).click();
-  await bindingGroup.getByRole("button", { name: "人员", exact: true }).click();
+  await statusGroup.getByRole("button", { name: /^已发布\s*\d*$/ }).click();
+  await bindingGroup.getByRole("button", { name: /^人员\s*\d*$/ }).click();
   await expect(page.locator(".governance-agent-row")).toHaveCount(1);
   await expect(page.locator(".governance-agent-row")).toContainText("KOL 助理");
-  await bindingGroup.getByRole("button", { name: "组织单元", exact: true }).click();
+  await bindingGroup.getByRole("button", { name: /^三级部门\s*\d*$/ }).click();
   await expect(page.locator(".governance-agent-row")).toHaveCount(1);
   await expect(page.locator(".governance-agent-row")).toContainText("商务 Agent");
-  await bindingGroup.getByRole("button", { name: "未绑定", exact: true }).click();
+  await bindingGroup.getByRole("button", { name: /^未绑定\s*\d*$/ }).click();
   await expect(page.locator(".governance-agent-row")).toHaveCount(0);
-  await bindingGroup.getByRole("button", { name: "全部", exact: true }).click();
+  await bindingGroup.getByRole("button", { name: /^全部\s*\d*$/ }).click();
   await expect(page.locator(".governance-agent-row")).toHaveCount(2);
   expect(native).toEqual([]);
 });
@@ -294,6 +335,9 @@ test("新增 Agent 弹窗创建草稿；空草稿直接发布被 409 拒绝并�
   await page.goto("/admin/agents");
   const root = page.locator("[data-admin-page='agents']");
   await expect(root).toBeVisible();
+  // 默认仅显示人员绑定；创建前先展开到全部，避免把新草稿误判为未创建。
+  await filterGroup(page, "绑定类型").getByRole("button", { name: /^全部\s*\d*$/ }).click();
+  await expect(page.locator(".governance-agent-row")).toHaveCount(2);
 
   // 新增走居中模态弹窗：名称必填、创建后关弹窗并选中新 Agent。
   await page.getByRole("button", { name: "新增 Agent" }).click();
@@ -308,16 +352,19 @@ test("新增 Agent 弹窗创建草稿；空草稿直接发布被 409 拒绝并�
   await expect(root.getByRole("status")).toContainText("Agent 草稿已创建");
   await expect(page.locator(".governance-agent-row", { hasText: "风控 Agent" })).toBeVisible();
   await expect(page.locator(".governance-count").first()).toHaveText("3 / 3 个 Agent");
-  await expect(root.locator(".governance-main-head h2")).toHaveText("风控 Agent");
+  const summary = root.locator("[aria-label='Agent 摘要']");
+  await expect(summary).toContainText("风控 Agent");
+  await expect(summary).toContainText("草稿");
 
-  // 五节详情（技能与知识库 / 人员范围 / 发布 / 运行与审计 / 版本）。
-  for (const section of ["技能与知识库", "人员范围", "发布", "运行与审计", "版本"]) {
-    await expect(root.getByRole("heading", { name: section, exact: true })).toBeVisible();
-  }
+  // 现行共享信息布局以摘要卡 + 三个可折叠治理区呈现，版本仍为独立区块。
+  for (const section of ["绑定技能", "绑定知识库", "组织人员绑定"]) await expect(root.getByText(section, { exact: true })).toBeVisible();
+  await expect(root.getByRole("heading", { name: "版本", exact: true })).toBeVisible();
   await expect(root).toContainText("尚未绑定组织单元或人员");
-  await expect(root.locator(".governance-audit-row")).toHaveCount(1);
+  await expect(summary).toContainText("0 项技能");
+  await expect(summary).toContainText("0 人覆盖");
+  await expect(summary).toContainText("0 个绑定点");
 
-  await root.getByRole("button", { name: "发布 Agent" }).click();
+  await root.getByRole("button", { name: "发布智能体" }).click();
   const publishDialog = page.locator("[data-admin-confirm='agent-publish']");
   await expect(publishDialog).toBeVisible();
   await expect(publishDialog.locator("[data-admin-confirm-scope]")).toContainText("草稿 → 已发布");
@@ -337,26 +384,45 @@ test("绑定三级组先预览覆盖变化再确认；撤绑走 revoke-preview �
   await page.goto("/admin/agents");
   const root = page.locator("[data-admin-page='agents']");
   await expect(root).toBeVisible();
-  await expect(root.locator(".governance-main-head h2")).toHaveText("KOL 助理");
+  const summary = root.locator("[aria-label='Agent 摘要']");
+  await expect(summary).toContainText("KOL 助理");
+  await expect(summary).toContainText("已发布");
   await expect(root).toContainText("组织版本 1");
   await expect(root.locator(".governance-via-group", { hasText: "直接绑定" })).toContainText("直接绑定 · 1 人");
 
-  // 三级组是可选绑定点：optgroup 按层级分组。
-  const target = page.getByLabel("选择目标");
-  await expect(target.locator("optgroup[label='三级组'] option")).toHaveCount(2);
-  await target.selectOption("org:lt_team");
-  await page.getByRole("button", { name: "预览绑定影响" }).click();
+  // 三级组在现行级联部门筛选中缩小到单个候选，再勾选进入批量试算。
+  const level1 = root.getByLabel("筛选1级部门", { exact: true });
+  const level2 = root.getByLabel("筛选2级部门", { exact: true });
+  const level3 = root.getByLabel("筛选3级部门", { exact: true });
+  await expect(level1).toBeEnabled();
+  await level1.selectOption("org:brand_user_growth_center");
+  await level2.selectOption("org:promotion_department");
+  await level3.selectOption("org:lt_team");
+  const ltTarget = root.getByLabel("LT组", { exact: true });
+  await expect(ltTarget).toBeVisible();
+  await ltTarget.check();
+  await root.getByRole("button", { name: "预览绑定影响（1 个目标）", exact: true }).click();
   const preview = page.locator("[data-agent-binding-preview]");
   await expect(preview).toBeVisible();
-  await expect(preview).toContainText("组织版本 2 · 将新增覆盖 1 人（绑定后共 2 人）");
+  await expect(preview.locator('[data-property="org-version"] dd')).toHaveText("2");
+  await expect(preview.locator('[data-property="coverage-impact"] dd')).toHaveText("将新增覆盖 1 人（绑定后共 2 人）");
   await expect(preview).toContainText("叶观旺");
   await expect(preview).toContainText("部门负责人 · LT组");
-  expect(state.previews).toEqual([{ target_type: "organization_unit", target_id: "org:lt_team" }]);
+  const expectedTargets = [{ target_type: "organization_unit", target_id: "org:lt_team" }];
+  expect(state.previews).toEqual([{ targets: expectedTargets }]);
+
+  // 取消试算不写入；同一已勾选目标再次试算后才允许确认。
+  await preview.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(preview).toHaveCount(0);
+  expect(state.binds).toEqual([]);
+  await root.getByRole("button", { name: "预览绑定影响（1 个目标）", exact: true }).click();
+  await expect(preview).toBeVisible();
+  expect(state.previews).toEqual([{ targets: expectedTargets }, { targets: expectedTargets }]);
 
   await preview.getByRole("button", { name: "确认绑定" }).click();
-  await expect(root.getByRole("status")).toContainText("绑定已保存，覆盖人员按组织树重新计算。");
-  expect(state.binds).toEqual([{ target_type: "organization_unit", target_id: "org:lt_team", reason: "管理侧 Agent 页面绑定" }]);
-  const bindingRow = page.locator(".governance-row-split", { hasText: "LT组" });
+  await expect(root.getByRole("status")).toContainText("绑定已保存，覆盖人员已按组织树重算（1 个目标）。");
+  expect(state.binds).toEqual([{ targets: expectedTargets, org_version: 2, reason: "管理侧 Agent 页面绑定" }]);
+  const bindingRow = root.locator("#agent-bindings-card .ui-record-row").filter({ hasText: "组织单元 · LT组" });
   await expect(bindingRow).toContainText("组织单元 · LT组");
   await expect(root).toContainText("覆盖名单（按来源分组 · 共 2 人）");
   await expect(root).toContainText("部门负责人 · 1 人");
@@ -371,7 +437,20 @@ test("绑定三级组先预览覆盖变化再确认；撤绑走 revoke-preview �
   await confirm.locator("[data-admin-confirm-ok]").click();
   await expect(root.getByRole("status")).toContainText("绑定已撤销，覆盖名单已按组织树重算。");
   expect(state.unbinds).toEqual([{ binding_id: "binding-kol-lt", reason: "试点结束" }]);
-  await expect(page.locator(".governance-row-split", { hasText: "LT组" })).toHaveCount(0);
+  await expect(root.locator("#agent-bindings-card .ui-record-row").filter({ hasText: "组织单元 · LT组" })).toHaveCount(0);
   await expect(root).toContainText("覆盖名单（按来源分组 · 共 1 人）");
   expect(native).toEqual([]);
+});
+
+// Global-layout gate uses a Vite-only server: explicitly stub common authentication.
+test.beforeEach(async ({ page }) => {
+  if (!process.env.GLOBAL_LAYOUT_TEST) return;
+  const account = { id: "layout-admin", name: "测试管理员", roles: ["admin"], available_modes: ["employee", "admin"] };
+  await page.route("**/api/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/status") return route.fulfill({ json: { authenticated: true, account, user: account } });
+    if (path === "/api/me") return route.fulfill({ json: account });
+    if (path === "/api/preferences") return route.fulfill({ json: { theme: "light" } });
+    return route.fulfill({ json: [] });
+  });
 });

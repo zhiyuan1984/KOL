@@ -9,6 +9,7 @@ import {
 import { useFocusLock } from "../../hooks/useFocusLock";
 import type { OrganizationUnit } from "../../runtimeConnectorUi";
 import "./employee-directory.css";
+import { PropertyList } from "../../components/InformationLayout";
 
 export type DirectoryEmployee = Record<string, unknown> & {
   id: string;
@@ -283,15 +284,15 @@ export function EmployeeEditDialog({
         {error ? <p className="error" role="alert">{error}</p> : null}
         <section className="employee-form-section">
           <h3>账号与组织</h3>
-          <div className="employee-form-grid">
-            <label className="field">员工姓名<input data-employee-field="name" value={name} onChange={(event) => setName(event.target.value)} /></label>
-            <label className="field">登录邮箱<input data-employee-field="email" type="email" value={email} placeholder={existing ? "未登记" : ""} onChange={(event) => setEmail(event.target.value)} /></label>
-            <label className="field">{existing ? "设置新密码（留空则不变）" : "初始密码"}<input data-employee-field="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-            {existing && loadedUser?.employee_no ? <label className="field">工号<input value={loadedUser.employee_no} readOnly /></label> : null}
-            <label className="field">所属组织<select data-employee-field="organization" value={site} onChange={(event) => setSite(event.target.value)}><option value="">未分配</option>{site && !units.some((unit) => unit.id === site) && <option value={site}>旧站点字段：{site}（非组织单元）</option>}{units.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select></label>
-            <label className="field">岗位<input data-employee-field="position" value={position} placeholder="例如：商务拓展" onChange={(event) => setPosition(event.target.value)} /></label>
-            <label className="field">直属上级<select data-employee-field="manager" value={managerId} onChange={(event) => setManagerId(event.target.value)}><option value="">未设置</option>{allEmployees.filter((candidate) => candidate.id !== employee?.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{employeeLabel(candidate)}</option>)}</select></label>
-            {existing ? <label className="field">账号状态<select data-employee-field="active" value={active ? "active" : "inactive"} onChange={(event) => setActive(event.target.value === "active")}><option value="active">启用</option><option value="inactive">停用</option></select></label> : null}
+          <div className="employee-form-grid ui-native-form">
+            <label className="field ui-native-field">员工姓名<input data-employee-field="name" value={name} onChange={(event) => setName(event.target.value)} /></label>
+            <label className="field ui-native-field">登录邮箱<input data-employee-field="email" type="email" value={email} placeholder={existing ? "未登记" : ""} onChange={(event) => setEmail(event.target.value)} /></label>
+            <label className="field ui-native-field">{existing ? "设置新密码（留空则不变）" : "初始密码"}<input data-employee-field="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            {existing && loadedUser?.employee_no ? <PropertyList items={[{ key: "employee_no", label: "工号", value: loadedUser.employee_no }]} /> : null}
+            <label className="field ui-native-field">所属组织<select data-employee-field="organization" value={site} onChange={(event) => setSite(event.target.value)}><option value="">未分配</option>{site && !units.some((unit) => unit.id === site) && <option value={site}>旧站点字段：{site}（非组织单元）</option>}{units.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select></label>
+            <label className="field ui-native-field">岗位<input data-employee-field="position" value={position} placeholder="例如：商务拓展" onChange={(event) => setPosition(event.target.value)} /></label>
+            <label className="field ui-native-field">直属上级<select data-employee-field="manager" value={managerId} onChange={(event) => setManagerId(event.target.value)}><option value="">未设置</option>{allEmployees.filter((candidate) => candidate.id !== employee?.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{employeeLabel(candidate)}</option>)}</select></label>
+            {existing ? <label className="field ui-native-field">账号状态<select data-employee-field="active" value={active ? "active" : "inactive"} onChange={(event) => setActive(event.target.value === "active")}><option value="active">启用</option><option value="inactive">停用</option></select></label> : null}
           </div>
           <fieldset className="employee-brand-field"><legend>品牌范围</legend><div><label><input ref={allBrandsRef} type="checkbox" checked={allBrandsSelected} disabled={!brands.length} onChange={() => setSelectedBrands((current) => allBrandsSelected ? current.filter((brand) => !brands.includes(brand)) : [...new Set([...current, ...brands])])} />全部</label>{brands.map((brand) => <label key={brand}><input type="checkbox" checked={selectedBrands.includes(brand)} onChange={() => toggleBrand(brand)} />{brand}</label>)}</div></fieldset>
         </section>

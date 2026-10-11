@@ -333,7 +333,7 @@
 
 @media (min-width: 720px) {
   .ontology-facts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .ontology-fact {
@@ -380,3 +380,8 @@
     min-block-size: var(--touch-hit-min);
   }
 }
+
+/* Shared short-field pattern supersedes the old two-field approval grid. */
+.ontology-approval-form.ui-native-form { grid-template-columns: minmax(0, 1fr); }
+.ontology-approval-form.ui-native-form > .ui-native-field { grid-template-columns: var(--property-label-w-long) minmax(0, 1fr); }
+@container (max-width: 479px) { .ontology-approval-form.ui-native-form > .ui-native-field { grid-template-columns: minmax(0, 1fr); } }

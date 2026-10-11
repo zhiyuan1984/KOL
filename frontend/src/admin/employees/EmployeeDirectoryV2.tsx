@@ -6,8 +6,10 @@ import { EmployeeEditDialog, type DirectoryEmployee } from "./EmployeeDirectory"
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { agentBindingRevokeConfirm, userDeactivateConfirm } from "../../adminConfirm";
 import { useFocusLock } from "../../hooks/useFocusLock";
+import { ActionGroup, PropertyList, RecordRow, TruncatableText } from "../../components/InformationLayout";
 import "../governance-layout.css";
 import "./employee-directory.css";
+import "../../pages/global-layout-employees.css";
 
 type Employee = DirectoryEmployee;
 /** 平台系统智能体不对应人员，员工页不提供绑定。 */
@@ -214,10 +216,16 @@ function EmployeeBindingDialog({
             <h3>可用 Agent 与来源</h3>
             {!rows && !loadError && <p className="muted">正在读取…</p>}
             {rows && !rows.length && <p className="muted">该员工当前没有可用的 Agent。</p>}
-            {rows && rows.length > 0 && <div className="employee-binding-list"><ul>{rows.map((row) => <li key={row.id} data-employee-agent={row.id}>
-              <div><strong>{row.name}</strong><p>{agentStatus(row.status)}</p>{accessSources(row).map((source) => <p key={source.binding_id} data-employee-agent-source={source.binding_id}>{sourceText(source)}</p>)}</div>
-              {accessSources(row).some((source) => source.via === "binding_target") ? <button type="button" className="governance-minor" disabled={Boolean(revokeBusyId) || bindBusy} onClick={() => void revoke(row, accessSources(row).find((source) => source.via === "binding_target")!.binding_id)}>{revokeBusyId ? "读取中…" : "撤销"}</button> : <span>继承来源</span>}
-            </li>)}</ul></div>}
+            {rows && rows.length > 0 && <div className="employee-binding-list employee-binding-records">{rows.map((row) => {
+              const sources = accessSources(row);
+              const directSource = sources.find((source) => source.via === "binding_target");
+              return <RecordRow key={row.id} data-employee-agent={row.id} className="employee-binding-record"
+                title={<TruncatableText text={row.name} />}
+                status={agentStatus(row.status)}
+                actions={directSource ? <ActionGroup><button type="button" className="governance-minor" disabled={Boolean(revokeBusyId) || bindBusy} onClick={() => void revoke(row, directSource.binding_id)}>{revokeBusyId ? "读取中…" : "撤销"}</button></ActionGroup> : <span className="employee-binding-inherited">继承来源</span>}
+                detail={<PropertyList labelWidth="short" items={sources.map((source) => ({ key: source.binding_id, label: "来源", value: <span className="employee-binding-source" data-employee-agent-source={source.binding_id}>{sourceText(source)}</span> }))} />}
+              />;
+            })}</div>}
           </section>
           <section className="employee-form-section">
             <h3>绑定新 Agent</h3>
@@ -227,9 +235,9 @@ function EmployeeBindingDialog({
             {!agentsLoading && !agents.length && <p className="muted">没有可绑定的 Agent。</p>}
             {previewBusy && <p className="muted">正在试算覆盖…</p>}
             {previewError && <p className="error" role="alert">{previewError}</p>}
-            {preview && <div className="employee-binding-list" data-employee-binding-preview>
-              <p>{orgVersion === undefined ? "组织版本 —" : `组织版本 ${orgVersion}`} · 将新增覆盖 {added.length} 人{added.length ? `（绑定后共 ${preview.after.user_ids.length} 人）` : "，覆盖名单不变"}</p>
-              {added.length > 0 && <ul>{added.map((entry) => <li key={`${entry.person_ref}:${entry.via}`}><div><strong>{entry.display_name || entry.person_ref}</strong><p>{VIA_LABEL[entry.via] || entry.via}{entry.via_unit_display_name ? ` · ${entry.via_unit_display_name}` : ""}</p></div></li>)}</ul>}
+            {preview && <div className="employee-binding-list employee-binding-preview" data-employee-binding-preview>
+              <PropertyList labelWidth="short" items={[{ key: "coverage-preview", label: "组织版本", value: `${orgVersion === undefined ? "—" : orgVersion} · 将新增覆盖 ${added.length} 人${added.length ? `（绑定后共 ${preview.after.user_ids.length} 人）` : "，覆盖名单不变"}` }]} />
+              {added.length > 0 && <div className="employee-binding-preview-records">{added.map((entry) => <RecordRow key={`${entry.person_ref}:${entry.via}`} className="employee-binding-preview-record" title={<TruncatableText text={entry.display_name || entry.person_ref} />} meta={`${VIA_LABEL[entry.via] || entry.via}${entry.via_unit_display_name ? ` · ${entry.via_unit_display_name}` : ""}`} />)}</div>}
             </div>}
             {bindError && <p className="error" role="alert">{bindError}</p>}
           </section>

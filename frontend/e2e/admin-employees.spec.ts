@@ -118,11 +118,12 @@ test("员工页单选筛选与精简列表；管理绑定先试算覆盖再确�
   await expect(row).not.toContainText("LT、PQ");
   await expect(row).not.toContainText("KOL 经理");
   await expect(row).toContainText("商务 Agent");
-  const card = row.locator(".employee-card");
-  await expect(card).toHaveCount(1);
+  // 共享 RecordRow 自身就是员工卡根节点；Agent 摘要和状态分别位于 meta/status 区。
+  const card = row;
+  await expect(card).toHaveClass(/employee-card/);
   await expect(card.locator(".employee-row-primary .employee-name")).toHaveText("目录员工");
-  await expect(card.locator(".employee-row-primary .employee-agent")).toHaveText("商务 Agent");
-  await expect(card.locator(".employee-row-primary .employee-status")).toHaveCount(0);
+  await expect(card.locator(".ui-record-meta .employee-agent")).toHaveText("商务 Agent");
+  await expect(card.locator(".ui-record-status .employee-status")).toHaveText("已启用");
   await expect(card.locator(".employee-row-secondary .employee-email")).toHaveText("directory@amperetime.com");
   await expect(card.locator(".employee-actions button")).toHaveCount(3);
   await expect(card.getByRole("button", { name: "停用", exact: true })).toHaveCount(1);
@@ -228,12 +229,12 @@ test("选择上级组织时包含下级组员工，不包含旁支员工", async
   await expect(directory.locator("[data-employee-row='usr_promotion']")).toBeVisible();
   for (const width of [1280, 1024, 860]) {
     await page.setViewportSize({ width, height: 700 });
-    const card = directory.locator('[data-employee-row="usr_promotion"] .employee-card');
+    const card = directory.locator('[data-employee-row="usr_promotion"]');
     await expect(card.locator(".employee-actions").getByRole("button", { name: "编辑", exact: true })).toBeVisible();
     await expect(card.locator("[data-employee-action='deactivate']")).toBeVisible();
     // 删除顶行重复状态后，操作组仍固定在主信息区域右缘。
     const edges = await card.evaluate((el) => {
-      const main = el.querySelector(".employee-main")!.getBoundingClientRect().right;
+      const main = el.getBoundingClientRect().right - parseFloat(getComputedStyle(el).paddingRight) - parseFloat(getComputedStyle(el).borderRightWidth);
       const actions = el.querySelector(".employee-actions")!.getBoundingClientRect().right;
       return Math.abs(main - actions);
     });
@@ -464,7 +465,7 @@ for (const theme of ["light", "dark"]) {
       await page.setViewportSize(viewport);
       const directory = page.locator("[data-admin-employees]");
       await expect(directory.locator(".governance-main-head")).toHaveCount(0);
-      const ordinary = directory.locator('[data-employee-row="compact_single"] .employee-card');
+      const ordinary = directory.locator('[data-employee-row="compact_single"]');
       const geometry = await ordinary.evaluate((el) => {
         const avatar = el.querySelector(".employee-avatar")!;
         const primary = el.querySelector(".employee-row-primary")!.getBoundingClientRect();

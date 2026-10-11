@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Form, Modal, Select } from 'antd';
 import { api } from '../api';
+import { ActionGroup, HorizontalForm, RecordRow, TruncatableText } from './InformationLayout';
 import { starryUnbindConfirm } from '../adminConfirm';
 import type { SettingsReceipt } from '../settingsReceipt';
 import { settingsClient, settingsError } from '../settingsClient';
@@ -38,9 +39,7 @@ export default function StarryBindForm({ onSaved, onReceipt, onDirty }: {
     <p className="settings-help">管理本人业务邮箱。连接正常不代表可以发送，执行时仍会校验权限。</p>
     <LoadState {...result} retry={result.reload}>
       {!result.data?.mailboxes.length && <p className="settings-help" data-starry-status="unbound">尚未连接业务邮箱。</p>}
-      {result.data?.mailboxes.map(row => <div className="settings-list-row" key={row.id || row.email}>
-        <div><span>{row.email}</span><p className="settings-help" data-starry-status={row.status}>{row.brand ? `${row.brand} · ` : ''}{row.status === 'connected' ? '已连接' : row.status === 'expired' ? '连接已过期' : '待核验'}{row.is_default ? ' · 默认跟进邮箱' : ''}</p></div>
-        <div className="settings-row-actions">
+      {result.data?.mailboxes.map(row => <RecordRow key={row.id || row.email} title={<TruncatableText text={row.email} />} meta={row.brand || undefined} status={<span data-starry-status={row.status}>{row.status === 'connected' ? '已连接' : row.status === 'expired' ? '连接已过期' : '待核验'}{row.is_default ? ' · 默认跟进邮箱' : ''}</span>} actions={<ActionGroup>
           {row.status !== 'connected' && <Button type="text" disabled={Boolean(busy)} onClick={() => void probe()}>重新验证</Button>}
           <Button type="text" danger data-starry-unbind disabled={Boolean(busy)} onClick={async () => {
             const copy = starryUnbindConfirm(row.email, '');
@@ -50,15 +49,14 @@ export default function StarryBindForm({ onSaved, onReceipt, onDirty }: {
             catch (e) { setFeedback({ kind: 'error', text: settingsError(e, '绑定未解除，请重试。') }); }
             finally { setBusy(''); }
           }}>解除绑定</Button>
-        </div>
-      </div>)}
+        </ActionGroup>} />)}
     </LoadState>
     <FeedbackLine value={feedback} />
     <div className="settings-actions"><Button type={mailboxes.length ? 'text' : 'primary'} className={mailboxes.length ? '' : 'settings-primary'} data-starry-probe loading={busy === 'probe'} disabled={Boolean(busy)} onClick={() => void probe()}>读取可用邮箱</Button></div>
-    {mailboxes.length > 0 && <Form layout="vertical" onFinish={() => void save()}>
-      <Form.Item label="选择要连接的邮箱"><Select aria-label="选择要连接的邮箱" value={chosen || undefined} placeholder="请选择邮箱" showSearch optionFilterProp="label" disabled={Boolean(busy)} onChange={value => { setChosen(value); onDirty?.(true); setFeedback(null); }} options={mailboxes.map(box => ({ value: box.mailbox_email, label: `${box.mailbox_email}${box.brand ? ` · ${box.brand}` : ''}` }))} /></Form.Item>
-      <div className="settings-actions"><Button htmlType="submit" type="primary" className="settings-primary" data-starry-save loading={busy === 'save'} disabled={Boolean(busy) || !chosen}>绑定所选邮箱</Button><Button type="text" onClick={() => { setChosen(''); setMailboxes([]); onDirty?.(false); }}>取消</Button></div>
-    </Form>}
+    {mailboxes.length > 0 && <HorizontalForm labelWidth="long" onFinish={() => void save()}>
+      <Form.Item className="ui-field-wide" label="选择要连接的邮箱"><Select aria-label="选择要连接的邮箱" value={chosen || undefined} placeholder="请选择邮箱" showSearch optionFilterProp="label" disabled={Boolean(busy)} onChange={value => { setChosen(value); onDirty?.(true); setFeedback(null); }} options={mailboxes.map(box => ({ value: box.mailbox_email, label: `${box.mailbox_email}${box.brand ? ` · ${box.brand}` : ''}` }))} /></Form.Item>
+      <div className="settings-actions ui-form-actions"><Button htmlType="submit" type="primary" className="settings-primary" data-starry-save loading={busy === 'save'} disabled={Boolean(busy) || !chosen}>绑定所选邮箱</Button><Button type="text" onClick={() => { setChosen(''); setMailboxes([]); onDirty?.(false); }}>取消</Button></div>
+    </HorizontalForm>}
     {result.data?.mailboxes.some(row => row.status === 'expired') && <Alert type="warning" title="过期邮箱不可作为有效默认值，请恢复连接后再选择。" showIcon />}
     {holder}
   </section>;

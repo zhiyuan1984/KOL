@@ -1,3 +1,4 @@
+import "../components/information-layout.css";
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { api } from "../api";
@@ -156,7 +157,7 @@ function DataPanel({
     <section className="admin-grid">
       {dialog}
       <form
-        className="panel settings-form"
+        className="panel settings-form ui-native-form"
         onSubmit={(e) => {
           e.preventDefault();
           const d = new FormData(e.currentTarget);
@@ -171,8 +172,8 @@ function DataPanel({
         }}
       >
         <h2>数据与留存策略</h2>
-        <label className="field">会话留存天数<input name="session_days" type="number" min="1" defaultValue={Number(policy.session_days || 365)} /></label>
-        <label className="field">审计留存天数<input name="audit_days" type="number" min="1" defaultValue={Number(policy.audit_days || 730)} /></label>
+        <label className="field ui-native-field">会话留存天数<input name="session_days" type="number" min="1" defaultValue={Number(policy.session_days || 365)} /></label>
+        <label className="field ui-native-field">审计留存天数<input name="audit_days" type="number" min="1" defaultValue={Number(policy.audit_days || 730)} /></label>
         <p className="muted">当前策略：{String(policy.summary || "分享链接默认 24 小时过期；私有数据默认排除。")}</p>
         <button className="btn work" data-admin-retention-save>保存策略</button>
       </form>

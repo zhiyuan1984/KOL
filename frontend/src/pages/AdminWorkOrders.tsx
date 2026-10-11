@@ -1,12 +1,15 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Form } from "antd";
 import { Link } from "react-router-dom";
 import { api, type AiTaskWorkOrderList, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport, type WorkOrderAutomationRelease, type WorkOrderTemplate, type WorkOrderTemplateDraftInput } from "../api";
 import { useAccount } from "../components/AuthGate";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import { ActionGroup, HorizontalForm, PropertyList, TruncatableText } from "../components/InformationLayout";
 import { LifecycleNavigation } from "../components/LifecycleNavigation";
 import { LifecycleWorkspace } from "../components/LifecycleWorkspace";
 import { randomUuid } from "../uuid";
+import "./global-layout-workorders.css";
 
 function time(value: string | null | undefined): string {
   if (!value) return "—";
@@ -190,12 +193,16 @@ export default function AdminWorkOrders() {
     {qualitySection}
     <section className="lifecycle-section"><h3>工作台账号与组织人员绑定</h3><p className="lifecycle-help">仅选择已同步的工作台账号与受控组织人员；变更必须填写原因并记录审计。</p>
       <ReadBlock read={reads.binding} label="人员绑定选项" retry={retry}>
-        <form className="lifecycle-form" onSubmit={bind}>
-          <label className="field">工作台账号<select name="account_id" required defaultValue="" disabled={busy || confirming || !unbound.length}><option value="">{unbound.length ? "选择未绑定工作台账号" : "没有待绑定工作台账号"}</option>{unbound.map(item => <option key={item.id} value={item.id}>{item.name} · {item.username} · {item.id}</option>)}</select></label>
-          <label className="field">组织人员<select name="person_ref" required defaultValue="" disabled={busy || confirming || !reads.binding.data?.people.length}><option value="">选择组织人员</option>{reads.binding.data?.people.map(item => <option key={item.person_ref} value={item.person_ref}>{item.display_name} · {item.org_unit_id || "未绑定组织"}{item.user_id ? " · 当前已有账号" : ""}</option>)}</select></label>
-          <label className="field lifecycle-wide">绑定原因<textarea name="reason" rows={2} minLength={2} maxLength={500} required placeholder="例如：已核验员工账号与组织人员身份" /></label>
-          <div className="lifecycle-form-footer lifecycle-wide"><button className="btn work" disabled={busy || confirming || !unbound.length}>确认绑定并记录审计</button></div>
-        </form>
+        <HorizontalForm component={false} className="work-order-binding-form" labelWidth="short">
+          <form className="ui-horizontal-form work-order-binding-form" onSubmit={bind}>
+            <div className="ui-field-group">
+              <Form.Item label="工作台账号" htmlFor="work-order-account-id"><select id="work-order-account-id" name="account_id" required defaultValue="" disabled={busy || confirming || !unbound.length}><option value="">{unbound.length ? "选择未绑定工作台账号" : "没有待绑定工作台账号"}</option>{unbound.map(item => <option key={item.id} value={item.id}>{item.name} · {item.username} · {item.id}</option>)}</select></Form.Item>
+              <Form.Item label="组织人员" htmlFor="work-order-person-ref"><select id="work-order-person-ref" name="person_ref" required defaultValue="" disabled={busy || confirming || !reads.binding.data?.people.length}><option value="">选择组织人员</option>{reads.binding.data?.people.map(item => <option key={item.person_ref} value={item.person_ref}>{item.display_name} · {item.org_unit_id || "未绑定组织"}{item.user_id ? " · 当前已有账号" : ""}</option>)}</select></Form.Item>
+              <Form.Item className="ui-field-stacked" label="绑定原因" htmlFor="work-order-binding-reason"><textarea id="work-order-binding-reason" name="reason" rows={2} minLength={2} maxLength={500} required placeholder="例如：已核验员工账号与组织人员身份" /></Form.Item>
+            </div>
+            <div className="ui-form-actions work-order-binding-actions"><button className="btn work" disabled={busy || confirming || !unbound.length}>确认绑定并记录审计</button></div>
+          </form>
+        </HorizontalForm>
       </ReadBlock>
     </section>
   </>;
@@ -228,15 +235,15 @@ export default function AdminWorkOrders() {
       <LifecycleNavigation label="模板生命周期筛选" idPrefix="template-state" value={templateState} onChange={setTemplateState} options={[{ id: "all", label: "全部", count: templates.length }, ...uniqueStates.map(id => ({ id, label: templateLabels[id] || id, count: templates.filter(template => template.status === id).length }))]} />
       <div className="lifecycle-tools"><label className="lifecycle-search">搜索模板<WorkspaceSearchInput value={query} onChange={event => setQuery(event.target.value)} placeholder="名称或编码" /></label><span className="lifecycle-help">当前 {filteredTemplates.length} 项</span></div>
       {filteredTemplates.length === 0 ? <p className="lifecycle-help">{templates.length ? "当前筛选没有匹配的模板。" : "尚无 AI 工单模板；可先创建模板草稿。"}</p> : <table className="lifecycle-table" data-template-table><thead><tr><th>模板与版本</th><th>等级</th><th>发布状态</th><th>自动执行</th><th>操作</th></tr></thead><tbody>{filteredTemplates.map(template => <tr key={template.id} data-work-order-template={template.template_code}>
-        <td><strong>{template.title}</strong><p className="lifecycle-help">{template.template_code}.v{template.version}</p><details><summary>查看配置</summary><p>{template.description || "—"}</p><p>触发事件：{template.trigger_event_types.join("、") || "—"}</p><p>验收条件：{template.acceptance_criteria.join("、") || "—"}</p><p>路由策略：{template.routing_policy_code || "—"}</p></details></td><td>{template.automation_level}</td><td><span className="lifecycle-status">{templateLabels[template.status] || template.status}</span></td><td>{reads.releases.status === "ready" ? releases.find(release => release.template_id === template.id)?.status === "enabled" ? "已启用" : "未启用" : "待读取"}</td>
-        <td><div className="lifecycle-actions">{template.status === "draft" ? <button type="button" className="lifecycle-text-action" disabled={busy || confirming} onClick={() => templateAction(template, "publish")}>发布</button> : null}{template.status === "published" && ["A1", "A2", "A3"].includes(template.automation_level) ? <button type="button" className="lifecycle-text-action" disabled={busy || confirming || reads.releases.status !== "ready"} onClick={() => templateAction(template, "automation")}>{releases.find(release => release.template_id === template.id)?.status === "enabled" ? "停止自动执行" : "启用自动执行"}</button> : null}{template.status === "published" ? <button type="button" className="lifecycle-text-action danger" disabled={busy || confirming} onClick={() => templateAction(template, "disable")}>停用</button> : null}</div></td>
+        <td><strong className="work-order-template-title"><TruncatableText text={template.title} /></strong><p className="lifecycle-help">{template.template_code}.v{template.version}</p><details className="work-order-template-detail"><summary>查看配置</summary><p>{template.description || "—"}</p><PropertyList labelWidth="short" items={[{ key: "trigger-event-types", label: "触发事件", value: template.trigger_event_types.join("、"), emptyText: "—" }, { key: "acceptance-criteria", label: "验收条件", value: template.acceptance_criteria.join("、"), emptyText: "—" }, { key: "routing-policy-code", label: "路由策略", value: template.routing_policy_code, emptyText: "—" }]} /></details></td><td>{template.automation_level}</td><td><span className="lifecycle-status">{templateLabels[template.status] || template.status}</span></td><td>{reads.releases.status === "ready" ? releases.find(release => release.template_id === template.id)?.status === "enabled" ? "已启用" : "未启用" : "待读取"}</td>
+        <td><ActionGroup className="lifecycle-actions work-order-template-actions">{template.status === "draft" ? <button type="button" className="lifecycle-text-action" disabled={busy || confirming} onClick={() => templateAction(template, "publish")}>发布</button> : null}{template.status === "published" && ["A1", "A2", "A3"].includes(template.automation_level) ? <button type="button" className="lifecycle-text-action" disabled={busy || confirming || reads.releases.status !== "ready"} onClick={() => templateAction(template, "automation")}>{releases.find(release => release.template_id === template.id)?.status === "enabled" ? "停止自动执行" : "启用自动执行"}</button> : null}{template.status === "published" ? <button type="button" className="lifecycle-text-action danger" disabled={busy || confirming} onClick={() => templateAction(template, "disable")}>停用</button> : null}</ActionGroup></td>
       </tr>)}</tbody></table>}
     </ReadBlock>
   </section>;
   return <div data-admin-work-orders className="work-order-governance">
     {dialog}
     <LifecycleWorkspace title="工单治理" value={view} onChange={setView}
-      meta={<>{account?.name || account?.handle || account?.email || "—"} · 数据时间 {time(quality?.as_of)}<details><summary>数据来源</summary>组织来源版本：{quality?.registry_revision || "—"} · 最近同步：{time(quality?.seeded_at)} · PostgreSQL 正式工单与组织授权数据；缺失信息阻止正式建单。</details></>}
+      meta={<>{account?.name || account?.handle || account?.email || "—"} · 数据时间 {time(quality?.as_of)}<details className="work-order-source-detail"><summary>数据来源</summary><PropertyList className="work-order-source-properties" labelWidth="short" items={[{ key: "registry-revision", label: "组织来源版本", value: quality?.registry_revision, emptyText: "—" }, { key: "seeded-at", label: "最近同步", value: time(quality?.seeded_at), emptyText: "—" }]} /><p>PostgreSQL 正式工单与组织授权数据；缺失信息阻止正式建单。</p></details></>}
       actions={<>{links}<button type="button" className="lifecycle-text-action" disabled={loading || busy} onClick={retry}>{loading ? "读取中…" : "刷新"}</button></>}
       feedback={<>{notice ? <p role="status" className="status-ok" data-admin-receipt>{notice}</p> : null}{error ? <p role="alert" className="error">{error}</p> : null}</>}
       views={[{ id: "overview", label: "治理概览", content: overview }, { id: "binding", label: "人员绑定", content: binding }, { id: "templates", label: "AI 工单模板", count: reads.templates.status === "ready" ? templates.length : null, content: templateView }]} />
