@@ -79,7 +79,8 @@ const mailConversations: Operation["handle"] = (c, input) => {
 
 const mailConversation: Operation["handle"] = (c, input) => {
   c.header("Cache-Control", "no-store");
-  const thread = findMailThread(String(input.id || ""));
+  const mailbox = requestedMailbox(String(input.box || ""));
+  const thread = findMailThread(String(input.id || ""), mailbox || undefined);
   if (!thread) throw new HttpFail(404, "conversation not found");
   const conversation = conversationRowOf(thread);
   markThreadTranslationsPending(String(thread.id));

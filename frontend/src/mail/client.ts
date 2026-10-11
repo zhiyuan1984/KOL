@@ -267,7 +267,7 @@ export async function loadMailThread(
   let missing = false;
   for (const key of keys) {
     try {
-      const raw = await api.mailConversation(key);
+      const raw = await api.mailConversation(key, fallback?.mailbox);
       return normalizeThread(raw, fallback?.mailbox || text(raw.mailbox));
     } catch (error) {
       const status = (error as { status?: number }).status;

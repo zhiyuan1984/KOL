@@ -1756,8 +1756,17 @@ export default function Mail() {
       ) : null}
 
       {loadState === "ok" && !bound ? (
-        <section className="mail-unbound" data-mail-state="unbound">
-          <p data-mail-unbound-guide>{MAIL_UNBOUND_COPY}</p>
+        <section className="mail-unbound" data-mail-state={workspace?.box.bindings?.some((binding) => binding.bound) ? "choose-mailbox" : "unbound"}>
+          {workspace?.box.bindings?.some((binding) => binding.bound) ? <>
+            <p data-mail-choose-guide>已绑定 Starry 邮箱，请选择本次查看的邮箱。只显示所选邮箱的往来，打开会话不会创建 Agent 会话。</p>
+            <div className="mail-box-options" data-mail-choose-box>
+              {workspace.box.bindings.filter((binding) => binding.bound).map((binding) => (
+                <button type="button" className="btn ghost" key={binding.mailbox} data-mail-select-box={binding.mailbox} onClick={() => openBox(binding)}>
+                  {binding.owner_name ? `${binding.owner_name} · ` : ""}{binding.mailbox}
+                </button>
+              ))}
+            </div>
+          </> : <p data-mail-unbound-guide>{MAIL_UNBOUND_COPY}</p>}
           {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
           {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
           <Link className="btn ghost" to="/settings?tab=starry" data-mail-bind>打开连接 Starry</Link>

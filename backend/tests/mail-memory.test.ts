@@ -564,6 +564,35 @@ describe("mailbox memory P0", () => {
     });
   });
 
+  it("keeps bound mailboxes selectable without a default and isolates reads without creating Agent sessions", async () => {
+    bindLarry();
+    const boxEmail = "larry.zhao@amperetime.com";
+    const now = new Date().toISOString();
+    const db = getConn();
+    db.prepare("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=?").run(DEMO_USER.id);
+    db.prepare(`INSERT INTO kol_mail_threads (id,conversation_id,subject,mailbox,unread_count,created_at,updated_at)
+      VALUES ('thr_selected_box','selected_box','Selected',?,1,?,?), ('thr_foreign_box','foreign_box','Foreign','other@example.com',9,?,?)`)
+      .run(boxEmail, now, now, now, now);
+    const before = sessionCount();
+    calls.length = 0;
+    const box = await request("GET", "/api/queries/mail.box");
+    expect(box.body).toMatchObject({ bound: false, mailbox: "", unread: 0 });
+    expect(box.body.bindings).toHaveLength(1);
+    expect((await request("GET", "/api/queries/mail.conversations")).body.conversations).toEqual([]);
+    const selected = await request("GET", `/api/queries/mail.conversations?box=${encodeURIComponent(boxEmail)}`);
+    expect(selected.status).toBe(200);
+    expect((selected.body.conversations as Json[]).map(row => row.id)).toEqual(["thr_selected_box"]);
+    const opened = await request("GET", `/api/queries/mail.conversation?id=thr_selected_box&box=${encodeURIComponent(boxEmail)}`);
+    expect(opened.status).toBe(200);
+    expect(opened.body).toMatchObject({ creates_session: false, creates_turn: false, calls_model: false });
+    expect((opened.body.conversation as Json).mailbox).toBe(boxEmail);
+    expect((await request("GET", "/api/queries/mail.conversation?id=thr_foreign_box")).status).toBe(404);
+    expect((await request("GET", `/api/queries/mail.conversation?id=thr_foreign_box&box=${encodeURIComponent(boxEmail)}`)).status).toBe(404);
+    expect((await request("GET", "/api/queries/mail.conversations?box=other%40example.com")).status).toBe(403);
+    expect(sessionCount()).toBe(before);
+    expect(calls).toEqual([]);
+  });
+
   it("serves the compose catalog from the email_compose contract with no session and no model", async () => {
     const { emailComposeContract } = await import("../src/skills/email-compose-contract.js");
     const sessionsBefore = sessionCount();

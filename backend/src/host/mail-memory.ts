@@ -272,17 +272,12 @@ const LIST_JOINS = `FROM kol_mail_threads t
 
 export function listMailboxConversations(mailbox?: string): ConversationRow[] {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
-  const rows = box
-    ? getConn().prepare(
-      `SELECT ${LIST_COLUMNS}
-         ${LIST_JOINS}
-        WHERE t.mailbox=? ORDER BY t.last_at DESC, t.updated_at DESC`,
-    ).all(box) as Row[]
-    : getConn().prepare(
-      `SELECT ${LIST_COLUMNS}
-         ${LIST_JOINS}
-        ORDER BY t.last_at DESC, t.updated_at DESC`,
-    ).all() as Row[];
+  if (!box) return [];
+  const rows = getConn().prepare(
+    `SELECT ${LIST_COLUMNS}
+       ${LIST_JOINS}
+      WHERE t.mailbox=? ORDER BY t.last_at DESC, t.updated_at DESC`,
+  ).all(box) as Row[];
   return rows.map(conversationRowOf);
 }
 
@@ -290,16 +285,18 @@ export function findMailThread(id: string, mailbox?: string): Row | undefined {
   const raw = String(id || "").trim();
   if (!raw) return undefined;
   const box = mailbox === undefined ? currentMailbox() : mailbox;
+  const allowed = mailboxBindings().map((binding) => normalizeEmail(binding.mailbox));
+  if (!allowed.length || (box && !allowed.includes(normalizeEmail(box)))) return undefined;
   const byId = getConn().prepare("SELECT * FROM kol_mail_threads WHERE id=?").get(raw) as Row | undefined;
-  if (byId && (!box || String(byId.mailbox || "").toLowerCase() === String(box).toLowerCase())) return byId;
+  if (byId && allowed.includes(normalizeEmail(String(byId.mailbox || ""))) && (!box || normalizeEmail(String(byId.mailbox || "")) === normalizeEmail(box))) return byId;
   if (box) {
     return getConn().prepare(
       "SELECT * FROM kol_mail_threads WHERE conversation_id=? AND lower(mailbox)=lower(?)",
     ).get(raw, box) as Row | undefined;
   }
   return getConn().prepare(
-    "SELECT * FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
-  ).get(raw) as Row | undefined;
+    `SELECT * FROM kol_mail_threads WHERE conversation_id=? AND lower(mailbox) IN (${allowed.map(() => "?").join(",")}) ORDER BY updated_at DESC LIMIT 1`,
+  ).get(raw, ...allowed) as Row | undefined;
 }
 
 /**
@@ -337,7 +334,7 @@ export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
   const userId = safeEmployeeId();
   const bind = userId ? starryBindingRow(userId, box || undefined) as StarryBindingRow | undefined : undefined;
-  const unread = unreadCountForMailbox(box);
+  const unread = box ? unreadCountForMailbox(box) : 0;
   return {
     mailbox: box || String(bind?.mailbox_email || ""),
     bound: Boolean(box || bind?.mailbox_email),

@@ -3837,8 +3837,8 @@ export const api = {
       mailbox?: string;
       conversations?: Array<Record<string, unknown>>;
     }>(box ? `/api/queries/mail.conversations?box=${encodeURIComponent(box)}` : "/api/queries/mail.conversations"),
-  mailConversation: (id: string) =>
-    request<Record<string, unknown>>(`/api/queries/mail.conversation?id=${encodeURIComponent(id)}`),
+  mailConversation: (id: string, box?: string) =>
+    request<Record<string, unknown>>(`/api/queries/mail.conversation?id=${encodeURIComponent(id)}${box ? `&box=${encodeURIComponent(box)}` : ""}`),
   /** Read-only stage letter catalog (email_compose contract). Never creates a session. */
   mailComposeCatalog: () =>
     request<{

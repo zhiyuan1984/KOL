@@ -1074,3 +1074,32 @@ for (const viewport of [{ width: 375, height: 667 }, { width: 768, height: 1024 
     await expect(page.locator("[data-mi-dockfloat]")).toHaveCount(0);
   });
 }
+
+test("已绑定但无默认不误报未绑定，主动选择后只显示该邮箱且打开不创建 Agent 会话", async ({ page }) => {
+  await mockFormalMail(page);
+  const sessionPosts = sessionPostsOf(page);
+  const fromText: string[] = [];
+  page.on("request", request => { if (request.method() === "POST" && request.url().includes("/api/tasks/from-text")) fromText.push(request.url()); });
+  await page.route("**/api/queries/mail.box**", route => {
+    const box = new URL(route.request().url()).searchParams.get("box");
+    return route.fulfill({ json: { ...FORMAL_BOX, mailbox: box || "", bound: Boolean(box), bindings: [{ mailbox: FORMAL_CONVERSATION.mailbox, bound: true, unread: 1 }] } });
+  });
+  await page.route("**/api/queries/mail.conversations**", route => {
+    const box = new URL(route.request().url()).searchParams.get("box");
+    return route.fulfill({ json: { conversations: box === FORMAL_CONVERSATION.mailbox ? [FORMAL_CONVERSATION] : [] } });
+  });
+  await page.goto("/mail");
+  await expect(page.locator("[data-mail-state='choose-mailbox']")).toBeVisible();
+  await expect(page.locator("[data-mail-unbound-guide]")).toHaveCount(0);
+  await expect(page.locator("[data-mail-choose-guide]")).toContainText("已绑定");
+  await page.locator("[data-mail-select-box]").click();
+  await expect(page).toHaveURL(/box=larry\.zhao%40amperetime\.com/);
+  await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
+  await page.locator('[data-mail-correspondent="amy@example.com"]').click();
+  const detail = page.waitForRequest(request => request.url().includes("/api/queries/mail.conversation?"));
+  await page.locator('[data-mail-thread-row="3901"]').click();
+  expect(new URL((await detail).url()).searchParams.get("box")).toBe(FORMAL_CONVERSATION.mailbox);
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
+  expect(sessionPosts).toEqual([]);
+  expect(fromText).toEqual([]);
+});
