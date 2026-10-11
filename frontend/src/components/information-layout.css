@@ -1,0 +1,57 @@
+/* Shared information patterns. Dimensions live in styles.css / DESIGN.md. */
+.ui-label-short { --ui-label-width: var(--property-label-w-short); }
+.ui-label-default { --ui-label-width: var(--property-label-w); }
+.ui-label-long { --ui-label-width: var(--property-label-w-long); }
+.ui-properties { margin: 0; min-width: 0; container-type: inline-size; }
+.ui-property-row { display: grid; grid-template-columns: var(--ui-label-width, var(--property-label-w)) minmax(0, 1fr); column-gap: var(--property-label-gap); align-items: baseline; min-height: var(--control-h-form); padding-block: var(--space-1); box-sizing: border-box; font-size: var(--ds-font-sm); }
+.ui-property-row dt { color: var(--text-quiet); font-weight: 400; overflow-wrap: anywhere; }
+.ui-property-row dd { margin: 0; min-width: 0; color: var(--text); overflow-wrap: anywhere; user-select: text; }
+.ui-form-container { container-type: inline-size; min-width: 0; width: 100%; }
+.ui-horizontal-form { --ui-field-offset: calc(var(--ui-label-width, var(--property-label-w)) + var(--property-label-gap)); min-width: 0; }
+.ui-horizontal-form > .ant-form-item > .ant-row, .ui-horizontal-form .ui-field-group > .ant-form-item > .ant-row { display: grid; grid-template-columns: var(--ui-label-width, var(--property-label-w)) minmax(0, 1fr); column-gap: var(--property-label-gap); }
+.ui-horizontal-form .ant-form-item .ant-form-item-label { width: auto; max-width: none; flex: none; padding: 0; text-align: left; white-space: normal; }
+.ui-horizontal-form .ant-form-item .ant-form-item-label > label { min-height: var(--control-h-form); height: auto; font-size: var(--ds-font-sm); color: var(--text-quiet); align-items: center; }
+.ui-horizontal-form .ant-form-item .ant-form-item-control { width: auto; max-width: none; min-width: 0; flex: none; }
+.ui-horizontal-form .ant-form-item-control-input { min-height: var(--control-h-form); }
+.ui-horizontal-form .ant-form-item-control-input-content { max-width: var(--field-value-max-w); }
+.ui-horizontal-form .ui-field-wide .ant-form-item-control-input-content { max-width: var(--field-value-wide-max-w); }
+.ui-horizontal-form .ant-form-item-explain, .ui-horizontal-form .ant-form-item-extra { overflow-wrap: anywhere; }
+.ui-horizontal-form .ui-field-stacked > .ant-row { display: block; }
+.ui-horizontal-form .ui-field-stacked .ant-form-item-label { padding-bottom: var(--space-1); }
+.ui-horizontal-form .ui-field-stacked .ant-form-item-control-input-content { max-width: none; }
+.ui-horizontal-form .ui-form-actions, .ui-horizontal-form .ui-form-note { margin-left: var(--ui-field-offset); }
+.ui-record-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: var(--space-3); align-items: center; min-height: var(--list-row-h, 40px); box-sizing: border-box; padding-block: var(--space-1); border-bottom: 1px solid var(--border); min-width: 0; font-size: var(--ds-font-sm); }
+.ui-record-main { min-width: 0; display: flex; align-items: center; gap: var(--space-2); }
+.ui-record-title { min-width: 0; flex: 1 1 auto; }
+.ui-record-meta { min-width: 0; color: var(--text-quiet); font-size: var(--ds-font-xs); }
+.ui-record-status { white-space: nowrap; color: var(--text-quiet); font-size: var(--ds-font-xs); }
+.ui-record-actions { min-width: 0; }
+.ui-record-detail { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; padding-block: var(--space-1); }
+.ui-record-row:hover { background: var(--bg-subtle); }
+.ui-action-group { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+.ui-action-group > a { display: inline-flex; align-items: center; padding: var(--space-1); color: var(--accent-text); }
+.ui-truncatable { display: flex; min-width: 0; align-items: center; gap: var(--space-1); max-width: 100%; }
+.ui-truncatable-value { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-truncatable > button { flex: none; }
+.ui-full-text { max-width: min(var(--field-value-wide-max-w), 80vw); overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+@container (max-width: 479px) {
+  .ui-property-row { grid-template-columns: var(--property-label-w-short) minmax(0, 1fr); column-gap: var(--space-4); }
+  .ui-horizontal-form { --ui-field-offset: 0px; }
+  .ui-horizontal-form > .ant-form-item > .ant-row, .ui-horizontal-form .ui-field-group > .ant-form-item > .ant-row { display: block; }
+  .ui-horizontal-form .ant-form-item .ant-form-item-label { padding-bottom: var(--space-1); }
+  .ui-horizontal-form .ant-form-item .ant-form-item-label > label { min-height: 0; }
+  .ui-record-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .ui-record-actions { grid-column: 1 / -1; }
+  .ui-record-main { flex-wrap: wrap; }
+}
+@media (pointer: coarse) {
+  .ui-action-group > button, .ui-action-group .ant-btn, .ui-action-group > a, .ui-truncatable > .ant-btn { min-height: var(--touch-hit-min, 44px); }
+  .ui-record-row { min-height: var(--touch-hit-min, 44px); }
+}
+
+/* Opt-in native forms preserve labels, fieldsets and browser validation. */
+.ui-native-form { container-type: inline-size; }
+.ui-native-form .ui-native-field { display: grid; grid-template-columns: var(--property-label-w) minmax(0, 1fr); gap: var(--space-2) var(--property-label-gap); align-items: start; }
+.ui-native-form .ui-native-field > input, .ui-native-form .ui-native-field > select { min-width: 0; width: 100%; max-width: var(--field-value-wide-max-w); }
+.ui-native-form .ui-native-field > small { grid-column: 2; }
+@container (max-width: 479px) { .ui-native-form .ui-native-field { grid-template-columns: minmax(0, 1fr); } .ui-native-form .ui-native-field > small { grid-column: 1; } }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import "./AdminOntology.css";
+import { PropertyList } from "../components/InformationLayout";
 
 type OntologyScope = "objects" | "events" | "tickets" | "rules";
 
@@ -378,25 +379,15 @@ export default function AdminOntology() {
       </div>
 
       <div id="ontology-panel" role="tabpanel" aria-labelledby={`ontology-tab-${scope}`}>
-        <section className="ontology-facts" aria-label={`${activeLabel} 当前状态`}>
-          <div className="ontology-fact">
-            <span>当前 baseline</span>
-            <code title={baseline}>{baseline}</code>
-          </div>
-          <div className="ontology-fact">
-            <span>目标内容摘要</span>
-            <code title={activeRegistry?.target_digest || ""}>{activeRegistry?.target_digest || "未提供（当前运行文件摘要不作为待变更目标）"}</code>
-          </div>
-          <div className="ontology-fact">
-            <span>最新审批状态</span>
-            {latest ? (
-              <div className="ontology-approval-state" data-tone={approvalTone(latest.status)}>
-                <strong>状态：{latest.status || "未返回"}</strong>
-                <span>审批 ID：{latest.approval_id || "未返回"}</span>
-              </div>
-            ) : <strong className="ontology-empty-status">暂无审批记录</strong>}
-            <button type="button" className="btn text" onClick={() => void reloadScopeStatus(scope)} disabled={loading || submitting}>重试状态读取</button>
-          </div>
+        <section className="ontology-facts ui-label-long" aria-label={`${activeLabel} 当前状态`}>
+          <PropertyList labelWidth="long" items={[
+            { key: 'baseline', label: '当前 baseline', value: <code title={baseline}>{baseline}</code> },
+            { key: 'digest', label: '目标内容摘要', value: <code title={activeRegistry?.target_digest || ''}>{activeRegistry?.target_digest || '未提供（当前运行文件摘要不作为待变更目标）'}</code> },
+            { key: 'approval', label: '最新审批状态', value: <>
+              {latest ? <div className="ontology-approval-state" data-tone={approvalTone(latest.status)}><strong>状态：{latest.status || '未返回'}</strong><span>审批 ID：{latest.approval_id || '未返回'}</span></div> : <strong className="ontology-empty-status">暂无审批记录</strong>}
+              <button type="button" className="btn text" onClick={() => void reloadScopeStatus(scope)} disabled={loading || submitting}>重试状态读取</button>
+            </> },
+          ]} />
         </section>
 
         <section className="ontology-list-panel" aria-labelledby="ontology-list-title">
@@ -446,7 +437,7 @@ export default function AdminOntology() {
           ) : null}
         </section>
 
-        <form className="ontology-approval-form" onSubmit={openApprovalConfirm}>
+        <form className="ontology-approval-form ui-native-form" onSubmit={openApprovalConfirm}>
           <div className="ontology-form-head">
             <div>
               <h2>发起变更审批</h2>
@@ -455,13 +446,13 @@ export default function AdminOntology() {
             <span className="ontology-risk">R3 · 正式写入前确认</span>
           </div>
           <div className="ontology-form-grid">
-            <label className="field">
+            <label className="field ui-native-field">
               审批范围
               <select value={scope} onChange={(event) => selectScope(event.target.value as OntologyScope)} disabled={submitting}>
                 {SCOPES.map((item) => <option key={item.id} value={item.id}>{item.label}（{item.id}）</option>)}
               </select>
             </label>
-            <label className="field">
+            <label className="field ui-native-field">
               审批标题（可选）
               <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={160} disabled={submitting} placeholder={`默认：本体变更审批：${activeLabel}`} />
             </label>
@@ -469,11 +460,11 @@ export default function AdminOntology() {
               变更摘要
               <textarea required value={summary} onChange={(event) => setSummary(event.target.value)} disabled={submitting} rows={3} placeholder="说明改了什么、为什么，以及受影响的范围" />
             </label>
-            <label className="field">
+            <label className="field ui-native-field">
               Git 变更引用（目标内容摘要未填时必填）
               <input value={changeRef} onChange={(event) => setChangeRef(event.target.value)} disabled={submitting} placeholder="可由后端解析为提交的 Git 引用" />
             </label>
-            <label className="field">
+            <label className="field ui-native-field">
               目标内容摘要 target_digest（必填；或提供可解析 Git 版本）
               <input value={targetDigest} onChange={(event) => setTargetDigest(event.target.value)} disabled={submitting} placeholder="sha256:<64 位十六进制字符>" />
             </label>

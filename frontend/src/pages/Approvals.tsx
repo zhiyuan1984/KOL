@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Form } from "antd";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { approvalDecideConfirm, approvalInitiateConfirm } from "../adminConfirm";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import { ActionGroup, HorizontalForm, PropertyList, RecordRow, TruncatableText } from "../components/InformationLayout";
 import { approvalStatusLabel, friendlyError, stripApprovalRecordIds } from "../labels";
 import { randomUuid } from "../uuid";
+import "./global-layout-approvals.css";
 
 type PathNode = { name: string; role: string; state?: string; state_label?: string };
 type Receipts = {
@@ -288,8 +291,7 @@ function InitiateExpenseForm({
     }
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     setFormErr("");
     if (!amount || Number(amount) <= 0) {
       setFormErr("请填写金额");
@@ -326,13 +328,14 @@ function InitiateExpenseForm({
   };
 
   return (
-    <form className="panel approval-initiate" data-approval-initiate onSubmit={(event) => void submit(event)}>
+    <section className="panel approval-initiate" data-approval-initiate>
       <h2>发起费用审批</h2>
       <p className="muted">填写金额和币种后，系统按规则算出审批人。阶段变更请在合作确认里提交，不要写在这里。</p>
-      <div className="approval-initiate-grid">
-        <label className="field">
-          金额
+      <HorizontalForm className="approval-initiate-form" labelWidth="short" onFinish={() => void submit()}>
+        <Form.Item label="金额">
           <input
+            aria-label="金额"
+            id="approval-amount"
             name="amount"
             inputMode="decimal"
             value={amount}
@@ -341,10 +344,11 @@ function InitiateExpenseForm({
             placeholder="例如 5000"
             required
           />
-        </label>
-        <label className="field">
-          币种
+        </Form.Item>
+        <Form.Item label="币种">
           <select
+            aria-label="币种"
+            id="approval-currency"
             name="currency"
             value={currency}
             onChange={(event) => setCurrency(event.target.value)}
@@ -354,10 +358,11 @@ function InitiateExpenseForm({
               <option key={code} value={code}>{label}</option>
             ))}
           </select>
-        </label>
-        <label className="field">
-          申请人
+        </Form.Item>
+        <Form.Item label="申请人">
           <input
+            aria-label="申请人"
+            id="approval-requester"
             name="requester"
             value={account?.name || "当前登录人"}
             readOnly
@@ -365,19 +370,21 @@ function InitiateExpenseForm({
             placeholder={account?.name ? `默认 ${account.name}` : "默认当前登录人"}
             autoComplete="name"
           />
-        </label>
-        <label className="field">
-          用途
+        </Form.Item>
+        <Form.Item label="用途" className="ui-field-wide">
           <input
+            aria-label="用途"
+            id="approval-purpose"
             name="purpose"
             value={purpose}
             onChange={(event) => setPurpose(event.target.value)}
             placeholder="可选"
           />
-        </label>
-        <label className="field">
-          品牌
+        </Form.Item>
+        <Form.Item label="品牌">
           <select
+            aria-label="品牌"
+            id="approval-brand"
             name="brand"
             value={brand}
             onChange={(event) => setBrand(event.target.value)}
@@ -388,10 +395,11 @@ function InitiateExpenseForm({
             <option value="PQ">Power Queen</option>
             <option value="RO">Redodo</option>
           </select>
-        </label>
-        <label className="field">
-          区域
+        </Form.Item>
+        <Form.Item label="区域">
           <select
+            aria-label="区域"
+            id="approval-region"
             name="region"
             value={region}
             onChange={(event) => setRegion(event.target.value)}
@@ -404,27 +412,29 @@ function InitiateExpenseForm({
             <option value="澳洲">澳洲</option>
             <option value="国内">国内</option>
           </select>
-        </label>
-      </div>
-      {preview && preview.steps.length > 0 && (
-        <div data-approval-preview>
-          <p className="muted">将按费用规则提交。审批链如下，确认后提交。</p>
-          <ol className="approval-path">
-            {preview.steps.map((step, index) => (
-              <li key={`${step.name}-${index}`} data-path-state={index === 0 ? "current" : "todo"}>
-                <span>{step.name}</span>
-                <small>{step.role}</small>
-                <span className="path-state">{index === 0 ? "当前" : "待处理"}</span>
-              </li>
-            ))}
-          </ol>
+        </Form.Item>
+        {preview && preview.steps.length > 0 && (
+          <div data-approval-preview>
+            <p className="muted">将按费用规则提交。审批链如下，确认后提交。</p>
+            <ol className="approval-path">
+              {preview.steps.map((step, index) => (
+                <li key={`${step.name}-${index}`} data-path-state={index === 0 ? "current" : "todo"}>
+                  <span>{step.name}</span>
+                  <small>{step.role}</small>
+                  <span className="path-state">{index === 0 ? "当前" : "待处理"}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {formErr && <p className="error" role="alert">{formErr}</p>}
+        <div className="ui-form-actions">
+          <button className={locked || busy ? "btn" : "btn primary"} type="submit" disabled={busy || locked}>
+            {busy ? "提交中…" : "提交费用审批"}
+          </button>
         </div>
-      )}
-      {formErr && <p className="error" role="alert">{formErr}</p>}
-      <button className={locked || busy ? "btn" : "btn primary"} type="submit" disabled={busy || locked}>
-        {busy ? "提交中…" : "提交费用审批"}
-      </button>
-    </form>
+      </HorizontalForm>
+    </section>
   );
 }
 
@@ -719,6 +729,31 @@ export default function Approvals({
         const inbox = box === "inbox" && a.can_decide !== false && a.status === "pending";
         const expanded = expandedId === a.id;
         const nodes = pathNodes(a);
+        const propertyItems = [
+          {
+            key: "rule",
+            label: "适用规则",
+            value: a.kind && a.kind !== "expense" ? "按审批规则" : "按费用规则",
+          },
+          ...(a.need_manual_band ? [{ key: "manual-band", label: "金额档", value: "需人工确认金额档" }] : []),
+          ...(a.requester_name ? [{ key: "requester", label: "申请人", value: a.requester_name }] : []),
+          ...(a.waiting_duration_label ? [{ key: "waiting-duration", label: "等待时长", value: a.waiting_duration_label }] : []),
+          ...(a.status === "pending" ? [{
+            key: "current-node",
+            label: "当前节点",
+            value: `等待 ${current}（第 ${a.current_index + 1}/${a.chain_detail?.length || a.chain.length} 人）`,
+          }] : []),
+          ...(a.consequence_label ? [{
+            key: "consequence",
+            label: "业务影响",
+            value: <span data-approval-consequence>{a.consequence_label}</span>,
+          }] : []),
+          ...(a.version_code ? [{
+            key: "version-code",
+            label: "规则版本",
+            value: <span data-approval-version-code>{a.version_code}</span>,
+          }] : []),
+        ];
         return (
           <article
             className={"panel approval-card" + (a.status === "pending" ? " is-pending" : "") + (focusId === a.id ? " is-focus" : "")}
@@ -729,90 +764,99 @@ export default function Approvals({
             data-approval-focus={focusId === a.id ? "true" : undefined}
             data-approval-version={a.version ?? ""}
           >
-            <button className="approval-summary" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? "" : a.id)}><span>{moneyLine(a)}</span><span>{kindLabel(a)}</span><span>{statusCopy(a)}</span></button>
-            {expanded && <div className="approval-detail-body">
-            <p className="muted">
-              {a.kind && a.kind !== "expense" ? "按审批规则" : "按费用规则"}
-              {a.need_manual_band ? " · 需人工确认金额档" : ""}
-              {a.requester_name ? ` · 申请人 ${a.requester_name}` : ""}
-              {a.waiting_duration_label ? ` · ${a.waiting_duration_label}` : ""}
-              {a.status === "pending" ? ` · 当前等待 ${current}（第 ${a.current_index + 1}/${a.chain_detail?.length || a.chain.length} 人）` : ""}
-            </p>
-            <p className="approval-row-meta" data-approval-row-meta>
-
-              {a.consequence_label ? <span data-approval-consequence> · {a.consequence_label}</span> : null}
-              {a.version_code ? <span data-approval-version-code> · {a.version_code}</span> : null}
-            </p>
-            <ol className="approval-path" data-approval-path>
-              {nodes.map((step, index) => (
-                <li key={`${step.name}-${index}`} data-path-state={step.state || "todo"}>
-                  <span>{step.name}</span>
-                  <small>{step.role}</small>
-                  <span className="path-state">{step.state_label || ""}</span>
-                </li>
-              ))}
-            </ol>
-            {notice && !receipt && <p className="muted" data-approval-notice>{notice}</p>}
-            {receipt && (
-              <p className="approval-receipt" data-approval-receipt data-tone={receipt.tone} role="status">
-                {receipt.text}
-              </p>
-            )}
-            <ReceiptLines row={a} />
-            </div>}
-            {inbox && !expanded && !confirming && (
-              <div className="approval-actions">
-                <button
-                  type="button"
-                  className={focusId === a.id ? "btn primary" : "btn"}
-                  data-approval-decide
-                  onClick={() => {
-                    setExpandedId(a.id);
-                    setQuery({ id: a.id, box: "inbox" });
-                  }}
-                >
-                  决定
-                </button>
-              </div>
-            )}
-            {inbox && expanded && !confirming && (
-              <div className="approval-actions" data-approval-detail>
-                <button type="button" className="btn primary" disabled={a.allowed_actions ? !a.allowed_actions.includes("approve") : a.can_decide === false} onClick={() => decide(a, "approve")}>同意</button>
-                <button type="button" className="btn danger" disabled={a.allowed_actions ? !a.allowed_actions.includes("reject") : a.can_decide === false} onClick={() => decide(a, "reject")}>驳回</button>
-                {a.allowed_actions?.includes("transfer") && <button type="button" className="btn" data-approval-transfer onClick={() => transfer(a)}>转交</button>}
-                {a.allowed_actions?.includes("countersign") && <button type="button" className="btn" data-approval-countersign onClick={() => countersign(a)}>加签</button>}
-                {onExplainRisk ? (
+            <RecordRow
+              className="approval-record-row"
+              title={<TruncatableText text={moneyLine(a)} className="approval-record-title" />}
+              meta={(
+                <span>
+                  {kindLabel(a)}
+                  {a.status === "pending" && a.can_decide === false ? ` · 当前等待 ${current}` : ""}
+                </span>
+              )}
+              status={<span className="approval-record-status">{statusCopy(a)}</span>}
+              actions={(
+                <ActionGroup className="approval-actions approval-record-actions">
                   <button
                     type="button"
-                    className="btn ghost"
-                    data-approval-explain={a.id}
-                    onClick={() => onExplainRisk(a)}
+                    className="btn text approval-summary"
+                    aria-expanded={expanded}
+                    onClick={() => setExpandedId(expanded ? "" : a.id)}
                   >
-                    说明风险
+                    {expanded ? "收起详情" : "查看详情"}
                   </button>
-                ) : null}
-              </div>
-            )}
-            {a.status === "pending" && a.can_decide === false && onExplainRisk ? (
-              <div className="approval-actions">
-                <button
-                  type="button"
-                  className="btn ghost"
-                  data-approval-explain={a.id}
-                  onClick={() => onExplainRisk(a)}
-                >
-                  说明风险
-                </button>
-              </div>
-            ) : null}
-            {a.status === "pending" && a.can_decide === false && (
-              <p className="muted">当前等待 {current}。你可以查看进度，但这一步不由你确认。</p>
-            )}
-            {box === "submitted" && a.status === "pending" && expanded && (
-              <div className="approval-actions">
-                <button type="button" className="btn" data-approval-withdraw onClick={() => withdraw(a)}>撤回</button>
-              </div>
-            )}
+                  {inbox && !expanded && !confirming && (
+                    <button
+                      type="button"
+                      className="btn text"
+                      data-approval-decide
+                      onClick={() => {
+                        setExpandedId(a.id);
+                        setQuery({ id: a.id, box: "inbox" });
+                      }}
+                    >
+                      决定
+                    </button>
+                  )}
+                  {a.status === "pending" && a.can_decide === false && onExplainRisk ? (
+                    <button
+                      type="button"
+                      className="btn text"
+                      data-approval-explain={a.id}
+                      onClick={() => onExplainRisk(a)}
+                    >
+                      说明风险
+                    </button>
+                  ) : null}
+                </ActionGroup>
+              )}
+              detail={expanded ? (
+                <div className="approval-detail-body">
+                  <PropertyList className="approval-row-meta" data-approval-row-meta labelWidth="short" items={propertyItems} />
+                  <ol className="approval-path" data-approval-path>
+                    {nodes.map((step, index) => (
+                      <li key={`${step.name}-${index}`} data-path-state={step.state || "todo"}>
+                        <span>{step.name}</span>
+                        <small>{step.role}</small>
+                        <span className="path-state">{step.state_label || ""}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  {notice && !receipt && <p className="muted" data-approval-notice>{notice}</p>}
+                  {receipt && (
+                    <p className="approval-receipt" data-approval-receipt data-tone={receipt.tone} role="status">
+                      {receipt.text}
+                    </p>
+                  )}
+                  <ReceiptLines row={a} />
+                  {inbox && !confirming && (
+                    <ActionGroup className="approval-actions approval-detail-actions" data-approval-detail>
+                      <button type="button" className="btn primary" disabled={a.allowed_actions ? !a.allowed_actions.includes("approve") : a.can_decide === false} onClick={() => decide(a, "approve")}>同意</button>
+                      <button type="button" className="btn danger" disabled={a.allowed_actions ? !a.allowed_actions.includes("reject") : a.can_decide === false} onClick={() => decide(a, "reject")}>驳回</button>
+                      {a.allowed_actions?.includes("transfer") && <button type="button" className="btn text" data-approval-transfer onClick={() => transfer(a)}>转交</button>}
+                      {a.allowed_actions?.includes("countersign") && <button type="button" className="btn text" data-approval-countersign onClick={() => countersign(a)}>加签</button>}
+                      {onExplainRisk ? (
+                        <button
+                          type="button"
+                          className="btn text"
+                          data-approval-explain={a.id}
+                          onClick={() => onExplainRisk(a)}
+                        >
+                          说明风险
+                        </button>
+                      ) : null}
+                    </ActionGroup>
+                  )}
+                  {a.status === "pending" && a.can_decide === false && (
+                    <p className="muted">当前等待 {current}。你可以查看进度，但这一步不由你确认。</p>
+                  )}
+                  {box === "submitted" && a.status === "pending" && (
+                    <ActionGroup className="approval-actions approval-detail-actions">
+                      <button type="button" className="btn text" data-approval-withdraw onClick={() => withdraw(a)}>撤回</button>
+                    </ActionGroup>
+                  )}
+                </div>
+              ) : undefined}
+            />
           </article>
         );
       })}

@@ -1,7 +1,9 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useState } from "react";
+import { Form } from "antd";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type KolCooperation, type KolCooperationDetailResponse } from "../api";
+import { ActionGroup, HorizontalForm, PropertyList, RecordRow, TruncatableText } from "../components/InformationLayout";
 import { MAIN_STAGE_TABS, EXCEPTION_TAB } from "../kolStages";
 import { randomUuid } from "../uuid";
 import {
@@ -9,6 +11,7 @@ import {
   workOrderStatusLabel,
 } from "./kol-shared";
 import "./kol-lead-coop.css";
+import "./global-layout-cooperations.css";
 
 const MAIN_ORDER = MAIN_STAGE_TABS.map((t) => t.code);
 /** 相邻 +1 前进原因可选；跨段/回退/进出异常必须写原因（产品法）。 */
@@ -97,7 +100,7 @@ export default function Cooperations() {
   };
 
   return (
-    <main className="kol-page" aria-label="合作项目">
+    <main className="kol-page cooperations-page" aria-label="合作项目">
       <div className="kol-page-head">
         <h1>合作项目</h1>
         <span className="kol-hint">共 {total} 个</span>
@@ -122,77 +125,87 @@ export default function Cooperations() {
         </div>
       </div>
       <div className="kol-layout">
-        <div className="kol-list" role="listbox" aria-label="合作项目列表">
+        <div className="kol-list cooperations-list" role="listbox" aria-label="合作项目列表">
           {loading ? <p className="muted">加载中…</p> : rows.length === 0 ? <p className="muted">暂无合作项目</p> :
             rows.map((coop) => (
-              <button key={coop.id} type="button" role="option" aria-selected={selectedId === coop.id}
-                className="kol-row" onClick={() => void openDetail(coop.id)}>
-                <span className="kol-row-top">
+              <RecordRow key={coop.id} role="option" tabIndex={0} aria-selected={selectedId === coop.id}
+                aria-label={coop.title} className="cooperations-list-row" onClick={() => void openDetail(coop.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void openDetail(coop.id); }
+                }}
+                title={<span className="cooperations-list-title">
                   {coop.blocked_work_order_count != null && coop.blocked_work_order_count > 0
-                    ? <span className="kol-block-dot" title="有阻塞工单" /> : null}
-                  <strong>{coop.title}</strong>
-                  <StageChip stage={coop.coop_stage} exceptionKind={coop.exception_kind} />
-                </span>
-                <span className="kol-row-meta">
+                    ? <span className="kol-block-dot" title="有阻塞工单" aria-label="有阻塞工单" /> : null}
+                  <span className="cooperations-list-title-text">
+                    <TruncatableText text={coop.title} />
+                  </span>
+                </span>}
+                status={<StageChip stage={coop.coop_stage} exceptionKind={coop.exception_kind} />}
+                detail={<span className="cooperations-list-detail">
                   <span>{coop.lead_display_name || ""}（{coop.lead_platform || ""}）</span>
                   {coop.budget_amount ? <span>预算 {coop.budget_amount} {coop.currency}</span> : null}
                   {coop.open_work_order_count != null && coop.open_work_order_count > 0
                     ? <span>未完成工单 {coop.open_work_order_count}</span> : null}
-                </span>
-              </button>
+                </span>}
+              />
             ))}
         </div>
         <div className="kol-detail" aria-live="polite">
           {detailLoading ? <p className="muted">加载中…</p> : !detail ? <p className="kol-empty">选择一个项目查看推进动态</p> : (
             <>
               <div className="kol-detail-head">
-                <h2>{detail.cooperation.title}</h2>
+                <h2 className="cooperations-detail-title"><TruncatableText text={detail.cooperation.title} /></h2>
                 <div className="kol-row-meta">
                   {detail.lead ? <span>达人 <Link to={`/leads`} onClick={(e) => e.stopPropagation()}>{detail.lead.display_name}</Link>（{detail.lead.platform}）</span> : null}
                   <span>类型 {COOP_TYPE_LABELS[detail.cooperation.coop_type] || detail.cooperation.coop_type}</span>
                 </div>
               </div>
-              <dl className="kol-meta-grid">
-                <div><dt>阶段</dt><dd><StageChip stage={detail.cooperation.coop_stage} exceptionKind={detail.cooperation.exception_kind} />
-                  <span className="kol-hint">（{coopStageFullLabel(detail.cooperation.coop_stage)}）</span></dd></div>
-                <div><dt>品牌</dt><dd>{detail.cooperation.brand || "—"}</dd></div>
-                <div><dt>预算</dt><dd>{detail.cooperation.budget_amount ? `${detail.cooperation.budget_amount} ${detail.cooperation.currency}` : "—"}</dd></div>
-                <div><dt>更新时间</dt><dd>{formatTime(detail.cooperation.updated_at)}</dd></div>
-              </dl>
+              <PropertyList className="cooperations-properties" labelWidth="short" items={[
+                { key: "stage", label: "阶段", value: <><StageChip stage={detail.cooperation.coop_stage} exceptionKind={detail.cooperation.exception_kind} /> <span className="kol-hint">（{coopStageFullLabel(detail.cooperation.coop_stage)}）</span></> },
+                { key: "brand", label: "品牌", value: detail.cooperation.brand, emptyText: "—" },
+                { key: "budget", label: "预算", value: detail.cooperation.budget_amount ? `${detail.cooperation.budget_amount} ${detail.cooperation.currency}` : null, emptyText: "—" },
+                { key: "updated_at", label: "更新时间", value: formatTime(detail.cooperation.updated_at) },
+              ]} />
               {detail.cooperation.brand || detail.cooperation.budget_amount ? (
                 <section className="kol-section" aria-label="商务条款">
                   <h3>商务条款</h3>
                   <p className="muted">条款修改请走变更工单，此处只读。</p>
                 </section>
               ) : null}
-              <div className="kol-actions">
-                <select aria-label="推进到阶段" value={advanceTo} onChange={(e) => setAdvanceTo(e.target.value)} disabled={busy === "advance"}>
-                  <option value="">推进阶段…</option>
-                  {MAIN_STAGE_TABS.filter((t) => t.code !== detail.cooperation.coop_stage).map((t) => (
-                    <option key={t.code} value={t.code}>{t.label}</option>
-                  ))}
-                  {detail.cooperation.coop_stage !== "exception" ? <option value="exception">异常</option> : null}
-                </select>
-                <input aria-label="原因（跨阶段/回退/进出异常必填）" placeholder="原因（跨阶段/回退/进出异常必填）"
-                  value={advanceReason} onChange={(e) => setAdvanceReason(e.target.value)}
-                  style={{ minWidth: 220 }} disabled={busy === "advance"} />
-                <button type="button" className="btn primary" disabled={busy === "advance" || !advanceTo} onClick={() => void submitAdvance()}>
-                  {busy === "advance" ? "提交中…" : "确认推进"}
-                </button>
-                <button type="button" className="btn ghost" disabled={busy === "archive"} onClick={() => void archive()}>归档</button>
-                <button type="button" className="btn ghost" disabled={busy === "cancel"} onClick={() => void cancel()}>取消项目</button>
-              </div>
+              <HorizontalForm className="cooperations-advance-form" labelWidth="short" onFinish={() => void submitAdvance()}>
+                <Form.Item label="推进到阶段">
+                  <select aria-label="推进到阶段" value={advanceTo} onChange={(e) => setAdvanceTo(e.target.value)} disabled={busy === "advance"}>
+                    <option value="">推进阶段…</option>
+                    {MAIN_STAGE_TABS.filter((t) => t.code !== detail.cooperation.coop_stage).map((t) => (
+                      <option key={t.code} value={t.code}>{t.label}</option>
+                    ))}
+                    {detail.cooperation.coop_stage !== "exception" ? <option value="exception">异常</option> : null}
+                  </select>
+                </Form.Item>
+                <Form.Item label="原因" className="ui-field-wide">
+                  <input aria-label="原因（跨阶段/回退/进出异常必填）" placeholder="原因（跨阶段/回退/进出异常必填）"
+                    value={advanceReason} onChange={(e) => setAdvanceReason(e.target.value)} disabled={busy === "advance"} />
+                </Form.Item>
+                <ActionGroup className="ui-form-actions kol-actions cooperations-detail-actions">
+                  <button type="submit" className="btn primary" disabled={busy === "advance" || !advanceTo}>
+                    {busy === "advance" ? "提交中…" : "确认推进"}
+                  </button>
+                  <button type="button" className="btn ghost" disabled={busy === "archive"} onClick={() => void archive()}>归档</button>
+                  <button type="button" className="btn ghost" disabled={busy === "cancel"} onClick={() => void cancel()}>取消项目</button>
+                </ActionGroup>
+              </HorizontalForm>
               <section className="kol-section" aria-label="项目动态">
                 <h3>项目动态</h3>
                 {!detail.cooperation.archived_at ? <RecordCoopEventForm coopId={detail.cooperation.id} onDone={() => void refreshDetail()} /> : null}
                 {!detail.task || detail.task.work_orders.length === 0
                   ? <p className="muted">暂无工单。项目创建后会自动创建合同签署工单（需模板已发布且自动化已开启）。</p>
-                  : <ol className="kol-wo-list">
+                  : <ol className="cooperations-work-order-list">
                     {detail.task.work_orders.map((wo) => (
-                      <li key={wo.work_order_id}>
-                        <span className="kol-wo-top"><strong>{wo.title}</strong><span className="kol-stage-chip">{workOrderStatusLabel(wo.status)}</span></span>
-                        <span className="kol-wo-sub">{wo.template_title} · 主受理 {wo.primary_assignee?.person_ref || "尚未分派"} · {formatTime(wo.updated_at)}</span>
-                      </li>
+                      <li key={wo.work_order_id}><RecordRow className="cooperations-work-order"
+                        title={<TruncatableText text={wo.title} />}
+                        status={<span className="kol-stage-chip">{workOrderStatusLabel(wo.status)}</span>}
+                        detail={<span>{wo.template_title} · 主受理 {wo.primary_assignee?.person_ref || "尚未分派"} · {formatTime(wo.updated_at)}</span>}
+                      /></li>
                     ))}
                   </ol>}
               </section>
@@ -212,8 +225,7 @@ function RecordCoopEventForm({ coopId, onDone }: { coopId: string; onDone: () =>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async () => {
     if (!summary.trim()) { setError("请填写事实摘要"); return; }
     setBusy(true); setError("");
     try {
@@ -223,15 +235,23 @@ function RecordCoopEventForm({ coopId, onDone }: { coopId: string; onDone: () =>
   };
 
   return (
-    <form className="kol-actions" style={{ marginBottom: 8 }} onSubmit={(e) => void submit(e)} aria-label="记录项目事件">
-      <select aria-label="事件类型" value={eventType} onChange={(e) => setEventType(e.target.value)} disabled={busy}>
-        {COOP_EVENT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-      <input aria-label="事实摘要" placeholder="仅写已核验事实，如：达人已提交脚本初稿" value={summary}
-        onChange={(e) => setSummary(e.target.value)} style={{ minWidth: 220, flex: 1 }} disabled={busy} />
-      <button type="submit" className="btn ghost" disabled={busy}>{busy ? "提交中…" : "记录事件"}</button>
-      {error ? <span className="kol-error" role="alert">{error}</span> : null}
-    </form>
+    <section className="cooperations-event-section" aria-label="记录项目事件">
+      <HorizontalForm className="cooperations-event-form" labelWidth="short" onFinish={() => void submit()}>
+        <Form.Item label="事件类型">
+          <select aria-label="事件类型" value={eventType} onChange={(e) => setEventType(e.target.value)} disabled={busy}>
+            {COOP_EVENT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Form.Item>
+        <Form.Item label="事实摘要" className="ui-field-wide">
+          <input aria-label="事实摘要" placeholder="仅写已核验事实，如：达人已提交脚本初稿" value={summary}
+            onChange={(e) => setSummary(e.target.value)} disabled={busy} />
+        </Form.Item>
+        <ActionGroup className="ui-form-actions kol-actions">
+          <button type="submit" className="btn ghost" disabled={busy}>{busy ? "提交中…" : "记录事件"}</button>
+        </ActionGroup>
+        {error ? <p className="kol-error ui-form-note" role="alert">{error}</p> : null}
+      </HorizontalForm>
+    </section>
   );
 }
 
@@ -252,8 +272,7 @@ function CreateCooperationDrawer({ onClose, onDone }: { onClose: () => void; onD
     } catch (e) { setError(apiErrorMessage(e)); }
   };
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async () => {
     if (!form.lead_id) { setError("请先搜索并选择关联线索"); return; }
     if (!form.title.trim()) { setError("项目标题为必填"); return; }
     setBusy(true); setError("");
@@ -272,31 +291,30 @@ function CreateCooperationDrawer({ onClose, onDone }: { onClose: () => void; onD
   return (
     <div className="kol-drawer" role="dialog" aria-modal="true" aria-label="新建合作项目">
       <div className="kol-drawer-head"><h2>新建合作项目</h2><button type="button" className="btn ghost" onClick={onClose}>关闭</button></div>
-      <form id="kol-coop-create-form" className="kol-drawer-body" onSubmit={(e) => void submit(e)}>
+      <HorizontalForm id="kol-coop-create-form" className="kol-drawer-body cooperations-create-form" labelWidth="default" onFinish={() => void submit()}>
         {error ? <p className="kol-error" role="alert">{error}</p> : null}
-        <div className="kol-field">
-          <span>关联线索 *</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <WorkspaceSearchInput value={form.lead_search} onChange={set("lead_search")} placeholder="搜索账号名" style={{ flex: 1 }} />
+        <Form.Item label={<>关联线索 <span aria-hidden="true">*</span></>}>
+          <div className="cooperations-lead-search">
+            <WorkspaceSearchInput value={form.lead_search} onChange={set("lead_search")} placeholder="搜索账号名" style={{ flex: 1 }} aria-required="true" />
             <button type="button" className="btn ghost" onClick={() => void searchLeads()}>搜索</button>
           </div>
           {leadOptions.length > 0 ? (
-            <select value={form.lead_id} onChange={set("lead_id")} aria-label="选择线索">
+            <select value={form.lead_id} onChange={set("lead_id")} aria-label="选择线索" aria-required="true">
               <option value="">请选择…</option>
               {leadOptions.map((l) => <option key={l.id} value={l.id}>{l.display_name}（{l.platform}）</option>)}
             </select>
           ) : null}
-        </div>
-        <label className="kol-field"><span>项目标题 *</span><input value={form.title} onChange={set("title")} /></label>
-        <label className="kol-field"><span>品牌</span><input value={form.brand} onChange={set("brand")} /></label>
-        <label className="kol-field"><span>合作类型</span><select value={form.coop_type} onChange={set("coop_type")}>
+        </Form.Item>
+        <Form.Item label={<>项目标题 <span aria-hidden="true">*</span></>}><input value={form.title} onChange={set("title")} aria-required="true" /></Form.Item>
+        <Form.Item label="品牌"><input value={form.brand} onChange={set("brand")} /></Form.Item>
+        <Form.Item label="合作类型"><select value={form.coop_type} onChange={set("coop_type")}>
           <option value="short_video">短视频</option><option value="live">直播</option>
           <option value="graphic">图文</option><option value="custom">定制</option>
-        </select></label>
-        <label className="kol-field"><span>预算金额</span><input type="number" min={0} value={form.budget_amount} onChange={set("budget_amount")} /></label>
-        <label className="kol-field"><span>结算条款</span><textarea value={form.settlement_terms} onChange={set("settlement_terms")} /></label>
-        <p className="kol-hint">提交后自动创建项目任务，并触发合同签署工单（需模板已发布且自动化已开启）。</p>
-      </form>
+        </select></Form.Item>
+        <Form.Item label="预算金额"><input type="number" min={0} value={form.budget_amount} onChange={set("budget_amount")} /></Form.Item>
+        <Form.Item label="结算条款" className="ui-field-stacked"><textarea value={form.settlement_terms} onChange={set("settlement_terms")} /></Form.Item>
+        <p className="kol-hint ui-form-note">提交后自动创建项目任务，并触发合同签署工单（需模板已发布且自动化已开启）。</p>
+      </HorizontalForm>
       <div className="kol-drawer-foot">
         <button type="button" className="btn ghost" onClick={onClose}>取消</button>
         <button type="submit" form="kol-coop-create-form" className="btn primary" disabled={busy}>

@@ -303,6 +303,14 @@
   --dialog-pad-compact-y: 16px;
   --radius-dialog: 8px;
   --control-h-form: 32px;
+  /* Shared attribute/field patterns, DESIGN §19.2. */
+  --property-label-w-short: 96px;
+  --property-label-w: 112px;
+  --property-label-w-long: 128px;
+  --property-label-gap: var(--space-5);
+  --field-value-max-w: 360px;
+  --field-value-wide-max-w: 480px;
+  --list-row-h: 40px;
   --radius-field-form: var(--radius-control);
   --radius-btn-form: var(--radius-control);
   --radius-icon-box: var(--radius-control);

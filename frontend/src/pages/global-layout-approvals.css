@@ -1,0 +1,88 @@
+/* Scoped migration rules for the legacy approvals queue. Shared layout dimensions come from information-layout.css and styles.css tokens. */
+.approval-page .approval-initiate-form .ant-form-item {
+  margin-bottom: var(--space-2);
+}
+
+.approval-page .approval-initiate-form .ant-form-item-control-input-content > input,
+.approval-page .approval-initiate-form .ant-form-item-control-input-content > select {
+  box-sizing: border-box;
+  width: min(100%, var(--field-value-max-w));
+  min-height: var(--control-h-form);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.approval-page .approval-initiate-form .ui-field-wide .ant-form-item-control-input-content > input {
+  width: min(100%, var(--field-value-wide-max-w));
+}
+
+.approval-page .approval-initiate-form .ui-form-actions {
+  margin-top: var(--space-3);
+}
+
+.approval-page .approval-card {
+  padding: var(--space-2) var(--space-3);
+}
+
+.approval-page {
+  container-type: inline-size;
+}
+
+.approval-page .approval-record-row {
+  column-gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 0;
+}
+
+.approval-page .approval-record-title {
+  font-weight: 500;
+}
+
+.approval-page .approval-record-status {
+  color: var(--text);
+}
+
+.approval-page .approval-record-actions {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  margin-top: 0;
+}
+
+.approval-page .approval-detail-body {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.approval-page .approval-row-meta {
+  margin: 0;
+}
+
+.approval-page .approval-row-meta .ui-property-row {
+  padding-block: var(--space-1);
+}
+
+.approval-page .approval-detail-body > .muted {
+  margin: 0;
+}
+
+.approval-page .approval-detail-actions {
+  margin-top: var(--space-2);
+}
+
+@media (pointer: fine) {
+  .approval-page .approval-record-actions .btn {
+    min-height: var(--control-h-sm);
+  }
+}
+
+@container (max-width: 479px) {
+  .approval-page .approval-record-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}

@@ -1,0 +1,115 @@
+/* Cooperations-only composition of the shared information-layout patterns. */
+.cooperations-page { container-type: inline-size; }
+
+.cooperations-page .cooperations-list {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.cooperations-page .cooperations-list-row {
+  cursor: pointer;
+  padding-inline: var(--space-3);
+}
+
+.cooperations-page .cooperations-list > .cooperations-list-row:last-child { border-bottom: 0; }
+
+.cooperations-page .cooperations-list-row[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.cooperations-page .cooperations-list-row:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.cooperations-page .cooperations-list-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  width: 100%;
+}
+
+.cooperations-page .cooperations-list-title-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.cooperations-page .cooperations-list-title-text .ui-truncatable { width: 100%; }
+
+.cooperations-page .cooperations-list-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+
+.cooperations-page .cooperations-detail-title { min-width: 0; }
+.cooperations-page .cooperations-detail-title .ui-truncatable { max-width: 100%; }
+.cooperations-page .cooperations-properties .kol-hint { margin-left: var(--space-1); }
+
+.cooperations-page .cooperations-advance-form .ant-form-item,
+.cooperations-page .cooperations-event-form .ant-form-item,
+.cooperations-page .cooperations-create-form .ant-form-item {
+  margin-bottom: var(--space-2);
+}
+
+.cooperations-page .ui-horizontal-form .ant-form-item-control-input-content > input,
+.cooperations-page .ui-horizontal-form .ant-form-item-control-input-content > select,
+.cooperations-page .ui-horizontal-form .ant-form-item-control-input-content > textarea {
+  width: 100%;
+  min-height: var(--control-h-form);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.cooperations-page .ui-horizontal-form .ant-form-item-control-input-content > textarea {
+  min-height: calc(var(--control-h-form) * 2);
+  resize: vertical;
+}
+
+.cooperations-page .cooperations-lead-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cooperations-page .cooperations-lead-search > :first-child { flex: 1 1 auto; min-width: 0; }
+.cooperations-page .cooperations-lead-search + select { margin-top: var(--space-2); }
+.cooperations-page .cooperations-detail-actions { margin-top: var(--space-1); }
+.cooperations-page .cooperations-event-section { margin-bottom: var(--space-2); }
+
+.cooperations-page .cooperations-work-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.cooperations-page .cooperations-work-order-list li { min-width: 0; }
+.cooperations-page .cooperations-work-order { padding-inline: var(--space-3); }
+.cooperations-page .cooperations-work-order-list li:last-child .cooperations-work-order { border-bottom: 0; }
+.cooperations-page .cooperations-work-order .ui-record-detail { color: var(--text-quiet); font-size: var(--ds-font-xs); }
+
+@container (max-width: 719px) {
+  .cooperations-page .kol-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+@container (max-width: 479px) {
+  .cooperations-page .cooperations-lead-search { align-items: stretch; flex-direction: column; }
+  .cooperations-page .cooperations-lead-search > .btn { align-self: flex-start; }
+}

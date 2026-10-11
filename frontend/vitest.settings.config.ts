@@ -8,6 +8,7 @@ export default defineConfig({
       "src/settings*.test.ts",
       "src/pages/AccountSettings.test.tsx",
       "src/components/StarryBindForm.test.tsx",
+      "src/components/InformationLayout.test.tsx",
     ],
     fileParallelism: false,
     testTimeout: 15_000,

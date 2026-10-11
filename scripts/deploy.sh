@@ -15,7 +15,15 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 PORT="${LINGONG_PORT:-8765}"
 
 die() { echo "$*" >&2; exit 1; }
-
+# Serialize releases, including --sync, across worktrees sharing this Git store.
+command -v flock >/dev/null 2>&1 || die "缺少 flock，未修改代码或产物"
+LOCK_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
+LOCK_PATH="$LOCK_DIR/lingong-deploy.lock"
+# A --sync re-exec inherits fd 9; an environment flag alone cannot own the lock.
+if [ "$(readlink /proc/$$/fd/9 2>/dev/null || true)" != "$LOCK_PATH" ]; then
+  exec 9>"$LOCK_PATH"
+fi
+flock -n 9 || die "已有发布正在执行，未修改代码或产物"
 if [ "${1:-}" = "--sync" ] && [ -z "${DEPLOY_RESYNCED:-}" ]; then
   # reset 可能替换本脚本本身，而 bash 不能安全地边改边读同一个脚本，所以重新执行新版本。
   # 把仍在运行的工作树 HEAD 作为真实部署基线传给 reset 后的新脚本；这不是
@@ -83,18 +91,24 @@ record_ontology_release() {
   "$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts" --record
 }
 
-echo "构建前端 → frontend/dist.new（旧进程继续对外服务）"
-rm -rf "$ROOT/frontend/dist.new"
-(cd "$ROOT/frontend" && VITE_OUT_DIR=dist.new npm run build)
-[ -f "$ROOT/frontend/dist.new/index.html" ] || die "构建产物没有 index.html，保留原 dist，未重启"
-
+RELEASE_REV="$(git rev-parse HEAD)"
+BUILD_DIR="dist.release-${RELEASE_REV:0:12}-$$"
+BUILD_PATH="$ROOT/frontend/$BUILD_DIR"
+cleanup_build() { [ ! -d "$BUILD_PATH" ] || rm -rf -- "$BUILD_PATH"; }
+trap cleanup_build EXIT
+[ ! -e "$BUILD_PATH" ] || die "构建目录已存在，停止发布"
+echo "构建前端 → frontend/$BUILD_DIR（旧进程继续对外服务）"
+(cd "$ROOT/frontend" && VITE_OUT_DIR="$BUILD_DIR" npm run build)
+[ -f "$BUILD_PATH/index.html" ] || die "构建产物没有 index.html，保留原 dist，未重启"
+[ "$(git rev-parse HEAD)" = "$RELEASE_REV" ] || die "构建期间提交版本变化，保留原 dist，未重启"
+git diff --quiet && git diff --cached --quiet || die "构建期间工作区变化，保留原 dist，未重启"
+printf '{"commit":"%s","build_dir":"%s"}\n' "$RELEASE_REV" "$BUILD_DIR" > "$BUILD_PATH/release.json"
 if [ -d "$ROOT/frontend/dist" ]; then
   rm -rf "$ROOT/frontend/dist.prev"
   mv "$ROOT/frontend/dist" "$ROOT/frontend/dist.prev"
 fi
-mv "$ROOT/frontend/dist.new" "$ROOT/frontend/dist"
-echo "dist 已替换（上一版在 frontend/dist.prev；回滚：mv frontend/dist.prev frontend/dist && sudo systemctl restart lingong）"
-
+mv "$BUILD_PATH" "$ROOT/frontend/dist"
+echo "dist 已替换（上一版在 frontend/dist.prev；release.json绑定完整提交）"
 echo "重启 lingong、Outbox 与执行 Worker 服务"
 # 后端、发布器和执行 Worker 都以常驻 Node 进程加载仓库源码。只重启
 # lingong 会使 Worker 继续执行旧代码，而新技能清单可能已采用新契约。

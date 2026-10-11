@@ -27,11 +27,11 @@ export default function AccountSettings() {
   useEffect(() => { setReceipt(owner ? readSettingsReceipt({ accountId: owner }) : null); setDirty(false); }, [owner]);
   useEffect(() => { setDirty(false); }, [tab]);
   useEffect(() => {
+    if (blocker.state !== 'blocked') { confirming.current = false; return; }
     if (blocker.state !== 'blocked' || confirming.current) return;
     confirming.current = true;
     void (async () => {
-      const leave = await modal.confirm({ title: '放弃未保存的修改？', content: '当前修改尚未保存。', okText: '放弃修改', cancelText: '继续编辑' });
-      confirming.current = false;
+      const leave = await modal.confirm({ title: '放弃未保存的修改？', content: '当前修改尚未保存。', okText: '放弃修改', cancelText: '继续编辑', autoFocusButton: 'cancel' });
       if (leave) { setDirty(false); blocker.proceed(); } else blocker.reset();
     })();
   }, [blocker, modal]);

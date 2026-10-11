@@ -1,0 +1,9 @@
+/* Tasks-only adapter for shared information-layout components; values remain in registered tokens. */
+.tasks-page[data-task-center] .task-center-task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tasks-page[data-task-center] .task-center-task-title .ui-truncatable-value {
+  font-weight: 600;
+}

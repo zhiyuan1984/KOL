@@ -5,8 +5,9 @@ import { api, type KnowledgeBaseRow, type KnowledgeDomainRow, type KnowledgeRow 
 import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
 import FilterChips from "../components/FilterChips";
 import CompactButton from "../components/CompactButton";
-import { KnowledgeBrowseWorkspace, KnowledgeFilterBar, StageFilterGroup, KnowledgeListRow, ListLoadFooter, KnowledgeDetailHeader, InlineMetadata, DetailActionBar } from "../components/KnowledgeBrowse";
+import { KnowledgeBrowseWorkspace, KnowledgeFilterBar, StageFilterGroup, KnowledgeListRow, ListLoadFooter, KnowledgeDetailHeader, DetailActionBar } from "../components/KnowledgeBrowse";
 import { FilterAction, FilterOptionButton, FilterRow } from "../components/KnowledgeFilterControls";
+import { PropertyList } from "../components/InformationLayout";
 import { MAIN_STAGE_TABS } from "../kolStages";
 import { employeeKnowledgeFacets, filterEmployeeKnowledgeRows } from "../employeeKnowledgeFacets";
 import {
@@ -22,8 +23,10 @@ import {
   brandLabel,
   formatKbTime,
   hideReasonLabel,
+  kbAuthorLabel,
   kbIsMail,
   kbScopeTags,
+  kbStatusLabel,
   kbSummary,
   kbVariableLine,
   kbVersionTag,
@@ -37,6 +40,7 @@ import {
 import KbvIcon from "../knowledgeIcons";
 import "../knowledge-page.css";
 import "../knowledge-browse.css";
+import "./global-layout-knowledge.css";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -535,7 +539,19 @@ export default function Knowledge() {
                   });
                 }} />
               <div className="kbv-rail-body">
-                <InlineMetadata row={selectedRow} scope={<ScopeChips row={selectedRow} />} />
+                <section className="knowledge-detail-metadata" data-kb-provenance aria-label="来源与版本">
+                  <PropertyList
+                    className="knowledge-detail-properties"
+                    labelWidth="short"
+                    items={[
+                      { key: "status", label: "状态", value: <span className="knowledge-status">{kbStatusLabel(selectedRow)}</span> },
+                      { key: "author", label: "发布人", value: kbAuthorLabel(selectedRow.created_by) },
+                      { key: "version", label: "版本", value: kbVersionTag(selectedRow.current_version) },
+                      { key: "updated-at", label: "更新时间", value: formatKbTime(selectedRow.updated_at || selectedRow.approved_at || selectedRow.created_at), emptyText: "暂无时间" },
+                      { key: "scope", label: "适用", value: <ScopeChips row={selectedRow} /> },
+                    ]}
+                  />
+                </section>
                 {kbSummary(selectedRow) !== selectedRow.subject && kbSummary(selectedRow) !== (selectedRow.body_en || selectedRow.body) ? <p className="kb-card-summary" data-kb-summary>{kbSummary(selectedRow)}</p> : null}
                 {kbVariableLine(selectedRow) ? <p className="kb-card-vars">{kbVariableLine(selectedRow)}</p> : null}
                 {selectedRow.has_newer_version ? <details className="kb-version-compare" data-kb-version-diff>
@@ -551,7 +567,11 @@ export default function Knowledge() {
                   })() : <p className="muted">正在读取版本记录…</p>}
                 </details> : null}
                 {selectedRow.subject && (
-                  <p className="kb-preview-subject"><span>主题</span> {selectedRow.subject}</p>
+                  <PropertyList
+                    className="kb-preview-subject"
+                    labelWidth="short"
+                    items={[{ key: "subject", label: "主题", value: selectedRow.subject }]}
+                  />
                 )}
                 <KnowledgeDocumentBody row={selectedRow} />
                 {selectedRow.deprecated && (

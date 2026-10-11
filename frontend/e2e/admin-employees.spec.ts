@@ -699,3 +699,16 @@ test.describe("触摸新增员工CTA", () => {
     expect(state.errors).toEqual([]);
   });
 });
+
+// Global-layout gate isolates all requests from production.
+test.beforeEach(async ({ page }) => {
+  if (!process.env.GLOBAL_LAYOUT_TEST) return;
+  const account = { id: "layout-admin", name: "测试管理员", roles: ["admin"], available_modes: ["employee", "admin"] };
+  await page.route("**/api/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/status") return route.fulfill({ json: { authenticated: true, account, user: account } });
+    if (path === "/api/me") return route.fulfill({ json: account });
+    if (path === "/api/preferences") return route.fulfill({ json: { theme: "light" } });
+    return route.fulfill({ json: [] });
+  });
+});

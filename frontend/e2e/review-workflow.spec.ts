@@ -5,6 +5,17 @@ import { emptyReviewDefinition } from "../../shared/review";
 
 /** Browser interaction fixtures only; authenticated persistence is tested in review-api.test.ts. */
 async function fixture(page: Page) {
+  if (process.env.GLOBAL_LAYOUT_TEST) {
+    const account = { id: "layout-admin", name: "测试管理员", roles: ["admin"], available_modes: ["employee", "admin"] };
+    await page.route("**/api/**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/api/auth/status") return route.fulfill({ json: { authenticated: true, account, user: account } });
+      if (path === "/api/me") return route.fulfill({ json: account });
+      if (path === "/api/preferences") return route.fulfill({ json: { theme: "light" } });
+      if (path.startsWith("/api/tasks/by-session/")) return route.fulfill({ status: 404, json: { error: "task_not_found" } });
+      return route.fulfill({ json: [] });
+    });
+  }
   const definition = emptyReviewDefinition();
   definition.name = "内容评审";
   definition.fields = [
@@ -270,6 +281,7 @@ test("business entry freezes the read source in the same employee draft", async 
 });
 test("AI draft result shows its gaps and opens the employee draft without submitting", async ({ page }) => {
   const f = await fixture(page);
+  await page.route("**/api/queries/runtime.actions?**", route => route.fulfill({ json: { actions: [] } }));
   await page.route("**/api/sessions/review-ai**", route => {
     if (new URL(route.request().url()).pathname.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: "" });
     return route.fulfill({ json: { id: "review-ai", agent_status: "listening", messages: [{ id: "ai-draft", role: "assistant", kind: "task_result_card", created_at: "2026-10-09T00:00:00Z", payload: { type: "task_result", artifact_type: "review_draft", review_draft_id: "restored", review_company: "test", source_session_id: "review-ai", title: "审批申请草稿", summary: "R2 草稿已保存，尚未提交。", sections: [{ title: "待补充与核对", items: ["补充原始材料"] }], recommended_actions: [{ label: "核对申请草稿", href: "/approvals?draft=restored&reviewCompany=test&session=review-ai" }] } }] } });
@@ -682,5 +694,18 @@ test("money configuration and employee submission preserve exact decimal strings
   await expect(main.getByText(/回执 receipt/)).toBeVisible();
   expect(f.commands[0].command).toMatchObject({
     values: { content: { amount: "9007199254740993.01", currency: "CNY" } },
+  });
+});
+
+// Global-layout gate uses a Vite-only server: explicitly stub common authentication.
+test.beforeEach(async ({ page }) => {
+  if (!process.env.GLOBAL_LAYOUT_TEST) return;
+  const account = { id: "layout-admin", name: "测试管理员", roles: ["admin"], available_modes: ["employee", "admin"] };
+  await page.route("**/api/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/status") return route.fulfill({ json: { authenticated: true, account, user: account } });
+    if (path === "/api/me") return route.fulfill({ json: account });
+    if (path === "/api/preferences") return route.fulfill({ json: { theme: "light" } });
+    return route.fulfill({ json: [] });
   });
 });

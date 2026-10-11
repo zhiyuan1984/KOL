@@ -1,15 +1,17 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Button, Descriptions, Empty, Input, Modal, Select, Steps, Tag, Timeline } from "antd";
+import { Button, Empty, Form, Input, Modal, Select, Steps, Tag, Timeline } from "antd";
 import { api, type KolLead, type KolLeadAutomationStatus, type KolLeadDetailResponse, type KolLeadTimelineEvent } from "../api";
 import { randomUuid } from "../uuid";
+import { ActionGroup, HorizontalForm, PropertyList, RecordRow, TruncatableText } from "../components/InformationLayout";
 import {
   apiErrorMessage, formatFollowers, formatTime,
   LEAD_SOURCE_LABELS, LEAD_SOURCES, LEAD_STAGE_LABELS, LEAD_STAGE_ORDER,
   workOrderStatusLabel,
 } from "./kol-shared";
 import "./kol-lead-coop.css";
+import "./global-layout-leads.css";
 
 const TERMINAL_STAGES = new Set(["rejected", "converted"]);
 
@@ -137,7 +139,7 @@ export default function Leads() {
   };
 
   return (
-    <main className="kol-page" aria-label="线索管理">
+    <main className="kol-page leads-layout-page" aria-label="线索管理">
       <div className="kol-page-head">
         <h1>线索管理</h1>
         <span className="kol-hint">共 {total} 条</span>
@@ -170,20 +172,24 @@ export default function Leads() {
         </div>
       </div>
       <div className="kol-layout">
-        <div className="kol-list" role="listbox" aria-label="线索列表">
+        <div className="kol-list leads-record-list" role="listbox" aria-label="线索列表">
           {loading ? <p className="muted">加载中…</p> : leads.length === 0 ? <p className="muted">暂无线索</p> :
             leads.map((lead) => (
-              <button key={lead.id} type="button" role="option" aria-selected={selectedId === lead.id}
-                className="kol-row" onClick={() => void openDetail(lead.id)}>
-                <span className="kol-row-top"><strong>{lead.display_name}</strong><StageTag stage={lead.lead_stage} /></span>
-                <span className="kol-row-meta">
-                  <span>{lead.platform} · {lead.account_handle}</span>
+              <RecordRow key={lead.id} role="option" tabIndex={0} aria-selected={selectedId === lead.id}
+                className="leads-list-record" onClick={() => void openDetail(lead.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void openDetail(lead.id); }
+                }}
+                title={<TruncatableText text={lead.display_name} className="leads-list-title" />}
+                meta={<span className="leads-lead-identity">{lead.platform} · {lead.account_handle}</span>}
+                status={<StageTag stage={lead.lead_stage} />}
+                detail={<span className="leads-list-detail">
                   {lead.brand ? <span>品牌 {lead.brand}</span> : null}
                   <span>粉丝 {formatFollowers(lead.follower_count)}</span>
                   {lead.open_work_order_count != null && lead.open_work_order_count > 0
                     ? <span>未完成工单 {lead.open_work_order_count}</span> : null}
-                </span>
-              </button>
+                </span>}
+              />
             ))}
         </div>
         <div className="kol-detail" aria-live="polite">
@@ -191,34 +197,34 @@ export default function Leads() {
             <>
               <section className="kol-section" aria-label="属性快照">
                 <h3>属性快照<span className="kol-obj-kind">对象 · creator_candidate</span></h3>
-                <div className="kol-detail-head">
-                  <h2>{detail.lead.display_name}</h2>
-                  <div className="kol-row-meta">
+                <RecordRow className="leads-detail-summary"
+                  title={<TruncatableText text={detail.lead.display_name} />}
+                  meta={<div className="kol-row-meta leads-detail-meta">
                     <span>稳定标识 {detail.lead.platform} · {detail.lead.account_handle}</span>
                     <span>来源 {LEAD_SOURCE_LABELS[detail.lead.source] || detail.lead.source}</span>
                     {detail.lead.has_contact ? <span>有联系方式（已脱敏）</span> : null}
-                  </div>
-                </div>
-                <Descriptions size="small" column={3}>
-                  <Descriptions.Item label="阶段"><StageTag stage={detail.lead.lead_stage} /></Descriptions.Item>
-                  <Descriptions.Item label="粉丝">{formatFollowers(detail.lead.follower_count)} <span className="kol-hint">采集</span></Descriptions.Item>
-                  <Descriptions.Item label="品类">{detail.lead.category || <span className="kol-hint">未采集</span>}</Descriptions.Item>
-                  <Descriptions.Item label="品牌">{detail.lead.brand || <span className="kol-hint">未采集</span>}</Descriptions.Item>
-                  <Descriptions.Item label="平台稳定编号">{detail.lead.platform_creator_id || "—"}</Descriptions.Item>
-                  <Descriptions.Item label="来源批次">{detail.lead.source_ref || "—"}</Descriptions.Item>
-                  <Descriptions.Item label="更新时间">{formatTime(detail.lead.updated_at)}</Descriptions.Item>
-                </Descriptions>
+                  </div>}
+                  status={<StageTag stage={detail.lead.lead_stage} />}
+                />
+                <PropertyList className="leads-property-list" labelWidth="default" items={[
+                  { key: "follower_count", label: "粉丝", value: <>{formatFollowers(detail.lead.follower_count)} <span className="kol-hint">采集</span></> },
+                  { key: "category", label: "品类", value: detail.lead.category, emptyText: <span className="kol-hint">未采集</span> },
+                  { key: "brand", label: "品牌", value: detail.lead.brand, emptyText: <span className="kol-hint">未采集</span> },
+                  { key: "platform_creator_id", label: "平台稳定编号", value: detail.lead.platform_creator_id, emptyText: "—" },
+                  { key: "source_ref", label: "来源批次", value: detail.lead.source_ref, emptyText: "—" },
+                  { key: "updated_at", label: "更新时间", value: formatTime(detail.lead.updated_at) },
+                ]} />
               </section>
               <section className="kol-section" aria-label="动作">
                 <h3>动作<Tag> R3 · 正式写入需确认</Tag></h3>
                 {!TERMINAL_STAGES.has(detail.lead.lead_stage) ? <>
                   <LeadStageSteps stage={detail.lead.lead_stage} onChange={onStepChange} />
-                  <div className="kol-actions" style={{ marginTop: 8 }}>
+                  <ActionGroup className="leads-stage-actions">
                     {detail.lead.lead_stage === "intent_pending"
-                      ? <Button type="primary" onClick={() => setShowConvert(true)}>标记转化</Button>
+                      ? <Button type="text" onClick={() => setShowConvert(true)}>标记转化</Button>
                       : null}
-                    <Button onClick={() => archive()} loading={busy === "archive"}>归档</Button>
-                  </div>
+                    <Button type="text" onClick={() => archive()} loading={busy === "archive"}>归档</Button>
+                  </ActionGroup>
                 </> : <span className="kol-hint">该线索已终态（{LEAD_STAGE_LABELS[detail.lead.lead_stage]}）</span>}
                 <p className="kol-hint">此处推进的是线索跟进阶段（5 步主流程 + 已转化），不是合作项目阶段（15+exception）；点击步骤条即发起阶段变更（R3，需确认），完成后记入下方时间线。</p>
               </section>
@@ -235,11 +241,14 @@ export default function Leads() {
                     : automation.configured && automation.template
                       ? `暂无工单。已发布初次建联模板：${automation.template.title}（${automation.template.code} v${automation.template.version}）。是否自动建单还需执行发布启用、判断通过与真实执行回执。`
                       : "暂无工单。自动建单规则未配置：建档后不会自动创建初次建联工单（需管理端发布模板并开启自动化）。"}</p>
-                  : <ol className="kol-wo-list">
+                  : <ol className="leads-work-order-list">
                     {detail.task.work_orders.map((wo) => (
                       <li key={wo.work_order_id}>
-                        <span className="kol-wo-top"><strong>{wo.title}</strong><span className="kol-stage-chip">{workOrderStatusLabel(wo.status)}</span></span>
-                        <span className="kol-wo-sub">{wo.template_title} · 主受理 {wo.primary_assignee?.person_ref || "尚未分派"} · {formatTime(wo.updated_at)}</span>
+                        <RecordRow className="leads-work-order-record"
+                          title={<TruncatableText text={wo.title} />}
+                          status={<span className="kol-stage-chip">{workOrderStatusLabel(wo.status)}</span>}
+                          detail={<span className="leads-work-order-detail">{wo.template_title} · 主受理 {wo.primary_assignee?.person_ref || "尚未分派"} · {formatTime(wo.updated_at)}</span>}
+                        />
                       </li>
                     ))}
                   </ol>}
@@ -302,15 +311,12 @@ function LeadTimeline({ leadId, refreshKey }: { leadId: string; refreshKey: numb
       items={events.map((ev, idx) => ({
         color: ev.verified ? "green" : undefined,
         children: (
-          <div key={`${ev.event_type}-${ev.occurred_at}-${idx}`}>
-            <span className="kol-tl-top">
-              <strong>{LEAD_TIMELINE_EVENT_NAMES[ev.event_type] || ev.event_type}</strong>
-              {ev.verified ? <Tag color="green">已核验</Tag> : null}
-              <span className="kol-tl-code">{ev.event_type}</span>
-              <span className="kol-tl-time">{formatTime(ev.occurred_at)}</span>
-            </span>
-            {timelineSummary(ev) ? <div className="kol-tl-summary">{timelineSummary(ev)}</div> : null}
-          </div>
+          <RecordRow key={`${ev.event_type}-${ev.occurred_at}-${idx}`} className="leads-timeline-record"
+            title={<TruncatableText text={LEAD_TIMELINE_EVENT_NAMES[ev.event_type] || ev.event_type} />}
+            meta={<span className="leads-timeline-meta"><TruncatableText text={ev.event_type} className="kol-tl-code" /><span className="kol-tl-time">{formatTime(ev.occurred_at)}</span></span>}
+            status={ev.verified ? <Tag color="green">已核验</Tag> : undefined}
+            detail={timelineSummary(ev) ? <div className="kol-tl-summary">{timelineSummary(ev)}</div> : undefined}
+          />
         ),
       }))}
     />
@@ -331,8 +337,7 @@ function RecordLeadEventForm({ leadId, onDone }: { leadId: string; onDone: () =>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async () => {
     if (!summary.trim()) { setError("请填写事实摘要"); return; }
     setBusy(true); setError("");
     try {
@@ -342,14 +347,21 @@ function RecordLeadEventForm({ leadId, onDone }: { leadId: string; onDone: () =>
   };
 
   return (
-    <form className="kol-actions" style={{ marginBottom: 8 }} onSubmit={(e) => void submit(e)} aria-label="记录跟进事件">
-      <Select aria-label="事件类型" value={eventType} onChange={setEventType} options={LEAD_EVENT_OPTIONS}
-        style={{ width: 130 }} disabled={busy} />
-      <Input aria-label="事实摘要" placeholder="仅写已核验事实，如：达人已回复报价邮件" value={summary}
-        onChange={(e) => setSummary(e.target.value)} style={{ minWidth: 200, flex: 1 }} disabled={busy} />
-      <Button htmlType="submit" loading={busy}>记录事件</Button>
-      {error ? <span className="kol-error" role="alert">{error}</span> : null}
-    </form>
+    <HorizontalForm className="leads-event-form" labelWidth="short" onFinish={() => void submit()} aria-label="记录跟进事件">
+      <Form.Item label="事件类型">
+        <Select aria-label="事件类型" value={eventType} onChange={setEventType} options={LEAD_EVENT_OPTIONS} disabled={busy} />
+      </Form.Item>
+      <Form.Item label="事实摘要" className="ui-field-wide">
+        <Input aria-label="事实摘要" placeholder="仅写已核验事实，如：达人已回复报价邮件" value={summary}
+          onChange={(e) => setSummary(e.target.value)} disabled={busy} />
+      </Form.Item>
+      <div className="ui-form-actions">
+        <ActionGroup>
+          <Button htmlType="submit" loading={busy}>记录事件</Button>
+          {error ? <span className="kol-error" role="alert">{error}</span> : null}
+        </ActionGroup>
+      </div>
+    </HorizontalForm>
   );
 }
 
@@ -419,8 +431,7 @@ function ConvertLeadDrawer({ lead, onClose, onDone }: { lead: KolLead; onClose: 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async () => {
     if (!form.title.trim()) { setError("项目标题为必填"); return; }
     setBusy(true); setError("");
     try {
@@ -437,18 +448,20 @@ function ConvertLeadDrawer({ lead, onClose, onDone }: { lead: KolLead; onClose: 
   return (
     <div className="kol-drawer" role="dialog" aria-modal="true" aria-label="转化为合作项目">
       <div className="kol-drawer-head"><h2>转化为合作项目</h2><button type="button" className="btn ghost" onClick={onClose}>关闭</button></div>
-      <form id="kol-lead-convert-form" className="kol-drawer-body" onSubmit={(e) => void submit(e)}>
-        {error ? <p className="kol-error" role="alert">{error}</p> : null}
-        <p className="kol-hint">线索：{lead.display_name}（{lead.platform}）。确认后将创建合作项目与项目任务，线索标记为已转化，其未完成跟进工单将被取消。</p>
-        <label className="kol-field"><span>项目标题 *</span><input value={form.title} onChange={set("title")} placeholder="如 2026Q4 短视频带货合作" /></label>
-        <label className="kol-field"><span>品牌</span><input value={form.brand} onChange={set("brand")} /></label>
-        <label className="kol-field"><span>合作类型</span><select value={form.coop_type} onChange={set("coop_type")}>
-          <option value="short_video">短视频</option><option value="live">直播</option>
-          <option value="graphic">图文</option><option value="custom">定制</option>
-        </select></label>
-        <label className="kol-field"><span>预算金额</span><input type="number" min={0} value={form.budget_amount} onChange={set("budget_amount")} /></label>
-        <label className="kol-field"><span>结算条款</span><textarea value={form.settlement_terms} onChange={set("settlement_terms")} /></label>
-      </form>
+      <div className="kol-drawer-body leads-convert-form-body">
+        <HorizontalForm id="kol-lead-convert-form" className="leads-convert-form" labelWidth="long" onFinish={() => void submit()}>
+          {error ? <p className="kol-error" role="alert">{error}</p> : null}
+          <p className="kol-hint">线索：{lead.display_name}（{lead.platform}）。确认后将创建合作项目与项目任务，线索标记为已转化，其未完成跟进工单将被取消。</p>
+          <Form.Item label="项目标题 *"><input aria-required="true" value={form.title} onChange={set("title")} placeholder="如 2026Q4 短视频带货合作" /></Form.Item>
+          <Form.Item label="品牌"><input value={form.brand} onChange={set("brand")} /></Form.Item>
+          <Form.Item label="合作类型"><select value={form.coop_type} onChange={set("coop_type")}>
+            <option value="short_video">短视频</option><option value="live">直播</option>
+            <option value="graphic">图文</option><option value="custom">定制</option>
+          </select></Form.Item>
+          <Form.Item label="预算金额"><input type="number" min={0} value={form.budget_amount} onChange={set("budget_amount")} /></Form.Item>
+          <Form.Item label="结算条款" className="ui-field-stacked"><textarea value={form.settlement_terms} onChange={set("settlement_terms")} /></Form.Item>
+        </HorizontalForm>
+      </div>
       <div className="kol-drawer-foot">
         <button type="button" className="btn ghost" onClick={onClose}>取消</button>
         <button type="submit" form="kol-lead-convert-form" className="btn primary" disabled={busy}>

@@ -1,0 +1,56 @@
+/* Mail-only adapters for the shared information-layout patterns. */
+.mail-page .mail-detail-properties {
+  flex: 1 0 100%;
+  width: 100%;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.mail-page .mail-detail-properties .ui-property-row {
+  min-height: var(--control-h-sm);
+  padding-block: var(--space-1);
+}
+
+.mail-page .mail-detail-properties .ui-property-row:first-child {
+  padding-top: 0;
+}
+
+.mail-page .mail-sync-record {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding-block: var(--space-1);
+  font-size: var(--ds-font-sm);
+}
+
+.mail-page .mail-sync-record .ui-record-main {
+  min-width: 0;
+}
+
+.mail-page .mail-sync-record .mail-hero-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-page .mail-sync-record .ui-record-status {
+  font-size: var(--ds-font-xs);
+}
+
+.mail-page .mail-sync-actions {
+  justify-content: flex-end;
+}
+
+.mail-page .mail-thread-actions.ui-action-group {
+  gap: var(--space-1);
+}
+
+.mail-page .mi-threadbar .mi-tsubject.ui-truncatable {
+  overflow: visible;
+  font-size: var(--ds-font-sm);
+}
+
+.mail-page .mi-threadbar .mi-tsubject .ui-truncatable-value {
+  flex: 1 1 auto;
+}

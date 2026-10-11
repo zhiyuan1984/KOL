@@ -33,11 +33,11 @@ async function mock(page: Page) {
 }
 
 test('profile loads only its own settings, preserves fourth-level organization and removes internal noise', async ({ page }) => {
-  const state = await mock(page); await page.goto('/settings'); await expect(page.getByLabel('姓名', { exact: true })).toHaveValue('王想');
+  const state = await mock(page); await page.goto('/settings'); await expect(page.locator('[data-property="name"] dd')).toHaveText('王想');
   expect(state.calls).not.toContain('/api/memory'); expect(state.calls).not.toContain('/api/me/settings-sessions'); expect(state.calls).not.toContain('/api/me/data-summary');
   await expect(page.locator('.settings-content')).not.toContainText(/handle|thread|MCP|Markdown|jeffrey|schema|连接器/);
   await expect(page.locator('[data-nav-disabled]')).toHaveCount(0); await expect(page.locator('[data-app-version]')).toHaveCount(0);
-  await expect(page.getByLabel('姓名', { exact: true })).toHaveAttribute('readonly', '');
+  await expect(page.locator('.settings-profile-facts input')).toHaveCount(0);
   await page.getByText('组织资料', { exact: true }).click(); await expect(page.locator('.settings-content')).toContainText('AI产品组');
   await page.screenshot({ path: 'test-results/settings/profile-1280.png', fullPage: true });
 });
@@ -101,5 +101,26 @@ for (const width of [375, 768, 1280, 1920]) {
     const sizes = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, viewport: window.innerWidth, body: document.body.scrollWidth }));
     expect(sizes.doc).toBeLessThanOrEqual(width); expect(sizes.body).toBeLessThanOrEqual(width);
     await page.screenshot({ path: `test-results/settings/preferences-${width}.png`, fullPage: true });
+  });
+}
+
+test('short properties use aligned label/value columns with a deliberate gap', async ({ page }) => {
+  const state = await mock(page); await page.goto('/settings');
+  const row = page.locator('[data-property="name"]'); await expect(row).toContainText('王想');
+  const box = await row.evaluate(e => { const l=e.querySelector('dt')!.getBoundingClientRect(),v=e.querySelector('dd')!.getBoundingClientRect(); return { ly:l.y, vy:v.y, gap:v.x-l.right, height:e.getBoundingClientRect().height }; });
+  expect(Math.abs(box.ly-box.vy)).toBeLessThan(2); expect(box.gap).toBe(24); expect(box.height).toBeLessThanOrEqual(36); expect(state.writes).toHaveLength(0);
+});
+test('normal conversation title state and actions share a compact line', async ({ page }) => {
+  await mock(page); await page.goto('/settings?tab=privacy'); const row=page.locator('[data-session-row="s1"]'); await expect(row).toContainText('本人的对话');
+  const box = await row.evaluate(e=> {const a=e.querySelector('.ui-record-title')!.getBoundingClientRect(),b=e.querySelector('.ui-record-status')!.getBoundingClientRect(),c=e.querySelector('.ui-record-actions')!.getBoundingClientRect();return {titleY:a.y+a.height/2,statusY:b.y+b.height/2,actionY:c.y+c.height/2,height:e.getBoundingClientRect().height};});
+  expect(Math.abs(box.titleY-box.statusY)).toBeLessThan(3); expect(Math.abs(box.titleY-box.actionY)).toBeLessThan(3); expect(box.height).toBeLessThanOrEqual(44);
+});
+for (const width of [320, 480, 720]) {
+  test(`short form follows actual ${width}px content container`, async ({ page }) => {
+    await mock(page); await page.goto('/settings?tab=preferences'); await expect(page.locator('#theme')).toBeVisible();
+    await page.locator('.ui-form-container').evaluate((e,w)=>{(e as HTMLElement).style.width=w+'px';},width);
+    const box = await page.locator('#theme').evaluate(e => {const row=e.closest('.ant-form-item')!,l=row.querySelector('.ant-form-item-label')!.getBoundingClientRect(),v=row.querySelector('.ant-form-item-control')!.getBoundingClientRect();return {lx:l.x,ly:l.y,vx:v.x,vy:v.y,vwidth:v.width,overflow:row.scrollWidth-row.clientWidth};});
+    if(width<480) expect(box.vy).toBeGreaterThan(box.ly); else { expect(box.vx).toBeGreaterThan(box.lx+100); expect(Math.abs(box.vy-box.ly)).toBeLessThan(2); }
+    expect(box.overflow).toBeLessThanOrEqual(1);
   });
 }
