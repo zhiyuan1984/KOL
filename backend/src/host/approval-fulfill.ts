@@ -16,5 +16,11 @@ export async function fulfillExpenseApproval(ap: Row): Promise<Json> {
     // 发布门禁读取该审批记录（consumed + base_version）做放行判断。
     return { skill_publish: true, sent: false, stage_changed: false };
   }
+  if (kind === "ontology_change") {
+    // 本体变更审批：终审通过本身即是放行凭证，无额外副作用；
+    // 本体管理页读取该审批记录（consumed + base_version）做变更放行判断。
+    // 文件级变更走 Git，审批是治理凭证，不直接写文件。
+    return { ontology_change: true, sent: false, stage_changed: false };
+  }
   throw new Error(`unknown approval kind ${kind}`);
 }

@@ -38,6 +38,18 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         href: "/admin/overview",
         icon: "M4 19V9 M10 19V5 M16 19v-7 M22 19V3",
       },
+      {
+        id: "lead-funnel",
+        label: "线索漏斗",
+        href: "/admin/lead-funnel",
+        icon: "M4 4h16l-6 7v6l-4 2v-8z",
+      },
+      {
+        id: "project-delivery",
+        label: "项目交付",
+        href: "/admin/project-delivery",
+        icon: "M21 8l-9-5-9 5v8l9 5 9-5z M3 8l9 5 9-5 M12 13v8",
+      },
     ],
   },
   {
@@ -54,6 +66,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         label: "知识",
         href: "/admin/knowledge",
         icon: "M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z",
+      },
+      {
+        id: "ontology",
+        label: "本体",
+        href: "/admin/ontology",
+        icon: "M6 5h4v4H6z M14 5h4v4h-4z M10 15h4v4h-4z M10 9v3 M8 9l3 5 M16 9l-3 5",
       },
       {
         id: "approvals",

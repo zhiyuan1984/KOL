@@ -6,6 +6,7 @@ import { nid } from "../ids.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
 import {
   convertKolLead, createKolCooperation, createKolLead, kolCooperationDetail, kolLeadDetail,
+  kolLeadEvents, kolLeadAutomationStatus,
   listKolCooperations, listKolLeads, updateKolCooperation, updateKolLead,
   type KolConvertInput, type KolCooperationInput, type KolLeadInput,
 } from "../ticket-domain/kol-leads.js";
@@ -58,6 +59,18 @@ kol.get("/kol/leads", async (c) => {
     limit: parseLimit(c.req.query("limit")), offset: parseOffset(c.req.query("offset")),
   }, { leaderMemberIds: leaderMemberUserIds(scopedUser()) });
   return c.json({ ...page, ...meta() });
+});
+
+/** 本体落地：初次建联自动建单规则的真实状态（注册在 :id 之前，避免被当作 id）。 */
+kol.get("/kol/leads/automation-status", async (c) => {
+  actor();
+  return c.json({ ...(await kolLeadAutomationStatus()), ...meta() });
+});
+
+/** 本体落地：线索对象事件时间线（对象详情页统一入口）。 */
+kol.get("/kol/leads/:id/events", async (c) => {
+  const { id, isAdmin } = actor();
+  return c.json({ ...(await kolLeadEvents(id, isAdmin, c.req.param("id"), parseLimit(c.req.query("limit"), 50), { leaderMemberIds: leaderMemberUserIds(scopedUser()) })), ...meta() });
 });
 
 kol.get("/kol/leads/:id", async (c) => {

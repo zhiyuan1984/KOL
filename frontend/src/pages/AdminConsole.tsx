@@ -10,7 +10,10 @@ import AdminCosts from "./AdminCosts";
 import AdminScheduling from "./AdminScheduling";
 import AdminWorkOrders from "./AdminWorkOrders";
 import AdminWorkReport from "./AdminWorkReport";
+import AdminLeadFunnel from "./AdminLeadFunnel";
+import AdminProjectDelivery from "./AdminProjectDelivery";
 import AdminAudit from "./AdminAudit";
+import AdminOntology from "./AdminOntology";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
 import type { DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
@@ -55,7 +58,7 @@ export default function AdminConsole() {
   const tab = adminTabOf(location.pathname);
 
   const load = useCallback(() => {
-    if (tab === "work-orders" || tab === "scheduling") {
+    if (tab === "work-orders" || tab === "scheduling" || tab === "ontology") {
       setError("");
       setLoading(false);
       return;
@@ -117,10 +120,13 @@ export default function AdminConsole() {
         {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
         {tab === "cost" && <AdminCosts />}
         {tab === "overview" && <AdminWorkReport />}
+        {tab === "lead-funnel" && <AdminLeadFunnel />}
+        {tab === "project-delivery" && <AdminProjectDelivery />}
         {tab === "scheduling" && <AdminScheduling />}
         {tab === "work-orders" && <AdminWorkOrders />}
         {tab === "audit" && <AdminAudit />}
         {tab === "knowledge" && <AdminKnowledge />}
+        {tab === "ontology" && <AdminOntology />}
         {tab === "kol" && <LegacyAdmin />}
       </div>
     </div>

@@ -150,7 +150,7 @@ if (catalog === null) {
     const sections = new Set();
     for (const event of events) {
       const where = `event-catalog[${event?.code ?? "?"}]`;
-      if (typeof event?.code !== "string" || !/^[a-z][a-z0-9]*(\.[a-z0-9_]+)+$/.test(event.code)) {
+      if (typeof event?.code !== "string" || !/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/.test(event.code)) {
         errors.push(`${where}：code 必须为点分层级小写码`);
       } else if (seen.has(event.code)) errors.push(`${where}：code 重复`);
       else seen.add(event.code);
@@ -171,6 +171,19 @@ if (catalog === null) {
     }
     if (events.length < 90) warnings.push(`event-catalog：事件数 ${events.length}，少于预期的 ~100，请核对事件清单是否全量提取`);
     console.log(`event-catalog：${events.length} 条事件`);
+    // 工单域 formal 事件码：命名唯一真相源是事件目录；运行时常量必须全量登记。
+    try {
+      const contractsSrc = fs.readFileSync(path.join(root, "backend/src/ticket-domain/event-contracts.ts"), "utf8");
+      const m = /FORMAL_BUSINESS_EVENT_TYPES\s*=\s*\[([\s\S]*?)\]\s*as const/.exec(contractsSrc);
+      const formalCodes = m ? [...m[1].matchAll(/"([a-z][a-z0-9._]+)"/g)].map((x) => x[1]) : [];
+      if (!formalCodes.length) errors.push("event-contracts.ts：未能解析 FORMAL_BUSINESS_EVENT_TYPES");
+      for (const code of formalCodes) {
+        if (!seen.has(code)) errors.push(`event-catalog：工单域 formal 事件 ${code} 未登记（命名唯一真相源）`);
+      }
+      if (formalCodes.length) console.log(`event-catalog：formal wave ${formalCodes.length} 码已登记`);
+    } catch (error) {
+      errors.push(`event-contracts.ts 读取失败：${error.message}`);
+    }
   }
 }
 

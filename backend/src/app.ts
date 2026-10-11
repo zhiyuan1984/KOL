@@ -18,6 +18,7 @@ import { approvals } from "./routers/approvals.js";
 import { approvalTypes } from "./routers/approval-types.js";
 import { reviews } from "./routers/reviews.js";
 import { misc } from "./routers/misc.js";
+import { ontology } from "./routers/ontology.js";
 import { pipeline } from "./routers/pipeline.js";
 import { examRouter } from "./exam.js";
 import { enterprise } from "./routers/enterprise.js";
@@ -34,6 +35,7 @@ import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
 import { tickets } from "./routers/tickets.js";
 import { kol } from "./routers/kol.js";
+import { kolDashboards } from "./routers/kol-dashboards.js";
 import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "./ticket-domain/auth.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
@@ -174,10 +176,12 @@ export function createApp(): Hono {
   app.route("/api", homeToday);
   app.route("/api", workReport);
   app.route("/api", misc);
+  app.route("/api", ontology);
   // Formal ticket endpoints are isolated from the legacy `/tasks` router so
   // their production request path has no SQLite-shaped repository or identity imports.
   app.route("/api", tickets);
   app.route("/api", kol);
+  app.route("/api", kolDashboards);
   app.route("/api", tasks);
   app.route("/api", events);
   app.route("/api", crawlRouter);

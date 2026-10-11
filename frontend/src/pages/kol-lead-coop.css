@@ -66,3 +66,12 @@
 .kol-error { color: #c43c3c; font-size: var(--ds-font-sm, 13px); }
 .kol-hint { font-size: var(--ds-font-xs, 11px); color: var(--text-muted); }
 @media (prefers-reduced-motion: reduce) { .kol-drawer { box-shadow: none; } }
+
+/* 本体落地：对象详情页三段式 —— 时间线内行（antd Timeline 的 children 内布局） */
+.kol-tl-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kol-tl-top strong { font-size: var(--ds-font-sm, 13px); font-weight: 600; }
+.kol-tl-code { font-size: var(--ds-font-xs, 11px); color: var(--text-muted); font-family: monospace; }
+.kol-tl-time { font-size: var(--ds-font-xs, 11px); color: var(--text-muted); margin-left: auto; }
+.kol-tl-summary { font-size: var(--ds-font-xs, 12px); color: var(--text-muted); margin-top: 2px; }
+.kol-obj-kind { font-size: var(--ds-font-xs, 11px); color: var(--text-muted); font-weight: 400; margin-left: 6px; }
+.kol-subhead { font-size: var(--ds-font-xs, 12px); font-weight: 600; color: var(--text-muted); margin: 12px 0 6px; }
