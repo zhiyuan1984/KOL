@@ -29,6 +29,7 @@ import type { Row } from "../types.js";
 import { startMailSyncJob, authorizeMailSync } from "./sync-job.js";
 import { prepareMail, mailDraftActions, sendMailDraft, translateMailDraft, exportMailDraft } from "../host/api.js";
 import { readReplyContext } from "./reply-context.js";
+import { mailLabelOperations } from "./labels.js";
 
 const MEMORY = {
   entry: "memory" as const,
@@ -252,6 +253,7 @@ export const mailOperations: Operation[] = [
   { kind: "skill", id: "mail_summary", handle: (c, input) => runMailSkill(c, { ...input, skill_id: "mail_summary" }) },
   { kind: "skill", id: "mail_translate", handle: (c, input) => runMailSkill(c, { ...input, skill_id: "mail_translate" }) },
   { kind: "job", id: "mail.sync", handle: async (c, input) => c.json(await startMailSyncJob(input), 202) },
+  ...mailLabelOperations,
 ];
 
 export const mailJobScopes = {

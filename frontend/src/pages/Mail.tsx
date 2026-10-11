@@ -17,6 +17,8 @@ import { MailContent } from "../mail/components/MailContent";
 import { MailDigestCard } from "../mail/components/MailDigestCard";
 import { MailFold, MAIL_FOLD_KEYS, readMailFolds, writeMailFold, type MailFoldKey } from "../mail/components/MailFold";
 import { MailboxSwitcher } from "../mail/components/MailboxSwitcher";
+import { MailLabelEditor } from "../mail/components/MailLabelEditor";
+import { useMailLabels } from "../mail/useMailLabels";
 import { MailTimelineItem, type MailReadState } from "../mail/components/MailTimelineItem";
 import { PlainText } from "../mail/components/PlainText";
 import { ActionGroup, PropertyList, RecordRow, TruncatableText } from "../components/InformationLayout";
@@ -229,6 +231,10 @@ export default function Mail() {
   /** 沉浸式：左导航目录状态（星标 / 阶段筛选） */
   const [starredOnly, setStarredOnly] = useState(false);
   const [stageFilter, setStageFilter] = useState("");
+  const [labelFilter, setLabelFilter] = useState("");
+  const labelConversation = focusId ? (workspace?.conversations.find(row => row.conversation_id === focusId || row.id === focusId)?.conversation_id || "") : "";
+  const labels = useMailLabels(account?.id || "", workspace?.box.bound && loadState === "ok" ? workspace.box.mailbox : "", labelConversation);
+  useEffect(() => { setLabelFilter(""); setStageFilter(""); }, [boxParam, account?.id]);
   /** 沉浸式：阅读区 AI 提问框输入 */
   const [aiText, setAiText] = useState("");
   const stageSectionRef = useRef<HTMLDivElement | null>(null);
@@ -254,6 +260,11 @@ export default function Mail() {
   const intakeCancelled = useRef(false);
   const [cacheEpoch, setCacheEpoch] = useState(0);
 
+  const labelsByConversation = useMemo(() => {
+    const directory = new Map(labels.data?.labels.map(label => [label.id, label]) || []);
+    return new Map(labels.data?.assignments.map(assignment => [assignment.conversation_id, assignment.label_ids.map(id => directory.get(id)).filter((label): label is NonNullable<typeof label> => Boolean(label))]) || []);
+  }, [labels.data]);
+
   const conversations = useMemo(() => {
     const rows = [...(workspace?.conversations || [])];
     rows.sort((a, b) => occurredAtMs(b.last_at) - occurredAtMs(a.last_at));
@@ -268,6 +279,9 @@ export default function Mail() {
     if (unboundOnly) rows = rows.filter((row) => row.match_state === "unbound");
     if (starredOnly) rows = rows.filter((row) => starOverrides[row.id || row.conversation_id] ?? Boolean(row.starred));
     if (stageFilter) rows = rows.filter((row) => String(row.stage_code || "") === stageFilter);
+    if (labelFilter) {
+      rows = rows.filter(row => labelsByConversation.get(row.conversation_id)?.some(label => label.id === labelFilter));
+    }
     const q = query.trim().toLowerCase();
     if (q) {
       rows = rows.filter((row) =>
@@ -275,7 +289,7 @@ export default function Mail() {
           .some((field) => String(field || "").toLowerCase().includes(q)));
     }
     return rows;
-  }, [conversations, tab, unboundOnly, query, starredOnly, starOverrides, stageFilter]);
+  }, [conversations, tab, unboundOnly, query, starredOnly, starOverrides, stageFilter, labelFilter, labelsByConversation]);
 
   const groups = useMemo(() => groupByPeer(visibleConversations), [visibleConversations]);
 
@@ -1035,7 +1049,12 @@ export default function Mail() {
   /** 沉浸式：滚动到阶段变更区（独立动作，确认仍在原流程里做）。 */
   const scrollToStage = () => {
     setPane("detail");
-    requestAnimationFrame(() => stageSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    requestAnimationFrame(() => {
+      const section = stageSectionRef.current;
+      const reading = section?.closest<HTMLElement>("[data-mail-side]");
+      const head = reading?.querySelector<HTMLElement>("[data-mi-threadbar]");
+      if (section && reading) reading.scrollTo({ top: reading.scrollTop + section.getBoundingClientRect().top - reading.getBoundingClientRect().top - (head?.offsetHeight || 0), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    });
   };
 
   /** 沉浸式：顶栏「写信」——空白写信，收发件按当前邮箱/会话自动带出。 */
@@ -1059,7 +1078,7 @@ export default function Mail() {
       const el = document.activeElement as HTMLElement | null;
       const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (e.key === "Escape") {
-        if (!moreOpen && !el?.closest("[data-mi-dockfloat]")) goBack();
+        if (!moreOpen && !el?.closest("[data-mi-dockfloat], [data-mail-boxbar], [data-mail-label-editor]")) goBack();
         return;
       }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1130,6 +1149,8 @@ export default function Mail() {
       if (c.handle) lines.push(`绑定红人：@${String(c.handle).replace(/^@/, "")}`);
       if (kolStage?.stage_label) lines.push(`合作阶段：${kolStage.stage_label}`);
       else if (c.stage_code) lines.push(`合作阶段：${stageLabel(c.stage_code) || c.stage_code}`);
+      const savedLabels = labels.data?.labels.filter(label => labels.data?.selected_label_ids.includes(label.id)).map(label => label.name) || [];
+      if (labelConversation === c.conversation_id && savedLabels.length) lines.push(`手工标签（本人整理）：${savedLabels.join("、")}`);
       [...(detailThread?.messages || [])].sort((a, b) => occurredAtMs(a.occurred_at) - occurredAtMs(b.occurred_at)).slice(-3).forEach((m) => {
         const dir = m.direction === "outbound" ? "我方发件" : "对方来信";
         const body = String(m.snippet || m.body_text || "").replace(/\s+/g, " ").slice(0, 180);
@@ -1156,38 +1177,14 @@ export default function Mail() {
         detailThread ? `${detailThread.messages.length} 封原文` : `${countOf(selectedConversation)} 封往来 · 原文未加载`,
         personDigest?.digest_text ? "AI 摘要" : null,
         selectedConversation.handle ? `@${String(selectedConversation.handle).replace(/^@/, "")}` : null,
+        labels.data?.selected_label_ids.length ? `${labels.data.selected_label_ids.length} 个手工标签` : null,
         kolStage?.stage_label || null,
       ].filter(Boolean).join(" · ")
     : "当前邮箱";
 
   return (
-    <div className="list-page mail-page mail-immersive" data-mail-page data-mail-immersive data-mail-source={workspace?.source || undefined}
+    <div className="list-page mail-page mail-immersive mail-redesign" data-mail-page data-mail-immersive data-mail-source={workspace?.source || undefined}
       style={{ "--mail-compose-occlusion": `${dockHeight}px` } as CSSProperties}>
-      {loadState === "loading" ? (
-        <div className="mail-split mail-pane-skeleton" data-mail-state="loading" aria-busy="true">
-          <div className="mail-list">
-            <p className="muted mail-list-loading-meta" data-mail-box-loading>正在读取本地邮件记忆…</p>
-            <div className="mps-search" />
-            {Array.from({ length: 9 }).map((_, i) => (
-              <div key={i} className="mps-row" />
-            ))}
-          </div>
-          <div className="mail-interact">
-            <div className="mps-chip-row">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="mps-chip" />
-              ))}
-            </div>
-            <div className="mps-line is-block" />
-          </div>
-          <div className="mail-detail">
-            <div className="mps-line is-block" />
-            <div className="mps-line" style={{ width: "78%" }} />
-            <div className="mps-line" style={{ width: "88%" }} />
-          </div>
-        </div>
-      ) : null}
-
       {loadState === "ok" && bound ? (
         <div className="mail-panes mi-panes" role="group" aria-label="邮件面板" data-mail-panes>
           {PANE_TABS.filter((item) => item.key !== "interact").map((item) => (
@@ -1204,49 +1201,26 @@ export default function Mail() {
         </div>
       ) : null}
 
-      {(
-        <header className="mi-topbar" data-mi-topbar>
-          <button type="button" className="mi-back" data-mi-back onClick={goBack} title="返回工作台（Esc）">
-            <span aria-hidden="true">‹</span> 返回工作台
-          </button>
-          <h1 className="mi-title">通讯</h1>
-          <label className="mi-searchwrap">
-            <MailIco d={ICO_SPARKLE} />
-            <input
-              ref={topSearchRef}
-              className="mi-search"
-              data-mi-search
-              type="search"
-              aria-label="搜索通讯或回车问 AI"
-              placeholder="搜索联系人 / 主题 / 预览，回车问 AI"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) askAi(query);
-              }}
-            />
-          </label>
-          <span className="mi-sync" data-mi-sync>
-            <span className={"mi-syncdot" + (syncing ? " is-syncing" : "")} aria-hidden="true" />
-            {syncing ? "正在收取…" : box?.synced_at ? `已同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
-          </span>
-          <button type="button" className={"btn sm" + (mailCompose.active || composerText.trim() || busy ? " ghost" : " primary")} data-mi-compose disabled={loadState !== "ok" || !bound} onClick={startBlankCompose}>
-            ＋ 写信
-          </button>
-        </header>
-      )}
-
-      {loadState === "ok" && bound ? (
-        <div className="mail-split mi-grid" data-mail-state="ok" data-mail-pane-active={pane === "interact" ? "detail" : pane}>
+      <div className="mail-split mi-grid" data-mail-state={loadState === "ok" ? bound ? "ok" : bindings.some(binding => binding.bound) ? "choose-mailbox" : "unbound" : loadState}
+        data-mail-pane-active={pane === "interact" ? "detail" : pane}>
           <nav className="mi-rail" aria-label="通讯导航" data-mi-rail>
-            <MailboxSwitcher
-              current={activeBox}
-              bindings={bindings}
-              syncing={syncing}
-              onSelect={openBox}
-              onSync={() => void sync()}
-              showSync={false}
-            />
+            <div className="mr-railtools" data-mail-rail-tools>
+              <button type="button" className="mi-back" data-mi-back onClick={goBack} title="返回工作台（Esc）">
+                <span aria-hidden="true">‹</span> 返回工作台
+              </button>
+              <button type="button" className={"btn sm mr-compose" + (mailCompose.active || composerText.trim() || busy ? " ghost is-active" : " primary")}
+                data-mi-compose aria-pressed={mailCompose.active || Boolean(composerText.trim()) || busy}
+                disabled={loadState !== "ok" || !bound} onClick={startBlankCompose}>＋ 写信</button>
+              <label className="mi-searchwrap">
+                <MailIco d={ICO_SPARKLE} />
+                <input ref={topSearchRef} className="mi-search" data-mi-search type="search" aria-label="搜索通讯或回车问 AI"
+                  placeholder="搜索往来，回车问 AI" value={query} onChange={event => setQuery(event.target.value)}
+                  disabled={loadState !== "ok" || !bound}
+                  onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) askAi(query); }} />
+              </label>
+            </div>
+            {loadState === "ok" && bound ? <div className="mr-railbody">
+              <MailboxSwitcher current={activeBox} bindings={bindings} syncing={syncing} onSelect={openBox} onSync={() => void sync()} showSync={false} />
             <div className="mi-folders" role="tablist" aria-label="邮件目录">
               <button
                 type="button" role="tab" aria-selected={tab === "inbox" && !starredOnly}
@@ -1277,30 +1251,25 @@ export default function Mail() {
                 <MailIco d={ICO_STAR} />星标<span className="mi-count">{starredTotal}</span>
               </button>
             </div>
-            <div className="mi-stages">
-              <p className="mail-pane-label">合作阶段筛选</p>
-              <div className="mi-stagechips">
-                <button
-                  type="button"
-                  className={"mi-stagechip" + (!stageFilter ? " is-on" : "")}
-                  aria-pressed={!stageFilter}
-                  onClick={() => setStageFilter("")}
-                >
-                  全部<span className="mi-count">{conversations.length}</span>
-                </button>
-                {stageOptions.map((opt) => (
-                  <button
-                    key={opt.code}
-                    type="button"
-                    className={"mi-stagechip" + (stageFilter === opt.code ? " is-on" : "")}
-                    aria-pressed={stageFilter === opt.code}
-                    onClick={() => setStageFilter((v) => (v === opt.code ? "" : opt.code))}
-                  >
-                    {opt.label}<span className="mi-count">{opt.count}</span>
-                  </button>
-                ))}
+            <section className="mr-label-nav" aria-label="标签筛选" data-mail-label-nav>
+              <div className="mr-label-heading"><strong>标签</strong>
+                {stageFilter || labelFilter ? <button type="button" className="btn ghost sm" data-mail-clear-label-filter
+                  onClick={() => { setStageFilter(""); setLabelFilter(""); }}>清除筛选</button> : null}
               </div>
-            </div>
+              <div className="mi-stagechips">
+                {stageOptions.map(opt => <button key={opt.code} type="button" data-mail-stage-filter={opt.code}
+                  className={"mi-stagechip mr-label-navrow" + (stageFilter === opt.code ? " is-on" : "")}
+                  aria-pressed={stageFilter === opt.code} onClick={() => { setLabelFilter(""); setStageFilter(value => value === opt.code ? "" : opt.code); }}>
+                  <span>{opt.label}</span><span className="mr-label-origin">阶段</span><span className="mi-count">{opt.count}</span>
+                </button>)}
+                {labels.data?.labels.filter(label => label.count > 0 || label.id === labelFilter).map(label => <button key={label.id} type="button"
+                  data-mail-label-filter={label.id} className={"mi-stagechip mr-label-navrow" + (labelFilter === label.id ? " is-on" : "")}
+                  aria-pressed={labelFilter === label.id} onClick={() => { setStageFilter(""); setLabelFilter(value => value === label.id ? "" : label.id); }}>
+                  <span>{label.name}</span><span className="mr-label-origin">手工</span><span className="mi-count">{label.count}</span>
+                </button>)}
+              </div>
+              {labels.error ? <button type="button" className="btn ghost sm" disabled={labels.loading} onClick={() => void labels.reload()}>标签读取失败 · 重试</button> : null}
+            </section>
             <button
               type="button"
               className={"mi-unboundonly" + (unboundOnly ? " is-on" : "")}
@@ -1351,38 +1320,26 @@ export default function Mail() {
                   通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
                 </p>
               ) : null}
-              <RecordRow
-                className="mail-sync-record"
-                title="邮箱状态"
-                meta={<span className="muted mail-hero-meta" data-mail-box>{box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}</span>}
-                status={<span>未读 {Number(box?.total_unread ?? box?.unread ?? 0)}</span>}
-                actions={<ActionGroup className="mail-sync-actions">
-                  <button
-                    type="button"
-                    className="mail-list-sync"
-                    data-mail-sync
-                    data-mail-entry="sync-mailbox-mail"
-                    disabled={syncing}
-                    onClick={() => void sync()}
-                  >
-                    {syncing ? "正在收取…" : "收取"}
+              <div className="mail-sync-record" data-mail-box>
+                <span className="muted" data-mi-sync>{syncing ? "正在收取…" : box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}</span>
+                <ActionGroup className="mail-sync-actions">
+                  <button type="button" className="mail-list-sync" data-mail-sync data-mail-entry="sync-mailbox-mail" disabled={syncing} onClick={() => void sync()}>
+                    {syncing ? "收取中…" : "收取"}
                   </button>
                   {syncJob && ["queued", "running", "retrying"].includes(syncJob.status) && <>
                     <button type="button" className="mail-list-sync" onClick={() => void controlSync("cancel")}>取消同步</button>
                     {!syncing && <button type="button" className="mail-list-sync" onClick={() => void pollForSync(syncJob.id)}>刷新状态</button>}
                   </>}
                   {syncJob?.status === "failed" && <button type="button" className="mail-list-sync" onClick={() => void controlSync("retry")}>重试同步</button>}
-                </ActionGroup>}
-              />
-              <p className="mi-keys muted">j/k 移动 · e 标为已读 · / 搜索 · Esc 返回</p>
+                </ActionGroup>
+              </div>
             </div>
+            </div> : null}
           </nav>
 
+          {loadState === "ok" && bound ? <>
           <aside className="mail-list" data-mail-list data-mail-entry="list-mailbox-mail">
-            <div className="mi-listhead" data-mi-listhead>
-              <strong>{folderLabel}</strong>
-              <span className="muted">{visibleConversations.length} 个会话</span>
-            </div>
+            <h2 className="sr-only">{folderLabel} · {visibleConversations.length} 个会话</h2>
 
             <div className="mail-list-scroll" data-mail-list-scroll>
             {groups.length === 0 ? (
@@ -1406,11 +1363,14 @@ export default function Mail() {
                         const expanded = expandedId === row.conversation_id;
                         const current = selectedConversation?.conversation_id === row.conversation_id;
                         const mailCount = countOf(row);
+                        const rowLabels = labelsByConversation.get(row.conversation_id) || [];
                         const rows = expanded ? timelineOf(threads[row.conversation_id]?.messages || []) : [];
                         const newestId = rows[0]?.id || "";
                         return (
                           <div key={row.id + row.conversation_id} className="mail-tree-conversation" data-mi-row>
                             <div className="mi-hoverbar" data-mi-hoverbar>
+                              <button type="button" title="标注此会话" data-mail-label-focus={row.conversation_id}
+                                onClick={event => { event.stopPropagation(); focusConversation(row); }}>＃</button>
                               <button
                                 type="button" title="标记已读"
                                 onClick={(e) => { e.stopPropagation(); markRead(row); }}
@@ -1432,6 +1392,11 @@ export default function Mail() {
                               mailCount={mailCount}
                               onToggle={() => toggleConversation(row)}
                             />
+                            {rowLabels.length ? (
+                              <div className="mr-list-labels" data-mail-list-labels={row.conversation_id}>
+                                {rowLabels.map(label => <span key={label.id}>{label.name}</span>)}
+                              </div>
+                            ) : null}
                             {expanded ? (
                               <div className="mail-timeline" data-mail-timeline>
                                 {rows.length === 0 ? (
@@ -1463,53 +1428,27 @@ export default function Mail() {
 
 
           <aside className="mail-detail" data-mail-side data-mail-thread data-mail-entry="open-mail-thread">
-            <div className="mi-threadbar" data-mi-threadbar>
-              <TruncatableText className="mi-tsubject" text={selectedConversation?.subject || "邮件详情"} />
-              {selectedConversation?.handle ? (
-                <span className="mi-kolchip">@{String(selectedConversation.handle).replace(/^@/, "")}</span>
-              ) : null}
-              {kolStage?.stage_label ? (
-                <span className="mi-stagechip is-on">{kolStage.stage_label}</span>
-              ) : null}
-              <span className="mi-tspacer" />
-              <button
-                type="button"
-                className="btn ghost sm"
-                data-mi-goto-stage
-                disabled={!kolStage}
-                title={kolStage ? "跳转到阶段变更" : "未绑定合作红人"}
-                onClick={scrollToStage}
-              >
-                ⇄ 推进阶段
-              </button>
+            <div className="mi-threadbar mr-readhead" data-mi-threadbar>
+              <h2 className="mr-subject" data-mail-reading-subject>{selectedConversation?.subject || "邮件详情"}</h2>
+              <button type="button" className={"mail-star" + (starred ? " is-starred" : "")} data-mail-star aria-pressed={starred}
+                disabled={!selectedConversation} title={starred ? "取消星标" : "加星标"} onClick={toggleStar}>{starred ? "★" : "☆"}</button>
+              <span className="mr-reading-mailbox muted" title={selectedConversation?.mailbox || activeBox}>{selectedConversation?.mailbox || activeBox}</span>
+              <button type="button" className="btn ghost sm" data-mi-goto-stage disabled={!kolStage}
+                title={kolStage ? "跳转到阶段变更" : "未绑定合作红人"} onClick={scrollToStage}>⇄ 推进阶段</button>
+              <div className="mail-thread-more" ref={moreRef}>
+                <button type="button" className="mail-more-btn" aria-label="更多会话操作" aria-expanded={moreOpen} onClick={() => setMoreOpen(value => !value)}><MailIcoMore /></button>
+                {moreOpen ? <div className="mail-popover">
+                  <button type="button" data-mail-reply disabled={!selectedConversation} onClick={() => { reply(); setMoreOpen(false); }}>回复（填写草稿）</button>
+                  <button type="button" disabled={!selectedConversation} onClick={() => { if (selectedConversation) markRead(selectedConversation); setMoreOpen(false); }}>标记已读</button>
+                  <button type="button" disabled={!selectedConversation?.peer_email} onClick={() => {
+                    if (selectedConversation?.peer_email) void navigator.clipboard?.writeText(selectedConversation.peer_email).catch(() => undefined);
+                    setMoreOpen(false);
+                  }}>复制对方邮箱</button>
+                </div> : null}
+              </div>
             </div>
             <div className="mail-detail-head">
-              <div className="mail-thread-head">
-                <h2>
-                  {detailThread?.thread.subject || selectedConversation?.subject || "邮件详情"}
-                  <button
-                    type="button"
-                    className={"mail-star" + (starred ? " is-starred" : "")}
-                    data-mail-star
-                    aria-pressed={starred}
-                    title={starred ? "取消星标" : "加星标"}
-                    onClick={toggleStar}
-                  >
-                    {starred ? "★" : "☆"}
-                  </button>
-                </h2>
-                {detailPeer ? (
-                  <PropertyList
-                    className="mail-detail-properties"
-                    data-mail-thread-sub
-                    labelWidth="short"
-                    items={[
-                      { key: "peer", label: "联系人", value: detailPeer },
-                      ...(detailPeerEmail && detailPeerEmail !== detailPeer ? [{ key: "email", label: "邮箱", value: detailPeerEmail }] : []),
-                    ]}
-                  />
-                ) : null}
-              </div>
+              {detailPeer && detailPeer !== detailPeerEmail ? <p className="mr-peer-name muted">{detailPeer}</p> : null}
               <div className="mail-mobiletabs" role="tablist" data-mail-mobiletabs>
                 {FOLD_TABS.map((item) => (
                   <button
@@ -1530,19 +1469,6 @@ export default function Mail() {
               label="往来摘要"
               open={folds.summary}
               onToggle={() => toggleFold("summary")}
-              tag={(
-                <button
-                  type="button"
-                  className="mail-side-action"
-                  data-mail-generate-summary
-                  data-mail-entry="mail_summary"
-                  disabled={memoryBusy !== null || !selectedConversation}
-                  onClick={() => void generateMailMemory("summary")}
-                >
-                  <MailIco d={ICO_WAND} />
-                  {memoryBusy === "summary" ? "生成中…" : "生成摘要"}
-                </button>
-              )}
             >
               <div
                 className="mail-fold-inner"
@@ -1559,19 +1485,6 @@ export default function Mail() {
               label="中文翻译"
               open={folds.translation}
               onToggle={() => toggleFold("translation")}
-              tag={(
-                <button
-                  type="button"
-                  className="mail-side-action"
-                  data-mail-generate-translation
-                  data-mail-entry="mail_translate"
-                  disabled={memoryBusy !== null || !currentMessage}
-                  onClick={() => void generateMailMemory("translation")}
-                >
-                  <MailIco d={ICO_TRANSLATE} />
-                  {memoryBusy === "translation" ? "生成中…" : "生成翻译"}
-                </button>
-              )}
             >
               <div
                 className="mail-fold-inner"
@@ -1605,65 +1518,10 @@ export default function Mail() {
                   {detailError || "选择左侧邮件查看原文。打开不会创建会话。"}
                 </p>
               )}
-              {selectedConversation ? (
-                <ActionGroup className="mail-thread-actions" data-mail-thread-actions>
-                  <button type="button" className="btn ghost" data-mail-reply onClick={reply}>
-                    <MailIco d={ICO_REPLY} />
-                    回复
-                  </button>
-                  <button type="button" className="btn ghost" data-mail-draft-reply onClick={generateReply}>
-                    <MailIco d={ICO_DOC} />
-                    生成回复
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    data-mail-analyze
-                    data-mail-entry="kol-analyze-enqueue"
-                    onClick={() => void analyze()}
-                  >
-                    <MailIco d={ICO_SPARKLE} />
-                    快速分析
-                  </button>
-                  <div className="mail-thread-more" ref={moreRef}>
-                    <button
-                      type="button"
-                      className="mail-more-btn"
-                      aria-label="更多会话操作"
-                      aria-expanded={moreOpen}
-                      onClick={() => setMoreOpen((v) => !v)}
-                    >
-                      <MailIcoMore />
-                    </button>
-                    {moreOpen ? (
-                      <div className="mail-popover">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (selectedConversation) markRead(selectedConversation);
-                            setMoreOpen(false);
-                          }}
-                        >
-                          标记已读
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!selectedConversation?.peer_email}
-                          onClick={() => {
-                            if (selectedConversation?.peer_email) {
-                              void navigator.clipboard?.writeText(selectedConversation.peer_email).catch(() => undefined);
-                            }
-                            setMoreOpen(false);
-                          }}
-                        >
-                          复制对方邮箱
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                </ActionGroup>
-              ) : null}
             </MailFold>
+            <MailLabelEditor actorId={account?.id || ""} mailbox={activeBox} conversation={labelConversation ? selectedConversation : null}
+              stage={kolStage?.stage_label || (selectedConversation?.stage_code ? stageLabel(selectedConversation.stage_code) : "")}
+              labels={labels} />
             <div className="mi-stagewrap" ref={stageSectionRef} data-mi-stagewrap>
                             {kolStage ? (
                               <div className="mail-stage-change" data-mail-stage-change>
@@ -1716,7 +1574,7 @@ export default function Mail() {
                   data-mi-aiinput
                   value={aiText}
                   aria-label="就当前会话问 AI"
-                  placeholder="就当前会话问 AI，回车进入 Codex…"
+                  placeholder="就当前会话问 AI，回车提问…"
                   onChange={(e) => setAiText(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.nativeEvent.isComposing) askAi(aiText);
@@ -1728,29 +1586,38 @@ export default function Mail() {
                 <span className="mi-ctx" title="本次提问携带的实时上下文">{aiCtxTag}</span>
               </div>
               <div className="mi-aichips">
-                <button type="button" className="mi-aichip" data-mi-ai-summary
+                <button type="button" className="mi-aichip" data-mi-ai-summary data-mail-generate-summary data-mail-entry="mail_summary"
                   disabled={memoryBusy !== null || !selectedConversation}
                   onClick={() => void generateMailMemory("summary")}>
                   {memoryBusy === "summary" ? "生成中…" : "生成摘要"}
                 </button>
-                <button type="button" className="mi-aichip" data-mi-ai-translate
+                <button type="button" className="mi-aichip" data-mi-ai-translate data-mail-generate-translation data-mail-entry="mail_translate"
                   disabled={memoryBusy !== null || !currentMessage}
                   onClick={() => void generateMailMemory("translation")}>
                   {memoryBusy === "translation" ? "生成中…" : "中文翻译"}
                 </button>
-                <button type="button" className="mi-aichip" data-mi-ai-reply
+                <button type="button" className="mi-aichip" data-mi-ai-reply data-mail-draft-reply
                   disabled={!selectedConversation} onClick={generateReply}>
                   起草回复
                 </button>
-                <button type="button" className="mi-aichip" data-mi-ai-analyze
+                <button type="button" className="mi-aichip" data-mi-ai-analyze data-mail-analyze data-mail-entry="kol-analyze-enqueue"
                   disabled={!selectedConversation || busy} onClick={() => void analyze()}>
                   快速分析
                 </button>
               </div>
             </div>
           </aside>
-        </div>
-      ) : null}
+          </> : <section className="mr-state" aria-live="polite">
+            {loadState === "loading" ? <div className="mail-pane-skeleton" aria-busy="true"><p className="muted" data-mail-box-loading>正在读取本地邮件记忆…</p>{Array.from({ length: 6 }).map((_, index) => <div className="mps-row" key={index} />)}</div> : null}
+            {loadState === "error" ? <><p className="error" role="alert" data-mail-error>{error}</p><button type="button" className="btn ghost" onClick={() => load()}>重试读取</button></> : null}
+            {loadState === "ok" && !bound ? <>
+              {bindings.some(binding => binding.bound) ? <><p data-mail-choose-guide>已绑定 Starry 邮箱，请选择本次查看的邮箱。只显示所选邮箱的往来，打开会话不会创建 Agent 会话。</p>
+                <div className="mail-box-options" data-mail-choose-box>{bindings.filter(binding => binding.bound).map(binding => <button type="button" className="btn ghost" key={binding.mailbox} data-mail-select-box={binding.mailbox} onClick={() => openBox(binding)}>{binding.owner_name ? `${binding.owner_name} · ` : ""}{binding.mailbox}</button>)}</div>
+              </> : <p data-mail-unbound-guide>{MAIL_UNBOUND_COPY}</p>}
+              <Link className="btn ghost" to="/settings?tab=starry" data-mail-bind>打开连接 Starry</Link>
+            </> : null}
+          </section>}
+      </div>
 
       {(mailCompose.active || composerText.trim() || busy) && loadState === "ok" && bound ? (
         <div className="mi-dockfloat" data-mi-dockfloat ref={setDockElement}>
@@ -1791,23 +1658,7 @@ export default function Mail() {
         </div>
       ) : null}
 
-      {loadState === "ok" && !bound ? (
-        <section className="mail-unbound" data-mail-state={workspace?.box.bindings?.some((binding) => binding.bound) ? "choose-mailbox" : "unbound"}>
-          {workspace?.box.bindings?.some((binding) => binding.bound) ? <>
-            <p data-mail-choose-guide>已绑定 Starry 邮箱，请选择本次查看的邮箱。只显示所选邮箱的往来，打开会话不会创建 Agent 会话。</p>
-            <div className="mail-box-options" data-mail-choose-box>
-              {workspace.box.bindings.filter((binding) => binding.bound).map((binding) => (
-                <button type="button" className="btn ghost" key={binding.mailbox} data-mail-select-box={binding.mailbox} onClick={() => openBox(binding)}>
-                  {binding.owner_name ? `${binding.owner_name} · ` : ""}{binding.mailbox}
-                </button>
-              ))}
-            </div>
-          </> : <p data-mail-unbound-guide>{MAIL_UNBOUND_COPY}</p>}
-          {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
-          {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
-          <Link className="btn ghost" to="/settings?tab=starry" data-mail-bind>打开连接 Starry</Link>
-        </section>
-      ) : null}
+
     </div>
   );
 }

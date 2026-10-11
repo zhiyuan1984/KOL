@@ -102,7 +102,7 @@ test("sidebar 通讯 sits under 定时任务 and /mail uses board fallback", asy
   // 邮箱地址在切换器，同步和未读分别由真实状态区展示。
   await expect(page.locator("[data-mail-box-current]")).toContainText("larry.zhao@amperetime.com");
   await expect(page.locator("[data-mail-box]")).toContainText("同步");
-  await expect(page.locator(".mail-sync-record .ui-record-status")).toHaveText("未读 1");
+  await expect(page.getByRole("tab", { name: /未读/ })).toContainText("1");
   await expect(page.locator("[data-mail-box]")).not.toContainText("钟槿年");
 
   // L1 = 对方邮箱 + 主题数；L2 = 主题 + 邮件数（预览文本已不再进列表）。
@@ -256,6 +256,10 @@ const PERSON_DIGEST = {
 };
 
 async function mockFormalMail(page: Page, person: Record<string, unknown> = PERSON_DIGEST) {
+  await page.route("**/api/queries/mail.labels**", route => route.fulfill({ json: {
+    mailbox: FORMAL_BOX.mailbox, labels: [], assignments: [], selected_label_ids: [], version: 0,
+    entry: "memory", creates_session: false, creates_turn: false, calls_model: false,
+  } }));
   await page.route("**/api/queries/mail.box**", async (route) => {
     await route.fulfill({ json: FORMAL_BOX });
   });
@@ -377,6 +381,7 @@ test("回复 prefills the on-page composer; 快速分析 enqueues on click witho
   // 回复 stays on /mail and only fills the 提问框 in place.
   await page.goto("/mail?c=3901");
   if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
+  await page.getByRole("button", { name: "更多会话操作" }).click();
   await page.locator("[data-mail-reply]").click();
   await expect(page).toHaveURL(/\/mail\?/);
   await expect(page.locator("[data-composer-draft-chip='mailbox']")).toContainText("larry.zhao@amperetime.com");
@@ -390,7 +395,7 @@ test("回复 prefills the on-page composer; 快速分析 enqueues on click witho
   await page.goto("/");
   await expect(page.locator("[data-composer-input]")).not.toHaveValue(/回复：Re: LiTime collab/);
   await page.goBack();
-  await expect(page.locator("[data-mail-reply]")).toBeVisible();
+  await expect(page.locator("[data-mi-ai-reply]")).toBeVisible();
 
   // 快速分析 is the action itself: the click enqueues, with no send and no session.
   const enqueue = page.waitForRequest((request) => request.url().includes("/api/home/kol-analyze/enqueue"));
@@ -421,6 +426,7 @@ test("context chips insert at the saved selection and × only dismisses that chi
   await mockFormalMail(page);
   await page.goto("/mail?c=3901");
   if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
+  await page.getByRole("button", { name: "更多会话操作" }).click();
   await page.locator("[data-mail-reply]").click();
 
   const input = page.locator("[data-composer-input]");
@@ -645,14 +651,14 @@ test("当前邮箱没有绑定行时，切换器仍然报出这个邮箱", async
   await expect(page.locator("[data-mail-box-current]")).not.toContainText("eu@litime.com");
 });
 
-test("immersive mail renders topbar plus rail/list/detail columns", async ({ page }) => {
+test("通讯三图改版 renders rail tools plus rail/list/detail columns", async ({ page }) => {
   await mockFormalMail(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
   await page.locator("[data-mail-timeline-item]").first().click();
 
-  // 沉浸式：全屏覆盖工作台，顶栏带返回 / 搜索 / 写信。
+  // 三图改版：全屏覆盖保留，返回 / 搜索 / 写信集中在左栏。
   await expect(page.locator("[data-mail-immersive]")).toBeVisible();
   await expect(page.locator("[data-mi-back]")).toContainText("返回工作台");
   await expect(page.locator("[data-mi-search]")).toBeVisible();
@@ -873,8 +879,8 @@ test("保留的 data-mail-* 契约全部渲染", async ({ page }) => {
     "[data-mail-content]",
     "[data-mail-content-id]",
     "[data-mail-body]",
-    "[data-mail-thread-actions]",
-    "[data-mail-reply]",
+    "[data-mail-label-editor]",
+    "[data-mail-reading-subject]",
     "[data-mail-analyze]",
     "[data-mail-draft-reply]",
     "[data-mail-sync]",
@@ -892,7 +898,7 @@ test("保留的 data-mail-* 契约全部渲染", async ({ page }) => {
   await expect(page.locator("[data-mail-box-option]")).toHaveCount(1);
 });
 
-test("首屏骨架保留三栏形状", async ({ page }) => {
+test("首屏骨架保留导航与返回，不呈现虚假的可用邮箱", async ({ page }) => {
   await mockFormalMail(page);
   await page.route("**/api/queries/mail.box**", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 800));
@@ -902,9 +908,9 @@ test("首屏骨架保留三栏形状", async ({ page }) => {
   const skeleton = page.locator(".mail-pane-skeleton");
   await expect(skeleton).toBeVisible();
   await expect(page.locator("[data-mail-state='loading']")).toHaveCount(1);
-  await expect(skeleton.locator(".mail-list")).toHaveCount(1);
-  await expect(skeleton.locator(".mail-interact")).toHaveCount(1);
-  await expect(skeleton.locator(".mail-detail")).toHaveCount(1);
+  await expect(page.locator("[data-mi-rail] [data-mi-back]")).toBeVisible();
+  await expect(page.locator("[data-mi-compose]")).toBeDisabled();
+  await expect(page.locator("[data-mail-label-confirm]")).toHaveCount(0);
 });
 
 test("a long person digest is clamped with an expand toggle", async ({ page }) => {
@@ -979,17 +985,17 @@ test("沉浸式阶段和星标筛选即时更新，取消星标即时移出", as
   } }));
   await page.route("**/api/actions/mail.star", (route) => route.fulfill({ json: { ok: true } }));
   await page.goto("/mail?c=3901");
-  await expect(page.locator("[data-mi-listhead]")).toContainText("2 个会话");
+  await expect(page.locator("[data-mail-list] > h2.sr-only")).toContainText("2 个会话");
   await page.locator(".mi-stagechips button").filter({ hasText: "商务谈判" }).click();
-  await expect(page.locator("[data-mi-listhead]")).toContainText("1 个会话");
+  await expect(page.locator("[data-mail-list] > h2.sr-only")).toContainText("1 个会话");
   await expect(page.locator("[data-mail-correspondent]")).toContainText("other@example.com");
-  await page.locator(".mi-stagechips button").filter({ hasText: "全部" }).click();
+  await page.locator("[data-mail-clear-label-filter]").click();
   await page.locator(".mi-folder").filter({ hasText: "星标" }).click();
-  await expect(page.locator("[data-mi-listhead]")).toContainText("1 个会话");
+  await expect(page.locator("[data-mail-list] > h2.sr-only")).toContainText("1 个会话");
   await page.locator("[data-mail-correspondent]").click();
   await page.locator("[data-mi-row]").hover();
   await page.locator('[data-mi-hoverbar] button[title="取消星标"]').click();
-  await expect(page.locator("[data-mi-listhead]")).toContainText("0 个会话");
+  await expect(page.locator("[data-mail-list] > h2.sr-only")).toContainText("0 个会话");
 });
 
 test("自由 AI 提问按时间取最新三封且不继承阶段草稿绑定", async ({ page }) => {
@@ -1167,4 +1173,244 @@ test("已记忆邮箱被撤绑后不沿用旧导航，无绑定保持真实未�
   await page.locator('[data-nav="mail"]').click();
   await expect(page.locator("[data-mail-state='unbound']")).toBeVisible();
   await expect(page.locator("[data-mail-choose-guide]")).toHaveCount(0);
+});
+
+// 三图改版：UI 接口夹具验证，不冒充生产 PG/真实发信验证。
+async function mockLabelStore(page: Page) {
+  const entries: { id: string; name: string; count: number }[] = [];
+  const assignments = new Map<string, string[]>();
+  const versions = new Map<string, number>();
+  const posts: Record<string, unknown>[] = [];
+  let nextFailure = 0;
+  const snapshot = (conversationId = "") => ({
+    mailbox: FORMAL_BOX.mailbox,
+    labels: entries.map(label => ({ ...label, count: [...assignments.values()].filter(ids => ids.includes(label.id)).length })),
+    assignments: [...assignments].map(([conversation_id, label_ids]) => ({ conversation_id, label_ids })),
+    selected_label_ids: assignments.get(conversationId) || [], version: versions.get(conversationId) || 0,
+    creates_session: false, creates_turn: false, calls_model: false,
+  });
+  await page.route("**/api/queries/mail.labels**", route => route.fulfill({ json: { entry: "memory", ...snapshot(new URL(route.request().url()).searchParams.get("conversation_id") || "") } }));
+  await page.route("**/api/actions/mail.label", async route => {
+    const body = route.request().postDataJSON(); posts.push(body);
+    if (nextFailure) { const status = nextFailure; nextFailure = 0; return route.fulfill({ status, json: { detail: "test-only failure" } }); }
+    const id = String(body.conversation_id || "");
+    if (body.confirm !== true) return route.fulfill({ status: 400, json: { detail: "confirm required" } });
+    if (body.expected_version !== (versions.get(id) || 0)) return route.fulfill({ status: 409, json: { detail: "stale version" } });
+    let label = entries.find(label => label.id === body.label_id || label.name === String(body.name || "").normalize("NFKC").trim());
+    if (!label && body.mode === "add") { label = { id: `label_${entries.length + 1}`, name: String(body.name).normalize("NFKC").trim(), count: 0 }; entries.push(label); }
+    const assigned = new Set(assignments.get(id) || []);
+    if (label) { if (body.mode === "add") assigned.add(label.id); else assigned.delete(label.id); }
+    assignments.set(id, [...assigned]); versions.set(id, (versions.get(id) || 0) + 1);
+    return route.fulfill({ json: { entry: "command", ok: true, conversation_id: id, label_ids: [...assigned], ...snapshot(id) } });
+  });
+  return { posts, entries, assignments, failNext: (status: number) => { nextFailure = status; } };
+}
+
+const ANOTHER_CONVERSATION = { ...FORMAL_CONVERSATION, id: "thr_2", conversation_id: "3902", peer_email: "other@example.com", peer_name: "Other", subject: "Another partnership", stage_code: "NEGOTIATING" };
+async function mockTwoConversations(page: Page) {
+  await page.route("**/api/queries/mail.conversations**", route => route.fulfill({ json: { mailbox: FORMAL_BOX.mailbox, conversations: [FORMAL_CONVERSATION, ANOTHER_CONVERSATION] } }));
+  await page.route("**/api/queries/mail.conversation?**", route => {
+    const isOther = new URL(route.request().url()).searchParams.get("id") === "3902";
+    return route.fulfill({ json: { ...FORMAL_THREAD, conversation: isOther ? ANOTHER_CONVERSATION : FORMAL_CONVERSATION,
+      messages: isOther ? FORMAL_THREAD.messages.map(message => ({ ...message, conversation_id: "3902", id: `other-${message.id}` })) : FORMAL_THREAD.messages } });
+  });
+}
+
+test("三图改版：左栏唯一工具区、内联邮箱列表、无重复标题与生成按钮", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
+  for (const selector of ["[data-mi-back]", "[data-mi-search]", "[data-mi-compose]"]) {
+    await expect(page.locator(`[data-mi-rail] ${selector}`)).toBeVisible();
+    await expect(page.locator(selector)).toHaveCount(1);
+  }
+  for (const removed of ["[data-mi-topbar]", "[data-mi-listhead]", ".mi-keys", "[data-mail-thread-actions]", ".mail-thread-head h2"]) await expect(page.locator(removed)).toHaveCount(0);
+  await expect(page.locator("[data-mail-reading-subject]")).toHaveCount(1);
+  for (const action of ["[data-mail-generate-summary]", "[data-mail-generate-translation]", "[data-mail-draft-reply]", "[data-mail-analyze]"]) {
+    await expect(page.locator(`[data-mi-aibar] ${action}`)).toHaveCount(1);
+    await expect(page.locator(action)).toHaveCount(1);
+  }
+  await page.locator("[data-mail-box-current]").click();
+  await expect(page.locator("[data-mail-box-menu]")).toBeVisible();
+  expect(await page.locator("[data-mail-box-menu]").evaluate(element => getComputedStyle(element).position)).toBe("static");
+  await expect(page.locator("[data-mail-box-option]")).toHaveCount(1);
+  await expect(page.locator("[data-mail-box-option]")).toHaveAttribute("aria-current", "true");
+  await page.locator("[data-mail-box-current]").press("Escape");
+  await expect(page.locator("[data-mail-box-menu]")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/mail/);
+});
+
+test("手工标签输入不自动保存；明确确认后导航显示，刷新仍来自接口，零 Agent 会话", async ({ page }) => {
+  await mockFormalMail(page);
+  const store = await mockLabelStore(page);
+  const sessions = sessionPostsOf(page);
+  await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3901");
+  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  await page.locator("[data-mail-label-input]").fill("需核对报价");
+  expect(store.posts).toHaveLength(0);
+  await expect(page.locator("[data-mail-saved-label]")).toHaveCount(0);
+  await page.locator("[data-mail-label-confirm]").click();
+  await expect(page.locator("[data-mail-label-notice]")).toHaveText("标签已保存。");
+  expect(store.posts[0]).toMatchObject({ box: FORMAL_BOX.mailbox, conversation_id: "3901", mode: "add", name: "需核对报价", expected_version: 0, confirm: true });
+  await expect(page.locator("[data-mail-saved-label]")).toContainText("需核对报价");
+  await expect(page.locator("[data-mail-label-filter]")).toContainText("需核对报价");
+  await expect(page.locator("[data-mail-label-input]")).toHaveValue("");
+  await page.reload();
+  await expect(page.locator("[data-mail-saved-label]")).toContainText("需核对报价");
+  expect(store.posts).toHaveLength(1);
+  expect(sessions).toEqual([]);
+});
+
+test("已有标签复用字典，左侧过滤，移除需独立确认且只解绑", async ({ page }) => {
+  await mockFormalMail(page); await mockTwoConversations(page);
+  const store = await mockLabelStore(page);
+  store.entries.push({ id: "private_quote", name: "报价待确认", count: 0 });
+  const sessions = sessionPostsOf(page);
+  await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  await page.locator("[data-mail-label-input]").fill("报价待确认");
+  await page.locator("[data-mail-label-confirm]").click();
+  await expect(page.locator('[data-mail-saved-label="private_quote"]')).toBeVisible();
+  expect(store.posts[0]).toMatchObject({ label_id: "private_quote" });
+  expect(store.posts[0].name).toBeUndefined();
+  await expect(page.locator("[data-mail-stage-filter='QUOTE_PENDING']")).toBeVisible();
+  await page.locator('[data-mail-label-filter="private_quote"]').click();
+  await expect(page.locator("[data-mail-correspondent]")).toHaveCount(1);
+  await page.getByRole("button", { name: "移除标签 报价待确认", exact: true }).click();
+  expect(store.posts).toHaveLength(1);
+  await page.getByRole("button", { name: "确认移除", exact: true }).click();
+  await expect(page.locator("[data-mail-label-notice]")).toHaveText("标签已移除。");
+  await expect(page.locator("[data-mail-empty-list]")).toHaveText("没有匹配的会话。");
+  await page.locator("[data-mail-clear-label-filter]").click();
+  await expect(page.locator("[data-mail-correspondent]")).toHaveCount(2);
+  expect(store.entries).toHaveLength(1); // No delete of the mailbox or dictionary.
+  expect(sessions).toEqual([]);
+});
+
+test("标签保存失败不乐观显示成功，保留草稿可重试；冲突重载后再次确认", async ({ page }) => {
+  await mockFormalMail(page); const store = await mockLabelStore(page);
+  await page.goto("/mail?c=3901"); await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  await page.locator("[data-mail-label-input]").fill("待人工核对");
+  store.failNext(500); await page.locator("[data-mail-label-confirm]").click();
+  await expect(page.locator("[data-mail-label-error]")).toContainText("标签未保存");
+  await expect(page.locator("[data-mail-label-input]")).toHaveValue("待人工核对");
+  await expect(page.locator("[data-mail-saved-label]")).toHaveCount(0);
+  store.failNext(409); await page.locator("[data-mail-label-confirm]").click();
+  await expect(page.locator("[data-mail-label-error]")).toContainText("另一处更新");
+  await expect(page.locator("[data-mail-label-confirm]")).toBeEnabled();
+  await page.locator("[data-mail-label-confirm]").click();
+  await expect(page.locator("[data-mail-saved-label]")).toContainText("待人工核对");
+  await expect(page.locator("[data-mail-label-error]")).toHaveCount(0);
+  expect(store.posts).toHaveLength(3);
+});
+
+test("标签草稿留在原对象，切换会话不继承标签或确认对象", async ({ page }) => {
+  await mockFormalMail(page); await mockTwoConversations(page); const store = await mockLabelStore(page);
+  await page.goto("/mail?c=3901"); await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  await page.locator("[data-mail-label-input]").fill("第一只会话未确认");
+  await page.locator('[data-mail-correspondent="other@example.com"]').click();
+  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3902"]') }).hover();
+  await page.locator('[data-mail-label-focus="3902"]').click();
+  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3902");
+  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  await expect(page.locator("[data-mail-label-input]")).toHaveValue("");
+  await expect(page.locator("[data-mail-label-object-copy]")).toContainText("other@example.com");
+  await page.locator('[data-mail-correspondent="amy@example.com"]').click();
+  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3901"]') }).hover();
+  await page.locator('[data-mail-label-focus="3901"]').click();
+  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3901");
+  await expect(page.locator("[data-mail-label-input]")).toHaveValue("第一只会话未确认");
+  expect(store.posts).toHaveLength(0);
+});
+
+test("未选择具体会话不隐式给最新会话打标，明确标注按钮只切对象不产生任务", async ({ page }) => {
+  await mockFormalMail(page); const store = await mockLabelStore(page); const sessions = sessionPostsOf(page);
+  await page.goto("/mail");
+  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "");
+  await expect(page.locator("[data-mail-label-input]")).toHaveCount(0);
+  await page.locator('[data-mail-correspondent="amy@example.com"]').click();
+  await page.locator('[data-mi-row]').hover(); await page.locator('[data-mail-label-focus="3901"]').click();
+  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3901");
+  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  expect(store.posts).toHaveLength(0); expect(sessions).toEqual([]);
+});
+
+test("延迟标签读取不能把前一会话标签带到新对象", async ({ page }) => {
+  await mockFormalMail(page); await mockTwoConversations(page);
+  let release: (() => void) | undefined;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let firstHeld = false;
+  await page.route("**/api/queries/mail.labels**", async route => {
+    const conversationId = new URL(route.request().url()).searchParams.get("conversation_id") || "";
+    if (conversationId === "3901" && !firstHeld) { firstHeld = true; await held; }
+    const labelId = conversationId === "3901" ? "previous" : "current";
+    return route.fulfill({ json: { mailbox: FORMAL_BOX.mailbox, labels: [{ id: labelId, name: labelId === "previous" ? "旧对象标签" : "当前对象标签", count: 1 }],
+      assignments: [{ conversation_id: conversationId, label_ids: [labelId] }], selected_label_ids: [labelId], version: 1 } });
+  });
+  await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mail-label-input]")).toBeDisabled();
+  await page.locator('[data-mail-correspondent="other@example.com"]').click();
+  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3902"]') }).hover();
+  await page.locator('[data-mail-label-focus="3902"]').click();
+  await expect(page.locator("[data-mail-saved-label]")).toContainText("当前对象标签");
+  release?.();
+  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3902");
+  await expect(page.locator('[data-mail-saved-label="previous"]')).toHaveCount(0);
+  await expect(page.locator('[data-mail-saved-label="current"]')).toBeVisible();
+});
+
+test("保存中切换对象，旧确认回执不覆盖新会话或清掉旧对象草稿", async ({ page }) => {
+  await mockFormalMail(page); await mockTwoConversations(page); await mockLabelStore(page);
+  let release: (() => void) | undefined;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let posted = false;
+  await page.route("**/api/actions/mail.label", async route => {
+    posted = true; const body = route.request().postDataJSON(); await held;
+    return route.fulfill({ json: { ok: true, mailbox: FORMAL_BOX.mailbox, conversation_id: body.conversation_id,
+      labels: [{ id: "old_label", name: body.name, count: 1 }], assignments: [{ conversation_id: body.conversation_id, label_ids: ["old_label"] }], label_ids: ["old_label"], version: 1 } });
+  });
+  await page.goto("/mail?c=3901"); await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  await page.locator("[data-mail-label-input]").fill("原会话的待确认文本");
+  await page.locator("[data-mail-label-confirm]").click();
+  await expect.poll(() => posted).toBe(true);
+  await expect(page.locator("[data-mail-label-confirm]")).toHaveText("保存中…");
+  await page.locator('[data-mail-correspondent="other@example.com"]').click();
+  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3902"]') }).hover();
+  await page.locator('[data-mail-label-focus="3902"]').click();
+  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  release?.();
+  await expect(page.locator("[data-mail-label-input]")).toHaveValue("");
+  await expect(page.locator("[data-mail-saved-label]")).toHaveCount(0);
+  await expect(page.locator("[data-mail-label-notice]")).toHaveCount(0);
+  await page.locator('[data-mail-correspondent="amy@example.com"]').click();
+  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3901"]') }).hover();
+  await page.locator('[data-mail-label-focus="3901"]').click();
+  await expect(page.locator("[data-mail-label-input]")).toHaveValue("原会话的待确认文本");
+});
+
+test.describe("触控与减弱动效", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
+  test("手机标签确认与返回可达，控件保留焦点与触控尺寸，无横向越界", async ({ page }) => {
+    await mockFormalMail(page); await mockLabelStore(page);
+    await page.goto("/mail?c=3901&m=m2");
+    await expect(page.locator("[data-mail-side]")).toBeVisible();
+    await expect(page.locator("[data-mi-rail] [data-mi-back]")).toBeVisible();
+    await page.locator("[data-mail-label-input]").fill("手机打标");
+    const inputHeight = await page.locator("[data-mail-label-input]").evaluate(element => element.getBoundingClientRect().height);
+    const buttonHeight = await page.locator("[data-mail-label-confirm]").evaluate(element => element.getBoundingClientRect().height);
+    expect(inputHeight).toBeGreaterThanOrEqual(44); expect(buttonHeight).toBeGreaterThanOrEqual(44);
+    await page.locator("[data-mail-label-confirm]").click();
+    await expect(page.locator("[data-mail-saved-label]")).toContainText("手机打标");
+    const bounds = await page.locator("[data-mail-page]").evaluate(element => ({ width: element.clientWidth, scroll: element.scrollWidth }));
+    expect(bounds.scroll).toBeLessThanOrEqual(bounds.width);
+    await page.locator("[data-mi-search]").focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(page.locator("[data-mi-back]")).toBeFocused();
+    const focus = await page.locator("[data-mi-back]").evaluate(element => ({ style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth }));
+    expect(focus.style).not.toBe("none"); expect(parseFloat(focus.width)).toBeGreaterThan(0);
+    await page.locator("[data-mi-back]").press("Enter");
+    await expect(page).not.toHaveURL(/\/mail/);
+  });
 });

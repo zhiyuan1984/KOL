@@ -3839,6 +3839,12 @@ export const api = {
     }>(box ? `/api/queries/mail.conversations?box=${encodeURIComponent(box)}` : "/api/queries/mail.conversations"),
   mailConversation: (id: string, box?: string) =>
     request<Record<string, unknown>>(`/api/queries/mail.conversation?id=${encodeURIComponent(id)}${box ? `&box=${encodeURIComponent(box)}` : ""}`),
+  mailLabels: (box: string, conversationId?: string) =>
+    request<import("./mail/useMailLabels").MailLabelsSnapshot>(`/api/queries/mail.labels?${new URLSearchParams({ box, ...(conversationId ? { conversation_id: conversationId } : {}) })}`),
+  changeMailLabel: (body: import("./mail/useMailLabels").MailLabelMutation) =>
+    request<import("./mail/useMailLabels").MailLabelsSnapshot & { ok: boolean; conversation_id: string; label_ids: string[] }>("/api/actions/mail.label", {
+      method: "POST", body: JSON.stringify(body),
+    }),
   /** Read-only stage letter catalog (email_compose contract). Never creates a session. */
   mailComposeCatalog: () =>
     request<{
