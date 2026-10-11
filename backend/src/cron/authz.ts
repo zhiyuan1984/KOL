@@ -17,10 +17,16 @@ export function assertCanSeeJob(job: Row, viewer = ticketPrincipal()): TicketPri
   return actor;
 }
 
+export function canMutateJob(job: Row, viewer = ticketPrincipal()): boolean {
+  if (!viewer) return false;
+  if (cronSystemJob(job)) return ticketIsAdmin(viewer);
+  return ticketIsAdmin(viewer) || canSeeJob(job, viewer);
+}
+
 export function assertCanMutateJob(job: Row, viewer = ticketPrincipal()): TicketPrincipal {
   const actor = viewer || requireTicketPrincipal();
-  if (cronSystemJob(job) && !ticketIsAdmin(actor)) throw new HttpFail(403, "system job requires admin");
-  if (ticketIsAdmin(actor) || canSeeJob(job, actor)) return actor;
+  if (canMutateJob(job, actor)) return actor;
+  if (cronSystemJob(job)) throw new HttpFail(403, "system job requires admin");
   throw new HttpFail(404, "cron job not found");
 }
 

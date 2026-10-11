@@ -1,7 +1,7 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import { DetailPanel, type SkillRow } from "./SkillLifecycle";
+import { DetailPanel, type SkillRow, useUnsavedDetailGuard } from "./SkillLifecycle";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import { AdminFormDialog } from "../components/AdminFormDialog";
 import { skillLifecyclePublishConfirm, skillStageConfirm } from "../adminConfirm";
@@ -36,14 +36,23 @@ export default function SkillLifecycleV2() {
   const [coverage, setCoverage] = useState<SkillCoverage | null>(null);
   const [legacyGrants, setLegacyGrants] = useState<{ notice: string; count: number } | null>(null);
   const { ask, dialog } = useAdminConfirm();
+  const detailDirtyRef = useRef(false);
+  const { onDirtyChange, confirmDiscard, modalHolder } = useUnsavedDetailGuard();
+  const onDetailDirtyChange = useCallback((dirty: boolean) => {
+    detailDirtyRef.current = dirty;
+    onDirtyChange(dirty);
+  }, [onDirtyChange]);
   const load = useCallback(async () => {
     // 实现度读数是运行时覆盖的独立读模型：读不到不能让整个技能页失效，详情里降级为「未读取」。
     const [skillsResult, coverageResult] = await Promise.allSettled([api.adminSkills(), api.runtimeSkillCoverage()]);
     if (skillsResult.status === "fulfilled") {
       const response = skillsResult.value as { skills?: SkillRow[] };
       const rows = response.skills || [];
+      // DetailPanel retains dirty local fields section-by-section.  Keep the
+      // list projection fresh after a successful save, but never let a stale
+      // response clear the selected id while that panel is still dirty.
       setSkills(rows);
-      setSelectedId((current) => rows.some((row) => row.id === current) ? current : rows[0]?.id || "");
+      setSelectedId((current) => rows.some((row) => row.id === current) || detailDirtyRef.current ? current : rows[0]?.id || "");
       setError("");
     } else {
       setError(skillsResult.reason instanceof Error ? skillsResult.reason.message : "技能读取失败");
@@ -78,6 +87,13 @@ export default function SkillLifecycleV2() {
     finally { setBusy(false); }
   };
   const openCreate = () => { setDocumentQuery(false); setId(""); setTitle(""); setBody(""); setCreateError(""); setCreateOpen(true); };
+  const selectSkill = useCallback((id: string) => {
+    if (id === selectedId) return;
+    confirmDiscard(() => setSelectedId(id));
+  }, [confirmDiscard, selectedId]);
+  const closeDetail = useCallback(() => {
+    confirmDiscard(() => setSelectedId(""));
+  }, [confirmDiscard]);
   const moveStage = (next: string, needReason?: boolean) => {
     if (!selected) return;
     ask(
@@ -99,7 +115,7 @@ export default function SkillLifecycleV2() {
         <div className="governance-filter-group"><strong>来源</strong><div className="governance-filter-options">{([["all", "全部"], ["official", "官方"], ["third_party", "第三方"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={origin === key} onClick={() => setOrigin(key)}>{label}</button>)}</div></div>
         <div className="governance-filter-group"><strong>阶段</strong><div className="governance-filter-options">{([["all", "全部"], ["draft", "草稿"], ["editing", "编辑"], ["testing", "测试"], ["published", "已发布"], ["disabled", "停用"]] as const).map(([key, label]) => <button type="button" key={key} aria-pressed={stage === key} onClick={() => setStage(key)}>{label}</button>)}</div></div>
         <h2 className="governance-subheading">技能列表</h2>
-        <div className="governance-list">{visible.map((skill) => <button type="button" key={skill.id} className={`governance-list-row skill-v2-row${selectedId === skill.id ? " is-selected" : ""}`} onClick={() => setSelectedId(skill.id)}><strong>{skill.label}</strong><span className="muted">{skill.category || "未分类"}</span><span>{stageName(skill)}</span></button>)}{!visible.length && <p className="governance-empty">没有符合条件的技能。</p>}</div>
+        <div className="governance-list">{visible.map((skill) => <button type="button" key={skill.id} className={`governance-list-row skill-v2-row${selectedId === skill.id ? " is-selected" : ""}`} onClick={() => selectSkill(skill.id)}><strong>{skill.label}</strong><span className="muted">{skill.category || "未分类"}</span><span>{stageName(skill)}</span></button>)}{!visible.length && <p className="governance-empty">没有符合条件的技能。</p>}</div>
       </div>
       <div className="governance-rail-footer"><button type="button" className="btn work" onClick={openCreate}>新增技能</button></div>
     </aside>
@@ -108,12 +124,13 @@ export default function SkillLifecycleV2() {
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="governance-notice" role="status">{notice}</p>}
         {legacyGrants && <p className="skill-governance-notice" role="note">直接技能授权已退役：残留 {legacyGrants.count} 条待迁移记录（{legacyGrants.notice}）</p>}
-        {selected ? <div className="skill-v2-detail">{selected.document_query && <SkillKnowledgeRange key={`range-${selected.id}`} skillId={selected.id} />}<DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelectedId("")} /></div>
+        {selected ? <div className="skill-v2-detail">{selected.document_query && <SkillKnowledgeRange key={`range-${selected.id}`} skillId={selected.id} />}<DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} onDirtyChange={onDetailDirtyChange} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={closeDetail} /></div>
           : <p className="governance-empty">选择一项技能查看详情。</p>}
       </div>
     </div>
     {importOpen && <div className="skill-governance-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setImportOpen(false); }}><section className="skill-upload-dialog" role="dialog" aria-modal="true" aria-label="上传技能"><h2>上传 SKILL.md</h2><p>导入为技能草稿；后续在 Agent 页装配。</p><input type="file" accept=".md,text/markdown" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setBusy(true); try { const result = await api.importAdminSkill(file); setImportOpen(false); setSelectedId(String(result.id)); setNotice("技能已导入为草稿。"); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "导入失败"); } finally { setBusy(false); } }} /><button type="button" className="governance-minor" disabled={busy} onClick={() => setImportOpen(false)}>关闭</button></section></div>}
     {dialog}
+    {modalHolder}
     {knowledgeCreateOpen && <KnowledgeSkillWizard onClose={()=>setKnowledgeCreateOpen(false)} onCreated={id=>{setKnowledgeCreateOpen(false);setSelectedId(id);setNotice('知识技能草稿已保存。请核对知识依赖、完成真实试算后发布，再挂载到智能体。');void load();}} />}
     <AdminFormDialog
       open={createOpen}

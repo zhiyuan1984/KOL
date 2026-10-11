@@ -17,28 +17,59 @@ import { DEFAULT_SKILL_ICON, SKILL_ICON_LIBRARY } from "../skillIcons";
 const GROUPS: { id: string; label: string; hint: string; funnel: string[] }[] = [
   { id: "reach", label: "建联阶段", hint: "寻找目标达人，建立初步联系", funnel: ["reach"] },
   { id: "intent", label: "意向评估", hint: "", funnel: ["intent"] },
-  { id: "biz", label: "报价与寄样", hint: "", funnel: ["biz", "sample"] },
+  // 接口现行 funnel（见 SkillHub.FUNNEL）将 biz 与 sample 分开返回；目录分组和筛选也按这两个
+  // 原始值一一对应，不能用一个前端别名把寄样误并到报价。
+  { id: "biz", label: "报价", hint: "", funnel: ["biz"] },
+  { id: "sample", label: "寄样", hint: "", funnel: ["sample"] },
   { id: "settle", label: "成交与沉淀", hint: "完善合作并沉淀数据资产", funnel: ["settle"] },
   { id: "content", label: "内容发布", hint: "", funnel: ["content"] },
   { id: "exception", label: "异常旁路", hint: "风险扫描与异常处理", funnel: ["exception"] },
 ];
 
-// 筛选条分两类（shadcn TabsList ×2）：
-//   mode  = 取数口径（全部 / 常用 / 最近 / 推荐），彼此并列；
-//   stage = 业务阶段漏斗（建联 → 意向 → 报价 → 寄样 → 成交 → 内容），有先后递进关系，
-//           渲染时用 › 分隔，把这层递进显式表达出来（此前只是一排等权胶囊）。
+// 筛选条分两类，状态彼此独立：使用范围（mode）决定取哪份集合；业务场景（stage）在该集合上
+// 再按接口返回的 funnel 缩小范围。二者不能复用一个 tab，否则「常用 + 寄样」会被覆盖成单一筛选。
+const MODE_IDS = ["all", "frequent", "recent", "recommend"] as const;
+const STAGE_IDS = ["all", "reach", "intent", "biz", "sample", "settle", "content", "exception"] as const;
+type SkillMode = (typeof MODE_IDS)[number];
+type BusinessStage = (typeof STAGE_IDS)[number];
+
 const TABS: { id: string; label: string; kind: "mode" | "stage" }[] = [
   { id: "all", label: "全部", kind: "mode" },
   { id: "frequent", label: "常用", kind: "mode" },
   { id: "recent", label: "最近使用", kind: "mode" },
   { id: "recommend", label: "推荐", kind: "mode" },
+  { id: "all", label: "全部场景", kind: "stage" },
   { id: "reach", label: "建联", kind: "stage" },
   { id: "intent", label: "意向", kind: "stage" },
   { id: "biz", label: "报价", kind: "stage" },
   { id: "sample", label: "寄样", kind: "stage" },
   { id: "settle", label: "成交", kind: "stage" },
   { id: "content", label: "内容发布", kind: "stage" },
+  { id: "exception", label: "异常", kind: "stage" },
 ];
+
+function isSkillMode(value: string | null): value is SkillMode {
+  return value !== null && (MODE_IDS as readonly string[]).includes(value);
+}
+
+function isBusinessStage(value: string | null): value is BusinessStage {
+  return value !== null && (STAGE_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * 新地址固定为 `mode` + `stage`；保留单一 `tab` 的旧深链读取。
+ * 新参数优先，缺失的一维再从旧 tab 补齐，因此混合迁移地址也不会丢失另一维筛选。
+ */
+function catalogFilters(search: string): { mode: SkillMode; stage: BusinessStage } {
+  const params = new URLSearchParams(search);
+  const legacyTab = params.get("tab");
+  const mode = params.get("mode");
+  const stage = params.get("stage");
+  return {
+    mode: isSkillMode(mode) ? mode : (isSkillMode(legacyTab) ? legacyTab : "all"),
+    stage: isBusinessStage(stage) ? stage : (isBusinessStage(legacyTab) ? legacyTab : "all"),
+  };
+}
 
 const USAGE_KEY = "skill:usage";
 const RECENT_KEY = "skill:recent";
@@ -106,6 +137,7 @@ const GROUP_ICONS: Record<string, string> = {
   reach: "M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z",
   intent: "M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z",
   biz: "M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10z",
+  sample: "M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10z",
   settle: "M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94.63 1.5 1.98 2.63 3.61 2.96V19H7v2h10v-2h-4v-3.1c1.63-.33 2.98-1.46 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM5 8V7h2v3.82C5.84 10.4 5 9.3 5 8zm14 0c0 1.3-.84 2.4-2 2.82V7h2v1z",
   content: "M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM5 15h14v2H5zm0-4h14v2H5zm0-4h14v2H5z",
   exception: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
@@ -807,8 +839,9 @@ export function SkillCatalog() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
-  // tab 与 URL 同步：`/skills?tab=frequent` 这类深链（「查看全部」链接）必须真正生效。
-  const [tab, setTab] = useState(() => new URLSearchParams(location.search).get("tab") || "all");
+  // 使用范围与业务场景独立保存；历史 `?tab=` 深链仍通过 catalogFilters 还原为对应一维。
+  const [mode, setMode] = useState<SkillMode>(() => catalogFilters(location.search).mode);
+  const [businessStage, setBusinessStage] = useState<BusinessStage>(() => catalogFilters(location.search).stage);
   const [selectedSkill, setSelectedSkill] = useState<SkillRow | null>(null);
   const [usage, setUsage] = useState<Record<string, number>>(() => loadUsage());
   const [recent, setRecent] = useState<string[]>(() => loadRecent());
@@ -838,8 +871,28 @@ export function SkillCatalog() {
   }, []);
 
   useEffect(() => {
-    setTab(new URLSearchParams(location.search).get("tab") || "all");
+    const filters = catalogFilters(location.search);
+    setMode(filters.mode);
+    setBusinessStage(filters.stage);
   }, [location.search]);
+
+  // 每次切筛选都推入浏览历史，浏览器后退可逐步恢复两维状态。其他地址参数不归本页筛选所有，
+  // 保留它们；只有已迁移的旧 tab 会在用户下一次操作时被移除。
+  const updateFilters = (nextMode: SkillMode, nextStage: BusinessStage) => {
+    const params = new URLSearchParams(location.search);
+    params.delete("tab");
+    params.set("mode", nextMode);
+    params.set("stage", nextStage);
+    nav({ pathname: location.pathname, search: `?${params.toString()}` });
+  };
+
+  const stageHref = (stage: BusinessStage) => {
+    const params = new URLSearchParams(location.search);
+    params.delete("tab");
+    params.set("mode", mode);
+    params.set("stage", stage);
+    return `${location.pathname}?${params.toString()}`;
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -877,14 +930,18 @@ export function SkillCatalog() {
   const filteredSkills = useMemo(() => {
     let list = visibleSkills;
 
-    if (tab === "frequent") {
+    if (mode === "frequent") {
       list = list.filter((s) => (usage[s.id] || 0) > 0).sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
-    } else if (tab === "recent") {
+    } else if (mode === "recent") {
       list = recent.map((id) => visibleSkills.find((s) => s.id === id)).filter(Boolean) as SkillRow[];
-    } else if (tab === "recommend") {
+    } else if (mode === "recommend") {
       list = list.filter((s) => RECOMMENDED_IDS.includes(s.id));
-    } else if (tab !== "all") {
-      list = list.filter((s) => s.funnel === tab);
+    }
+
+    // `funnel` 是接口字段，biz/sample 都是现行的独立值（SkillHub.FUNNEL）。不从展示文案
+    // 推断、不另造映射字典，组合筛选直接比较该字段。
+    if (businessStage !== "all") {
+      list = list.filter((s) => s.funnel === businessStage);
     }
 
     const needle = q.trim().toLowerCase();
@@ -897,7 +954,7 @@ export function SkillCatalog() {
     }
 
     return list;
-  }, [visibleSkills, tab, q, usage, recent]);
+  }, [visibleSkills, mode, businessStage, q, usage, recent]);
 
   const groupedSkills = useMemo(() => {
     const groups: Record<string, SkillRow[]> = {};
@@ -964,15 +1021,19 @@ export function SkillCatalog() {
           {(["mode", "stage"] as const).map((kind) => (
             <div key={kind} className="skill-tabs-list" data-kind={kind}>
               {TABS.filter((t) => t.kind === kind).map((t, i) => (
-                <Fragment key={t.id}>
-                  {kind === "stage" && i > 0 && (
+                <Fragment key={`${t.kind}:${t.id}`}>
+                  {/* 「全部场景」是清除业务场景，不是漏斗的上一步；其后不画推进箭头。 */}
+                  {kind === "stage" && i > 1 && (
                     <span className="skill-tab-sep" aria-hidden>›</span>
                   )}
                   <button
                     type="button"
-                    className={`skill-tab${tab === t.id ? " on" : ""}`}
-                    aria-pressed={tab === t.id}
-                    onClick={() => setTab(t.id)}
+                    className={`skill-tab${(kind === "mode" ? mode : businessStage) === t.id ? " on" : ""}`}
+                    aria-pressed={(kind === "mode" ? mode : businessStage) === t.id}
+                    onClick={() => {
+                      if (kind === "mode") updateFilters(t.id as SkillMode, businessStage);
+                      else updateFilters(mode, t.id as BusinessStage);
+                    }}
                   >
                     {t.label}
                   </button>
@@ -1011,9 +1072,9 @@ export function SkillCatalog() {
                   <h2>{group.label}</h2>
                   {/* hint 只在与组名有增量信息时才输出（同义的提示是噪声）。 */}
                   {group.hint && <span className="skill-group-hint">{group.hint}</span>}
-                  {/* 深链进来时（tab 已是本组）不再渲染指向自己的「查看全部」。 */}
-                  {tab !== group.id && (
-                    <Link to={`/skills?tab=${group.id}`} className="skill-group-more">查看全部</Link>
+                  {/* 进入本业务场景时不渲染指向自己的链接；其余「查看全部」始终保留当前 mode。 */}
+                  {businessStage !== group.id && (
+                    <Link to={stageHref(group.id as BusinessStage)} className="skill-group-more">查看全部</Link>
                   )}
                 </div>
                 <div className="skill-list">
@@ -1046,8 +1107,7 @@ export function SkillCatalog() {
                 className="skill-btn skill-btn-outline"
                 onClick={() => {
                   setQ("");
-                  setTab("all");
-                  nav("/skills");
+                  updateFilters("all", "all");
                 }}
               >
                 清除筛选
