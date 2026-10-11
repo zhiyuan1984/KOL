@@ -749,28 +749,24 @@ misc.patch("/me", async (c) => {
   if (authDisabled()) return c.json(currentUser());
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const body = (await c.req.json()) as Json;
+  const body = (await c.req.json()) as Record<string, unknown>;
+  const managed = getConn().prepare("SELECT 1 FROM organization_people WHERE user_id=? AND status='active'").get(user.id);
+  if (managed) {
+    const unchanged = (field: "name" | "email" | "phone") => body[field] === undefined ||
+      String(body[field] ?? "").trim() === String(user[field] ?? "").trim();
+    if (!unchanged("name") || !unchanged("email") || !unchanged("phone")) {
+      throw new HttpFail(403, "enterprise profile fields are managed by your administrator");
+    }
+    return c.json({ ...user, starry_binding: publicStarryBinding(starryBindingRow(user.id)) });
+  }
   const name = body.name === undefined ? user.name : String(body.name).trim();
   if (!name) throw new HttpFail(400, "name required");
-  const email = body.email === undefined
-    ? user.email
-    : (String(body.email || "").trim() ? normalizeEmail(String(body.email)) : "");
+  const email = body.email === undefined ? user.email : (String(body.email || "").trim() ? normalizeEmail(String(body.email)) : "");
   if (email && !email.includes("@")) throw new HttpFail(400, "请填写有效邮箱");
-  const phone = body.phone === undefined
-    ? user.phone
-    : (String(body.phone || "").trim() ? normalizePhone(String(body.phone)) : "");
-  if (String(body.phone || "").trim() && !looksLikePhone(String(body.phone))) {
-    throw new HttpFail(400, "请填写有效手机号");
-  }
-  getConn().prepare("UPDATE users SET name=?,email=?,phone=?,updated_at=? WHERE id=?")
-    .run(name, email, phone, nowIso(), user.id);
-  return c.json({
-    ...user,
-    name,
-    email,
-    phone,
-    starry_binding: publicStarryBinding(starryBindingRow(user.id)),
-  });
+  const phone = body.phone === undefined ? user.phone : (String(body.phone || "").trim() ? normalizePhone(String(body.phone)) : "");
+  if (String(body.phone || "").trim() && !looksLikePhone(String(body.phone))) throw new HttpFail(400, "请填写有效手机号");
+  getConn().prepare("UPDATE users SET name=?,email=?,phone=?,updated_at=? WHERE id=?").run(name, email, phone, nowIso(), user.id);
+  return c.json({ ...user, name, email, phone, starry_binding: publicStarryBinding(starryBindingRow(user.id)) });
 });
 
 misc.get("/me/starry-binding", (c) => {
@@ -811,9 +807,9 @@ misc.post("/me/starry-binding/probe", async (c) => {
     if (error instanceof HttpFail) throw error;
     const message = error instanceof Error ? error.message : String(error);
     if (/登录过期|请先登录|10141103/.test(message)) {
-      throw new HttpFail(401, { code: "starrykol_login_required", message: "Starry 登录已过期，请重新粘贴用户 JWT。", next_action: "在个人设置里重新连接。" });
+      throw new HttpFail(401, { code: "starrykol_login_required", message: "邮箱连接已过期，请在个人设置中重新连接。", next_action: "重新连接邮箱。" });
     }
-    throw new HttpFail(502, message || "无法读取 Starry 邮箱列表");
+    throw new HttpFail(502, { code: "starry_mailbox_unavailable", message: "暂时无法读取邮箱列表，请稍后重试。", next_action: "稍后重试或重新连接邮箱。" });
   }
 });
 

@@ -4,6 +4,7 @@
  */
 import { allowedFromMailboxes, normalizeBrandCode } from "./host/pep.js";
 import { currentUser } from "./host/persona.js";
+import { getConn } from "./db.js";
 import type { Json } from "./types.js";
 
 export const DISCOVERY_PLATFORMS = ["youtube", "instagram", "facebook"] as const;
@@ -101,6 +102,17 @@ export function employeeAuthorizedBrands(): string[] {
 
 export function employeeDefaultBrand(): string | null {
   const brands = employeeAuthorizedBrands();
+  const user = currentUser();
+  const row = user.id ? getConn().prepare("SELECT preferences FROM user_preferences WHERE user_id=?").get(user.id) as { preferences?: string } | undefined : undefined;
+  if (row) {
+    try {
+      const preferences = JSON.parse(String(row.preferences || "{}")) as Record<string, unknown>;
+      if (Object.prototype.hasOwnProperty.call(preferences, "default_brand")) {
+        const selected = normalizeBrandCode(preferences.default_brand);
+        return selected && brands.includes(selected) ? selected : null;
+      }
+    } catch { return null; }
+  }
   const preferred = normalizeBrandCode(brands[0]);
   return preferred || brands[0] || null;
 }
