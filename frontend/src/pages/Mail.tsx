@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type OperationJob } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
@@ -232,6 +232,16 @@ export default function Mail() {
   /** 沉浸式：阅读区 AI 提问框输入 */
   const [aiText, setAiText] = useState("");
   const stageSectionRef = useRef<HTMLDivElement | null>(null);
+  const [dockElement, setDockElement] = useState<HTMLDivElement | null>(null);
+  const [dockHeight, setDockHeight] = useState(0);
+  useLayoutEffect(() => {
+    if (!dockElement) { setDockHeight(0); return; }
+    const measure = () => setDockHeight(dockElement.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(dockElement);
+    return () => observer.disconnect();
+  }, [dockElement]);
   const topSearchRef = useRef<HTMLInputElement | null>(null);
   const syncPollRef = useRef<number | null>(null);
   const syncPollGeneration = useRef(0);
@@ -1151,7 +1161,8 @@ export default function Mail() {
     : "当前邮箱";
 
   return (
-    <div className="list-page mail-page mail-immersive" data-mail-page data-mail-immersive data-mail-source={workspace?.source || undefined}>
+    <div className="list-page mail-page mail-immersive" data-mail-page data-mail-immersive data-mail-source={workspace?.source || undefined}
+      style={{ "--mail-compose-occlusion": `${dockHeight}px` } as CSSProperties}>
       {loadState === "loading" ? (
         <div className="mail-split mail-pane-skeleton" data-mail-state="loading" aria-busy="true">
           <div className="mail-list">
@@ -1742,7 +1753,7 @@ export default function Mail() {
       ) : null}
 
       {(mailCompose.active || composerText.trim() || busy) && loadState === "ok" && bound ? (
-        <div className="mi-dockfloat" data-mi-dockfloat>
+        <div className="mi-dockfloat" data-mi-dockfloat ref={setDockElement}>
           <div className="mi-dockfloat-head">
             <span>{mailCompose.active ? "写合作邮件" : "任务提问"}</span>
             <button

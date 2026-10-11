@@ -54,3 +54,9 @@
 .mail-page .mi-threadbar .mi-tsubject .ui-truncatable-value {
   flex: 1 1 auto;
 }
+
+/* The composer overlays the right column. Its measured height bounds the
+   reading scrollport, so native scrolling/focus can reach stage controls. */
+.mail-page.mail-immersive .mail-detail {
+  max-height: calc(100% - var(--mail-compose-occlusion, 0px));
+}

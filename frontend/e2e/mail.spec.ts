@@ -99,10 +99,10 @@ test("sidebar 通讯 sits under 定时任务 and /mail uses board fallback", asy
   await expect(page.locator("[data-mail-page]")).toHaveAttribute("data-mail-source", "fallback");
   await expect(page.locator("[data-mail-fallback]")).toBeVisible();
 
-  // 页头一行：邮箱地址只出现在切换器里，meta 只留同步时间与未读。
+  // 邮箱地址在切换器，同步和未读分别由真实状态区展示。
   await expect(page.locator("[data-mail-box-current]")).toContainText("larry.zhao@amperetime.com");
   await expect(page.locator("[data-mail-box]")).toContainText("同步");
-  await expect(page.locator("[data-mail-box]")).toContainText("未读");
+  await expect(page.locator(".mail-sync-record .ui-record-status")).toHaveText("未读 1");
   await expect(page.locator("[data-mail-box]")).not.toContainText("钟槿年");
 
   // L1 = 对方邮箱 + 主题数；L2 = 主题 + 邮件数（预览文本已不再进列表）。
@@ -311,6 +311,11 @@ test("通讯阶段变更点红人、选目标后提交显式合作与阶段绑�
   await expect(page.locator("[data-mail-stage-current]")).toHaveText("当前阶段：报价待确认");
   await page.locator("[data-mi-ai-reply]").click();
   await page.locator("[data-composer-input]").fill("已有的其它草稿");
+  await expect.poll(async () => {
+    const detail = await page.locator("[data-mail-side]").boundingBox();
+    const dock = await page.locator("[data-mi-dockfloat]").boundingBox();
+    return Boolean(detail && dock && detail.y + detail.height <= dock.y);
+  }).toBe(true);
   await page.locator("[data-mail-stage-kol]").click();
   await expect(page.locator("[data-composer-input]")).toHaveValue("提出阶段变更 @小美妆日记 到 [目标阶段]");
   await expect(page.locator('[data-skill-chip="confirm_stage"]')).toBeVisible();
