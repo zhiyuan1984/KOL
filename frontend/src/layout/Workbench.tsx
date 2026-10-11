@@ -12,6 +12,9 @@ import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../ho
 import { useViewMode } from "../viewMode";
 import { ADMIN_NAV_GROUPS, adminTabOf } from "./adminNav";
 import { useInsetScrollbar } from "../hooks/useInsetScrollbar";
+import { normalizeBox } from "../mail/client";
+import { lastMailbox, mailboxHref, MAIL_NAVIGATION_EVENT, navigationMailbox } from "../mail/navigation";
+import type { MailBox } from "../mail/types";
 import "./sidebar-gutters.css";
 
 function Ico({ path }: { path: string }) {
@@ -37,6 +40,8 @@ export default function Workbench() {
   const [cronAlertCount, setCronAlertCount] = useState(0);
   const [mailUnread, setMailUnread] = useState(0);
   const { account } = useAccount();
+  const [mailNavBox, setMailNavBox] = useState<MailBox | null>(null);
+  const [previousMailbox, setPreviousMailbox] = useState(() => lastMailbox(account?.id));
   const { admin, debug } = useViewMode();
   const [me, setMe] = useState<Account | null>(account);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ui:left-collapsed") === "true");
@@ -137,12 +142,29 @@ export default function Workbench() {
           setCronAlertCount(Number(alerts.failed || 0) + Number(alerts.needs_takeover || 0));
         })
         .catch(() => setCronAlertCount(0));
-      api.mailBox()
-        .then((row) => setMailUnread(Number(row.unread || 0) || 0))
-        .catch(() => setMailUnread(0));
     });
     return cancel;
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMailNavBox(null);
+    setPreviousMailbox(lastMailbox(account?.id));
+    const cancelKickoff = scheduleShellRead(() => {
+      void api.mailBox().then(row => {
+        if (cancelled) return;
+        setMailNavBox(normalizeBox(row));
+        setMailUnread(Number(row.unread || 0) || 0);
+      }).catch(() => { if (!cancelled) setMailUnread(0); });
+    });
+    const selected = (event: Event) => {
+      const detail = (event as CustomEvent<{ accountId: string; mailbox: string }>).detail;
+      if (detail?.accountId === account?.id) setPreviousMailbox(detail.mailbox);
+    };
+    window.addEventListener(MAIL_NAVIGATION_EVENT, selected);
+    return () => { cancelled = true; cancelKickoff(); window.removeEventListener(MAIL_NAVIGATION_EVENT, selected); };
+  }, [account?.id]);
+  const mailHref = mailboxHref(mailNavBox ? navigationMailbox(mailNavBox, previousMailbox) : "");
 
   useEffect(() => {
     api.preferences().then((preferences) => {
@@ -277,7 +299,7 @@ export default function Workbench() {
             <span className="sidebar-label">定时任务</span>
             {cronAlertCount > 0 && <span className="nav-badge warn" data-cron-alert>{cronAlertCount}</span>}
           </NavLink>
-          <NavLink to="/mail" className={() => "nav-link" + ((loc.pathname === "/mail" || loc.pathname.startsWith("/mail/")) ? " active" : "")} data-nav="mail" onClick={() => setMobileOpen(false)}>
+          <NavLink to={mailHref} className={() => "nav-link" + ((loc.pathname === "/mail" || loc.pathname.startsWith("/mail/")) ? " active" : "")} data-nav="mail" onClick={() => setMobileOpen(false)}>
             <Ico path="M4 6h16v12H4z M4 6l8 7 8-7" />
             <span className="sidebar-label">通讯</span>
             {mailUnread > 0 && <span className="nav-badge" data-mail-unread-badge>{mailUnread}</span>}

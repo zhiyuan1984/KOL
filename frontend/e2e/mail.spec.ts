@@ -1075,7 +1075,7 @@ for (const viewport of [{ width: 375, height: 667 }, { width: 768, height: 1024 
   });
 }
 
-test("已绑定但无默认不误报未绑定，主动选择后只显示该邮箱且打开不创建 Agent 会话", async ({ page }) => {
+test("单个已绑定邮箱无默认时，通讯导航直接进入往来且打开不创建 Agent 会话", async ({ page }) => {
   await mockFormalMail(page);
   const sessionPosts = sessionPostsOf(page);
   const fromText: string[] = [];
@@ -1088,11 +1088,11 @@ test("已绑定但无默认不误报未绑定，主动选择后只显示该邮�
     const box = new URL(route.request().url()).searchParams.get("box");
     return route.fulfill({ json: { conversations: box === FORMAL_CONVERSATION.mailbox ? [FORMAL_CONVERSATION] : [] } });
   });
-  await page.goto("/mail");
-  await expect(page.locator("[data-mail-state='choose-mailbox']")).toBeVisible();
+  await page.goto("/cron");
+  await expect(page.locator('[data-nav="mail"]')).toHaveAttribute("href", "/mail?box=larry.zhao%40amperetime.com");
+  await page.locator('[data-nav="mail"]').click();
   await expect(page.locator("[data-mail-unbound-guide]")).toHaveCount(0);
-  await expect(page.locator("[data-mail-choose-guide]")).toContainText("已绑定");
-  await page.locator("[data-mail-select-box]").click();
+  await expect(page.locator("[data-mail-choose-guide]")).toHaveCount(0);
   await expect(page).toHaveURL(/box=larry\.zhao%40amperetime\.com/);
   await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
   await page.locator('[data-mail-correspondent="amy@example.com"]').click();
@@ -1102,4 +1102,64 @@ test("已绑定但无默认不误报未绑定，主动选择后只显示该邮�
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
   expect(sessionPosts).toEqual([]);
   expect(fromText).toEqual([]);
+  await page.locator("[data-mi-back]").click();
+  await expect(page).toHaveURL(/\/cron$/);
+  await page.locator('[data-nav="mail"]').click();
+  await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
+  await expect(page.locator("[data-mail-choose-guide]")).toHaveCount(0);
+});
+
+async function mockSelectableMail(page: Page, mailboxes: string[]) {
+  await mockFormalMail(page);
+  await page.route("**/api/queries/mail.box**", route => {
+    const box = new URL(route.request().url()).searchParams.get("box") || "";
+    return route.fulfill({ json: { ...FORMAL_BOX, mailbox: box, bound: mailboxes.includes(box), bindings: mailboxes.map(mailbox => ({ mailbox, bound: true, unread: 1 })) } });
+  });
+  await page.route("**/api/queries/mail.conversations**", route => {
+    const box = new URL(route.request().url()).searchParams.get("box") || "";
+    return route.fulfill({ json: { conversations: mailboxes.includes(box) ? [{ ...FORMAL_CONVERSATION, mailbox: box }] : [] } });
+  });
+}
+
+test("无默认单邮箱直接打开 /mail 自动到往来，保留 c/m 深链和返回历史", async ({ page }) => {
+  await mockSelectableMail(page, [FORMAL_CONVERSATION.mailbox]);
+  const posts = sessionPostsOf(page);
+  await page.goto("/mail?c=3901&m=m2");
+  await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
+  await expect(page).toHaveURL(/c=3901&m=m2&box=larry\.zhao%40amperetime\.com/);
+  await expect(page.locator('[data-mail-timeline-item="m2"]')).toHaveAttribute("data-mail-selected", "true");
+  await page.reload();
+  await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
+  await expect(page.locator("[data-mail-choose-guide]")).toHaveCount(0);
+  expect(posts).toEqual([]);
+});
+
+test("多个邮箱未选择仍给选择，选中后通讯导航记住本次邮箱不再拦截", async ({ page }) => {
+  await mockSelectableMail(page, [FORMAL_CONVERSATION.mailbox, "eu@litime.com"]);
+  const posts = sessionPostsOf(page);
+  await page.goto("/cron");
+  await page.locator('[data-nav="mail"]').click();
+  await expect(page.locator("[data-mail-state='choose-mailbox']")).toBeVisible();
+  await page.locator('[data-mail-select-box="eu@litime.com"]').click();
+  await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
+  await expect(page).toHaveURL(/box=eu%40litime\.com/);
+  await page.locator("[data-mi-back]").click();
+  await expect(page).toHaveURL(/\/cron$/);
+  await expect(page.locator('[data-nav="mail"]')).toHaveAttribute("href", "/mail?box=eu%40litime.com");
+  await page.locator('[data-nav="mail"]').click();
+  await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
+  await expect(page.locator("[data-mail-choose-guide]")).toHaveCount(0);
+  expect(posts).toEqual([]);
+});
+
+test("已记忆邮箱被撤绑后不沿用旧导航，无绑定保持真实未绑定状态", async ({ page }) => {
+  await mockSelectableMail(page, [FORMAL_CONVERSATION.mailbox]);
+  await page.goto("/mail");
+  await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
+  await mockSelectableMail(page, []);
+  await page.goto("/cron");
+  await expect(page.locator('[data-nav="mail"]')).toHaveAttribute("href", "/mail");
+  await page.locator('[data-nav="mail"]').click();
+  await expect(page.locator("[data-mail-state='unbound']")).toBeVisible();
+  await expect(page.locator("[data-mail-choose-guide]")).toHaveCount(0);
 });

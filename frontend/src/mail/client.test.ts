@@ -309,3 +309,52 @@ describe("mail workspace load never pulls the heavy board payload", () => {
     expect(homeBoard).not.toHaveBeenCalled();
   }, 10000);
 });
+
+describe("mail navigation mailbox resolution", () => {
+  it("opens the only bound mailbox without writing a default", async () => {
+    const { navigationMailbox, mailboxHref } = await import("./navigation");
+    const box = normalizeBox({ bound: false, mailbox: "", bindings: [{ mailbox: "a@example.com", bound: true }] })!;
+    expect(navigationMailbox(box)).toBe("a@example.com");
+    expect(mailboxHref(navigationMailbox(box))).toBe("/mail?box=a%40example.com");
+    expect(box.bound).toBe(false);
+  });
+  it("uses a valid previous selection before the default, but never a revoked mailbox", async () => {
+    const { navigationMailbox } = await import("./navigation");
+    const box = normalizeBox({ bound: true, mailbox: "a@example.com", bindings: [{ mailbox: "a@example.com", bound: true }, { mailbox: "b@example.com", bound: true }] })!;
+    expect(navigationMailbox(box, "b@example.com")).toBe("b@example.com");
+    expect(navigationMailbox(box, "revoked@example.com")).toBe("a@example.com");
+  });
+  it("does not choose arbitrarily among multiple bindings or use unbound rows", async () => {
+    const { navigationMailbox } = await import("./navigation");
+    const box = normalizeBox({ bound: false, mailbox: "", bindings: [{ mailbox: "a@example.com", bound: true }, { mailbox: "b@example.com", bound: true }, { mailbox: "revoked@example.com", bound: false }] })!;
+    expect(navigationMailbox(box)).toBe("");
+    expect(navigationMailbox(box, "revoked@example.com")).toBe("");
+    expect(navigationMailbox(box, "b@example.com")).toBe("b@example.com");
+  });
+});
+
+describe("mail navigation preference isolation", () => {
+  it("keeps mailbox selections scoped to each logged-in account", async () => {
+    const { lastMailbox, rememberMailbox } = await import("./navigation");
+    const values = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", { getItem: (key: string) => values.get(key) || null, setItem: (key: string, value: string) => values.set(key, value) });
+    vi.stubGlobal("window", new EventTarget());
+    try {
+      rememberMailbox("user-a", "a@example.com");
+      rememberMailbox("user-b", "b@example.com");
+      expect(lastMailbox("user-a")).toBe("a@example.com");
+      expect(lastMailbox("user-b")).toBe("b@example.com");
+      expect(lastMailbox("user-c")).toBe("");
+      expect(lastMailbox()).toBe("");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("does not break navigation when sessionStorage is unavailable", async () => {
+    const { lastMailbox, rememberMailbox } = await import("./navigation");
+    vi.stubGlobal("sessionStorage", { getItem: () => { throw new Error("disabled"); }, setItem: () => { throw new Error("disabled"); } });
+    vi.stubGlobal("window", new EventTarget());
+    try {
+      expect(lastMailbox("user-a")).toBe("");
+      expect(() => rememberMailbox("user-a", "a@example.com")).not.toThrow();
+    } finally { vi.unstubAllGlobals(); }
+  });
+});

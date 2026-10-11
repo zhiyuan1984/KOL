@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type OperationJob } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
+import { useAccount } from "../components/AuthGate";
+import { lastMailbox, navigationMailbox, rememberMailbox } from "../mail/navigation";
 import { takeComposerDraftStash } from "../composer/draft";
 import { applyAddressesToText } from "../composer/addresses";
 import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
@@ -166,6 +168,8 @@ function useDismissable(open: boolean, close: () => void, ref: { current: HTMLEl
 export default function Mail() {
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
+  const { account } = useAccount();
+  const loadGeneration = useRef(0);
   const focusId = params.get("c") || "";
   const messageId = params.get("m") || "";
   const peerParam = params.get("p") || "";
@@ -280,16 +284,29 @@ export default function Mail() {
   const detailError = selectedConversation ? threadErrors[selectedConversation.conversation_id] || "" : "";
 
   const load = (opts?: { keepNotice?: boolean }) => {
+    const generation = ++loadGeneration.current;
     setLoadState("loading");
     setError("");
     if (!opts?.keepNotice) setNotice("");
     void loadMailWorkspaceFast(boxParam || undefined)
       .then((next) => {
+        if (generation !== loadGeneration.current) return null;
+        if (!boxParam) {
+          const resolved = navigationMailbox(next.box, focusId || messageId || peerParam ? "" : lastMailbox(account?.id));
+          if (resolved && (!next.box.bound || resolved !== next.box.mailbox)) {
+            const selected = new URLSearchParams(params);
+            selected.set("box", resolved);
+            setParams(selected, { replace: true });
+            return null;
+          }
+        }
+        if (next.box.bound && next.box.mailbox) rememberMailbox(account?.id, next.box.mailbox);
         setWorkspace(next);
         setLoadState("ok");
         return next;
       })
       .then((next) => {
+        if (!next || generation !== loadGeneration.current) return;
         // Optional owner label only: /me/starry-binding is re-read behind the first
         // paint (bounded to 2s) and can never hold the list.
         void decorateWorkspace(next)
@@ -298,6 +315,7 @@ export default function Mail() {
         return next;
       })
       .catch((e) => {
+        if (generation !== loadGeneration.current) return;
         const status = (e as { status?: number }).status;
         if (status === 401) setError("请先登录后再查看通讯。");
         else setError(httpCopy(e, "无法读取通讯"));
@@ -320,9 +338,9 @@ export default function Mail() {
     setSyncing(false);
     const savedJob = sessionStorage.getItem(`mail-sync-job:${boxParam}`);
     if (savedJob) pollForSync(savedJob);
-    return stopSyncPoll;
+    return () => { loadGeneration.current += 1; stopSyncPoll(); };
     // Reload list + thread for the mailbox selected via ?box= (card click).
-  }, [boxParam]);
+  }, [boxParam, account?.id]);
 
   const timerAt = (key: string, timer: number) => {
     if (timersRef.current[key]) window.clearTimeout(timersRef.current[key]);
