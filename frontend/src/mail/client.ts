@@ -128,6 +128,8 @@ function normalizeMessage(raw: Record<string, unknown>, conversationId: string):
     title: text(raw.title || raw.message_title || raw.messageTitle || raw.email_title || raw.emailTitle),
     snippet: text(raw.snippet || raw.letter_summary || raw.summary || raw.summary_zh),
     body_text: raw.body_text ? String(raw.body_text) : undefined,
+    body_status: raw.body_status === "ready" || raw.body_status === "not_synced" ? raw.body_status : raw.body_text ? "ready" : "not_synced",
+    translation_status: raw.translation_status === "ready" || raw.translation_status === "pending" || raw.translation_status === "not_started" ? raw.translation_status : text(raw.translation_zh) ? "ready" : "not_started",
     letter_summary: text(raw.letter_summary || raw.summary || raw.summary_zh || raw.snippet),
     summary_source: digestSourceOf(raw.summary_source) || (raw.summary_source === "body_digest" ? "body_digest" : ""),
     receipt_status: text(raw.receipt_status) || undefined,
@@ -183,7 +185,7 @@ export function normalizeThread(raw: Record<string, unknown>, mailbox = ""): Mai
       error: digestRaw.error ? String(digestRaw.error) : undefined,
       failed_at: digestRaw.failed_at ? String(digestRaw.failed_at) : undefined,
     },
-    hydrating: raw.hydrating === true,
+    hydrating: raw.hydrating === true && messages.some(message => !message.body_text?.trim()),
   };
 }
 
@@ -210,13 +212,13 @@ async function loadFallbackWorkspace(): Promise<MailWorkspace> {
 }
 
 /** Local memory only: no optional decoration, so the list can paint at once. */
-export async function loadMailWorkspaceFast(boxParam?: string): Promise<MailWorkspace> {
+export async function loadMailWorkspaceFast(boxParam?: string, signal?: AbortSignal): Promise<MailWorkspace> {
   let boxRaw: Record<string, unknown>;
   let listRaw: Record<string, unknown> | Array<Record<string, unknown>>;
   try {
     [boxRaw, listRaw] = await Promise.all([
-      api.mailBox(boxParam),
-      api.mailConversations(boxParam),
+      api.mailBox(boxParam, signal),
+      api.mailConversations(boxParam, signal),
     ]);
   } catch (error) {
     if (!isMissingEndpoint(error)) throw error;
@@ -262,12 +264,13 @@ export async function loadMailThread(
   id: string,
   fallback?: MailConversation,
   source: MailWorkspace["source"] = "api",
+  signal?: AbortSignal,
 ): Promise<MailThread | null> {
   const keys = [...new Set([id, fallback?.id, fallback?.conversation_id].filter(Boolean) as string[])];
   let missing = false;
   for (const key of keys) {
     try {
-      const raw = await api.mailConversation(key, fallback?.mailbox);
+      const raw = await api.mailConversation(key, fallback?.mailbox, signal);
       return normalizeThread(raw, fallback?.mailbox || text(raw.mailbox));
     } catch (error) {
       const status = (error as { status?: number }).status;
@@ -291,8 +294,8 @@ export async function loadMailPersonDigest(box: string, peerEmail: string): Prom
   return normalizePersonDigest(raw);
 }
 
-export async function syncMailboxMail(box?: string): Promise<MailSyncReceipt> {
-  const receipt = await api.syncMailboxMail(box ? { box } : {});
+export async function syncMailboxMail(box?: string, conversationId?: string): Promise<MailSyncReceipt> {
+  const receipt = await api.syncMailboxMail({ ...(box ? { box } : {}), ...(conversationId ? {conversation_id: conversationId} : {}) });
   return {
     job_id: receipt.job?.id,
     ok: receipt.ok !== false,

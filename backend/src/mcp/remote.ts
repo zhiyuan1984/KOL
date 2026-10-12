@@ -72,7 +72,25 @@ export function normalizeMcpContent(result: Record<string, unknown>): Json {
   };
 }
 
-export type ClassifiedRemoteError = Error & { remoteStatus?: number; remoteKind?: "timeout" | "unreachable" };
+export type ClassifiedRemoteError = Error & {
+  remoteStatus?: number;
+  remoteKind?: "timeout" | "unreachable";
+  /** A bounded, header-derived delay. Never includes a response body, URL, or credential. */
+  remoteRetryAfterMs?: number;
+};
+
+const MAX_REMOTE_RETRY_AFTER_MS = 120_000;
+
+function retryAfterMs(value: string | null, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(MAX_REMOTE_RETRY_AFTER_MS, Math.round(seconds * 1_000));
+  }
+  const at = Date.parse(value);
+  if (!Number.isFinite(at)) return undefined;
+  return Math.min(MAX_REMOTE_RETRY_AFTER_MS, Math.max(0, at - now));
+}
 
 function extractRemoteStatus(error: Error): number | undefined {
   if (error instanceof StreamableHTTPError || error instanceof SseError) {
@@ -88,10 +106,9 @@ function extractRemoteStatus(error: Error): number | undefined {
 }
 
 /**
- * Attaches a transport-level classification (HTTP status or failure kind) to a
- * remote failure so the runtime can answer a sanitized, actionable error code.
- * The original error object is reused: only the classification is added, never
- * a response body, URL or credential.
+ * Converts a transport-level failure into a sanitized classification. SDK
+ * StreamableHTTPError messages include the remote response body, so transport
+ * failures must be replaced rather than logged/rethrown verbatim.
  */
 export function annotateRemoteFailure(error: unknown): unknown {
   if (!(error instanceof Error)) return error;
@@ -99,8 +116,9 @@ export function annotateRemoteFailure(error: unknown): unknown {
   if (annotated.remoteStatus !== undefined || annotated.remoteKind !== undefined) return annotated;
   const status = extractRemoteStatus(error);
   if (status !== undefined) {
-    annotated.remoteStatus = status;
-    return annotated;
+    const sanitized = new Error(`remote MCP request failed (HTTP ${status})`) as ClassifiedRemoteError;
+    sanitized.remoteStatus = status;
+    return sanitized;
   }
   if (error instanceof McpError && error.code === ErrorCode.ConnectionClosed) {
     // The SDK rejects every in-flight request with ConnectionClosed (-32000)
@@ -109,20 +127,24 @@ export function annotateRemoteFailure(error: unknown): unknown {
     // the generic runtime_remote_failed code and the user saw a misleading
     // "remote never ran" message. It is actionable the same way as an
     // unreachable endpoint: retry once the remote side is reachable again.
-    annotated.remoteKind = "unreachable";
-    return annotated;
+    const sanitized = new Error("remote MCP connection closed") as ClassifiedRemoteError;
+    sanitized.remoteKind = "unreachable";
+    return sanitized;
   }
   if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
-    annotated.remoteKind = "timeout";
-    return annotated;
+    const sanitized = new Error("remote MCP request timed out") as ClassifiedRemoteError;
+    sanitized.remoteKind = "timeout";
+    return sanitized;
   }
   if (/request timed out|maximum total timeout exceeded/i.test(error.message)) {
-    annotated.remoteKind = "timeout";
-    return annotated;
+    const sanitized = new Error("remote MCP request timed out") as ClassifiedRemoteError;
+    sanitized.remoteKind = "timeout";
+    return sanitized;
   }
   if (/fetch failed|connect timeout error|ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|UND_ERR_/i.test(error.message)) {
-    annotated.remoteKind = "unreachable";
-    return annotated;
+    const sanitized = new Error("remote MCP connection unavailable") as ClassifiedRemoteError;
+    sanitized.remoteKind = "unreachable";
+    return sanitized;
   }
   return annotated;
 }
@@ -142,6 +164,7 @@ export class RemoteMcpClient {
   private readonly transport: StreamableHTTPClientTransport | SSEClientTransport;
   private connecting: Promise<void> | null = null;
   private closed = false;
+  private lastRemoteRetryAfterMs: number | undefined;
 
   constructor(options: RemoteMcpOptions = {}) {
     this.url = required(options.url, "MCP URL");
@@ -160,21 +183,43 @@ export class RemoteMcpClient {
     // SSE splits traffic over two legs: a long-lived GET event stream and the POST
     // channel. Both must traverse the caller's egress-guarded fetch, so it is
     // registered for the EventSource stream as well as the transport POST path.
-    const guardedFetch = options.fetch;
+    const callerFetch = options.fetch || fetch;
+    // The MCP SDK's StreamableHTTPError preserves only status and response text.
+    // Capture Retry-After separately so a read-only caller can back off without
+    // retaining an endpoint, body, or credentials in its error/audit payload.
+    const guardedFetch: typeof fetch = async (input, init) => {
+      const response = await callerFetch(input, init);
+      this.lastRemoteRetryAfterMs = response.ok ? undefined : retryAfterMs(response.headers.get("retry-after"));
+      return response;
+    };
     this.transport = options.transport === "sse"
       ? new SSEClientTransport(endpoint, {
         requestInit: { headers },
-        ...(guardedFetch ? { fetch: guardedFetch, eventSourceInit: { fetch: guardedFetch } } : {}),
+        fetch: guardedFetch,
+        eventSourceInit: { fetch: guardedFetch },
       })
       : new StreamableHTTPClientTransport(endpoint, {
         requestInit: { headers },
-        ...(guardedFetch ? { fetch: guardedFetch } : {}),
+        fetch: guardedFetch,
       });
+  }
+
+  private async remoteCall<T>(pending: Promise<T>): Promise<T> {
+    this.lastRemoteRetryAfterMs = undefined;
+    try {
+      return await classifiedRemoteCall(pending);
+    } catch (error) {
+      const annotated = annotateRemoteFailure(error);
+      if (this.lastRemoteRetryAfterMs !== undefined && annotated && typeof annotated === "object") {
+        (annotated as ClassifiedRemoteError).remoteRetryAfterMs = this.lastRemoteRetryAfterMs;
+      }
+      throw annotated;
+    }
   }
 
   private async connect(): Promise<void> {
     if (this.closed) throw new Error("remote MCP client is closed");
-    if (!this.connecting) this.connecting = classifiedRemoteCall(this.client.connect(this.transport, { timeout: this.timeoutMs }));
+    if (!this.connecting) this.connecting = this.remoteCall(this.client.connect(this.transport, { timeout: this.timeoutMs }));
     await this.connecting;
   }
 
@@ -187,7 +232,7 @@ export class RemoteMcpClient {
     let cursor: string | undefined;
 
     for (let page = 0; page < MAX_LIST_TOOLS_PAGES; page += 1) {
-      const result = await classifiedRemoteCall(this.client.listTools(
+      const result = await this.remoteCall(this.client.listTools(
         cursor === undefined ? {} : { cursor },
         { timeout: this.timeoutMs },
       ));
@@ -212,7 +257,7 @@ export class RemoteMcpClient {
   /** Forward an MCP tool result without normalization, including isError and content blocks. */
   async callToolRaw(name: string, args: Json = {}): Promise<Record<string, unknown>> {
     await this.connect();
-    return await classifiedRemoteCall(this.client.callTool(
+    return await this.remoteCall(this.client.callTool(
       { name, arguments: args },
       undefined,
       { timeout: this.timeoutMs },

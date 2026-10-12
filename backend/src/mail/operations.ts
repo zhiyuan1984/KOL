@@ -3,8 +3,8 @@
  * GET = memory (zero session / turn / model). POST sync = command.
  */
 import type { Operation } from "../runtime/operations.js";
-
 import { authDisabled, requireSkill, scopedUser } from "../auth.js";
+import { createMailLabelSuggestionOperations } from "./label-suggestions.js";
 import { assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
 import { canUseAgent } from "../runtime/organization-tree.js";
 import { HttpFail } from "../host/errors.js";
@@ -12,16 +12,12 @@ import { normalizeEmail } from "../host/identity.js";
 import {
   conversationRowOf,
   findMailThread,
-  itemsForConversation,
-  listMailboxConversations,
   mailboxBindings,
   mailboxBoxStatus,
   markConversationMailRead,
-  markThreadTranslationsPending,
-  messageRowOf,
   setConversationStarred,
 } from "../host/mail-memory.js";
-import { readOnDemandMemory, readPersonDigest, triggerMailTranslateSkill, triggerMailSummarySkill, writeOnDemandMemory } from "../host/mail-memory-job.js";
+import { triggerMailTranslateSkill, triggerMailSummarySkill } from "../host/mail-memory-job.js";
 import { composeCatalog } from "../skills/email-compose-contract.js";
 import { getConn } from "../db.js";
 import { label } from "../stages.js";
@@ -30,6 +26,12 @@ import { startMailSyncJob, authorizeMailSync } from "./sync-job.js";
 import { prepareMail, mailDraftActions, sendMailDraft, translateMailDraft, exportMailDraft } from "../host/api.js";
 import { readReplyContext } from "./reply-context.js";
 import { mailLabelOperations } from "./labels.js";
+import {
+  readMailboxBox,
+  readMailboxConversation,
+  readMailboxConversations,
+  readMailboxPerson,
+} from "./read-model.js";
 
 const MEMORY = {
   entry: "memory" as const,
@@ -55,10 +57,9 @@ function requestedMailbox(raw: string): string {
   return requested;
 }
 
-const mailBox: Operation["handle"] = (c, input) => {
+const mailBox: Operation["handle"] = async (c, input) => {
   c.header("Cache-Control", "no-store");
-  const bindings = mailboxBindings();
-  const box = mailboxBoxStatus(requestedMailbox(String(input.box || "") || "") || undefined);
+  const { bindings, box } = await readMailboxBox(input.box);
   return c.json({
     ...MEMORY,
     ...box,
@@ -67,50 +68,22 @@ const mailBox: Operation["handle"] = (c, input) => {
   });
 };
 
-const mailConversations: Operation["handle"] = (c, input) => {
+const mailConversations: Operation["handle"] = async (c, input) => {
   c.header("Cache-Control", "no-store");
-  const mailbox = requestedMailbox(String(input.box || "") || "");
-  const conversations = listMailboxConversations(mailbox || undefined);
+  const { mailbox, conversations } = await readMailboxConversations(input.box);
   return c.json({
     ...MEMORY,
-    mailbox: mailboxBoxStatus(mailbox || undefined).mailbox,
+    mailbox,
     conversations,
   });
 };
 
-const mailConversation: Operation["handle"] = (c, input) => {
+const mailConversation: Operation["handle"] = async (c, input) => {
   c.header("Cache-Control", "no-store");
-  const mailbox = requestedMailbox(String(input.box || ""));
-  const thread = findMailThread(String(input.id || ""), mailbox || undefined);
-  if (!thread) throw new HttpFail(404, "conversation not found");
-  const conversation = conversationRowOf(thread);
-  markThreadTranslationsPending(String(thread.id));
-  const stored = itemsForConversation(conversation.conversation_id, conversation.mailbox);
-  const summaryKey = `mail_summary_memory:${conversation.mailbox}:${conversation.conversation_id}:`;
-  let summaryMemory = readOnDemandMemory(summaryKey);
-  if (!summaryMemory) {
-    summaryMemory = {
-      status: "未开始", mailbox: conversation.mailbox, subject: conversation.subject,
-      conversation_id: conversation.conversation_id, text: "", fingerprint: "",
-    };
-    writeOnDemandMemory(summaryKey, summaryMemory);
-  }
-  for (const item of stored) {
-    const translationKey = `mail_translation_memory:${conversation.mailbox}:${conversation.conversation_id}:${String(item.id || "")}`;
-    if (!readOnDemandMemory(translationKey)) {
-      writeOnDemandMemory(translationKey, {
-        status: "未开始", mailbox: conversation.mailbox, subject: String(item.subject || conversation.subject || ""),
-        conversation_id: conversation.conversation_id, message_id: String(item.id || ""), text: "", fingerprint: "",
-      });
-    }
-  }
+  const detail = await readMailboxConversation(input.box, input.id);
   return c.json({
     ...MEMORY,
-    conversation,
-    messages: stored.map(messageRowOf),
-    digest_text: conversation.digest_text || String(thread.digest_text || ""),
-    digest_source: conversation.digest_source || String(thread.digest_source || ""),
-    summary_memory: summaryMemory,
+    ...detail,
   });
 };
 
@@ -150,19 +123,12 @@ const mailCollaborationStage: Operation["handle"] = (c, input) => {
   });
 };
 
-const mailPerson: Operation["handle"] = (c, input) => {
+const mailPerson: Operation["handle"] = async (c, input) => {
   c.header("Cache-Control", "no-store");
-  const mailbox = requestedMailbox(String(input.box || "") || "");
-  const peer = normalizeEmail(String(String(input.p || "") || ""));
-  if (!mailbox || !peer) throw new HttpFail(400, "box and p are required");
-  const digest = readPersonDigest(mailbox, peer);
+  const person = await readMailboxPerson(input.box, input.p);
   return c.json({
     ...MEMORY,
-    mailbox,
-    peer_email: peer,
-    digest_text: digest?.text || "",
-    digest_source: digest?.source || "",
-    digest_generated_at: digest && "generated_at" in digest ? digest.generated_at : null,
+    ...person,
   });
 };
 
@@ -254,6 +220,7 @@ export const mailOperations: Operation[] = [
   { kind: "skill", id: "mail_translate", handle: (c, input) => runMailSkill(c, { ...input, skill_id: "mail_translate" }) },
   { kind: "job", id: "mail.sync", handle: async (c, input) => c.json(await startMailSyncJob(input), 202) },
   ...mailLabelOperations,
+  ...createMailLabelSuggestionOperations(),
 ];
 
 export const mailJobScopes = {

@@ -72,6 +72,8 @@ export type MailMessage = {
   title: string;
   snippet: string;
   body_text?: string;
+  body_status?: "ready" | "not_synced";
+  translation_status?: "ready" | "pending" | "not_started";
   letter_summary: string;
   summary_source: MailDigestSource | "body_digest" | "";
   receipt_status?: string;

@@ -1,6 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubHomeFollowing } from "./kol-surface-stub";
 
+const LOCAL_TEST_ACCOUNT = { id: "mail-e2e", name: "邮件测试员工", available_modes: ["business"] };
+
+// The :8894 service deliberately serves only the freshly built SPA. Keep only
+// its bootstrap/auth responses local; per-test mail routes are registered
+// later and therefore override these routes. Do not add a generic /api/**
+// success route: a missing mail fixture must remain observable.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/health", route => route.fulfill({ json: { ok: true } }));
+  await page.route("**/api/auth/status", route => route.fulfill({ json: { authenticated: true, account: LOCAL_TEST_ACCOUNT } }));
+  await page.route("**/api/me", route => route.fulfill({ json: LOCAL_TEST_ACCOUNT }));
+  await page.route("**/api/preferences", route => route.fulfill({ json: {} }));
+});
+
 const BOARD = {
   mail: { unread: 1, conversations: 2 },
   follow_scope: {
@@ -81,6 +94,33 @@ function sessionPostsOf(page: Page): string[] {
   return posts;
 }
 
+
+async function chooseMailTask(page: Page, intent: "mail_summary" | "mail_translate" | "email_compose" | "reply_analysis") {
+  const menu = page.locator("details[data-composer-task-menu]");
+  await expect(menu).toHaveCount(1);
+  await expect(menu.locator("summary")).toHaveText(/选择邮件任务/);
+  await menu.locator("summary").click();
+  const task = menu.locator(`[data-ai-next="${intent}"]`);
+  await expect(task).toBeVisible();
+  await task.click();
+  return page.locator("[data-composer-input]");
+}
+
+async function openLabelPicker(page: Page) {
+  const picker = page.locator("details.mail-label-picker");
+  await expect(picker).toHaveCount(1);
+  const trigger = picker.locator("summary[data-mail-label-picker]");
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  await expect(page.locator("[data-mail-label-search]")).toBeVisible();
+  return picker;
+}
+
+async function selectExistingLabel(page: Page, id: string) {
+  await page.locator(`[data-mail-label-option="${id}"]`).click();
+  await expect(page.locator("[data-mail-label-confirm]")).toBeVisible();
+}
+
 test("sidebar 通讯 sits under 定时任务 and /mail uses board fallback", async ({ page }) => {
   const sessionPosts = sessionPostsOf(page);
   await mockMailMissing(page);
@@ -141,19 +181,18 @@ test("opening a fallback thread and 收取 404 do not create sessions", async ({
   expect(sessionPosts).toEqual([]);
 });
 
-test("未建档会话的快速分析只提示，不入队", async ({ page }) => {
+test("未建档会话的任务建议只预填，绝不走已删除的分析入队接口", async ({ page }) => {
   await mockMailMissing(page);
-  let enqueued = 0;
+  let legacyEnqueue = 0;
   await page.route("**/api/home/kol-analyze/enqueue", async (route) => {
-    enqueued += 1;
-    await route.fulfill({ status: 201, json: { creates_session: false } });
+    legacyEnqueue += 1;
+    await route.fulfill({ status: 500, json: { detail: "legacy enqueue must not be called" } });
   });
   await page.goto("/mail?box=larry.zhao@amperetime.com&c=u-9");
-  if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
-  await page.locator("[data-mail-analyze]").click();
-  await expect(page.locator("[data-mail-notice]")).toContainText("未建档，无法入队分析。");
+  const input = await chooseMailTask(page, "reply_analysis");
+  await expect(input).toHaveValue(/分析当前会话/);
   await expect(page).toHaveURL(/\/mail\?/);
-  expect(enqueued).toBe(0);
+  expect(legacyEnqueue).toBe(0);
 });
 
 const FORMAL_BOX = {
@@ -296,7 +335,7 @@ test("returned 往来要点 when GET /api/mail is the primary path", async ({ pa
   await expect(page.locator("[data-mail-digest] [data-digest-body]")).toContainText("与 Amy 的往来集中在 LiTime 合作");
 });
 
-test("通讯阶段变更点红人、选目标后提交显式合作与阶段绑定", async ({ page }) => {
+test("通讯阶段变更先经唯一 composer 选择任务，再提交显式合作与阶段绑定", async ({ page }) => {
   await mockFormalMail(page);
   await page.route("**/api/queries/mail.collaboration-stage?**", (route) => route.fulfill({
     json: {
@@ -304,35 +343,33 @@ test("通讯阶段变更点红人、选目标后提交显式合作与阶段绑�
       stage_code: "QUOTE_PENDING", stage_label: "报价待确认",
     },
   }));
-  await page.route("**/api/tasks/from-text", (route) => route.fulfill({
-    json: { task: { id: "tsk_mail_stage", task_type: "confirm_stage" }, needs_clarification: false },
-  }));
+  let intake: Record<string, unknown> | undefined;
+  await page.route("**/api/tasks/from-text", (route) => {
+    intake = route.request().postDataJSON();
+    return route.fulfill({ json: { task: { id: "tsk_mail_stage", task_type: "confirm_stage" }, needs_clarification: false } });
+  });
   await page.route("**/api/tasks/tsk_mail_stage/run", (route) => route.fulfill({
-    status: 202,
-    json: { task: { id: "tsk_mail_stage" }, session_id: "ses_mail_stage" },
+    status: 202, json: { task: { id: "tsk_mail_stage" }, session_id: "ses_mail_stage" },
   }));
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-stage-current]")).toHaveText("当前阶段：报价待确认");
-  await page.locator("[data-mi-ai-reply]").click();
+  await chooseMailTask(page, "email_compose");
   await page.locator("[data-composer-input]").fill("已有的其它草稿");
-  await expect.poll(async () => {
-    const detail = await page.locator("[data-mail-side]").boundingBox();
-    const dock = await page.locator("[data-mi-dockfloat]").boundingBox();
-    return Boolean(detail && dock && detail.y + detail.height <= dock.y);
-  }).toBe(true);
+  const reading = await page.locator("[data-mail-reading-pane] aside").boundingBox();
+  const composer = await page.locator("[data-mi-aibar]").boundingBox();
+  expect(reading && composer && reading.y + reading.height <= composer.y).toBeTruthy();
   await page.locator("[data-mail-stage-kol]").click();
   await expect(page.locator("[data-composer-input]")).toHaveValue("提出阶段变更 @小美妆日记 到 [目标阶段]");
   await expect(page.locator('[data-skill-chip="confirm_stage"]')).toBeVisible();
-  await expect(page.locator("[data-mail-stage-target] option[value='INITIAL_CONTACT']")).toHaveCount(1);
-  await expect(page.locator("[data-mail-stage-target] option[value='CONTENT_PLANNING']")).toHaveCount(1);
   await page.locator("[data-mail-stage-target]").selectOption("NEGOTIATING");
   await expect(page.locator("[data-composer-input]")).toHaveValue("提出阶段变更 @小美妆日记 到 商务谈判");
   const submitted = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/api/tasks/from-text"));
   await page.locator("[data-send]").click();
   expect((await submitted).postDataJSON()).toMatchObject({
     collaboration_id: "col_xiaomei",
-    entities: { handle: "小美妆日记", stage_code: "NEGOTIATING", proposed_stage: "NEGOTIATING" },
+    entities: { mailbox: FORMAL_BOX.mailbox, conversation_id: "3901", handle: "小美妆日记", stage_code: "NEGOTIATING", proposed_stage: "NEGOTIATING" },
   });
+  expect(intake?.scope).toMatchObject({ intent: "free" });
   await expect(page).toHaveURL(/\/s\/ses_mail_stage/);
 });
 
@@ -364,51 +401,33 @@ test("POST /api/jobs/mail.sync/start uses SyncReceipt and does not create sessio
   expect(sessionPosts).toEqual([]);
 });
 
-test("回复 prefills the on-page composer; 快速分析 enqueues on click without a session", async ({ page }) => {
+test("邮件任务建议只预填；发送统一经过 intake/run 且保留邮件 scope", async ({ page }) => {
   await mockFormalMail(page);
-  const fromText: string[] = [];
-  const sessionPosts = sessionPostsOf(page);
-  await page.route("**/api/home/kol-analyze/enqueue", async (route) => {
-    await route.fulfill({
-      status: 201,
-      json: { work_item_id: "tsk_1", creates_session: false, people: ["KOL_X"], task_type: "kol_analyze" },
-    });
+  const legacyEnqueue: string[] = [];
+  await page.route("**/api/home/kol-analyze/enqueue", (route) => {
+    legacyEnqueue.push(route.request().url());
+    return route.fulfill({ status: 500, json: { detail: "removed route" } });
   });
-  page.on("request", (request) => {
-    if (request.url().includes("/api/tasks/from-text")) fromText.push(request.url());
+  let body: Record<string, unknown> | undefined;
+  await page.route("**/api/tasks/from-text", (route) => {
+    body = route.request().postDataJSON();
+    return route.fulfill({ json: { task: { id: "tsk_analysis", title: "会话分析", task_type: "reply_analysis" } } });
   });
-
-  // 回复 stays on /mail and only fills the 提问框 in place.
+  await page.route("**/api/tasks/tsk_analysis/run", (route) => route.fulfill({ status: 202, json: { session_id: "ses_analysis" } }));
   await page.goto("/mail?c=3901");
-  if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
-  await page.getByRole("button", { name: "更多会话操作" }).click();
-  await page.locator("[data-mail-reply]").click();
-  await expect(page).toHaveURL(/\/mail\?/);
-  await expect(page.locator("[data-composer-draft-chip='mailbox']")).toContainText("larry.zhao@amperetime.com");
-  await expect(page.locator("[data-composer-draft-chip='conversation_id']")).toContainText("3901");
-  await expect(page.locator("[data-composer-draft-chip='peer']")).toContainText("Amy");
-  await expect(page.locator("[data-composer-draft-chip='subject']")).toContainText("Re: LiTime collab");
-  await expect(page.locator("textarea")).toHaveValue(/回复：Re: LiTime collab/);
-  expect(fromText).toEqual([]);
-
-  // 共享 stash 已在本页消费后清掉：接着去首页，Home 的提问框不会被这封回复预填。
-  await page.goto("/");
-  await expect(page.locator("[data-composer-input]")).not.toHaveValue(/回复：Re: LiTime collab/);
-  await page.goBack();
-  await expect(page.locator("[data-mi-ai-reply]")).toBeVisible();
-
-  // 快速分析 is the action itself: the click enqueues, with no send and no session.
-  const enqueue = page.waitForRequest((request) => request.url().includes("/api/home/kol-analyze/enqueue"));
-  if (await page.locator("[data-mail-fold-head='original']").getAttribute("aria-expanded") === "false") await page.locator("[data-mail-fold-head='original']").click();
-  await page.locator("[data-mail-analyze]").click();
-  const body = JSON.parse((await enqueue).postData() || "{}");
-  // analyzePeopleOf sends the record uid and its handle, exactly like the old page.
-  expect(body).toMatchObject({ title: "分析已选", kol_uids: ["KOL_X", "小美妆日记"] });
-  expect(String(body.prompt)).toContain("分析已选：KOL_X");
-  await expect(page.locator("[data-mail-notice]")).toContainText("已入队");
-  await expect(page).toHaveURL(/\/mail\?/);
-  expect(fromText).toEqual([]);
-  expect(sessionPosts).toEqual([]);
+  const input = await chooseMailTask(page, "reply_analysis");
+  await expect(input).toHaveValue(/分析当前会话/);
+  expect(body).toBeUndefined();
+  expect(legacyEnqueue).toEqual([]);
+  await input.fill("请分析本次合作的风险");
+  await page.locator("[data-send]").click();
+  await expect(page).toHaveURL(/\/s\/ses_analysis/);
+  expect(body).toMatchObject({
+    intent: "reply_analysis",
+    entities: { mailbox: FORMAL_BOX.mailbox, conversation_id: "3901", message_id: "m2", mail_context_complete: true },
+    scope: { skills: ["reply_analysis"], intent: "free" },
+  });
+  expect(legacyEnqueue).toEqual([]);
 });
 
 test("L3 uses each message title instead of the L2 conversation subject", async ({ page }) => {
@@ -449,60 +468,83 @@ test("context chips insert at the saved selection and × only dismisses that chi
   await expect(input).toHaveValue("alpha Re: LiTime collab");
 });
 
-test("邮件任务 chip fills the提问框 from the compose catalog", async ({ page }) => {
+test("邮件任务菜单有四项固定建议，点选只预填不直接执行", async ({ page }) => {
   await mockFormalMail(page);
-  const letters = Array.from({ length: 8 }).map((_, index) => ({
-    stage: `STAGE_${index}`,
-    chip: `任务 ${index}`,
-    prompt: `写第 ${index} 封合作邮件`,
-    template_id: `template_${index}`,
-    kind: "letter",
-  }));
-  await page.route("**/api/queries/mail.compose-catalog**", async (route) => {
-    await route.fulfill({
-      json: { entry: "memory", creates_session: false, creates_turn: false, calls_model: false, letters },
-    });
-  });
-  const sessionPosts = sessionPostsOf(page);
+  const fromText: string[] = [];
+  page.on("request", (request) => { if (request.url().includes("/api/tasks/from-text")) fromText.push(request.url()); });
   await page.goto("/mail?c=3901");
-
-  // 先显示前 6 个 + 更多。
-  await expect(page.locator("[data-mail-task-chip]")).toHaveCount(6);
-  await page.locator("[data-mail-task-more]").click();
-  await expect(page.locator("[data-mail-task-chip]")).toHaveCount(8);
-
-  await page.locator('[data-mail-task-chip="STAGE_0"]').click();
-  await expect(page.locator("textarea")).toHaveValue("写第 0 封合作邮件");
-  await expect(page.locator('[data-skill-chip="email_compose"]')).toContainText("任务 0");
-  expect(sessionPosts).toEqual([]);
+  const menu = page.locator("details[data-composer-task-menu]");
+  await expect(menu.locator("summary")).toHaveText(/选择邮件任务/);
+  await menu.locator("summary").click();
+  await expect(menu.locator("[data-ai-next]")).toHaveCount(4);
+  for (const intent of ["mail_summary", "mail_translate", "email_compose", "reply_analysis"]) await expect(menu.locator(`[data-ai-next="${intent}"]`)).toBeVisible();
+  await menu.locator('[data-ai-next="email_compose"]').click();
+  await expect(page.locator("[data-composer-input]")).toHaveValue(/起草回复/);
+  await expect(page.locator('[data-skill-chip="email_compose"]')).toBeVisible();
+  expect(fromText).toEqual([]);
 });
 
-test("a dead compose catalog renders no chips and no crash", async ({ page }) => {
+test("compose catalog 暂不可用时，固定任务菜单仍完整且邮件页不崩溃", async ({ page }) => {
   await mockFormalMail(page);
+  let catalogRequests = 0;
   await page.route("**/api/queries/mail.compose-catalog**", async (route) => {
-    await route.fulfill({ status: 500, json: { detail: "boom" } });
+    catalogRequests += 1;
+    await route.fulfill({ status: 500, json: { detail: "obsolete endpoint" } });
   });
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
-  await expect(page.locator("[data-mail-task-chip]")).toHaveCount(0);
+  const menu = page.locator("details[data-composer-task-menu]");
+  await menu.locator("summary").click();
+  await expect(menu.locator("[data-ai-next]")).toHaveCount(4);
+  expect(catalogRequests).toBe(1);
   await expect(page.locator("[data-mail-page]")).not.toContainText("无法读取");
 });
 
-test("composer submit opens the run session and never the home page", async ({ page }) => {
+test("选择邮件任务后，composer 统一提交 intake/run 并进入原任务深链", async ({ page }) => {
   await mockFormalMail(page);
+  let intake: Record<string, unknown> | undefined;
   await page.route("**/api/tasks/from-text", async (route) => {
-    await route.fulfill({
-      json: { task: { id: "tsk_9", title: "写合作邮件", task_type: "email_compose" }, needs_clarification: false },
-    });
+    intake = route.request().postDataJSON();
+    await route.fulfill({ json: { task: { id: "tsk_9", title: "写合作邮件", task_type: "email_compose" }, needs_clarification: false } });
   });
   await page.route("**/api/tasks/tsk_9/run", async (route) => {
     await route.fulfill({ json: { task: { id: "tsk_9" }, session_id: "ses_9" } });
   });
   await page.goto("/mail?c=3901");
-  await page.locator("[data-mi-ai-reply]").click();
-  await page.locator("textarea").fill("写合作邮件");
+  const input = await chooseMailTask(page, "email_compose");
+  await input.fill("写合作邮件");
   await page.locator("[data-send]").click();
+  expect(intake).toMatchObject({ intent: "email_compose", scope: { skills: ["email_compose"], intent: "free" }, entities: { mailbox: FORMAL_BOX.mailbox, conversation_id: "3901" } });
   await expect(page).toHaveURL(/\/s\/ses_9/);
+  await expect(page).not.toHaveURL(/^.*\/$/);
+});
+
+test("统一 intake 失败时，单一 composer 保留已上传附件以便重试", async ({ page }) => {
+  await mockFormalMail(page);
+  let intake: Record<string, unknown> | undefined;
+  await page.route("**/api/attachments", (route) => route.fulfill({
+    json: { id: "att_quote", name: "报价.pdf", path: "/attachments/att_quote.pdf", size: 4, type: "application/pdf" },
+  }));
+  await page.route("**/api/tasks/from-text", (route) => {
+    intake = route.request().postDataJSON();
+    return route.fulfill({ status: 500, json: { detail: "intake temporarily unavailable" } });
+  });
+  await page.goto("/mail?c=3901");
+  const input = await chooseMailTask(page, "email_compose");
+  await page.locator("[data-attach-input]").setInputFiles({
+    name: "报价.pdf", mimeType: "application/pdf", buffer: Buffer.from("test"),
+  });
+  const attachment = page.locator('[data-composer-chip="attachment"][data-attachment-name="报价.pdf"]');
+  await expect(attachment).toBeVisible();
+  await input.fill("请基于附件起草合作回复");
+  await page.locator("[data-send]").click();
+  await expect(page.locator("[data-mail-error]")).toBeVisible();
+  expect(intake).toMatchObject({
+    intent: "email_compose",
+    attachments: [{ id: "att_quote", name: "报价.pdf", path: "/attachments/att_quote.pdf" }],
+  });
+  await expect(attachment).toBeVisible();
+  await expect(page.locator("[data-composer-input]")).toHaveValue("请基于附件起草合作回复");
 });
 
 test("unbound mailbox guides to Starry settings", async ({ page }) => {
@@ -533,25 +575,20 @@ test("followed 查看互动 opens /mail and never /s/:id first", async ({ page }
   await expect(page.locator("[data-mail-page]")).toBeVisible();
 });
 
-test("clicking L1/L2 only expands; clicking a mail selects it", async ({ page }) => {
+test("点击 L1 展开，点击 L2 写入 c/m 并默认保留摘要展开、原文收起", async ({ page }) => {
   await mockFormalMail(page);
   await page.goto("/mail");
-  // 树默认收起：打开页面不展开、不选中，也不进入任何会话。
   await expect(page.locator("[data-mail-thread-row='3901']")).toHaveCount(0);
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(0);
-
   await page.locator('[data-mail-correspondent="amy@example.com"]').click();
   await expect(page.locator('[data-mail-thread-row="3901"]')).toBeVisible();
   await page.locator('[data-mail-thread-row="3901"]').click();
-  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
-  // 只展开：没有任何邮件被选中，右栏仍是会话级别。
-  await expect(page.locator("[data-mail-timeline-item][data-mail-selected='true']")).toHaveCount(0);
-  await expect(page.locator("[data-mail-thread-row='3901']")).toHaveAttribute("data-mail-mail-count", "2");
-
-  await page.locator("[data-mail-timeline-item]").first().click();
-  await expect(page).toHaveURL(/[?&]m=/);
-  await expect(page.locator("[data-mail-timeline-item][data-mail-selected='true']")).toHaveCount(1);
-  await expect(page.locator("[data-mail-fold='original'] .mail-fold-body")).toBeVisible();
+  await expect(page).toHaveURL(/[?&]c=3901/);
+  await expect(page).toHaveURL(/[?&]m=m2/);
+  await expect(page.locator('[data-mail-timeline-item="m2"]')).toHaveAttribute("data-mail-selected", "true");
+  await expect(page.locator("[data-mail-reading-pane] [data-mail-content]")).toBeHidden();
+  await expect(page.locator("[data-mail-fold-head='summary']")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("[data-mail-fold-head='original']")).toHaveAttribute("aria-expanded", "false");
 });
 
 test("selecting another mail switches content and translation", async ({ page }) => {
@@ -651,59 +688,34 @@ test("当前邮箱没有绑定行时，切换器仍然报出这个邮箱", async
   await expect(page.locator("[data-mail-box-current]")).not.toContainText("eu@litime.com");
 });
 
-test("通讯三图改版 renders rail tools plus rail/list/detail columns", async ({ page }) => {
+test("通讯改版在桌面保留三栏、唯一 composer 和原生阅读区", async ({ page }) => {
   await mockFormalMail(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/mail?c=3901");
-  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
-  await page.locator("[data-mail-timeline-item]").first().click();
-
-  // 三图改版：全屏覆盖保留，返回 / 搜索 / 写信集中在左栏。
   await expect(page.locator("[data-mail-immersive]")).toBeVisible();
   await expect(page.locator("[data-mi-back]")).toContainText("返回工作台");
   await expect(page.locator("[data-mi-search]")).toBeVisible();
   await expect(page.locator("[data-mi-compose]")).toBeVisible();
-
-  // 三栏：左导航 / 会话列表 / 阅读，同一起点、各自滚动。
   const rail = await page.locator("[data-mi-rail]").boundingBox();
   const list = await page.locator("[data-mail-list]").boundingBox();
   const side = await page.locator("[data-mail-side]").boundingBox();
-  expect(rail && list && rail.x < list.x).toBeTruthy();
-  expect(list && side && list.x < side.x).toBeTruthy();
-  expect(rail?.width).toBeGreaterThanOrEqual(200);
-  expect(list?.width).toBeGreaterThanOrEqual(360);
-  expect(list?.width).toBeLessThanOrEqual(440);
-  expect(side?.width).toBeGreaterThanOrEqual(320);
-  expect(rail?.y).toBe(list?.y);
-  expect(list?.y).toBe(side?.y);
-
-  // 邮箱切换器在左导航顶部；同步状态收进左导航底部。
-  await expect(page.locator("[data-mi-rail] [data-mail-box-current]")).toBeVisible();
-  await expect(page.locator("[data-mi-rail] [data-mail-box]")).toContainText("同步");
-  await expect(page.locator("[data-mi-rail] [data-mail-sync]")).toBeVisible();
-
-  // 阅读区：sticky 阶段条 + AI 提问框 + 阶段变更区。
+  expect(rail && list && side && rail.x < list.x && list.x < side.x).toBeTruthy();
   await expect(page.locator("[data-mi-threadbar]")).toBeVisible();
-  await expect(page.locator("[data-mi-aibar]")).toBeVisible();
-  await expect(page.locator("[data-mi-aiinput]")).toBeVisible();
-  await expect(page.locator("[data-mi-stagewrap]")).toBeAttached();
-
-  const scrollModes = await page.locator(
-    "[data-mi-rail], [data-mail-list-scroll], [data-mail-side]",
-  ).evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).overflowY));
+  await expect(page.locator("[data-mi-aibar]")).toHaveCount(1);
+  await expect(page.locator("[data-composer-input]")).toBeVisible();
+  await expect(page.locator("[data-mi-aiinput]")).toHaveCount(0);
+  await expect(page.locator("[data-mi-dockfloat]")).toHaveCount(0);
+  await expect(page.locator("details[data-composer-task-menu]")).toHaveCount(1);
+  const scrollModes = await page.locator("[data-mi-rail], [data-mail-list-scroll], [data-mail-side]").evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).overflowY));
   expect(scrollModes).toEqual(["auto", "auto", "auto"]);
-
-  const selected = page.locator("[data-mail-timeline-item][data-mail-selected='true']");
-  await expect(selected).toHaveCount(1);
-  const border = await selected.evaluate((el) => getComputedStyle(el).borderLeftWidth);
-  expect(border).toBe("3px");
 });
 
 test("≤1100px 单栏用页级面板切换，选邮件自动进详情", async ({ page }) => {
   await mockFormalMail(page);
   await page.setViewportSize({ width: 900, height: 800 });
-  await page.goto("/mail?c=3901");
-  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
+  await page.goto("/mail");
+  await page.locator('[data-mail-correspondent="amy@example.com"]').click();
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(0);
 
   const switcher = page.locator("[data-mail-panes]");
   await expect(switcher).toBeVisible();
@@ -712,16 +724,18 @@ test("≤1100px 单栏用页级面板切换，选邮件自动进详情", async (
   await expect(page.locator("[data-mail-list]")).toBeVisible();
   await expect(page.locator("[data-mail-side]")).toBeHidden();
 
-  // 选一封邮件 → 自动切到详情：正文与折叠面板都够得着（三栏时不应重复渲染）。
+  // 点主题 L2 → 自动带入最新邮件并切到详情；摘要默认展开，原文按需打开。
   await page.locator("[data-mail-pane='list']").click();
-  await page.locator("[data-mail-timeline-item]").nth(1).click();
+  await page.locator('[data-mail-thread-row="3901"]').click();
+  await expect(page).toHaveURL(/[?&]m=m2/);
   await expect(page.locator("[data-mail-pane='detail']")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-mail-list]")).toBeHidden();
   await expect(page.locator("[data-mail-side]")).toBeVisible();
-  await expect(page.locator("[data-mail-content]")).toBeVisible();
+  await expect(page.locator("[data-mail-content]")).toBeHidden();
   await expect(page.locator("[data-mail-content]")).toHaveCount(1);
   await expect(page.locator("[data-mail-mobiletabs]")).toBeAttached();
-  await expect(page.locator("[data-mail-fold='original']")).toBeVisible();
+  await expect(page.locator("[data-mail-fold-head='summary']")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("[data-mail-fold-head='original']")).toHaveAttribute("aria-expanded", "false");
 
   // 更窄一档：详情面板里的 data-mail-mobiletabs 真的可达，点它切折叠。
   await page.setViewportSize({ width: 760, height: 800 });
@@ -738,43 +752,34 @@ test("≤1100px 单栏用页级面板切换，选邮件自动进详情", async (
   await expect(page.locator("[data-mail-pane='detail']")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-mail-side]")).toBeVisible();
   await expect(page.locator("[data-mail-list]")).toBeHidden();
-  await expect(page.locator("[data-mail-content]")).toBeVisible();
+  await expect(page.locator("[data-mail-content]")).toBeHidden();
   await expect(page.locator("[data-mail-content]")).toHaveCount(1);
+  await expect(page.locator("[data-mail-fold-head='summary']")).toHaveAttribute("aria-expanded", "true");
   // 仍然可以手动切回列表，说明深链只是初始面板，不是锁死。
   await page.locator("[data-mail-pane='list']").click();
   await expect(page.locator("[data-mail-list]")).toBeVisible();
   await expect(page.locator("[data-mail-side]")).toBeHidden();
 });
 
-test("停止 intake 只停本页等待，并说明任务仍会落在服务器", async ({ page }) => {
+test("停止 intake 只停本页等待，并说明已提交的统一任务仍在服务器执行", async ({ page }) => {
   await mockFormalMail(page);
   const gate: { release?: () => void } = {};
   const held = new Promise<void>((resolve) => { gate.release = resolve; });
   const runPosts: string[] = [];
-  page.on("request", (request) => {
-    if (request.method() === "POST" && /\/api\/tasks\/[^/]+\/run$/.test(new URL(request.url()).pathname)) {
-      runPosts.push(new URL(request.url()).pathname);
-    }
-  });
+  page.on("request", (request) => { if (request.method() === "POST" && /\/api\/tasks\/[^/]+\/run$/.test(new URL(request.url()).pathname)) runPosts.push(new URL(request.url()).pathname); });
   await page.route("**/api/tasks/from-text", async (route) => {
     await held;
-    await route.fulfill({
-      json: { task: { id: "tsk_stop", title: "写合作邮件", task_type: "email_compose" }, needs_clarification: false },
-    });
+    await route.fulfill({ json: { task: { id: "tsk_stop", title: "写合作邮件", task_type: "email_compose" }, needs_clarification: false } });
   });
   await page.goto("/mail?c=3901");
-  await page.locator("[data-mi-ai-reply]").click();
-  await page.locator("textarea").fill("写合作邮件");
+  const input = await chooseMailTask(page, "email_compose");
+  await input.fill("写合作邮件");
   await page.locator("[data-send]").click();
   await expect(page.locator("[data-stop-run]")).toBeVisible();
-
   await page.locator("[data-stop-run]").click();
-  // 停止只撤本页的等待状态，文案不再暗示「已取消」。
   await expect(page.locator("[data-stop-run]")).toHaveCount(0);
   await expect(page.locator("[data-mail-notice]")).toContainText("已停止本页等待");
   await expect(page.locator("[data-mail-notice]")).toContainText("服务器仍会继续处理");
-
-  // 已经发出的响应回来：保留结果、说明去向、不擅自跳转、不补发 run。
   gate.release?.();
   await expect(page.locator("[data-mail-notice]")).toContainText("已在服务器创建");
   await expect(page.locator("[data-mail-notice]")).toContainText("写合作邮件");
@@ -831,71 +836,28 @@ test("每封邮件按 unread 标记已读/未读", async ({ page }) => {
   await expect(page.locator('[data-mail-timeline-item="m2"]')).toContainText("已读");
 });
 
-test("保留的 data-mail-* 契约全部渲染", async ({ page }) => {
+test("保留的 data-mail-* 契约及新唯一 composer、星标和标签选择器全部渲染", async ({ page }) => {
   await mockFormalMail(page);
   await page.goto("/mail?c=3901");
   const required = [
-    "[data-mail-page]",
-    "[data-mail-panes]",
-    "[data-mail-pane='list']",
-    "[data-mail-pane='detail']",
-    "[data-mail-source='api']",
-    "[data-mail-list]",
-    "[data-mail-entry='list-mailbox-mail']",
-    "[data-mi-search]",
-    "[data-mi-back]",
-    "[data-mi-compose]",
-    "[data-mi-rail]",
-    "[data-mail-filter-unbound]",
-    "[data-mail-correspondent]",
-    "[data-mail-thread-count]",
-    "[data-mail-thread-row]",
-    "[data-mail-match-state]",
-    "[data-mail-mail-count]",
-    "[data-mail-timeline]",
-    "[data-mail-timeline-item]",
-    "[data-mail-selected]",
-    "[data-mail-time]",
-    "[data-mail-read-state]",
-    "[data-mi-threadbar]",
-    "[data-mi-stagewrap]",
-    "[data-mi-aibar]",
-    "[data-mi-aiinput]",
-    "[data-mail-task-chip]",
-    "[data-mail-side]",
-    "[data-mail-thread]",
-    "[data-mail-mobiletabs]",
-    "[data-mail-fold='summary']",
-    "[data-mail-fold='translation']",
-    "[data-mail-fold='original']",
-    "[data-mail-summary-card]",
-    "[data-mail-summary-body]",
-    "[data-mail-digest]",
-    "[data-digest-label]",
-    "[data-digest-body]",
-    "[data-summary-source='codex_memory']",
-    "[data-mail-translation]",
-    "[data-mail-translation-for]",
-    "[data-mail-content]",
-    "[data-mail-content-id]",
-    "[data-mail-body]",
-    "[data-mail-label-editor]",
-    "[data-mail-reading-subject]",
-    "[data-mail-analyze]",
-    "[data-mail-draft-reply]",
-    "[data-mail-sync]",
-    "[data-mail-box]",
-    "[data-mail-box-current]",
+    "[data-mail-page]", "[data-mail-panes]", "[data-mail-pane='list']", "[data-mail-pane='detail']", "[data-mail-source='api']",
+    "[data-mail-list]", "[data-mi-search]", "[data-mi-back]", "[data-mi-compose]", "[data-mi-rail]", "[data-mail-filter-unbound]",
+    "[data-mail-correspondent]", "[data-mail-thread-row]", "[data-mail-timeline]", "[data-mail-timeline-item]", "[data-mail-selected]",
+    "[data-mi-threadbar]", "[data-mi-stagewrap]", "[data-mi-aibar]", "[data-composer-input]", "details[data-composer-task-menu]",
+    "[data-mail-side]", "[data-mail-reading-pane]", "[data-mail-thread]", "[data-mail-mobiletabs]", "[data-mail-fold='summary']",
+    "[data-mail-fold='translation']", "[data-mail-fold='original']", "[data-mail-summary-card]", "[data-mail-digest]", "[data-mail-translation]",
+    "[data-mail-content]", "[data-mail-body]", "[data-mail-label-editor]", "[data-mail-label-picker]", "[data-mail-reading-subject]",
+    "[data-mail-sync]", "[data-mail-box]", "[data-mail-box-current]", "[data-mail-list-star='3901']", "[data-mail-star]",
   ];
-  for (const selector of required) {
-    await expect(page.locator(selector).first(), selector).toBeAttached();
-  }
-  // 星标是独立按钮：命中区不小于 24×24（WCAG 2.2 SC 2.5.8）。
-  const star = await page.locator("[data-mail-star]").boundingBox();
-  expect(star?.width).toBeGreaterThanOrEqual(24);
-  expect(star?.height).toBeGreaterThanOrEqual(24);
-  await page.locator("[data-mail-box-current]").click();
-  await expect(page.locator("[data-mail-box-option]")).toHaveCount(1);
+  for (const selector of required) await expect(page.locator(selector).first(), selector).toBeAttached();
+  await expect(page.locator("[data-mi-aiinput], [data-mi-dockfloat], [data-mail-analyze]")).toHaveCount(0);
+  const listStar = await page.locator("[data-mail-list-star='3901']").boundingBox();
+  const readingStar = await page.locator("[data-mail-star]").boundingBox();
+  expect(listStar?.width).toBeGreaterThanOrEqual(24);
+  expect(listStar?.height).toBeGreaterThanOrEqual(24);
+  expect(readingStar?.width).toBeGreaterThanOrEqual(24);
+  await expect(page.locator("[data-mail-list-star='3901'] svg")).toBeVisible();
+  await expect(page.locator("[data-mail-star] svg")).toBeVisible();
 });
 
 test("首屏骨架保留导航与返回，不呈现虚假的可用邮箱", async ({ page }) => {
@@ -938,7 +900,8 @@ test("mail sync job shows failure, retries and survives a page reload", async ({
   await page.route("**/api/jobs/mail.sync/start", (route) => route.fulfill({ json: { accepted: true, job: { id: "sync_recovery", status } } }));
   await page.route("**/api/jobs/sync_recovery", (route) => {
     polls += 1;
-    return route.fulfill({ json: { job: { id: "sync_recovery", status, error_summary: status === "failed" ? "邮件服务暂不可用" : null } } });
+    const progress = status === "succeeded" ? { index: { listed: 3 }, body: { completed: 2, requested: 3, failed: 0 } } : undefined;
+    return route.fulfill({ json: { job: { id: "sync_recovery", status, progress, error_summary: status === "failed" ? "邮件服务暂不可用" : null } } });
   });
   await page.route("**/api/jobs/sync_recovery/retry", (route) => {
     status = "running";
@@ -953,9 +916,9 @@ test("mail sync job shows failure, retries and survives a page reload", async ({
   status = "failed";
   await expect(page.getByRole("button", { name: "重试同步", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "重试同步", exact: true }).click();
-  await expect(page.locator("[data-mail-notice]")).toContainText("正在同步邮件索引");
+  await expect(page.locator("[data-mail-notice]")).toContainText("正在收取邮件索引");
   status = "succeeded";
-  await expect(page.locator("[data-mail-notice]")).toContainText("邮件索引同步完成");
+  await expect(page.locator("[data-mail-notice]")).toContainText("索引 3 个会话已更新；正文 2 个完成。摘要和翻译未生成。");
 });
 
 test("mail sync cancellation uses the job action and preserves a truthful status", async ({ page }) => {
@@ -975,7 +938,7 @@ test("mail sync cancellation uses the job action and preserves a truthful status
 });
 
 // 沉浸式交付验收：模拟 API 的浏览器测试，不冒充真实 Codex/外发验收。
-test("沉浸式阶段和星标筛选即时更新，取消星标即时移出", async ({ page }) => {
+test("沉浸式阶段和常驻主题星标筛选即时更新，取消星标即时移出", async ({ page }) => {
   await mockFormalMail(page);
   await page.route("**/api/queries/mail.conversations**", (route) => route.fulfill({ json: {
     mailbox: FORMAL_BOX.mailbox, conversations: [FORMAL_CONVERSATION, {
@@ -985,56 +948,51 @@ test("沉浸式阶段和星标筛选即时更新，取消星标即时移出", as
   } }));
   await page.route("**/api/actions/mail.star", (route) => route.fulfill({ json: { ok: true } }));
   await page.goto("/mail?c=3901");
-  await expect(page.locator("[data-mail-list] > h2.sr-only")).toContainText("2 个会话");
   await page.locator(".mi-stagechips button").filter({ hasText: "商务谈判" }).click();
-  await expect(page.locator("[data-mail-list] > h2.sr-only")).toContainText("1 个会话");
   await expect(page.locator("[data-mail-correspondent]")).toContainText("other@example.com");
   await page.locator("[data-mail-clear-label-filter]").click();
   await page.locator(".mi-folder").filter({ hasText: "星标" }).click();
   await expect(page.locator("[data-mail-list] > h2.sr-only")).toContainText("1 个会话");
-  await page.locator("[data-mail-correspondent]").click();
-  await page.locator("[data-mi-row]").hover();
-  await page.locator('[data-mi-hoverbar] button[title="取消星标"]').click();
+  await page.locator('[data-mail-correspondent="other@example.com"]').click();
+  const star = page.locator('[data-mail-list-star="3902"]');
+  await expect(star).toHaveAttribute("aria-pressed", "true");
+  await star.hover();
+  await expect(star).toHaveAttribute("aria-label", "取消收藏");
+  await star.click();
   await expect(page.locator("[data-mail-list] > h2.sr-only")).toContainText("0 个会话");
 });
 
-test("自由 AI 提问按时间取最新三封且不继承阶段草稿绑定", async ({ page }) => {
+test("自由 AI 提问附带当前原文快照，且不继承阶段草稿绑定", async ({ page }) => {
   await mockFormalMail(page);
   await page.route("**/api/queries/mail.collaboration-stage?**", (route) => route.fulfill({ json: {
     found: true, collaboration_id: "col_xiaomei", handle: "小美妆日记", stage_code: "QUOTE_PENDING", stage_label: "报价待确认",
   } }));
   await page.route("**/api/queries/mail.conversation?**", (route) => route.fulfill({ json: {
-    ...FORMAL_THREAD, messages: [5, 4, 3, 2, 1].map((day) => ({
-      ...FORMAL_THREAD.messages[0], id: `m${day}`, occurred_at: `2026-10-0${day}T10:00:00Z`, snippet: `NEWEST-MARK-${day}`,
-    })),
+    ...FORMAL_THREAD, messages: [5, 4, 3, 2, 1].map((day) => ({ ...FORMAL_THREAD.messages[0], id: `m${day}`, occurred_at: `2026-10-0${day}T10:00:00Z`, snippet: `INDEX-MARK-${day}`, body_text: `RAW-ORIGINAL-${day}` })),
   } }));
   const payloads: Record<string, unknown>[] = [];
-  await page.route("**/api/tasks/from-text", (route) => {
-    payloads.push(route.request().postDataJSON());
-    return route.fulfill({ json: { task: { id: "tsk_ai" } } });
-  });
+  await page.route("**/api/tasks/from-text", (route) => { payloads.push(route.request().postDataJSON()); return route.fulfill({ json: { task: { id: "tsk_ai" } } }); });
   await page.route("**/api/tasks/tsk_ai/run", (route) => route.fulfill({ status: 202, json: { session_id: "ses_ai" } }));
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(5);
   await page.locator("[data-mail-stage-kol]").click();
   await page.locator("[data-mail-stage-target]").selectOption("NEGOTIATING");
-  await page.locator("[data-mi-dockfloat-close], .mi-dockfloat-close").click();
-  await page.locator("[data-mi-aiinput]").fill("请分析这次合作");
-  await page.locator("[data-mi-aiinput]").press("Enter");
+  await page.locator("[data-composer-input]").fill("请分析这次合作");
+  await page.locator("[data-send]").click();
   await expect(page).toHaveURL(/\/s\/ses_ai/);
   expect(payloads).toHaveLength(1);
   const payload = payloads[0];
-  expect(payload.intent).toBe("mail_ask");
+  expect(payload.intent).toBeUndefined();
+  expect(payload.scope).toMatchObject({ skills: [], intent: "free" });
   expect(payload.collaboration_id).toBeUndefined();
-  expect(payload.entities).toEqual({});
+  expect(payload.entities).toMatchObject({ mailbox: FORMAL_BOX.mailbox, conversation_id: "3901", message_id: "m5", mail_context_complete: true });
   const text = String(payload.text);
   expect(text).toContain("请分析这次合作");
   expect(text).toContain("报价待确认");
-  expect(text).toContain("NEWEST-MARK-5");
-  expect(text).toContain("NEWEST-MARK-4");
-  expect(text).toContain("NEWEST-MARK-3");
-  expect(text).not.toContain("NEWEST-MARK-2");
-  expect(text).not.toContain("NEWEST-MARK-1");
+  expect(text).toContain("【实时上下文·通讯】");
+  expect(text).toContain("【邮件资料 m5");
+  expect(text).toContain("RAW-ORIGINAL-5");
+  expect(text).not.toContain("INDEX-MARK-5");
 });
 
 test("顶栏搜索只过滤，中文输入法回车不误提交，Esc 无应用历史回首页", async ({ page }) => {
@@ -1042,6 +1000,7 @@ test("顶栏搜索只过滤，中文输入法回车不误提交，Esc 无应用�
   let posts = 0;
   await page.route("**/api/tasks/from-text", (route) => { posts += 1; return route.fulfill({ json: {} }); });
   await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mail-timeline-item]")).not.toHaveCount(0);
   const search = page.locator("[data-mi-search]");
   await search.fill("zzzz");
   await expect(page.locator("[data-mail-empty-list]")).toBeVisible();
@@ -1051,15 +1010,18 @@ test("顶栏搜索只过滤，中文输入法回车不误提交，Esc 无应用�
   await expect(page).not.toHaveURL(/\/mail/);
 });
 
-test("打开通讯和局部写信后返回，工作台 DOM、草稿与滚动原位保留", async ({ page }) => {
+test("打开通讯和同一常驻 composer 写信后返回，工作台 DOM、草稿与滚动原位保留", async ({ page }) => {
   await mockFormalMail(page);
   await page.goto("/cron");
   await expect(page.locator('[data-nav="mail"]')).toBeVisible();
   await page.locator("[data-cron-page]").evaluate((el) => { el.setAttribute("data-retained-probe", "same-node"); });
   await page.locator('[data-nav="mail"]').click();
   await expect(page.locator("[data-mail-background]")).toHaveAttribute("inert", "");
-  await page.locator("[data-mi-ai-reply]").click();
-  await expect(page.locator("[data-mi-dockfloat] [data-composer-input]")).toHaveValue(/回复草稿/);
+  await page.locator("[data-mi-compose]").click();
+  await page.locator("[data-composer-input]").fill("回复草稿不会因关闭而清除");
+  await page.locator("[data-mail-close-compose]").click();
+  await expect(page.locator("[data-mi-aibar]")).toHaveCount(1);
+  await expect(page.locator("[data-composer-input]")).toHaveValue("回复草稿不会因关闭而清除");
   await page.locator("[data-mi-back]").click();
   await expect(page).toHaveURL(/\/cron$/);
   await expect(page.locator("[data-cron-page]")).toHaveAttribute("data-retained-probe", "same-node");
@@ -1076,13 +1038,15 @@ for (const viewport of [{ width: 375, height: 667 }, { width: 768, height: 1024 
     expect(root?.x).toBe(0); expect(root?.y).toBe(0);
     expect(root?.width).toBe(viewport.width); expect(root?.height).toBe(viewport.height);
     if (viewport.width <= 1100) await page.locator('[data-mail-pane="detail"]').click();
-    await page.locator("[data-mi-ai-reply]").click();
-    const dock = await page.locator("[data-mi-dockfloat]").boundingBox();
-    expect(dock && dock.x >= 0 && dock.x + dock.width <= viewport.width).toBeTruthy();
-    expect(dock && dock.y >= 0 && dock.y + dock.height <= viewport.height).toBeTruthy();
+    await page.locator("[data-mi-compose]").click();
+    const aibar = await page.locator("[data-mi-aibar]").boundingBox();
+    expect(aibar && aibar.x >= 0 && aibar.x + aibar.width <= viewport.width).toBeTruthy();
+    expect(aibar && aibar.y >= 0 && aibar.y + aibar.height <= viewport.height).toBeTruthy();
+    await page.locator("[data-composer-input]").fill("保留的写信草稿");
     await page.screenshot({ path: testInfo.outputPath(`mail-${viewport.width}x${viewport.height}.png`), fullPage: false });
-    await page.locator(".mi-dockfloat-close").click();
-    await expect(page.locator("[data-mi-dockfloat]")).toHaveCount(0);
+    await page.locator("[data-mail-close-compose]").click();
+    await expect(page.locator("[data-mi-aibar]")).toHaveCount(1);
+    await expect(page.locator("[data-composer-input]")).toHaveValue("保留的写信草稿");
   });
 }
 
@@ -1177,7 +1141,11 @@ test("已记忆邮箱被撤绑后不沿用旧导航，无绑定保持真实未�
 
 // 三图改版：UI 接口夹具验证，不冒充生产 PG/真实发信验证。
 async function mockLabelStore(page: Page) {
-  const entries: { id: string; name: string; count: number }[] = [];
+  const entries: { id: string; name: string; count: number }[] = [
+    { id: "private_quote", name: "报价待确认", count: 0 },
+    { id: "manual_review", name: "待人工核对", count: 0 },
+    { id: "follow_up", name: "待跟进", count: 0 },
+  ];
   const assignments = new Map<string, string[]>();
   const versions = new Map<string, number>();
   const posts: Record<string, unknown>[] = [];
@@ -1194,12 +1162,12 @@ async function mockLabelStore(page: Page) {
     const body = route.request().postDataJSON(); posts.push(body);
     if (nextFailure) { const status = nextFailure; nextFailure = 0; return route.fulfill({ status, json: { detail: "test-only failure" } }); }
     const id = String(body.conversation_id || "");
-    if (body.confirm !== true) return route.fulfill({ status: 400, json: { detail: "confirm required" } });
+    if (body.confirm !== true || body.name !== undefined) return route.fulfill({ status: 400, json: { detail: "existing label id and confirmation required" } });
     if (body.expected_version !== (versions.get(id) || 0)) return route.fulfill({ status: 409, json: { detail: "stale version" } });
-    let label = entries.find(label => label.id === body.label_id || label.name === String(body.name || "").normalize("NFKC").trim());
-    if (!label && body.mode === "add") { label = { id: `label_${entries.length + 1}`, name: String(body.name).normalize("NFKC").trim(), count: 0 }; entries.push(label); }
+    const label = entries.find(item => item.id === body.label_id);
+    if (!label) return route.fulfill({ status: 422, json: { detail: "unknown existing label" } });
     const assigned = new Set(assignments.get(id) || []);
-    if (label) { if (body.mode === "add") assigned.add(label.id); else assigned.delete(label.id); }
+    if (body.mode === "add") assigned.add(label.id); else assigned.delete(label.id);
     assignments.set(id, [...assigned]); versions.set(id, (versions.get(id) || 0) + 1);
     return route.fulfill({ json: { entry: "command", ok: true, conversation_id: id, label_ids: [...assigned], ...snapshot(id) } });
   });
@@ -1216,7 +1184,7 @@ async function mockTwoConversations(page: Page) {
   });
 }
 
-test("三图改版：左栏唯一工具区、内联邮箱列表、无重复标题与生成按钮", async ({ page }) => {
+test("三图改版：左栏唯一工具区、单一 composer 任务菜单、无旧四按钮", async ({ page }) => {
   await mockFormalMail(page);
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-state='ok']")).toBeVisible();
@@ -1224,119 +1192,118 @@ test("三图改版：左栏唯一工具区、内联邮箱列表、无重复标�
     await expect(page.locator(`[data-mi-rail] ${selector}`)).toBeVisible();
     await expect(page.locator(selector)).toHaveCount(1);
   }
-  for (const removed of ["[data-mi-topbar]", "[data-mi-listhead]", ".mi-keys", "[data-mail-thread-actions]", ".mail-thread-head h2"]) await expect(page.locator(removed)).toHaveCount(0);
+  for (const removed of ["[data-mi-topbar]", "[data-mi-listhead]", ".mi-keys", "[data-mail-thread-actions]", ".mail-thread-head h2", "[data-mi-aiinput]", "[data-mi-dockfloat]", "[data-mail-analyze]"]) await expect(page.locator(removed)).toHaveCount(0);
   await expect(page.locator("[data-mail-reading-subject]")).toHaveCount(1);
-  for (const action of ["[data-mail-generate-summary]", "[data-mail-generate-translation]", "[data-mail-draft-reply]", "[data-mail-analyze]"]) {
-    await expect(page.locator(`[data-mi-aibar] ${action}`)).toHaveCount(1);
-    await expect(page.locator(action)).toHaveCount(1);
-  }
+  await expect(page.locator("[data-mi-aibar]")).toHaveCount(1);
+  const menu = page.locator("details[data-composer-task-menu]");
+  await expect(menu.locator("summary")).toHaveText(/选择邮件任务/);
+  await menu.locator("summary").click();
+  await expect(menu.locator("[data-ai-next]")).toHaveCount(4);
   await page.locator("[data-mail-box-current]").click();
   await expect(page.locator("[data-mail-box-menu]")).toBeVisible();
   expect(await page.locator("[data-mail-box-menu]").evaluate(element => getComputedStyle(element).position)).toBe("static");
   await expect(page.locator("[data-mail-box-option]")).toHaveCount(1);
-  await expect(page.locator("[data-mail-box-option]")).toHaveAttribute("aria-current", "true");
   await page.locator("[data-mail-box-current]").press("Escape");
   await expect(page.locator("[data-mail-box-menu]")).toHaveCount(0);
-  await expect(page).toHaveURL(/\/mail/);
 });
 
-test("手工标签输入不自动保存；明确确认后导航显示，刷新仍来自接口，零 Agent 会话", async ({ page }) => {
+test("已有标签只能筛选、选择并确认；不允许手写创建，刷新仍来自接口", async ({ page }) => {
   await mockFormalMail(page);
   const store = await mockLabelStore(page);
   const sessions = sessionPostsOf(page);
   await page.goto("/mail?c=3901");
-  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3901");
-  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
-  await page.locator("[data-mail-label-input]").fill("需核对报价");
+  await expect(page.locator("[data-mail-label-input]")).toHaveCount(0);
+  await openLabelPicker(page);
+  const search = page.locator("[data-mail-label-search]");
+  await search.fill("报价");
+  await expect(page.locator("[data-mail-label-option]")).toHaveCount(1);
+  await expect(page.locator('[data-mail-label-option="private_quote"]')).toContainText("报价待确认");
   expect(store.posts).toHaveLength(0);
-  await expect(page.locator("[data-mail-saved-label]")).toHaveCount(0);
+  await selectExistingLabel(page, "private_quote");
+  expect(store.posts).toHaveLength(0);
   await page.locator("[data-mail-label-confirm]").click();
   await expect(page.locator("[data-mail-label-notice]")).toHaveText("标签已保存。");
-  expect(store.posts[0]).toMatchObject({ box: FORMAL_BOX.mailbox, conversation_id: "3901", mode: "add", name: "需核对报价", expected_version: 0, confirm: true });
-  await expect(page.locator("[data-mail-saved-label]")).toContainText("需核对报价");
-  await expect(page.locator("[data-mail-label-filter]")).toContainText("需核对报价");
-  await expect(page.locator("[data-mail-label-input]")).toHaveValue("");
+  expect(store.posts[0]).toMatchObject({ box: FORMAL_BOX.mailbox, conversation_id: "3901", mode: "add", label_id: "private_quote", expected_version: 0, confirm: true });
+  expect(store.posts[0].name).toBeUndefined();
+  await expect(page.locator('[data-mail-saved-label="private_quote"]')).toContainText("报价待确认");
+  await expect(page.locator('[data-mail-label-filter="private_quote"]')).toContainText("报价待确认");
   await page.reload();
-  await expect(page.locator("[data-mail-saved-label]")).toContainText("需核对报价");
+  await expect(page.locator('[data-mail-saved-label="private_quote"]')).toContainText("报价待确认");
   expect(store.posts).toHaveLength(1);
   expect(sessions).toEqual([]);
 });
 
-test("已有标签复用字典，左侧过滤，移除需独立确认且只解绑", async ({ page }) => {
+test("已有标签复用快照、左侧过滤，移除须独立确认且只解绑", async ({ page }) => {
   await mockFormalMail(page); await mockTwoConversations(page);
   const store = await mockLabelStore(page);
-  store.entries.push({ id: "private_quote", name: "报价待确认", count: 0 });
   const sessions = sessionPostsOf(page);
   await page.goto("/mail?c=3901");
-  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
-  await page.locator("[data-mail-label-input]").fill("报价待确认");
+  await openLabelPicker(page);
+  await selectExistingLabel(page, "private_quote");
   await page.locator("[data-mail-label-confirm]").click();
   await expect(page.locator('[data-mail-saved-label="private_quote"]')).toBeVisible();
   expect(store.posts[0]).toMatchObject({ label_id: "private_quote" });
   expect(store.posts[0].name).toBeUndefined();
-  await expect(page.locator("[data-mail-stage-filter='QUOTE_PENDING']")).toBeVisible();
   await page.locator('[data-mail-label-filter="private_quote"]').click();
   await expect(page.locator("[data-mail-correspondent]")).toHaveCount(1);
   await page.getByRole("button", { name: "移除标签 报价待确认", exact: true }).click();
+  await expect(page.locator("[data-mail-label-confirm]")).toHaveText("确认移除");
   expect(store.posts).toHaveLength(1);
-  await page.getByRole("button", { name: "确认移除", exact: true }).click();
+  await page.locator("[data-mail-label-confirm]").click();
   await expect(page.locator("[data-mail-label-notice]")).toHaveText("标签已移除。");
   await expect(page.locator("[data-mail-empty-list]")).toHaveText("没有匹配的会话。");
   await page.locator("[data-mail-clear-label-filter]").click();
   await expect(page.locator("[data-mail-correspondent]")).toHaveCount(2);
-  expect(store.entries).toHaveLength(1); // No delete of the mailbox or dictionary.
+  expect(store.entries).toHaveLength(3);
   expect(sessions).toEqual([]);
 });
 
-test("标签保存失败不乐观显示成功，保留草稿可重试；冲突重载后再次确认", async ({ page }) => {
+test("已有标签保存失败不乐观显示成功；409 重载后须再次确认", async ({ page }) => {
   await mockFormalMail(page); const store = await mockLabelStore(page);
-  await page.goto("/mail?c=3901"); await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
-  await page.locator("[data-mail-label-input]").fill("待人工核对");
+  await page.goto("/mail?c=3901"); await openLabelPicker(page); await selectExistingLabel(page, "manual_review");
   store.failNext(500); await page.locator("[data-mail-label-confirm]").click();
   await expect(page.locator("[data-mail-label-error]")).toContainText("标签未保存");
-  await expect(page.locator("[data-mail-label-input]")).toHaveValue("待人工核对");
-  await expect(page.locator("[data-mail-saved-label]")).toHaveCount(0);
+  await expect(page.locator('[data-mail-saved-label="manual_review"]')).toHaveCount(0);
+  await expect(page.locator("[data-mail-label-confirm]")).toBeEnabled();
   store.failNext(409); await page.locator("[data-mail-label-confirm]").click();
   await expect(page.locator("[data-mail-label-error]")).toContainText("另一处更新");
   await expect(page.locator("[data-mail-label-confirm]")).toBeEnabled();
   await page.locator("[data-mail-label-confirm]").click();
-  await expect(page.locator("[data-mail-saved-label]")).toContainText("待人工核对");
+  await expect(page.locator('[data-mail-saved-label="manual_review"]')).toContainText("待人工核对");
   await expect(page.locator("[data-mail-label-error]")).toHaveCount(0);
   expect(store.posts).toHaveLength(3);
 });
 
-test("标签草稿留在原对象，切换会话不继承标签或确认对象", async ({ page }) => {
+test("未确认的已有标签选择留在原对象，切换会话不串线", async ({ page }) => {
   await mockFormalMail(page); await mockTwoConversations(page); const store = await mockLabelStore(page);
-  await page.goto("/mail?c=3901"); await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
-  await page.locator("[data-mail-label-input]").fill("第一只会话未确认");
+  await page.goto("/mail?c=3901"); await openLabelPicker(page); await selectExistingLabel(page, "manual_review");
   await page.locator('[data-mail-correspondent="other@example.com"]').click();
-  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3902"]') }).hover();
-  await page.locator('[data-mail-label-focus="3902"]').click();
+  await page.locator('[data-mail-thread-row="3902"]').click();
   await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3902");
-  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
-  await expect(page.locator("[data-mail-label-input]")).toHaveValue("");
-  await expect(page.locator("[data-mail-label-object-copy]")).toContainText("other@example.com");
+  await openLabelPicker(page);
+  await expect(page.locator("[data-mail-label-confirm]")).toHaveCount(0);
   await page.locator('[data-mail-correspondent="amy@example.com"]').click();
-  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3901"]') }).hover();
-  await page.locator('[data-mail-label-focus="3901"]').click();
+  await page.locator('[data-mail-thread-row="3901"]').click();
   await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3901");
-  await expect(page.locator("[data-mail-label-input]")).toHaveValue("第一只会话未确认");
+  await openLabelPicker(page);
+  await expect(page.locator("[data-mail-label-confirm]")).toContainText("确认添加");
+  await expect(page.locator("[data-mail-label-confirm]").locator(".." )).toContainText("待人工核对");
   expect(store.posts).toHaveLength(0);
 });
 
-test("未选择具体会话不隐式给最新会话打标，明确标注按钮只切对象不产生任务", async ({ page }) => {
+test("未选择具体会话不隐式打标；点击主题明确切换标签对象且不产生任务", async ({ page }) => {
   await mockFormalMail(page); const store = await mockLabelStore(page); const sessions = sessionPostsOf(page);
   await page.goto("/mail");
   await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "");
-  await expect(page.locator("[data-mail-label-input]")).toHaveCount(0);
   await page.locator('[data-mail-correspondent="amy@example.com"]').click();
-  await page.locator('[data-mi-row]').hover(); await page.locator('[data-mail-label-focus="3901"]').click();
+  await page.locator('[data-mail-thread-row="3901"]').click();
   await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3901");
-  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  await openLabelPicker(page);
+  await expect(page.locator("[data-mail-label-search]")).toBeEnabled();
   expect(store.posts).toHaveLength(0); expect(sessions).toEqual([]);
 });
 
-test("延迟标签读取不能把前一会话标签带到新对象", async ({ page }) => {
+test("延迟标签读取不能把前一会话标签快照带到新对象", async ({ page }) => {
   await mockFormalMail(page); await mockTwoConversations(page);
   let release: (() => void) | undefined;
   const held = new Promise<void>(resolve => { release = resolve; });
@@ -1345,14 +1312,12 @@ test("延迟标签读取不能把前一会话标签带到新对象", async ({ pa
     const conversationId = new URL(route.request().url()).searchParams.get("conversation_id") || "";
     if (conversationId === "3901" && !firstHeld) { firstHeld = true; await held; }
     const labelId = conversationId === "3901" ? "previous" : "current";
-    return route.fulfill({ json: { mailbox: FORMAL_BOX.mailbox, labels: [{ id: labelId, name: labelId === "previous" ? "旧对象标签" : "当前对象标签", count: 1 }],
-      assignments: [{ conversation_id: conversationId, label_ids: [labelId] }], selected_label_ids: [labelId], version: 1 } });
+    return route.fulfill({ json: { mailbox: FORMAL_BOX.mailbox, labels: [{ id: labelId, name: labelId === "previous" ? "旧对象标签" : "当前对象标签", count: 1 }], assignments: [{ conversation_id: conversationId, label_ids: [labelId] }], selected_label_ids: [labelId], version: 1 } });
   });
   await page.goto("/mail?c=3901");
-  await expect(page.locator("[data-mail-label-input]")).toBeDisabled();
+  await expect(page.getByText("正在读取此邮箱标签…", { exact: true })).toBeVisible();
   await page.locator('[data-mail-correspondent="other@example.com"]').click();
-  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3902"]') }).hover();
-  await page.locator('[data-mail-label-focus="3902"]').click();
+  await page.locator('[data-mail-thread-row="3902"]').click();
   await expect(page.locator("[data-mail-saved-label]")).toContainText("当前对象标签");
   release?.();
   await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3902");
@@ -1360,33 +1325,29 @@ test("延迟标签读取不能把前一会话标签带到新对象", async ({ pa
   await expect(page.locator('[data-mail-saved-label="current"]')).toBeVisible();
 });
 
-test("保存中切换对象，旧确认回执不覆盖新会话或清掉旧对象草稿", async ({ page }) => {
+test("保存中切换对象，旧标签确认回执不覆盖新会话", async ({ page }) => {
   await mockFormalMail(page); await mockTwoConversations(page); await mockLabelStore(page);
   let release: (() => void) | undefined;
   const held = new Promise<void>(resolve => { release = resolve; });
   let posted = false;
   await page.route("**/api/actions/mail.label", async route => {
     posted = true; const body = route.request().postDataJSON(); await held;
-    return route.fulfill({ json: { ok: true, mailbox: FORMAL_BOX.mailbox, conversation_id: body.conversation_id,
-      labels: [{ id: "old_label", name: body.name, count: 1 }], assignments: [{ conversation_id: body.conversation_id, label_ids: ["old_label"] }], label_ids: ["old_label"], version: 1 } });
+    return route.fulfill({ json: { ok: true, mailbox: FORMAL_BOX.mailbox, conversation_id: body.conversation_id, labels: [{ id: "private_quote", name: "报价待确认", count: 1 }], assignments: [{ conversation_id: body.conversation_id, label_ids: ["private_quote"] }], label_ids: ["private_quote"], version: 1 } });
   });
-  await page.goto("/mail?c=3901"); await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
-  await page.locator("[data-mail-label-input]").fill("原会话的待确认文本");
+  await page.goto("/mail?c=3901"); await openLabelPicker(page); await selectExistingLabel(page, "private_quote");
   await page.locator("[data-mail-label-confirm]").click();
   await expect.poll(() => posted).toBe(true);
   await expect(page.locator("[data-mail-label-confirm]")).toHaveText("保存中…");
   await page.locator('[data-mail-correspondent="other@example.com"]').click();
-  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3902"]') }).hover();
-  await page.locator('[data-mail-label-focus="3902"]').click();
-  await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
+  await page.locator('[data-mail-thread-row="3902"]').click();
   release?.();
-  await expect(page.locator("[data-mail-label-input]")).toHaveValue("");
+  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3902");
   await expect(page.locator("[data-mail-saved-label]")).toHaveCount(0);
   await expect(page.locator("[data-mail-label-notice]")).toHaveCount(0);
   await page.locator('[data-mail-correspondent="amy@example.com"]').click();
-  await page.locator('[data-mi-row]').filter({ has: page.locator('[data-mail-label-focus="3901"]') }).hover();
-  await page.locator('[data-mail-label-focus="3901"]').click();
-  await expect(page.locator("[data-mail-label-input]")).toHaveValue("原会话的待确认文本");
+  await page.locator('[data-mail-thread-row="3901"]').click();
+  await openLabelPicker(page);
+  await expect(page.locator("[data-mail-label-confirm]")).toContainText("确认添加");
 });
 
 test.describe("触控与减弱动效", () => {
@@ -1396,12 +1357,14 @@ test.describe("触控与减弱动效", () => {
     await page.goto("/mail?c=3901&m=m2");
     await expect(page.locator("[data-mail-side]")).toBeVisible();
     await expect(page.locator("[data-mi-rail] [data-mi-back]")).toBeVisible();
-    await page.locator("[data-mail-label-input]").fill("手机打标");
-    const inputHeight = await page.locator("[data-mail-label-input]").evaluate(element => element.getBoundingClientRect().height);
+    await openLabelPicker(page);
+    await page.locator("[data-mail-label-search]").fill("待跟进");
+    await selectExistingLabel(page, "follow_up");
+    const optionHeight = await page.locator('[data-mail-label-option="follow_up"]').evaluate(element => element.getBoundingClientRect().height);
     const buttonHeight = await page.locator("[data-mail-label-confirm]").evaluate(element => element.getBoundingClientRect().height);
-    expect(inputHeight).toBeGreaterThanOrEqual(44); expect(buttonHeight).toBeGreaterThanOrEqual(44);
+    expect(optionHeight).toBeGreaterThanOrEqual(44); expect(buttonHeight).toBeGreaterThanOrEqual(44);
     await page.locator("[data-mail-label-confirm]").click();
-    await expect(page.locator("[data-mail-saved-label]")).toContainText("手机打标");
+    await expect(page.locator("[data-mail-saved-label]")).toContainText("待跟进");
     const bounds = await page.locator("[data-mail-page]").evaluate(element => ({ width: element.clientWidth, scroll: element.scrollWidth }));
     expect(bounds.scroll).toBeLessThanOrEqual(bounds.width);
     await page.locator("[data-mi-search]").focus();

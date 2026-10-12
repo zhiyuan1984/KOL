@@ -16709,3 +16709,36 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
 /* PlainText 的块级段落在 Chromium 下可能使父层 line-clamp 无效；六行硬上限是可验证的兜底。 */
 .mail-immersive .mail-side-body.is-clamped { max-height: calc(6 * 1.65em); overflow: hidden; }
 .mail-immersive .mail-side-body > p { margin-block: 0; }
+
+/* /mail Gmail theme exception: all mail-only colour values live in this scope. */
+.mail-gmail {
+  --mail-gmail-shell: #f6f8fc;
+  --mail-gmail-rail: #f6f8fc;
+  --mail-gmail-list: #ffffff;
+  --mail-gmail-reader: #ffffff;
+  --mail-gmail-ai: #f7fbff;
+  --mail-gmail-line: #e4e8ee;
+  --mail-gmail-line-strong: #d8dee8;
+  --mail-gmail-ink: #202124;
+  --mail-gmail-muted: #5f6368;
+  --mail-gmail-faint: #737780;
+  --mail-gmail-hover: #edf2f7;
+  --mail-gmail-selected: #dbeafe;
+  --mail-gmail-selected-ink: #174ea6;
+  --mail-gmail-focus: #1a73e8;
+  --mail-gmail-compose: #cfe8ff;
+  --mail-gmail-compose-hover: #b8dcff;
+  --mail-gmail-compose-ink: #174a72;
+  --mail-gmail-star: #b77900;
+  --mail-gmail-star-hover: #fff4c2;
+  --mail-gmail-label-blue-bg: #e8f0fe;
+  --mail-gmail-label-blue-ink: #174ea6;
+  --mail-gmail-label-green-bg: #e6f4ea;
+  --mail-gmail-label-green-ink: #137333;
+  --mail-gmail-label-rose-bg: #fce8e6;
+  --mail-gmail-label-rose-ink: #b31412;
+  --mail-gmail-label-amber-bg: #fef7e0;
+  --mail-gmail-label-amber-ink: #8a5a00;
+  --mail-gmail-label-violet-bg: #f3e8fd;
+  --mail-gmail-label-violet-ink: #6d3cc2;
+}

@@ -46,6 +46,7 @@ export type OperationJob = {
   id: string;
   status: "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled" | "uncertain";
   error_summary?: string | null;
+  progress?: {index: {phase?: string; listed?: number; inserted?: number; updated?: number; page_no?: number} | null; body: {phase?: string; requested?: number; completed?: number; failed?: number; pending?: number} | null};
   receipt?: Record<string, unknown> | null;
 };
 import { randomUuid } from "./uuid.js";
@@ -3834,22 +3835,26 @@ export const api = {
       body: JSON.stringify(body),
       timeoutMs: 180_000,
     }),
-  mailBox: (box?: string) =>
-    request<Record<string, unknown>>(box ? `/api/queries/mail.box?box=${encodeURIComponent(box)}` : "/api/queries/mail.box"),
-  mailConversations: (box?: string) =>
+  mailBox: (box?: string, signal?: AbortSignal) =>
+    request<Record<string, unknown>>(box ? `/api/queries/mail.box?box=${encodeURIComponent(box)}` : "/api/queries/mail.box", {signal, timeoutMs: 8_000}),
+  mailConversations: (box?: string, signal?: AbortSignal) =>
     request<{
       entry?: string;
       creates_session?: boolean;
       mailbox?: string;
       conversations?: Array<Record<string, unknown>>;
-    }>(box ? `/api/queries/mail.conversations?box=${encodeURIComponent(box)}` : "/api/queries/mail.conversations"),
-  mailConversation: (id: string, box?: string) =>
-    request<Record<string, unknown>>(`/api/queries/mail.conversation?id=${encodeURIComponent(id)}${box ? `&box=${encodeURIComponent(box)}` : ""}`),
+    }>(box ? `/api/queries/mail.conversations?box=${encodeURIComponent(box)}` : "/api/queries/mail.conversations", {signal, timeoutMs: 8_000}),
+  mailConversation: (id: string, box?: string, signal?: AbortSignal) =>
+    request<Record<string, unknown>>(`/api/queries/mail.conversation?id=${encodeURIComponent(id)}${box ? `&box=${encodeURIComponent(box)}` : ""}`, {signal, timeoutMs: 8_000}),
   mailLabels: (box: string, conversationId?: string) =>
-    request<import("./mail/labelTypes.js").MailLabelsSnapshot>(`/api/queries/mail.labels?${new URLSearchParams({ box, ...(conversationId ? { conversation_id: conversationId } : {}) })}`),
+    request<import("./mail/labelTypes.js").MailLabelsSnapshot>(`/api/queries/mail.labels?${new URLSearchParams({ box, ...(conversationId ? { conversation_id: conversationId } : {}) })}`, {timeoutMs: 8_000}),
   changeMailLabel: (body: import("./mail/labelTypes.js").MailLabelMutation) =>
     request<import("./mail/labelTypes.js").MailLabelsSnapshot & { ok: boolean; conversation_id: string; label_ids: string[] }>("/api/actions/mail.label", {
       method: "POST", body: JSON.stringify(body),
+    }),
+  recommendMailLabels: (body: import("./mail/labelSuggestionTypes.js").MailLabelSuggestionRequest, signal?: AbortSignal) =>
+    request<import("./mail/labelSuggestionTypes.js").MailLabelSuggestionResponse>("/api/actions/mail.label-suggestions", {
+      method: "POST", body: JSON.stringify(body), signal, timeoutMs: 90_000,
     }),
   /** Read-only stage letter catalog (email_compose contract). Never creates a session. */
   mailComposeCatalog: () =>
@@ -3861,7 +3866,7 @@ export const api = {
       letters?: MailComposeLetter[];
     }>("/api/queries/mail.compose-catalog"),
   mailPerson: (box: string, p: string) =>
-    request<Record<string, unknown>>(`/api/queries/mail.person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
+    request<Record<string, unknown>>(`/api/queries/mail.person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`, {timeoutMs: 8_000}),
   /** 合作红人当前阶段（通讯页阶段变更用，只读，按会话查）。 */
   mailCollaborationStage: (conversationId: string) =>
     request<{

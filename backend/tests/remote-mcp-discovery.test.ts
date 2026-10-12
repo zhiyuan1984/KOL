@@ -38,6 +38,8 @@ let catalog: Tool[] = [];
 let configuredPages: ToolPage[] | null = null;
 let probeCalls: string[] = [];
 let rejectProbeStart = false;
+let forcedPostStatus: number | null = null;
+let forcedRetryAfter: string | undefined;
 
 const searchableTool: Tool = {
   name: "search_records",
@@ -82,6 +84,11 @@ async function startFixture(): Promise<void> {
 
   app.post("/mcp", async (req: any, res: any) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    if (forcedPostStatus !== null) {
+      if (forcedRetryAfter) res.setHeader("Retry-After", forcedRetryAfter);
+      res.status(forcedPostStatus).json({ error: "fixture protocol failure" });
+      return;
+    }
     let transport = sessionId ? transports[sessionId] : undefined;
     if (!transport && isInitializeRequest(req.body)) {
       transport = new StreamableHTTPServerTransport({
@@ -151,6 +158,8 @@ beforeEach(async () => {
   configuredPages = null;
   probeCalls = [];
   rejectProbeStart = false;
+  forcedPostStatus = null;
+  forcedRetryAfter = undefined;
   await startFixture();
 });
 
@@ -285,6 +294,31 @@ describe("RemoteMcpClient discovery proxy", () => {
     expect(failure).not.toBeNull();
     expect(failure!.remoteStatus).toBe(401);
     expect(runtimeErrorCode(failure)).toBe("runtime_remote_unauthorized");
+    await client.close();
+  });
+
+  it("classifies a Streamable HTTP 503 POST as unavailable without retaining the response body", async () => {
+    forcedPostStatus = 503;
+    const client = new RemoteMcpClient({ url: baseUrl, allowUnauthenticated: true });
+
+    const failure = await client.listTools().then(() => null, (cause: unknown) => cause) as { remoteStatus?: number; message?: string } | null;
+    expect(failure).not.toBeNull();
+    expect(failure!.remoteStatus).toBe(503);
+    expect(runtimeErrorCode(failure)).toBe("runtime_remote_unavailable");
+    expect(failure!.message).not.toContain("fixture protocol failure");
+    await client.close();
+  });
+
+  it("retains only a bounded Retry-After delay for a 429 protocol failure", async () => {
+    forcedPostStatus = 429;
+    forcedRetryAfter = "2";
+    const client = new RemoteMcpClient({ url: baseUrl, allowUnauthenticated: true });
+
+    const failure = await client.listTools().then(() => null, (cause: unknown) => cause) as { remoteStatus?: number; remoteRetryAfterMs?: number } | null;
+    expect(failure).not.toBeNull();
+    expect(failure!.remoteStatus).toBe(429);
+    expect(failure!.remoteRetryAfterMs).toBe(2_000);
+    expect(runtimeErrorCode(failure)).toBe("runtime_remote_rate_limited");
     await client.close();
   });
 

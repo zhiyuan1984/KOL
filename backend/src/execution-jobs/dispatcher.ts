@@ -57,10 +57,6 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: completed ? "processed" : "duplicate" };
     }
     if (jobType === "mail.sync") {
-      if (process.env.KOL_RUNTIME_MODE === "postgres-only") {
-        await runtimeQuarantineExecutionJob(id, { code: "needs_takeover", summary: "Mail index adapter is not available in PostgreSQL-only mode" });
-        return { execution_job_id: id, job_type: jobType, handled: false, outcome: "needs_takeover" };
-      }
       const { executeMailSyncJob } = await import("../mail/sync-job.js");
       const checkpoint = async () => {
         const current = await pgExecutionJobById(id);
@@ -140,6 +136,27 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
         expected_worker: claimed.worker_id, not_dispatched: true,
       });
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "failed", target_id: null };
+    }
+    if (jobType === "mail.sync") {
+      const { mailSyncDispatchFailure } = await import("../mail/sync-job.js");
+      const failure = mailSyncDispatchFailure(error);
+      if (failure) {
+        const retryAt = failure.retryAfterMs === undefined
+          ? undefined
+          : new Date(Date.now() + failure.retryAfterMs).toISOString();
+        await runtimeFailExecutionJob(id, { code: failure.code, summary: failure.summary }, {
+          expected_worker: claimed.worker_id,
+          ...(retryAt ? { retry_at: retryAt } : {}),
+          // Authorization and source 401/403 failures cannot become healthy by
+          // replaying the same credential or Agent scope.
+          ...(failure.terminal ? { not_dispatched: true } : {}),
+        });
+        console.error("[execution-dispatcher] mail sync failed", {
+          executionJobId: id, code: failure.code, terminal: failure.terminal,
+          retryAfterMs: failure.retryAfterMs ?? null,
+        });
+        return { execution_job_id: id, job_type: jobType, handled: true, outcome: "failed", target_id: null };
+      }
     }
     const message = error instanceof Error ? error.message : String(error || "execution handler failed");
     await runtimeFailExecutionJob(id, { code: "execution_handler_error", summary: message }, { expected_worker: claimed.worker_id });

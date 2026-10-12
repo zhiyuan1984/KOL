@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { MailLabelsSnapshot } from "./labelTypes.js";
+import type { MailLabelsSnapshot, MailLabelMutation } from "./labelTypes.js";
 export type { MailLabel, MailLabelsSnapshot, MailLabelMutation } from "./labelTypes.js";
 
 function copyOf(error: unknown): string {
@@ -42,7 +42,7 @@ export function useMailLabels(actorId: string, mailbox: string, conversationId: 
   const data = result?.scope === scope ? result.data : null;
   const currentState = state.scope === scope ? state : { loading: Boolean(mailbox), saving: false, error: "", notice: "" };
 
-  const mutate = async (input: { mode: "add" | "remove"; name?: string; label_id?: string }): Promise<boolean> => {
+  const mutate = async (input: Omit<MailLabelMutation, "box" | "conversation_id" | "expected_version" | "confirm">): Promise<boolean> => {
     if (!data || !conversationId || inFlight.current || currentState.loading) return false;
     inFlight.current = true;
     const gen = ++generation.current;
@@ -58,7 +58,7 @@ export function useMailLabels(actorId: string, mailbox: string, conversationId: 
       if (currentScope.current !== scope || generation.current !== gen) return false;
       const copy = copyOf(error);
       if ((error as { status?: number })?.status === 409) await reload();
-      if (currentScope.current === scope) setState({ scope, loading: false, saving: false, error: copy, notice: "" });
+      if (currentScope.current === scope && (generation.current === gen || (error as { status?: number })?.status === 409)) setState({ scope, loading: false, saving: false, error: copy, notice: "" });
       return false;
     } finally { if (currentScope.current === scope) inFlight.current = false; }
   };

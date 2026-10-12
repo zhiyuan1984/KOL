@@ -181,6 +181,10 @@ export default function ComposerDock({
   initialDraft,
   submitLabel = "发送",
   submitEmphasis = "primary",
+  draftToken,
+  onDraftChange,
+  suggestionsMode = "inline",
+  retainAttachmentsOnSubmit = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -227,6 +231,10 @@ export default function ComposerDock({
   initialDraft?: ComposerDraftStash;
   submitLabel?: string;
   submitEmphasis?: "primary" | "secondary";
+  draftToken?: number;
+  onDraftChange?: (draft: ComposerDraftStash) => void;
+  suggestionsMode?: "inline" | "menu";
+  retainAttachmentsOnSubmit?: boolean;
 }) {
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
@@ -244,6 +252,7 @@ export default function ComposerDock({
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   const [uploading, setUploading] = useState(false);
   const [attachErr, setAttachErr] = useState("");
+  const applyingDraftRef = useRef(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [skillChips, setSkillChips] = useState<ComposerChip[]>([]);
@@ -538,15 +547,16 @@ export default function ComposerDock({
 
   useEffect(() => {
     const apply = (draft: ComposerDraftStash) => {
-      if (draft.text) onChange(draft.text);
-      if (draft.chips?.length) {
+      applyingDraftRef.current = true;
+      if (draft.text || draftToken !== undefined) onChange(draft.text || "");
+      if (draft.chips) {
         setSkillChips(draft.chips.filter((chip) => chip.kind === "skill"));
         setKbChips(draft.chips.filter((chip) => chip.kind === "kb"));
         setConnectorChips(draft.chips.filter((chip) => chip.kind === "connector"));
         const expert = draft.chips.find((chip) => chip.kind === "expert");
         if (expert) setExpertId(expert.id);
       }
-      if (draft.attachments?.length) setAttachments(draft.attachments);
+      if (draft.attachments) setAttachments(draft.attachments);
       const project = draft.chips?.find((chip) => chip.kind === "project");
       if (project?.kind === "project") setSelectedProject({ id: project.id, label: project.label });
       if (draft.model_tier === "fast" || draft.model_tier === "balanced" || draft.model_tier === "quality") setModelTier(draft.model_tier);
@@ -582,9 +592,16 @@ export default function ComposerDock({
     };
     window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
     return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
-    // Apply a stashed draft once on mount; parent text remains the source of truth after that.
+    // Existing callers apply once. Mail can explicitly replace its local draft
+    // without remounting the editor and losing attachments/menu state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [draftToken]);
+
+  useEffect(() => {
+    if (applyingDraftRef.current) { applyingDraftRef.current = false; return; }
+    onDraftChange?.({ text: value, attachments, chips: [...skillChips, ...kbChips, ...connectorChips],
+      model_tier: modelTier, object_refs: objectRefs, skill_template: selectedSkillTemplate });
+  }, [value, attachments, skillChips, kbChips, connectorChips, modelTier, objectRefs, selectedSkillTemplate, onDraftChange]);
 
   const activeLockedIntent = draftLocksCleared ? null : lockedIntent;
   const activeLockedKnowledgeId = draftLocksCleared || dismissedLockedKnowledgeId === lockedKnowledgeId ? null : lockedKnowledgeId;
@@ -1074,7 +1091,7 @@ export default function ComposerDock({
       compose_input: mailCompose?.composeInput(value),
       skill_template_version: selectedSkillTemplate?.version,
     });
-    setAttachments([]);
+    if (!retainAttachmentsOnSubmit) setAttachments([]);
     setSelectedProject(null);
     setPicker(false);
     setAttachErr("");
@@ -1280,8 +1297,11 @@ export default function ComposerDock({
       ) : null}
       {attachErr && <p className="error composer-err">{attachErr}</p>}
       {suggestions && suggestions.length > 0 ? (
+        <details className={suggestionsMode === "menu" ? "composer-task-menu" : "composer-task-inline"}
+          open={suggestionsMode === "inline" ? true : undefined} data-composer-task-menu>
+          {suggestionsMode === "menu" ? <summary>选择邮件任务<span>仅填入，发送后执行</span></summary> : null}
         <div className="composer-suggestions" data-ai-next-actions data-composer-suggestions>
-          {suggestions.slice(0, 3).map((item, index) => {
+          {(suggestionsMode === "menu" ? suggestions : suggestions.slice(0, 3)).map((item, index) => {
             const label = item.label || `建议 ${index + 1}`;
             return (
               <button
@@ -1301,7 +1321,7 @@ export default function ComposerDock({
               </button>
             );
           })}
-        </div>
+        </div></details>
       ) : null}
       <form
         className={shellClass}
