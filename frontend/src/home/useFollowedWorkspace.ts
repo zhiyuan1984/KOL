@@ -148,9 +148,10 @@ export function useFollowedWorkspace(options: {
     if (completeness === "loading-local") return "loading";
     if (completeness === "incomplete-error") return "incomplete";
     if (loading) return "loading";
+    // 名单已在屏上：空结果只可能来自筛选/情境收窄，先于绑定判定，不把筛空说成未绑定。
+    if (rows.length) return "filtered";
     if (followScope?.required && !followScope.bound) return "unbound";
     if (followScope?.status === "expired") return "expired";
-    if (rows.length) return "filtered";
     if (followScope?.bound) return "mailbox";
     return "none";
   }, [completeness, followScope, loading, rows.length]);

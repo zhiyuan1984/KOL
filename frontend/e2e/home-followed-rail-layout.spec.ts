@@ -280,7 +280,7 @@ test("未绑定邮箱范围时，首开我的红人不为旧协作对账等 boar
   expect(followingReads.length).toBe(1);
 });
 
-test("全选覆盖当前筛选结果，不截断前 8 位", async ({ page }) => {
+test("全选覆盖当前筛选结果，不截断前 8 位；局部勾选时全选框给中间态", async ({ page }) => {
   await stubBoard(page);
   await page.route("**/api/home/following", (route) => route.fulfill({
     json: followingEnvelope(Array.from({ length: 12 }, (_, index) => row(index + 1))),
@@ -288,12 +288,59 @@ test("全选覆盖当前筛选结果，不截断前 8 位", async ({ page }) => 
   await openFollowed(page);
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
 
-  // 12 位在跟：全选应覆盖全部 12 位。
+  // 全部未勾选：全选框是干净的未勾选，文案是「全选」。
   const checkbox = page.locator("[data-followed-select-all]");
   await expect(page.locator(".followed-select-all")).toContainText("全选");
+  expect(await checkbox.evaluate((el: HTMLInputElement) => el.indeterminate)).toBe(false);
+
+  // 局部勾选：全选框给中间态，不再表现为纯未勾选。
+  await page.locator('[data-followed-kol="红人1"] input[type="checkbox"]').check();
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 1");
+  expect(await checkbox.evaluate((el: HTMLInputElement) => el.indeterminate)).toBe(true);
+
+  // 12 位在跟：全选应覆盖全部 12 位，中间态消失。
   await checkbox.check();
   await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 12");
   await expect(checkbox).toBeChecked();
+  expect(await checkbox.evaluate((el: HTMLInputElement) => el.indeterminate)).toBe(false);
+
+  // 取消全选：回到「全选」未勾选。
+  await checkbox.uncheck();
+  await expect(page.locator("[data-followed-selected-count]")).toHaveCount(0);
+  await expect(page.locator(".followed-select-all")).toContainText("全选");
+});
+
+test("有名单但服务端未绑定范围时，筛到 0 条显示筛选空态而不是绑定引导", async ({ page }) => {
+  const unboundScope = {
+    required: true,
+    bound: false,
+    mailbox_email: "",
+    mailbox_id: "",
+    owner_name: "",
+    status: "unbound",
+    has_token: false,
+    updated_at: null,
+  };
+  await page.route("**/api/home/board*", (route) => route.fulfill({
+    json: { kols: [], workbench: {}, library: { count: 0 }, follow_scope: unboundScope },
+  }));
+  await page.route("**/api/home/following", (route) => route.fulfill({
+    json: { ...followingEnvelope([row(1), row(2), row(3)]), follow_scope: unboundScope },
+  }));
+  await openFollowed(page);
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+
+  // 点「查看已表达兴趣的 0 位对象」：筛空就是筛空，不冒充「尚未绑定跟进邮箱」。
+  await page.locator('[data-followed-situation="interested"]').click();
+  await expect(page.locator('[data-follow-empty="filtered"]')).toBeVisible();
+  await expect(page.locator('[data-follow-empty="filtered"] strong')).toHaveText("没有匹配的跟进对象");
+  await expect(page.locator('[data-follow-empty="filtered"]')).not.toContainText("尚未绑定跟进邮箱");
+  await expect(page.locator("[data-follow-bind]")).toHaveCount(0);
+
+  // 清除情境：名单回来，绑定引导仍不出现。
+  await page.locator("[data-followed-situation-clear]").click();
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+  await expect(page.locator("[data-follow-bind]")).toHaveCount(0);
 });
 
 test("我的红人右栏与今日任务、公海共用 DESIGN 记录的工作台几何", async ({ page }) => {

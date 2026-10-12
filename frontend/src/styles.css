@@ -14677,52 +14677,8 @@ button.today-brief-primary-btn:disabled {
   margin-left: 0;
   justify-content: flex-start;
 }
-.followed-kol-column .followed-object-sort {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-height: var(--control-h-lg);
-  padding: 2px;
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  background: var(--bg);
-}
-.followed-kol-column .followed-sort-option {
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--ds-font-sm);
-  cursor: pointer;
-}
-.followed-kol-column .followed-sort-option {
-  min-height: calc(var(--control-h-lg) - 6px);
-  padding: 0 8px;
-  border-radius: calc(var(--radius-control) - 2px);
-  white-space: nowrap;
-}
-.followed-kol-column .followed-sort-option[aria-pressed="true"] {
-  background: var(--ds-selected-bg);
-  color: var(--text);
-  font-weight: 600;
-}
-.followed-kol-column .followed-sort-option:hover,
-.followed-kol-column .followed-sort-option:focus-visible {
-  background: var(--ds-surface-hover);
-}
-.followed-kol-column .followed-sort-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  margin-left: 4px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
-}
+/* 排序是 L3 文字按钮组（home/followed.css）：无框、无底色，选中态靠 --accent-text + 字重；
+   不与搜索框比高，工具行随搜索框（--control-h-lg）取高。 */
 
 @media (max-width: 680px) {
   .ticket-binding-form { grid-template-columns: 1fr; }

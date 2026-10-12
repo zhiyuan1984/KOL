@@ -159,9 +159,11 @@ export function saveStarryBinding(userId: string, input: {
     label: "Starry mailbox", purpose: "Starry mailbox authentication", secret }, userId).id
     : boundStarryCredentialId(userId, mailbox);
   const rowsBefore = starryBindingRows(userId);
-  // The first binding of a user becomes the default; adding another mailbox never
-  // moves the default off the existing primary mailbox.
-  const isDefault = rowsBefore.length === 0 ? 1 : 0;
+  // A save with no default on file becomes the default: the first bind, or an
+  // explicit re-selection after the previous default was removed. Adding another
+  // mailbox while a default exists never moves it off the primary one.
+  const hasDefault = rowsBefore.some((row) => Number(row.is_default || 0) === 1);
+  const isDefault = hasDefault ? 0 : 1;
   const now = nowIso();
   try {
     getConn().prepare(
@@ -186,6 +188,12 @@ export function saveStarryBinding(userId: string, input: {
   } catch (error) {
     if (secret) removeUnusedMailboxCredential(bearer);
     throw error;
+  }
+  // ON CONFLICT keeps the stored is_default column; promote explicitly when this
+  // save is the user's re-selection after no default remained.
+  if (isDefault) {
+    getConn().prepare("UPDATE user_starry_bindings SET is_default=1 WHERE user_id=? AND mailbox_email=?")
+      .run(userId, mailbox);
   }
   if (input.owner_open_id) {
     getConn().prepare("UPDATE user_starry_bindings SET owner_open_id=?,owner_verified_at=? WHERE user_id=? AND mailbox_email=?")

@@ -146,4 +146,24 @@ describe("user_starry_bindings multi-mailbox migration", () => {
     expect(Number(starryBindingRow("usr_c", "b@example.com")?.is_default)).toBe(0);
     expect(starryBindingRow("usr_c")).toBeUndefined();
   });
+
+  it("re-selecting a mailbox restores the default after the previous default was removed", () => {
+    getConn();
+    seedUser("usr_d");
+    saveStarryBinding("usr_d", { mailbox_email: "first@example.com", owner_name: "甲" });
+    saveStarryBinding("usr_d", { mailbox_email: "second@example.com", owner_name: "乙" });
+    clearStarryBinding("usr_d", "first@example.com");
+    expect(starryBindingRow("usr_d")).toBeUndefined();
+
+    // 无默认时的显式保存：本次所选成为默认，不再卡在未绑定。
+    const restored = saveStarryBinding("usr_d", { mailbox_email: "second@example.com", owner_name: "乙" });
+    expect(restored).toMatchObject({ bound: true, mailbox_email: "second@example.com" });
+    expect(Number(starryBindingRow("usr_d", "second@example.com")?.is_default)).toBe(1);
+    expect(starryBindingRow("usr_d")?.mailbox_email).toBe("second@example.com");
+
+    // 已有默认时再加一只：不移动默认。
+    saveStarryBinding("usr_d", { mailbox_email: "third@example.com" });
+    expect(Number(starryBindingRow("usr_d", "third@example.com")?.is_default)).toBe(0);
+    expect(starryBindingRow("usr_d")?.mailbox_email).toBe("second@example.com");
+  });
 });

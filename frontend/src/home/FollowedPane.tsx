@@ -65,7 +65,7 @@ function followEmptyCopy(kind: string, scope: StarryBinding | null) {
     return { title: "Starry 连接已过期", body: "重新连接后即可继续查看你跟进的红人。" };
   }
   if (kind === "filtered") {
-    return { title: "没有匹配的跟进对象", body: "换个关键词或阶段，再看跟进中的红人和合作对象。" };
+    return { title: "没有匹配的跟进对象", body: "换个情境、关键词或阶段，再看跟进中的红人和合作对象。" };
   }
   if (kind === "mailbox") {
     const mailbox = scope?.mailbox_email || "当前邮箱";
@@ -157,9 +157,16 @@ export default function FollowedPane({
   const selectedCards = visibleKols.filter((card) => selectedKolIds.includes(card.id));
   const bulkLabel = followedBulkCtaLabel(selectedCards);
   const queryDown = Boolean(down);
+  const emptyKind = queryDown ? "down" : followEmptyKind;
   const loading = !queryDown && followEmptyKind === "loading";
   const slowLoading = useSlowWait(loading);
-  const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
+  const empty = followEmptyCopy(emptyKind, followScope);
+  // 局部勾选时全选框给中间态，避免「未勾选」与「已选 N」互相矛盾。
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+  const partialSelect = selectedCards.length > 0 && selectedCards.length < visibleKols.length;
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = partialSelect;
+  }, [partialSelect]);
 
   /**
    * 无限加载（模式 A，DESIGN §9.4）：筛选/排序变化时重置为首批，触底追加。
@@ -226,6 +233,7 @@ export default function FollowedPane({
               <input
                 type="checkbox"
                 data-followed-select-all
+                ref={selectAllRef}
                 checked={selectAllChecked(visibleKols.length, selectedCards.length)}
                 disabled={!visibleKols.length}
                 onChange={(event) => onToggleSelectAll(event.target.checked)}
@@ -316,7 +324,7 @@ export default function FollowedPane({
         ) : (
           <div
             className="task-empty"
-            data-follow-empty={queryDown ? "down" : followEmptyKind}
+            data-follow-empty={emptyKind}
             data-empty-kind={loading ? "loading" : allCards.length && !visibleKols.length ? "filter-empty" : queryDown ? "service-down" : "no-data"}
             role={loading ? "status" : undefined}
           >
@@ -359,12 +367,12 @@ export default function FollowedPane({
                 </div>
               </>
             ) : null}
-            {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
-              <button type="button" className="btn work" onClick={onBind}>
-                {followScope.status === "expired" ? "重新连接" : "去绑定"}
+            {emptyKind === "unbound" || emptyKind === "expired" ? (
+              <button type="button" className="btn work" data-follow-bind onClick={onBind}>
+                {emptyKind === "expired" ? "重新连接" : "去绑定"}
               </button>
             ) : null}
-            {!loading && !down && followEmptyKind === "mailbox" ? (
+            {!loading && !down && emptyKind === "mailbox" ? (
               <div className="task-empty-actions" data-follow-empty-actions>
                 <button type="button" className="btn work sm" onClick={onOpenPool}>
                   去公海找红人
