@@ -58,6 +58,16 @@ describe("connector operations (isolated inspector, no external service)", () =>
     expect(result.events[0].event_type).toBe("runtime.connector.probed");
   });
 
+  it('keeps concrete HTTP status and a unique safe request id in the existing audit ledger', async () => {
+    const a = app(async () => { throw Object.assign(new Error('private token=SECRET'), { remoteStatus: 503 }); });
+    const response = await a.request(root + '/probe', {method:'POST'});
+    const data = await response.json();
+    expect(data).toMatchObject({error_code:'runtime_remote_unavailable',upstream_status:503});
+    expect(response.headers.get('X-Request-ID')).toBe(data.request_id);
+    const result = await (await a.request(root + '/activity')).json();
+    expect(result.events[0].payload).toMatchObject({request_id:data.request_id,upstream_status:503,run_id:`probe:${data.request_id}`});
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
   it("keeps verification separate from explicit enablement", async () => {
     getConn().prepare("UPDATE connectors SET enabled=0,status='pending_verification' WHERE id='probe_fixture'").run();
     const a = app();

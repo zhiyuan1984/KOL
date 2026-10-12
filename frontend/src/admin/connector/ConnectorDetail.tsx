@@ -168,6 +168,13 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
         </div>
       </header>
 
+      {String(raw?.status) === 'verification_failed' && !card.enabled && (
+        <div className="runtime-notice" role="status" data-connector-verification-failure>
+          <strong>已配置 · 测试失败后停用</strong>
+          <p>上次连接检查未通过，业务调用已暂停。这是历史测试结果，尚未确认远端当前是否恢复；请先重新测试，通过后再显式启用。</p>
+          {remoteFailureMessage(String(raw?.last_error || '')) && <p>{remoteFailureMessage(String(raw?.last_error || ''))}</p>}
+        </div>
+      )}
       {error && <p className="error" role="alert" data-connector-detail-error>{error}</p>}
       {notice && <p className="admin-receipt status-ok" role="status" data-connector-detail-notice>{notice}</p>}
       {mountNeeded && (
@@ -225,6 +232,10 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
                 <li key={`run-${event.id}`}>
                   <span>{event.event_type}</span>
                   <small>{event.ts} · {event.actor === "usr_sriphy" ? "sriphy" : event.actor || "系统"}</small>
+                  {typeof event.payload.request_id === 'string' && /^[0-9a-f-]{36}$/i.test(event.payload.request_id) && (
+                    <small>诊断编号：{event.payload.request_id}</small>
+                  )}
+                  {typeof event.payload.upstream_status === 'number' && <small>远端 HTTP：{event.payload.upstream_status}</small>}
                 </li>
               ))}
             </ul>

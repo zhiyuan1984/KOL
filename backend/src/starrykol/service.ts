@@ -4,8 +4,11 @@ import { HttpFail } from "../host/errors.js";
 import { assertMailSendAuthority, recheckMailSendAuthority } from "../gateway/mail-authority.js";
 import { createManagedClient } from "../runtime/managed-client.js";
 import { createCredential, deleteCredential } from "../runtime/credentials.js";
-import { starryKolMcpConfigured } from "./connection.js";
+import { starryKolConnectionHealth, starryKolMcpConfigured } from "./connection.js";
+import { explicitRemoteRejection, RemoteToolFailure } from "../mcp/tool-failure.js";
+import { markMailboxPhase } from "./probe-diagnostics.js";
 import { scopedUser } from "../auth.js";
+import { isTestRuntime } from '../codex-runtime.js';
 import { normalizeEmail } from "../host/identity.js";
 import { boundStarryCredentialId, matchesFollowedMailbox, publicStarryBinding, starryBindingRow } from "../host/starry-bind.js";
 import { codexMode } from "../config.js";
@@ -661,29 +664,44 @@ export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput 
 
 async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<Json> {
   if (name === "sendEmailNow") await recheckMailSendAuthority();
-  if (!clientFactory && codexMode() === "stub") return mockCall(name, args);
-  if (!clientFactory && !starryKolMcpConfigured()) {
-    throw new HttpFail(503, {
-      code: "starrykol_not_configured",
-      message: "Starry KOL MCP 未配置。",
-      next_action: "请在管理侧保存 Starry KOL 连接配置，绑定保险柜凭据并启用连接器。",
+  if (!clientFactory && codexMode() === 'stub' && isTestRuntime()) return mockCall(name, args);
+  markMailboxPhase('preflight');
+  if (!clientFactory) {
+    const health = starryKolConnectionHealth();
+    if (!health.config_present) throw new HttpFail(503, {
+      code: 'runtime_connector_not_configured', message: '业务邮箱服务尚未配置，请联系管理员开通。',
+    });
+    if (!health.enabled) throw new HttpFail(503, {
+      code: health.verification_status === 'verification_failed' ? 'starry_connector_verification_failed' : 'runtime_connector_disabled',
+      message: health.verification_status === 'verification_failed'
+        ? '组织邮箱服务在上次检查失败后暂停使用，本次未读取邮箱列表。'
+        : '组织邮箱服务已暂停使用，请联系管理员。',
+    });
+    if (codexMode() === 'stub') throw new HttpFail(503, {
+      code: 'starry_mock_runtime_forbidden', message: '业务邮箱服务不能在演示模式中执行，请联系管理员恢复真实连接。',
     });
   }
+  markMailboxPhase('credential_resolution');
   const client = clientFactory
     ? clientFactory()
     : createManagedClient("starrykol", scopedUser()?.id || "",
       callScope.getStore()?.credentialAccountId || boundStarryCredentialId(scopedUser()?.id), timeoutMs);
   try {
-    return normalizeStarryKolResult(await client.callTool(name, args));
+    markMailboxPhase('remote_request');
+    const result = await client.callTool(name, args);
+    markMailboxPhase('decode');
+    // Limit this contract change to mailbox reads; other business tools retain their existing handling.
+    if (name === 'pageMailboxes' && explicitRemoteRejection(result)) throw new RemoteToolFailure(result);
+    return normalizeStarryKolResult(result);
   } catch (error) {
     if (error instanceof HttpFail) throw error;
     const message = error instanceof Error ? error.message : String(error);
     if (/登录过期|请先登录/.test(message)) {
-      throw new HttpFail(401, {
+      throw Object.assign(new HttpFail(401, {
         code: "starrykol_login_required",
-        message: "Starry 网关需要用户 JWT（Authorization Bearer）。当前请求只有 X-MCP-API-KEY。",
-        next_action: "在个人设置里重新连接 Starry，或粘贴有效的用户 JWT。",
-      });
+        message: "业务邮箱认证已失效，请恢复邮箱连接后重试。",
+        next_action: "恢复邮箱认证。",
+      }), error instanceof RemoteToolFailure ? { upstreamCode: error.upstreamCode } : {});
     }
     if (/Invalid or missing X-MCP-API-KEY/.test(message)) {
       throw new HttpFail(401, {
@@ -1064,12 +1082,17 @@ function title(task: StarryKolTask): string {
 
 export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<Json[]> {
   const userId = scopedUser()?.id || "";
+  if (opts?.bearer) markMailboxPhase('credential_resolution');
   const credential = opts?.bearer ? createCredential({ type: "user_account", owner_user_id: userId,
     label: "Starry connection probe", purpose: "Temporary mailbox probe",
     secret: opts.bearer.replace(/^Bearer\s+/i, "") }, userId) : undefined;
   try {
-    return rows(await callScope.run({ credentialAccountId: credential?.id },
-      () => call("pageMailboxes", { pageNo: 1, pageSize: 50 })));
+    const result = await callScope.run({ credentialAccountId: credential?.id },
+      () => call("pageMailboxes", { pageNo: 1, pageSize: 50 }));
+    if (!Array.isArray(result) && !['list', 'records', 'rows', 'items', 'content', 'mailboxes'].some(key => Array.isArray(result[key]))) {
+      throw new HttpFail(502, { code: 'starrykol_bad_gateway' });
+    }
+    return rows(result);
   } finally { if (credential) deleteCredential(credential.id, credential.version); }
 }
 

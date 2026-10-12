@@ -1,6 +1,8 @@
 import { mediaCrawlerConfigured } from "../crawl/managed-connection.js";
 import { publishKnowledgeConfig } from '../knowledge/skill-generation.js';
 import { starryKolConnectionHealth } from "../starrykol/connection.js";
+import { mailboxFailure, newMailboxTrace, publicMailboxDiagnostic, withMailboxTrace } from '../starrykol/probe-diagnostics.js';
+import { postgresPool } from '../postgres/pool.js';
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
@@ -790,27 +792,54 @@ misc.get("/me/starry-binding", (c) => {
 });
 
 misc.post("/me/starry-binding/probe", async (c) => {
-  if (authDisabled()) {
-    const mailboxes = (await listStarryMailboxes()).map(mailboxFromStarryRow);
-    return c.json({ mailboxes, used_pasted_token: false });
-  }
+  const trace = newMailboxTrace();
+  c.header('X-Request-ID', trace.requestId);
+  c.header('Cache-Control', 'no-store');
   const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  const body = (await c.req.json().catch(() => ({}))) as Json;
-  const bearer = String(body.bearer || "").trim();
-  try {
-    const mailboxes = (await listStarryMailboxes(bearer ? { bearer } : undefined)).map(mailboxFromStarryRow)
-      .filter((row) => row.mailbox_email);
-    if (!mailboxes.length) throw new HttpFail(422, "当前身份没有可用的 Starry 发件邮箱");
-    return c.json({ mailboxes, used_pasted_token: Boolean(bearer) });
-  } catch (error) {
-    if (error instanceof HttpFail) throw error;
-    const message = error instanceof Error ? error.message : String(error);
-    if (/登录过期|请先登录|10141103/.test(message)) {
-      throw new HttpFail(401, { code: "starrykol_login_required", message: "邮箱连接已过期，请在个人设置中重新连接。", next_action: "重新连接邮箱。" });
-    }
-    throw new HttpFail(502, { code: "starry_mailbox_unavailable", message: "暂时无法读取邮箱列表，请稍后重试。", next_action: "稍后重试或重新连接邮箱。" });
+  if (!authDisabled() && !user) {
+    const failure = mailboxFailure(new HttpFail(401, 'authentication required'), trace);
+    return c.json({ detail: failure.detail }, 401);
   }
+  const actor = user?.id || 'test-runtime';
+  const started = Date.now();
+  let metadata: Json = { request_id: trace.requestId, connector_id: 'starrykol' };
+  return withMailboxTrace(trace, async () => {
+    try {
+      const health = starryKolConnectionHealth();
+      metadata = { ...metadata, config_version: health.config_version, connector_enabled: health.enabled,
+        verification_status: health.verification_status, last_error: health.last_error, last_verified_at: health.last_verified_at };
+      audit(actor, 'runtime.mailbox.probe.started', metadata);
+      const body = (await c.req.json().catch(() => ({}))) as Json;
+      const bearer = authDisabled() ? '' : String(body.bearer || '').trim();
+      const mailboxes = (await listStarryMailboxes(bearer ? { bearer } : undefined)).map(mailboxFromStarryRow)
+        .filter(row => row.mailbox_email);
+      audit(actor, 'runtime.mailbox.probe.completed', { ...metadata, status: 'succeeded', mailbox_count: mailboxes.length,
+        stage: trace.phase, upstream_attempted: trace.upstreamAttempted, duration_ms: Date.now() - started });
+      return c.json({ mailboxes, used_pasted_token: Boolean(bearer), request_id: trace.requestId,
+        ...(mailboxes.length ? {} : { empty_reason: 'starry_mailbox_empty' }) });
+    } catch (error) {
+      const failure = mailboxFailure(error, trace);
+      audit(actor, 'runtime.mailbox.probe.failed', { ...metadata, ...failure.diagnostic, status: 'failed', duration_ms: Date.now() - started });
+      return c.json({ detail: failure.detail }, failure.status as 401 | 403 | 409 | 429 | 502 | 503 | 504);
+    }
+  });
+});
+
+misc.get('/admin/starry-binding/diagnostics/:requestId', async (c) => {
+  const user = scopedUser();
+  if (!user) throw new HttpFail(401, 'authentication required');
+  requireAdmin();
+  const id = c.req.param('requestId');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new HttpFail(400, { code: 'invalid_request_id' });
+  // First rollout is intentionally restricted to the administrator's OWN request.
+  // Admin role alone does not confer cross-tenant/cross-user mailbox diagnostics.
+  const result = await postgresPool().query<{ payload: string }>(
+    `SELECT payload FROM audit_events WHERE actor=$1 AND event_type IN ('runtime.mailbox.probe.failed','runtime.mailbox.probe.completed')
+      AND payload::jsonb->>'request_id'=$2 ORDER BY id DESC LIMIT 1`, [user.id, id]);
+  if (!result.rows.length) throw new HttpFail(404, { code: 'diagnostic_not_found' });
+  const value = JSON.parse(result.rows[0].payload) as Json;
+  c.header('Cache-Control', 'no-store');
+  return c.json(publicMailboxDiagnostic(value));
 });
 
 misc.post("/me/starry-binding", async (c) => {

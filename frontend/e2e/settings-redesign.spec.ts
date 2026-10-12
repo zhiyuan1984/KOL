@@ -2,12 +2,14 @@ import { expect, test, type Page } from '@playwright/test';
 const context = {
   profile: { name: '王想', email: 'xiang.wang@amperetime.com', phone: '', employee_no: '1083', position: 'AI产品经理', company_name: '安培时代', organization_path: ['研究院', '数字智能中心', '产品部', 'AI产品组'], manager_name: '黄启友', managed: true },
   brands: [{ id: 'LT', label: 'LiTime' }, { id: 'RO', label: 'Redodo' }],
-  mailboxes: [{ id: 'box1', email: 'work@litime.com', brand: 'LT', status: 'connected', is_default: true }, { id: 'box2', email: 'expired@redodo.com', brand: 'RO', status: 'expired', is_default: false }],
+  mailboxes: [{ id: 'box1', email: 'work@litime.com', brand: 'LT', status: 'connected', is_default: true }, { id: 'box2', email: 'expired@redodo.com', brand: 'RO', status: 'expired', is_default: false }, { id: 'box3', email: 'larry.zhao@amperetime.com', brand: '', status: 'unverified', is_default: false }],
   preferences: { theme: 'dark', locale: 'en', notifications: true, model_tier: 'quality', default_brand: 'LT', default_mailbox: 'work@litime.com' }, editable_fields: [],
 };
 async function mock(page: Page) {
   const calls: string[] = []; const writes: Array<{ path: string; data: any }> = [];
   let failRead = false; let failSave = false;
+  let probeFailure: { status: number; body: unknown } | null = null;
+  let probeMailboxes = [{ id: 'new1', mailbox_email: 'other@litime.com', brand: 'LT', owner_name: '员工' }];
   const account = { id: 'employee-test', name: '王想', email: 'xiang.wang@amperetime.com', roles: ['employee'], available_modes: ['employee'] };
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname; const method = route.request().method(); calls.push(path);
@@ -20,7 +22,7 @@ async function mock(page: Page) {
     if (path === '/api/memory') return route.fulfill({ json: [{ id: 'm1', title: '邮件风格', body_md: '简洁清楚', scope: 'private', enabled: true, version: 2, editable: true }] });
     if (path === '/api/me/settings-sessions') return route.fulfill({ json: [{ id: 's1', title: '本人的对话', archived_at: null }] });
     if (path === '/api/me/data-summary') return route.fulfill({ json: { sessions: 1, archived_sessions: 0, memories: 1, database_bytes: 999999 } });
-    if (path === '/api/me/starry-binding/probe') return route.fulfill({ json: { mailboxes: [{ id: 'new1', mailbox_email: 'other@litime.com', brand: 'LT', owner_name: '员工' }] } });
+    if (path === '/api/me/starry-binding/probe') return probeFailure ? route.fulfill({ status: probeFailure.status, json: probeFailure.body }) : route.fulfill({ json: { mailboxes: probeMailboxes } });
     if (path === '/api/me/starry-binding') return route.fulfill({ json: { bound: true, status: 'connected' } });
     if (path === '/api/home/entries') return route.fulfill({ json: { entries: [], groups: [], meta: {} } });
     if (path.includes('/dashboard')) return route.fulfill({ json: { tasks: { items: [] }, recent: [] } });
@@ -29,7 +31,13 @@ async function mock(page: Page) {
     if (path === '/api/cron/alerts') return route.fulfill({ json: {} });
     return route.fulfill({ json: [] });
   });
-  return { calls, writes, failRead: () => { failRead = true; }, failSave: () => { failSave = true; } };
+  return {
+    calls, writes,
+    failRead: () => { failRead = true; },
+    failSave: () => { failSave = true; },
+    failProbe: (body: unknown, status = 503) => { probeFailure = { body, status }; },
+    setProbeMailboxes: (mailboxes: typeof probeMailboxes) => { probeFailure = null; probeMailboxes = mailboxes; },
+  };
 }
 
 test('profile loads only its own settings, preserves fourth-level organization and removes internal noise', async ({ page }) => {
@@ -61,7 +69,10 @@ test('cancel restores the latest saved preferences and clearing brand does not o
   await page.getByRole('button', { name: '取消修改' }).click(); await expect(page.locator('#theme').locator('..')).toContainText('浅色');
   await page.locator('#default_brand').click(); await page.getByText('每次选择', { exact: true }).first().click();
   await expect(page.locator('#default_mailbox').locator('..')).toContainText('每次选择');
-  await page.locator('#default_mailbox').click(); await expect(page.locator('.ant-select-dropdown:visible')).not.toContainText('work@litime.com');
+  await page.locator('#default_mailbox').click();
+  const dropdown = page.locator('.ant-select-dropdown:visible:not(.ant-slide-up-leave)');
+  await expect(dropdown).toHaveCount(1);
+  await expect(dropdown).not.toContainText('work@litime.com');
 });
 test('password mismatch retains input and makes no request, leaving asks before discarding', async ({ page }) => {
   const state = await mock(page); await page.goto('/settings?tab=security');
@@ -81,10 +92,44 @@ test('sidebar navigation is blocked while unsaved and deep links remain compatib
   await page.reload(); await expect(page.getByRole('button', { name: '保存偏好' })).toBeVisible();
   await page.goBack(); await expect(page).toHaveURL(/tab=security/);
 });
-test('expired mailbox is not marked connected, unbind cancel writes nothing, probe does not auto-select', async ({ page }) => {
+test('expired mailbox is not marked connected, unverified brand is not authentication, unbind cancel writes nothing, probe does not auto-select', async ({ page }) => {
   const state = await mock(page); await page.goto('/settings?tab=starry'); await expect(page.locator('[data-starry-status="expired"]')).toContainText('连接已过期');
+  await expect(page.locator('[data-starry-status="unverified"]')).toContainText('品牌归属待核验'); await expect(page.locator('[data-starry-status="unverified"]')).toContainText('不等于认证已完成');
   await page.locator('[data-starry-unbind]').first().click(); await expect(page.getByRole('dialog')).toContainText('不会自动改用其他邮箱'); await page.getByRole('button', { name: '取消操作', exact: true }).click(); expect(state.writes).toHaveLength(0);
   await page.getByRole('button', { name: '读取可用邮箱' }).click(); await expect(page.getByRole('button', { name: '绑定所选邮箱' })).toBeDisabled();
+});
+test('verification-failed mailbox reads preserve current bindings, do not leak technical data, and do not write a binding', async ({ page }) => {
+  const state = await mock(page); const requestId = '123e4567-e89b-12d3-a456-426614174000';
+  state.failProbe({ detail: { schema_version: 'settings-error.v1', code: 'starry_connector_verification_failed', message: 'Authorization: Bearer SECRET /srv/private StarryKOL', request_id: requestId } });
+  await page.goto('/settings?tab=starry'); await expect(page.getByText('work@litime.com', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '读取可用邮箱' }).click();
+  const failure = page.getByRole('alert').filter({ hasText: '业务邮箱服务暂不可用' });
+  await expect(failure).toContainText('业务邮箱服务暂不可用'); await expect(page.locator('[data-starry-bind]')).not.toContainText(/SECRET|Authorization|\/srv|StarryKOL|starry_connector_verification_failed/);
+  await expect(page.getByRole('button', { name: '查看说明' })).toBeVisible(); await page.getByRole('button', { name: '查看说明' }).click(); await expect(failure).toContainText('上次检查失败后暂停');
+  await expect(page.getByText(`诊断编号：${requestId}`)).toBeVisible(); await expect(page.getByRole('button', { name: '复制诊断编号' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '绑定所选邮箱' })).toHaveCount(0); expect(state.writes.filter(row => row.path === '/api/me/starry-binding')).toHaveLength(0);
+});
+test('successful empty mailbox reads are informational and remote error groups have distinct accessible recovery', async ({ page }) => {
+  const state = await mock(page); state.setProbeMailboxes([]); await page.goto('/settings?tab=starry');
+  await page.getByRole('button', { name: '读取可用邮箱' }).click(); await expect(page.getByRole('status')).toContainText('当前没有可连接的邮箱');
+  state.failProbe({ detail: { schema_version: 'settings-error.v1', code: 'runtime_remote_rate_limited' } });
+  await page.getByRole('button', { name: '读取可用邮箱' }).click(); await expect(page.getByRole('alert').filter({ hasText: '邮箱服务访问频率受限' })).toContainText('邮箱服务访问频率受限'); await expect(page.getByRole('alert').filter({ hasText: '邮箱服务访问频率受限' }).getByRole('button', { name: '重新读取' })).toBeVisible();
+  state.failProbe({ detail: { schema_version: 'settings-error.v1', code: 'runtime_connector_not_configured' } });
+  await page.getByRole('alert').filter({ hasText: '邮箱服务访问频率受限' }).getByRole('button', { name: '重新读取' }).click(); await expect(page.getByRole('alert').filter({ hasText: '业务邮箱服务尚未配置' })).toContainText('业务邮箱服务尚未配置'); await expect(page.getByRole('button', { name: '查看说明' })).toBeVisible();
+});
+test('diagnostic copy reports honestly when the clipboard is unavailable', async ({ page }) => {
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }); });
+  const state = await mock(page); state.failProbe({ detail: { schema_version: 'settings-error.v1', code: 'runtime_remote_unavailable', request_id: '123e4567-e89b-12d3-a456-426614174000' } });
+  await page.goto('/settings?tab=starry'); await page.getByRole('button', { name: '读取可用邮箱' }).click(); await page.getByRole('button', { name: '复制诊断编号' }).click(); await expect(page.getByRole('status')).toContainText('无法复制诊断编号，请手动记录');
+});
+test('unclassified upstream 4xx displays reviewed rejection instead of provider body', async ({ page }) => {
+  const state = await mock(page);
+  state.failProbe({ detail: { code: 'runtime_remote_rejected', message: 'SECRET <html>private provider response</html>' } }, 502);
+  await page.goto('/settings?tab=starry');
+  await page.getByRole('button', { name: '读取可用邮箱' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: '邮箱服务拒绝本次请求' })).toContainText('邮箱服务拒绝本次请求');
+  await expect(page.locator('[data-starry-bind]')).not.toContainText(/SECRET|provider response/);
+  expect(state.writes.filter(row => row.path === '/api/me/starry-binding')).toHaveLength(0);
 });
 test('memory uses list and on-demand editor; no body is shown until editing', async ({ page }) => {
   await mock(page); await page.goto('/settings?tab=memories'); await expect(page.getByText('邮件风格', { exact: true })).toBeVisible(); await expect(page.locator('textarea')).toHaveCount(0);
