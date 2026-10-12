@@ -29,22 +29,30 @@ type Props = {
 export default function UploadDialog({ open, inline=false,onDirty, onClose, bases: allBases, onCreated,onProgress }: Props) {
   const bases = useMemo(() => allBases.filter((base) => base.kind === "unstructured" && base.status === "active"), [allBases]);
   const [busy, setBusy] = useState(false);
+  const uploadLock = useRef(false);
   const ref = useRef<HTMLDialogElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [familyId, setFamilyId] = useState("");
   const [domainId, setDomainId] = useState("");
   const [baseId, setBaseId] = useState("");
   const [error, setError] = useState("");
+  const [uncertainFile, setUncertainFile] = useState<File | null>(null);
   const [explanation,setExplanation]=useState('');
-  const [explanations,setExplanations]=useState<Record<string,string>>({});
+  // File identity, not its name: different same-name uploads are independent records.
+  const [explanations, setExplanations] = useState<Map<File, string>>(new Map());
+
+  useEffect(() => {
+    onDirty?.(files.length > 0 || Boolean(explanation.trim()) || explanations.size > 0);
+  }, [files, explanation, explanations, onDirty]);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (open && !el.open) {
       setFiles([]);
-      setExplanation('');setExplanations({});
+      setExplanation('');setExplanations(new Map());
       setError("");
+      setUncertainFile(null);
       setFamilyId("");
       setDomainId("");
       setBaseId("");
@@ -84,13 +92,14 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
   );
 
   const add = (incoming: File[]) => {
-    onDirty?.(true);
     const errors: string[] = [];
     const next = [...files];
     for (const file of incoming) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       if (!UPLOAD_FORMATS[ext]) {
-        errors.push(`${file.name}：格式暂不支持`);
+        errors.push(`${file.name}：${ext === "pptx" || ext === "ppt"
+          ? "演示文稿解析尚未接入，请先转为 PDF 后上传"
+          : "格式暂不支持，请使用 PDF、图片、音频或视频"}`);
         continue;
       }
       if (!file.size) {
@@ -107,24 +116,47 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
     setError(errors.join("；"));
   };
 
+  const remove = (file: File) => {
+    setFiles(current => current.filter(item => item !== file));
+    setUncertainFile(current => current === file ? null : current);
+    setExplanations(current => {
+      const next = new Map(current);
+      next.delete(file);
+      return next;
+    });
+  };
+
   const submit = async () => {
-    if (busy || !baseId || !files.length) return;
+    if (uploadLock.current || busy || uncertainFile || !baseId || !files.length) return;
+    uploadLock.current = true;
     setBusy(true); setError("");
     let saved = 0;
     let lastId="";
+    let currentFile: File | null = null;
     try {
       for (const file of files) {
-        const result = await api.adminKnowledgeDocumentUpload(baseId, file, false,undefined,explanations[file.name] ?? explanation,reviewCompany());
+        currentFile = file;
+        const result = await api.adminKnowledgeDocumentUpload(baseId, file, false,undefined,explanations.get(file) ?? explanation,reviewCompany());
         saved += 1;
-        setFiles((current) => current.filter((item) => item !== file));
+        remove(file);
         lastId=result.document.id;
         onProgress?.();
       }
+      setExplanation("");
+      setExplanations(new Map());
       onDirty?.(false);
       if(lastId)onCreated(lastId);else onClose();
     } catch (cause) {
-      setError(`已保存 ${saved} 份；${cause instanceof Error ? cause.message : "上传失败"}。剩余文件可重试。`);
-    } finally { setBusy(false); }
+      const status = (cause as { status?: number } | null)?.status;
+      const unknown = !status || status >= 500;
+      if (unknown) {
+        setUncertainFile(currentFile);
+        onProgress?.();
+      }
+      setError(`已保存 ${saved} 份；${cause instanceof Error ? cause.message : "上传失败"}。${unknown
+        ? `「${currentFile?.name || "当前文件"}」的上传结果尚未确认，请先刷新并核对资料列表；确认已保存后移除此文件，未保存则重新选择。不要直接重复上传。`
+        : "剩余文件可重试。"}`);
+    } finally { uploadLock.current = false; setBusy(false); }
   };
 
   const Container=inline ? "div":"dialog";
@@ -147,7 +179,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
       </div>
       <div className="kbv-dialog-body">
         <p className="muted">支持批量选择或拖入文件；上传后会自动规整与建立索引，完成后进入待审资料。</p>
-        <label>资料用途解释（选填，应用于本批资料）<textarea value={explanation} disabled={busy} maxLength={4000} placeholder="资料讲什么、能回答哪些问题、适用对象及已知限制。保存后可逐份修订。" onChange={e=>{setExplanation(e.target.value);onDirty?.(true);}} /></label>
+        <label>资料用途解释（选填，应用于本批资料）<textarea value={explanation} disabled={busy} maxLength={4000} placeholder="资料讲什么、能回答哪些问题、适用对象及已知限制。保存后可逐份修订。" onChange={e=>setExplanation(e.target.value)} /></label>
         <div
           className="kbv-file-info"
           data-kbv-upload-drop
@@ -173,6 +205,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
             />
           </label>
           <p className="muted">支持 PDF、图片、音频、视频；归属必须为非结构化知识库。</p>
+          <p className="muted">PPT / PPTX 解析尚未接入，请先转为 PDF 后上传。</p>
           <p className="muted">上传会开始解析；解析完成后仍需提交发布审批，不会自动对员工生效。</p>
         </div>
         {files.length ? (
@@ -184,14 +217,14 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
                   <div>
                     <strong>{file.name}</strong>
                     <p className="muted">{UPLOAD_FORMATS[ext]} · {formatBytes(file.size)} · 待上传</p>
-                    <details><summary>覆盖本文件的用途解释</summary><textarea aria-label={`${file.name} 的用途解释`} disabled={busy} maxLength={4000} value={explanations[file.name] ?? explanation} onChange={e=>{setExplanations(current=>({...current,[file.name]:e.target.value}));onDirty?.(true);}} /></details>
+                    <details><summary>覆盖本文件的用途解释</summary><textarea aria-label={`${file.name} 的用途解释`} disabled={busy} maxLength={4000} value={explanations.get(file) ?? explanation} onChange={e=>{const value=e.target.value;setExplanations(current=>new Map(current).set(file,value));}} /></details>
                   </div>
                   <button
                     type="button"
                     className="kbv-link-plain"
                     aria-label={`移除 ${file.name}`}
                     disabled={busy}
-                    onClick={() => setFiles(files.filter((_, itemIndex) => itemIndex !== index))}
+                    onClick={() => remove(file)}
                   >
                     移除
                   </button>
@@ -203,6 +236,7 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
         {error ? <p className="kbv-error" role="alert">{error}</p> : null}
         <div data-kbv-upload-scope>
           <ScopeTabs
+            disabled={busy}
             showCount={false}
             familyOptions={familyOptions}
             domainOptions={domainOptions}
@@ -233,10 +267,10 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
           type="button"
           className="btn work"
           data-kbv-upload-submit
-          disabled={busy || !baseId || !files.length}
+          disabled={busy || Boolean(uncertainFile) || !baseId || !files.length}
           onClick={() => void submit()}
         >
-          {busy ? "上传并解析中…" : "上传并开始解析"}
+          {busy ? "上传并解析中…" : uncertainFile ? "请先核对上传结果" : "上传并开始解析"}
         </button>
       </div></WorkspaceActions>
     </Container>

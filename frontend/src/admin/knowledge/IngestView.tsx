@@ -101,14 +101,14 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
       return;
     }
     if (!file) {
-      fail(new Error("先选择 PDF 文件"));
+      fail(new Error("先选择资料文件"));
       return;
     }
     setUploading(true);
     setUploadProgress(0);
     setTab("documents");
     try {
-      const result = await api.adminKnowledgeDocumentUpload(baseId, file, false, setUploadProgress);
+      const result = await api.adminKnowledgeDocumentUpload(baseId, file, false, setUploadProgress, undefined, reviewCompany());
       void openDetail(result.document.id, true);
       notify("已上传，开始规整与建索引；可从资料详情进入加工与审批。");
       setFile(null);
@@ -176,7 +176,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
             </select>
           </label>
           <div className="field">
-            <span>PDF 文件</span>
+            <span>资料文件（PDF / 图片 / 音视频）</span>
             <div className="kbadmin-file-picker">
               <button
                 className="btn row-action"
