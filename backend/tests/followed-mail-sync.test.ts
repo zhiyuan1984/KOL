@@ -178,6 +178,53 @@ describe("followed KOL unread mail sync", () => {
     expect(getConn().prepare("SELECT body_text FROM kol_mail_items WHERE provider_message_id='mid-4901'").get()).toMatchObject({body_text: "Stored once"});
   });
 
+  it("stores messages whose only time field is the production messageTime shape", async () => {
+    bindLarry();
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        calls.push(name);
+        if (name === "pageEmailConversations") {
+          if (Number(args.pageNo || 1) > 1) return { data: { total: 1, list: [] } };
+          return { data: { total: 1, list: [{
+            id: 5901,
+            conversationId: 5901,
+            subject: "messageTime shape",
+            mailboxEmail: "larry.zhao@amperetime.com",
+            unreadCount: 1,
+            lastMessageTime: "2026-07-26 18:34:34",
+          }] } };
+        }
+        if (name === "getEmailConversation") {
+          return { data: { id: 5901, conversationId: 5901, subject: "messageTime shape", messages: [{
+            id: 6001,
+            direction: "INBOUND",
+            fromEmail: "1007057521@qq.com",
+            triggeredByName: "测试网红-qq-01",
+            subject: "合作请求",
+            bodyText: "电池型号咨询",
+            messageTime: "2026-07-26 18:34:34",
+          }] } };
+        }
+        return { data: {} };
+      },
+      async close() { /* noop */ },
+    }));
+
+    const result = await ensureFollowedMailSync(true);
+    expect(result.ok).toBe(true);
+    // Foreground commits the index and schedules detail hydration; the body
+    // only lands after the background sync finishes.
+    await waitForBackgroundSync();
+    const item = getConn().prepare(
+      "SELECT body_text, occurred_at, from_addr, direction FROM kol_mail_items WHERE provider_message_id='6001'",
+    ).get() as Json | undefined;
+    expect(item).toMatchObject({ body_text: "电池型号咨询", from_addr: "1007057521@qq.com", direction: "inbound" });
+    expect(String(item?.occurred_at)).toBe("2026-07-26T10:34:34.000Z");
+    expect(getConn().prepare(
+      "SELECT COUNT(*) AS n FROM reply_mail_quarantine WHERE reason='source_occurrence_time_missing'",
+    ).get()).toMatchObject({ n: 0 });
+  });
+
   it("drops conversations belonging to another mailbox", async () => {
     bindLarry();
     setStarryKolClientFactory(() => ({
