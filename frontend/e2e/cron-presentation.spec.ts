@@ -11,6 +11,7 @@ type FixtureOptions = {
   initialJobFailures?: number;
   theme?: "light" | "dark";
   deferRun?: boolean;
+  sidebarCollapsed?: boolean;
 };
 
 const ALL_ACTIONS = { edit: false, pause: false, resume: false, publish: false, run_now: false };
@@ -150,7 +151,7 @@ async function fixture(page: Page, options: FixtureOptions = {}): Promise<Fixtur
 
     if (path === "/api/health") return route.fulfill({ json: { runtime_mode: "postgres-only" } });
     if (path === "/api/me") return route.fulfill({ json: employee });
-    if (path.includes("preferences")) return route.fulfill({ json: { theme: options.theme || "light" } });
+    if (path.includes("preferences")) return route.fulfill({ json: { theme: options.theme || "light", ...(options.sidebarCollapsed === undefined ? {} : { left_sidebar_collapsed: options.sidebarCollapsed }) } });
 
     if (path === "/api/cron/jobs" && method === "GET") {
       if (remainingJobFailures > 0) {
@@ -267,7 +268,7 @@ async function saveScreenshot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(name), fullPage: true, animations: "disabled" });
 }
 
-test("列表只读取摘要且无 N+1；六列、32px 工具栏与 data-grid 密度可测", async ({ page }) => {
+test("列表只读取摘要且无 N+1；六列、32px 工具栏与紧凑档行高可测", async ({ page }) => {
   const control = await fixture(page);
   await page.goto("/cron");
   await expect(listRows(page).first()).toBeVisible();
@@ -292,7 +293,7 @@ test("列表只读取摘要且无 N+1；六列、32px 工具栏与 data-grid 密
       create: create?.getBoundingClientRect().height,
     };
   });
-  expect(measured).toEqual({ row: 44, head: 36, font: "13px", search: 32, create: 32 });
+  expect(measured).toEqual({ row: 32, head: 36, font: "13px", search: 32, create: 32 });
   await expect(page.locator(".cron-workspace .ant-btn-primary")).toHaveCount(1);
   await saveScreenshot(page, "cron-list-desktop.png");
 });
@@ -327,9 +328,15 @@ test("状态计数在分页之前精确计算", async ({ page }) => {
   expect(tabCounts).toEqual([
     { label: "全部", count: "30" }, { label: "已启用", count: "11" }, { label: "已暂停", count: "7" }, { label: "草稿", count: "6" }, { label: "未启用", count: "6" },
   ]);
+  // 翻页回到列表顶部：真正的滚动容器是页面根节点（.list-page），不是 .cron-list-body
+  const scroller = page.locator("[data-cron-page]");
+  await scroller.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
   await page.locator(".ant-pagination-item-2").click();
   await expect(page).toHaveURL(/page=2/);
   await expect(listRows(page)).toHaveCount(10);
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBe(0);
+  await expect(page.locator(".ant-table-tbody > tr[data-cron-job]").first()).toBeInViewport();
   await expect(page.locator(".ant-tabs-tab").filter({ hasText: "全部30" })).toBeVisible();
 });
 
@@ -483,18 +490,35 @@ test("初始读取错误不伪造 0 计数，提供重新读取后才显示数�
   await expect(page.locator(".cron-view-count")).toHaveCount(5);
 });
 
-test("1440/1024/768/390、短高度、深色减动效与触控均无横向溢出", async ({ page, browser }) => {
+test("1280/1440/1024/768/390、短高度、深色减动效与触控均无横向溢出", async ({ page, browser }) => {
   await fixture(page, { theme: "dark" });
   await page.goto("/cron");
   for (const size of [
-    { width: 1440, height: 900 }, { width: 1024, height: 680 }, { width: 768, height: 560 }, { width: 390, height: 480 },
+    { width: 1280, height: 800 }, { width: 1440, height: 900 }, { width: 1024, height: 680 }, { width: 768, height: 560 }, { width: 390, height: 480 },
   ]) {
     await page.setViewportSize(size);
     await expect(listRows(page).first()).toBeVisible();
     const bounds = await page.locator("[data-cron-page]").evaluate((node) => ({ width: node.getBoundingClientRect().width, scrollWidth: node.scrollWidth, viewport: window.innerWidth }));
     expect(bounds.width).toBeLessThanOrEqual(size.width + 1);
     expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.viewport + 1);
-    if (size.width <= 390) await expect(page.locator(".cron-mobile-list > li[data-cron-job]").first()).toBeVisible();
+    if (size.width >= 1280) {
+      await expect(page.locator(".ant-table-tbody > tr[data-cron-job]").first()).toBeVisible();
+      await expect(page.locator(".cron-list-body .ant-pagination").first()).toBeVisible();
+      const listOverflow = await page.locator(".cron-list-body").evaluate((node) => ({ scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }));
+      expect(listOverflow.scrollWidth).toBeLessThanOrEqual(listOverflow.clientWidth + 1);
+    }
+    if (size.width <= 1024) {
+      await expect(page.locator(".cron-mobile-list > li[data-cron-job]").first()).toBeVisible();
+      await expect(page.locator("[data-cron-pager]").first()).toBeVisible();
+    }
+    if (size.width <= 390) {
+      const titleAlignment = await page.locator(".cron-mobile-list > li[data-cron-job]").first().evaluate((item) => {
+        const button = item.querySelector<HTMLElement>(".cron-task-name")!;
+        const label = button.querySelector<HTMLElement>("span")!;
+        return { buttonLeft: button.getBoundingClientRect().left, labelLeft: label.getBoundingClientRect().left };
+      });
+      expect(titleAlignment.labelLeft - titleAlignment.buttonLeft).toBeLessThanOrEqual(2);
+    }
     await expect.poll(() => page.locator(".ant-tabs-tab-active").evaluate(node => {
       const tab = node.getBoundingClientRect(), wrap = node.closest(".ant-tabs-nav-wrap")!.getBoundingClientRect();
       return tab.left >= wrap.left - 1 && tab.right <= wrap.right + 1;
@@ -516,12 +540,70 @@ test("1440/1024/768/390、短高度、深色减动效与触控均无横向溢出
     await touchPage.goto("/cron");
     const hit = await touchPage.getByRole("button", { name: "新建定时任务" }).evaluate((node) => node.getBoundingClientRect().height);
     expect(hit).toBeGreaterThanOrEqual(44);
+    const pagerPrev = await touchPage.locator("[data-cron-pager-prev]").evaluate((node) => node.getBoundingClientRect().height);
+    const pagerNext = await touchPage.locator("[data-cron-pager-next]").evaluate((node) => node.getBoundingClientRect().height);
+    const checkboxHit = await touchPage.locator(".cron-view-tools .ant-checkbox-wrapper").evaluate((node) => {
+      const target = getComputedStyle(node, "::after");
+      return Math.min(parseFloat(target.height), parseFloat(target.width));
+    });
+    expect(pagerPrev).toBeGreaterThanOrEqual(44);
+    expect(pagerNext).toBeGreaterThanOrEqual(44);
+    expect(checkboxHit).toBeGreaterThanOrEqual(44);
+    await expect(touchPage.locator("[data-cron-pager]")).toContainText(/第 \d+ \/ \d+ 页/);
     const bounds = await touchPage.locator("[data-cron-page]").evaluate((node) => ({ scrollWidth: node.scrollWidth, viewport: window.innerWidth }));
     expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.viewport + 1);
     await expect(touchPage.getByRole("tab", { name: "全部30", exact: true })).toBeInViewport();
     await touchPage.screenshot({ path: test.info().outputPath("cron-touch.png"), fullPage: true, animations: "disabled" });
+    await touchPage.locator("[data-cron-pager]").scrollIntoViewIfNeeded();
+    await touchPage.screenshot({ path: test.info().outputPath("cron-touch-pager.png"), animations: "disabled" });
   } finally {
     await touch.close();
+  }
+});
+
+test("同一 1024 视口下由列表容器实测宽度决定表格或卡片列表", async ({ page, browser }) => {
+  await fixture(page);
+  await page.setViewportSize({ width: 1024, height: 680 });
+  await page.goto("/cron");
+  // 侧栏展开：容器窄 → 卡片列表 + 紧凑分页条
+  await expect(page.locator(".cron-mobile-list > li[data-cron-job]").first()).toBeVisible();
+  await expect(page.locator("[data-cron-pager]").first()).toBeVisible();
+  await expect(page.locator(".ant-table-tbody > tr[data-cron-job]")).toHaveCount(0);
+  const expanded = await page.locator(".cron-list-body").evaluate((node) => node.clientWidth);
+
+  // 紧凑分页条的交互：翻页回到列表顶部；翻到第 2 页（URL、切片、末页禁用），再翻回第 1 页
+  const scroller = page.locator("[data-cron-page]");
+  await scroller.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await page.locator("[data-cron-pager-next]").click();
+  await expect(page).toHaveURL(/page=2/);
+  await expect(page.locator("[data-cron-pager]")).toContainText("第 2 / 2 页");
+  await expect(page.locator("[data-cron-pager-next]")).toBeDisabled();
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBe(0);
+  await expect(page.locator(".cron-mobile-list > li[data-cron-job]")).toHaveCount(10);
+  await expect(page.locator(".cron-mobile-list > li[data-cron-job]").first()).toBeInViewport();
+  await page.locator("[data-cron-pager-prev]").click();
+  await expect(page).toHaveURL(/page=1/);
+  await expect(page.locator("[data-cron-pager]")).toContainText("第 1 / 2 页");
+  await expect(page.locator("[data-cron-pager-prev]")).toBeDisabled();
+  await expect(page.locator(".cron-mobile-list > li[data-cron-job]")).toHaveCount(20);
+  expect(await scroller.evaluate((node) => node.scrollTop)).toBe(0);
+  await expect(page.locator(".cron-mobile-list > li[data-cron-job]").first()).toBeInViewport();
+
+  // 同一视口、同一份 fixture 数据；只让侧栏折叠 → 容器变宽 → 六列数据表
+  const collapsedContext = await browser.newContext({ viewport: { width: 1024, height: 680 } });
+  try {
+    const collapsedPage = await collapsedContext.newPage();
+    await fixture(collapsedPage, { sidebarCollapsed: true });
+    await collapsedPage.goto("/cron");
+    await expect(collapsedPage.locator(".ant-table-tbody > tr[data-cron-job]").first()).toBeVisible();
+    await expect(collapsedPage.locator(".cron-mobile-list > li[data-cron-job]")).toHaveCount(0);
+    await expect(collapsedPage.locator(".cron-list-body .ant-pagination").first()).toBeVisible();
+    const collapsed = await collapsedPage.locator(".cron-list-body").evaluate((node) => ({ clientWidth: node.clientWidth, scrollWidth: node.scrollWidth }));
+    expect(collapsed.scrollWidth).toBeLessThanOrEqual(collapsed.clientWidth + 1);
+    expect(collapsed.clientWidth).toBeGreaterThan(expanded);
+  } finally {
+    await collapsedContext.close();
   }
 });
 

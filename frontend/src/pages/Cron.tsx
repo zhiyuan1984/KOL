@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import { Button, Checkbox, Drawer, Input, Modal, Pagination, Spin, Table, Tabs, Tooltip, type TableProps } from "antd";
+import { Button, Checkbox, Drawer, Input, Modal, Spin, Table, Tabs, Tooltip, type TableProps } from "antd";
 import { InfoCircleOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, WarningOutlined } from "@ant-design/icons";
 import CronTheme from "../cron/CronTheme";
 import { DEFAULT_TIME_ZONE, compactFrequency, formatExactTime, formatNextTime, fromZonedInput, toZonedInput } from "../cron/cronTime";
@@ -210,6 +210,11 @@ function DiscoveryTemplateEditor({ job, admin, onSaved }: {
   );
 }
 
+/* 六列数据表需要约 790px 内容宽；由列表容器实测宽度决定表格还是卡片列表
+   （DESIGN §13 验收矩阵「≤860 无横向滚动」的延伸）。按容器而非视口判定：
+   侧栏折叠/展开、同一视口都能得到正确的可用宽度。 */
+const NARROW_LIST_W = 790;
+
 function CronWorkbench() {
   const { jobId } = useParams();
   const location = useLocation();
@@ -243,8 +248,11 @@ function CronWorkbench() {
   const [composerTouched, setComposerTouched] = useState(false);
   const [detailRevision, setDetailRevision] = useState(0);
   const [modal, modalContext] = Modal.useModal();
-  const [mobile, setMobile] = useState(() => matchMedia("(max-width: 860px)").matches);
+  const [mobile, setMobile] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  /* 页面根节点（.list-page）才是真正的滚动容器：壳层给它的规则是 overflow-y: auto，
+     而 .cron-list-body 会随内容长高、本身不滚。 */
+  const pageRef = useRef<HTMLDivElement>(null);
   const originRef = useRef<{ scroll: number; focus: string } | null>(null);
   const loadedRoute = useRef(location.pathname);
   const restoringDirtyRoute = useRef(false);
@@ -258,11 +266,15 @@ function CronWorkbench() {
   if (isNew || editing) dirtyRouteRef.current = loadedRoute.current;
 
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
-  useEffect(() => {
-    const media = matchMedia("(max-width: 860px)");
-    const update = () => setMobile(media.matches);
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
+  useLayoutEffect(() => {
+    const node = listRef.current;
+    if (!node) return;
+    const apply = () => setMobile(node.clientWidth > 0 && node.clientWidth < NARROW_LIST_W);
+    apply();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(apply);
+    observer.observe(node);
+    return () => observer.disconnect();
   }, []);
   useEffect(() => { setInputQuery(query); }, [query]);
   useEffect(() => {
@@ -275,6 +287,11 @@ function CronWorkbench() {
     const next = new URLSearchParams(location.search);
     for (const [key, value] of Object.entries(patch)) value == null || value === "" ? next.delete(key) : next.set(key, value);
     nav({ pathname: location.pathname, search: next.toString() ? `?${next}` : "", hash: location.hash }, { replace: true, state: location.state });
+  };
+  /* 翻页回到列表顶部；筛选/搜索只改结果、不动滚动位置（DESIGN §4.3）。 */
+  const goToPage = (page: number) => {
+    setListParams({ page: String(page) });
+    if (pageRef.current) pageRef.current.scrollTop = 0;
   };
   const updateRow = (job: CronJob) => {
     setJobs(current => current.some(row => row.id === job.id) ? current.map(row => row.id === job.id ? job : row) : [...current, job]);
@@ -305,7 +322,7 @@ function CronWorkbench() {
   const restoreListOrigin = () => {
     const origin = originRef.current;
     if (!origin) return;
-    if (listRef.current) listRef.current.scrollTop = origin.scroll;
+    if (pageRef.current) pageRef.current.scrollTop = origin.scroll;
     document.querySelector<HTMLElement>(`[data-cron-focus="${CSS.escape(origin.focus)}"]`)?.focus({ preventScroll: true });
   };
   const closeDrawer = () => {
@@ -386,7 +403,7 @@ function CronWorkbench() {
   }, [watchSignature, detail?.id]);
 
   const openDetail = (job: CronJob, receipt = false) => {
-    originRef.current = { scroll: listRef.current?.scrollTop || 0, focus: `${receipt ? "receipt" : "title"}:${job.id}` };
+    originRef.current = { scroll: pageRef.current?.scrollTop || 0, focus: `${receipt ? "receipt" : "title"}:${job.id}` };
     nav(`/cron/${encodeURIComponent(job.job_key || job.id)}${location.search}${receipt ? "#cron-receipt" : ""}`);
   };
   const setRowBusy = (id: string, value: boolean) => setBusy(current => ({ ...current, [id]: value }));
@@ -455,7 +472,8 @@ function CronWorkbench() {
   const filtered = matching.filter(job => filter === "all" || job.status === filter);
   const index = new Map(order.map((id, i) => [id, i]));
   const visible = [...filtered].sort((a, b) => (index.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (index.get(b.id) ?? Number.MAX_SAFE_INTEGER));
-  const effectivePage = Math.min(pageNumber, Math.max(1, Math.ceil(visible.length / 20)));
+  const totalPages = Math.max(1, Math.ceil(visible.length / 20));
+  const effectivePage = Math.min(pageNumber, totalPages);
   const hasAttention = searchedJobs(jobs, query, true).length > 0;
   const nextCell = (job: CronJob) => <span className="cron-next-value" title={job.status === "published" ? formatExactTime(job.next_run_at) : undefined}>{job.status === "published" ? job.next_run_at ? formatNextTime(job.next_run_at) : "暂无下次时间" : "—"}</span>;
   const resultCell = (job: CronJob) => {
@@ -472,17 +490,17 @@ function CronWorkbench() {
     {actionAllowed(job, "resume") && <Button type="text" data-cron-pause disabled={busy[job.id]} onClick={() => void changeStatus(job, "published")}>恢复计划</Button>}
     {actionAllowed(job, "run_now") && <Button type="text" data-cron-run-now disabled={busy[job.id]} aria-busy={busy[job.id]} loading={busy[job.id]} onClick={() => void runNow(job)}>立即运行</Button>}
     {!inDrawer && (job.execution_capability?.ready === false || !job.allowed_actions) && <Tooltip title={job.execution_capability?.reason || "执行能力暂未核验，请查看详情"}><Button type="text" className="cron-capability-hint" onClick={() => openDetail(job)}><InfoCircleOutlined aria-hidden="true" />{job.execution_capability?.ready === false ? "能力未就绪" : "查看详情"}</Button></Tooltip>}
-    {!inDrawer && !actionAllowed(job, "pause") && !actionAllowed(job, "resume") && !actionAllowed(job, "run_now") && job.execution_capability?.ready === true && <span className="cron-secondary">{job.system ? "管理员管理" : job.allowed_actions?.run_reason || "请查看详情"}</span>}
+    {!inDrawer && !actionAllowed(job, "pause") && !actionAllowed(job, "resume") && !actionAllowed(job, "run_now") && job.execution_capability?.ready === true && <span className="cron-secondary" title={job.system ? "管理员管理" : job.allowed_actions?.run_reason || "请查看详情"}>{job.system ? "管理员管理" : job.allowed_actions?.run_reason || "请查看详情"}</span>}
     {rowError[job.id] && <Tooltip title={rowError[job.id]}><Button type="text" className="cron-row-error" aria-label={`查看${job.title}操作失败原因`} onClick={() => openDetail(job)}><WarningOutlined /></Button></Tooltip>}
     {refreshError[job.id] && !inDrawer && <Tooltip title="运行状态刷新失败，当前可能是旧状态"><WarningOutlined className="cron-row-error" role="status" /></Tooltip>}
   </div>;
   const columns: TableProps<CronJob>["columns"] = [
-    { title: "任务", key: "task", width: "26%", ellipsis: true, render: (_, job) => <div className="cron-task-cell"><Button type="link" className="cron-task-name" data-cron-focus={`title:${job.id}`} onClick={() => openDetail(job)} title={job.title}>{job.title}</Button>{job.system && <span className="cron-secondary">系统</span>}</div> },
-    { title: "频率", key: "frequency", width: "15%", ellipsis: true, render: (_, job) => <span title={compactFrequency(job)}>{compactFrequency(job)}</span> },
-    { title: "计划状态", key: "status", width: "9%", render: (_, job) => <span className="cron-plan-state" data-status={job.status}>{planLabel(job.status)}</span> },
-    { title: "下次运行", key: "next", width: "16%", sorter: true, sortOrder: sort === "name" ? null : sort === "next-asc" ? "ascend" : "descend", render: (_, job) => nextCell(job) },
-    { title: "最近结果", key: "result", width: "19%", render: (_, job) => resultCell(job) },
-    { title: "操作", key: "actions", width: "15%", render: (_, job) => rowActions(job) },
+    { title: "任务", key: "task", width: "100%", ellipsis: true, render: (_, job) => <div className="cron-task-cell"><Button type="link" className="cron-task-name" data-cron-focus={`title:${job.id}`} onClick={() => openDetail(job)} title={job.title}>{job.title}</Button>{job.system && <span className="cron-secondary">系统</span>}</div> },
+    { title: "频率", key: "frequency", width: "1%", ellipsis: true, render: (_, job) => <span title={compactFrequency(job)}>{compactFrequency(job)}</span> },
+    { title: "计划状态", key: "status", width: "1%", render: (_, job) => <span className="cron-plan-state" data-status={job.status}>{planLabel(job.status)}</span> },
+    { title: "下次运行", key: "next", width: "1%", sorter: true, sortOrder: sort === "name" ? null : sort === "next-asc" ? "ascend" : "descend", render: (_, job) => nextCell(job) },
+    { title: "最近结果", key: "result", width: "1%", render: (_, job) => resultCell(job) },
+    { title: "操作", key: "actions", width: "1%", render: (_, job) => rowActions(job) },
   ];
   const empty = loadState === "loading" ? <div className="cron-empty-state" role="status">正在读取任务列表…</div> : <div className="cron-empty-state" data-cron-state="empty"><p>{jobs.length ? "没有符合条件的任务。" : "还没有定时任务。"}</p>{jobs.length > 0 && <Button type="text" onClick={() => setListParams({ q: null, status: null, attention: null, page: null })}>清除筛选</Button>}</div>;
   const list = <div className="cron-list-body" ref={listRef} data-cron-state={loadState} aria-busy={loadState === "loading"}>
@@ -492,8 +510,12 @@ function CronWorkbench() {
         <div className="cron-mobile-meta"><span>{compactFrequency(job)}</span><span>下次 {nextCell(job)}</span></div>
         <div className="cron-mobile-result">{resultCell(job)}{rowActions(job)}</div>
       </li>)}</ul>}
-      <Pagination current={effectivePage} total={visible.length} pageSize={20} size="small" showSizeChanger={false} hideOnSinglePage onChange={page => setListParams({ page: String(page) })} />
-    </> : <Table<CronJob> size="small" rowKey="id" columns={columns} dataSource={visible} loading={loadState === "loading"} tableLayout="fixed"
+      {totalPages > 1 && <div className="cron-mobile-pager" data-cron-pager role="group" aria-label="分页">
+        <Button type="text" data-cron-pager-prev disabled={effectivePage <= 1} onClick={() => goToPage(effectivePage - 1)}>上一页</Button>
+        <span className="cron-secondary">第 {effectivePage} / {totalPages} 页</span>
+        <Button type="text" data-cron-pager-next disabled={effectivePage >= totalPages} onClick={() => goToPage(effectivePage + 1)}>下一页</Button>
+      </div>}
+    </> : <Table<CronJob> size="small" rowKey="id" columns={columns} dataSource={visible} loading={loadState === "loading"} tableLayout="auto"
       locale={{ emptyText: empty }} onRow={job => ({ "data-cron-job": job.job_key, "data-cron-status": job.status } as React.HTMLAttributes<HTMLTableRowElement>)}
       pagination={{ current: effectivePage, pageSize: 20, total: visible.length, hideOnSinglePage: true, showSizeChanger: false, showTotal: total => `共 ${total} 个任务` }}
       onChange={(pagination, _filters, sorter, extra) => {
@@ -501,7 +523,7 @@ function CronWorkbench() {
           const field = Array.isArray(sorter) ? sorter[0] : sorter;
           const nextSort = field.order === "ascend" ? "next-asc" : field.order === "descend" ? "next-desc" : "name";
           setSort(nextSort); setOrder(orderedIds(jobs, nextSort)); setListParams({ page: null });
-        } else setListParams({ page: String(pagination.current || 1) });
+        } else goToPage(pagination.current || 1);
       }} />}
   </div>;
   const edit = isNew || editing && detail?.handler_key === "ai-task";
@@ -517,11 +539,11 @@ function CronWorkbench() {
   </div>;
   const viewTools = <div className="cron-view-tools">{(hasAttention || attentionOnly) && <Checkbox checked={attentionOnly} onChange={event => setListParams({ attention: event.target.checked ? "1" : null, page: null })}>最近失败／待接管</Checkbox>}<span className="cron-secondary">北京时间</span><Button type="text" icon={<ReloadOutlined />} aria-label="刷新定时任务列表" onClick={() => void loadJobs()} /></div>;
 
-  return <div className="list-page cron-workspace" data-cron-page>
+  return <div className="list-page cron-workspace" data-cron-page ref={pageRef}>
     {modalContext}
     <header className="cron-workspace-toolbar"><h1>定时任务</h1><div className="cron-workspace-tools">
       <Input.Search id="cron-search" aria-label="搜索任务" placeholder="搜索任务" allowClear value={inputQuery} enterButton={<Button type="default" aria-label="执行任务搜索" icon={<SearchOutlined aria-hidden="true" />} />} onChange={event => setInputQuery(event.target.value)} onSearch={(value, _event, info) => setListParams({ q: info?.source === "clear" ? null : value.trim(), page: null })} />
-      <Button type="primary" icon={<PlusOutlined />} disabled={!!jobId} onClick={() => { originRef.current = { scroll: listRef.current?.scrollTop || 0, focus: "new" }; nav(`/cron/new${location.search}`); }} data-cron-focus="new">新建定时任务</Button>
+      <Button type="primary" icon={<PlusOutlined />} disabled={!!jobId} onClick={() => { originRef.current = { scroll: pageRef.current?.scrollTop || 0, focus: "new" }; nav(`/cron/new${location.search}`); }} data-cron-focus="new">新建定时任务</Button>
     </div></header>
     {listError && loadState === "ok" && <div className="cron-stale-notice" role="status">读取失败，当前列表可能是旧状态。<Button type="text" onClick={() => void loadJobs()}>重试</Button></div>}
     <Tabs type="line" activeKey={filter} onChange={key => setListParams({ status: key === "all" ? null : key, page: null })} destroyOnHidden

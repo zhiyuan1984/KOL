@@ -27,9 +27,13 @@
 .cron-view-tools .ant-checkbox-wrapper { font-size: var(--ds-font-xs); }
 .cron-view-count { margin-inline-start: var(--space-1); font-size: var(--ds-font-xs); font-weight: 400; color: var(--text-quiet); font-variant-numeric: tabular-nums; }
 .cron-list-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; scrollbar-gutter: stable; }
+/* 2026-10-12 密度与列宽口径（用户显式切换紧凑档 + 取消横向滚动条）：
+   行高 = DESIGN §9.1 紧凑档 `--table-row-h-compact`（32px；用户显式切换，表头仍 `--table-header-h` 36px，单元格水平内边距仍 `--space-2`）；
+   列宽 = 任务列 `100%` 吃剩余 + 内容列 `1%` 由内容取宽（§9.3.3，须配合 `table-layout: auto`）；
+   操作列只放文字动作且不溢出，长文本单行截断 + `title`，禁止换行撑高行（§9.1）。 */
 .cron-workspace .ant-table { color: var(--text); font-size: var(--ds-font-sm); background: var(--bg); }
 .cron-workspace .ant-table-thead > tr > th { height: var(--table-header-h); box-sizing: border-box; padding: 0 var(--space-2); font-weight: 500; line-height: var(--lh-control); color: var(--text-quiet); background: var(--bg-subtle); }
-.cron-workspace .ant-table-tbody > tr > td { height: var(--table-row-h); box-sizing: border-box; padding: 0 var(--space-2); font-size: var(--ds-font-sm); line-height: var(--lh-control); }
+.cron-workspace .ant-table-tbody > tr > td { height: var(--table-row-h-compact); box-sizing: border-box; padding: 0 var(--space-2); font-size: var(--ds-font-sm); line-height: var(--lh-control); }
 .cron-workspace .ant-table-cell::before { display: none; }
 .cron-workspace .ant-table-thead { position: sticky; top: 0; z-index: 1; }
 .cron-workspace .ant-btn-text, .cron-workspace-drawer .ant-btn-text { padding-inline: var(--space-1); height: var(--control-h-sm); min-height: var(--control-h-sm); color: var(--accent-text); font-size: var(--ds-font-sm); }
@@ -44,6 +48,14 @@
 .cron-plan-state[data-status="published"] { color: var(--text); }
 .cron-plan-state[data-status="paused"], .cron-plan-state[data-status="disabled"], .cron-plan-state[data-status="draft"] { color: var(--text-muted); }
 .cron-next-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* §9.1 长文本单行截断：只裁剪纯文本列（2 频率 / 3 计划状态 / 4 下次运行）。任务列含标题按钮、
+   最近结果含「查看回执」链接、操作列含文字按钮，一律不加 overflow: hidden，避免裁掉 2px 焦点环。 */
+.cron-workspace .ant-table-thead > tr > th:nth-child(2),
+.cron-workspace .ant-table-thead > tr > th:nth-child(3),
+.cron-workspace .ant-table-thead > tr > th:nth-child(4),
+.cron-workspace .ant-table-tbody > tr > td:nth-child(2),
+.cron-workspace .ant-table-tbody > tr > td:nth-child(3),
+.cron-workspace .ant-table-tbody > tr > td:nth-child(4) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cron-result-cell { display: flex; align-items: center; gap: var(--space-1); min-width: 0; white-space: nowrap; }
 .cron-result-cell > [data-result] { display: inline-flex; align-items: center; gap: var(--space-1); }
 [data-cron-page] [data-result="failed"], .cron-workspace-drawer [data-result="failed"], .cron-row-error { color: var(--danger); }
@@ -54,6 +66,7 @@
 .cron-inline-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-1); min-width: 0; }
 .cron-inline-actions .ant-btn { white-space: nowrap; }
 .cron-inline-actions .cron-capability-hint { color: var(--text-quiet); font-size: var(--ds-font-xs); }
+.cron-inline-actions > .cron-secondary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cron-empty-state, .cron-read-error { padding: var(--space-3); color: var(--text-muted); }
 .cron-read-error { color: var(--danger); }
 .cron-stale-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--warning); font-size: var(--ds-font-xs); padding-block: var(--space-2); }
@@ -98,18 +111,20 @@
 .cron-workspace-editor .composer-submit { background: var(--primary); }
 
 .cron-mobile-list { padding: 0; margin: 0; list-style: none; }
-.cron-mobile-list > li { border-bottom: 1px solid var(--border); padding-block: var(--space-3); }
+.cron-mobile-list > li { border-bottom: 1px solid var(--border); padding-block: var(--space-2); }
 .cron-mobile-title { display: flex; gap: var(--space-2); align-items: center; min-width: 0; }
-.cron-mobile-title .cron-task-name { flex: 1 1 auto; }
+.cron-mobile-title .cron-task-name { flex: 1 1 auto; justify-content: flex-start; }
 .cron-mobile-title .cron-plan-state { flex: 0 0 auto; font-size: var(--ds-font-xs); }
 .cron-mobile-meta { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-block: var(--space-1); font-size: var(--ds-font-xs); color: var(--text-quiet); }
 .cron-mobile-result { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; justify-content: space-between; }
 .cron-mobile-result .cron-result-cell { font-size: var(--ds-font-xs); }
+/* 窄屏卡片列表的紧凑分页条（L3 文字按钮 + 页码文本）；触摸命中区沿用 @media (pointer: coarse) 的 --touch-hit-min。 */
+.cron-mobile-pager { display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding-block: var(--space-2); }
 @media (max-width: 1024px) {
   .cron-workspace.list-page { padding: var(--space-3); }
   .cron-view-tools { gap: var(--space-2); }
 }
-@media (max-width: 860px) {
+@media (max-width: 1080px) {
   .cron-workspace-toolbar { flex-wrap: wrap; }
   .cron-workspace-tools { flex: 1 1 auto; }
   .cron-view-tools { justify-content: flex-end; padding-block: var(--space-1); }
@@ -128,6 +143,12 @@
 @media (pointer: coarse) {
   .cron-workspace :is(.ant-btn, .ant-tabs-tab), .cron-workspace-drawer :is(.ant-btn, .ant-drawer-close, summary), .cron-workspace-editor :is(input, select) { min-height: var(--cron-touch-hit-min); }
   .cron-workspace .ant-input-affix-wrapper { min-height: var(--cron-touch-hit-min); }
+  /* 触摸命中区：复选框按 DESIGN §4.3「只扩展命中区，不扩大可见控件」用不可见 ::after 扩展
+     （同 styles.css 的 `max(100%, --touch-hit-min)` 做法，不改基线对齐）；分页项彼此相邻、
+     没有留白可借，若也做透明扩展会互相重叠点错页，因此改用可见放大。 */
+  .cron-workspace .cron-view-tools .ant-checkbox-wrapper { position: relative; }
+  .cron-workspace .cron-view-tools .ant-checkbox-wrapper::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, var(--touch-hit-min)); height: max(100%, var(--touch-hit-min)); transform: translate(-50%, -50%); }
+  .cron-workspace .ant-pagination :is(.ant-pagination-item, .ant-pagination-prev, .ant-pagination-next) { min-height: var(--touch-hit-min); min-width: var(--touch-hit-min); }
 }
 @media (prefers-reduced-motion: reduce) {
   .cron-workspace *, .cron-workspace-drawer * { animation-duration: 0s !important; transition-duration: 0s !important; }
