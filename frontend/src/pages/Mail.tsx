@@ -1162,7 +1162,10 @@ export default function Mail() {
   /** 沉浸式 AI 提问框携带的上下文 tag（让用户看得见 AI 知道多少）。 */
   const aiCtxTag = selectedConversation
     ? [
-        detailThread ? `${detailThread.messages.filter(message => message.body_text?.trim()).length}/${detailThread.messages.length} 封原文已就绪` : `${countOf(selectedConversation)} 封往来 · 原文未加载`,
+        detailThread ? detailThread.messages.some(message => message.body_text?.trim())
+          ? `${detailThread.messages.filter(message => message.body_text?.trim()).length}/${detailThread.messages.length} 封原文已就绪`
+          : "原文尚未同步"
+          : `${countOf(selectedConversation)} 封往来 · 原文未加载`,
         personDigest?.digest_text ? "AI 摘要" : null,
         selectedConversation.handle ? `@${String(selectedConversation.handle).replace(/^@/, "")}` : null,
         labels.data?.selected_label_ids.length ? `${labels.data.selected_label_ids.length} 个已保存标签` : null,

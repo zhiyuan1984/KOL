@@ -53,7 +53,7 @@ export function MailDigestCard({ digest }: { digest: MailPersonDigest | null }) 
         </>
       ) : (
         <p className="muted mail-side-hint" data-mail-summary-pending>
-          {digest?.digest_source === "analysis_failed" ? "摘要生成失败，保留旧摘要。" : "摘要生成中…点「收取」后可再试。"}
+          {digest?.digest_source === "analysis_failed" ? "上次摘要生成失败，可在提问框重试。" : "尚未生成摘要。可在提问框请求生成；收取邮件不会自动生成摘要。"}
         </p>
       )}
     </>

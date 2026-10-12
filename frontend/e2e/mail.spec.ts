@@ -173,7 +173,7 @@ test("opening a fallback thread and 收取 404 do not create sessions", async ({
   await expect(page.locator("[data-mail-timeline-item][data-mail-selected='true']")).toHaveCount(1);
   await expect(page.locator("[data-mail-body]")).toHaveCount(1);
   await expect(page.locator("[data-mail-body]")).not.toHaveAttribute("open", /.*/);
-  await expect(page.locator("[data-mail-summary-card]")).toContainText("摘要生成中…点「收取」后可再试。");
+  await expect(page.locator("[data-mail-summary-card]")).toContainText("尚未生成摘要。可在提问框请求生成；收取邮件不会自动生成摘要。");
   await expect(page.locator("[data-mail-translation]")).toContainText("暂无中文译稿。");
   await page.locator("[data-mail-sync]").click();
   await expect(page.locator("[data-mail-error]")).toContainText("暂时无法收取");

@@ -71,3 +71,8 @@ test('草稿与附件按邮箱会话恢复，提交失败不清空附件',async(
 for(const viewport of [{width:1280,height:400},{width:768,height:1024},{width:375,height:667}])test(`短高与窄宽 ${viewport.width}x${viewport.height} 单输入、写信及发送真实可达`,async({page})=>{
  await page.setViewportSize(viewport);await fixture(page);await open(page);if(viewport.width<=1100)await page.locator('[data-mail-pane="detail"]').click();await page.locator('[data-mi-compose]').click();await expect(page.locator('[data-mail-compose-subject]')).toBeVisible();const send=page.locator('[data-send]');await send.scrollIntoViewIfNeeded();await expect(send).toBeVisible();const rect=await send.boundingBox();expect(rect && rect.y>=0 && rect.y+rect.height<=viewport.height+1).toBeTruthy();await expect(page.locator('[data-composer-input]')).toHaveCount(1);await page.screenshot({path:test.info().outputPath(`gmail-${viewport.width}x${viewport.height}.png`)});
 });
+
+test('缺原文与摘要显示诚实空态，不把0/0或未执行的摘要冒充就绪',async({page})=>{
+ const {posts}=await fixture(page,{'/api/queries/mail.conversation':async r=>{await r.fulfill({json:{conversation:CONV,messages:[]}});},'/api/queries/mail.person':async r=>{await r.fulfill({json:{mailbox:BOX,peer_email:CONV.peer_email,digest_text:''}});}});
+ await open(page);await expect(page.locator('[data-mail-summary-pending]')).toContainText('尚未生成摘要');await expect(page.locator('[data-mi-aibar]')).toContainText('原文尚未同步');await expect(page.locator('[data-mi-aibar]')).not.toContainText('0/0');expect(posts).toHaveLength(0);
+});
