@@ -1,3 +1,4 @@
+import type {AgentOrganizationState} from './agent-organization.js';
 export type AgentSkillRelease = { skill_id: string; release_hash: string; knowledge_revision: number | null };
 export type AgentContent = { name: string; description: string; skills: AgentSkillRelease[] };
 export type AgentDraft = AgentContent & { revision: number; updated_at: string; updated_by: string };
@@ -12,6 +13,7 @@ export type AgentWorkspaceState = {
   id: string; name: string; description: string; status: "draft" | "published" | "disabled";
   version: number; published_revision: number | null; created_at: string; updated_at: string;
   effective: AgentContent; draft: AgentDraft | null;
+  organization: AgentOrganizationState;
   actions: { edit: boolean; publish: boolean; disable: boolean; enable: boolean };
 };
 export type AgentReleaseCheck = {

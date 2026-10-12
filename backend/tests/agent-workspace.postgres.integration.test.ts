@@ -15,6 +15,7 @@ import {HttpFail} from "../src/host/errors.js";
 import {agentSkillCatalog,agentWorkspace,agentWorkspaceDetail,saveAgentDraft,prepareAgentRelease,publishAgentRelease,changeAgentAvailability,assertLegacyAgentWriteAllowed} from "../src/agents/workspace.js";
 import {assertRuntimeSkill} from "../src/runtime/execution.js";
 import {setAgentSkill,setAgentSkills} from "../src/runtime/store.js";
+import {prepareAgentOrganization,changeAgentOrganization} from '../src/agents/organization.js';
 
 const testDatabaseUrl=process.env.TEST_POSTGRES_URL || process.env.TEST_DATABASE_URL;
 describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release boundaries",()=>{
@@ -32,10 +33,14 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   await postgresPool().query("INSERT INTO organization_people(person_ref,user_id,display_name,created_at,updated_at) VALUES('person-admin','admin','管理员',$1,$1),('person-employee','employee','员工',$1,$1)",[stamp]);
   await postgresPool().query("INSERT INTO organization_units(id,company_id,type,level,parent_id,display_name,head_person_ref,created_at,updated_at) VALUES('company','company','company',1,NULL,'测试公司','person-admin',$1,$1),('department','company','department',2,'company','测试部门',NULL,$1,$1)",[stamp]);
   await postgresPool().query("INSERT INTO organization_memberships(id,company_id,org_unit_id,person_ref,created_at,updated_at) VALUES('membership','company','department','person-employee',$1,$1)",[stamp]);
+  await postgresPool().query("INSERT INTO organization_units(id,company_id,type,level,parent_id,display_name,created_at,updated_at) VALUES('owner-root','company','center',1,'company','一级中心',$1,$1),('owner-dept','company','center',2,'owner-root','二级部门',$1,$1),('owner-team','company','department',3,'owner-dept','三级小组',$1,$1),('owner-other','company','department',2,'owner-root','另一部门',$1,$1),('foreign-root','foreign','center',1,'foreign','外公司中心',$1,$1)",[stamp]);
   process.env.AUTH_MODE='enabled';resetConn();
+  await postgresPool().query("INSERT INTO organization_units(id,company_id,type,level,parent_id,display_name,created_at,updated_at) VALUES('owner-ai','company','team',4,'owner-team','AI产品组',$1,$1)",[stamp]);
  },150000);
  beforeEach(async()=>{
-  await postgresPool().query("TRUNCATE agent_release_receipts,agent_release_preparations,agent_workspace_drafts,agent_workspace_versions");
+  await postgresPool().query("TRUNCATE agent_release_receipts,agent_release_preparations,agent_workspace_drafts,agent_workspace_versions,agent_organization_receipts,agent_organization_preparations,agent_organization_memberships");
+  await postgresPool().query("DELETE FROM audit_events WHERE event_type LIKE 'admin.agent.%' AND payload::jsonb->>'agent_id'=$1",[agentId]);
+  await postgresPool().query("UPDATE organization_units SET status='active',display_name=CASE id WHEN 'owner-dept' THEN '二级部门' WHEN 'owner-team' THEN '三级小组' ELSE display_name END,parent_id=CASE id WHEN 'owner-team' THEN 'owner-dept' ELSE parent_id END WHERE id IN ('owner-dept','owner-team')");
   await postgresPool().query("DELETE FROM agent_bindings WHERE agent_id=$1",[agentId]);await postgresPool().query("DELETE FROM runtime_agent_skills WHERE agent_id=$1",[agentId]);await postgresPool().query("DELETE FROM managed_agents WHERE id=$1",[agentId]);
   await postgresPool().query("DELETE FROM skill_sops WHERE id=ANY($1::text[])",[[skillA,skillB]]);await postgresPool().query("DELETE FROM skill_lifecycle WHERE skill_id=ANY($1::text[])",[[skillA,skillB]]);await postgresPool().query("DELETE FROM skill_knowledge_configs WHERE skill_id=ANY($1::text[])",[[skillA,skillB]]);
   await postgresPool().query("DELETE FROM org_versions WHERE company_id='company'");
@@ -49,6 +54,64 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   await saveAgentDraft(actor,agentId,input());const row=await agentWorkspaceDetail(agentId);
   expect(row.name).toBe('现有岗位');expect(row.effective.skills.map(value=>value.skill_id)).toEqual([skillA]);expect(row.draft?.name).toBe('修订后的岗位');expect(row.versions[0].version).toBe(1);
   expect(row.coverage.user_ids.sort()).toEqual(['admin','employee']);
+ });
+ const ownerPreview=(org_unit_id:string|null='owner-team',expected_revision=0,company_id:string|null=org_unit_id?'company':null)=>prepareAgentOrganization(actor,agentId,{company_id,org_unit_id,expected_revision});
+ const ownerChange=(preparation_id:string,request_id=randomUUID())=>changeAgentOrganization(actor,agentId,{preparation_id,request_id,confirmed:true,reason:'明确岗位归属'});
+ it('migrates existing Agents as unassigned and uses the native organization directory',async()=>{
+  const workspace=await agentWorkspace();expect(workspace.agents.find(row=>row.id===agentId)?.organization.assignment).toBeNull();
+  expect(workspace.browse.facets.ownership.find(option=>option.value==='unassigned')?.count).toBe(workspace.agents.length);
+  expect(workspace.organization_directory.selectable_ids).toContain('owner-team');
+  expect(workspace.browse.facets.level3.find(option=>option.value==='owner-team')?.path).toBe('一级中心 / 二级部门 / 三级小组');
+ });
+ it('assigns, moves and clears a single primary department with immutable receipts, keeping human qualification and drafts',async()=>{
+  // Initialize the existing runtime registry bootstrap before taking either preview snapshot.
+  expect(canUseAgent('employee',agentId)).toBe(true);
+  await saveAgentDraft(actor,agentId,input());const releaseCheck=await prepareAgentRelease(actor,agentId),before=await agentWorkspaceDetail(agentId);
+  const check=await ownerPreview();expect(check.after?.path.map(unit=>unit.level)).toEqual([1,2,3]);
+  const key=randomUUID(),[first,replay]=await Promise.all([ownerChange(check.preparation_id,key),ownerChange(check.preparation_id,key)]);expect(first.id).toBe(replay.id);
+  const assigned=await agentWorkspaceDetail(agentId);expect(assigned.organization.revision).toBe(1);expect(assigned.bindings).toEqual(before.bindings);expect(assigned.coverage).toEqual(before.coverage);expect(assigned.draft).toEqual(before.draft);expect(assigned.effective).toEqual(before.effective);expect(assigned.version).toBe(before.version);expect(canUseAgent('employee',agentId)).toBe(true);
+  const scoped=await agentWorkspace({level1:'owner-root',level2:'owner-dept',level3:'owner-team'});expect(scoped.browse.rows.map(row=>row.id)).toEqual([agentId]);expect(scoped.browse.facets.level1.find(option=>option.value==='owner-root')?.count).toBe(1);
+  const moved=await ownerPreview('owner-root',1);await ownerChange(moved.preparation_id);expect((await agentWorkspace({level1:'owner-root'})).browse.rows.map(row=>row.id)).toEqual([agentId]);expect((await agentWorkspace({level2:'owner-dept'})).browse.rows).toEqual([]);
+  const cleared=await ownerPreview(null,2);await ownerChange(cleared.preparation_id);const after=await agentWorkspaceDetail(agentId);expect(after.organization.assignment).toBeNull();expect(after.organization_history.map(row=>row.revision)).toEqual([3,2,1]);expect(Number((await postgresPool().query("SELECT COUNT(*) FROM agent_organization_memberships WHERE agent_id=$1 AND status='active'",[agentId])).rows[0].count)).toBe(0);
+  // Ownership revisions do not invalidate an independent capability release preparation.
+  await release(releaseCheck.preparation_id);expect((await agentWorkspaceDetail(agentId)).published_revision).toBe(2);
+ });
+ it.each(['name','parent','archived','version','concurrent'])('rejects stale ownership confirmation after %s changes',async(kind)=>{
+  const check=await ownerPreview();
+  if(kind==='name')await postgresPool().query("UPDATE organization_units SET display_name='改名部门' WHERE id='owner-dept'");
+  if(kind==='parent')await postgresPool().query("UPDATE organization_units SET parent_id='owner-other' WHERE id='owner-team'");
+  if(kind==='archived')await postgresPool().query("UPDATE organization_units SET status='archived' WHERE id='owner-dept'");
+  if(kind==='version')await postgresPool().query("UPDATE org_versions SET version=2 WHERE company_id='company'");
+  if(kind==='concurrent'){const other=await ownerPreview('owner-root');await ownerChange(other.preparation_id);}
+  await expect(ownerChange(check.preparation_id)).rejects.toMatchObject({status:409});expect((await agentWorkspaceDetail(agentId)).organization.revision).toBe(kind==='concurrent'?1:0);
+ });
+ it('serializes competing ownership commands and rejects idempotency-key reuse with different confirmed content',async()=>{
+  const [first,second]=await Promise.all([ownerPreview('owner-team'),ownerPreview('owner-other')]);
+  const key=randomUUID(),results=await Promise.allSettled([ownerChange(first.preparation_id,key),ownerChange(second.preparation_id)]);expect(results.filter(value=>value.status==='fulfilled')).toHaveLength(1);expect(results.filter(value=>value.status==='rejected')).toHaveLength(1);
+  expect((await agentWorkspaceDetail(agentId)).organization.revision).toBe(1);
+  const stored=(await postgresPool().query('SELECT request_id,preparation_id FROM agent_organization_receipts WHERE agent_id=$1',[agentId])).rows[0];
+  await expect(changeAgentOrganization(actor,agentId,{...stored,confirmed:true,reason:'换了原因'})).rejects.toMatchObject({status:409});
+ });
+ it('uses a genuine fourth-level department while exposing the requested three ancestor filters',async()=>{
+  const check=await ownerPreview('owner-ai');expect(check.after?.path.map(unit=>unit.level)).toEqual([1,2,3,4]);await ownerChange(check.preparation_id);
+  const result=await agentWorkspace({level1:'owner-root',level2:'owner-dept',level3:'owner-team'});expect(result.browse.rows.map(row=>row.id)).toEqual([agentId]);expect(result.organization_directory.selectable_ids).toContain('owner-ai');
+ });
+ it('refreshes current names and ancestors from organization tables and retains archived ownership for recovery',async()=>{
+  await ownerChange((await ownerPreview()).preparation_id);
+  await postgresPool().query("UPDATE organization_units SET display_name='新部门名称' WHERE id='owner-dept'");expect((await agentWorkspaceDetail(agentId)).organization.assignment?.path[1].display_name).toBe('新部门名称');
+  await postgresPool().query("UPDATE organization_units SET parent_id='owner-other' WHERE id='owner-team'");expect((await agentWorkspace({level2:'owner-other'})).browse.rows.map(row=>row.id)).toEqual([agentId]);
+  await postgresPool().query("UPDATE organization_units SET status='archived' WHERE id='owner-team'");const invalid=await agentWorkspace({ownership:'invalid',level3:'owner-team'});expect(invalid.browse.filters.level3).toBe('');expect(invalid.browse.rows.map(row=>row.id)).toEqual([agentId]);expect(invalid.browse.rows[0].organization.assignment?.valid).toBe(false);
+  const history=(await agentWorkspaceDetail(agentId)).organization_history;expect(history[0].after?.path[1].display_name).toBe('二级部门');
+ });
+ it('requires an actor-bound unexpired preview, literal confirmation and reason; composite FK rejects cross-company storage',async()=>{
+  await expect(ownerPreview('foreign-root',0,'company')).rejects.toMatchObject({status:400});
+  const check=await ownerPreview();const command={preparation_id:check.preparation_id,request_id:randomUUID(),confirmed:true,reason:'依据'};
+  await expect(changeAgentOrganization('another-admin',agentId,command)).rejects.toMatchObject({status:409});
+  await expect(changeAgentOrganization(actor,agentId,{...command,confirmed:'true'})).rejects.toMatchObject({status:400});
+  await expect(changeAgentOrganization(actor,agentId,{...command,reason:' '})).rejects.toMatchObject({status:400});
+  await postgresPool().query("UPDATE agent_organization_preparations SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=$1",[check.preparation_id]);await expect(ownerChange(check.preparation_id)).rejects.toMatchObject({status:409});
+  await expect(postgresPool().query("INSERT INTO agent_organization_memberships(id,agent_id,company_id,org_unit_id,revision,status,assigned_by,effective_from) VALUES('invalid-owner',$1,'company','foreign-root',1,'active','admin',$2)",[agentId,stamp])).rejects.toMatchObject({code:'23503'});
+  expect((await agentWorkspaceDetail(agentId)).organization.assignment).toBeNull();
  });
  it("rejects concurrent stale edits and does not change the previous draft",async()=>{
   await saveAgentDraft(actor,agentId,input());await expect(saveAgentDraft(actor,agentId,{...input(),name:'过期修订'})).rejects.toMatchObject({status:409});expect((await agentWorkspaceDetail(agentId)).draft?.name).toBe('修订后的岗位');
@@ -96,6 +159,7 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   const app=new Hono().route('/api',agentWorkspaceRouter);app.onError((e,c)=>c.json({message:e.message},(e instanceof HttpFail?e.status:500) as 403));
   const user:AppUser={id:'employee',username:'employee',name:'员工',handle:'employee',roles:['employee'],role:'employee',brands:[],site:'department',manager_user_id:null,active:true,exam_passed:true,exam_todo_count:0,exam_module:''};
   expect((await withScopedUser(user,()=>app.request('/api/admin/agents/workspace-v1'))).status).toBe(403);
+  for(const suffix of ['organization-preview-v1','organization-v1'])expect((await withScopedUser(user,()=>app.request(`/api/admin/agents/${encodeURIComponent(agentId)}/${suffix}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}))).status).toBe(403);
   expect((await agentWorkspace()).agents.find(value=>value.id===agentId)?.coverage.org_version).toBe(1);
  });
  it("requires a fresh revoke preview after another binding changes and immediately removes qualification",async()=>{

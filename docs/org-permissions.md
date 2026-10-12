@@ -80,12 +80,15 @@ responsibilities:
 |---|---|---|---|
 | `company_membership` | User | Company | 用户属于哪个租户 |
 | `organization_membership` | User | OrganizationUnit | 主组织/协作组织、任期和岗位 |
+| `agent_organization_membership` | Agent | OrganizationUnit | 数字员工的单一主归属部门；引用同公司组织节点，独立于真人使用资格 |
 | `brand_scope_membership` | User/OrganizationUnit | Brand + Region | 可服务哪些品牌和区域；部门负责人按公司政策自动为全部范围 |
 | `responsibility_assignment` | User/Role | Domain/Brand/Campaign | 对目标和规则负责 |
 | `task_assignment` | User/Team | Task/WorkItem | 当前执行责任 |
 | `approval_assignment` | User/Role | Action/Policy | 某次高风险动作的审批权 |
 
 这些关系不能合并成 `owner_id`。一个人可以是 KOL 业务负责人、某品牌执行人和某封邮件的审批人，但三者是不同关系、不同授权和不同审计记录。
+
+数字员工主归属口径（用户 2026-10-12 明确要求，方案见 [实施计划](superpowers/specs/2026-10-12-admin-agent-organization-membership-plan.md)）：归属允许落在真实组织树中的任意一级，上级路径与部门筛选由组织表推导。旧 Agent 在得到明确配置前保留未设置状态；使用绑定、岗位名称和执行组织均不能作为推断依据。设置、调动或清除归属是独立正式治理动作，须预览、确认原因、复核当前归属及组织版本并记录前后路径、操作者和回执；不创建真人账号、不修改真人成员关系，不自动增减人员使用资格、技能装配或数据范围。归档及异常节点保留历史说明和调整入口，不自动调动归属。
 
 ### 角色
 

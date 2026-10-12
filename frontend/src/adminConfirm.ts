@@ -78,6 +78,7 @@ export type AdminConfirmKind =
   | "agent-publish"
   | "agent-disable"
   | "agent-binding-revoke"
+  | "agent-organization"
   | "agent-knowledge-unbind";
 
 /** Admin-opened confirms: Cancel abandons the write. It is not Host-proposal 拒绝. */

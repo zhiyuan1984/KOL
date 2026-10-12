@@ -27,6 +27,8 @@ Agent 也是人员使用权限的锚点。`AgentBinding` 指向权威组织树�
 
 ### Expert / DigitalEmployee 发布资产
 
+`AgentOrganizationMembership` 表达管理侧 Agent 作为数字员工的岗位主归属，引用同公司权威 `OrganizationUnit`；一个 Agent 同时最多一个有效主归属，可以为空。上级路径读取组织关系表，归属历史保存确认时的事实快照。它与 `AgentBinding` 的真人使用资格、技能装配及岗位专家发布包分别管理，不把 Agent 写入真人成员表，也不从主归属推导运行权限。口径及确认要求见 [组织关系](org-permissions.md)；实施与质量证据见 [实施计划](superpowers/specs/2026-10-12-admin-agent-organization-membership-plan.md)。
+
 `experts/<id>/manifest.yaml` 是首版岗位专家发布包（当前仅 `expert:kol`）。员工端字段锁定为：`id` / `version` / `status` / `display_name` / `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`。`agents/<id>/manifest.yaml` 仍是 Agent 发布包（内部依赖，由后端解析）。`POST /api/experts/:id/summon` 只创建绑定会话并持久化 `expert_id` + `expert_version`，返回 `{ session_id, expert_id, expert_version, intro }`；不发信、不写阶段、不自动做高风险动作。无专家团 API。原「本阶段不做组织/部门/品牌授权」口径于 2026-10-03 被 Agent 组织/人员绑定新法取代；当前接口不代表绑定校验已实现。员工专家中心不拥有并列能力面。
 
 安培时代已确认部门负责人公司级范围：`张慧玲`（品牌与用户增长中心，高级副总裁）和 `钟建奎`（推广部，2026-10-03 起接任）自动获得全部品牌、全部区域和普通业务数据 `read/write`；发送、阶段变更、导入、解密等高风险动作仍由 Host Gateway 和确认/审批控制。

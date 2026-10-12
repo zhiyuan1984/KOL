@@ -4,19 +4,13 @@ import WorkspaceSearchInput from "../../components/WorkspaceSearchInput";
 import CompactButton from "../../components/CompactButton";
 import { PropertyList } from "../../components/InformationLayout";
 import { TaskTheme } from "../../tasks/TaskTheme";
-import type { AgentRow, AgentWorkspace } from "./api";
-import type { RefObject } from "react";
+import type { AgentWorkspace } from "./api";
+import {useState,type RefObject} from "react";
+import {Select} from 'antd';
+import type {AgentBrowseFilters} from '../../../../shared/agent-organization';
 
-export type AgentFilters = { query: string; status: string; binding: string; draft: string };
+export type AgentFilters = AgentBrowseFilters;
 export const agentStatusName = (value: string) => ({ draft: "未发布", published: "已发布", disabled: "已停用" }[value] || value);
-
-/** Facets retain every other filter and ignore only their own axis. Counts never infer qualification. */
-export function matchesAgent(row: AgentRow, filters: AgentFilters, ignore?: keyof AgentFilters) {
-  return (ignore === "query" || !filters.query || `${row.name} ${row.description}`.toLocaleLowerCase().includes(filters.query.toLocaleLowerCase()))
-    && (ignore === "status" || filters.status === "all" || row.status === filters.status)
-    && (ignore === "binding" || filters.binding === "all" || (filters.binding === "bound" ? row.bindings.length > 0 : row.bindings.length === 0))
-    && (ignore === "draft" || filters.draft === "all" || (filters.draft === "with" ? Boolean(row.draft) : !row.draft));
-}
 
 export function AgentBrowse({ data, loading, error, filters, selectedId, page, onFilter, onPage, onSelect, onCreate, onReset, onReload, listRef, onScroll }: {
   data: AgentWorkspace | null; loading: boolean; error: string; filters: AgentFilters; selectedId: string; page: number;
@@ -25,25 +19,27 @@ export function AgentBrowse({ data, loading, error, filters, selectedId, page, o
   listRef: RefObject<HTMLElement | null>; onScroll: () => void;
 }) {
   const all = data?.agents || [], ready = Boolean(data && !loading && !error);
-  const rows = all.filter(row => matchesAgent(row, filters));
+  const rows = data?.browse.rows || [],[showEmpty,setShowEmpty]=useState(true);
   const pages = Math.max(1, Math.ceil(rows.length / 20)), currentPage = Math.min(page, pages);
   const facets = [
-    { key: "status" as const, label: "发布状态", options: [["all", "全部"], ["draft", "未发布"], ["published", "已发布"], ["disabled", "已停用"]] },
-    { key: "binding" as const, label: "人员绑定", options: [["all", "全部"], ["bound", "已有绑定"], ["unbound", "尚未绑定"]] },
-    { key: "draft" as const, label: "修订草稿", options: [["all", "全部"], ["with", "有草稿"], ["without", "无草稿"]] },
+    { key: "level1" as const, label: "一级部门" },{ key: "level2" as const, label: "二级部门" },{ key: "level3" as const, label: "三级部门" },
+    { key: "ownership" as const, label: "组织归属" },{ key: "status" as const, label: "发布状态" },
+    { key: "binding" as const, label: "人员绑定" },{ key: "draft" as const, label: "修订草稿" },
   ];
   return <section ref={listRef} onScroll={onScroll} className="kbv-list agent-browse-list" aria-label="Agent 列表" data-agent-middle aria-busy={loading}>
     <TaskTheme><KnowledgeFilterBar>
       <WorkspaceSearchInput className="kbv-search" aria-label="搜索名称与职责" placeholder="搜 Agent 名称、职责关键词"
         value={filters.query} onChange={event => onFilter("query", event.target.value)} />
       <div className="kbv-filter-tools"><span>计数随其他筛选条件变化 · 组织授权范围</span>
-        <div><FilterAction onClick={onReset}>重置筛选</FilterAction><FilterAction disabled={loading} onClick={onReload}>刷新</FilterAction><FilterAction className="agent-mobile-create" onClick={onCreate}>新建 Agent</FilterAction></div>
+        <div><FilterAction onClick={()=>setShowEmpty(value=>!value)}>{showEmpty?'收起空部门':'显示空部门'}</FilterAction><FilterAction onClick={onReset}>重置筛选</FilterAction><FilterAction disabled={loading} onClick={onReload}>刷新</FilterAction><FilterAction className="agent-mobile-create" onClick={onCreate}>新建 Agent</FilterAction></div>
       </div>
-      <div className="kbv-scope-rows">{facets.map(facet => <FilterRow key={facet.key} label={facet.label} aria-label={`${facet.label}筛选`}>
-        {facet.options.map(([value, label]) => <FilterOptionButton key={value} label={label} selected={filters[facet.key] === value}
-          countsReady={ready} count={all.filter(row => matchesAgent(row, { ...filters, [facet.key]: value })).length}
-          onClick={() => onFilter(facet.key, value)} />)}
-      </FilterRow>)}</div>
+      <div className="kbv-scope-rows">{facets.map(facet => {
+        const departments=facet.key.startsWith('level'),options=data?.browse.facets[facet.key]||[],visible=options.filter(value=>!departments||showEmpty||!ready||!value.value||value.count>0||filters[facet.key]===value.value);
+        return <FilterRow key={facet.key} label={facet.label} aria-label={`${facet.label}筛选`}>
+          {departments&&options.length>8?<Select className="agent-department-filter" size="small" aria-label={`${facet.label}选择`} showSearch optionFilterProp="label" value={filters[facet.key]} onChange={value=>onFilter(facet.key,value)} options={visible.map(value=>({value:value.value,label:`${value.label}${ready?' '+value.count:''}`,title:value.path||value.label}))}/>:visible.map(value=><FilterOptionButton key={value.value} label={value.label} title={value.path} selected={filters[facet.key]===value.value} countsReady={ready} count={value.count} onClick={()=>onFilter(facet.key,value.value)}/>)}
+          {!data&&<span className="agent-help">正在读取…</span>}
+        </FilterRow>;
+      })}</div>
     </KnowledgeFilterBar></TaskTheme>
     <section className="agent-asset-strip" aria-label="Agent 资产概览" data-agent-asset-strip>
       <header><span>组织资产概览</span><small>全局发布状态 · 不随筛选变化{data && loading ? " · 上次结果，正在刷新" : error && data ? " · 上次结果，读取失败" : ""}</small></header>
@@ -70,8 +66,8 @@ export function AgentBrowse({ data, loading, error, filters, selectedId, page, o
   </section>;
 }
 
-export function AgentOverview({ data, onCreate, onUnbound, onDrafts }: {
-  data: AgentWorkspace; onCreate: () => void; onUnbound: () => void; onDrafts: () => void;
+export function AgentOverview({ data, onCreate, onUnbound, onDrafts, onUnassigned }: {
+  data: AgentWorkspace; onCreate: () => void; onUnbound: () => void; onDrafts: () => void;onUnassigned:()=>void;
 }) {
   const rows = data.agents, drafts = rows.filter(row => row.draft).length, unbound = rows.filter(row => !row.bindings.length).length;
   const users = new Set(rows.flatMap(row => row.coverage.user_ids));
@@ -84,6 +80,7 @@ export function AgentOverview({ data, onCreate, onUnbound, onDrafts }: {
       ]} />
     </section>
     <section><h3>待管理事项</h3>
+      <div className="agent-overview-row"><span>未设置组织归属</span><CompactButton onClick={onUnassigned}>查看 {rows.filter(row=>!row.organization.assignment).length} 个</CompactButton></div>
       <div className="agent-overview-row"><span>修订草稿</span><CompactButton onClick={onDrafts}>查看 {drafts} 个</CompactButton></div>
       <div className="agent-overview-row"><span>尚未绑定人员或组织</span><CompactButton onClick={onUnbound}>查看 {unbound} 个</CompactButton></div>
       <p className="agent-help">人员覆盖表示绑定资格；考试和执行条件在所选 Agent 的详情中核对。</p>

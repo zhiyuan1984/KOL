@@ -1,17 +1,23 @@
 import {test,expect,type Page} from '@playwright/test';
-async function surface(page:Page, mixed=false, theme='light'){
+import {agentBrowse} from '../../backend/src/agents/organization-browse';
+async function surface(page:Page, mixed=false, theme='light',owned=false,manyDepartments=false){
  const account={id:'admin',name:'管理员',available_modes:['admin','employee']};
  const skill={id:'skill-one',label:'知识分析',summary:'根据资料形成分析',category:'知识',release_hash:'abcdef0123456789',published:true,document_query:false,risk:'R1',knowledge_revision:null,knowledge_ready:true,resources:[],execution:'skill'};
  const coverage={agent_id:'agent-0',org_version:7,user_ids:['employee'],person_refs:['person-employee'],users:[{user_id:'employee',person_ref:'person-employee',display_name:'员工',via:'unit_member',via_unit_id:'dept',via_unit_display_name:'部门'}]};
  const bindings=[{id:'binding',agent_id:'agent-0',target_type:'organization_unit',target_id:'dept',status:'active',created_at:'2026-10-12T01:00:00Z'}];
- let agents:any[]=Array.from({length:24},(_,i)=>({id:`agent-${i}`,name:`岗位 ${i+1}`,description:`职责 ${i+1}`,status:'published',version:1,published_revision:1,created_at:'2026-10-12T01:00:00Z',updated_at:'2026-10-12T01:00:00Z',effective:{name:`岗位 ${i+1}`,description:`职责 ${i+1}`,skills:[{skill_id:skill.id,release_hash:skill.release_hash,knowledge_revision:null}]},draft:null,actions:{edit:true,publish:false,disable:true,enable:false},bindings,coverage}));
+ const directory={units:[{id:'root',company_id:'company',display_name:'产品中心',level:1,parent_id:'company',status:'active',org_version:7},{id:'dept',company_id:'company',display_name:'产品管理',level:2,parent_id:'root',status:'active',org_version:7},{id:'team',company_id:'company',display_name:'产品咨询组',level:3,parent_id:'dept',status:'active',org_version:7},{id:'root-other',company_id:'company',display_name:'增长中心',level:1,parent_id:'company',status:'active',org_version:7},{id:'dept-other',company_id:'company',display_name:'推广部',level:2,parent_id:'root-other',status:'active',org_version:7}],versions:{company:7},selectable_ids:['root','dept','team','root-other','dept-other']};
+ const assignment=(id:string)=>({id:'owner-'+id,company_id:'company',org_unit_id:id,path:id==='team'?directory.units.slice(0,3):[directory.units[3],directory.units[4]],valid:true,issues:[],assigned_at:'2026-10-12T01:00:00Z',assigned_by:'admin'});
+ if(manyDepartments)for(let i=0;i<9;i++){directory.units.push({id:`extra-${i}`,company_id:'company',display_name:`扩展组 ${i}`,level:3,parent_id:'dept',status:'active',org_version:7});directory.selectable_ids.push(`extra-${i}`);}
+ let agents:any[]=Array.from({length:24},(_,i)=>({id:`agent-${i}`,name:`岗位 ${i+1}`,description:`职责 ${i+1}`,status:'published',version:1,published_revision:1,created_at:'2026-10-12T01:00:00Z',updated_at:'2026-10-12T01:00:00Z',effective:{name:`岗位 ${i+1}`,description:`职责 ${i+1}`,skills:[{skill_id:skill.id,release_hash:skill.release_hash,knowledge_revision:null}]},draft:null,actions:{edit:true,publish:false,disable:true,enable:false},bindings,coverage,organization:{revision:0,assignment:owned&&i<12?assignment(i<8?'team':'dept-other'):null,system:false},organization_history:[]}));
  if(mixed)agents=agents.map((row,i)=>({...row,status:i<4?'draft':i<8?'disabled':'published',published_revision:i<4?null:1,bindings:i%2?bindings:[],draft:i%3===0?{...row.effective,revision:1,updated_at:row.updated_at,updated_by:'admin'}:null}));
- let failSave=false,failRelease=false,blocked=false;const calls:string[]=[],errors:string[]=[];
+ let failSave=false,failRelease=false,failOrganization=false,blocked=false;let ownerCheck:any=null;const calls:string[]=[],errors:string[]=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname,method=route.request().method();let json:any=[];
   if(path==='/api/auth/status')json={authenticated:true,account};else if(path==='/api/me')json=account;else if(path==='/api/preferences')json={theme};else if(path==='/api/health')json={ok:true};else if(path==='/api/cron/jobs')json={jobs:[]};
-  else if(path==='/api/admin/agents/workspace-v1')json={agents,skills:[skill],units:[{id:'dept',company_id:'company',display_name:'部门',level:2,parent_id:null,status:'active'}],people:[{person_ref:'person-employee',display_name:'员工',user_id:'employee',company_id:'company',unit_ids:['dept']}]};
+  else if(path==='/api/admin/agents/workspace-v1')json={agents,browse:agentBrowse(agents,directory.units,Object.fromEntries(new URL(route.request().url()).searchParams)),organization_directory:directory,skills:[skill],units:[{id:'dept',company_id:'company',display_name:'部门',level:2,parent_id:null,status:'active'}],people:[{person_ref:'person-employee',display_name:'员工',user_id:'employee',company_id:'company',unit_ids:['dept']}]};
+  else if(path.endsWith('/organization-preview-v1')){calls.push('owner-preview');const row=agents.find(value=>value.id===path.split('/')[4]),input=route.request().postDataJSON();if(input.expected_revision!==row.organization.revision)return route.fulfill({status:409,json:{detail:'归属版本已变化，请重新读取'}});ownerCheck={preparation_id:'owner-preparation',expires_at:'2099-10-12T00:00:00Z',revision:row.organization.revision,org_version:7,before:row.organization.assignment,after:input.org_unit_id?assignment(input.org_unit_id):null};json=ownerCheck;}
+  else if(path.endsWith('/organization-v1')){calls.push('owner-change');const row=agents.find(value=>value.id===path.split('/')[4]);if(failOrganization||ownerCheck.revision!==row.organization.revision)return route.fulfill({status:409,json:{detail:'部门关系已变化，请重新预览'}});expect(route.request().postDataJSON()).toMatchObject({preparation_id:ownerCheck.preparation_id,confirmed:true,reason:'岗位调动'});json={id:'owner-receipt',agent_id:row.id,revision:row.organization.revision+1,actor:'admin',changed_at:'2026-10-12T03:00:00Z',before:ownerCheck.before,after:ownerCheck.after,reason:'岗位调动'};row.organization={...row.organization,revision:json.revision,assignment:json.after};row.organization_history.unshift(json);}
   else if(path==='/api/admin/agents/draft-v1'||/^\/api\/admin\/agents\/[^/]+\/draft-v1$/.test(path)){
    calls.push('save');if(failSave)return route.fulfill({status:409,json:{detail:'草稿已被其他人修改'}});const input=route.request().postDataJSON(),id=path.split('/')[4],row=agents.find(value=>value.id===id),draft={name:input.name,description:input.description,skills:input.skill_ids.map((id:string)=>({skill_id:id,release_hash:skill.release_hash,knowledge_revision:null})),revision:1,updated_at:'2026-10-12T02:00:00Z',updated_by:'admin'};
    const next=row?{...row,draft}:{...agents[0],id:'created',name:input.name,description:input.description,status:'draft',published_revision:null,draft,effective:{name:input.name,description:input.description,skills:[]},bindings:[],coverage:{...coverage,users:[],user_ids:[]}};agents=row?agents.map(value=>value.id===id?next:value):[...agents,next];json=next;
@@ -27,7 +33,7 @@ async function surface(page:Page, mixed=false, theme='light'){
   await route.fulfill({json});
  });
  await page.goto('/admin/agents');await expect(page.locator('[data-agent-record]')).toHaveCount(20);
- return {calls,errors,failSave:()=>failSave=true,failRelease:()=>failRelease=true,block:()=>blocked=true};
+ return {calls,errors,failSave:()=>failSave=true,failRelease:()=>failRelease=true,failOrganization:()=>failOrganization=true,moveOwner:()=>{agents[0].organization={revision:1,assignment:assignment('dept-other'),system:false};},block:()=>blocked=true};
 }
 test('list, identity-first detail and return preserve page and keyboard focus',async({page})=>{
  const s=await surface(page);await expect(page.locator('[data-agent-mode=list]')).toBeVisible();await expect(page.getByRole('heading',{name:'职责与身份',exact:true})).toHaveCount(0);
@@ -81,7 +87,7 @@ test('Knowledge baseline: compact stable columns, scoped facets and independent 
 
 test('failed list refresh and failed detail keep their own recovery without fabricating empty data',async({page})=>{
  const s=await surface(page);
- await page.route('**/api/admin/agents/workspace-v1',route=>route.fulfill({status:503,json:{detail:'列表暂不可用'}}));
+ await page.route('**/api/admin/agents/workspace-v1*',route=>route.fulfill({status:503,json:{detail:'列表暂不可用'}}));
  await page.getByRole('button',{name:'刷新',exact:true}).click();
  await expect(page.locator('[data-agent-middle]')).toContainText('列表暂不可用');
  await expect(page.locator('[data-agent-count]')).toHaveText('24 个 Agent（上次结果）');
@@ -103,6 +109,43 @@ test('dark theme keeps compact identity and the shared filter selected state',as
  await expect(page.getByRole('heading',{name:'岗位 9',exact:true})).toBeVisible();
  await page.screenshot({path:testInfo.outputPath('agent-dark.png')});
  expect(s.errors).toEqual([]);
+});
+
+test('three organization facets use department ancestry and keep global counts, search focus and zero selections',async({page},testInfo)=>{
+ const s=await surface(page,false,'light',true);
+ const first=page.getByLabel('一级部门筛选',{exact:true}),second=page.getByLabel('二级部门筛选',{exact:true}),third=page.getByLabel('三级部门筛选',{exact:true});
+ await first.getByRole('button',{name:'产品中心 8',exact:true}).click();await expect(second.getByRole('button',{name:'产品管理 8',exact:true})).toBeVisible();await expect(second).not.toContainText('推广部');
+ await second.getByRole('button',{name:'产品管理 8',exact:true}).click();await third.getByRole('button',{name:'产品咨询组 8',exact:true}).click();await expect(page.locator('[data-agent-count]')).toHaveText('8 个 Agent');
+ await expect(page.locator('[data-agent-status=published] strong')).toHaveText('24');
+ const search=page.getByLabel('搜索名称与职责',{exact:true});await search.fill('不存在');await expect(page.locator('[data-agent-count]')).toHaveText('0 个 Agent');await expect(search).toBeFocused();
+ await page.getByRole('button',{name:'收起空部门',exact:true}).click();await expect(third.getByRole('button',{name:'产品咨询组 0',exact:true})).toHaveAttribute('aria-pressed','true');
+ await page.getByRole('button',{name:'显示空部门',exact:true}).click();await search.fill('');await expect(page.locator('[data-agent-count]')).toHaveText('8 个 Agent');await page.screenshot({path:testInfo.outputPath('agent-organization-filters.png')});
+ await first.getByRole('button',{name:'增长中心 0',exact:true}).click();await expect(second.getByRole('button',{name:'全部 4',exact:true})).toHaveAttribute('aria-pressed','true');await expect(third.getByRole('button',{name:'全部 4',exact:true})).toHaveAttribute('aria-pressed','true');await expect(page.locator('[data-agent-count]')).toHaveText('4 个 Agent');expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+});
+async function chooseOwner(page:Page){
+ await page.locator('[data-agent-record="agent-0"]').click();await page.getByRole('button',{name:'设置组织归属',exact:true}).click();await page.getByLabel('归属部门',{exact:true}).click();await page.locator('.ant-select-tree-node-content-wrapper').filter({hasText:'产品咨询组'}).click();await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);await page.getByRole('button',{name:'预览组织归属',exact:true}).click();await expect(page.locator('[data-agent-organization-preview]')).toContainText('产品中心 / 产品管理 / 产品咨询组');
+ for(const field of await page.locator('[data-agent-organization] .ant-select').all())expect(await field.evaluate(element=>element.getBoundingClientRect().height)).toBe(32);
+}
+test('organization changes require preview and reason; cancellation writes nothing and confirmation keeps capability and human usage',async({page},testInfo)=>{
+ const s=await surface(page);await chooseOwner(page);await page.getByRole('button',{name:'确认归属调整（R3）',exact:true}).click();await expect(page.getByRole('dialog').locator('[data-admin-confirm-ok]')).toBeDisabled();await page.getByRole('dialog').locator('[data-admin-confirm-cancel]').click();expect(s.calls).toEqual(['owner-preview']);await page.screenshot({path:testInfo.outputPath('agent-organization-preview.png')});
+ expect(await page.locator('.agent-workspace .compact-button--primary:visible').count()).toBe(1);
+ await page.getByRole('button',{name:'确认归属调整（R3）',exact:true}).click();await page.getByRole('dialog').locator('[data-admin-confirm-reason]').fill('岗位调动');await page.getByRole('dialog').locator('[data-admin-confirm-ok]').dblclick();await expect(page.locator('.agent-notice')).toContainText('owner-receipt');await expect(page.locator('[data-agent-organization]')).toContainText('产品中心 / 产品管理 / 产品咨询组');await expect(page.getByRole('button',{name:'创建修订草稿',exact:true})).toBeVisible();await expect(page.locator('[data-agent-right]')).toContainText('1 个绑定点 · 覆盖 1 个员工账号');expect(s.calls).toEqual(['owner-preview','owner-change']);expect(s.errors).toEqual([]);await page.screenshot({path:testInfo.outputPath('agent-organization-assigned.png')});
+});
+test('ownership conflict retains inputs and dirty exit can be cancelled',async({page})=>{
+ const s=await surface(page);await chooseOwner(page);s.failOrganization();await page.getByRole('button',{name:'确认归属调整（R3）',exact:true}).click();await page.getByRole('dialog').locator('[data-admin-confirm-reason]').fill('岗位调动');await page.getByRole('dialog').locator('[data-admin-confirm-ok]').click();await expect(page.getByRole('dialog')).toContainText('部门关系已变化');await page.getByRole('dialog').locator('[data-admin-confirm-cancel]').click();await expect(page.locator('[data-agent-organization-preview]')).toContainText('产品咨询组');page.once('dialog',dialog=>dialog.dismiss());await page.getByRole('button',{name:'返回列表',exact:true}).click();await expect(page.locator('[data-agent-mode=detail]')).toBeVisible();await expect(page.getByRole('button',{name:'重新预览归属',exact:true})).toBeVisible();expect(s.calls).toEqual(['owner-preview','owner-change']);expect(s.errors).toEqual([]);
+});
+test('narrow organization preview keeps its fixed confirmation reachable',async({page},testInfo)=>{
+ await page.setViewportSize({width:390,height:844});const s=await surface(page);await chooseOwner(page);await expect(page.getByRole('button',{name:'确认归属调整（R3）',exact:true})).toBeInViewport();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(await page.locator('.agent-workspace .compact-button--primary:visible').count()).toBe(1);await page.screenshot({path:testInfo.outputPath('agent-organization-narrow.png')});expect(s.calls).toEqual(['owner-preview']);expect(s.errors).toEqual([]);
+});
+test('refreshing stale ownership preserves the selected department and prepares against the latest revision',async({page})=>{
+ const s=await surface(page);await chooseOwner(page);s.moveOwner();await page.getByRole('button',{name:'确认归属调整（R3）',exact:true}).click();await page.getByRole('dialog').locator('[data-admin-confirm-reason]').fill('岗位调动');await page.getByRole('dialog').locator('[data-admin-confirm-ok]').click();await expect(page.getByRole('dialog')).toContainText('部门关系已变化');await page.getByRole('dialog').locator('[data-admin-confirm-cancel]').click();
+  await page.getByRole('button',{name:'刷新归属依据',exact:true}).click();await expect(page.locator('[data-agent-organization]')).toContainText('已重新读取归属依据');await expect(page.locator('[data-agent-organization]').getByText('产品咨询组',{exact:true})).toBeVisible();await page.getByRole('button',{name:'预览组织归属',exact:true}).click();await expect(page.locator('[data-agent-organization-preview]')).toContainText('归属 r1');await expect(page.locator('[data-agent-organization-preview]')).toContainText('增长中心 / 推广部');await page.getByRole('button',{name:'确认归属调整（R3）',exact:true}).click();await page.getByRole('dialog').locator('[data-admin-confirm-reason]').fill('岗位调动');await page.getByRole('dialog').locator('[data-admin-confirm-ok]').click();await expect(page.locator('.agent-notice')).toContainText('owner-receipt');expect(s.calls).toEqual(['owner-preview','owner-change','owner-preview','owner-change']);expect(s.errors).toEqual([]);
+});
+test('clearing ownership is an explicit confirmed action and keeps usage bindings',async({page})=>{
+ const s=await surface(page,false,'light',true);await page.locator('[data-agent-record="agent-0"]').click();await page.getByRole('button',{name:'调整组织归属',exact:true}).click();await page.getByLabel('明确清除当前归属',{exact:true}).check();await page.getByRole('button',{name:'预览组织归属',exact:true}).click();await expect(page.locator('[data-agent-organization-preview]')).toContainText('→ 未设置组织归属');await page.getByRole('button',{name:'确认归属调整（R3）',exact:true}).click();await page.getByRole('dialog').locator('[data-admin-confirm-reason]').fill('岗位调动');await page.getByRole('dialog').locator('[data-admin-confirm-ok]').click();await expect(page.getByRole('button',{name:'设置组织归属',exact:true})).toBeVisible();await expect(page.locator('[data-agent-right]')).toContainText('1 个绑定点 · 覆盖 1 个员工账号');expect(s.calls).toEqual(['owner-preview','owner-change']);expect(s.errors).toEqual([]);
+});
+test('large department sets use a compact searchable selector and retain a selected empty node on narrow screens',async({page})=>{
+ await page.setViewportSize({width:390,height:844});const s=await surface(page,false,'light',false,true);const selection=page.getByLabel('三级部门选择',{exact:true});await selection.fill('扩展组 8');await page.locator('.ant-select-item-option-content').filter({hasText:'扩展组 8 0'}).click();await expect(page.locator('[data-agent-count]')).toHaveText('0 个 Agent');await page.getByRole('button',{name:'收起空部门',exact:true}).click();await expect(page.getByLabel('三级部门筛选',{exact:true})).toContainText('扩展组 8');expect(await selection.locator('..').evaluate(element=>element.closest('.ant-select')!.getBoundingClientRect().height)).toBe(24);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(s.errors).toEqual([]);expect(s.calls).toEqual([]);
 });
 
 test.describe('touch Agent browser',()=>{

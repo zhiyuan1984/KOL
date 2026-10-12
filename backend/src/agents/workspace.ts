@@ -7,6 +7,9 @@ import { taskDefinitions } from "../tasks/registry.js";
 import { runtimeHash } from "../runtime/execution.js";
 import { computeEffectiveAgentUsers, type AgentBindingRow, type OrganizationCoverageSource } from "../runtime/organization-tree.js";
 import type { AgentContent, AgentDraft, AgentReleaseCheck, AgentReleaseReceipt, AgentSkillOption, AgentVersionRecord, AgentWorkspaceState } from "../../../shared/agent-workspace.js";
+import {organizationDirectory,organizationState,organizationHistory} from './organization.js';
+import {agentBrowse} from './organization-browse.js';
+import type {AgentBrowseFilters,AgentOrganizationDirectory} from '../../../shared/agent-organization.js';
 
 type Row = Record<string, any>;
 const stamp = () => new Date().toISOString();
@@ -75,24 +78,24 @@ async function content(db: PoolClient, item: Row, catalog: AgentSkillOption[]): 
     knowledge_revision: catalog.find(skill => skill.id === row.skill_id)?.knowledge_revision ?? null,
   })) };
 }
-async function state(db: PoolClient, item: Row, catalog: AgentSkillOption[]): Promise<AgentWorkspaceState> {
+async function state(db: PoolClient, item: Row, catalog: AgentSkillOption[], directory?:AgentOrganizationDirectory): Promise<AgentWorkspaceState> {
   const stored = (await rows(db, "SELECT * FROM agent_workspace_drafts WHERE agent_id=$1", [item.id]))[0];
   const draft: AgentDraft | null = stored ? { ...json(stored.content), revision: Number(stored.revision), updated_at: stored.updated_at, updated_by: stored.updated_by } : null;
   return { id: item.id, name: item.name, description: item.description, status: item.status,
     version: Number(item.version), published_revision: item.published_revision ? Number(item.published_revision) : null,
-    created_at: item.created_at, updated_at: item.updated_at, effective: await content(db, item, catalog), draft,
+    created_at: item.created_at, updated_at: item.updated_at, effective: await content(db, item, catalog), draft, organization:await organizationState(db,item.id,directory),
     actions: { edit: true, publish: Boolean(draft), disable: item.status === "published", enable: item.status === "disabled" && Boolean(item.published_revision) } };
 }
-export async function agentWorkspace() {
+export async function agentWorkspace(filters:Partial<AgentBrowseFilters>={}) {
   return postgresTransaction(async db => {
-    const catalog = await agentSkillCatalog(db), org = await organization(db);
+    const catalog = await agentSkillCatalog(db), org = await organization(db),directory=await organizationDirectory(db);
     const agents = [];
     for (const item of await rows(db, "SELECT * FROM managed_agents ORDER BY created_at,id")) {
       const bound = await bindings(db, item.id);
-      agents.push({ ...await state(db, item, catalog), bindings: bound,
+      agents.push({ ...await state(db, item, catalog,directory), bindings: bound,
         coverage: computeEffectiveAgentUsers(item.id, bound, undefined, org) });
     }
-    return { agents, skills: catalog, units: org.units, people: org.people.map(person => ({ ...person,
+    return { agents, browse:agentBrowse(agents,directory.units,filters),organization_directory:directory, skills: catalog, units: org.units, people: org.people.map(person => ({ ...person,
       company_id: org.memberships.find(row => row.person_ref === person.person_ref)?.company_id || null,
       company_ids: [...new Set(org.memberships.filter(row=>row.person_ref===person.person_ref).map(row=>row.company_id))],
       unit_ids: org.memberships.filter(row => row.person_ref === person.person_ref).map(row => row.org_unit_id),
@@ -123,7 +126,7 @@ export async function agentWorkspaceDetail(id: string) {
       ];
     });
     return { ...await state(db, item, catalog), bindings: bound, coverage, versions, exam_blocked: examBlocked.map(row=>({...row,missing:Number(row.missing)})),
-      dependency_issues: issues, health_evidence: "configuration_only" as const };
+      organization_history:await organizationHistory(db,id),dependency_issues: issues, health_evidence: "configuration_only" as const };
   }, { isolation: "REPEATABLE READ" });
 }
 function validateContent(input: { name?: unknown; description?: unknown; skill_ids?: unknown }, catalog: AgentSkillOption[]): AgentContent {

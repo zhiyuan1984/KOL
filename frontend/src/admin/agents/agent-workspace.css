@@ -19,6 +19,11 @@
 .agent-workspace .compact-button:hover:not(:disabled) { background:var(--btn-text-hover-bg); }
 .agent-workspace .compact-button--primary:hover:not(:disabled) { background:var(--accent); }
 .agent-workspace .knowledge-filter-bar .kbv-search { margin:0; }
+.agent-workspace .ant-select { height:var(--control-h-form); min-height:var(--control-h-form); box-sizing:border-box; padding-block:0; align-items:center; font-size:var(--ds-font-sm); line-height:var(--lh-control-sm); }
+.agent-workspace .ant-select-content { line-height:var(--lh-control-sm); }
+.agent-workspace .ant-select input { min-height:0; line-height:var(--lh-control-sm); padding-block:0; }
+.agent-workspace .agent-department-filter { width:var(--field-value-max-w); max-width:100%; min-width:0; height:var(--control-h-sm); min-height:var(--control-h-sm); }
+.agent-workspace [data-agent-organization] .ant-select { width:100%; min-width:0; }
 .agent-workspace .knowledge-filter-bar .agent-mobile-create { display:none; }
 .agent-list-toolbar,.agent-list-columns { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-1); padding:var(--space-1) var(--space-3); border-bottom:1px solid var(--border); }
 .agent-list-toolbar { font-size:var(--ds-font-xs); }
