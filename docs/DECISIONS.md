@@ -2,6 +2,23 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-12：侧栏 IA 调整——工作台 / 业务地图 / 知识库 / 去审批 / Agent 移组
+
+- **状态**：已接受（用户 2026-10-12 两张标注截图 + 同日当面更正：Agent 是**菜单条目挪位**，不是把页面嵌进连接/本体）。
+- **决定者**：用户（产品发起人）；UI/UX 专家负责导航文字、分簇与 tab 交互，平台产品经理负责 IA 记录，前端专家负责实现。
+- **背景**：员工端「新任务 / 线索管理 / 合作项目」与管理端「线索漏斗 / 项目交付 / 知识 / 审批 / Agent」各占独立侧栏条目；用户要求把业务面收进同一表面的 tab，并调整管理端条目文字与分簇。
+- **决定**：
+  1. 员工端「新任务」菜单文字改为「工作台」（`data-nav="new-task"` 与 `href="/"` 不变）。
+  2. 员工端「线索管理 + 合作项目」并为「业务地图」一行（`data-nav="business-map"`，href `/leads`）；`/leads` 与 `/cooperations` 两个既有地址渲染同一「业务地图」表面、以 tab 互切（新 `pages/BusinessMap.tsx` + `components/SectionTabs.tsx`），两页组件本体与其 h1 / aria 不变。
+  3. 管理端「线索漏斗 + 项目交付」并为「业务地图」一行（`ADMIN_NAV_GROUPS` 的 `business-map`，`sections: ["lead-funnel","project-delivery"]` 映射两个看板路由；`href` 明面走 `/admin/lead-funnel`）；两个看板路由保留、以 tab 互切（新 `pages/AdminBusinessMap.tsx`），`AdminConsole` 原两处分发改由该壳渲染。
+  4. 管理端「知识」菜单文字改为「知识库」（id / href / 面板不变）。
+  5. 管理端「审批」从菜单去掉：分节保留于 `ADMIN_HIDDEN_SECTIONS`，`/admin/approvals` 与「审批角色授权」面板沿用深链可用；是否并入「评审流程」另裁。
+  6. 管理端「Agent」由数字员工簇移入资产簇、排在「知识库」与「本体」之间（连接 / 知识库 / Agent 同组；id / href / label / 图标不变）。
+- **理由**：用户口径即产品口径；沿用既有先例「菜单文字与分簇变动不改 href / id / 面板 / 权限闸门」（ADR-2026-09-27 / ADR-2026-10-04）；「去掉」按菜单口径执行、不删能力；`ia-information-architecture.md` §1.1——本变更**不做路由迁移**：两处业务地图保留原进入地址（`/leads`、`/cooperations`、`/admin/lead-funnel`、`/admin/project-delivery`），深链、下钻参数与既有断言不变。
+- **影响资产**：`frontend/src/layout/adminNav.ts`（`sections?` 字段、`business-map` 行、`ADMIN_HIDDEN_SECTIONS`、`ADMIN_SECTIONS` 派生）、`frontend/src/layout/Workbench.tsx`（工作台文字、KOL业务合卡、管理端高亮支持一行多分节）、`frontend/src/pages/BusinessMap.tsx`（新）、`frontend/src/pages/AdminBusinessMap.tsx`（新）、`frontend/src/components/SectionTabs.tsx`（新）、`frontend/src/App.tsx`（两路由改渲染 BusinessMap）、`frontend/src/pages/AdminConsole.tsx`（业务地图分发改由壳渲染）、`frontend/src/pages/kol-lead-coop.css`、`frontend/src/pages/admin-observability.css`、`frontend/src/layout/sidebarNav.test.ts`、`frontend/e2e/workbench.spec.ts`、`docs/org-permissions.md`（§导航规则·管理端信息架构行）、`docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md`（§3）。
+- **审宪记录**：需求「双端侧栏按截图口径调整」→ 主责 UI/UX 专家 + 平台产品经理 + 前端专家 → CONST-04 / CONST-05 / CONST-08 / CONST-09 / CONST-10 → 细则：`ia-information-architecture.md` §1.1 独立会话与深链、§4 导航密度（簇间只用分割线、组名只进 `aria-label`；两处「两行并一行」，侧栏密度不升）；`org-permissions.md` §导航规则（同一侧栏外壳，只有菜单文字与分簇不同）；`DESIGN.md` §1（同一视口 0–1 实底主 CTA；状态不只靠颜色——tab 同时用 `aria-selected` 与下划线）→ **符合**：只动菜单文字、条目顺序/分簇、页面聚合与页内 tab 入口；href / id / 面板 / 权限闸门不变；锁死旧文案的测试与文档显式同步（非偷改）→ 下一步以 `typecheck` / `build` / `vitest sidebarNav` / 管理端 E2E 与手动点击核验取证。
+- **限制**：①「去掉」的判读为「审批」条目（依截图箭头位置与自洽性；若用户实指其他条目，仅改 `adminNav.ts` 一行与测试期望）；②「业务地图」仅做入口聚合，不合并两个页面的数据模型、权限或副作用；③ 审批面板的去向（是否并入「评审流程」）不在本轮；④ 不改员工端 Agent / 技能 / 知识库 / 审批 / 考试条目与任何后端实现；⑤ 部署不在本 ADR 范围。
+
 ## ADR-2026-10-12：通讯 Gmail 主题、单 Composer、原生快读与候选标签
 
 - **需求与审查**：用户批准目标计划并明确「干」→ UI/UX、前后端、智能体产品与测试角色 → CONST-04/05/06/07/08/09/10，TECH-FE-01/03、BE-01/03/04/07/08、TEST-02/03、IA §1.1 → **符合**：仅邮件主题与授权读写链路，不改凭据/权限/计划；发送、标签采纳、阶段变更各自确认。

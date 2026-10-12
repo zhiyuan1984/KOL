@@ -184,6 +184,9 @@ export default function Workbench() {
     loc.pathname === "/skills"
     || loc.pathname.startsWith("/market/skills");
   const newTaskActive = loc.pathname === "/";
+  const businessMapActive =
+    loc.pathname === "/leads" || loc.pathname.startsWith("/leads/")
+    || loc.pathname === "/cooperations" || loc.pathname.startsWith("/cooperations/");
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
   const runningCount = useMemo(
@@ -248,7 +251,7 @@ export default function Workbench() {
         {showAdminNav ? ADMIN_NAV_GROUPS.map((group) => (
           <nav className="nav-group" aria-label={group.label} key={group.label}>
             {group.rows.map((row) => {
-              const active = adminSection === row.id;
+              const active = adminSection === row.id || (row.sections ?? []).includes(adminSection);
               return (
                 <NavLink
                   key={row.id}
@@ -281,7 +284,7 @@ export default function Workbench() {
             onClick={() => setMobileOpen(false)}
           >
             <Ico path="M4 20h4L18 10l-4-4L4 16v4z M14 6l4 4" />
-            <span className="sidebar-label">新任务</span>
+            <span className="sidebar-label">工作台</span>
           </Link>
           <Link
             to="/tasks"
@@ -307,13 +310,16 @@ export default function Workbench() {
         </nav>
 
         <nav className="nav-group" aria-label="KOL业务">
-          <NavLink to="/leads" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="leads" onClick={() => setMobileOpen(false)}>
-            <Ico path="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21c0-4 3.5-6.5 8-6.5s8 2.5 8 6.5" />
-            <span className="sidebar-label">线索管理</span>
-          </NavLink>
-          <NavLink to="/cooperations" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="cooperations" onClick={() => setMobileOpen(false)}>
-            <Ico path="M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 9h6 M9 13h6 M9 17h4" />
-            <span className="sidebar-label">合作项目</span>
+          <NavLink
+            to="/leads"
+            className={() => "nav-link" + (businessMapActive ? " active" : "")}
+            aria-current={businessMapActive ? "page" : undefined}
+            data-nav="business-map"
+            title="业务地图"
+            onClick={() => setMobileOpen(false)}
+          >
+            <Ico path="M9 4 4 6v14l5-2 6 2 5-2V4l-5 2z M9 4v14 M15 6v14" />
+            <span className="sidebar-label">业务地图</span>
           </NavLink>
         </nav>
 

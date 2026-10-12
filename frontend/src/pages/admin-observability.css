@@ -316,3 +316,10 @@
   from { opacity: 0.45; }
   to { opacity: 1; }
 }
+
+/* 业务地图（2026-10-12）：线索漏斗 / 项目交付两个看板收进同一表面的 tab。 */
+.admin-business-map {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}

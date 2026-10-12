@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { HOME_MODES, HOME_MODE_LABELS } from "../home/modes";
-import { ADMIN_NAV_GROUPS, ADMIN_SECTIONS, adminTabOf } from "./adminNav";
+import { ADMIN_HIDDEN_SECTIONS, ADMIN_NAV_GROUPS, ADMIN_SECTIONS, adminTabOf } from "./adminNav";
 
 const WORKBENCH = fs.readFileSync(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "./Workbench.tsx"),
@@ -19,13 +19,22 @@ function todayNavOrder(source: string): string[] {
 }
 
 describe("今日 sidebar IA", () => {
-  it("locks 今日组 to 新工作任务 / 进行中 / 定时任务 / 通讯", () => {
+  it("locks 今日组 to 工作台 / 进行中 / 定时任务 / 通讯", () => {
     expect(todayNavOrder(WORKBENCH)).toEqual([
       "new-task",
       "running",
       "cron",
       "mail",
     ]);
+    // 用户 2026-10-12 口径：菜单文字「新任务」改为「工作台」（data-nav 与 href 不变）。
+    expect(WORKBENCH).toContain('>工作台</span>');
+  });
+
+  it("merges 线索管理 / 合作项目 into one 业务地图 entry", () => {
+    expect(WORKBENCH).toContain('data-nav="business-map"');
+    expect(WORKBENCH).toContain('>业务地图</span>');
+    expect(WORKBENCH).not.toContain('data-nav="leads"');
+    expect(WORKBENCH).not.toContain('data-nav="cooperations"');
   });
 
   it("uses the product-cased Agent label in the employee navigation", () => {
@@ -53,35 +62,40 @@ describe("今日 sidebar IA", () => {
 });
 
 describe("admin sidebar parity", () => {
-  it("keeps the scheduling operations entry in the governance navigation contract", () => {
+  it("keeps the admin navigation contract for 业务地图 / 知识库 / 去审批 / Agent 移组（ADR-2026-10-12）", () => {
     expect(ADMIN_SECTIONS).toEqual([
       "employees",
       "overview",
+      "lead-funnel",
+      "project-delivery",
       "connectors",
       "knowledge",
-      "approvals",
+      "agents",
+      "ontology",
       "approval-types",
       "skills",
       "exams",
-      "agents",
       "data",
       "cost",
       "scheduling",
       "work-orders",
       "audit",
       "kol",
+      "approvals",
     ]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 4, 1, 2, 6]);
+    expect(ADMIN_HIDDEN_SECTIONS).toEqual(["approvals"]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([3, 5, 1, 1, 6]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
       "工作战报",
+      "业务地图",
       "连接",
-      "知识",
-      "审批",
+      "知识库",
+      "Agent",
+      "本体",
       "评审流程",
       "技能",
       "考试",
-      "Agent",
       "数据",
       "成本",
       "调度监控",
@@ -89,6 +103,13 @@ describe("admin sidebar parity", () => {
       "审计中心",
       "配置",
     ]);
+    // 资产簇内「连接 / 知识库 / Agent / 本体」同组且顺序固定；「审批」已从菜单去掉（隐藏分节）。
+    const assetIds = ADMIN_NAV_GROUPS.find((group) => group.label === "资产")!.rows.map((row) => row.id);
+    expect(assetIds).toEqual(["connectors", "knowledge", "agents", "ontology", "approval-types"]);
+    expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.id))).not.toContain("approvals");
+    // 「业务地图」一行映射两个看板路由（侧栏高亮与面板分节共用）。
+    const businessMap = ADMIN_NAV_GROUPS.flatMap((group) => group.rows).find((row) => row.id === "business-map");
+    expect(businessMap?.sections).toEqual(["lead-funnel", "project-delivery"]);
     for (const group of ADMIN_NAV_GROUPS) {
       expect(group.label.length).toBeGreaterThan(0);
       for (const row of group.rows) {
@@ -101,6 +122,9 @@ describe("admin sidebar parity", () => {
     expect(adminTabOf("/admin/audit")).toBe("audit");
     expect(adminTabOf("/admin/approval-types")).toBe("approval-types");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
+    expect(adminTabOf("/admin/lead-funnel")).toBe("lead-funnel");
+    expect(adminTabOf("/admin/project-delivery")).toBe("project-delivery");
+    expect(adminTabOf("/admin/approvals")).toBe("approvals"); // 隐藏深链分节
     expect(adminTabOf("/admin/unknown")).toBe("employees");
   });
 

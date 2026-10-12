@@ -8,6 +8,8 @@ export type AdminNavRow = {
   href: string;
   /** 24×24 描边路径，与 Workbench 的 Ico 同口径（stroke 1.85、currentColor）。 */
   icon: string;
+  /** 一行代表多个路由分节（如「业务地图」含线索漏斗 / 项目交付两个看板路由）；缺省时仅 `id` 一个分节。 */
+  sections?: string[];
   end?: boolean;
 };
 
@@ -20,7 +22,10 @@ export type AdminNavGroup = {
 /** 条目顺序与展示文字按用户 2026-09-27 口径（连接 = 连接器枢纽、治理 = 数字员工治理）；
  *  href / id / 面板与权限闸门不随文字变动。
  *  2026-09-29 增补「成本」（ADR-2026-09-29）：平台配置簇顺序为 数据 / 成本 / 配置。
- *  2026-10-04 按用户口径「治理」改名「Agent」、图标对齐员工端（ADR-2026-10-04）；上面 2026-09-27 行的「治理」即该条目前名。 */
+ *  2026-10-04 按用户口径「治理」改名「Agent」、图标对齐员工端（ADR-2026-10-04）；上面 2026-09-27 行的「治理」即该条目前名。
+ *  2026-10-12 按用户口径（ADR-2026-10-12）：线索漏斗 + 项目交付并为「业务地图」一行（sections 映射两个看板路由）；
+ *  「知识」改名「知识库」；「审批」从菜单去掉（分节保留于 ADMIN_HIDDEN_SECTIONS，深链仍可用）；
+ *  「Agent」由数字员工簇移入资产簇、排在「知识库」与「本体」之间（连接 / 知识库 / Agent 同组）。 */
 export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: "治理日常",
@@ -39,16 +44,11 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: "M4 19V9 M10 19V5 M16 19v-7 M22 19V3",
       },
       {
-        id: "lead-funnel",
-        label: "线索漏斗",
+        id: "business-map",
+        label: "业务地图",
         href: "/admin/lead-funnel",
-        icon: "M4 4h16l-6 7v6l-4 2v-8z",
-      },
-      {
-        id: "project-delivery",
-        label: "项目交付",
-        href: "/admin/project-delivery",
-        icon: "M21 8l-9-5-9 5v8l9 5 9-5z M3 8l9 5 9-5 M12 13v8",
+        icon: "M9 4 4 6v14l5-2 6 2 5-2V4l-5 2z M9 4v14 M15 6v14",
+        sections: ["lead-funnel", "project-delivery"],
       },
     ],
   },
@@ -63,21 +63,21 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       },
       {
         id: "knowledge",
-        label: "知识",
+        label: "知识库",
         href: "/admin/knowledge",
         icon: "M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z",
+      },
+      {
+        id: "agents",
+        label: "Agent",
+        href: "/admin/agents",
+        icon: "M8 5h8a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-2.2l-1.8 3-1.8-3H8a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z M9 11h.01 M15 11h.01 M9 14c1.7 1.3 4.3 1.3 6 0 M12 5V3 M9 3h6",
       },
       {
         id: "ontology",
         label: "本体",
         href: "/admin/ontology",
         icon: "M6 5h4v4H6z M14 5h4v4h-4z M10 15h4v4h-4z M10 9v3 M8 9l3 5 M16 9l-3 5",
-      },
-      {
-        id: "approvals",
-        label: "审批",
-        href: "/admin/approvals",
-        icon: "M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 4v3h6V4",
       },
       {
         id: "approval-types",
@@ -106,12 +106,6 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         label: "考试",
         href: "/admin/exams",
         icon: "M3 9l9-5 9 5-9 5z M7 12v5c3 2 7 2 10 0v-5 M21 9v6",
-      },
-      {
-        id: "agents",
-        label: "Agent",
-        href: "/admin/agents",
-        icon: "M8 5h8a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-2.2l-1.8 3-1.8-3H8a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z M9 11h.01 M15 11h.01 M9 14c1.7 1.3 4.3 1.3 6 0 M12 5V3 M9 3h6",
       },
     ],
   },
@@ -166,8 +160,14 @@ export function adminSectionOf(pathname: string): string {
   return section || "employees";
 }
 
-/** 侧栏条目与面板的合法分节集合（顺序即侧栏顺序）。 */
-export const ADMIN_SECTIONS: string[] = ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.id));
+/** 已从侧栏去掉、但仍保留为合法深链分节的条目（菜单文字与分簇变动不改 href / 面板 / 权限闸门；ADR-2026-10-12）。 */
+export const ADMIN_HIDDEN_SECTIONS: string[] = ["approvals"];
+
+/** 侧栏条目与面板的合法分节集合（顺序即侧栏顺序；含隐藏深链分节）。 */
+export const ADMIN_SECTIONS: string[] = [
+  ...ADMIN_NAV_GROUPS.flatMap((group) => group.rows.flatMap((row) => row.sections ?? [row.id])),
+  ...ADMIN_HIDDEN_SECTIONS,
+];
 
 /** 路径 → 侧栏高亮与面板共用的分节：未知段回落 employees，两侧归一化一致。 */
 export function adminTabOf(pathname: string): string {

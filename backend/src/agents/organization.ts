@@ -22,7 +22,7 @@ const receipt=(row:Record<string,any>):AgentOrganizationReceipt=>({id:row.id,age
 export async function organizationHistory(db:PoolClient,id:string):Promise<AgentOrganizationReceipt[]>{
  return (await db.query('SELECT * FROM agent_organization_receipts WHERE agent_id=$1 ORDER BY revision DESC LIMIT 20',[id])).rows.map(receipt);
 }
-async function context(db:PoolClient,id:string,company:string|null,unit:string|null){
+export async function organizationProposal(db:PoolClient,id:string,company:string|null,unit:string|null){
  const directory=await organizationDirectory(db),current=await organizationState(db,id,directory);
  let after:AgentOrganizationAssignment|null=null;
  if(unit){
@@ -43,7 +43,7 @@ export async function prepareAgentOrganization(actor:string,id:string,input:{com
  if((input.org_unit_id!==null&&!unit)||Boolean(unit)!==Boolean(company))throw new HttpFail(400,'请选择归属公司和部门；清除归属时需明确选择清除');
  return postgresTransaction(async db=>{
   if(!(await db.query('SELECT id FROM managed_agents WHERE id=$1',[id])).rowCount)throw new HttpFail(404,'Agent 不存在');
-  const ctx=await context(db,id,company,unit);
+  const ctx=await organizationProposal(db,id,company,unit);
   if(ctx.current.revision!==input.expected_revision)throw new HttpFail(409,'组织归属已被其他人修改，请重新读取后预览');
   if((ctx.current.assignment?.org_unit_id===unit&&ctx.current.assignment?.company_id===company)||(!ctx.current.assignment&&!unit))throw new HttpFail(400,'组织归属未变化');
   const preparation=randomUUID(),created=now(),expires=new Date(Date.now()+10*60*1000).toISOString();
@@ -63,17 +63,26 @@ export async function changeAgentOrganization(actor:string,id:string,input:{prep
   if(!prepared||prepared.expires_at<=now())throw new HttpFail(409,'归属预览已过期，请重新预览');
   if((await db.query('SELECT id FROM agent_organization_receipts WHERE preparation_id=$1',[prepared.id])).rowCount)throw new HttpFail(409,'此预览已执行，请读取回执');
   await db.query('LOCK TABLE organization_units,org_versions IN SHARE MODE');
-  const ctx=await context(db,id,prepared.company_id,prepared.org_unit_id);
+  const ctx=await organizationProposal(db,id,prepared.company_id,prepared.org_unit_id);
   if(ctx.current.revision!==Number(prepared.revision)||ctx.fingerprint!==prepared.fingerprint)throw new HttpFail(409,'组织归属或部门关系已变化，请重新读取并预览');
+  return commitOrganization(db,actor,id,ctx,prepared.id,input.request_id as string,reason);
+ });
+}
+async function commitOrganization(db:PoolClient,actor:string,id:string,ctx:Awaited<ReturnType<typeof organizationProposal>>,preparation:string,request:string,reason:string):Promise<AgentOrganizationReceipt>{
   const revision=ctx.current.revision+1,changed=now(),receiptId=randomUUID();
   await db.query("UPDATE agent_organization_memberships SET status='ended',effective_to=$2 WHERE agent_id=$1 AND status='active'",[id,changed]);
   let after:AgentOrganizationAssignment|null=null;
   if(ctx.after){const membership=randomUUID();after={...ctx.after,id:membership,assigned_at:changed,assigned_by:actor};
    await db.query("INSERT INTO agent_organization_memberships(id,agent_id,company_id,org_unit_id,revision,status,assigned_by,effective_from) VALUES($1,$2,$3,$4,$5,'active',$6,$7)",[membership,id,after.company_id,after.org_unit_id,revision,actor,changed]);
   }
-  await db.query('INSERT INTO agent_organization_receipts(id,agent_id,actor,revision,request_id,preparation_id,before_state,after_state,reason,changed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[receiptId,id,actor,revision,input.request_id,prepared.id,JSON.stringify(ctx.current.assignment),JSON.stringify(after),reason,changed]);
+  await db.query('INSERT INTO agent_organization_receipts(id,agent_id,actor,revision,request_id,preparation_id,before_state,after_state,reason,changed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[receiptId,id,actor,revision,request,preparation,JSON.stringify(ctx.current.assignment),JSON.stringify(after),reason,changed]);
   const result:AgentOrganizationReceipt={id:receiptId,agent_id:id,actor,revision,changed_at:changed,before:ctx.current.assignment,after,reason};
   await db.query('INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)',[changed,actor,'admin.agent.organization.change',JSON.stringify(result)]);
   return result;
- });
+}
+/** Called inside the Agent release transaction; ownership retains its own receipt. */
+export async function applyPublishedOrganization(db:PoolClient,actor:string,id:string,target:{company_id:string;org_unit_id:string}|null,reason:string,releaseId:string){
+ const ctx=await organizationProposal(db,id,target?.company_id||null,target?.org_unit_id||null),preparation=randomUUID(),created=now();
+ await db.query('INSERT INTO agent_organization_preparations(id,agent_id,actor,revision,company_id,org_unit_id,fingerprint,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[preparation,id,actor,ctx.current.revision,target?.company_id||null,target?.org_unit_id||null,ctx.fingerprint,new Date(Date.now()+600000).toISOString(),created]);
+ return commitOrganization(db,actor,id,ctx,preparation,`release:${releaseId}`,reason);
 }

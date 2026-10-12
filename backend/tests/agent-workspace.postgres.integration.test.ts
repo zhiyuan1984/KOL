@@ -55,6 +55,45 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   expect(row.name).toBe('现有岗位');expect(row.effective.skills.map(value=>value.skill_id)).toEqual([skillA]);expect(row.draft?.name).toBe('修订后的岗位');expect(row.versions[0].version).toBe(1);
   expect(row.coverage.user_ids.sort()).toEqual(['admin','employee']);
  });
+ const governanceInput=async(organization:{company_id:string;org_unit_id:string}|null={company_id:'company',org_unit_id:'owner-team'},targets=[{company_id:'company',target_type:'person' as const,target_id:'person-employee'}])=>{
+  const row=await agentWorkspaceDetail(agentId);return {...input([skillA]),expected_version:row.version,name:row.name,description:row.description,governance:{organization,bindings:targets,reason:'岗位配置调整',basis:row.governance_basis!}};
+ };
+ it('saves ownership and personnel changes without changing current grants, then publishes the reviewed configuration together',async()=>{
+  const candidate=await governanceInput(),before=await agentWorkspaceDetail(agentId);await saveAgentDraft(actor,agentId,candidate);const saved=await agentWorkspaceDetail(agentId);
+  expect(saved.organization).toEqual(before.organization);expect(saved.bindings).toEqual(before.bindings);expect(saved.effective).toEqual(before.effective);expect(saved.draft?.governance?.organization?.org_unit_id).toBe('owner-team');
+  const check=await prepareAgentRelease(actor,agentId);expect(check.blockers).toEqual([]);expect(check.changes?.organization?.after?.org_unit_id).toBe('owner-team');expect(check.changes?.bindings_removed).toHaveLength(1);expect(check.changes?.bindings_added[0].target_id).toBe('person-employee');
+  const request=randomUUID(),first=await release(check.preparation_id,request),replay=await release(check.preparation_id,request);expect(first.id).toBe(replay.id);const after=await agentWorkspaceDetail(agentId);expect(after.organization.assignment?.org_unit_id).toBe('owner-team');expect(after.bindings).toHaveLength(1);expect(after.bindings[0].target_type).toBe('person');expect(after.effective.skills).toEqual(before.effective.skills);expect(after.organization_history).toHaveLength(1);expect(after.draft).toBeNull();
+ });
+ it('prevents a pending configuration from restoring an emergency-revoked grant',async()=>{
+  await saveAgentDraft(actor,agentId,await governanceInput());const check=await prepareAgentRelease(actor,agentId);await postgresPool().query("UPDATE agent_bindings SET status='revoked',binding_version=binding_version+1 WHERE agent_id=$1",[agentId]);
+  await expect(release(check.preparation_id)).rejects.toMatchObject({status:409});expect((await prepareAgentRelease(actor,agentId)).blockers.some(value=>value.includes('绑定已变化'))).toBe(true);expect((await agentWorkspaceDetail(agentId)).bindings).toEqual([]);
+ });
+ it('invalidates pending configuration after a formal ownership change and requires explicit refreshed draft basis',async()=>{
+  const candidate=await governanceInput();await saveAgentDraft(actor,agentId,candidate);const check=await prepareAgentRelease(actor,agentId);await ownerChange((await ownerPreview('owner-other')).preparation_id);
+  await expect(release(check.preparation_id)).rejects.toMatchObject({status:409});await expect(saveAgentDraft(actor,agentId,{...candidate,expected_revision:1})).rejects.toMatchObject({status:409});expect((await agentWorkspaceDetail(agentId)).organization.assignment?.org_unit_id).toBe('owner-other');
+ });
+ it('rejects cross-company candidate targets and blocks missing reasons and an empty change set',async()=>{
+  const candidate=await governanceInput();await expect(saveAgentDraft(actor,agentId,{...candidate,governance:{...candidate.governance,bindings:[{target_type:'organization_unit',target_id:'foreign-root',company_id:'company'}]}})).rejects.toMatchObject({status:400});
+  await saveAgentDraft(actor,agentId,{...candidate,governance:{...candidate.governance,reason:''}});expect((await prepareAgentRelease(actor,agentId)).blockers.some(value=>value.includes('变更原因'))).toBe(true);
+  const row=await agentWorkspaceDetail(agentId);await saveAgentDraft(actor,agentId,{...input([skillA]),name:row.name,description:row.description,expected_revision:1,governance:{organization:null,bindings:row.bindings.map(({company_id,target_type,target_id})=>({company_id,target_type,target_id})),reason:'',basis:row.governance_basis}});expect((await prepareAgentRelease(actor,agentId)).blockers.some(value=>value.includes('无需发布'))).toBe(true);
+ });
+ it('rolls back ownership, personnel grants and receipts when applying the capability version fails',async()=>{
+  await saveAgentDraft(actor,agentId,await governanceInput());const check=await prepareAgentRelease(actor,agentId),before=await agentWorkspaceDetail(agentId);
+  await postgresPool().query("CREATE FUNCTION reject_agent_release_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture capability write rejected'; END $$; CREATE TRIGGER reject_agent_release_fixture BEFORE UPDATE ON runtime_agent_skills FOR EACH ROW EXECUTE FUNCTION reject_agent_release_fixture()");
+  try{await expect(release(check.preparation_id)).rejects.toThrow('fixture capability write rejected');}finally{await postgresPool().query('DROP TRIGGER reject_agent_release_fixture ON runtime_agent_skills; DROP FUNCTION reject_agent_release_fixture()');}
+  const after=await agentWorkspaceDetail(agentId);expect(after.organization).toEqual(before.organization);expect(after.bindings).toEqual(before.bindings);expect(after.effective).toEqual(before.effective);expect(after.draft).toEqual(before.draft);expect(after.organization_history).toEqual([]);expect(Number((await postgresPool().query('SELECT count(*) FROM agent_release_receipts WHERE agent_id=$1',[agentId])).rows[0].count)).toBe(0);
+ });
+ it('rejects duplicate multi-company personnel selections and updates an existing canonical grant company only on reviewed release',async()=>{
+  await postgresPool().query("INSERT INTO organization_memberships(id,company_id,org_unit_id,person_ref,status,created_at,updated_at) VALUES('fixture-foreign-member','foreign','foreign-root','person-employee','active',$1,$1)",[stamp]);
+  try{
+   const target={company_id:'foreign',target_type:'person' as const,target_id:'person-employee'},candidate=await governanceInput(null);
+   await expect(saveAgentDraft(actor,agentId,{...candidate,governance:{...candidate.governance,bindings:[target]}})).rejects.toMatchObject({status:409});
+   await postgresPool().query("INSERT INTO org_versions(company_id,version,note,effective_at,created_at) VALUES('foreign',1,'fixture',$1,$1)",[stamp]);
+   await expect(saveAgentDraft(actor,agentId,{...candidate,governance:{...candidate.governance,bindings:[...candidate.governance.bindings,target]}})).rejects.toMatchObject({status:400});
+   await saveAgentDraft(actor,agentId,candidate);await release((await prepareAgentRelease(actor,agentId)).preparation_id);await saveAgentDraft(actor,agentId,await governanceInput(null,[target]));expect((await agentWorkspaceDetail(agentId)).bindings[0].company_id).toBe('company');
+   await release((await prepareAgentRelease(actor,agentId)).preparation_id);expect((await agentWorkspaceDetail(agentId)).bindings[0].company_id).toBe('foreign');
+  }finally{await postgresPool().query("DELETE FROM organization_memberships WHERE id='fixture-foreign-member'; DELETE FROM org_versions WHERE company_id='foreign'");}
+ });
  it('requires explicit removal of a missing legacy skill, preserving published assembly until confirmed release',async()=>{
   const missing='sop_content_planning';await postgresPool().query("INSERT INTO runtime_agent_skills(agent_id,skill_id,enabled,version,updated_at) VALUES($1,$2,1,1,$3)",[agentId,missing,stamp]);
   await expect(saveAgentDraft(actor,agentId,input([skillA,missing]))).rejects.toMatchObject({status:400,message:`技能 ${missing} 不存在`});expect((await agentWorkspaceDetail(agentId)).draft).toBeNull();
