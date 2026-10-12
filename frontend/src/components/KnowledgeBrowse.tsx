@@ -69,14 +69,23 @@ export function KnowledgeListRow({ row, selected, kind, onOpen, leading, openAtt
   openAttributes?: Record<string, string>; recordAttributes?: Record<string, string>;
   preserveTitleTail?: boolean;
 }) {
-  const letters = Array.from(row.title);
+  return <BrowseListRow title={row.title} selected={selected} kind={kind} onOpen={onOpen} leading={leading}
+    preserveTitleTail={preserveTitleTail} recordAttributes={{"data-kb-row":row.id,...recordAttributes}}
+    openAttributes={{"data-knowledge":row.id,"data-kind":row.kind,"data-cited":row.cited?"true":"false","data-kb-open":row.id,...openAttributes}} />;
+}
+
+/** Shared compact asset row; each domain supplies its own identity and secondary label. */
+export function BrowseListRow({ title, selected, kind, onOpen, leading, openAttributes, recordAttributes, preserveTitleTail = false }: {
+  title: string; selected: boolean; kind: string; onOpen: () => void; leading?: ReactNode;
+  openAttributes?: Record<string, string | undefined>; recordAttributes?: Record<string, string>; preserveTitleTail?: boolean;
+}) {
+  const letters = Array.from(title);
   const splitTitle = preserveTitleTail && letters.length > 48;
-  return <article className="knowledge-list-row" data-kb-row={row.id} {...recordAttributes}>
+  return <article className="knowledge-list-row" {...recordAttributes}>
     {leading}
-    <button type="button" className="knowledge-list-open" data-knowledge={row.id} data-kind={row.kind}
-      data-cited={row.cited ? "true" : "false"} data-kb-open={row.id} {...openAttributes} aria-current={selected} onClick={onOpen}>
-      <span className={`knowledge-row-title${splitTitle ? " has-title-tail" : ""}`} title={row.title}>
-        {splitTitle ? <><span className="knowledge-title-start">{letters.slice(0, -12).join("")}</span><span className="knowledge-title-tail">{letters.slice(-12).join("")}</span></> : row.title}
+    <button type="button" className="knowledge-list-open" {...openAttributes} aria-current={selected} onClick={onOpen}>
+      <span className={`knowledge-row-title${splitTitle ? " has-title-tail" : ""}`} title={title}>
+        {splitTitle ? <><span className="knowledge-title-start">{letters.slice(0, -12).join("")}</span><span className="knowledge-title-tail">{letters.slice(-12).join("")}</span></> : title}
       </span>
       <span className="knowledge-row-kind">{kind}</span>
     </button>
