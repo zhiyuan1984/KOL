@@ -58,3 +58,13 @@ npm test -- tests/agent-workspace.postgres.integration.test.ts tests/admin-agent
 用户随后明确要求“合并到 main 分支，push，部署”。发布需求 → 后端、前端及测试经理 → CONST-05/08/10、TECH-BE-03/09、TECH-TEST-03/04 → **符合**：保留远端 main 更新，按现行 GitHub 发布流水线执行测试、增量数据库迁移、Worker/API 更新及版本核验，不执行 Agent 发布、人员绑改或业务外发 → 本节记录发布前授权和流程，不提前宣称生产成功。
 
 现行 `.github/workflows/release-gate.yml` 的 TB 检查已设为 `continue-on-error`，只报告已有外部登记缺项，不阻挡无关且已验证的发布。本次沿用该既有流程，不修改品牌事实、业务闸门或现行规则。新 PostgreSQL 边界测试兼容 CI 的 `TEST_DATABASE_URL`，避免因只接受本机变量而被跳过。
+
+合并目标为远端 `0c738587`。本地 main 的 `01100039` 含一项未推送知识页提交，与远端分叉；本次只将 Agent 改造整合到远端 main，保留原本地 main 和任务分支，不夹带旧知识实现。
+
+目标 main 的既有完整流水线 [38191447482](https://github.com/zhiyuan1984/KOL/actions/runs/38191447482) 在本次改造前已有 101 项失败、2208 项通过、57 项跳过（32 个失败文件），自动部署未执行。用户明确选择“仅发布本次 Agent 改造，保留并报告既有门禁缺口”。据此采用仓库已有部署入口进行本次范围发布，保留本体 registry 真实审批/发布账本检查、增量迁移、备份及版本/服务核验；不宣称完整 CI 通过，不修改其失败门禁设置。
+
+合并后前端构建、后端类型检查及生产契约通过；Agent 12 项和员工 15 项浏览器回归通过。知识基准 19 项中 18 项通过，旧治理地址进入/刷新出现 React 更新循环（#185）的一项失败已复验，按用户确认范围保留为既有缺口，未改地址或断言。直接相关的既有 Agent 测试补齐当前知识分类父节点夹具；技能治理测试区分已有平台同步初始化审计事件，保留实际治理事件及脱敏断言。
+
+合并后重新建立独立空 PostgreSQL 模板，应用当前 main 迁移和参考种子，不改旧本机模板的历史迁移校验值。仅使用 CI 的 `TEST_DATABASE_URL` 变量验证：新增发布边界 15 项、Agent 管理 15 项、技能治理 7 项、组织资格 19 项，共 56 项全部通过。完整结果见本机生成的 `backend/artifacts/agent-main-integration.json`。
+
+发布前生产版本为 `0c7385874e4648177367bb4e4d1054500273f44b`，API、Outbox 与两个执行 Worker 均 active。数据库备份保留于主机 `backups/agent-workspace-before-2026-10-12T03-54-06-410Z.dump`，3,832,625 字节，SHA256 `630de11a67d94a461ad5673e7c2c471f559cffc1eac80a5d6e22e9ae5df65d48`，`pg_restore --list` 成功；这不替代业务恢复演练。历史主机备份目录完整保留，仅加入主机 Git 排除文件，不修改仓库或其他生产源文件。

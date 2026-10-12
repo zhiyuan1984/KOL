@@ -167,6 +167,7 @@ describe("skill runtime governance", () => {
     const governanceEvents = events.filter((event) => ![
       "runtime.workspace_planner.migrated",
       "runtime.agent_manifest.migrated",
+      "runtime.platform_sync.migrated",
     ].includes(event.event_type));
     expect(governanceEvents.map((event) => event.event_type)).toEqual([
       "runtime.binding.updated",

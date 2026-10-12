@@ -39,6 +39,12 @@ function insertUser(id: string, name: string, opts: { site?: string; active?: nu
 
 function insertBase(id: string, kind: string): void {
   const now = new Date().toISOString();
+  // Current taxonomy guards require an active family and domain for each base.
+  const db=getConn();
+  db.prepare(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,sort,status,created_at,updated_at)
+    VALUES('kdom_test_family','TEST_FAMILY','测试主题域族','family',NULL,0,'active',?,?) ON CONFLICT(id) DO NOTHING`).run(now,now);
+  db.prepare(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,sort,status,created_at,updated_at)
+    VALUES('kdom_test','TEST_DOMAIN','测试主题域','domain','kdom_test_family',0,'active',?,?) ON CONFLICT(id) DO NOTHING`).run(now,now);
   getConn().prepare(
     `INSERT INTO knowledge_bases (id,code,name,domain_id,kind,description,owner_user_id,status,settings,external_ref,version,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
