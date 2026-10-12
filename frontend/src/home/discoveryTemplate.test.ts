@@ -13,12 +13,14 @@ import {
 } from "./discoveryTemplate";
 import { discoveryEventCopy, presentDiscoveryEvents } from "./discoveryEvents";
 import { asHomeCandidate, asHomeRun, ingestFailureKind, runCountsLabel, runFailed, runFailureReason, displayMetric, displayText } from "./discoveryHome";
-import { mergeDiscoveryKeywords } from "./DiscoverySearchCard";
 
 describe("discovery template fallback", () => {
-  it("keeps manually entered keywords when a direction adds suggestions", () => {
-    expect(mergeDiscoveryKeywords(["portable power station"], ["camping", "portable power station"]))
-      .toEqual(["portable power station", "camping"]);
+  it("默认：选中户外能源，并给出 10 个户外关键词标签", () => {
+    const brief = defaultDiscoveryBrief();
+    expect(brief.directions).toEqual(["portable_power"]);
+    expect(brief.keywords).toHaveLength(10);
+    expect(brief.keywords).toContain("camping");
+    expect(brief.keywords).toContain("portable power station");
   });
 
   it("starts with 【发现任务】 and lists the confirmed conditions", () => {

@@ -2,10 +2,11 @@ import { useCallback, useId, useImperativeHandle, useMemo, useRef, useState, typ
 import { DISCOVERY_DIRECTION_PACKS, keywordsForDirections } from "../discoveryTemplate";
 
 /**
- * 关键词芯片控件（仅 AI发现 条件卡使用）。
- * 规则：回车添加、英文短语里的空格不拆、大小写不敏感去重（保留首次输入形态）、
+ * 关键词标签控件（仅 AI发现 条件卡使用）。
+ * 结构：标签 + 「＋」弹窗（弹窗内手工输入、回车添加，或点选方向词推荐）。
+ * 规则：英文短语里的空格不拆、大小写不敏感去重（保留首次输入形态）、
  * 逗号/顿号仍可一次输出多个词；中文输入法选字期间不添加。
- * 容器随芯片换行增高，不做内部滚动；候选来自方向包关键词去重。
+ * 容器随标签换行增高，不做内部滚动；候选来自方向包关键词去重。
  */
 
 const EMPTY_WORDS: string[] = [];
@@ -129,13 +130,21 @@ export default function KeywordChipField({
   const activeOption = open && activeIndex >= 0 ? candidates[activeIndex] : undefined;
   const listShown = open && candidates.length > 0;
 
+  const close = useCallback(() => {
+    setOpen(false);
+    setActiveIndex(-1);
+  }, []);
+  const toggle = useCallback(() => {
+    setOpen((current) => !current);
+    setActiveIndex(-1);
+  }, []);
+
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     // 中文输入法选字期间的回车只用于确认候选字，不在这里加词。
     if (composingRef.current || event.nativeEvent.isComposing) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       if (!candidates.length) return;
       event.preventDefault();
-      setOpen(true);
       setActiveIndex((current) => {
         if (current < 0) return event.key === "ArrowDown" ? 0 : candidates.length - 1;
         const step = event.key === "ArrowDown" ? 1 : -1;
@@ -149,15 +158,17 @@ export default function KeywordChipField({
       else applyWords(addKeywordDraft(words, draft));
       return;
     }
-    if (event.key === "Escape" && open) {
+    if (event.key === "Escape") {
       event.preventDefault();
-      setOpen(false);
-      setActiveIndex(-1);
+      close();
     }
   };
 
   return (
-    <div className="ai-discovery-text-control is-keyword-control" data-discovery-keywords-control data-discovery-keywords>
+    <div className="ai-discovery-text-control is-keyword-control" data-discovery-keywords-control data-discovery-keywords
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close();
+      }}>
       {words.map((word, index) => (
         <span className="discovery-keyword-chip" data-discovery-keyword-chip={word} key={`${keywordKey(word)}-${index}`}>
           {word}
@@ -165,40 +176,39 @@ export default function KeywordChipField({
             onClick={() => applyWords(removeKeyword(words, word))}>×</button>
         </span>
       ))}
-      <input className="ai-discovery-input" data-discovery-keywords-input type="text" role="combobox"
-        aria-label={label} aria-invalid={invalid} data-discovery-pristine={pristine ? "true" : "false"}
-        aria-expanded={listShown} aria-controls={listId} aria-autocomplete="list"
-        aria-activedescendant={activeOption ? optionId(activeIndex) : undefined}
-        autoComplete="off" spellCheck={false} placeholder={placeholder} value={draft}
-        onChange={(event) => {
-          setDraft(event.target.value);
-          setOpen(true);
-          setActiveIndex(-1);
-        }}
-        onKeyDown={onKeyDown}
-        onFocus={() => setOpen(true)}
-        onClick={() => setOpen(true)}
-        onBlur={() => {
-          setOpen(false);
-          setActiveIndex(-1);
-        }}
-        onCompositionStart={() => { composingRef.current = true; }}
-        onCompositionEnd={(event) => {
-          composingRef.current = false;
-          setDraft(event.currentTarget.value);
-        }} />
+      <button type="button" className="discovery-keyword-add" data-discovery-keywords-add aria-label="添加关键词"
+        aria-expanded={open} aria-controls={listId} onClick={toggle}>＋</button>
       {words.length || draft ? <button type="button" className="discovery-keyword-clear" data-discovery-clear-keywords
         aria-label="清除关键词" onClick={() => applyWords(EMPTY_WORDS)}>×</button> : null}
-      {listShown ? (
-        <ul className="discovery-keyword-options" data-discovery-keyword-options role="listbox" id={listId} aria-label={`${label}候选`}>
-          {candidates.map((word, index) => (
-            <li key={`${keywordKey(word)}-${index}`} id={optionId(index)} role="option" data-discovery-keyword-option={word}
-              className={"discovery-keyword-option" + (index === activeIndex ? " is-active" : "")}
-              aria-selected={index === activeIndex}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => applyWords(addKeywordDraft(words, word))}>{word}</li>
-          ))}
-        </ul>
+      {open ? (
+        <div className="discovery-keyword-popup" data-discovery-keywords-popup>
+          <input className="ai-discovery-input" data-discovery-keywords-input type="text" role="combobox"
+            aria-label={label} aria-invalid={invalid} data-discovery-pristine={pristine ? "true" : "false"}
+            aria-expanded={listShown} aria-controls={listId} aria-autocomplete="list"
+            aria-activedescendant={activeOption ? optionId(activeIndex) : undefined}
+            autoComplete="off" spellCheck={false} autoFocus placeholder={placeholder} value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setActiveIndex(-1);
+            }}
+            onKeyDown={onKeyDown}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={(event) => {
+              composingRef.current = false;
+              setDraft(event.currentTarget.value);
+            }} />
+          {listShown ? (
+            <ul className="discovery-keyword-options" data-discovery-keyword-options role="listbox" id={listId} aria-label={`${label}候选`}>
+              {candidates.map((word, index) => (
+                <li key={`${keywordKey(word)}-${index}`} id={optionId(index)} role="option" data-discovery-keyword-option={word}
+                  className={"discovery-keyword-option" + (index === activeIndex ? " is-active" : "")}
+                  aria-selected={index === activeIndex}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applyWords(addKeywordDraft(words, word))}>{word}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

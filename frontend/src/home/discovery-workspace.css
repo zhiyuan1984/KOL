@@ -12,12 +12,21 @@
   column-gap: 0;
 }
 
+/* 发现条件域内去掉 home-pane 的卡片壳（描边/底色/圆角）：条件表平铺在中栏，
+   框线不再套框线；其它复用点保持原卡片形态。 */
+.home-pane[data-home-workspace] .discovery-brief-form .ai-discovery-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 /*
   发现条件是一个高频、一次性配置面，而非阅读型表单。它在当前 916px 设计
-  参考宽度（约 458 CSS px）内把 8 个方向稳定收进两行，并将两组阈值各压成
-  一行：
+  参考宽度（约 458 CSS px）内把 8 个方向收进两行，两组阈值各压成一行：
+  - 平台/地区/方向/关键词：标签独占一行，选项从左排起、行尾收齐；
   - 粉丝上下限是一组范围，因此共享「粉丝数范围」标签；
-  - 均播与期望人数都是短数字阈值，因此同列展示。
+  - 均播与期望人数：<720px 中栏各占一行（不变量 7 不并排），标签与值同行、
+    输入框撑满整行。
   保留原字段的 data-skill-param / API key，布局变化不改变提交语义。
 */
 .discovery-brief-form {  --ds-label-w: 88px;
@@ -30,7 +39,7 @@
   padding-bottom: 0;}
 .discovery-brief-form .ai-discovery-card {
   gap: 0;
-  margin-bottom: 0;  /* 一层浅灰边框由外层发现事件块（discovery-event）提供，卡片自身保持平铺。 */
+  margin-bottom: 0;  /* 卡片自身保持平铺：发现条件域内已去 home-pane 卡片壳，与事件流同底色。 */
 }
 .discovery-brief-form .ai-discovery-rows {
   grid-template-columns: minmax(0, 1fr);
@@ -64,7 +73,17 @@
 .discovery-brief-form .ai-discovery-chips {
   gap: var(--ds-chip-gap);
 }
-.discovery-brief-form .ai-discovery-card .discovery-chip {  height: var(--ds-chip-h);  min-height: var(--ds-chip-h);  /* 水平内边距沿用基础档（--space-3）：两字标签在触摸模态下也要 ≥44px 命中区。 */  border-color: transparent;  border-radius: var(--radius-control);  background: transparent;  color: var(--text-muted);
+/* 选项从左侧依次排布、间距紧凑；行尾由该行最后一个芯片吸收到右缘
+   （落单芯片即整行填满）。水平内边距 16px→8px；文字左对齐避免按钮默认居中。 */
+.discovery-brief-form .ai-discovery-card .discovery-chip {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  padding-inline: var(--space-2);
+}
+.discovery-brief-form .ai-discovery-card .discovery-chip:last-child {
+  flex-grow: 1;
+}
+.discovery-brief-form .ai-discovery-card .discovery-chip {  height: var(--ds-chip-h);  min-height: var(--ds-chip-h);  /* 水平内边距见上方 8px 档；命中区由全局 :after 扩展补足 44px。 */  border-color: transparent;  border-radius: var(--radius-control);  background: transparent;  color: var(--text-muted);
   font-weight: 400;
   line-height: var(--lh-control-sm, 16px);
 }
@@ -106,17 +125,59 @@
 .discovery-brief-form .ai-discovery-text-control .ai-discovery-input {
   width: 100%;
 }
-.discovery-brief-form .ai-discovery-text-control.is-keyword-control .ai-discovery-input {  flex: 1 1 7rem;  width: auto;  min-width: 6rem;  height: var(--ds-token-h);  padding: 0;  border: 0;  background: transparent;  box-shadow: none;}
-/* 关键词芯片：控件本身是可换行的容器（一层描边、随内容增高、无内部滚动条），   芯片在前、输入位在后；清空按钮钉在右上角，不参与换行。 */.discovery-brief-form .ai-discovery-text-control.is-keyword-control {  display: flex;  flex-wrap: wrap;  align-items: center;  gap: var(--ds-chip-gap);  min-height: var(--ds-control-h);  padding: 0 calc(var(--space-1) + var(--space-5)) 0 var(--space-2);  border: 1px solid var(--ds-border);  border-radius: var(--radius-control);  background: var(--ds-surface);}
+/* 「＋」弹窗：手工输入（回车添加）与方向词推荐按需展开；芯片容器本体保持无输入框。 */
+.discovery-brief-form .discovery-keyword-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-token-h);
+  height: var(--ds-token-h);
+  padding: 0;
+  border: 1px dashed var(--ds-border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: 1;
+}
+.discovery-brief-form .discovery-keyword-add:hover {
+  border-color: var(--ds-selected-border);
+  color: var(--accent-text);
+}
+.discovery-brief-form .discovery-keyword-add:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.discovery-brief-form .discovery-keyword-popup {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+  box-shadow: var(--shadow-quiet);
+}
+/* 关键词标签容器：一层描边、随内容增高、无内部滚动条；标签在前、「＋」在末尾；   清空按钮钉在右上角，不参与换行。 */.discovery-brief-form .ai-discovery-text-control.is-keyword-control {  display: flex;  flex-wrap: wrap;  align-items: center;  gap: var(--ds-chip-gap);  min-height: var(--ds-control-h);  padding: 0 calc(var(--space-1) + var(--space-5)) 0 var(--space-2);  border: 1px solid var(--ds-border);  border-radius: var(--radius-control);  background: var(--ds-surface);}
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control:hover {  border-color: var(--ds-selected-border);}
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control:focus-within {  border-color: var(--ds-selected-border);  box-shadow: 0 0 0 3px var(--ds-selected-bg);}
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control .ai-discovery-input:focus-visible {  outline: none;  box-shadow: none;}
 .discovery-brief-form .discovery-keyword-chip {  display: inline-flex;  align-items: center;  gap: var(--space-1);  max-width: 100%;  height: var(--ds-token-h);  padding: 0 var(--space-1) 0 var(--space-2);  border: 1px solid var(--ds-selected-border);  border-radius: var(--radius-control);  background: var(--ds-selected-bg);  color: var(--text);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);  overflow-wrap: anywhere;}
+/* 关键词标签从左侧依次排布；增补走「＋」弹窗，不再占一行大输入框。 */
+.discovery-brief-form .discovery-keyword-chip {
+  flex: 0 1 auto;
+}
 .discovery-brief-form .discovery-keyword-chip .chip-x {  display: inline-flex;  align-items: center;  justify-content: center;  width: var(--control-h-sm);  height: 100%;  padding: 0;  border: 0;  border-radius: var(--radius-control);  background: transparent;  color: inherit;  cursor: pointer;  font: inherit;  font-size: var(--ds-font-sm);  line-height: 1;}
 .discovery-brief-form .discovery-keyword-chip .chip-x:hover {  background: var(--surface-hover);}
 .discovery-brief-form .discovery-keyword-chip .chip-x:focus-visible {  outline: 2px solid var(--focus-ring);  outline-offset: 1px;}
 /* 只读态：同样的芯片外观，没有删除按钮。 */.discovery-brief-form .discovery-keyword-static {  display: flex;  flex-wrap: wrap;  gap: var(--ds-chip-gap);  min-width: 0;}
-/* 候选浮层：只有它自己滚动，不撑高芯片容器。 */.discovery-brief-form .discovery-keyword-options {  position: absolute;  top: calc(100% + var(--space-1));  left: 0;  right: 0;  z-index: 5;  display: flex;  flex-direction: column;  gap: var(--space-1);  max-height: 40vh;  overflow-y: auto;  margin: 0;  padding: var(--space-1);  border: 1px solid var(--ds-border);  border-radius: var(--radius-control);  background: var(--canvas);  box-shadow: var(--shadow-quiet);  list-style: none;}
+/* 候选列表在「＋」弹窗内滚动，不撑高芯片容器。 */.discovery-brief-form .discovery-keyword-options {  display: flex;  flex-direction: column;  gap: var(--space-1);  max-height: 32vh;  overflow-y: auto;  margin: 0;  padding: 0;  list-style: none;}
 .discovery-brief-form .discovery-keyword-option {  padding: var(--space-1) var(--space-2);  border-radius: var(--radius-control);  color: var(--text);  cursor: pointer;  font-size: var(--ds-font-sm);  line-height: var(--ds-line-sm);  overflow-wrap: anywhere;}
 .discovery-brief-form .discovery-keyword-option:hover,.discovery-brief-form .discovery-keyword-option.is-active {  background: var(--ds-selected-bg);  color: var(--text);}
 .discovery-brief-form .discovery-keyword-clear {  position: absolute;  top: var(--space-1);  right: var(--space-1);  display: inline-flex;  align-items: center;  justify-content: center;  width: var(--control-h-sm);  height: var(--control-h-sm);  padding: 0;  border: 0;  border-radius: var(--radius-control);  background: transparent;  color: var(--text-muted);  cursor: pointer;  font: inherit;  font-size: var(--ds-font-sm);  line-height: 1;}
@@ -124,6 +185,7 @@
 .discovery-brief-form .discovery-keyword-clear:focus-visible {  outline: 2px solid var(--focus-ring);  outline-offset: 1px;}
 .discovery-brief-form .ai-discovery-card .ai-discovery-input.is-number {
   width: 100%;
+  max-width: none;
   flex: 1 1 auto;
   font-variant-numeric: tabular-nums;
 }
@@ -147,8 +209,8 @@
 }
 .discovery-brief-form .ai-discovery-range-control {
   display: grid;
-  grid-template-columns: minmax(72px, 132px) 12px minmax(72px, 132px);
-  justify-content: start;
+  /* 两个数值框等分撑满整行；短横只作区间提示。 */
+  grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
 }
@@ -184,8 +246,7 @@
 }
 
 /* 固定 Composer 覆盖中栏时，焦点和最后一项永远留在其上方的安全区域。 */
-/* 条件卡底部一行：说明在左、主操作在右，窄屏自然换行。 */.discovery-brief-form .discovery-card-foot {  display: flex;  flex-wrap: wrap;  align-items: center;  justify-content: space-between;  gap: var(--space-2) var(--space-3);  margin-top: var(--space-3);  padding-top: var(--space-3);  border-top: 1px solid var(--ds-border);}
-.discovery-brief-form .discovery-card-note {  flex: 1 1 16rem;  min-width: 0;  margin: 0;  color: var(--ds-text-dim);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);}
+/* 条件卡底部：主操作居中、紧凑收尾（说明行已移除，无分隔线）。 */.discovery-brief-form .discovery-card-foot {  display: flex;  flex-direction: column;  align-items: center;  justify-content: center;  gap: var(--space-2);  margin-top: var(--space-2);  padding-top: 0;  border-top: 0;  text-align: center;}
 .discovery-brief-form .discovery-card-foot .btn {
   flex: 0 0 auto;
   /* L2 次级提交：控件高与圆角向工作台对齐（docs/DESIGN.md §4）。 */
@@ -193,40 +254,34 @@
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-control);
 }
-/* 粉丝区间：上限留空说明与越界提示都落在控件那一列，只提示、不拦编辑。 */.discovery-brief-form .discovery-followers-hint {  grid-column: 2;  color: var(--ds-text-dim);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);}
-.discovery-brief-form .ai-discovery-row.is-follower-range > .skill-param-error {  grid-column: 2;}
+/* 粉丝区间：越界提示落在控件那一列，只提示、不拦编辑。 */.discovery-brief-form .ai-discovery-row.is-follower-range > .skill-param-error {  grid-column: 2;}
 .scope-workspace[data-home-pane="discovery"] .scope-workspace-center-scroll {
   /* Composer now occupies its own row; reserve only the shared reading inset. */
   scroll-padding-block: var(--space-2);
   padding-bottom: var(--space-4);
 }
 
-/* 触摸命中区遵守 44px；窄屏中分组纵排，避免压缩数字输入或产生整页横滚。 */
+/* 触摸命中区遵守 44px；数值框随列宽收缩，不产生整页横滚。 */
 @media (pointer: coarse) {
   .discovery-brief-form {
     --ds-control-h: 44px;
     --ds-chip-h: 44px;    --ds-token-h: 44px;
   }
 }
-@container home-workspace-center (max-width: 380px) {
-  .discovery-brief-form {
-    --ds-label-w: 88px;  }
-  .discovery-brief-form .ai-discovery-card {    --ds-label-w: 88px;
-  }
-  .discovery-brief-form .ai-discovery-range-control {
-    grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
+/* 中栏是单列表单（不变量 7：<720px 不并排）：
+   - 平台/地区/方向/关键词：标签独占一行，选项从左侧铺满整行；
+   - 指标对：各占一行，标签与值同行、输入框撑满整行。 */
+@container home-workspace-center (max-width: 719px) {
+  .discovery-brief-form .ai-discovery-row[data-skill-param="platforms"],
+  .discovery-brief-form .ai-discovery-row[data-skill-param="region"],
+  .discovery-brief-form .ai-discovery-row[data-skill-param="directions"],
+  .discovery-brief-form .ai-discovery-row[data-skill-param="keywords"] {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-1);
   }
   .discovery-brief-form .ai-discovery-row.is-metric-pair {
     grid-template-columns: minmax(0, 1fr);
-    row-gap: 6px;
-  }
-  .discovery-brief-form .is-metric-pair .ai-discovery-inline-field {
-    grid-template-columns: var(--ds-label-w) minmax(0, 120px);
-    gap: 12px;
-  }
-  .discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field {
-    grid-template-columns: var(--ds-label-w) minmax(0, 72px);
-    gap: 12px;
+    row-gap: var(--space-1);
   }
 }
 
@@ -565,14 +620,6 @@
 .discovery-resume-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; font-size: var(--ds-font-sm); }
 .discovery-resume-notice > strong { font-weight: 600; }
 .discovery-resume-notice > span { flex-basis: 100%; color: var(--text-muted); font-size: var(--ds-font-helper); }
-@container home-workspace-center (max-width: 479px) {
-  .discovery-brief-form .ai-discovery-row,
-  .discovery-brief-form .ai-discovery-row.is-metric-pair,
-  .discovery-brief-form .is-metric-pair .ai-discovery-inline-field,
-  .discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field { grid-template-columns: minmax(0, 1fr); row-gap: var(--space-1); }
-  .discovery-brief-form .discovery-followers-hint,
-  .discovery-brief-form .ai-discovery-row.is-follower-range > .skill-param-error { grid-column: auto; }
-}
 
 .scope-workspace[data-home-pane="discovery"] .scope-workspace-center { container-type: inline-size; container-name: home-workspace-center; }
 @media (pointer: coarse) { .discovery-result-filters .lifecycle-tab { min-height: var(--touch-hit-min); } }

@@ -62,11 +62,11 @@
 |---|---|---|---|---|
 | 治理日常 | 员工 | `/admin` | `employees` | 单人胸像（同账户块员工端图标） |
 | 资产 | 连接 | `/admin/connectors` | `connectors` | 同员工端「连接器」 |
-| 资产 | 知识 | `/admin/knowledge` | `knowledge` | 同员工端「知识库」 |
-| 资产 | 审批 | `/admin/approvals` | `approvals` | 同员工端「审批」 |
+| 资产 | 知识库 | `/admin/knowledge` | `knowledge` | 同员工端「知识库」 |
+| — | 审批（2026-10-12 从菜单去掉） | `/admin/approvals` | `approvals` | 不是菜单条目；分节保留，深链与「审批角色授权」面板可用（ADR-2026-10-12） |
 | 技能 | 技能 | `/admin/skills` | `skills` | 同员工端「技能目录」 |
 | 数字员工 | 考试 | `/admin/exams` | `exams` | 同员工端「考试」 |
-| 数字员工 | Agent | `/admin/agents` | `agents` | 同员工端「Agent」（气泡机器人描边） |
+| 资产 | Agent | `/admin/agents` | `agents` | 同员工端「Agent」（气泡机器人描边）；2026-10-12 自数字员工簇移入资产簇，排在知识库与本体之间 |
 | 平台配置 | 数据 | `/admin/data` | `data` | 数据库（顶盖 + 柱身 + 中环） |
 | 平台配置 | 配置 | `/admin/kol` | `kol` | 滑杆（sliders-horizontal） |
 
@@ -76,8 +76,12 @@
   所列的 Agent 治理闸门，与 Agent 同簇；`数据`（数据 / 审计）与「配置」同属平台级设置。
 - 2026-10-04 用户口径：**治理** 改名 **Agent**、图标同步为员工端 Agent 同款（上表行已同步）；
   顺序、href、id、分簇与其余文字不变。
+- 2026-10-12 用户口径（ADR-2026-10-12）：**线索漏斗 + 项目交付** 并为 **业务地图** 一行（`sections` 映射两个看板路由，
+  明面 href 走 `/admin/lead-funnel`）；**知识** 改名 **知识库**；**审批** 从菜单去掉（`ADMIN_HIDDEN_SECTIONS`，深链与面板保留）；
+  **Agent** 自数字员工簇移入资产簇、排在「知识库」与「本体」之间（id / href / 图标不变）。
+  分簇变为 治理日常 3 / 资产 5 / 技能 1 / 数字员工 1 / 平台配置 6，共 16 条。
 - `data-admin-nav` / `data-admin-tab`、href、面板行为与权限闸门全部不变；变更记录见
-  [`docs/DECISIONS.md`](../../DECISIONS.md) 的 ADR-2026-09-27 与 ADR-2026-10-04。
+  [`docs/DECISIONS.md`](../../DECISIONS.md) 的 ADR-2026-09-27、ADR-2026-10-04 与 ADR-2026-10-12。
 - 高亮与面板归一化同源：`adminTabOf(pathname)`（`/admin` 与未知段 → `employees`，与面板回落一致）。
 
 ## 4. 实现落点

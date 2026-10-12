@@ -75,3 +75,7 @@
 .kol-tl-summary { font-size: var(--ds-font-xs, 12px); color: var(--text-muted); margin-top: 2px; }
 .kol-obj-kind { font-size: var(--ds-font-xs, 11px); color: var(--text-muted); font-weight: 400; margin-left: 6px; }
 .kol-subhead { font-size: var(--ds-font-xs, 12px); font-weight: 600; color: var(--text-muted); margin: 12px 0 6px; }
+
+/* 业务地图（2026-10-12）：线索管理 / 合作项目收进同一表面的 tab；tab 条与页内边距对齐。 */
+.business-map { display: flex; flex-direction: column; min-height: 0; }
+.business-map > .home-tabs { padding: 0 var(--space-4, 16px); }

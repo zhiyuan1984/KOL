@@ -5,7 +5,6 @@ import {
   defaultDiscoveryBrief,
   DISCOVERY_DIRECTION_PACKS,
   DISCOVERY_REGION_OPTIONS,
-  keywordsForDirections,
   MAX_DISCOVERY_DIRECTIONS,
   OVERSEAS_DISCOVERY_PLATFORMS,
 } from "./discoveryTemplate";
@@ -15,10 +14,6 @@ import { type KeywordChipFieldHandle } from "./workspace/KeywordChipField";
 type Catalog = Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null | undefined;
 const TOKEN_FIELDS = ["keywords"];
 const PRISTINE_DISCOVERY_VALUES = defaultDiscoveryBrief();
-
-export function mergeDiscoveryKeywords(existing: string[], suggested: string[]): string[] {
-  return Array.from(new Set([...existing, ...suggested]));
-}
 
 const FALLBACK_FIELDS: SkillParamField[] = [
   { key: "platforms", label: "平台", kind: "multiple", max: 1, options_source: "api:/home/discovery/template#platforms" },
@@ -51,14 +46,8 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema, 
     directions: catalog?.directions?.length ? catalog.directions : DISCOVERY_DIRECTION_PACKS,
   };
   const update = (key: string, value: unknown) => {
-    const next = { ...brief, [key]: value } as DiscoveryBrief;
-    // Directions are suggestions; selecting one must not erase employee-entered keywords.
-    if (key === "directions") {
-      const suggested = keywordsForDirections(value as string[], options.directions);
-      const existing = Array.isArray(brief.keywords) ? brief.keywords : [];
-      next.keywords = mergeDiscoveryKeywords(existing, suggested);
-    }
-    onChange(next);
+    // 关键词与方向解耦：改方向不再改写关键词，推荐词只在「＋」弹窗里按需加入。
+    onChange({ ...brief, [key]: value } as DiscoveryBrief);
   };
   const submit = () => {
     // 还没回车的草稿也算数：先并进芯片，再把含草稿的条件交给父方提交。
@@ -72,7 +61,6 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema, 
       hideTitle compactDiscoveryLayout mode={mode} keywordFieldRef={keywordFieldRef}
       onFieldChange={update}
       footer={onSubmit ? <div className="discovery-card-foot">
-        <p className="discovery-card-note" data-discovery-card-note>地区、粉丝与均播用于候选核对，不是远端采集数量限制。</p>
         {mode === "edit" ? <button type="button" className="btn" data-discovery-card-submit
           disabled={submitting} aria-busy={submitting || undefined} onClick={submit}>{submitting ? "提交中…" : submitLabel || "提交条件，核对参数"}</button> : null}
       </div> : undefined} />;

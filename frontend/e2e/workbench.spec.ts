@@ -3195,6 +3195,26 @@ test("docs/org-permissions.md employee sidebar has no connectors entry", async (
   await expect(page.locator(".sidebar")).not.toContainText("专家团");
 });
 
+test("employee 业务地图 keeps lead / cooperation addresses with tab switching", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('[data-nav="new-task"]')).toContainText("工作台");
+  await expect(page.locator('[data-nav="business-map"]')).toContainText("业务地图");
+  await expect(page.locator('[data-nav="leads"], [data-nav="cooperations"]')).toHaveCount(0);
+
+  await page.goto("/leads");
+  await expect(page.getByRole("heading", { name: "线索管理", exact: true }).first()).toBeVisible();
+  await expect(page.locator("[data-section-tab='leads']")).toHaveAttribute("aria-selected", "true");
+  await page.locator("[data-section-tab='cooperations']").click();
+  await expect(page).toHaveURL(/\/cooperations$/);
+  await expect(page.getByRole("heading", { name: "合作项目", exact: true }).first()).toBeVisible();
+  await expect(page.locator("[data-section-tab='cooperations']")).toHaveAttribute("aria-selected", "true");
+  // ← 键盘切回线索管理：地址随 tab 切换，两个既有深链的接管责任不变。
+  await page.locator("[data-section-tab='cooperations']").focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(page).toHaveURL(/\/leads$/);
+  await expect(page.locator("[data-section-tab='leads']")).toHaveAttribute("aria-selected", "true");
+});
+
 test("docs/org-permissions.md admin agents governance is reachable from admin chrome", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator(".admin-header a[href='/agents']")).toHaveCount(0);
@@ -3213,13 +3233,25 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "工作战报", "连接", "知识", "审批", "评审流程", "技能", "考试", "Agent", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
+    "员工", "工作战报", "业务地图", "连接", "知识库", "Agent", "本体", "评审流程", "技能", "考试", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
   ]);
+  // 「审批」已从菜单去掉（ADR-2026-10-12）：菜单不再渲染该条目，深链能力保留（见下方 goto 断言）。
+  await expect(page.locator("[data-admin-nav='approvals']")).toHaveCount(0);
   await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
   await expect(page.locator(".admin-header")).toHaveCount(0);
   await expect(page.locator(".sidebar [data-account-pedestal]")).toBeVisible();
   await expect(page.locator(".sidebar [data-account-name]")).not.toHaveText("");
   await expect(page.locator(".sidebar [data-surface-switch-group]")).toBeVisible();
+
+  // 「业务地图」一行映射两个看板路由：双路由下同一行高亮，tab 可互切。
+  await page.locator("[data-admin-nav='business-map']").click();
+  await expect(page).toHaveURL(/\/admin\/lead-funnel$/);
+  await expect(page.locator("[data-admin-nav='business-map']")).toHaveClass(/active/);
+  await expect(page.locator("[data-admin-tab='business-map']")).toHaveClass(/active/);
+  await page.locator("[data-section-tab='project-delivery']").click();
+  await expect(page).toHaveURL(/\/admin\/project-delivery$/);
+  await expect(page.locator("[data-admin-nav='business-map']")).toHaveClass(/active/);
+  await expect(page.locator("[data-section-tab='lead-funnel']")).toHaveAttribute("aria-selected", "false");
 
   await page.locator("[data-admin-nav='connectors']").click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
@@ -3236,8 +3268,8 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
   await expect(page.locator("[data-runtime-credential-vault]")).toHaveCount(1);
 
-  await page.locator("[data-admin-nav='approvals']").click();
-  await expect(page).toHaveURL(/\/admin\/approvals$/);
+  // 「审批」不在菜单：深链仍渲染审批角色授权（能力保留，ADR-2026-10-12）。
+  await page.goto("/admin/approvals");
   await expect(page.getByRole("heading", { name: "审批角色授权" })).toBeVisible();
   await page.locator("[data-admin-nav='exams']").click();
   await expect(page).toHaveURL(/\/admin\/exams$/);
@@ -3263,11 +3295,11 @@ test("admin left menu replicates the employee sidebar shell", async ({ page }) =
   await expect(rail.locator(".sidebar-head [data-sidebar-brand]")).toBeVisible();
   await expect(rail.locator(".sidebar-head .sidebar-lucas img")).toHaveAttribute("src", /Lucas6\.webp$/);
   await expect(rail.locator(".sidebar-foot [data-account-bar]")).toBeVisible();
-  // 只换菜单文字：管理端 15 条，员工开工条目 0 条。
-  await expect(rail.locator("[data-admin-nav]")).toHaveCount(15);
+  // 只换菜单文字：管理端 16 条，员工开工条目 0 条。
+  await expect(rail.locator("[data-admin-nav]")).toHaveCount(16);
   await expect(rail.locator("[data-nav='new-task'], [data-nav='running'], [data-nav='cron'], [data-nav='mail']")).toHaveCount(0);
   // 同解剖：18px 描边图标 + 标签；分簇靠分隔线，不用可见组标题。
-  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(15);
+  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(16);
   await expect(rail.locator("nav.nav-group")).toHaveCount(5);
   await expect(rail.locator(".nav-group > h2, .nav-group > .nav-group-title")).toHaveCount(0);
   const clusterBorder = await rail.locator("nav.nav-group").nth(1).evaluate((el) => getComputedStyle(el).borderTopWidth);
@@ -3414,7 +3446,8 @@ test("admin L3 confirm covers retention policy writes", async ({ page }) => {
   await expect(page.locator("[data-admin-grants]")).toHaveCount(0);
   await expect(page.locator("[data-connector-tools]")).toBeVisible();
 
-  await page.locator("[data-admin-nav='approvals']").click();
+  // 「审批」不在菜单：深链仍渲染审批角色授权（能力保留，ADR-2026-10-12）。
+  await page.goto("/admin/approvals");
   await expect(page.getByRole("heading", { name: "审批角色授权" })).toBeVisible();
   await page.locator('select[name="user_id"]').selectOption({ index: 1 });
   await page.locator(".check input").first().check();

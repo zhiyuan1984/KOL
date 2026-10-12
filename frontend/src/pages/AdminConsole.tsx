@@ -11,8 +11,7 @@ import AdminCosts from "./AdminCosts";
 import AdminScheduling from "./AdminScheduling";
 import AdminWorkOrders from "./AdminWorkOrders";
 import AdminWorkReport from "./AdminWorkReport";
-import AdminLeadFunnel from "./AdminLeadFunnel";
-import AdminProjectDelivery from "./AdminProjectDelivery";
+import AdminBusinessMap from "./AdminBusinessMap";
 import AdminAudit from "./AdminAudit";
 import AdminOntology from "./AdminOntology";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
@@ -121,8 +120,9 @@ export default function AdminConsole() {
         {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
         {tab === "cost" && <AdminCosts />}
         {tab === "overview" && <AdminWorkReport />}
-        {tab === "lead-funnel" && <AdminLeadFunnel />}
-        {tab === "project-delivery" && <AdminProjectDelivery />}
+        {(tab === "lead-funnel" || tab === "project-delivery") && (
+          <AdminBusinessMap active={tab === "lead-funnel" ? "lead-funnel" : "project-delivery"} />
+        )}
         {tab === "scheduling" && <AdminScheduling />}
         {tab === "work-orders" && <AdminWorkOrders />}
         {tab === "audit" && <AdminAudit />}

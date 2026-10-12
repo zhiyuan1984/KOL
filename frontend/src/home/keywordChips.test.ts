@@ -113,7 +113,7 @@ const CARD_OPTIONS = {
 };
 
 describe("条件卡 DOM 契约", () => {
-  it("关键词控件：芯片、输入位、清空按钮与 data-* 逐条落地", () => {
+  it("关键词控件：标签、加号与清空按钮与 data-* 逐条落地（输入框在弹窗内）", () => {
     const html = renderToStaticMarkup(createElement(KeywordChipField, {
       value: ["camping", "portable power station"],
       options: ["camping", "van life"],
@@ -125,12 +125,13 @@ describe("条件卡 DOM 契约", () => {
     expect(html).toContain('class="chip-x"');
     expect(html).toContain("data-discovery-keyword-remove");
     expect(html).toContain('aria-label="删除关键词 camping"');
-    expect(html).toContain('data-discovery-keywords-input="true"');
-    expect(html).toContain('role="combobox"');
-    expect(html).toContain('aria-expanded="false"');
+    // 添加入口是「＋」按钮；输入框与候选只在弹窗展开时渲染。
+    expect(html).toContain("data-discovery-keywords-add");
+    expect(html).toContain('aria-label="添加关键词"');
     expect(html).toContain("data-discovery-clear-keywords");
     expect(html).toContain('aria-label="清除关键词"');
-    // 候选列表只在展开时渲染；芯片容器本体不预渲染候选。
+    expect(html).not.toContain("data-discovery-keywords-popup");
+    expect(html).not.toContain("data-discovery-keywords-input");
     expect(html).not.toContain("data-discovery-keyword-options");
   });
 
@@ -157,7 +158,7 @@ describe("条件卡 DOM 契约", () => {
     expect(html).not.toContain("data-discovery-followers-hint");
   });
 
-  it("编辑态：上限可留空（placeholder 不限）、有说明与越界提示", () => {
+  it("编辑态：上限可留空（placeholder 不限）与越界提示", () => {
     const html = renderToStaticMarkup(createElement(SkillParamCard, {
       fields: CARD_FIELDS,
       values: { ...CARD_VALUES, min_followers: 20000, max_followers: 10000 },
@@ -167,7 +168,7 @@ describe("条件卡 DOM 契约", () => {
       optionSets: CARD_OPTIONS,
     }));
     expect(html).toContain('placeholder="不限"');
-    expect(html).toContain("data-discovery-followers-hint");
+    expect(html).not.toContain("data-discovery-followers-hint");
     expect(html).toContain("上限低于下限");
     expect(html).toContain('data-discovery-keywords="true"');
   });

@@ -255,9 +255,12 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
     .toHaveAttribute("aria-pressed", "true");
   await expect(card.locator('[data-skill-param="region"] [data-discovery-chip="global_en"]'))
     .toHaveAttribute("aria-pressed", "true");
-  await expect(card.locator('[data-skill-param="directions"] [data-discovery-chip][aria-pressed="true"]')).toHaveCount(0);
-  // 关键词是芯片控件：[data-discovery-keywords] 是容器，输入位在 [data-discovery-keywords-input]。
+  // 方向默认选中「户外能源」。
+  await expect(card.locator('[data-skill-param="directions"] [data-discovery-chip="portable_power"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  // 关键词是标签控件：标签 + 「＋」弹窗（弹窗里的输入框负责手工输入与推荐）。
   await expect(card.locator("[data-discovery-keywords]")).toBeVisible();
+  await expect(card.locator("[data-discovery-keywords-add]")).toBeVisible();
   await expect(card.locator('[data-discovery-keyword-chip="camping"]')).toBeVisible();
   await expect(card.locator('[data-discovery-keyword-chip="portable power station"]')).toBeVisible();
   await expect(card.locator("[data-discovery-clear-keywords]")).toBeVisible();
@@ -267,8 +270,8 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
   const idleBorder = await card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]')
     .evaluate((el) => getComputedStyle(el).borderTopColor);
   expect(selectedBorder).not.toBe(idleBorder);
-  await expect(card.locator('[data-skill-param-group="followers_range"] [data-discovery-followers-hint]'))
-    .toContainText("不限");
+  // 上限留空即不限：语义由 placeholder 承载（不再有独立说明行）。
+  await expect(card.locator('[data-skill-param="max_followers"] input')).toHaveAttribute("placeholder", "不限");
   await expect(card.locator('[data-skill-param="min_followers"] input'))
     .toHaveAttribute("data-discovery-pristine", "true");
   await expect(card.locator('[data-skill-param-group="followers_range"] .ai-discovery-label'))
@@ -297,10 +300,11 @@ test("keyword clear synchronizes the discovery brief", async ({ page }) => {
   const input = page.locator("[data-home] [data-composer-input]");
   const send = page.locator("[data-home] [data-ai-prompt-submit]");
 
-  // 默认两个词 = 两个芯片；点一个 × 只删命中的那一个。
-  await expect(chips).toHaveCount(2);
+  // 默认 10 个户外标签；点一个 × 只删命中的那一个。
+  await expect(chips).toHaveCount(10);
   await card.locator('[data-discovery-keyword-chip="camping"] [data-discovery-keyword-remove]').click();
-  await expect(chips).toHaveCount(1);
+  await expect(chips).toHaveCount(9);
+  await expect(card.locator('[data-discovery-keyword-chip="camping"]')).toHaveCount(0);
   await expect(card.locator('[data-discovery-keyword-chip="portable power station"]')).toBeVisible();
 
   // 清空按钮清空全部：芯片归零、提问框正文回到（未填）、发送键回到禁用。
@@ -314,33 +318,37 @@ test("keyword chips keep spaces and ignore duplicates", async ({ page }) => {
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
   const chips = card.locator("[data-discovery-keyword-chip]");
-  const input = card.locator("[data-discovery-keywords-input]");
+  const base = await chips.count();
 
-  // 回车添加：英文短语里的空格属于词本身，不拆成两个芯片。
+  // 「＋」弹窗里输入；回车添加：英文短语里的空格属于词本身，不拆成两个芯片。
+  await card.locator("[data-discovery-keywords-add]").click();
+  const input = card.locator("[data-discovery-keywords-input]");
   await input.fill("beauty review");
   await input.press("Enter");
   await expect(card.locator('[data-discovery-keyword-chip="beauty review"]')).toBeVisible();
-  await expect(chips).toHaveCount(3);
+  await expect(chips).toHaveCount(base + 1);
   await expect(input).toHaveValue("");
 
   // 重复词（大小写不敏感）不重复添加。
   await input.fill("Camping");
   await input.press("Enter");
-  await expect(chips).toHaveCount(3);
+  await expect(chips).toHaveCount(base + 1);
   await expect(card.locator('[data-discovery-keyword-chip="Camping"]')).toHaveCount(0);
 });
 
-test("modifying a condition flips pristine state and appends suggested keywords", async ({ page }) => {
+test("modifying a condition flips pristine state; directions no longer rewrite keywords", async ({ page }) => {
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
   const camping = card.locator('[data-skill-param="directions"] [data-discovery-chip="camping"]');
   const followers = card.locator('[data-skill-param="min_followers"] input');
+  const wordCount = await card.locator("[data-discovery-keyword-chip]").count();
+  expect(wordCount).toBeGreaterThan(0);
 
   await expect(followers).toHaveAttribute("data-discovery-pristine", "true");
-  // 方向是固定分类：选中后把该方向的关键词并入关键词芯片，但不覆盖人工输入。
+  // 关键词与方向解耦：改方向不再自动并词，推荐词走「＋」弹窗按需加入。
   await camping.click();
   await expect(camping).toHaveAttribute("aria-pressed", "true");
-  await expect(card.locator('[data-discovery-keyword-chip="outdoor camping"]')).toBeVisible();
+  await expect(card.locator("[data-discovery-keyword-chip]")).toHaveCount(wordCount);
 
   // 阈值一旦改动就不再是默认值（pristine 只负责「还没动过」的视觉弱化）。
   await followers.fill("25000");
@@ -529,15 +537,15 @@ test("a discovery task resumes its linked run instead of a chat session", async 
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("历史发现");
 });
 
-test("condition chips rewrite the ask-box body and the card footer keeps note plus submit", async ({ page }) => {
+test("condition chips rewrite the ask-box body and the card footer keeps a centered submit", async ({ page }) => {
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
   const input = page.locator("[data-home] [data-composer-input]");
   await card.locator('[data-skill-param="directions"] [data-discovery-chip="camping"]').click();
   await expect(input).toHaveValue(/户外露营/);
   await expect(card.locator('[data-discovery-keyword-chip="camping"]')).toBeVisible();
-  // 框线稿 §15：卡片底部只有一行 —— 说明在左、主操作在右。
-  await expect(card.locator("[data-discovery-card-note]")).toBeVisible();
+  // 底部说明行已按产品要求移除；主操作居中收尾。
+  await expect(card.locator("[data-discovery-card-note]")).toHaveCount(0);
   await expect(card.locator("[data-discovery-card-submit]")).toBeVisible();
   await expect(card.locator("[data-discovery-card-submit]")).toHaveText("提交条件，核对参数");
 });
@@ -649,12 +657,13 @@ test("ask-box send follows the platform and keyword guard", async ({ page }) => 
   const send = page.locator("[data-home] [data-ai-prompt-submit]");
   const youtube = card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]');
   const instagram = card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]');
-  const keywords = card.locator("[data-discovery-keywords-input]");
 
   // R2/R5：平台默认 YouTube + 默认关键词，所以提问框的发送按钮默认可用。
   await expect(send).toBeEnabled();
 
-  // 清空关键词（芯片控件）：添加一个词后又清空，条件不完整时发送按钮禁用。
+  // 清空关键词（标签控件）：「＋」弹窗加词后清空，条件不完整时发送按钮禁用。
+  await card.locator("[data-discovery-keywords-add]").click();
+  const keywords = card.locator("[data-discovery-keywords-input]");
   await keywords.fill("户外露营");
   await keywords.press("Enter");
   await expect(card.locator('[data-discovery-keyword-chip="户外露营"]')).toBeVisible();
@@ -1169,7 +1178,6 @@ test("页内确认闭环：确认只发一次，随后右栏状态与中栏执�
   const card = page.locator("[data-discovery-search-card]");
   // 粉丝上限留空 = 不限（null，不是 0）。
   const maxFollowers = card.locator("input[data-discovery-max-followers]");
-  await expect(card.locator('[data-skill-param-group="followers_range"] [data-discovery-followers-hint]')).toBeVisible();
   await maxFollowers.fill("");
   await expect(maxFollowers).toHaveValue("");
   await expect(maxFollowers).toHaveAttribute("placeholder", "不限");
