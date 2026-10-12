@@ -6,8 +6,9 @@ import { HttpFail } from "../host/errors.js";
 import { taskDefinitions } from "../tasks/registry.js";
 import { runtimeHash } from "../runtime/execution.js";
 import { computeEffectiveAgentUsers, type AgentBindingRow, type OrganizationCoverageSource } from "../runtime/organization-tree.js";
-import type { AgentContent, AgentDraft, AgentReleaseCheck, AgentReleaseReceipt, AgentSkillOption, AgentVersionRecord, AgentWorkspaceState } from "../../../shared/agent-workspace.js";
-import {organizationDirectory,organizationState,organizationHistory} from './organization.js';
+import type { AgentContent, AgentDraft, AgentGovernanceDraft, AgentReleaseCheck, AgentReleaseReceipt, AgentSkillOption, AgentVersionRecord, AgentWorkspaceState } from "../../../shared/agent-workspace.js";
+import {organizationDirectory,organizationState,organizationHistory,organizationProposal,applyPublishedOrganization} from './organization.js';
+import {governanceBasis,bindingTargets,targetKey,validateGovernance,proposedBindings,applyPublishedBindings} from './governance.js';
 import {agentBrowse} from './organization-browse.js';
 import type {AgentBrowseFilters,AgentOrganizationDirectory} from '../../../shared/agent-organization.js';
 
@@ -28,7 +29,7 @@ async function record(db: PoolClient, actor: string, event: string, payload: Row
 /** Native PG projection; the same coverage kernel is also used by runtime authorization. */
 async function organization(db: PoolClient) {
   const units = await rows(db, "SELECT * FROM organization_units WHERE status='active' ORDER BY level,id");
-  const people = await rows(db, "SELECT p.* FROM organization_people p WHERE p.status='active' ORDER BY person_ref");
+  const people = await rows(db, "SELECT p.* FROM organization_people p LEFT JOIN users u ON u.id=p.user_id WHERE p.status='active' AND (p.user_id IS NULL OR u.active=1) ORDER BY person_ref");
   const memberships = await rows(db, "SELECT * FROM organization_memberships WHERE status='active' ORDER BY id");
   const versions = await rows(db, "SELECT company_id,MAX(version) AS version FROM org_versions GROUP BY company_id ORDER BY company_id");
   return { units, people, memberships, versions } as unknown as OrganizationCoverageSource;
@@ -81,9 +82,10 @@ async function content(db: PoolClient, item: Row, catalog: AgentSkillOption[]): 
 async function state(db: PoolClient, item: Row, catalog: AgentSkillOption[], directory?:AgentOrganizationDirectory): Promise<AgentWorkspaceState> {
   const stored = (await rows(db, "SELECT * FROM agent_workspace_drafts WHERE agent_id=$1", [item.id]))[0];
   const draft: AgentDraft | null = stored ? { ...json(stored.content), revision: Number(stored.revision), updated_at: stored.updated_at, updated_by: stored.updated_by } : null;
+  const owner=await organizationState(db,item.id,directory),bound=await bindings(db,item.id);
   return { id: item.id, name: item.name, description: item.description, status: item.status,
     version: Number(item.version), published_revision: item.published_revision ? Number(item.published_revision) : null,
-    created_at: item.created_at, updated_at: item.updated_at, effective: await content(db, item, catalog), draft, organization:await organizationState(db,item.id,directory),
+    created_at: item.created_at, updated_at: item.updated_at, effective: await content(db, item, catalog), draft, organization:owner,governance_basis:governanceBasis(bound,owner),
     actions: { edit: true, publish: Boolean(draft), disable: item.status === "published", enable: item.status === "disabled" && Boolean(item.published_revision) } };
 }
 export async function agentWorkspace(filters:Partial<AgentBrowseFilters>={}) {
@@ -140,10 +142,10 @@ function validateContent(input: { name?: unknown; description?: unknown; skill_i
   }).sort((a, b) => a.skill_id.localeCompare(b.skill_id));
   return { name: input.name.trim(), description: input.description.trim(), skills };
 }
-export async function saveAgentDraft(actor: string, id: string | null, input: { name?: unknown; description?: unknown; skill_ids?: unknown; expected_revision?: number; expected_version?: number }) {
+export async function saveAgentDraft(actor: string, id: string | null, input: { name?: unknown; description?: unknown; skill_ids?: unknown; governance?:unknown; expected_revision?: number; expected_version?: number }) {
   if(id&&(!Number.isInteger(input.expected_version)||Number(input.expected_version)<1))throw new HttpFail(400,"修订须携带当前 Agent 版本依据");
   return postgresTransaction(async db => {
-    const catalog = await agentSkillCatalog(db), candidate = validateContent(input, catalog), now = stamp();
+    const catalog = await agentSkillCatalog(db), candidate:AgentContent & {governance?:AgentGovernanceDraft} = validateContent(input, catalog), now = stamp(),isNew=!id;
     if (!id) {
       id = `agent:${randomUUID()}`;
       await db.query("INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at,workspace_managed) VALUES($1,$2,$3,'draft',1,$4,$4,TRUE)", [id, candidate.name, candidate.description, now]);
@@ -152,6 +154,10 @@ export async function saveAgentDraft(actor: string, id: string | null, input: { 
     if (input.expected_version !== undefined && Number(item.version) !== input.expected_version) throw new HttpFail(409, "Agent 有效版本或启停状态已变化，请刷新后重试");
     const draft = (await rows(db, "SELECT * FROM agent_workspace_drafts WHERE agent_id=$1", [id]))[0];
     if (!Number.isInteger(input.expected_revision) || Number(draft?.revision || 0) !== input.expected_revision) throw new HttpFail(409, "草稿已被其他人修改，请刷新后核对；本地输入保留");
+    if(input.governance!==undefined){const owner=await organizationState(db,id),bound=await bindings(db,id),source=await organization(db),basis=governanceBasis(bound,owner);
+      candidate.governance=validateGovernance(isNew&&input.governance&&typeof input.governance==='object'?{...input.governance,basis}:input.governance,basis,id,source);
+      if(candidate.governance.organization)await organizationProposal(db,id,candidate.governance.organization.company_id,candidate.governance.organization.org_unit_id);
+    }else if(draft&&json(draft.content).governance)candidate.governance=json(draft.content).governance;
     if (item.published_revision) {
       await db.query("INSERT INTO agent_workspace_versions(agent_id,version,content,published_by,published_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING", [id, item.published_revision, JSON.stringify(await content(db, item, catalog)), "legacy-release", item.updated_at]);
     }
@@ -166,10 +172,18 @@ export async function saveAgentDraft(actor: string, id: string | null, input: { 
 async function releaseContext(db: PoolClient, id: string) {
   const item = await agent(db, id), catalog = await agentSkillCatalog(db), current = await state(db, item, catalog);
   if (!current.draft) throw new HttpFail(409, "请先保存 Agent 修订草稿");
-  const bound = await bindings(db, id), org = await organization(db), coverage = computeEffectiveAgentUsers(id, bound, undefined, org);
+  const bound = await bindings(db, id), org = await organization(db),beforeCoverage=computeEffectiveAgentUsers(id,bound,undefined,org),owner=await organizationState(db,id);
+  const governance=current.draft.governance;
+  const candidateBound=governance?proposedBindings(id,governance.bindings,bound):bound,coverage=computeEffectiveAgentUsers(id,candidateBound,undefined,org);
   const blockers: string[] = [], warnings: string[] = [];
+  let proposedOwner=owner.assignment;
+  if(governance){try{validateGovernance(governance,governanceBasis(bound,owner),id,org);proposedOwner=(await organizationProposal(db,id,governance.organization?.company_id||null,governance.organization?.org_unit_id||null)).after;}catch(e){blockers.push(e instanceof Error?e.message:'治理草稿依据无效');}}
+  const ownerChanged=(owner.assignment?.company_id||null)!==(governance?.organization?.company_id||null)||(owner.assignment?.org_unit_id||null)!==(governance?.organization?.org_unit_id||null);
+  const beforeTargets=bindingTargets(bound),afterTargets=governance?.bindings||beforeTargets;
+  const added=afterTargets.filter(target=>!beforeTargets.some(row=>targetKey(row)===targetKey(target))),removed=beforeTargets.filter(target=>!afterTargets.some(row=>targetKey(row)===targetKey(target)));
+  if(governance&&(ownerChanged||added.length||removed.length)&&!governance.reason)blockers.push('请在草稿中填写归属或使用绑定变更原因');
   if (!current.draft.skills.length) blockers.push("发布前请先装配至少一项技能");
-  if (!bound.length) blockers.push("发布前请先绑定组织或人员");
+  if (!candidateBound.length&&id!=='agent:platform-sync') blockers.push("发布前请先绑定组织或人员");
   for (const pin of current.draft.skills) {
     const skill = catalog.find(row => row.id === pin.skill_id);
     if (!skill) { blockers.push(`技能 ${pin.skill_id} 已不存在`); continue; }
@@ -188,8 +202,11 @@ async function releaseContext(db: PoolClient, id: string) {
   const resourceConfigs=await rows(db,"SELECT * FROM runtime_connector_config WHERE connector_id=ANY($1::text[]) ORDER BY connector_id",[resourceIds]);
   const resourcePolicies=await rows(db,"SELECT * FROM runtime_tool_policies WHERE connector_id=ANY($1::text[]) ORDER BY connector_id,tool_name",[resourceIds]);
   const fingerprint = runtimeHash({ agent_version: item.version, status: item.status, published_revision: item.published_revision,
-    draft: current.draft, catalog: relevant, bindings: bound, organization: org,resourceMounts,toolMounts,resourceConfigs,resourcePolicies });
-  return { current, bound, coverage, blockers, warnings, fingerprint };
+    draft: current.draft, catalog: relevant, bindings: bound, ownership:governance?owner:null,organization: org,resourceMounts,toolMounts,resourceConfigs,resourcePolicies });
+  const changes:NonNullable<AgentReleaseCheck['changes']>={name:current.effective.name!==current.draft.name?{before:current.effective.name,after:current.draft.name}:null,description:current.effective.description!==current.draft.description?{before:current.effective.description,after:current.draft.description}:null,organization:governance&&ownerChanged?{before:owner.assignment,after:proposedOwner}:null,bindings_added:added,bindings_removed:removed,users_added:coverage.users.filter(row=>row.user_id&&!beforeCoverage.user_ids.includes(row.user_id)).map(row=>({user_id:row.user_id!,display_name:row.display_name})),users_removed:beforeCoverage.users.filter(row=>row.user_id&&!coverage.user_ids.includes(row.user_id)).map(row=>({user_id:row.user_id!,display_name:row.display_name})),reason:governance?.reason||'',total:0};
+  changes.total=Number(Boolean(changes.name))+Number(Boolean(changes.description))+Number(Boolean(changes.organization))+added.length+removed.length+current.draft.skills.filter(pin=>!current.effective.skills.some(old=>old.skill_id===pin.skill_id&&old.release_hash===pin.release_hash&&old.knowledge_revision===pin.knowledge_revision)).length+current.effective.skills.filter(pin=>!current.draft!.skills.some(next=>next.skill_id===pin.skill_id)).length;
+  if(!changes.total)blockers.push('草稿与当前生效配置相同，无需发布新版本');
+  return { current, bound, coverage, blockers, warnings, fingerprint,changes,org };
 }
 export async function prepareAgentRelease(actor: string, id: string): Promise<AgentReleaseCheck> {
   return postgresTransaction(async db => {
@@ -202,7 +219,7 @@ export async function prepareAgentRelease(actor: string, id: string): Promise<Ag
       added_skills: next.filter(pin => !before.some(old => old.skill_id === pin.skill_id)).map(pin => pin.skill_id),
       removed_skills: before.filter(pin => !next.some(value => value.skill_id === pin.skill_id)).map(pin => pin.skill_id),
       updated_skills: next.filter(pin => before.some(old => old.skill_id === pin.skill_id && (old.release_hash !== pin.release_hash || old.knowledge_revision !== pin.knowledge_revision))).map(pin => pin.skill_id),
-      coverage_count: ctx.coverage.user_ids.length, binding_count: ctx.bound.length, blockers: ctx.blockers, warnings: ctx.warnings };
+      coverage_count: ctx.coverage.user_ids.length, binding_count: ctx.current.draft?.governance?.bindings.length??ctx.bound.length, blockers: ctx.blockers, warnings: ctx.warnings,changes:ctx.changes };
   }, { isolation: "REPEATABLE READ" });
 }
 export async function publishAgentRelease(actor: string, id: string, input: { preparation_id?: string; request_id?: string; confirmed?: boolean }): Promise<AgentReleaseReceipt> {
@@ -219,12 +236,18 @@ export async function publishAgentRelease(actor: string, id: string, input: { pr
     if (!prepared || prepared.expires_at <= stamp()) throw new HttpFail(409, "发布预检已过期，请重新检查");
     if ((await rows(db, "SELECT id FROM agent_release_receipts WHERE preparation_id=$1", [prepared.id])).length) throw new HttpFail(409, "本次预检已发布，请读取回执");
     // Authorization and dependency rows cannot change between recheck and commit.
-    await db.query("LOCK TABLE agent_bindings,organization_units,organization_people,organization_memberships,org_versions,skill_lifecycle,skill_sops,skill_knowledge_configs,runtime_skill_connectors,runtime_skill_tools,runtime_tool_policies,runtime_connector_config IN SHARE MODE");
+    await db.query("LOCK TABLE agent_bindings,agent_organization_memberships,agent_organization_receipts IN SHARE ROW EXCLUSIVE MODE");
+    await db.query("LOCK TABLE organization_units,organization_people,organization_memberships,org_versions,users,skill_lifecycle,skill_sops,skill_knowledge_configs,runtime_skill_connectors,runtime_skill_tools,runtime_tool_policies,runtime_connector_config IN SHARE MODE");
     const ctx = await releaseContext(db, id);
     if (ctx.fingerprint !== prepared.fingerprint) throw new HttpFail(409, "草稿、技能或授权依据已变化，请重新预检确认");
     if (ctx.blockers.length) throw new HttpFail(409, ctx.blockers.join("；"));
     const receiptId = randomUUID(), now = stamp(), version = Number(ctx.current.published_revision || 0) + 1;
     const draft = ctx.current.draft!, released: AgentContent = { name: draft.name, description: draft.description, skills: draft.skills };
+    if(draft.governance){
+      if(ctx.changes.organization)await applyPublishedOrganization(db,actor,id,draft.governance.organization,draft.governance.reason,receiptId);
+      await applyPublishedBindings(db,actor,id,draft.governance.bindings,ctx.bound,draft.governance.reason,ctx.org);
+      Object.assign(released,{governance:draft.governance});
+    }
     await db.query("UPDATE runtime_agent_skills SET enabled=0,version=version+1,updated_at=$2 WHERE agent_id=$1 AND enabled=1", [id, now]);
     for (const pin of draft.skills) {
       await db.query(`INSERT INTO runtime_agent_skills(agent_id,skill_id,enabled,version,updated_at,release_hash) VALUES($1,$2,1,1,$3,$4)

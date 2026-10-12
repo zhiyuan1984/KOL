@@ -1,33 +1,14 @@
-import {useMemo,useState} from "react";
-import CompactButton from "../../components/CompactButton";
-import {api,type AdminBindingPreview} from "../../api";
-import {useAdminConfirm} from "../../components/ConfirmDialog";
-import {agentBindingRevokeConfirm} from "../../adminConfirm";
-import type {AgentRow,AgentWorkspace} from "./api";
-export const VIA_LABEL = {binding_target:"直接绑定",unit_head:"部门负责人",unit_member:"部门成员",ancestor_head:"上级负责人"};
-export default function AgentPersonnel({row,data,onChanged,onDirty,notify}:{row:AgentRow;data:AgentWorkspace;onChanged:()=>Promise<void>;onDirty:(dirty:boolean)=>void;notify:(value:string)=>void}) {
- const [targetType,setTargetType]=useState<"organization_unit"|"person">("organization_unit"),[company,setCompany]=useState(data.units[0]?.company_id || ""),[unit,setUnit]=useState(""),[query,setQuery]=useState("");
- const [selection,setSelection]=useState<Set<string>>(new Set()),[preview,setPreview]=useState<AdminBindingPreview|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState("");
- const {ask,dialog}=useAdminConfirm();
- const companies=[...new Set(data.units.map(value=>value.company_id))];
- const units=data.units.filter(value=>value.company_id===company);
- const descendants=useMemo(()=>{const result=new Set(unit?[unit]:[]);let changed=true;while(changed){changed=false;for(const value of units)if(value.parent_id&&result.has(value.parent_id)&&!result.has(value.id)){result.add(value.id);changed=true;}}return result;},[data,company,unit]);
- const candidates=targetType==="organization_unit"?units.filter(value=>(!unit||value.id===unit)&&value.display_name.includes(query)).map(value=>({key:`unit:${value.id}`,label:`${value.level}级 · ${value.display_name}`,payload:{target_type:targetType,target_id:value.id}}))
- :data.people.filter(value=>value.user_id&&(value.company_ids?.includes(company)||value.company_id===company)&&(!unit||value.unit_ids?.some(id=>descendants.has(id)))&&value.display_name.includes(query)).map(value=>({key:`person:${value.user_id}`,label:value.display_name,payload:{target_type:targetType,user_id:value.user_id!}}));
- const targets=candidates.filter(value=>selection.has(value.key)).map(value=>value.payload);
- const change=(fn:()=>void)=>{fn();setPreview(null);setSelection(new Set());onDirty(false);};
- const bindingName=(binding:AgentRow["bindings"][number])=>binding.target_type==="person"?data.people.find(person=>person.person_ref===binding.target_id)?.display_name || binding.target_id:data.units.find(value=>value.id===binding.target_id)?.display_name || binding.target_id;
- async function run(action:()=>Promise<unknown>){if(busy)return;setBusy(true);setError("");try{await action();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
- return <>{dialog}<section><h3>当前绑定点</h3><p>绑定资格由服务端依据权威组织树计算；此操作独立于能力草稿，确认后立即生效。</p>
- {row.bindings.length?row.bindings.map(binding=><div className="agent-flat-row" key={binding.id}><span>{binding.target_type==="person"?"人员":"组织单元"} · {bindingName(binding)}</span><CompactButton className="agent-text-action" disabled={busy} onClick={()=>void run(async()=>{const value=await api.adminAgentRevokePreview(row.id,binding.id);ask(agentBindingRevokeConfirm({agentName:row.name,agentId:row.id,targetLabel:bindingName(binding),removed:value.removed.map(person=>person.display_name || person.person_ref)}),async reason=>{await api.adminAgentUnbind(row.id,binding.id,reason,value.org_version,value.preview_signature);notify("绑定已撤销，当前资格已重新计算");await onChanged();});})}>撤销</CompactButton></div>):<p>尚未绑定组织或人员。</p>}
- </section><section><h3>覆盖依据 · {row.coverage.user_ids.length} 个员工账号</h3><p>组织版本 {row.coverage.org_version}。覆盖表示使用资格来源，不代表已通过考试或所有技能均可执行。</p>
- {Object.entries(VIA_LABEL).map(([via,label])=>{const users=row.coverage.users.filter(value=>value.via===via);return users.length?<details key={via}><summary>{label} · {users.length} 人</summary><ul>{users.map(value=><li key={value.person_ref}>{value.display_name || value.person_ref} · {value.via_unit_display_name || "直属人员"}</li>)}</ul></details>:null;})}
- </section><section><h3>添加绑定</h3><div className="agent-fields"><label>绑定目标类型<select value={targetType} disabled={busy} onChange={e=>change(()=>setTargetType(e.target.value as typeof targetType))}><option value="organization_unit">组织单元</option><option value="person">人员</option></select></label><label>公司<select value={company} disabled={busy} onChange={e=>change(()=>{setCompany(e.target.value);setUnit("");})}>{companies.map(id=><option key={id}>{id}</option>)}</select></label>
- <label>组织范围<select value={unit} disabled={busy} onChange={e=>change(()=>setUnit(e.target.value))}><option value="">全部组织</option>{units.map(value=><option key={value.id} value={value.id}>{value.level}级 · {value.display_name}</option>)}</select></label><label>搜索绑定目标<input value={query} disabled={busy} onChange={e=>change(()=>setQuery(e.target.value))}/></label></div>
- <label className="agent-checkbox"><input type="checkbox" disabled={busy||!candidates.length} checked={Boolean(candidates.length&&candidates.every(value=>selection.has(value.key)))} onChange={e=>{setSelection(e.target.checked?new Set(candidates.map(value=>value.key)):new Set());setPreview(null);onDirty(e.target.checked);}}/>全选当前筛选</label>
- <div className="agent-target-options">{candidates.map(value=><label className="agent-checkbox" key={value.key}><input type="checkbox" disabled={busy} checked={selection.has(value.key)} onChange={e=>{const next=new Set(selection);e.target.checked?next.add(value.key):next.delete(value.key);setSelection(next);setPreview(null);onDirty(next.size>0);}}/>{value.label}</label>)}{!candidates.length&&<p>当前范围没有可绑定目标。</p>}</div>
- <CompactButton className="agent-text-action" disabled={busy||!targets.length} onClick={()=>void run(async()=>setPreview(await api.adminAgentBindingsBulkPreview(row.id,targets)))}>预览绑定影响（{targets.length} 个目标）</CompactButton>
- {error&&<p role="alert">{error}</p>}{preview&&<div data-agent-binding-preview><p>组织版本 {preview.org_version} · 新增覆盖 {preview.added.length} 人 · 绑定后 {preview.after.user_ids.length} 个员工账号</p><ul>{preview.added.map(value=><li key={value.person_ref}>{value.display_name || value.person_ref} · {VIA_LABEL[value.via]}</li>)}</ul><p>确认后立即新增使用资格，仍须满足 Agent 发布、考试和业务执行规则。</p>
- <CompactButton emphasis="primary" className="btn work" disabled={busy} onClick={()=>void run(async()=>{await api.adminAgentBindingsBulkSave(row.id,targets,preview.org_version,"管理侧 Agent 工作区确认绑定",preview.preview_signature);setPreview(null);setSelection(new Set());onDirty(false);notify("绑定已生效，覆盖依据已更新");await onChanged();})}>确认绑定（R3）</CompactButton></div>}
- </section></>;
+import {useState} from 'react';
+import CompactButton from '../../components/CompactButton';
+import {api} from '../../api';
+import {useAdminConfirm} from '../../components/ConfirmDialog';
+import {agentBindingRevokeConfirm} from '../../adminConfirm';
+import type {AgentRow,AgentWorkspace} from './api';
+export const VIA_LABEL={binding_target:'直接绑定',unit_head:'部门负责人',unit_member:'部门成员',ancestor_head:'上级负责人'};
+export default function AgentPersonnel({row,data,onChanged,notify}:{row:AgentRow;data:AgentWorkspace;onChanged:()=>Promise<void>;onDirty:(value:boolean)=>void;notify:(value:string)=>void}){
+ const [busy,setBusy]=useState(false),[error,setError]=useState('');const {ask,dialog}=useAdminConfirm();
+ const name=(target:AgentRow['bindings'][number])=>target.target_type==='person'?data.people.find(person=>person.person_ref===target.target_id)?.display_name||target.target_id:data.units.find(unit=>unit.id===target.target_id)?.display_name||target.target_id;
+ async function revoke(binding:AgentRow['bindings'][number]){if(busy)return;setBusy(true);setError('');try{const preview=await api.adminAgentRevokePreview(row.id,binding.id);ask(agentBindingRevokeConfirm({agentName:row.name,agentId:row.id,targetLabel:name(binding),removed:preview.removed.map(person=>person.display_name||person.person_ref)}),async reason=>{await api.adminAgentUnbind(row.id,binding.id,reason,preview.org_version,preview.preview_signature);notify('紧急撤权已生效；相关草稿须重新读取依据');await onChanged();});}catch(e){setError(e instanceof Error?e.message:'撤权预览失败');}finally{setBusy(false);}}
+ return <>{dialog}<section><h3>紧急撤权</h3><p>撤销当前有效的使用绑定，确认后立即生效。日常添加或调整人员范围请创建修订草稿。</p>{row.bindings.map(binding=><div className="agent-flat-row" key={binding.id}><span>{binding.target_type==='person'?'人员':'组织'} · {name(binding)}</span><CompactButton disabled={busy} onClick={()=>void revoke(binding)}>撤销</CompactButton></div>)}{!row.bindings.length&&<p>没有有效使用绑定。</p>}{error&&<p role="alert">{error}</p>}</section>
+ <section><h3>当前覆盖 · {row.coverage.user_ids.length} 个员工账号</h3><p>组织版本 {row.coverage.org_version}。撤销一个绑定后，人员可能仍通过其他绑定获得资格。</p>{Object.entries(VIA_LABEL).map(([via,label])=>{const users=row.coverage.users.filter(value=>value.via===via);return users.length?<details key={via}><summary>{label} · {users.length} 人</summary>{users.map(person=><p key={person.person_ref}>{person.display_name||person.person_ref}</p>)}</details>:null;})}</section></>;
 }

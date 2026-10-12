@@ -1,6 +1,6 @@
 import { reviewApi } from "../../reviews/api";
 import type { AdminAgentBinding, AdminAgentCoverage, AdminAgentsResponse } from "../../api";
-import type { AgentReleaseCheck, AgentReleaseReceipt, AgentSkillOption, AgentVersionRecord, AgentWorkspaceState } from "../../../../shared/agent-workspace";
+import type { AgentReleaseCheck, AgentReleaseReceipt, AgentSkillOption, AgentVersionRecord, AgentWorkspaceState,AgentGovernanceDraft } from "../../../../shared/agent-workspace";
 import type {AgentBrowseFilters,AgentBrowseResult,AgentOrganizationDirectory,AgentOrganizationReceipt,AgentOrganizationCheck} from '../../../../shared/agent-organization';
 export type AgentRow = AgentWorkspaceState & { bindings: AdminAgentBinding[]; coverage: AdminAgentCoverage };
 export type AgentWorkspace = { agents: AgentRow[]; browse:AgentBrowseResult<AgentRow>; organization_directory:AgentOrganizationDirectory; skills: AgentSkillOption[]; units: AdminAgentsResponse["units"]; people: Array<AdminAgentsResponse["people"][number] & {company_ids?:string[]}> };
@@ -8,7 +8,7 @@ export type AgentDetail = AgentRow & {organization_history:AgentOrganizationRece
 export const agentPath = (id: string) => `/admin/agents/${encodeURIComponent(id)}`;
 export const workspace = (filters?:AgentBrowseFilters) => reviewApi<AgentWorkspace>("/admin/agents/workspace-v1"+(filters?'?'+new URLSearchParams({...filters}).toString():''));
 export const detail = (id:string) => reviewApi<AgentDetail>(`${agentPath(id)}/workspace-v1`);
-export const saveDraft = (id:string|null, body:{name:string;description:string;skill_ids:string[];expected_revision:number;expected_version?:number}) => reviewApi<AgentWorkspaceState>(id ? `${agentPath(id)}/draft-v1` : "/admin/agents/draft-v1",body,id ? "PUT":"POST");
+export const saveDraft = (id:string|null, body:{name:string;description:string;skill_ids:string[];governance?:AgentGovernanceDraft;expected_revision:number;expected_version?:number}) => reviewApi<AgentWorkspaceState>(id ? `${agentPath(id)}/draft-v1` : "/admin/agents/draft-v1",body,id ? "PUT":"POST");
 export const prepareRelease = (id:string) => reviewApi<AgentReleaseCheck>(`${agentPath(id)}/prepare-release-v1`,{});
 export const release = (id:string, preparation_id:string,request_id:string) => reviewApi<AgentReleaseReceipt>(`${agentPath(id)}/release-v1`,{preparation_id,request_id,confirmed:true});
 export const availability = (row:AgentRow,status:"published"|"disabled") => reviewApi<AgentWorkspaceState>(`${agentPath(row.id)}/availability-v1`,{status,expected_version:row.version,confirmed:true});
