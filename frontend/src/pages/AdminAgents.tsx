@@ -17,6 +17,7 @@ import {HorizontalForm} from "../components/InformationLayout";
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import {AgentBrowse,AgentOverview} from "../admin/agents/AgentBrowse";
 import AgentOrganizationPanel from "../admin/agents/AgentOrganizationPanel";
+import {randomUuid} from '../uuid';
 import type {AgentBrowseFilters,AgentOrganizationDirectory} from "../../../shared/agent-organization";
 import type {AgentReleaseCheck,AgentSkillOption} from "../../../shared/agent-workspace";
 import "../knowledge-browse.css";
@@ -67,7 +68,7 @@ function AgentWorkspace({contextKey}:{contextKey:string}){
  const changeFilter=(action:()=>void)=>{action();setPage(1);positions.current.list=0;if(listRef.current)listRef.current.scrollTop=0;};
  const saveListScroll=()=>{if(!listRef.current)return;positions.current.list=listRef.current.scrollTop;try{const saved=JSON.parse(sessionStorage.getItem(contextKey)||"{}");sessionStorage.setItem(contextKey,JSON.stringify({...saved,positions:positions.current}));}catch{/* Session storage may be unavailable; the mounted list still keeps its position. */}};
  const [check,setCheck]=useState<AgentReleaseCheck|null>(null),[checking,setChecking]=useState(false),[checkError,setCheckError]=useState(""),requestId=useRef("");
- const prepare=useCallback(async()=>{setCheck(null);setCheckError("");setChecking(true);try{setCheck(await client.prepareRelease(selectedId));requestId.current=crypto.randomUUID();}catch(e){setCheckError(errorName(e));}finally{setChecking(false);}},[selectedId]);
+ const prepare=useCallback(async()=>{setCheck(null);setCheckError("");setChecking(true);try{const next=await client.prepareRelease(selectedId);requestId.current=randomUuid();setCheck(next);}catch(e){setCheckError(errorName(e));}finally{setChecking(false);}},[selectedId]);
  useEffect(()=>{if(mode==="publish")void prepare();},[mode,prepare]);
  const {ask,dialog}=useAdminConfirm();
  const publish=()=>{if(!check||!row)return;const copy=agentPublishConfirm({name:check.content.name,id:row.id,enabledSkills:check.content.skills.length,bindings:check.binding_count,users:check.coverage_count,orgVersion:check.org_version});ask({...copy,scope:`修订草稿 r${check.revision} → 已发布 v${(row.published_revision || 0)+1}`,consequence:"确认后应用本次名称、职责与技能装配。覆盖表示人员资格；考试、依赖状态与执行规则仍由服务端校验。绑定和启停是独立动作。"},async()=>{const receipt=await client.release(row.id,check.preparation_id,requestId.current);setNotice(`已发布 v${receipt.version} · 回执 ${receipt.id}`);await load();switchMode("detail",row.id);});};

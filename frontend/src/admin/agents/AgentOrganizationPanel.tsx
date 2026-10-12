@@ -6,6 +6,7 @@ import CompactButton from '../../components/CompactButton';
 import {HorizontalForm,PropertyList} from '../../components/InformationLayout';
 import {TaskTheme} from '../../tasks/TaskTheme';
 import * as client from './api';
+import {randomUuid} from '../../uuid';
 import type {AgentOrganizationAssignment,AgentOrganizationCheck,AgentOrganizationDirectory} from '../../../../shared/agent-organization';
 
 const departmentLabel=(assignment:AgentOrganizationAssignment|null)=>assignment?assignment.path.map(unit=>unit.display_name).join(' / ')||assignment.org_unit_id:'未设置组织归属';
@@ -26,7 +27,7 @@ export default function AgentOrganizationPanel({row,directory,actionTarget,onDir
  const invalidate=()=>{++previewSequence.current;setCheck(null);setError('');};
  const start=()=>{invalidate();setCompany(assignment?.company_id||(companies.length===1?companies[0].value:''));setUnit(assignment?.org_unit_id||'');setClearing(false);setEditing(true);onDirty(true);};
  const cancel=()=>{invalidate();setEditing(false);onDirty(false);};
- async function preview(){const sequence=++previewSequence.current;setBusy(true);setError('');setCheck(null);try{const next=await client.previewOrganization(row,clearing?null:company,clearing?null:unit);if(sequence===previewSequence.current){setCheck(next);request.current=crypto.randomUUID();submittedReason.current='';}}catch(e){if(sequence===previewSequence.current)setError(e instanceof Error?e.message:'组织归属读取失败');}finally{setBusy(false);}}
+ async function preview(){const sequence=++previewSequence.current;setBusy(true);setError('');setCheck(null);try{const next=await client.previewOrganization(row,clearing?null:company,clearing?null:unit);if(sequence===previewSequence.current){request.current=randomUuid();submittedReason.current='';setCheck(next);}}catch(e){if(sequence===previewSequence.current)setError(e instanceof Error?e.message:'组织归属读取失败');}finally{setBusy(false);}}
  async function refreshBasis(){invalidate();setBusy(true);try{await onChanged();setError('已重新读取归属依据，请核对保留的选择后重新预览');}catch(e){setError(e instanceof Error?e.message:'归属依据读取失败，请重试');}finally{setBusy(false);}}
  function confirm(){if(!check)return;ask({kind:'agent-organization',title:'调整数字员工组织归属',object:`${row.name}（${row.id}）`,scope:`${organizationLabel(check.before)} → ${organizationLabel(check.after)}`,consequence:'确认后更新该数字员工的部门归属，并记录变更回执。人员使用资格、技能装配和知识范围继续独立管理。',requireReason:true,reasonLabel:'归属变更原因',reasonPlaceholder:'说明本次岗位归属或调动依据',cancelHint:'取消只关闭确认，部门选择和预览会保留。',ruleVersion:`归属版本 ${check.revision} · 组织版本 ${check.org_version}`,confirmLabel:'确认调整归属',confirmTone:'primary'},async reason=>{
   if(reason.length>500)throw new Error('归属变更原因不能超过 500 字，请修改后确认');

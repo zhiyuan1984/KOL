@@ -152,6 +152,11 @@ test('oversized reasons are not sent and a retry never silently substitutes the 
  s.failOrganization();await reason.fill('岗位调动');await confirm.click();await expect(dialog).toContainText('部门关系已变化');await reason.fill('修正后的原因');await confirm.click();await expect(dialog).toContainText('重试需沿用首次确认原因');expect(s.calls).toEqual(['owner-preview','owner-change']);
  s.allowOrganization();await reason.fill('岗位调动');await confirm.click();await expect(page.locator('.agent-notice')).toContainText('owner-receipt');expect(s.calls).toEqual(['owner-preview','owner-change','owner-change']);expect(s.errors).toEqual([]);
 });
+test('HTTP crypto compatibility keeps ownership confirmation and capability release usable',async({page})=>{
+ await page.addInitScript(()=>Object.defineProperty(window.crypto,'randomUUID',{value:undefined,configurable:true}));const s=await surface(page);const requests:string[]=[];page.on('request',request=>{if(/\/(organization|release)-v1$/.test(new URL(request.url()).pathname))requests.push(request.postDataJSON().request_id);});
+ await chooseOwner(page);await page.getByRole('button',{name:'确认归属调整（R3）',exact:true}).click();await page.getByRole('dialog').locator('[data-admin-confirm-reason]').fill('岗位调动');await page.getByRole('dialog').locator('[data-admin-confirm-ok]').click();await expect(page.locator('.agent-notice')).toContainText('owner-receipt');
+ await page.getByRole('button',{name:'创建修订草稿',exact:true}).click();await page.getByRole('button',{name:'保存草稿',exact:true}).click();await page.getByRole('button',{name:'检查并发布',exact:true}).click();await page.getByRole('button',{name:'确认发布（R3）',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'确认发布',exact:true}).click();await expect(page.locator('.agent-notice')).toContainText('release-receipt');expect(requests).toHaveLength(2);for(const id of requests)expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);expect(s.errors).toEqual([]);
+});
 
 test.describe('touch Agent browser',()=>{
  test.use({hasTouch:true});
