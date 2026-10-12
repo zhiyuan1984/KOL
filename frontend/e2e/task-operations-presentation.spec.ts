@@ -64,7 +64,7 @@ test("summary is unique, analysis is collapsed, standard viewport shows twelve r
   });
   console.log("DENSITY", JSON.stringify(metrics));
   await page.screenshot({ path: info.outputPath("tasks-desktop.png") });
-  expect(metrics.rowHeight).toBe(44);
+  expect(metrics.rowHeight).toBe(32);
   expect(metrics.full).toBeGreaterThanOrEqual(12);
   expect(metrics.overflow).toBe(false);
   expect(metrics.titleFont).toBe("13px");
@@ -196,4 +196,96 @@ test.describe("touch task operations", () => {
     await expect(page.locator(".task-row-more-popup")).toContainText("取消");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   });
+});
+
+test("selection is exclusively permission-backed cancellation, including select all", async ({ page }) => {
+  await fixture(page);
+  const commands: string[] = [];
+  await page.route("**/api/tasks?**", route => route.fulfill({ json: {
+    items: [
+      { id: "allowed", title: "可取消任务", status: "pending", allowed_actions: ["cancel"], data_version: 3 },
+      { id: "denied", title: "无权限任务", status: "pending", allowed_actions: [], cancelable: true },
+      { id: "unknown", title: "权限未读取", status: "pending" },
+    ], page: { total: 3, next_cursor: null },
+  } }));
+  await page.route("**/api/tickets/*/commands", async route => {
+    commands.push(new URL(route.request().url()).pathname);
+    expect(route.request().postDataJSON()).toMatchObject({ action: "cancel", expected_version: 3 });
+    await route.fulfill({ json: { status: "cancelled" } });
+  });
+  page.on("dialog", dialog => dialog.accept());
+  await page.goto("/tasks?source=agent");
+  await expect(page.getByRole("checkbox", { name: "选择 无权限任务", exact: true })).toBeDisabled();
+  await expect(page.getByRole("checkbox", { name: "选择 权限未读取", exact: true })).toBeDisabled();
+  await page.locator(".ant-table-thead input[type=checkbox]").check();
+  await page.getByRole("button", { name: "取消选中 (1)", exact: true }).click();
+  await expect.poll(() => commands).toEqual(["/api/tickets/allowed/commands"]);
+});
+
+test("28/39 and 14/25 retain explicit loaded versus full scopes", async ({ page }) => {
+  await fixture(page);
+  await page.route("**/api/tasks?**", route => route.fulfill({ json: {
+    items: Array.from({ length: 28 }, (_, i) => ({ id: `scope-${i}`, title: `范围任务 ${i}`, status: "pending" })),
+    page: { total: 39, next_cursor: "remaining" },
+  } }));
+  await page.route("**/api/task-work-orders/dashboard?**", route => route.fulfill({ json: {
+    summary: { tasks: { total: 25 }, work_orders: { total: 40, open: 5, blocked: 1 } },
+    tasks: { items: Array.from({ length: 14 }, (_, i) => ({ task: { task_id: `business-${i}`, title: `业务 ${i}`, status: "open" }, counts: { total: 0, open: 0, blocked: 0, waiting_review: 0 } })), page: { total: 25, next_cursor: "remaining-business" } },
+  } }));
+  await page.goto("/tasks");
+  await expect(page.locator(".task-center-pagination")).toContainText("已载入 Agent 28 / 39 · 业务 14 / 25");
+  await expect(page.locator(".task-result-scope")).toContainText("42 条已载入结果（非全量）");
+  await expect(page.getByRole("button", { name: "加载更多结果", exact: true })).toBeVisible();
+});
+
+test("independent Agent detail has complete compact layout after reload and returns filters", async ({ page }) => {
+  await fixture(page);
+  await page.route("**/api/tasks/task-0", route => route.fulfill({ json: {
+    id: "task-0", title: "紧凑详情回归", status: "completed", description: "完整任务说明", content: "原始任务目标", skill: "采集", progress: 100, session_id: "session-0",
+    created_at: "2026-10-09T02:00:00Z", updated_at: "2026-10-09T06:00:00Z", artifacts: [{ id: "result-1", title: "结果证据" }],
+  } }));
+  await page.route("**/api/tasks/task-0/events", route => route.fulfill({ json: { events: [{ id: "event-1", type: "completed", summary: "真实执行回执" }] } }));
+  await page.goto("/tasks?source=agent&period=week");
+  await page.locator(".ant-table-row").first().getByRole("button", { name: "详情", exact: true }).click();
+  await page.reload();
+  const root = page.locator("[data-task-detail]");
+  await expect(root).toContainText("真实执行回执");
+  await expect(root).toContainText("原始任务目标");
+  await root.locator(".task-detail-record-group summary").click();
+  await expect(root).toContainText("结果证据");
+  await expect(root.getByRole("link", { name: "查看结果", exact: true })).toHaveAttribute("href", "/s/session-0");
+  expect(await root.locator(".task-detail-layout").evaluate(el => getComputedStyle(el).display)).toBe("grid");
+  expect(await root.locator("h1").evaluate(el => getComputedStyle(el).fontSize)).toBe("13px");
+  await page.setViewportSize({ width: 390, height: 600 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await root.getByRole("link", { name: "返回任务明细" }).click();
+  await expect(page).toHaveURL(/source=agent&period=week/);
+});
+
+test("partial bulk cancellation reports actual successes and clears uncertain selection", async ({ page }) => {
+  await fixture(page);
+  await page.route("**/api/tasks?**", route => route.fulfill({ json: { items: [
+    { id: "ok", title: "取消成功", status: "pending", cancelable: true },
+    { id: "conflict", title: "版本变化", status: "pending", cancelable: true },
+  ], page: { total: 2, next_cursor: null } } }));
+  await page.route("**/api/tickets/*/commands", route => route.fulfill(new URL(route.request().url()).pathname.includes("conflict") ? { status: 409, json: { error: "version_conflict" } } : { json: { status: "cancelled" } }));
+  page.on("dialog", dialog => dialog.accept());
+  await page.goto("/tasks?source=agent");
+  await page.locator(".ant-table-thead input[type=checkbox]").check();
+  await page.getByRole("button", { name: "取消选中 (2)", exact: true }).click();
+  await expect(page.locator(".surface-error")).toContainText("已取消 1 个任务；1 个未确认成功");
+  await expect(page.getByRole("button", { name: /取消选中/ })).toHaveCount(0);
+});
+
+test("independent detail clears the previous task when refresh revokes access", async ({ page }) => {
+  await fixture(page);
+  let revoked = false;
+  await page.route("**/api/tasks/permission-fixture", route => route.fulfill(revoked ? { status: 403, json: { error: "not_authorized" } } : { json: { id: "permission-fixture", title: "已撤权的私有任务", status: "pending", description: "私有任务内容" } }));
+  await page.route("**/api/tasks/permission-fixture/events", route => route.fulfill({ json: { events: [] } }));
+  await page.goto("/tasks/permission-fixture");
+  await expect(page.locator("[data-task-detail]")).toContainText("私有任务内容");
+  revoked = true;
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.locator(".task-detail-error")).toBeVisible();
+  await expect(page.getByText("私有任务内容", { exact: true })).toHaveCount(0);
 });

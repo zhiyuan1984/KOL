@@ -1,7 +1,7 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, DatePicker, Pagination, Select, Tag } from "antd";
+import { Button, DatePicker, Pagination, Select, Table, Tag } from "antd";
 import dayjs from "dayjs";
 import { LifecycleNavigation } from "../components/LifecycleNavigation";
 import { TaskTheme } from "../tasks/TaskTheme";
@@ -15,7 +15,7 @@ import { AgentExpandedDetails, BusinessExpandedDetails } from "../tasks/TaskExpa
 import { TaskOperationsReport, type TaskOperationsFilter } from "../tasks/TaskOperationsReport";
 import { BusinessTaskDetailContent } from "../tasks/BusinessTaskDetailContent";
 import { captureTaskListSnapshot, readTaskListSnapshot } from "../tasks/taskDetailNavigation";
-import { businessTaskStatus, createTaskSearchDebouncer, sortTaskRowsByUpdatedAt } from "../tasks/taskCenterModel";
+import { canCancelTask, businessTaskStatus, createTaskSearchDebouncer, sortTaskRowsByUpdatedAt } from "../tasks/taskCenterModel";
 import { ActionGroup, PropertyList, RecordRow, TruncatableText } from "../components/InformationLayout";
 import "./global-layout-tasks.css";
 
@@ -105,13 +105,8 @@ function mergeTaskRows(head: Task[], tail: Task[]): Task[] {
   return [...head, ...tail.filter((task) => !seen.has(task.id))];
 }
 
-function canSelect(task: Task) {
-  return QUEUED.has(normalizedStatus(task)) || normalizedStatus(task) === "needs_clarification";
-}
-
-function canCancel(task: Task) {
-  return task.cancelable !== false && canSelect(task);
-}
+const canSelect = canCancelTask;
+const canCancel = canCancelTask;
 
 function actionLabel(task: Task, view: View) {
   if (view === "history" || CLOSED.has(normalizedStatus(task))) return "查看结果";
@@ -375,9 +370,9 @@ export default function Tasks() {
   };
 
   const cancel = async (task: Task) => {
-    if (!window.confirm("确认取消这个尚未开始执行的任务？")) return;
+    if (!canCancel(task) || !window.confirm("确认取消这个任务？")) return;
     setActionBusy(`cancel:${task.id}`);
-    try { await api.cancelTask(task); await load(); if (selected?.id === task.id) setSelected(null); }
+    try { await api.cancelTask(task); await load(); await loadOperationsDashboard(); if (selected?.id === task.id) setSelected(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "取消失败"); }
     finally { setActionBusy(""); }
   };
@@ -475,9 +470,17 @@ export default function Tasks() {
   const selectableRows = useMemo(() => visible.filter((row): row is Extract<UnifiedRow, { kind: "agent" }> => row.kind === "agent" && canSelect(row.task)), [visible]);
   useEffect(() => { if (loading) return; const visibleIds = new Set(selectableRows.map((row) => row.task.id)); setSelectedIds((current) => new Set([...current].filter((id) => visibleIds.has(id)))); }, [selectableRows, loading]);
   const cancelSelected = async () => {
-    if (!selectedIds.size || !window.confirm(`确认取消 ${selectedIds.size} 个排队任务？`)) return;
+    const targets = rows.filter(task => selectedIds.has(task.id) && canCancel(task));
+    if (!targets.length || !window.confirm(`确认取消 ${targets.length} 个选中任务？`)) return;
     setActionBusy("bulk-cancel");
-    try { await Promise.all(rows.filter((task) => selectedIds.has(task.id)).map((task) => api.cancelTask(task))); setSelectedIds(new Set()); await load(); }
+    try {
+      const receipts = await Promise.allSettled(targets.map(task => api.cancelTask(task)));
+      const failures = receipts.filter(receipt => receipt.status === "rejected").length;
+      setSelectedIds(new Set());
+      await load();
+      await loadOperationsDashboard();
+      if (failures) setError(`已取消 ${targets.length - failures} 个任务；${failures} 个未确认成功，请刷新核对权限和状态后再操作。`);
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : "批量取消失败"); }
     finally { setActionBusy(""); }
   };
@@ -531,17 +534,38 @@ export default function Tasks() {
       </div>
       <div className="task-status-filter-row">
         <LifecycleNavigation label="任务状态" idPrefix="task-status" mode="filter" value={selectedStatus} options={STATUS_TABS.filter(tab => tab.value === "all" || tab.value === selectedStatus || (counts.get(tab.value) || 0) > 0).map(tab => ({ id: tab.value, label: tab.label, count: counts.get(tab.value) || 0 }))} onChange={value => setParam("status", value)} />
-        <span className="task-count-note">状态数量：已载入集合</span>
+        <span className="task-count-note">状态数量：当前条件已载入集合；运营为周期全量</span>
       </div>
       {conditions.length ? <div className="task-active-conditions" aria-label="当前筛选条件">{conditions.map(condition => <Tag key={condition.key} closable onClose={event => { event.preventDefault(); condition.clear(); }}>{condition.text}</Tag>)}</div> : null}
-      {loading || (source !== "agent" && aiDashboardLoading) ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 && ((source !== "business" && systemError) || (source !== "agent" && reportError)) ? <p className="task-center-load-error" role="alert">任务明细暂时无法读取。<button className="task-center-text-action" type="button" onClick={() => { if (source !== "business") void load(); if (source !== "agent") void loadAiDashboard(); }}>重试</button></p> : visible.length === 0 ? <section className="task-center-empty"><strong>{(source !== "business" && nextCursor) || (source !== "agent" && businessNextCursor) ? "已载入集合暂无匹配结果，仍有更多任务可读取" : "当前没有符合条件的任务"}</strong><p>调整状态、筛选条件或等待任务状态变化后再试。</p></section> : <div className="task-center-table-wrap"><table className="task-center-table task-center-unified-table"><colgroup><col className="task-center-col-task" /><col className="task-center-col-status" /><col className="task-center-col-time" /><col className="task-center-col-actions" /></colgroup><thead><tr><th scope="col">任务名</th><th scope="col">状态</th><th scope="col">更新时间</th><th scope="col">操作</th></tr></thead><tbody>{pageRows.map((row) => {
-        if (row.kind === "agent") {
-          const task = row.task; const expanded = expandedSystemTasks.has(task.id);
-          return <Fragment key={row.key}><tr><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${row.title}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}<span className="task-source-label">Agent</span><TruncatableText className="task-center-task-title" text={row.title} /></div></td><td data-label="状态"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span></td><td data-label="更新时间">{formatTaskTime(row.updatedAt, operationsDashboard?.timezone)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => openAgentDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>} secondary={task.session_id || (view === "active" && canCancel(task)) ? <>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</> : undefined} expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}明细`} onToggle={() => setExpandedSystemTasks((current) => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })} /></td></tr>{expanded ? <tr className="task-center-meta-row"><td colSpan={4}><AgentExpandedDetails task={task} title={row.title} summary={row.summary} /></td></tr> : null}</Fragment>;
-        }
-        const item = row.item; const detail = expandedAiTasks[item.task.task_id];
-        return <Fragment key={row.key}><tr className={detail ? "is-expanded" : undefined}><td data-label="任务名" className="task-center-task-cell"><div className="task-center-task-content"><span className="task-source-label">业务</span><TruncatableText className="task-center-task-title" text={row.title} /></div></td><td data-label="状态"><span className={`task-center-status status-${row.status}`}>{row.status === "running" ? "进行中" : row.status === "waiting_approval" ? "待确认" : row.status === "completed" ? "已完成" : row.status === "cancelled" ? "已取消" : "排队中"}</span></td><td data-label="更新时间">{formatTaskTime(row.updatedAt, aiDashboard?.timezone)}</td><td data-label="操作"><TaskRowActions detail={<button type="button" onClick={() => void openAiTask(item.task.task_id)}>详情</button>} expanded={Boolean(detail)} label={`${detail ? "收起" : "展开"}${row.title}工单明细`} busy={actionBusy === `ai-task-expand:${item.task.task_id}`} onToggle={() => void toggleAiTaskRow(item.task.task_id)} /></td></tr>{detail ? <tr className="task-center-meta-row"><td colSpan={4}><BusinessExpandedDetails detail={detail} statusLabel={workOrderStatusLabel} decisionSummary={workOrderDecisionSummary} /></td></tr> : null}</Fragment>;
-      })}</tbody></table></div>}
+      {loading || (source !== "agent" && aiDashboardLoading) ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 && ((source !== "business" && systemError) || (source !== "agent" && reportError)) ? <p className="task-center-load-error" role="alert">任务明细暂时无法读取。<button className="task-center-text-action" type="button" onClick={() => { if (source !== "business") void load(); if (source !== "agent") void loadAiDashboard(); }}>重试</button></p> : visible.length === 0 ? <section className="task-center-empty"><strong>{(source !== "business" && nextCursor) || (source !== "agent" && businessNextCursor) ? "已载入集合暂无匹配结果，仍有更多任务可读取" : "当前没有符合条件的任务"}</strong><p>调整状态、筛选条件或等待任务状态变化后再试。</p></section> : <div className="task-center-table-wrap"><Table<UnifiedRow>
+        className="task-center-unified-table" size="small" rowKey="key" dataSource={pageRows} pagination={false} tableLayout="fixed"
+        rowSelection={selectableRows.length ? {
+          selectedRowKeys: [...selectedIds].map(id => `agent:${id}`), preserveSelectedRowKeys: true,
+          onChange: keys => setSelectedIds(new Set(keys.map(String).filter(key => key.startsWith("agent:")).map(key => key.slice(6)))),
+          getCheckboxProps: row => ({ disabled: row.kind !== "agent" || !canCancel(row.task) || Boolean(actionBusy), "aria-label": `选择 ${row.title}` }),
+          columnWidth: 40,
+        } : undefined}
+        expandable={{
+          expandedRowKeys: pageRows.filter(row => row.kind === "agent" ? expandedSystemTasks.has(row.task.id) : Boolean(expandedAiTasks[row.item.task.task_id])).map(row => row.key),
+          showExpandColumn: false,
+          expandedRowRender: row => row.kind === "agent" ? <AgentExpandedDetails task={row.task} title={row.title} summary={row.summary} /> : <BusinessExpandedDetails detail={expandedAiTasks[row.item.task.task_id]} statusLabel={workOrderStatusLabel} decisionSummary={workOrderDecisionSummary} />,
+        }}
+        columns={[
+          { title: "任务名", key: "title", render: (_, row) => <div className="task-center-task-content"><span className="task-source-label">{row.kind === "agent" ? "Agent" : "业务"}</span><TruncatableText className="task-center-task-title" text={row.title} /></div> },
+          { title: "状态", key: "status", width: 88, render: (_, row) => <span className={`task-center-status status-${row.status}`}>{row.kind === "agent" ? statusOf(row.task) : row.status === "running" ? "进行中" : row.status === "waiting_approval" ? "待确认" : row.status === "completed" ? "已完成" : row.status === "cancelled" ? "已取消" : "排队中"}</span> },
+          { title: "更新时间", key: "time", width: 112, render: (_, row) => formatTaskTime(row.updatedAt, row.kind === "agent" ? operationsDashboard?.timezone : aiDashboard?.timezone) },
+          { title: "操作", key: "actions", width: 180, render: (_, row) => {
+            if (row.kind === "agent") {
+              const task = row.task, expanded = expandedSystemTasks.has(task.id);
+              return <TaskRowActions detail={<button type="button" onClick={() => openAgentDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>}
+                secondary={task.session_id || canCancel(task) ? <>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}</> : undefined}
+                expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}明细`} onToggle={() => setExpandedSystemTasks(current => { const next = new Set(current); expanded ? next.delete(task.id) : next.add(task.id); return next; })} />;
+            }
+            const id = row.item.task.task_id, expanded = Boolean(expandedAiTasks[id]);
+            return <TaskRowActions detail={<button type="button" onClick={() => void openAiTask(id)}>详情</button>} expanded={expanded} label={`${expanded ? "收起" : "展开"}${row.title}工单明细`} busy={actionBusy === `ai-task-expand:${id}`} onToggle={() => void toggleAiTaskRow(id)} />;
+          } },
+        ]}
+      /></div>}
       {systemError && rows.length > 0 ? <p className="task-center-load-error" role="alert">系统任务更新失败，当前显示上次载入的任务。<button className="task-center-text-action" type="button" onClick={() => void load()}>重试</button></p> : null}
       {!loading && (visible.length > 0 || (source !== "business" && nextCursor) || (source !== "agent" && businessNextCursor)) ? <div className="task-center-pagination" aria-label="已载入任务分页">
         <span className="muted">已载入 Agent {rows.length} / {total} · 业务 {aiDashboard?.tasks.items.length || 0} / {aiDashboard?.tasks.page.total || 0}</span>

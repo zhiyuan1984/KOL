@@ -7,3 +7,21 @@
 .tasks-page[data-task-center] .task-center-task-title .ui-truncatable-value {
   font-weight: 600;
 }
+
+/* Ant Table has its own DOM; never apply the legacy mobile block-table rules. */
+.tasks-page[data-task-center] .task-center-unified-table .ant-table { background: var(--bg); font-size: var(--ds-font-sm); }
+.tasks-page[data-task-center] .task-center-unified-table .ant-table-container { min-width: 640px; }
+.tasks-page[data-task-center] .task-center-unified-table .ant-table-thead > tr > th {
+  position: sticky; top: 0; z-index: 2; height: var(--table-header-h);
+  padding: 0 var(--space-2); background: var(--bg-subtle); font-size: var(--ds-font-sm); font-weight: 500;
+}
+.tasks-page[data-task-center] .task-center-unified-table .ant-table-tbody > tr > td {
+  height: var(--table-row-h-compact); box-sizing: border-box; padding: 0 var(--space-2);
+  font-size: var(--ds-font-sm); border-bottom: 1px solid var(--border);
+}
+.tasks-page[data-task-center] .task-center-unified-table .ant-table-tbody > .ant-table-expanded-row > td { height: auto; padding: var(--space-3) var(--space-4); background: var(--bg-subtle); white-space: normal; }
+.tasks-page[data-task-center] .task-center-unified-table .ant-table-row-selected > td { background: var(--bg-subtle); }
+.tasks-page[data-task-center] .task-center-unified-table .ant-table-selection-column { text-align: center; }
+.tasks-page[data-task-center] .task-count-note { white-space: normal; }
+.tasks-page[data-task-center] .task-period-segmented { padding: 0; background: var(--bg-subtle); }
+.tasks-page[data-task-center] .task-period-segmented .ant-segmented-item-selected { color: var(--accent-text); font-weight: 600; box-shadow: none; }

@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { businessTaskStatus, createTaskSearchDebouncer, isAgentTaskInProgress, sortTaskRowsByUpdatedAt, TASK_SEARCH_DEBOUNCE_MS } from "./taskCenterModel";
+import { canCancelTask, businessTaskStatus, createTaskSearchDebouncer, isAgentTaskInProgress, sortTaskRowsByUpdatedAt, TASK_SEARCH_DEBOUNCE_MS } from "./taskCenterModel";
 
 afterEach(() => vi.useRealTimers());
 
 describe("task center status model", () => {
+  it("requires an explicit cancellation grant and honours revocation", () => {
+    expect(canCancelTask({ status: "pending" })).toBe(false);
+    expect(canCancelTask({ status: "pending", cancelable: false })).toBe(false);
+    expect(canCancelTask({ cancelable: true })).toBe(true);
+    expect(canCancelTask({ allowed_actions: ["cancel"] })).toBe(true);
+    expect(canCancelTask({ allowed_actions: [], cancelable: true })).toBe(false);
+    expect(canCancelTask({ allowed_actions: ["cancel"], cancelable: false })).toBe(false);
+  });
   it("keeps open Agent tasks out of the in-progress KPI while counting active states", () => {
     expect(isAgentTaskInProgress("open")).toBe(false);
     expect(isAgentTaskInProgress("queued")).toBe(false);

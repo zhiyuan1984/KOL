@@ -33,7 +33,7 @@ import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-
 import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
 import { personalTicketRawCountReport } from "../ticket-domain/reports.js";
 import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../ticket-domain/organization.js";
-import { listNativeTickets, nativeTicketById, nativeTicketTimeline } from "../ticket-domain/read-tickets.js";
+import { listNativeTickets, nativeTicketById, nativeTicketTimeline, nativeTicketAllowedActions } from "../ticket-domain/read-tickets.js";
 
 export const tasks = new Hono();
 
@@ -170,6 +170,7 @@ function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinit
     entities: parseJson(row.entities),
     ...(discoveryRun?.id ? { discovery_run_id: discoveryRun.id } : {}),
     ticket_id: String(row.id),
+    cancelable: nativeTicketAllowedActions({ owner_user_id: String(row.owner_user_id || ""), assignee_user_id: null, status: String(row.status || "") }, ownerId()).includes("cancel"),
     ticket_kind: row.kind ? String(row.kind) : null,
     ticket_channel: row.channel ? String(row.channel) : null,
     ticket_status: ticketStatusFromWorkItem(String(row.status)),
@@ -1053,7 +1054,7 @@ tasks.get("/tasks", async (c) => {
   const paged = !openView && (c.req.query("cursor") !== undefined || c.req.query("limit") !== undefined);
   // This endpoint is polled every few seconds by every open tab, so an
   // unchanged data window is served from the 4s in-process cache.
-  const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${reportPeriod || ""}:${requestedStatus}:${taskType}:${overdue ?? ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
+  const cacheKey = `tasks:${owner}:${ownerId()}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${reportPeriod || ""}:${requestedStatus}:${taskType}:${overdue ?? ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
   const payload = await cachedPollAsync(cacheKey, tasksEpoch(), async () => {
     const definitions = taskDefinitionIndex();
     const total = paged || openView
