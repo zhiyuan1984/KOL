@@ -20,6 +20,8 @@ import { recordCapabilityCall } from "../capability/registry.js";
 import { intentLlmApiKey, intentLlmFetch } from "../tasks/openai-intent.js";
 import { postgresQuery } from "../postgres/pool.js";
 import { documentMaxBytes } from "../knowledge/document-upload-limits.js";
+import { convertPptx, PPTX_MIME, validatePptx } from "../knowledge/pptx.js";
+import { originalDocumentPage } from "../knowledge/document-pages.js";
 
 export const DOCUMENT_STATUSES = [
   "draft",
@@ -35,9 +37,10 @@ export const DOCUMENT_STATUSES = [
 
 export const DOCUMENT_MEDIA_TYPES = ["pdf", "pptx", "image", "audio", "video"] as const;
 
-/** P1 接入：PDF / 图片 / 音视频；PPTX 仍在后续批次（上传即拒绝，页面文案写明）。 */
-const ACCEPTED_MEDIA: Record<string, { media: "pdf" | "image" | "audio" | "video"; mime: string }> = {
+/** PPTX 保留原件，先逐幻灯片转换为 PDF，再复用索引与审批。 */
+const ACCEPTED_MEDIA: Record<string, { media: "pdf" | "pptx" | "image" | "audio" | "video"; mime: string }> = {
   ".pdf": { media: "pdf", mime: "application/pdf" },
+  ".pptx": { media: "pptx", mime: PPTX_MIME },
   ".png": { media: "image", mime: "image/png" },
   ".jpg": { media: "image", mime: "image/jpeg" },
   ".jpeg": { media: "image", mime: "image/jpeg" },
@@ -57,7 +60,8 @@ const ACCEPTED_MEDIA: Record<string, { media: "pdf" | "image" | "audio" | "video
 };
 
 /** 按类型做魔数校验；音视频容器格式多，仅校验扩展名，ffmpeg 在转写时做真实校验。 */
-function validateMediaMagic(buf: Buffer, media: "pdf" | "image" | "audio" | "video"): void {
+function validateMediaMagic(buf: Buffer, media: "pdf" | "pptx" | "image" | "audio" | "video"): void {
+  if (media === "pptx") { validatePptx(buf); return; }
   const head = buf.subarray(0, 16);
   if (media === "pdf") {
     if (!buf.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
@@ -316,16 +320,16 @@ export function validateDocumentFile(file: { name: string; buf: Buffer }) {
   if (!spec) {
     throw new HttpFail(400, {
       code: "knowledge_format_not_implemented",
-      message: ext === ".pptx" || ext === ".ppt"
-        ? "演示文稿解析尚未接入，请先转为 PDF 后上传"
-        : "格式暂不支持，请使用 PDF、图片、音频或视频",
+      message: ext === ".ppt"
+        ? "旧版 PPT 暂不支持，请另存为 PPTX 后上传"
+        : "格式暂不支持，请使用 PDF、PPTX、图片、音频或视频",
     });
   }
-  validateMediaMagic(file.buf, spec.media);
   const maxBytes = documentMaxBytes();
   if (file.buf.length > maxBytes) {
     throw new HttpFail(413, { code: "knowledge_document_too_large", message: `单个文件不得超过 ${Math.floor(maxBytes / 1048576)} MiB` });
   }
+  validateMediaMagic(file.buf, spec.media);
   return { filename, ext, ...spec };
 }
 
@@ -535,13 +539,14 @@ function pdfHasTextLayer(filePath: string, buf: Buffer): boolean {
 
 type VisionRow = { text: string; inputTokens: number | null; outputTokens: number | null };
 
-async function ocrImageWithVision(imagePath: string, pageNo: number, mime = "image/png"): Promise<VisionRow> {
+async function ocrImageWithVision(imagePath: string, pageNo: number, mime = "image/png", signal?: AbortSignal): Promise<VisionRow> {
   const key = intentLlmApiKey();
   if (!key) throw new HttpFail(503, { code: "knowledge_index_unavailable", message: "缺少模型凭据：无法进行扫描件 OCR" });
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const data = fs.readFileSync(imagePath).toString("base64");
   const response = await intentLlmFetch()(`${base}/chat/completions`, {
     method: "POST",
+    ...(signal ? { signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]) } : {}),
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: mediaModel(),
@@ -821,12 +826,52 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
     throw new HttpFail(502, { code: "knowledge_normalize_failed", message: "stub：规整失败（测试标记）" });
   }
   const started = nowIso();
+  const mediaType = String(doc.media_type || "");
+  if (mediaType === "pptx") {
+    updateJobProgress(jobId, 0, 0, { mode: "pptx-convert", note: "正在将原幻灯片逐页转换为 PDF" });
+    const converted = path.join(dir, "converted.pdf");
+    const result = await convertPptx(sourcePath, converted, signal);
+    const extractedPath = path.join(dir, "extracted.md");
+    const slides = result.text.split("\f");
+    const ocrPages = Array.from({ length: result.pages }, (_, i) => i + 1).filter(page => result.visualPages.includes(page) || !slides[page - 1]?.trim());
+    if (ocrPages.length && bridgeMode() !== "stub") {
+      const pagesDir = path.join(dir, "pages");
+      const render = await runBridge({ cmd: "render", args: ["--input", converted, "--out", pagesDir], signal });
+      if (!render.ok || Number(render.pages) !== result.pages) throw new HttpFail(502, { code: "knowledge_pptx_render_failed", message: "PPTX 逐页渲染失败或页数不一致" });
+      updateJobProgress(jobId, 0, ocrPages.length, { mode: "pptx-ocr", note: "正在识别图片或图表页" });
+      let inputTokens = 0, outputTokens = 0, tokensKnown = false;
+      for (const [i, page] of ocrPages.entries()) {
+        if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
+        const image = path.join(pagesDir, `page-${page}.png`);
+        if (!fs.existsSync(image)) throw new HttpFail(502, { code: "knowledge_pptx_render_failed", message: `第 ${page} 页渲染结果缺失，未跳过入库` });
+        const row = await ocrImageWithVision(image, page, "image/png", signal);
+        if (row.inputTokens != null) { inputTokens += row.inputTokens; tokensKnown = true; }
+        if (row.outputTokens != null) { outputTokens += row.outputTokens; tokensKnown = true; }
+        slides[page - 1] = [slides[page - 1]?.trim(), row.text].filter(Boolean).join("\n\n");
+        updateJobProgress(jobId, i + 1, ocrPages.length, { mode: "pptx-ocr" });
+      }
+      if (tokensKnown) recordCostEvent({ source: "knowledge_normalize", userId: String(doc.created_by || "") || undefined, model: mediaModel(), inputTokens, outputTokens, raw: JSON.stringify({ mode: "pptx-ocr", pages: ocrPages }) });
+      recordCapabilityCall({ kind: "model", ref_id: mediaModel(), ok: true, inputTokens: tokensKnown ? inputTokens : null, outputTokens: tokensKnown ? outputTokens : null });
+    }
+    fs.writeFileSync(extractedPath, Array.from({ length: result.pages }, (_, i) => `## 第 ${i + 1} 页\n\n${slides[i]?.trim() || "（本页无可识别文本）"}`).join("\n\n"));
+    const didOcr = ocrPages.length > 0 && bridgeMode() !== "stub";
+    let pageMap: unknown = result.page_map;
+    if (didOcr) {
+      const make = await runBridge({ cmd: "make-pdf", args: ["--text", extractedPath, "--out", normalized], signal });
+      if (!make.ok || !make.page_map) throw new HttpFail(502, { code: "knowledge_pptx_normalize_failed", message: "PPTX OCR 规整稿或原页码映射生成失败" });
+      pageMap = make.page_map;
+    } else fs.copyFileSync(converted, normalized);
+    updateJobProgress(jobId, result.pages, result.pages, { mode: didOcr ? "pptx-ocr" : "pptx-convert" });
+    mergeArtifacts(String(doc.id), { normalize: { mode: didOcr ? "pptx-ocr" : "pptx-convert", converter: "libreoffice", pages: result.pages,
+      page_map: pageMap, ocr_pages: didOcr ? ocrPages : [], preview_path: storePath(converted),
+      extracted_path: storePath(extractedPath), normalized_path: storePath(normalized), finished_at: nowIso() } });
+    return;
+  }
   const ctx: NormalizeCtx = { dir, sourcePath, normalized, started };
   if (bridgeMode() === "stub") {
     await stubNormalizeStage(doc, jobId, signal, ctx, buf);
     return;
   }
-  const mediaType = String(doc.media_type || "");
   if (mediaType === "audio" || mediaType === "video") {
     await transcribeMediaStage(doc, jobId, signal, ctx);
     return;
@@ -1067,10 +1112,22 @@ export function documentSourceFile(id: string): { path: string; name: string; mi
   return sourceFileRef(docRow(id));
 }
 
+export function documentPreviewFile(id: string): { path: string; name: string; mime: string } {
+  requireAdmin();
+  return previewFileRef(docRow(id));
+}
+
 export function publishedDocumentSourceFile(id: string, allowedBaseIds: string[]): { path: string; name: string; mime: string } {
   const doc = docRow(id);
   if (doc.status !== "published" || !allowedBaseIds.includes(String(doc.base_id))) throw new HttpFail(403, "资料不在当前技能的已发布范围内");
-  return sourceFileRef(doc);
+  return previewFileRef(doc);
+}
+
+function previewFileRef(doc: Row): { path: string; name: string; mime: string } {
+  if (doc.media_type !== "pptx") return sourceFileRef(doc);
+  const file = path.join(docDirOf(doc), "converted.pdf");
+  if (!fs.existsSync(file) || !normalizedPdfExists(doc)) throw new HttpFail(409, "PPTX 尚未完成转换，暂不能预览");
+  return { path: file, name: String(doc.filename).replace(/\.pptx$/i, ".pdf"), mime: "application/pdf" };
 }
 
 function sourceFileRef(doc: Row): { path: string; name: string; mime: string } {
@@ -1179,9 +1236,7 @@ export async function queryDocuments(input: {
       throw new HttpFail(502, { code: "knowledge_invalid_citation", message: "检索引用不属于本次资料范围" });
     }
     const normalize = artifactsOf(doc).normalize as Json | undefined;
-    const pageMap = normalize?.page_map as Json | undefined;
-    const sourcePage = normalize?.mode === "scanned-ocr" ? Number(pageMap?.[String(page)]) : page;
-    if (!Number.isInteger(sourcePage) || sourcePage < 1) throw new HttpFail(502, { code: "knowledge_invalid_citation", message: "缺少原件页码映射，请重新解析资料" });
+    const sourcePage = originalDocumentPage(normalize, page);
     return {
       document: String(item.document || ""),
       engine_doc_id: engineDocId,

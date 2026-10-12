@@ -22,6 +22,8 @@ import { DEMO_ADMIN } from "../src/config.js";
 import { runtimeAgentScopeContext } from "../src/contract-scope.js";
 import { createAgentBinding, revokeAgentBinding, canUseAgent } from "../src/runtime/organization-tree.js";
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
+import { queryDocuments } from "../src/host/knowledge-documents.js";
 
 type Json = Record<string, unknown>;
 
@@ -149,6 +151,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  setIntentLlmFetch();
   vi.restoreAllMocks();
   resetConn();
   delete process.env.KNOWLEDGE_ENGINE_MODE;
@@ -279,7 +282,7 @@ describe("knowledge documents (P1 pipeline)", () => {
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "runtime_agent_not_usable" } });
     } finally { runtime.close(); process.env.AUTH_MODE = "disabled"; }
   });
-  it("accepts PDF/image/audio/video uploads; rejects pptx and bad magic", async () => {
+  it("accepts supported media; rejects mislabeled PPTX and bad magic", async () => {
     const structuredFamily = (await (await request("POST", "/api/admin/knowledge/domains", {
       code: "s_fam", name: "族", level: "family",
     })).json()).domain as Json;
@@ -303,7 +306,7 @@ describe("knowledge documents (P1 pipeline)", () => {
     form2.append("file", new File([blobPart(pdfBytes())], "deck.pptx", { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }));
     const res2 = await request("POST", "/api/admin/knowledge/documents", form2);
     expect(res2.status).toBe(400);
-    expect(await detailCode(res2)).toBe("knowledge_format_not_implemented");
+    expect(await detailCode(res2)).toBe("knowledge_invalid_pptx");
 
     const form3 = new FormData();
     form3.append("base_id", "kbase_missing");
@@ -334,6 +337,57 @@ describe("knowledge documents (P1 pipeline)", () => {
     const res6 = await request("POST", "/api/admin/knowledge/documents", form6);
     expect(res6.status).toBe(201);
     expect(String(((await res6.json()).document as Json).media_type)).toBe("audio");
+  });
+
+  it.skipIf(process.env.TEST_PPTX_CONVERSION !== "1")("uploads PPTX, converts real PDF and keeps original download separate from preview", async () => {
+    const base = await createUnstructuredBase();
+    const bytes = fs.readFileSync(new URL("./fixtures/pptx/strategy-2.pptx", import.meta.url));
+    const doc = await upload(String(base.id), "华为战略管理.PPTX", bytes);
+    expect(doc.media_type).toBe("pptx");
+    const ready = await waitStatus(String(doc.id), ["pending_review"], 30000);
+    expect((ready.artifacts as Json).normalize).toMatchObject({ mode: "pptx-convert", pages: 2, page_map: { "1": 1, "2": 2 } });
+    const original = await request("GET", `/api/admin/knowledge/documents/${doc.id}/file`);
+    expect(original.status).toBe(200);
+    expect((await original.text()).startsWith("PK")).toBe(true);
+    const preview = await request("GET", `/api/admin/knowledge/documents/${doc.id}/preview`);
+    expect(preview.status).toBe(200); expect((await preview.text()).startsWith("%PDF-")).toBe(true);
+    expect(((await docDetail(String(doc.id))).text_preview as Json).text).toContain("Strategy slide 2");
+    const draftForm = new FormData(); draftForm.append("base_id", String(base.id)); draftForm.append("draft", "true");
+    draftForm.append("file", new File([blobPart(pdfBytes())], "draft.pdf"));
+    const draft = (await (await request("POST", "/api/admin/knowledge/documents", draftForm)).json()).document as Json;
+    const replacement = new FormData(); replacement.append("file", new File([blobPart(bytes)], "新版.pptx")); replacement.append("updated_at", String(draft.updated_at));
+    expect((await request("PUT", `/api/admin/knowledge/documents/${draft.id}/draft-file`, replacement)).status).toBe(200);
+    expect(((await docDetail(String(draft.id))).document as Json).media_type).toBe("pptx");
+  });
+
+  it.skipIf(process.env.TEST_PPTX_CONVERSION !== "1")("OCRs picture pages of mixed PPTX without losing original slide preview mapping", async () => {
+    process.env.KNOWLEDGE_ENGINE_MODE = "real";
+    process.env.KNOWLEDGE_PAGEINDEX_PYTHON = "python3";
+    const actual = bridge.runBridge;
+    vi.spyOn(bridge, "runBridge").mockImplementation(call => call.cmd === "index"
+      ? Promise.resolve({ ok: true, doc_id: "mixed_test_index", pages: 3 }) : actual(call));
+    const ocr = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "Image body: execution targets, OCR verified.\n".repeat(120) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } })));
+    setIntentLlmFetch(ocr);
+    const base = await createUnstructuredBase();
+    const bytes = fs.readFileSync(new URL("./fixtures/pptx/mixed-3.pptx", import.meta.url));
+    const doc = await upload(String(base.id), "混合资料.pptx", bytes);
+    const ready = await waitStatus(String(doc.id), ["pending_review", "failed"], 30000);
+    expect(ready.error).toBeNull(); expect(ready.status).toBe("pending_review");
+    expect(ocr).toHaveBeenCalledTimes(2);
+    const normalize = (ready.artifacts as Json).normalize as Json;
+    expect(normalize.mode).toBe("pptx-ocr"); expect(normalize.ocr_pages).toEqual([2, 3]);
+    expect((normalize.page_map as Json)["1"]).toBe(1);
+    const mapping = normalize.page_map as Json;
+    expect(Object.keys(mapping).length).toBeGreaterThan(3);
+    const reflowed = Object.entries(mapping).find(([page, original]) => Number(page) > 2 && original === 2)!;
+    expect(reflowed).toBeTruthy();
+    vi.mocked(bridge.runBridge).mockResolvedValueOnce({ ok: true, answer: "verified", citations: [{ doc_id: "mixed_test_index", page: Number(reflowed[0]) }] });
+    const answer = await queryDocuments({ query: "Execution targets?", base_id: String(base.id), doc_ids: [doc.id], include_pending: true }, "sriphy");
+    expect((answer.citations as Json[])[0].page).toBe(2);
+    expect(((await docDetail(String(doc.id))).text_preview as Json).text).toContain("OCR verified");
+    const preview = await request("GET", `/api/admin/knowledge/documents/${doc.id}/preview`);
+    expect(preview.status).toBe(200); expect((await preview.text()).startsWith("%PDF-")).toBe(true);
+    delete process.env.KNOWLEDGE_PAGEINDEX_PYTHON;
   });
 
   it("transcribes audio with real segment progress in stub mode", async () => {

@@ -21,6 +21,13 @@ const detail: KnowledgeDocumentDetail = {
   text_preview: { name: "preview", text: "不应混入资料详情的加工结果" },
 };
 describe("compact ingest document details", () => {
+  it("separates original PPTX from the converted PDF preview", () => {
+    const pptx = { ...detail, document: { ...detail.document, filename: "战略.pptx", media_type: "pptx", artifacts: { normalize: { mode: "pptx-convert" } } } };
+    act(() => root.render(<MemoryRouter><IngestDocumentDetails detail={pptx} documents={[]} company="company" onOpen={vi.fn()} /></MemoryRouter>));
+    expect(container.querySelector("[data-admin-kb-doc-open]")?.getAttribute("href")).toContain("/file?company=");
+    expect(container.querySelector("[data-admin-kb-doc-preview]")?.getAttribute("href")).toContain("/preview?company=");
+    expect(container.textContent).toContain("演示文稿");
+  });
   it("shows file information without jobs, preview or approval form", () => {
     act(() => root.render(<MemoryRouter><IngestDocumentDetails detail={detail} documents={[]} company="company a" onOpen={vi.fn()} /></MemoryRouter>));
     expect(container.textContent).toContain("演示视频.mp4");

@@ -601,6 +601,23 @@ describe.skipIf(!configured)(
         (await executePublication("company", receipt.instanceId)).status,
       ).toBe("published");
     });
+    it("PPTX approval serves a PDF slide preview and rejects changed preview bytes", async () => {
+      const pptx = path.join(files, `${docId}.pptx`), preview = path.join(files, `${docId}-slides.pdf`);
+      await fs.writeFile(pptx, "PK isolated PPTX"); await fs.writeFile(preview, "%PDF frozen slide preview");
+      const row = (await postgresPool().query("SELECT artifacts FROM knowledge_documents WHERE id=$1", [docId])).rows[0];
+      const artifacts = JSON.parse(row.artifacts); artifacts.normalize = { normalized_path: preview, preview_path: preview };
+      await postgresPool().query("UPDATE knowledge_documents SET source_path=$2,filename='strategy.pptx',media_type='pptx',artifacts=$3 WHERE id=$1", [docId, pptx, JSON.stringify(artifacts)]);
+      const { receipt } = await submit();
+      const app = new Hono(); app.route("/api", knowledgePublication);
+      app.onError((error, c) => c.json({ detail: error.message }, error instanceof HttpFail ? error.status as 403 | 409 : 500));
+      const url = `/api/approvals/v2/instances/${receipt.instanceId}/knowledge-source?company=company`;
+      const request = (user: string) => withScopedUser({ id: user } as AppUser, () => app.request(url));
+      const result = await request("reviewer"); expect(result.status).toBe(200);
+      expect(result.headers.get("Content-Type")).toBe("application/pdf"); expect(await result.text()).toBe("%PDF frozen slide preview");
+      expect((await request("outsider")).status).toBe(403);
+      await fs.writeFile(preview, "%PDF changed unapproved preview");
+      expect((await request("reviewer")).status).toBe(409);
+    });
     it("native HTTP routes enforce identity, organization scope and original-material integrity", async () => {
       const app = new Hono();
       app.route("/api", knowledgePublication);

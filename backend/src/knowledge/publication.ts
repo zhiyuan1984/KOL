@@ -58,6 +58,7 @@ export function publicationSnapshot(doc: Row) {
   };
   read(source);
   if (artifacts.normalize?.normalized_path) read(resolve(artifacts.normalize.normalized_path));
+  if (artifacts.normalize?.preview_path) read(resolve(artifacts.normalize.preview_path));
   let pages = 0;
   if (process.env.NODE_ENV === "test" && process.env.KNOWLEDGE_ENGINE_MODE === "stub") {
     // Test-only engine fixture; never accepted by the production publication worker.
@@ -214,8 +215,11 @@ export async function knowledgeReviewMaterial(instanceId: string,ctx: ReviewCont
   if (!req) fail("knowledge_review_unavailable", "资料不存在或不可见",404);
   const snapshot = decode(req.snapshot);
   verifySnapshot(snapshot,await document(req.document_id,ctx.tenant));
+  const normalize = decode(snapshot.artifacts).normalize;
+  const previewPath = /\.pptx$/i.test(snapshot.source_path) ? normalize?.preview_path || normalize?.normalized_path : snapshot.source_path;
+  if (!previewPath) fail("knowledge_artifact_missing", "PPTX 转换预览缺失");
   return {title:snapshot.title,base_id:snapshot.base_id,pages:snapshot.pages,version:snapshot.document_version,
-    publication_status:req.publication_status || "unpublished",error:req.error,receipt:req.receipt,source_path:snapshot.source_path,document_id:req.document_id,
+    publication_status:req.publication_status || "unpublished",error:req.error,receipt:req.receipt,source_path:previewPath,document_id:req.document_id,
     knowledge_scope:snapshot.knowledge_scope || null,
     management_url:ctx.admin ? `/admin/knowledge?document=${encodeURIComponent(req.document_id)}&reviewCompany=${encodeURIComponent(ctx.tenant)}` : null};
 }

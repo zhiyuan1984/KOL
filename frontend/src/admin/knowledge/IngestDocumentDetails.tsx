@@ -53,6 +53,7 @@ export default function IngestDocumentDetails({ detail, documents, company, onOp
     <div className="kbingest-detail-footer">
       <div className="kbadmin-row-actions">
         <a className="kbadmin-action-link" data-admin-kb-doc-open={doc.id} href={fileUrl} target="_blank" rel="noreferrer">打开原文件<span className="sr-only">（新窗口打开）</span></a>
+        {doc.media_type === "pptx" && Boolean(doc.artifacts?.normalize) && <a className="kbadmin-action-link" data-admin-kb-doc-preview={doc.id} href={fileUrl.replace("/file", "/preview")} target="_blank" rel="noreferrer">预览逐页 PDF</a>}
         <Link className="kbadmin-action-link" data-admin-kb-doc-workspace={doc.id} to={documentWorkspaceUrl(doc.id, company)}>加工与审批</Link>
       </div>
       {actions}
