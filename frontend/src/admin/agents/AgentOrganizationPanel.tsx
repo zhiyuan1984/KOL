@@ -29,7 +29,9 @@ export default function AgentOrganizationPanel({row,directory,actionTarget,onDir
  async function preview(){const sequence=++previewSequence.current;setBusy(true);setError('');setCheck(null);try{const next=await client.previewOrganization(row,clearing?null:company,clearing?null:unit);if(sequence===previewSequence.current){setCheck(next);request.current=crypto.randomUUID();submittedReason.current='';}}catch(e){if(sequence===previewSequence.current)setError(e instanceof Error?e.message:'组织归属读取失败');}finally{setBusy(false);}}
  async function refreshBasis(){invalidate();setBusy(true);try{await onChanged();setError('已重新读取归属依据，请核对保留的选择后重新预览');}catch(e){setError(e instanceof Error?e.message:'归属依据读取失败，请重试');}finally{setBusy(false);}}
  function confirm(){if(!check)return;ask({kind:'agent-organization',title:'调整数字员工组织归属',object:`${row.name}（${row.id}）`,scope:`${organizationLabel(check.before)} → ${organizationLabel(check.after)}`,consequence:'确认后更新该数字员工的部门归属，并记录变更回执。人员使用资格、技能装配和知识范围继续独立管理。',requireReason:true,reasonLabel:'归属变更原因',reasonPlaceholder:'说明本次岗位归属或调动依据',cancelHint:'取消只关闭确认，部门选择和预览会保留。',ruleVersion:`归属版本 ${check.revision} · 组织版本 ${check.org_version}`,confirmLabel:'确认调整归属',confirmTone:'primary'},async reason=>{
-  // A retry after a lost response must replay the exact same confirmed request.
+  if(reason.length>500)throw new Error('归属变更原因不能超过 500 字，请修改后确认');
+  if(submittedReason.current&&submittedReason.current!==reason)throw new Error('重试需沿用首次确认原因。修改原因前，请取消确认、刷新归属依据并重新预览');
+  // A retry after a lost response must replay the exact same confirmed request, visibly.
   submittedReason.current ||= reason;
   const receipt=await client.changeOrganization(row.id,check.preparation_id,request.current,submittedReason.current);
   onDirty(false);setEditing(false);setCheck(null);notify(`组织归属已更新 · 回执 ${receipt.id}`);

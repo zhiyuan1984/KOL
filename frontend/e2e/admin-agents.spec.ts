@@ -33,7 +33,7 @@ async function surface(page:Page, mixed=false, theme='light',owned=false,manyDep
   await route.fulfill({json});
  });
  await page.goto('/admin/agents');await expect(page.locator('[data-agent-record]')).toHaveCount(20);
- return {calls,errors,failSave:()=>failSave=true,failRelease:()=>failRelease=true,failOrganization:()=>failOrganization=true,moveOwner:()=>{agents[0].organization={revision:1,assignment:assignment('dept-other'),system:false};},block:()=>blocked=true};
+ return {calls,errors,failSave:()=>failSave=true,failRelease:()=>failRelease=true,failOrganization:()=>failOrganization=true,allowOrganization:()=>failOrganization=false,moveOwner:()=>{agents[0].organization={revision:1,assignment:assignment('dept-other'),system:false};},block:()=>blocked=true};
 }
 test('list, identity-first detail and return preserve page and keyboard focus',async({page})=>{
  const s=await surface(page);await expect(page.locator('[data-agent-mode=list]')).toBeVisible();await expect(page.getByRole('heading',{name:'职责与身份',exact:true})).toHaveCount(0);
@@ -146,6 +146,11 @@ test('clearing ownership is an explicit confirmed action and keeps usage binding
 });
 test('large department sets use a compact searchable selector and retain a selected empty node on narrow screens',async({page})=>{
  await page.setViewportSize({width:390,height:844});const s=await surface(page,false,'light',false,true);const selection=page.getByLabel('三级部门选择',{exact:true});await selection.fill('扩展组 8');await page.locator('.ant-select-item-option-content').filter({hasText:'扩展组 8 0'}).click();await expect(page.locator('[data-agent-count]')).toHaveText('0 个 Agent');await page.getByRole('button',{name:'收起空部门',exact:true}).click();await expect(page.getByLabel('三级部门筛选',{exact:true})).toContainText('扩展组 8');expect(await selection.locator('..').evaluate(element=>element.closest('.ant-select')!.getBoundingClientRect().height)).toBe(24);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(s.errors).toEqual([]);expect(s.calls).toEqual([]);
+});
+test('oversized reasons are not sent and a retry never silently substitutes the first reason',async({page})=>{
+ const s=await surface(page);await chooseOwner(page);await page.getByRole('button',{name:'确认归属调整（R3）',exact:true}).click();const dialog=page.getByRole('dialog'),reason=dialog.locator('[data-admin-confirm-reason]'),confirm=dialog.locator('[data-admin-confirm-ok]');await reason.fill('原'.repeat(501));await confirm.click();await expect(dialog).toContainText('不能超过 500 字');expect(s.calls).toEqual(['owner-preview']);
+ s.failOrganization();await reason.fill('岗位调动');await confirm.click();await expect(dialog).toContainText('部门关系已变化');await reason.fill('修正后的原因');await confirm.click();await expect(dialog).toContainText('重试需沿用首次确认原因');expect(s.calls).toEqual(['owner-preview','owner-change']);
+ s.allowOrganization();await reason.fill('岗位调动');await confirm.click();await expect(page.locator('.agent-notice')).toContainText('owner-receipt');expect(s.calls).toEqual(['owner-preview','owner-change','owner-change']);expect(s.errors).toEqual([]);
 });
 
 test.describe('touch Agent browser',()=>{
