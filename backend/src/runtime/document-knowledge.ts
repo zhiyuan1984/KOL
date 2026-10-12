@@ -62,7 +62,7 @@ export async function invokeDocumentTool(context: RuntimeContext, args: Json, au
   if((await resolve()).fingerprint!==manifest.fingerprint)
     throw new HttpFail(409,{code:'knowledge_scope_changed',message:'资料范围已变化，请基于当前发布版本重新查询。'});
   result.citations = (result.citations as Json[]).map((citation) => ({ ...citation,
-    source_url: isKnowledgePreview(context)?`/api/admin/knowledge/documents/${encodeURIComponent(String(citation.document_id))}/file#page=${citation.page}`:`/api/knowledge/documents/${encodeURIComponent(String(citation.document_id))}/file?agent_id=${encodeURIComponent(context.agentId)}&skill_id=${encodeURIComponent(context.skillId)}#page=${citation.page}`,
+    source_url: isKnowledgePreview(context)?`/api/admin/knowledge/documents/${encodeURIComponent(String(citation.document_id))}/preview#page=${citation.page}`:`/api/knowledge/documents/${encodeURIComponent(String(citation.document_id))}/file?agent_id=${encodeURIComponent(context.agentId)}&skill_id=${encodeURIComponent(context.skillId)}#page=${citation.page}`,
   }));
   return { content: [{ type: "text", text: JSON.stringify(result) }], isError: false };
 }

@@ -21,6 +21,7 @@ import {
   cancelDocument,
   deleteDocument,
   documentIndexHealth,
+  documentPreviewFile,
   documentSourceFile,
   getDocumentDetail,
   listDocuments,
@@ -268,10 +269,18 @@ knowledge.post("/admin/knowledge/documents", async (c) => {
   return c.json(result,201);
 });
 knowledge.get("/admin/knowledge/documents/:id", (c) => c.json(getDocumentDetail(c.req.param("id"))));
+knowledge.get("/admin/knowledge/documents/:id/preview", (c) => {
+  const ref = documentPreviewFile(c.req.param("id"));
+  c.header("Content-Type", ref.mime);
+  c.header("Cache-Control", "private, no-store");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
+  return c.body(new Uint8Array(fs.readFileSync(ref.path)));
+});
 knowledge.get("/admin/knowledge/documents/:id/file", (c) => {
   const ref = documentSourceFile(c.req.param("id"));
   c.header("Content-Type", ref.mime || "application/pdf");
-  c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
+  c.header("Content-Disposition", `${ref.mime.includes("presentationml") ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
   return c.body(new Uint8Array(fs.readFileSync(ref.path)));
 });
 knowledge.get("/knowledge/documents/:id/file", async (c) => {

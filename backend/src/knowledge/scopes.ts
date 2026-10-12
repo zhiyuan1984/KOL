@@ -12,6 +12,7 @@ import { scopeHash, validateScope, mergeScopes } from './scope-contract.js';
 import { structuredBackground } from '../worker/structured-background.js';
 import type { ClaimedExecutionJob } from '../execution-jobs/contracts.js';
 import type { Json } from '../types.js';
+import { originalDocumentPage } from './document-pages.js';
 type Row=Record<string,any>;
 const parse=(v:any)=>typeof v==='string'?JSON.parse(v):v;
 const fail=(message:string,status=409):never=>{throw new HttpFail(status,{code:'knowledge_scope_invalid',message});};
@@ -103,7 +104,9 @@ async function readEvidence(doc:Row):Promise<{evidence:ScopeEvidence[];coverage:
   for(let i=0;i<pageRows.length;i++) {
     const page=pageRows[i];
     const text=typeof page==='string'?page:String(page?.markdown ?? page?.text ?? page?.content ?? page?.page_content ?? '');
-    const normalized=Number(page?.page_index ?? i+1),original=artifacts.normalize?.mode==='scanned-ocr'?Number(artifacts.normalize?.page_map?.[String(normalized)]):normalized;
+    const normalized=Number(page?.page_index ?? i+1);
+    let original=NaN;
+    try { original=originalDocumentPage(artifacts.normalize,normalized); } catch { /* missing mapping is incomplete evidence, never fabricated */ }
     if(!text.trim()){if(Number.isInteger(original)&&original>0)unreadable.push(original);continue;}
     total+=text.length;if(total>2_000_000)fail('资料正文超过本次提炼容量，请分拆文档后重试');
     for(let offset=0;offset<text.length;offset+=16000) evidence.push({id:`${doc.id}:p${normalized}:${offset}`,document_id:doc.id,

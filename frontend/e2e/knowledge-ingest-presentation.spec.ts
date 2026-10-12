@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function fixture(page: Page, v2 = false) {
+async function fixture(page: Page, v2 = false, pptx = false) {
   const account = { id: "admin", name: "管理员", available_modes: ["admin", "employee"] };
-  const common = { base_id: "base", base_name: "产品规格", filename: "产品规格.pdf", title: "产品规格", size_bytes: 603136, updated_at: "2026-10-05T09:03:00Z" };
+  const common = { base_id: "base", base_name: "产品规格", filename: pptx ? "战略规划.pptx" : "产品规格.pdf", title: "产品规格", size_bytes: 603136, updated_at: "2026-10-05T09:03:00Z", ...(pptx ? {media_type:"pptx",artifacts:{normalize:{mode:"pptx-convert"}}} : {}) };
   let documents = [{ ...common, id: "published", status: "published" }, { ...common, id: "pending", status: "pending_review" }];
   let detailFails = false;
   let ready = false;
@@ -47,6 +47,18 @@ async function fixture(page: Page, v2 = false) {
   await expect(page.locator("[data-admin-kb-documents-table]")).toBeVisible({ timeout: 20000 });
   return { writes, errors, ready: () => { ready = true; }, failDetails: () => { detailFails = true; }, recoverDetails: () => { detailFails = false; } };
 }
+
+test("PPTX 资料详情保留原件与逐页 PDF 预览，不执行发布", async ({ page }, testInfo) => {
+  const f = await fixture(page, false, true);
+  await page.locator("[data-admin-kb-doc-detail='pending']").click();
+  const source = page.locator("[data-admin-kb-doc-open='pending']");
+  const preview = page.locator("[data-admin-kb-doc-preview='pending']");
+  await expect(source).toHaveAttribute("href", /\/documents\/pending\/file\?company=test/);
+  await expect(preview).toHaveAttribute("href", /\/documents\/pending\/preview\?company=test/);
+  await expect(preview).toHaveText("预览逐页 PDF");
+  await page.screenshot({ path: testInfo.outputPath("pptx-preview-detail.png"), fullPage: true });
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
+});
 
 test("紧凑工作表关联同名原文、加工结果和真实审批；空模块通过 Tab 查看", async ({ page }, testInfo) => {
   const f = await fixture(page);

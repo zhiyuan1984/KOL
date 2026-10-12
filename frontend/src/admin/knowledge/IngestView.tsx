@@ -176,7 +176,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
             </select>
           </label>
           <div className="field">
-            <span>资料文件（PDF / 图片 / 音视频）</span>
+            <span>资料文件（PDF / PPTX / 图片 / 音视频）</span>
             <div className="kbadmin-file-picker">
               <button
                 className="btn row-action"
@@ -192,7 +192,7 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
                 ref={fileRef}
                 type="file"
                 hidden
-                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv,application/pdf"
+                accept=".pdf,.pptx,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv,application/pdf"
                 data-admin-kb-doc-file
                 onChange={(event) => setFile(event.target.files?.[0] || null)}
               />

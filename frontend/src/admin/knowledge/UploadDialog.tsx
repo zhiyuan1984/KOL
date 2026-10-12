@@ -6,9 +6,10 @@ import ScopeTabs, { type ScopeOption } from "../../components/ScopeTabs";
 import KbvIcon from "../../knowledgeIcons";
 import { formatBytes } from "./shared";
 
-/** PDF / 图片 / 音视频上传即进入规整与索引，完成后留在待审资料队列。 */
+/** PDF / PPTX / 图片 / 音视频上传即进入规整与索引，完成后留在待审资料队列。 */
 const UPLOAD_FORMATS: Record<string, string> = {
   pdf: "PDF 文档",
+  pptx: "PPTX 演示文稿",
   png: "图片 PNG", jpg: "图片 JPG", jpeg: "图片 JPEG", gif: "图片 GIF", webp: "图片 WebP",
   mp3: "音频 MP3", wav: "音频 WAV", m4a: "音频 M4A", aac: "音频 AAC", flac: "音频 FLAC", ogg: "音频 OGG", opus: "音频 OPUS",
   mp4: "视频 MP4", mov: "视频 MOV", webm: "视频 WebM", mkv: "视频 MKV",
@@ -97,9 +98,9 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
     for (const file of incoming) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       if (!UPLOAD_FORMATS[ext]) {
-        errors.push(`${file.name}：${ext === "pptx" || ext === "ppt"
-          ? "演示文稿解析尚未接入，请先转为 PDF 后上传"
-          : "格式暂不支持，请使用 PDF、图片、音频或视频"}`);
+        errors.push(`${file.name}：${ext === "ppt"
+          ? "旧版 PPT 暂不支持，请另存为 PPTX 后上传"
+          : "格式暂不支持，请使用 PDF、PPTX、图片、音频或视频"}`);
         continue;
       }
       if (!file.size) {
@@ -204,8 +205,8 @@ export default function UploadDialog({ open, inline=false,onDirty, onClose, base
               }}
             />
           </label>
-          <p className="muted">支持 PDF、图片、音频、视频；归属必须为非结构化知识库。</p>
-          <p className="muted">PPT / PPTX 解析尚未接入，请先转为 PDF 后上传。</p>
+          <p className="muted">支持 PDF、PPTX、图片、音频、视频；归属必须为非结构化知识库。</p>
+          <p className="muted">PPTX 会按原幻灯片顺序转换为 PDF 后建立索引，保留原件；旧版 PPT 请先另存为 PPTX。</p>
           <p className="muted">上传会开始解析；解析完成后仍需提交发布审批，不会自动对员工生效。</p>
         </div>
         {files.length ? (

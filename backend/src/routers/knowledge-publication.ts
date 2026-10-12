@@ -225,6 +225,17 @@ knowledgePublication.get(
         createHash("sha256").update(bytes).digest("hex") !== snapshot.sourceHash
       )
         throw new HttpFail(409, "原件已变化，不能作为本次审批材料");
+      if (/\.pptx$/i.test(snapshot.filename)) {
+        const artifacts = typeof snapshot.artifacts === "string" ? JSON.parse(snapshot.artifacts) : snapshot.artifacts;
+        const stored = artifacts?.normalize?.preview_path || artifacts?.normalize?.normalized_path;
+        if (!stored) throw new HttpFail(409, "PPTX 转换预览缺失");
+        const file = path.isAbsolute(stored) ? stored : path.join(dataDir(), stored);
+        const expected = snapshot.engine?.files?.find((item: { path: string; hash: string }) => item.path === file);
+        const preview = await fs.readFile(file);
+        if (!expected || createHash("sha256").update(preview).digest("hex") !== expected.hash)
+          throw new HttpFail(409, "转换预览已变化，不能作为本次审批材料");
+        return { bytes: preview, filename: snapshot.filename.replace(/\.pptx$/i, ".pdf"), mime: "application/pdf" };
+      }
       return { bytes, filename: snapshot.filename,mime:"application/pdf" };
     });
     c.header("Content-Type", result.mime);

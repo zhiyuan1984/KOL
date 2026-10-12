@@ -30,9 +30,19 @@ function explain(input: HTMLTextAreaElement, value: string) {
   });
 }
 describe("knowledge upload queue", () => {
-  it("gives PPTX users an actionable PDF conversion message without pretending to support parsing", () => {
-    add([new File(["deck"], "华为战略管理.PPTX")]);
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("转为 PDF");
+  it("accepts PPTX and sends the original file for server conversion", async () => {
+    const file = new File(["deck"], "华为战略管理.PPTX");
+    const upload = vi.spyOn(api, "adminKnowledgeDocumentUpload").mockResolvedValue({ document: { id: "pptx" } } as never);
+    add([file]); chooseBase();
+    expect(container.querySelector<HTMLInputElement>("[data-kbv-upload-pick]")?.accept).toContain(".pptx");
+    expect(container.querySelector("[data-kbv-upload-queue]")?.textContent).toContain("PPTX 演示文稿");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>("[data-kbv-upload-submit]")!.click());
+    expect(upload.mock.calls[0][1]).toBe(file);
+  });
+  it("rejects legacy PPT with an actionable save-as message", () => {
+    add([new File(["deck"], "华为战略管理.ppt")]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("另存为 PPTX");
     expect(container.querySelector("[data-kbv-upload-queue]")).toBeNull();
     expect(onDirty).toHaveBeenLastCalledWith(false);
   });
