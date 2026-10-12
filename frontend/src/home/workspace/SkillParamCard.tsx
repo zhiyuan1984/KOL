@@ -287,7 +287,6 @@ export default function SkillParamCard({
             <span className="sr-only">{maxFollowers.label}</span>{renderField(maxFollowers)}
           </div>
         </div>
-        {mode !== "ready" ? <span className="discovery-followers-hint" data-discovery-followers-hint>上限留空即不限</span> : null}
         {mode !== "ready" && followersRangeInvalid(values[minFollowers.key], values[maxFollowers.key])
           ? <span className="skill-param-error" role="alert">上限低于下限</span> : null}
       </div> : null}

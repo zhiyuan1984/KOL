@@ -99,11 +99,21 @@ export function defaultDiscoveryBrief(): DiscoveryBrief {
   return {
     platforms: ["youtube"],
     region: "global_en",
-    directions: [],
-    keywords: ["camping", "portable power station"],
+    directions: [...DEFAULT_DISCOVERY_DIRECTIONS],
+    keywords: [...DEFAULT_DISCOVERY_KEYWORDS],
     ...DEFAULT_DISCOVERY_THRESHOLDS,
   };
 }
+
+/** 默认方向：户外能源（可在卡片上改选）。 */
+export const DEFAULT_DISCOVERY_DIRECTIONS: DiscoveryDirectionCode[] = ["portable_power"];
+/** 默认关键词标签：前 10 个户外词，可删除、可用「＋」弹窗增补。 */
+export const DEFAULT_DISCOVERY_KEYWORDS: string[] = [
+  "camping", "outdoor camping", "camping gear",
+  "van life", "RV travel", "RV living",
+  "portable power station", "solar generator", "energy storage",
+  "road trip",
+];
 
 export function fallbackDiscoveryTemplate(): DiscoveryTemplate {
   const defaults = defaultDiscoveryBrief();
