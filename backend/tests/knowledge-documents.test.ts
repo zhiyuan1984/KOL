@@ -157,6 +157,48 @@ afterEach(() => {
 });
 
 describe("knowledge documents (P1 pipeline)", () => {
+  it("rejects uploading into a base with a foreign organization scope before creating documents or jobs", async () => {
+    const base = await createUnstructuredBase();
+    const original = await upload(String(base.id), "组织原件.pdf", pdfBytes());
+    await waitStatus(String(original.id), ["pending_review"]);
+    getConn().prepare("INSERT INTO knowledge_document_scopes(document_id,tenant,explanation,fingerprint,updated_at) VALUES(?,?,?,?,?)")
+      .run(original.id, "foreign-company", "", "foreign", new Date().toISOString());
+    const before = getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get();
+    const form = new FormData();
+    form.append("base_id", String(base.id));
+    form.append("file", new File([blobPart(pdfBytes())], "越界文件.pdf"));
+    const response = await request("POST", "/api/admin/knowledge/documents", form);
+    expect(response.status).toBe(403);
+    expect(await detailCode(response)).toBe("knowledge_base_scope_forbidden");
+    expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toEqual(before);
+  });
+  it("validates scope explanations before saving files or starting parsing", async () => {
+    const base = await createUnstructuredBase();
+    const form = new FormData();
+    form.append("base_id", String(base.id)); form.append("scope_flow", "true");
+    form.append("explanation", "字".repeat(4001));
+    form.append("file", new File([blobPart(pdfBytes())], "无效说明.pdf"));
+    const response = await request("POST", "/api/admin/knowledge/documents", form);
+    expect(response.status).toBe(422);
+    expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toMatchObject({ n: 0 });
+    expect(fs.existsSync(path.join(tmp, "knowledge"))).toBe(false);
+  });
+  it("bounds multipart uploads before parsing and creates no records for oversized requests", async () => {
+    const base = await createUnstructuredBase();
+    const previous = process.env.KNOWLEDGE_DOC_MAX_BYTES;
+    try {
+      process.env.KNOWLEDGE_DOC_MAX_BYTES = "1024";
+      const form = new FormData(); form.append("base_id", String(base.id));
+      form.append("file", new File([blobPart(Buffer.alloc(70000))], "large.mp4"));
+      const response = await request("POST", "/api/admin/knowledge/documents", form);
+      expect(response.status).toBe(413);
+      expect(await detailCode(response)).toBe("knowledge_document_too_large");
+      expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toMatchObject({ n: 0 });
+    } finally {
+      if (previous === undefined) delete process.env.KNOWLEDGE_DOC_MAX_BYTES;
+      else process.env.KNOWLEDGE_DOC_MAX_BYTES = previous;
+    }
+  });
   it("saves a PDF draft without jobs, starts explicitly once, and keeps it unpublished", async () => {
     const base = await createUnstructuredBase();
     const form = new FormData();

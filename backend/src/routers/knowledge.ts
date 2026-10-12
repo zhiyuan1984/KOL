@@ -1,5 +1,6 @@
 import { knowledgeTaxonomyMutations } from "./knowledge-taxonomy.js";
 import { publicationLabels } from "../knowledge-publication/service.js";
+import { documentUploadBodyLimit } from "../knowledge/document-upload-limits.js";
 
 import { Hono } from "hono";
 import fs from "node:fs";
@@ -85,6 +86,8 @@ import { publicationContext, publicationState, bindPublication, preparePublicati
 
 export const knowledge = new Hono();
 knowledge.route("/", knowledgeTaxonomyMutations);
+knowledge.use("/admin/knowledge/documents", documentUploadBodyLimit);
+knowledge.use("/admin/knowledge/documents/:id/draft-file", documentUploadBodyLimit);
 
 knowledge.use("/admin/knowledge/documents/*",async(c,next)=>{
   requireAdmin();
@@ -239,16 +242,29 @@ knowledge.post("/admin/knowledge/documents", async (c) => {
   requireAdmin();
   const body = await c.req.parseBody();
   const file = body.file;
-  if (!file || typeof file === "string") throw new HttpFail(400, "file required");
+  if (!file || typeof file === "string" || Array.isArray(file)) throw new HttpFail(400, "file required");
+  const baseId = String(body.base_id || "");
+  const ctx = publicationContext(c.req.header("X-Review-Company"));
+  // Bases do not have separate personnel grants. Reuse existing organization
+  // evidence from their publication binding/scopes before saving any new bytes.
+  const tenants = await postgresQuery(`SELECT tenant FROM knowledge_publication_bindings WHERE base_id=$1
+    UNION SELECT s.tenant FROM knowledge_document_scopes s JOIN knowledge_documents d ON d.id=s.document_id WHERE d.base_id=$1
+    UNION SELECT p.tenant FROM knowledge_publication_applications p JOIN knowledge_documents d ON d.id=p.document_id WHERE d.base_id=$1`, [baseId]);
+  if (tenants.some(row => row.tenant !== ctx.tenant)) {
+    throw new HttpFail(403, { code: "knowledge_base_scope_forbidden", message: "知识库不在当前组织范围" });
+  }
+  const scopeFlow = body.scope_flow === "true";
+  const explanation = String(body.explanation || "").trim();
+  if (scopeFlow && explanation.length > 4000) throw new HttpFail(422, { code: "knowledge_scope_invalid", message: "资料用途解释最多 4000 字" });
   const buf = Buffer.from(await (file as File).arrayBuffer());
   const result=uploadDocument(
     { name: (file as File).name || "upload.pdf", type: (file as File).type || "", buf },
-    String(body.base_id || ""),
+    baseId,
     undefined,
     { draft: body.draft === "true" },
   );
   // Explicit use of the new scope flow; older upload clients keep their existing contract.
-  if(body.scope_flow==='true')await saveScope(scopedUser()!.id,c.req.header('X-Review-Company'),String((result.document as Row).id),{expectedRevision:0,explanation:String(body.explanation || '')});
+  if(scopeFlow)await saveScope(ctx.actor,ctx.tenant,String((result.document as Row).id),{expectedRevision:0,explanation});
   return c.json(result,201);
 });
 knowledge.get("/admin/knowledge/documents/:id", (c) => c.json(getDocumentDetail(c.req.param("id"))));

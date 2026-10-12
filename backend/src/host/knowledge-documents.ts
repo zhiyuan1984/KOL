@@ -19,6 +19,7 @@ import { recordCostEvent } from "../costs.js";
 import { recordCapabilityCall } from "../capability/registry.js";
 import { intentLlmApiKey, intentLlmFetch } from "../tasks/openai-intent.js";
 import { postgresQuery } from "../postgres/pool.js";
+import { documentMaxBytes } from "../knowledge/document-upload-limits.js";
 
 export const DOCUMENT_STATUSES = [
   "draft",
@@ -315,11 +316,13 @@ export function validateDocumentFile(file: { name: string; buf: Buffer }) {
   if (!spec) {
     throw new HttpFail(400, {
       code: "knowledge_format_not_implemented",
-      message: "本阶段先接入 PDF / 图片 / 音视频；PPTX 将在后续批次开放",
+      message: ext === ".pptx" || ext === ".ppt"
+        ? "演示文稿解析尚未接入，请先转为 PDF 后上传"
+        : "格式暂不支持，请使用 PDF、图片、音频或视频",
     });
   }
   validateMediaMagic(file.buf, spec.media);
-  const maxBytes = Number(process.env.KNOWLEDGE_DOC_MAX_BYTES || 536870912);
+  const maxBytes = documentMaxBytes();
   if (file.buf.length > maxBytes) {
     throw new HttpFail(413, { code: "knowledge_document_too_large", message: `单个文件不得超过 ${Math.floor(maxBytes / 1048576)} MiB` });
   }
