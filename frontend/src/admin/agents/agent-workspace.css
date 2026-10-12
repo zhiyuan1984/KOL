@@ -4,7 +4,7 @@
 .agent-workspace { display:flex; flex-direction:column; color:var(--text); font-size:var(--ds-font-sm); }
 #root .workbench .agent-workspace .knowledge-browse-workspace { flex:1; height:100%; min-height:0; grid-template-columns:minmax(0,1fr) minmax(var(--workspace-result-rail-min),1fr); grid-template-rows:minmax(0,1fr); gap:0; }
 #root .workbench .agent-workspace .agent-browse-list { min-width:0; min-height:0; overflow:auto; padding:0; }
-.agent-workspace :is(h2,h3) { font-size:var(--ds-font-sm); line-height:var(--ds-line-body); font-weight:600; margin:0 0 var(--space-2); }
+.agent-workspace :is(h2,h3,h4) { font-size:var(--ds-font-sm); line-height:var(--ds-line-body); font-weight:600; margin:0 0 var(--space-2); }
 .agent-workspace p { font-size:var(--ds-font-sm); line-height:var(--ds-line-body); margin:var(--space-1) 0; overflow-wrap:anywhere; }
 .agent-workspace :is(small,.agent-help) { font-size:var(--ds-font-xs); color:var(--text-quiet); line-height:var(--ds-line-helper); }
 .agent-workspace :is(button,input,select,textarea) { font-family:inherit; }

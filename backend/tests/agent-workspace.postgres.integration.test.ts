@@ -55,6 +55,12 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   expect(row.name).toBe('现有岗位');expect(row.effective.skills.map(value=>value.skill_id)).toEqual([skillA]);expect(row.draft?.name).toBe('修订后的岗位');expect(row.versions[0].version).toBe(1);
   expect(row.coverage.user_ids.sort()).toEqual(['admin','employee']);
  });
+ it('requires explicit removal of a missing legacy skill, preserving published assembly until confirmed release',async()=>{
+  const missing='sop_content_planning';await postgresPool().query("INSERT INTO runtime_agent_skills(agent_id,skill_id,enabled,version,updated_at) VALUES($1,$2,1,1,$3)",[agentId,missing,stamp]);
+  await expect(saveAgentDraft(actor,agentId,input([skillA,missing]))).rejects.toMatchObject({status:400,message:`技能 ${missing} 不存在`});expect((await agentWorkspaceDetail(agentId)).draft).toBeNull();
+  await saveAgentDraft(actor,agentId,input([skillA]));const saved=await agentWorkspaceDetail(agentId);expect(saved.effective.skills.map(pin=>pin.skill_id)).toContain(missing);expect(saved.draft?.skills.map(pin=>pin.skill_id)).toEqual([skillA]);expect(saved.published_revision).toBe(1);
+  const check=await prepareAgentRelease(actor,agentId);expect(check.removed_skills).toEqual([missing]);expect(check.blockers).toEqual([]);await release(check.preparation_id);const published=await agentWorkspaceDetail(agentId);expect(published.effective.skills.map(pin=>pin.skill_id)).toEqual([skillA]);expect(published.versions.find(version=>version.version===1)?.skills.map(pin=>pin.skill_id)).toContain(missing);
+ });
  const ownerPreview=(org_unit_id:string|null='owner-team',expected_revision=0,company_id:string|null=org_unit_id?'company':null)=>prepareAgentOrganization(actor,agentId,{company_id,org_unit_id,expected_revision});
  const ownerChange=(preparation_id:string,request_id=randomUUID())=>changeAgentOrganization(actor,agentId,{preparation_id,request_id,confirmed:true,reason:'明确岗位归属'});
  it('migrates existing Agents as unassigned and uses the native organization directory',async()=>{
