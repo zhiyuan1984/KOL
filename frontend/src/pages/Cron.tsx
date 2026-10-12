@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { Button, Checkbox, Drawer, Input, Modal, Spin, Table, Tabs, Tooltip, type TableProps } from "antd";
-import { InfoCircleOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, WarningOutlined } from "@ant-design/icons";
+import { InfoCircleOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, WarningOutlined } from "@ant-design/icons";
 import CronTheme from "../cron/CronTheme";
 import { DEFAULT_TIME_ZONE, compactFrequency, formatExactTime, formatNextTime, fromZonedInput, toZonedInput } from "../cron/cronTime";
 import { PLAN_VIEWS, TERMINAL_RUNS, actionAllowed, isAttention, orderedIds, planLabel, receiptLabel, resultLabel, runStatusLabel, searchedJobs, viewCounts } from "../cron/cronModel";
+import "../components/information-layout.css";
+import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import "../cron/cron-workspace.css";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, type CronJob, type CronRun } from "../api";
@@ -532,7 +534,7 @@ function CronWorkbench() {
   const capabilityNotice = detail?.execution_capability?.ready === false ? detail.execution_capability.reason || "当前执行能力未就绪，需要人工接管。" : !detail?.execution_capability ? "执行能力暂未核验，不能据计划状态判断自动执行可用。" : null;
   const composerEditor = <div className="cron-editor-footer">
     <h3>任务内容</h3>
-    <div onChangeCapture={() => setComposerTouched(true)} onClickCapture={event => { if ((event.target as HTMLElement).closest("button") && !(event.target as HTMLElement).closest(".composer-submit")) setComposerTouched(true); }}>
+    <div onChangeCapture={() => setComposerTouched(true)} onClickCapture={event => { if ((event.target as HTMLElement).closest("button") && !(event.target as HTMLElement).closest("[data-send]")) setComposerTouched(true); }}>
       <ComposerDock key={detail?.id || "new"} variant="workspace" value={text} onChange={setText} onSubmit={payload => void save(payload)} disabled={busy.save} initialDraft={detail ? composerDraft(detail) : { text: "" }} objectRefs={objectRefs} onObjectRefsChange={setObjectRefs} submitLabel={isNew ? "保存为草稿" : "保存更改"} />
     </div>
     {detailError && <p className="cron-row-error" role="alert">{detailError}</p>}
@@ -542,7 +544,7 @@ function CronWorkbench() {
   return <div className="list-page cron-workspace" data-cron-page ref={pageRef}>
     {modalContext}
     <header className="cron-workspace-toolbar"><h1>定时任务</h1><div className="cron-workspace-tools">
-      <Input.Search id="cron-search" aria-label="搜索任务" placeholder="搜索任务" allowClear value={inputQuery} enterButton={<Button type="default" aria-label="执行任务搜索" icon={<SearchOutlined aria-hidden="true" />} />} onChange={event => setInputQuery(event.target.value)} onSearch={(value, _event, info) => setListParams({ q: info?.source === "clear" ? null : value.trim(), page: null })} />
+      <WorkspaceSearchInput id="cron-search" aria-label="搜索任务" placeholder="搜索任务" value={inputQuery} onChange={event => { const value = event.target.value; setInputQuery(value); if (value === "" && query) setListParams({ q: null, page: null }); }} onPressEnter={() => setListParams({ q: inputQuery.trim() || null, page: null })} />
       <Button type="primary" icon={<PlusOutlined />} disabled={!!jobId} onClick={() => { originRef.current = { scroll: pageRef.current?.scrollTop || 0, focus: "new" }; nav(`/cron/new${location.search}`); }} data-cron-focus="new">新建定时任务</Button>
     </div></header>
     {listError && loadState === "ok" && <div className="cron-stale-notice" role="status">读取失败，当前列表可能是旧状态。<Button type="text" onClick={() => void loadJobs()}>重试</Button></div>}
@@ -554,21 +556,20 @@ function CronWorkbench() {
       <section data-cron-detail={detail?.job_key || (isNew ? "new" : jobId)} className="cron-drawer-content">
         {detailLoading && <Spin tip="读取任务详情" />}
         {!detailLoading && detailError && !edit && <div role="alert" className="cron-read-error">{detailError}<Button type="text" onClick={() => setDetailRevision(value => value + 1)}>重新读取</Button></div>}
-        {edit ? <fieldset className="cron-workspace-editor" disabled={busy.save} aria-label="任务时间设置">
-          <label>任务名称<Input value={editor.title} maxLength={120} onChange={event => editField("title", event.target.value)} /></label>
-          <label>执行方式<select value={editor.kind} onChange={event => setEditor(current => ({ ...current, kind: event.target.value as ScheduleKind, customCron: undefined }))}><option value="recurring">周期</option><option value="interval">间隔</option><option value="once">单次</option></select></label>
+        {edit ? <fieldset className="cron-workspace-editor ui-native-form" disabled={busy.save} aria-label="任务时间设置">
+          <label className="ui-native-field">任务名称<Input value={editor.title} maxLength={120} onChange={event => editField("title", event.target.value)} /></label>
+          <label className="ui-native-field">执行方式<select value={editor.kind} onChange={event => setEditor(current => ({ ...current, kind: event.target.value as ScheduleKind, customCron: undefined }))}><option value="recurring">周期</option><option value="interval">间隔</option><option value="once">单次</option></select></label>
           <div className="cron-editor-schedule">
             {editor.kind === "recurring" && (editor.customCron ? <p className="cron-secondary">保留已有自定义频率：{editor.customCron}。切换执行方式才会替换该计划。</p> : <>
-              <label>周期<select value={editor.repeat} onChange={event => editField("repeat", event.target.value as Editor["repeat"])}><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label>
-              {editor.repeat === "weekly" && <label>星期<select value={editor.weekday} onChange={event => editField("weekday", event.target.value)}>{["日", "一", "二", "三", "四", "五", "六"].map((day, i) => <option key={day} value={i}>{day}</option>)}</select></label>}
-              {editor.repeat === "monthly" && <label>日期<input type="number" min="1" max="31" value={editor.monthday} onChange={event => editField("monthday", event.target.value)} /></label>}
-              <label>时间<input type="time" value={editor.time} onChange={event => editField("time", event.target.value)} /></label>
+              <label className="ui-native-field">周期<select value={editor.repeat} onChange={event => editField("repeat", event.target.value as Editor["repeat"])}><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label>
+              {editor.repeat === "weekly" && <label className="ui-native-field">星期<select value={editor.weekday} onChange={event => editField("weekday", event.target.value)}>{["日", "一", "二", "三", "四", "五", "六"].map((day, i) => <option key={day} value={i}>{day}</option>)}</select></label>}
+              {editor.repeat === "monthly" && <label className="ui-native-field">日期<input type="number" min="1" max="31" value={editor.monthday} onChange={event => editField("monthday", event.target.value)} /></label>}
+              <label className="ui-native-field">时间<input type="time" value={editor.time} onChange={event => editField("time", event.target.value)} /></label>
             </>)}
-            {editor.kind === "interval" && <label>每隔多少分钟<input type="number" min="1" max="525600" value={editor.minutes} onChange={event => editField("minutes", event.target.value)} /></label>}
-            {editor.kind === "once" && <label>执行时间<input type="datetime-local" value={editor.once} onChange={event => editField("once", event.target.value)} /></label>}
+            {editor.kind === "interval" && <label className="ui-native-field">每隔多少分钟<input type="number" min="1" max="525600" value={editor.minutes} onChange={event => editField("minutes", event.target.value)} /></label>}
+            {editor.kind === "once" && <label className="ui-native-field">执行时间<input type="datetime-local" value={editor.once} onChange={event => editField("once", event.target.value)} /></label>}
           </div>
-          <p className="cron-secondary">按 {editor.zone === DEFAULT_TIME_ZONE ? "北京时间" : editor.zone} 执行。{isNew ? "先保存草稿，核对内容与范围后再发布。当前 AI 自动执行能力尚未就绪，不承诺自动完成。" : "保存将更新后续触发的配置，不改变已有回执。"}</p>
-          <details className="cron-fold"><summary>高级时间设置</summary><div className="cron-editor-schedule"><label>生效开始<input type="datetime-local" value={editor.start} onChange={event => editField("start", event.target.value)} /></label><label>生效结束<input type="datetime-local" value={editor.end} onChange={event => editField("end", event.target.value)} /></label><label>调度时区<Input value={editor.zone} onChange={event => editField("zone", event.target.value)} /></label></div></details>
+          <details className="cron-fold"><summary>高级时间设置</summary><div className="cron-editor-schedule"><label className="ui-native-field">生效开始<input type="datetime-local" value={editor.start} onChange={event => editField("start", event.target.value)} /></label><label className="ui-native-field">生效结束<input type="datetime-local" value={editor.end} onChange={event => editField("end", event.target.value)} /></label><label className="ui-native-field">调度时区<Input value={editor.zone} onChange={event => editField("zone", event.target.value)} /></label></div></details>
           {detail && <Button type="text" onClick={() => { const cancel = () => { setEditor(editorFor(detail)); const composer = (detail.condition?.composer || {}) as ComposerSubmit; setText(composer.text || ""); setObjectRefs(composer.object_refs || []); setComposerTouched(false); setEditing(false); dirtyRef.current = false; }; if (dirtyRef.current) modal.confirm({ title: "放弃未保存的内容？", okText: "放弃编辑", cancelText: "继续编辑", onOk: cancel }); else cancel(); }}>取消编辑</Button>}
         </fieldset> : detail && <>
           <div className="cron-detail-summary"><span className="cron-plan-state" data-status={detail.status}>{planLabel(detail.status)}</span><span className="cron-secondary">{detail.system ? "系统任务" : "个人任务"}</span></div>

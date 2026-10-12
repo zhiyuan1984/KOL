@@ -10,11 +10,11 @@
 .cron-workspace-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex: 0 0 auto; }
 .cron-workspace-toolbar h1 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; line-height: var(--lh-control); white-space: nowrap; }
 .cron-workspace-tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
-.cron-workspace-tools .ant-input-search { width: var(--workspace-search-max-w); max-width: 100%; }
-.cron-workspace-tools .ant-input-affix-wrapper { height: var(--control-h-lg); box-sizing: border-box; padding-block: 0; padding-inline: var(--workspace-search-pad-x); }
-.cron-workspace-tools .ant-input-affix-wrapper input { height: auto; min-height: 0; font-size: var(--ds-font-sm); }
-.cron-workspace-tools .ant-input-search-button, .cron-workspace-tools > .ant-btn { height: var(--control-h-lg); min-height: var(--control-h-lg); font-size: var(--ds-font-sm); }
-.cron-workspace-tools .ant-input-search-button { color: var(--text-quiet); }
+/* 2026-10-13 工具栏收敛（用户标注「1,3 的高度和 2 对齐」）：搜索复用 WorkspaceSearchInput
+   （DESIGN §30 全站搜索档：32px 外框 + 框内 prefix 图标），不再渲染独立搜索按钮；
+   主按钮与搜索框同为 --control-h-lg。 */
+.cron-workspace-tools .workspace-search-input { width: var(--workspace-search-max-w); max-width: 100%; }
+.cron-workspace-tools > .ant-btn { height: var(--control-h-lg); min-height: var(--control-h-lg); font-size: var(--ds-font-sm); }
 .cron-workspace .ant-tabs { display: flex; flex: 1 1 auto; min-height: 0; }
 .cron-workspace .ant-tabs-nav { margin: 0; flex-shrink: 0; }
 .cron-workspace .ant-tabs-nav::before { border-color: var(--border); }
@@ -99,16 +99,19 @@
 .cron-history { padding-left: var(--space-4); margin-block: var(--space-2); }
 .cron-history li { margin-block: var(--space-1); }
 .cron-history .ant-btn-link { max-width: 100%; height: auto; padding: 0; white-space: normal; font-size: var(--ds-font-sm); text-align: left; }
-.cron-workspace-editor { display: flex; flex-direction: column; gap: var(--space-3); }
-.cron-workspace-editor label, .cron-editor-schedule label, .cron-template-form label { display: flex; flex-direction: column; min-width: 0; gap: var(--space-1); font-size: var(--ds-font-sm); }
-.cron-editor-schedule { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+/* 2026-10-13 表单横向紧凑档（用户标注「压缩成一行、行间要紧凑」）：短字段标签左、内容右，
+   布局交给共享 .ui-native-form/.ui-native-field（information-layout.css，DESIGN §19.2），
+   <480px 容器由共享容器查询回落标签上置；行距用紧凑档 --space-2（DESIGN §19.1）。 */
+.cron-workspace-editor { display: flex; flex-direction: column; gap: var(--space-2); }
+.cron-workspace-editor.ui-native-form .ui-native-field { align-items: center; color: var(--text-quiet); }
+.cron-template-form label { display: flex; flex-direction: column; min-width: 0; gap: var(--space-1); font-size: var(--ds-font-sm); }
+.cron-editor-schedule { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
 .cron-workspace-editor :is(input, select), .cron-template-form :is(input, select, textarea) { height: var(--control-h-lg); min-height: var(--control-h-lg); box-sizing: border-box; width: 100%; font-size: var(--ds-font-sm); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg); color: var(--text); padding-inline: var(--space-2); }
 .cron-template-form { display: grid; gap: var(--space-3); }
 .cron-template-form textarea { height: auto; padding-block: var(--space-2); }
 .cron-template-actions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; margin-block: var(--space-2); }
 .cron-workspace-editor .composer-dock { position: static; margin: 0; width: 100%; }
 .cron-workspace-editor [data-composer] { min-width: 0; max-width: 100%; }
-.cron-workspace-editor .composer-submit { background: var(--primary); }
 
 .cron-mobile-list { padding: 0; margin: 0; list-style: none; }
 .cron-mobile-list > li { border-bottom: 1px solid var(--border); padding-block: var(--space-2); }
@@ -131,7 +134,7 @@
 }
 @media (max-width: 480px) {
   .cron-workspace-tools { width: 100%; }
-  .cron-workspace-tools .ant-input-search { flex: 1 1 auto; width: auto; min-width: 0; }
+  .cron-workspace-tools .workspace-search-input { flex: 1 1 auto; width: auto; min-width: 0; }
   .cron-workspace-tools > .ant-btn { flex-shrink: 0; }
   .cron-workspace .ant-tabs-tab + .ant-tabs-tab { margin-inline-start: var(--space-3); }
   .cron-workspace-drawer .ant-drawer-body { padding: var(--space-3); }
