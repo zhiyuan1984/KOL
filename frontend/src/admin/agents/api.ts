@@ -1,0 +1,13 @@
+import { reviewApi } from "../../reviews/api";
+import type { AdminAgentBinding, AdminAgentCoverage, AdminAgentsResponse } from "../../api";
+import type { AgentReleaseCheck, AgentReleaseReceipt, AgentSkillOption, AgentVersionRecord, AgentWorkspaceState } from "../../../../shared/agent-workspace";
+export type AgentRow = AgentWorkspaceState & { bindings: AdminAgentBinding[]; coverage: AdminAgentCoverage };
+export type AgentWorkspace = { agents: AgentRow[]; skills: AgentSkillOption[]; units: AdminAgentsResponse["units"]; people: Array<AdminAgentsResponse["people"][number] & {company_ids?:string[]}> };
+export type AgentDetail = AgentRow & { versions: AgentVersionRecord[]; exam_blocked: Array<{user_id:string;name:string;missing:number}>; dependency_issues: string[]; health_evidence: "configuration_only" };
+export const agentPath = (id: string) => `/admin/agents/${encodeURIComponent(id)}`;
+export const workspace = () => reviewApi<AgentWorkspace>("/admin/agents/workspace-v1");
+export const detail = (id:string) => reviewApi<AgentDetail>(`${agentPath(id)}/workspace-v1`);
+export const saveDraft = (id:string|null, body:{name:string;description:string;skill_ids:string[];expected_revision:number;expected_version?:number}) => reviewApi<AgentWorkspaceState>(id ? `${agentPath(id)}/draft-v1` : "/admin/agents/draft-v1",body,id ? "PUT":"POST");
+export const prepareRelease = (id:string) => reviewApi<AgentReleaseCheck>(`${agentPath(id)}/prepare-release-v1`,{});
+export const release = (id:string, preparation_id:string,request_id:string) => reviewApi<AgentReleaseReceipt>(`${agentPath(id)}/release-v1`,{preparation_id,request_id,confirmed:true});
+export const availability = (row:AgentRow,status:"published"|"disabled") => reviewApi<AgentWorkspaceState>(`${agentPath(row.id)}/availability-v1`,{status,expected_version:row.version,confirmed:true});

@@ -181,7 +181,7 @@ function EmployeeBindingDialog({
         targetLabel: `人员 · ${row.display_name || label(employee)}`,
         removed,
       }), async (reason) => {
-        await api.adminAgentUnbind(row.id, bindingId, reason || "管理侧员工页撤销");
+        await api.adminAgentUnbind(row.id, bindingId, reason || "管理侧员工页撤销", revokePreview.org_version, revokePreview.preview_signature);
         setStatus("直接绑定已撤销；覆盖范围已按组织树重算。");
         await loadRows();
         onChanged();

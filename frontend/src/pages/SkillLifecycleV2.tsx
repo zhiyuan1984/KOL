@@ -1,5 +1,6 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {useSearchParams} from "react-router-dom";
 import { api } from "../api";
 import { DetailPanel, type SkillRow, useUnsavedDetailGuard } from "./SkillLifecycle";
 import { useAdminConfirm } from "../components/ConfirmDialog";
@@ -15,8 +16,10 @@ import SkillKnowledgeRange from '../admin/knowledge/SkillKnowledgeRange';
 const stageName = (skill: SkillRow) => skill.lifecycle?.stage_label || skill.lifecycle?.stage || "草稿";
 const STAGE_NAME: Record<string, string> = { draft: "草稿", editing: "编辑", testing: "测试", published: "已发布", disabled: "停用" };
 export default function SkillLifecycleV2() {
+  const [params]=useSearchParams();
   const [skills, setSkills] = useState<SkillRow[]>([]);
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(params.get("skillId") || "");
+  useEffect(()=>{const requested=params.get("skillId");if(requested)setSelectedId(requested);},[params]);
   const [query, setQuery] = useState("");
   const [origin, setOrigin] = useState<"all" | "official" | "third_party">("all");
   const [stage, setStage] = useState("all");

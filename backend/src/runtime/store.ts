@@ -525,6 +525,7 @@ function versionedUpsert(
   const expected = assertExpectedVersion(expectedVersion);
   ensureRuntimeSchema();
   return txImmediate((db) => {
+    if (table === "runtime_agent_skills") assertAgentAssemblyMutable(String(keyValues[0]), true);
     const where = keyColumns.map((column) => `${column}=?`).join(" AND ");
     const existing = db.prepare(`SELECT version FROM ${table} WHERE ${where}`).get(...keyValues) as Row | undefined;
     if (!existing) {
@@ -638,8 +639,14 @@ export function getConnectorPolicies(id: string): Row[] {
   ).all(connectorId));
 }
 
+function assertAgentAssemblyMutable(agentId: string, lock=false): void {
+  const row = getConn().prepare(`SELECT * FROM managed_agents WHERE id=?${lock ? " FOR UPDATE" : ""}`).get(agentId) as Row | undefined;
+  if (row?.workspace_managed) throw new HttpFail(409, "此 Agent 的装配需保存修订草稿并确认发布");
+}
+
 export function setAgentSkill(agentId: string, skillId: string, enabled: boolean, expectedVersion: number): Row {
   const agent = assertIdentifier(agentId, "agent_id");
+  assertAgentAssemblyMutable(agent);
   const skill = assertIdentifier(skillId, "skill_id");
   assertTaskDefinition(skill);
   const active = assertBoolean(enabled, "enabled");
@@ -650,6 +657,7 @@ export function setAgentSkill(agentId: string, skillId: string, enabled: boolean
 
 export function setAgentSkills(agentId: string, selections: Array<{ skill_id: string; enabled: boolean; expected_version: number }>): Row[] {
   const agent = assertIdentifier(agentId, "agent_id");
+  assertAgentAssemblyMutable(agent);
   const normalized = selections.map((selection) => {
     const skill = assertIdentifier(selection.skill_id, "skill_id");
     assertTaskDefinition(skill);
@@ -663,6 +671,7 @@ export function setAgentSkills(agentId: string, selections: Array<{ skill_id: st
   getAgentSkills(agent);
   const now = nowIso();
   txImmediate((db) => {
+    assertAgentAssemblyMutable(agent, true);
     for (const item of normalized) {
       const existing = db.prepare("SELECT version FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?").get(agent, item.skill) as { version?: number } | undefined;
       const actual = Number(existing?.version || 0);

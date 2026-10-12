@@ -122,6 +122,7 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
     reject("runtime_agent_not_usable");
   }
   const skillVersion=runtimeSkillVersion(context.skillId);
+  if (binding.release_hash && binding.release_hash !== skillVersion) reject("runtime_agent_skill_upgrade_required", 409);
   if(definition.mcp.includes(DOCUMENT_TOOL)) {
     const config=getConn().prepare('SELECT published_revision,published_hash FROM skill_knowledge_configs WHERE skill_id=?').get(context.skillId) as Row|undefined;
     if(config && (!config.published_revision || config.published_hash!==skillVersion))reject('runtime_knowledge_skill_release_incomplete',409);

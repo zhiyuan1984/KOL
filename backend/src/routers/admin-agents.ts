@@ -17,6 +17,7 @@ import { getAgentSkills, setAgentSkill, setAgentSkills } from "../runtime/store.
 import {postgresTransaction} from '../postgres/pool.js';
 import { isPlatformAgent } from "../runtime/platform-principal.js";
 import {runtimeSkillVersion} from '../runtime/execution.js';
+import { assertLegacyAgentWriteAllowed } from '../agents/workspace.js';
 async function confirmKnowledgeReleases(agentId:string,actor:string) {
   const skills=getAgentSkills(agentId).filter(s=>s.enabled);
   await postgresTransaction(async db=>{
@@ -118,6 +119,7 @@ adminAgentsRouter.post("/admin/agents", async (c) => {
 adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
+  await assertLegacyAgentWriteAllowed(id);
   const body = await c.req.json() as {
     name?: string; description?: string; status?: "draft" | "published" | "disabled"; expected_version: number;
   };
@@ -138,6 +140,7 @@ adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
 adminAgentsRouter.put("/admin/agents/:id/skills", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
+  await assertLegacyAgentWriteAllowed(id);
   managedAgent(id);
   const body = await c.req.json() as { skills?: Array<{ skill_id?: string; enabled?: boolean; expected_version?: number }> };
   if (!Array.isArray(body.skills) || body.skills.length > 200) throw new HttpFail(400, "skills 必须是最多 200 项的数组");
@@ -186,6 +189,7 @@ adminAgentsRouter.post("/admin/agents/:id/skill-recommendations", async (c) => {
 adminAgentsRouter.put("/admin/agents/:id/skills/:skillId", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
+  await assertLegacyAgentWriteAllowed(id);
   managedAgent(id);
   const body = await c.req.json() as { enabled?: boolean; expected_version?: number };
   if (typeof body.enabled !== "boolean" || !Number.isInteger(body.expected_version)) {
@@ -199,6 +203,7 @@ adminAgentsRouter.put("/admin/agents/:id/skills/:skillId", async (c) => {
 adminAgentsRouter.post("/admin/agents/:id/knowledge", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
+  await assertLegacyAgentWriteAllowed(id);
   managedAgent(id);
   const body = await c.req.json() as { skill_id?: string; base_id?: string };
   const skillId = String(body.skill_id || "").trim();
@@ -241,8 +246,15 @@ adminAgentsRouter.delete("/admin/agents/:id/bindings/:bindingId", async (c) => {
   managedAgent(id);
   const bindingId = c.req.param("bindingId");
   if (!listAgentBindings(id).some((row) => row.id === bindingId)) throw new HttpFail(404, "绑定不存在");
-  const reason = String((await c.req.json().catch(() => ({})) as { reason?: string }).reason || "管理员撤销");
-  revokeAgentBinding(bindingId, { reason });
+  const body = await c.req.json().catch(() => ({})) as { reason?: string;org_version?:number;preview_signature?:string };
+  const reason = String(body.reason || "管理员撤销");
+  txImmediate(()=>{
+    getConn().exec("LOCK TABLE agent_bindings,organization_units,organization_people,organization_memberships,org_versions IN SHARE ROW EXCLUSIVE MODE");
+    const preview=previewAgentBinding(id,{remove:bindingId});
+    if(body.org_version!==undefined&&preview.org_version!==body.org_version)throw new HttpFail(409,"组织版本已变化，请重新预览撤销影响");
+    if(body.preview_signature!==undefined&&preview.preview_signature!==body.preview_signature)throw new HttpFail(409,"覆盖依据已变化，请重新预览撤销影响");
+    revokeAgentBinding(bindingId, { reason });
+  });
   audit(admin.id, "admin.agent.unbind", { agent_id: id, binding_id: bindingId, reason });
   return c.json(agentView(id));
 });
@@ -283,16 +295,19 @@ adminAgentsRouter.post("/admin/agents/:id/bindings/bulk", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
   managedAgent(id);
-  const body = await c.req.json() as { targets?: BulkBindingTarget[]; org_version?: number; reason?: string };
+  const body = await c.req.json() as { targets?: BulkBindingTarget[]; org_version?: number; reason?: string;preview_signature?:string };
   if (!Array.isArray(body.targets) || !Number.isInteger(body.org_version)) throw new HttpFail(400, "targets 和 org_version 必填");
   const targets = resolveBulkTargets(body.targets, true);
-  const preview = previewAgentBinding(id, { add_many: targets });
-  if (preview.org_version !== body.org_version) throw new HttpFail(409, "组织版本已变化，请重新预览绑定影响");
-  txImmediate(() => {
+  const preview=txImmediate(() => {
+    getConn().exec("LOCK TABLE agent_bindings,organization_units,organization_people,organization_memberships,org_versions IN SHARE ROW EXCLUSIVE MODE");
+    const preview = previewAgentBinding(id, { add_many: targets });
+    if (preview.org_version !== body.org_version) throw new HttpFail(409, "组织版本已变化，请重新预览绑定影响");
+    if(body.preview_signature!==undefined&&preview.preview_signature!==body.preview_signature)throw new HttpFail(409,"覆盖依据已变化，请重新预览绑定影响");
     for (const target of targets) createAgentBinding({
       agent_id: id, target_type: target.target_type, target_id: target.target_id,
       company_id: target.company_id, created_by: admin.id, reason: body.reason || "管理侧批量绑定", source: "admin",
     });
+    return preview;
   });
   audit(admin.id, "admin.agent.bind.bulk", {
     agent_id: id, org_version: preview.org_version, count: targets.length,
@@ -313,6 +328,7 @@ adminAgentsRouter.post("/admin/agents/:id/bindings/:bindingId/revoke-preview", (
 adminAgentsRouter.delete("/admin/agents/:id/knowledge/:bindingId", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
+  await assertLegacyAgentWriteAllowed(id);
   managedAgent(id);
   const bindingId = c.req.param("bindingId");
   // 只允许解绑「该 Agent 已启用技能」上的知识库绑定；技能未装配的绑定不属于本 Agent。

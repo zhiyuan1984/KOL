@@ -1,404 +1,120 @@
-import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type AdminAgentAccess, type AdminAgentRow, type AdminAgentsResponse, type AdminBindingPreview, type AdminSkillRecommendation } from "../api";
-import { useAdminConfirm } from "../components/ConfirmDialog";
-import { AdminTextDialog } from "../components/AdminTextDialog";
-import { AdminFormDialog } from "../components/AdminFormDialog";
-import {
-  agentBindingRevokeConfirm,
-  agentDisableConfirm,
-  agentKnowledgeUnbindConfirm,
-  agentPublishConfirm,
-} from "../adminConfirm";
-import "../admin/governance-layout.css";
-import SkillKnowledgeRange from '../admin/knowledge/SkillKnowledgeRange';
-import { Form } from "antd";
-import { ActionGroup, HorizontalForm, PropertyList, RecordRow, TruncatableText } from "../components/InformationLayout";
+import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from "react";
+import {Link,useBlocker,useSearchParams} from "react-router-dom";
+import {useAccount} from "../components/AuthGate";
+import {useAdminConfirm} from "../components/ConfirmDialog";
+import {agentPublishConfirm,agentDisableConfirm} from "../adminConfirm";
+import {reviewApi,reviewCompany} from "../reviews/api";
+import {api,type AdminAgentAuditResponse,type AdminSkillRecommendation} from "../api";
+import * as client from "../admin/agents/api";
+import AgentPersonnel from "../admin/agents/AgentPersonnel";
+import SkillKnowledgeRange from "../admin/knowledge/SkillKnowledgeRange";
+import type {AgentReleaseCheck,AgentSkillOption} from "../../../shared/agent-workspace";
+import "../admin/agents/agent-workspace.css";
 
-const statusName = (status: AdminAgentRow["status"]) => status === "published" ? "已发布" : status === "disabled" ? "已停用" : "草稿";
-const errorName = (cause: unknown) => cause instanceof Error ? cause.message : "保存失败";
-const VIA_LABEL: Record<AdminAgentAccess["via"], string> = {
-  binding_target: "直接绑定",
-  unit_head: "部门负责人",
-  unit_member: "部门成员",
-  ancestor_head: "上级负责人",
-};
-const VIA_ORDER: AdminAgentAccess["via"][] = ["binding_target", "unit_head", "unit_member", "ancestor_head"];
-const viaLabel = (via: string) => VIA_LABEL[via as AdminAgentAccess["via"]] || via;
-const targetTypeLabel = (type: string) => type === "person" ? "人员" : "组织单元";
+type Mode="list"|"detail"|"create"|"edit"|"publish"|"bindings";
+const modes:Mode[]=["list","detail","create","edit","publish","bindings"];
+const statusName=(status:string)=>({published:"已发布",disabled:"已停用",draft:"未发布"}[status] || status);
+const errorName=(error:unknown)=>error instanceof Error?error.message:"操作失败，请重试";
+const time=(value:string|null|undefined)=>value?new Date(value).toLocaleString("zh-CN",{hour12:false}):"—";
+const skillLink=(id:string)=>`/admin/skills?skillId=${encodeURIComponent(id)}`;
 
-function formatTime(value?: string | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
-  }).format(date);
+export function AdminAgents(){
+ const {account}=useAccount();
+ const contextKey=`agents.workspace:${account?.id || "current"}:${reviewCompany()}`;
+ return <AgentWorkspace key={contextKey} contextKey={contextKey}/>;
+}
+function AgentWorkspace({contextKey}:{contextKey:string}){
+ const [params,setParams]=useSearchParams();
+ const restore=useMemo(()=>{try{return JSON.parse(sessionStorage.getItem(contextKey)||"{}");}catch{return {};}},[contextKey]);
+ const mode:Mode=modes.includes(params.get("mode") as Mode)?params.get("mode") as Mode:"list";
+ const selectedId=params.get("agentId") || restore.selectedId || "";
+ const [query,setQuery]=useState<string>(restore.query || ""),[status,setStatus]=useState<string>(restore.status || "all"),[binding,setBinding]=useState<string>(restore.binding || "all"),[page,setPage]=useState<number>(restore.page || 1);
+ const [data,setData]=useState<client.AgentWorkspace|null>(null),[row,setRow]=useState<client.AgentDetail|null>(null),[loading,setLoading]=useState(true),[detailLoading,setDetailLoading]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
+ const [dirty,setDirty]=useState(false),dirtyRef=useRef(false),bodyRef=useRef<HTMLDivElement>(null),positions=useRef<Record<string,number>>(restore.positions || {}),headingRef=useRef<HTMLHeadingElement>(null);
+ const onDirty=useCallback((next:boolean)=>{dirtyRef.current=next;setDirty(next);},[]);
+ const load=useCallback(async()=>{setLoading(true);try{setData(await client.workspace());setError("");}catch(e){setError(errorName(e));}finally{setLoading(false);}},[]);
+ useEffect(()=>{void load();},[load]);
+ const loadDetail=useCallback(async()=>{if(!selectedId)return;setRow(await client.detail(selectedId));},[selectedId]);
+ useEffect(()=>{if(mode==="list"||mode==="create")return;let live=true;setDetailLoading(true);setRow(null);client.detail(selectedId).then(next=>{if(live){setRow(next);setError("");}}).catch(e=>{if(live)setError(errorName(e));}).finally(()=>{if(live)setDetailLoading(false);});return()=>{live=false;};},[selectedId,mode]);
+ const refresh=useCallback(async()=>{await Promise.all([load(),loadDetail()]);},[load,loadDetail]);
+ const switchMode=(next:Mode,id=selectedId)=>{
+  if(dirtyRef.current&&!window.confirm("当前有未保存内容，放弃修改并离开？"))return;
+  onDirty(false);if(bodyRef.current)positions.current[`${mode}:${selectedId}`]=bodyRef.current.scrollTop;
+  const updated=new URLSearchParams(params);updated.set("mode",next);id?updated.set("agentId",id):updated.delete("agentId");setParams(updated);
+ };
+ const blocker=useBlocker(()=>dirtyRef.current),asking=useRef(false);
+ useEffect(()=>{if(blocker.state!=="blocked"){asking.current=false;return;}if(asking.current)return;asking.current=true;if(window.confirm("当前有未保存内容，放弃修改并离开？")){onDirty(false);blocker.proceed();}else blocker.reset();},[blocker,onDirty]);
+ useEffect(()=>{const before=(event:BeforeUnloadEvent)=>{if(dirtyRef.current){event.preventDefault();event.returnValue="";}};window.addEventListener("beforeunload",before);return()=>window.removeEventListener("beforeunload",before);},[]);
+ useEffect(()=>{sessionStorage.setItem(contextKey,JSON.stringify({query,status,binding,page,selectedId,positions:positions.current}));},[query,status,binding,page,selectedId,mode,contextKey]);
+ useLayoutEffect(()=>{if(bodyRef.current)bodyRef.current.scrollTop=positions.current[`${mode}:${selectedId}`] || 0;if(mode==="list"&&selectedId)document.querySelector<HTMLButtonElement>(`[data-agent-record="${CSS.escape(selectedId)}"]`)?.focus({preventScroll:true});else headingRef.current?.focus({preventScroll:true});},[mode,selectedId,loading,detailLoading]);
+ const visible=(data?.agents || []).filter(value=>(!query||`${value.name} ${value.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))&&(status==="all"||value.status===status)&&(binding==="all"||(binding==="bound"?value.bindings.length>0:value.bindings.length===0)));
+ const pages=Math.max(1,Math.ceil(visible.length/20)),currentPage=Math.min(page,pages),slice=visible.slice((currentPage-1)*20,currentPage*20);
+ const changeFilter=(action:()=>void)=>{action();setPage(1);};
+ const [check,setCheck]=useState<AgentReleaseCheck|null>(null),[checking,setChecking]=useState(false),[checkError,setCheckError]=useState(""),requestId=useRef("");
+ const prepare=useCallback(async()=>{setCheck(null);setCheckError("");setChecking(true);try{setCheck(await client.prepareRelease(selectedId));requestId.current=crypto.randomUUID();}catch(e){setCheckError(errorName(e));}finally{setChecking(false);}},[selectedId]);
+ useEffect(()=>{if(mode==="publish")void prepare();},[mode,prepare]);
+ const {ask,dialog}=useAdminConfirm();
+ const publish=()=>{if(!check||!row)return;const copy=agentPublishConfirm({name:check.content.name,id:row.id,enabledSkills:check.content.skills.length,bindings:check.binding_count,users:check.coverage_count,orgVersion:check.org_version});ask({...copy,scope:`修订草稿 r${check.revision} → 已发布 v${(row.published_revision || 0)+1}`,consequence:"确认后应用本次名称、职责与技能装配。覆盖表示人员资格；考试、依赖状态与执行规则仍由服务端校验。绑定和启停是独立动作。"},async()=>{const receipt=await client.release(row.id,check.preparation_id,requestId.current);setNotice(`已发布 v${receipt.version} · 回执 ${receipt.id}`);await load();switchMode("detail",row.id);});};
+ const availability=(next:"published"|"disabled")=>{if(!row)return;const copy=agentDisableConfirm(row.name,row.id);ask(next==="disabled"?copy:{...copy,title:"启用 Agent",scope:`恢复已发布 v${row.published_revision} · 修订草稿继续保留`,consequence:"确认后恢复已有发布版本的使用资格；本次不应用修订草稿。考试与执行规则仍由服务端校验。",confirmLabel:"确认启用",confirmTone:"primary"},async()=>{await client.availability(row,next);setNotice(next==="disabled"?"Agent 已停用，绑定与修订草稿保留":"已恢复已有发布版本");await refresh();});};
+ const title=mode==="list"?"Agent":mode==="create"?"新建 Agent 草稿":mode==="edit"?"修订 Agent":mode==="publish"?"发布检查":mode==="bindings"?"人员绑定":row?.name || "Agent 详情";
+ return <div className="agent-workspace" data-agent-mode={mode} aria-busy={loading||detailLoading||checking}>{dialog}
+  <aside className="agent-filters" aria-label="Agent 筛选"><details open className="agent-filter-content"><summary>筛选 Agent</summary><label>搜索名称与职责<input value={query} onChange={e=>changeFilter(()=>setQuery(e.target.value))}/></label><label>有效状态<select value={status} onChange={e=>changeFilter(()=>setStatus(e.target.value))}><option value="all">全部状态</option><option value="published">已发布</option><option value="disabled">已停用</option><option value="draft">未发布</option></select></label><label>人员绑定<select value={binding} onChange={e=>changeFilter(()=>setBinding(e.target.value))}><option value="all">全部 Agent</option><option value="bound">已有绑定</option><option value="unbound">尚未绑定</option></select></label><button className="agent-text-action" onClick={()=>changeFilter(()=>{setQuery("");setStatus("all");setBinding("all");})}>重置筛选</button><p>{visible.length} 个匹配 · 筛选条件同时满足</p></details>
+   {mode==="list"&&<footer><button className="btn work" onClick={()=>switchMode("create","")}>新建 Agent</button></footer>}
+  </aside>
+  <main className="agent-workarea"><header className="agent-workhead"><div><h2 tabIndex={-1} ref={headingRef}>{title}</h2><p>{mode==="list"?"管理职责、技能装配与人员使用资格":mode==="create"||mode==="edit"?"保存草稿后，检查并确认发布才会应用能力变更":mode==="bindings"?"此操作独立于修订草稿，确认后立即生效":mode==="publish"?"核对变更、人员覆盖与依赖条件后确认":`${row?.id || selectedId} · ${statusName(row?.status || "")} ${row?.published_revision?`· 已发布 v${row.published_revision}`:""}`}</p></div>{mode!=="list"&&<button className="agent-text-action" onClick={()=>switchMode("list")}>返回列表</button>}</header>
+   {notice&&<p className="agent-notice" role="status">{notice}</p>}{error&&<div className="agent-notice" role="alert">{error} <button className="agent-text-action" onClick={()=>void refresh().catch(e=>setError(errorName(e)))}>重新读取</button></div>}
+   <div className="agent-workbody" ref={bodyRef}>
+    {mode==="list"&&(loading&&!data?<p role="status">正在读取 Agent 与组织覆盖依据…</p>:<><div className="agent-list-head"><span>名称与职责</span><span>版本与状态</span><span>人员范围</span></div>{slice.map(value=><button className="agent-record" key={value.id} data-agent-record={value.id} aria-current={selectedId===value.id?"true":undefined} onClick={()=>switchMode("detail",value.id)}><span><strong>{value.name}</strong><span>{value.description || "尚未填写职责说明"}</span></span><span>{statusName(value.status)} · {value.published_revision?`v${value.published_revision}`:"暂无发布版本"}{value.draft&&<span>有修订草稿 r{value.draft.revision}</span>}<small>更新于 {time(value.draft?.updated_at || value.updated_at)}</small></span><span>{value.bindings.length} 个绑定点<span>覆盖 {value.coverage.user_ids.length} 个账号</span></span></button>)}{!slice.length&&<p className="agent-empty">没有符合条件的 Agent。调整筛选或新建草稿。</p>}</>)}
+    {mode==="create"&&data&&<AgentEditor skills={data.skills} onDirty={onDirty} onCancel={()=>switchMode("list")} onSaved={async id=>{onDirty(false);setNotice("草稿已保存，尚未发布");await load();switchMode("detail",id);}}/>}
+    {mode!=="list"&&mode!=="create"&&detailLoading&&<p role="status">正在读取 Agent 有效版本、草稿与覆盖依据…</p>}
+    {row&&!detailLoading&&mode==="detail"&&data&&<AgentInformation row={row} skills={data.skills}/>}
+    {row&&!detailLoading&&mode==="edit"&&data&&<AgentEditor key={row.id} row={row} skills={data.skills} onDirty={onDirty} onCancel={()=>switchMode("detail")} onSaved={async id=>{onDirty(false);setNotice("修订草稿已保存；现有发布版本继续保留");await load();switchMode("detail",id);}}/>}
+    {row&&!detailLoading&&mode==="bindings"&&data&&<AgentPersonnel row={row} data={data} onChanged={refresh} onDirty={onDirty} notify={setNotice}/>}
+    {mode==="publish"&&<>{checking&&<p role="status">正在核对草稿、技能版本、人员绑定与组织依据…</p>}{checkError&&<p role="alert">{checkError}</p>}{check&&<><section><h3>本次应用 · 修订草稿 r{check.revision}</h3><p><strong>{check.content.name}</strong></p><p>{check.content.description || "尚未填写职责说明"}</p><p>已装配 {check.content.skills.length} 项技能。{check.added_skills.length+check.removed_skills.length+check.updated_skills.length===0&&"技能装配未变化；名称和职责按上述草稿应用。"}</p>{([['新增',check.added_skills],['移除',check.removed_skills],['应用新版本',check.updated_skills]] as const).map(([label,ids])=>ids.length>0&&<p key={label}>{label}：{ids.map(id=>data?.skills.find(value=>value.id===id)?.label || id).join("、")}</p>)}</section><section><h3>人员覆盖</h3><p>组织版本 {check.org_version} · {check.binding_count} 个绑定点 · 覆盖 {check.coverage_count} 个员工账号</p><p>覆盖表示使用资格来源，仍须满足考试和业务执行规则。</p></section><section><h3>发布条件</h3>{check.blockers.length?<ul role="alert">{check.blockers.map(value=><li key={value}>{value}</li>)}</ul>:<p>服务端已通过本次发布条件核对。</p>}{check.warnings.length>0&&<ul>{check.warnings.map(value=><li key={value}>{value}</li>)}</ul>}<p>预检有效至 {time(check.expires_at)}。确认时会重新核对，依据变化后须重新检查。</p></section></>}</>}
+   </div>
+   {mode==="list"&&<footer className="agent-actionbar"><span>第 {currentPage} / {pages} 页 · 每页 20 个</span><button className="agent-text-action" disabled={currentPage<=1} onClick={()=>setPage(currentPage-1)}>上一页</button><button className="agent-text-action" disabled={currentPage>=pages} onClick={()=>setPage(currentPage+1)}>下一页</button><button className="agent-text-action" onClick={()=>void load()}>刷新</button></footer>}
+   {mode==="detail"&&row&&<footer className="agent-actionbar"><button className="agent-text-action" onClick={()=>switchMode("bindings")}>管理人员绑定</button>{row.status==="published"&&<button className="agent-text-action" onClick={()=>availability("disabled")}>停用</button>}{row.status==="disabled"&&<button className="agent-text-action" onClick={()=>availability("published")}>启用已有版本</button>}<span className="agent-action-spacer"/>{row.draft?<><button className="btn" onClick={()=>switchMode("edit")}>继续修订草稿</button><button className="btn work" onClick={()=>switchMode("publish")}>检查并发布</button></>:<button className="btn work" onClick={()=>switchMode("edit")}>创建修订草稿</button>}</footer>}
+   {mode==="publish"&&<footer className="agent-actionbar"><button className="agent-text-action" onClick={()=>switchMode("detail")}>返回详情</button><button className="agent-text-action" disabled={checking} onClick={()=>void prepare()}>重新检查</button><span className="agent-action-spacer"/><button className="btn work" disabled={!check||checking||Boolean(check.blockers.length)||detailLoading} onClick={publish}>确认发布（R3）</button></footer>}
+   {mode==="bindings"&&<footer className="agent-actionbar"><span>{dirty?"尚有未确认的绑定选择":"已确认绑定独立生效"}</span><span className="agent-action-spacer"/><button className="agent-text-action" onClick={()=>switchMode("detail")}>返回详情</button></footer>}
+  </main>
+ </div>;
 }
 
-export function AdminAgents() {
-  const [data, setData] = useState<AdminAgentsResponse | null>(null);
-  const [selectedId, setSelectedId] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createError, setCreateError] = useState("");
-  const createNameRef = useRef<HTMLInputElement | null>(null);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<"all" | AdminAgentRow["status"]>("all");
-  const [bindingType, setBindingType] = useState<"all" | "company" | "level1" | "level2" | "level3" | "person" | "unbound">("person");
-  const [companyFilter, setCompanyFilter] = useState("");
-  const [unitFilter, setUnitFilter] = useState<Record<number, string>>({});
-  const [bindingSelection, setBindingSelection] = useState<Set<string>>(new Set());
-  const [skillPage, setSkillPage] = useState(0);
-  const [pendingSkills, setPendingSkills] = useState<Set<string>>(new Set());
-  const [skillRecommendations, setSkillRecommendations] = useState<AdminSkillRecommendation["items"]>([]);
-  const [skillRecommendationState, setSkillRecommendationState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [skillRecommendationMessage, setSkillRecommendationMessage] = useState("");
-  const [targetType, setTargetType] = useState<"organization_unit" | "person">("organization_unit");
-  const [knowledgeSkillId, setKnowledgeSkillId] = useState("");
-  const [knowledgePage, setKnowledgePage] = useState(0);
-  const [pendingKnowledgeBases, setPendingKnowledgeBases] = useState<Set<string>>(new Set());
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
-  const [renameBusy, setRenameBusy] = useState(false);
-  const [renameError, setRenameError] = useState("");
-  const [previewBusyId, setPreviewBusyId] = useState("");
-  const [bindPreview, setBindPreview] = useState<AdminBindingPreview | null>(null);
-  const [bindPreviewBusy, setBindPreviewBusy] = useState(false);
-  const [panelOpen, setPanelOpen] = useState({ skills: true, knowledge: false, bindings: true });
-  const { ask, dialog } = useAdminConfirm();
+function AgentEditor({row,skills,onDirty,onCancel,onSaved}:{row?:client.AgentDetail;skills:AgentSkillOption[];onDirty:(value:boolean)=>void;onCancel:()=>void;onSaved:(id:string)=>Promise<void>}){
+ const initial=row?.draft || row?.effective;
+ const [name,setName]=useState(initial?.name || ""),[description,setDescription]=useState(initial?.description || ""),[chosen,setChosen]=useState<Set<string>>(new Set(initial?.skills.map(value=>value.skill_id) || [])),[query,setQuery]=useState(""),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[error,setError]=useState("");
+ const [recommendations,setRecommendations]=useState<AdminSkillRecommendation["items"]>([]),[recommendationBusy,setRecommendationBusy]=useState(false),[recommendationMessage,setRecommendationMessage]=useState("");
+ const saving=useRef(false);
+ const [basis,setBasis]=useState<{revision:number;version:number}|null>(null);
+ const visible=skills.filter(value=>`${value.label} ${value.summary}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).sort((a,b)=>(recommendations.find(value=>value.id===a.id)?.rank || 999)-(recommendations.find(value=>value.id===b.id)?.rank || 999));
+ const pages=Math.max(1,Math.ceil(visible.length/10)),currentPage=Math.min(page,pages);
+ const touch=(action:()=>void)=>{action();onDirty(true);};
+ async function save(){if(saving.current)return;saving.current=true;setBusy(true);setError("");try{const next=await client.saveDraft(row?.id || null,{name,description,skill_ids:[...chosen],expected_revision:basis?.revision ?? row?.draft?.revision ?? 0,...(row?{expected_version:basis?.version ?? row.version}:{})});onDirty(false);await onSaved(next.id);}catch(e){setError(errorName(e));}finally{saving.current=false;setBusy(false);}}
+ async function refreshBasis(){if(!row)return;setBusy(true);try{const latest=await client.detail(row.id),candidate=latest.draft || latest.effective;if(!window.confirm(`服务端最新版本：${candidate.name}，${candidate.skills.length} 项技能，${latest.draft?`草稿 r${latest.draft.revision}`:`已发布 v${latest.published_revision}`}。保留当前输入，并采用最新版本依据重新保存？`))return;setBasis({revision:latest.draft?.revision || 0,version:latest.version});setError("已重新读取版本依据；请核对当前输入后保存");}catch(e){setError(errorName(e));}finally{setBusy(false);}}
+ async function recommend(){if(!row)return;setRecommendationBusy(true);setRecommendationMessage("");try{const value=await api.adminAgentSkillRecommendations(row.id,skills.map(skill=>skill.id));setRecommendations(value.items);setPage(1);setRecommendationMessage(`建议已生成 · ${value.items.length} 项；请按职责自行选择`);}catch(e){setRecommendationMessage(errorName(e));}finally{setRecommendationBusy(false);}}
+ return <div className="agent-editor"><div className="agent-editor-body"><section><h3>职责与身份</h3><div className="agent-fields"><label>Agent 名称<input value={name} maxLength={80} disabled={busy} onChange={e=>touch(()=>setName(e.target.value))}/></label><label className="agent-full-field">职责说明<textarea aria-label="职责说明" value={description} maxLength={500} disabled={busy} rows={3} onChange={e=>touch(()=>setDescription(e.target.value))}/></label></div></section>
+  <section><h3>装配技能 · 已选 {chosen.size} 项</h3><p>知识、工具与数据依赖随技能装配；不同知识范围应使用独立知识技能。</p><div className="agent-skill-tools"><label>搜索技能<input value={query} onChange={e=>{setQuery(e.target.value);setPage(1);}}/></label>{row&&<button className="agent-text-action" disabled={busy||recommendationBusy} onClick={()=>void recommend()}>{recommendationBusy?"正在生成建议…":"获取技能建议"}</button>}</div>{recommendationMessage&&<p role="status">{recommendationMessage}</p>}
+   <label className="agent-checkbox"><input type="checkbox" disabled={busy||!visible.length} checked={Boolean(visible.length&&visible.every(value=>chosen.has(value.id)))} onChange={e=>touch(()=>{const next=new Set(chosen);visible.forEach(value=>e.target.checked?next.add(value.id):next.delete(value.id));setChosen(next);})}/>全选当前筛选（{visible.length} 项）</label>
+   {visible.slice((currentPage-1)*10,currentPage*10).map(skill=><div className="agent-skill-row" key={skill.id}><label className="agent-checkbox"><input type="checkbox" disabled={busy} checked={chosen.has(skill.id)} onChange={e=>touch(()=>{const next=new Set(chosen);e.target.checked?next.add(skill.id):next.delete(skill.id);setChosen(next);})}/><strong>{skill.label}</strong></label><p>{skill.summary}</p><p>{skill.published?"已发布":"尚未发布或已停用"} · {skill.risk || "风险尚未登记"}{skill.execution==="async_job"?" · 异步作业（需进度、取消与重试）":""}{skill.document_query?` · 知识依赖 ${skill.knowledge_revision?`v${skill.knowledge_revision}`:"尚未正式发布"}`:""}</p>{recommendations.find(value=>value.id===skill.id)?.reason&&<p>建议依据：{recommendations.find(value=>value.id===skill.id)?.reason}</p>}<Link to={skillLink(skill.id)}>查看技能与依赖</Link></div>)}{!visible.length&&<p>没有符合搜索条件的技能。</p>}
+   <div className="agent-pagination"><span>第 {currentPage} / {pages} 页</span><button className="agent-text-action" disabled={currentPage<=1} onClick={()=>setPage(currentPage-1)}>上一页</button><button className="agent-text-action" disabled={currentPage>=pages} onClick={()=>setPage(currentPage+1)}>下一页</button></div>
+  </section>{error&&<div role="alert"><p>{error}。当前输入仍保留。</p>{row&&<button className="agent-text-action" disabled={busy} onClick={()=>void refreshBasis()}>重新读取版本依据</button>}</div>}
+ </div><footer className="agent-actionbar"><span>R2 · 保存仅写入草稿</span><span className="agent-action-spacer"/><button className="agent-text-action" disabled={busy} onClick={onCancel}>取消修订</button><button className="btn work" disabled={busy||!name.trim()} onClick={()=>void save()}>{busy?"正在保存…":"保存草稿"}</button></footer></div>;
+}
 
-  const load = useCallback(async (retain = true) => {
-    try {
-      const response = await api.adminAgents();
-      setData(response);
-      setError("");
-      if (retain) setSelectedId((id) => response.agents.some((agent) => agent.id === id) ? id : response.agents[0]?.id || "");
-    } catch (cause) { setError(errorName(cause)); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-  const selected = data?.agents.find((agent) => agent.id === selectedId) || null;
-  useEffect(() => { setPendingSkills(new Set(selected?.skills.filter((skill) => skill.enabled).map((skill) => skill.skill_id) || [])); setSkillPage(0); setSkillRecommendations([]); setSkillRecommendationState("idle"); }, [selectedId]);
-  const orderedSkills = useMemo(() => {
-    if (!skillRecommendations.length) return data?.skills || [];
-    const rank = new Map(skillRecommendations.map((item) => [item.id, item.rank]));
-    return [...(data?.skills || [])].sort((a, b) => (rank.get(a.id) ?? 9999) - (rank.get(b.id) ?? 9999) || a.label.localeCompare(b.label, "zh-CN"));
-  }, [data, skillRecommendations]);
-  const pagedSkills = orderedSkills.slice(skillPage * 10, skillPage * 10 + 10);
-  const skillsDirty = Boolean(selected && (data?.skills || []).some((skill) => pendingSkills.has(skill.id) !== selected.skills.some((row) => row.skill_id === skill.id && Boolean(row.enabled))));
-  const orgUnits = data?.units || [];
-  const companyIds = useMemo(() => [...new Set(orgUnits.map((unit) => unit.company_id))].sort(), [data]);
-  useEffect(() => { if (!companyFilter && companyIds.length) setCompanyFilter(companyIds[0]); }, [companyFilter, companyIds]);
-  const selectedOrgParent = unitFilter[3] || unitFilter[2] || unitFilter[1] || "";
-  const descendantsFor = (rootId: string) => {
-    const found = new Set([rootId]);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const unit of orgUnits) if (unit.parent_id && found.has(unit.parent_id) && !found.has(unit.id)) { found.add(unit.id); changed = true; }
-    }
-    return found;
-  };
-  const level1Options = orgUnits.filter((unit) => unit.company_id === companyFilter && unit.level === 1);
-  const level2Options = orgUnits.filter((unit) => unit.company_id === companyFilter && unit.level === 2 && (!unitFilter[1] || unit.parent_id === unitFilter[1]));
-  const level3Options = orgUnits.filter((unit) => unit.company_id === companyFilter && unit.level === 3 && (!unitFilter[2] || unit.parent_id === unitFilter[2]));
-  const filteredUnits = useMemo(() => {
-    if (!companyFilter) return [];
-    if (selectedOrgParent) return orgUnits.filter((unit) => unit.company_id === companyFilter && unit.id === selectedOrgParent);
-    return orgUnits.filter((unit) => unit.company_id === companyFilter && unit.level === 1);
-  }, [data, companyFilter, selectedOrgParent]);
-  const filteredPeople = useMemo(() => {
-    const inScope = selectedOrgParent ? descendantsFor(selectedOrgParent) : null;
-    return (data?.people || []).filter((person) => person.user_id && person.company_id === companyFilter
-      && (!inScope || (person.unit_ids || []).some((unitId) => inScope.has(unitId))));
-  }, [data, companyFilter, selectedOrgParent]);
-  const bindCandidates = targetType === "person"
-    ? filteredPeople.map((person) => ({ key: `person:${person.user_id}`, label: person.display_name, payload: { target_type: "person" as const, user_id: person.user_id || undefined } }))
-    : filteredUnits.map((unit) => ({ key: `unit:${unit.id}`, label: unit.display_name, payload: { target_type: "organization_unit" as const, target_id: unit.id } }));
-  const selectedBindTargets = bindCandidates.filter((target) => bindingSelection.has(target.key)).map((target) => target.payload);
-  const boundKnowledgeBaseIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const row of selected?.knowledge || []) if (row.skill_id === knowledgeSkillId) {
-      try { for (const id of (JSON.parse(row.selector) as { base_ids?: string[] }).base_ids || []) ids.add(id); } catch { /* retain malformed rows outside the editable set */ }
-    }
-    return ids;
-  }, [selected, knowledgeSkillId]);
-  const knowledgeDirty = [...pendingKnowledgeBases].some((id) => !boundKnowledgeBaseIds.has(id)) || [...boundKnowledgeBaseIds].some((id) => !pendingKnowledgeBases.has(id));
-  const visibleKnowledgeBases = (data?.bases || []).filter((base) => base.status === "active"
-    && (base.kind === "structured" || data?.skills.find((skill) => skill.id === knowledgeSkillId)?.document_query));
-  const pagedKnowledgeBases = visibleKnowledgeBases.slice(knowledgePage * 10, knowledgePage * 10 + 10);
-  useEffect(() => { setPendingKnowledgeBases(new Set(boundKnowledgeBaseIds)); setKnowledgePage(0); }, [selectedId, knowledgeSkillId, selected?.knowledge]);
-
-  const matchesBindingFilter = (agent: AdminAgentRow, filter: typeof bindingType) => {
-    const active = agent.bindings.filter((binding) => binding.status !== "revoked");
-    if (filter === "all") return true;
-    if (filter === "unbound") return active.length === 0;
-    if (filter === "person") return active.some((binding) => binding.target_type === "person");
-    return filter === "company"
-      ? active.some((binding) => Boolean(binding.company_id))
-      : active.some((binding) => binding.target_type === "organization_unit" && data?.units.find((unit) => unit.id === binding.target_id)?.level === Number(filter.slice(-1)));
-  };
-  const matchesQuery = (agent: AdminAgentRow) => `${agent.name} ${agent.description} ${agent.id}`.toLowerCase().includes(query.toLowerCase().trim());
-  const visible = useMemo(() => (data?.agents || []).filter((agent) =>
-    (status === "all" || agent.status === status) && matchesBindingFilter(agent, bindingType) && matchesQuery(agent)),
-  [data, query, status, bindingType]);
-  const countForStatus = (filter: typeof status) => (data?.agents || []).filter((agent) =>
-    (filter === "all" || agent.status === filter) && matchesBindingFilter(agent, bindingType) && matchesQuery(agent)).length;
-  const countForBinding = (filter: typeof bindingType) => (data?.agents || []).filter((agent) =>
-    (status === "all" || agent.status === status) && matchesBindingFilter(agent, filter) && matchesQuery(agent)).length;
-  const selectAgent = (agentId: string) => {
-    if (agentId === selectedId) return;
-    if ((skillsDirty || knowledgeDirty) && !window.confirm("存在未保存的技能或知识库选择。切换 Agent 将放弃这些修改，是否继续？")) return;
-    setSelectedId(agentId); setBindingSelection(new Set()); setBindPreview(null); setKnowledgeSkillId("");
-  };
-  const changeKnowledgeSkill = (skillId: string) => {
-    if (knowledgeDirty && !window.confirm("当前知识库选择尚未保存，切换技能将放弃这些修改。是否继续？")) return;
-    setKnowledgeSkillId(skillId);
-  };
-
-  const create = async () => {
-    if (!name.trim()) { setCreateError("请填写 Agent 名称。"); return; }
-    setBusy(true); setCreateError("");
-    try {
-      const row = await api.adminAgentCreate({ name: name.trim(), description: description.trim() });
-      setCreateOpen(false); setName(""); setDescription(""); setSelectedId(row.id);
-      setBindingSelection(new Set()); setBindPreview(null);
-      setNotice("Agent 草稿已创建。请绑定组织或人员并装配技能后发布。");
-      await load(false);
-    } catch (cause) { setCreateError(errorName(cause)); }
-    finally { setBusy(false); }
-  };
-  const openCreate = () => { setName(""); setDescription(""); setCreateError(""); setCreateOpen(true); };
-  const submitRename = async () => {
-    if (!selected || !renameValue.trim()) return;
-    setRenameBusy(true); setRenameError("");
-    try {
-      await api.adminAgentUpdate(selected.id, { name: renameValue.trim(), expected_version: selected.version });
-      setRenaming(false);
-      setNotice("Agent 名称已更新。");
-      await load();
-    } catch (cause) { setRenameError(errorName(cause)); }
-    finally { setRenameBusy(false); }
-  };
-  const publish = () => {
-    if (!selected) return;
-    ask(agentPublishConfirm({
-      name: selected.name,
-      id: selected.id,
-      enabledSkills: selected.skills.filter((skill) => Number(skill.enabled) === 1).length,
-      bindings: selected.bindings.length,
-      users: selected.coverage.user_ids.length,
-      orgVersion: selected.coverage.org_version,
-    }), async () => {
-      await api.adminAgentUpdate(selected.id, { status: "published", expected_version: selected.version });
-      setNotice("Agent 已发布，覆盖范围内的员工可立即使用。");
-      await load();
-    });
-  };
-  const disable = () => {
-    if (!selected) return;
-    ask(agentDisableConfirm(selected.name, selected.id), async () => {
-      await api.adminAgentUpdate(selected.id, { status: "disabled", expected_version: selected.version });
-      setNotice("Agent 已停用；绑定与覆盖名单保留。");
-      await load();
-    });
-  };
-  const previewBind = async () => {
-    if (!selected || !selectedBindTargets.length) return;
-    if (selectedBindTargets.length > 200) { setError("单次最多可选择 200 个绑定目标，请缩小筛选范围。"); return; }
-    setBindPreviewBusy(true); setError("");
-    try { setBindPreview(await api.adminAgentBindingsBulkPreview(selected.id, selectedBindTargets)); }
-    catch (cause) { setError(errorName(cause)); }
-    finally { setBindPreviewBusy(false); }
-  };
-  const bind = async () => {
-    if (!selected || !selectedBindTargets.length || !bindPreview) return;
-    setBusy(true); setError("");
-    try {
-      const response = await api.adminAgentBindingsBulkSave(selected.id, selectedBindTargets, bindPreview.org_version, "管理侧 Agent 页面绑定");
-      setData((current) => current ? { ...current, agents: current.agents.map((agent) => agent.id === selected.id ? response.agent : agent) } : current);
-      setNotice(`绑定已保存，覆盖人员已按组织树重算（${selectedBindTargets.length} 个目标）。`);
-      setBindPreview(null); setBindingSelection(new Set());
-      await load();
-    } catch (cause) { setError(errorName(cause)); }
-    finally { setBusy(false); }
-  };
-  const setSkillSelection = (checked: boolean) => setPendingSkills(new Set(checked ? data?.skills.map((skill) => skill.id) || [] : []));
-  const saveSkills = async () => {
-    if (!selected) return;
-    setBusy(true); setError("");
-    try {
-      const changes = (data?.skills || []).flatMap((skill) => {
-        const current = selected.skills.find((row) => row.skill_id === skill.id);
-        const nextEnabled = pendingSkills.has(skill.id);
-        return Boolean(current?.enabled) === nextEnabled ? [] : [{ skill_id: skill.id, enabled: nextEnabled, expected_version: current?.version || 0 }];
-      });
-      await api.adminAgentSkillsSave(selected.id, changes);
-      setNotice("技能绑定已保存生效。"); await load();
-    } catch (cause) { setError(errorName(cause)); }
-    finally { setBusy(false); }
-  };
-  const recommendSkills = async () => {
-    if (!selected || !data?.skills.length) return;
-    setSkillRecommendationState("loading"); setSkillRecommendationMessage("");
-    try {
-      const response = await api.adminAgentSkillRecommendations(selected.id, data.skills.map((skill) => skill.id));
-      setSkillRecommendations(response.items);
-      setSkillRecommendationState("ready");
-    } catch (cause) {
-      setSkillRecommendationState("error");
-      setSkillRecommendationMessage(errorName(cause));
-    }
-  };
-  const saveKnowledgeSelection = async () => {
-    if (!selected || !knowledgeSkillId) return;
-    const additions = [...pendingKnowledgeBases].filter((id) => !boundKnowledgeBaseIds.has(id));
-    const removals = [...boundKnowledgeBaseIds].filter((id) => !pendingKnowledgeBases.has(id));
-    const apply = async () => {
-      setBusy(true); setError("");
-      try {
-        if (removals.length) {
-          const affected = selected.knowledge.filter((row) => row.skill_id === knowledgeSkillId && (() => {
-            try { return ((JSON.parse(row.selector) as { base_ids?: string[] }).base_ids || []).some((id) => removals.includes(id)); } catch { return false; }
-          })());
-          for (const row of affected) {
-            const ids = (() => { try { return (JSON.parse(row.selector) as { base_ids?: string[] }).base_ids || []; } catch { return []; } })();
-            await api.adminAgentKnowledgeDelete(selected.id, row.id);
-            for (const baseId of ids.filter((id) => !removals.includes(id))) await api.adminAgentKnowledge(selected.id, knowledgeSkillId, baseId);
-          }
-        }
-        for (const baseId of additions) await api.adminAgentKnowledge(selected.id, knowledgeSkillId, baseId);
-        setNotice("知识库绑定已保存；该技能依赖由装配此技能的 Agent 共享。");
-        await load();
-      } catch (cause) { setError(errorName(cause)); await load(); }
-      finally { setBusy(false); }
-    };
-    if (removals.length) {
-      ask(agentKnowledgeUnbindConfirm({ agentName: selected.name, agentId: selected.id, skillLabel: skillLabel(knowledgeSkillId), baseLabel: removals.map((id) => data?.bases.find((base) => base.id === id)?.name || id).join("、") }), apply);
-    } else await apply();
-  };
-  const unitName = (id: string) => data?.units.find((unit) => unit.id === id)?.display_name || id;
-  const personName = (id: string) => data?.people.find((person) => person.person_ref === id)?.display_name || id;
-  const bindingName = (binding: AdminAgentRow["bindings"][number]) => binding.target_type === "person" ? personName(binding.target_id) : unitName(binding.target_id);
-  const skillLabel = (id: string) => data?.skills.find((skill) => skill.id === id)?.label || id;
-  const revokeBinding = async (binding: AdminAgentRow["bindings"][number]) => {
-    if (!selected) return;
-    setPreviewBusyId(binding.id);
-    setError("");
-    try {
-      const preview = await api.adminAgentRevokePreview(selected.id, binding.id);
-      const removed = preview.removed.map((entry) => entry.display_name || entry.person_ref);
-      ask(agentBindingRevokeConfirm({
-        agentName: selected.name,
-        agentId: selected.id,
-        targetLabel: `${targetTypeLabel(binding.target_type)} · ${bindingName(binding)}`,
-        removed,
-      }), async (reason) => {
-        await api.adminAgentUnbind(selected.id, binding.id, reason || "管理侧撤销");
-        setNotice("绑定已撤销，覆盖名单已按组织树重算。");
-        await load();
-      });
-    } catch (cause) { setError(errorName(cause)); }
-    finally { setPreviewBusyId(""); }
-  };
-  const enabledSkills = selected?.skills.filter((skill) => Number(skill.enabled) === 1).length || 0;
-  const revealPanel = (key: keyof typeof panelOpen, id: string) => {
-    setPanelOpen((current) => ({ ...current, [key]: true }));
-    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  };
-
-  return <section className="governance-workspace" data-admin-page="agents">
-    <aside className="governance-rail">
-      <div className="governance-scroll">
-        <WorkspaceSearchInput className="governance-search-wrap governance-search" aria-label="搜索 Agent" placeholder="请搜索Agent名称或说明" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <div className="governance-filter-group"><strong>发布状态</strong><div className="governance-filter-options">{([["all", "全部"], ["draft", "草稿"], ["published", "已发布"], ["disabled", "已停用"]] as const).map(([id, label]) => <button className="governance-filter-choice" type="button" key={id} aria-pressed={status === id} onClick={() => setStatus(id)}>{label}<span className="governance-filter-badge">{countForStatus(id)}</span></button>)}</div></div>
-        <div className="governance-filter-group"><strong>绑定类型</strong><div className="governance-filter-options">{([["all", "全部"], ["company", "公司"], ["level1", "一级部门"], ["level2", "二级部门"], ["level3", "三级部门"], ["person", "人员"], ["unbound", "未绑定"]] as const).map(([id, label]) => <button className="governance-filter-choice" type="button" key={id} aria-pressed={bindingType === id} onClick={() => setBindingType(id)}>{label}<span className="governance-filter-badge">{countForBinding(id)}</span></button>)}</div></div>
-        <h2 className="governance-subheading">Agent 列表</h2>
-        <p className="governance-count">{visible.length} / {data?.agents.length || 0} 个 Agent</p>
-        <div className="governance-list">{visible.map((agent) => <button type="button" className={`governance-list-row governance-agent-row${selectedId === agent.id ? " is-selected" : ""}`} key={agent.id} onClick={() => selectAgent(agent.id)}>
-          <strong>{agent.name}</strong>
-        </button>)}{!visible.length && <p className="governance-empty">没有符合条件的 Agent。</p>}</div>
-      </div>
-      <div className="governance-rail-footer"><button className="governance-text-action" type="button" onClick={openCreate}>＋ 新增 Agent</button></div>
-    </aside>
-    <div className="governance-main">
-      <header className="governance-main-head"><h2>{selected ? "Agent 治理" : "Agent 详情"}</h2></header>
-      <div className="governance-scroll">
-        {error && <p className="error" role="alert">{error}</p>}
-        {notice && <p className="governance-notice" role="status">{notice}</p>}
-        {selected ? <>
-          {selected.skills.filter(skill=>skill.enabled && data?.skills.find(s=>s.id===skill.skill_id)?.document_query).map(skill=><SkillKnowledgeRange key={`${selected.id}-${skill.skill_id}`} skillId={skill.skill_id} compact />)}
-          {selected.status==='published' && selected.skills.some(skill=>skill.enabled && data?.skills.find(s=>s.id===skill.skill_id)?.document_query) && <button className="governance-text-action" disabled={busy} onClick={async()=>{setBusy(true);try{await api.adminAgentSkillsSave(selected.id,selected.skills.map(skill=>({skill_id:skill.skill_id,enabled:Boolean(skill.enabled),expected_version:Number(skill.version)})));setNotice('已明确应用当前发布的知识技能版本；人员使用资格仍按当前绑定计算。');await load();}catch(e){setError(errorName(e));}finally{setBusy(false);}}}>应用已发布知识技能版本</button>}
-          <section className="governance-card" aria-label="Agent 摘要">
-            <RecordRow
-              title={<TruncatableText text={selected.name} />}
-              status={<span className="agent-status">{statusName(selected.status)}</span>}
-              actions={<ActionGroup><button type="button" className="governance-text-action" disabled={busy} onClick={() => { setRenameValue(selected.name); setRenameError(""); setRenaming(true); }}>修改名称</button>{selected.status === "published" ? <button type="button" className="governance-text-action" disabled={busy} onClick={disable}>停用智能体</button> : selected.status === "disabled" ? <button type="button" className="governance-text-action" disabled={busy} onClick={publish}>启用智能体</button> : <button type="button" className="governance-text-action" disabled={busy} onClick={publish}>发布智能体</button>}</ActionGroup>}
-              detail={<><PropertyList labelWidth="short" items={[{ key: "description", label: "职责", value: selected.description, emptyText: "暂无职责说明" }]} /><div className="agent-summary-metrics"><button type="button" aria-expanded={panelOpen.skills} aria-controls="agent-skills-card" onClick={() => revealPanel("skills", "agent-skills-card")}><strong>{enabledSkills}</strong> 项技能　⌄</button><button type="button" aria-expanded={panelOpen.bindings} aria-controls="agent-bindings-card" onClick={() => revealPanel("bindings", "agent-bindings-card")}><strong>{selected.coverage.user_ids.length}</strong> 人覆盖　⌄</button><button type="button" aria-expanded={panelOpen.bindings} aria-controls="agent-bindings-card" onClick={() => revealPanel("bindings", "agent-bindings-card")}><strong>{selected.bindings.length}</strong> 个绑定点　⌄</button></div></>}
-            />
-          </section>
-
-          <details className="governance-card agent-collapsible" id="agent-skills-card" open={panelOpen.skills} onToggle={(event) => { const isOpen = event.currentTarget.open; setPanelOpen((p) => p.skills === isOpen ? p : { ...p, skills: isOpen }); }}><summary><span>绑定技能</span><span className="agent-summary-count">{enabledSkills} 项已装配</span></summary><div className="agent-card-content"><div className="agent-card-head"><label className="agent-select-all"><input type="checkbox" checked={Boolean(data?.skills.length && data.skills.every((skill) => pendingSkills.has(skill.id)))} onChange={(event) => setSkillSelection(event.target.checked)} />全选</label><button type="button" className="governance-text-action" disabled={skillRecommendationState === "loading"} onClick={() => void recommendSkills()}>{skillRecommendationState === "loading" ? "JEV 评估中…" : skillRecommendationState === "ready" ? "重新评估" : "JEV 智能排序"}</button><button type="button" className="governance-text-action" disabled={busy || !skillsDirty} onClick={() => void saveSkills()}>保存生效</button></div>{skillRecommendationState === "error" && <p className="error" role="alert">JEV 评估失败：{skillRecommendationMessage}。当前按技能名称显示。</p>}{skillRecommendationState === "ready" && <p className="muted" role="status">JEV 按技能名称和说明评估与此 Agent 职责的相关性；推荐仅用于排序，不会自动绑定。</p>}<div className="governance-checkbox-list">{pagedSkills.map((skill) => { const enabled = pendingSkills.has(skill.id); const recommendation = skillRecommendations.find((item) => item.id === skill.id); return <label className="agent-skill-row" key={skill.id}><input type="checkbox" checked={enabled} disabled={busy} onChange={(event) => setPendingSkills((prev) => { const next = new Set(prev); event.target.checked ? next.add(skill.id) : next.delete(skill.id); return next; })} /><span><strong>{skill.label}</strong><span className="muted">{skill.summary}</span></span>{recommendation && <span className="agent-recommendation" title={recommendation.reason}>推荐 {recommendation.rank} · {recommendation.reason}</span>}</label>; })}</div><div className="agent-pagination"><span>{orderedSkills.length ? `${skillPage * 10 + 1}–${Math.min((skillPage + 1) * 10, orderedSkills.length)} / ${orderedSkills.length}` : "0 项技能"}</span><button type="button" disabled={skillPage === 0} onClick={() => setSkillPage((p) => p - 1)}>上一页</button><span>{skillPage + 1} / {Math.max(1, Math.ceil(orderedSkills.length / 10))}</span><button type="button" disabled={(skillPage + 1) * 10 >= orderedSkills.length} onClick={() => setSkillPage((p) => p + 1)}>下一页</button></div></div></details>
-
-          <details className="governance-card agent-collapsible" id="agent-knowledge-card" open={panelOpen.knowledge} onToggle={(event) => { const isOpen = event.currentTarget.open; setPanelOpen((p) => p.knowledge === isOpen ? p : { ...p, knowledge: isOpen }); }}><summary><span>绑定知识库</span><span className="agent-summary-count">{selected.knowledge.length} 项技能依赖</span></summary><div className="agent-card-content"><p className="muted">知识库通过技能调用；同一技能的知识库依赖由装配该技能的 Agent 共享。</p><HorizontalForm component={false} labelWidth="short" className="agent-knowledge-skill-form"><Form.Item label="调用技能" htmlFor="agent-knowledge-skill"><select id="agent-knowledge-skill" value={knowledgeSkillId} onChange={(event) => changeKnowledgeSkill(event.target.value)}><option value="">请选择已装配的知识库查询技能</option>{selected.skills.filter((skill) => skill.enabled && data?.skills.find((catalogSkill) => catalogSkill.id === skill.skill_id)?.document_query).map((skill) => <option key={skill.skill_id} value={skill.skill_id}>{skillLabel(skill.skill_id)}</option>)}</select></Form.Item></HorizontalForm>{knowledgeSkillId && <><div className="agent-card-head"><span className="muted">选择知识库后保存；移除现有项会影响该技能的其他 Agent。</span><button type="button" className="governance-text-action" disabled={busy || ![...pendingKnowledgeBases].some((id) => !boundKnowledgeBaseIds.has(id)) && ![...boundKnowledgeBaseIds].some((id) => !pendingKnowledgeBases.has(id))} onClick={() => void saveKnowledgeSelection()}>保存生效</button></div><div className="governance-checkbox-list">{pagedKnowledgeBases.map((base) => <label className="agent-skill-row" key={base.id}><input type="checkbox" checked={pendingKnowledgeBases.has(base.id)} disabled={busy} onChange={(event) => setPendingKnowledgeBases((prev) => { const next = new Set(prev); event.target.checked ? next.add(base.id) : next.delete(base.id); return next; })} /><span><strong>{base.name}</strong><span className="muted">{base.kind === "unstructured" ? "非结构化" : "结构化"}</span></span></label>)}</div><div className="agent-pagination"><span>{visibleKnowledgeBases.length ? `${knowledgePage * 10 + 1}–${Math.min((knowledgePage + 1) * 10, visibleKnowledgeBases.length)} / ${visibleKnowledgeBases.length}` : "0 个知识库"}</span><button type="button" disabled={knowledgePage === 0} onClick={() => setKnowledgePage((p) => p - 1)}>上一页</button><span>{knowledgePage + 1} / {Math.max(1, Math.ceil(visibleKnowledgeBases.length / 10))}</span><button type="button" disabled={(knowledgePage + 1) * 10 >= visibleKnowledgeBases.length} onClick={() => setKnowledgePage((p) => p + 1)}>下一页</button></div></>}</div></details>
-
-          <details className="governance-card agent-collapsible" id="agent-bindings-card" open={panelOpen.bindings} onToggle={(event) => { const isOpen = event.currentTarget.open; setPanelOpen((p) => p.bindings === isOpen ? p : { ...p, bindings: isOpen }); }}><summary><span>组织人员绑定</span><span className="agent-summary-count">组织版本 {selected.coverage.org_version}</span></summary><div className="agent-card-content"><p className="muted">绑定资格与覆盖名单由服务端依据权威组织树计算。</p>
-            <h4 className="governance-subheading">绑定点</h4>
-            {selected.bindings.length ? <div className="governance-checkbox-list">{selected.bindings.map((binding) => <RecordRow key={binding.id} title={<TruncatableText text={`${targetTypeLabel(binding.target_type)} · ${bindingName(binding)}`} />} actions={<ActionGroup><button type="button" className="governance-text-action" disabled={busy || previewBusyId === binding.id} onClick={() => void revokeBinding(binding)}>{previewBusyId === binding.id ? "读取中…" : "撤销"}</button></ActionGroup>} />)}</div> : <p className="muted">尚未绑定组织单元或人员，员工无法使用该 Agent。</p>}
-            <h4 className="governance-subheading">覆盖名单（按来源分组 · 共 {selected.coverage.user_ids.length} 人）</h4>
-            {VIA_ORDER.map((via) => { const rows = selected.coverage.users.filter((user) => user.via === via); return rows.length ? <div className="governance-via-group" key={via}><h4>{viaLabel(via)} · {rows.length} 人</h4><ul>{rows.map((user) => <li key={`${user.person_ref}:${user.binding_id}`}><strong>{user.display_name || user.person_ref}</strong><span>通过 {[...new Set((user.sources?.length ? user.sources : [user]).map((source) => source.via_unit_display_name || source.via_unit_id))].join("、")}</span></li>)}</ul></div> : null; })}
-            {!selected.coverage.users.length && <p className="muted">当前绑定点未覆盖任何员工。</p>}
-            <h4 className="governance-subheading">添加绑定</h4>
-            <label>绑定目标类型<select value={targetType} onChange={(event) => { setTargetType(event.target.value as typeof targetType); setBindingSelection(new Set()); setBindPreview(null); }}><option value="organization_unit">组织单元</option><option value="person">人员</option></select></label>
-            <div className="agent-org-filter-row"><label>公司<select value={companyFilter} onChange={(event) => { setCompanyFilter(event.target.value); setUnitFilter({}); setBindingSelection(new Set()); setBindPreview(null); }}><option value="">选择公司</option>{companyIds.map((id) => <option key={id} value={id}>{id}</option>)}</select></label>{targetType === "organization_unit" && <>{([{ level: 1, options: level1Options }, { level: 2, options: level2Options }, { level: 3, options: level3Options }] as const).map(({ level, options }) => <label key={level}>{level}级部门<select aria-label={`筛选${level}级部门`} value={unitFilter[level] || ""} disabled={!companyFilter || (level > 1 && !unitFilter[level - 1])} onChange={(event) => { setUnitFilter((prev) => ({ ...prev, [level]: event.target.value, ...(level < 2 ? { 2: "", 3: "" } : level < 3 ? { 3: "" } : {}) })); setBindingSelection(new Set()); setBindPreview(null); }}><option value="">全部</option>{options.map((unit) => <option key={unit.id} value={unit.id}>{unit.display_name}</option>)}</select></label>)}</>}</div>
-            <div className="agent-target-list-head"><strong>{targetType === "person" ? "可绑定人员" : "可绑定组织单元"} · {bindCandidates.length}</strong><label className="agent-select-all"><input type="checkbox" checked={Boolean(bindCandidates.length && bindCandidates.every((target) => bindingSelection.has(target.key)))} onChange={(event) => setBindingSelection((prev) => { const next = new Set(prev); for (const target of bindCandidates) event.target.checked ? next.add(target.key) : next.delete(target.key); return next; })} />全选当前筛选</label></div>
-            <div className="agent-target-list">{bindCandidates.map((target) => <label key={target.key}><input type="checkbox" checked={bindingSelection.has(target.key)} onChange={(event) => { setBindingSelection((prev) => { const next = new Set(prev); event.target.checked ? next.add(target.key) : next.delete(target.key); return next; }); setBindPreview(null); }} /><span>{target.label}</span></label>)}{!bindCandidates.length && <p className="muted">请先选择公司及部门范围，或当前范围内没有可绑定目标。</p>}</div>
-            <button type="button" className="governance-minor" disabled={!selectedBindTargets.length || busy || bindPreviewBusy} onClick={() => void previewBind()}>{bindPreviewBusy ? "试算中…" : `预览绑定影响（${selectedBindTargets.length} 个目标）`}</button>
-            {bindPreview && <div className="governance-via-group" data-agent-binding-preview>
-              <PropertyList labelWidth="short" items={[{ key: "org-version", label: "组织版本", value: bindPreview.org_version }, { key: "coverage-impact", label: "覆盖影响", value: `将新增覆盖 ${bindPreview.added.length} 人${bindPreview.added.length ? `（绑定后共 ${bindPreview.after.user_ids.length} 人）` : "，覆盖名单不变"}` }]} />
-              {bindPreview.added.length > 0 && <ul>{bindPreview.added.map((entry) => <li key={`${entry.person_ref}:${entry.binding_id}`}><strong>{entry.display_name || entry.person_ref}</strong><span>{viaLabel(entry.via)}{entry.via_unit_display_name ? ` · ${entry.via_unit_display_name}` : ""}</span></li>)}</ul>}
-              {!bindPreview.added.length && bindPreview.removed.length > 0 && <ul>{bindPreview.removed.map((entry) => <li key={`${entry.person_ref}:${entry.binding_id}`}><strong>{entry.display_name || entry.person_ref}</strong><span>将失去覆盖</span></li>)}</ul>}
-              <ActionGroup className="governance-inline-actions"><button type="button" className="btn work" disabled={busy} onClick={() => void bind()}>确认绑定</button><button type="button" className="governance-minor" disabled={busy} onClick={() => setBindPreview(null)}>取消</button></ActionGroup>
-            </div>}
-          </div></details>
-
-          <section className="governance-card"><h3>版本</h3><PropertyList labelWidth="short" items={[{ key: "version", label: "版本", value: `v${selected.version}` }, { key: "created-at", label: "创建时间", value: formatTime(selected.created_at) }, { key: "updated-at", label: "更新时间", value: formatTime(selected.updated_at) }]} /></section>
-        </> : <p className="governance-empty">选择一个 Agent 查看详情。</p>}
-      </div>
-    </div>
-    <AdminTextDialog
-      open={renaming}
-      title="修改 Agent 名称"
-      description="名称用于员工界面与审计；只改展示名，不改 Agent ID。"
-      label="Agent 名称"
-      value={renameValue}
-      required
-      confirmLabel="保存名称"
-      busy={renameBusy}
-      error={renameError}
-      onChange={setRenameValue}
-      onConfirm={() => void submitRename()}
-      onCancel={() => { setRenaming(false); setRenameError(""); }}
-    />
-    {dialog}
-    <AdminFormDialog
-      open={createOpen}
-      title="新增 Agent"
-      subtitle="创建后为草稿：装配技能并绑定组织或人员后才能发布。"
-      error={createError}
-      busy={busy}
-      initialFocusRef={createNameRef}
-      onClose={() => { setCreateOpen(false); setCreateError(""); }}
-      footer={<><button type="button" className="btn" disabled={busy} onClick={() => { setCreateOpen(false); setCreateError(""); }}>取消</button><button type="button" className="btn work" disabled={busy} onClick={() => void create()}>{busy ? "创建中…" : "创建 Agent"}</button></>}
-    >
-      <HorizontalForm component={false} labelWidth="short">
-        <Form.Item label="Agent 名称" htmlFor="admin-agent-name" required><input id="admin-agent-name" ref={createNameRef} type="text" value={name} onChange={(event) => setName(event.target.value)} /></Form.Item>
-        <Form.Item label="描述" htmlFor="admin-agent-description" className="ui-field-stacked"><textarea id="admin-agent-description" value={description} onChange={(event) => setDescription(event.target.value)} /></Form.Item>
-      </HorizontalForm>
-    </AdminFormDialog>
-  </section>;
+function KnowledgeRange({id}:{id:string}){const [open,setOpen]=useState(false);return <details onToggle={e=>setOpen(e.currentTarget.open)}><summary>有效知识范围与共享依赖</summary>{open&&<SkillKnowledgeRange skillId={id} compact/>}</details>;}
+function AgentInformation({row,skills}:{row:client.AgentDetail;skills:AgentSkillOption[]}){
+ return <><section><h3>职责与身份</h3><p>{row.effective.description || "尚未填写职责说明"}</p><p>{row.published_revision?`已发布 v${row.published_revision}`:"尚无已发布版本"} · {statusName(row.status)} · 更新于 {time(row.updated_at)}</p>{row.draft&&<p>有修订草稿 r{row.draft.revision} · {time(row.draft.updated_at)} · 保存者 {row.draft.updated_by}。能力变更尚未应用。</p>}</section>
+  <section><h3>{row.published_revision?"有效能力":"待装配能力"} · {row.effective.skills.length} 项技能</h3>{row.effective.skills.map(pin=>{const skill=skills.find(value=>value.id===pin.skill_id);return <div className="agent-skill-row" key={pin.skill_id}><strong>{skill?.label || pin.skill_id}</strong><p>{skill?.summary || "技能已不在当前目录中"}</p><p>{skill?.risk || "风险尚未登记"} · 发布指纹 {pin.release_hash.slice(0,12)}{skill?.execution==="async_job"?" · 异步作业（需进度、取消与重试）":""}</p>{skill?.resources.map(value=><p key={value.id}>资源 {value.id} · {value.configured&&value.enabled&&value.tool_count?"已配置并启用，未实时探测":"依赖未就绪"}</p>)}<Link to={skillLink(pin.skill_id)}>查看技能与依赖</Link>{skill?.document_query&&<KnowledgeRange id={pin.skill_id}/>}</div>;})}{!row.effective.skills.length&&<p>尚未装配技能；通过修订草稿添加。</p>}</section>
+  <section><h3>人员使用资格</h3><p>{row.bindings.length} 个绑定点 · 覆盖 {row.coverage.user_ids.length} 个员工账号 · 组织版本 {row.coverage.org_version}</p><p>覆盖来自组织树和人员绑定。绑定来源与实际执行条件分别核对。</p><p>{row.exam_blocked.length} 个覆盖账号仍有必考任务未通过</p>{row.exam_blocked.length>0&&<details><summary>查看考试阻断</summary><ul>{row.exam_blocked.map(value=><li key={value.user_id}>{value.name || value.user_id} · {value.missing} 项</li>)}</ul></details>}</section>
+  <section><h3>依赖与执行条件</h3>{row.dependency_issues.length?<ul>{row.dependency_issues.map(value=><li key={value}>{value}</li>)}</ul>:<p>当前配置未发现依赖问题。</p>}<p>此处是配置状态投影；真实调用仍需通过资源探测、人员资格、考试与业务规则。</p></section>
+  <section><h3>发布版本与回执</h3>{row.versions.map(value=><details key={value.version}><summary>v{value.version} · {value.receipt_id?`${time(value.published_at)} · ${value.published_by}`:`历史现有装配记录 · 最后管理更新时间 ${time(value.published_at)}`}</summary><p>{value.name} · {value.description}</p><ul>{value.skills.map(pin=><li key={pin.skill_id}>{skills.find(skill=>skill.id===pin.skill_id)?.label || pin.skill_id} · {pin.release_hash.slice(0,12)}{pin.knowledge_revision?` · 知识依赖 v${pin.knowledge_revision}`:""}</li>)}</ul>{value.receipt_id?<p>回执：{value.receipt_id}</p>:<p>此记录在首次修订时归档现有装配；原始发布人、发布时间及回执未记录。</p>}</details>)}{!row.versions.length&&<p>{row.published_revision?"历史 Agent 尚未形成完整版本快照，首次修订时归档现有装配。":"尚无发布记录。"}</p>}</section>
+  <AgentAudit key={row.id} id={row.id}/>
+ </>;
+}
+const auditNames:Record<string,string>={"admin.agent.draft.save":"保存修订草稿","admin.agent.release.publish":"确认发布版本","admin.agent.availability":"启停 Agent","admin.agent.binding.add":"添加人员绑定","admin.agent.binding.revoke":"撤销人员绑定"};
+function AgentAudit({id}:{id:string}){
+ const [data,setData]=useState<AdminAgentAuditResponse|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+ const load=useCallback(async(cursor?:number|string|null)=>{setBusy(true);try{const next=await reviewApi<AdminAgentAuditResponse>(`/admin/agents/${encodeURIComponent(id)}/audit?limit=20${cursor?`&cursor=${encodeURIComponent(cursor)}`:""}`);setData(previous=>cursor?{...next,items:[...(previous?.items || []),...next.items]}:next);setError("");}catch(e){setError(errorName(e));}finally{setBusy(false);}},[id]);
+ useEffect(()=>{void load();},[load]);
+ return <section><h3>近期审计</h3>{error&&<p role="alert">{error} <button className="agent-text-action" onClick={()=>void load()}>重试</button></p>}{!data&&!error&&<p role="status">正在读取审计…</p>}{data?.items.map(value=><details key={value.id}><summary>{auditNames[value.event_type] || value.event_type} · {value.actor} · {time(value.ts)}</summary><pre>{JSON.stringify(value.payload,null,2)}</pre></details>)}{data&&!data.items.length&&<p>暂无审计记录。</p>}{data?.next_cursor&&<button className="agent-text-action" disabled={busy} onClick={()=>void load(data.next_cursor)}>{busy?"正在读取…":"更多记录"}</button>}</section>;
 }

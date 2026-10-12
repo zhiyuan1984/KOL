@@ -84,6 +84,8 @@ export function updateManagedAgent(
   if (!["draft", "published", "disabled"].includes(status)) throw new HttpFail(400, "Agent 状态无效");
   if (current.status === "draft" && status === "disabled") throw new HttpFail(409, "草稿可直接保留，无需停用");
   getConn().prepare(`UPDATE managed_agents SET name=?,description=?,status=?,version=version+1,updated_at=?
-    WHERE id=? AND version=?`).run(name, description, status, nowIso(), id, current.version);
+    WHERE id=? AND version=? AND workspace_managed=FALSE`).run(name, description, status, nowIso(), id, current.version);
+  const check=managedAgent(id) as ManagedAgent & {workspace_managed?:boolean};
+  if(check.workspace_managed)throw new HttpFail(409,"此 Agent 已使用版本治理，请保存修订草稿并确认发布");
   return managedAgent(id);
 }

@@ -7,6 +7,7 @@
  * 运行时权威在本文件的表里，registry 只作声明、来源凭证与待补字段登记。
  */
 import fs from "node:fs";
+import {createHash} from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -688,12 +689,17 @@ export type SimulatedPerson = {
  * 绑定人员 → 本人及其所属各级上级负责人。
  * `simulatePerson` 仅供预览路径（previewAgentBinding）：person 尚未同步组织关系时按 users.site 模拟，不写库。
  */
-function computeEffectiveAgentUsers(
+export type OrganizationCoverageSource = {
+  units: OrganizationUnitRow[]; people: OrganizationPersonRow[]; memberships: OrganizationMembershipRow[];
+  versions: Array<{ company_id: string; version: number }>;
+};
+export function computeEffectiveAgentUsers(
   agentId: string,
   bindings: AgentBindingRow[],
   simulatePerson?: (personRef: string, companyId: string) => SimulatedPerson | null,
+  source?: OrganizationCoverageSource,
 ): EffectiveAgentUsers {
-  ensureOrganizationTree();
+  if (!source) ensureOrganizationTree();
   // 绑定列表由调用方给出：实时集合来自 listAgentBindings；预览传入含虚拟绑定的列表。
   const byRef = new Map<string, EffectiveUser>();
   const rank: Record<EffectiveUser["via"], number> = { binding_target: 0, unit_head: 1, unit_member: 2, ancestor_head: 3 };
@@ -701,13 +707,13 @@ function computeEffectiveAgentUsers(
   const seenCompany = new Set<string>();
 
   for (const companyId of new Set(bindings.map((binding) => binding.company_id))) {
-    const units = listOrganizationUnits(companyId);
+    const units = source ? source.units.filter(unit => unit.company_id === companyId) : listOrganizationUnits(companyId);
     const byId = new Map(units.map((unit) => [unit.id, unit]));
-    const memberships = listOrganizationMemberships(companyId);
-    const people = new Map(listOrganizationPeople().map((person) => [person.person_ref, person]));
+    const memberships = source ? source.memberships.filter(row => row.company_id === companyId) : listOrganizationMemberships(companyId);
+    const people = new Map((source?.people || listOrganizationPeople()).map((person) => [person.person_ref, person]));
     if (!seenCompany.has(companyId)) {
       seenCompany.add(companyId);
-      orgVersion = Math.max(orgVersion, currentOrgVersion(companyId));
+      orgVersion = Math.max(orgVersion, source ? Number(source.versions.find(row => row.company_id === companyId)?.version || 0) : currentOrgVersion(companyId));
     }
 
     const add = (personRef: string, via: EffectiveUser["via"], unitId: string, binding: AgentBindingRow): void => {
@@ -792,6 +798,7 @@ function computeEffectiveAgentUsers(
 
 export type AgentBindingPreview = {
   agent_id: string;
+  preview_signature: string;
   org_version: number;
   before: { person_refs: string[]; user_ids: string[] };
   after: { person_refs: string[]; user_ids: string[] };
@@ -906,9 +913,11 @@ export function previewAgentBinding(agentId: string, change: AgentBindingChange)
   const after = computeEffectiveAgentUsers(agentId, bindings, simulatePerson);
   const beforeRefs = new Set(before.person_refs);
   const afterRefs = new Set(after.person_refs);
+  const versions=[...new Set([...current,...bindings].map(row=>row.company_id))].sort().map(company_id=>({company_id,version:currentOrgVersion(company_id)}));
   return {
     agent_id: agentId,
-    org_version: after.org_version,
+    org_version: Math.max(before.org_version,after.org_version),
+    preview_signature: createHash('sha256').update(JSON.stringify({current,change,versions,before,after})).digest('hex'),
     before: { person_refs: before.person_refs, user_ids: before.user_ids },
     after: { person_refs: after.person_refs, user_ids: after.user_ids },
     added: after.users.filter((user) => !beforeRefs.has(user.person_ref)),

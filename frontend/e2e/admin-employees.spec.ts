@@ -25,6 +25,22 @@ const employee = {
   site: "org:promotion_department", position: "KOL 经理", brands: ["LT", "PQ"], roles: ["employee"], active: true,
   avatar_url: "/avatars/employees/ye_guanwang.png",
 };
+
+// Account and unrelated shell reads are fixtures too, so this suite can run with a static preview.
+test.beforeEach(async({page})=>{
+ const account={id:'admin',name:'管理员',available_modes:['admin','employee']};
+ await page.route('**/api/**',async route=>{
+  const path=new URL(route.request().url()).pathname;
+  if(path==='/api/auth/status')return route.fulfill({json:{authenticated:true,account}});
+  if(path==='/api/me')return route.fulfill({json:account});
+  if(path==='/api/preferences')return route.fulfill({json:{theme:'light'}});
+  if(path==='/api/health')return route.fulfill({json:{ok:true}});
+  if(path==='/api/cron/jobs')return route.fulfill({json:{jobs:[]}});
+  if(['/api/admin/connectors','/api/admin/exams','/api/admin/assignments'].includes(path))return route.fulfill({json:[]});
+  if(path==='/api/admin/data-policy')return route.fulfill({json:{}});
+  return route.fallback();
+ });
+});
 const units = [{ id: "org:promotion_department", display_name: "推广部", company_id: "company:amperetime", parent_id: null, level: 1, status: "active" }];
 
 type Json = Record<string, unknown>;
@@ -188,7 +204,7 @@ test("员工页单选筛选与精简列表；管理绑定先试算覆盖再确�
   await expect(confirm.locator("[data-admin-confirm-change]")).toContainText("将移除 1 人：目录员工");
   await confirm.locator("[data-admin-confirm-reason]").fill("员工转岗");
   await confirm.locator("[data-admin-confirm-ok]").click();
-  await expect.poll(() => revokes).toEqual([{ reason: "员工转岗" }]);
+  await expect.poll(() => revokes).toEqual([{ reason: "员工转岗",org_version:2 }]);
   await expect(dialog.locator("[data-employee-agent='agent:test']")).toHaveCount(0);
   await expect(dialog.locator("[data-employee-agent='agent:inherit']")).toBeVisible();
   await expect(dialog.locator("p.governance-notice[role='status']")).toContainText("直接绑定已撤销");

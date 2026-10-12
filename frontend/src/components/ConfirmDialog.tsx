@@ -290,13 +290,6 @@ export function useAdminConfirm({ inline = false }: { inline?: boolean } = {}): 
       error={error}
       onCancel={() => {
         if (busy) return;
-        const approvalClose = pending?.kind === "approval-approve"
-          || pending?.kind === "approval-reject"
-          || pending?.kind === "approval-initiate";
-        if (pending?.requireReason && !approvalClose && !reason.trim()) {
-          setError(pending.reasonLabel || "请填写原因");
-          return;
-        }
         setPending(null);
         setError("");
         setReason("");

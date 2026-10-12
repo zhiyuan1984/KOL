@@ -83,6 +83,7 @@ const migrations: SchemaMigration[] = [
       )`,
     ],
   },
+  { id: "20261012_agent_workspace", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "029_agent_workspace.sql"), "utf8")] },
   {
     // Phase 2：审批类型（四件套）
     id: "20261003_approval_types",

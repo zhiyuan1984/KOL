@@ -188,6 +188,7 @@ export type AdminEmployeeAgent = AdminAgentAccess & {
 /** 绑定预览（无副作用）：before/after 为覆盖集合，added/removed 为差集明细。 */
 export type AdminBindingPreview = {
   agent_id: string;
+  preview_signature?:string;
   org_version: number;
   before: { person_refs: string[]; user_ids: string[] };
   after: { person_refs: string[]; user_ids: string[] };
@@ -3487,18 +3488,18 @@ export const api = {
   adminAgentBind: (id: string, body: { target_type: "organization_unit" | "person"; target_id?: string; user_id?: string; reason?: string }) =>
     request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/bindings`,
       { method: "POST", body: JSON.stringify(body) }),
-  adminAgentUnbind: (id: string, bindingId: string, reason: string) =>
+  adminAgentUnbind: (id: string, bindingId: string, reason: string, org_version?: number,preview_signature?:string) =>
     request<AdminAgentRow>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/${encodeURIComponent(bindingId)}`,
-      { method: "DELETE", body: JSON.stringify({ reason }) }),
+      { method: "DELETE", body: JSON.stringify({ reason,org_version,preview_signature }) }),
   /** 绑定/撤销预览均为无副作用试算：返回 before/after 覆盖与 added/removed 明细。 */
   adminAgentBindingsPreview: (id: string, body: { target_type: "organization_unit" | "person"; target_id?: string; user_id?: string }) =>
     request<AdminBindingPreview>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/preview`,
       { method: "POST", body: JSON.stringify(body) }),
   adminAgentBindingsBulkPreview: (id: string, targets: Array<{ target_type: "organization_unit" | "person"; target_id?: string; user_id?: string }>) =>
     request<AdminBindingPreview>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/bulk-preview`, { method: "POST", body: JSON.stringify({ targets }) }),
-  adminAgentBindingsBulkSave: (id: string, targets: Array<{ target_type: "organization_unit" | "person"; target_id?: string; user_id?: string }>, org_version: number, reason: string) =>
+  adminAgentBindingsBulkSave: (id: string, targets: Array<{ target_type: "organization_unit" | "person"; target_id?: string; user_id?: string }>, org_version: number, reason: string,preview_signature?:string) =>
     request<{ agent: AdminAgentRow; preview: AdminBindingPreview }>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/bulk`, {
-      method: "POST", body: JSON.stringify({ targets, org_version, reason }),
+      method: "POST", body: JSON.stringify({ targets, org_version, reason,preview_signature }),
     }),
   adminAgentRevokePreview: (id: string, bindingId: string) =>
     request<AdminBindingPreview>(`/api/admin/agents/${encodeURIComponent(id)}/bindings/${encodeURIComponent(bindingId)}/revoke-preview`,
