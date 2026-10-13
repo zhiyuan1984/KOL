@@ -14,6 +14,7 @@ import { cronJson, normalizeSystemTemplate } from "./contracts.js";
 import { syncKolProfileIndexPostgres } from "../postgres/kol-pool-sync.js";
 import { getConn } from "../db.js";
 import { evaluateOwnershipRelease, listOwnedCollaborations, releaseFollowOwnershipIfEligible, ownershipReceiptMeta } from "../gateway/ownership-release.js";
+import { listNativeOwnershipCandidates, releaseNativeIfUnchanged, NATIVE_OWNERSHIP_POLICY } from "../postgres/ownership-release-repository.js";
 import { runMailMemoryIncrement } from "../host/mail-memory-job.js";
 import { runAiTask } from "./ai-task.js";
 
@@ -130,26 +131,33 @@ async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerRe
 }
 
 async function ownershipRelease(ctx: CronHandlerContext): Promise<CronHandlerResult> {
-  const db = getConn();
-  const rows = listOwnedCollaborations(db);
+  if (!process.env.DATABASE_URL?.trim()) {
+    const db = getConn();
+    const rows = listOwnedCollaborations(db);
+    const released: Json[] = [];
+    const skipped: Json[] = [];
+    for (const row of rows) {
+      const lastAt = String(row.last_effective_mail_at || "").trim() || null;
+      const decision = evaluateOwnershipRelease(row, lastAt, ctx.nowMs ?? Date.now());
+      if (decision.action !== "release") { skipped.push({ follow_id: decision.follow_id, collaboration_id: decision.collaboration_id, reason: decision.reason, detail: decision.detail }); continue; }
+      const applied = releaseFollowOwnershipIfEligible({ db, followId: decision.follow_id, collaborationId: decision.collaboration_id, expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs });
+      (applied.action === "release" ? released : skipped).push(applied as unknown as Json);
+    }
+    return { status: "succeeded", receipt: { handler_key: "ownership-release", side_effect: released.length ? "write" : "none", created_session: false, source: "legacy_test_only", scanned: rows.length, released: released.length, skipped: skipped.length } };
+  }
+  const rows = await listNativeOwnershipCandidates({ now: new Date(ctx.nowMs ?? Date.now()), limit: 5000 });
   const released: Json[] = [];
   const skipped: Json[] = [];
   for (const row of rows) {
-    const lastAt = String(row.last_effective_mail_at || "").trim() || null;
-    const decision = evaluateOwnershipRelease(row, lastAt, ctx.nowMs ?? Date.now());
-    if (decision.action !== "release") {
-      skipped.push({ follow_id: decision.follow_id, collaboration_id: decision.collaboration_id, reason: decision.reason, detail: decision.detail });
-      continue;
-    }
-    const applied = releaseFollowOwnershipIfEligible({
-      db, followId: decision.follow_id, collaborationId: decision.collaboration_id,
-      expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs,
-    });
-    (applied.action === "release" ? released : skipped).push(applied as unknown as Json);
+    const expectedOwner = String(row.employee_id || row.employee_name || "").trim();
+    const expectedLastAt = String(row.last_effective_mail_at_ts || row.last_effective_mail_at || "").trim();
+    const result = await releaseNativeIfUnchanged({ followId: String(row.id), expectedOwner, expectedLastAt, actor: ctx.actor, cronRunId: String(ctx.run.id || ""), now: new Date(ctx.nowMs ?? Date.now()) });
+    (result.action === "release" ? released : skipped).push(result);
   }
   return { status: "succeeded", receipt: {
     handler_key: "ownership-release", side_effect: released.length ? "write" : "none", created_session: false,
-    source: "kol_follow_index", policy: ownershipReceiptMeta(), scanned: rows.length, released: released.length, skipped: skipped.length,
+    source: "kol_follow_index", repository: "postgresql_native", policy: NATIVE_OWNERSHIP_POLICY,
+    scanned: rows.length, released: released.length, skipped: skipped.length,
     release_ids: released.map((item) => String((item as Json).follow_id || "")),
   } };
 }

@@ -9,6 +9,12 @@ type ReleaseSnapshot = Row & {
 
 function text(value: unknown): string { return String(value ?? "").trim(); }
 function iso(value: unknown): string | null { const v = text(value); return v || null; }
+function sameInstant(left: string | null, right: string | null): boolean {
+  if (!left || !right) return left === right;
+  const a = Date.parse(left);
+  const b = Date.parse(right);
+  return Number.isFinite(a) && Number.isFinite(b) ? a === b : left === right;
+}
 
 export async function listNativeOwnershipCandidates(input: {
   companyId?: string;
@@ -56,12 +62,12 @@ export async function releaseNativeIfUnchanged(input: {
     const base = { follow_id: input.followId, collaboration_id: text(current.collaboration_id) };
     if (text(current.status) !== "active") return { ...base, action: "skip", reason: "already_released" };
     if (owner !== input.expectedOwner) return { ...base, action: "skip", reason: "reassigned", expected_owner: input.expectedOwner, observed_owner: owner };
-    if ((currentLast || "") !== (expectedLast || "")) return { ...base, action: "skip", reason: "correspondence_changed", expected_last_at: expectedLast, observed_last_at: currentLast };
+    if (!sameInstant(currentLast, expectedLast)) return { ...base, action: "skip", reason: "correspondence_changed", expected_last_at: expectedLast, observed_last_at: currentLast };
     if (!currentLast || !current.last_effective_mail_at_ts) return { ...base, action: "skip", reason: "correspondence_incomplete" };
     const changed = await client.query(
       `UPDATE kol_follow_index
-          SET status='released', released_at=$1, released_at_ts=$1::timestamptz,
-              release_reason='ownership-release', updated_at=$1, updated_at_ts=$1::timestamptz,
+          SET status='released', released_at=$1::text, released_at_ts=$1::timestamptz,
+              release_reason='ownership-release', updated_at=$1::text, updated_at_ts=$1::timestamptz,
               data_version=data_version+1
         WHERE id=$2 AND status='active'
           AND employee_id=$3 AND last_effective_mail_at_ts=$4::timestamptz`,
@@ -69,7 +75,7 @@ export async function releaseNativeIfUnchanged(input: {
     );
     if (!changed.rowCount) return { ...base, action: "skip", reason: "race_lost" };
     await client.query(
-      `UPDATE kol_profile_index SET pool_status='open', idle=1, updated_at=$1, updated_at_ts=$1::timestamptz
+      `UPDATE kol_profile_index SET pool_status='open', idle=1, updated_at=$1::text, updated_at_ts=$1::timestamptz
         WHERE company_id=$2 AND kol_uid=$3`,
       [now.toISOString(), text(current.company_id), text(current.kol_uid)],
     );
