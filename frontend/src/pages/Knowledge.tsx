@@ -5,11 +5,11 @@ import AssetTaskAction from "../components/AssetTaskAction";
 import { useBrowseRows } from "../components/useBrowseRows";
 import { readBrowseMemory, useBrowseMemory } from "../components/browseMemory";
 import { api, type KnowledgeBaseRow, type KnowledgeDomainRow, type KnowledgeRow } from "../api";
-import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
-import FilterChips from "../components/FilterChips";
+import { type ScopeOption } from "../components/ScopeTabs";
+import EmployeeBrowseFilters from "../components/EmployeeBrowseFilters";
 import CompactButton from "../components/CompactButton";
-import { KnowledgeBrowseWorkspace, KnowledgeFilterBar, StageFilterGroup, KnowledgeListRow, ListLoadFooter, KnowledgeDetailHeader, DetailActionBar } from "../components/KnowledgeBrowse";
-import { FilterAction, FilterOptionButton, FilterRow } from "../components/KnowledgeFilterControls";
+import { KnowledgeBrowseWorkspace, BrowseDetailMetadata, KnowledgeListRow, ListLoadFooter, KnowledgeDetailHeader, DetailActionBar } from "../components/KnowledgeBrowse";
+import { FilterOptionButton } from "../components/KnowledgeFilterControls";
 import { PropertyList } from "../components/InformationLayout";
 import { MAIN_STAGE_TABS } from "../kolStages";
 import { employeeKnowledgeFacets, filterEmployeeKnowledgeRows } from "../employeeKnowledgeFacets";
@@ -398,101 +398,32 @@ export default function Knowledge() {
           {loading ? <p className="knowledge-load-footer" role="status">{loaded ? "正在检索知识…" : "正在加载知识…"}</p> : null}
           <div ref={toolbarRef}>
           {loaded ? (
-            <KnowledgeFilterBar>
-              <WorkspaceSearchInput className="kbv-search"
-                  aria-label={KB_SEARCH_LABEL}
-                  data-kb-search
-                  value={query}
-                  placeholder={KB_SEARCH_PLACEHOLDER}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-
-              {hasTaxonomy ? (
-                <>
-                  <div className="kbv-filter-tools">
-                    <span className="muted" data-kbv-count-scope>计数随其他筛选条件变化 · 个人可见范围</span>
-                    <div>
-                    {countsReady && emptyTaxonomyCount > 0 ? <FilterAction
-                      className="kbv-text-action"
-                      data-kbv-empty-taxonomy
-                      aria-expanded={showEmptyTaxonomy}
-                      onClick={() => setShowEmptyTaxonomy((value) => !value)}
-                    >{showEmptyTaxonomy ? "收起空分类" : `显示空分类（${emptyTaxonomyCount}）`}</FilterAction> : null}
-                    {anyFilter ? <FilterAction className="kbv-text-action" data-kb-scope-clear onClick={resetAll}>清除筛选</FilterAction> : null}
-                    </div>
-                  </div>
-                  <ScopeTabs
-                    showCount={countsReady}
-                    familyOptions={visibleTaxonomyOptions(familyOptions, familyId)}
-                    domainOptions={visibleTaxonomyOptions(domainOptions, domainId)}
-                    baseOptions={visibleTaxonomyOptions(baseOptions, baseId)}
-                    familyId={familyId}
-                    domainId={domainId}
-                    baseId={baseId}
-                    onFamily={(id) => {
-                      setFamilyId(id);
-                      setDomainId("");
-                      setBaseId("");
-                    }}
-                    onDomain={(id) => {
-                      setDomainId(id);
-                      setBaseId("");
-                    }}
-                    onBase={setBaseId}
-                    familyTotal={facets.family.all}
-                    domainTotal={facets.domain.all}
-                    baseTotal={facets.base.all}
-                  />
-                </>
-              ) : (
-                <p className="muted" data-kb-scope-none>{taxonomyError ? <><span role="alert">知识分类暂不可用：{taxonomyError}</span> <CompactButton onClick={() => setTaxonomyReload(value => value + 1)}>重试分类</CompactButton></> : taxonomyLoaded ? KB_SCOPE_NONE : "正在读取知识分类…"}</p>
-              )}
-
-              <FilterChips
-                label={KB_FILTER_LABEL.brand}
-                filterKey="brand"
-                labelOf={brandLabel}
-                options={brandOptions}
-                selected={brandFilters}
-                onToggle={(value) => setBrandFilters((current) => (
-                  current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
-                ))}
-                onClear={() => setBrandFilters([])}
-                counts={facets.brand.values}
-                allCount={facets.brand.all}
-                countsReady={countsReady}
-              />
-              <StageFilterGroup
-                selected={stageFilters}
-                onChange={setStageFilters}
-                options={stageOptions}
-                countsReady={countsReady}
-              />
-              <FilterRow label="类型" data-kb-filter="kind" role="group" aria-label="类型">
-                <FilterOptionButton
-                  label="全部"
-                  count={facets.kind.all}
-                  countsReady={countsReady}
-                  selected={!kindFilter}
-                  data-kb-kind=""
-                  onClick={() => setKindFilter("")}
-                />
-                {kindOptions.map((kind) => <FilterOptionButton
-                  key={kind}
-                  label={kindLabel(kind)}
-                  count={facets.kind.values[kind]}
-                  countsReady={countsReady}
-                  selected={kindFilter === kind}
-                  data-kb-kind={kind}
-                  onClick={() => setKindFilter(kind)}
-                />)}
-              </FilterRow>
-              {anyFilter && !hasTaxonomy ? (
-                <div className="kbv-filters">
-                  <FilterAction className="kbv-text-action" data-kb-scope-clear onClick={resetAll}>清除筛选</FilterAction>
-                </div>
-              ) : null}
-            </KnowledgeFilterBar>
+            <EmployeeBrowseFilters
+              search={<WorkspaceSearchInput className="kbv-search" aria-label={KB_SEARCH_LABEL} data-kb-search
+                value={query} placeholder={KB_SEARCH_PLACEHOLDER} onChange={event => setQuery(event.target.value)} />}
+              scopeFallback={taxonomyError ? <><span role="alert">知识分类暂不可用：{taxonomyError}</span> <CompactButton onClick={() => setTaxonomyReload(value => value + 1)}>重试分类</CompactButton></> : taxonomyLoaded ? KB_SCOPE_NONE : "正在读取知识分类…"}
+              scope={hasTaxonomy ? {
+                showCount: countsReady,
+                familyOptions: visibleTaxonomyOptions(familyOptions, familyId),
+                domainOptions: visibleTaxonomyOptions(domainOptions, domainId),
+                baseOptions: visibleTaxonomyOptions(baseOptions, baseId),
+                familyId, domainId, baseId,
+                onFamily: id => { setFamilyId(id); setDomainId(""); setBaseId(""); },
+                onDomain: id => { setDomainId(id); setBaseId(""); }, onBase: setBaseId,
+                familyTotal: facets.family.all, domainTotal: facets.domain.all, baseTotal: facets.base.all,
+              } : null}
+              brand={{ label: KB_FILTER_LABEL.brand, filterKey: "brand", labelOf: brandLabel,
+                options: brandOptions, selected: brandFilters,
+                onToggle: value => setBrandFilters(current => current.includes(value) ? current.filter(item => item !== value) : [...current, value]),
+                onClear: () => setBrandFilters([]), counts: facets.brand.values, allCount: facets.brand.all, countsReady }}
+              stage={{ selected: stageFilters, onChange: setStageFilters, options: stageOptions, countsReady }}
+              kinds={[{ value: "", label: "全部", count: facets.kind.all },
+                ...kindOptions.map(kind => ({ value: kind, label: kindLabel(kind), count: facets.kind.values[kind] }))]}
+              kind={kindFilter} onKind={setKindFilter} kindAttribute="data-kb-kind" countsReady={countsReady}
+              emptyTaxonomyCount={emptyTaxonomyCount} showEmptyTaxonomy={showEmptyTaxonomy}
+              onToggleEmpty={() => setShowEmptyTaxonomy(value => !value)} anyFilter={anyFilter} onReset={resetAll}
+              clearAttributes={{ "data-kb-scope-clear": true }}
+            />
           ) : null}
 
           {loaded ? (
@@ -550,19 +481,10 @@ export default function Knowledge() {
                   });
                 }} />
               <div className="kbv-rail-body">
-                <section className="knowledge-detail-metadata" data-kb-provenance aria-label="来源与版本">
-                  <PropertyList
-                    className="knowledge-detail-properties"
-                    labelWidth="short"
-                    items={[
-                      { key: "status", label: "状态", value: <span className="knowledge-status">{kbStatusLabel(selectedRow)}</span> },
-                      { key: "author", label: "发布人", value: kbAuthorLabel(selectedRow.created_by) },
-                      { key: "version", label: "版本", value: kbVersionTag(selectedRow.current_version) },
-                      { key: "updated-at", label: "更新时间", value: formatKbTime(selectedRow.updated_at || selectedRow.approved_at || selectedRow.created_at), emptyText: "暂无时间" },
-                      { key: "scope", label: "适用", value: <ScopeChips row={selectedRow} /> },
-                    ]}
-                  />
-                </section>
+                <BrowseDetailMetadata status={kbStatusLabel(selectedRow)} author={kbAuthorLabel(selectedRow.created_by)}
+                  version={kbVersionTag(selectedRow.current_version)}
+                  updatedAt={formatKbTime(selectedRow.updated_at || selectedRow.approved_at || selectedRow.created_at)}
+                  scope={<ScopeChips row={selectedRow} />} />
                 {kbSummary(selectedRow) !== selectedRow.subject && kbSummary(selectedRow) !== (selectedRow.body_en || selectedRow.body) ? <p className="kb-card-summary" data-kb-summary>{kbSummary(selectedRow)}</p> : null}
                 {kbVariableLine(selectedRow) ? <p className="kb-card-vars">{kbVariableLine(selectedRow)}</p> : null}
                 {selectedRow.has_newer_version ? <details className="kb-version-compare" data-kb-version-diff>

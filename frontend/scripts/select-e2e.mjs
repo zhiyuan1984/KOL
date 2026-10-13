@@ -25,6 +25,12 @@ function specsForPath(file) {
   const rest = file.slice("frontend/src/".length);
   const dir = dirname(rest);
 
+  if (dir.startsWith("agents/") || rest === "experts.ts" || /^pages\/Agent/.test(rest)) {
+    return ["employee-agent-presentation.spec.ts", "agents-roles.spec.ts", "agent-routing.spec.ts"];
+  }
+  if (["components/KnowledgeBrowse.tsx", "components/EmployeeBrowseFilters.tsx"].includes(rest)) {
+    return ["employee-agent-presentation.spec.ts", "employee-asset-browse.spec.ts", "knowledge-browse-presentation.spec.ts"];
+  }
   // Shared employee asset surface uses HTTP-fixture presentation contracts.
   if (["pages/SkillCatalog.tsx", "pages/Knowledge.tsx", "components/KnowledgeBrowse.tsx", "components/AssetTaskAction.tsx", "components/browseMemory.ts", "components/useBrowseRows.ts", "composer/taskDraft.ts", "asset-browse.css", "knowledge-browse.css"].includes(rest)) {
     return ["employee-asset-browse.spec.ts", "knowledge-browse-presentation.spec.ts"];

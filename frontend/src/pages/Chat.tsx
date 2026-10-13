@@ -20,6 +20,7 @@ import {
   type RuntimeActionView,
 } from "../api";
 import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
+import { readSessionWorkDraft, saveSessionWorkDraft } from "../agents/browserState";
 import { RuntimeActions } from "../components/RuntimeActions";
 import { ReplyContextPanel } from "../mail/ReplyContextPanel";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
@@ -595,7 +596,8 @@ export default function Chat() {
       setFocusDraft(true); setBlockSubmit(false); return;
     }
     const fromNav = (location.state as { composerDraft?: ComposerDraft } | null)?.composerDraft;
-    const draft = takeComposerDraft(id) || (fromNav?.text ? fromNav : null);
+    const savedWorkDraft = readSessionWorkDraft(account?.id || "", id);
+    const draft = takeComposerDraft(id) || (fromNav?.text ? fromNav : null) || savedWorkDraft;
     const stashed = peekComposerDraft();
     if (!draft && !stashed) {
       setText("");
@@ -616,6 +618,7 @@ export default function Chat() {
       return;
     }
     setText(draft!.text);
+    if (savedWorkDraft && draft === savedWorkDraft) setLockedKnowledgeId(savedWorkDraft.knowledge_id || null);
     setLockedIntent(draft!.intent || null);
     setLockedLabel(draft!.title || null);
     setFocusDraft(true);
@@ -704,6 +707,7 @@ export default function Chat() {
     setFocusDraft(false);
     setSubmitErr("");
     clearComposerDraft(id);
+    saveSessionWorkDraft(account?.id || "", id, { text: "" });
     stopRequestedRef.current = false;
     setPending(true);
     setAgentStatus("running");
@@ -1423,7 +1427,14 @@ export default function Chat() {
             variant="workspace"
             submitEmphasis={pendingRuntimeActionId ? "secondary" : "primary"}
             value={text}
-            onChange={setText}
+            onChange={value => {
+              setText(value);
+              if (id) {
+                const saved = saveSessionWorkDraft(account?.id || "", id, { text: value, intent: lockedIntent || undefined,
+                  title: lockedLabel || undefined, knowledge_id: lockedKnowledgeId || undefined });
+                if (!saved) setSubmitErr("浏览器暂时无法保存输入，请在离开前复制草稿。");
+              }
+            }}
             onClearDraft={() => {
               setText("");
               setEntryIntent("free");
@@ -1437,6 +1448,7 @@ export default function Chat() {
               setSkillParamTouched(new Set());
               mailCompose.clear();
               if (id) clearComposerDraft(id);
+              if (id) saveSessionWorkDraft(account?.id || "", id, { text: "" });
             }}
             onSubmit={send}
             disabled={blockSubmit}

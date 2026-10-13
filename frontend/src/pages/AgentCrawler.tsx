@@ -153,8 +153,10 @@ function followId(candidate: CrawlCandidate | CreatorCandidate): string {
 
 export default function AgentCrawler({
   expert,
+  embedded = false,
 }: {
   expert: Expert;
+  embedded?: boolean;
 }) {
   const [platform, setPlatform] = useState<Extract<CrawlPlatform, "youtube" | "instagram">>("youtube");
   const [mode, setMode] = useState<CrawlMode>("search");
@@ -260,8 +262,8 @@ export default function AgentCrawler({
   };
 
   return (
-    <div className="list-page agent-page expert-page crawler-page" data-expert-page="crawler" data-expert-kind="collector">
-      <div className="expert-hero">
+    <div className={embedded ? "agent-console crawler-page" : "list-page agent-page expert-page crawler-page"} data-expert-page="crawler" data-expert-kind="collector">
+      {!embedded && <div className="expert-hero">
         <Link className="expert-back" to="/agents">← 数字员工</Link>
         <div className="expert-hero-row">
           <div className="expert-hero-copy">
@@ -270,7 +272,7 @@ export default function AgentCrawler({
           </div>
         </div>
         <p className="muted">{expertMissionCopy(expert)}</p>
-      </div>
+      </div>}
 
       {err ? (
         <div className="error" role="alert">

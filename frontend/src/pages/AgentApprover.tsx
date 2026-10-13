@@ -5,13 +5,15 @@ import Approvals, { approvalSubject, type ApprovalRow } from "./Approvals";
 export default function AgentApprover({
   expert,
   onExplainRisk,
+  embedded = false,
 }: {
   expert: Expert;
   onExplainRisk: (row: ApprovalRow) => void;
+  embedded?: boolean;
 }) {
   return (
-    <div className="list-page agent-page expert-page approver-page" data-expert-page="approver" data-expert-kind="governance">
-      <div className="expert-hero">
+    <div className={embedded ? "agent-console approver-page" : "list-page agent-page expert-page approver-page"} data-expert-page="approver" data-expert-kind="governance">
+      {!embedded && <div className="expert-hero">
         <Link className="expert-back" to="/agents">← 数字员工</Link>
         <div className="expert-hero-row">
           <div className="expert-hero-copy">
@@ -20,7 +22,7 @@ export default function AgentApprover({
           </div>
         </div>
         <p className="muted">{expertMissionCopy(expert)}</p>
-      </div>
+      </div>}
       <Approvals
         embedded
         onExplainRisk={(row) => onExplainRisk(row)}

@@ -245,6 +245,8 @@ export type ExpertManifestView = {
   count?: number;
 };
 
+export type { EmployeeAgentPreference, EmployeeAgentWorkspace, EmployeeAgentBrowse, EmployeeAgentBrowseRow, EmployeeAgentScope } from "../../shared/employee-agent.js";
+
 export type ExpertSummonResult = {
   session_id: string;
   expert_id: string;
@@ -2391,7 +2393,14 @@ export const api = {
     ),
   agentManifest: () => request<AgentManifestView>("/api/agent-manifest"),
   experts: () => request<ExpertManifestView[] | { experts?: ExpertManifestView[] }>("/api/experts"),
+  expertBrowse: () => request<import("../../shared/employee-agent.js").EmployeeAgentBrowse>("/api/experts/browse"),
   expert: (id: string) => request<ExpertManifestView>(`/api/experts/${encodeURIComponent(id)}`),
+  expertPreferences: () => request<import("../../shared/employee-agent.js").EmployeeAgentPreference[]>("/api/experts/preferences"),
+  expertWorkspace: (id: string, sessionId?: string) => request<import("../../shared/employee-agent.js").EmployeeAgentWorkspace>(`/api/experts/${encodeURIComponent(id)}/workspace${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`),
+  updateExpertPreference: (id: string, body: { favorite?: boolean; viewed?: true }) =>
+    request<import("../../shared/employee-agent.js").EmployeeAgentPreference>(`/api/experts/${encodeURIComponent(id)}/preference`, { method: "PATCH", body: JSON.stringify(body) }),
+  resumeExpertSession: (id: string, sessionId: string) =>
+    request<ExpertSummonResult>(`/api/experts/${encodeURIComponent(id)}/resume`, { method: "POST", body: JSON.stringify({ session_id: sessionId }) }),
   summonExpert: (id: string) =>
     request<ExpertSummonResult>(`/api/experts/${encodeURIComponent(id)}/summon`, {
       method: "POST",

@@ -32,6 +32,7 @@ export type Expert = {
   can_summon?: boolean;
   open_count?: number;
   source: ExpertSource;
+  status?: string;
 };
 
 const KOL_MISSION_COPY = "作为 KOL推广岗位身份，帮你看清阶段、准备沟通、给出跟进建议。不发信、不改正式阶段。";
@@ -60,24 +61,26 @@ export function expertMissionCopy(expert: Pick<Expert, "id" | "mission">): strin
 
 export function expertCanHelpCopy(expert: Expert): string[] {
   const id = canonicalExpertId(expert.id);
+  const declared = expert.can_finish.filter(line => line && line !== expert.mission && line !== expert.working_style && !isSafetyCopy(line));
+  if (declared.length) return declared;
   if (id === KOL_EXPERT_ID) return KOL_CAN_HELP;
   if (id === CRAWLER_EXPERT_ID) {
     const lines = expert.can_finish.filter((line) => line && !isSafetyCopy(line));
-    return lines.length ? lines.slice(0, 3) : CRAWLER_CAN_HELP;
+    return lines.length ? lines : CRAWLER_CAN_HELP;
   }
   if (id === APPROVER_EXPERT_ID) {
     const lines = expert.can_finish.filter((line) => line && !isSafetyCopy(line));
-    return lines.length ? lines.slice(0, 3) : APPROVER_CAN_HELP;
+    return lines.length ? lines : APPROVER_CAN_HELP;
   }
   const lines = expert.can_finish.filter((line) => line && line !== expert.mission && line !== expert.working_style && !isSafetyCopy(line));
-  return lines.slice(0, 3);
+  return lines;
 }
 
 export function expertPromptExamples(expert: Expert): string[] {
   const prompts = expert.quick_prompts.length
     ? expert.quick_prompts
     : expert.recommended_tasks.map((task) => task.prompt || task.title);
-  return prompts.filter(Boolean).slice(0, 3);
+  return [...new Set(prompts.filter(Boolean))];
 }
 
 export type BoundExpertSession = {
@@ -253,7 +256,7 @@ function asStringList(value: unknown): string[] {
 }
 
 function tasksFromPrompts(prompts: string[]): ExpertTask[] {
-  return prompts.slice(0, 3).map((prompt, index) => ({
+  return prompts.map((prompt, index) => ({
     id: `prompt-${index + 1}`,
     title: prompt,
     prompt,
@@ -310,6 +313,7 @@ function normalizeExpert(row: ExpertRow | null | undefined, source: ExpertSource
   return {
     id,
     name,
+    status: String(row.status || ""),
     expert_version: String(row.version || row.expert_version || fallback?.version || ""),
     profession: String(row.profession || row.category || fallback?.profession || "").trim(),
     who: String(row.who || row.profession || fallback?.profession || name),
@@ -319,7 +323,7 @@ function normalizeExpert(row: ExpertRow | null | undefined, source: ExpertSource
     how_to_start: String(row.how_to_start || prompts[0] || fallback?.quick_prompts?.[0] || "").trim(),
     working_style: String(row.working_style || description || fallback?.description || ""),
     quick_prompts: prompts.length ? prompts : asStringList(fallback?.quick_prompts),
-    recommended_tasks: (mappedTasks.length ? mappedTasks : tasksFromPrompts(prompts.length ? prompts : asStringList(fallback?.quick_prompts))).slice(0, 3),
+    recommended_tasks: mappedTasks.length ? mappedTasks : tasksFromPrompts(prompts.length ? prompts : asStringList(fallback?.quick_prompts)),
     intro: String(row.intro || ""),
     recommended: row.recommended !== false,
     kind,
@@ -479,18 +483,12 @@ export async function summonExpert(expert: Expert): Promise<ExpertSummonResult> 
   }
   try {
     const summoned = readSummon(await api.summonExpert(expert.id), expert);
-    if (summoned) return summoned;
+    if (!summoned) throw new Error("Agent 未返回有效会话，请重试。");
+    return summoned;
   } catch (error) {
     if (isConflict(error)) throw parseSummonRefusal(error);
-    if (!isNotFound(error)) throw error;
+    throw error;
   }
-  const session = await api.createSession(expert.name);
-  return {
-    session_id: session.id,
-    expert_id: expert.id,
-    expert_version: expert.expert_version,
-    intro: expert.intro,
-  };
 }
 
 function readJsonList(key: string): string[] {

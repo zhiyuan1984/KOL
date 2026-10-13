@@ -3,6 +3,7 @@ import type { KnowledgeRow } from "../api";
 import { MAIN_STAGE_TABS } from "../kolStages";
 import { formatKbTime, kbAuthorLabel, kbStatusLabel, kbVersionTag } from "../knowledgeCopy";
 import CompactButton from "./CompactButton";
+import { PropertyList } from "./InformationLayout";
 import { Popover, Tooltip } from "antd";
 import { FilterAction, FilterOptionButton } from "./KnowledgeFilterControls";
 
@@ -104,17 +105,17 @@ export function ListLoadFooter({ remaining, onMore, loading = false, error = "",
   </footer>;
 }
 
-export function BrowseDetailHeader({ title, titleId, favorite, favoriteDisabled, onFavorite, onBack, expanded, onExpand, recordAttributes }: {
+export function BrowseDetailHeader({ title, titleId, favorite, favoriteDisabled = false, onFavorite, onBack, expanded, onExpand, recordAttributes, favoriteAttributes }: {
   title: string; titleId: string; favorite: boolean; favoriteDisabled?: boolean;
   onFavorite: () => void; onBack: () => void; expanded?: boolean; onExpand?: () => void;
-  recordAttributes?: Record<string, string>;
+  recordAttributes?: Record<string, string>; favoriteAttributes?: Record<string, string>;
 }) {
   return <header className="kbv-rail-head knowledge-detail-header">
     <CompactButton className="knowledge-back" onClick={onBack}>← 返回列表</CompactButton>
     <div className="kbv-title-row">
       <h2 id={titleId} tabIndex={-1}>{title}</h2>
       {onExpand ? <CompactButton className="asset-detail-expand" aria-expanded={expanded} onClick={onExpand}>{expanded ? "收窄" : "展开阅读"}</CompactButton> : null}
-      <CompactButton className="knowledge-favorite-icon" {...recordAttributes} disabled={favoriteDisabled}
+      <CompactButton className="knowledge-favorite-icon" {...recordAttributes} {...favoriteAttributes} disabled={favoriteDisabled}
         title={favorite ? "取消收藏" : "收藏"} aria-label={favorite ? "取消收藏" : "收藏"}
         aria-pressed={favorite} onClick={onFavorite}><span aria-hidden="true">{favorite ? "★" : "☆"}</span></CompactButton>
     </div>
@@ -140,9 +141,24 @@ export function InlineMetadata({ row, scope }: { row: KnowledgeRow; scope: React
   </section>;
 }
 
-export function DetailActionBar({ children }: { children: ReactNode }) {
+/** Same reading hierarchy for employee assets: provenance first, content after the divider. */
+export function BrowseDetailMetadata({ status, author, version, updatedAt, scope }: {
+  status: string; author?: string | null; version: string; updatedAt?: string | null; scope: ReactNode;
+}) {
+  return <section className="knowledge-detail-metadata" data-kb-provenance aria-label="来源与版本">
+    <PropertyList className="knowledge-detail-properties" labelWidth="short" items={[
+      { key: "status", label: "状态", value: <span className="knowledge-status">{status || "未登记"}</span> },
+      { key: "author", label: "发布人", value: author },
+      { key: "version", label: "版本", value: version },
+      { key: "updated-at", label: "更新时间", value: updatedAt, emptyText: "暂无时间" },
+      { key: "scope", label: "适用", value: scope },
+    ]} />
+  </section>;
+}
+
+export function DetailActionBar({ children, hint = "带入工作草稿只会预填内容；正式发送前仍需要你确认。" }: { children: ReactNode; hint?: ReactNode }) {
   return <footer className="kbv-rail-foot knowledge-detail-actions">
-    <small className="muted">带入任务后可继续编辑，提交后开始执行。</small>
+    {hint ? <small className="muted">{hint}</small> : null}
     <div className="kbv-actions">{children}</div>
   </footer>;
 }
