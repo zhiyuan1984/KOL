@@ -46,3 +46,9 @@ export function createTaskSearchDebouncer<T>(callback: (value: T) => void, delay
     },
   };
 }
+
+/** The server supplies command eligibility; absence never grants cancellation. */
+export function canCancelTask(task: { status?: string; display_status?: string; cancelable?: boolean; allowed_actions?: unknown }): boolean {
+  const allowed = Array.isArray(task.allowed_actions) ? task.allowed_actions.includes("cancel") : task.cancelable === true;
+  return allowed && task.cancelable !== false;
+}

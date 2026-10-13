@@ -90,7 +90,7 @@ function normalizedTicketRow(row: TicketRow): TicketRow {
   };
 }
 
-function allowedActions(row: TicketRow, userId: string): string[] {
+export function nativeTicketAllowedActions(row: Pick<NativeTicketListItem, "owner_user_id" | "assignee_user_id" | "status">, userId: string): string[] {
   const creator = row.owner_user_id === userId;
   const primary = row.assignee_user_id === userId;
   const result: string[] = [];
@@ -185,7 +185,7 @@ export async function listNativeTickets(userId: string, query: Record<string, st
       profile: "ticket-workbench",
       missing_fields: [],
       source_refs: [{ type: "postgresql_ticket", id: row.id, org_version: row.org_version }],
-      allowed_actions: allowedActions(row, userId),
+      allowed_actions: nativeTicketAllowedActions(row, userId),
     })),
     page: { limit, next_cursor: hasMore && page.length ? encodeCursor(page.at(-1)!) : null },
     source_refs: [{ type: "postgresql_ticket_center", view }],
@@ -258,7 +258,7 @@ export async function nativeTicketById(userId: string, ticketId: string) {
     profile: "ticket-workbench",
     missing_fields: [],
     source_refs: [{ type: "postgresql_ticket", id: row.id, org_version: row.org_version }],
-    allowed_actions: allowedActions(row, userId),
+    allowed_actions: nativeTicketAllowedActions(row, userId),
     assignments: assignments.rows,
     watchers: watchers.rows,
     basis_refs: basisRefs.rows.map((item) => ({ ...item, summary: jsonValue(item.summary_json) })),
