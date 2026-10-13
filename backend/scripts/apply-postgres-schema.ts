@@ -50,6 +50,7 @@ type SchemaMigration = {
 };
 
 const migrations: SchemaMigration[] = [
+  { id: "20261014_native_business_repositories", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "040_041_native_business_repositories.sql"), "utf8") ] },
   { id: "20261013_employee_skill_preferences", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "037_employee_skill_preferences.sql"), "utf8")] },
   { id: "20261013_employee_agent_preferences", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "038_employee_agent_preferences.sql"), "utf8")] },
   { id: "20261009_kol_authority_sync_health", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "033_kol_authority_sync_health.sql"), "utf8")] },
