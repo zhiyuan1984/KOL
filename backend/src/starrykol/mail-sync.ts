@@ -549,9 +549,7 @@ async function rememberItem(
   const observed = await observeReplyMail({ thread_id: threadId, collaboration_id: collaborationId,
     conversation_id: conversationId, mailbox: mailboxEmail, provider_message_id: providerId,
     direction, subject, title, body, from: from.email, from_name: from.name, to: to.email,
-    occurred_at: firstString(message.sentAt,message.sent_at,message.sentTime,message.sendTime,message.send_time,
-      message.receivedAt,message.received_at,message.receiveTime,message.receive_time,message.occurred_at,
-      message.createdAt,message.created_at,message.time,message.ts),
+    occurred_at: messageOccurredAt(message),
     source_updated_at: firstString(message.updatedAt, message.updated_at),
     attachments: Array.isArray(message.attachments) ? message.attachments as Json[] : [],
     unread: inbound, summary: letter.summary, summary_zh: letter.summary_zh, summary_source: letter.summary_source });

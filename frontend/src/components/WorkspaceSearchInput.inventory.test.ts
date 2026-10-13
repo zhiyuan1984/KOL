@@ -18,7 +18,7 @@ const inventory: Array<[string, string]> = [
   ["composer/PlusMenu.tsx", "data-composer-menu-search"],
   ["home/FollowedPane.tsx", "data-followed-object-search"],
   ["pages/Admin.tsx", 'placeholder="搜索主键或名称"'],
-  ["pages/AdminAgents.tsx", 'aria-label="搜索 Agent"'],
+  ["pages/AdminAgents.tsx", 'aria-label="搜索技能"'],
   ["pages/AdminExams.tsx", 'placeholder="搜索已发布知识…"'],
   ["pages/AdminWorkOrders.tsx", 'placeholder="名称或编码"'],
   ["pages/AdminWorkReport.tsx", 'aria-label="搜索成员"'],

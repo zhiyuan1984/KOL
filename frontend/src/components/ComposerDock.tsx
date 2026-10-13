@@ -1555,7 +1555,6 @@ export default function ComposerDock({
                 aria-label={submitLabel}
                 title={submitLabel}
               >
-                {submitLabel !== "发送" && <span className="composer-submit-label">保存</span>}
                 <SendArrowIcon ready={sendState === "ready"} />
               </button>
             )}

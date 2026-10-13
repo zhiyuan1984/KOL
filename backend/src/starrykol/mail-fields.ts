@@ -94,7 +94,11 @@ export function occurredAtMs(...values: unknown[]): number {
       if (Number.isFinite(ms) && ms > 0) return ms;
       continue;
     }
-    const parsed = Date.parse(raw);
+    // The Starry email-agent returns naive "YYYY-MM-DD HH:mm:ss" wall time in
+    // the +08:00 operator zone (the same convention mail-sync's timestampMs
+    // already pins); fix the offset so parsing never depends on process TZ.
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw) ? `${raw.replace(" ", "T")}+08:00` : raw;
+    const parsed = Date.parse(normalized);
     if (!Number.isNaN(parsed)) return parsed;
   }
   return 0;
@@ -134,6 +138,8 @@ export function sortByMailTime<T extends Json>(rows: T[]): T[] {
 export function messageOccurredAt(row: Json): string {
   return asIsoTime(firstString(
     row.sentAt,
+    // The Starry email-agent sends this wall-clock field and nothing else.
+    row.messageTime,
     row.receivedAt,
     row.sendTime,
     row.receiveTime,

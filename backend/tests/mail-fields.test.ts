@@ -68,6 +68,23 @@ describe("starry mail field helpers", () => {
     expect(messageOccurredAt({ sent_at: "2026-09-06T09:00:00.000Z" })).toBe("2026-09-06T09:00:00.000Z");
   });
 
+  it("reads the Starry email-agent messageTime field and pins naive wall time to +08:00", () => {
+    // Production email_conversation_read rows carry this naive wall clock and
+    // no other time field; a missing read quarantines every message as
+    // source_occurrence_time_missing, so the raw body never reaches local memory.
+    expect(messageOccurredAt({ messageTime: "2026-07-26 18:34:34" })).toBe("2026-07-26T10:34:34.000Z");
+    expect(messageOccurredAt({ messageTime: "2026-07-26T18:34:34+08:00" })).toBe("2026-07-26T10:34:34.000Z");
+    expect(occurredAtMs("2026-07-26 18:34:34")).toBe(Date.parse("2026-07-26T18:34:34+08:00"));
+    expect(messageOccurredAt({
+      id: 6,
+      direction: "INBOUND",
+      fromEmail: "1007057521@qq.com",
+      triggeredByName: "测试网红-qq-01",
+      subject: "合作请求",
+      messageTime: "2026-07-26 18:34:34",
+    })).toBe("2026-07-26T10:34:34.000Z");
+  });
+
   it("skips LT placeholder boxes when a real Starry mailbox exists", () => {
     expect(isPlaceholderMailbox("kol.lt@litime.example")).toBe(true);
     expect(isPlaceholderMailbox("ops@example.com")).toBe(true);

@@ -10090,8 +10090,6 @@ body {
 .cron-schedule { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2); }
 .cron-editor h3 { margin: 0; font-size: var(--ds-font-ui); }
 .link-button { padding: 0; border: 0; background: none; color: var(--accent-text); text-decoration: underline; cursor: pointer; font: inherit; }
-.cron-editor .composer .send:has(.composer-submit-label) { width: auto; padding-inline: var(--space-2); gap: var(--space-1); }
-.composer-submit-label { font-size: var(--ds-font-sm); }
 .cron-row :is(button, a, input, select):focus-visible,
 .cron-toolbar :is(button, a, input, select):focus-visible,
 .cron-editor :is(button, a, input, select):focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
