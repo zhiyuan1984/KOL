@@ -6,6 +6,7 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["src/test/knowledge-browser-env.ts"],
     include: [
+      "src/agents/*.test.ts",
       "src/admin/knowledge/*.test.ts",
       "src/admin/knowledge/*.test.tsx",
       "src/components/LifecycleNavigation*.test.tsx",

@@ -17,6 +17,9 @@ import * as documents from "../src/host/knowledge-documents.js";
 import { clearTaskRegistryCache } from "../src/tasks/registry.js";
 import { freshTestDatabase } from "./support/pg.js";
 import * as runner from "../src/worker/runner.js";
+import { employeeAgentPreferences, employeeAgentWorkspace, updateEmployeeAgentPreference, resumeEmployeeAgentSession } from "../src/agents/employee-workspace.js";
+import { postgresQuery } from "../src/postgres/pool.js";
+import { employeeAgentBrowse } from "../src/agents/employee-browse.js";
 
 let tmp: string;
 let agentId: string;
@@ -29,6 +32,8 @@ const asUser = <T>(action: () => T): T => withScopedUser(user, action);
 
 beforeEach(async () => {
   await freshTestDatabase();
+  // Apply this feature's exact production migration to the isolated fixture DB.
+  await postgresQuery(fs.readFileSync(new URL("../migrations/038_employee_agent_preferences.sql", import.meta.url), "utf8"));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-agent-route-"));
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
@@ -64,6 +69,85 @@ afterEach(() => {
 });
 
 describe("employee Agent routing", () => {
+  it("projects classification from visible published knowledge bound to a qualified skill, and removes revoked scope", async () => {
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
+    try {
+      const now = new Date().toISOString();
+      await postgresQuery("INSERT INTO knowledge_bindings(id,skill_id,selector,enabled,created_at,updated_at) VALUES($1,$2,$3,1,$4,$4)",
+        ["browse-fixture", skillId, JSON.stringify({ ids: ["kb_mail_followup", "kb_mail_nudge", "kb_quote"] }), now]);
+      // Restrict an otherwise generic reference; the browse projection must respect the knowledge visibility kernel.
+      await postgresQuery("INSERT INTO knowledge_grants(id,knowledge_id,scope,scope_id,granted_by,granted_at) VALUES($1,$2,$3,$4,$5,$6)",
+        ["browse-hidden", "kb_quote", "user", "other-handle", user.id, now]);
+      const brandedUser = { ...user, brands: ["LT"] };
+      const browse = await withScopedUser(brandedUser, () => employeeAgentBrowse());
+      const own = browse.rows.find(row => row.expert_id === agentId)!;
+      expect(own.scopes).toEqual([expect.objectContaining({ brand: "LT", stage_codes: ["INITIAL_CONTACT", "INTERESTED"] })]);
+      expect(own.scopes[0].base_id).toBeTruthy();
+      expect(own.scopes[0].domain_id).toBeTruthy();
+      expect(own.scopes[0].family_id).toBeTruthy();
+      expect(browse.taxonomy.bases.some(base => base.id === own.scopes[0].base_id)).toBe(true);
+      expect(own.updated_at).toBeTruthy();
+      expect(own.published_by).toBeNull(); // No fabricated publisher for a legacy release without provenance.
+      await postgresQuery("UPDATE knowledge_bindings SET enabled=0 WHERE id=$1", ["browse-fixture"]);
+      expect((await withScopedUser(brandedUser, () => employeeAgentBrowse())).rows.find(row => row.expert_id === agentId)?.scopes).toEqual([]);
+      asUser(() => revokeAgentBinding(bindingId));
+      expect((await withScopedUser(brandedUser, () => employeeAgentBrowse())).rows.some(row => row.expert_id === agentId)).toBe(false);
+    } finally {
+      if (previousAuthMode === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = previousAuthMode;
+    }
+  });
+
+  it("persists favorites and recent views for the current account, independently", async () => {
+    await asUser(() => updateEmployeeAgentPreference(agentId, { favorite: true }));
+    const viewed = await asUser(() => updateEmployeeAgentPreference(agentId, { viewed: true }));
+    expect(viewed).toMatchObject({ expert_id: agentId, favorite: true });
+    expect(viewed.viewed_at).toBeTruthy();
+    expect(await asUser(() => employeeAgentPreferences())).toEqual([viewed]);
+    const unpinned = await asUser(() => updateEmployeeAgentPreference(agentId, { favorite: false }));
+    expect(unpinned).toMatchObject({ favorite: false, viewed_at: viewed.viewed_at });
+    const other = { ...user, id: "usr_other", username: "other" };
+    const now = new Date().toISOString();
+    await postgresQuery("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+      [other.id, other.username, "另一位产品员工", "fixture", '["employee"]', "[]", other.site, 1, now, now]);
+    const otherPerson = syncUserOrganization(other.id, other.site);
+    createAgentBinding({ agent_id: agentId, target_type: "person", target_id: otherPerson, company_id: "company:amperetime", source: "test" });
+    expect(withScopedUser(other, () => employeeExperts())).toContainEqual(expect.objectContaining({ id: agentId }));
+    expect(await withScopedUser(other, () => employeeAgentPreferences())).toEqual([]);
+    await expect(asUser(() => updateEmployeeAgentPreference(agentId, { favorite: "true" }))).rejects.toThrow();
+    await expect(asUser(() => updateEmployeeAgentPreference(agentId, { viewed: false }))).rejects.toThrow();
+  });
+
+  it("rechecks publication and qualification for preferences, details and continuation", async () => {
+    await asUser(() => updateEmployeeAgentPreference(agentId, { favorite: true }));
+    const session = asUser(() => summonEmployeeAgent(agentId));
+    asUser(() => revokeAgentBinding(bindingId));
+    expect(await asUser(() => employeeAgentPreferences())).toEqual([]);
+    await expect(asUser(() => employeeAgentWorkspace(agentId))).rejects.toThrow();
+    await expect(asUser(() => updateEmployeeAgentPreference(agentId, { viewed: true }))).rejects.toThrow();
+    await expect(asUser(() => resumeEmployeeAgentSession(agentId, String(session.session_id)))).rejects.toThrow();
+  });
+
+  it("projects published skills and resumes only an active owned session of this Agent", async () => {
+    const session = asUser(() => summonEmployeeAgent(agentId));
+    const countBefore = await postgresQuery<{ count: string }>("SELECT COUNT(*) AS count FROM sessions");
+    const workspace = await asUser(() => employeeAgentWorkspace(agentId));
+    expect(workspace.skills).toEqual([expect.objectContaining({ id: skillId, name: "产品咨询" })]);
+    expect(workspace.knowledge).toEqual([{ skill_id: skillId, skill_name: "产品咨询", bases: [] }]);
+    expect(workspace.recent_session?.id).toBe(session.session_id);
+    expect(await asUser(() => resumeEmployeeAgentSession(agentId, String(session.session_id))))
+      .toMatchObject({ session_id: session.session_id, expert_id: agentId });
+    expect(await postgresQuery("SELECT COUNT(*) AS count FROM sessions")).toEqual(countBefore);
+    await postgresQuery("UPDATE sessions SET owner_user_id=$1 WHERE id=$2", ["usr_other", session.session_id]);
+    expect((await asUser(() => employeeAgentWorkspace(agentId))).recent_session).toBeNull();
+    await expect(asUser(() => resumeEmployeeAgentSession(agentId, String(session.session_id)))).rejects.toThrow();
+    await postgresQuery("UPDATE sessions SET owner_user_id=$1,expert_id=$2 WHERE id=$3", [user.id, "agent:other", session.session_id]);
+    await expect(asUser(() => resumeEmployeeAgentSession(agentId, String(session.session_id)))).rejects.toThrow();
+    await postgresQuery("UPDATE sessions SET expert_id=$1,archived_at=$2 WHERE id=$3", [agentId, new Date().toISOString(), session.session_id]);
+    await expect(asUser(() => resumeEmployeeAgentSession(agentId, String(session.session_id)))).rejects.toThrow();
+    expect((await asUser(() => employeeAgentWorkspace(agentId))).recent_session).toBeNull();
+  });
+
   it("does not invent missing inputs for a valid product question when the model asks for fields", async () => {
     setTaskClassifier(async () => ({ task_type: skillId, agent_id: agentId,
       confidence: 0.84, clarification_kind: "missing_fields", missing_fields: ["product_model"] }));
@@ -203,8 +287,12 @@ describe("employee Agent routing", () => {
     });
   });
 
-  it("invokes the document tool with the chosen Agent identity and rejects a revoked running authorization", async () => {
+  it("does not query unpublished document resources, and rejects a revoked running authorization", async () => {
     const now = new Date().toISOString();
+    getConn().prepare("INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
+      .run("kfamily_test", "family_fixture", "产品业务族", "family", null, "active", now, now);
+    getConn().prepare("INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
+      .run("kdom_test", "domain_fixture", "产品资料", "domain", "kfamily_test", "active", now, now);
     getConn().prepare("INSERT INTO knowledge_bases (id,code,name,domain_id,kind,description,owner_user_id,status,settings,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
       .run("kb_product", "kb_product", "产品知识库", "kdom_test", "unstructured", "", user.id, "active", "{}", 1, now, now);
     getConn().prepare("INSERT INTO knowledge_bindings (id,skill_id,selector,enabled,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?)")
@@ -214,9 +302,8 @@ describe("employee Agent routing", () => {
     try {
       const catalog = await execution.discover();
       const tool = catalog.tools.find(tool => tool.remoteName === "knowledge.ask_documents")!;
-      const result = await execution.invoke(String(tool.exposed.name), { query: "产品参数" });
-      expect(query).toHaveBeenCalledWith({ query: "产品参数", base_id: "kb_product" }, user.id, expect.any(Function));
-      expect(JSON.stringify(result)).toContain(`agent_id=${agentId}`);
+      await expect(execution.invoke(String(tool.exposed.name), { query: "产品参数" })).rejects.toThrow();
+      expect(query).not.toHaveBeenCalled();
       query.mockClear();
       revokeAgentBinding(bindingId);
       await expect(execution.invoke(String(tool.exposed.name), { query: "再次查询" })).rejects.toThrow();

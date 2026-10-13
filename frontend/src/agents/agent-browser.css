@@ -1,0 +1,28 @@
+/* Employee Agent uses DESIGN §28's actual knowledge components and dimensions. */
+.agent-browser .agent-profile { min-width: 0; }
+.agent-profile :is(section, details) { min-width: 0; }
+.agent-browser .agent-profile .agent-profile-section { margin-top: var(--space-3); }
+.agent-profile :is(h3, p, ul) { margin: 0; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); overflow-wrap: anywhere; }
+.agent-browser .agent-profile h3 { font-weight: 600; margin-bottom: var(--space-1); }
+.agent-profile ul { padding-left: var(--space-4); }
+.agent-profile li + li { margin-top: var(--space-1); }
+.agent-profile .kb-preview-subject { margin: var(--space-2) 0; }
+.agent-work-links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.agent-work-links a { color: var(--accent-text); }
+.agent-examples { display: grid; justify-items: start; margin-bottom: var(--space-2); }
+.agent-browser .agent-examples .compact-button { white-space: normal; height: auto; min-height: var(--control-h-sm); text-align: left; padding-inline: 0; }
+.agent-profile details > :not(summary) { margin-top: var(--space-2); }
+.agent-profile summary { cursor: pointer; color: var(--accent-text); font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); }
+.agent-draft-label { display: block; color: var(--text-quiet); margin-bottom: var(--space-1); }
+.agent-browser textarea[data-agent-draft] { box-sizing: border-box; width: 100%; min-width: 0; font: inherit; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); padding: var(--space-2); min-height: calc(var(--ds-line-sm) * 3 + var(--space-4)); resize: vertical; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-control); }
+.agent-knowledge-range { margin-top: var(--space-2); }
+.agent-profile .muted { font-size: var(--ds-font-xs); }
+.agent-browser-message { padding: var(--space-2) var(--space-3); overflow-wrap: anywhere; }
+.agent-browser .knowledge-detail-actions .error { width: 100%; margin: 0; overflow-wrap: anywhere; }
+.agent-browser .agent-console { display: grid; gap: var(--space-3); min-width: 0; font-size: var(--ds-font-sm); }
+.agent-console :is(.panel, .crawler-job-card) { padding: var(--space-2) 0; background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+.agent-console :is(h1, h2, h3, p) { font-size: var(--ds-font-sm); margin-block: var(--space-1); line-height: var(--ds-line-sm); overflow-wrap: anywhere; }
+.agent-console .btn { font-size: var(--ds-font-sm); min-height: var(--control-h-sm); height: var(--control-h-sm); padding: 0 var(--space-2); }
+.agent-console .crawler-candidate .btn.work { border: 0; background: transparent; color: var(--accent-text); }
+.agent-console :is(input, select, textarea) { max-width: 100%; font-size: var(--ds-font-sm); min-height: var(--control-h-form); }
+.agent-console .approval-queue { min-width: 0; }

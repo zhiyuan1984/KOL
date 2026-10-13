@@ -11,7 +11,7 @@ test("roster keeps one sidebar entry and three role cards", async ({ page }) => 
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
   await expect(page.locator("[data-expert-card='expert:crawler']")).toBeVisible();
   await expect(page.locator("[data-expert-card='expert:approver']")).toBeVisible();
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="approvals"]')).toBeVisible();
   await expect(page.locator('[data-nav="law"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("数字宪法");
@@ -32,6 +32,7 @@ test("kol primary CTA summons a bound session", async ({ page }) => {
     }
   });
   await page.goto("/agents");
+  await page.locator("[data-expert-open='expert:kol']").click();
   const summonWait = page.waitForResponse((response) => (
     response.request().method() === "POST"
     && response.url().includes("/api/experts/")
@@ -55,8 +56,9 @@ test("crawler and approver primary CTAs do not summon", async ({ page }) => {
   });
 
   await page.goto("/agents");
+  await page.locator("[data-expert-open='expert:crawler']").click();
   await page.locator("[data-expert-primary='expert:crawler']").click();
-  await expect(page).toHaveURL(/\/agents\/crawler/);
+  await expect(page).toHaveURL(/\/agents\/crawler(?:\?|$)/);
   await expect(page.locator("[data-expert-page='crawler']")).toBeVisible();
   await expect(page.locator("[data-crawl-console]")).toBeVisible();
   await expect(page.locator("[data-crawler-analyze-disabled]")).toContainText("分析走作业台，不建思考会话");
@@ -68,6 +70,7 @@ test("crawler and approver primary CTAs do not summon", async ({ page }) => {
   expect(sessions).toEqual([]);
 
   await page.goto("/agents");
+  await page.locator("[data-expert-open='expert:approver']").click();
   await page.locator("[data-expert-primary='expert:approver']").click();
   await expect(page).toHaveURL(/\/agents\/approver/);
   await expect(page.locator("[data-expert-page='approver']")).toBeVisible();

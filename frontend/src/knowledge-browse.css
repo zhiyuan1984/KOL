@@ -57,14 +57,15 @@
 .knowledge-browse .kb-scope { display: inline-flex; gap: var(--space-1); flex-wrap: wrap; overflow: visible; }
 .knowledge-browse :is(.kb-scope-chip, .knowledge-status, .chip) { display: inline-flex; align-items: center; box-sizing: border-box; min-height: var(--badge-h); padding: 0 var(--space-1); font-size: var(--ds-font-xs); line-height: var(--lh-control-sm); border-radius: var(--radius-control); overflow-wrap: anywhere; }
 .knowledge-load-footer { display: flex; align-items: center; justify-content: center; gap: var(--space-1); padding: var(--space-2); font-size: var(--ds-font-xs); }
-.knowledge-browse .knowledge-detail-header { padding: var(--space-3); }
+.knowledge-browse .knowledge-detail-header { padding: var(--space-3) var(--space-5); }
 .knowledge-browse .kbv-title-row { align-items: center; gap: var(--space-2); }
 .knowledge-browse .kbv-title-row h2 { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; line-height: var(--ds-line-sm); overflow-wrap: anywhere; }
 .knowledge-browse .knowledge-favorite-icon { width: var(--control-h-sm); padding: 0; flex-shrink: 0; }
 .knowledge-browse .knowledge-back { display: none; }
-.knowledge-browse .kbv-rail-body { flex: 1; overflow: auto; min-height: 0; padding: 0 var(--space-3) var(--space-3); font-size: var(--ds-font-sm); }
+.knowledge-browse .kbv-rail-body { flex: 1; overflow: auto; min-height: 0; padding: 0 var(--space-5) var(--space-3); font-size: var(--ds-font-sm); }
 .knowledge-inline-metadata { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); font-size: var(--ds-font-xs); border-bottom: 1px solid var(--border); padding-bottom: var(--space-2); margin-bottom: var(--space-2); }
 .knowledge-status { color: var(--text-quiet); border: 1px solid var(--border); }
+.knowledge-browse .knowledge-detail-metadata { margin-bottom: var(--space-2); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
 .knowledge-inline-metadata dl { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); margin: 0; }
 .knowledge-inline-metadata dl > div { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1); }
 .knowledge-inline-metadata dt { color: var(--text-quiet); }
@@ -72,7 +73,7 @@
 .knowledge-scope-line { display: flex; align-items: center; gap: var(--space-2); width: 100%; }
 .knowledge-browse .kb-preview-body { margin: var(--space-2) 0; padding: 0; border: 0; background: transparent; font-family: var(--font-sans, var(--sans)); font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .knowledge-browse .kb-preview-subject { font-size: var(--ds-font-sm); overflow-wrap: anywhere; }
-.knowledge-browse .knowledge-detail-actions { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); padding: var(--space-2) var(--space-3); background: var(--bg); }
+.knowledge-browse .knowledge-detail-actions { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); padding: var(--space-2) var(--space-5); background: var(--bg); }
 .knowledge-detail-actions > small { font-size: var(--ds-font-xs); line-height: var(--lh-control-sm); }
 .knowledge-browse .knowledge-detail-actions .kbv-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); justify-content: flex-end; margin: 0; width: 100%; }
 .knowledge-browse :is(button, select, a):focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: calc(-1 * var(--focus-ring-width)); }

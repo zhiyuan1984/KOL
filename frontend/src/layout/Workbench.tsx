@@ -49,6 +49,8 @@ export default function Workbench() {
   const [pendingNav, setPendingNav] = useState<string | null>(null);
   const [navStuck, setNavStuck] = useState(false);
   const loc = useLocation();
+  const sourceSession = loc.pathname.match(/^\/s\/([^/]+)$/)?.[1];
+  const agentsHref = sourceSession ? `/agents?from_session=${encodeURIComponent(sourceSession)}` : "/agents";
   const sidebarScroll = useRef<HTMLDivElement | null>(null);
   useInsetScrollbar(sidebarScroll);
   // 壳层轮询闸门：上一次读取未返回前不再发下一次（多标签页各自全速轮询曾把单线程后端压到 5–6s 停顿）。
@@ -230,7 +232,7 @@ export default function Workbench() {
         ) : (
           <>
             <NavLink to="/">任务</NavLink>
-            <NavLink to="/agents" className={() => onAgents ? "active" : ""}>Agent</NavLink>
+            <NavLink to={agentsHref} className={() => onAgents ? "active" : ""}>Agent</NavLink>
           </>
         )}
       </div>
@@ -325,7 +327,7 @@ export default function Workbench() {
 
         <nav className="nav-group" aria-label="Agent">
           <NavLink
-            to="/agents"
+            to={agentsHref}
             className={() => "nav-link" + (onAgents ? " active" : "")}
             data-nav="agents"
             title="Agent"

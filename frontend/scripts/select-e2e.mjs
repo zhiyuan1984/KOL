@@ -25,6 +25,13 @@ function specsForPath(file) {
   const rest = file.slice("frontend/src/".length);
   const dir = dirname(rest);
 
+  if (dir.startsWith("agents/") || rest === "experts.ts" || /^pages\/Agent/.test(rest)) {
+    return ["employee-agent-presentation.spec.ts", "agents-roles.spec.ts", "agent-routing.spec.ts"];
+  }
+  if (["components/KnowledgeBrowse.tsx", "components/EmployeeBrowseFilters.tsx"].includes(rest)) {
+    return ["employee-agent-presentation.spec.ts", "knowledge-browse-presentation.spec.ts"];
+  }
+
   // Route and shared workspace changes must keep saved session addresses stable.
   if (["App.tsx", "pages/Session.tsx"].includes(rest)) {
     return ["session-workspace-presentation.spec.ts", "discovery-presentation.spec.ts", "session-task-run.spec.ts"];
