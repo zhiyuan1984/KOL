@@ -1,3 +1,4 @@
+import { readNativePersonMemory } from "../postgres/mail-memory-repository.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
 import { HttpFail } from "../host/errors.js";
@@ -496,12 +497,11 @@ export async function readMailboxPerson(rawMailbox: unknown, rawPeer: unknown): 
   const { binding } = await selectedMailbox(rawMailbox);
   if (!binding) throw new HttpFail(400, "box and p are required");
   const mailbox = normalizeEmail(text(binding.mailbox_email));
-  const key = `mail_person_digest:${mailbox}:${peer}`;
-  const result = await readQuery<{ value?: string }>(
-    "SELECT value FROM app_state WHERE key=$1",
-    [key],
-  );
-  const digest = parsePersonDigest(result.rows[0]?.value);
+  const row = await readNativePersonMemory(mailbox, peer);
+  const digest = row ? {
+    text: String(row.digest_text || ""), source: String(row.digest_source || ""),
+    generated_at: row.generated_at ? String(row.generated_at) : undefined,
+  } : null;
   return {
     mailbox,
     peer_email: peer,

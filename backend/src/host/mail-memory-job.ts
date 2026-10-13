@@ -8,6 +8,7 @@
 import crypto from "node:crypto";
 import { audit, getConn, nowIso } from "../db.js";
 import { postgresQuery } from "../postgres/pool.js";
+import { createNativeMemoryRun, finishNativeMemoryRun, listNativeMemoryItems, listNativeMemoryThreads, listNativePersonItems, listNativePersonKeys, listNativeThreadItems, mailBodyFingerprint, readNativePersonMemory, writeNativeItemMemoryIfFresh, writeNativePersonMemory, writeNativeThreadDigest } from "../postgres/mail-memory-repository.js";
 import type { Json, Row } from "../types.js";
 import {
   itemsForConversation,
@@ -77,7 +78,7 @@ function mailBodyOf(row: Row): string {
 }
 
 function bodyFingerprint(body: string): string {
-  return crypto.createHash("sha256").update(String(body || "")).digest("hex").slice(0, 32);
+  return mailBodyFingerprint(body);
 }
 
 function isRemoteSummary(source: string): boolean {
@@ -228,7 +229,7 @@ async function ensureItemMemory(row: Row): Promise<{ translated: boolean; summar
     updates.source = translated || summarized ? "codex_memory" : String(row.memory_source || "");
   }
 
-  persistItemMemory(String(row.id), updates);
+  await writeNativeItemMemoryIfFresh({ itemId: String(row.id), body, translationZh: updates.translation_zh, translationSource: updates.translation_source, summary: updates.summary, summaryZh: updates.summary_zh, summarySource: updates.summary_source, source: updates.source, error: updates.error || null });
   return { translated, summarized, error };
 }
 
@@ -266,7 +267,7 @@ async function ensureThreadDigest(thread: Row): Promise<boolean> {
   const conversationId = String(thread.conversation_id || "");
   const mailbox = String(thread.mailbox || "");
   if (!conversationId) return false;
-  const items = itemsForConversation(conversationId, mailbox || undefined).map((item) => ({
+  const items = (await listNativeThreadItems(String(thread.id))).map((item) => ({
     ...item,
     body: String(item.body_text || item.body || item.snippet || ""),
     snippet: String(item.snippet || item.body_text || ""),
@@ -299,49 +300,25 @@ async function ensureThreadDigest(thread: Row): Promise<boolean> {
       error: remote.error || "unavailable",
       failed_at: nowIso(),
     };
-  persistThreadDigest(String(thread.id), digest);
+  await writeNativeThreadDigest(String(thread.id), { text: digest.text, source: digest.source, fingerprint: digest.fingerprint, error: digest.error, failedAt: digest.failed_at, mailCount: digest.mail_count });
   return remote.text ? true : false;
 }
 
 async function ensurePersonDigest(mailbox: string, peerEmail: string): Promise<boolean> {
-  const normalizedPeer = peerEmail.toLowerCase();
-  const items = getConn()
-    .prepare(
-      `SELECT i.* FROM kol_mail_items i
-       JOIN kol_mail_threads t ON t.id = i.thread_id
-       WHERE IFNULL(t.mailbox,'')=? AND (lower(i.from_addr)=? OR lower(i.to_addr)=?)
-       ORDER BY i.occurred_at ASC, i.created_at ASC`,
-    )
-    .all(mailbox, normalizedPeer, normalizedPeer) as Row[];
-  const bodies = items
-    .map((item) => ({ ...item, body: String(item.body_text || "").trim() }))
-    .filter((item) => item.body);
+  const items = await listNativePersonItems(mailbox, peerEmail);
+  const bodies = items.map((item) => ({ ...item, body: String(item.body_text || "").trim() })).filter((item) => item.body);
   if (!bodies.length) return false;
-  const stored = readPersonDigest(mailbox, peerEmail);
+  const storedRow = await readNativePersonMemory(mailbox, peerEmail);
+  const stored: ThreadDigest | null = storedRow ? { text: String(storedRow.digest_text || ""), source: String(storedRow.digest_source || ""), mail_count: Number(storedRow.mail_count || 0), fingerprint: String(storedRow.digest_fingerprint || ""), ...(storedRow.error ? { error: String(storedRow.error) } : {}), ...(storedRow.generated_at ? { generated_at: String(storedRow.generated_at) } : {}) } : null;
   const fingerprint = threadFingerprint(bodies);
   if (stored && stored.fingerprint === fingerprint && isRemoteDigest(stored.source)) return false;
   const remote = await digestWithRemote(bodies);
   const digest: ThreadDigest = remote.text
-    ? {
-      text: remote.text,
-      source: remote.source || "codex_memory",
-      mail_count: bodies.length,
-      fingerprint,
-      generated_at: nowIso(),
-    }
-    : {
-      text: threadDigestOf(bodies, stored).text,
-      source: "analysis_failed",
-      mail_count: bodies.length,
-      fingerprint,
-      generated_at: nowIso(),
-      error: remote.error || "unavailable",
-      failed_at: nowIso(),
-    };
-  writePersonDigest(mailbox, peerEmail, digest);
+    ? { text: remote.text, source: remote.source || "codex_memory", mail_count: bodies.length, fingerprint, generated_at: nowIso() }
+    : { text: threadDigestOf(bodies, stored).text, source: "analysis_failed", mail_count: bodies.length, fingerprint, generated_at: nowIso(), error: remote.error || "unavailable", failed_at: nowIso() };
+  await writeNativePersonMemory({ id: `pmm_${Buffer.from(`${mailbox}:${peerEmail}`).toString("base64url")}`, mailbox, peerEmail, text: digest.text, source: digest.source, fingerprint: digest.fingerprint, mailCount: digest.mail_count, generatedAt: digest.generated_at, error: digest.error || null });
   return remote.text ? true : false;
 }
-
 export function markPendingMailMemory(mailbox?: string): void {
   if (!remoteMailAnalysisEnabled()) return;
   const boxClause = mailbox ? "AND IFNULL(t.mailbox,'')=?" : "";
@@ -358,73 +335,25 @@ export function markPendingMailMemory(mailbox?: string): void {
 }
 
 export async function runMailMemoryIncrement(mailbox?: string): Promise<MailMemoryStats> {
-  const stats: MailMemoryStats = {
-    scanned: 0,
-    translated: 0,
-    summarized: 0,
-    digested: 0,
-    persons: 0,
-    errors: 0,
-  };
+  const stats: MailMemoryStats = { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
   if (!remoteMailAnalysisEnabled()) return stats;
-
-  const boxClause = mailbox ? "AND IFNULL(t.mailbox,'')=?" : "";
-  const args = mailbox ? [mailbox] : [];
-  const db = getConn();
-
-  const items = db.prepare(
-    `SELECT i.* FROM kol_mail_items i
-     JOIN kol_mail_threads t ON t.id = i.thread_id
-     WHERE IFNULL(i.body_text,'') != '' ${boxClause}
-     ORDER BY i.occurred_at DESC`,
-  ).all(...args) as Row[];
-
-  for (const row of items) {
-    stats.scanned += 1;
-    const result = await ensureItemMemory(row);
-    if (result.translated) stats.translated += 1;
-    if (result.summarized) stats.summarized += 1;
-    if (result.error) stats.errors += 1;
+  const runId = await createNativeMemoryRun(mailbox || "*");
+  try {
+    const items = await listNativeMemoryItems({ mailbox, limit: 5000 });
+    for (const row of items) { stats.scanned += 1; const result = await ensureItemMemory(row); if (result.translated) stats.translated += 1; if (result.summarized) stats.summarized += 1; if (result.error) stats.errors += 1; }
+    const threads = await listNativeMemoryThreads(mailbox);
+    for (const thread of threads) { try { if (await ensureThreadDigest(thread)) stats.digested += 1; } catch (err) { stats.errors += 1; audit("host", "mail_memory.thread_digest_failed", { thread_id: thread.id, error: err instanceof Error ? err.message : String(err) }); } }
+    const peers = await listNativePersonKeys(mailbox);
+    for (const peer of peers) { try { if (await ensurePersonDigest(peer.mailbox, peer.peer_email)) stats.persons += 1; } catch (err) { stats.errors += 1; audit("host", "mail_memory.person_digest_failed", { mailbox: peer.mailbox, peer_email: peer.peer_email, error: err instanceof Error ? err.message : String(err) }); } }
+    await finishNativeMemoryRun(runId, { ...stats, status: stats.errors ? "failed" : "succeeded" });
+  } catch (err) {
+    stats.errors += 1; stats.error = err instanceof Error ? err.message : String(err);
+    await finishNativeMemoryRun(runId, { ...stats, status: "failed", error: stats.error });
+    throw err;
   }
-
-  const threads = db.prepare(
-    `SELECT * FROM kol_mail_threads WHERE 1=1 ${mailbox ? "AND mailbox=?" : ""}`,
-  ).all(...args) as Row[];
-  for (const thread of threads) {
-    try {
-      const updated = await ensureThreadDigest(thread);
-      if (updated) stats.digested += 1;
-    } catch (err) {
-      stats.errors += 1;
-      audit("host", "mail_memory.thread_digest_failed", {
-        thread_id: thread.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  const peers = db.prepare(
-    `SELECT DISTINCT t.mailbox, t.peer_email FROM kol_mail_threads t
-     WHERE IFNULL(t.peer_email,'') != '' ${mailbox ? "AND t.mailbox=?" : ""}`,
-  ).all(...args) as { mailbox: string; peer_email: string }[];
-  for (const { mailbox: box, peer_email: peer } of peers) {
-    try {
-      const updated = await ensurePersonDigest(box, peer);
-      if (updated) stats.persons += 1;
-    } catch (err) {
-      stats.errors += 1;
-      audit("host", "mail_memory.person_digest_failed", {
-        mailbox: box,
-        peer_email: peer,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  audit("host", "mail_memory.increment", { mailbox: mailbox || "*", ...stats });
+  audit("host", "mail_memory.increment", { mailbox: mailbox || "*", repository: "postgresql_native", ...stats });
   return stats;
 }
-
 export function triggerMailMemoryIncrement(mailbox?: string): void {
   const key = mailbox || "*";
   if (inflight.has(key)) return;
