@@ -25,6 +25,11 @@ function specsForPath(file) {
   const rest = file.slice("frontend/src/".length);
   const dir = dirname(rest);
 
+  // Shared employee asset surface uses HTTP-fixture presentation contracts.
+  if (["pages/SkillCatalog.tsx", "pages/Knowledge.tsx", "components/KnowledgeBrowse.tsx", "components/AssetTaskAction.tsx", "components/browseMemory.ts", "components/useBrowseRows.ts", "composer/taskDraft.ts", "asset-browse.css", "knowledge-browse.css"].includes(rest)) {
+    return ["employee-asset-browse.spec.ts", "knowledge-browse-presentation.spec.ts"];
+  }
+
   // Route and shared workspace changes must keep saved session addresses stable.
   if (["App.tsx", "pages/Session.tsx"].includes(rest)) {
     return ["session-workspace-presentation.spec.ts", "discovery-presentation.spec.ts", "session-task-run.spec.ts"];

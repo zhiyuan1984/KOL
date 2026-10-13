@@ -6,8 +6,8 @@ import CompactButton from "./CompactButton";
 import { Popover, Tooltip } from "antd";
 import { FilterAction, FilterOptionButton } from "./KnowledgeFilterControls";
 
-export function KnowledgeBrowseWorkspace({ children, detailOpen }: { children: ReactNode; detailOpen: boolean }) {
-  return <div className="kbv-workspace knowledge-browse-workspace" data-pane={detailOpen ? "detail" : "list"}>{children}</div>;
+export function KnowledgeBrowseWorkspace({ children, detailOpen, expanded = false }: { children: ReactNode; detailOpen: boolean; expanded?: boolean }) {
+  return <div className="kbv-workspace knowledge-browse-workspace" data-expanded={expanded || undefined} data-pane={detailOpen ? "detail" : "list"}>{children}</div>;
 }
 
 export function KnowledgeFilterBar({ children }: { children: ReactNode }) {
@@ -104,18 +104,28 @@ export function ListLoadFooter({ remaining, onMore, loading = false, error = "",
   </footer>;
 }
 
-export function KnowledgeDetailHeader({ row, favorite, onFavorite, onBack }: {
-  row: KnowledgeRow; favorite: boolean; onFavorite: () => void; onBack: () => void;
+export function BrowseDetailHeader({ title, titleId, favorite, favoriteDisabled, onFavorite, onBack, expanded, onExpand, recordAttributes }: {
+  title: string; titleId: string; favorite: boolean; favoriteDisabled?: boolean;
+  onFavorite: () => void; onBack: () => void; expanded?: boolean; onExpand?: () => void;
+  recordAttributes?: Record<string, string>;
 }) {
   return <header className="kbv-rail-head knowledge-detail-header">
     <CompactButton className="knowledge-back" onClick={onBack}>← 返回列表</CompactButton>
     <div className="kbv-title-row">
-      <h2 id="kb-preview-title" tabIndex={-1}>{row.title}</h2>
-      <CompactButton className="knowledge-favorite-icon" data-kb-favorite={row.id}
+      <h2 id={titleId} tabIndex={-1}>{title}</h2>
+      {onExpand ? <CompactButton className="asset-detail-expand" aria-expanded={expanded} onClick={onExpand}>{expanded ? "收窄" : "展开阅读"}</CompactButton> : null}
+      <CompactButton className="knowledge-favorite-icon" {...recordAttributes} disabled={favoriteDisabled}
         title={favorite ? "取消收藏" : "收藏"} aria-label={favorite ? "取消收藏" : "收藏"}
         aria-pressed={favorite} onClick={onFavorite}><span aria-hidden="true">{favorite ? "★" : "☆"}</span></CompactButton>
     </div>
   </header>;
+}
+
+export function KnowledgeDetailHeader({ row, ...props }: {
+  row: KnowledgeRow; favorite: boolean; favoriteDisabled?: boolean; onFavorite: () => void; onBack: () => void;
+  expanded?: boolean; onExpand?: () => void;
+}) {
+  return <BrowseDetailHeader {...props} title={row.title} titleId="kb-preview-title" recordAttributes={{ "data-kb-favorite": row.id }} />;
 }
 
 export function InlineMetadata({ row, scope }: { row: KnowledgeRow; scope: ReactNode }) {
@@ -132,7 +142,7 @@ export function InlineMetadata({ row, scope }: { row: KnowledgeRow; scope: React
 
 export function DetailActionBar({ children }: { children: ReactNode }) {
   return <footer className="kbv-rail-foot knowledge-detail-actions">
-    <small className="muted">带入工作草稿只会预填内容；正式发送前仍需要你确认。</small>
+    <small className="muted">带入任务后可继续编辑，提交后开始执行。</small>
     <div className="kbv-actions">{children}</div>
   </footer>;
 }

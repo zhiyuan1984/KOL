@@ -372,16 +372,16 @@ export function toggleKbFavorite(id: string): string[] {
   return next;
 }
 
-export function readKbRecent(): { id: string; at: number }[] {
-  const rows = readJson<{ id: string; at: number }[]>(KB_RECENT_KEY, []);
+export function readKbRecent(userId = ""): { id: string; at: number }[] {
+  const rows = readJson<{ id: string; at: number }[]>(userId ? `${KB_RECENT_KEY}:${userId}` : KB_RECENT_KEY, []);
   if (!Array.isArray(rows)) return [];
   return rows.filter((row) => row?.id).sort((a, b) => b.at - a.at);
 }
 
-export function rememberKbRecent(id: string): { id: string; at: number }[] {
-  const next = [{ id, at: Date.now() }, ...readKbRecent().filter((row) => row.id !== id)].slice(0, 20);
+export function rememberKbRecent(id: string, userId = ""): { id: string; at: number }[] {
+  const next = [{ id, at: Date.now() }, ...readKbRecent(userId).filter((row) => row.id !== id)].slice(0, 20);
   try {
-    localStorage.setItem(KB_RECENT_KEY, JSON.stringify(next));
+    localStorage.setItem(userId ? `${KB_RECENT_KEY}:${userId}` : KB_RECENT_KEY, JSON.stringify(next));
   } catch {
     /* ignore quota / private mode */
   }

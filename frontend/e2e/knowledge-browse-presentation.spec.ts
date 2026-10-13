@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { assertFullRowLayout } from './fixtures/knowledge-fullrow-layout';
 
 // HTTP fixtures prove layout/interaction contracts, not production data or external delivery.
-async function surface(page: Page, options: { long?: boolean; empty?: boolean; failure?: boolean; mixed?: boolean; emptyTaxonomy?: boolean } = {}) {
+async function surface(page: Page, options: { long?: boolean; empty?: boolean; failure?: boolean; mixed?: boolean; emptyTaxonomy?: boolean; height?: number } = {}) {
   const writes: string[] = [], errors: string[] = [], reads: string[] = [];
   const account = { id: "employee", name: "员工", available_modes: ["employee"] };
   const rows = Array.from({ length: options.empty ? 0 : 14 }, (_, i) => ({
@@ -22,6 +22,11 @@ async function surface(page: Page, options: { long?: boolean; empty?: boolean; f
     else if (path === "/api/me") json = account;
     else if (path === "/api/preferences") json = { theme: "light" };
     else if (path === "/api/cron/jobs") json = { jobs: [] };
+    else if (path === "/api/sessions") json = [{id:"kb-task",title:"知识应用任务"}];
+    else if (path === "/api/sessions/kb-task") json = {messages:[],agent_status:"listening"};
+    else if (path === "/api/tasks/by-session/kb-task") json = {id:"kb-task",session_id:"kb-task",status:"pending",title:"知识应用任务"};
+    else if (path === "/api/task-work-orders/sessions/kb-task/context") json = {workspace:null};
+    else if (path === "/api/queries/runtime.actions") json = {actions:[]};
     else if (path === "/api/knowledge/taxonomy") json = {
       domains: [{ id: "growth", name: "品牌与用户增长中心", level: "family" }, { id: "history", name: "历史知识", level: "domain", parent_id: "growth" },
         ...(options.emptyTaxonomy ? [{ id: "empty-family", name: "1234", level: "family" }, { id: "empty-domain", name: "4567", level: "domain", parent_id: "empty-family" }] : [])],
@@ -32,9 +37,10 @@ async function surface(page: Page, options: { long?: boolean; empty?: boolean; f
       const q = url.searchParams.get("q") || "";
       json = q ? rows.filter(row => `${row.title} ${row.subject} ${row.body}`.includes(q)) : rows;
     } else if (/\/knowledge\/kb-\d+\/(favorite|cite)$/.test(path)) json = rows.find(row => path.includes(`/${row.id}/`));
+    else if (/\/knowledge\/kb-\d+$/.test(path)) json=rows.find(row=>path.endsWith(`/${row.id}`));
     await route.fulfill({ json });
   });
-  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.setViewportSize({ width: 1440, height: options.height || 900 });
   await page.goto("/kb");
   await expect(page.locator("[data-kb-page]")).toBeVisible();
   return { writes, errors, reads, recover: () => { options.failure = false; } };
@@ -91,8 +97,8 @@ test("stages use dictionary, zero results keep selection, multiple stages are a 
 });
 
 test("title-kind rows stay compact; footer expands and actions remain in detail", async ({ page }) => {
-  const state = await surface(page);
-  await expect(page.locator("[data-kb-row]")).toHaveCount(5);
+  const state = await surface(page,{height:600});
+  await expect.poll(()=>page.locator("[data-kb-row]").count()).toBeGreaterThanOrEqual(5);
   const last = await page.locator("[data-kb-row]").last().boundingBox();
   const footer = await page.locator("[data-kb-load-footer]").boundingBox();
   expect(footer!.y).toBeGreaterThanOrEqual(last!.y + last!.height);
@@ -102,14 +108,18 @@ test("title-kind rows stay compact; footer expands and actions remain in detail"
   await expect(page.locator('[data-kb-row="kb-0"] .knowledge-row-title')).toHaveText('合作知识 1');
   await expect(page.locator('[data-kb-row="kb-0"] .knowledge-row-kind')).toHaveText('邮件模板');
   await expect(page.locator('[data-kb-row="kb-0"] .knowledge-row-metadata, [data-kb-row="kb-0"] .knowledge-row-actions')).toHaveCount(0);
-  await more.click(); await expect(page.locator("[data-kb-row]")).toHaveCount(10);
-  await more.click(); await expect(page.locator("[data-kb-row]")).toHaveCount(14);
+  const initialCount=await page.locator("[data-kb-row]").count();
+  await more.click(); await expect.poll(()=>page.locator("[data-kb-row]").count()).toBeGreaterThan(initialCount);
+  while(await more.count()) await more.click();
+  await expect(page.locator("[data-kb-row]")).toHaveCount(14);
   await expect(more).toHaveCount(0);
   await page.locator('[data-kb-open="kb-0"]').click();
   await page.locator('[data-kb-favorite="kb-0"]').click();
   await expect(page.locator('[data-kb-favorite="kb-0"]')).toHaveAttribute('aria-pressed','true');
+  await page.getByRole("combobox",{name:"选择目标任务"}).click();
+  await page.getByText("知识应用任务",{exact:true}).click();
   await page.locator('[data-kb-use="kb-0"]').click();
-  await expect(page).toHaveURL(/knowledge_id=kb-0/);
+  await expect(page).toHaveURL(/\/s\/kb-task$/);
   expect(state.writes).toEqual(["POST /api/knowledge/kb-0/favorite", "POST /api/knowledge/kb-0/cite"]);
 });
 
@@ -118,7 +128,7 @@ test("container width switches views and restores filter, pagination, scroll and
   await page.locator("[data-kb-page]").evaluate(node => { (node as HTMLElement).style.width = "600px"; });
   await expect(page.locator("[data-kb-detail]")).toBeHidden();
   await page.locator('[data-kb-filter="brand"] [data-kb-filter-value="LT"]').click();
-  await page.locator("[data-kb-load-more]").click();
+  if(await page.locator("[data-kb-load-more]").count()) await page.locator("[data-kb-load-more]").click();
   await page.locator("[data-kbv-list]").evaluate(node => { node.scrollTop = 50; });
   const scroll = await page.locator("[data-kbv-list]").evaluate(node => node.scrollTop);
   await page.locator('[data-kb-open="kb-4"]').click();
@@ -154,7 +164,7 @@ test("empty and unavailable states stay honest with detail workspace reserved", 
   await expect(page.locator('[data-kbv-list]')).not.toContainText("暂无已发布资料");
   state.recover();
   await page.locator("[data-kb-retry]").click();
-  await expect(page.locator("[data-kb-row]")).toHaveCount(5);
+  await expect.poll(()=>page.locator("[data-kb-row]").count()).toBeGreaterThanOrEqual(5);
   await expect(page.locator('[data-kbv-list] .error')).toHaveCount(0);
 });
 

@@ -1,3 +1,7 @@
+import { useLocation } from "react-router-dom";
+import { useAccount } from "./AuthGate";
+import CompactButton from "./CompactButton";
+import { readWorkspaceDraft, saveWorkspaceDraft } from "../composer/taskDraft";
 import { fieldLabel } from "../labels";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type ComposeInput, type KnowledgeRow, type SkillTemplate } from "../api";
@@ -268,6 +272,17 @@ export default function ComposerDock({
   const [dismissedLockedKnowledgeId, setDismissedLockedKnowledgeId] = useState<string | null>(null);
   const [clearedDraftLockSignature, setClearedDraftLockSignature] = useState<string | null>(null);
   const { debug } = useViewMode();
+  const location = useLocation();
+  const { account } = useAccount();
+  const workspaceSessionId = location.pathname.startsWith("/s/") ? decodeURIComponent(location.pathname.slice(3))
+    : location.pathname === "/" && new URLSearchParams(location.search).get("tab") === "discovery" ? new URLSearchParams(location.search).get("session_id") || "" : "";
+  const [restoredObjectRefs, setRestoredObjectRefs] = useState<ComposerObjectRef[]>([]);
+  const composerObjectRefs = [...objectRefs, ...restoredObjectRefs.filter(ref => !objectRefs.some(item => item.id === ref.id && item.kind === ref.kind))];
+  const versionCheckingRef = useRef(false);
+  const versionControllerRef = useRef<AbortController | null>(null);
+  const [checkingKnowledge, setCheckingKnowledge] = useState(false);
+  const draftSignatureRef = useRef("");
+  draftSignatureRef.current = JSON.stringify([value,skillChips,kbChips,attachments,lockedIntent,lockedKnowledgeId]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const selectionRef = useRef({ start: value.length, end: value.length });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -281,10 +296,14 @@ export default function ComposerDock({
   // new draft after it resolves.
   const draftEpochRef = useRef(0);
   const uploadCountRef = useRef(0);
+  useEffect(() => () => {
+    draftEpochRef.current += 1;
+    versionControllerRef.current?.abort();
+  }, [workspaceSessionId,draftToken]);
   onKnowledgeChangeRef.current = onKnowledgeChange;
 
   const objectChipSignature = [
-    ...objectRefs.map((ref) => `${objectChipKey({ id: ref.id, kind: ref.kind })}:${ref.label || ""}`),
+    ...composerObjectRefs.map((ref) => `${objectChipKey({ id: ref.id, kind: ref.kind })}:${ref.label || ""}`),
     ...(contextChips || []).map((chip) => `${objectChipKey({ id: chip.id, objectKind: chip.objectKind })}:${chip.label}`),
   ].join("|");
   const draftLockSignature = `${lockedIntent || ""}|${lockedKnowledgeId || ""}|${entryIntent}|${discoveryBrief ? "discovery" : ""}`;
@@ -557,6 +576,8 @@ export default function ComposerDock({
         if (expert) setExpertId(expert.id);
       }
       if (draft.attachments) setAttachments(draft.attachments);
+      if (draft.object_refs) setRestoredObjectRefs(draft.object_refs);
+      if (draft.scope?.expert_id) setExpertId(draft.scope.expert_id);
       const project = draft.chips?.find((chip) => chip.kind === "project");
       if (project?.kind === "project") setSelectedProject({ id: project.id, label: project.label });
       if (draft.model_tier === "fast" || draft.model_tier === "balanced" || draft.model_tier === "quality") setModelTier(draft.model_tier);
@@ -581,8 +602,10 @@ export default function ComposerDock({
         if (gap?.index != null) node.setSelectionRange(gap.index, gap.index + gap[0].length);
       });
     };
-    const stashed = initialDraft ? null : peekComposerDraft();
-    if (initialDraft) apply(initialDraft);
+    const workspaceDraft = account?.id && workspaceSessionId ? readWorkspaceDraft(account.id,workspaceSessionId)?.draft : undefined;
+    const effectiveInitialDraft = initialDraft || workspaceDraft;
+    const stashed = effectiveInitialDraft ? null : peekComposerDraft();
+    if (effectiveInitialDraft) apply(effectiveInitialDraft);
     else if (stashed) {
       apply(takeComposerDraftStash() || stashed);
     }
@@ -595,13 +618,27 @@ export default function ComposerDock({
     // Existing callers apply once. Mail can explicitly replace its local draft
     // without remounting the editor and losing attachments/menu state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftToken]);
+  }, [draftToken,workspaceSessionId,account?.id]);
 
   useEffect(() => {
     if (applyingDraftRef.current) { applyingDraftRef.current = false; return; }
-    onDraftChange?.({ text: value, attachments, chips: [...skillChips, ...kbChips, ...connectorChips],
-      model_tier: modelTier, object_refs: objectRefs, skill_template: selectedSkillTemplate });
-  }, [value, attachments, skillChips, kbChips, connectorChips, modelTier, objectRefs, selectedSkillTemplate, onDraftChange]);
+    const refs = composerObjectRefs.filter(ref => !dismissedObjectChipKeys.includes(objectChipKey({id:ref.id,kind:ref.kind})));
+    const draft: ComposerDraftStash = { text: value, attachments, chips: [...skillChips, ...kbChips, ...connectorChips],
+      intent: entryIntent, client_entry: clientEntryFor(entryIntent),
+      locked_intent: draftLocksCleared ? null : lockedIntent,
+      locked_label: draftLocksCleared ? null : lockedLabel,
+      locked_knowledge_id: draftLocksCleared || dismissedLockedKnowledgeId === lockedKnowledgeId ? null : lockedKnowledgeId,
+      model_tier: modelTier, object_refs: refs, skill_template: selectedSkillTemplate,
+      scope: { expert_id: expertId, skills: skillChips.filter(chip => chip.kind === "skill").map(chip => chip.id),
+        knowledge_bases: kbChips.map(chip => chip.id) } };
+    onDraftChange?.(draft);
+    if (account?.id && workspaceSessionId) {
+      try { saveWorkspaceDraft(account.id,{sessionId:workspaceSessionId,path:location.pathname + location.search,title:"当前任务"},draft); }
+      catch { setAttachErr("当前草稿无法在浏览器保存，请保留页面后重试。"); }
+    }
+  }, [value, attachments, skillChips, kbChips, connectorChips, modelTier, objectRefs, restoredObjectRefs, dismissedObjectChipKeys,
+    selectedSkillTemplate, expertId, onDraftChange, workspaceSessionId, account?.id, entryIntent,
+    draftLocksCleared, lockedIntent, lockedLabel, lockedKnowledgeId, dismissedLockedKnowledgeId]);
 
   const activeLockedIntent = draftLocksCleared ? null : lockedIntent;
   const activeLockedKnowledgeId = draftLocksCleared || dismissedLockedKnowledgeId === lockedKnowledgeId ? null : lockedKnowledgeId;
@@ -653,7 +690,7 @@ export default function ComposerDock({
     if (selectedProject) {
       chips.push({ kind: "project", id: selectedProject.id, label: selectedProject.label });
     }
-    for (const ref of objectRefs) {
+    for (const ref of composerObjectRefs) {
       if (dismissedObjectChipKeys.includes(objectChipKey({ id: ref.id, kind: ref.kind }))) continue;
       chips.push({
         kind: "object",
@@ -691,7 +728,7 @@ export default function ComposerDock({
     lockedLabel,
     lockedSkill,
     lockedTemplate,
-    objectRefs,
+    composerObjectRefs,
     selectedProject,
     skillChips,
     templates,
@@ -920,7 +957,7 @@ export default function ComposerDock({
     if (chip.kind === "object") {
       const key = objectChipKey({ id: chip.id, objectKind: chip.objectKind });
       setDismissedObjectChipKeys((current) => current.includes(key) ? current : [...current, key]);
-      onObjectRefsChange?.(objectRefs.filter((item) => !(item.id === chip.id && item.kind === chip.objectKind)));
+      onObjectRefsChange?.(composerObjectRefs.filter((item) => !(item.id === chip.id && item.kind === chip.objectKind)));
       return;
     }
     if (chip.kind === "discovery") {
@@ -955,7 +992,7 @@ export default function ComposerDock({
   const mailBlocked = Boolean(mailCompose?.active && (
     mailCompose.phase === "preparing" || (mailCompose.knowledgeId ? !mailCompose.subject.trim() : false)
   ));
-  const sendDisabled = !running && (busy || !canSend || discoveryBlocked || mailBlocked);
+  const sendDisabled = !running && (busy || checkingKnowledge || !canSend || discoveryBlocked || mailBlocked);
   const workspace = variant === "workspace";
   const placeholder = hint && !value.trim() ? hint : COMPOSER_PLACEHOLDER;
   const sendState = running ? "stop" : canSend && !sendDisabled ? "ready" : "idle";
@@ -972,20 +1009,29 @@ export default function ComposerDock({
     || activeLockedIntent
     || activeLockedKnowledgeId
     || discoveryLocked
-    || objectRefs.some((ref) => !dismissedObjectChipKeys.includes(objectChipKey({ id: ref.id, kind: ref.kind }))),
+    || composerObjectRefs.some((ref) => !dismissedObjectChipKeys.includes(objectChipKey({ id: ref.id, kind: ref.kind }))),
   );
 
+  const cancelKnowledgeCheck = () => {
+    draftEpochRef.current += 1;
+    versionControllerRef.current?.abort();
+    versionControllerRef.current = null;
+    versionCheckingRef.current = false;
+    setCheckingKnowledge(false);
+  };
   const clearDraft = () => {
     if (!hasDraft) return;
     // Invalidate all in-flight attachment references before resetting the local
     // draft. We deliberately do not delete uploaded files from the server.
     draftEpochRef.current += 1;
+    cancelKnowledgeCheck();
     uploadCountRef.current = 0;
     setUploading(false);
     setAttachErr("");
     setAttachments([]);
     setSkillChips([]);
     setKbChips([]);
+    setRestoredObjectRefs([]);
     setConnectorChips([]);
     setSelectedProject(null);
     setSelectedSkillId(null);
@@ -1000,10 +1046,10 @@ export default function ComposerDock({
     // `objectRefs` are user-added draft context. `contextChips` are session
     // context and intentionally remain untouched; the existing dismissal model
     // keeps that distinction while parent state catches up.
-    if (objectRefs.length) {
+    if (composerObjectRefs.length) {
       setDismissedObjectChipKeys((current) => Array.from(new Set([
         ...current,
-        ...objectRefs.map((ref) => objectChipKey({ id: ref.id, kind: ref.kind })),
+        ...composerObjectRefs.map((ref) => objectChipKey({ id: ref.id, kind: ref.kind })),
       ])));
       onObjectRefsChange?.([]);
     }
@@ -1048,8 +1094,27 @@ export default function ComposerDock({
     });
   };
 
-  const submit = () => {
-    if (running || sendDisabled) return;
+  const submit = async () => {
+    if (running || sendDisabled || versionCheckingRef.current) return;
+    const versioned = kbChips.filter((chip): chip is Extract<ComposerChip,{kind:"kb"}> => chip.kind === "kb" && chip.version != null);
+    if (versioned.length) {
+      versionCheckingRef.current = true;
+      setCheckingKnowledge(true);
+      const controller = new AbortController();
+      versionControllerRef.current = controller;
+      const epoch = draftEpochRef.current;
+      const signature = draftSignatureRef.current;
+      try {
+        for (const chip of versioned) {
+          const current = await api.knowledgeItem(chip.id,controller.signal);
+          if (current.status !== "published" || current.deprecated || (current.published_version || current.current_version) !== chip.version) {
+            setAttachErr("引用资料已变更或不可用，请重新选择并核对版本。草稿已保留。"); return;
+          }
+        }
+        if (epoch !== draftEpochRef.current || signature !== draftSignatureRef.current) return;
+      } catch (e) { if (!controller.signal.aborted) setAttachErr(e instanceof Error ? e.message : "资料版本核验失败，草稿已保留。"); return; }
+      finally { if (versionControllerRef.current === controller) { versionControllerRef.current = null; versionCheckingRef.current = false; setCheckingKnowledge(false); } }
+    }
     const railSkillIds = railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.id);
     const railSkillLabels = railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.label);
     // The locked intent no longer renders as a chip, but it still travels with
@@ -1086,7 +1151,7 @@ export default function ComposerDock({
       model_tier: modelTier,
       attachments: attachments.length ? attachments : undefined,
       scope,
-      object_refs: objectRefs.filter((ref) => !dismissedObjectChipKeys.includes(objectChipKey({ id: ref.id, kind: ref.kind }))),
+      object_refs: composerObjectRefs.filter((ref) => !dismissedObjectChipKeys.includes(objectChipKey({ id: ref.id, kind: ref.kind }))),
       client_entry: clientEntryFor(activeEntryIntent),
       compose_input: mailCompose?.composeInput(value),
       skill_template_version: selectedSkillTemplate?.version,
@@ -1296,6 +1361,7 @@ export default function ComposerDock({
         </div>
       ) : null}
       {attachErr && <p className="error composer-err">{attachErr}</p>}
+      {checkingKnowledge ? <p className="muted composer-err" role="status">正在核对引用资料的版本与可用状态… <CompactButton onClick={cancelKnowledgeCheck}>取消核验</CompactButton></p> : null}
       {suggestions && suggestions.length > 0 ? (
         <details className={suggestionsMode === "menu" ? "composer-task-menu" : "composer-task-inline"}
           open={suggestionsMode === "inline" ? true : undefined} data-composer-task-menu>

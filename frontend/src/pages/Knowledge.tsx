@@ -1,6 +1,9 @@
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useAccount } from "../components/AuthGate";
+import AssetTaskAction from "../components/AssetTaskAction";
+import { useBrowseRows } from "../components/useBrowseRows";
+import { readBrowseMemory, useBrowseMemory } from "../components/browseMemory";
 import { api, type KnowledgeBaseRow, type KnowledgeDomainRow, type KnowledgeRow } from "../api";
 import ScopeTabs, { type ScopeOption } from "../components/ScopeTabs";
 import FilterChips from "../components/FilterChips";
@@ -34,12 +37,14 @@ import {
   readKbFavorites,
   readKbRecent,
   rememberKbRecent,
-  stashComposerFill,
+  composerFillText,
+  composerStarter,
   writeKbFavorites,
 } from "../knowledgeCopy";
 import KbvIcon from "../knowledgeIcons";
 import "../knowledge-page.css";
 import "../knowledge-browse.css";
+import "../asset-browse.css";
 import "./global-layout-knowledge.css";
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -182,31 +187,42 @@ function collectScope(
 
 /** 员工端知识库（IA v2）：三级分类 tab＋筛选标签＋中栏列表＋右栏同页详情。 */
 export default function Knowledge() {
+  const { account } = useAccount();
+  const userId = account?.id || "";
+  const memory = useRef(readBrowseMemory<{ selectedId: string; detailOpen: boolean; expanded: boolean; view: KbEmployeeView; query: string; stageFilters: string[]; brandFilters: string[]; kindFilter: string; familyId: string; domainId: string; baseId: string; limit: number }>(userId,"knowledge")).current;
+  const [expanded, setExpanded] = useState(memory.expanded || false);
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
+  const [versionError, setVersionError] = useState("");
+  const [versionReload, setVersionReload] = useState(0);
+  const [taxonomyLoaded, setTaxonomyLoaded] = useState(false);
+  const [taxonomyReload, setTaxonomyReload] = useState(0);
+  const [taxonomyError, setTaxonomyError] = useState("");
   const [rows, setRows] = useState<KnowledgeRow[]>([]);
-  const [displayLimit, setDisplayLimit] = useState(5);
   const [taxonomy, setTaxonomy] = useState<{ domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] }>({ domains: [], bases: [] });
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState("");
+  const [detailOpen, setDetailOpen] = useState(memory.detailOpen || false);
+  const [selectedId, setSelectedId] = useState(memory.selectedId || "");
   const [hideFor, setHideFor] = useState("");
   const [err, setErr] = useState("");
   const [versionCompare, setVersionCompare] = useState<Array<Record<string, unknown>>>([]);
   const [tipId, setTipId] = useState("");
   const [favorites, setFavorites] = useState<string[]>(() => readKbFavorites());
-  const [recentIds, setRecentIds] = useState<string[]>(() => readKbRecent().map((item) => item.id));
-  const [view, setView] = useState<KbEmployeeView>("all");
-  const [query, setQuery] = useState("");
-  const [keyword, setKeyword] = useState("");
+  const [recentIds, setRecentIds] = useState<string[]>(() => readKbRecent(userId).map((item) => item.id));
+  const [view, setView] = useState<KbEmployeeView>(memory.view || "all");
+  const [query, setQuery] = useState(memory.query || "");
+  const [keyword, setKeyword] = useState(memory.query || "");
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const loadSequence = useRef(0);
-  const [stageFilters, setStageFilters] = useState<string[]>([]);
-  const [brandFilters, setBrandFilters] = useState<string[]>([]);
-  const [kindFilter, setKindFilter] = useState("");
-  const [familyId, setFamilyId] = useState("");
-  const [domainId, setDomainId] = useState("");
-  const [baseId, setBaseId] = useState("");
+  const [stageFilters, setStageFilters] = useState<string[]>(memory.stageFilters || []);
+  const [brandFilters, setBrandFilters] = useState<string[]>(memory.brandFilters || []);
+  const [kindFilter, setKindFilter] = useState(memory.kindFilter || "");
+  const [familyId, setFamilyId] = useState(memory.familyId || "");
+  const [domainId, setDomainId] = useState(memory.domainId || "");
+  const [baseId, setBaseId] = useState(memory.baseId || "");
   const [showEmptyTaxonomy, setShowEmptyTaxonomy] = useState(false);
-  const nav = useNavigate();
+  const { listRef, toolbarRef, limit: displayLimit, more } = useBrowseRows(JSON.stringify([familyId,domainId,baseId,view,stageFilters,brandFilters,kindFilter,keyword]),memory.limit,loaded);
+  const browseState = useMemo(() => ({ selectedId, detailOpen, expanded, view, query, stageFilters, brandFilters, kindFilter, familyId, domainId, baseId, limit: displayLimit }),[selectedId,detailOpen,expanded,view,query,stageFilters,brandFilters,kindFilter,familyId,domainId,baseId,displayLimit]);
+  useBrowseMemory(userId,"knowledge",browseState,listRef,loaded);
   const closeTip = useCallback(() => setTipId(""), []);
 
   const reload = useCallback(() => {
@@ -225,13 +241,16 @@ export default function Knowledge() {
       .finally(() => { if (sequence === loadSequence.current) { setLoaded(true); setLoading(false); } });
   }, [keyword]);
 
-  useEffect(() => { setDisplayLimit(5); void reload(); }, [reload]);
+  useEffect(() => { void reload(); }, [reload]);
 
   useEffect(() => {
+    let active = true;
+    setTaxonomyLoaded(false);
     api.knowledgeTaxonomy()
-      .then(setTaxonomy)
-      .catch((e) => setErr(e instanceof Error ? e.message : "无法加载知识分类"));
-  }, []);
+      .then(value => { if (active) { setTaxonomy(value); setTaxonomyError(""); setTaxonomyLoaded(true); } })
+      .catch((e) => { if (active) setTaxonomyError(e instanceof Error ? e.message : "无法加载知识分类"); });
+    return () => { active = false; };
+  }, [taxonomyReload]);
 
   useEffect(() => {
     const next = query.trim();
@@ -274,14 +293,17 @@ export default function Knowledge() {
 
   // 分类是层级的：上层变了，下层选择随之清空；选项消失也回退到「全部」。
   useEffect(() => {
+    if (!taxonomyLoaded) return;
     if (familyId && !familyOptions.some((item) => item.id === familyId)) setFamilyId("");
-  }, [familyId, familyOptions]);
+  }, [familyId, familyOptions, taxonomyLoaded]);
   useEffect(() => {
+    if (!taxonomyLoaded) return;
     if (domainId && !domainOptions.some((item) => item.id === domainId)) setDomainId("");
-  }, [domainId, domainOptions]);
+  }, [domainId, domainOptions, taxonomyLoaded]);
   useEffect(() => {
+    if (!taxonomyLoaded) return;
     if (baseId && !baseOptions.some((item) => item.id === baseId)) setBaseId("");
-  }, [baseId, baseOptions]);
+  }, [baseId, baseOptions, taxonomyLoaded]);
 
   const filteredVisible = useMemo(() => filterEmployeeKnowledgeRows(rows, employeeFilters), [employeeFilters, rows]);
   const counts = facets.view.values;
@@ -295,12 +317,11 @@ export default function Knowledge() {
     if (!countsReady || showEmptyTaxonomy) return options;
     return options.filter((option) => option.count !== 0 || option.id === selected);
   }, [countsReady, showEmptyTaxonomy]);
-  useEffect(() => { setDisplayLimit(5); }, [familyId, domainId, baseId, view, stageFilters, brandFilters, kindFilter]);
   const visible = useMemo(() => filteredVisible.slice(0, displayLimit), [filteredVisible, displayLimit]);
 
   const selectedRow = useMemo(
-    () => visible.find((row) => row.id === selectedId) || null,
-    [visible, selectedId],
+    () => filteredVisible.find((row) => row.id === selectedId) || null,
+    [filteredVisible, selectedId],
   );
 
   useEffect(() => {
@@ -312,47 +333,34 @@ export default function Knowledge() {
 
   useEffect(() => {
     if (!selectedRow?.has_newer_version || !selectedRow.favorite_version) {
-      setVersionCompare([]);
+      setVersionCompare([]); setVersionError("");
       return;
     }
     let alive = true;
+    setVersionCompare([]); setVersionError("");
     void api.knowledgeVersions(selectedRow.id)
       .then((versions) => { if (alive) setVersionCompare(versions); })
-      .catch(() => { if (alive) setVersionCompare([]); });
+      .catch(() => { if (alive) { setVersionCompare([]); setVersionError("版本记录读取失败，请重试。"); } });
     return () => { alive = false; };
-  }, [selectedRow?.id, selectedRow?.has_newer_version, selectedRow?.favorite_version]);
+  }, [selectedRow?.id, selectedRow?.has_newer_version, selectedRow?.favorite_version, versionReload]);
 
   const openRow = (row: KnowledgeRow) => {
     closeTip();
     setSelectedId(row.id);
     setDetailOpen(true);
-    setRecentIds(rememberKbRecent(row.id).map((item) => item.id));
+    setRecentIds(rememberKbRecent(row.id,userId).map((item) => item.id));
   };
 
-  const useForTask = (row: KnowledgeRow) => {
-    closeTip();
-    const go = () => {
-      stashComposerFill(row);
-      nav(`/?knowledge_id=${encodeURIComponent(row.id)}`);
-    };
-    if (row.cited) {
-      go();
-      return;
-    }
-    void api.citeKnowledge(row.id).then(() => go()).catch((e) => setErr(e instanceof Error ? e.message : "无法选用这份资料"));
-  };
-
-  const toggleFavorite = (row: KnowledgeRow) => {
+  const toggleFavorite = async (row: KnowledgeRow) => {
+    if (favoriteBusy) return;
+    setFavoriteBusy(true);
     const wasFavorite = favorites.includes(row.id);
-    const next = wasFavorite ? favorites.filter((id) => id !== row.id) : [...favorites, row.id];
-    setFavorites(next);
-    writeKbFavorites(next);
-    setRows((current) => current.map((item) => item.id === row.id ? { ...item, favorite: !wasFavorite, has_newer_version: false } : item));
-    const request = wasFavorite ? api.unfavoriteKnowledge(row.id) : api.favoriteKnowledge(row.id);
-    void request.catch(() => {
-      // 收藏的本机缓存是离线与接口故障时的降级路径；下一次成功加载会以服务端为准。
-      setErr("收藏暂未同步到服务器，已保存在本机；恢复连接后请刷新确认。");
-    });
+    try {
+      if (wasFavorite) await api.unfavoriteKnowledge(row.id); else await api.favoriteKnowledge(row.id);
+      setFavorites(current => { const next = wasFavorite ? current.filter(id => id !== row.id) : [...current,row.id]; writeKbFavorites(next); return next; });
+      setRows(current => current.map(item => item.id === row.id ? { ...item, favorite: !wasFavorite } : item)); setErr("");
+    } catch (e) { setErr(`收藏未保存：${e instanceof Error ? e.message : "请重试"}`); }
+    finally { setFavoriteBusy(false); }
   };
 
   const markNotHelpful = (row: KnowledgeRow) => {
@@ -384,10 +392,11 @@ export default function Knowledge() {
   }, [view, brandFilters, keyword, kindFilter, stageFilters, scoped]);
 
   return (
-    <section className="kbv kbv-page knowledge-browse" data-kb-page="mine" data-kb-v2="home">
-      <KnowledgeBrowseWorkspace detailOpen={detailOpen && !!selectedRow}>
-        <section className="kbv-list" aria-label="知识列表" data-kbv-list aria-busy={loading}>
+    <section className="kbv kbv-page knowledge-browse asset-browse" data-kb-page="mine" data-kb-v2="home">
+      <KnowledgeBrowseWorkspace detailOpen={detailOpen && !!selectedRow} expanded={expanded}>
+        <section ref={listRef} className="kbv-list" aria-label="知识列表" data-kbv-list aria-busy={loading}>
           {loading ? <p className="knowledge-load-footer" role="status">{loaded ? "正在检索知识…" : "正在加载知识…"}</p> : null}
+          <div ref={toolbarRef}>
           {loaded ? (
             <KnowledgeFilterBar>
               <WorkspaceSearchInput className="kbv-search"
@@ -436,7 +445,7 @@ export default function Knowledge() {
                   />
                 </>
               ) : (
-                <p className="muted" data-kb-scope-none>{KB_SCOPE_NONE}</p>
+                <p className="muted" data-kb-scope-none>{taxonomyError ? <><span role="alert">知识分类暂不可用：{taxonomyError}</span> <CompactButton onClick={() => setTaxonomyReload(value => value + 1)}>重试分类</CompactButton></> : taxonomyLoaded ? KB_SCOPE_NONE : "正在读取知识分类…"}</p>
               )}
 
               <FilterChips
@@ -505,6 +514,7 @@ export default function Knowledge() {
             </div>
           ) : null}
 
+          </div>
           {loaded && visible.length ? (
             <div className="kbv-records" data-kbv-records>
               {visible.map((row) => <KnowledgeListRow key={row.id} row={row}
@@ -514,7 +524,7 @@ export default function Knowledge() {
             </div>
           ) : null}
           {loaded && visible.length > 0 ? <ListLoadFooter remaining={filteredVisible.length - visible.length}
-            onMore={() => setDisplayLimit((value) => Math.min(value + 5, filteredVisible.length))} /> : null}
+            onMore={more} /> : null}
 
           {err && <p className="error" role="alert">知识服务暂不可用：{err} <CompactButton data-kb-retry onClick={reload}>重试</CompactButton></p>}
           {loaded && !loading && !err && !rows.length && !keyword ? <p className="kbv-empty">暂无已发布资料。</p> : null}
@@ -530,7 +540,8 @@ export default function Knowledge() {
         <aside className="kbv-rail" aria-label="知识详情" data-kb-detail>
           {selectedRow ? (
             <div className="kbv-rail-inner" data-kb-preview={selectedRow.id}>
-              <KnowledgeDetailHeader row={selectedRow} favorite={favorites.includes(selectedRow.id)}
+              <KnowledgeDetailHeader row={selectedRow} favorite={favorites.includes(selectedRow.id)} favoriteDisabled={favoriteBusy}
+                expanded={expanded} onExpand={() => setExpanded(value => !value)}
                 onFavorite={() => toggleFavorite(selectedRow)} onBack={() => {
                   setDetailOpen(false);
                   requestAnimationFrame(() => {
@@ -564,7 +575,7 @@ export default function Knowledge() {
                       <section><h3>收藏时版本 v{favoriteVersion}</h3><pre>{String(prior?.body || "该历史版本正文不可用")}</pre></section>
                       <section><h3>当前已发布版本 v{selectedRow.published_version || selectedRow.current_version}</h3><pre>{String(current?.body || selectedRow.body_en || selectedRow.body)}</pre></section>
                     </div>;
-                  })() : <p className="muted">正在读取版本记录…</p>}
+                  })() : <p className="muted" role={versionError ? "alert" : "status"}>{versionError || "正在读取版本记录…"}{versionError ? <CompactButton onClick={() => setVersionReload(value => value + 1)}>重试版本</CompactButton> : null}</p>}
                 </details> : null}
                 {selectedRow.subject && (
                   <PropertyList
@@ -630,27 +641,17 @@ export default function Knowledge() {
                       </Hinted>
                     </>
                   )}
-                  <Hinted
-                    id={`${selectedRow.id}-fill`}
-                    open={tipId === `${selectedRow.id}-fill`}
-                    onOpen={setTipId}
-                    onClose={closeTip}
-                    hint={
-                      kbIsMail(selectedRow)
-                        ? "锁定这份资料并打开首页草稿。英文正文会填进输入框，可改后再发，不会直接发送。"
-                        : "把适用说明带进当前任务。只作为参考草稿，不会直接发送，也不会改阶段。"
-                    }
-                  >
-                    <CompactButton
-                      emphasis="primary" size="md"
-                      type="button"
-                      data-kb-use={selectedRow.id}
-                      data-fill-composer={selectedRow.id}
-                      onClick={() => useForTask(selectedRow)}
-                    >
-                      带入工作草稿
-                    </CompactButton>
-                  </Hinted>
+                  <AssetTaskAction key={selectedRow.id} disabled={selectedRow.deprecated} useAttributes={{ "data-kb-use": selectedRow.id, "data-fill-composer": selectedRow.id }}
+                    draft={{ text: kbIsMail(selectedRow) ? composerFillText(selectedRow) : composerStarter(selectedRow),
+                      ...(kbIsMail(selectedRow) ? { locked_knowledge_id:selectedRow.id, locked_intent:selectedRow.skill_id || selectedRow.intent || null, locked_label:selectedRow.title } : {}),
+                      chips: [{ kind: "kb", id: selectedRow.id, label: selectedRow.title, version: selectedRow.published_version || selectedRow.current_version },
+                        ...(selectedRow.skill_id ? [{ kind: "skill" as const, id: selectedRow.skill_id, label: selectedRow.title }] : [])] }}
+                    beforeUse={async () => {
+                      const current = await api.knowledgeItem(selectedRow.id);
+                      if (current.deprecated || current.status !== "published") throw new Error("这份资料已不可用，请刷新后重新选择。");
+                      if ((current.published_version || current.current_version) !== (selectedRow.published_version || selectedRow.current_version)) throw new Error("这份资料已有新版本，请刷新并核对内容后再使用。");
+                      if (!selectedRow.cited) await api.citeKnowledge(selectedRow.id);
+                    }} />
               </DetailActionBar>
             </div>
           ) : (

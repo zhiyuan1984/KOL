@@ -2971,10 +2971,13 @@ export const api = {
       }),
     }),
   skills: () => request<Array<Record<string, unknown>>>("/api/skills"),
-  skill: (id: string) => fetch(`/api/skills/${encodeURIComponent(id)}`).then((r) => r.json()),
+  skill: (id: string) => request<Record<string, unknown>>(`/api/skills/${encodeURIComponent(id)}`),
+  skillPersonal: () => request<{ items: Array<{ skill_id: string; favorite: boolean; viewed_at: string | null; use_count: number; used_at: string | null }> }>("/api/skills/personal"),
+  favoriteSkill: (id: string, favorite: boolean) => request<{ id: string; favorite: boolean }>(`/api/skills/${encodeURIComponent(id)}/favorite`, { method: favorite ? "POST" : "DELETE" }),
+  viewSkill: (id: string) => request<{ id: string }>(`/api/skills/${encodeURIComponent(id)}/view`, { method: "POST" }),
   /** 员工面：该技能经由哪些数字员工可用（只读；仅返回调用者有资格使用的已发布 Agent）。 */
   skillAgents: (id: string): Promise<{ agents: Array<{ id: string; name: string }> }> =>
-    fetch(`/api/skills/${encodeURIComponent(id)}/agents`).then((r) => r.json()),
+    request<{ agents: Array<{ id: string; name: string }> }>(`/api/skills/${encodeURIComponent(id)}/agents`),
   saveSkillSop: async (id: string, body: { summary: string; body: string }) => {
     const r = await fetch(`/api/skills/${encodeURIComponent(id)}/sop`, {
       method: "PUT",
@@ -3150,7 +3153,7 @@ export const api = {
     request<SkillTemplate>(`/api/knowledge/skill-templates/${encodeURIComponent(skillId)}`),
   /** 零会话、零模型：只读已发布的问题模板，供公海四个入口预填提问框。 */
   questionTemplates: () => request<QuestionTemplateRow[]>("/api/knowledge/question-templates"),
-  knowledgeItem: (id: string) => request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}`),
+  knowledgeItem: (id: string, signal?: AbortSignal) => request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}`, { signal }),
   citeKnowledge: (id: string) =>
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/cite`, { method: "POST", body: JSON.stringify({}) }),
   unciteKnowledge: (id: string) =>

@@ -53,7 +53,7 @@ export type ComposerScope = {
 
 export type ComposerChip =
   | { kind: "skill"; id: string; label: string; write?: boolean }
-  | { kind: "kb"; id: string; label: string }
+  | { kind: "kb"; id: string; label: string; version?: number }
   | { kind: "expert"; id: string; label: string }
   | { kind: "connector"; id: string; label: string; access?: ConnectorDto["access"] }
   | { kind: "attachment"; id: string; label: string; path: string; size?: number; type?: string }
@@ -63,6 +63,9 @@ export type ComposerChip =
 
 export type ComposerDraftStash = {
   text: string;
+  locked_intent?: string | null;
+  locked_label?: string | null;
+  locked_knowledge_id?: string | null;
   intent?: ComposerEntryIntent;
   chips?: ComposerChip[];
   attachments?: AttachmentRef[];

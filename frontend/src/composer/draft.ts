@@ -9,6 +9,9 @@ export type { ComposerDraftStash } from "./types";
 export function stashComposerDraft(draft: ComposerDraftStash): ComposerDraftStash {
   const payload: ComposerDraftStash = {
     text: draft.text || "",
+    locked_intent: draft.locked_intent,
+    locked_label: draft.locked_label,
+    locked_knowledge_id: draft.locked_knowledge_id,
     intent: draft.intent,
     chips: draft.chips || [],
     attachments: draft.attachments,

@@ -24,6 +24,7 @@ import { RuntimeActions } from "../components/RuntimeActions";
 import { ReplyContextPanel } from "../mail/ReplyContextPanel";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
+import { readWorkspaceDraft } from "../composer/taskDraft";
 import { applyAddressesToText } from "../composer/addresses";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
@@ -585,6 +586,14 @@ export default function Chat() {
 
   useEffect(() => {
     if (!id) return;
+    const workspace = account?.id ? readWorkspaceDraft(account.id,id) : null;
+    if (workspace) {
+      setText(workspace.draft.text); setEntryIntent(workspace.draft.intent || "free");
+      setLockedIntent(workspace.draft.locked_intent || null);
+      setLockedLabel(workspace.draft.locked_label || null);
+      setLockedKnowledgeId(workspace.draft.locked_knowledge_id || null);
+      setFocusDraft(true); setBlockSubmit(false); return;
+    }
     const fromNav = (location.state as { composerDraft?: ComposerDraft } | null)?.composerDraft;
     const draft = takeComposerDraft(id) || (fromNav?.text ? fromNav : null);
     const stashed = peekComposerDraft();

@@ -1,4 +1,5 @@
 import { mediaCrawlerConfigured } from "../crawl/managed-connection.js";
+import { employeeSkillPreferences, recordEmployeeSkillView, setEmployeeSkillFavorite } from "../host/employee-skill-preferences.js";
 import { publishKnowledgeConfig } from '../knowledge/skill-generation.js';
 import { starryKolConnectionHealth } from "../starrykol/connection.js";
 import fs from "node:fs";
@@ -265,6 +266,35 @@ misc.get("/version", (c) => {
 misc.get("/skills", (c) => {
   c.header("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
   return c.json(listedSkills(false).map((s) => ({ ...s, granted: true })));
+});
+misc.get("/skills/personal", async (c) => {
+  const user = scopedUser();
+  if (!user) throw new HttpFail(401, "authentication required");
+  const ids = listedSkills(false).filter(row => row.employee_visible !== false).map(row => String(row.id));
+  c.header("Cache-Control", "private, no-store");
+  return c.json({ items: await employeeSkillPreferences(user.id, ids) });
+});
+function skillPersonalActor(skillId: string): string {
+  const user = scopedUser();
+  if (!user) throw new HttpFail(401, "authentication required");
+  if (!taskDefinition(skillId) || !employeeVisibleSkill(skillId) || !visibleForRequest().has(skillId)
+    || skillMeta(skillId).employee_visible === false) throw new HttpFail(404, "skill not found");
+  return user.id;
+}
+misc.post("/skills/:id/favorite", async (c) => {
+  const id = c.req.param("id");
+  await setEmployeeSkillFavorite(skillPersonalActor(id), id, true);
+  return c.json({ id, favorite: true });
+});
+misc.delete("/skills/:id/favorite", async (c) => {
+  const id = c.req.param("id");
+  await setEmployeeSkillFavorite(skillPersonalActor(id), id, false);
+  return c.json({ id, favorite: false });
+});
+misc.post("/skills/:id/view", async (c) => {
+  const id = c.req.param("id");
+  await recordEmployeeSkillView(skillPersonalActor(id), id);
+  return c.json({ id });
 });
 misc.get("/skills/market", (c) => {
   c.header("Cache-Control", "private, max-age=60, stale-while-revalidate=300");

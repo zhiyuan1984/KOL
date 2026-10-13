@@ -12,6 +12,7 @@
     "test:e2e": "playwright test",
     "test:e2e:agents": "npm run build && playwright test --config=playwright.agents.config.ts",
     "test:e2e:changed": "node scripts/select-e2e.mjs",
+    "test:e2e:assets": "playwright test --config=playwright.asset-browse.config.ts",
     "test:e2e:employees": "playwright test --config=playwright.employees.config.ts",
     "test:e2e:runtime": "playwright test --config=playwright.runtime.config.ts",
     "test:e2e:discovery": "playwright test --config=playwright.discovery.config.ts",
