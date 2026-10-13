@@ -69,10 +69,19 @@ export async function syncKolProfileIndex(pageSize = 50): Promise<{
     let missingMetrics = 0;
     let detailFailed = 0;
     const detailFailedSamples: string[] = [];
+    let expectedTotal: number | null = null;
+    const seen = new Set<string>();
     for (;;) {
       const data = await pageKolProfiles({ pageNo, pageSize });
       const rows = listOf(data);
+      const total = Number(data.total);
+      if (!Number.isSafeInteger(total) || total < 0) throw new Error("starry_snapshot_total_missing");
+      if (expectedTotal !== null && expectedTotal !== total) throw new Error("starry_snapshot_total_changed");
+      expectedTotal = total;
       for (const profile of rows) {
+        const uid = firstString(profile.kolUid, profile.kol_uid, profile.uid);
+        if (!uid || seen.has(uid)) throw new Error("starry_snapshot_duplicate_or_missing_uid");
+        seen.add(uid);
         await persistStarryOwnership([profile], memoryCompanyId(), syncedAt);
         upsertAFromProfile(profile, syncedAt);
         const kolUid = firstString(profile.kolUid, profile.kol_uid);
@@ -96,10 +105,11 @@ export async function syncKolProfileIndex(pageSize = 50): Promise<{
         if (missingPublicMetrics(merged).length) missingMetrics += 1;
         count += 1;
       }
-      const total = Number(data.total || 0);
-      if (!rows.length || (total && pageNo * pageSize >= total) || rows.length < pageSize) break;
+      if (seen.size === expectedTotal) break;
+      if (!rows.length || seen.size > (expectedTotal ?? 0)) throw new Error("starry_snapshot_pagination_incomplete");
       pageNo += 1;
-      if (pageNo > 20) break;
+      const safeMaxPages = Math.max(1, Math.ceil((expectedTotal ?? 0) / pageSize) + 2);
+      if (pageNo > safeMaxPages) throw new Error("starry_snapshot_pagination_safety_limit");
     }
     audit("host", "kol.memory.profile_sync", {
       count, tool: "pageKolProfiles", missing_metrics: missingMetrics, detail_failed: detailFailed,

@@ -123,6 +123,20 @@ export async function pgEnsureSystemCronJobs(from = new Date()): Promise<void> {
           JSON.stringify(DEFAULT_RETRY), JSON.stringify(DEFAULT_TAKEOVER), next, now],
       );
     }
+    // 三项已通过受控兼容桥接接入：回填既有库状态，使历史 disabled
+    // 作业不会继续静默停摆；业务副作用仍由各 handler 的白名单合同限制。
+    for (const key of ["ownership-release", "mail-memory-increment"] as const) {
+      const seed = SYSTEM_JOBS.find((item) => item.job_key === key);
+      if (!seed) continue;
+      const next = nextRunAt(seed.cron_expr, "Asia/Shanghai", from).toISOString();
+      await client.query(
+        `UPDATE cron_jobs SET status='published', next_run_at=COALESCE(next_run_at,$2),
+                condition_json=$3, updated_at=$4
+           WHERE id=$1 AND status='disabled'`,
+        [seed.id, next, JSON.stringify(seed.condition), now],
+      );
+    }
+
     // 既有库回填：discovery-search 的旧条件（含 enabled:false / not_enabled_no_live_crawler
     // 门禁）原地升级为 system_template 结构；已配置的模板一律保留，状态列不动。
     const discoverySeed = SYSTEM_JOBS.find((seed) => seed.job_key === "discovery-search");

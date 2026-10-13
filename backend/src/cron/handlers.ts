@@ -11,8 +11,13 @@ import type { Json, Row } from "../types.js";
 import { HttpFail } from "../host/errors.js";
 import { enqueueSystemCrawl } from "../crawl/runtime-gates.js";
 import { cronJson, normalizeSystemTemplate } from "./contracts.js";
+import { syncKolProfileIndexPostgres } from "../postgres/kol-pool-sync.js";
+import { getConn } from "../db.js";
+import { evaluateOwnershipRelease, listOwnedCollaborations, releaseFollowOwnershipIfEligible, ownershipReceiptMeta } from "../gateway/ownership-release.js";
+import { runMailMemoryIncrement } from "../host/mail-memory-job.js";
+import { runAiTask } from "./ai-task.js";
 
-export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment" | "ai-task" | "kol-deadline-sweep" | "kol-mail-reply-scan";
+export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment" | "ai-task" | "kol-deadline-sweep" | "kol-mail-reply-scan" | "kol-pool-sync";
 
 export type CronHandlerResult = {
   status: "succeeded" | "skipped" | "failed" | "needs_takeover";
@@ -124,21 +129,46 @@ async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerRe
   };
 }
 
-function migrationTakeover(handlerKey: CronHandlerKey, title: string): CronHandlerResult {
+async function ownershipRelease(ctx: CronHandlerContext): Promise<CronHandlerResult> {
+  const db = getConn();
+  const rows = listOwnedCollaborations(db);
+  const released: Json[] = [];
+  const skipped: Json[] = [];
+  for (const row of rows) {
+    const lastAt = String(row.last_effective_mail_at || "").trim() || null;
+    const decision = evaluateOwnershipRelease(row, lastAt, ctx.nowMs ?? Date.now());
+    if (decision.action !== "release") {
+      skipped.push({ follow_id: decision.follow_id, collaboration_id: decision.collaboration_id, reason: decision.reason, detail: decision.detail });
+      continue;
+    }
+    const applied = releaseFollowOwnershipIfEligible({
+      db, followId: decision.follow_id, collaborationId: decision.collaboration_id,
+      expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs,
+    });
+    (applied.action === "release" ? released : skipped).push(applied as unknown as Json);
+  }
+  return { status: "succeeded", receipt: {
+    handler_key: "ownership-release", side_effect: released.length ? "write" : "none", created_session: false,
+    source: "kol_follow_index", policy: ownershipReceiptMeta(), scanned: rows.length, released: released.length, skipped: skipped.length,
+    release_ids: released.map((item) => String((item as Json).follow_id || "")),
+  } };
+}
+
+async function mailMemoryIncrement(ctx: CronHandlerContext): Promise<CronHandlerResult> {
+  const condition = cronJson(ctx.job.condition_json);
+  const mailbox = String(condition.mailbox || "").trim() || undefined;
+  const stats = await runMailMemoryIncrement(mailbox);
   return {
-    status: "needs_takeover",
-    error_code: "postgres_handler_dependency_not_migrated",
-    error_summary: `${title}依赖的业务仓储尚未完成 PostgreSQL 原生迁移，已阻止旧数据库兼容路径执行。`,
-    receipt: {
-      handler_key: handlerKey, title, side_effect: "none", created_session: false,
-      migration_state: "blocked_pending_native_repository",
-    },
+    status: stats.errors && !stats.scanned ? "failed" : "succeeded",
+    error_code: stats.errors && !stats.scanned ? "mail_memory_increment_failed" : undefined,
+    error_summary: stats.errors && !stats.scanned ? String(stats.error || "邮件记忆增量失败") : undefined,
+    receipt: { handler_key: "mail-memory-increment", side_effect: stats.translated || stats.summarized || stats.digested || stats.persons ? "write" : "none", created_session: false, source: "mail_memory_increment", mailbox: mailbox || "*", ...stats },
   };
 }
 
-function ownershipRelease(): CronHandlerResult { return migrationTakeover("ownership-release", "14 天无互动回公海"); }
-function mailMemoryIncrement(): CronHandlerResult { return migrationTakeover("mail-memory-increment", "邮件记忆增量"); }
-function aiTask(): CronHandlerResult { return migrationTakeover("ai-task", "AI 定时任务"); }
+async function aiTask(ctx: CronHandlerContext): Promise<CronHandlerResult> {
+  return runAiTask(ctx);
+}
 
 /**
  * 发现搜索（ADR-2026-10-08）：按系统模板生成一次采集需求，写入 PG 采集排队。
@@ -216,6 +246,7 @@ export const CRON_HANDLERS: Record<CronHandlerKey, CronHandler> = {
   "ai-task": aiTask,
   "kol-deadline-sweep": kolDeadlineSweep,
   "kol-mail-reply-scan": kolMailReplyScan,
+  "kol-pool-sync": kolPoolSync,
 };
 
 /** KOL 工单 deadline 自动生产者：扫描逾期/临近的拍摄与结算工单，以及已发布未结算的项目，
@@ -234,6 +265,16 @@ async function kolDeadlineSweep(): Promise<CronHandlerResult> {
   };
 }
 
+/** 邮件回复自动检测：inbound 邮件 → 线索匹配 → lead.reply_received 事件（PG-only）。 */
+async function kolPoolSync(): Promise<CronHandlerResult> {
+  const result = await syncKolProfileIndexPostgres();
+  return {
+    status: result.ok ? "succeeded" : "failed",
+    error_code: result.ok ? undefined : "starry_pool_sync_failed",
+    error_summary: result.error,
+    receipt: { handler_key: "kol-pool-sync", side_effect: result.ok ? "write" : "none", created_session: false, source: "starry.pageKolProfiles", ...result },
+  };
+}
 /** 邮件回复自动检测：inbound 邮件 → 线索匹配 → lead.reply_received 事件（PG-only）。 */
 async function kolMailReplyScan(): Promise<CronHandlerResult> {
   const { scanMailReplies } = await import("../ticket-domain/kol-mail-reply-scan.js");
@@ -255,14 +296,15 @@ export function isCronHandlerKey(key: string): key is CronHandlerKey { return Ob
 
 export function handlerContract(key: string): Json {
   const contracts: Record<string, Json> = {
-    "ai-task": { title: "AI 定时任务", execute_as: "owner", side_effect: "none", migration_state: "blocked_pending_native_repository", creates_session: false },
+    "ai-task": { title: "AI 定时任务", execute_as: "owner", side_effect: "none", source: "tasks.from_text+task_run", creates_session: true },
     "overdue-scan": { title: "失联与延期扫描", execute_as: "system", side_effect: "read", source: "postgresql_formal_tickets", creates_session: false },
     "daily-task-snapshot": { title: "每日待办快照", execute_as: "system", side_effect: "read", source: "postgresql_formal_tickets", creates_session: false },
-    "ownership-release": { title: "14 天无互动回公海", execute_as: "system", side_effect: "none", migration_state: "blocked_pending_native_repository", creates_session: false },
+    "ownership-release": { title: "14 天无互动回公海", execute_as: "system", side_effect: "write", source: "kol_follow_index", creates_session: false },
     "discovery-search": { title: "发现搜索", execute_as: "system", side_effect: "enqueue", source: "system_template", creates_session: false },
-    "mail-memory-increment": { title: "邮件记忆增量", execute_as: "system", side_effect: "none", migration_state: "blocked_pending_native_repository", creates_session: false },
+    "mail-memory-increment": { title: "邮件记忆增量", execute_as: "system", side_effect: "write", source: "mail_memory_increment", creates_session: false },
     "kol-deadline-sweep": { title: "KOL 工单 deadline 扫描", execute_as: "task_owner", side_effect: "write", source: "postgresql_work_orders+kol_cooperations", creates_session: false },
     "kol-mail-reply-scan": { title: "邮件回复自动检测", execute_as: "lead_owner", side_effect: "write", source: "postgresql_kol_mail_items+kol_leads", creates_session: false },
+    "kol-pool-sync": { title: "公海全量对账", execute_as: "system", side_effect: "write", source: "starry.pageKolProfiles", creates_session: false },
   };
   return contracts[key] || { title: key, creates_session: false };
 }

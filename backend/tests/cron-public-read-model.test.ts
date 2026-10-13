@@ -42,17 +42,14 @@ describe("cron employee public read model", () => {
     });
   });
 
-  it("keeps handler migration isolation explicit for all blocked contracts", () => {
+  it("exposes the three bridged handlers as runnable low-risk contracts", () => {
     for (const handler_key of ["ai-task", "ownership-release", "mail-memory-increment"]) {
       const fields = cronPublicReadFields(job({ handler_key }), admin);
       expect(fields).toMatchObject({
-        execution_capability: {
-          ready: false,
-          code: "blocked_pending_native_repository",
-        },
-        allowed_actions: { run_now: false },
+        execution_capability: { ready: true },
+        allowed_actions: { run_now: true },
       });
-      expect((fields.allowed_actions as { run_reason?: string }).run_reason).toContain("已隔离");
+      expect((fields.allowed_actions as { run_reason?: string }).run_reason).toBeUndefined();
     }
   });
 

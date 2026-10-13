@@ -77,7 +77,7 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
     : null;
   const rows = await postgresQuery<{
     items: Row[]; total: string; matched: string; new_count: string; overdue_count: string; library_value: string | null;
-    ownership_dependent_count: string;
+    ownership_dependent_count: string; health_state: string | null; last_success_at: string | null; last_attempt_at: string | null; last_run_id: string | null;
   }>(`
     WITH source AS (
       SELECT ${columns.map(poolColumn).join(", ")},
@@ -158,7 +158,11 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
       (SELECT count(*) FROM kol_profile_index dependent WHERE dependent.company_id=$1 AND dependent.pool_status='open'
         AND dependent.ingest_source IS DISTINCT FROM 'crawler'
         AND dependent.ingest_source IS DISTINCT FROM 'discovery-candidate')::text AS ownership_dependent_count,
-      (SELECT value FROM app_state WHERE key='starry_library_sync') AS library_value
+      (SELECT value FROM app_state WHERE key='starry_library_sync') AS library_value,
+      (SELECT state FROM starry_ownership_sync_state WHERE company_id=$1) AS health_state,
+      (SELECT last_success_at FROM starry_ownership_sync_state WHERE company_id=$1) AS last_success_at,
+      (SELECT last_attempt_at FROM starry_ownership_sync_state WHERE company_id=$1) AS last_attempt_at,
+      (SELECT last_run_id FROM starry_ownership_sync_state WHERE company_id=$1) AS last_run_id
   `, [companyId, options.filter, options.query, options.limit, options.offset, brandFilter]);
   const result = rows[0]!;
   let library: Json = { ok: false, source: "starry", tool: "listAllKolProfiles", count: 0 };
@@ -167,7 +171,7 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
     if (status) library = { ...library, ok: Boolean(status.ok), count: Number(status.count || 0), synced_at: status.synced_at, error: status.error };
   } catch { /* Malformed stored status is not successful synchronization. */ }
   const matched = Number(result.matched);
-  const health=(await postgresPool().query("SELECT state,error FROM starry_ownership_sync_state WHERE company_id=$1",[companyId])).rows[0];
+  const health=(await postgresPool().query("SELECT state,error,last_success_at,last_attempt_at,last_run_id FROM starry_ownership_sync_state WHERE company_id=$1",[companyId])).rows[0];
   // An unrelated Starry snapshot failure cannot make the crawler public pool
   // unavailable, or turn a legitimate search miss into a service failure.
   if(health?.state==='failed' && Number(result.total)===0 && Number(result.ownership_dependent_count)>0)
@@ -178,6 +182,14 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
     items: await attachLeadAssessments(
       result.items.map((row) => publicProfileFields({ ...row, public_stage: row.effective_stage })),
     ),
+    health: {
+      status: health?.state === "ready" ? "healthy" : health?.state === "failed" ? "degraded" : "unknown",
+      state: health?.state || "unknown",
+      last_success_at: health?.last_success_at || null,
+      last_attempt_at: health?.last_attempt_at || null,
+      last_run_id: health?.last_run_id || null,
+      error: health?.error || null,
+    },
     page: {
       offset: options.offset, limit: options.limit, total: Number(result.total), matched,
       new_count: Number(result.new_count),

@@ -147,7 +147,8 @@ describePostgres("native PostgreSQL Cron scheduler", () => {
     const release = await pgCronJobById("ownership-release");
     const releaseRun = await pgEnqueueManualCronRun(String(release?.id), "2031-01-01T03:00:00.000Z");
     await pool.query("UPDATE cron_runs SET status='running',started_at=$1 WHERE id=$2", ["2031-01-01T03:00:01.000Z", releaseRun.run_id]);
-    const quarantined = await executeCronRun(releaseRun.run_id, undefined, Date.parse("2031-01-01T03:00:02.000Z"));
-    expect(quarantined).toMatchObject({ status: "needs_takeover", error_code: "postgres_handler_dependency_not_migrated" });
+    const releaseResult = await executeCronRun(releaseRun.run_id, undefined, Date.parse("2031-01-01T03:00:02.000Z"));
+    expect(releaseResult).toMatchObject({ status: "succeeded" });
+    expect(releaseResult.receipt_json).toMatchObject({ handler_key: "ownership-release" });
   });
 });
