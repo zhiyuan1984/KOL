@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { randomUUID } from 'node:crypto';
 import { authDisabled, requireAdmin } from "../auth.js";
 import { audit, getConn, nowIso } from "../db.js";
 import { HttpFail } from "../host/errors.js";
@@ -28,7 +29,8 @@ function schema(): void {
   )`);
 }
 const TRACE_FIELDS = ["connector_id", "agent_id", "skill_id", "run_id", "session_id", "call_id", "tool", "tool_name",
-  "schema_hash", "version", "connector_version", "policy_version", "action", "duration_ms", "code", "dispatched", "is_error"];
+  "schema_hash", "version", "connector_version", "policy_version", "action", "duration_ms", "code", "dispatched", "is_error",
+  'request_id', 'upstream_status', 'stage', 'status'];
 function tracePayload(value: unknown): Json {
   let parsed: Json = {};
   try { parsed = JSON.parse(String(value || "{}")); } catch { return {}; }
@@ -60,14 +62,17 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     const before = getConnectorConfig(id);
     if (!before) throw new HttpFail(409, { code: "runtime_connector_not_configured" });
     schema();
+    const requestId = randomUUID();
+    c.header('X-Request-ID', requestId);
     const started = Date.now();
     const checkedAt = nowIso();
     // An HTTP action catalog is configuration, not an external reachability check.
     const kind = before.config.protocol === "http" ? "http_definition" : "mcp_tools_list";
     let count = 0;
     let code: string | null = null;
+    let upstreamStatus: number | null = null;
     try {
-      const context = { agentId: "governance", skillId: "", userId: actor.id, runId: `probe:${id}` };
+      const context = { agentId: "governance", skillId: "", userId: actor.id, runId: `probe:${requestId}` };
       const tools = await inspect(context, id);
       count = tools.length;
       if (getConnectorConfig(id)?.version !== before.version) {
@@ -80,7 +85,11 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
           connector_id: id, config_version: before.version, ...registration,
         });
       }
-    } catch (error) { code = runtimeErrorCode(error); }
+    } catch (error) {
+      code = runtimeErrorCode(error);
+      const status = (error as { remoteStatus?: unknown } | null)?.remoteStatus;
+      if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) upstreamStatus = status;
+    }
     const duration = Date.now() - started;
     const status = code ? "failed" : "succeeded";
     getConn().prepare(`INSERT INTO runtime_connector_probes
@@ -101,9 +110,11 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
       checkedAt,
       id,
     );
-    audit(actor.id, "runtime.connector.probed", { connector_id: id, version: before.version, status, probe_kind: kind, tool_count: count, duration_ms: duration, code });
+    audit(actor.id, "runtime.connector.probed", { connector_id: id, version: before.version, status, probe_kind: kind, tool_count: count, duration_ms: duration, code,
+      request_id: requestId, run_id: `probe:${requestId}`, upstream_status: upstreamStatus });
     return c.json({ connector_id: id, config_version: before.version, actor_id: actor.id, checked_at: checkedAt,
       status, probe_kind: kind, tool_count: count, duration_ms: duration, error_code: code,
+      request_id: requestId, upstream_status: upstreamStatus,
       live_verified: !code && kind !== "http_definition",
       notice: kind === "http_definition" ? "仅校验 HTTP 动作定义，未调用外部业务接口。" : "仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。",
     }, code ? 502 : 200);

@@ -4,8 +4,19 @@ import { api } from '../api';
 import { ActionGroup, HorizontalForm, RecordRow, TruncatableText } from './InformationLayout';
 import { starryUnbindConfirm } from '../adminConfirm';
 import type { SettingsReceipt } from '../settingsReceipt';
-import { settingsClient, settingsError } from '../settingsClient';
+import { settingsClient, settingsFailure, type SettingsFailure } from '../settingsClient';
 import { FeedbackLine, LoadState, useLoad, type Feedback } from '../settings/SettingsState';
+
+function feedbackFor(failure: SettingsFailure, retry?: () => void): Feedback {
+  return {
+    kind: failure.kind,
+    text: failure.summary,
+    description: failure.description,
+    requestId: failure.requestId,
+    retry: failure.retryable ? retry : undefined,
+    retryLabel: retry ? '重新读取' : undefined,
+  };
+}
 
 export default function StarryBindForm({ onSaved, onReceipt, onDirty }: {
   onSaved: () => void;
@@ -17,11 +28,12 @@ export default function StarryBindForm({ onSaved, onReceipt, onDirty }: {
   const [chosen, setChosen] = useState(''); const [busy, setBusy] = useState(''); const [feedback, setFeedback] = useState<Feedback>(null);
   const [modal, holder] = Modal.useModal();
   const probe = async () => {
-    setBusy('probe'); setFeedback(null);
+    setBusy('probe'); setFeedback(null); setMailboxes([]); setChosen(''); onDirty?.(false);
     try {
-      const response = await api.probeStarryBinding(); setMailboxes(response.mailboxes || []); setChosen(''); onDirty?.(false);
-      if (!response.mailboxes?.length) setFeedback({ kind: 'error', text: '当前没有可连接的邮箱，请联系管理员核对账号。' });
-    } catch (e) { setFeedback({ kind: 'error', text: settingsError(e, '无法读取可用邮箱，请重试或联系管理员。') }); }
+      const response = await api.probeStarryBinding(); const candidates = response.mailboxes || [];
+      setMailboxes(candidates); result.reload();
+      if (!candidates.length) setFeedback({ kind: 'info', text: '当前没有可连接的邮箱。', description: '已读取当前可用邮箱，但没有可连接的邮箱。请联系管理员核对账号。' });
+    } catch (e) { setFeedback(feedbackFor(settingsFailure(e, '无法读取可用邮箱，请重试或联系管理员。'), () => void probe())); }
     finally { setBusy(''); }
   };
   const save = async () => {
@@ -32,21 +44,21 @@ export default function StarryBindForm({ onSaved, onReceipt, onDirty }: {
       await api.saveStarryBinding({ mailbox_email: chosen, mailbox_id: picked?.id, owner_name: picked?.owner_name });
       setMailboxes([]); setChosen(''); onDirty?.(false); result.reload(); onSaved();
       setFeedback({ kind: 'success', text: '邮箱已连接。' });
-    } catch (e) { setFeedback({ kind: 'error', text: settingsError(e, '邮箱未连接，请重试。') }); }
+    } catch (e) { setFeedback(feedbackFor(settingsFailure(e, '邮箱未连接，请重试。'))); }
     finally { setBusy(''); }
   };
   return <section className="settings-editor settings-list-panel" data-starry-bind>
     <p className="settings-help">管理本人业务邮箱。连接正常不代表可以发送，执行时仍会校验权限。</p>
     <LoadState {...result} retry={result.reload}>
       {!result.data?.mailboxes.length && <p className="settings-help" data-starry-status="unbound">尚未连接业务邮箱。</p>}
-      {result.data?.mailboxes.map(row => <RecordRow key={row.id || row.email} title={<TruncatableText text={row.email} />} meta={row.brand || undefined} status={<span data-starry-status={row.status}>{row.status === 'connected' ? '已连接' : row.status === 'expired' ? '连接已过期' : '待核验'}{row.is_default ? ' · 默认跟进邮箱' : ''}</span>} actions={<ActionGroup>
-          {row.status !== 'connected' && <Button type="text" disabled={Boolean(busy)} onClick={() => void probe()}>重新验证</Button>}
+      {result.data?.mailboxes.map(row => <RecordRow key={row.id || row.email} title={<TruncatableText text={row.email} />} meta={row.brand || undefined} status={<span data-starry-status={row.status}>{row.status === 'connected' ? '已连接' : row.status === 'expired' ? '连接已过期' : '品牌归属待核验'}{row.is_default ? ' · 默认跟进邮箱' : ''}{row.status === 'unverified' && <span className="settings-help"> · 品牌归属待核验不等于认证已完成。</span>}</span>} actions={<ActionGroup>
+          {row.status !== 'connected' && <Button type="text" disabled={Boolean(busy)} onClick={() => void probe()}>重新读取</Button>}
           <Button type="text" danger data-starry-unbind disabled={Boolean(busy)} onClick={async () => {
             const copy = starryUnbindConfirm(row.email, '');
             if (!await modal.confirm({ title: copy.title, content: <><p>{copy.object} · {copy.scope}</p><p>{copy.consequence}</p>{row.is_default && <p>解除后不会自动改用其他邮箱。</p>}</>, okText: copy.confirmLabel, cancelText: '取消操作', autoFocusButton: 'cancel', okButtonProps: { danger: true } })) return;
             setBusy(row.email); setFeedback(null);
             try { await api.clearStarryBinding(row.email); result.reload(); setMailboxes([]); setChosen(''); onDirty?.(false); onReceipt?.({ kind: 'starry-unbind', object: copy.object, scope: copy.scope, consequence: copy.consequence, text: `已解除邮箱绑定「${copy.object}」。` }); onSaved(); }
-            catch (e) { setFeedback({ kind: 'error', text: settingsError(e, '绑定未解除，请重试。') }); }
+            catch (e) { setFeedback(feedbackFor(settingsFailure(e, '绑定未解除，请重试。'))); }
             finally { setBusy(''); }
           }}>解除绑定</Button>
         </ActionGroup>} />)}

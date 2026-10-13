@@ -1,6 +1,7 @@
 import { getConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeMcpContent } from "../mcp/remote.js";
+import { RemoteToolFailure } from "../mcp/tool-failure.js";
 import type { Json, Row } from "../types.js";
 import { createConfiguredClient } from "./execution.js";
 import { getConnectorConfig } from "./store.js";
@@ -30,7 +31,10 @@ export function createManagedClient(connectorId: string, userId: string, credent
     async callTool(name: string, args: Json = {}): Promise<Json> {
       const result = await client.callToolRaw(name, args);
       const normalized = normalizeMcpContent(result);
-      if (result.isError) throw new Error(String(normalized.text || "remote MCP tool failed"));
+      if (result.isError) {
+        if (connectorId === 'starrykol' && name === 'pageMailboxes') throw new RemoteToolFailure(normalized);
+        throw new Error(String(normalized.text || 'remote MCP tool failed'));
+      }
       return normalized;
     },
     close: () => client.close(),
