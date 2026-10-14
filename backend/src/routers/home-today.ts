@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { databaseEngine } from "../db.js";
 import { startNativeTodayPlan } from "../postgres/today-plan-repository.js";
 import { TASK_MEMORY } from "../host/memory-kinds.js";
-import { ownerId, PLAN_SCOPES, SCOPE_TABLE, packTodayPlanContext, planningRunInput } from "../host/today-plan-context.js";
+import { ownerId, PLAN_SCOPES, SCOPE_TABLE, packTodayPlanContext, planningRunInput, planningHarnessMount, planningRuntimeIdentity } from "../host/today-plan-context.js";
 import { planTaskType } from "../host/planning-types.js";
 import { loadTodayTaskResults } from "../host/today-tasks.js";
 import { startTodayAnalyze, startTodayPlan, todayBriefSnapshot } from "../host/today-plan-run.js";
@@ -118,7 +118,13 @@ homeToday.get("/home/today-task-memory", (c) => {
 /** P1: lock today_analyze without from-text recognition. */
 homeToday.post("/home/today-brief/enqueue", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
-  const started = startTodayAnalyze(body, ownerId());
+  const owner = ownerId();
+  const identity = planningRuntimeIdentity("today_analyze");
+  const objects = Array.isArray(body.objects) ? body.objects : Array.isArray(body.object_ids) ? body.object_ids : [];
+  const payload: Json = { mode: "today_analyze", agent_id: identity.agent_id, expert_id: identity.session_identity, skip_user_memory: true, objects, planning_harness: planningHarnessMount("today_analyze") };
+  const started = databaseEngine() === "postgres"
+    ? await startNativeTodayPlan({ owner, taskType: "today_analyze", title: "今日对象分析", scope: "today", producer: "agent_plan", payload, extraPayload: { prompt: String(body.text || "分析所选对象并建议下一步，不要改状态。") }, queuedLabel: "对象分析已入队", progress: [] })
+    : startTodayAnalyze(body, owner);
   return c.json({
     ...started,
     task_type: "today_analyze",

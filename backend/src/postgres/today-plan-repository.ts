@@ -82,7 +82,7 @@ export async function startNativeTodayPlan(input: Input): Promise<NativeStart> {
       object_ref: { type: "ticket", id: workItemId }, rule_id: input.taskType === "today_plan" ? "workbench-plan" : "today-analyze",
       rule_version: "task-workbench.v1", risk_level: "low", scope_snapshot: { scope: input.scope, projection_version: "task-workbench.v1" },
       priority_class: "normal", max_attempts: 1, idempotency_key: `${input.taskType === "today_plan" ? "work_plan.run" : "today_analyze.run"}:${runId}`,
-      payload: { owner: input.owner, work_item_id: workItemId, run_id: runId, scope: input.scope, task_payload: input.payload, ...input.extraPayload },
+      payload: { owner: input.owner, work_item_id: workItemId, run_id: runId, session_id: sessionId, scope: input.scope, task_payload: input.payload, ...input.extraPayload },
       outbox: { event_type: `${input.taskType === "today_plan" ? "work_plan.run" : "today_analyze.run"}.queued`, aggregate_type: "task_run", aggregate_id: runId, payload: { work_item_id: workItemId, run_id: runId, scope: input.scope } },
     }, { client });
     await appendEvent(client, workItemId, runId, "run.queued", input.queuedLabel, "queued", "已通过 PostgreSQL 原子事务持久化等待执行");
