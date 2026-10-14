@@ -42,7 +42,7 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
   const jobType = String(claimed.job_type);
   try {
     if (jobType === "review.timeout") {
-      const instanceId=executeReviewTimeout(claimed);
+      const instanceId=await executeReviewTimeout(claimed);
       return {execution_job_id:id,job_type:jobType,handled:true,outcome:"processed",target_id:instanceId};
     }
     const registered = executionHandler(jobType);

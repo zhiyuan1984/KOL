@@ -5,9 +5,11 @@ import {
 } from "../execution-jobs/store.js";
 import { reviewContextForActor } from "./review-access.js";
 import { ReviewService } from "./review-service.js";
+import { executePostgresReviewTimeout } from "./review-postgres-worker.js";
 
 /** No model or external messaging. Executes only the frozen, explicitly published timeout policy. */
-export function executeReviewTimeout(job: ClaimedExecutionJob) {
+export async function executeReviewTimeout(job: ClaimedExecutionJob) {
+  if (process.env.DATABASE_URL) return (await executePostgresReviewTimeout(job)).instanceId;
   return txImmediate((db) => {
     const current = db
       .prepare(
