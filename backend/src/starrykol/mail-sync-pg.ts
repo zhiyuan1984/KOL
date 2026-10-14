@@ -226,16 +226,18 @@ export async function updateThreadAfterHydratePg(input: {
   preview: string;
   fromEmail: string;
   fromName: string;
+  peerEmail: string;
+  peerName: string;
   occurredAt: string;
 }): Promise<void> {
   await postgresPool().query(
     `UPDATE kol_mail_threads
      SET subject=$1, last_snippet=$2, last_preview=$3, last_from=$4, last_from_name=$5,
-         last_at=$6, updated_at=$7
-     WHERE id=$8`,
+         last_at=$6, updated_at=$7, peer_email=$8, peer_name=$9
+     WHERE id=$10`,
     [
       input.subject, input.snippet, input.preview, input.fromEmail, input.fromName,
-      toTs(input.occurredAt) || nowIso(), nowIso(), input.threadId,
+      toTs(input.occurredAt) || nowIso(), nowIso(), input.peerEmail, input.peerName, input.threadId,
     ],
   );
 }

@@ -841,7 +841,7 @@ test("保留的 data-mail-* 契约及新唯一 composer、星标和标签选择�
   await page.goto("/mail?c=3901");
   const required = [
     "[data-mail-page]", "[data-mail-panes]", "[data-mail-pane='list']", "[data-mail-pane='detail']", "[data-mail-source='api']",
-    "[data-mail-list]", "[data-mi-search]", "[data-mi-back]", "[data-mi-compose]", "[data-mi-rail]", "[data-mail-filter-unbound]",
+    "[data-mail-list]", "[data-mi-topbar]", "[data-mi-search]", "[data-mi-back]", "[data-mi-compose]", "[data-mi-rail]", "[data-mail-filter-unbound]",
     "[data-mail-correspondent]", "[data-mail-thread-row]", "[data-mail-timeline]", "[data-mail-timeline-item]", "[data-mail-selected]",
     "[data-mi-threadbar]", "[data-mi-stagewrap]", "[data-mi-aibar]", "[data-composer-input]", "details[data-composer-task-menu]",
     "[data-mail-side]", "[data-mail-reading-pane]", "[data-mail-thread]", "[data-mail-mobiletabs]", "[data-mail-fold='summary']",
@@ -870,7 +870,7 @@ test("首屏骨架保留导航与返回，不呈现虚假的可用邮箱", async
   const skeleton = page.locator(".mail-pane-skeleton");
   await expect(skeleton).toBeVisible();
   await expect(page.locator("[data-mail-state='loading']")).toHaveCount(1);
-  await expect(page.locator("[data-mi-rail] [data-mi-back]")).toBeVisible();
+  await expect(page.locator("[data-mi-topbar] [data-mi-back]")).toBeVisible();
   await expect(page.locator("[data-mi-compose]")).toBeDisabled();
   await expect(page.locator("[data-mail-label-confirm]")).toHaveCount(0);
 });
@@ -1232,7 +1232,7 @@ test("已有标签可筛选选择；手动输入新标签走 name 创建并打�
   expect(store.posts).toHaveLength(1);
   expect(sessions).toEqual([]);
 
-  // 手动输入新标签：走 name 创建（不存在则新建），打标到当前会话。
+  // 手动输入新标签：走 name 创建（不存在则新建），打标到当前对方。
   await openLabelPicker(page);
   await page.locator("[data-mail-label-input]").fill("手工跟进");
   await page.locator("[data-mail-label-add]").click();
@@ -1366,7 +1366,7 @@ test.describe("触控与减弱动效", () => {
     await mockFormalMail(page); await mockLabelStore(page);
     await page.goto("/mail?c=3901&m=m2");
     await expect(page.locator("[data-mail-side]")).toBeVisible();
-    await expect(page.locator("[data-mi-rail] [data-mi-back]")).toBeVisible();
+    await expect(page.locator("[data-mi-topbar] [data-mi-back]")).toBeVisible();
     await openLabelPicker(page);
     await page.locator("[data-mail-label-search]").fill("待跟进");
     await selectExistingLabel(page, "follow_up");
