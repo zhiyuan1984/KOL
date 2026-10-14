@@ -65,10 +65,10 @@ function codexStrictObject(properties: Record<string, Json>): Json {
     additionalProperties: false,
   };
 }
-function authorizedReviewTemplates(extra: Json): unknown {
+async function authorizedReviewTemplates(extra: Json): Promise<unknown> {
   const actor = scopedUser();
   if (!actor) return null;
-  try { return reviewAssistantContext(getConn(), actor.id, typeof extra.review_company === "string" ? extra.review_company : undefined); }
+  try { return await reviewAssistantContext(actor.id, typeof extra.review_company === "string" ? extra.review_company : undefined); }
   catch (error) { if (!(error instanceof HttpFail)) throw error; return { templates: [], unavailable_reason: error.detail }; }
 }
 const APPROVAL_FX_SCHEMA = codexStrictObject({

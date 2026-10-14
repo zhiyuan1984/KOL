@@ -4,9 +4,9 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { requireAdmin, scopedUser } from "../auth.js";
 import { dataDir } from "../config.js";
-import { getConn } from "../db.js";
-import { reviewContextForActor } from "../approval/review-access.js";
-import { ReviewService, type ReviewContext } from "../approval/review-service.js";
+import type { ReviewContext } from "../approval/review-service.js";
+import { postgresReviewContext } from "../approval/review-postgres-access.js";
+import { PostgresReviewService } from "../approval/review-postgres-service.js";
 import { reviewIntake } from "../approval/review-rollout.js";
 import { postgresPool, postgresQuery, postgresTransaction } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
@@ -29,7 +29,7 @@ export async function publicationContext(company?: string): Promise<ReviewContex
   const user = scopedUser();
   if (!user) fail("authentication_required", "请登录", 401);
   (await ensureOrganizationTree());
-  return reviewContextForActor(getConn(), user!.id, company);
+  return postgresTransaction(async client => postgresReviewContext(client, user!.id, company));
 }
 async function document(id: string, tenant: string, client?: PoolClient) {
   const rows = await (client || postgresPool()).query(
@@ -170,7 +170,7 @@ async function publicationCommand(id: string, note: string, ctx: ReviewContext, 
 export async function checkPublication(id:string,note:string,ctx:ReviewContext,extraValues:unknown={}) {
   try {
     const {command}=await publicationCommand(id,note,ctx,extraValues);
-    const summary=new ReviewService(getConn(),ctx).preview(command);
+    const summary=await postgresTransaction(async client => new PostgresReviewService(client,ctx).preview(command));
     return {allowed:true,reason:"",reviewers:summary.reviewers || []};
   } catch(error) {
     if(!(error instanceof HttpFail)) throw error;
@@ -180,11 +180,14 @@ export async function checkPublication(id:string,note:string,ctx:ReviewContext,e
 }
 export async function preparePublication(id:string,note:string,ctx:ReviewContext,extraValues:unknown={}) {
   const {command,doc,snapshot,token,binding,values}=await publicationCommand(id,note,ctx,extraValues);
-  // Existing review service owns confirmation/organization parsing. The native
-  // trigger performs the atomic object association inside its submit transaction.
-  const prepared = new ReviewService(getConn(),ctx).prepare(command);
-  await postgresQuery(`INSERT INTO knowledge_publication_requests(id,tenant,document_id,actor,template_id,template_version,binding_version,snapshot,review_values,expires_at,created_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[token,ctx.tenant,id,ctx.actor,binding.template_id,binding.published_version,binding.version,JSON.stringify(snapshot),JSON.stringify(values),prepared.expiresAt,stamp()]);
+  // Confirmation token and frozen publication request commit together.  The generic
+  // command trigger consumes this request in its own PostgreSQL command transaction.
+  const prepared = await postgresTransaction(async client => {
+    const result = await new PostgresReviewService(client,ctx).prepare(command);
+    await client.query(`INSERT INTO knowledge_publication_requests(id,tenant,document_id,actor,template_id,template_version,binding_version,snapshot,review_values,expires_at,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[token,ctx.tenant,id,ctx.actor,binding.template_id,binding.published_version,binding.version,JSON.stringify(snapshot),JSON.stringify(values),result.expiresAt,stamp()]);
+    return result;
+  });
   return {...prepared,command,material:{title:doc.title,base_name:doc.base_name,pages:snapshot.pages,version:snapshot.document_version},
     summary:{...prepared.summary,consequence:"审批通过后将自动发布此版本，供获准使用该知识库的技能检索；不会自动重跑原咨询任务。"}};
 }
@@ -228,7 +231,7 @@ export async function knowledgeReviewTrial(instanceId:string,query:string,ctx:Re
   if(typeof query!=="string" || !query.trim() || query.length>2000) fail("knowledge_query_required","请输入试算问题，最多2000字",422);
   const material=await knowledgeReviewMaterial(instanceId,ctx);
   const result=await queryDocuments({query,base_id:material.base_id,doc_ids:[material.document_id],include_pending:true},ctx.actor);
-  await knowledgeReviewMaterial(instanceId,reviewContextForActor(getConn(),ctx.actor,ctx.tenant));
+  await postgresTransaction(async client => knowledgeReviewMaterial(instanceId,await postgresReviewContext(client,ctx.actor,ctx.tenant)));
   return {...result,citations:Array.isArray(result.citations) ? result.citations.map((citation:Row)=>({...citation,
     source_url:`/api/approvals/v2/instances/${encodeURIComponent(instanceId)}/knowledge/file?company=${encodeURIComponent(ctx.tenant)}#page=${citation.page}`})):[],
     scope:"本次审批版本试算，未发布内容不进入员工问答"};
@@ -238,9 +241,9 @@ export async function publishApprovedKnowledge(job: ClaimedExecutionJob, checkpo
   const payload = decode(job.payload_json);
   try {
     await checkpoint();
-    const current = reviewContextForActor(getConn(),String(job.actor_ref),String(job.tenant_ref));
-    if (!current.admin) fail("knowledge_publication_authority_revoked", "发起人的知识治理资格已失效",403);
     return await postgresTransaction(async client => {
+      const current = await postgresReviewContext(client,String(job.actor_ref),String(job.tenant_ref));
+      if (!current.admin) fail("knowledge_publication_authority_revoked", "发起人的知识治理资格已失效",403);
       const row = (await client.query(`SELECT p.*,r.snapshot FROM knowledge_publications p JOIN knowledge_publication_requests r ON r.id=p.request_id
         WHERE p.document_id=$1 AND p.tenant=$2 AND p.instance_id=$3 AND p.request_id=$4 FOR UPDATE OF p`,[payload.document_id,job.tenant_ref,payload.instance_id,payload.request_id])).rows[0];
       if (!row || row.review_status !== "approved") fail("knowledge_approval_invalid", "批准记录不匹配");

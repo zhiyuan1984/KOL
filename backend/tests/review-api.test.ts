@@ -233,15 +233,15 @@ describe("approval optimization boundaries on PostgreSQL", () => {
   it("lets AI save only current-company published drafts with no formal instance", async () => {
     const t = await publish(); const db = getConn();
     const proposal = { template_id: t.id, template_version: 1, title: "AI草稿", values_json: "{}" };
-    const draft = txImmediate(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:test-review-draft"));
+    const draft = await saveAssistantReviewDraft("review-employee", proposal, "worker:test-review-draft");
     expect(draft.draft.title).toBe("AI草稿");
-    expect(txImmediate(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:test-review-draft")).draft.id).toBe(draft.draft.id);
-    expect(reviewAssistantContext(db, "review-outsider").templates).toEqual([]);
-    expect(() => saveAssistantReviewDraft(db, "review-outsider", proposal, "worker:cross-company")).toThrow();
-    expect(() => saveAssistantReviewDraft(db, "review-employee", { ...proposal, values_json: "[]" }, "worker:bad-values")).toThrow();
+    expect((await saveAssistantReviewDraft("review-employee", proposal, "worker:test-review-draft")).draft.id).toBe(draft.draft.id);
+    expect((await reviewAssistantContext("review-outsider")).templates).toEqual([]);
+    await expect(saveAssistantReviewDraft("review-outsider", proposal, "worker:cross-company")).rejects.toThrow();
+    await expect(saveAssistantReviewDraft("review-employee", { ...proposal, values_json: "[]" }, "worker:bad-values")).rejects.toThrow();
     expect(db.prepare("SELECT COUNT(*) AS count FROM review_instances").get()).toMatchObject({ count: 0 });
     await executeReview("admin", { action: "disable", templateId: t.id, expectedVersion: 1, expectedLifecycleVersion: 0 }, "disable-ai-template");
-    expect(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:disabled-template")).toThrow();
+    await expect(saveAssistantReviewDraft("review-employee", proposal, "worker:disabled-template")).rejects.toThrow();
   });
   it("freezes a scoped business source and rejects changed or inaccessible material", async () => {
     const db = getConn();
