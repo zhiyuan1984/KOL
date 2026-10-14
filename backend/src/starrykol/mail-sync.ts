@@ -79,6 +79,8 @@ export type FollowedMailSync = {
   body_pending?: number;
   body_completed?: number;
   body_failed?: number;
+  /** 定向补全（带 conversation_id 的同步）的该会话水合结果；失败不拖垮整箱同步。 */
+  requested_conversation?: { conversation_id: string; hydrated: boolean; error: string | null };
 };
 
 /** The durable receipt shape consumed by the operation-job polling UI. Counters
@@ -655,6 +657,11 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
   const latest = detail.messages[detail.messages.length - 1];
   const snippet = messageBody(latest);
   const from = messageFrom(latest);
+  // 水合时一并纠正对方：同 persistConversationIndex 规则（收件取发件人，发件取收件人），
+  // 定向补全的老会话不依赖整箱漫游即可修复 peer。
+  const latestInbound = inboundOf(latest, col, mailbox);
+  const latestTo = messageTo(latest);
+  const peer = latestInbound ? from : (latestTo.email ? latestTo : from);
   await updateThreadAfterHydratePg({
     threadId: String(thread.id),
     subject,
@@ -662,6 +669,8 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
     preview: mailPreview(snippet),
     fromEmail: from.email,
     fromName: from.name,
+    peerEmail: peer.email,
+    peerName: peer.name,
     occurredAt: String(detail.occurredAt || thread.last_at || ""),
   });
   // The durable PostgreSQL worker keeps its authoritative mail index in PG.
@@ -714,6 +723,9 @@ async function persistConversationIndex(conv: Json, mailbox: string, collabs: Ro
   const inbound = inboundOf(conv, col, mailbox);
   const listedUnread = Number(conv.unreadCount ?? conv.unread_count);
   const from = messageFrom(conv);
+  // 对方永远是“另一边”：收件取发件人，发件取收件人。旧代码一律取 from，
+  // 发件会话的 peer 就被写成自己（mailbox），前端 mailbox 芯片与对方芯片重复（图4）。
+  const peer = inbound ? from : (() => { const to = messageTo(conv); return to.email ? to : from; })();
   const snippet = messageBody(conv);
   const lastAt = messageOccurredAt(conv) || remoteConversationTime(conv);
   const threadMailbox = mailbox || conversationMailboxOf(conv) || firstString(conv.mailboxEmail, col?.mailbox_from);
@@ -727,8 +739,8 @@ async function persistConversationIndex(conv: Json, mailbox: string, collabs: Ro
     preview: mailPreview(snippet),
     from: from.email,
     fromName: from.name,
-    peerEmail: from.email,
-    peerName: from.name,
+    peerEmail: peer.email,
+    peerName: peer.name,
     unread: Number.isFinite(listedUnread) && listedUnread >= 0 ? listedUnread : (inbound && isUnread(conv) ? 1 : 0),
     lastAt,
     matchState: col ? "matched" : "unbound",
@@ -1083,21 +1095,26 @@ async function mapLimited<T, R>(values: T[], limit: number, fn: (value: T) => Pr
  * already-authorized local thread directly rather than treating a list omission
  * as “no original text”. This is read-only and never creates a conversation.
  */
-async function hydrateRequestedConversationIfNeeded(conversationId: string, mailbox: string): Promise<boolean> {
+async function hydrateRequestedConversationIfNeeded(conversationId: string, mailbox: string): Promise<{ hydrated: boolean; error?: string }> {
   const requested = String(conversationId || "").trim();
-  if (!requested || !mailbox) return false;
+  if (!requested || !mailbox) return { hydrated: false };
   const thread = (await postgresPool().query<Row>(
     "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND lower(mailbox)=lower($2) LIMIT 1",
     [requested, mailbox],
   )).rows[0];
-  if (!thread) return false;
+  if (!thread) return { hydrated: false };
   const existing = await postgresPool().query<{ has_body: boolean }>(
     "SELECT EXISTS(SELECT 1 FROM kol_mail_items WHERE thread_id=$1 AND COALESCE(body_text,'')<>'') AS has_body",
     [String(thread.id)],
   );
-  if (Boolean(existing.rows[0]?.has_body)) return false;
-  await hydrateMailThread(thread);
-  return true;
+  if (Boolean(existing.rows[0]?.has_body)) return { hydrated: false };
+  // 一个会话读不到正文不能拖垮整箱同步：失败记进回执，前端按会话重读核验。
+  try {
+    await hydrateMailThread(thread);
+    return { hydrated: true };
+  } catch (error) {
+    return { hydrated: false, error: error instanceof Error ? error.message : "正文读取失败" };
+  }
 }
 
 export async function syncMailboxMail(mailbox = ""): Promise<FollowedMailSync> {
@@ -1150,7 +1167,11 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
   let partial: FollowedMailSync | undefined;
   // Do this before walking the current index: a requested historical thread
   // may be omitted from every current page but remains directly readable.
-  const requestedBodyRead = await hydrateRequestedConversationIfNeeded(requestedConversationId, mailbox);
+  const requestedRead = await hydrateRequestedConversationIfNeeded(requestedConversationId, mailbox);
+  const requestedBodyRead = requestedRead.hydrated;
+  const requestedConversation = requestedConversationId
+    ? { conversation_id: requestedConversationId, hydrated: requestedRead.hydrated, error: requestedRead.error || null }
+    : undefined;
   if (!collabs.length && !mailbox) {
     const empty: FollowedMailSync = {
       ok: true,
@@ -1228,6 +1249,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       index_updated: indexed.inserted + indexed.updated,
       body_pending: detailCandidates.length,
       body_completed: requestedBodyRead ? 1 : 0,
+      ...(requestedConversation ? { requested_conversation: requestedConversation } : {}),
     };
     partial = progressToResult(result);
     await persistStatus(partial);

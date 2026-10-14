@@ -54,18 +54,42 @@ test('展开联系人后自动显示最新邮件原文',async({page})=>{
  await expect(page.locator('[data-mail-body]')).toContainText(MESSAGE.body_text);
 });
 
-test('空字典通过真实接口契约候选后独立确认，只提交receipt不可手写创建',async({page})=>{
- let saved=false;let mutation:Record<string,unknown>={};const snapshot=()=>({mailbox:BOX,labels:saved?[{id:'new-label',name:'待确认档期',count:1}]:[],assignments:saved?[{conversation_id:CONV.conversation_id,label_ids:['new-label']}]:[],selected_label_ids:saved?['new-label']:[],version:saved?1:0});
+test('手动输入标签走 name 创建并打标到对方；面板无 AI 推荐按钮',async({page})=>{
+ let mutation:Record<string,unknown>={};let saved=false;
+ const snapshot=()=>({mailbox:BOX,labels:saved?[{id:'manual-label',name:'手工标签',count:1}]:[],assignments:saved?[{peer_email:CONV.peer_email,label_ids:['manual-label']}]:[],selected_label_ids:saved?['manual-label']:[],version:saved?1:0});
+ const {posts}=await fixture(page,{'/api/queries/mail.labels':async r=>{await r.fulfill({json:snapshot()});},'/api/actions/mail.label':async r=>{mutation=r.request().postDataJSON();saved=true;await r.fulfill({json:{...snapshot(),ok:true,conversation_id:CONV.conversation_id,label_ids:['manual-label']}});}});
+ await open(page);await labels(page);
+ await expect(page.locator('[data-mail-label-recommend]')).toHaveCount(0);
+ await expect(page.locator('input[data-mail-label-input]')).toBeVisible();
+ await page.locator('[data-mail-label-search]').fill('不应创建');expect(posts.filter(p=>p==='/api/actions/mail.label')).toHaveLength(0);
+ await page.locator('[data-mail-label-input]').fill('手工标签');
+ await page.locator('[data-mail-label-add]').click();
+ await expect(page.locator('[data-mail-saved-label="manual-label"]')).toBeVisible();
+ expect(mutation).toMatchObject({mode:'add',name:'手工标签',confirm:true});
+ expect(mutation.label_id).toBeUndefined();expect(mutation.candidate_receipt_id).toBeUndefined();
+ expect(posts.filter(p=>p==='/api/actions/mail.label-suggestions')).toHaveLength(0);
+});
+
+test('AI 推荐经提问框候选后独立确认，只提交 receipt',async({page})=>{
+ let saved=false;let mutation:Record<string,unknown>={};const snapshot=()=>({mailbox:BOX,labels:saved?[{id:'new-label',name:'待确认档期',count:1}]:[],assignments:saved?[{peer_email:CONV.peer_email,label_ids:['new-label']}]:[],selected_label_ids:saved?['new-label']:[],version:saved?1:0});
  const {posts}=await fixture(page,{'/api/queries/mail.labels':async r=>{await r.fulfill({json:snapshot()});},'/api/actions/mail.label-suggestions':async r=>{await r.fulfill({json:{status:'completed',source:'codex',mailbox:BOX,conversation_id:CONV.conversation_id,receipt_id:'receipt-fixture',label_state_version:0,suggestions:[{id:'candidate-fixture',label_id:null,name:'待确认档期',reason:'测试原文提及确认档期',source_fingerprint:'fixture-fp',mailbox:BOX,conversation_id:CONV.conversation_id}]}});},'/api/actions/mail.label':async r=>{mutation=r.request().postDataJSON();saved=true;await r.fulfill({json:{...snapshot(),ok:true,conversation_id:CONV.conversation_id,label_ids:['new-label']}});}});
- await open(page);await labels(page);await expect(page.locator('input[data-mail-label-input],datalist')).toHaveCount(0);await page.locator('[data-mail-label-search]').fill('不应创建');expect(posts.filter(p=>p==='/api/actions/mail.label')).toHaveLength(0);
- await page.locator('[data-mail-label-recommend]').click();await expect(page.locator('[data-mail-label-candidate]')).toBeVisible();expect(saved).toBe(false);
+ await open(page);
+ await page.locator('details[data-composer-task-menu] summary').click();
+ await page.locator('[data-ai-next="mail_label_recommend"]').click();
+ await expect(page.locator('[data-composer-input]')).toHaveValue(/推荐标签/);
+ await page.locator('[data-send]').click();
+ await expect(page.locator('[data-mail-label-candidate]')).toBeVisible();expect(saved).toBe(false);
  await page.locator('[data-mail-label-candidate]').click();expect(saved).toBe(false);await page.locator('[data-mail-label-confirm]').click();await expect(page.locator('[data-mail-saved-label="new-label"]')).toBeVisible();expect(mutation).toMatchObject({candidate_receipt_id:'receipt-fixture',candidate_id:'candidate-fixture',expected_version:0,confirm:true});expect(mutation.name).toBeUndefined();
  await page.reload();await expect(page.locator('[data-mail-saved-label="new-label"]')).toBeVisible();
 });
 
 test('切换会话不呈现旧推荐候选，旧回执不可保存到新对象',async({page})=>{
  let release!:()=>void;const wait=new Promise<void>(resolve=>release=resolve);const {posts}=await fixture(page,{'/api/actions/mail.label-suggestions':async r=>{await wait;await r.fulfill({json:{status:'completed',source:'codex',mailbox:BOX,conversation_id:CONV.conversation_id,receipt_id:'old-receipt',suggestions:[{id:'old-candidate',label_id:null,name:'旧对象候选',reason:'旧对象',mailbox:BOX,conversation_id:CONV.conversation_id}]}}).catch(()=>{});}});
- await open(page);await labels(page);await page.locator('[data-mail-label-recommend]').click();await page.locator('[data-mail-thread-row="second-c"]').click();release();await expect(page.locator('[data-mail-label-candidate]')).toHaveCount(0);expect(posts.filter(p=>p==='/api/actions/mail.label')).toHaveLength(0);
+ await open(page);
+ await page.locator('details[data-composer-task-menu] summary').click();
+ await page.locator('[data-ai-next="mail_label_recommend"]').click();
+ await page.locator('[data-send]').click();
+ await page.locator('[data-mail-thread-row="second-c"]').click();release();await expect(page.locator('[data-mail-label-candidate]')).toHaveCount(0);expect(posts.filter(p=>p==='/api/actions/mail.label')).toHaveLength(0);
 });
 
 test('草稿与附件按邮箱会话恢复，提交失败不清空附件',async({page})=>{

@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 
@@ -14,10 +13,8 @@ const BOX_A = "operator-a@example.test";
 const BOX_B = "operator-b@example.test";
 const CONVERSATION_A = "conversation-a";
 const CONVERSATION_B = "conversation-b";
-const migrationSql = fs.readFileSync(
-  new URL("../migrations/035_20261012_mail_private_labels.sql", import.meta.url),
-  "utf8",
-);
+const PEER_A = "peer-a@example.test";
+const PEER_B = "peer-b@example.test";
 
 let app: Hono;
 
@@ -82,11 +79,11 @@ async function bind(userId: string, mailbox: string): Promise<void> {
   );
 }
 
-async function thread(conversationId: string, mailbox: string, collaborationId = ""): Promise<void> {
+async function thread(conversationId: string, mailbox: string, collaborationId = "", peerEmail = PEER_A): Promise<void> {
   await postgresPool().query(
-    `INSERT INTO kol_mail_threads(id,conversation_id,mailbox,subject,collaboration_id,created_at,last_at,updated_at)
-     VALUES ($1,$2,$3,'Private label test',$4,now(),now(),now())`,
-    [`thread-${conversationId}-${mailbox}`, conversationId, mailbox, collaborationId || null],
+    `INSERT INTO kol_mail_threads(id,conversation_id,mailbox,subject,collaboration_id,peer_email,created_at,last_at,updated_at)
+     VALUES ($1,$2,$3,'Private label test',$4,$5,now(),now(),now())`,
+    [`thread-${conversationId}-${mailbox}`, conversationId, mailbox, collaborationId || null, peerEmail],
   );
 }
 
@@ -96,12 +93,13 @@ function action(input: Record<string, unknown>): Record<string, unknown> {
 
 beforeEach(async () => {
   await freshTestDatabase();
-  await postgresPool().query(migrationSql);
+  // The runner-built template already applies 035 then 042. Replaying old SQL
+  // would try to index conversation_id after 042 removed that column.
   await ensureUser(ACTOR_A);
   await ensureUser(ACTOR_B);
   await bind(ACTOR_A.id, BOX_A);
-  await thread(CONVERSATION_A, BOX_A);
-  await thread(CONVERSATION_B, BOX_A);
+  await thread(CONVERSATION_A, BOX_A, "", PEER_A);
+  await thread(CONVERSATION_B, BOX_A, "", PEER_B);
 
   const router = operationRouter(mailOperations);
   router.onError((error, context) => {
@@ -132,7 +130,7 @@ describe("mail private labels PostgreSQL integration", () => {
     const refreshed = await getLabels(ACTOR_A, BOX_A, CONVERSATION_A);
     expect(refreshed.status).toBe(200);
     expect(refreshed.body).toMatchObject({ entry: "memory", version: 1, selected_label_ids: [label.id] });
-    expect(refreshed.body.assignments).toEqual([{ conversation_id: CONVERSATION_A, label_ids: [label.id] }]);
+    expect(refreshed.body.assignments).toEqual([{ peer_email: PEER_A, label_ids: [label.id] }]);
     const audit = await postgresPool().query<{ actor: string; event_type: string; payload_json: Record<string, unknown> }>(
       "SELECT actor,event_type,payload_json FROM mail_sync_audit WHERE event_type='mail.label.add' ORDER BY ts DESC LIMIT 1",
     );
@@ -141,6 +139,29 @@ describe("mail private labels PostgreSQL integration", () => {
       event_type: "mail.label.add",
       payload_json: expect.objectContaining({ mailbox: BOX_A, conversation_id: CONVERSATION_A, version_before: 0, version_after: 1 }),
     });
+  });
+
+  it("shares one person's labels across that person's conversations (labels follow the peer)", async () => {
+    await thread("conversation-a2", BOX_A, "", PEER_A);
+    const created = await changeLabel(ACTOR_A, action({ mode: "add", name: "Shared", expected_version: 0 }));
+    expect(created.status).toBe(200);
+    const label = (created.body.labels as Array<Record<string, unknown>>)[0];
+    expect(label).toMatchObject({ name: "Shared", count: 1 });
+
+    // 第二个会话属于同一对方：不打标也能看到同一组标签；count 仍计 1 人。
+    const other = await getLabels(ACTOR_A, BOX_A, "conversation-a2");
+    expect(other.status).toBe(200);
+    expect(other.body).toMatchObject({ selected_label_ids: [label.id] });
+    expect(other.body.assignments).toEqual([{ peer_email: PEER_A, label_ids: [label.id] }]);
+
+    // 从另一会话移除 = 从该对方移除，两个会话都看不到。
+    const removed = await changeLabel(ACTOR_A, {
+      box: BOX_A, conversation_id: "conversation-a2", mode: "remove", label_id: label.id, expected_version: 1, confirm: true,
+    });
+    expect(removed.status).toBe(200);
+    expect(removed.body).toMatchObject({ version: 2, label_ids: [] });
+    const first = await getLabels(ACTOR_A, BOX_A, CONVERSATION_A);
+    expect(first.body).toMatchObject({ selected_label_ids: [] });
   });
 
   it("selects an existing label by id and canonicalizes equivalent names without duplicates", async () => {
@@ -282,7 +303,7 @@ describe("mail private labels PostgreSQL integration", () => {
     expect(receipt.body).toMatchObject({ version: 1, selected_label_ids: succeeded.body.label_ids });
   });
 
-  it("only counts current authorized mailbox conversations and leaves stage and session counts unchanged", async () => {
+  it("only counts labeled people in the current mailbox and leaves stage and session counts unchanged", async () => {
     await postgresPool().query(
       `INSERT INTO collaborations(id,handle,display_name,brand,lifecycle_id,conversation_id,email,mailbox_from,stage_code)
        VALUES ('label-stage-collab','creator','Creator','LT','label-stage-lifecycle',$1,'creator@example.test',$2,'NEGOTIATING')`,
@@ -301,9 +322,10 @@ describe("mail private labels PostgreSQL integration", () => {
     expect(afterRuns.rows[0].n).toBe(beforeRuns.rows[0].n);
 
     await postgresPool().query("DELETE FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [CONVERSATION_A, BOX_A]);
+    // 标签跟人走：删会话行不清除该对方的标签（字典仍按邮箱隔离，count 计对方数）。
     const current = await getLabels(ACTOR_A, BOX_A);
     expect(current.status).toBe(200);
-    expect(current.body).toMatchObject({ assignments: [] });
-    expect((current.body.labels as Array<Record<string, unknown>>)[0]).toMatchObject({ count: 0 });
+    expect(current.body).toMatchObject({ assignments: [{ peer_email: PEER_A, label_ids: expect.any(Array) }] });
+    expect((current.body.labels as Array<Record<string, unknown>>)[0]).toMatchObject({ count: 1 });
   });
 });

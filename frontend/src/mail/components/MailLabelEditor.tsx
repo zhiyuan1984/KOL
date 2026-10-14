@@ -1,67 +1,72 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { MailConversation } from "../types";
 import type { useMailLabels } from "../useMailLabels";
 import { MailIcon, mailLabelTone } from "./MailIcon";
 
-import type { MailLabelSuggestion } from "../labelSuggestionTypes.js";
-export type MailLabelCandidate = MailLabelSuggestion;
+/**
+ * 轻量整理动作：入口在工具栏，已保存标签紧凑同行；点开小型浮层搜索/选择/手工输入。
+ * 标签跟人走（对方邮箱级），不是会话级。AI 推荐不在这里：统一提问框里的“推荐标签”
+ * 任务出候选，采纳后保存到同一对方。
+ */
 export function MailLabelEditor({ actorId, mailbox, conversation, stage, labels,
-  candidates = [], recommending = false, recommendationError = "", onRecommend, onAdopt,
 }: {
   actorId: string; mailbox: string; conversation: MailConversation | null; stage: string;
   labels: ReturnType<typeof useMailLabels>;
-  candidates?: MailLabelCandidate[]; recommending?: boolean; recommendationError?: string;
-  onRecommend?: () => void; onAdopt?: (candidate: MailLabelCandidate) => Promise<boolean>;
 }) {
   const scope = `${actorId}\0${mailbox}\0${conversation?.conversation_id || ""}`;
+  const inputId = useId();
   const [query, setQuery] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const text = drafts[scope] || "";
+  const updateDraft = (next: string) => setDrafts(previous => ({ ...previous, [scope]: next }));
   const picker = useRef<HTMLDetailsElement>(null);
-  const [pending, setPending] = useState<{scope: string; mode: "add" | "remove" | "adopt"; id?: string; candidate?: MailLabelCandidate} | null>(null);
-  const [adopting, setAdopting] = useState(false);
+  const [pending, setPending] = useState<{scope: string; mode: "add" | "remove"; id?: string} | null>(null);
   const saved = labels.data?.labels.filter(label => labels.data?.selected_label_ids.includes(label.id)) || [];
   const selection = pending?.scope === scope ? pending : null;
-  const selectedName = selection?.candidate?.name || labels.data?.labels.find(label => label.id === selection?.id)?.name || "";
-  const disabled = labels.loading || labels.saving || adopting || !labels.data || !conversation;
+  const selectedName = labels.data?.labels.find(label => label.id === selection?.id)?.name || "";
+  const disabled = labels.loading || labels.saving || !labels.data || !conversation;
   const filtered = labels.data?.labels.filter(label => label.name.toLowerCase().includes(query.trim().toLowerCase())) || [];
+  const addManual = async () => {
+    if (!text.trim() || disabled) return;
+    const normalized = text.normalize("NFKC").trim().toLowerCase();
+    const existing = labels.data?.labels.find(label => label.name.normalize("NFKC").trim().toLowerCase() === normalized);
+    const ok = await labels.mutate(existing ? { mode: "add", label_id: existing.id } : { mode: "add", name: text.trim() });
+    if (ok) { updateDraft(""); setQuery(""); }
+  };
   const confirm = async () => {
     if (!selection || disabled) return;
-    if (selection.mode === "adopt" && selection.candidate) {
-      setAdopting(true);
-      try { if (await onAdopt?.(selection.candidate)) {setPending(null); if (picker.current) picker.current.open = false;} } finally { setAdopting(false); }
-    } else if (selection.id && await labels.mutate({mode: selection.mode as "add" | "remove", label_id: selection.id})) {setPending(null); if (picker.current) picker.current.open = false;}
+    if (selection.id && await labels.mutate({mode: selection.mode as "add" | "remove", label_id: selection.id})) {setPending(null); if (picker.current) picker.current.open = false;}
   };
-  return <section className="mr-label-editor" aria-label="会话标签" data-mail-label-editor data-mail-label-object={conversation?.conversation_id || ""}>
+  return <section className="mr-label-editor" aria-label="对方标签" data-mail-label-editor data-mail-label-object={conversation?.conversation_id || ""}>
     <div className="mail-label-toolbar">
       <details ref={picker} className="mail-label-picker" key={scope}>
-        <summary aria-label="选择会话标签" title="选择标签，不输入新名称" data-mail-label-picker><MailIcon name="tag" />标签</summary>
+        <summary aria-label="选择对方标签" title="选择标签，不输入新名称" data-mail-label-picker><MailIcon name="tag" />标签</summary>
         <div className="mail-label-panel mail-label-picker-panel">
-          <p className="muted">仅自己可见 · 当前会话</p>
+          <p className="muted">仅自己可见 · 跟随对方</p>
           <input type="search" aria-label="筛选已有标签" data-mail-label-search placeholder="查找已有标签" value={query} onChange={event => setQuery(event.target.value)} />
+          <form className="mr-label-form" data-mail-label-manual onSubmit={event => { event.preventDefault(); void addManual(); }}>
+            <label className="sr-only" htmlFor={inputId}>手动输入新标签</label>
+            <input id={inputId} list={`${inputId}-labels`} data-mail-label-input placeholder="手动输入新标签…" maxLength={40}
+              value={text} disabled={disabled} onChange={event => updateDraft(event.target.value)} />
+            <datalist id={`${inputId}-labels`}>{labels.data?.labels.map(label => <option key={label.id} value={label.name} />)}</datalist>
+            <button type="submit" className="btn ghost sm" data-mail-label-add disabled={disabled || !text.trim()}>
+              {labels.saving ? "保存中…" : "确认打标"}
+            </button>
+          </form>
           <div className="mail-label-options" role="group" aria-label="已有标签">
             {filtered.map(label => <button type="button" key={label.id} className="mail-label-option" data-mail-label-option={label.id}
               data-label-tone={mailLabelTone(label.name)} disabled={disabled} aria-pressed={labels.data?.selected_label_ids.includes(label.id)}
               onClick={() => setPending({scope, mode: labels.data?.selected_label_ids.includes(label.id) ? "remove" : "add", id: label.id})}>
               <MailIcon name="tag" filled /><span>{label.name}</span><span>{labels.data?.selected_label_ids.includes(label.id) ? "已保存" : "选择"}</span>
             </button>)}
-            {!filtered.length ? <p className="muted">{labels.data?.labels.length ? "没有匹配的已有标签。" : "尚无已保存标签，可让 AI 推荐。"}</p> : null}
+            {!filtered.length ? <p className="muted">{labels.data?.labels.length ? "没有匹配的已有标签。" : "尚无已保存标签，可手动输入或让 AI 推荐。"}</p> : null}
           </div>
-          <button type="button" className="mail-label-recommend" data-mail-label-recommend disabled={disabled || recommending || !onRecommend} onClick={onRecommend}>
-            <MailIcon name="spark" />{recommending ? "AI 正在依据当前会话推荐…" : "让 AI 推荐标签"}
-          </button>
-          {candidates.length ? <div className="mail-label-candidates" data-mail-label-candidates>
-            <p className="muted">AI 候选 · 未保存</p>
-            {candidates.map(candidate => <button type="button" className="mail-label-candidate" key={candidate.name} data-mail-label-candidate={candidate.name}
-              disabled={disabled} data-label-tone={mailLabelTone(candidate.name)} onClick={() => setPending({scope, mode:"adopt", candidate})}>
-              <span><MailIcon name="tag" filled />{candidate.name}</span><small>{candidate.reason}</small><small>点选后确认采纳</small>
-            </button>)}
-          </div> : null}
-          {recommendationError ? <p className="error" role="alert" data-mail-label-recommend-error>{recommendationError}</p> : null}
           {selection ? <div className="mr-label-confirm" data-mail-label-remove-confirm={selection.mode === "remove" ? "true" : undefined}>
-            <span>{selection.mode === "remove" ? "从此会话移除" : selection.mode === "adopt" ? "采纳 AI 推荐" : "为此会话添加"}「{selectedName}」？</span>
+            <span>{selection.mode === "remove" ? "从对方移除" : "为对方添加"}「{selectedName}」？</span>
             <button type="button" className="btn ghost sm" data-mail-label-confirm disabled={disabled} onClick={() => void confirm()}>
-              {adopting || labels.saving ? "保存中…" : selection.mode === "remove" ? "确认移除" : selection.mode === "adopt" ? "确认采纳" : "确认添加"}
+              {labels.saving ? "保存中…" : selection.mode === "remove" ? "确认移除" : "确认添加"}
             </button>
-            <button type="button" className="btn ghost sm" disabled={labels.saving || adopting} onClick={() => setPending(null)}>取消</button>
+            <button type="button" className="btn ghost sm" disabled={labels.saving} onClick={() => setPending(null)}>取消</button>
           </div> : null}
         </div>
       </details>

@@ -25,7 +25,7 @@ test("隔离真实 PG：浏览器确认标签、刷新持久化、导航过滤�
   await expect(page.locator("[data-mail-label-input]")).toBeEnabled();
   await page.locator("[data-mail-label-input]").fill(labelName);
   const saved = page.waitForResponse(response => new URL(response.url()).pathname === "/api/actions/mail.label" && response.request().method() === "POST");
-  await page.locator("[data-mail-label-confirm]").click();
+  await page.locator("[data-mail-label-add]").click();
   const response = await saved; expect(response.status()).toBe(200);
   const receipt = await response.json();
   expect(receipt).toMatchObject({ entry: "command", ok: true, mailbox, conversation_id: conversationId, creates_session: false, creates_turn: false, calls_model: false });

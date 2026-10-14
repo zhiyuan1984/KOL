@@ -1535,6 +1535,8 @@ migrations.push(
   { id: "20261008_pool_brand_visibility", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "030_pool_brand_visibility.sql"), "utf8")] },
   { id: "20261008_knowledge_taxonomy_guards", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "031_knowledge_taxonomy_guards.sql"), "utf8")] },
   { id: "20261012_mail_private_labels", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "035_20261012_mail_private_labels.sql"), "utf8")] },
+  // Peer assignments depend on the private-label tables and mail-thread bootstrap.
+  { id: "20261015_mail_labels_peer_email", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "042_20261015_mail_labels_peer_email.sql"), "utf8")] },
 );
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
