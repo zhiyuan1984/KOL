@@ -55,7 +55,6 @@ const migrations: SchemaMigration[] = [
   { id: "20261013_employee_agent_preferences", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "038_employee_agent_preferences.sql"), "utf8")] },
   { id: "20261009_kol_authority_sync_health", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "033_kol_authority_sync_health.sql"), "utf8")] },
   { id: "20261014_kol_pool_sync_run_columns_repair", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "041_kol_pool_sync_run_columns_repair.sql"), "utf8")] },
-  { id: "20261015_mail_labels_peer_email", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "042_20261015_mail_labels_peer_email.sql"), "utf8")] },
   { id: "20261010_skill_biz_taxonomy", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "034_skill_biz_taxonomy.sql"), "utf8")] },
   { id: "20261009_kol_source_authority", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "032_kol_source_authority.sql"), "utf8")] },
   { id: "20261005_public_pool_read_indexes", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "023_public_pool_read_indexes.sql"), "utf8")] },
@@ -1536,6 +1535,8 @@ migrations.push(
   { id: "20261008_pool_brand_visibility", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "030_pool_brand_visibility.sql"), "utf8")] },
   { id: "20261008_knowledge_taxonomy_guards", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "031_knowledge_taxonomy_guards.sql"), "utf8")] },
   { id: "20261012_mail_private_labels", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "035_20261012_mail_private_labels.sql"), "utf8")] },
+  // Peer assignments depend on the private-label tables and mail-thread bootstrap.
+  { id: "20261015_mail_labels_peer_email", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "042_20261015_mail_labels_peer_email.sql"), "utf8")] },
 );
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
