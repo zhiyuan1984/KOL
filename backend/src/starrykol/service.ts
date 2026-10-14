@@ -95,10 +95,18 @@ export function isStarryKolReadTask(value: string | null | undefined): boolean {
 
 type StarryKolClient = Pick<ReturnType<typeof createManagedClient>, "callTool" | "close">;
 let clientFactory: (() => StarryKolClient) | null = null;
-const callScope = new AsyncLocalStorage<{ credentialAccountId?: string }>();
+const callScope = new AsyncLocalStorage<{ credentialAccountId?: string; useBoundCredential?: boolean }>();
 
 export function withStarryCredential<T>(credentialAccountId: string, action: () => T): T {
-  return callScope.run({ credentialAccountId }, action);
+  return callScope.run({ credentialAccountId, useBoundCredential: true }, action);
+}
+/**
+ * Mail synchronization is authorized by an already-verified mailbox binding,
+ * but reads through the organization-managed Starry connector. A mailbox token
+ * is not a replacement for that connector's Authorization header.
+ */
+export function withStarryConnectorAuth<T>(action: () => T): T {
+  return callScope.run({ useBoundCredential: false }, action);
 }
 
 export function setStarryKolClientFactory(factory?: () => StarryKolClient): void {
@@ -669,10 +677,11 @@ async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<
       next_action: "请在管理侧保存 Starry KOL 连接配置，绑定保险柜凭据并启用连接器。",
     });
   }
+  const scope = callScope.getStore();
   const client = clientFactory
     ? clientFactory()
     : createManagedClient("starrykol", scopedUser()?.id || "",
-      callScope.getStore()?.credentialAccountId || boundStarryCredentialId(scopedUser()?.id), timeoutMs);
+      scope?.credentialAccountId || (scope?.useBoundCredential === false ? undefined : boundStarryCredentialId(scopedUser()?.id)), timeoutMs);
   try {
     return normalizeStarryKolResult(await client.callTool(name, args));
   } catch (error) {
@@ -1068,7 +1077,10 @@ export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<J
     label: "Starry connection probe", purpose: "Temporary mailbox probe",
     secret: opts.bearer.replace(/^Bearer\s+/i, "") }, userId) : undefined;
   try {
-    return rows(await callScope.run({ credentialAccountId: credential?.id },
+    // Preserve the surrounding connector-auth choice. Without this, the
+    // mailbox probe would silently re-enable a broken per-user bearer during
+    // an otherwise organization-authenticated mail synchronization.
+    return rows(await callScope.run({ ...callScope.getStore(), ...(credential ? { credentialAccountId: credential.id } : {}) },
       () => call("pageMailboxes", { pageNo: 1, pageSize: 50 })));
   } finally { if (credential) deleteCredential(credential.id, credential.version); }
 }

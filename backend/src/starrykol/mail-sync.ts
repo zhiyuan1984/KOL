@@ -1079,6 +1079,29 @@ async function mapLimited<T, R>(values: T[], limit: number, fn: (value: T) => Pr
   return results;
 }
 
+/**
+ * A user can request an older cached conversation that no longer appears in the
+ * current paged index. Its source ID is still valid at Starry, so hydrate the
+ * already-authorized local thread directly rather than treating a list omission
+ * as “no original text”. This is read-only and never creates a conversation.
+ */
+async function hydrateRequestedConversationIfNeeded(conversationId: string, mailbox: string): Promise<boolean> {
+  const requested = String(conversationId || "").trim();
+  if (!requested || !mailbox) return false;
+  const thread = (await postgresPool().query<Row>(
+    "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND lower(mailbox)=lower($2) LIMIT 1",
+    [requested, mailbox],
+  )).rows[0];
+  if (!thread) return false;
+  const existing = await postgresPool().query<{ has_body: boolean }>(
+    "SELECT EXISTS(SELECT 1 FROM kol_mail_items WHERE thread_id=$1 AND COALESCE(body_text,'')<>'') AS has_body",
+    [String(thread.id)],
+  );
+  if (Boolean(existing.rows[0]?.has_body)) return false;
+  await hydrateMailThread(thread);
+  return true;
+}
+
 export async function syncMailboxMail(mailbox = ""): Promise<FollowedMailSync> {
   return ensureFollowedMailSync(true, mailbox);
 }
@@ -1119,6 +1142,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     }
   }
   const mailbox = mailboxOverride || runtime?.authorizedScope?.mailbox_email || boundMailboxEmail() || scope.mailbox_email || "";
+  const requestedConversationId = String(runtime?.conversationId || "").trim();
   const collabs = await followedCollaborations(mailbox);
   const startPageNo = userId ? await bindingPageNoPg(userId, mailbox) : 1;
   if (runtime?.progress) {
@@ -1126,6 +1150,9 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     await reportProgress();
   }
   let partial: FollowedMailSync | undefined;
+  // Do this before walking the current index: a requested historical thread
+  // may be omitted from every current page but remains directly readable.
+  const requestedBodyRead = await hydrateRequestedConversationIfNeeded(requestedConversationId, mailbox);
   if (!collabs.length && !mailbox) {
     const empty: FollowedMailSync = {
       ok: true,
@@ -1178,8 +1205,8 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       progress.index.cursor_id = indexed.cursorId || null;
       progress.index.page_no = startPageNo;
       progress.body.phase = detailCandidates.length ? "pending" : "completed";
-      progress.body.requested = detailCandidates.length;
-      progress.body.completed = 0;
+      progress.body.requested = detailCandidates.length + (requestedBodyRead ? 1 : 0);
+      progress.body.completed = requestedBodyRead ? 1 : 0;
       progress.body.failed = 0;
       progress.body.pending = detailCandidates.length;
       // The first index is already committed at this point. Do not make the
@@ -1202,6 +1229,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       diagnostic_id: syncDiagnosticId(),
       index_updated: indexed.inserted + indexed.updated,
       body_pending: detailCandidates.length,
+      body_completed: requestedBodyRead ? 1 : 0,
     };
     partial = progressToResult(result);
     await persistStatus(partial);
