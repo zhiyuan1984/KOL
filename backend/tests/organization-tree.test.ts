@@ -2,63 +2,37 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
-import {
-  avatarUrlForUser,
-  bumpOrgVersion,
-  canUseAgent,
-  canUseSkill,
-  createAgentBinding,
-  currentOrgVersion,
-  effectiveAgentUsers,
-  listAgentBindings,
-  listOrganizationMemberships,
-  listOrganizationPeople,
-  listOrganizationUnits,
-  listScopeMemberships,
-  reseedOrganizationTreeFromRegistry,
-  revokeAgentBinding,
-  visibleSkillIdsForUser,
-} from "../src/runtime/organization-tree.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
+import { avatarUrlForUser, bumpOrgVersion, canUseAgent, canUseSkill, createAgentBinding, currentOrgVersion, effectiveAgentUsers, listAgentBindings, listOrganizationMemberships, listOrganizationPeople, listOrganizationUnits, listScopeMemberships, reseedOrganizationTreeFromRegistry, revokeAgentBinding, visibleSkillIdsForUser, } from "../src/runtime/organization-tree.js";
 import { ensureRuntimeSchema } from "../src/runtime/store.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 let tmp = "";
-
 const COMPANY = "company:amperetime";
-
-function bind(target_type: "organization_unit" | "person", target_id: string, agent = "agent:kol") {
-  return createAgentBinding({ agent_id: agent, target_type, target_id, company_id: COMPANY, source: "test" });
+async function bind(target_type: "organization_unit" | "person", target_id: string, agent = "agent:kol") {
+  return (await createAgentBinding({ agent_id: agent, target_type, target_id, company_id: COMPANY, source: "test" }));
 }
-
-function insertUser(id: string, name: string, active = 1) {
-  getConn().prepare(
-    "INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-  ).run(id, id, name, "x", JSON.stringify(["employee"]), "[]", active, "now", "now");
+async function insertUser(id: string, name: string, active = 1) {
+  (await postgresDb().execute("INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", id, id, name, "x", JSON.stringify(["employee"]), "[]", active, "now", "now"));
 }
-
 beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-organization-tree-"));
   Object.assign(process.env, {
-    LINGONG_DB: path.join(tmp, "db.sqlite"),
-    LINGONG_DATA: tmp,
     AUTH_MODE: "disabled",
     NODE_ENV: "test",
   });
   await freshTestDatabase();
-  resetConn();
-  getConn();
+  (await resetDatabase());
+  postgresDb();
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
-  for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"]) delete process.env[key];
+  for (const key of ["AUTH_MODE", "NODE_ENV"])
+    delete process.env[key];
 });
-
 describe("organization tree persistence", () => {
-  it("回填三级组织单元、人员外部引用、成员关系与来源", () => {
-    const units = listOrganizationUnits(COMPANY);
+  it("回填三级组织单元、人员外部引用、成员关系与来源", async () => {
+    const units = (await listOrganizationUnits(COMPANY));
     const byName = new Map(units.map((unit) => [unit.display_name, unit]));
     expect(units).toHaveLength(13);
     expect(byName.get("品牌与用户增长中心")).toMatchObject({ level: 1, type: "center", parent_id: null, head_person_ref: "person:zhang_huiling" });
@@ -76,9 +50,8 @@ describe("organization tree persistence", () => {
     expect(byName.get("测试组")).toMatchObject({ level: 3, parent_id: "org:digital_intelligence_center", head_person_ref: "person:wei_yinping" });
     expect(units.every((unit) => unit.source && unit.company_id === COMPANY)).toBe(true);
   });
-
-  it("人员、成员关系与范围关系按组织图落库，未提供的字段保持为空", () => {
-    const people = listOrganizationPeople();
+  it("人员、成员关系与范围关系按组织图落库，未提供的字段保持为空", async () => {
+    const people = (await listOrganizationPeople());
     expect(people).toHaveLength(20);
     const zhang = people.find((person) => person.person_ref === "person:zhang_huiling");
     expect(zhang).toMatchObject({ display_name: "张慧玲", user_id: null, user_ref: null });
@@ -86,15 +59,13 @@ describe("organization tree persistence", () => {
     expect(people.find((person) => person.person_ref === "person:ye_guanwang")?.avatar_url).toBe("/avatars/employees/ye_guanwang.png");
     expect(people.find((person) => person.person_ref === "person:liu_min")?.avatar_url).toBeNull();
     expect(people.filter((person) => person.avatar_url)).toHaveLength(19);
-
-    const memberships = listOrganizationMemberships(COMPANY);
+    const memberships = (await listOrganizationMemberships(COMPANY));
     expect(memberships).toHaveLength(20);
     const zhong = memberships.find((row) => row.person_ref === "person:zhong_jiankui");
     expect(zhong).toMatchObject({ org_unit_id: "org:promotion_department", position: "广告投放主管", relation: "primary", status: "active" });
     expect(zhong?.effective_from).toBeNull();
     expect(memberships.find((row) => row.person_ref === "person:zhang_huiling")?.position).toBe("高级副总裁");
-
-    const scopes = listScopeMemberships();
+    const scopes = (await listScopeMemberships());
     const personScope = (ref: string) => scopes.filter((row) => row.subject_type === "person" && row.subject_id === ref);
     expect(personScope("person:ye_guanwang")).toHaveLength(12);
     expect(personScope("person:yue_jialin")).toHaveLength(12);
@@ -109,62 +80,58 @@ describe("organization tree persistence", () => {
       "org:pq_ro_tb_team:brand:ro",
       "org:pq_ro_tb_team:brand:tb",
     ]);
-    expect(currentOrgVersion(COMPANY)).toBe(1);
+    expect((await currentOrgVersion(COMPANY))).toBe(1);
   });
-
-  it("王想档案按截图落库，保留四级组织链，不自动继承同事的Agent与业务范围", () => {
-    expect(listOrganizationPeople().find((person) => person.person_ref === "person:wang_xiang")).toMatchObject({
+  it("王想档案按截图落库，保留四级组织链，不自动继承同事的Agent与业务范围", async () => {
+    expect((await listOrganizationPeople()).find((person) => person.person_ref === "person:wang_xiang")).toMatchObject({
       display_name: "王想", email: "xiang.wang@amperetime.com", employee_no: "1083",
       avatar_url: "/avatars/employees/wang_xiang.png", starry_open_id: null, user_id: null,
     });
-    expect(listOrganizationMemberships(COMPANY).find((row) => row.person_ref === "person:wang_xiang")).toMatchObject({
+    expect((await listOrganizationMemberships(COMPANY)).find((row) => row.person_ref === "person:wang_xiang")).toMatchObject({
       org_unit_id: "org:ai_product", position: "AI产品经理", relation: "primary", effective_from: null,
     });
-    const units = new Map(listOrganizationUnits(COMPANY).map((unit) => [unit.id, unit]));
+    const units = new Map((await listOrganizationUnits(COMPANY)).map((unit) => [unit.id, unit]));
     const chain: string[] = [];
     let current: string | null = "org:ai_product";
-    while (current) { chain.unshift(units.get(current)!.display_name); current = units.get(current)!.parent_id; }
+    while (current) {
+      chain.unshift(units.get(current)!.display_name);
+      current = units.get(current)!.parent_id;
+    }
     expect(chain).toEqual(["研究院", "数字智能中心", "产品部", "AI产品组"]);
-    expect(listScopeMemberships("person", "person:wang_xiang")).toEqual([]);
-    expect(effectiveAgentUsers("agent:kol").person_refs).not.toContain("person:wang_xiang");
-    expect(effectiveAgentUsers("agent:workspace-planner").person_refs).not.toContain("person:wang_xiang");
+    expect((await listScopeMemberships("person", "person:wang_xiang"))).toEqual([]);
+    expect((await effectiveAgentUsers("agent:kol")).person_refs).not.toContain("person:wang_xiang");
+    expect((await effectiveAgentUsers("agent:workspace-planner")).person_refs).not.toContain("person:wang_xiang");
   });
-
-  it("回填是幂等的：重复执行不产生重复行", () => {
-    const before = listOrganizationUnits(COMPANY).length + listOrganizationMemberships(COMPANY).length + listScopeMemberships().length;
-    resetConn();
-    getConn();
-    const after = listOrganizationUnits(COMPANY).length + listOrganizationMemberships(COMPANY).length + listScopeMemberships().length;
+  it("回填是幂等的：重复执行不产生重复行", async () => {
+    const before = (await listOrganizationUnits(COMPANY)).length + (await listOrganizationMemberships(COMPANY)).length + (await listScopeMemberships()).length;
+    (await resetDatabase());
+    postgresDb();
+    const after = (await listOrganizationUnits(COMPANY)).length + (await listOrganizationMemberships(COMPANY)).length + (await listScopeMemberships()).length;
     expect(after).toBe(before);
   });
-
-  it("账号关联后按 user_id 解析个人头像 URL；未关联账号或该人员无人像时为 null", () => {
-    expect(avatarUrlForUser("usr_ye")).toBeNull();
-    expect(avatarUrlForUser(null)).toBeNull();
-    expect(avatarUrlForUser(undefined)).toBeNull();
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_ye", "person:ye_guanwang");
-    expect(avatarUrlForUser("usr_ye")).toBe("/avatars/employees/ye_guanwang.png");
-    expect(avatarUrlForUser("usr_missing")).toBeNull();
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_liu", "person:liu_min");
-    expect(avatarUrlForUser("usr_liu")).toBeNull();
+  it("账号关联后按 user_id 解析个人头像 URL；未关联账号或该人员无人像时为 null", async () => {
+    expect((await avatarUrlForUser("usr_ye"))).toBeNull();
+    expect((await avatarUrlForUser(null))).toBeNull();
+    expect((await avatarUrlForUser(undefined))).toBeNull();
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_ye", "person:ye_guanwang"));
+    expect((await avatarUrlForUser("usr_ye"))).toBe("/avatars/employees/ye_guanwang.png");
+    expect((await avatarUrlForUser("usr_missing"))).toBeNull();
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_liu", "person:liu_min"));
+    expect((await avatarUrlForUser("usr_liu"))).toBeNull();
   });
-
-  it("重放回填时按 account_username 认领账号，头像随登录账号可达", () => {
-    const db = getConn();
-    expect(avatarUrlForUser("usr_sriphy")).toBeNull();
-    db.prepare(
-      "INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-    ).run("usr_sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee"]), "[]", 1, "now", "now");
-    reseedOrganizationTreeFromRegistry();
-    expect(listOrganizationPeople().find((person) => person.person_ref === "person:yan_chen")?.user_id).toBe("usr_sriphy");
-    expect(avatarUrlForUser("usr_sriphy")).toBe("/avatars/employees/yan_chen.png");
+  it("重放回填时按 account_username 认领账号，头像随登录账号可达", async () => {
+    const db = postgresDb();
+    expect((await avatarUrlForUser("usr_sriphy"))).toBeNull();
+    (await db.execute("INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", "usr_sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee"]), "[]", 1, "now", "now"));
+    (await reseedOrganizationTreeFromRegistry());
+    expect((await listOrganizationPeople()).find((person) => person.person_ref === "person:yan_chen")?.user_id).toBe("usr_sriphy");
+    expect((await avatarUrlForUser("usr_sriphy"))).toBe("/avatars/employees/yan_chen.png");
   });
 });
-
 describe("effective Agent users", () => {
-  it("绑定三级组：成员 + 逐级上级负责人（含 registry 声明的试点绑定）", () => {
-    bind("organization_unit", "org:lt_team");
-    const effective = effectiveAgentUsers("agent:kol");
+  it("绑定三级组：成员 + 逐级上级负责人（含 registry 声明的试点绑定）", async () => {
+    (await bind("organization_unit", "org:lt_team"));
+    const effective = (await effectiveAgentUsers("agent:kol"));
     expect(effective.users).toHaveLength(11);
     const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
     expect(byRef.get("person:ye_guanwang")).toMatchObject({ via: "unit_head", via_unit_id: "org:lt_team", display_name: "叶观旺" });
@@ -177,16 +144,14 @@ describe("effective Agent users", () => {
     expect(byRef.has("person:chen_bingbing")).toBe(false);
     expect(effective.org_version).toBe(1);
   });
-
-  it("today_plan 归属：绑定 LT组组长后，本人与各级上级负责人可用", () => {
-    const effective = effectiveAgentUsers("agent:workspace-planner");
+  it("today_plan 归属：绑定 LT组组长后，本人与各级上级负责人可用", async () => {
+    const effective = (await effectiveAgentUsers("agent:workspace-planner"));
     expect(effective.person_refs.sort()).toEqual(["person:ye_guanwang", "person:zhang_huiling", "person:zhong_jiankui"]);
     expect(effective.user_ids).toEqual([]);
   });
-
-  it("绑定二级部门：本部门负责人、本部门与三级组成员、一级负责人", () => {
-    bind("organization_unit", "org:promotion_department");
-    const effective = effectiveAgentUsers("agent:kol");
+  it("绑定二级部门：本部门负责人、本部门与三级组成员、一级负责人", async () => {
+    (await bind("organization_unit", "org:promotion_department"));
+    const effective = (await effectiveAgentUsers("agent:kol"));
     expect(effective.users).toHaveLength(16);
     const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
     expect(byRef.get("person:zhong_jiankui")?.via).toBe("unit_head");
@@ -194,10 +159,9 @@ describe("effective Agent users", () => {
     expect(byRef.get("person:chen_bingbing")?.via).toBe("unit_member");
     expect(byRef.get("person:zhang_huiling")?.via).toBe("ancestor_head");
   });
-
-  it("绑定一级部门：本部门负责人与全部下级成员，无更上级负责人", () => {
-    bind("organization_unit", "org:brand_user_growth_center");
-    const effective = effectiveAgentUsers("agent:kol");
+  it("绑定一级部门：本部门负责人与全部下级成员，无更上级负责人", async () => {
+    (await bind("organization_unit", "org:brand_user_growth_center"));
+    const effective = (await effectiveAgentUsers("agent:kol"));
     expect(effective.users).toHaveLength(16);
     const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
     expect(byRef.get("person:zhang_huiling")?.via).toBe("unit_head");
@@ -208,16 +172,15 @@ describe("effective Agent users", () => {
     const ancestorHeads = effective.users.filter((user) => user.via === "ancestor_head").map((user) => user.person_ref).sort();
     expect(ancestorHeads).toEqual(["person:lu_haijun"]);
   });
-
-  it("绑定两个部门：两个绑定点都保留，研究院下级成员继承，且逐条列出覆盖来源", () => {
+  it("绑定两个部门：两个绑定点都保留，研究院下级成员继承，且逐条列出覆盖来源", async () => {
     const agent = "agent:lead-two-units";
-    bind("organization_unit", "org:research_institute", agent);
-    bind("organization_unit", "org:digital_intelligence_center", agent);
-    expect(listAgentBindings(agent).map((row) => row.target_id).sort()).toEqual([
+    (await bind("organization_unit", "org:research_institute", agent));
+    (await bind("organization_unit", "org:digital_intelligence_center", agent));
+    expect((await listAgentBindings(agent)).map((row) => row.target_id).sort()).toEqual([
       "org:digital_intelligence_center",
       "org:research_institute",
     ]);
-    const effective = effectiveAgentUsers(agent);
+    const effective = (await effectiveAgentUsers(agent));
     const yan = effective.users.find((user) => user.person_ref === "person:yan_chen");
     expect(yan).toMatchObject({ via: "unit_member", via_unit_id: "org:ai_product" });
     expect(yan?.sources.map((source) => source.binding_target_id).sort()).toEqual([
@@ -227,10 +190,9 @@ describe("effective Agent users", () => {
     expect(yan?.sources.every((source) => source.via === "unit_member" && source.via_unit_id === "org:ai_product")).toBe(true);
     expect(yan?.sources.find((source) => source.binding_target_id === "org:research_institute")?.binding_target_display_name).toBe("研究院");
   });
-
-  it("绑定人员：本人 + 所属单元与各级上级负责人，不含同事", () => {
-    bind("person", "person:gu_jiarui");
-    const effective = effectiveAgentUsers("agent:kol");
+  it("绑定人员：本人 + 所属单元与各级上级负责人，不含同事", async () => {
+    (await bind("person", "person:gu_jiarui"));
+    const effective = (await effectiveAgentUsers("agent:kol"));
     expect(effective.person_refs.sort()).toEqual([
       "person:gu_jiarui",
       "person:huang_qiyou",
@@ -244,91 +206,76 @@ describe("effective Agent users", () => {
     expect(byRef.get("person:ye_guanwang")).toMatchObject({ via: "unit_head", via_unit_id: "org:lt_team" });
     expect(effective.person_refs).not.toContain("person:li_weiyu");
   });
-
-  it("撤绑后立即不再覆盖；绑定目标必须存在", () => {
-    const binding = bind("organization_unit", "org:lt_team");
-    expect(effectiveAgentUsers("agent:kol").users).toHaveLength(11);
-    expect(revokeAgentBinding(binding.id)).toBe(true);
-    expect([...effectiveAgentUsers("agent:kol").person_refs].sort()).toEqual(["person:huang_qiyou", "person:lu_haijun", "person:yan_chen"]);
-    expect(listAgentBindings("agent:kol")).toHaveLength(2);
-    expect(() => bind("organization_unit", "org:not_exists")).toThrow(/unknown organization unit/);
-    expect(() => bind("person", "person:not_exists")).toThrow(/unknown person/);
-    expect(() => createAgentBinding({ agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:other" })).toThrow(
-      /outside the company/,
-    );
+  it("撤绑后立即不再覆盖；绑定目标必须存在", async () => {
+    const binding = (await bind("organization_unit", "org:lt_team"));
+    expect((await effectiveAgentUsers("agent:kol")).users).toHaveLength(11);
+    expect((await revokeAgentBinding(binding.id))).toBe(true);
+    expect([...(await effectiveAgentUsers("agent:kol")).person_refs].sort()).toEqual(["person:huang_qiyou", "person:lu_haijun", "person:yan_chen"]);
+    expect((await listAgentBindings("agent:kol"))).toHaveLength(2);
+    await expect((async () => (await bind("organization_unit", "org:not_exists")))()).rejects.toThrow(/unknown organization unit/);
+    await expect((async () => (await bind("person", "person:not_exists")))()).rejects.toThrow(/unknown person/);
+    await expect((async () => (await createAgentBinding({ agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:other" })))()).rejects.toThrow(/outside the company/);
   });
-
-  it("人员离开部门（成员关系结束）后不再覆盖，组织版本可递增", () => {
-    bind("organization_unit", "org:lt_team");
-    expect(effectiveAgentUsers("agent:kol").person_refs).toContain("person:li_weiyu");
-    getConn().prepare("UPDATE organization_memberships SET status = 'ended' WHERE person_ref = ?").run("person:li_weiyu");
-    expect(effectiveAgentUsers("agent:kol").person_refs).not.toContain("person:li_weiyu");
-    expect(bumpOrgVersion(COMPANY, "测试：组织变动")).toBe(2);
-    expect(effectiveAgentUsers("agent:kol").org_version).toBe(2);
+  it("人员离开部门（成员关系结束）后不再覆盖，组织版本可递增", async () => {
+    (await bind("organization_unit", "org:lt_team"));
+    expect((await effectiveAgentUsers("agent:kol")).person_refs).toContain("person:li_weiyu");
+    (await postgresDb().execute("UPDATE organization_memberships SET status = 'ended' WHERE person_ref = $1", "person:li_weiyu"));
+    expect((await effectiveAgentUsers("agent:kol")).person_refs).not.toContain("person:li_weiyu");
+    expect((await bumpOrgVersion(COMPANY, "测试：组织变动"))).toBe(2);
+    expect((await effectiveAgentUsers("agent:kol")).org_version).toBe(2);
   });
 });
-
 describe("Agent use authorization", () => {
-  it("只有挂到组织人员上的账号才获得资格", () => {
-    bind("organization_unit", "org:lt_team");
-    insertUser("usr_ye", "叶观旺");
-    expect(canUseAgent("usr_ye", "agent:kol")).toBe(false);
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_ye", "person:ye_guanwang");
-    const effective = effectiveAgentUsers("agent:kol");
+  it("只有挂到组织人员上的账号才获得资格", async () => {
+    (await bind("organization_unit", "org:lt_team"));
+    (await insertUser("usr_ye", "叶观旺"));
+    expect((await canUseAgent("usr_ye", "agent:kol"))).toBe(false);
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_ye", "person:ye_guanwang"));
+    const effective = (await effectiveAgentUsers("agent:kol"));
     expect(effective.user_ids).toContain("usr_ye");
-    expect(canUseAgent("usr_ye", "agent:kol")).toBe(true);
-    expect(canUseAgent(null, "agent:kol")).toBe(false);
-    expect(canUseAgent("usr_other", "agent:kol")).toBe(false);
-    expect(canUseAgent("usr_ye", "agent:other")).toBe(false);
+    expect((await canUseAgent("usr_ye", "agent:kol"))).toBe(true);
+    expect((await canUseAgent(null, "agent:kol"))).toBe(false);
+    expect((await canUseAgent("usr_other", "agent:kol"))).toBe(false);
+    expect((await canUseAgent("usr_ye", "agent:other"))).toBe(false);
   });
-
-  it("账号停用后立即失去资格（不削弱已发布 + 在职闸门）", () => {
-    bind("organization_unit", "org:lt_team");
-    insertUser("usr_ye", "叶观旺");
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_ye", "person:ye_guanwang");
-    expect(canUseAgent("usr_ye", "agent:kol")).toBe(true);
-    getConn().prepare("UPDATE users SET active = 0 WHERE id = ?").run("usr_ye");
-    expect(canUseAgent("usr_ye", "agent:kol")).toBe(false);
+  it("账号停用后立即失去资格（不削弱已发布 + 在职闸门）", async () => {
+    (await bind("organization_unit", "org:lt_team"));
+    (await insertUser("usr_ye", "叶观旺"));
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_ye", "person:ye_guanwang"));
+    expect((await canUseAgent("usr_ye", "agent:kol"))).toBe(true);
+    (await postgresDb().execute("UPDATE users SET active = 0 WHERE id = $1", "usr_ye"));
+    expect((await canUseAgent("usr_ye", "agent:kol"))).toBe(false);
   });
-
-  it("技能资格经 Agent 装配派生，不回到按人授权", () => {
-    ensureRuntimeSchema();
-    bind("organization_unit", "org:lt_team");
-    insertUser("usr_gu", "顾嘉瑞");
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_gu", "person:gu_jiarui");
-    const db = getConn();
-    db.prepare("DELETE FROM runtime_agent_skills WHERE agent_id = ? AND skill_id = ?").run("agent:kol", "creator_discovery");
-    db.prepare("INSERT INTO runtime_agent_skills (agent_id, skill_id, enabled, version, updated_at) VALUES (?, ?, 1, 0, ?)").run(
-      "agent:kol",
-      "creator_discovery",
-      new Date().toISOString(),
-    );
-    expect(canUseSkill("usr_gu", "creator_discovery")).toBe(true);
-    expect(canUseSkill("usr_other", "creator_discovery")).toBe(false);
-    expect(visibleSkillIdsForUser("usr_gu")).toContain("creator_discovery");
-    expect(visibleSkillIdsForUser("usr_gu").length).toBeGreaterThan(0);
-    expect(visibleSkillIdsForUser("usr_other")).toEqual([]);
+  it("技能资格经 Agent 装配派生，不回到按人授权", async () => {
+    (await ensureRuntimeSchema());
+    (await bind("organization_unit", "org:lt_team"));
+    (await insertUser("usr_gu", "顾嘉瑞"));
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_gu", "person:gu_jiarui"));
+    const db = postgresDb();
+    (await db.execute("DELETE FROM runtime_agent_skills WHERE agent_id = $1 AND skill_id = $2", "agent:kol", "creator_discovery"));
+    (await db.execute("INSERT INTO runtime_agent_skills (agent_id, skill_id, enabled, version, updated_at) VALUES ($1, $2, 1, 0, $3)", "agent:kol", "creator_discovery", new Date().toISOString()));
+    expect((await canUseSkill("usr_gu", "creator_discovery"))).toBe(true);
+    expect((await canUseSkill("usr_other", "creator_discovery"))).toBe(false);
+    expect((await visibleSkillIdsForUser("usr_gu"))).toContain("creator_discovery");
+    expect((await visibleSkillIdsForUser("usr_gu")).length).toBeGreaterThan(0);
+    expect((await visibleSkillIdsForUser("usr_other"))).toEqual([]);
   });
 });
-
 describe("person binding and Starry account facts", () => {
-  it("绑定人员即使没有组织关系也覆盖本人，且不虚构上级负责人", () => {
-    bind("person", "person:yan_chen");
-    getConn().prepare("UPDATE organization_memberships SET status = 'ended' WHERE person_ref = ?").run("person:yan_chen");
-    const effective = effectiveAgentUsers("agent:kol");
+  it("绑定人员即使没有组织关系也覆盖本人，且不虚构上级负责人", async () => {
+    (await bind("person", "person:yan_chen"));
+    (await postgresDb().execute("UPDATE organization_memberships SET status = 'ended' WHERE person_ref = $1", "person:yan_chen"));
+    const effective = (await effectiveAgentUsers("agent:kol"));
     // 另有 huang_qiyou 的 registry 试点绑定（2026-10-05）覆盖其本人与上级负责人；
     // 这里只校验 yan_chen 的本人覆盖：无成员关系时 via_unit_id 为空，不虚构上级。
     expect([...effective.person_refs].sort()).toEqual(["person:huang_qiyou", "person:lu_haijun", "person:yan_chen"]);
     const byRef = new Map(effective.users.map((user) => [user.person_ref, user]));
     expect(byRef.get("person:yan_chen")).toMatchObject({ via: "binding_target", display_name: "鄢棽", via_unit_id: "" });
   });
-
-  it("registry 的 account_username 落为登录账号，未建账号的人保持为空", () => {
-    const db = getConn();
-    db.prepare(
-      "INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-    ).run("sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee"]), "[]", 1, "now", "now");
-    const people = listOrganizationPeople();
+  it("registry 的 account_username 落为登录账号，未建账号的人保持为空", async () => {
+    const db = postgresDb();
+    (await db.execute("INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", "sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee"]), "[]", 1, "now", "now"));
+    const people = (await listOrganizationPeople());
     expect(people.find((person) => person.person_ref === "person:yan_chen")).toMatchObject({
       display_name: "鄢棽",
       user_id: "sriphy",
@@ -345,7 +292,7 @@ describe("person binding and Starry account facts", () => {
     });
     expect(people.find((person) => person.person_ref === "person:zhang_gan")?.starry_open_id).toBeNull();
     expect(people.find((person) => person.person_ref === "person:ye_guanwang")?.user_id).toBeNull();
-    bind("person", "person:yan_chen");
-    expect(canUseAgent("sriphy", "agent:kol")).toBe(true);
+    (await bind("person", "person:yan_chen"));
+    expect((await canUseAgent("sriphy", "agent:kol"))).toBe(true);
   });
 });

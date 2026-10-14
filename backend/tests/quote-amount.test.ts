@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  bodyContainsAmount,
-  ensureQuoteInBody,
-  ensureQuoteInZh,
-  formatQuoteRate,
-  looksLikeEmailDraft,
-  parseQuoteOffer,
-  parseQuoteRate,
-  quoteZhInternal,
-} from "../src/host/quote-amount.js";
+import { bodyContainsAmount, ensureQuoteInBody, ensureQuoteInZh, formatQuoteRate, looksLikeEmailDraft, parseQuoteOffer, parseQuoteRate, quoteZhInternal, } from "../src/host/quote-amount.js";
 import { extractTaskEntities } from "../src/tasks/resolver.js";
 import { composeFactsFromContext, composePreviewPrompt } from "../src/host/compose-loop.js";
 import { stubReviseFields } from "../src/host/result-revise.js";
@@ -59,10 +50,9 @@ describe("parseQuoteRate", () => {
     expect(parseQuoteOffer("美金5000").amount_usd).toBe(5000);
   });
 });
-
 describe("quote offer flows into entities and compose facts", () => {
-  it("keeps the AI box, preview prompt, and facts on the same $5000 / hour", () => {
-    expect(extractTaskEntities(OPERATOR)).toMatchObject({
+  it("keeps the AI box, preview prompt, and facts on the same $5000 / hour", async () => {
+    expect((await extractTaskEntities(OPERATOR))).toMatchObject({
       amount_usd: 5000,
       currency: "USD",
       rate_unit: "hour",
@@ -106,15 +96,14 @@ describe("ensure quote lands in body and Chinese internal translation", () => {
     expect(bodyContainsAmount(body, 5000)).toBe(true);
   });
 });
-
 describe("stub revise patches a priceless draft", () => {
-  it("adds USD 5000 per hour into body and zh instead of only amount_usd", () => {
-    const fields = stubReviseFields(OPERATOR, {
+  it("adds USD 5000 per hour into body and zh instead of only amount_usd", async () => {
+    const fields = (await stubReviseFields(OPERATOR, {
       skill: "email_compose",
       body: "I hope you’re having a wonderful day! Let’s find a time to connect.\n\nBest,\nLiTime Creator Desk\n",
       body_zh_internal: "建联内部译稿",
       amount_usd: null,
-    });
+    }));
     expect(fields.amount_usd).toBe(5000);
     expect(String(fields.body)).toMatch(/USD 5000 per hour/);
     expect(String(fields.body_zh_internal)).toMatch(/5000/);

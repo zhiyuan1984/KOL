@@ -1,11 +1,9 @@
 import { lookup } from "node:dns/promises";
-import { audit, getConn, nowIso, type SqliteConn } from "../db.js";
+import { audit, postgresDb, nowIso, type PgRepository } from "../postgres/access.js";
 import type { Row } from "../types.js";
 import { memoryCompanyId } from "./kol-memory.js";
-
 type FetchLike = typeof fetch;
 let avatarFetchOverride: FetchLike | null = null;
-
 /** Test seam; production always uses the platform fetch implementation. */
 export function setAvatarCrawlerFetch(fetcher?: FetchLike): void {
   avatarFetchOverride = fetcher || null;
@@ -14,30 +12,32 @@ export function setAvatarCrawlerFetch(fetcher?: FetchLike): void {
 function crawlerFetch(): FetchLike {
   return avatarFetchOverride || fetch;
 }
-
 function isPrivateIpv4(value: string): boolean {
   const parts = value.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255))
+    return false;
   const [a, b] = parts;
   return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168;
 }
-
 function isPrivateAddress(address: string): boolean {
   const lower = address.toLowerCase();
-  if (isPrivateIpv4(lower)) return true;
+  if (isPrivateIpv4(lower))
+    return true;
   return lower === "::1" || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:");
 }
-
 /** Public-profile crawler boundary: http(s) only, no loopback or private network targets. */
 export async function assertPublicHttpUrl(raw: string): Promise<URL> {
   let parsed: URL;
   try {
     parsed = new URL(raw);
-  } catch {
+  }
+  catch {
     throw new Error("主页地址无效");
   }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("仅允许公开 http(s) 主页");
-  if (!parsed.hostname || parsed.username || parsed.password) throw new Error("主页地址不符合公开抓取规则");
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
+    throw new Error("仅允许公开 http(s) 主页");
+  if (!parsed.hostname || parsed.username || parsed.password)
+    throw new Error("主页地址不符合公开抓取规则");
   const host = parsed.hostname.toLowerCase();
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || isPrivateAddress(host)) {
     throw new Error("主页地址指向本地或私有网络");
@@ -47,8 +47,10 @@ export async function assertPublicHttpUrl(raw: string): Promise<URL> {
     if (!addresses.length || addresses.some((entry) => isPrivateAddress(entry.address))) {
       throw new Error("主页地址未解析为公开网络");
     }
-  } catch (error) {
-    if (error instanceof Error && /公开网络|私有网络/.test(error.message)) throw error;
+  }
+  catch (error) {
+    if (error instanceof Error && /公开网络|私有网络/.test(error.message))
+      throw error;
     throw new Error("主页地址无法解析");
   }
   return parsed;
@@ -75,25 +77,31 @@ export function publicAvatarUrlFromHtml(html: string, pageUrl: string): string |
   const names = new Set(["og:image", "og:image:url", "twitter:image", "twitter:image:src"]);
   for (const tag of tags) {
     const name = (attr(tag, "property") || attr(tag, "name")).toLowerCase();
-    if (!names.has(name)) continue;
+    if (!names.has(name))
+      continue;
     const content = attr(tag, "content");
-    if (!content) continue;
+    if (!content)
+      continue;
     try {
       const candidate = new URL(content, pageUrl);
-      if (candidate.protocol === "https:" || candidate.protocol === "http:") return candidate.toString();
-    } catch {
+      if (candidate.protocol === "https:" || candidate.protocol === "http:")
+        return candidate.toString();
+    }
+    catch {
       /* malformed metadata cannot enrich the profile */
     }
   }
   return null;
 }
-
-async function fetchPublicHtml(start: string): Promise<{ html: string; pageUrl: string }> {
+async function fetchPublicHtml(start: string): Promise<{
+  html: string;
+  pageUrl: string;
+}> {
   let current = await assertPublicHttpUrl(start);
   for (let redirects = 0; redirects <= 1; redirects += 1) {
     const response = await crawlerFetch()(current.toString(), {
       redirect: "manual",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(8000),
       headers: {
         Accept: "text/html,application/xhtml+xml",
         "User-Agent": "KOL-Public-Avatar-Indexer/1.0 (+public-profile-enrichment)",
@@ -101,36 +109,36 @@ async function fetchPublicHtml(start: string): Promise<{ html: string; pageUrl: 
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
-      if (!location || redirects >= 1) throw new Error("主页重定向未完成");
+      if (!location || redirects >= 1)
+        throw new Error("主页重定向未完成");
       current = await assertPublicHttpUrl(new URL(location, current).toString());
       continue;
     }
-    if (!response.ok) throw new Error(`主页返回 ${response.status}`);
+    if (!response.ok)
+      throw new Error(`主页返回 ${response.status}`);
     const contentType = response.headers.get("content-type") || "";
     const contentLength = Number(response.headers.get("content-length") || 0);
-    if (!/text\/html|application\/xhtml\+xml/i.test(contentType)) throw new Error("主页不是 HTML 页面");
+    if (!/text\/html|application\/xhtml\+xml/i.test(contentType))
+      throw new Error("主页不是 HTML 页面");
     // Public YouTube channel pages place their server-rendered og:image after
     // the initial feature/config payload (commonly ~0.8 MB). Three MB keeps a
     // hard per-page bound while allowing that public metadata to be reached.
-    if (Number.isFinite(contentLength) && contentLength > 3_000_000) throw new Error("主页内容超过抓取上限");
-    return { html: (await response.text()).slice(0, 3_000_000), pageUrl: current.toString() };
+    if (Number.isFinite(contentLength) && contentLength > 3000000)
+      throw new Error("主页内容超过抓取上限");
+    return { html: (await response.text()).slice(0, 3000000), pageUrl: current.toString() };
   }
   throw new Error("主页重定向未完成");
 }
-
-function eligibleProfiles(companyId: string, limit: number, db: SqliteConn): Row[] {
-  return db.prepare(
-    `SELECT kol_uid, homepage_url
+async function eligibleProfiles(companyId: string, limit: number, db: PgRepository): Promise<Row[]> {
+  return (await db.many(`SELECT kol_uid, homepage_url
        FROM kol_profile_index
-      WHERE company_id=?
+      WHERE company_id=$1
         AND pool_status='open'
         AND trim(COALESCE(homepage_url,''))<>''
         AND trim(COALESCE(avatar_url,''))=''
       ORDER BY COALESCE(avatar_checked_at,''), updated_at, kol_uid
-      LIMIT ?`,
-  ).all(companyId, limit) as Row[];
+      LIMIT $2`, companyId, limit)) as Row[];
 }
-
 export type AvatarEnrichmentResult = {
   ok: boolean;
   eligible: number;
@@ -146,12 +154,12 @@ export type AvatarEnrichmentResult = {
 export async function enrichMissingPublicAvatars(input: {
   limit?: number;
   companyId?: string;
-  db?: SqliteConn;
+  db?: PgRepository;
 } = {}): Promise<AvatarEnrichmentResult> {
-  const db = input.db || getConn();
+  const db = input.db || postgresDb();
   const companyId = input.companyId || memoryCompanyId();
   const limit = Math.max(1, Math.min(32, Math.floor(Number(input.limit || 12))));
-  const profiles = eligibleProfiles(companyId, limit, db);
+  const profiles = (await eligibleProfiles(companyId, limit, db));
   let updated = 0;
   let failed = 0;
   for (const profile of profiles) {
@@ -159,25 +167,23 @@ export async function enrichMissingPublicAvatars(input: {
     try {
       const page = await fetchPublicHtml(String(profile.homepage_url));
       const avatarUrl = publicAvatarUrlFromHtml(page.html, page.pageUrl);
-      if (!avatarUrl) throw new Error("主页未声明公开头像");
+      if (!avatarUrl)
+        throw new Error("主页未声明公开头像");
       await assertPublicHttpUrl(avatarUrl);
-      db.prepare(
-        `UPDATE kol_profile_index
-            SET avatar_url=?, avatar_checked_at=?, avatar_error='', updated_at=?
-          WHERE company_id=? AND kol_uid=? AND trim(COALESCE(avatar_url,''))=''`,
-      ).run(avatarUrl, checkedAt, checkedAt, companyId, String(profile.kol_uid));
+      (await db.execute(`UPDATE kol_profile_index
+            SET avatar_url=$1, avatar_checked_at=$2, avatar_error='', updated_at=$3
+          WHERE company_id=$4 AND kol_uid=$5 AND trim(COALESCE(avatar_url,''))=''`, avatarUrl, checkedAt, checkedAt, companyId, String(profile.kol_uid)));
       updated += 1;
-    } catch (error) {
+    }
+    catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 180) : "公开头像抓取失败";
-      db.prepare(
-        `UPDATE kol_profile_index
-            SET avatar_checked_at=?, avatar_error=?, updated_at=?
-          WHERE company_id=? AND kol_uid=?`,
-      ).run(checkedAt, message, checkedAt, companyId, String(profile.kol_uid));
+      (await db.execute(`UPDATE kol_profile_index
+            SET avatar_checked_at=$1, avatar_error=$2, updated_at=$3
+          WHERE company_id=$4 AND kol_uid=$5`, checkedAt, message, checkedAt, companyId, String(profile.kol_uid)));
       failed += 1;
     }
   }
   const result = { ok: true, eligible: profiles.length, checked: profiles.length, updated, failed };
-  audit("system", "kol.memory.avatar_enrichment", { ...result, limit });
+  (await audit("system", "kol.memory.avatar_enrichment", { ...result, limit }));
   return result;
 }

@@ -2,87 +2,73 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
-import {
-  listCapabilities,
-  registerCapability,
-  resolveCapability,
-  updateCapability,
-  recordCapabilityCall,
-} from "../src/capability/registry.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
+import { listCapabilities, registerCapability, resolveCapability, updateCapability, recordCapabilityCall, } from "../src/capability/registry.js";
 import type { Json } from "../src/types.js";
-
+import { freshTestDatabase } from "./support/pg.js";
 let tmp: string;
-
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-cap-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.NODE_ENV = "test";
-  resetConn();
-  getConn(); // initSchema 建 capability_registry
+  (await resetDatabase());
+  postgresDb(); // Versioned PostgreSQL template already contains capability_registry.
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("capability registry", () => {
-  it("seeds builtin model profiles lazily and resolves them", () => {
-    const got = resolveCapability("model", "gpt-5.6-sol");
+  it("seeds builtin model profiles lazily and resolves them", async () => {
+    const got = (await resolveCapability("model", "gpt-5.6-sol"));
     expect(got).not.toBeNull();
     expect(String(got!.origin)).toBe("builtin");
     // 默认配置下 chat 与 media 同模型，画像合并为一条、多角色
     const roles = (got!.capability as Json).roles as string[];
     expect(roles).toContain("检索问答");
     expect(roles).toContain("多模态规整");
-    expect(listCapabilities({ kind: "model" }).length).toBeGreaterThanOrEqual(2);
-    expect(resolveCapability("model", "no-such-model")).toBeNull();
+    expect((await listCapabilities({ kind: "model" })).length).toBeGreaterThanOrEqual(2);
+    expect((await resolveCapability("model", "no-such-model"))).toBeNull();
   });
-
-  it("registers an external skill and upserts on repeat", () => {
-    const created = registerCapability({
+  it("registers an external skill and upserts on repeat", async () => {
+    const created = (await registerCapability({
       kind: "skill",
       ref_id: "ext:summarizer",
       origin: "external",
       capability: { description: "外部摘要 skill" },
       constraints: { risk: "R1" },
       version_pinned: "1.2.0",
-    });
+    }));
     expect(String(created.id)).toBeTruthy();
-    const again = registerCapability({
+    const again = (await registerCapability({
       kind: "skill",
       ref_id: "ext:summarizer",
       origin: "external",
       capability: { description: "外部摘要 skill v2" },
       notes: "已验证",
-    });
+    }));
     expect(String(again.id)).toBe(String(created.id));
     expect(String((again.capability as Json).description)).toBe("外部摘要 skill v2");
     expect(String(again.notes)).toBe("已验证");
-    const resolved = resolveCapability("skill", "ext:summarizer");
+    const resolved = (await resolveCapability("skill", "ext:summarizer"));
     expect(String(resolved!.ref_id)).toBe("ext:summarizer");
   });
-
-  it("rejects invalid kind and missing ref_id", () => {
-    expect(() => registerCapability({ kind: "nope", ref_id: "x" })).toThrow();
-    expect(() => registerCapability({ kind: "model", ref_id: "  " })).toThrow();
+  it("rejects invalid kind and missing ref_id", async () => {
+    await expect((async () => (await registerCapability({ kind: "nope", ref_id: "x" })))()).rejects.toThrow();
+    await expect((async () => (await registerCapability({ kind: "model", ref_id: "  " })))()).rejects.toThrow();
   });
-
-  it("updates notes and deprecates", () => {
-    const created = registerCapability({ kind: "model", ref_id: "ext-model-1", capability: {} });
-    const updated = updateCapability(String(created.id), { notes: "效果差", status: "deprecated" });
+  it("updates notes and deprecates", async () => {
+    const created = (await registerCapability({ kind: "model", ref_id: "ext-model-1", capability: {} }));
+    const updated = (await updateCapability(String(created.id), { notes: "效果差", status: "deprecated" }));
     expect(String(updated.notes)).toBe("效果差");
     expect(String(updated.status)).toBe("deprecated");
-    expect(listCapabilities({ status: "active" }).find((c) => String(c.id) === String(created.id))).toBeUndefined();
-    expect(() => updateCapability(String(created.id), { status: "nope" })).toThrow();
+    expect((await listCapabilities({ status: "active" })).find((c) => String(c.id) === String(created.id))).toBeUndefined();
+    await expect((async () => (await updateCapability(String(created.id), { status: "nope" })))()).rejects.toThrow();
   });
-
-  it("recordCapabilityCall accumulates aggregate stats only", () => {
-    recordCapabilityCall({ kind: "model", ref_id: "auto-model-x", ok: true, latencyMs: 100, inputTokens: 10, outputTokens: 5 });
-    recordCapabilityCall({ kind: "model", ref_id: "auto-model-x", ok: false, latencyMs: 200 });
-    const got = resolveCapability("model", "auto-model-x")!;
+  it("recordCapabilityCall accumulates aggregate stats only", async () => {
+    (await recordCapabilityCall({ kind: "model", ref_id: "auto-model-x", ok: true, latencyMs: 100, inputTokens: 10, outputTokens: 5 }));
+    (await recordCapabilityCall({ kind: "model", ref_id: "auto-model-x", ok: false, latencyMs: 200 }));
+    const got = (await resolveCapability("model", "auto-model-x"))!;
     expect(String(got.origin)).toBe("auto");
     const stats = got.stats as Json;
     expect(Number(stats.calls)).toBe(2);
@@ -93,9 +79,8 @@ describe("capability registry", () => {
     expect(stats.last_ok).toBe(false);
     expect(String(stats.last_called_at)).toBeTruthy();
   });
-
-  it("recordCapabilityCall never breaks the main flow", () => {
-    expect(() => recordCapabilityCall({ kind: "bogus", ref_id: "", ok: true })).not.toThrow();
-    expect(() => recordCapabilityCall({ kind: "model", ref_id: "", ok: true })).not.toThrow();
+  it("recordCapabilityCall never breaks the main flow", async () => {
+    await expect((async () => (await recordCapabilityCall({ kind: "bogus", ref_id: "", ok: true })))().then(() => true)).resolves.toBe(true);
+    await expect((async () => (await recordCapabilityCall({ kind: "model", ref_id: "", ok: true })))().then(() => true)).resolves.toBe(true);
   });
 });

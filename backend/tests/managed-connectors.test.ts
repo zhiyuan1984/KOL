@@ -2,55 +2,46 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
-
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
+import { freshTestDatabase } from "./support/pg.js";
 let tmp = "";
 let databaseUrl: string | undefined;
-
-beforeEach(() => {
+beforeEach(async () => {
   databaseUrl = process.env.DATABASE_URL;
-  delete process.env.DATABASE_URL; // The reconnect migration only runs for SQLite.
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-managed-connectors-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.NODE_ENV = "test";
-  resetConn();
+  await freshTestDatabase();
+  (await resetDatabase());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
-  delete process.env.LINGONG_DB;
-  delete process.env.LINGONG_DATA;
   delete process.env.NODE_ENV;
-  if (databaseUrl === undefined) delete process.env.DATABASE_URL;
-  else process.env.DATABASE_URL = databaseUrl;
+  if (databaseUrl === undefined)
+    delete process.env.DATABASE_URL;
+  else
+    process.env.DATABASE_URL = databaseUrl;
 });
-
 describe("managed MCP connector catalog", () => {
-  it("removes legacy connector records and canonicalizes sriphy on the next database open", () => {
-    const db = getConn();
-    db.prepare(
-      "INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    ).run("usr_sriphy", "sriphy", "鄢棽", "x", '["employee","admin"]', "[]", "", 1, "now", "now");
-    db.prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES (?,?,?,?,?)")
-      .run("enterprise_mail", "企业邮箱", 1, "configured", "now");
-    db.prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES (?,?,?,?)")
-      .run("usr_sriphy", "enterprise_mail", "admin", "now");
-    db.prepare("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES (?,?,?,?)")
-      .run("now", "usr_sriphy", "admin.connector.update", '{"connector_id":"enterprise_mail","actor":"usr_sriphy"}');
-
-    resetConn();
-    const migrated = getConn();
-    expect((migrated.prepare("SELECT id,label FROM connectors ORDER BY id").all() as Array<{ id: string; label: string }>)).toEqual([
-      { id: "claw", label: "MediaCrawler MCP" },
+  it("persists the managed connector catalog and audit chain across a native PostgreSQL pool reset", async () => {
+    const db = postgresDb();
+    expect(process.env.DATABASE_URL).toMatch(/^postgres(?:ql)?:\/\//i);
+    (await db.execute("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", "sriphy", "sriphy", "鄢棽", "x", '["employee","admin"]', "[]", "", 1, "now", "now"));
+    (await db.execute("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES ($1,$2,$3,$4,$5)", "starrykol", "Starry KOL MCP", 1, "configured", "now"));
+    (await db.execute("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES ($1,$2,$3,$4)", "sriphy", "starrykol", "write", "now"));
+    (await db.execute("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES ($1,$2,$3,$4)", "now", "sriphy", "admin.connector.update", '{"connector_id":"starrykol","actor":"sriphy"}'));
+    (await resetDatabase());
+    const migrated = postgresDb();
+    expect(((await migrated.many("SELECT id,label FROM connectors ORDER BY id")) as Array<{
+      id: string;
+      label: string;
+    }>)).toEqual([
       { id: "starrykol", label: "Starry KOL MCP" },
     ]);
-    expect(migrated.prepare("SELECT id FROM users WHERE id='usr_sriphy'").get()).toBeUndefined();
-    expect(migrated.prepare("SELECT id FROM users WHERE id='sriphy'").get()).toBeTruthy();
-    expect(migrated.prepare("SELECT access FROM user_connector_grants WHERE user_id='sriphy' AND connector_id='starrykol'").get())
+    expect((await migrated.one("SELECT id FROM users WHERE id='sriphy'"))).toBeTruthy();
+    expect((await migrated.one("SELECT access FROM user_connector_grants WHERE user_id='sriphy' AND connector_id='starrykol'")))
       .toMatchObject({ access: "write" });
-    expect(migrated.prepare("SELECT actor,payload FROM audit_events WHERE event_type='admin.connector.update'").get())
+    expect((await migrated.one("SELECT actor,payload FROM audit_events WHERE event_type='admin.connector.update'")))
       .toMatchObject({ actor: "sriphy", payload: expect.stringContaining("sriphy") });
   });
 });

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { RemoteMcpClient } from "../src/mcp/remote.js";
 import { connectorOptions, type RuntimeContext } from "../src/runtime/execution.js";
 import { validateConnectorConfig } from "../src/runtime/store.js";
@@ -17,9 +17,11 @@ const fixtureTool = {
   description: "Reads a record from the SSE fixture.",
   inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
 };
-
-type RecordedRequest = { method: string; url: string; authorization: string | null };
-
+type RecordedRequest = {
+  method: string;
+  url: string;
+  authorization: string | null;
+};
 let tmp = "";
 let httpServer: http.Server | null = null;
 let sseUrl = "";
@@ -29,12 +31,8 @@ let fixtureServers: Server[] = [];
 let dispatched: RecordedRequest[] = [];
 /** Requests the fixture server actually received. */
 let received: RecordedRequest[] = [];
-
 function fixtureServer(): Server {
-  const server = new Server(
-    { name: "connector-sse-fixture", version: "1.0.0" },
-    { capabilities: { tools: { listChanged: true } } },
-  );
+  const server = new Server({ name: "connector-sse-fixture", version: "1.0.0" }, { capabilities: { tools: { listChanged: true } } });
   server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [fixtureTool] }));
   server.setRequestHandler(CallToolRequestSchema, (request) => ({
     content: [{ type: "text", text: JSON.stringify({ result: { id: request.params.arguments?.id } }) }],
@@ -71,7 +69,8 @@ async function handleFixtureRequest(req: http.IncomingMessage, res: http.ServerR
 async function startFixture(): Promise<void> {
   httpServer = http.createServer((req, res) => {
     void handleFixtureRequest(req, res).catch(() => {
-      if (!res.headersSent) res.writeHead(500, { "Content-Type": "text/plain" });
+      if (!res.headersSent)
+        res.writeHead(500, { "Content-Type": "text/plain" });
       res.end();
     });
   });
@@ -96,20 +95,19 @@ const context: RuntimeContext = { agentId: "agent:connector-sse", skillId: "conn
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-sse-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetDatabase());
   sseTransports = new Map();
   fixtureServers = [];
   dispatched = [];
   received = [];
   await startFixture();
 });
-
 afterEach(async () => {
-  for (const transport of sseTransports.values()) await transport.close().catch(() => undefined);
-  for (const server of fixtureServers) await server.close().catch(() => undefined);
+  for (const transport of sseTransports.values())
+    await transport.close().catch(() => undefined);
+  for (const server of fixtureServers)
+    await server.close().catch(() => undefined);
   const server = httpServer;
   httpServer = null;
   sseTransports = new Map();
@@ -118,13 +116,10 @@ afterEach(async () => {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
-  delete process.env.LINGONG_DB;
-  delete process.env.LINGONG_DATA;
   delete process.env.NODE_ENV;
 });
-
 describe("managed connector SSE transport", () => {
   it("accepts the sse transport only for MCP connectors", () => {
     expect(validateConnectorConfig({
@@ -146,29 +141,27 @@ describe("managed connector SSE transport", () => {
       protocol: "mcp", transport: "grpc", url: "https://example.test/sse", allow_unauthenticated: true,
     })).toThrow("transport must be streamable-http or sse");
   });
-
   it("passes the configured MCP transport and leaves MCP on the default fetch path", async () => {
-    const mcpOptions = connectorOptions(context, validateConnectorConfig({
+    const mcpOptions = (await connectorOptions(context, validateConnectorConfig({
       protocol: "mcp", transport: "sse", url: "https://example.test/sse", allow_unauthenticated: true,
-    }));
+    })));
     expect(mcpOptions.transport).toBe("sse");
-    expect(connectorOptions(context, validateConnectorConfig({
+    expect((await connectorOptions(context, validateConnectorConfig({
       url: "https://example.test/mcp", allow_unauthenticated: true,
-    })).transport).toBeUndefined();
-    expect(connectorOptions(context, validateConnectorConfig({
+    }))).transport).toBeUndefined();
+    expect((await connectorOptions(context, validateConnectorConfig({
       protocol: "http", url: "https://example.test/api", allow_unauthenticated: true,
-    })).transport).toBeUndefined();
+    }))).transport).toBeUndefined();
     // MCP follows the same default-fetch path as the built-in MediaCrawler
     // client; the guarded fetch remains limited to HTTP action connectors.
     expect(mcpOptions.fetch).toBeUndefined();
   });
-
-  it("normalizes a raw MCP Authorization token like the env-token path", () => {
+  it("normalizes a raw MCP Authorization token like the env-token path", async () => {
     process.env.TEST_MCP_TOKEN = "CN_raw_token";
-    const options = connectorOptions(context, validateConnectorConfig({
+    const options = (await connectorOptions(context, validateConnectorConfig({
       protocol: "mcp", url: "https://example.test/mcp", headers_env: { Authorization: "TEST_MCP_TOKEN" },
       allow_unauthenticated: true,
-    }));
+    })));
     expect(options.headers).toEqual({ Authorization: "Bearer CN_raw_token" });
     delete process.env.TEST_MCP_TOKEN;
   });
@@ -207,22 +200,23 @@ describe("managed connector SSE transport", () => {
       expect(receivedStreams).toEqual([{ method: "GET", url: "/sse", authorization: "Bearer test-token" }]);
       expect(receivedPosts.length).toBeGreaterThan(0);
       expect(receivedPosts.every((entry) => entry.authorization === "Bearer test-token")).toBe(true);
-    } finally {
+    }
+    finally {
       await client.close();
     }
   });
-
   it("runs the managed path end to end: config -> connectorOptions -> SSE client", async () => {
-    const options = connectorOptions(context, validateConnectorConfig({
+    const options = (await connectorOptions(context, validateConnectorConfig({
       protocol: "mcp", transport: "sse", url: sseUrl, allow_unauthenticated: true,
-    }));
+    })));
     expect(options.transport).toBe("sse");
     const client = new RemoteMcpClient(options);
     try {
       await expect(client.listTools()).resolves.toEqual([fixtureTool]);
       await expect(client.callTool("lookup_record", { id: "rec_guard" })).resolves.toEqual({ id: "rec_guard" });
       expect(received.filter((entry) => entry.authorization !== null)).toEqual([]);
-    } finally {
+    }
+    finally {
       await client.close();
     }
   });

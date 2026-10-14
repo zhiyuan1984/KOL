@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { scopedUser } from "./auth.js";
-import { getConn, nowIso, tx } from "./db.js";
+import { postgresDb, nowIso, pgTransaction } from "./postgres/access.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
 import type { Json } from "./types.js";
@@ -59,9 +59,9 @@ const publishOverrides = new Map<string, boolean>();
 function readJsonYaml<T>(file: string): T {
   return JSON.parse(fs.readFileSync(file, "utf8")) as T;
 }
-
 function loadExperts(): ExpertManifest[] {
-  if (cached) return cached;
+  if (cached)
+    return cached;
   if (!fs.existsSync(expertsDir)) {
     cached = [];
     return cached;
@@ -69,7 +69,8 @@ function loadExperts(): ExpertManifest[] {
   const out: ExpertManifest[] = [];
   for (const name of fs.readdirSync(expertsDir)) {
     const file = path.join(expertsDir, name, "manifest.yaml");
-    if (!fs.existsSync(file)) continue;
+    if (!fs.existsSync(file))
+      continue;
     out.push(readJsonYaml<ExpertManifest>(file));
   }
   cached = out;
@@ -87,34 +88,32 @@ function sortExperts(items: ExpertManifest[]): ExpertManifest[] {
 export function clearExpertCache(): void {
   cached = null;
 }
-
 /** Tests only. Temporarily stub published status without rewriting the manifest. */
 export function setExpertPublishOverride(id: string, published?: boolean | null): void {
-  if (published === undefined || published === null) publishOverrides.delete(id);
-  else publishOverrides.set(id, published);
+  if (published === undefined || published === null)
+    publishOverrides.delete(id);
+  else
+    publishOverrides.set(id, published);
 }
-
 export function clearExpertPublishOverrides(): void {
   publishOverrides.clear();
 }
-
 export function expertPublished(manifest: ExpertManifest): boolean {
   const override = publishOverrides.get(manifest.id);
-  if (override !== undefined) return override;
+  if (override !== undefined)
+    return override;
   return String(manifest.status || "") === "published";
 }
-
 export function findExpertManifest(id: string): ExpertManifest | undefined {
   const canonical = decodeURIComponent(String(id || "")).trim();
   return loadExperts().find((item) => item.id === canonical);
 }
-
 export function requireExpertManifest(id: string): ExpertManifest {
   const found = findExpertManifest(id);
-  if (!found) throw new HttpFail(404, { code: "expert_not_found", message: "未找到该专家" });
+  if (!found)
+    throw new HttpFail(404, { code: "expert_not_found", message: "未找到该专家" });
   return found;
 }
-
 export function expertPublic(manifest: ExpertManifest): Json {
   const published = expertPublished(manifest);
   return {
@@ -203,25 +202,13 @@ export function expertAvatarPath(id: string): string {
  * Open a bound work session for a published expert whose primary entry is think.
  * Persists expert_id + expert_version. Does not send mail, write stage, or run LIVE.
  */
-export function summonExpert(id: string): Json {
+export async function summonExpert(id: string): Promise<Json> {
   const manifest = assertExpertSummonable(id);
   const sid = nid("ses");
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      "INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, expert_id, expert_version) VALUES (?,?,?,?,?,?,?,?,?)",
-    ).run(
-      sid,
-      manifest.display_name,
-      now,
-      now,
-      "work",
-      0,
-      scopedUser()?.id || null,
-      manifest.id,
-      manifest.version,
-    );
-  });
+  (await pgTransaction(async (db) => {
+    (await db.execute("INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, expert_id, expert_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", sid, manifest.display_name, now, now, "work", 0, scopedUser()?.id || null, manifest.id, manifest.version));
+  }));
   return {
     session_id: sid,
     expert_id: manifest.id,

@@ -21,9 +21,7 @@ permissions:
 jobs:
   release-gate:
     runs-on: ubuntu-latest
-    # 后端全量测试已按「PostgreSQL 模板库克隆」运行，且 vitest 配置为串行
-    # （fileParallelism: false，见 backend/vitest.config.ts）：45 分钟不够，
-    # 预发实测需要 1–2 小时，这里留足预算再触发 deploy-production。
+    # 每个文件独立进程、每个数据库用例独立克隆；全部门禁成功才可部署。
     timeout-minutes: 150
     services:
       postgres:
@@ -80,6 +78,9 @@ jobs:
       - name: Backend typecheck
         working-directory: backend
         run: npm run typecheck
+      - name: Enforce native PostgreSQL-only access
+        working-directory: backend
+        run: npm run validate:postgres-native
       - name: YouTube subscriber parser offline regression
         working-directory: backend
         run: python3 scripts/test-youtube-subscriber-count.py
@@ -97,43 +98,27 @@ jobs:
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
-        run: npm test
+          TEST_DB_TEMPLATE: lingong_template
+        run: npm test -- --fileParallelism=true --maxWorkers=4
       - name: Frontend typecheck
         working-directory: frontend
         run: npm run typecheck
       - name: Frontend build
         working-directory: frontend
         run: npm run build
-      # E2E 在预发服务器上以 stub + PostgreSQL 运行（复用 ~/kol-e2e 与 lingong_e2e 测试库），
-      # 不在 CI 内起 SQLite 实例；spec 集与 npm run test:e2e:release 保持一致。
-      - name: E2E on staging server (PostgreSQL)
+      - name: Install Chromium acceptance browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      # Stub E2E owns a newly cloned database and data root, and cleans only those.
+      # No SSH secret, staging checkout or production DATABASE_URL is used.
+      - name: E2E release gate with isolated PostgreSQL
+        working-directory: frontend
         env:
-          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.KOL_PROD_SSH_PRIVATE_KEY }}
-          E2E_REVISION: ${{ github.sha }}
-          E2E_SPECS: >-
-            e2e/home-followed-legacy-projection.spec.ts
-            e2e/home-followed-focus.spec.ts
-            e2e/home-surface-failure.spec.ts
-            e2e/discovery-presentation.spec.ts
-            e2e/session-workspace-presentation.spec.ts
-            e2e/home-followed-rail-layout.spec.ts
-            e2e/review-workflow.spec.ts
-        run: |
-          if [ -z "$DEPLOY_SSH_PRIVATE_KEY" ]; then
-            echo "::warning::Staging E2E skipped: repository secret KOL_PROD_SSH_PRIVATE_KEY is not configured."
-            exit 0
-          fi
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H 47.88.94.205 >> ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' $E2E_SPECS"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' --no-build --no-schema --config=playwright.runtime.config.ts"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e/frontend && npm run test:e2e:agents"
+          TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
+          TEST_DB_TEMPLATE: lingong_template
+          E2E_MODE: stub
+          E2E_SKIP_BUILD: "1"
+        run: npm run test:e2e:release
 
   deploy-production:
     name: Deploy production

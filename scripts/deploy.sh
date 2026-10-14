@@ -86,6 +86,11 @@ ONTOLOGY_GATE="$ROOT/backend/node_modules/.bin/tsx"
 echo "检查本体 registry 发布门禁（真实 PostgreSQL 审批/发布账本）"
 "$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts"
 
+echo "检查原生 PostgreSQL 代码门禁（不得恢复退役连接或 SQLite 回退）"
+(cd "$ROOT/backend" && npm run validate:postgres-native)
+echo "应用版本化 PostgreSQL schema（失败时旧进程保持运行，未替换产物、未重启）"
+(cd "$ROOT/backend" && npm run db:apply:postgres-schema)
+
 record_ontology_release() {
   echo "服务健康，记录本体 registry 发布事实基线"
   "$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts" --record
@@ -118,16 +123,6 @@ for _ in $(seq 1 60); do
   version_body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/version" 2>/dev/null || true)"
   if [ -n "$version_body" ]; then
     echo "服务已恢复：$version_body"
-    record_ontology_release
-    exit 0
-  fi
-  # The PostgreSQL-only surface intentionally retires /api/version together
-  # with legacy routes. Its explicit authority health contract is the release
-  # proof in that mode; do not report a healthy formal service as a timeout.
-  health_body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null || true)"
-  if printf '%s' "$health_body" | grep -q '"runtime_mode":"postgres-only"' \
-    && printf '%s' "$health_body" | grep -q '"authority_store":"postgresql"'; then
-    echo "PostgreSQL-only 服务已恢复：$health_body"
     record_ontology_release
     exit 0
   fi

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
 import { createManagedAgent, updateManagedAgent } from "../src/runtime/managed-agents.js";
@@ -21,8 +21,7 @@ type Json = Record<string, any>;
 let tmp: string;
 let app: Hono;
 const skillId = "creator_library_query";
-const initialEnv = { AUTH_MODE: process.env.AUTH_MODE, CODEX_MODE: process.env.CODEX_MODE,
-  LINGONG_DB: process.env.LINGONG_DB, LINGONG_DATA: process.env.LINGONG_DATA };
+const initialEnv = { AUTH_MODE: process.env.AUTH_MODE, CODEX_MODE: process.env.CODEX_MODE, LINGONG_DATA: process.env.LINGONG_DATA };
 async function request(method: string, url: string, body?: unknown) {
   const res = await app.request(url, { method, headers: { "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -31,26 +30,27 @@ async function request(method: string, url: string, body?: unknown) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-interaction-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.AUTH_MODE = "disabled";
-  resetConn();
+  (await resetDatabase());
   clearTaskRegistryCache();
-  seedAll();
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-afterEach(() => {
+afterEach(async () => {
   setTaskClassifier();
-  resetConn();
+  (await resetDatabase());
   clearTaskRegistryCache();
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const [key, value] of Object.entries(initialEnv)) {
-    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    if (value === undefined)
+      delete process.env[key];
+    else
+      process.env[key] = value;
   }
 });
-
 describe("one Skill / one knowledge interaction template", () => {
   it("projects one stable template per employee skill without exposing executable source", async () => {
     const res = await request("GET", "/api/knowledge/skill-templates");
@@ -97,9 +97,9 @@ describe("one Skill / one knowledge interaction template", () => {
   it("does not expose the workspace explanation to an ungranted employee", async () => {
     process.env.AUTH_MODE = "enabled";
     const now = new Date().toISOString();
-    getConn().prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?)`).run("todo-template-denied", "todo-template-denied", "Template user", "no-login", '["employee"]', '[]', "", 1, now, now);
-    const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get("todo-template-denied") as Json);
+    (await postgresDb().execute(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, "todo-template-denied", "todo-template-denied", "Template user", "no-login", '["employee"]', '[]', "", 1, now, now));
+    const user = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", "todo-template-denied")) as Json));
     const { tasks } = await import("../src/routers/tasks.js");
     const response = await withScopedUser(user, () => tasks.request("/task-definitions"));
     expect(response.status).toBe(200);
@@ -153,26 +153,26 @@ describe("one Skill / one knowledge interaction template", () => {
   it("filters ungranted skills and rechecks detail access after the Agent binding is revoked", async () => {
     process.env.AUTH_MODE = "enabled";
     const now = new Date().toISOString();
-    getConn().prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?)`).run("template-user", "template-user", "Template user", "no-login", '["employee"]', '[]', "", 1, now, now);
-    const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get("template-user") as Json);
+    (await postgresDb().execute(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, "template-user", "template-user", "Template user", "no-login", '["employee"]', '[]', "", 1, now, now));
+    const user = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", "template-user")) as Json));
     const scoped = (url: string) => withScopedUser(user, () => knowledge.request(url));
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
     // 旧的逐人技能授权表不再放行：写入后该技能依然不可见。
-    getConn().prepare("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES(?,?,?)").run(user.id, skillId, now);
+    (await postgresDb().execute("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES($1,$2,$3)", user.id, skillId, now));
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
     // 资格来自「人 → Agent → 技能」装配（ADR-2026-10-03）：Agent 必须先发布，
     // 技能装在 Agent 上，再把 Agent 绑定到该人员所在的三级组。
-    const agent = createManagedAgent({ name: "模板测试 Agent" });
-    updateManagedAgent(agent.id, { status: "published", expected_version: 1 });
-    setAgentSkill(agent.id, skillId, true, 0);
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(user.id, "person:ye_guanwang");
-    const binding = createAgentBinding({
+    const agent = (await createManagedAgent({ name: "模板测试 Agent" }));
+    (await updateManagedAgent(agent.id, { status: "published", expected_version: 1 }));
+    (await setAgentSkill(agent.id, skillId, true, 0));
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", user.id, "person:ye_guanwang"));
+    const binding = (await createAgentBinding({
       agent_id: agent.id, target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
+    }));
     expect((await (await scoped("/knowledge/skill-templates")).json() as Json[]).map((item) => item.skill_id)).toEqual([skillId]);
-    revokeAgentBinding(binding.id);
+    (await revokeAgentBinding(binding.id));
     // Bare router uses Hono's default 500 response for thrown HttpFail; invoke
     // through a wrapper that preserves the status, as createApp normally does.
     const { Hono } = await import("hono");
@@ -182,27 +182,25 @@ describe("one Skill / one knowledge interaction template", () => {
     expect((await withScopedUser(user, () => deniedApp.request(`/knowledge/skill-templates/${skillId}`))).status).toBe(403);
   });
 });
-
 describe("template parameters are execution parameters", () => {
-  it("treats required form placeholders as missing and accepts the actual value", () => {
+  it("treats required form placeholders as missing and accepts the actual value", async () => {
     const id = "template_test_required";
     const root = path.join(tmp, "published-skills", id);
     const original = fs.readFileSync(requireTaskDefinition(skillId).path, "utf8");
     fs.mkdirSync(root, { recursive: true });
     fs.writeFileSync(path.join(root, "SKILL.md"), original.replace(`id: ${skillId}`, `id: ${id}`)
       .replace('required_inputs: []', 'required_inputs: ["keyword"]')
-      .replace('"key":"keyword","label":"关键词","kind":"text","required":false',
-        '"key":"keyword","label":"关键词","kind":"text","required":true'));
-    const missing = resolveTaskIntent({ task_type: id, entities: { keyword: "[关键词]" }, input: { keyword: "[关键词]" } });
+      .replace('"key":"keyword","label":"关键词","kind":"text","required":false', '"key":"keyword","label":"关键词","kind":"text","required":true'));
+    clearTaskRegistryCache();
+    const missing = (await resolveTaskIntent({ task_type: id, entities: { keyword: "[关键词]" }, input: { keyword: "[关键词]" } }));
     expect(missing.missing_fields).toEqual(["keyword"]);
     expect(missing.entities.keyword).toBeUndefined();
-    expect(resolveTaskIntent({ task_type: id, input: { keyword: "钓鱼" } }).needs_clarification).toBe(false);
+    expect((await resolveTaskIntent({ task_type: id, input: { keyword: "钓鱼" } })).needs_clarification).toBe(false);
   });
-
   it("does not run direction recognition again for an explicitly selected template", async () => {
     let classified = false;
     setTaskClassifier(async () => { classified = true; throw new Error("must not classify selected skill"); });
-    const template = effectiveSkillTemplate(requireTaskDefinition(skillId));
+    const template = (await effectiveSkillTemplate(requireTaskDefinition(skillId)));
     const result = await request("POST", "/api/tasks/from-text", { text: template.starter, intent: skillId,
       skill_template_version: template.version });
     expect(result.status).toBe(201);
@@ -210,30 +208,26 @@ describe("template parameters are execution parameters", () => {
     expect(result.body.task.skill_template).toEqual(template);
     expect(result.body.resolution.source).toBe("locked");
   });
-
-  it("allows zero-input library queries and applies declared paging defaults", () => {
-    const result = resolveTaskIntent({ task_type: skillId, text: "达人库查询" });
+  it("allows zero-input library queries and applies declared paging defaults", async () => {
+    const result = (await resolveTaskIntent({ task_type: skillId, text: "达人库查询" }));
     expect(result.needs_clarification).toBe(false);
     expect(result.entities).toMatchObject({ page_no: 1, page_size: 20, pageNo: 1, pageSize: 20 });
     expect(result.entities.keyword).toBeUndefined();
   });
-
-  it("maps form fields to tool entities and keeps user values ahead of extraction", () => {
-    const result = resolveTaskIntent({ task_type: skillId, text: "达人库查询 关键词：旧条件",
-      input: { keyword: "房车", page_no: 2, page_size: 10, stage_codes: "CONTACTED", risk_tag_codes: "OVERDUE" } });
+  it("maps form fields to tool entities and keeps user values ahead of extraction", async () => {
+    const result = (await resolveTaskIntent({ task_type: skillId, text: "达人库查询 关键词：旧条件",
+      input: { keyword: "房车", page_no: 2, page_size: 10, stage_codes: "CONTACTED", risk_tag_codes: "OVERDUE" } }));
     expect(result.entities).toMatchObject({ keyword: "房车", pageNo: 2, pageSize: 10, stageCodes: "CONTACTED", riskTagCodes: "OVERDUE" });
     expect(result.needs_clarification).toBe(false);
   });
-
-  it("does not overwrite free text with empty fields or placeholders", () => {
-    const result = resolveTaskIntent({ task_type: skillId, text: "达人库查询 关键词：露营", input: { keyword: "", page_no: "" } });
+  it("does not overwrite free text with empty fields or placeholders", async () => {
+    const result = (await resolveTaskIntent({ task_type: skillId, text: "达人库查询 关键词：露营", input: { keyword: "", page_no: "" } }));
     expect(result.entities).toMatchObject({ keyword: "露营", pageNo: 1 });
-    const placeholder = resolveTaskIntent({ task_type: skillId, text: "达人库查询", entities: { keyword: "[关键词]" } });
+    const placeholder = (await resolveTaskIntent({ task_type: skillId, text: "达人库查询", entities: { keyword: "[关键词]" } }));
     expect(placeholder.entities.keyword).toBeUndefined();
   });
-
-  it.each([0, 51, 1.5, "20"])("rejects invalid page size %s", (page_size) => {
-    const result = resolveTaskIntent({ task_type: skillId, input: { page_size } });
+  it.each([0, 51, 1.5, "20"])("rejects invalid page size %s", async (page_size) => {
+    const result = (await resolveTaskIntent({ task_type: skillId, input: { page_size } }));
     expect(result.needs_clarification).toBe(true);
     expect(result.invalid_fields?.page_size).toBeTruthy();
   });
@@ -258,13 +252,14 @@ describe("template and runtime version binding", () => {
     const res = await request("POST", "/api/tasks", { task_type: skillId, input: { skill_template_version: "old" } });
     expect(res.status).toBe(409);
     expect(JSON.stringify(res.body)).toContain("skill_template_version_conflict");
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(skillId) as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM tickets WHERE task_type=$1", skillId)) as {
+      n: unknown;
+    }).n)).toBe(0);
   });
-
   it("retains the task snapshot after SOP changes and blocks execution of a different pair", async () => {
     const created = await request("POST", "/api/tasks", { task_type: skillId });
-    saveSkillSop(skillId, { body: "# SOP revision\n请返回授权范围的结果。" });
-    const updated = effectiveSkillTemplate(requireTaskDefinition(skillId));
+    (await saveSkillSop(skillId, { body: "# SOP revision\n请返回授权范围的结果。" }));
+    const updated = (await effectiveSkillTemplate(requireTaskDefinition(skillId)));
     expect(updated.version).not.toBe(created.body.skill_template.version);
     const detail = await request("GET", `/api/tasks/${created.body.id}`);
     expect(detail.body.skill_template).toEqual(created.body.skill_template);
@@ -275,22 +270,21 @@ describe("template and runtime version binding", () => {
   it("checks again between queueing and the first session message", async () => {
     const created = await request("POST", "/api/tasks", { task_type: skillId });
     const queued = await request("POST", `/api/tasks/${created.body.id}/run`, {});
-    saveSkillSop(skillId, { body: "# New revision\n请检查输入。" });
+    (await saveSkillSop(skillId, { body: "# New revision\n请检查输入。" }));
     const res = await request("POST", `/api/sessions/${queued.body.session_id}/messages`, queued.body.pending_message);
     expect(res.status).toBe(409);
     expect(JSON.stringify(res.body)).toContain("skill_template_version_conflict");
-    expect(getConn().prepare("SELECT status FROM tickets WHERE id=?").get(created.body.id)).toMatchObject({ status: "needs_clarification" });
+    expect((await postgresDb().one("SELECT status FROM tickets WHERE id=$1", created.body.id))).toMatchObject({ status: "needs_clarification" });
   });
-
-  it("mounts the shared schema and boundaries for Codex even with an SOP overlay", () => {
-    saveSkillSop(skillId, { body: "# Local note\n提供来源。" });
-    const body = effectiveRuntimeSkillBody(skillId);
+  it("mounts the shared schema and boundaries for Codex even with an SOP overlay", async () => {
+    (await saveSkillSop(skillId, { body: "# Local note\n提供来源。" }));
+    const body = (await effectiveRuntimeSkillBody(skillId));
     expect(body).toContain('"required_inputs":[]');
     expect(body).toContain('"key":"keyword"');
     expect(body).toContain('"side_effects":"none"');
     expect(body).toContain("Runtime connector tools");
     const box = path.join(tmp, "box");
     fs.mkdirSync(box);
-    expect(fs.readFileSync(writeSkillIntoBox(box, skillId), "utf8")).toBe(body);
+    expect(fs.readFileSync((await writeSkillIntoBox(box, skillId)), "utf8")).toBe(body);
   });
 });

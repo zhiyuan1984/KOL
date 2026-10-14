@@ -1,8 +1,7 @@
 import { CRAWL_PLATFORM_SET } from "../crawl/platforms.js";
-import { audit, getConn, nowIso, tx } from "../db.js";
+import { audit, postgresDb, nowIso, pgTransaction } from "../postgres/access.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
-
 export function health(): Json {
   return { ok: true, service: "kol-claw", version: "0.1.0" };
 }
@@ -22,64 +21,48 @@ function creator(row: Row): Json {
     outreach_script: row.outreach_script,
   };
 }
-
-export function listCreators(): Json[] {
-  return (getConn().prepare("SELECT * FROM claw_creators").all() as Row[]).map(creator);
+export async function listCreators(): Promise<Json[]> {
+  return ((await postgresDb().many("SELECT * FROM claw_creators")) as Row[]).map(creator);
 }
-
-export function getCreator(cid: string): Json | null {
-  const db = getConn();
-  let row = db.prepare("SELECT * FROM claw_creators WHERE id = ?").get(cid) as Row | undefined;
-  if (!row) row = db.prepare("SELECT * FROM claw_creators WHERE handle = ?").get(cid) as Row | undefined;
-  if (!row) row = db.prepare("SELECT * FROM claw_creators WHERE platform_creator_id = ?").get(cid) as Row | undefined;
+export async function getCreator(cid: string): Promise<Json | null> {
+  const db = postgresDb();
+  let row = (await db.one("SELECT * FROM claw_creators WHERE id = $1", cid)) as Row | undefined;
+  if (!row)
+    row = (await db.one("SELECT * FROM claw_creators WHERE handle = $1", cid)) as Row | undefined;
+  if (!row)
+    row = (await db.one("SELECT * FROM claw_creators WHERE platform_creator_id = $1", cid)) as Row | undefined;
   return row ? creator(row) : null;
 }
-
-export function createCreator(body: Json): Json {
+export async function createCreator(body: Json): Promise<Json> {
   const cid = String(body.id || `cr_${body.handle || "new"}`);
-  tx((c) => {
-    c.prepare(
-      `INSERT OR REPLACE INTO claw_creators
+  (await pgTransaction(async (c) => {
+    (await c.execute(`INSERT INTO claw_creators
        (id, handle, name, platform, followers, score, status, outreach_script, payload)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      cid,
-      body.handle ?? null,
-      body.name ?? null,
-      body.platform ?? null,
-      Number(body.followers || 0),
-      Number(body.score || 0),
-      body.status || "discovered",
-      body.outreach_script || "",
-      JSON.stringify(body),
-    );
-  });
-  audit("claw", "claw.creator.create", { id: cid });
-  return getCreator(cid) || {};
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload`, cid, body.handle ?? null, body.name ?? null, body.platform ?? null, Number(body.followers || 0), Number(body.score || 0), body.status || "discovered", body.outreach_script || "", JSON.stringify(body)));
+  }));
+  (await audit("claw", "claw.creator.create", { id: cid }));
+  return (await getCreator(cid)) || {};
 }
-
-export function outreachScript(cid: string): Json {
-  const cr = getCreator(cid);
-  if (!cr) throw new Error(cid);
+export async function outreachScript(cid: string): Promise<Json> {
+  const cr = (await getCreator(cid));
+  if (!cr)
+    throw new Error(cid);
   return { creator_id: cr.id, script: cr.outreach_script || "" };
 }
-
-export function patchStatus(cid: string, body: Json): Json {
-  tx((c) => {
-    c.prepare("UPDATE claw_creators SET status = ? WHERE id = ?").run(body.status, cid);
-  });
-  audit("claw", "claw.creator.status", { id: cid, status: body.status });
-  return getCreator(cid) || {};
+export async function patchStatus(cid: string, body: Json): Promise<Json> {
+  (await pgTransaction(async (c) => {
+    (await c.execute("UPDATE claw_creators SET status = $1 WHERE id = $2", body.status, cid));
+  }));
+  (await audit("claw", "claw.creator.status", { id: cid, status: body.status }));
+  return (await getCreator(cid)) || {};
 }
-
-export function analysis(cid?: string | null): Json {
+export async function analysis(cid?: string | null): Promise<Json> {
   if (cid) {
-    const cr = getCreator(cid);
+    const cr = (await getCreator(cid));
     return { creator: cr, fit: cr?.score, read_only: true };
   }
-  return { creators: listCreators(), read_only: true };
+  return { creators: (await listCreators()), read_only: true };
 }
-
 export function dailyTasks(): Json {
   return {
     date: "2026-08-30",
@@ -102,8 +85,7 @@ export function campaigns(): Json[] {
 export function budgetReport(): Json {
   return { campaigns: campaigns(), spent_usd: 4180, open_approvals_usd: 680 };
 }
-
-export function ingestMediacrawler(body: Json): Json {
+export async function ingestMediacrawler(body: Json): Promise<Json> {
   const nested = body.data && typeof body.data === "object" ? body.data as Json : {};
   const raw = body.items ?? body.creators ?? nested.items ?? nested.creators ?? body.data ?? [];
   const items = Array.isArray(raw) ? raw : [raw];
@@ -116,7 +98,7 @@ export function ingestMediacrawler(body: Json): Json {
   let updated = 0;
   let rejected = 0;
   const accepted: Json[] = [];
-  tx((db) => {
+  (await pgTransaction(async (db) => {
     for (const value of items) {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         rejected += 1;
@@ -124,9 +106,7 @@ export function ingestMediacrawler(body: Json): Json {
       }
       const item = value as Json;
       const platform = String(item.platform || body.platform || "").trim().toLowerCase();
-      const platformCreatorId = String(
-        item.platform_creator_id || item.creator_id || item.user_id || item.sec_uid || item.id || "",
-      ).trim();
+      const platformCreatorId = String(item.platform_creator_id || item.creator_id || item.user_id || item.sec_uid || item.id || "").trim();
       const nickname = String(item.nickname || item.name || item.handle || "").trim();
       if (!CRAWL_PLATFORM_SET.has(platform) || !platformCreatorId || !nickname) {
         rejected += 1;
@@ -135,9 +115,9 @@ export function ingestMediacrawler(body: Json): Json {
       const followers = nonNegativeInt(item.followers ?? item.fans ?? item.follower_count);
       const recentViews = normalizeViews(item.recent_views ?? item.views ?? item.recent_10_views);
       const scoring = calculateCreatorScore(followers, recentViews);
-      const existing = db.prepare(
-        "SELECT id FROM claw_creators WHERE platform=? AND platform_creator_id=?",
-      ).get(platform, platformCreatorId) as { id: string } | undefined;
+      const existing = (await db.one("SELECT id FROM claw_creators WHERE platform=$1 AND platform_creator_id=$2", platform, platformCreatorId)) as {
+        id: string;
+      } | undefined;
       const creatorId = existing?.id || `cr_${platform}_${safeId(platformCreatorId)}`;
       const collectedAt = validDate(item.collected_at || body.collected_at) || now;
       const payload: Json = {
@@ -153,41 +133,30 @@ export function ingestMediacrawler(body: Json): Json {
         score_details: scoring,
       };
       if (existing) {
-        db.prepare(
-          `UPDATE claw_creators SET handle=?,name=?,followers=?,score=?,status='discovered',payload=? WHERE id=?`,
-        ).run(nickname, nickname, followers, scoring.score, JSON.stringify(payload), creatorId);
+        (await db.execute(`UPDATE claw_creators SET handle=$1,name=$2,followers=$3,score=$4,status='discovered',payload=$5 WHERE id=$6`, nickname, nickname, followers, scoring.score, JSON.stringify(payload), creatorId));
         updated += 1;
-      } else {
-        db.prepare(
-          `INSERT INTO claw_creators
+      }
+      else {
+        (await db.execute(`INSERT INTO claw_creators
            (id,handle,name,platform,platform_creator_id,followers,score,status,outreach_script,payload)
-           VALUES (?,?,?,?,?,?,?,'discovered','',?)`,
-        ).run(creatorId, nickname, nickname, platform, platformCreatorId, followers, scoring.score, JSON.stringify(payload));
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'discovered','',$8)`, creatorId, nickname, nickname, platform, platformCreatorId, followers, scoring.score, JSON.stringify(payload)));
         inserted += 1;
       }
-      db.prepare(
-        `INSERT INTO creator_snapshots
+      (await db.execute(`INSERT INTO creator_snapshots
          (id,creator_id,ingestion_batch_id,crawl_job_id,platform,platform_creator_id,nickname,followers,
           recent_views,score,score_details,source,task_id,collected_at,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        nid("snap"), creatorId, batchId, crawlJobId, platform, platformCreatorId, nickname, followers,
-        JSON.stringify(recentViews), scoring.score, JSON.stringify(scoring), source, taskId, collectedAt, now,
-      );
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, nid("snap"), creatorId, batchId, crawlJobId, platform, platformCreatorId, nickname, followers, JSON.stringify(recentViews), scoring.score, JSON.stringify(scoring), source, taskId, collectedAt, now));
       accepted.push({ creator_id: creatorId, platform, platform_creator_id: platformCreatorId, score: scoring.score });
     }
-    db.prepare(
-      `INSERT INTO ingestion_batches
+    (await db.execute(`INSERT INTO ingestion_batches
        (id,source,task_id,crawl_job_id,accepted,inserted,updated,rejected,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-    ).run(batchId, source, taskId, crawlJobId, accepted.length, inserted, updated, rejected, now);
-  });
-  audit("claw", "claw.ingest.mediacrawler", {
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, batchId, source, taskId, crawlJobId, accepted.length, inserted, updated, rejected, now));
+  }));
+  (await audit("claw", "claw.ingest.mediacrawler", {
     batch_id: batchId, accepted: accepted.length, inserted, updated, rejected, source,
-  });
+  }));
   return { ok: true, batch_id: batchId, accepted: accepted.length, inserted, updated, rejected, creators: accepted };
 }
-
 function nonNegativeInt(value: unknown): number {
   const number = Number(value || 0);
   return Number.isFinite(number) && number > 0 ? Math.round(number) : 0;
@@ -205,9 +174,9 @@ function normalizeViews(value: unknown): number[] {
 function safeId(value: string): string {
   return Buffer.from(value).toString("base64url").slice(0, 80);
 }
-
 function validDate(value: unknown): string | null {
-  if (!value) return null;
+  if (!value)
+    return null;
   const date = new Date(String(value));
   return Number.isNaN(date.valueOf()) ? null : date.toISOString();
 }
@@ -247,8 +216,8 @@ export function calculateCreatorScore(followers: number, recentViews: number[]):
     sample_size: views.length,
     view_median: Math.round(median * 100) / 100,
     view_mean: Math.round(mean * 100) / 100,
-    view_follower_ratio: Math.round(ratio * 10_000) / 10_000,
-    stability: Math.round(stability * 10_000) / 10_000,
+    view_follower_ratio: Math.round(ratio * 10000) / 10000,
+    stability: Math.round(stability * 10000) / 10000,
     sample_confidence: Math.round(confidence * 100) / 100,
   };
 }

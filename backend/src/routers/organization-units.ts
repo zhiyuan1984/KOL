@@ -17,21 +17,29 @@ type RegistryUnit = {
   parent?: string | null;
   head?: string | null;
 };
-
 type OrgRegistry = {
-  companies?: { id?: string; display_name?: string }[];
+  companies?: {
+    id?: string;
+    display_name?: string;
+  }[];
   organization_units?: RegistryUnit[];
-  confirmed_people?: { display_name?: string; role?: string; org_unit?: string | null; user_ref?: string | null }[];
+  confirmed_people?: {
+    display_name?: string;
+    role?: string;
+    org_unit?: string | null;
+    user_ref?: string | null;
+  }[];
 };
-
 /** config/org-registry.yaml is JSON-compatible YAML; a broken registry fails loudly instead of serving an empty directory. */
 function loadRegistry(): OrgRegistry {
   try {
     const text = fs.readFileSync(path.join(repoRoot, "config", "org-registry.yaml"), "utf8").replace(/^\uFEFF/, "");
     const parsed = parseYaml(text) as OrgRegistry | null;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("registry root must be a mapping");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("registry root must be a mapping");
     return parsed;
-  } catch {
+  }
+  catch {
     throw new HttpFail(503, { code: "organization_registry_unavailable" });
   }
 }
@@ -42,20 +50,22 @@ function unitLevels(units: RegistryUnit[]): Map<string, number> {
   const levels = new Map<string, number>();
   const levelOf = (id: string, chain: Set<string>): number => {
     const known = levels.get(id);
-    if (known) return known;
-    if (chain.has(id)) return 1;
+    if (known)
+      return known;
+    if (chain.has(id))
+      return 1;
     chain.add(id);
     const parentId = byId.get(id)?.parent ? String(byId.get(id)?.parent) : "";
     const level = parentId && byId.has(parentId) ? levelOf(parentId, chain) + 1 : 1;
     levels.set(id, level);
     return level;
   };
-  for (const unit of units) levelOf(String(unit.id), new Set());
+  for (const unit of units)
+    levelOf(String(unit.id), new Set());
   return levels;
 }
-
-organizationUnitsRouter.get("/admin/organization-units", (c) => {
-  requireAdmin();
+organizationUnitsRouter.get("/admin/organization-units", async (c) => {
+  (await requireAdmin());
   const registry = loadRegistry();
   const units = (registry.organization_units || []).filter((unit) => typeof unit?.id === "string");
   const levels = unitLevels(units);

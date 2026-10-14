@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("../src/db.js", () => ({ audit: vi.fn() }));
+vi.mock("../src/postgres/access.js", () => ({ audit: vi.fn() }));
 vi.mock("../src/config.js", () => ({ codexMode: () => "stub", liveRemoteSideEffectsEnabled: () => false }));
 vi.mock("../src/starrykol/connection.js", () => ({ starryKolMcpConfigured: () => true }));
 vi.mock("../src/starrykol/service.js", () => ({ callStarryKolTool: vi.fn() }));
 vi.mock("../src/gateway/discovery-harness.js", () => ({ rejectDiscoveryHarnessTool: vi.fn() }));
-
-import { audit } from "../src/db.js";
+import { audit } from "../src/postgres/access.js";
 import { callStarryKolTool } from "../src/starrykol/service.js";
 import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid } from "../src/gateway/import-creator.js";
 import { buildCrawlerImportFile } from "../src/discovery-import.js";
@@ -22,8 +20,8 @@ describe("uncertain import reconciliation", () => {
       ] });
     expect(await lookupImportedKolUid({ creatorExternalId: "youtube:stable-channel" })).toBe("KOLREAL001");
     expect(vi.mocked(callStarryKolTool).mock.calls.map(call => call[0])).toEqual(["pageKolProfiles", "listAllKolProfiles"]);
-    expect(vi.mocked(callStarryKolTool).mock.calls[0][2]).toEqual({ timeoutMs: 20_000 });
-    expect(vi.mocked(callStarryKolTool).mock.calls[1][2]).toEqual({ timeoutMs: 60_000 });
+    expect(vi.mocked(callStarryKolTool).mock.calls[0][2]).toEqual({ timeoutMs: 20000 });
+    expect(vi.mocked(callStarryKolTool).mock.calls[1][2]).toEqual({ timeoutMs: 60000 });
   });
   it("does not adopt a UID from a fuzzy nickname result", async () => {
     vi.mocked(callStarryKolTool)

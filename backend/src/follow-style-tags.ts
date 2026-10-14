@@ -1,7 +1,6 @@
-import { audit, getConn, nowIso } from "./db.js";
+import { audit, postgresDb, nowIso } from "./postgres/access.js";
 import { HttpFail } from "./host/errors.js";
 import type { Json, Row } from "./types.js";
-
 export type FollowStyleTag = {
   id: string;
   label: string;
@@ -38,27 +37,28 @@ function slugCustom(label: string): string {
   const compact = label.replace(/\s+/g, "").slice(0, 12);
   return `custom:${compact}`;
 }
-
 export function followStylePreset(idOrLabel: string): FollowStyleTag | undefined {
   const raw = String(idOrLabel || "").trim();
-  if (!raw) return undefined;
+  if (!raw)
+    return undefined;
   return PRESET_BY_ID.get(raw) || PRESET_BY_LABEL.get(raw);
 }
-
 export function parseFollowStyleTags(raw: unknown): FollowStyleTag[] {
-  if (raw == null || raw === "") return [];
+  if (raw == null || raw === "")
+    return [];
   let value = raw;
   if (typeof raw === "string") {
     try {
       value = JSON.parse(raw);
-    } catch {
+    }
+    catch {
       return normalizeFollowStyleTags(String(raw).split(/[、,，]/));
     }
   }
-  if (!Array.isArray(value)) return [];
+  if (!Array.isArray(value))
+    return [];
   return normalizeFollowStyleTags(value);
 }
-
 export function serializeFollowStyleTags(tags: FollowStyleTag[]): string {
   return JSON.stringify(tags.map((tag) => ({
     id: tag.id,
@@ -70,19 +70,30 @@ export function serializeFollowStyleTags(tags: FollowStyleTag[]): string {
 function asTag(input: unknown): FollowStyleTag | null {
   if (typeof input === "string") {
     const preset = followStylePreset(input);
-    if (preset) return { ...preset };
+    if (preset)
+      return { ...preset };
     const label = input.trim().slice(0, 12);
-    if (!label || /[<>]/.test(label)) return null;
-    if (/^(DELAY|CONTENT|LOST_CONTACT|EXCEPTION_HANDLING)$/i.test(label)) return null;
+    if (!label || /[<>]/.test(label))
+      return null;
+    if (/^(DELAY|CONTENT|LOST_CONTACT|EXCEPTION_HANDLING)$/i.test(label))
+      return null;
     return { id: slugCustom(label), label, custom: true };
   }
-  if (!input || typeof input !== "object") return null;
-  const row = input as { id?: unknown; label?: unknown; custom?: unknown; reason?: string };
+  if (!input || typeof input !== "object")
+    return null;
+  const row = input as {
+    id?: unknown;
+    label?: unknown;
+    custom?: unknown;
+    reason?: string;
+  };
   const label = String(row.label || "").trim().slice(0, 12);
   const id = String(row.id || "").trim();
   const preset = followStylePreset(id) || followStylePreset(label);
-  if (preset) return { ...preset, ...(row.reason ? { reason: String(row.reason) } : {}) };
-  if (!label) return null;
+  if (preset)
+    return { ...preset, ...(row.reason ? { reason: String(row.reason) } : {}) };
+  if (!label)
+    return null;
   return {
     id: id.startsWith("custom:") ? id : slugCustom(label),
     label,
@@ -96,35 +107,44 @@ export function normalizeFollowStyleTags(input: unknown): FollowStyleTag[] {
   const tags: FollowStyleTag[] = [];
   for (const item of incoming) {
     const tag = asTag(item);
-    if (!tag) continue;
-    if (tags.some((row) => row.id === tag.id || row.label === tag.label)) continue;
+    if (!tag)
+      continue;
+    if (tags.some((row) => row.id === tag.id || row.label === tag.label))
+      continue;
     for (const group of MUTEX_GROUPS) {
-      if (!group.includes(tag.id)) continue;
+      if (!group.includes(tag.id))
+        continue;
       for (const other of group) {
-        if (other === tag.id) continue;
+        if (other === tag.id)
+          continue;
         const idx = tags.findIndex((row) => row.id === other);
-        if (idx >= 0) tags.splice(idx, 1);
+        if (idx >= 0)
+          tags.splice(idx, 1);
       }
     }
     tags.push(tag);
-    if (tags.length >= MAX_TAGS) break;
+    if (tags.length >= MAX_TAGS)
+      break;
   }
   return tags;
 }
-
 export function mergeFollowStyleTags(current: FollowStyleTag[], incoming: unknown, mode: "replace" | "add" = "replace"): FollowStyleTag[] {
-  if (mode === "add") return normalizeFollowStyleTags([...current, ...(Array.isArray(incoming) ? incoming : [incoming])]);
+  if (mode === "add")
+    return normalizeFollowStyleTags([...current, ...(Array.isArray(incoming) ? incoming : [incoming])]);
   return normalizeFollowStyleTags(incoming);
 }
-
 export function followStylePromptLine(tags: FollowStyleTag[]): string {
-  if (!tags.length) return "";
+  if (!tags.length)
+    return "";
   const labels = tags.map((tag) => tag.label).join("、");
   const hints = tags.map((tag) => FOLLOW_STYLE_HINTS[tag.id]).filter(Boolean);
   return [`跟进风格：${labels}。`, ...hints].join("");
 }
-
-const SUGGEST_RULES: { id: string; reason: string; pattern: RegExp }[] = [
+const SUGGEST_RULES: {
+  id: string;
+  reason: string;
+  pattern: RegExp;
+}[] = [
   { id: "cautious", reason: "往来偏谨慎", pattern: /犹豫|谨慎|再想想|再考虑|还在考虑|不太确定|need to think|not sure|still considering|a bit hesitant/i },
   { id: "slow_reply", reason: "回复偏慢", pattern: /回复慢|几天没回|一直没回|很久没回|been busy|slow to reply|haven't replied/i },
   { id: "price_sensitive", reason: "对价格敏感", pattern: /太贵|预算有限|再便宜|price sensitive|too expensive|over budget|can you do better on (the )?price/i },
@@ -132,17 +152,20 @@ const SUGGEST_RULES: { id: string; reason: string; pattern: RegExp }[] = [
   { id: "needs_approval", reason: "需上级拍板", pattern: /问经理|问老板|上级拍板|内部审批|ask my manager|need approval|run it by/i },
   { id: "missing_materials", reason: "材料还不齐", pattern: /媒体包还没|资料不齐|还没媒体包|don't have (a |my )?media kit|media kit isn't ready/i },
 ];
-
 export function suggestFollowStyleTags(text: string, current: FollowStyleTag[] = []): FollowStyleTag[] {
   const body = String(text || "");
-  if (!body.trim()) return [];
+  if (!body.trim())
+    return [];
   const have = new Set(current.map((tag) => tag.id));
   const out: FollowStyleTag[] = [];
   for (const rule of SUGGEST_RULES) {
-    if (have.has(rule.id)) continue;
-    if (!rule.pattern.test(body)) continue;
+    if (have.has(rule.id))
+      continue;
+    if (!rule.pattern.test(body))
+      continue;
     const preset = PRESET_BY_ID.get(rule.id);
-    if (!preset) continue;
+    if (!preset)
+      continue;
     out.push({ ...preset, reason: rule.reason });
   }
   return normalizeFollowStyleTags(out);
@@ -151,8 +174,10 @@ export function suggestFollowStyleTags(text: string, current: FollowStyleTag[] =
 export function isFollowStyleTagCommand(text: string): boolean {
   return /^(?:给\s*@\S+\s*)?(?:打标签|跟进标签)/.test(String(text || "").trim());
 }
-
-export function parseFollowStyleTagCommand(text: string): { handle: string | null; labels: string[] } {
+export function parseFollowStyleTagCommand(text: string): {
+  handle: string | null;
+  labels: string[];
+} {
   const raw = String(text || "").trim();
   const handleMatch = /@([^\s，,]+)/.exec(raw);
   const handle = handleMatch ? handleMatch[1].replace(/^@+/, "") : null;
@@ -164,29 +189,34 @@ export function parseFollowStyleTagCommand(text: string): { handle: string | nul
     .filter(Boolean);
   return { handle, labels };
 }
-
-export function readFollowStyleTags(col: { follow_style_tags?: unknown } | null | undefined): FollowStyleTag[] {
-  if (!col) return [];
+export function readFollowStyleTags(col: {
+  follow_style_tags?: unknown;
+} | null | undefined): FollowStyleTag[] {
+  if (!col)
+    return [];
   return parseFollowStyleTags(col.follow_style_tags);
 }
-
-export function writeFollowStyleTags(
-  collaborationId: string,
-  incoming: unknown,
-  opts: { mode?: "replace" | "add"; actor?: string } = {},
-): { tags: FollowStyleTag[]; previous: FollowStyleTag[]; collaboration: Row } {
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(collaborationId) as Row | undefined;
-  if (!row) throw new HttpFail(404, "collaboration not found");
+export async function writeFollowStyleTags(collaborationId: string, incoming: unknown, opts: {
+  mode?: "replace" | "add";
+  actor?: string;
+} = {}): Promise<{
+  tags: FollowStyleTag[];
+  previous: FollowStyleTag[];
+  collaboration: Row;
+}> {
+  const row = (await postgresDb().one("SELECT * FROM collaborations WHERE id=$1", collaborationId)) as Row | undefined;
+  if (!row)
+    throw new HttpFail(404, "collaboration not found");
   const previous = readFollowStyleTags(row);
   const tags = mergeFollowStyleTags(previous, incoming, opts.mode || "replace");
-  getConn().prepare("UPDATE collaborations SET follow_style_tags=? WHERE id=?").run(serializeFollowStyleTags(tags), collaborationId);
-  audit(opts.actor || "demo", "follow_style_tags.update", {
+  (await postgresDb().execute("UPDATE collaborations SET follow_style_tags=$1 WHERE id=$2", serializeFollowStyleTags(tags), collaborationId));
+  (await audit(opts.actor || "demo", "follow_style_tags.update", {
     collaboration_id: collaborationId,
     handle: row.handle,
     tags: tags.map((tag) => tag.label),
     mode: opts.mode || "replace",
     at: nowIso(),
-  });
+  }));
   const collaboration = { ...row, follow_style_tags: serializeFollowStyleTags(tags) };
   return { tags, previous, collaboration };
 }

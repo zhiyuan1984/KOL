@@ -2,18 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, nowIso, resetConn } from "../src/db.js";
-import {
-  parseDeclaredMcp,
-  skillCoverage,
-  skillImplementation,
-  toolMountState,
-  type DeclaredTool,
-} from "../src/runtime/skill-coverage.js";
+import { postgresDb, nowIso, resetDatabase } from "../src/postgres/access.js";
+import { parseDeclaredMcp, skillCoverage, skillImplementation, toolMountState, type DeclaredTool, } from "../src/runtime/skill-coverage.js";
 import { connectorInUseBySkill, ensureRuntimeSchema, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
+import { seedBuiltinConnectorReferences } from "./helpers/finalfix-connector-admin.js";
 import { SKILL_FIXTURES_ROOT, publishFixtureSkills } from "./helpers/skill-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 const DECLARED: DeclaredTool = {
   connector_id: "starrykol",
   tool_name: "pageKolProfiles",
@@ -22,34 +16,31 @@ const DECLARED: DeclaredTool = {
 const HASH = "a".repeat(64);
 let tmp = "";
 let env: Record<string, string | undefined>;
-
-function policy(connectorId: string, toolName: string, enabled: boolean, risk: "L1" | "L2" | "L3"): void {
-  setToolPolicy(connectorId, toolName, { enabled, risk, access: risk === "L1" ? "read" : "write", schema_hash: HASH }, 0);
+async function policy(connectorId: string, toolName: string, enabled: boolean, risk: "L1" | "L2" | "L3"): Promise<void> {
+  (await setToolPolicy(connectorId, toolName, { enabled, risk, access: risk === "L1" ? "read" : "write", schema_hash: HASH }, 0));
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
-  env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"].map((key) => [key, process.env[key]]));
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "skill-coverage-"));
+  env = Object.fromEntries(["AUTH_MODE", "NODE_ENV"].map((key) => [key, process.env[key]]));
+  tmp = String(process.env.LINGONG_DATA);
   Object.assign(process.env, {
-    LINGONG_DB: path.join(tmp, "test.db"),
-    LINGONG_DATA: tmp,
     AUTH_MODE: "disabled",
     NODE_ENV: "test",
   });
   publishFixtureSkills(tmp, ["declared_fixture", "declared_defined_fixture"]);
-  resetConn();
+  (await resetDatabase());
+  await seedBuiltinConnectorReferences();
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const [key, value] of Object.entries(env)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+    if (value === undefined)
+      delete process.env[key];
+    else
+      process.env[key] = value;
   }
 });
-
 describe("parseDeclaredMcp", () => {
   it("splits connector-prefixed declarations and keeps the input order", () => {
     expect(parseDeclaredMcp(["starrykol.pageKolProfiles", "starry.get_collaboration"])).toEqual([
@@ -95,16 +86,14 @@ describe("skillImplementation", () => {
     expect(skillImplementation({ agentBound: true, stage: null })).toBe("defined");
   });
 });
-
 describe("skillCoverage read model", () => {
-  it("reads per-tool mount state from the connector catalog and the skill bindings", () => {
-    policy("starrykol", "pageKolProfiles", true, "L1");
-    policy("starrykol", "previewEmailDraft", true, "L2");
-    policy("starrykol", "decryptKolContact", false, "L3");
-    setSkillConnector("declared_fixture", "starrykol", true, 0);
-    setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0);
-
-    const coverage = skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" });
+  it("reads per-tool mount state from the connector catalog and the skill bindings", async () => {
+    (await policy("starrykol", "pageKolProfiles", true, "L1"));
+    (await policy("starrykol", "previewEmailDraft", true, "L2"));
+    (await policy("starrykol", "decryptKolContact", false, "L3"));
+    (await setSkillConnector("declared_fixture", "starrykol", true, 0));
+    (await setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0));
+    const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" }));
     expect(coverage.summary).toEqual({
       skills: 2,
       live: 0,
@@ -138,9 +127,8 @@ describe("skillCoverage read model", () => {
     expect(unregistered).not.toHaveProperty("policy_risk");
     expect(unregistered).not.toHaveProperty("policy_enabled");
   });
-
-  it("keeps a legacy connector out of the catalog list and marks its tools unknown", () => {
-    const coverage = skillCoverage({ root: SKILL_FIXTURES_ROOT });
+  it("keeps a legacy connector out of the catalog list and marks its tools unknown", async () => {
+    const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT }));
     const legacy = coverage.skills
       .flatMap((skill) => skill.tools)
       .find((tool) => tool.declared_as === "starry.get_collaboration");
@@ -149,19 +137,14 @@ describe("skillCoverage read model", () => {
     expect(legacy).not.toHaveProperty("connector_status");
     expect(coverage.connectors.map((connector) => connector.id)).toEqual(["starrykol"]);
   });
-
-  it("marks a skill live only with an enabled Agent binding plus a published stage and version", () => {
+  it("marks a skill live only with an enabled Agent binding plus a published stage and version", async () => {
     const now = nowIso();
     // 运行目录表由 store 惰性建；直接写表前先显式建表。
-    ensureRuntimeSchema();
-    getConn().prepare("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES (?,?,?,?)")
-      .run("declared_fixture", "published", "official", now);
-    getConn().prepare("INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at) VALUES (?,?,?,?,?)")
-      .run("agent:kol", "declared_fixture", 1, 1, now);
-    getConn().prepare("INSERT INTO skill_versions (id,skill_id,version,status,published_at) VALUES (?,?,?,?,?)")
-      .run("sv_fixture", "declared_fixture", 3, "published", now);
-
-    const coverage = skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" });
+    (await ensureRuntimeSchema());
+    (await postgresDb().execute("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES ($1,$2,$3,$4)", "declared_fixture", "published", "official", now));
+    (await postgresDb().execute("INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at) VALUES ($1,$2,$3,$4,$5)", "agent:kol", "declared_fixture", 1, 1, now));
+    (await postgresDb().execute("INSERT INTO skill_versions (id,skill_id,version,status,published_at) VALUES ($1,$2,$3,$4,$5)", "sv_fixture", "declared_fixture", 3, "published", now));
+    const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" }));
     expect(coverage.skills.find((entry) => entry.skill_id === "declared_fixture")).toMatchObject({
       stage: "published",
       published_version: 3,
@@ -179,20 +162,18 @@ describe("skillCoverage read model", () => {
     expect(coverage.summary.live).toBe(1);
     expect(coverage.summary.defined).toBe(1);
   });
-
-  it("does not call a tool mounted while its connector binding is disabled", () => {
-    policy("starrykol", "pageKolProfiles", true, "L1");
-    setSkillConnector("declared_fixture", "starrykol", true, 0);
-    setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0);
-    setSkillConnector("declared_fixture", "starrykol", false, 1);
-
-    const coverage = skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" });
+  it("does not call a tool mounted while its connector binding is disabled", async () => {
+    (await policy("starrykol", "pageKolProfiles", true, "L1"));
+    (await setSkillConnector("declared_fixture", "starrykol", true, 0));
+    (await setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0));
+    (await setSkillConnector("declared_fixture", "starrykol", false, 1));
+    const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" }));
     expect(coverage.skills.find((entry) => entry.skill_id === "declared_fixture")?.tools[0]).toMatchObject({
       tool_name: "pageKolProfiles",
       state: "available",
       policy_enabled: true,
     });
     expect(coverage.summary.mounted_tools).toBe(0);
-    expect(connectorInUseBySkill("starrykol")).toBe(false);
+    expect((await connectorInUseBySkill("starrykol"))).toBe(false);
   });
 });

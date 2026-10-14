@@ -24,16 +24,15 @@ const PATH_STATE_LABEL = {
   rejected: "已驳回",
   todo: "待处理",
 } as const;
-
 export type PathState = keyof typeof PATH_STATE_LABEL;
-
 export function parseApprovalBox(raw: string | null | undefined): ApprovalBox | undefined {
   const value = String(raw || "").trim();
-  if (!value) return undefined;
-  if ((APPROVAL_BOXES as readonly string[]).includes(value)) return value as ApprovalBox;
+  if (!value)
+    return undefined;
+  if ((APPROVAL_BOXES as readonly string[]).includes(value))
+    return value as ApprovalBox;
   throw Object.assign(new Error("unknown_box"), { code: "unknown_box" });
 }
-
 export function viewerOf(user?: AppUser | null) {
   const person = employeeForUser(user);
   return {
@@ -53,104 +52,121 @@ function payloadOf(approval: Row): Record<string, unknown> {
     ? payload as Record<string, unknown>
     : {};
 }
-
-export function isCurrentDecider(approval: Row, user?: AppUser | null): boolean {
-  if (String(approval.status) !== "pending") return false;
-  return canDecideCurrent(user || undefined, chainOf(approval), Number(approval.current_index));
+export async function isCurrentDecider(approval: Row, user?: AppUser | null): Promise<boolean> {
+  if (String(approval.status) !== "pending")
+    return false;
+  return (await canDecideCurrent(user || undefined, chainOf(approval), Number(approval.current_index)));
 }
-
 export function isSubmitter(approval: Row, user?: AppUser | null): boolean {
   const viewer = viewerOf(user);
   const submittedBy = String(approval.submitted_by || "").trim();
-  if (viewer.handle && submittedBy && submittedBy === viewer.handle) return true;
-  if (user?.username && submittedBy && submittedBy === user.username) return true;
+  if (viewer.handle && submittedBy && submittedBy === viewer.handle)
+    return true;
+  if (user?.username && submittedBy && submittedBy === user.username)
+    return true;
   return false;
 }
-
 export function chainIndexForViewer(approval: Row, user?: AppUser | null): number {
   const viewer = viewerOf(user);
   const chain = chainOf(approval);
   if (viewer.employee_id) {
     const byId = chain.indexOf(viewer.employee_id);
-    if (byId >= 0) return byId;
+    if (byId >= 0)
+      return byId;
   }
-  const detail = Array.isArray(approval.chain_detail) ? approval.chain_detail as { name?: string }[] : [];
+  const detail = Array.isArray(approval.chain_detail) ? approval.chain_detail as {
+    name?: string;
+  }[] : [];
   if (viewer.name) {
     const byName = detail.findIndex((step) => step.name === viewer.name);
-    if (byName >= 0) return byName;
+    if (byName >= 0)
+      return byName;
   }
   return -1;
 }
-
 export function hasProcessed(approval: Row, user?: AppUser | null): boolean {
   const index = chainIndexForViewer(approval, user);
-  if (index < 0) return false;
+  if (index < 0)
+    return false;
   const status = String(approval.status);
   const current = Number(approval.current_index);
-  if (status === "rejected") return index <= current;
-  if (status !== "pending") return true;
+  if (status === "rejected")
+    return index <= current;
+  if (status !== "pending")
+    return true;
   return index < current;
 }
-
-export function isVisibleToViewer(approval: Row, user?: AppUser | null): boolean {
-  if (authDisabled()) return true;
-  return isCurrentDecider(approval, user)
-    || isSubmitter(approval, user)
+export async function isVisibleToViewer(approval: Row, user?: AppUser | null): Promise<boolean> {
+  if (authDisabled())
+    return true;
+  return (await isCurrentDecider(approval, user)) || isSubmitter(approval, user)
     || chainIndexForViewer(approval, user) >= 0;
 }
-
-export function inApprovalBox(approval: Row, box: ApprovalBox, user?: AppUser | null): boolean {
-  if (box === "inbox") return isCurrentDecider(approval, user);
-  if (box === "submitted") return isSubmitter(approval, user);
+export async function inApprovalBox(approval: Row, box: ApprovalBox, user?: AppUser | null): Promise<boolean> {
+  if (box === "inbox")
+    return (await isCurrentDecider(approval, user));
+  if (box === "submitted")
+    return isSubmitter(approval, user);
   return hasProcessed(approval, user)
     || (String(approval.status) !== "pending" && (isSubmitter(approval, user) || chainIndexForViewer(approval, user) >= 0));
 }
-
 export function businessStatusOf(approval: Row): string {
   const raw = String(approval.business_status || "").trim();
-  if (raw) return raw;
+  if (raw)
+    return raw;
   const status = String(approval.status || "");
   const index = Number(approval.current_index);
-  if (status === "rejected") return "rejected";
-  if (status === "withdrawn" || status === "cancelled") return "withdrawn";
-  if (status === "stale") return "stale";
-  if (status === "pending") return index > 0 ? "waiting_next" : "pending";
-  if (status === "consumed" || status === "sent" || status === "approved") return "succeeded";
+  if (status === "rejected")
+    return "rejected";
+  if (status === "withdrawn" || status === "cancelled")
+    return "withdrawn";
+  if (status === "stale")
+    return "stale";
+  if (status === "pending")
+    return index > 0 ? "waiting_next" : "pending";
+  if (status === "consumed" || status === "sent" || status === "approved")
+    return "succeeded";
   return status || "pending";
 }
-
 export function pathStateAt(approval: Row, index: number): PathState {
   const status = String(approval.status);
   const current = Number(approval.current_index);
-  if (status === "consumed" || status === "sent" || status === "approved") return "done";
+  if (status === "consumed" || status === "sent" || status === "approved")
+    return "done";
   if (status === "rejected") {
-    if (index < current) return "done";
-    if (index === current) return "rejected";
+    if (index < current)
+      return "done";
+    if (index === current)
+      return "rejected";
     return "todo";
   }
-  if (index < current) return "done";
-  if (index === current) return "current";
+  if (index < current)
+    return "done";
+  if (index === current)
+    return "current";
   return "todo";
 }
-
 export function waitingDurationLabel(fromIso?: string | null): string {
   const start = Date.parse(String(fromIso || ""));
-  if (!Number.isFinite(start)) return "刚提交";
+  if (!Number.isFinite(start))
+    return "刚提交";
   const ms = Date.now() - start;
-  if (ms < 60_000) return "刚提交";
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `已等待 ${minutes} 分钟`;
+  if (ms < 60000)
+    return "刚提交";
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60)
+    return `已等待 ${minutes} 分钟`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `已等待 ${hours} 小时`;
+  if (hours < 48)
+    return `已等待 ${hours} 小时`;
   return `已等待 ${Math.floor(hours / 24)} 天`;
 }
-
 function formatAmount(value: unknown): string {
   const n = Number(value);
-  if (!Number.isFinite(n)) return String(value ?? "");
+  if (!Number.isFinite(n))
+    return String(value ?? "");
   return n.toLocaleString("zh-CN");
 }
-
 export function objectLabelOf(approval: Row): string {
   const payload = payloadOf(approval);
   const kind = String(approval.kind || "expense");
@@ -187,23 +203,30 @@ export function versionCodeOf(approval: Row): string {
   const payload = payloadOf(approval);
   return String(payload.rule_id || payload.policy_id || approval.kind_label || approval.kind || "").trim();
 }
-
 export function currentNodeOf(approval: Row): string {
-  const detail = Array.isArray(approval.chain_detail) ? approval.chain_detail as { name?: string }[] : [];
+  const detail = Array.isArray(approval.chain_detail) ? approval.chain_detail as {
+    name?: string;
+  }[] : [];
   return String(detail[Number(approval.current_index)]?.name || "下一位审批人");
 }
-
 function receiptProjection(approval: Row) {
   const status = String(approval.status);
-  const sent = Boolean((approval as { sent?: boolean }).sent);
-  const discarded = Boolean((approval as { discarded?: boolean }).discarded) || status === "rejected";
+  const sent = Boolean((approval as {
+    sent?: boolean;
+  }).sent);
+  const discarded = Boolean((approval as {
+    discarded?: boolean;
+  }).discarded) || status === "rejected";
   const decided = status === "rejected" ? "rejected" : (status === "consumed" || status === "sent" || status === "approved") ? "approved" : "none";
   const gateway = decided === "none" ? "none" : "accepted";
   let external: "succeeded" | "failed" | "pending_check" | "none" = "none";
   if (decided !== "none") {
-    if (discarded) external = "none";
-    else if (sent === true) external = "succeeded";
-    else external = "pending_check";
+    if (discarded)
+      external = "none";
+    else if (sent === true)
+      external = "succeeded";
+    else
+      external = "pending_check";
   }
   const externalLabel = {
     succeeded: "外部回执成功",
@@ -220,12 +243,14 @@ function receiptProjection(approval: Row) {
     external_label: externalLabel[external],
   };
 }
-
-export function projectApproval(approval: Row, user?: AppUser | null): Row {
+export async function projectApproval(approval: Row, user?: AppUser | null): Promise<Row> {
   const payload = payloadOf(approval);
-  const canDecide = isCurrentDecider(approval, user);
+  const canDecide = (await isCurrentDecider(approval, user));
   const businessStatus = businessStatusOf(approval);
-  const detail = Array.isArray(approval.chain_detail) ? approval.chain_detail as { name?: string; role?: string }[] : [];
+  const detail = Array.isArray(approval.chain_detail) ? approval.chain_detail as {
+    name?: string;
+    role?: string;
+  }[] : [];
   const path = detail.map((step, index) => {
     const state = pathStateAt(approval, index);
     return {
@@ -276,7 +301,9 @@ export function projectApproval(approval: Row, user?: AppUser | null): Row {
 export function idempotencyKeyOf(value: unknown): string {
   const key = String(value || "").trim();
   if (!key) {
-    const error = new Error("idempotency_key_required") as Error & { code: string };
+    const error = new Error("idempotency_key_required") as Error & {
+      code: string;
+    };
     error.code = "idempotency_key_required";
     throw error;
   }

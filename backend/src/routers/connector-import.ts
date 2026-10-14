@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { requireAdmin } from "../auth.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit, postgresDb, nowIso } from "../postgres/access.js";
 import { HttpFail } from "../host/errors.js";
 import { createCredential } from "../runtime/credentials.js";
 import { setConnectorConfig, type ConnectorConfig } from "../runtime/store.js";
@@ -11,7 +11,7 @@ const CONNECTOR_ID = /^[a-z][a-z0-9_-]{2,63}$/;
 const MAX_SERVERS = 50;
 const MAX_URL_LENGTH = 2048;
 const MAX_HEADERS = 32;
-const MAX_JSON_BYTES = 200_000;
+const MAX_JSON_BYTES = 200000;
 const CREDENTIAL_REFERENCE = /^cred_[A-Za-z0-9_-]{8,160}$/;
 const HTTP_HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const RESERVED_HEADERS = new Set([
@@ -31,24 +31,26 @@ type ParsedServer = {
   valid: boolean;
   reason?: string;
 };
-
 function slugify(name: string): string {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!slug) return "";
+  if (!slug)
+    return "";
   const prefixed = /^[a-z]/.test(slug) ? slug : `mcp-${slug}`;
   return prefixed.slice(0, 63);
 }
-
 function parseTransport(value: unknown): ImportTransport | undefined {
-  if (value === undefined || value === null || value === "") return "streamable-http";
-  if (typeof value !== "string") return undefined;
+  if (value === undefined || value === null || value === "")
+    return "streamable-http";
+  if (typeof value !== "string")
+    return undefined;
   const normalized = value.trim().toLowerCase();
-  if (normalized === "sse") return "sse";
-  if (normalized === "http" || normalized === "streamable-http" || normalized === "streamablehttp") return "streamable-http";
+  if (normalized === "sse")
+    return "sse";
+  if (normalized === "http" || normalized === "streamable-http" || normalized === "streamablehttp")
+    return "streamable-http";
   return undefined;
 }
-
-function parseServer(name: string, value: unknown, taken: Set<string>): ParsedServer {
+async function parseServer(name: string, value: unknown, taken: Set<string>): Promise<ParsedServer> {
   const label = name.trim();
   const base: ParsedServer = { id: "", label, url: "", transport: "streamable-http", headers: {}, conflicts: [], valid: false };
   if (!label || label.length > 120) {
@@ -68,7 +70,8 @@ function parseServer(name: string, value: unknown, taken: Set<string>): ParsedSe
   let parsed: URL;
   try {
     parsed = new URL(url);
-  } catch {
+  }
+  catch {
     return { ...base, reason: "url 必须是合法的 http/https 地址" };
   }
   if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname || parsed.username || parsed.password
@@ -85,7 +88,8 @@ function parseServer(name: string, value: unknown, taken: Set<string>): ParsedSe
       return { ...base, reason: "headers 必须是对象" };
     }
     const entries = Object.entries(entry.headers as Record<string, unknown>);
-    if (entries.length > MAX_HEADERS) return { ...base, reason: `headers 不能超过 ${MAX_HEADERS} 项` };
+    if (entries.length > MAX_HEADERS)
+      return { ...base, reason: `headers 不能超过 ${MAX_HEADERS} 项` };
     for (const [header, raw] of entries) {
       if (!HTTP_HEADER_NAME.test(header) || RESERVED_HEADERS.has(header.toLowerCase())) {
         return { ...base, reason: `请求头名称无效：${header}` };
@@ -101,12 +105,13 @@ function parseServer(name: string, value: unknown, taken: Set<string>): ParsedSe
   if (!CONNECTOR_ID.test(id)) {
     return { ...base, reason: "无法从名称生成合法短名；请改用小写字母、数字、- 或 _" };
   }
-  if (taken.has(id)) conflicts.push("同一次导入中出现重复短名");
-  if (getConn().prepare("SELECT 1 FROM connectors WHERE id=?").get(id)) conflicts.push("连接器短名已被占用");
+  if (taken.has(id))
+    conflicts.push("同一次导入中出现重复短名");
+  if ((await postgresDb().one("SELECT 1 FROM connectors WHERE id=$1", id)))
+    conflicts.push("连接器短名已被占用");
   return { ...base, id, url, transport, headers, conflicts, valid: conflicts.length === 0 };
 }
-
-function parseServers(root: unknown): ParsedServer[] {
+async function parseServers(root: unknown): Promise<ParsedServer[]> {
   if (!root || typeof root !== "object" || Array.isArray(root)) {
     throw new HttpFail(400, { code: "connector_import_invalid_json" });
   }
@@ -115,13 +120,16 @@ function parseServers(root: unknown): ParsedServer[] {
     throw new HttpFail(400, { code: "connector_import_mcp_servers_required" });
   }
   const entries = Object.entries(servers as Record<string, unknown>);
-  if (!entries.length) throw new HttpFail(400, { code: "connector_import_empty" });
-  if (entries.length > MAX_SERVERS) throw new HttpFail(400, { code: "connector_import_too_many_servers" });
+  if (!entries.length)
+    throw new HttpFail(400, { code: "connector_import_empty" });
+  if (entries.length > MAX_SERVERS)
+    throw new HttpFail(400, { code: "connector_import_too_many_servers" });
   const taken = new Set<string>();
   const parsed: ParsedServer[] = [];
   for (const [name, value] of entries) {
-    const server = parseServer(name, value, taken);
-    if (server.id) taken.add(server.id);
+    const server = (await parseServer(name, value, taken));
+    if (server.id)
+      taken.add(server.id);
     parsed.push(server);
   }
   return parsed;
@@ -141,9 +149,8 @@ function preview(server: ParsedServer) {
     ...(server.reason ? { reason: server.reason } : {}),
   };
 }
-
 connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const body = await c.req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new HttpFail(400, { code: "connector_import_invalid_request" });
@@ -159,11 +166,11 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(text);
-  } catch {
+  }
+  catch {
     throw new HttpFail(400, { code: "connector_import_invalid_json" });
   }
-  const servers = parseServers(parsedJson);
-
+  const servers = (await parseServers(parsedJson));
   if (input.dry_run === true) {
     const valid = servers.filter((server) => server.valid);
     return c.json({
@@ -173,9 +180,14 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
       invalid_count: servers.length - valid.length,
     });
   }
-
-  const created: Array<{ id: string; label: string }> = [];
-  const skipped: Array<{ name: string; reason: string }> = [];
+  const created: Array<{
+    id: string;
+    label: string;
+  }> = [];
+  const skipped: Array<{
+    name: string;
+    reason: string;
+  }> = [];
   for (const server of servers) {
     if (!server.valid) {
       skipped.push({ name: server.label, reason: server.reason || server.conflicts[0] || "不可导入" });
@@ -183,10 +195,9 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
     }
     const now = nowIso();
     try {
-      getConn().prepare(
-        "INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,updated_at) VALUES (?,?,?,0,'pending_verification',NULL,?)",
-      ).run(server.id, server.label, IMPORT_PURPOSE, now);
-    } catch {
+      (await postgresDb().execute("INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,updated_at) VALUES ($1,$2,$3,0,'pending_verification',NULL,$4)", server.id, server.label, IMPORT_PURPOSE, now));
+    }
+    catch {
       skipped.push({ name: server.label, reason: "连接器短名已被占用" });
       continue;
     }
@@ -197,33 +208,35 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
           refs[header] = value;
           continue;
         }
-        const credential = createCredential({
+        const credential = (await createCredential({
           type: "organization_secret",
           label: `${server.label} · ${header}`,
           purpose: "由 JSON 导入写入",
           secret: value,
-        }, admin.id);
+        }, admin.id));
         refs[header] = credential.id;
       }
-      const config: ConnectorConfig = { protocol: "mcp", transport: server.transport, url: server.url, timeout_ms: 30_000 };
+      const config: ConnectorConfig = { protocol: "mcp", transport: server.transport, url: server.url, timeout_ms: 30000 };
       if (Object.keys(refs).length) {
         config.headers_secret_refs = refs;
         config.allow_unauthenticated = false;
-      } else {
+      }
+      else {
         // No header values were provided. The preview states this explicitly before confirm.
         config.allow_unauthenticated = true;
       }
-      setConnectorConfig(server.id, config, 0);
+      (await setConnectorConfig(server.id, config, 0));
       created.push({ id: server.id, label: server.label });
-    } catch {
+    }
+    catch {
       // Never leave a half-imported connector behind.
-      getConn().prepare("DELETE FROM connectors WHERE id=?").run(server.id);
+      (await postgresDb().execute("DELETE FROM connectors WHERE id=$1", server.id));
       skipped.push({ name: server.label, reason: "配置未通过校验" });
     }
   }
-  audit(admin.id, "admin.connector.import_mcp", {
+  (await audit(admin.id, "admin.connector.import_mcp", {
     connector_ids: created.map((row) => row.id),
     skipped: skipped.length,
-  });
+  }));
   return c.json({ dry_run: false, created, skipped });
 });

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { BRAND_MAILBOXES } from "../src/config.js";
 import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { EMAIL_TEMPLATES, templateAllowedForStage } from "../src/email-templates.js";
 import { LEGACY_STAGE_ALIASES, MAIN_STAGES, label, normalizeStage } from "../src/stages.js";
@@ -14,27 +14,14 @@ import { judgeCollaborationStage } from "../src/stage-judgment.js";
 import { executeStarryKolTask, setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import type { Json } from "../src/types.js";
-import {
-  PORTRAIT_SHEET_EMAILS,
-  WENDELL_UID,
-  exceptionTemplateRows,
-  flowTemplateRows,
-  mailboxBindRows,
-  portraitRows,
-  readRealText,
-  starryMailboxes,
-  starryProfiles,
-  starryStages,
-  starryToolNames,
-  wendellProfile,
-  type StarryProfile,
-} from "./fixtures/real-data/load.js";
+import { PORTRAIT_SHEET_EMAILS, WENDELL_UID, exceptionTemplateRows, flowTemplateRows, mailboxBindRows, portraitRows, readRealText, starryMailboxes, starryProfiles, starryStages, starryToolNames, wendellProfile, type StarryProfile, } from "./fixtures/real-data/load.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 let tmp = "";
 let chatApp: Hono;
-const calls: Array<{ name: string; args: Json }> = [];
-
+const calls: Array<{
+  name: string;
+  args: Json;
+}> = [];
 function mockFromSnapshot() {
   const profiles = starryProfiles();
   const mailboxes = starryMailboxes();
@@ -42,11 +29,18 @@ function mockFromSnapshot() {
   return {
     async callTool(name: string, args: Json = {}): Promise<Json> {
       calls.push({ name, args });
-      if (name === "decryptKolContact") throw new Error("decryptKolContact must not run on whitelist reads");
-      if (name === "listAllKolProfiles") return { data: { total: profiles.length, list: profiles } };
+      if (name === "decryptKolContact")
+        throw new Error("decryptKolContact must not run on whitelist reads");
+      if (name === "listAllKolProfiles")
+        return { data: { total: profiles.length, list: profiles } };
       if (name === "pageKolProfiles") {
         let body: Json = {};
-        try { body = JSON.parse(String(args.requestJson || "{}")) as Json; } catch { body = args; }
+        try {
+          body = JSON.parse(String(args.requestJson || "{}")) as Json;
+        }
+        catch {
+          body = args;
+        }
         const keyword = String(body.keyword || "").trim().toLowerCase();
         const list = keyword
           ? profiles.filter((row) => JSON.stringify(row).toLowerCase().includes(keyword))
@@ -57,18 +51,23 @@ function mockFromSnapshot() {
         const hit = profiles.find((row) => row.kolUid === args.kolUid) || profiles[0];
         return { data: hit };
       }
-      if (name === "pageMailboxes") return { data: { total: mailboxes.length, list: mailboxes } };
-      if (name === "listNylasAccounts") return { data: { items: [] } };
-      if (name === "listCooperationStageOptions") return { data: stages };
-      if (name === "listKolPlatformData") return { data: { list: [] } };
-      if (name === "pageEmailConversations") return { data: { total: 0, list: [] } };
-      if (name === "pageLifecycleKanban") return { data: { total: 0, list: [] } };
+      if (name === "pageMailboxes")
+        return { data: { total: mailboxes.length, list: mailboxes } };
+      if (name === "listNylasAccounts")
+        return { data: { items: [] } };
+      if (name === "listCooperationStageOptions")
+        return { data: stages };
+      if (name === "listKolPlatformData")
+        return { data: { list: [] } };
+      if (name === "pageEmailConversations")
+        return { data: { total: 0, list: [] } };
+      if (name === "pageLifecycleKanban")
+        return { data: { total: 0, list: [] } };
       throw new Error(`unexpected tool ${name}`);
     },
-    async close() { /* noop */ },
+    async close() { },
   };
 }
-
 async function request(method: string, url: string, body?: unknown) {
   const response = await chatApp.request(url, {
     method,
@@ -82,8 +81,10 @@ async function request(method: string, url: string, body?: unknown) {
 async function ask(prompt: string, intent?: string, collaborationId?: string, expectStatus = 200) {
   const session = await request("POST", "/api/sessions", { title: prompt.slice(0, 40) });
   const payload: Json = { text: prompt, content: prompt, act: "ask", model_tier: "default" };
-  if (intent) payload.intent = intent;
-  if (collaborationId) payload.collaboration_id = collaborationId;
+  if (intent)
+    payload.intent = intent;
+  if (collaborationId)
+    payload.collaboration_id = collaborationId;
   const listed = await request("POST", `/api/sessions/${session.body.id}/messages`, payload);
   expect(listed.status, JSON.stringify(listed.body)).toBe(expectStatus);
   return [String(session.body.id), listed.body] as const;
@@ -92,101 +93,50 @@ async function ask(prompt: string, intent?: string, collaborationId?: string, ex
 function portraitEmail(name: string): string {
   return portraitRows().find((row) => row["名称"] === name)?.["邮箱"] || "";
 }
-
-function insertCollaboration(profile: StarryProfile, stageCode = "INITIAL_CONTACT"): string {
+async function insertCollaboration(profile: StarryProfile, stageCode = "INITIAL_CONTACT"): Promise<string> {
   const id = `col_${profile.kolUid}`;
   const followers = profile.followerCountTenThousands != null ? `${profile.followerCountTenThousands}万` : "";
   const geo = profile.audienceGeo && typeof profile.audienceGeo === "object"
     ? Object.entries(profile.audienceGeo).sort((a, b) => Number.parseFloat(b[1]) - Number.parseFloat(a[1]))[0]?.[0] || ""
     : String(profile.countryName || "");
   const boundEmail = portraitEmail(profile.kolName) || `${profile.kolUid.toLowerCase()}@litime.example`;
-  getConn().prepare(
-    `INSERT OR REPLACE INTO collaborations
+  (await postgresDb().execute(`INSERT INTO collaborations
      (id, handle, display_name, brand, platform, followers, email, mailbox_from,
       lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
       stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    profile.kolName,
-    profile.kolName,
-    String(profile.brandName || "LT").replace(/品牌$/, ""),
-    profile.platform || "YouTube",
-    followers,
-    boundEmail,
-    BRAND_MAILBOXES.LT,
-    `lc_${profile.kolUid}`,
-    `conv_${profile.kolUid}`,
-    stageCode,
-    9,
-    String(profile.nicheTagsText || "").slice(0, 80),
-    0,
-    0,
-    "",
-    "",
-    "",
-    profile.countryName || "",
-    "",
-    "LT-MINI-12",
-    "1",
-    0,
-  );
-  getConn().prepare(
-    `UPDATE collaborations SET owner_name=?, engagement_rate=?, audience_geo=?, duplicate_checked=1
-     WHERE id=?`,
-  ).run(
-    profile.ownerName || "",
-    profile.avgVideoEngagementRate10 ?? "",
-    geo,
-    id,
-  );
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked`, id, profile.kolName, profile.kolName, String(profile.brandName || "LT").replace(/品牌$/, ""), profile.platform || "YouTube", followers, boundEmail, BRAND_MAILBOXES.LT, `lc_${profile.kolUid}`, `conv_${profile.kolUid}`, stageCode, 9, String(profile.nicheTagsText || "").slice(0, 80), 0, 0, "", "", "", profile.countryName || "", "", "LT-MINI-12", "1", 0));
+  (await postgresDb().execute(`UPDATE collaborations SET owner_name=$1, engagement_rate=$2, audience_geo=$3, duplicate_checked=1
+     WHERE id=$4`, profile.ownerName || "", profile.avgVideoEngagementRate10 ?? "", geo, id));
   return id;
 }
-
-function insertUnboundCreator(portrait: Record<string, string>): void {
+async function insertUnboundCreator(portrait: Record<string, string>): Promise<void> {
   const id = `cr_md_${portrait["名称"].replace(/\s+/g, "_")}`;
-  getConn().prepare(
-    `INSERT OR REPLACE INTO claw_creators
+  (await postgresDb().execute(`INSERT INTO claw_creators
      (id, handle, name, platform, followers, score, status, outreach_script, payload)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    portrait["名称"],
-    portrait["名称"],
-    portrait["主平台"] || "youtube",
-    Math.round(Number(portrait["粉丝量/万"] || 0) * 10000),
-    0.7,
-    "discovered",
-    portrait["备注"] || "画像台账导入，待建联",
-    JSON.stringify({
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload`, id, portrait["名称"], portrait["名称"], portrait["主平台"] || "youtube", Math.round(Number(portrait["粉丝量/万"] || 0) * 10000), 0.7, "discovered", portrait["备注"] || "画像台账导入，待建联", JSON.stringify({
       niche: "vanlife",
       brand_fit: portrait["品牌"] || "LT",
       email: portrait["邮箱"] || "",
       unbound: true,
-    }),
-  );
+  })));
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-real-data-"));
-  process.env.LINGONG_DB = path.join(tmp, "real.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   calls.length = 0;
   setStarryKolClientFactory(mockFromSnapshot);
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  chatApp = createApp();
+  chatApp = (await createApp());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setStarryKolClientFactory();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("real markdown + Starry KOL MCP fixtures", () => {
   it("loads 220 Starry profiles including Wendell Fishing from the live snapshot", () => {
     const profiles = starryProfiles();
@@ -319,17 +269,14 @@ describe("markdown stage tables vs product catalog", () => {
       expect(stage, row["阶段"]).toBeTruthy();
       const fold = (value: string) => value.replace(/\{\{[^}]+\}\}/g, "Creator").replace(/\s+/g, " ").toLowerCase();
       const subject = fold(row["邮件主题"]);
-      expect(
-        EMAIL_TEMPLATES.some((tpl) => {
-          if (!tpl.stages.includes(stage!.code)) return false;
+      expect(EMAIL_TEMPLATES.some((tpl) => {
+        if (!tpl.stages.includes(stage!.code))
+          return false;
           const catalog = fold(tpl.subject);
           return subject.includes(catalog) || catalog.includes(subject.split(" / ")[0]);
-        }),
-        row["模板类型"],
-      ).toBe(true);
+      }), row["模板类型"]).toBe(true);
     }
   });
-
   it("maps long-term and exception sheet rows onto catalog skills", () => {
     const mapping: Record<string, string> = {
       联盟项目邀请: "affiliate_invite",
@@ -349,9 +296,11 @@ describe("markdown stage tables vs product catalog", () => {
       expect(sheet!["邮件模板/典型主题"]).toBe(tpl!.subject);
     }
   });
-
   it("judges each uploaded main-flow keyword set onto the official stage", () => {
-    const cases: Array<{ stage: string; body: string }> = [
+    const cases: Array<{
+      stage: string;
+      body: string;
+    }> = [
       { stage: "INTERESTED", body: "We are interested and would love to collaborate. Keen to learn more." },
       { stage: "EVALUATING", body: "Sharing the media kit and audience demographics plus engagement rate." },
       { stage: "QUOTE_PENDING", body: "Could you share your collaboration rates and pricing quote?" },
@@ -374,10 +323,11 @@ describe("markdown stage tables vs product catalog", () => {
         current_stage: "INITIAL_CONTACT",
       });
       expect(result.suggested_stage, item.body).toBe(item.stage);
-      expect(result.evidence.some((hit: { source: string }) => hit.source === "body"), item.stage).toBe(true);
+      expect(result.evidence.some((hit: {
+        source: string;
+      }) => hit.source === "body"), item.stage).toBe(true);
     }
   });
-
   it("judges stage from body over subject, as the uploaded Agent rules require", () => {
     const rules = readRealText("Agent判断合作阶段核心规则.md");
     expect(rules).toContain("正文明确动作 > 附件和链接 > 履约字段 > 邮件主题");
@@ -386,9 +336,10 @@ describe("markdown stage tables vs product catalog", () => {
       body: "The video is now live: https://youtube.com/watch?v=abc123",
     });
     expect(result.suggested_stage).toBe("PUBLISHED");
-    expect(result.evidence.some((item: { source: string }) => item.source === "body")).toBe(true);
+    expect(result.evidence.some((item: {
+      source: string;
+    }) => item.source === "body")).toBe(true);
   });
-
   it("does not treat a thank-you-only reply as 已回复-有兴趣", () => {
     const result = judgeCollaborationStage({
       subject: "Re: Collaboration Opportunity / Interested in Working with LiTime",
@@ -508,13 +459,12 @@ describe("home board and host flows with Starry + markdown creators", () => {
     expect((home.body.recs as Json[]).every((rec) => rec.act === "ask")).toBe(true);
     expect((home.body.recs as Json[]).some((rec) => rec.id === "business_approval")).toBe(true);
   });
-
   it("sends a follow-up to Wendell Fishing without changing the official stage", async () => {
-    const id = insertCollaboration(wendellProfile(), "INITIAL_CONTACT");
+    const id = (await insertCollaboration(wendellProfile(), "INITIAL_CONTACT"));
     const [sid] = await ask("记状态 @Wendell Fishing", "confirm_stage", id);
     const { persistDraft } = await import("../src/host/api.js");
     const { BRAND_MAILBOXES } = await import("../src/config.js");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       template_id: "stage_mail.followup",
       from: BRAND_MAILBOXES.LT,
@@ -524,29 +474,32 @@ describe("home board and host flows with Starry + markdown creators", () => {
       keep_stage: true,
       official_stage: "INITIAL_CONTACT",
       collaboration_id: id,
-    });
+    }));
     expect(Boolean(draft.keep_stage)).toBe(true);
     expect(String(draft.to || draft.to_addr)).toBe("wendellfishing@gmail.com");
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);
     expect(sent.body.stage_changed).toBe(false);
     expect(sent.body.official_stage).toBe("INITIAL_CONTACT");
-    const row = getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get(id) as { stage_code: string };
+    const row = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id=$1", id)) as {
+      stage_code: string;
+    };
     expect(row.stage_code).toBe("INITIAL_CONTACT");
   });
 });
-
 describe("Starry KOL MCP live smoke", () => {
   const live = Boolean(process.env.RUN_LIVE_STARRY_KOL);
-
   it.skipIf(!live)("still lists Wendell Fishing from the test MCP", async () => {
     const { createManagedClient } = await import("../src/runtime/managed-client.js");
-    const client = createManagedClient("starrykol", process.env.LIVE_TEST_USER_ID || "");
+    const client = (await createManagedClient("starrykol", process.env.LIVE_TEST_USER_ID || ""));
     try {
       const listed = await client.callTool("listAllKolProfiles", {});
-      const data = (listed.data || listed) as { list?: Json[] };
+      const data = (listed.data || listed) as {
+        list?: Json[];
+      };
       expect((data.list || []).some((row) => row.kolName === "Wendell Fishing")).toBe(true);
-    } finally {
+    }
+    finally {
       await client.close().catch(() => undefined);
     }
   });

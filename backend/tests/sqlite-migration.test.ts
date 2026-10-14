@@ -1,48 +1,32 @@
-import { describe, expect, it } from "vitest";
-import { migrationFingerprint, type MigrationFingerprintColumn } from "../src/postgres/sqlite-migration.js";
-
-const COLUMNS: MigrationFingerprintColumn[] = [
-  { name: "id", type: "TEXT" },
-  { name: "followers", type: "INTEGER" },
-  { name: "score", type: "REAL" },
-  { name: "payload", type: "TEXT" },
-];
-
-describe("SQLite to PostgreSQL migration fingerprint", () => {
-  it("normalizes lossless pg integer and float reader representations", () => {
-    const sqliteRows = [{
-      id: "creator_1",
-      followers: 9_007_199_254_740_992n,
-      score: "0.7500",
-      payload: '{"platform":"youtube"}',
-    }];
-    const postgresRows = [{
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { databaseEngine, postgresDb, resetDatabase } from "../src/postgres/access.js";
+import { freshTestDatabase } from "./support/pg.js";
+beforeEach(async () => {
+  await freshTestDatabase();
+  await resetDatabase();
+});
+afterEach(async () => {
+  await resetDatabase();
+});
+describe("PostgreSQL-only 数据层", () => {
+  it("声明 PostgreSQL 为唯一数据库引擎", () => {
+    expect(databaseEngine()).toBe("postgres");
+  });
+  it("使用原生 $n 参数并保留大整数与 JSON 值", async () => {
+    const row = await postgresDb().one(`SELECT $1::text AS id,
+          $2::bigint AS followers,
+          $3::numeric AS score,
+          $4::jsonb AS payload`, "creator_1", "9007199254740992", "0.7500", JSON.stringify({ platform: "youtube" }));
+    expect(row).toEqual({
       id: "creator_1",
       followers: "9007199254740992",
-      score: 0.75,
-      payload: '{"platform":"youtube"}',
-    }];
-
-    expect(migrationFingerprint(sqliteRows, COLUMNS)).toBe(migrationFingerprint(postgresRows, COLUMNS));
+      score: "0.7500",
+      payload: { platform: "youtube" },
   });
-
-  it("still rejects changed text payloads", () => {
-    const source = [{ id: "creator_1", followers: 12, score: 0.75, payload: '{"handle":"source"}' }];
-    const target = [{ id: "creator_1", followers: "12", score: "0.75", payload: '{"handle":"changed"}' }];
-
-    expect(migrationFingerprint(source, COLUMNS)).not.toBe(migrationFingerprint(target, COLUMNS));
   });
-
-  it("ignores source and target text collation order differences", () => {
-    const source = [
-      { id: "creator_中文", followers: 12, score: 0.75, payload: "{}" },
-      { id: "creator_Z", followers: 13, score: 0.8, payload: "{}" },
-    ];
-    const target = [
-      { id: "creator_Z", followers: "13", score: "0.8", payload: "{}" },
-      { id: "creator_中文", followers: "12", score: "0.75", payload: "{}" },
-    ];
-
-    expect(migrationFingerprint(source, COLUMNS)).toBe(migrationFingerprint(target, COLUMNS));
+  it("在 PostgreSQL 中由参数边界区分文本，不执行字符串拼接", async () => {
+    const payload = "creator_'quoted'";
+    const row = await postgresDb().one("SELECT $1::text AS payload", payload);
+    expect(row?.payload).toBe(payload);
   });
 });

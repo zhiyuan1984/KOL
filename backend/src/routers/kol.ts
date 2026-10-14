@@ -4,17 +4,10 @@ import { HttpFail } from "../host/errors.js";
 import { brandScope, leaderMemberUserIds } from "../host/inbound-scope.js";
 import { nid } from "../ids.js";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
-import {
-  convertKolLead, createKolCooperation, createKolLead, kolCooperationDetail, kolLeadDetail,
-  kolLeadEvents, kolLeadAutomationStatus,
-  listKolCooperations, listKolLeads, updateKolCooperation, updateKolLead,
-  type KolConvertInput, type KolCooperationInput, type KolLeadInput,
-} from "../ticket-domain/kol-leads.js";
+import { convertKolLead, createKolCooperation, createKolLead, kolCooperationDetail, kolLeadDetail, kolLeadEvents, kolLeadAutomationStatus, listKolCooperations, listKolLeads, updateKolCooperation, updateKolLead, type KolConvertInput, type KolCooperationInput, type KolLeadInput, } from "../ticket-domain/kol-leads.js";
 import { recordCooperationEvent, recordLeadEvent, type CoopEventInput, type LeadEventInput } from "../ticket-domain/kol-event-bridge.js";
-
 /** KOL 线索 / 合作项目 router。PostgreSQL only；不碰 db.ts 与 legacy /tasks。 */
 export const kol = new Hono();
-
 kol.onError((error, c) => {
   if (error instanceof HttpFail) {
     return c.json({ detail: error.detail }, error.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503);
@@ -27,15 +20,19 @@ function meta() {
   return { request_id: nid("req"), as_of: new Date().toISOString(), schema_version: "kol-api.v1" };
 }
 function parseLimit(raw: string | undefined, fallback = 50): number {
-  if (raw == null || raw === "") return fallback;
+  if (raw == null || raw === "")
+    return fallback;
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 1) throw new HttpFail(400, "invalid limit");
+  if (!Number.isFinite(n) || n < 1)
+    throw new HttpFail(400, "invalid limit");
   return Math.min(100, Math.floor(n));
 }
 function parseOffset(raw: string | undefined): number {
-  if (raw == null || raw === "") return 0;
+  if (raw == null || raw === "")
+    return 0;
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) throw new HttpFail(400, "invalid offset");
+  if (!Number.isFinite(n) || n < 0)
+    throw new HttpFail(400, "invalid offset");
   return Math.floor(n);
 }
 function actor() {
@@ -57,10 +54,9 @@ kol.get("/kol/leads", async (c) => {
     mine: c.req.query("mine") === "1" || c.req.query("mine") === "true",
     search: c.req.query("search"),
     limit: parseLimit(c.req.query("limit")), offset: parseOffset(c.req.query("offset")),
-  }, { leaderMemberIds: leaderMemberUserIds(scopedUser()) });
+  }, { leaderMemberIds: (await leaderMemberUserIds(scopedUser())) });
   return c.json({ ...page, ...meta() });
 });
-
 /** 本体落地：初次建联自动建单规则的真实状态（注册在 :id 之前，避免被当作 id）。 */
 kol.get("/kol/leads/automation-status", async (c) => {
   actor();
@@ -70,13 +66,12 @@ kol.get("/kol/leads/automation-status", async (c) => {
 /** 本体落地：线索对象事件时间线（对象详情页统一入口）。 */
 kol.get("/kol/leads/:id/events", async (c) => {
   const { id, isAdmin } = actor();
-  return c.json({ ...(await kolLeadEvents(id, isAdmin, c.req.param("id"), parseLimit(c.req.query("limit"), 50), { leaderMemberIds: leaderMemberUserIds(scopedUser()) })), ...meta() });
+  return c.json({ ...(await kolLeadEvents(id, isAdmin, c.req.param("id"), parseLimit(c.req.query("limit"), 50), { leaderMemberIds: (await leaderMemberUserIds(scopedUser())) })), ...meta() });
 });
-
 kol.get("/kol/leads/:id", async (c) => {
   const { id, isAdmin } = actor();
   return c.json({
-    ...(await kolLeadDetail(id, isAdmin, c.req.param("id"), { leaderMemberIds: leaderMemberUserIds(scopedUser()) })),
+    ...(await kolLeadDetail(id, isAdmin, c.req.param("id"), { leaderMemberIds: (await leaderMemberUserIds(scopedUser())) })),
     ...meta(),
   });
 });

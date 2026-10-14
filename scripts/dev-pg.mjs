@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 /**
- * 本地开发切 PostgreSQL：运行/测试不再使用 SQLite 的 data/ 作为库。
+ * 本地开发使用 PostgreSQL 作为唯一数据库。
  *
  * 用法：
  *   node scripts/dev-pg.mjs                 # 使用 DATABASE_URL（缺省 127.0.0.1:5432/lingong_dev）
  *   node scripts/dev-pg.mjs --docker        # 先起一个仅监听 127.0.0.1 的 postgres:16 容器，再初始化
- *   node scripts/dev-pg.mjs --fresh         # 删除并重建开发库（丢本地数据；从 data/lingong.db 重迁）
+ *   node scripts/dev-pg.mjs --fresh         # 删除并重建本地开发库（丢本地数据）
  *   node scripts/dev-pg.mjs --no-start      # 只准备数据库，不启动后端 dev
  *   node scripts/dev-pg.mjs --url <url>     # 指定目标连接串
  *
- * 行为：等待 PG 可达 → 建库 → 应用 schema（幂等）→ 若库为空（或 --fresh）且有
- *       data/lingong.db 则一次性迁移历史数据 → 在 backend/ 以 DATABASE_URL 启动 `npm run dev`。
+ * 行为：等待 PG 可达 → 建库 → 应用 schema（幂等）→ 写入参考数据 →
+ *       在 backend/ 以 DATABASE_URL 启动 `npm run dev`。
  */
 import { spawn, spawnSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -83,7 +83,7 @@ if (useDocker) {
   } else {
     run("docker", ["run", "-d", "--name", container,
       "-e", "POSTGRES_USER=lingong", "-e", "POSTGRES_PASSWORD=local-dev-only", "-e", "POSTGRES_DB=lingong_dev",
-      "-p", "127.0.0.1:5432:5432", "postgres:18-alpine"]);
+      "-p", "127.0.0.1:5432:5432", "postgres:16-alpine"]);
   }
 }
 
@@ -106,23 +106,6 @@ const env = { ...process.env, DATABASE_URL: databaseUrl };
 
 console.log("dev-pg: 应用 schema（幂等）…");
 run(process.execPath, [tsx, "scripts/apply-postgres-schema.ts"], { cwd: backendDir, env });
-
-const seedSource = path.join(root, "data", "lingong.db");
-const probe = await connectWithRetry(databaseUrl);
-const counts = await probe.query("SELECT count(*)::int AS n FROM knowledge").catch(() => ({ rows: [{ n: 0 }] }));
-await probe.end();
-if (fresh || !counts.rows[0]?.n) {
-  if (fs.existsSync(seedSource)) {
-    console.log(`dev-pg: 从 ${path.relative(root, seedSource)} 迁移历史数据（--replace）…`);
-    run(process.execPath, [tsx, "scripts/migrate-sqlite-to-postgres.ts", "--source", seedSource, "--replace"], { cwd: backendDir, env });
-    console.log("dev-pg: 迁移后重放 schema 补充（触发器/索引）…");
-    run(process.execPath, [tsx, "scripts/apply-postgres-schema.ts"], { cwd: backendDir, env });
-  } else {
-    console.log("dev-pg: data/lingong.db 不存在，跳过历史数据迁移（空库开发）");
-  }
-} else {
-  console.log("dev-pg: 开发库已有数据，跳过迁移（需要重建用 --fresh）");
-}
 
 // 新环境的第三步：参考数据（连接器目录、默认知识分类）——PG 侧唯一来源，幂等。
 console.log("dev-pg: 写入参考数据（幂等）…");

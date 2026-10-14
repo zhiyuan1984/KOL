@@ -45,8 +45,11 @@ type TicketSnapshot = {
   data_version: number | string;
   company_id: string;
 };
-
-type RuleScope = { company_id?: string; brand_id?: string; region_id?: string };
+type RuleScope = {
+  company_id?: string;
+  brand_id?: string;
+  region_id?: string;
+};
 type RuleDefinition = {
   execution_mode?: string;
   requires_human_confirmation?: boolean;
@@ -76,48 +79,49 @@ type ParsedEvent = {
   evidence: Json;
   idempotency_key: string;
 };
-
 function object(value: unknown, fallback: Json = {}): Json {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Json;
+  if (value && typeof value === "object" && !Array.isArray(value))
+    return value as Json;
   try {
     const parsed = JSON.parse(String(value || "{}"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Json : fallback;
-  } catch {
+  }
+  catch {
     return fallback;
   }
 }
-
 function required(value: unknown, field: string, max = 500): string {
   const text = String(value || "").trim();
-  if (!text) throw new HttpFail(422, { code: "event_field_required", field });
-  if (text.length > max) throw new HttpFail(422, { code: "event_field_too_long", field, max });
+  if (!text)
+    throw new HttpFail(422, { code: "event_field_required", field });
+  if (text.length > max)
+    throw new HttpFail(422, { code: "event_field_too_long", field, max });
   return text;
 }
-
 function optional(value: unknown, field: string, max = 500): string | null {
-  if (value == null || String(value).trim() === "") return null;
+  if (value == null || String(value).trim() === "")
+    return null;
   return required(value, field, max);
 }
-
 function iso(value: unknown, field: string): string {
   const text = required(value, field, 80);
   const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) throw new HttpFail(422, { code: "event_timestamp_invalid", field });
+  if (Number.isNaN(parsed.getTime()))
+    throw new HttpFail(422, { code: "event_timestamp_invalid", field });
   return parsed.toISOString();
 }
-
 function idempotencyKey(value: unknown): string {
   const key = required(value, "idempotency_key", 240);
-  if (key.length < 8) throw new HttpFail(422, { code: "idempotency_key_invalid" });
+  if (key.length < 8)
+    throw new HttpFail(422, { code: "idempotency_key_invalid" });
   return key;
 }
-
 function nonEmptyObject(value: unknown, field: string): Json {
   const parsed = object(value);
-  if (!Object.keys(parsed).length) throw new HttpFail(422, { code: "event_evidence_required", field });
+  if (!Object.keys(parsed).length)
+    throw new HttpFail(422, { code: "event_evidence_required", field });
   return parsed;
 }
-
 function parseEvent(input: Record<string, unknown>): ParsedEvent {
   const type = required(input.event_type, "event_type", 120);
   if (!FORMAL_BUSINESS_EVENT_TYPE_SET.has(type)) {
@@ -133,8 +137,8 @@ function parseEvent(input: Record<string, unknown>): ParsedEvent {
     region_id: optional(input.region_id, "region_id", 160),
     ticket_id: optional(input.ticket_id, "ticket_id", 240),
     occurred_at: iso(input.occurred_at, "occurred_at"),
-    summary: required(input.summary, "summary", 1_000),
-    evidence_ref: required(input.evidence_ref, "evidence_ref", 1_000),
+    summary: required(input.summary, "summary", 1000),
+    evidence_ref: required(input.evidence_ref, "evidence_ref", 1000),
     payload: object(input.payload),
     evidence: nonEmptyObject(input.evidence, "evidence"),
     idempotency_key: idempotencyKey(input.idempotency_key),
@@ -156,46 +160,50 @@ function scopeMatches(scope: RuleScope, event: ParsedEvent): boolean {
     && (!scope.brand_id || scope.brand_id === event.brand_id)
     && (!scope.region_id || scope.region_id === event.region_id);
 }
-
-function evaluationOutcome(rule: RuleRow, event: ParsedEvent, ticket: TicketSnapshot | null): { outcome: string; reason: string | null } {
+function evaluationOutcome(rule: RuleRow, event: ParsedEvent, ticket: TicketSnapshot | null): {
+  outcome: string;
+  reason: string | null;
+} {
   const definition = object(rule.definition_json) as RuleDefinition;
   const conditions = definition.conditions || {};
   const needsTicket = String(rule.rule_type) !== "ticket_candidate" || Object.keys(conditions).length > 0;
-  if (!ticket && needsTicket) return { outcome: "missing_fields", reason: "ticket_id_required_for_rule_conditions" };
-  if (!ticket) return { outcome: "matched", reason: null };
-  if (conditions.ticket_statuses?.length && !conditions.ticket_statuses.includes(ticket.status)) return { outcome: "skipped", reason: "ticket_status_not_matched" };
-  if (conditions.priorities?.length && !conditions.priorities.includes(ticket.priority)) return { outcome: "skipped", reason: "ticket_priority_not_matched" };
-  if (conditions.business_categories?.length && !conditions.business_categories.includes(String(ticket.business_category || ""))) return { outcome: "skipped", reason: "ticket_category_not_matched" };
+  if (!ticket && needsTicket)
+    return { outcome: "missing_fields", reason: "ticket_id_required_for_rule_conditions" };
+  if (!ticket)
+    return { outcome: "matched", reason: null };
+  if (conditions.ticket_statuses?.length && !conditions.ticket_statuses.includes(ticket.status))
+    return { outcome: "skipped", reason: "ticket_status_not_matched" };
+  if (conditions.priorities?.length && !conditions.priorities.includes(ticket.priority))
+    return { outcome: "skipped", reason: "ticket_priority_not_matched" };
+  if (conditions.business_categories?.length && !conditions.business_categories.includes(String(ticket.business_category || "")))
+    return { outcome: "skipped", reason: "ticket_category_not_matched" };
   if (conditions.overdue) {
     const due = ticket.due_at ? Date.parse(ticket.due_at) : Number.NaN;
-    if (!Number.isFinite(due) || due >= Date.parse(event.occurred_at)) return { outcome: "skipped", reason: "ticket_not_overdue_at_event_time" };
+    if (!Number.isFinite(due) || due >= Date.parse(event.occurred_at))
+      return { outcome: "skipped", reason: "ticket_not_overdue_at_event_time" };
   }
   return { outcome: "matched", reason: null };
 }
-
 async function ticketForEvent(client: PoolClient, event: ParsedEvent): Promise<TicketSnapshot | null> {
-  if (!event.ticket_id) return null;
-  const result = await client.query<TicketSnapshot>(
-    `SELECT t.id,t.status,t.priority,t.business_category,t.due_at,t.data_version,scope.company_id
+  if (!event.ticket_id)
+    return null;
+  const result = await client.query<TicketSnapshot>(`SELECT t.id,t.status,t.priority,t.business_category,t.due_at,t.data_version,scope.company_id
        FROM tickets t JOIN ticket_org_scopes scope ON scope.ticket_id=t.id
       WHERE t.id=$1 AND t.task_type='manual_ticket' AND t.profile='ticket-workbench'
-      FOR SHARE`,
-    [event.ticket_id],
-  );
+      FOR SHARE`, [event.ticket_id]);
   const ticket = result.rows[0];
-  if (!ticket) throw new HttpFail(422, { code: "event_ticket_not_formal", ticket_id: event.ticket_id });
-  if (ticket.company_id !== event.company_id) throw new HttpFail(422, { code: "event_ticket_scope_mismatch", ticket_id: event.ticket_id });
+  if (!ticket)
+    throw new HttpFail(422, { code: "event_ticket_not_formal", ticket_id: event.ticket_id });
+  if (ticket.company_id !== event.company_id)
+    throw new HttpFail(422, { code: "event_ticket_scope_mismatch", ticket_id: event.ticket_id });
   return ticket;
 }
-
 async function eventByIdempotency(client: PoolClient, key: string): Promise<EventRow | undefined> {
   const result = await client.query<EventRow>("SELECT * FROM ticket_business_events WHERE idempotency_key=$1 FOR UPDATE", [key]);
   return result.rows[0];
 }
-
 async function eventEvaluations(client: PoolClient, eventId: string): Promise<Json[]> {
-  const rows = await client.query<Row>(
-    `SELECT evaluation.id,evaluation.rule_id,evaluation.rule_version,evaluation.outcome,evaluation.ticket_id,
+  const rows = await client.query<Row>(`SELECT evaluation.id,evaluation.rule_id,evaluation.rule_version,evaluation.outcome,evaluation.ticket_id,
             evaluation.business_scope,evaluation.details_json,evaluation.evaluated_at,evaluation.evaluated_by,
             rule.title,rule.rule_type,
             confirmation.id AS confirmation_id,confirmation.decision AS confirmation_decision,
@@ -205,9 +213,7 @@ async function eventEvaluations(client: PoolClient, eventId: string): Promise<Js
        JOIN scheduling_rules rule ON rule.id=evaluation.rule_id AND rule.version=evaluation.rule_version
        LEFT JOIN ticket_rule_confirmation_decisions confirmation ON confirmation.evaluation_id=evaluation.id
       WHERE evaluation.source_event_id=$1
-      ORDER BY evaluation.evaluated_at,evaluation.id`,
-    [eventId],
-  );
+      ORDER BY evaluation.evaluated_at,evaluation.id`, [eventId]);
   return rows.rows.map((row) => ({
     id: row.id, rule_id: row.rule_id, rule_version: Number(row.rule_version), rule_title: row.title,
     rule_type: row.rule_type, outcome: row.outcome, ticket_id: row.ticket_id || null,
@@ -228,7 +234,7 @@ async function eventEvaluations(client: PoolClient, eventId: string): Promise<Js
  */
 export async function recordVerifiedBusinessEventAndEvaluate(actorId: string, input: Record<string, unknown>): Promise<Json> {
   const event = parseEvent(input);
-  return postgresTransaction(async (client) => {
+  return (await postgresTransaction(async (client) => {
     const replay = await eventByIdempotency(client, event.idempotency_key);
     if (replay) {
       if (replay.source_system !== event.source_system || replay.source_event_id !== event.source_event_id || replay.source_version !== event.source_version) {
@@ -239,26 +245,22 @@ export async function recordVerifiedBusinessEventAndEvaluate(actorId: string, in
         execution_effect: "none", human_confirmation_required: true,
       };
     }
-    const sameSource = await client.query<{ id: string }>(
-      "SELECT id FROM ticket_business_events WHERE source_system=$1 AND source_event_id=$2 AND source_version=$3 FOR UPDATE",
-      [event.source_system, event.source_event_id, event.source_version],
-    );
-    if (sameSource.rows[0]) throw new HttpFail(409, { code: "source_event_already_recorded", event_id: sameSource.rows[0].id });
-
+    const sameSource = await client.query<{
+      id: string;
+    }>("SELECT id FROM ticket_business_events WHERE source_system=$1 AND source_event_id=$2 AND source_version=$3 FOR UPDATE", [event.source_system, event.source_event_id, event.source_version]);
+    if (sameSource.rows[0])
+      throw new HttpFail(409, { code: "source_event_already_recorded", event_id: sameSource.rows[0].id });
     const ticket = await ticketForEvent(client, event);
     const now = new Date().toISOString();
-    const inserted = await client.query<EventRow>(
-      `INSERT INTO ticket_business_events
+    const inserted = await client.query<EventRow>(`INSERT INTO ticket_business_events
        (id,source_system,source_event_id,source_version,event_type,company_id,brand_id,region_id,ticket_id,occurred_at,summary,evidence_ref,payload_json,evidence_json,verified_by,verified_at,idempotency_key,created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$16)
-       RETURNING *`,
-      [nid("bev"), event.source_system, event.source_event_id, event.source_version, event.event_type, event.company_id,
+       RETURNING *`, [nid("bev"), event.source_system, event.source_event_id, event.source_version, event.event_type, event.company_id,
         event.brand_id, event.region_id, event.ticket_id, event.occurred_at, event.summary, event.evidence_ref,
-        JSON.stringify(event.payload), JSON.stringify(event.evidence), actorId, now, event.idempotency_key],
-    );
+      JSON.stringify(event.payload), JSON.stringify(event.evidence), actorId, now, event.idempotency_key]);
     const saved = inserted.rows[0];
-    if (!saved) throw new Error("ticket business event insert failed");
-
+    if (!saved)
+      throw new Error("ticket business event insert failed");
     const published = await client.query<RuleRow>("SELECT * FROM scheduling_rules WHERE status='published' ORDER BY id,version");
     const eligible = published.rows.filter((rule) => {
       const scope = object(rule.scope_json) as RuleScope;
@@ -286,14 +288,11 @@ export async function recordVerifiedBusinessEventAndEvaluate(actorId: string, in
           data_version: Number(ticket.data_version),
         } : null,
       };
-      await client.query(
-        `INSERT INTO ticket_rule_evaluations
+      await client.query(`INSERT INTO ticket_rule_evaluations
          (source_event_id,rule_id,rule_version,business_scope,outcome,ticket_id,details_json,idempotency_key,evaluated_at,evaluated_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-         ON CONFLICT (idempotency_key) DO NOTHING`,
-        [saved.id, rule.id, Number(rule.version), JSON.stringify({ company_id: event.company_id, brand_id: event.brand_id, region_id: event.region_id }),
-          decision.outcome, event.ticket_id, JSON.stringify(details), `ticket-rule-evaluation:${saved.id}:${rule.id}:${rule.version}`, now, actorId],
-      );
+         ON CONFLICT (idempotency_key) DO NOTHING`, [saved.id, rule.id, Number(rule.version), JSON.stringify({ company_id: event.company_id, brand_id: event.brand_id, region_id: event.region_id }),
+        decision.outcome, event.ticket_id, JSON.stringify(details), `ticket-rule-evaluation:${saved.id}:${rule.id}:${rule.version}`, now, actorId]);
     }
     const evaluations = await eventEvaluations(client, String(saved.id));
     return {
@@ -305,13 +304,11 @@ export async function recordVerifiedBusinessEventAndEvaluate(actorId: string, in
         missing_fields: evaluations.filter((item) => item.outcome === "missing_fields").length,
       },
     };
-  }, { isolation: "SERIALIZABLE" });
+  }, { isolation: "SERIALIZABLE" }));
 }
-
 export async function listTicketRuleEvaluations(limit = 50): Promise<Json> {
   const bounded = Math.min(Math.max(1, Math.floor(limit)), 200);
-  const rows = await postgresPool().query<Row>(
-    `SELECT evaluation.id,evaluation.rule_id,evaluation.rule_version,evaluation.outcome,evaluation.ticket_id,
+  const rows = await postgresPool().query<Row>(`SELECT evaluation.id,evaluation.rule_id,evaluation.rule_version,evaluation.outcome,evaluation.ticket_id,
             evaluation.business_scope,evaluation.details_json,evaluation.evaluated_at,evaluation.evaluated_by,
             rule.title AS rule_title,rule.rule_type,
             confirmation.id AS confirmation_id,confirmation.decision AS confirmation_decision,
@@ -323,9 +320,7 @@ export async function listTicketRuleEvaluations(limit = 50): Promise<Json> {
        JOIN scheduling_rules rule ON rule.id=evaluation.rule_id AND rule.version=evaluation.rule_version
        LEFT JOIN ticket_rule_confirmation_decisions confirmation ON confirmation.evaluation_id=evaluation.id
        JOIN ticket_business_events event ON event.id=evaluation.source_event_id
-      ORDER BY evaluation.evaluated_at DESC,evaluation.id DESC LIMIT $1`,
-    [bounded],
-  );
+      ORDER BY evaluation.evaluated_at DESC,evaluation.id DESC LIMIT $1`, [bounded]);
   return {
     items: rows.rows.map((row) => ({
       id: row.id, rule_id: row.rule_id, rule_version: Number(row.rule_version), rule_title: row.rule_title,

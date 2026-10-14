@@ -9,6 +9,10 @@ const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const internal = process.argv.includes("--internal") || process.env.RELEASE_GATE_PROFILE === "internal";
 const defaultStepTimeoutMs = Number(process.env.RELEASE_GATE_STEP_TIMEOUT_MS || 300_000);
 const e2eTimeoutMs = Number(process.env.RELEASE_GATE_E2E_TIMEOUT_MS || 1_200_000);
+const fullTestTimeoutMs = Number(process.env.RELEASE_GATE_TEST_TIMEOUT_MS || 1_800_000);
+if (!String(process.env.TEST_DATABASE_URL || "").trim()) {
+  throw new Error("Release gate requires TEST_DATABASE_URL; integration tests and stub E2E never borrow production DATABASE_URL");
+}
 
 function allocatePort(preferred) {
   if (preferred) return String(preferred);
@@ -54,6 +58,7 @@ const steps = [
   ...(existsSync(path.join(root, "data", "kol"))
     ? [{ id: "kol-data", cwd: backend, command: process.execPath, args: ["scripts/validate-kol-data.mjs"] }]
     : []),
+  { id: "postgres-native", cwd: backend, command: npm, args: ["run", "validate:postgres-native"] },
   { id: "registry", cwd: backend, command: process.execPath, args: ["scripts/validate-registry.mjs", "--require-all"] },
   { id: "contracts-pilot", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs"] },
   { id: "design-tokens", cwd: backend, command: process.execPath, args: ["scripts/check-design-tokens.mjs"] },
@@ -62,7 +67,7 @@ const steps = [
     { id: "tb-binding", cwd: backend, command: process.execPath, args: ["scripts/validate-tb-binding.mjs"] },
   ]),
   { id: "backend-typecheck", cwd: backend, command: npm, args: ["run", "typecheck"] },
-  { id: "backend-full-tests", cwd: backend, command: npm, args: ["test"] },
+  { id: "backend-full-tests", cwd: backend, command: npm, args: ["test", "--", "--fileParallelism=true", "--maxWorkers=4"], timeout: fullTestTimeoutMs },
   { id: "kol-evals", cwd: backend, command: npm, args: ["run", "eval:kol"] },
   { id: "redaction-scan", cwd: backend, command: npm, args: ["run", "scan:redaction"] },
   { id: "rollback-rehearsal", cwd: backend, command: npm, args: ["run", "rehearse:rollback"] },

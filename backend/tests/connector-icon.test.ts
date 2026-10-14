@@ -1,24 +1,17 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { HttpFail } from "../src/host/errors.js";
 import { connectorIconsRouter } from "../src/routers/connector-icons.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 // Smallest well-formed 1x1 PNG (IHDR/IDAT/IEND with valid CRCs).
-const PNG_1X1 = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-  "base64",
-);
+const PNG_1X1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 const JPEG_MIN = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0xff, 0xd9]);
 const CONNECTOR_ID = "icon_fixture";
-
 let tmp = "";
 let app: Hono;
-
 function testApp(): Hono {
   const a = new Hono();
   a.onError((e, c) => e instanceof HttpFail
@@ -47,41 +40,40 @@ function iconFiles(): string[] {
   const dir = path.join(tmp, "connector-icons");
   return fs.existsSync(dir) ? fs.readdirSync(dir) : [];
 }
-
 function errorCode(body: Record<string, unknown>): unknown {
-  const detail = body.detail as { code?: unknown } | undefined;
+  const detail = body.detail as {
+    code?: unknown;
+  } | undefined;
   return detail?.code ?? detail;
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-icon-"));
-  Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
-  resetConn();
+  tmp = String(process.env.LINGONG_DATA);
+  Object.assign(process.env, { AUTH_MODE: "disabled", NODE_ENV: "test" });
+  (await resetDatabase());
   app = testApp();
-  getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,1,'configured','now')")
-    .run(CONNECTOR_ID, "Icon fixture");
+  (await postgresDb().execute("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES($1,$2,1,'configured','now')", CONNECTOR_ID, "Icon fixture"));
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
-  for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"]) delete process.env[key];
+  for (const key of ["AUTH_MODE", "NODE_ENV"])
+    delete process.env[key];
 });
-
 describe("connector icon", () => {
   it("stores a sniffed PNG, records only the file name, and serves the same bytes", async () => {
     const created = await post(iconForm("logo.txt", PNG_1X1, "text/plain"));
     expect(created.status).toBe(201);
     expect(created.body).toEqual({ id: CONNECTOR_ID, icon_url: `/api/admin/connectors/${CONNECTOR_ID}/icon` });
-
-    const stored = getConn().prepare("SELECT icon_ref FROM connectors WHERE id=?").get(CONNECTOR_ID) as { icon_ref: string | null };
+    const stored = (await postgresDb().one("SELECT icon_ref FROM connectors WHERE id=$1", CONNECTOR_ID)) as {
+      icon_ref: string | null;
+    };
     expect(stored.icon_ref).toMatch(new RegExp(`^${CONNECTOR_ID}-[0-9a-f]{16}\\.png$`));
     expect(fs.readFileSync(path.join(tmp, "connector-icons", String(stored.icon_ref)))).toEqual(PNG_1X1);
-
-    const event = getConn().prepare("SELECT payload FROM audit_events WHERE event_type='admin.connector.icon.updated'").get() as { payload: string };
+    const event = (await postgresDb().one("SELECT payload FROM audit_events WHERE event_type='admin.connector.icon.updated'")) as {
+      payload: string;
+    };
     expect(JSON.parse(event.payload)).toEqual({ connector_id: CONNECTOR_ID });
-
     const served = await get();
     expect(served.status).toBe(200);
     expect(served.headers.get("content-type")).toBe("image/png");

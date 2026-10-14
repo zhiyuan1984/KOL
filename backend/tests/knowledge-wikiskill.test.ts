@@ -4,28 +4,31 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { bundledSkillPath } from "../src/host/skill-sop.js";
 import { resolveMailTemplate } from "../src/host/knowledge.js";
-import { DEMO_ADMIN, DEMO_USER } from "../src/config.js";
+import { DEMO_USER } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
-
+import { loginKnowledgeAdministrator, publishKnowledgeThroughApproval } from "./helpers/finalfix-knowledge-management.js";
 type Json = Record<string, unknown>;
-
 let tmp: string;
 let app: Hono;
-
-async function request(
-  method: string,
-  url: string,
-  body?: unknown,
-): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
+let adminCookie = "";
+let previousAuthMode: string | undefined;
+async function request(method: string, url: string, body?: unknown, cookie = adminCookie): Promise<{
+  status: number;
+  json: () => Promise<Json>;
+  text: () => Promise<string>;
+}> {
   const init: RequestInit = { method, headers: {} };
+  if (cookie)
+    (init.headers as Record<string, string>).Cookie = cookie;
   if (body instanceof FormData) {
     init.body = body;
-  } else if (body !== undefined) {
+  }
+  else if (body !== undefined) {
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
@@ -37,8 +40,10 @@ async function request(
     json: async () => (text ? (JSON.parse(text) as Json) : {}),
   };
 }
-
-async function ask(prompt: string, extra: Json = {}, expectStatus = 200): Promise<[string, Json]> {
+async function ask(prompt: string, extra: Json = {}, expectStatus = 200): Promise<[
+  string,
+  Json
+]> {
   const ses = await (await request("POST", "/api/sessions", { title: prompt.slice(0, 20) })).json();
   const r = await request("POST", `/api/sessions/${ses.id}/messages`, {
     text: prompt,
@@ -53,21 +58,24 @@ async function ask(prompt: string, extra: Json = {}, expectStatus = 200): Promis
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kb-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
-  process.env.LINGONG_DATA = tmp;
+  previousAuthMode = process.env.AUTH_MODE;
+  process.env.AUTH_MODE = "enabled";
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  adminCookie = await loginKnowledgeAdministrator(app);
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
+  if (previousAuthMode === undefined)
+    delete process.env.AUTH_MODE;
+  else
+    process.env.AUTH_MODE = previousAuthMode;
 });
-
 describe("WikiSkill knowledge", () => {
   it("does not list uncited templates in the home composer", async () => {
     const before = await (await request("GET", "/api/knowledge/composer")).json();
@@ -111,9 +119,9 @@ describe("WikiSkill knowledge", () => {
     expect((draft.extra as Json).knowledge_id).toBe("kb_mail_followup");
     expect((draft.extra as Json).knowledge_version).toBe(1);
     expect(String(draft.body_en)).not.toContain("secret wiki");
-    const cardMsg = getConn()
-      .prepare("SELECT payload FROM messages WHERE session_id=? AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1")
-      .get(sid) as { payload: string } | undefined;
+    const cardMsg = (await postgresDb().one("SELECT payload FROM messages WHERE session_id=$1 AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1", sid)) as {
+      payload: string;
+    } | undefined;
     expect(cardMsg, "草稿卡消息应写入会话").toBeTruthy();
     const card = JSON.parse(String(cardMsg?.payload || "{}")) as Json;
     expect(card.draft_id).toBe(draft.id);
@@ -159,7 +167,7 @@ describe("WikiSkill knowledge", () => {
       status: "draft",
     })).json();
     expect(created.stage_codes).toEqual(["TESTING"]);
-    await request("POST", `/api/admin/knowledge/${created.id}/approve`, { expected_version: created.current_version });
+    await publishKnowledgeThroughApproval(String(created.id));
     const published = await (await request("GET", `/api/knowledge/${created.id}`)).json();
     expect(published.status).toBe("published");
     expect(published.stage_codes).toEqual(["TESTING"]);
@@ -178,7 +186,6 @@ describe("WikiSkill knowledge", () => {
   it("keeps evolve rejection after a skill overlay rollback and never writes SKILL.md", async () => {
     const skillFile = bundledSkillPath("email_compose");
     const before = fs.readFileSync(skillFile, "utf8");
-    expect((await request("POST", "/api/login", { username: DEMO_ADMIN.name, password: "123456789" })).status).toBe(200);
     const proposed = await (await request("POST", "/api/admin/knowledge/evolve/propose", {
       kind: "skill_patch",
       skill_id: "email_compose",
@@ -255,12 +262,11 @@ describe("WikiSkill knowledge", () => {
     for (const id of ["kb_mail_kol", "kb_mail_followup", "kb_mail_quote", "kb_mail_addr", "kb_mail_nudge", "kb_mail_ship"]) {
       await request("POST", `/api/knowledge/${id}/cite`, {});
     }
-    const quote = resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING" });
+    const quote = (await resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING" }));
     expect(quote?.id).toBe("kb_mail_quote");
     expect(String(quote?.subject || "")).not.toMatch(/Outline check-in|family camping/);
-    expect(resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING" })?.id).toBe("kb_mail_nudge");
+    expect((await resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING" }))?.id).toBe("kb_mail_nudge");
   });
-
   it("seeds four policies and six published KOL mail templates", async () => {
     const mine = await (await request("GET", "/api/knowledge")).json() as unknown as Json[];
     const ids = mine.map((row) => row.id);

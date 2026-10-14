@@ -1,4 +1,4 @@
-/** Shared migration SQL: SQLite and PostgreSQL. No lazy DDL on request paths. */
+/** PostgreSQL test migration manifest. No lazy DDL on request paths. */
 export const reviewSchema = [
   `CREATE TABLE IF NOT EXISTS review_attachments (tenant TEXT NOT NULL,id TEXT NOT NULL,actor TEXT NOT NULL,name TEXT NOT NULL,size_bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,content_base64 TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(tenant,id))`,
   `CREATE TABLE IF NOT EXISTS review_timer_receipts (tenant TEXT NOT NULL,task_id TEXT NOT NULL,due_at TEXT NOT NULL,receipt TEXT NOT NULL,PRIMARY KEY(tenant,task_id,due_at))`,

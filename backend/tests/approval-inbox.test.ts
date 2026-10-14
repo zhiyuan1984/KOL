@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { calculateApprovalPlan } from "../src/approval/plan.js";
 import { canDecideCurrent, employeeForUser } from "../src/approval/inbox.js";
 import { createWorkApproval } from "../src/gateway/wecom.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { DEMO_ADMIN } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -14,10 +14,10 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
-
 async function call(method: string, url: string, body?: unknown, cookie = adminCookie) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   const response = await app.request(url, {
     method,
     headers,
@@ -56,14 +56,12 @@ describe("approval inbox by login name", () => {
   beforeEach(async () => {
     await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-inbox-"));
-    process.env.LINGONG_DB = path.join(tmp, "t.db");
-    process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "real";
     process.env.AUTH_MODE = "enabled";
-    resetConn();
-    seedAll();
+    (await resetDatabase());
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     const setup = await call("POST", "/api/auth/setup", {
       username: "admin",
       name: "Admin",
@@ -73,9 +71,8 @@ describe("approval inbox by login name", () => {
     expect(setup.status).toBe(201);
     adminCookie = setup.cookie;
   });
-
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetDatabase());
     fs.rmSync(tmp, { recursive: true, force: true });
     delete process.env.AUTH_MODE;
     process.env.CODEX_MODE = "stub";
@@ -101,15 +98,14 @@ describe("approval inbox by login name", () => {
       currency: "USD",
     });
     expect(plan.rule_id).toBe("FIN-EXP-004");
-    const created = createWorkApproval({
+    const created = (await createWorkApproval({
       kind: "expense",
       amountUsd: plan.amount_base,
       chain: plan.steps.map((step) => step.employee_id),
       payload: { ...plan, steps: plan.steps },
       title: "黎玉燕 USD 50000",
-    });
+    }));
     const aid = String(created.id);
-
     const cookies = {
       林桐: await login("lintong"),
       王主管: await login("wang"),
@@ -124,7 +120,9 @@ describe("approval inbox by login name", () => {
         id: string;
         can_decide: boolean;
         current_index: number;
-        chain_detail: { name: string }[];
+        chain_detail: {
+          name: string;
+        }[];
       }[];
       return rows.find((row) => row.id === aid);
     };
@@ -134,27 +132,30 @@ describe("approval inbox by login name", () => {
     };
     const decideOf = async (name: keyof typeof cookies, extra: Record<string, unknown> = {}) => {
       const detail = await detailOf(name);
-      const version = Number((detail.json as { version?: number }).version || 0);
-      return call("POST", `/api/approvals/${aid}/decide`, {
+      const version = Number((detail.json as {
+        version?: number;
+      }).version || 0);
+      return (await call("POST", `/api/approvals/${aid}/decide`, {
         decision: "approve",
         expected_version: version,
         idempotency_key: `inbox-${aid}-${name}-${version}`,
         ...extra,
-      }, cookies[name]);
+      }, cookies[name]));
     };
-
     expect(await inboxOf("王主管")).toBeUndefined();
     expect(await inboxOf("财务负责人")).toBeUndefined();
     expect(await inboxOf("张总")).toBeUndefined();
     expect((await inboxOf("林桐"))?.can_decide).toBe(true);
     const wangDetail = await detailOf("王主管");
     expect(wangDetail.status).toBe(200);
-    expect((wangDetail.json as { can_decide: boolean }).can_decide).toBe(false);
-    expect((wangDetail.json as { current_node: string }).current_node).toBe("林桐");
-
+    expect((wangDetail.json as {
+      can_decide: boolean;
+    }).can_decide).toBe(false);
+    expect((wangDetail.json as {
+      current_node: string;
+    }).current_node).toBe("林桐");
     const denied = await decideOf("王主管");
     expect(denied.status).toBe(403);
-
     for (const name of ["林桐", "王主管", "财务负责人", "张总"] as const) {
       const mine = await inboxOf(name);
       expect(mine?.can_decide).toBe(true);
@@ -166,22 +167,20 @@ describe("approval inbox by login name", () => {
       const decided = await decideOf(name);
       expect(decided.status).toBe(200);
     }
-
     expect(await inboxOf("张总")).toBeUndefined();
     const done = await detailOf("张总");
-    expect((done.json as { status: string }).status).toBe("consumed");
-    expect((done.json as { business_status: string }).business_status).toBe("succeeded");
-    expect(canDecideCurrent(
-      { id: "u", username: "wang", name: "王主管", handle: "wang", roles: ["employee"], role: "employee", brands: [], site: "", manager_user_id: null, active: true, exam_passed: true, exam_todo_count: 0, exam_module: "" },
-      ["emp_wang"],
-      0,
-    )).toBe(true);
+    expect((done.json as {
+      status: string;
+    }).status).toBe("consumed");
+    expect((done.json as {
+      business_status: string;
+    }).business_status).toBe("succeeded");
+    expect((await canDecideCurrent({ id: "u", username: "wang", name: "王主管", handle: "wang", roles: ["employee"], role: "employee", brands: [], site: "", manager_user_id: null, active: true, exam_passed: true, exam_todo_count: 0, exam_module: "" }, ["emp_wang"], 0))).toBe(true);
   });
-
   it("lets a signed-in employee preview and create an expense without a retired connector", async () => {
     await createApprover("lintong", "林桐");
     const cookie = await login("lintong");
-    expect(getConn().prepare("SELECT id FROM connectors WHERE id='wecom'").get()).toBeUndefined();
+    expect((await postgresDb().one("SELECT id FROM connectors WHERE id='wecom'"))).toBeUndefined();
     const before = await call("GET", "/api/approvals", undefined, cookie);
     expect(before.status).toBe(200);
     const beforeCount = (before.json as unknown as unknown[]).length;
@@ -193,17 +192,22 @@ describe("approval inbox by login name", () => {
       requester_name: "黎玉燕",
     }, cookie);
     expect(preview.status).toBe(200);
-    const steps = (preview.json as { steps: { name: string }[] }).steps;
+    const steps = (preview.json as {
+      steps: {
+        name: string;
+      }[];
+    }).steps;
     expect(steps.map((step) => step.name)).toEqual(["林桐", "张总"]);
     expect((await call("GET", "/api/approvals", undefined, cookie)).json as unknown as unknown[]).toHaveLength(beforeCount);
-
     const created = await call("POST", "/api/approvals", {
       kind: "expense",
       amount: 5000,
       currency: "CNY",
       requester_name: "黎玉燕",
       purpose: "广告费",
-      expected_version: (preview.json as { expected_version?: number }).expected_version,
+      expected_version: (preview.json as {
+        expected_version?: number;
+      }).expected_version,
       idempotency_key: "inbox-create-expense",
     }, cookie);
     expect(created.status).toBe(200);
@@ -212,29 +216,43 @@ describe("approval inbox by login name", () => {
       kind: string;
       can_decide: boolean;
       expected_role: string;
-      chain_detail: { name: string }[];
-      payload: { rule_id: string };
+      chain_detail: {
+        name: string;
+      }[];
+      payload: {
+        rule_id: string;
+      };
     };
     expect(row.kind).toBe("expense");
     expect(row.payload.rule_id).toBe("FIN-EXP-001");
     expect(row.chain_detail.map((step) => step.name)).toEqual(["林桐", "张总"]);
     expect(row.can_decide).toBe(true);
     expect(row.expected_role).toBe("emp_lintong");
-
     const listed = await call("GET", "/api/approvals", undefined, cookie);
-    expect((listed.json as unknown as { id: string }[]).some((item) => item.id === row.id)).toBe(true);
-
+    expect((listed.json as unknown as {
+      id: string;
+    }[]).some((item) => item.id === row.id)).toBe(true);
     const asMe = await call("POST", "/api/approvals/preview", {
       kind: "expense",
       amount: 5000,
       currency: "CNY",
     }, cookie);
     expect(asMe.status).toBe(200);
-    expect((asMe.json as { steps: { name: string }[]; plan: { requester_name?: string } }).plan.requester_name).toBe("林桐");
-    expect((asMe.json as { steps: { name: string }[] }).steps.map((step) => step.name)).toEqual(["王主管", "张总"]);
+    expect((asMe.json as {
+      steps: {
+        name: string;
+      }[];
+      plan: {
+        requester_name?: string;
+      };
+    }).plan.requester_name).toBe("林桐");
+    expect((asMe.json as {
+      steps: {
+        name: string;
+      }[];
+    }).steps.map((step) => step.name)).toEqual(["王主管", "张总"]);
     expect((await call("GET", "/api/wecom/cards", undefined, cookie)).status).toBe(200);
   });
-
   it("does not treat local approval queue access as a retired connector grant", async () => {
     const reader = await call("POST", "/api/admin/users", {
       username: "reader",
@@ -280,9 +298,10 @@ describe("approval inbox by login name", () => {
     }, cookie);
     expect(blocked.status).toBe(400);
     expect(blocked.json.detail).toMatchObject({ code: "unknown_requester" });
-    expect(String((blocked.json.detail as { message?: string }).message)).toContain("组织名单");
+    expect(String((blocked.json.detail as {
+      message?: string;
+    }).message)).toContain("组织名单");
   });
-
   it("filters boxes, badge, version gate and admin cannot bypass", async () => {
     await createApprover("lintong", "林桐");
     await createApprover("wang", "王主管");
@@ -296,9 +315,10 @@ describe("approval inbox by login name", () => {
       requester_name: "黎玉燕",
     }, lintong);
     expect(preview.status).toBe(200);
-    const expectedVersion = Number((preview.json as { expected_version?: number }).expected_version);
+    const expectedVersion = Number((preview.json as {
+      expected_version?: number;
+    }).expected_version);
     expect(Number.isInteger(expectedVersion)).toBe(true);
-
     const staleCreate = await call("POST", "/api/approvals", {
       kind: "expense",
       amount: 10000,
@@ -308,8 +328,9 @@ describe("approval inbox by login name", () => {
       idempotency_key: "create-stale",
     }, lintong);
     expect(staleCreate.status).toBe(409);
-    expect((staleCreate.json.detail as { code?: string }).code).toBe("stale");
-
+    expect((staleCreate.json.detail as {
+      code?: string;
+    }).code).toBe("stale");
     const created = await call("POST", "/api/approvals", {
       kind: "expense",
       amount: 5000,
@@ -319,7 +340,9 @@ describe("approval inbox by login name", () => {
       idempotency_key: "create-once",
     }, lintong);
     expect(created.status).toBe(200);
-    const aid = String((created.json as { id: string }).id);
+    const aid = String((created.json as {
+      id: string;
+    }).id);
     const replay = await call("POST", "/api/approvals", {
       kind: "expense",
       amount: 5000,
@@ -329,29 +352,48 @@ describe("approval inbox by login name", () => {
       idempotency_key: "create-once",
     }, lintong);
     expect(replay.status).toBe(200);
-    expect(String((replay.json as { id: string }).id)).toBe(aid);
-
+    expect(String((replay.json as {
+      id: string;
+    }).id)).toBe(aid);
     const inbox = await call("GET", "/api/approvals?box=inbox", undefined, lintong);
-    expect((inbox.json as unknown as { id: string }[]).some((row) => row.id === aid)).toBe(true);
+    expect((inbox.json as unknown as {
+      id: string;
+    }[]).some((row) => row.id === aid)).toBe(true);
     const submitted = await call("GET", "/api/approvals?box=submitted", undefined, lintong);
-    expect((submitted.json as unknown as { id: string }[]).some((row) => row.id === aid)).toBe(true);
+    expect((submitted.json as unknown as {
+      id: string;
+    }[]).some((row) => row.id === aid)).toBe(true);
     const wangInbox = await call("GET", "/api/approvals?box=inbox", undefined, wang);
-    expect((wangInbox.json as unknown as { id: string }[]).some((row) => row.id === aid)).toBe(false);
+    expect((wangInbox.json as unknown as {
+      id: string;
+    }[]).some((row) => row.id === aid)).toBe(false);
     const badge = await call("GET", "/api/approvals/badge", undefined, lintong);
     expect(badge.status).toBe(200);
-    expect(Number((badge.json as { count: number }).count)).toBeGreaterThan(0);
+    expect(Number((badge.json as {
+      count: number;
+    }).count)).toBeGreaterThan(0);
     const wangBadge = await call("GET", "/api/approvals/badge", undefined, wang);
-    expect(Number((wangBadge.json as { count: number }).count)).toBe(0);
-
+    expect(Number((wangBadge.json as {
+      count: number;
+    }).count)).toBe(0);
     const detail = await call("GET", `/api/approvals/${aid}`, undefined, lintong);
-    const version = Number((detail.json as { version?: number }).version || 0);
-    expect((detail.json as { can_decide: boolean; allowed_actions: string[] }).allowed_actions).toContain("approve");
-    expect((detail.json as { path: { state_label: string }[] }).path[0].state_label).toBe("当前");
-
+    const version = Number((detail.json as {
+      version?: number;
+    }).version || 0);
+    expect((detail.json as {
+      can_decide: boolean;
+      allowed_actions: string[];
+    }).allowed_actions).toContain("approve");
+    expect((detail.json as {
+      path: {
+        state_label: string;
+      }[];
+    }).path[0].state_label).toBe("当前");
     const missingGate = await call("POST", `/api/approvals/${aid}/decide`, { decision: "approve" }, lintong);
     expect(missingGate.status).toBe(400);
-    expect((missingGate.json.detail as { code?: string }).code).toBe("expected_version_required");
-
+    expect((missingGate.json.detail as {
+      code?: string;
+    }).code).toBe("expected_version_required");
     const adminDecide = await call("POST", `/api/approvals/${aid}/decide`, {
       decision: "approve",
       expected_version: version,
@@ -365,8 +407,9 @@ describe("approval inbox by login name", () => {
       idempotency_key: "decide-stale",
     }, lintong);
     expect(stale.status).toBe(409);
-    expect((stale.json.detail as { code?: string }).code).toBe("stale");
-
+    expect((stale.json.detail as {
+      code?: string;
+    }).code).toBe("stale");
     const first = await call("POST", `/api/approvals/${aid}/decide`, {
       decision: "approve",
       expected_version: version,
@@ -379,6 +422,8 @@ describe("approval inbox by login name", () => {
       idempotency_key: "decide-once",
     }, lintong);
     expect(replayDecide.status).toBe(200);
-    expect((replayDecide.json as { replayed?: boolean }).replayed).toBe(true);
+    expect((replayDecide.json as {
+      replayed?: boolean;
+    }).replayed).toBe(true);
   });
 });

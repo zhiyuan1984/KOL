@@ -12,7 +12,7 @@ import { HttpFail } from "../host/errors.js";
 import { enqueueSystemCrawl } from "../crawl/runtime-gates.js";
 import { cronJson, normalizeSystemTemplate } from "./contracts.js";
 import { syncKolProfileIndexPostgres } from "../postgres/kol-pool-sync.js";
-import { getConn } from "../db.js";
+import { postgresDb } from "../postgres/access.js";
 import { evaluateOwnershipRelease, listOwnedCollaborations, releaseFollowOwnershipIfEligible, ownershipReceiptMeta } from "../gateway/ownership-release.js";
 import { listNativeOwnershipCandidates, releaseNativeIfUnchanged, NATIVE_OWNERSHIP_POLICY } from "../postgres/ownership-release-repository.js";
 import { runMailMemoryIncrement } from "../host/mail-memory-job.js";
@@ -45,10 +45,13 @@ const TASK_BUCKETS: Record<string, string[]> = {
   quote: ["QUOTE_PENDING"],
   negotiate: ["NEGOTIATING"],
 };
-
-function formalTicketScope(viewer?: TicketPrincipal): { where: string; values: string[] } {
+function formalTicketScope(viewer?: TicketPrincipal): {
+  where: string;
+  values: string[];
+} {
   const base = "t.task_type='manual_ticket' AND t.profile='ticket-workbench'";
-  if (!viewer?.id) return { where: base, values: [] };
+  if (!viewer?.id)
+    return { where: base, values: [] };
   return {
     where: `${base} AND (t.owner_user_id=$1 OR EXISTS (
       SELECT 1 FROM ticket_assignments ta WHERE ta.ticket_id=t.id AND ta.status='active' AND ta.assignee_user_id=$1
@@ -63,8 +66,7 @@ function formalTicketScope(viewer?: TicketPrincipal): { where: string; values: s
  * ticket facts; it does not fabricate a collaboration or remote-mail state. */
 async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   const scope = formalTicketScope(ctx.viewer);
-  const rows = await postgresPool().query<Row>(
-    `SELECT t.id,t.title,t.status,t.priority,t.due_at,t.business_category,t.stage_code,t.owner_user_id,
+  const rows = await postgresPool().query<Row>(`SELECT t.id,t.title,t.status,t.priority,t.due_at,t.business_category,t.stage_code,t.owner_user_id,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t
        LEFT JOIN LATERAL (
@@ -73,9 +75,7 @@ async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> 
        ) pa ON true
       WHERE ${scope.where} AND NULLIF(t.due_at,'')::timestamptz < now()
         AND t.status NOT IN ('completed','cancelled','failed')
-      ORDER BY NULLIF(t.due_at,'')::timestamptz ASC,t.id`,
-    scope.values,
-  );
+      ORDER BY NULLIF(t.due_at,'')::timestamptz ASC,t.id`, scope.values);
   const items = rows.rows.map((row) => ({
     ticket_id: String(row.id), title: String(row.title), status: String(row.status), priority: String(row.priority || "normal"),
     due_at: row.due_at || null, business_category: row.business_category || null, stage_code: row.stage_code || null,
@@ -95,8 +95,7 @@ async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> 
  * not a claim that remote collaboration or mail data was refreshed. */
 async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   const scope = formalTicketScope(ctx.viewer);
-  const rows = await postgresPool().query<Row>(
-    `SELECT t.id,t.title,t.status,t.priority,t.business_category,t.stage_code,t.due_at,t.updated_at,
+  const rows = await postgresPool().query<Row>(`SELECT t.id,t.title,t.status,t.priority,t.business_category,t.stage_code,t.due_at,t.updated_at,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t
        LEFT JOIN LATERAL (
@@ -104,14 +103,13 @@ async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerRe
           WHERE ticket_id=t.id AND role='primary' AND status='active' ORDER BY assignment_version DESC LIMIT 1
        ) pa ON true
       WHERE ${scope.where} AND t.status IN ('pending','accepted','in_progress','waiting','waiting_approval')
-      ORDER BY t.updated_at DESC,t.id`,
-    scope.values,
-  );
+      ORDER BY t.updated_at DESC,t.id`, scope.values);
   const buckets: Record<string, Json[]> = { greet: [], follow: [], quote: [], negotiate: [] };
   for (const row of rows.rows) {
     const stage = String(row.stage_code || "");
     const bucket = Object.entries(TASK_BUCKETS).find(([, stages]) => stages.includes(stage))?.[0];
-    if (!bucket) continue;
+    if (!bucket)
+      continue;
     buckets[bucket].push({
       source: "formal_ticket", ticket_id: String(row.id), title: String(row.title), status: String(row.status),
       priority: String(row.priority || "normal"), business_category: row.business_category || null,
@@ -129,18 +127,20 @@ async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerRe
     },
   };
 }
-
 async function ownershipRelease(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   if (!process.env.DATABASE_URL?.trim()) {
-    const db = getConn();
-    const rows = listOwnedCollaborations(db);
+    const db = postgresDb();
+    const rows = (await listOwnedCollaborations(db));
     const released: Json[] = [];
     const skipped: Json[] = [];
     for (const row of rows) {
       const lastAt = String(row.last_effective_mail_at || "").trim() || null;
       const decision = evaluateOwnershipRelease(row, lastAt, ctx.nowMs ?? Date.now());
-      if (decision.action !== "release") { skipped.push({ follow_id: decision.follow_id, collaboration_id: decision.collaboration_id, reason: decision.reason, detail: decision.detail }); continue; }
-      const applied = releaseFollowOwnershipIfEligible({ db, followId: decision.follow_id, collaborationId: decision.collaboration_id, expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs });
+      if (decision.action !== "release") {
+        skipped.push({ follow_id: decision.follow_id, collaboration_id: decision.collaboration_id, reason: decision.reason, detail: decision.detail });
+        continue;
+      }
+      const applied = (await releaseFollowOwnershipIfEligible({ db, followId: decision.follow_id, collaborationId: decision.collaboration_id, expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs }));
       (applied.action === "release" ? released : skipped).push(applied as unknown as Json);
     }
     return { status: "succeeded", receipt: { handler_key: "ownership-release", side_effect: released.length ? "write" : "none", created_session: false, source: "legacy_test_only", scanned: rows.length, released: released.length, skipped: skipped.length } };
@@ -218,16 +218,18 @@ async function discoverySearch(ctx: CronHandlerContext): Promise<CronHandlerResu
         note: "采集需求已进入 PG 采集排队；候选由采集流水线回填，不自动创建合作或认领。",
       },
     };
-  } catch (error) {
-    const code = String((error as { detail?: { code?: string } })?.detail?.code || "");
-    if (
-      code === "crawl_queue_full" ||
+  }
+  catch (error) {
+    const code = String((error as {
+      detail?: {
+        code?: string;
+      };
+    })?.detail?.code || "");
+    if (code === "crawl_queue_full" ||
       code === "crawl_capability_unavailable" ||
       code === "runtime_connector_disabled" ||
-      code === "runtime_connector_not_configured"
-    ) {
-      const summary =
-        code === "crawl_queue_full"
+      code === "runtime_connector_not_configured") {
+      const summary = code === "crawl_queue_full"
           ? "采集排队已满（20），本次未提交；不抢占已有任务。"
           : "采集能力不可用（MediaCrawler 连接器未配置或未启用），本次未提交。";
       return {

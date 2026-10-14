@@ -12,8 +12,8 @@ export const REPO_ROOT = path.resolve(BACKEND_ROOT, "..");
 // Keep direct `tsx src/index.ts` launches consistent with scripts/start.sh.
 // Existing environment variables take precedence over local, uncommitted .env values.
 const envFile = process.env.LINGONG_ENV_FILE || path.join(REPO_ROOT, ".env");
-if (fs.existsSync(envFile) && typeof process.loadEnvFile === "function") process.loadEnvFile(envFile);
-
+if (fs.existsSync(envFile) && typeof process.loadEnvFile === "function")
+  process.loadEnvFile(envFile);
 export function parseMediaCrawlerConfigMarkdown(markdown: string): {
   url?: string;
   token?: string;
@@ -25,23 +25,24 @@ export function parseMediaCrawlerConfigMarkdown(markdown: string): {
     ...(token ? { token } : {}),
   };
 }
-
 function usableSecret(value?: string): string | undefined {
   const token = value?.trim();
-  if (!token || /^<[^>]+>$/.test(token) || /your-|changeme|example|placeholder/i.test(token)) return undefined;
+  if (!token || /^<[^>]+>$/.test(token) || /your-|changeme|example|placeholder/i.test(token))
+    return undefined;
   return token;
 }
-
 function jsonObject(text: string): Record<string, unknown> | null {
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
   const raw = (fence?.[1] || text).trim();
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
+  if (start < 0 || end <= start)
+    return null;
   try {
     const parsed = JSON.parse(raw.slice(start, end + 1));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
-  } catch {
+  }
+  catch {
     return null;
   }
 }
@@ -55,8 +56,10 @@ function headerSecret(headers: Record<string, unknown>): string | undefined {
   return bearerToken(headers.Authorization ?? headers.authorization)
     || usableSecret(String(headers["X-MCP-API-KEY"] || headers["x-mcp-api-key"] || headers["Api-Key"] || ""));
 }
-
-function serverCredential(server: Record<string, unknown>): { url?: string; token?: string } {
+function serverCredential(server: Record<string, unknown>): {
+  url?: string;
+  token?: string;
+} {
   const url = String(server.url || server.serverUrl || "").trim();
   const headers = server.headers && typeof server.headers === "object" && !Array.isArray(server.headers)
     ? server.headers as Record<string, unknown>
@@ -68,9 +71,11 @@ function serverCredential(server: Record<string, unknown>): { url?: string; toke
     ...(token ? { token } : {}),
   };
 }
-
 /** Cursor mcp.json / mcpServers.kol-claw streamable HTTP 配置。 */
-export function parseKolClawMcpConfig(text: string): { url?: string; token?: string } {
+export function parseKolClawMcpConfig(text: string): {
+  url?: string;
+  token?: string;
+} {
   const obj = jsonObject(text);
   if (obj) {
     const servers = obj.mcpServers && typeof obj.mcpServers === "object" && !Array.isArray(obj.mcpServers)
@@ -79,7 +84,8 @@ export function parseKolClawMcpConfig(text: string): { url?: string; token?: str
     const entries = Object.entries(servers).filter(([, value]) => value && typeof value === "object" && !Array.isArray(value));
     const chosen = entries.find(([name]) => /kol[-_]?claw/i.test(name))
       || entries.find(([, value]) => /kol[-_]?claw|:9093\b/i.test(String((value as Record<string, unknown>).url || "")));
-    if (chosen) return serverCredential(chosen[1] as Record<string, unknown>);
+    if (chosen)
+      return serverCredential(chosen[1] as Record<string, unknown>);
   }
   return parseMediaCrawlerConfigMarkdown(text);
 }
@@ -87,13 +93,7 @@ export function parseKolClawMcpConfig(text: string): { url?: string; token?: str
 function kolClawConfigCandidates(): string[] {
   const explicit = process.env.KOLCLAW_MCP_CONFIG_FILE?.trim();
   const rootFiles = ["mcp_kolclaw.json", "kol-claw.json", "mcp.json"].map((name) => path.join(REPO_ROOT, name));
-  const cursorUploads = path.join(
-    os.homedir(),
-    ".cursor",
-    "projects",
-    path.basename(REPO_ROOT),
-    "uploads",
-  );
+  const cursorUploads = path.join(os.homedir(), ".cursor", "projects", path.basename(REPO_ROOT), "uploads");
   const uploaded = fs.existsSync(cursorUploads)
     ? fs.readdirSync(cursorUploads)
       .filter((name) => /(kol[-_]?claw|kolclaw|kol_anlay_mcp|mcp_kolclaw).*\.(json|md)$/i.test(name))
@@ -102,25 +102,22 @@ function kolClawConfigCandidates(): string[] {
     : [];
   return [explicit, ...rootFiles, ...uploaded].filter((value): value is string => Boolean(value));
 }
-
 if (!process.env.KOLCLAW_MCP_URL?.trim() || !process.env.KOLCLAW_MCP_TOKEN?.trim()) {
   for (const candidate of kolClawConfigCandidates()) {
-    if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) continue;
+    if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile())
+      continue;
     const parsed = parseKolClawMcpConfig(fs.readFileSync(candidate, "utf8"));
-    if (!process.env.KOLCLAW_MCP_URL?.trim() && parsed.url) process.env.KOLCLAW_MCP_URL = parsed.url;
-    if (!process.env.KOLCLAW_MCP_TOKEN?.trim() && parsed.token) process.env.KOLCLAW_MCP_TOKEN = parsed.token;
-    if (process.env.KOLCLAW_MCP_URL?.trim() && process.env.KOLCLAW_MCP_TOKEN?.trim()) break;
+    if (!process.env.KOLCLAW_MCP_URL?.trim() && parsed.url)
+      process.env.KOLCLAW_MCP_URL = parsed.url;
+    if (!process.env.KOLCLAW_MCP_TOKEN?.trim() && parsed.token)
+      process.env.KOLCLAW_MCP_TOKEN = parsed.token;
+    if (process.env.KOLCLAW_MCP_URL?.trim() && process.env.KOLCLAW_MCP_TOKEN?.trim())
+      break;
   }
 }
-
 export function dataDir(): string {
   return process.env.LINGONG_DATA || path.join(REPO_ROOT, "data");
 }
-
-export function dbPath(): string {
-  return process.env.LINGONG_DB || path.join(dataDir(), "lingong.db");
-}
-
 export function boxDir(): string {
   return path.join(dataDir(), "boxes");
 }
@@ -166,19 +163,18 @@ export function clawBaseUrl(): string {
 export function clawApiKey(): string {
   return process.env.CLAW_API_KEY || "demo-claw-key";
 }
-
 export function kolClawMcpUrl(): string {
   const value = process.env.KOLCLAW_MCP_URL?.trim();
-  if (!value) throw new Error("KOLCLAW_MCP_URL is required");
+  if (!value)
+    throw new Error("KOLCLAW_MCP_URL is required");
   return value;
 }
-
 export function kolClawMcpToken(): string {
   const value = process.env.KOLCLAW_MCP_TOKEN?.trim();
-  if (!value) throw new Error("KOLCLAW_MCP_TOKEN is required");
+  if (!value)
+    throw new Error("KOLCLAW_MCP_TOKEN is required");
   return value;
 }
-
 export function kolClawConfigured(): boolean {
   return Boolean(process.env.KOLCLAW_MCP_URL?.trim() && process.env.KOLCLAW_MCP_TOKEN?.trim());
 }
@@ -242,7 +238,8 @@ export function codexTurnTimeout(): number {
 /** Deployment-owned From allowlist; never inferred from an LLM or a browser request. */
 function configuredBrandMailbox(brand: string, fallback: string): string {
   const value = String(process.env[`BRAND_MAILBOX_${brand}`] || "").trim().toLowerCase();
-  if (!value) return fallback;
+  if (!value)
+    return fallback;
   if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(value)) {
     throw new Error(`BRAND_MAILBOX_${brand} must contain one valid, verified sender email`);
   }

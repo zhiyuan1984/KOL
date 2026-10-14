@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { DEMO_ADMIN } from "../src/config.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { ensureStarryHomeLibrary, resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
 import type { Json } from "../src/types.js";
@@ -13,10 +13,10 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp = "";
 let app: Hono;
 let cookie = "";
-
 async function call(method: string, url: string, body?: unknown, useCookie = cookie) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (useCookie) headers.Cookie = useCookie;
+  if (useCookie)
+    headers.Cookie = useCookie;
   const response = await app.request(url, {
     method,
     headers,
@@ -34,14 +34,13 @@ beforeEach(async () => {
   process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "17".repeat(32);
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-identity-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetDatabase());
   resetStarryHomeLibrarySync();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     name: DEMO_ADMIN.name,
     email: DEMO_ADMIN.email,
@@ -50,11 +49,10 @@ beforeEach(async () => {
   }, "");
   expect(setup.status).toBe(201);
   cookie = setup.cookie;
-  getConn().prepare("UPDATE users SET phone=? WHERE username=?").run("13800138000", DEMO_ADMIN.handle);
+  (await postgresDb().execute("UPDATE users SET phone=$1 WHERE username=$2", "13800138000", DEMO_ADMIN.handle));
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   resetStarryHomeLibrarySync();
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
@@ -75,7 +73,7 @@ describe("admin identity and Starry mailbox bind", () => {
       expect(user.username).toBe(DEMO_ADMIN.handle);
       expect(user.email).toBe(DEMO_ADMIN.email);
     }
-    getConn().prepare("UPDATE users SET email='' WHERE username=?").run(DEMO_ADMIN.handle);
+    (await postgresDb().execute("UPDATE users SET email='' WHERE username=$1", DEMO_ADMIN.handle));
     const withoutColumn = await call("POST", "/api/auth/login", {
       email: DEMO_ADMIN.email,
       password: "123456789",
@@ -93,16 +91,15 @@ describe("admin identity and Starry mailbox bind", () => {
       expect(email.json).toMatchObject({ ok: true, handle: DEMO_ADMIN.handle, name: DEMO_ADMIN.name });
     }
   });
-
   it("logs in by unique display name after account/email/phone lookup", async () => {
     const { hashPassword } = await import("../src/auth.js");
-    const insert = getConn().prepare(
-      `INSERT INTO users (id,username,name,password_hash,roles,brands,active,email,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    );
-    insert.run("sriphy", "sriphy", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee", "admin"]), "[]", 1, "sriphy.yan@amperetime.com", "now", "now");
-    insert.run("usr_org_ye_guanwang", "robertson.ye@amperetime.com", "叶观旺", await hashPassword("123456789"), JSON.stringify(["employee"]), "[]", 1, "robertson.ye@amperetime.com", "now", "now");
-    const cases: Array<[string, string]> = [
+    const insert = "INSERT INTO users (id,username,name,password_hash,roles,brands,active,email,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
+    await postgresDb().execute(insert, "sriphy", "sriphy", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee", "admin"]), "[]", 1, "sriphy.yan@amperetime.com", "now", "now");
+    await postgresDb().execute(insert, "usr_org_ye_guanwang", "robertson.ye@amperetime.com", "叶观旺", await hashPassword("123456789"), JSON.stringify(["employee"]), "[]", 1, "robertson.ye@amperetime.com", "now", "now");
+    const cases: Array<[
+      string,
+      string
+    ]> = [
       ["鄢棽", "sriphy"],
       ["sriphy", "sriphy"],
       ["sriphy.yan@amperetime.com", "sriphy"],
@@ -116,7 +113,7 @@ describe("admin identity and Starry mailbox bind", () => {
       expect((status.json.user as Json).id).toBe(expected);
     }
     // 同名不唯一时姓名登录不生效（防止误登入他人账号），账号/邮箱路径不受影响。
-    insert.run("usr_dup_name", "dup_name", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee"]), "[]", 1, "", "now", "now");
+    await postgresDb().execute(insert, "usr_dup_name", "dup_name", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee"]), "[]", 1, "", "now", "now");
     const ambiguous = await call("POST", "/api/auth/login", { email: "鄢棽", password: "123456789" }, "");
     expect(ambiguous.status).toBe(401);
     const stillById = await call("POST", "/api/auth/login", { email: "sriphy", password: "123456789" }, "");
@@ -169,10 +166,8 @@ describe("admin identity and Starry mailbox bind", () => {
     // legacy display-name-only record must not be rescued by the name.
     expect(kols.map((row) => row.handle)).toEqual([]);
     const following = await call("GET", "/api/home/following");
-    expect(following.json).toMatchObject({authority:"kol_follow_index+verified_starry_binding",completeness:"complete"});
-
+    expect(following.json).toMatchObject({ authority: "kol_follow_index+verified_starry_binding", completeness: "complete" });
     expect(kols.some((row) => row.handle === "户外电源达人")).toBe(false);
-
     const other = await call("POST", "/api/admin/users", {
       username: "zhong",
       name: "钟槿年",
@@ -197,12 +192,13 @@ describe("admin identity and Starry mailbox bind", () => {
       bearer: "user-jwt-does-not-echo",
     });
     expect(bound.status).toBe(200);
-    const user = getConn().prepare("SELECT id FROM users WHERE username=?").get(DEMO_ADMIN.handle) as { id: string };
-    saveStarryBinding(user.id, {
+    const user = (await postgresDb().one("SELECT id FROM users WHERE username=$1", DEMO_ADMIN.handle)) as {
+      id: string;
+    };
+    (await saveStarryBinding(user.id, {
       mailbox_email: "second.mailbox@amperetime.com",
       owner_name: "赵良玉",
-    });
-
+    }));
     const pub = await call("GET", "/api/me/starry-binding");
     const bindings = pub.json.bindings as Json[];
     expect(bindings).toHaveLength(2);
@@ -225,7 +221,7 @@ describe("admin identity and Starry mailbox bind", () => {
       mailbox_email: "second.mailbox@amperetime.com",
     });
     expect(removed.status).toBe(200);
-    const remaining = getConn().prepare("SELECT mailbox_email FROM user_starry_bindings").all() as Json[];
+    const remaining = (await postgresDb().many("SELECT mailbox_email FROM user_starry_bindings")) as Json[];
     expect(remaining).toEqual([{ mailbox_email: "larry.zhao@amperetime.com" }]);
   });
 });

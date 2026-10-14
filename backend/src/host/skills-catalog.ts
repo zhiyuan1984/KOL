@@ -1,10 +1,13 @@
 import fs from "node:fs";
-import { getConn } from "../db.js";
-import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
-
+import { onDatabaseReset, postgresDb } from "../postgres/access.js";
+import { clearTaskRegistryCache, taskDefinition, taskDefinitions } from "../tasks/registry.js";
+import { readPresentationOverlays } from "./skill-presentation.js";
 export type FunnelId = "reach" | "intent" | "biz" | "sample" | "content" | "settle" | "exception";
-
-export const FUNNEL_STAGES: { id: FunnelId; label: string; hint: string }[] = [
+export const FUNNEL_STAGES: {
+  id: FunnelId;
+  label: string;
+  hint: string;
+}[] = [
   { id: "reach", label: "建联", hint: "建联 / 画像" },
   { id: "intent", label: "意向", hint: "跟进" },
   { id: "biz", label: "评估报价", hint: "评估 / 报价" },
@@ -13,21 +16,25 @@ export const FUNNEL_STAGES: { id: FunnelId; label: string; hint: string }[] = [
   { id: "settle", label: "结算", hint: "预算" },
   { id: "exception", label: "异常旁路", hint: "风险扫描" },
 ];
-
-
 export function skillFunnelId(id: string, category?: string, funnel?: string): FunnelId {
   // 漏斗由技能 md 声明；只有没声明时才按分类推断（新建技能表单的默认值）。
-  if (funnel && FUNNEL_STAGES.some((stage) => stage.id === funnel)) return funnel as FunnelId;
+  if (funnel && FUNNEL_STAGES.some((stage) => stage.id === funnel))
+    return funnel as FunnelId;
   const c = category || "";
-  if (/结算|归因|增长|预算/.test(c)) return "settle";
-  if (/内容|大纲/.test(c)) return "content";
-  if (/寄|物流|地址|采集/.test(c)) return "sample";
-  if (/报价|商务|合同|邮件/.test(c)) return "biz";
-  if (/跟进|意向|阶段/.test(c)) return "intent";
-  if (/风险|超时|异常/.test(c)) return "exception";
+  if (/结算|归因|增长|预算/.test(c))
+    return "settle";
+  if (/内容|大纲/.test(c))
+    return "content";
+  if (/寄|物流|地址|采集/.test(c))
+    return "sample";
+  if (/报价|商务|合同|邮件/.test(c))
+    return "biz";
+  if (/跟进|意向|阶段/.test(c))
+    return "intent";
+  if (/风险|超时|异常/.test(c))
+    return "exception";
   return "reach";
 }
-
 /** Compatibility shape for legacy Host callers; values come from SKILL.md. */
 export type SkillEntry = {
   id: string;
@@ -52,22 +59,30 @@ export const SOP_POLICY = {
   note: "技能说明在管理配置维护。运营在技能页只选用动作，不能改 SOP。",
   edit_path: "/admin",
 } as const;
-
-function marketFlags(): Map<string, boolean> {
+async function marketFlags(): Promise<Map<string, boolean>> {
   try {
-    const rows = getConn().prepare("SELECT id, in_market FROM skill_flags").all() as { id: string; in_market: number }[];
+    const rows = (await postgresDb().many("SELECT id, in_market FROM skill_flags")) as {
+      id: string;
+      in_market: number;
+    }[];
     return new Map(rows.map((row) => [String(row.id), Number(row.in_market) === 1]));
-  } catch {
+  }
+  catch {
     return new Map();
   }
 }
-
-let catalogCache: { definitions: ReturnType<typeof taskDefinitions>; entries: SkillEntry[] } | null = null;
-
-export function skillCatalog(root?: string): SkillEntry[] {
+let catalogCache: {
+  definitions: ReturnType<typeof taskDefinitions>;
+  entries: SkillEntry[];
+} | null = null;
+export async function skillCatalog(root?: string): Promise<SkillEntry[]> {
+  // Populate the registry's synchronous presentation snapshot before parsing packs.
+  // A missing migration/table is surfaced to callers rather than hidden by DDL at runtime.
+  await readPresentationOverlays();
   const definitions = taskDefinitions(root);
-  if (catalogCache?.definitions === definitions) return catalogCache.entries;
-  const flags = marketFlags();
+  if (catalogCache?.definitions === definitions)
+    return catalogCache.entries;
+  const flags = (await marketFlags());
   const entries = definitions.map((definition) => ({
     id: definition.id,
     label: definition.title,
@@ -85,9 +100,13 @@ export function skillCatalog(root?: string): SkillEntry[] {
     employee_example: definition.employee_example ? [...definition.employee_example] : undefined,
   }));
   catalogCache = { definitions, entries };
+  SKILL_CATALOG.splice(0, SKILL_CATALOG.length, ...entries);
+  for (const key of Object.keys(SKILL_ROUTE))
+    delete SKILL_ROUTE[key];
+  for (const entry of entries)
+    SKILL_ROUTE[entry.id] = { type: entry.id, skill: entry.id, needs: true };
   return entries;
 }
-
 /** Invalidate after publishing, deleting, or changing market visibility. */
 export function clearSkillCatalogCache(): void {
   catalogCache = null;
@@ -111,27 +130,33 @@ function blockedEmployeeDocBlock(block: string): boolean {
 export function employeeDocFromText(text: string): string {
   const lines = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").split("\n");
   const start = lines.findIndex((line) => line.trim() === "## 员工口径");
-  if (start < 0) return "";
+  if (start < 0)
+    return "";
   const body: string[] = [];
   for (const line of lines.slice(start + 1)) {
-    if (/^#{1,2}\s/.test(line)) break;
+    if (/^#{1,2}\s/.test(line))
+      break;
     body.push(line);
   }
   const kept: string[] = [];
   let block: string[] = [];
   const flush = () => {
-    if (!block.length) return;
+    if (!block.length)
+      return;
     const isList = block.every((line) => line.trimStart().startsWith("- "));
     const parts = isList ? block.map((line) => [line]) : [block];
     for (const part of parts) {
       const para = part.join("\n").trim();
-      if (para && !blockedEmployeeDocBlock(para)) kept.push(para);
+      if (para && !blockedEmployeeDocBlock(para))
+        kept.push(para);
     }
     block = [];
   };
   for (const line of body) {
-    if (line.trim()) block.push(line);
-    else flush();
+    if (line.trim())
+      block.push(line);
+    else
+      flush();
   }
   flush();
   return kept.join("\n\n");
@@ -140,43 +165,52 @@ export function employeeDocFromText(text: string): string {
 /** `GET /skills/:id` 的员工说明书正文；技能不存在或没写这一节时是空字符串。 */
 export function skillEmployeeDoc(id: string): string {
   const definition = taskDefinition(id);
-  if (!definition) return "";
+  if (!definition)
+    return "";
   try {
     return employeeDocFromText(fs.readFileSync(definition.path, "utf8"));
-  } catch {
+  }
+  catch {
     return "";
   }
 }
-
-/** Live catalog. Array methods always read the current bundled + published skills. */
-export const SKILL_CATALOG: SkillEntry[] = new Proxy([] as SkillEntry[], {
-  get(_target, prop) {
-    const list = skillCatalog();
-    const value = Reflect.get(list, prop, list);
-    return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(list) : value;
-  },
-  getOwnPropertyDescriptor(_target, prop) {
-    return Reflect.getOwnPropertyDescriptor(skillCatalog(), prop);
-  },
-  ownKeys() {
-    return Reflect.ownKeys(skillCatalog());
-  },
-  has(_target, prop) {
-    return Reflect.has(skillCatalog(), prop);
-  },
+/**
+ * Synchronous consumers (mention parsing and grants) read this materialized view.
+ * Async catalogue refreshes replace its contents only after the PostgreSQL reads
+ * above complete; no Proxy method may return a Promise to Array APIs.
+ */
+function freshCatalogEntries(): SkillEntry[] {
+  return taskDefinitions().map((definition) => ({
+    id: definition.id,
+    label: definition.title,
+    aliases: [...definition.aliases],
+    in_market: definition.in_market,
+    category: definition.category,
+    profile: definition.profile,
+    funnel: skillFunnelId(definition.id, definition.category, definition.funnel),
+    summary: definition.employee_summary || definition.description,
+    source: definition.source,
+    employee_visible: definition.employee_visible,
+    employee_quick: definition.employee_quick,
+    employee_agent: definition.employee_agent,
+    employee_example: definition.employee_example ? [...definition.employee_example] : undefined,
+  }));
+}
+export const SKILL_CATALOG: SkillEntry[] = freshCatalogEntries();
+export const SKILL_ROUTE: Record<string, {
+  type: string;
+  skill: string;
+  needs: true;
+}> = Object.fromEntries(SKILL_CATALOG.map((entry) => [entry.id, { type: entry.id, skill: entry.id, needs: true as const }]));
+onDatabaseReset(() => {
+  clearTaskRegistryCache();
+  clearSkillCatalogCache();
+  SKILL_CATALOG.splice(0, SKILL_CATALOG.length, ...freshCatalogEntries());
+  for (const id of Object.keys(SKILL_ROUTE))
+    delete SKILL_ROUTE[id];
+  for (const entry of SKILL_CATALOG)
+    SKILL_ROUTE[entry.id] = { type: entry.id, skill: entry.id, needs: true };
 });
-
-export const SKILL_ROUTE: Record<string, { type: string; skill: string; needs: true }> = new Proxy(
-  {} as Record<string, { type: string; skill: string; needs: true }>,
-  {
-    get(_target, prop) {
-      if (typeof prop !== "string") return undefined;
-      const entry = skillCatalog().find((row) => row.id === prop);
-      return entry ? { type: entry.id, skill: entry.id, needs: true as const } : undefined;
-    },
-  },
-);
-
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -184,11 +218,17 @@ function escapeRe(s: string): string {
 function namesFor(entry: SkillEntry): string[] {
   return [entry.label, ...entry.aliases];
 }
-
-export function mentionNamesLongestFirst(): { name: string; id: string }[] {
-  const rows: { name: string; id: string }[] = [];
+export function mentionNamesLongestFirst(): {
+  name: string;
+  id: string;
+}[] {
+  const rows: {
+    name: string;
+    id: string;
+  }[] = [];
   for (const s of SKILL_CATALOG) {
-    for (const name of namesFor(s)) rows.push({ name, id: s.id });
+    for (const name of namesFor(s))
+      rows.push({ name, id: s.id });
   }
   rows.sort((a, b) => b.name.length - a.name.length);
   return rows;
@@ -197,10 +237,12 @@ export function mentionNamesLongestFirst(): { name: string; id: string }[] {
 export function matchSkillId(text: string): string | null {
   const t = text || "";
   for (const { name, id } of mentionNamesLongestFirst()) {
-    if (t.includes(`/${name}`) || t.includes(`@${name}`) || t.includes(name)) return id;
+    if (t.includes(`/${name}`) || t.includes(`@${name}`) || t.includes(name))
+      return id;
   }
   for (const s of SKILL_CATALOG) {
-    if (new RegExp(`(^|\\s)[/@]${escapeRe(s.id)}(?=$|\\s)`, "i").test(t)) return s.id;
+    if (new RegExp(`(^|\\s)[/@]${escapeRe(s.id)}(?=$|\\s)`, "i").test(t))
+      return s.id;
   }
   return null;
 }
@@ -215,19 +257,29 @@ export function stripSkillMentions(text: string): string {
   }
   return out.replace(/\s+/g, " ").trim();
 }
-
 export function isSkillHandleToken(token: string): boolean {
   const t = (token || "").replace(/^[/@]+/, "").trim();
-  if (!t) return true;
-  if (SKILL_CATALOG.some((s) => s.id.toLowerCase() === t.toLowerCase())) return true;
-  if (mentionNamesLongestFirst().some((n) => n.name === t || n.name.startsWith(`${t} `))) return true;
+  if (!t)
+    return true;
+  if (SKILL_CATALOG.some((s) => s.id.toLowerCase() === t.toLowerCase()))
+    return true;
+  if (mentionNamesLongestFirst().some((n) => n.name === t || n.name.startsWith(`${t} `)))
+    return true;
   return false;
 }
-
-export function catalogPublic(): {
-  id: string; title: string; label: string; aliases: string[]; in_market: boolean; category: string; profile: string; funnel: FunnelId; summary: string; source: "bundled" | "published";
-}[] {
-  return skillCatalog().map((s) => ({
+export async function catalogPublic(): Promise<{
+  id: string;
+  title: string;
+  label: string;
+  aliases: string[];
+  in_market: boolean;
+  category: string;
+  profile: string;
+  funnel: FunnelId;
+  summary: string;
+  source: "bundled" | "published";
+}[]> {
+  return (await skillCatalog()).map((s) => ({
     id: s.id,
     title: s.label,
     label: s.label,

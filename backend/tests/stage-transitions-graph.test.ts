@@ -2,33 +2,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { HttpFail } from "../src/host/errors.js";
 import { hostConfirmStage } from "../src/host/api.js";
 import { seedAll } from "../src/seed.js";
 import { approvalKindForStage } from "../src/stages.js";
-import {
-  assertStageTransition,
-  evaluateStageTransition,
-  loadStageTransitionGraph,
-  resetStageTransitionGraphCache,
-} from "../src/stage-transitions-graph.js";
+import { assertStageTransition, evaluateStageTransition, loadStageTransitionGraph, resetStageTransitionGraphCache, } from "../src/stage-transitions-graph.js";
 import { freshTestDatabase } from "./support/pg.js";
-
-function insertCollab(id: string, handle: string, stageCode: string): void {
-  getConn().prepare(
-    `INSERT OR REPLACE INTO collaborations
+async function insertCollab(id: string, handle: string, stageCode: string): Promise<void> {
+  (await postgresDb().execute(`INSERT INTO collaborations
      (id, handle, display_name, brand, platform, followers, email, mailbox_from,
       lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
       stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id, handle, handle, "LT", "YouTube", "1万", `${id}@litime.example`, "kol.lt@litime.example",
-    `lc_${id}`, `cv_${id}`, stageCode, 0, "", 0,
-    0, handle, "", "", "美国", "", "LT-MINI-12", "1", 0,
-  );
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked`, id, handle, handle, "LT", "YouTube", "1万", `${id}@litime.example`, "kol.lt@litime.example", `lc_${id}`, `cv_${id}`, stageCode, 0, "", 0, 0, handle, "", "", "美国", "", "LT-MINI-12", "1", 0));
 }
-
 describe("stage transition graph (ADR-027 Host gate)", () => {
   afterEach(() => {
     delete process.env.STAGE_TRANSITIONS_PATH;
@@ -54,9 +41,14 @@ describe("stage transition graph (ADR-027 Host gate)", () => {
     expect(() => assertStageTransition("CONTRACTING", "CONTENT_PLANNING", "human", "")).toThrow(HttpFail);
     try {
       assertStageTransition("CONTRACTING", "CONTENT_PLANNING", "human", "  ");
-    } catch (error) {
+    }
+    catch (error) {
       expect(error).toBeInstanceOf(HttpFail);
-      expect((error as HttpFail & { detail: { code: string } }).detail).toMatchObject({
+      expect((error as HttpFail & {
+        detail: {
+          code: string;
+        };
+      }).detail).toMatchObject({
         code: "stage_reason_required",
       });
     }
@@ -109,8 +101,15 @@ describe("stage transition graph (ADR-027 Host gate)", () => {
     expect(() => loadStageTransitionGraph({ refresh: true })).toThrow(HttpFail);
     try {
       loadStageTransitionGraph({ refresh: true });
-    } catch (error) {
-      const fail = error as HttpFail & { status: number; detail: { code: string; message: string } };
+    }
+    catch (error) {
+      const fail = error as HttpFail & {
+        status: number;
+        detail: {
+          code: string;
+          message: string;
+        };
+      };
       expect(fail.status).toBe(503);
       expect(fail.detail.code).toBe("stage_graph_unavailable");
       expect(fail.detail.message).toMatch(/fail-closed|找不到/);
@@ -124,57 +123,49 @@ describe("hostConfirmStage enforces the graph (no LIVE)", () => {
   beforeEach(async () => {
     await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-graph-"));
-    process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
     process.env.AUTH_MODE = "disabled";
-    resetConn();
-    seedAll();
+    (await resetDatabase());
+    (await seedAll());
     resetStageTransitionGraphCache();
   });
-
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetDatabase());
     fs.rmSync(tmp, { recursive: true, force: true });
     delete process.env.STAGE_TRANSITIONS_PATH;
     resetStageTransitionGraphCache();
   });
-
-  it("accepts a legal human jump with reason and refuses the same jump for auto", () => {
-    insertCollab("col_graph_jump", "graph-jump", "CONTRACTING");
-    const jumped = hostConfirmStage("graph-jump", "CONTENT_PLANNING", "col_graph_jump", 0, "这次不寄样", {});
+  it("accepts a legal human jump with reason and refuses the same jump for auto", async () => {
+    (await insertCollab("col_graph_jump", "graph-jump", "CONTRACTING"));
+    const jumped = (await hostConfirmStage("graph-jump", "CONTENT_PLANNING", "col_graph_jump", 0, "这次不寄样", {}));
     expect(jumped.stage_changed).toBe(true);
     expect(jumped.stage_code).toBe("CONTENT_PLANNING");
-
-    insertCollab("col_graph_auto", "graph-auto", "CONTRACTING");
-    expect(() => hostConfirmStage(
-      "graph-auto",
-      "CONTENT_PLANNING",
-      "col_graph_auto",
-      0,
-      "auto must not skip",
-      { recommender: "fact_advance" },
-    )).toThrow(HttpFail);
+    (await insertCollab("col_graph_auto", "graph-auto", "CONTRACTING"));
+    await expect((async () => (await hostConfirmStage("graph-auto", "CONTENT_PLANNING", "col_graph_auto", 0, "auto must not skip", { recommender: "fact_advance" })))()).rejects.toThrow(HttpFail);
   });
-
-  it("accepts exception enter and leave with reason", () => {
-    insertCollab("col_graph_ex", "graph-ex", "INITIAL_CONTACT");
-    const entered = hostConfirmStage("graph-ex", "PAUSED", "col_graph_ex", 0, "对方暂缓", {});
+  it("accepts exception enter and leave with reason", async () => {
+    (await insertCollab("col_graph_ex", "graph-ex", "INITIAL_CONTACT"));
+    const entered = (await hostConfirmStage("graph-ex", "PAUSED", "col_graph_ex", 0, "对方暂缓", {}));
     expect(entered.stage_changed).toBe(true);
     expect(entered.stage_code).toBe("PAUSED");
-    const left = hostConfirmStage("graph-ex", "EVALUATING", "col_graph_ex", 1, "恢复评估", {});
+    const left = (await hostConfirmStage("graph-ex", "EVALUATING", "col_graph_ex", 1, "恢复评估", {}));
     expect(left.stage_changed).toBe(true);
     expect(left.stage_code).toBe("EVALUATING");
   });
-
-  it("rejects a forbid edge at confirm_stage time", () => {
-    insertCollab("col_graph_lost", "graph-lost", "LOST");
+  it("rejects a forbid edge at confirm_stage time", async () => {
+    (await insertCollab("col_graph_lost", "graph-lost", "LOST"));
     try {
-      hostConfirmStage("graph-lost", "INTERESTED", "col_graph_lost", 0, "想拉回来", {});
+      (await hostConfirmStage("graph-lost", "INTERESTED", "col_graph_lost", 0, "想拉回来", {}));
       throw new Error("expected forbid");
-    } catch (error) {
+    }
+    catch (error) {
       expect(error).toBeInstanceOf(HttpFail);
-      expect((error as HttpFail & { detail: { code: string } }).detail.code).toBe("forbidden_edge");
+      expect((error as HttpFail & {
+        detail: {
+          code: string;
+        };
+      }).detail.code).toBe("forbidden_edge");
     }
   });
 });

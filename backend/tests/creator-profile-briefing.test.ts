@@ -1,14 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { emailMcpResultCard } from "../src/starrykol/service.js";
-import {
-  analyzeCreatorProfile,
-  profileBriefingFromFacts,
-  profileFactsForModel,
-} from "../src/starrykol/profile-briefing.js";
+import { analyzeCreatorProfile, profileBriefingFromFacts, profileFactsForModel, } from "../src/starrykol/profile-briefing.js";
 import { collectStarryKolItems } from "../src/worker/session-items.js";
-
+import { freshTestDatabase } from "./support/pg.js";
+beforeEach(async () => { await freshTestDatabase(); });
 process.env.CODEX_MODE = "stub";
-
 const QQ_DETAIL = {
   id: 4,
   brandId: 1,
@@ -43,9 +39,8 @@ describe("creator profile briefing", () => {
     expect(briefing.briefing).not.toMatch(/这项信息|摘要数据|MCP|Codex/);
     expect(briefing.summary).toContain("测试网红-qq-01");
   });
-
-  it("paints 画像说明 and never dumps 摘要数据", () => {
-    const card = emailMcpResultCard("creator_profile", QQ_DETAIL);
+  it("paints 画像说明 and never dumps 摘要数据", async () => {
+    const card = (await emailMcpResultCard("creator_profile", QQ_DETAIL));
     const sections = JSON.stringify(card.sections);
     expect(card.title).toBe("达人画像");
     expect(sections).toContain("画像说明");

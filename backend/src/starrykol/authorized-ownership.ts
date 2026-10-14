@@ -3,8 +3,11 @@ import { currentFollowScope } from '../host/starry-bind.js';
 import { pageKolProfiles } from '../host/starry-connectors.js';
 import { firstString } from './mail-fields.js';
 import type { Json } from '../types.js';
-
-export type AuthorizedOwnership = { kol_uid: string; owner_open_id: string; owner_mailbox: string };
+export type AuthorizedOwnership = {
+  kol_uid: string;
+  owner_open_id: string;
+  owner_mailbox: string;
+};
 export type AuthorizedOwnershipSnapshot = {
   rows: AuthorizedOwnership[];
   total: number;
@@ -13,11 +16,11 @@ export type AuthorizedOwnershipSnapshot = {
 };
 const PAGE_SIZE = 100;
 const MAX_PAGES = 40;
-export const FOLLOWING_AUTHORIZATION_TIMEOUT_MS = 10_000;
-
-function bindingFingerprint(employeeId: string): string {
-  if (scopedUser()?.id !== employeeId) throw new Error('starry_ownership_identity_mismatch');
-  const scope = currentFollowScope();
+export const FOLLOWING_AUTHORIZATION_TIMEOUT_MS = 10000;
+async function bindingFingerprint(employeeId: string): Promise<string> {
+  if (scopedUser()?.id !== employeeId)
+    throw new Error('starry_ownership_identity_mismatch');
+  const scope = (await currentFollowScope());
   if (!scope.bound || scope.status !== 'connected' || !scope.owner_verified_at)
     throw new Error('starry_ownership_binding_unverified');
   // Background mailbox reads may re-certify the same identity concurrently.
@@ -25,7 +28,10 @@ function bindingFingerprint(employeeId: string): string {
   return JSON.stringify([employeeId, scope.mailbox_id, scope.mailbox_email, scope.owner_open_id,
     Boolean(scope.owner_verified_at), scope.updated_at, scope.status]);
 }
-function pageRows(data: Json): { total: number; rows: AuthorizedOwnership[] } {
+function pageRows(data: Json): {
+  total: number;
+  rows: AuthorizedOwnership[];
+} {
   const key = ['list', 'records', 'rows', 'items'].find(k => Array.isArray(data[k]));
   if (!key || !(typeof data.total === 'number' || typeof data.total === 'string')
     || String(data.total).trim() === '' || !Number.isSafeInteger(Number(data.total)) || Number(data.total) < 0)
@@ -34,27 +40,34 @@ function pageRows(data: Json): { total: number; rows: AuthorizedOwnership[] } {
     if (!row || typeof row !== 'object' || Array.isArray(row))
       throw new Error('starry_ownership_snapshot_identity_invalid');
     const uid = firstString(row.kolUid, row.kol_uid);
-    if (!uid) throw new Error('starry_ownership_snapshot_identity_invalid');
+    if (!uid)
+      throw new Error('starry_ownership_snapshot_identity_invalid');
     if (!['ownerOpenId', 'owner_open_id', 'ownerUserId', 'owner_user_id', 'ownerMailbox', 'owner_mailbox']
-      .some(k => Object.hasOwn(row, k))) throw new Error('starry_ownership_snapshot_owner_capability_missing');
+      .some(k => Object.hasOwn(row, k)))
+      throw new Error('starry_ownership_snapshot_owner_capability_missing');
     return { kol_uid: uid, owner_open_id: firstString(row.ownerOpenId, row.owner_open_id, row.ownerUserId, row.owner_user_id),
       owner_mailbox: firstString(row.ownerMailbox, row.owner_mailbox).trim().toLowerCase() };
   });
-  if (rows.length > PAGE_SIZE) throw new Error('starry_ownership_count_mismatch');
+  if (rows.length > PAGE_SIZE)
+    throw new Error('starry_ownership_count_mismatch');
   return { total: Number(data.total), rows };
 }
 /** A request-local authorization proof, never a company-wide snapshot or grant.
  * Public listAll has a different scope and is deliberately not a completeness oracle.
  * No caching: upstream revocation is checked on every employee-list request.
  */
-export async function readAuthorizedOwnershipSnapshot(employeeId: string, options: { timeoutMs?: number } = {}): Promise<AuthorizedOwnershipSnapshot> {
-  const fingerprint = bindingFingerprint(employeeId);
+export async function readAuthorizedOwnershipSnapshot(employeeId: string, options: {
+  timeoutMs?: number;
+} = {}): Promise<AuthorizedOwnershipSnapshot> {
+  const fingerprint = (await bindingFingerprint(employeeId));
   const budget = options.timeoutMs ?? FOLLOWING_AUTHORIZATION_TIMEOUT_MS;
-  if (!Number.isFinite(budget) || budget <= 0) throw new Error('starry_ownership_authorization_timeout');
+  if (!Number.isFinite(budget) || budget <= 0)
+    throw new Error('starry_ownership_authorization_timeout');
   const deadline = performance.now() + budget;
   const readPage = async (pageNo: number): Promise<Json> => {
     const remaining = Math.floor(deadline - performance.now());
-    if (remaining <= 0) throw new Error('starry_ownership_authorization_timeout');
+    if (remaining <= 0)
+      throw new Error('starry_ownership_authorization_timeout');
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       // The transport receives the same remaining budget. The outer deadline
@@ -68,10 +81,13 @@ export async function readAuthorizedOwnershipSnapshot(employeeId: string, option
           timer = setTimeout(() => reject(new Error('starry_ownership_authorization_timeout')), remaining);
         }),
       ]);
-      if (performance.now() >= deadline) throw new Error('starry_ownership_authorization_timeout');
+      if (performance.now() >= deadline)
+        throw new Error('starry_ownership_authorization_timeout');
       return result;
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
+    }
+    finally {
+      if (timer !== undefined)
+        clearTimeout(timer);
     }
   };
   const rows: AuthorizedOwnership[] = [];
@@ -79,14 +95,19 @@ export async function readAuthorizedOwnershipSnapshot(employeeId: string, option
   let expected: number | null = null;
   let first: AuthorizedOwnership[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
-    if (bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
+    if ((await bindingFingerprint(employeeId)) !== fingerprint)
+      throw new Error('starry_ownership_binding_changed');
     const result = pageRows(await readPage(page));
-    if (bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
-    if (expected !== null && expected !== result.total) throw new Error('starry_ownership_snapshot_changed_during_pagination');
+    if ((await bindingFingerprint(employeeId)) !== fingerprint)
+      throw new Error('starry_ownership_binding_changed');
+    if (expected !== null && expected !== result.total)
+      throw new Error('starry_ownership_snapshot_changed_during_pagination');
     expected = result.total;
-    if (page === 1) first = result.rows;
+    if (page === 1)
+      first = result.rows;
     for (const row of result.rows) {
-      if (seen.has(row.kol_uid)) throw new Error('starry_ownership_snapshot_identity_invalid');
+      if (seen.has(row.kol_uid))
+        throw new Error('starry_ownership_snapshot_identity_invalid');
       seen.add(row.kol_uid);
       rows.push(row);
     }
@@ -97,7 +118,8 @@ export async function readAuthorizedOwnershipSnapshot(employeeId: string, option
       const anchor = pageRows(await readPage(1));
       if (anchor.total !== expected || JSON.stringify(anchor.rows) !== JSON.stringify(first))
         throw new Error('starry_ownership_snapshot_changed_during_pagination');
-      if (bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
+      if ((await bindingFingerprint(employeeId)) !== fingerprint)
+        throw new Error('starry_ownership_binding_changed');
       return { rows, total: expected, source_version: new Date().toISOString(), scope: 'current-user-authorized' };
     }
   }

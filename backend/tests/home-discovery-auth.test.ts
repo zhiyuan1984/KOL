@@ -5,7 +5,7 @@ import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { setDiscoveryBriefRunner } from "../src/home-discovery.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { seedAll } from "../src/seed.js";
@@ -24,20 +24,20 @@ const RUN_BODY: Json = { platforms: ["youtube"], keywords: ["camping"], mode: "s
 function mockMcp() {
   return {
     async callTool(name: string, _args: Json = {}) {
-      if (name === "start_crawl") return { task_id: "remote-auth-1", status: "running" };
+      if (name === "start_crawl")
+        return { task_id: "remote-auth-1", status: "running" };
       return {};
     },
-    async close() {},
+    async close() { },
   };
 }
-
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
-
 async function call(method: string, url: string, body?: unknown, cookie = adminCookie) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   const response = await app.request(url, {
     method,
     headers,
@@ -72,8 +72,6 @@ async function createEmployee(username: string): Promise<string> {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-discovery-auth-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.AUTH_MODE = "enabled";
   process.env.CODEX_MODE = "real";
   process.env.CLAW_MODE = "mock";
@@ -81,13 +79,13 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:9/mcp";
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
   process.env.MEDIACRAWLER_POLL_INTERVAL_MS = "600000";
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetDatabase());
+  (await seedAll());
+  (await configureCrawlerFixture());
   setCrawlMcpClientFactory(mockMcp);
   setDiscoveryBriefRunner(async () => ({ items: [] }));
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -97,11 +95,10 @@ beforeEach(async () => {
   expect(setup.status).toBe(201);
   adminCookie = setup.cookie;
 });
-
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setDiscoveryBriefRunner(null);
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   process.env.CODEX_MODE = "stub";
@@ -109,27 +106,25 @@ afterEach(() => {
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.MEDIACRAWLER_POLL_INTERVAL_MS;
 });
-
 describe("home discovery submit authorization", () => {
   it("accepts the admin request but records an honest failure without calling a disabled collector", async () => {
-    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='claw'").run();
+    (await postgresDb().execute("UPDATE connectors SET enabled=0 WHERE id='claw'"));
     let remoteCalls = 0;
     setCrawlMcpClientFactory(() => ({
       async callTool() { remoteCalls++; return {}; },
-      async close() {},
+      async close() { },
     }));
-    const claw = getConn().prepare("SELECT enabled FROM connectors WHERE id='claw'").get() as
-      | { enabled?: number }
-      | undefined;
+    const claw = (await postgresDb().one("SELECT enabled FROM connectors WHERE id='claw'")) as {
+      enabled?: number;
+    } | undefined;
     expect(Number(claw?.enabled || 0)).toBe(0);
-
     const started = await call("POST", "/api/home/discovery/run", RUN_BODY);
     expect(started.status, JSON.stringify(started.json)).toBe(202);
     const runId = String(started.json.id || "");
     expect(runId).toMatch(/^drun_/);
-    const job = getConn().prepare("SELECT crawl_job_id FROM discovery_runs WHERE id=?").get(runId) as
-      | { crawl_job_id?: string | null }
-      | undefined;
+    const job = (await postgresDb().one("SELECT crawl_job_id FROM discovery_runs WHERE id=$1", runId)) as {
+      crawl_job_id?: string | null;
+    } | undefined;
     expect(job?.crawl_job_id).toBeFalsy();
     expect(remoteCalls).toBe(0);
     const run = await call("GET", `/api/home/discovery/runs/${runId}`);
@@ -143,13 +138,11 @@ describe("home discovery submit authorization", () => {
     const denied = await call("POST", "/api/home/discovery/run", RUN_BODY, employeeCookie);
     expect(denied.status).toBe(403);
     expect(denied.json.detail).toMatchObject({ code: "agent_not_usable", skill_id: "creator_discovery" });
-
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(userId, "person:ye_guanwang");
-    createAgentBinding({
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", userId, "person:ye_guanwang"));
+    (await createAgentBinding({
       agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
-
+    }));
     const allowed = await call("POST", "/api/home/discovery/run", RUN_BODY, employeeCookie);
     expect(allowed.status, JSON.stringify(allowed.json)).toBe(202);
     expect(String(allowed.json.id || "")).toMatch(/^drun_/);
@@ -158,9 +151,8 @@ describe("home discovery submit authorization", () => {
   it("keeps a broken collector as the run's honest failure, not a submit-time 403", async () => {
     setCrawlMcpClientFactory(() => ({
       async callTool() { throw new Error("collector down"); },
-      async close() {},
+      async close() { },
     }));
-
     const started = await call("POST", "/api/home/discovery/run", RUN_BODY);
     expect(started.status, JSON.stringify(started.json)).toBe(202);
     const runId = String(started.json.id || "");

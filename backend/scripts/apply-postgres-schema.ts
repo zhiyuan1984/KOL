@@ -3,16 +3,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { Client } from "pg";
+import "../src/config.js";
 import { reviewSchema } from "../src/approval/review-schema.js";
 import { crawlQueueStateMigration, runtimeActionSchema } from "../src/runtime/action-schema.js";
 import { crawlResultSchema } from "../src/crawl/result-schema.js";
 import { candidateActionsSchema } from "../src/crawl/candidate-actions-schema.js";
 import { candidateAssessmentSchema } from "../src/crawl/assessment-schema.js";
 import { runtimeActionEventSchema } from "../src/runtime/action-event-schema.js";
-
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
-if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL schema migration");
-
+if (!databaseUrl)
+  throw new Error("DATABASE_URL is required for PostgreSQL schema migration");
 /**
  * 空库基线：`pg_dump -s --no-owner --no-privileges` 导出的完整 PostgreSQL 结构。
  * 删除 SQLite 后，基线是「凭空新建一个库」的唯一入口（SQLite 的 initSchema 不再承担这个职责）。
@@ -48,9 +48,12 @@ type SchemaMigration = {
   /** 需要 TS 常量或条件逻辑的步骤；同样必须幂等。 */
   run?: (client: Client) => Promise<void>;
 };
-
 const migrations: SchemaMigration[] = [
-  { id: "20261014_native_business_repositories", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "040_041_native_business_repositories.sql"), "utf8") ] },
+  { id: "20261014_native_runtime_identity", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "042_native_runtime_identity.sql"), "utf8")] },
+  { id: "20261014_host_mail_send_attempts", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "042_host_mail_send_attempts.sql"), "utf8")] },
+  { id: "20261014_mail_send_reply_stale", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "044_mail_send_reply_stale.sql"), "utf8")] },
+  { id: "20261014_knowledge_skill_presentation_and_ontology_ledger", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "043_knowledge_skill_presentation_and_ontology_ledger.sql"), "utf8")] },
+  { id: "20261014_native_business_repositories", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "040_041_native_business_repositories.sql"), "utf8")] },
   { id: "20261013_employee_skill_preferences", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "037_employee_skill_preferences.sql"), "utf8")] },
   { id: "20261013_employee_agent_preferences", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "038_employee_agent_preferences.sql"), "utf8")] },
   { id: "20261009_kol_authority_sync_health", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "033_kol_authority_sync_health.sql"), "utf8")] },
@@ -1527,30 +1530,24 @@ migrations.push({
     "CREATE UNIQUE INDEX IF NOT EXISTS business_events_idempotency_uidx ON business_events(idempotency_key) WHERE idempotency_key IS NOT NULL",
   ],
 });
-
 // Score and brand visibility depend on the lead/cooperation bootstrap above.
 // Keep migration IDs and SQL unchanged so existing ledgers retain their checksums.
-migrations.push(
-  { id: "20261008_discovery_dedup_score", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "029_discovery_dedup_score.sql"), "utf8")] },
-  { id: "20261008_pool_brand_visibility", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "030_pool_brand_visibility.sql"), "utf8")] },
-  { id: "20261008_knowledge_taxonomy_guards", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "031_knowledge_taxonomy_guards.sql"), "utf8")] },
-  { id: "20261012_mail_private_labels", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "035_20261012_mail_private_labels.sql"), "utf8")] },
-);
-
+migrations.push({ id: "20261008_discovery_dedup_score", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "029_discovery_dedup_score.sql"), "utf8")] }, { id: "20261008_pool_brand_visibility", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "030_pool_brand_visibility.sql"), "utf8")] }, { id: "20261008_knowledge_taxonomy_guards", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "031_knowledge_taxonomy_guards.sql"), "utf8")] }, { id: "20261012_mail_private_labels", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "035_20261012_mail_private_labels.sql"), "utf8")] });
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
-if (onlyMigration && !migrations.some((migration) => migration.id === onlyMigration)) throw new Error("Unknown migration selection");
+if (onlyMigration && !migrations.some((migration) => migration.id === onlyMigration))
+  throw new Error("Unknown migration selection");
 const client = new Client({ connectionString: databaseUrl });
 await client.connect();
 try {
   await client.query("BEGIN");
   // 空库判定必须在建账本之前：基线（pg_dump）本身就会创建 app_schema_migrations。
-  const empty = Number(
-    (await client.query<{ n: string }>(
-      "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'app_schema_migrations'",
-    )).rows[0]?.n || 0,
-  ) === 0;
-  if (empty && onlyMigration) throw new Error("Selective migration requires an initialized database");
-  if (empty) await client.query(baselineSql);
+  const empty = Number((await client.query<{
+    n: string;
+  }>("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> 'app_schema_migrations'")).rows[0]?.n || 0) === 0;
+  if (empty && onlyMigration)
+    throw new Error("Selective migration requires an initialized database");
+  if (empty)
+    await client.query(baselineSql);
   await client.query(`CREATE TABLE IF NOT EXISTS app_schema_migrations (
     id TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL
@@ -1561,7 +1558,9 @@ try {
     applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     applied_by TEXT NOT NULL DEFAULT 'schema-runner'
   )`);
-  const applied = new Set((await client.query<{ id: string }>("SELECT id FROM app_schema_migrations")).rows.map((row) => row.id));
+  const applied = new Set((await client.query<{
+    id: string;
+  }>("SELECT id FROM app_schema_migrations")).rows.map((row) => row.id));
   const completed: string[] = [];
   // 基线已包含这些增量的效果，补记账本，否则非幂等增量会在已有对象上重跑。
   if (empty) {
@@ -1573,12 +1572,15 @@ try {
     completed.push(BASELINE_ID);
   }
   for (const migration of migrations) {
-    if (onlyMigration && migration.id !== onlyMigration) continue;
+    if (onlyMigration && migration.id !== onlyMigration)
+      continue;
     // DDL is idempotent even if a prior deploy created the table before this
     // ledger existed. Recording it prevents future release restarts from
     // executing non-idempotent migrations accidentally.
     const checksum = createHash("sha256").update(migration.statements.join("\n-- statement --\n")).digest("hex");
-    const recorded = await client.query<{ checksum: string }>("SELECT checksum FROM schema_migrations WHERE id=$1", [migration.id]);
+    const recorded = await client.query<{
+      checksum: string;
+    }>("SELECT checksum FROM schema_migrations WHERE id=$1", [migration.id]);
     if (recorded.rows[0] && recorded.rows[0].checksum !== checksum) {
       throw new Error(`schema migration checksum mismatch: ${migration.id}`);
     }
@@ -1588,7 +1590,8 @@ try {
       }
       continue;
     }
-    for (const statement of migration.statements) await client.query(statement);
+    for (const statement of migration.statements)
+      await client.query(statement);
     const appliedAt = new Date().toISOString();
     await client.query("INSERT INTO app_schema_migrations (id,applied_at) VALUES ($1,$2)", [migration.id, appliedAt]);
     await client.query("INSERT INTO schema_migrations (id,checksum,applied_at) VALUES ($1,$2,$3)", [migration.id, checksum, appliedAt]);
@@ -1596,9 +1599,11 @@ try {
   }
   await client.query("COMMIT");
   console.log(JSON.stringify({ applied: completed, database: "postgres" }));
-} catch (error) {
+}
+catch (error) {
   await client.query("ROLLBACK");
   throw error;
-} finally {
+}
+finally {
   await client.end();
 }

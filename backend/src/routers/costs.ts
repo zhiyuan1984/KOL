@@ -3,55 +3,55 @@ import { authDisabled, requireAdmin } from "../auth.js";
 import { costsSummary, listCostEvents, upsertBudget } from "../costs.js";
 import { HttpFail } from "../host/errors.js";
 import { parseExpectedVersion } from "../host/version.js";
-
 export const costsRouter = new Hono();
-
-function costsAdmin() {
+async function costsAdmin() {
   // AUTH_MODE=disabled is useful only in the isolated test harness. Cost
   // governance must never silently become anonymously readable or writable.
   if (authDisabled() && process.env.NODE_ENV !== "test") {
     throw new HttpFail(403, "cost governance requires enabled authentication outside tests");
   }
-  return requireAdmin();
+  return (await requireAdmin());
 }
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
-
 function onlyFields(body: Record<string, unknown>, fields: readonly string[]): void {
   const allowed = new Set(fields);
-  if (Object.keys(body).some((key) => !allowed.has(key))) throw new HttpFail(400, "unsupported request field");
+  if (Object.keys(body).some((key) => !allowed.has(key)))
+    throw new HttpFail(400, "unsupported request field");
 }
-
-async function bodyObject(c: { req: { json: () => Promise<unknown> } }): Promise<Record<string, unknown>> {
+async function bodyObject(c: {
+  req: {
+    json: () => Promise<unknown>;
+  };
+}): Promise<Record<string, unknown>> {
   let body: unknown;
   try {
     body = await c.req.json();
-  } catch {
+  }
+  catch {
     throw new HttpFail(400, "request body must be JSON");
   }
-  if (!isPlainObject(body)) throw new HttpFail(400, "request body must be an object");
+  if (!isPlainObject(body))
+    throw new HttpFail(400, "request body must be an object");
   return body;
 }
-
-costsRouter.get("/admin/costs/summary", (c) => {
-  costsAdmin();
+costsRouter.get("/admin/costs/summary", async (c) => {
+  (await costsAdmin());
   const month = c.req.query("month") || null;
-  return c.json(costsSummary(month));
+  return c.json((await costsSummary(month)));
 });
-
-costsRouter.get("/admin/costs/events", (c) => {
-  costsAdmin();
+costsRouter.get("/admin/costs/events", async (c) => {
+  (await costsAdmin());
   const rawLimit = Number(c.req.query("limit") || 50);
   const agentId = c.req.query("agent_id") || null;
-  return c.json({ events: listCostEvents(Number.isFinite(rawLimit) ? rawLimit : 50, agentId) });
+  return c.json({ events: (await listCostEvents(Number.isFinite(rawLimit) ? rawLimit : 50, agentId)) });
 });
-
 costsRouter.put("/admin/costs/budget", async (c) => {
-  const admin = costsAdmin();
+  const admin = (await costsAdmin());
   const body = await bodyObject(c);
   onlyFields(body, [
     "scope",
@@ -68,12 +68,15 @@ costsRouter.put("/admin/costs/budget", async (c) => {
       throw new HttpFail(400, "limit_tokens must be a number or null");
     })());
   for (const field of ["warn_percent", "hard_stop_percent"] as const) {
-    if (body[field] != null && typeof body[field] !== "number") throw new HttpFail(400, `${field} must be a number`);
+    if (body[field] != null && typeof body[field] !== "number")
+      throw new HttpFail(400, `${field} must be a number`);
   }
-  if (body.enabled != null && typeof body.enabled !== "boolean") throw new HttpFail(400, "enabled must be boolean");
+  if (body.enabled != null && typeof body.enabled !== "boolean")
+    throw new HttpFail(400, "enabled must be boolean");
   const expectedVersion = parseExpectedVersion(body.expected_version);
-  if (expectedVersion === undefined) throw new HttpFail(400, "expected_version is required");
-  const row = upsertBudget({
+  if (expectedVersion === undefined)
+    throw new HttpFail(400, "expected_version is required");
+  const row = (await upsertBudget({
     scope: String(body.scope ?? ""),
     scopeRef: String(body.scope_ref ?? ""),
     limitTokens,
@@ -82,6 +85,6 @@ costsRouter.put("/admin/costs/budget", async (c) => {
     enabled: body.enabled == null ? null : Boolean(body.enabled),
     expectedVersion,
     actor: admin.id,
-  });
+  }));
   return c.json(row);
 });

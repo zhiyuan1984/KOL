@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { setAgentSkill, setSkillConnector, setSkillTool, setConnectorConfig, setToolPolicy, getAgentSkills, getSkillConnectors, getToolPolicy } from "../src/runtime/store.js";
 import { SkillExecution, assertRuntimeSkill, toolSchemaHash, type RuntimeContext, type RuntimeRemote } from "../src/runtime/execution.js";
 import { createAgentBinding, revokeAgentBinding } from "../src/runtime/organization-tree.js";
@@ -29,6 +29,7 @@ import { runtimeActionSchema } from "../src/runtime/action-schema.js";
 import { runtimeAction } from "../src/runtime/action-store.js";
 import { registerRuntimeActionGate } from "../src/runtime/action-gates.js";
 import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
+import { ensureNativeRuntimeConnector } from "./helpers/native-runtime.js";
 import { monitorRuntimeCrawl } from "../src/crawl/runtime-gates.js";
 import type { ClaimedExecutionJob } from "../src/execution-jobs/contracts.js";
 import { Hono } from "hono";
@@ -39,9 +40,7 @@ import { createDiscoveryWorkspace, pendingDiscoveryWorkspace } from "../src/craw
 import { collectCrawlResults } from "../src/crawl/results.js";
 import { discoveryResultContext } from "../src/crawl/context.js";
 import { runtimeHash } from "../src/runtime/execution.js";
-
-registerRuntimeActionGate("catalog_a", "lookup", { validate() {}, execute: (_context, _args, _id, dispatch) => dispatch() });
-
+registerRuntimeActionGate("catalog_a", "lookup", { validate() { }, execute: async (_context, _args, _id, dispatch) => (await dispatch()) });
 let tmp: string;
 let cleanup: Array<() => Promise<unknown>>;
 const context: RuntimeContext = { agentId: "agent:runtime-test", skillId: "creator_profile", userId: "user-a", runId: "run-1" };
@@ -49,69 +48,63 @@ const COMPANY = "company:amperetime";
 let runtimeBindingId = "";
 const tool = (name = "lookup"): Json => ({ name, description: "Look up a public creator", inputSchema: {
   type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false,
-} });
+  } });
 const denied = (code: string) => ({ detail: { code } });
-
 beforeEach(async () => {
   await freshTestDatabase();
   await postgresPool().query(runtimeActionSchema);
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-runtime-execution-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.AUTH_MODE = "enabled";
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetDatabase());
   cleanup = [];
-  const db = getConn();
+  const db = postgresDb();
   for (const id of ["user-a", "user-b", "admin-a"]) {
-    db.prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, id, id, "not-for-login", JSON.stringify(id.startsWith("admin") ? ["admin"] : ["employee"]), "[]", "", 1, "now", "now");
+    (await db.execute(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id, id, id, "not-for-login", JSON.stringify(id.startsWith("admin") ? ["admin"] : ["employee"]), "[]", "", 1, "now", "now"));
   }
-  setAgentSkill(context.agentId, context.skillId, true, 0);
+  (await setAgentSkill(context.agentId, context.skillId, true, 0));
   // 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）；未发布的 Agent 不产生资格。
-  seedPublishedAgent(context.agentId, "运行时测试 Agent");
+  (await seedPublishedAgent(context.agentId, "运行时测试 Agent"));
   // 人员资格锚点是「人 → Agent」绑定（CONST-05 / ADR-2026-10-03）：把测试账号挂到
   // 组织人员上，并把被测 Agent 绑定到该人员所在的三级组。
-  runtimeBindingId = createAgentBinding({
+  runtimeBindingId = (await createAgentBinding({
     agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team",
     company_id: COMPANY, source: "test",
-  }).id;
-  db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(context.userId, "person:ye_guanwang");
+  })).id;
+  (await db.execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", context.userId, "person:ye_guanwang"));
 });
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const close of cleanup.reverse()) await close();
-  resetConn();
+  for (const close of cleanup.reverse())
+    await close();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
-  delete process.env.LINGONG_DB;
-  delete process.env.LINGONG_DATA;
 });
-
-function connector(id: string, descriptors = [tool()], url = `http://${id}.example.test/mcp`): void {
-  getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,1,'configured',?)").run(id, id, "now");
-  setSkillConnector(context.skillId, id, true, 0);
-  setConnectorConfig(id, { url, allow_unauthenticated: true }, 0);
+async function connector(id: string, descriptors = [tool()], url = `http://${id}.example.test/mcp`): Promise<void> {
+  (await postgresDb().execute("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES($1,$2,1,'configured',$3)", id, id, "now"));
+  (await setSkillConnector(context.skillId, id, true, 0));
+  (await setConnectorConfig(id, { url, allow_unauthenticated: true }, 0));
   for (const descriptor of descriptors) {
-    approve(id, descriptor);
-    setSkillTool(context.skillId, id, String(descriptor.name), true, 0);
+    (await approve(id, descriptor));
+    (await setSkillTool(context.skillId, id, String(descriptor.name), true, 0));
   }
 }
-function approve(id: string, descriptor: Json, risk: "L1" | "L2" | "L3" = "L1", access: "read" | "write" = "read"): void {
-  const current = getToolPolicy(id, String(descriptor.name));
-  setToolPolicy(id, String(descriptor.name), { enabled: true, risk, access, schema_hash: toolSchemaHash(descriptor) }, Number(current?.version || 0));
+async function approve(id: string, descriptor: Json, risk: "L1" | "L2" | "L3" = "L1", access: "read" | "write" = "read"): Promise<void> {
+  const current = (await getToolPolicy(id, String(descriptor.name)));
+  (await setToolPolicy(id, String(descriptor.name), { enabled: true, risk, access, schema_hash: toolSchemaHash(descriptor) }, Number(current?.version || 0)));
 }
-
 describe("discovery workspace persistence and result isolation", () => {
   it("atomically prepares one task/run/session and rejects request-key reuse with different criteria", async () => {
-    setAgentSkill(context.agentId, "crawler_collect", true, 0);
-    const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as never);
+    (await setAgentSkill(context.agentId, "crawler_collect", true, 0));
+    const owner = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", context.userId)) as never));
     const brief = { platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"], min_followers: 100,
       max_followers: 20000, min_avg_plays_10: 100, expect_count: 10 };
     const body = { request_id: "discovery-test-request-001", brief, text: "发现北美露营红人" };
     const [first, replay] = await Promise.all([
-      withScopedUser(owner, () => createDiscoveryWorkspace(body)),
-      withScopedUser(owner, () => createDiscoveryWorkspace(body)),
+      (withScopedUser(owner, async () => (await createDiscoveryWorkspace(body)))),
+      (withScopedUser(owner, async () => (await createDiscoveryWorkspace(body)))),
     ]);
     expect(replay).toMatchObject({ task_id: first.task_id, session_id: first.session_id });
     expect([first.duplicate, replay.duplicate].sort()).toEqual([false, true]);
@@ -119,42 +112,44 @@ describe("discovery workspace persistence and result isolation", () => {
     expect(JSON.parse(row.input)).toMatchObject({ agent_id: context.agentId, discovery_workspace: { brief, agent_id: context.agentId, profile: "lead" } });
     expect(first.pending).toMatchObject({ agent_id: context.agentId });
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM task_runs WHERE work_item_id=$1", [first.task_id])).rows[0].n).toBe(1);
-    expect(await withScopedUser(owner, () => pendingDiscoveryWorkspace(String(first.task_id)))).toMatchObject({ pending: first.pending });
-    await expect(withScopedUser({ ...owner, id: "another-owner" }, () => pendingDiscoveryWorkspace(String(first.task_id))))
+    expect(await withScopedUser(owner, async () => (await pendingDiscoveryWorkspace(String(first.task_id))))).toMatchObject({ pending: first.pending });
+    await expect(withScopedUser({ ...owner, id: "another-owner" }, async () => (await pendingDiscoveryWorkspace(String(first.task_id)))))
       .rejects.toMatchObject(denied("discovery_task_not_found"));
     await postgresPool().query("UPDATE task_runs SET status='failed' WHERE work_item_id=$1", [first.task_id]);
     await postgresPool().query("UPDATE tickets SET status='failed' WHERE id=$1", [first.task_id]);
-    expect(await withScopedUser(owner, () => pendingDiscoveryWorkspace(String(first.task_id))))
+    expect(await withScopedUser(owner, async () => (await pendingDiscoveryWorkspace(String(first.task_id)))))
       .toMatchObject({ pending: { agent_id: context.agentId } });
     await postgresPool().query("UPDATE task_runs SET status='running' WHERE work_item_id=$1", [first.task_id]);
-    expect(await withScopedUser(owner, () => pendingDiscoveryWorkspace(String(first.task_id)))).toEqual({ pending: null });
-    await expect(withScopedUser(owner, () => createDiscoveryWorkspace(null))).rejects.toMatchObject(denied("discovery_brief_invalid"));
-    await expect(withScopedUser(owner, () => createDiscoveryWorkspace({ ...body, brief: { ...brief, region: "eu" } })))
+    expect(await withScopedUser(owner, async () => (await pendingDiscoveryWorkspace(String(first.task_id))))).toEqual({ pending: null });
+    await expect(withScopedUser(owner, async () => (await createDiscoveryWorkspace(null)))).rejects.toMatchObject(denied("discovery_brief_invalid"));
+    await expect(withScopedUser(owner, async () => (await createDiscoveryWorkspace({ ...body, brief: { ...brief, region: "eu" } }))))
       .rejects.toMatchObject(denied("discovery_request_conflict"));
-    await expect(withScopedUser(owner, () => createDiscoveryWorkspace({ ...body, brief: { ...brief, platforms: ["youtube", "instagram"] } })))
+    await expect(withScopedUser(owner, async () => (await createDiscoveryWorkspace({ ...body, brief: { ...brief, platforms: ["youtube", "instagram"] } }))))
       .rejects.toMatchObject(denied("discovery_brief_invalid"));
   });
-
-  it.each(["ready", "empty", "wrong-task", "unsupported", "partial", "read-error-retry", "wrong-platform", "snapshot-changed", "revoked-after-read"])("persists only verifiable task results: %s", async mode => {
-    configureCrawlerFixture("http://crawler.example.test/mcp");
-    setAgentSkill(context.agentId, "crawler_collect", true, 0);
-    setSkillConnector("crawler_collect", "claw", true, 0);
+  it.each(["ready", "empty", "wrong-task", "unsupported", "partial", "read-error-retry", "wrong-platform", "snapshot-changed", "revoked-after-read"])("persists only verifiable task results: %s", async (mode) => {
+    (await configureCrawlerFixture("http://crawler.example.test/mcp"));
+    (await setAgentSkill(context.agentId, "crawler_collect", true, 0));
+    (await setSkillConnector("crawler_collect", "claw", true, 0));
     const descriptor = { name: "get_creators", inputSchema: { type: "object", properties: {
       ...(mode === "unsupported" ? {} : { task_id: { type: "string" } }), offset: { type: "integer" }, limit: { type: "integer" },
     }, additionalProperties: false } };
-    approve("claw", descriptor); setSkillTool("crawler_collect", "claw", descriptor.name, true, 0);
+    (await approve("claw", descriptor));
+    (await setSkillTool("crawler_collect", "claw", descriptor.name, true, 0));
     const ctx = { ...context, skillId: "crawler_collect", sessionId: "result-session" };
     await postgresPool().query(`INSERT INTO runtime_crawl_jobs(id,instance_key,actor_id,context_json,config_version,args_json,remote_task_id,state)
       VALUES('result-job',$1,$2,$3,1,$4,'remote-result','succeeded')`, [runtimeHash("http://crawler.example.test/mcp"), context.userId,
       JSON.stringify(ctx), JSON.stringify({ platforms: ["youtube"], crawler_type: "search", keywords: "camping" })]);
     let calls = 0;
-    const factory = (): RuntimeRemote => ({ listTools: async () => [descriptor], close: async () => {}, callToolRaw: async (_name, args) => {
-      calls++; expect(args?.task_id).toBe("remote-result");
+    const factory = (): RuntimeRemote => ({ listTools: async () => [descriptor], close: async () => { }, callToolRaw: async (_name, args) => {
+        calls++;
+        expect(args?.task_id).toBe("remote-result");
       expect(_name).toBe("get_creators"); // Recovery must never start another crawl.
-      if (mode === "read-error-retry" && calls === 1) throw new Error("simulated transport interruption");
+        if (mode === "read-error-retry" && calls === 1)
+          throw new Error("simulated transport interruption");
       if (mode === "revoked-after-read") {
-        const binding = getSkillConnectors("crawler_collect").find(row => row.connector_id === "claw")!;
-        setSkillConnector("crawler_collect", "claw", false, Number(binding.version));
+          const binding = (await getSkillConnectors("crawler_collect")).find(row => row.connector_id === "claw")!;
+          (await setSkillConnector("crawler_collect", "claw", false, Number(binding.version)));
       }
       if (mode === "snapshot-changed") {
         const offset = Number(args?.offset);
@@ -170,10 +165,11 @@ describe("discovery workspace persistence and result isolation", () => {
         creators: mode === "empty" ? [] : [{ id: "candidate", name: "Public creator", platform: mode === "wrong-platform" ? "instagram" : "youtube", followers: 4 }], total: mode === "empty" ? 0 : 1 } };
     } });
     const job = { payload_json: JSON.stringify({ crawl_id: "result-job" }), worker_id: "result-test", lease_until: new Date(Date.now() + 60000).toISOString() } as ClaimedExecutionJob;
-    const read = () => collectCrawlResults(job, async () => {}, c => new SkillExecution(c, factory));
+    const read = async () => (await collectCrawlResults(job, async () => { }, c => new SkillExecution(c, factory)));
     if (["ready", "empty"].includes(mode)) {
       await expect(read()).resolves.toMatchObject({ state: "ready", count: mode === "empty" ? 0 : 1 });
-      await read(); expect(calls).toBe(1);
+      await read();
+      expect(calls).toBe(1);
       const scores = (await postgresPool().query("SELECT * FROM kol_candidate_assessments WHERE source_action_id='result-job'")).rows;
       expect(scores).toHaveLength(mode === "empty" ? 0 : 1);
       const scoringJobs = (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows;
@@ -182,25 +178,31 @@ describe("discovery workspace persistence and result isolation", () => {
         VALUES('result-job',$1,$2,$3,'claw','start_crawl','{}','test','context-test','succeeded')`, [ctx.userId, ctx.sessionId, JSON.stringify(ctx)]);
       const snapshots = await discoveryResultContext(ctx);
       expect(snapshots[0]).toMatchObject({ task_id: "remote-result", result_complete: true, included_count: mode === "empty" ? 0 : 1 });
-      if (mode === "ready") expect(snapshots[0].candidates).toEqual([expect.objectContaining({ followers: null, reported_followers: 4,
+      if (mode === "ready")
+        expect(snapshots[0].candidates).toEqual([expect.objectContaining({ followers: null, reported_followers: 4,
         followers_evidence: expect.objectContaining({ state: "missing_source" }) })]);
       expect(await discoveryResultContext({ ...ctx, sessionId: "other-session" })).toEqual([]);
-      const binding = getSkillConnectors("crawler_collect").find(row => row.connector_id === "claw")!;
-      setSkillConnector("crawler_collect", "claw", false, Number(binding.version));
+      const binding = (await getSkillConnectors("crawler_collect")).find(row => row.connector_id === "claw")!;
+      (await setSkillConnector("crawler_collect", "claw", false, Number(binding.version)));
       await expect(discoveryResultContext(ctx)).rejects.toThrow();
-    } else if (mode === "partial") {
+    }
+    else if (mode === "partial") {
       await expect(read()).resolves.toMatchObject({ state: "partial", count: 2000 });
       await expect(read()).resolves.toMatchObject({ state: "ready", count: 2001 });
       expect(calls).toBe(21);
-    } else if (mode === "read-error-retry") {
+    }
+    else if (mode === "read-error-retry") {
       await expect(read()).rejects.toThrow();
       expect((await postgresPool().query("SELECT result_state FROM runtime_crawl_jobs WHERE id='result-job'")).rows[0].result_state).toBe("failed");
       // A new runtime reconstructs authorization and reads the same existing task.
       await expect(read()).resolves.toMatchObject({ state: "ready", count: 1 });
       expect(calls).toBe(2);
-    } else {
-      if (mode === "revoked-after-read") await expect(read()).rejects.toThrow();
-      else await expect(read()).rejects.toMatchObject(denied(mode === "unsupported" ? "crawl_result_scope_unsupported"
+    }
+    else {
+      if (mode === "revoked-after-read")
+        await expect(read()).rejects.toThrow();
+      else
+        await expect(read()).rejects.toMatchObject(denied(mode === "unsupported" ? "crawl_result_scope_unsupported"
         : mode === "snapshot-changed" ? "crawl_result_snapshot_changed" : "crawl_result_task_mismatch"));
       expect((await postgresPool().query("SELECT result_json,result_state FROM runtime_crawl_jobs WHERE id='result-job'")).rows[0])
         .toMatchObject({ result_json: null, result_state: "failed" });
@@ -208,8 +210,16 @@ describe("discovery workspace persistence and result isolation", () => {
     }
   });
 });
-function fake(catalogs: Record<string, Json[]>, hooks: { list?: (url: string) => void | Promise<void>; call?: () => void | Promise<void>; result?: Json } = {}) {
-  const calls: Array<{ url: string; name: string; args: Json }> = [];
+function fake(catalogs: Record<string, Json[]>, hooks: {
+  list?: (url: string) => void | Promise<void>;
+  call?: () => void | Promise<void>;
+  result?: Json;
+} = {}) {
+  const calls: Array<{
+    url: string;
+    name: string;
+    args: Json;
+  }> = [];
   const factory = (options: RemoteMcpOptions): RuntimeRemote => ({
     async listTools() { await hooks.list?.(options.url!); return structuredClone(catalogs[options.url!] || []); },
     async callToolRaw(name, args = {}) {
@@ -217,12 +227,12 @@ function fake(catalogs: Record<string, Json[]>, hooks: { list?: (url: string) =>
       await hooks.call?.();
       return hooks.result || { content: [{ type: "text", text: "private-creator-result" }], structuredContent: { ok: true } };
     },
-    async close() {},
+    async close() { },
   });
   return { calls, factory };
 }
 async function one(hooks: Parameters<typeof fake>[1] = {}) {
-  connector("catalog_a");
+  (await connector("catalog_a"));
   const fixture = fake({ "http://catalog_a.example.test/mcp": [tool()] }, hooks);
   const runtime = new SkillExecution(context, fixture.factory);
   const catalog = await runtime.discover();
@@ -233,7 +243,7 @@ async function one(hooks: Parameters<typeof fake>[1] = {}) {
 describe("governed Skill Runtime", () => {
   it("only the owning authenticated user can enqueue the immutable confirmation once", async () => {
     const { runtime, calls } = await one();
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     const catalog = await runtime.discover();
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
@@ -243,9 +253,9 @@ describe("governed Skill Runtime", () => {
     const confirm = () => app.request("/api/actions/runtime.confirm", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action_id: action.id, confirmation_version: action.snapshot, args: { query: "cannot-override" } }) });
     expect((await confirm()).status).toBe(401);
-    const other = mapUser(getConn().prepare("SELECT * FROM users WHERE id='user-b'").get() as Json);
+    const other = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id='user-b'")) as Json));
     expect((await withScopedUser(other, confirm)).status).toBe(404);
-    const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
+    const owner = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", context.userId)) as Json));
     expect((await withScopedUser(owner, confirm)).status).toBe(202);
     expect((await withScopedUser(owner, confirm)).status).toBe(202);
     const jobs = (await postgresPool().query("SELECT payload_json FROM execution_jobs WHERE job_type='runtime.confirm'")).rows;
@@ -254,22 +264,25 @@ describe("governed Skill Runtime", () => {
     expect(calls).toHaveLength(0);
   });
   it.each([null, "remote process failed", "timeout"])("mounts MediaCrawler writes, persists one remote job, enforces task scope, and resumes monitoring (%s)", async (remoteError) => {
-    configureCrawlerFixture("http://crawler.example.test/mcp");
+    (await configureCrawlerFixture("http://crawler.example.test/mcp"));
     const crawlContext = { ...context, skillId: "crawler_collect" };
-    setAgentSkill(context.agentId, "crawler_collect", true, 0);
-    setSkillConnector("crawler_collect", "claw", true, 0);
+    (await setAgentSkill(context.agentId, "crawler_collect", true, 0));
+    (await setSkillConnector("crawler_collect", "claw", true, 0));
     const start = { name: "start_crawl", inputSchema: { type: "object", properties: { platforms: { type: "array" }, crawler_type: { type: "string" }, keywords: { type: "string" } } } };
     const status = { name: "get_crawl_status", inputSchema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] } };
     for (const descriptor of [start, status]) {
-      approve("claw", descriptor, descriptor === start ? "L3" : "L1", descriptor === start ? "write" : "read");
-      setSkillTool("crawler_collect", "claw", descriptor.name, true, 0);
+      (await approve("claw", descriptor, descriptor === start ? "L3" : "L1", descriptor === start ? "write" : "read"));
+      (await setSkillTool("crawler_collect", "claw", descriptor.name, true, 0));
     }
     let remoteCalls = 0;
     const factory = (): RuntimeRemote => ({
-      listTools: async () => [start, status], close: async () => {},
-      callToolRaw: async (name, args) => { remoteCalls += 1; return { structuredContent: name === "start_crawl"
+      listTools: async () => [start, status], close: async () => { },
+      callToolRaw: async (name, args) => {
+        remoteCalls += 1;
+        return { structuredContent: name === "start_crawl"
         ? { ok: true, task_id: "remote-one", status: "running" }
-        : { task_id: args?.task_id, status: remoteError === "timeout" ? "timeout" : "idle", error_message: remoteError } }; },
+            : { task_id: args?.task_id, status: remoteError === "timeout" ? "timeout" : "idle", error_message: remoteError } };
+      },
     });
     const runtime = new SkillExecution(crawlContext, factory);
     const catalog = await runtime.discover();
@@ -300,16 +313,16 @@ describe("governed Skill Runtime", () => {
     const delivery = (await postgresPool().query("SELECT available_at FROM execution_outbox WHERE job_id=$1", [monitor.id])).rows[0];
     expect(new Date(delivery.available_at).getTime()).toBe(new Date(monitor.next_attempt_at).getTime());
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM execution_outbox WHERE job_id=$1", [monitor.id])).rows[0].n).toBe(1);
-    const receipt = await monitorRuntimeCrawl({ ...monitor, worker_id: "test" } as ClaimedExecutionJob, async () => {}, (ctx) => new SkillExecution(ctx, factory));
+    const receipt = await monitorRuntimeCrawl({ ...monitor, worker_id: "test" } as ClaimedExecutionJob, async () => { }, (ctx) => new SkillExecution(ctx, factory));
     expect(receipt).toMatchObject({ state: remoteError ? "failed" : "succeeded" });
     expect((await postgresPool().query("SELECT state FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].state).toBe(remoteError ? "failed" : "succeeded");
     if (remoteError === "timeout") {
       const listSpy = vi.spyOn(RemoteMcpClient.prototype, "listTools").mockResolvedValue([start, status] as Tool[]);
-      const callSpy = vi.spyOn(RemoteMcpClient.prototype, "callToolRaw").mockImplementation((name, args) => factory().callToolRaw(name, args));
+      const callSpy = vi.spyOn(RemoteMcpClient.prototype, "callToolRaw").mockImplementation(async (name, args) => (await factory().callToolRaw(name, args)));
       expect((await postgresPool().query("SELECT error_code FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].error_code).toBe("runtime_crawl_timeout");
       const app = new Hono();
       app.route("/api", operationRouter(runtimeActionOperations));
-      const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
+      const owner = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", context.userId)) as Json));
       // 终态出队后第二个任务仍在排队（starter 已派发但尚未跑，无远端调用）；
       // 这里直接取消它，验证超时的第一个任务可重试、重新确认后能直发。
       await postgresPool().query("UPDATE runtime_crawl_jobs SET state='cancelled', error_code='queue_cancelled_by_user' WHERE id=$1", [secondAction.id]);
@@ -335,8 +348,8 @@ describe("governed Skill Runtime", () => {
     ["L2 cannot claim read-only", { readOnlyHint: true }, "L2", "write", false],
   ] as const)("publishes governed read-only hints: %s", async (_label, annotations, risk, access, expected) => {
     const descriptor: Json = { ...tool(), ...(annotations ? { annotations } : {}) };
-    connector("hints", [descriptor]);
-    approve("hints", descriptor, risk, access);
+    (await connector("hints", [descriptor]));
+    (await approve("hints", descriptor, risk, access));
     const fixture = fake({ "http://hints.example.test/mcp": [descriptor] });
     const catalog = await new SkillExecution(context, fixture.factory).discover();
     expect(catalog.tools).toHaveLength(1);
@@ -358,38 +371,42 @@ describe("governed Skill Runtime", () => {
     expect(safe).toContain("model_reasoning_effort");
     expect(safe).not.toMatch(/mcp_servers|untrusted|approval_policy|trust_level/);
   });
-
   it("A: discovers multiple resources with collision-free names while retaining descriptions/schema", async () => {
-    connector("catalog_a"); connector("catalog_b");
+    (await connector("catalog_a"));
+    (await connector("catalog_b"));
     const fixture = fake({ "http://catalog_a.example.test/mcp": [tool()], "http://catalog_b.example.test/mcp": [tool()] });
     const runtime = new SkillExecution(context, fixture.factory);
     const catalog = await runtime.discover();
     expect(catalog.tools).toHaveLength(2);
     expect(new Set(catalog.tools.map((entry) => entry.exposed.name)).size).toBe(2);
     expect(catalog.tools[0].exposed).toMatchObject({ description: tool().description, inputSchema: tool().inputSchema });
-    for (const entry of catalog.tools) await runtime.invoke(String(entry.exposed.name), { query: "outdoor" });
+    for (const entry of catalog.tools)
+      await runtime.invoke(String(entry.exposed.name), { query: "outdoor" });
     expect(fixture.calls).toHaveLength(2);
   });
-
   // Per-person skill grants are retired (ADR-2026-10-03); revocation now means
   // revoking the Agent use binding, the Agent→Skill assembly or the account.
   it.each(["unbind", "disable", "binding_revoke", "user_disable", "agent_unbind"])("B: rejects an old handle after %s", async (action) => {
     const { runtime, alias, calls } = await one();
-    const db = getConn();
-    if (action === "unbind") setSkillConnector(context.skillId, "catalog_a", false, Number(getSkillConnectors(context.skillId)[0].version));
-    if (action === "disable") db.prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
-    if (action === "binding_revoke") revokeAgentBinding(runtimeBindingId);
-    if (action === "user_disable") db.prepare("UPDATE users SET active=0 WHERE id=?").run(context.userId);
-    if (action === "agent_unbind") setAgentSkill(context.agentId, context.skillId, false, Number(getAgentSkills(context.agentId)[0].version));
+    const db = postgresDb();
+    if (action === "unbind")
+      (await setSkillConnector(context.skillId, "catalog_a", false, Number((await getSkillConnectors(context.skillId))[0].version)));
+    if (action === "disable")
+      (await db.execute("UPDATE connectors SET enabled=0 WHERE id='catalog_a'"));
+    if (action === "binding_revoke")
+      (await revokeAgentBinding(runtimeBindingId));
+    if (action === "user_disable")
+      (await db.execute("UPDATE users SET active=0 WHERE id=$1", context.userId));
+    if (action === "agent_unbind")
+      (await setAgentSkill(context.agentId, context.skillId, false, Number((await getAgentSkills(context.agentId))[0].version)));
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toHaveProperty("status");
     expect(calls).toHaveLength(0);
   });
-
   it("C: replaces the service ID and remote tool name without editing Skill or Host", async () => {
     const { runtime, alias, calls } = await one();
-    setSkillConnector(context.skillId, "catalog_a", false, Number(getSkillConnectors(context.skillId)[0].version));
+    (await setSkillConnector(context.skillId, "catalog_a", false, Number((await getSkillConnectors(context.skillId))[0].version)));
     const replacement = tool("find_public_profile_v2");
-    connector("replacement_provider", [replacement]);
+    (await connector("replacement_provider", [replacement]));
     const fixture = fake({ "http://replacement_provider.example.test/mcp": [replacement] });
     const replacementRuntime = new SkillExecution(context, fixture.factory);
     const catalog = await replacementRuntime.discover();
@@ -399,18 +416,18 @@ describe("governed Skill Runtime", () => {
     expect(calls).toHaveLength(0);
     expect(fixture.calls[0].name).toBe("find_public_profile_v2");
   });
-
   it("D: new remote tools require both a reviewed policy and an explicit Skill mount, not a code whitelist", async () => {
-    connector("catalog_a");
+    (await connector("catalog_a"));
     const descriptors = [tool()];
     const fixture = fake({ "http://catalog_a.example.test/mcp": descriptors });
     const runtime = new SkillExecution(context, fixture.factory);
     expect((await runtime.discover()).tools).toHaveLength(1);
-    const added = tool("brand_new_capability_2026"); descriptors.push(added);
+    const added = tool("brand_new_capability_2026");
+    descriptors.push(added);
     expect((await runtime.discover()).tools).toHaveLength(1);
-    approve("catalog_a", added);
+    (await approve("catalog_a", added));
     expect((await runtime.discover()).tools).toHaveLength(1);
-    setSkillTool(context.skillId, "catalog_a", String(added.name), true, 0);
+    (await setSkillTool(context.skillId, "catalog_a", String(added.name), true, 0));
     const refreshed = await runtime.discover();
     expect(refreshed.tools).toHaveLength(2);
     await runtime.invoke(String(refreshed.tools.find((entry) => entry.remoteName === added.name)!.exposed.name), { query: "x" });
@@ -421,58 +438,57 @@ describe("governed Skill Runtime", () => {
     const { factory } = await one();
     // 管理员同样要挂到组织人员上才具备 Agent 使用资格；本用例验证的是
     // 有资格之后，连接器停用与 Agent→技能解绑仍然拦住管理员。
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("admin-a", "person:xi_chucong");
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "admin-a", "person:xi_chucong"));
     const admin = new SkillExecution({ ...context, userId: "admin-a" }, factory);
     const catalog = await admin.discover();
-    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
+    (await postgresDb().execute("UPDATE connectors SET enabled=0 WHERE id='catalog_a'"));
     await expect(admin.invoke(String(catalog.tools[0].exposed.name), { query: "x" })).rejects.toMatchObject(denied("runtime_connector_disabled"));
-    setAgentSkill(context.agentId, context.skillId, false, Number(getAgentSkills(context.agentId)[0].version));
+    (await setAgentSkill(context.agentId, context.skillId, false, Number((await getAgentSkills(context.agentId))[0].version)));
     await expect(admin.discover()).rejects.toMatchObject(denied("runtime_skill_unbound"));
   });
-
   it("denies a different user and grants nothing through a per-person connector grant", async () => {
     const { factory } = await one();
-    getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)")
-      .run("user-b", "catalog_a", "write", "now");
+    (await postgresDb().execute("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES($1,$2,$3,$4)", "user-b", "catalog_a", "write", "now"));
     await expect(new SkillExecution({ ...context, userId: "user-b" }, factory).discover()).rejects.toMatchObject(denied("runtime_agent_not_usable"));
     // 挂到同一个三级组的成员后立即获得资格：证明刚才的拒绝就是 Agent 绑定缺口。
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("user-b", "person:gu_jiarui");
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "user-b", "person:gu_jiarui"));
     const catalog = await new SkillExecution({ ...context, userId: "user-b" }, factory).discover();
     expect(catalog.tools).toHaveLength(1);
   });
-
-  it("legacy authorization also rejects disabled connectors for administrators and stage aliases", () => {
+  it("legacy authorization also rejects disabled connectors for administrators and stage aliases", async () => {
     for (const id of ["starrykol", "starry"]) {
-      getConn().prepare("INSERT OR IGNORE INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,1,'configured','now')").run(id, id);
+      (await postgresDb().execute("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES($1,$2,1,'configured','now') ON CONFLICT DO NOTHING", id, id));
     }
-    getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='starry'").run();
-    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='starrykol'").run();
-    const admin = mapUser(getConn().prepare("SELECT * FROM users WHERE id='admin-a'").get() as Json);
-    withScopedUser(admin, () => {
-      expect(() => requireConnector("starrykol", "read")).toThrow();
-      expect(() => requireStageWrite()).toThrow();
+    (await postgresDb().execute("UPDATE connectors SET enabled=1 WHERE id='starry'"));
+    (await postgresDb().execute("UPDATE connectors SET enabled=0 WHERE id='starrykol'"));
+    const admin = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id='admin-a'")) as Json));
+    await withScopedUser(admin, async () => {
+      await expect((async () => (await requireConnector("starrykol", "read")))()).rejects.toThrow();
+      await expect((async () => (await requireStageWrite()))()).rejects.toThrow();
     });
   });
-
   it("does not forward an upstream credential echo or store it in audit payloads", async () => {
     const secret = "private-runtime-secret-no-echo";
     const previous = process.env.RUNTIME_TEST_NO_ECHO;
     process.env.RUNTIME_TEST_NO_ECHO = secret;
     try {
       const { runtime } = await one({ result: { content: [{ type: "text", text: `Bearer ${secret}` }], isError: true } });
-      setConnectorConfig("catalog_a", { url: "http://catalog_a.example.test/mcp", bearer_env: "RUNTIME_TEST_NO_ECHO" }, 1);
+      (await setConnectorConfig("catalog_a", { url: "http://catalog_a.example.test/mcp", bearer_env: "RUNTIME_TEST_NO_ECHO" }, 1));
       const alias = String((await runtime.discover()).tools[0].exposed.name);
       await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_credential_in_result"));
-      const audit = getConn().prepare("SELECT payload FROM audit_events WHERE event_type LIKE 'runtime.%'").all();
+      const audit = (await postgresDb().many("SELECT payload FROM audit_events WHERE event_type LIKE 'runtime.%'"));
       expect(JSON.stringify(audit)).not.toContain(secret);
-    } finally {
-      if (previous === undefined) delete process.env.RUNTIME_TEST_NO_ECHO; else process.env.RUNTIME_TEST_NO_ECHO = previous;
+    }
+    finally {
+      if (previous === undefined)
+        delete process.env.RUNTIME_TEST_NO_ECHO;
+      else
+        process.env.RUNTIME_TEST_NO_ECHO = previous;
     }
   });
-
   it("L3 registration cannot make a tool directly callable, even by admin", async () => {
     const { runtime, alias, calls } = await one();
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_binding_changed"));
     const catalog = await runtime.discover();
     expect(catalog.tools).toHaveLength(1);
@@ -480,19 +496,17 @@ describe("governed Skill Runtime", () => {
     expect(result.structuredContent).toMatchObject({ status: "pending", confirmation_required: true });
     expect(calls).toHaveLength(0);
   });
-
   it("runs an approved L2 write tool for the Skill holder; per-person write levels are retired", async () => {
     const { runtime, calls } = await one();
-    approve("catalog_a", tool(), "L2", "write");
+    (await approve("catalog_a", tool(), "L2", "write"));
     const catalog = await runtime.discover();
     expect(catalog.tools).toHaveLength(1);
     await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     expect(calls).toHaveLength(1);
   });
-
   it("does not let governance relabel existing Gateway-only operations as L1", async () => {
     const dangerous = tool("sendEmailNow");
-    connector("catalog_a", [dangerous]);
+    (await connector("catalog_a", [dangerous]));
     const fixture = fake({ "http://catalog_a.example.test/mcp": [dangerous] });
     const runtime = new SkillExecution({ ...context, userId: "admin-a" }, fixture.factory);
     const catalog = await runtime.discover();
@@ -503,10 +517,9 @@ describe("governed Skill Runtime", () => {
       .rejects.toThrow(/runtime_host_path_required/);
     expect(fixture.calls).toHaveLength(0);
   });
-
   it("persists a proposal and confirms exactly once across fresh runtimes and simultaneous requests", async () => {
     const { runtime, calls, factory } = await one();
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     const catalog = await runtime.discover();
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
@@ -522,8 +535,8 @@ describe("governed Skill Runtime", () => {
   it("submits a confirmed write tool that has no dedicated business gate through the generic gate", async () => {
     // 写入型工具通用放行：没有专用门禁的工具不再一律 409，但仍须员工确认、只提交一次、留回执。
     const update = tool("updateProfile");
-    connector("catalog_b", [update]);
-    approve("catalog_b", update, "L3", "write");
+    (await connector("catalog_b", [update]));
+    (await approve("catalog_b", update, "L3", "write"));
     const fixture = fake({ "http://catalog_b.example.test/mcp": [update] });
     const runtime = new SkillExecution(context, fixture.factory);
     const catalog = await runtime.discover();
@@ -537,23 +550,24 @@ describe("governed Skill Runtime", () => {
     await new SkillExecution(context, fixture.factory).confirm(action.id, action.snapshot);
     expect(fixture.calls).toHaveLength(1);
   });
-
   it.each(["parameters", "policy", "identity"])("invalidates confirmation after %s changes", async (change) => {
     const { runtime, calls, factory } = await one();
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     const catalog = await runtime.discover();
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
-    if (change === "parameters") await postgresPool().query("UPDATE runtime_actions SET args_json=$2 WHERE id=$1", [action.id, JSON.stringify({ query: "other" })]);
-    if (change === "policy") approve("catalog_a", tool(), "L3", "write");
-    if (change === "identity") getConn().prepare("UPDATE users SET active=0 WHERE id=?").run(context.userId);
+    if (change === "parameters")
+      await postgresPool().query("UPDATE runtime_actions SET args_json=$2 WHERE id=$1", [action.id, JSON.stringify({ query: "other" })]);
+    if (change === "policy")
+      (await approve("catalog_a", tool(), "L3", "write"));
+    if (change === "identity")
+      (await postgresDb().execute("UPDATE users SET active=0 WHERE id=$1", context.userId));
     await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
     expect(calls).toHaveLength(0);
   });
-
   it("retains an uncertain receipt after a dispatched timeout and forbids replay", async () => {
     const { runtime, calls, factory } = await one({ call: () => { throw new Error("timeout"); } });
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     const catalog = await runtime.discover();
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
@@ -562,9 +576,8 @@ describe("governed Skill Runtime", () => {
     await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
     expect(calls).toHaveLength(1);
   });
-
   it("pins schema and description changes and rejects invalid arguments", async () => {
-    connector("catalog_a");
+    (await connector("catalog_a"));
     const descriptors = [tool()];
     const fixture = fake({ "http://catalog_a.example.test/mcp": descriptors });
     const runtime = new SkillExecution(context, fixture.factory);
@@ -575,24 +588,25 @@ describe("governed Skill Runtime", () => {
     expect(fixture.calls).toHaveLength(0);
     expect((await runtime.discover()).tools).toHaveLength(0);
   });
-
   it("rechecks the Agent use binding during the awaited discovery before dispatch", async () => {
     let revoke = false;
-    const { runtime, alias, calls } = await one({ list: () => {
-      if (revoke) revokeAgentBinding(runtimeBindingId);
+    const { runtime, alias, calls } = await one({ list: async () => {
+        if (revoke)
+          (await revokeAgentBinding(runtimeBindingId));
     } });
     revoke = true;
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_agent_not_usable"));
     expect(calls).toHaveLength(0);
   });
-
   it("suppresses a result arriving after a binding revoke and records that dispatch already happened", async () => {
-    const { runtime, alias, calls } = await one({ call: () => {
-      revokeAgentBinding(runtimeBindingId);
+    const { runtime, alias, calls } = await one({ call: async () => {
+        (await revokeAgentBinding(runtimeBindingId));
     } });
     await expect(runtime.invoke(alias, { query: "sensitive-input" })).rejects.toMatchObject(denied("runtime_agent_not_usable"));
     expect(calls).toHaveLength(1);
-    const events = getConn().prepare("SELECT payload FROM audit_events WHERE event_type LIKE 'runtime.tool.%'").all() as Array<{ payload: string }>;
+    const events = (await postgresDb().many("SELECT payload FROM audit_events WHERE event_type LIKE 'runtime.tool.%'")) as Array<{
+      payload: string;
+    }>;
     const payloads = events.map((entry) => entry.payload).join("\n");
     expect(payloads).not.toContain("sensitive-input");
     expect(payloads).not.toContain("private-creator-result");
@@ -605,8 +619,9 @@ describe("governed Skill Runtime", () => {
     runtime.close();
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_run_closed"));
     expect(calls).toHaveLength(0);
-    const bad = tool("bad_schema"); bad.inputSchema = { type: "object", $ref: "https://secret.example/schema" };
-    approve("catalog_a", bad);
+    const bad = tool("bad_schema");
+    bad.inputSchema = { type: "object", $ref: "https://secret.example/schema" };
+    (await approve("catalog_a", bad));
     const fixture = fake({ "http://catalog_a.example.test/mcp": [bad] });
     const catalog = await new SkillExecution(context, fixture.factory).discover();
     expect(catalog.tools).toHaveLength(0);
@@ -618,11 +633,16 @@ async function localRemote(descriptor = tool(), requiredHeaders: Record<string, 
   const calls: string[] = [];
   const server = http.createServer(async (req, res) => {
     if (Object.entries(requiredHeaders).some(([name, value]) => req.headers[name.toLowerCase()] !== value)) {
-      res.writeHead(401).end(); return;
+      res.writeHead(401).end();
+      return;
     }
-    if (req.method !== "POST") { res.writeHead(405).end(); return; }
+    if (req.method !== "POST") {
+      res.writeHead(405).end();
+      return;
+    }
     const chunks: Buffer[] = [];
-    for await (const part of req) chunks.push(Buffer.from(part));
+    for await (const part of req)
+      chunks.push(Buffer.from(part));
     const mcp = new Server({ name: "local-real-protocol-fixture", version: "1" }, { capabilities: { tools: {} } });
     mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [descriptor as Tool] }));
     mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -630,12 +650,19 @@ async function localRemote(descriptor = tool(), requiredHeaders: Record<string, 
       return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
     });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    try { await mcp.connect(transport); await transport.handleRequest(req, res, JSON.parse(Buffer.concat(chunks).toString())); }
-    finally { await mcp.close(); }
+    try {
+      await mcp.connect(transport);
+      await transport.handleRequest(req, res, JSON.parse(Buffer.concat(chunks).toString()));
+    }
+    finally {
+      await mcp.close();
+    }
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(() => new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); }));
-  const port = (server.address() as { port: number }).port;
+  const port = (server.address() as {
+    port: number;
+  }).port;
   return { url: `http://127.0.0.1:${port}/mcp`, calls };
 }
 function proxyClient(proxy: RuntimeProxy) {
@@ -648,66 +675,73 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "29".repeat(32);
     try {
       const remote = await localRemote(tool(), { "X-MCP-API-KEY": "vault-key", Authorization: "Bearer personal-vault-token" });
-      const key = createCredential({ type: "organization_secret", secret: "vault-key" }, "admin-a");
-      getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='starrykol'").run();
-      expect(() => setConnectorConfig("starrykol", { url: remote.url, headers_env: { "X-Key": "OLD_KEY" } }, 0))
-        .toThrow();
-      expect(() => setConnectorConfig("starrykol", { url: remote.url, allow_unauthenticated: true }, 0)).toThrow();
-      setConnectorConfig("starrykol", { url: remote.url, headers_secret_refs: { "X-MCP-API-KEY": key.id } }, 0);
-      saveStarryBinding(context.userId, { mailbox_email: "person@example.test", bearer: "personal-vault-token" });
-      const reference = boundStarryCredentialId(context.userId);
+      const key = (await createCredential({ type: "organization_secret", secret: "vault-key" }, "admin-a"));
+      await ensureNativeRuntimeConnector("starrykol", "Starry KOL MCP");
+      (await postgresDb().execute("UPDATE connectors SET enabled=1 WHERE id='starrykol'"));
+      await expect((async () => (await setConnectorConfig("starrykol", { url: remote.url, headers_env: { "X-Key": "OLD_KEY" } }, 0)))()).rejects.toThrow();
+      await expect((async () => (await setConnectorConfig("starrykol", { url: remote.url, allow_unauthenticated: true }, 0)))()).rejects.toThrow();
+      (await setConnectorConfig("starrykol", { url: remote.url, headers_secret_refs: { "X-MCP-API-KEY": key.id } }, 0));
+      (await saveStarryBinding(context.userId, { mailbox_email: "person@example.test", bearer: "personal-vault-token" }));
+      const reference = (await boundStarryCredentialId(context.userId));
       expect(reference).toMatch(/^cred_/);
-      expect(JSON.stringify(getConn().prepare("SELECT * FROM user_starry_bindings").all())).not.toContain("personal-vault-token");
-      expect(() => deleteCredential(reference, 1)).toThrow();
-      const client = createManagedClient("starrykol", context.userId, reference);
-      try { expect(await client.callTool("lookup", { query: "fixture" })).toEqual({ creator: "creator-local-42" }); }
-      finally { await client.close(); }
+      expect(JSON.stringify((await postgresDb().many("SELECT * FROM user_starry_bindings")))).not.toContain("personal-vault-token");
+      await expect((async () => (await deleteCredential(reference, 1)))()).rejects.toThrow();
+      const client = (await createManagedClient("starrykol", context.userId, reference));
+      try {
+        expect(await client.callTool("lookup", { query: "fixture" })).toEqual({ creator: "creator-local-42" });
+      }
+      finally {
+        await client.close();
+      }
       expect(remote.calls).toEqual(["lookup"]);
-      expect(() => createManagedClient("starrykol", "user-b", reference)).toThrow();
-      getConn().prepare("UPDATE runtime_credentials SET status='disabled' WHERE id=?").run(reference);
-      expect(() => createManagedClient("starrykol", context.userId, reference)).toThrow();
+      await expect((async () => (await createManagedClient("starrykol", "user-b", reference)))()).rejects.toThrow();
+      (await postgresDb().execute("UPDATE runtime_credentials SET status='disabled' WHERE id=$1", reference));
+      await expect((async () => (await createManagedClient("starrykol", context.userId, reference)))()).rejects.toThrow();
       expect(remote.calls).toHaveLength(1);
-      getConn().prepare("UPDATE user_starry_bindings SET bearer_token='legacy-plaintext' WHERE user_id=?").run(context.userId);
-      expect(() => boundStarryCredentialId(context.userId)).toThrow();
-      getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='starrykol'").run();
-      expect(() => createManagedClient("starrykol", context.userId)).toThrow();
-    } finally {
-      if (previous === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
-      else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previous;
+      (await postgresDb().execute("UPDATE user_starry_bindings SET bearer_token='legacy-plaintext' WHERE user_id=$1", context.userId));
+      await expect((async () => (await boundStarryCredentialId(context.userId)))()).rejects.toThrow();
+      (await postgresDb().execute("UPDATE connectors SET enabled=0 WHERE id='starrykol'"));
+      await expect((async () => (await createManagedClient("starrykol", context.userId)))()).rejects.toThrow();
+    }
+    finally {
+      if (previous === undefined)
+        delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+      else
+        process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previous;
     }
   });
-
   it("queries all KOL profiles using vaulted config with legacy Host disabled and only an Agent user binding", async () => {
     const ctx = { ...context, skillId: "creator_library_all" };
     const descriptor: Json = { name: "listAllKolProfiles", description: "List all visible KOL profiles",
       inputSchema: { type: "object", properties: {}, additionalProperties: false } };
     const expected = { data: [{ kolUid: "fixture-kol-1", kolName: "Protocol fixture only" }] };
-    const remote = await localRemote(descriptor,
-      { "X-MCP-API-KEY": "fixture-vault-key", Authorization: "Bearer fixture-vault-account" }, expected);
+    const remote = await localRemote(descriptor, { "X-MCP-API-KEY": "fixture-vault-key", Authorization: "Bearer fixture-vault-account" }, expected);
     let legacyCalls = 0;
     setStarryKolClientFactory(() => { legacyCalls++; throw new Error("legacy Host deliberately disabled"); });
     const savedKey = process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
-    const legacyEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-      /^(STARRY_|EMAIL_MCP_)/.test(key)));
-    for (const key of Object.keys(legacyEnv)) delete process.env[key];
+    const legacyEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(STARRY_|EMAIL_MCP_)/.test(key)));
+    for (const key of Object.keys(legacyEnv))
+      delete process.env[key];
     process.env.RUNTIME_CREDENTIAL_MASTER_KEY = Buffer.alloc(32, 19).toString("base64");
     try {
-      const apiKey = createCredential({ type: "organization_secret", secret: "fixture-vault-key" }, "admin-a");
-      const bearer = createCredential({ type: "user_account", owner_user_id: ctx.userId,
-        secret: "fixture-vault-account" }, "admin-a");
-      connector("vaulted_starry", [descriptor], remote.url);
-      setConnectorConfig("vaulted_starry", { url: remote.url,
+      const apiKey = (await createCredential({ type: "organization_secret", secret: "fixture-vault-key" }, "admin-a"));
+      const bearer = (await createCredential({ type: "user_account", owner_user_id: ctx.userId,
+        secret: "fixture-vault-account" }, "admin-a"));
+      (await connector("vaulted_starry", [descriptor], remote.url));
+      (await setConnectorConfig("vaulted_starry", { url: remote.url,
         headers_secret_refs: { "X-MCP-API-KEY": apiKey.id },
-        credential_provider: "user-account", credential_account_id: bearer.id }, 1);
-      setAgentSkill(ctx.agentId, ctx.skillId, true, 0);
-      setSkillConnector(ctx.skillId, "vaulted_starry", true, 0);
-      setSkillTool(ctx.skillId, "vaulted_starry", "listAllKolProfiles", true, 0);
+        credential_provider: "user-account", credential_account_id: bearer.id }, 1));
+      (await setAgentSkill(ctx.agentId, ctx.skillId, true, 0));
+      (await setSkillConnector(ctx.skillId, "vaulted_starry", true, 0));
+      (await setSkillTool(ctx.skillId, "vaulted_starry", "listAllKolProfiles", true, 0));
       // Explicitly remove obsolete per-person resource grants. Assembly is not a user grant.
-      getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(ctx.userId);
-      getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(ctx.userId);
+      (await postgresDb().execute("DELETE FROM user_skill_grants WHERE user_id=$1", ctx.userId));
+      (await postgresDb().execute("DELETE FROM user_connector_grants WHERE user_id=$1", ctx.userId));
       const runtime = new SkillExecution(ctx);
-      const proxy = await startRuntimeProxy(runtime); cleanup.push(proxy.close);
-      const client = proxyClient(proxy); cleanup.push(() => client.close());
+      const proxy = await startRuntimeProxy(runtime);
+      cleanup.push(proxy.close);
+      const client = proxyClient(proxy);
+      cleanup.push(async () => (await client.close()));
       const tools = await client.listTools();
       expect(tools).toHaveLength(1);
       const result = await client.callToolRaw(String(tools[0].name), {});
@@ -715,22 +749,24 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
       expect(result.structuredContent).toEqual(expected);
       expect(remote.calls).toEqual(["listAllKolProfiles"]);
       expect(legacyCalls).toBe(0);
-      revokeAgentBinding(runtimeBindingId);
+      (await revokeAgentBinding(runtimeBindingId));
       const deniedResult = await client.callToolRaw(String(tools[0].name), {});
       expect(deniedResult.isError).toBe(true);
       expect(remote.calls).toHaveLength(1);
       expect(legacyCalls).toBe(0);
-    } finally {
+    }
+    finally {
       setStarryKolClientFactory();
       Object.assign(process.env, legacyEnv);
-      if (savedKey === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
-      else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = savedKey;
+      if (savedKey === undefined)
+        delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+      else
+        process.env.RUNTIME_CREDENTIAL_MASTER_KEY = savedKey;
     }
   });
-
   it("wires the actual Worker through an isolated fake-Codex protocol process and the runtime proxy", async () => {
     const remote = await localRemote();
-    connector("local_provider", [tool()], remote.url);
+    (await connector("local_provider", [tool()], remote.url));
     const saved = { CODEX_BIN: process.env.CODEX_BIN, CODEX_HOME: process.env.CODEX_HOME,
       CODEX_MODE: process.env.CODEX_MODE, RUNTIME_FIXTURE_SECRET: process.env.RUNTIME_FIXTURE_SECRET };
     Object.assign(process.env, { CODEX_BIN: path.resolve("tests/fixtures/fake-runtime-codex.mjs"),
@@ -738,19 +774,19 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     fs.chmodSync(process.env.CODEX_BIN!, 0o755);
     fs.mkdirSync(process.env.CODEX_HOME!);
     fs.writeFileSync(path.join(process.env.CODEX_HOME!, "config.toml"), '[mcp_servers.forbidden]\nurl="http://untrusted.example/mcp"\n');
-    setConnectorConfig("local_provider", { url: remote.url, headers_env: { "X-Test-Key": "RUNTIME_FIXTURE_SECRET" } }, 1);
-    const existingKOLBinding = getAgentSkills(kolAgentScopeContext().agent_id).find((row) => row.skill_id === context.skillId);
-    if (!existingKOLBinding) setAgentSkill(kolAgentScopeContext().agent_id, context.skillId, true, 0);
+    (await setConnectorConfig("local_provider", { url: remote.url, headers_env: { "X-Test-Key": "RUNTIME_FIXTURE_SECRET" } }, 1));
+    const existingKOLBinding = (await getAgentSkills((await kolAgentScopeContext()).agent_id)).find((row) => row.skill_id === context.skillId);
+    if (!existingKOLBinding)
+      (await setAgentSkill((await kolAgentScopeContext()).agent_id, context.skillId, true, 0));
     // runCodex 按技能声明的 runtime_agent_id 走 agent:kol，人员资格同样来自 Agent 绑定。
-    createAgentBinding({
-      agent_id: kolAgentScopeContext().agent_id, target_type: "organization_unit", target_id: "org:lt_team",
+    (await createAgentBinding({
+      agent_id: (await kolAgentScopeContext()).agent_id, target_type: "organization_unit", target_id: "org:lt_team",
       company_id: COMPANY, source: "test",
-    });
-    getConn().prepare("INSERT INTO sessions(id,title,created_at,updated_at,thread_ref,owner_user_id) VALUES(?,?,?,?,?,?)")
-      .run("runtime-session", "runtime", "now", "now", "stale-old-thread", context.userId);
+    }));
+    (await postgresDb().execute("INSERT INTO sessions(id,title,created_at,updated_at,thread_ref,owner_user_id) VALUES($1,$2,$3,$4,$5,$6)", "runtime-session", "runtime", "now", "now", "stale-old-thread", context.userId));
     try {
-      const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
-      const result = await withScopedUser(user, () => runCodex("runtime-session", context.skillId, "读取公开画像", {}));
+      const user = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", context.userId)) as Json));
+      const result = await withScopedUser(user, async () => (await runCodex("runtime-session", context.skillId, "读取公开画像", {})));
       expect(result.status).toBe("done");
       expect(remote.calls).toEqual(["lookup"]);
       expect(result.contract_log.some((entry) => entry.method === "thread/resume")).toBe(false);
@@ -758,19 +794,23 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
       const box = String(result.box_path);
       expect(fs.existsSync(path.join(box, ".codex", "config.toml"))).toBe(false);
       expect(fs.readFileSync(path.join(box, "CONTEXT.md"), "utf8")).not.toContain("private-connector-key");
-    } finally {
+    }
+    finally {
       for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+        if (value === undefined)
+          delete process.env[key];
+        else
+          process.env[key] = value;
       }
     }
   });
-
   it("lists and calls remote tools over SDK protocol, then denies a revoked binding", async () => {
     const remote = await localRemote();
-    connector("local_provider", [tool()], remote.url);
+    (await connector("local_provider", [tool()], remote.url));
     const proxy = await startRuntimeProxy(new SkillExecution(context));
     cleanup.push(proxy.close);
-    const client = proxyClient(proxy); cleanup.push(() => client.close());
+    const client = proxyClient(proxy);
+    cleanup.push(async () => (await client.close()));
     const tools = await client.listTools();
     expect(tools).toHaveLength(1);
     const legacyResourceProbe = await client.callToolRaw("list_mcp_resources", {});
@@ -779,16 +819,17 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     const result = await client.callToolRaw(String(tools[0].name), { query: "outdoor" });
     expect(result.structuredContent).toEqual({ creator: "creator-local-42" });
     expect(remote.calls).toEqual(["lookup"]);
-    setSkillConnector(context.skillId, "local_provider", false, Number(getSkillConnectors(context.skillId)[0].version));
+    (await setSkillConnector(context.skillId, "local_provider", false, Number((await getSkillConnectors(context.skillId))[0].version)));
     const blocked = await client.callToolRaw(String(tools[0].name), { query: "outdoor" });
     expect(blocked.isError).toBe(true);
     expect(remote.calls).toHaveLength(1);
   });
-
   it("requires each run's token, rejects browser origins, and closes the listener", async () => {
     const { factory } = await one();
-    const first = await startRuntimeProxy(new SkillExecution(context, factory)); cleanup.push(first.close);
-    const second = await startRuntimeProxy(new SkillExecution(context, factory)); cleanup.push(second.close);
+    const first = await startRuntimeProxy(new SkillExecution(context, factory));
+    cleanup.push(first.close);
+    const second = await startRuntimeProxy(new SkillExecution(context, factory));
+    cleanup.push(second.close);
     const url = String(first.spec.url);
     expect((await fetch(url, { method: "POST" })).status).toBe(401);
     expect((await fetch(url, { method: "POST", headers: second.spec.http_headers as Record<string, string> })).status).toBe(401);
@@ -806,29 +847,22 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     });
     fs.chmodSync(process.env.CODEX_BIN!, 0o755);
     fs.mkdirSync(process.env.CODEX_HOME!);
-    getConn().prepare(
-      "INSERT INTO sessions(id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES(?,?,?,?,?,?,?,?)",
-    ).run("planner-session", "今日规划", "now", "now", "today_plan", 0, context.userId, "platform:workspace-planner");
+    (await postgresDb().execute("INSERT INTO sessions(id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", "planner-session", "今日规划", "now", "now", "today_plan", 0, context.userId, "platform:workspace-planner"));
     try {
-      expect(getAgentSkills("agent:workspace-planner").filter((row) => row.enabled).map((row) => row.skill_id))
+      expect((await getAgentSkills("agent:workspace-planner")).filter((row) => row.enabled).map((row) => row.skill_id))
         .toEqual(expect.arrayContaining(["today_plan", "todo_plan", "today_analyze"]));
-      expect(getAgentSkills(kolAgentScopeContext().agent_id).some((row) => row.skill_id === "today_plan")).toBe(false);
-      expect(getSkillConnectors("today_plan")).toEqual([]);
+      expect((await getAgentSkills((await kolAgentScopeContext()).agent_id)).some((row) => row.skill_id === "today_plan")).toBe(false);
+      expect((await getSkillConnectors("today_plan"))).toEqual([]);
       // 未绑定：平台规划技能也不放行；绑定后才可运行（人员资格锚点是 Agent）。
-      expect(() => assertRuntimeSkill({
+      await expect((async () => (await assertRuntimeSkill({
         agentId: "agent:workspace-planner", skillId: "today_plan", userId: "user-b", runId: "planner-denied",
-      })).toThrow(/runtime_agent_not_usable/);
-      createAgentBinding({
+      })))()).rejects.toThrow(/runtime_agent_not_usable/);
+      (await createAgentBinding({
         agent_id: "agent:workspace-planner", target_type: "organization_unit", target_id: "org:lt_team",
         company_id: COMPANY, source: "test",
-      });
-      const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
-      const result = await withScopedUser(user, () => runCodex(
-        "planner-session",
-        "today_plan",
-        "规划今天的工作。只输出 today_brief JSON。",
-        { mode: "today_plan", skip_user_memory: true, today_plan_context: { history: {}, delta: {}, now_counts: {} } },
-      ));
+      }));
+      const user = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", context.userId)) as Json));
+      const result = await withScopedUser(user, async () => (await runCodex("planner-session", "today_plan", "规划今天的工作。只输出 today_brief JSON。", { mode: "today_plan", skip_user_memory: true, today_plan_context: { history: {}, delta: {}, now_counts: {} } })));
       expect(result.status).toBe("done");
       expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({ type: "today_brief" })]));
       const binding = result.contract_log.find((entry) => entry.method === "runtime/binding");
@@ -837,9 +871,13 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
       expect(boxContext).toContain('"agent_id": "agent:workspace-planner"');
       expect(boxContext).toContain('"kind": "platform"');
       expect(boxContext).toContain('"mailboxes": []');
-    } finally {
+    }
+    finally {
       for (const [key, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+        if (value === undefined)
+          delete process.env[key];
+        else
+          process.env[key] = value;
       }
     }
   });

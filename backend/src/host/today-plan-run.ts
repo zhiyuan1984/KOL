@@ -1,14 +1,6 @@
-import { audit, getConn, nowIso, tx, type SqliteConn } from "../db.js";
-import {
-  claimExecutionJobById,
-  enqueueExecutionJob,
-  type ClaimedExecutionJob,
-} from "../execution-jobs/store.js";
-import {
-  runtimeCompleteExecutionJob,
-  runtimeExecutionJobPayload,
-  runtimeFailExecutionJob,
-} from "../execution-jobs/runtime-store.js";
+import { audit, postgresDb, nowIso, pgTransaction, type PgRepository } from "../postgres/access.js";
+import { claimExecutionJobById, enqueueExecutionJob, type ClaimedExecutionJob, } from "../execution-jobs/store.js";
+import { runtimeCompleteExecutionJob, runtimeExecutionJobPayload, runtimeFailExecutionJob, } from "../execution-jobs/runtime-store.js";
 import { nid } from "../ids.js";
 import { ensureTicketForWorkItem } from "../tickets.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
@@ -19,31 +11,18 @@ import { HttpFail } from "./errors.js";
 import { createRunTraceSink } from "./run-trace.js";
 import { isTodayWorkItem, todayDateStr } from "./home-board.js";
 import { runningTodayPlan, writeTodayBriefArtifact, markTodayPlanCompleted, markTodayPlanFailed } from "./today-brief.js";
-import {
-  briefPointerTable,
-  ownerId,
-  packTodayPlanContext,
-  planTaskType,
-  planningHarnessMount,
-  planningRuntimeIdentity,
-  planningRunInput,
-  type PlanScope,
-  type TodayPlanPack,
-} from "./today-plan-context.js";
-
+import { briefPointerTable, ownerId, packTodayPlanContext, planTaskType, planningHarnessMount, planningRuntimeIdentity, planningRunInput, type PlanScope, type TodayPlanPack, } from "./today-plan-context.js";
 function parseJson(value: unknown): Json {
   try {
     const parsed = JSON.parse(String(value || "{}"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Json : {};
-  } catch {
+  }
+  catch {
     return {};
   }
 }
-
-export function planningEvents(workItemId: string): Json[] {
-  return (getConn().prepare(
-    "SELECT * FROM task_events WHERE work_item_id=? ORDER BY sequence",
-  ).all(workItemId) as Array<Record<string, unknown>>).map((event) => ({
+export async function planningEvents(workItemId: string): Promise<Json[]> {
+  return ((await postgresDb().many("SELECT * FROM task_events WHERE work_item_id=$1 ORDER BY sequence", workItemId)) as Array<Record<string, unknown>>).map((event) => ({
     ...event,
     type: event.event_type,
     title: event.label,
@@ -51,78 +30,41 @@ export function planningEvents(workItemId: string): Json[] {
     created_at: event.time,
   }));
 }
-
-function createPlanningSession(db: SqliteConn, title: string, owner: string, expertId: string, kind = "today_plan"): string {
+async function createPlanningSession(db: PgRepository, title: string, owner: string, expertId: string, kind = "today_plan"): Promise<string> {
   const now = nowIso();
   const sid = nid("ses");
-  db.prepare(
-    `INSERT INTO sessions
+  (await db.execute(`INSERT INTO sessions
      (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id,expert_version)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(sid, title, now, now, kind, 0, owner, expertId, null);
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, sid, title, now, now, kind, 0, owner, expertId, null));
   return sid;
 }
-
-function createPlanningWorkItem(input: {
-  db: SqliteConn;
+async function createPlanningWorkItem(input: {
+  db: PgRepository;
   owner: string;
   taskType: "today_plan" | "today_analyze" | "todo_plan";
   title: string;
   sessionId: string;
   payload: Json;
-}): string {
+}): Promise<string> {
   const definition = requireTaskDefinition(input.taskType);
   const now = nowIso();
   const id = nid("tsk");
-  input.db.prepare(
-    `INSERT INTO tickets
+  (await input.db.execute(`INSERT INTO tickets
      (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
       collaboration_id,session_id,due_at,input,entities,data_version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    input.owner,
-    definition.id,
-    input.title.slice(0, 200),
-    "planning",
-    "queued",
-    "normal",
-    definition.id,
-    definition.profile,
-    null,
-    null,
-    input.sessionId,
-    null,
-    JSON.stringify(input.payload),
-    JSON.stringify({}),
-    1,
-    now,
-    now,
-  );
-  ensureTicketForWorkItem(id, { conn: input.db });
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, id, input.owner, definition.id, input.title.slice(0, 200), "planning", "queued", "normal", definition.id, definition.profile, null, null, input.sessionId, null, JSON.stringify(input.payload), JSON.stringify({}), 1, now, now));
+  (await ensureTicketForWorkItem(id, { conn: input.db }));
   return id;
 }
-
-function createPlanningRun(db: SqliteConn, workItemId: string, sessionId: string, payload: Json): string {
+async function createPlanningRun(db: PgRepository, workItemId: string, sessionId: string, payload: Json): Promise<string> {
   const now = nowIso();
   const runId = nid("run");
-  db.prepare(
-    `INSERT INTO task_runs
+  (await db.execute(`INSERT INTO task_runs
      (id,work_item_id,session_id,status,input,entities,created_at,started_at)
-     VALUES (?,?,?,?,?,?,?,?)`,
-  ).run(runId, workItemId, sessionId, "queued", JSON.stringify(payload), "{}", now, null);
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, runId, workItemId, sessionId, "queued", JSON.stringify(payload), "{}", now, null));
   return runId;
 }
-
-type PlanEventKey =
-  | "memoryRead"
-  | "deltaPacked"
-  | "codexSubmitted"
-  | "writingBrief"
-  | "completed"
-  | "failed"
-  | "invalid";
-
+type PlanEventKey = "memoryRead" | "deltaPacked" | "codexSubmitted" | "writingBrief" | "completed" | "failed" | "invalid";
 export const PLAN_EMPLOYEE_EVENTS: Record<PlanScope, Record<PlanEventKey, string>> = {
   today: {
     memoryRead: "已读取当前任务记忆",
@@ -151,9 +93,10 @@ function memoryReadSummary(pack: TodayPlanPack, scope: PlanScope): string {
   const unfinished = Number(pack.now_counts?.unfinished);
   return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : PLAN_EMPLOYEE_EVENTS[scope].memoryRead;
 }
-
-export function briefFromWorkerItems(items: Json[]): unknown {  const candidates = items.filter((item) => item.type === "today_brief" || (item.lead && item.sections));
-  if (!candidates.length) return null;
+export function briefFromWorkerItems(items: Json[]): unknown {
+  const candidates = items.filter((item) => item.type === "today_brief" || (item.lead && item.sections));
+  if (!candidates.length)
+    return null;
   // Codex may emit an intermediate brief before the final structured message;
   // the authoritative row set lives on the latest candidate carrying display_tasks.
   const withDisplay = candidates.filter((item) => {
@@ -175,15 +118,14 @@ export function briefFromWorkerItems(items: Json[]): unknown {  const candidates
  */
 export function missingDisplayCoverage(brief: unknown, pack: TodayPlanPack): string[] {
   const root = brief && typeof brief === "object" && !Array.isArray(brief) ? brief as Json : null;
-  if (!root) return [];
+  if (!root)
+    return [];
   const rows = Array.isArray(root.display_tasks)
     ? root.display_tasks
     : Array.isArray(root.todo_layout)
       ? root.todo_layout
       : [];
-  const covered = new Set(
-    rows.map((row) => String((row as Json)?.work_item_id || (row as Json)?.id || "").trim()),
-  );
+  const covered = new Set(rows.map((row) => String((row as Json)?.work_item_id || (row as Json)?.id || "").trim()));
   return pack.history.unfinished_tasks
     .map((item) => String(item.work_item_id || "").trim())
     .filter((id) => id && !covered.has(id));
@@ -223,9 +165,9 @@ function hostDisplayTasks(pack: TodayPlanPack, brief: unknown): Json[] {
       } as Json;
     });
 }
-
 function withHostDisplayTasks(brief: unknown, pack: TodayPlanPack): Json | null {
-  if (!brief || typeof brief !== "object" || Array.isArray(brief)) return null;
+  if (!brief || typeof brief !== "object" || Array.isArray(brief))
+    return null;
   // Model output may omit or invent its source cursor. The Host owns the
   // authorized source set and must bind its exact revision to the snapshot.
   return { ...(brief as Json), source_cursor: pack.source_cursor, display_tasks: hostDisplayTasks(pack, brief) };
@@ -285,7 +227,13 @@ export async function executeTodayPlanRun(input: {
   pack: TodayPlanPack;
   scope?: PlanScope;
   producer?: "deterministic_organize" | "agent_plan";
-}): Promise<{ ok: true; receipt: Json } | { ok: false; reason: string }> {
+}): Promise<{
+  ok: true;
+  receipt: Json;
+} | {
+  ok: false;
+  reason: string;
+}> {
   const scope = input.scope ?? "today";
   const copy = PLAN_EMPLOYEE_EVENTS[scope];
   const trace = createRunTraceSink({ workItemId: input.workItemId, runId: input.runId });
@@ -300,56 +248,35 @@ export async function executeTodayPlanRun(input: {
     // Producer mode is persisted with the accepted job. UI copy must describe
     // the selected producer, never infer "AI planning" from a fast host view.
     const fastMode = (input.producer || "deterministic_organize") === "deterministic_organize";
-    appendTaskEvent(
-      input.workItemId,
-      input.runId,
-      "run.progress",
-      fastMode ? "开始生成统一工作计划" : copy.codexSubmitted,
-      "running",
-      fastMode ? "Host 将直接生成任务视图" : copy.codexSubmitted,
-    );
+    (await appendTaskEvent(input.workItemId, input.runId, "run.progress", fastMode ? "开始生成统一工作计划" : copy.codexSubmitted, "running", fastMode ? "Host 将直接生成任务视图" : copy.codexSubmitted));
     if (fastMode) {
-      appendTaskEvent(input.workItemId, input.runId, "run.phase", "读取合作阶段", "running", `待打招呼 ${input.pack.stage_counts.greet} · 待跟进 ${input.pack.stage_counts.follow} · 待报价 ${input.pack.stage_counts.quote} · 谈判中 ${input.pack.stage_counts.negotiate}`);
-      appendTaskEvent(input.workItemId, input.runId, "run.phase", "整理优先级与今日范围", "running", `${input.pack.now_counts.unfinished} 项正式任务，来源增量 ${input.pack.delta.added.length} 项`);
-      appendTaskEvent(input.workItemId, input.runId, "run.phase", "生成统一任务视图", "running", "今日任务与我的待办共享同一份计划结果");
+      (await appendTaskEvent(input.workItemId, input.runId, "run.phase", "读取合作阶段", "running", `待打招呼 ${input.pack.stage_counts.greet} · 待跟进 ${input.pack.stage_counts.follow} · 待报价 ${input.pack.stage_counts.quote} · 谈判中 ${input.pack.stage_counts.negotiate}`));
+      (await appendTaskEvent(input.workItemId, input.runId, "run.phase", "整理优先级与今日范围", "running", `${input.pack.now_counts.unfinished} 项正式任务，来源增量 ${input.pack.delta.added.length} 项`));
+      (await appendTaskEvent(input.workItemId, input.runId, "run.phase", "生成统一任务视图", "running", "今日任务与我的待办共享同一份计划结果"));
       const brief = withHostDisplayTasks(hostFastBrief(input.pack), input.pack);
-      const written = writeTodayBriefArtifact({
+      const written = (await writeTodayBriefArtifact({
         owner: input.owner,
         workItemId: input.workItemId,
         runId: input.runId,
         brief,
         scope,
         producer: input.producer || "deterministic_organize",
-      });
-      appendTaskEvent(input.workItemId, input.runId, "run.phase", "校验输出", "running", written.ok ? `${input.pack.now_counts.unfinished} 项任务展示覆盖完整` : written.reason);
+      }));
+      (await appendTaskEvent(input.workItemId, input.runId, "run.phase", "校验输出", "running", written.ok ? `${input.pack.now_counts.unfinished} 项任务展示覆盖完整` : written.reason));
       if (!written.ok) {
-        markTodayPlanFailed(input.workItemId, input.runId, written.reason);
-        trace.finish(true);
-        appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason);
+        (await markTodayPlanFailed(input.workItemId, input.runId, written.reason));
+        await trace.finish(true);
+        (await appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason));
         return { ok: false, reason: written.reason };
       }
-      markTodayPlanCompleted(input.workItemId, input.runId);
-      trace.finish(false);
-      appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "Host 已快速生成统一工作计划");
+      (await markTodayPlanCompleted(input.workItemId, input.runId));
+      await trace.finish(false);
+      (await appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "Host 已快速生成统一工作计划"));
       return { ok: true, receipt: { artifact_id: written.artifact_id, mode: "deterministic_organize", scope } };
     }
-    const wr = await Promise.resolve(runWorker(
-      input.sessionId,
-      planTaskType(scope),
-      scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。",
-      extra,
-      undefined,
-      trace.onStream,
-    ));
-    trace.finish(false);
-    appendTaskEvent(
-      input.workItemId,
-      input.runId,
-      "run.progress",
-      copy.writingBrief,
-      "running",
-      copy.writingBrief,
-    );
+    const wr = await Promise.resolve(runWorker(input.sessionId, planTaskType(scope), scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。", extra, undefined, trace.onStream));
+    await trace.finish(false);
+    (await appendTaskEvent(input.workItemId, input.runId, "run.progress", copy.writingBrief, "running", copy.writingBrief));
     const modelBrief = briefFromWorkerItems(wr.items);
     const brief = withHostDisplayTasks(modelBrief, input.pack);
     if (brief && typeof brief === "object" && !Array.isArray(brief)) {
@@ -357,40 +284,43 @@ export async function executeTodayPlanRun(input: {
       const stats = root.stats && typeof root.stats === "object" && !Array.isArray(root.stats)
         ? { ...(root.stats as Json) }
         : {};
-      if (stats.candidates == null) stats.candidates = input.pack.catalog.length;
-      if (root.stage_counts == null) root.stage_counts = input.pack.stage_counts;
+      if (stats.candidates == null)
+        stats.candidates = input.pack.catalog.length;
+      if (root.stage_counts == null)
+        root.stage_counts = input.pack.stage_counts;
       root.stats = stats;
     }
     const missingCoverage = missingDisplayCoverage(brief, input.pack);
     if (missingCoverage.length) {
       const reason = `展示行漏了 ${missingCoverage.length} 项任务（${missingCoverage.slice(0, 3).join("、")}）`;
-      markTodayPlanFailed(input.workItemId, input.runId, reason);
-      trace.finish(true);
-      appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", reason);
+      (await markTodayPlanFailed(input.workItemId, input.runId, reason));
+      await trace.finish(true);
+      (await appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", reason));
       return { ok: false, reason };
     }
-    const written = writeTodayBriefArtifact({
+    const written = (await writeTodayBriefArtifact({
       owner: input.owner,
       workItemId: input.workItemId,
       runId: input.runId,
       brief,
       scope,
       producer: input.producer || "agent_plan",
-    });
+    }));
     if (!written.ok) {
-      markTodayPlanFailed(input.workItemId, input.runId, written.reason);
-      trace.finish(true);
-      appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason);
+      (await markTodayPlanFailed(input.workItemId, input.runId, written.reason));
+      await trace.finish(true);
+      (await appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason));
       return { ok: false, reason: written.reason };
     }
-    markTodayPlanCompleted(input.workItemId, input.runId);
-    appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "today_brief 已更新");
+    (await markTodayPlanCompleted(input.workItemId, input.runId));
+    (await appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "today_brief 已更新"));
     return { ok: true, receipt: { artifact_id: written.artifact_id, mode: "agent_plan", scope } };
-  } catch (error) {
+  }
+  catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    markTodayPlanFailed(input.workItemId, input.runId, reason);
-    trace.finish(true);
-    appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.failed, "failed", reason.slice(0, 1000));
+    (await markTodayPlanFailed(input.workItemId, input.runId, reason));
+    await trace.finish(true);
+    (await appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.failed, "failed", reason.slice(0, 1000)));
     return { ok: false, reason };
   }
 }
@@ -404,9 +334,8 @@ type PlanningStart = {
   attached: boolean;
   planning: boolean;
 };
-
-function enqueuePlanningExecution(input: {
-  db: SqliteConn;
+async function enqueuePlanningExecution(input: {
+  db: PgRepository;
   jobType: "work_plan.run" | "today_analyze.run";
   owner: string;
   workItemId: string;
@@ -414,8 +343,8 @@ function enqueuePlanningExecution(input: {
   scope: PlanScope;
   payload: Json;
   extraPayload: Json;
-}): string {
-  const queued = enqueueExecutionJob({
+}): Promise<string> {
+  const queued = (await enqueueExecutionJob({
     job_type: input.jobType,
     tenant_ref: "company:amperetime",
     actor_ref: input.owner,
@@ -443,21 +372,16 @@ function enqueuePlanningExecution(input: {
       aggregate_id: input.runId,
       payload: { work_item_id: input.workItemId, run_id: input.runId, scope: input.scope },
     },
-  }, { db: input.db });
+  }, { db: input.db }));
   return String(queued.job.id);
 }
-
-export function startTodayPlan(
-  owner = ownerId(),
-  scope: PlanScope = "today",
-  producer: "deterministic_organize" | "agent_plan" = "deterministic_organize",
-): PlanningStart {
+export async function startTodayPlan(owner = ownerId(), scope: PlanScope = "today", producer: "deterministic_organize" | "agent_plan" = "deterministic_organize"): Promise<PlanningStart> {
   const canonicalScope: PlanScope = "today";
-  const existing = runningTodayPlan(owner, canonicalScope);
+  const existing = (await runningTodayPlan(owner, canonicalScope));
   if (existing?.session_id && existing.run_id) {
-    const existingJob = getConn().prepare(
-      "SELECT id FROM execution_jobs WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
-    ).get(existing.run_id) as { id?: string } | undefined;
+    const existingJob = (await postgresDb().one("SELECT id FROM execution_jobs WHERE run_id=$1 ORDER BY created_at DESC LIMIT 1", existing.run_id)) as {
+      id?: string;
+    } | undefined;
     return {
       work_item_id: existing.work_item_id,
       session_id: existing.session_id,
@@ -471,29 +395,29 @@ export function startTodayPlan(
   const copy = PLAN_EMPLOYEE_EVENTS[canonicalScope];
   const taskType = planTaskType(canonicalScope);
   const title = "统一工作计划";
-  const pack = packTodayPlanContext(owner, canonicalScope);
+  const pack = (await packTodayPlanContext(owner, canonicalScope));
   const payload = planningRunInput(pack, {}, canonicalScope);
   const identity = planningRuntimeIdentity(taskType);
-  const created = tx((db) => {
-    const sessionId = createPlanningSession(db, title, owner, identity.session_identity, taskType);
-    const workItemId = createPlanningWorkItem({ db, owner, taskType, title, sessionId, payload });
-    const runId = createPlanningRun(db, workItemId, sessionId, payload);
-    const executionJobId = enqueuePlanningExecution({
+  const created = (await pgTransaction(async (db) => {
+    const sessionId = (await createPlanningSession(db, title, owner, identity.session_identity, taskType));
+    const workItemId = (await createPlanningWorkItem({ db, owner, taskType, title, sessionId, payload }));
+    const runId = (await createPlanningRun(db, workItemId, sessionId, payload));
+    const executionJobId = (await enqueuePlanningExecution({
       db, jobType: "work_plan.run", owner, workItemId, runId, scope: canonicalScope, payload,
       extraPayload: { session_id: sessionId, pack, producer },
-    });
-    appendTaskEventInConn(db, workItemId, runId, "run.queued", "工作计划已入队", "queued", "已持久化等待执行");
-    appendTaskEventInConn(db, workItemId, runId, "run.progress", copy.memoryRead, "queued", memoryReadSummary(pack, scope));
-    appendTaskEventInConn(db, workItemId, runId, "run.progress", copy.deltaPacked, "queued", `来源增量 ${pack.delta.added.length} 项`);
+    }));
+    (await appendTaskEventInConn(db, workItemId, runId, "run.queued", "工作计划已入队", "queued", "已持久化等待执行"));
+    (await appendTaskEventInConn(db, workItemId, runId, "run.progress", copy.memoryRead, "queued", memoryReadSummary(pack, scope)));
+    (await appendTaskEventInConn(db, workItemId, runId, "run.progress", copy.deltaPacked, "queued", `来源增量 ${pack.delta.added.length} 项`));
     return { sessionId, workItemId, runId, executionJobId };
-  });
-  audit(owner, `${taskType}.started`, {
+  }));
+  (await audit(owner, `${taskType}.started`, {
     work_item_id: created.workItemId,
     session_id: created.sessionId,
     run_id: created.runId,
     execution_job_id: created.executionJobId,
     creates_session: true,
-  });
+  }));
   return {
     work_item_id: created.workItemId,
     session_id: created.sessionId,
@@ -504,10 +428,10 @@ export function startTodayPlan(
     planning: true,
   };
 }
-
-export function startTodayAnalyze(body: Json, owner = ownerId()): Omit<PlanningStart, "attached" | "planning" | "producer"> {
+export async function startTodayAnalyze(body: Json, owner = ownerId()): Promise<Omit<PlanningStart, "attached" | "planning" | "producer">> {
   const definition = requireTaskDefinition("today_analyze");
-  if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: "today_analyze" });
+  if (!definition)
+    throw new HttpFail(400, { code: "unknown_task_type", task_type: "today_analyze" });
   const identity = planningRuntimeIdentity("today_analyze");
   const objects = Array.isArray(body.objects) ? body.objects : Array.isArray(body.object_ids) ? body.object_ids : [];
   const payload: Json = {
@@ -518,21 +442,20 @@ export function startTodayAnalyze(body: Json, owner = ownerId()): Omit<PlanningS
     objects,
     planning_harness: planningHarnessMount("today_analyze"),
   };
-  const created = tx((db) => {
-    const sessionId = createPlanningSession(db, "今日对象分析", owner, identity.session_identity, "today_analyze");
-    const workItemId = createPlanningWorkItem({ db, owner, taskType: "today_analyze", title: "今日对象分析", sessionId, payload });
-    const runId = createPlanningRun(db, workItemId, sessionId, payload);
-    const executionJobId = enqueuePlanningExecution({
+  const created = (await pgTransaction(async (db) => {
+    const sessionId = (await createPlanningSession(db, "今日对象分析", owner, identity.session_identity, "today_analyze"));
+    const workItemId = (await createPlanningWorkItem({ db, owner, taskType: "today_analyze", title: "今日对象分析", sessionId, payload }));
+    const runId = (await createPlanningRun(db, workItemId, sessionId, payload));
+    const executionJobId = (await enqueuePlanningExecution({
       db, jobType: "today_analyze.run", owner, workItemId, runId, scope: "today", payload,
       extraPayload: { session_id: sessionId, prompt: String(body.text || "分析所选对象并建议下一步，不要改状态。") },
-    });
-    appendTaskEventInConn(db, workItemId, runId, "run.queued", "对象分析已入队", "queued", "只读分析，不写正式状态");
+    }));
+    (await appendTaskEventInConn(db, workItemId, runId, "run.queued", "对象分析已入队", "queued", "只读分析，不写正式状态"));
     return { sessionId, workItemId, runId, executionJobId };
-  });
-  audit(owner, "today_analyze.started", { work_item_id: created.workItemId, session_id: created.sessionId, run_id: created.runId, execution_job_id: created.executionJobId });
+  }));
+  (await audit(owner, "today_analyze.started", { work_item_id: created.workItemId, session_id: created.sessionId, run_id: created.runId, execution_job_id: created.executionJobId }));
   return { work_item_id: created.workItemId, session_id: created.sessionId, run_id: created.runId, execution_job_id: created.executionJobId };
 }
-
 function terminalPlanningStatus(value: unknown): boolean {
   return ["completed", "failed", "cancelled"].includes(String(value || ""));
 }
@@ -544,21 +467,23 @@ async function executeTodayAnalyzeRun(input: {
   runId: string;
   payload: Json;
   prompt: string;
-}): Promise<{ ok: true; receipt: Json } | { ok: false; reason: string }> {
+}): Promise<{
+  ok: true;
+  receipt: Json;
+} | {
+  ok: false;
+  reason: string;
+}> {
   try {
-    await Promise.resolve(runWorker(
-      input.sessionId,
-      "today_analyze",
-      input.prompt,
-      { ...input.payload, work_item_id: input.workItemId, task_run_id: input.runId },
-    ));
-    markTodayPlanCompleted(input.workItemId, input.runId);
-    appendTaskEvent(input.workItemId, input.runId, "run.completed", "对象分析已完成", "completed", "未写入正式状态");
+    await Promise.resolve(runWorker(input.sessionId, "today_analyze", input.prompt, { ...input.payload, work_item_id: input.workItemId, task_run_id: input.runId }));
+    (await markTodayPlanCompleted(input.workItemId, input.runId));
+    (await appendTaskEvent(input.workItemId, input.runId, "run.completed", "对象分析已完成", "completed", "未写入正式状态"));
     return { ok: true, receipt: { mode: "today_analyze", side_effect: "none" } };
-  } catch (error) {
+  }
+  catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    markTodayPlanFailed(input.workItemId, input.runId, reason);
-    appendTaskEvent(input.workItemId, input.runId, "run.failed", "对象分析失败", "failed", reason.slice(0, 1000));
+    (await markTodayPlanFailed(input.workItemId, input.runId, reason));
+    (await appendTaskEvent(input.workItemId, input.runId, "run.failed", "对象分析失败", "failed", reason.slice(0, 1000)));
     return { ok: false, reason };
   }
 }
@@ -579,12 +504,14 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
     await runtimeFailExecutionJob(executionJobId, { code: "invalid_payload", summary: `${jobType} requires owner, work_item_id, and run_id` });
     throw new HttpFail(500, "invalid planning execution job payload");
   }
-  const db = getConn();
-  const current = db.prepare(
-    `SELECT t.status AS ticket_status, r.status AS run_status, r.session_id
+  const db = postgresDb();
+  const current = (await db.one(`SELECT t.status AS ticket_status, r.status AS run_status, r.session_id
        FROM tickets t JOIN task_runs r ON r.work_item_id=t.id
-      WHERE t.id=? AND r.id=?`,
-  ).get(workItemId, runId) as { ticket_status?: string; run_status?: string; session_id?: string | null } | undefined;
+      WHERE t.id=$1 AND r.id=$2`, workItemId, runId)) as {
+    ticket_status?: string;
+    run_status?: string;
+    session_id?: string | null;
+  } | undefined;
   if (!current) {
     await runtimeFailExecutionJob(executionJobId, { code: "task_run_missing", summary: `Task run missing: ${runId}` });
     throw new HttpFail(404, "planning task run not found");
@@ -593,45 +520,55 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
     await runtimeCompleteExecutionJob(executionJobId, { work_item_id: workItemId, run_id: runId, duplicate: true, status: current.run_status || current.ticket_status });
     return workItemId;
   }
-  tx((transaction) => {
+  (await pgTransaction(async (transaction) => {
     const now = nowIso();
-    transaction.prepare(
-      "UPDATE task_runs SET status='running',started_at=COALESCE(started_at,?) WHERE id=? AND work_item_id=?",
-    ).run(now, runId, workItemId);
-    transaction.prepare(
-      "UPDATE tickets SET status='running',started_at=COALESCE(started_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
-    ).run(now, now, workItemId);
-    appendTaskEventInConn(
-      transaction,
-      workItemId,
-      runId,
-      "run.started",
-      jobType === "work_plan.run" ? "开始生成统一工作计划" : "正在分析所选对象",
-      "running",
-      "持久执行器已领取作业",
-    );
-  });
-
+    (await transaction.execute("UPDATE task_runs SET status='running',started_at=COALESCE(started_at,$1) WHERE id=$2 AND work_item_id=$3", now, runId, workItemId));
+    (await transaction.execute("UPDATE tickets SET status='running',started_at=COALESCE(started_at,$1),updated_at=$2,data_version=data_version+1 WHERE id=$3", now, now, workItemId));
+    (await appendTaskEventInConn(transaction, workItemId, runId, "run.started", jobType === "work_plan.run" ? "开始生成统一工作计划" : "正在分析所选对象", "running", "持久执行器已领取作业"));
+  }));
   const sessionId = String(payload.session_id || current.session_id || "");
-  let result: { ok: true; receipt: Json } | { ok: false; reason: string };
+  let result: {
+    ok: true;
+    receipt: Json;
+  } | {
+    ok: false;
+    reason: string;
+  };
   if (jobType === "work_plan.run") {
-    const pack = payload.pack;
+    // Native PostgreSQL queue rows persist the planner input under task_payload.
+    // The earlier adapter also carried a top-level full pack.  When that legacy
+    // field is absent, rebuild the same authorized source pack in the claimed
+    // worker so both durable row shapes enter one handler without SQLite/mode
+    // fallback or an unverified model call.
+    const scope: PlanScope = String(payload.scope || "today") === "todo" ? "todo" : "today";
+    const pack = payload.pack || (await packTodayPlanContext(owner, scope));
     if (!pack || typeof pack !== "object" || Array.isArray(pack) || !sessionId) {
       const reason = "work_plan.run payload is missing plan context or session";
-      markTodayPlanFailed(workItemId, runId, reason);
+      (await markTodayPlanFailed(workItemId, runId, reason));
       await runtimeFailExecutionJob(executionJobId, { code: "invalid_payload", summary: reason });
       return workItemId;
     }
+    // The original enqueue adapter wrote these events before the job claim. The
+    // PostgreSQL-native enqueue is intentionally smaller, so write the same
+    // observable planning checkpoints on claim. Do not duplicate them when a
+    // replayed compatibility row already contains the checkpoints.
+    const copy = PLAN_EMPLOYEE_EVENTS[scope];
+    const existingLabels = new Set((await planningEvents(workItemId)).map((event) => String(event.label || "")));
+    if (!existingLabels.has(copy.memoryRead))
+      (await appendTaskEvent(workItemId, runId, "run.progress", copy.memoryRead, "running", memoryReadSummary(pack as TodayPlanPack, scope)));
+    if (!existingLabels.has(copy.deltaPacked))
+      (await appendTaskEvent(workItemId, runId, "run.progress", copy.deltaPacked, "running", `来源增量 ${(pack as TodayPlanPack).delta.added.length} 项`));
     result = await executeTodayPlanRun({
       owner,
       workItemId,
       sessionId,
       runId,
       pack: pack as TodayPlanPack,
-      scope: String(payload.scope || "today") === "todo" ? "todo" : "today",
+      scope,
       producer: payload.producer === "agent_plan" ? "agent_plan" : "deterministic_organize",
     });
-  } else if (jobType === "today_analyze.run") {
+  }
+  else if (jobType === "today_analyze.run") {
     result = await executeTodayAnalyzeRun({
       owner,
       workItemId,
@@ -641,32 +578,36 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
         ? payload.task_payload : {}) as Json,
       prompt: String(payload.prompt || "分析所选对象并建议下一步，不要改状态。"),
     });
-  } else {
+  }
+  else {
     const reason = `Unsupported planning job type: ${jobType}`;
-    markTodayPlanFailed(workItemId, runId, reason);
+    (await markTodayPlanFailed(workItemId, runId, reason));
     await runtimeFailExecutionJob(executionJobId, { code: "unsupported_job_type", summary: reason });
     return workItemId;
   }
   if (result.ok) {
     await runtimeCompleteExecutionJob(executionJobId, { work_item_id: workItemId, run_id: runId, ...result.receipt });
-  } else {
+  }
+  else {
     await runtimeFailExecutionJob(executionJobId, { code: "planning_failed", summary: result.reason });
   }
   return workItemId;
 }
-
-export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"): Json {
-  const running = runningTodayPlan(owner, scope);
-  const latest = getConn().prepare(
-    `SELECT artifact_id, work_item_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=?`,
-  ).get(owner) as { artifact_id: string; work_item_id: string } | undefined;
+export async function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"): Promise<Json> {
+  const running = (await runningTodayPlan(owner, scope));
+  const latest = (await postgresDb().one(`SELECT artifact_id, work_item_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=$1`, owner)) as {
+    artifact_id: string;
+    work_item_id: string;
+  } | undefined;
   let brief: Json | null = null;
   let snapshotRunId: string | null = null;
   let snapshotGeneratedAt: string | null = null;
   if (latest) {
-    const row = getConn().prepare("SELECT payload,run_id,created_at FROM task_artifacts WHERE id=?").get(latest.artifact_id) as
-      | { payload: string; run_id: string | null; created_at: string }
-      | undefined;
+    const row = (await postgresDb().one("SELECT payload,run_id,created_at FROM task_artifacts WHERE id=$1", latest.artifact_id)) as {
+      payload: string;
+      run_id: string | null;
+      created_at: string;
+    } | undefined;
     brief = row ? parseJson(row.payload) : null;
     snapshotRunId = row?.run_id || null;
     snapshotGeneratedAt = row?.created_at || null;
@@ -677,8 +618,9 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
   let sourceLookupFailed = false;
   if (brief) {
     try {
-      currentRevision = String(packTodayPlanContext(owner, scope).source_cursor?.cursor_to || "");
-    } catch {
+      currentRevision = String((await packTodayPlanContext(owner, scope)).source_cursor?.cursor_to || "");
+    }
+    catch {
       // Keep the last successful snapshot, but never represent an unverified
       // source read as fresh.
       sourceLookupFailed = true;
@@ -692,15 +634,15 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
   // The 思考过程 card must show the trace of the newest attempt, including a
   // failed one; the brief pointer only exists after a success, so it is the
   // last resort rather than the default.
-  const newestRun = getConn().prepare(
-    `SELECT id FROM tickets WHERE owner_user_id=? AND task_type=? ORDER BY created_at DESC LIMIT 1`,
-  ).get(owner, planTaskType(scope)) as { id: string } | undefined;
+  const newestRun = (await postgresDb().one(`SELECT id FROM tickets WHERE owner_user_id=$1 AND task_type=$2 ORDER BY created_at DESC LIMIT 1`, owner, planTaskType(scope))) as {
+    id: string;
+  } | undefined;
   const traceItem = running?.work_item_id || newestRun?.id || latest?.work_item_id || null;
   const briefItem = running?.work_item_id || latest?.work_item_id || null;
   // The folded history is relative to the trace currently on screen. When the
   // newest run failed it has no brief pointer, so using `briefItem` here would
   // pair an older brief with this failed run's timestamp and task count.
-  const previous = previousPlan(owner, scope, traceItem);
+  const previous = (await previousPlan(owner, scope, traceItem));
   return {
     plan_id: latest?.artifact_id || null,
     status: running ? "running" : brief ? (staleReason ? "stale" : "ready") : "empty",
@@ -710,7 +652,7 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
     stale_reason: staleReason,
     planning: Boolean(running),
     brief,
-    events: traceItem ? planningEvents(traceItem) : [],
+    events: traceItem ? (await planningEvents(traceItem)) : [],
     work_item_id: briefItem || traceItem,
     session_id: running?.session_id || null,
     run_id: running?.run_id || snapshotRunId,
@@ -729,28 +671,29 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
  * instead of stacking versions. Keyed off the current work item so a second
  * artifact of the same run never counts as "previous".
  */
-export function previousPlan(owner: string, scope: PlanScope, currentWorkItemId: string | null): {
+export async function previousPlan(owner: string, scope: PlanScope, currentWorkItemId: string | null): Promise<{
   brief: Json | null;
   events: Json[];
   work_item_id: string | null;
-} {
+}> {
   const current = String(currentWorkItemId || "");
-  const artifacts = getConn().prepare(
-    `SELECT a.work_item_id, a.payload
+  const artifacts = (await postgresDb().many(`SELECT a.work_item_id, a.payload
        FROM task_artifacts a
        JOIN tickets w ON w.id = a.work_item_id
-      WHERE w.owner_user_id=? AND w.task_type=? AND a.artifact_type='today_brief'
+      WHERE w.owner_user_id=$1 AND w.task_type=$2 AND a.artifact_type='today_brief'
       ORDER BY a.created_at DESC
-      LIMIT 4`,
-  ).all(owner, planTaskType(scope)) as { work_item_id: string; payload: string }[];
+      LIMIT 4`, owner, planTaskType(scope))) as {
+    work_item_id: string;
+    payload: string;
+  }[];
   const previousArtifact = artifacts.find((row) => String(row.work_item_id) !== current) || null;
-  const runs = getConn().prepare(
-    `SELECT id FROM tickets WHERE owner_user_id=? AND task_type=? ORDER BY created_at DESC LIMIT 4`,
-  ).all(owner, planTaskType(scope)) as { id: string }[];
+  const runs = (await postgresDb().many(`SELECT id FROM tickets WHERE owner_user_id=$1 AND task_type=$2 ORDER BY created_at DESC LIMIT 4`, owner, planTaskType(scope))) as {
+    id: string;
+  }[];
   const previousRun = runs.find((row) => String(row.id) !== current) || null;
   return {
     brief: previousArtifact ? parseJson(previousArtifact.payload) : null,
-    events: previousRun ? planningEvents(String(previousRun.id)) : [],
+    events: previousRun ? (await planningEvents(String(previousRun.id))) : [],
     work_item_id: previousRun ? String(previousRun.id) : null,
   };
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { freshTestDatabase } from "./support/pg.js";
 import { seedAll } from "../src/seed.js";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
 import { postgresPool } from "../src/postgres/pool.js";
@@ -21,21 +21,22 @@ beforeEach(async () => {
   await freshTestDatabase();
   process.env.AUTH_MODE = "enabled";
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll(); seedWorkbenchFixtures();
+  (await resetDatabase());
+  (await seedAll());
+  (await seedWorkbenchFixtures());
   const db = postgresPool();
   await db.query(`INSERT INTO users(id,username,name,password_hash,created_at,updated_at)
     VALUES ('reply-owner','reply-owner','Reply Owner','isolated-test-only',$1,$1)`, [new Date().toISOString()]);
-  actor = mapUser((await db.query("SELECT * FROM users WHERE active=1 ORDER BY id LIMIT 1")).rows[0]);
+  actor = (await mapUser((await db.query("SELECT * FROM users WHERE active=1 ORDER BY id LIMIT 1")).rows[0]));
   actor = { ...actor, roles: ["employee"], role: "employee", brands: ["LT"] };
   await db.query("UPDATE users SET roles='[\"employee\"]',brands='[\"LT\"]' WHERE id=$1", [actor.id]);
   await db.query("UPDATE collaborations SET brand='LT' WHERE id='col_xiaomei'");
   const now = new Date().toISOString();
-  await db.query("INSERT INTO sessions(id,title,created_at,updated_at,owner_user_id,collaboration_id) VALUES ('reply-session','reply',$1,$1,$2,'col_xiaomei')", [now,actor.id]);
+  await db.query("INSERT INTO sessions(id,title,created_at,updated_at,owner_user_id,collaboration_id) VALUES ('reply-session','reply',$1,$1,$2,'col_xiaomei')", [now, actor.id]);
   await db.query(`INSERT INTO kol_mail_threads(id,collaboration_id,conversation_id,subject,mailbox,created_at,updated_at,match_state)
     VALUES ('reply-thread','col_xiaomei','reply-conversation','Reply','owned@example.test',$1,$1,'matched')`, [now]);
   await db.query(`INSERT INTO user_starry_bindings(user_id,mailbox_email,status,updated_at,synced_at)
-    VALUES ($1,'owned@example.test','connected',$2,$2) ON CONFLICT(user_id,mailbox_email) DO UPDATE SET status='connected',synced_at=EXCLUDED.synced_at`, [actor.id,now]);
+    VALUES ($1,'owned@example.test','connected',$2,$2) ON CONFLICT(user_id,mailbox_email) DO UPDATE SET status='connected',synced_at=EXCLUDED.synced_at`, [actor.id, now]);
   input = { thread_id: "reply-thread", collaboration_id: "col_xiaomei", conversation_id: "reply-conversation", mailbox: "owned@example.test",
     provider_message_id: "provider-1", direction: "inbound", subject: "Reply", title: "Reply", body: "Please delay to Monday",
     from: "creator@example.test", from_name: "Creator", to: "owned@example.test", occurred_at: "2026-10-05T01:00:00Z",
@@ -48,114 +49,119 @@ describe("reply confirmation dependencies before provider IO", () => {
     const db = postgresPool();
     const draft = (await db.query(`INSERT INTO drafts(id,session_id,collaboration_id,skill,from_addr,to_addr,subject,body_en,body_zh_internal,lang_label)
       VALUES ('reply-draft','reply-session','col_xiaomei','email_compose','owned@example.test','creator@example.test','Reply','Human draft','内部','English') RETURNING *`)).rows[0];
-    const base = { draft_id: draft.id, snapshot: {from: draft.from_addr,to: draft.to_addr,cc: "",subject: draft.subject,body: draft.body_en},
-      action: hostRegisteredActionView({actionId: "mail.draft.send",label: "发送",riskLevel: "L3",allowed: true,enabled: true,confirmationPayload: {draft: draft.id}}) };
+    const base = { draft_id: draft.id, snapshot: { from: draft.from_addr, to: draft.to_addr, cc: "", subject: draft.subject, body: draft.body_en },
+      action: hostRegisteredActionView({ actionId: "mail.draft.send", label: "发送", riskLevel: "L3", allowed: true, enabled: true, confirmationPayload: { draft: draft.id } }) };
     await db.query(`CREATE TABLE IF NOT EXISTS mail_send_attempts(draft_id TEXT PRIMARY KEY,request_id TEXT UNIQUE,actor_id TEXT,confirmation_version TEXT,status TEXT,result_json TEXT,error TEXT,created_at TEXT,updated_at TEXT)`);
-    return {draft,base};
+    return { draft, base };
   }
   async function claim(requestId = "reply-request-01") {
-    const {draft,base} = await prepare();
-    const view = await withScopedUser(actor, () => replySendView(draft,base));
-    const input = {request_id: requestId,confirmation_version: view.action.confirmation_version!};
-    await withScopedUser(actor, () => bindReplySend(draft,base,input));
-    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,$2,$3,'sending')", [draft.id,requestId,actor.id]);
+    const { draft, base } = await prepare();
+    const view = await withScopedUser(actor, async () => (await replySendView(draft, base)));
+    const input = { request_id: requestId, confirmation_version: view.action.confirmation_version! };
+    await withScopedUser(actor, async () => (await bindReplySend(draft, base, input)));
+    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,confirmation_version,status,created_at,updated_at) VALUES ($1,$2,$3,$4,'sending',now()::text,now()::text)", [draft.id, requestId, actor.id, input.confirmation_version]);
     await postgresPool().query("UPDATE drafts SET status='sending' WHERE id=$1", [draft.id]);
-    return {draft,base,input};
+    return { draft, base, input };
   }
   it("rejects a preflight made before a related revision without creating a claim", async () => {
-    const {draft,base} = await prepare();
-    const view = await withScopedUser(actor, () => replySendView(draft,base));
-    await observeReplyMail({...input, body: "Please delay to Friday",source_updated_at: "2026-10-05T02:00:00Z"});
-    await expect(withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-request-01",confirmation_version: view.action.confirmation_version!}))).rejects.toThrow(/尚未发送/);
+    const { draft, base } = await prepare();
+    const view = await withScopedUser(actor, async () => (await replySendView(draft, base)));
+    await observeReplyMail({ ...input, body: "Please delay to Friday", source_updated_at: "2026-10-05T02:00:00Z" });
+    await expect(withScopedUser(actor, async () => (await bindReplySend(draft, base, { request_id: "reply-request-01", confirmation_version: view.action.confirmation_version! })))).rejects.toThrow(/尚未发送/);
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_send_basis")).rows[0].n).toBe(0);
   });
   it("deduplicates concurrent binding and preserves the first refusal audit after retry", async () => {
-    const {draft,base} = await prepare();
-    const view = await withScopedUser(actor, () => replySendView(draft,base));
-    const confirmed = {request_id: "reply-concurrent-01",confirmation_version: view.action.confirmation_version!};
-    await Promise.all([1,2].map(() => withScopedUser(actor, () => bindReplySend(draft,base,confirmed))));
+    const { draft, base } = await prepare();
+    const view = await withScopedUser(actor, async () => (await replySendView(draft, base)));
+    const confirmed = { request_id: "reply-concurrent-01", confirmation_version: view.action.confirmation_version! };
+    await Promise.all((await Promise.all((await Promise.all((await Promise.all([1, 2].map(async () => (await withScopedUser(actor, async () => (await bindReplySend(draft, base, confirmed))))))))))));
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_send_basis")).rows[0].n).toBe(1);
-    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,$2,$3,'sending')", [draft.id,confirmed.request_id,actor.id]);
-    await observeReplyMail({...input,body: "New reply",source_updated_at: "2026-10-05T02:00:00Z"});
-    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
+    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,confirmation_version,status,created_at,updated_at) VALUES ($1,$2,$3,$4,'sending',now()::text,now()::text)", [draft.id, confirmed.request_id, actor.id, confirmed.confirmation_version]);
+    await observeReplyMail({ ...input, body: "New reply", source_updated_at: "2026-10-05T02:00:00Z" });
+    await expect(withScopedUser(actor, async () => (await assertReplySendCurrent(draft, confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
     const audit = (await postgresPool().query("SELECT rejected_at,rejected_attempt FROM reply_send_basis WHERE request_id=$1", [confirmed.request_id])).rows[0];
-    const fresh = await withScopedUser(actor, () => replySendView(draft,base));
-    await withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-concurrent-02",confirmation_version: fresh.action.confirmation_version!}));
-    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
+    const fresh = await withScopedUser(actor, async () => (await replySendView(draft, base)));
+    await withScopedUser(actor, async () => (await bindReplySend(draft, base, { request_id: "reply-concurrent-02", confirmation_version: fresh.action.confirmation_version! })));
+    await expect(withScopedUser(actor, async () => (await assertReplySendCurrent(draft, confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
     expect((await postgresPool().query("SELECT rejected_at,rejected_attempt FROM reply_send_basis WHERE request_id=$1", [confirmed.request_id])).rows[0]).toEqual(audit);
   });
   it("does not block authorized removal or retain dependent mail snapshots and confirmation records", async () => {
-    const {draft,base} = await prepare();
-    const view = await withScopedUser(actor, () => replySendView(draft,base));
-    await withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-delete-01",confirmation_version: view.action.confirmation_version!}));
+    const { draft, base } = await prepare();
+    const view = await withScopedUser(actor, async () => (await replySendView(draft, base)));
+    await withScopedUser(actor, async () => (await bindReplySend(draft, base, { request_id: "reply-delete-01", confirmation_version: view.action.confirmation_version! })));
     await postgresPool().query("DELETE FROM drafts WHERE id=$1", [draft.id]);
     await postgresPool().query("DELETE FROM kol_mail_items WHERE thread_id='reply-thread'");
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_send_basis")).rows[0].n).toBe(0);
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_mail_revisions")).rows[0].n).toBe(0);
   });
   it("rejects after confirmation, preserves human draft and audit, allows a fresh confirmation", async () => {
-    const {draft,base,input: confirmed} = await claim();
-    await observeReplyMail({...input, body: "Please delay to Friday",source_updated_at: "2026-10-05T02:00:00Z"});
+    const { draft, base, input: confirmed } = await claim();
+    await observeReplyMail({ ...input, body: "Please delay to Friday", source_updated_at: "2026-10-05T02:00:00Z" });
     const provider = vi.spyOn(starry, "sendConversation");
     try {
-      await expect(withScopedUser(actor, () => sendDraft(String(draft.id),"operator",confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
+      await expect(withScopedUser(actor, async () => (await sendDraft(String(draft.id), "operator", confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
       expect(provider).not.toHaveBeenCalled();
-    } finally { provider.mockRestore(); }
-    expect((await postgresPool().query("SELECT status,body_en FROM drafts WHERE id=$1", [draft.id])).rows[0]).toMatchObject({status: "draft",body_en: "Human draft"});
-    expect((await postgresPool().query("SELECT state,rejected_attempt FROM reply_send_basis")).rows[0]).toMatchObject({state: "rejected",rejected_attempt: {request_id: confirmed.request_id}});
-    const view = await withScopedUser(actor, () => replySendView(draft,base));
-    await withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-request-02",confirmation_version: view.action.confirmation_version!}));
+    }
+    finally {
+      provider.mockRestore();
+    }
+    expect((await postgresPool().query("SELECT status,body_en FROM drafts WHERE id=$1", [draft.id])).rows[0]).toMatchObject({ status: "draft", body_en: "Human draft" });
+    expect((await postgresPool().query("SELECT state,rejected_attempt FROM reply_send_basis")).rows[0]).toMatchObject({ state: "rejected", rejected_attempt: { request_id: confirmed.request_id } });
+    const view = await withScopedUser(actor, async () => (await replySendView(draft, base)));
+    await withScopedUser(actor, async () => (await bindReplySend(draft, base, { request_id: "reply-request-02", confirmation_version: view.action.confirmation_version! })));
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_send_basis")).rows[0].n).toBe(2);
   });
   it("ignores unrelated collaboration changes but blocks relevant stage changes", async () => {
-    const {draft,input: confirmed} = await claim();
+    const { draft, input: confirmed } = await claim();
     await postgresPool().query("UPDATE collaborations SET stage_version=stage_version+1 WHERE id <> 'col_xiaomei'");
-    await withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id));
+    await withScopedUser(actor, async () => (await assertReplySendCurrent(draft, confirmed.request_id)));
     await postgresPool().query("UPDATE collaborations SET stage_version=stage_version+1 WHERE id='col_xiaomei'");
-    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
+    await expect(withScopedUser(actor, async () => (await assertReplySendCurrent(draft, confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
   });
   it("rechecks persisted brand revocation and rejects before provider IO", async () => {
-    const {draft,input: confirmed} = await claim();
+    const { draft, input: confirmed } = await claim();
     await postgresPool().query("UPDATE users SET brands='[]' WHERE id=$1", [actor.id]);
-    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,confirmed.request_id))).rejects.toThrow(/未调用发送接口/);
+    await expect(withScopedUser(actor, async () => (await assertReplySendCurrent(draft, confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
   });
   it("binds an empty reply dependency so a first incoming mail still invalidates confirmation", async () => {
-    const {draft,base} = await prepare();
+    const { draft, base } = await prepare();
     await postgresPool().query("DELETE FROM reply_mail_revisions");
     await postgresPool().query("DELETE FROM kol_mail_items WHERE thread_id='reply-thread'");
     await postgresPool().query("DELETE FROM kol_mail_threads WHERE id='reply-thread'");
-    await withScopedUser(actor, () => bindReplySend(draft,base,{request_id: "reply-empty-01",confirmation_version: base.action.confirmation_version!}));
-    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,'reply-empty-01',$2,'sending')", [draft.id,actor.id]);
+    const confirmed = { request_id: "reply-empty-01", confirmation_version: base.action.confirmation_version! };
+    await withScopedUser(actor, async () => (await bindReplySend(draft, base, confirmed)));
+    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,confirmation_version,status,created_at,updated_at) VALUES ($1,$2,$3,$4,'sending',now()::text,now()::text)", [draft.id, confirmed.request_id, actor.id, confirmed.confirmation_version]);
     const at = new Date().toISOString();
     await postgresPool().query(`INSERT INTO kol_mail_threads(id,collaboration_id,conversation_id,subject,mailbox,created_at,updated_at,match_state)
       VALUES ('reply-thread','col_xiaomei','reply-conversation','Reply','owned@example.test',$1,$1,'matched')`, [at]);
     await observeReplyMail(input);
-    await expect(withScopedUser(actor, () => assertReplySendCurrent(draft,"reply-empty-01"))).rejects.toThrow(/未调用发送接口/);
+    await expect(withScopedUser(actor, async () => (await assertReplySendCurrent(draft, "reply-empty-01")))).rejects.toThrow(/未调用发送接口/);
   });
   it("rechecks again at the send adapter boundary after preparatory reads", async () => {
-    const {draft,input: confirmed} = await claim();
-    const provider = vi.fn(async () => ({sent: true}));
-    setStarryKolClientFactory(() => ({callTool: provider,close: async () => undefined}));
+    const { draft, input: confirmed } = await claim();
+    const provider = vi.fn(async () => ({ sent: true }));
+    setStarryKolClientFactory(() => ({ callTool: provider, close: async () => undefined }));
     try {
-      await observeReplyMail({...input,body: "Please delay to Friday",source_updated_at: "2026-10-05T02:00:00Z"});
-      await expect(withScopedUser(actor, () => withMailSendAuthority(String(draft.id),confirmed.request_id,
-        () => callStarryKolTool("sendEmailNow",{}), () => assertReplySendCurrent(draft,confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
+      await observeReplyMail({ ...input, body: "Please delay to Friday", source_updated_at: "2026-10-05T02:00:00Z" });
+      await expect(withScopedUser(actor, async () => (await withMailSendAuthority(String(draft.id), confirmed.request_id, async () => (await callStarryKolTool("sendEmailNow", {})), async () => (await assertReplySendCurrent(draft, confirmed.request_id)))))).rejects.toThrow(/未调用发送接口/);
       expect(provider).not.toHaveBeenCalled();
-    } finally {setStarryKolClientFactory();}
+    }
+    finally {
+      setStarryKolClientFactory();
+    }
   });
   it("blocks known unresolved mail threads instead of treating them as first contact", async () => {
-    const {draft,base} = await prepare();
+    const { draft, base } = await prepare();
     await postgresPool().query("DELETE FROM kol_mail_items WHERE thread_id='reply-thread'");
-    const view = await withScopedUser(actor, () => replySendView(draft,base));
-    expect(view.action).toMatchObject({enabled: false,state: "blocked"});
-    expect(view.reply_context).toMatchObject({complete: false});
+    const view = await withScopedUser(actor, async () => (await replySendView(draft, base)));
+    expect(view.action).toMatchObject({ enabled: false, state: "blocked" });
+    expect(view.reply_context).toMatchObject({ complete: false });
   });
 });
-const read = (after = 0) => withScopedUser(actor, () => readReplyContext("reply-session", after));
-
+const read = async (after = 0) => (await withScopedUser(actor, async () => (await readReplyContext("reply-session", after))));
 describe("native reply context and source revisions", () => {
   it("captures one durable event under duplicate and concurrent delivery", async () => {
-    const results = await Promise.all([observeReplyMail(input),observeReplyMail(input),observeReplyMail(input)]);
+    const results = await Promise.all([(observeReplyMail(input)), (observeReplyMail(input)), (observeReplyMail(input))]);
     expect(results.filter(result => result.changed)).toHaveLength(1);
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_mail_revisions")).rows[0].n).toBe(1);
     const ctx = await read();
@@ -190,7 +196,7 @@ describe("native reply context and source revisions", () => {
   });
   it("blocks another session owner, another brand and a revoked mailbox", async () => {
     await observeReplyMail(input);
-    await expect(withScopedUser({ ...actor, id: "other-actor" }, () => readReplyContext("reply-session"))).rejects.toThrow(/mailbox_access_denied/);
+    await expect(withScopedUser({ ...actor, id: "other-actor" }, async () => (await readReplyContext("reply-session")))).rejects.toThrow(/mailbox_access_denied/);
     await postgresPool().query("UPDATE users SET brands='[\"another-brand\"]' WHERE id=$1", [actor.id]);
     await expect(read()).rejects.toThrow(/not found/);
     await postgresPool().query("UPDATE users SET brands='[\"LT\"]' WHERE id=$1", [actor.id]);
@@ -209,26 +215,28 @@ describe("native reply context and source revisions", () => {
     await observeReplyMail(input);
     await postgresPool().query("UPDATE kol_mail_items SET body_text=NULL WHERE thread_id='reply-thread'");
     const ctx = await read();
-    expect(ctx).toMatchObject({complete: false,missing_body_count: 1});
-    expect((ctx.messages as Array<{body: unknown}>)[0].body).toBeNull();
+    expect(ctx).toMatchObject({ complete: false, missing_body_count: 1 });
+    expect((ctx.messages as Array<{
+      body: unknown;
+    }>)[0].body).toBeNull();
   });
   it("captures missing body separately from a genuinely empty body and never substitutes a preview", async () => {
-    expect(replyMessageBody({snippet: "Partial preview",summary: "Generated summary"})).toBeNull();
-    expect(replyMessageBody({body: "",snippet: "Partial preview"})).toBe("");
-    expect(replyMessageBody({body: "Actual full message",summary: "Generated summary"})).toBe("Actual full message");
-    expect(replyMessageBody({html: '<p>Raw <a href="new">source</a></p>'})).toBe('<p>Raw <a href="new">source</a></p>');
-    await observeReplyMail({...input,body: null});
-    expect(await read()).toMatchObject({complete: false,missing_body_count: 1});
-    await observeReplyMail({...input,body: "",source_updated_at: "2026-10-05T02:00:00Z"});
-    expect(await read()).toMatchObject({complete: true,missing_body_count: 0});
+    expect(replyMessageBody({ snippet: "Partial preview", summary: "Generated summary" })).toBeNull();
+    expect(replyMessageBody({ body: "", snippet: "Partial preview" })).toBe("");
+    expect(replyMessageBody({ body: "Actual full message", summary: "Generated summary" })).toBe("Actual full message");
+    expect(replyMessageBody({ html: '<p>Raw <a href="new">source</a></p>' })).toBe('<p>Raw <a href="new">source</a></p>');
+    await observeReplyMail({ ...input, body: null });
+    expect(await read()).toMatchObject({ complete: false, missing_body_count: 1 });
+    await observeReplyMail({ ...input, body: "", source_updated_at: "2026-10-05T02:00:00Z" });
+    expect(await read()).toMatchObject({ complete: true, missing_body_count: 0 });
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_mail_revisions")).rows[0].n).toBe(2);
   });
   it("quarantines missing occurrence time without inventing arrival as source time", async () => {
-    expect(await observeReplyMail({...input,occurred_at: ""})).toMatchObject({quarantined: true});
+    expect(await observeReplyMail({ ...input, occurred_at: "" })).toMatchObject({ quarantined: true });
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM kol_mail_items WHERE thread_id='reply-thread'")).rows[0].n).toBe(0);
   });
   it("quarantines missing provider identity without fabricating a message ID", async () => {
-    expect(await observeReplyMail({...input,provider_message_id: ""})).toMatchObject({quarantined: true});
+    expect(await observeReplyMail({ ...input, provider_message_id: "" })).toMatchObject({ quarantined: true });
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM kol_mail_items WHERE thread_id='reply-thread'")).rows[0].n).toBe(0);
     expect((await postgresPool().query("SELECT reason FROM reply_mail_quarantine")).rows[0].reason).toBe("stable_source_identity_missing");
   });

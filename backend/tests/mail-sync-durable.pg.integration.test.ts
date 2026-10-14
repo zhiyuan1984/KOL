@@ -25,37 +25,21 @@ function actor(): AppUser {
 async function seedNativeAuthorization(): Promise<void> {
   const now = new Date().toISOString();
   const pool = postgresPool();
-  await pool.query(
-    `INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at,email)
-     VALUES ($1,$2,$3,'test-only',$4,'[]','',1,$5,$5,$6)`,
-    [ACTOR_ID, ACTOR_ID, "Native mail sync actor", JSON.stringify(["employee"]), now, MAILBOX],
-  );
-  await pool.query(
-    `INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
-     VALUES ('agent:mail-native','Native mail agent','test-only','published',1,$1,$1)`, [now],
-  );
+  await pool.query(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at,email)
+     VALUES ($1,$2,$3,'test-only',$4,'[]','',1,$5,$5,$6)`, [ACTOR_ID, ACTOR_ID, "Native mail sync actor", JSON.stringify(["employee"]), now, MAILBOX]);
+  await pool.query(`INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
+     VALUES ('agent:mail-native','Native mail agent','test-only','published',1,$1,$1)`, [now]);
   for (const skill of ["email_conversation_list", "email_conversation_read"]) {
-    await pool.query(
-      "INSERT INTO runtime_agent_skills(agent_id,skill_id,enabled,version,updated_at) VALUES ('agent:mail-native',$1,1,1,$2)",
-      [skill, now],
-    );
+    await pool.query("INSERT INTO runtime_agent_skills(agent_id,skill_id,enabled,version,updated_at) VALUES ('agent:mail-native',$1,1,1,$2)", [skill, now]);
   }
-  await pool.query(
-    `INSERT INTO organization_people(person_ref,display_name,user_ref,user_id,status,source,created_at,updated_at)
-     VALUES ('person:mail-native','Native mail sync actor',$1,$1,'active','test',$2,$2)`, [ACTOR_ID, now],
-  );
-  await pool.query(
-    `INSERT INTO agent_bindings
+  await pool.query(`INSERT INTO organization_people(person_ref,display_name,user_ref,user_id,status,source,created_at,updated_at)
+     VALUES ('person:mail-native','Native mail sync actor',$1,$1,'active','test',$2,$2)`, [ACTOR_ID, now]);
+  await pool.query(`INSERT INTO agent_bindings
      (id,agent_id,target_type,target_id,company_id,status,binding_version,org_version,created_at,updated_at)
-     VALUES ('binding:mail-native','agent:mail-native','person','person:mail-native','company:test','active',1,1,$1,$1)`,
-    [now],
-  );
-  await pool.query(
-    `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,bearer_token,status,updated_at)
-     VALUES ($1,$2,1,$3,'connected',$4)`, [ACTOR_ID, MAILBOX, CREDENTIAL, now],
-  );
+     VALUES ('binding:mail-native','agent:mail-native','person','person:mail-native','company:test','active',1,1,$1,$1)`, [now]);
+  await pool.query(`INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,bearer_token,status,updated_at)
+     VALUES ($1,$2,1,$3,'connected',$4)`, [ACTOR_ID, MAILBOX, CREDENTIAL, now]);
 }
-
 function conversation(id: string, unread: boolean, at: string): Json {
   return { id, conversationId: id, mailboxEmail: MAILBOX, subject: `Subject ${id}`, unreadCount: unread ? 1 : 0, lastMessageTime: at };
 }
@@ -86,11 +70,13 @@ describe("durable PostgreSQL mail sync", () => {
             firstList = false;
             throw Object.assign(new Error("safe test outage"), { remoteStatus: 500, remoteKind: "unreachable" });
           }
-          if (Number(args.pageNo) === 1) return { data: { total: 3, pageSize: 2, list: [
+          if (Number(args.pageNo) === 1)
+            return { data: { total: 3, pageSize: 2, list: [
             conversation("7301", false, "2026-10-12T00:00:00.000Z"),
             conversation("7302", true, "2026-10-11T00:00:00.000Z"),
           ] } };
-          if (Number(args.pageNo) === 2) return { data: { total: 3, pageSize: 2, list: [
+          if (Number(args.pageNo) === 2)
+            return { data: { total: 3, pageSize: 2, list: [
             conversation("7303", false, "2026-10-13T00:00:00.000Z"),
           ] } };
           return { data: { total: 3, pageSize: 2, list: [] } };
@@ -98,19 +84,20 @@ describe("durable PostgreSQL mail sync", () => {
         if (name === "getEmailConversation") {
           const id = String(args.conversationId);
           reads.push(id);
-          if (id === "7302") bodyStarted?.();
+          if (id === "7302")
+            bodyStarted?.();
           await bodiesGate;
           return { data: { conversationId: id, subject: `Subject ${id}`, messages: [{
             id: `message-${id}`, direction: "inbound", from: "creator@example.test", body: `Body ${id}`,
             sentAt: "2026-10-12T00:00:00.000Z",
           }] } };
         }
-        if (name === "pageMailboxes") return { data: { list: [] } };
+        if (name === "pageMailboxes")
+          return { data: { list: [] } };
         return { data: {} };
       },
-      async close() { /* fixture */ },
+      async close() { },
     }));
-
     const queued = await pgEnqueueExecutionJob({
       job_type: "mail.sync", tenant_ref: ACTOR_ID, actor_ref: ACTOR_ID,
       idempotency_key: "mail-sync-native-progress", object_ref: { mailbox: MAILBOX },
@@ -120,15 +107,19 @@ describe("durable PostgreSQL mail sync", () => {
     expect(claimed).toBeTruthy();
     const previousMode = process.env.KOL_RUNTIME_MODE;
     process.env.KOL_RUNTIME_MODE = "postgres-only";
-    let dispatched: Promise<Awaited<ReturnType<typeof dispatchClaimedExecutionJob>>> | undefined;
+    let dispatched: ReturnType<typeof dispatchClaimedExecutionJob> | undefined;
     let dispatchedResult: Awaited<ReturnType<typeof dispatchClaimedExecutionJob>> | undefined;
     try {
       dispatched = dispatchClaimedExecutionJob(claimed!);
       await bodyStartedPromise;
       expect(reads[0]).toBe("7302");
-      const running = await postgresPool().query<{ status: string; receipt_json: { index: Json; body: Json } }>(
-        "SELECT status,receipt_json::jsonb AS receipt_json FROM execution_jobs WHERE id=$1", [queued.job.id],
-      );
+      const running = await postgresPool().query<{
+        status: string;
+        receipt_json: {
+          index: Json;
+          body: Json;
+        };
+      }>("SELECT status,receipt_json::jsonb AS receipt_json FROM execution_jobs WHERE id=$1", [queued.job.id]);
       expect(running.rows[0]).toMatchObject({
         status: "running",
         receipt_json: {
@@ -136,20 +127,27 @@ describe("durable PostgreSQL mail sync", () => {
           body: { phase: "pending", requested: 2, completed: 0, failed: 0, pending: 2 },
         },
       });
-    } finally {
+    }
+    finally {
       releaseBodies?.();
       // Never leave a fixture-held remote request running into afterEach (or a
       // later test) when an assertion above fails.
-      if (dispatched) dispatchedResult = await dispatched;
-      if (previousMode === undefined) delete process.env.KOL_RUNTIME_MODE;
-      else process.env.KOL_RUNTIME_MODE = previousMode;
+      if (dispatched)
+        dispatchedResult = await dispatched;
+      if (previousMode === undefined)
+        delete process.env.KOL_RUNTIME_MODE;
+      else
+        process.env.KOL_RUNTIME_MODE = previousMode;
     }
     expect(dispatchedResult).toMatchObject({ job_type: "mail.sync", handled: true, outcome: "processed" });
-
     expect(reads).toEqual(["7302", "7301", "7303"]);
-    const finished = await postgresPool().query<{ status: string; receipt_json: { index: Record<string, unknown>; body: Record<string, unknown> } }>(
-      "SELECT status,receipt_json::jsonb AS receipt_json FROM execution_jobs WHERE id=$1", [queued.job.id],
-    );
+    const finished = await postgresPool().query<{
+      status: string;
+      receipt_json: {
+        index: Record<string, unknown>;
+        body: Record<string, unknown>;
+      };
+    }>("SELECT status,receipt_json::jsonb AS receipt_json FROM execution_jobs WHERE id=$1", [queued.job.id]);
     expect(finished.rows[0]).toMatchObject({
       status: "succeeded",
       receipt_json: {
@@ -179,10 +177,11 @@ describe("durable PostgreSQL mail sync", () => {
           remoteReads += 1;
           throw Object.assign(new Error("authorization expired"), { remoteStatus: 401 });
         }
-        if (name === "pageMailboxes") return { data: { list: [] } };
+        if (name === "pageMailboxes")
+          return { data: { list: [] } };
         return { data: {} };
       },
-      async close() { /* fixture */ },
+      async close() { },
     }));
     const queued = await pgEnqueueExecutionJob({
       job_type: "mail.sync", tenant_ref: ACTOR_ID, actor_ref: ACTOR_ID,
@@ -192,9 +191,11 @@ describe("durable PostgreSQL mail sync", () => {
     const dispatched = await dispatchClaimedExecutionJob(claimed!);
     expect(dispatched).toMatchObject({ job_type: "mail.sync", outcome: "failed" });
     expect(remoteReads).toBe(1);
-    const failed = await postgresPool().query<{ status: string; error_code: string; attempts: number }>(
-      "SELECT status,error_code,attempts FROM execution_jobs WHERE id=$1", [queued.job.id],
-    );
+    const failed = await postgresPool().query<{
+      status: string;
+      error_code: string;
+      attempts: number;
+    }>("SELECT status,error_code,attempts FROM execution_jobs WHERE id=$1", [queued.job.id]);
     expect({ ...failed.rows[0], attempts: Number(failed.rows[0].attempts) })
       .toEqual({ status: "failed", error_code: "mail_source_unauthorized", attempts: 1 });
   });
@@ -208,10 +209,11 @@ describe("durable PostgreSQL mail sync", () => {
           remoteReads += 1;
           throw Object.assign(new Error("fixture rate limit"), { remoteStatus: 429, remoteRetryAfterMs: retryAfterMs });
         }
-        if (name === "pageMailboxes") return { data: { list: [] } };
+        if (name === "pageMailboxes")
+          return { data: { list: [] } };
         return { data: {} };
       },
-      async close() { /* fixture */ },
+      async close() { },
     }));
     const queued = await pgEnqueueExecutionJob({
       job_type: "mail.sync", tenant_ref: ACTOR_ID, actor_ref: ACTOR_ID,
@@ -221,9 +223,12 @@ describe("durable PostgreSQL mail sync", () => {
     const startedAt = Date.now();
     expect(await dispatchClaimedExecutionJob(claimed!)).toMatchObject({ job_type: "mail.sync", outcome: "failed" });
     expect(remoteReads).toBe(2);
-    const retrying = await postgresPool().query<{ status: string; error_code: string; attempts: number; next_attempt_at: string }>(
-      "SELECT status,error_code,attempts,next_attempt_at FROM execution_jobs WHERE id=$1", [queued.job.id],
-    );
+    const retrying = await postgresPool().query<{
+      status: string;
+      error_code: string;
+      attempts: number;
+      next_attempt_at: string;
+    }>("SELECT status,error_code,attempts,next_attempt_at FROM execution_jobs WHERE id=$1", [queued.job.id]);
     expect({ ...retrying.rows[0], attempts: Number(retrying.rows[0].attempts) })
       .toMatchObject({ status: "retrying", error_code: "mail_source_rate_limited", attempts: 1 });
     expect(Date.parse(String(retrying.rows[0].next_attempt_at))).toBeGreaterThanOrEqual(startedAt + retryAfterMs);
@@ -248,10 +253,11 @@ describe("durable PostgreSQL mail sync", () => {
             id: "revoked-message", direction: "inbound", body: "must not persist", sentAt: "2026-10-12T00:00:00.000Z",
           }] } };
         }
-        if (name === "pageMailboxes") return { data: { list: [] } };
+        if (name === "pageMailboxes")
+          return { data: { list: [] } };
         return { data: {} };
       },
-      async close() { /* fixture */ },
+      async close() { },
     }));
     const queued = await pgEnqueueExecutionJob({
       job_type: "mail.sync", tenant_ref: ACTOR_ID, actor_ref: ACTOR_ID,
@@ -262,17 +268,22 @@ describe("durable PostgreSQL mail sync", () => {
     try {
       await bodyStartedPromise;
       await postgresPool().query("UPDATE user_starry_bindings SET status='expired' WHERE user_id=$1 AND mailbox_email=$2", [ACTOR_ID, MAILBOX]);
-    } finally {
+    }
+    finally {
       releaseBody?.();
     }
     expect(await dispatched).toMatchObject({ job_type: "mail.sync", outcome: "failed" });
     expect(remoteReads).toBe(1);
-    const failed = await postgresPool().query<{ status: string; error_code: string; attempts: number }>(
-      "SELECT status,error_code,attempts FROM execution_jobs WHERE id=$1", [queued.job.id],
-    );
+    const failed = await postgresPool().query<{
+      status: string;
+      error_code: string;
+      attempts: number;
+    }>("SELECT status,error_code,attempts FROM execution_jobs WHERE id=$1", [queued.job.id]);
     expect({ ...failed.rows[0], attempts: Number(failed.rows[0].attempts) })
       .toEqual({ status: "failed", error_code: "mailbox_access_denied", attempts: 1 });
-    const bodies = await postgresPool().query<{ n: number }>("SELECT count(*)::int AS n FROM kol_mail_items");
+    const bodies = await postgresPool().query<{
+      n: number;
+    }>("SELECT count(*)::int AS n FROM kol_mail_items");
     expect(Number(bodies.rows[0].n)).toBe(0);
   });
 });

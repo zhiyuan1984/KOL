@@ -6,15 +6,7 @@ import { scopedUser } from "../auth.js";
 import { declaredNextActionLabels, declaredResultTitle } from "../tasks/result-presentation.js";
 import { executeKolClawTask, isKolClawTask, kolClawResultCard, type KolClawTask } from "../kolclaw/service.js";
 import { eightPhaseWalkItems, isExceptionStage, phaseSopSummary, profileForDomain, sopPackByStage, stageSopView } from "../sops.js";
-import {
-  composePayloadFromItem,
-  emailMcpResultCard,
-  executeEmailMcpTask,
-  isEmailMcpTask,
-  isStarryKolReadTask,
-  resolveComposeSubject,
-  type EmailMcpTask,
-} from "../starrykol/service.js";
+import { composePayloadFromItem, emailMcpResultCard, executeEmailMcpTask, isEmailMcpTask, isStarryKolReadTask, resolveComposeSubject, type EmailMcpTask, } from "../starrykol/service.js";
 import { analyzeCreatorProfile } from "../starrykol/profile-briefing.js";
 import { stubInternalZh } from "../starrykol/translate-zh.js";
 import { extractTaskEntities } from "../tasks/resolver.js";
@@ -26,19 +18,8 @@ import { mailHistoryRows, mailMemoryLines } from "../host/mail-summary.js";
 import { codexMode } from "../config.js";
 import { CodexUnavailable } from "./errors.js";
 import { extractNestedCreateDrafts } from "./parse.js";
-import {
-  attachComposeLoopCard,
-  composeFactsFromContext,
-  composePromptFromEntities,
-  draftFieldsFromFacts,
-  pickComposeTemplate,
-  seedComposeDraft,
-  stageMailAction,
-  composeRouteFacts,
-  type ComposeFacts,
-} from "../host/compose-loop.js";
+import { attachComposeLoopCard, composeFactsFromContext, composePromptFromEntities, draftFieldsFromFacts, pickComposeTemplate, seedComposeDraft, stageMailAction, composeRouteFacts, type ComposeFacts, } from "../host/compose-loop.js";
 import { ensureQuoteInBody, ensureQuoteInZh } from "../host/quote-amount.js";
-
 export async function collectStarryKolItems(input: {
   task: EmailMcpTask;
   raw: string;
@@ -47,9 +28,16 @@ export async function collectStarryKolItems(input: {
   creator_id?: unknown;
   prior?: Json;
   actor?: string;
-  onOperation?: (operation: { name: string; label: string; status: string }) => void;
-}): Promise<{ items: Json[]; operations: Json[] }> {
-  const extracted = extractTaskEntities(input.raw || "");
+  onOperation?: (operation: {
+    name: string;
+    label: string;
+    status: string;
+  }) => void;
+}): Promise<{
+  items: Json[];
+  operations: Json[];
+}> {
+  const extracted = (await extractTaskEntities(input.raw || ""));
   const prior = input.prior && typeof input.prior === "object" ? { ...input.prior } : {};
   const entities = input.entities && typeof input.entities === "object" ? { ...input.entities } : {};
   const subject = resolveComposeSubject({
@@ -62,7 +50,8 @@ export async function collectStarryKolItems(input: {
     prior.subject = subject;
     extracted.subject = subject;
     entities.subject = subject;
-  } else {
+  }
+  else {
     delete prior.subject;
     delete extracted.subject;
     delete entities.subject;
@@ -82,9 +71,7 @@ export async function collectStarryKolItems(input: {
     rate_unit: facts.rate_unit,
     stage_code: facts.quote ? (entities.stage_code || entities.stage) : entities.stage_code,
   }, "写一封简短的合作沟通邮件，先不要发送。");
-  let { data: rawData, operations } = await executeEmailMcpTask(
-    input.task,
-    {
+  let { data: rawData, operations } = await executeEmailMcpTask(input.task, {
       ...prior,
       ...extracted,
       ...(input.handle ? { handle: input.handle } : {}),
@@ -95,10 +82,7 @@ export async function collectStarryKolItems(input: {
       amount_usd: facts.amount_usd,
       rate_unit: facts.rate_unit,
       ...(subject ? { subject } : {}),
-    },
-    input.actor || scopedUser()?.id || "demo",
-    input.onOperation,
-  );
+  }, input.actor || scopedUser()?.id || "demo", input.onOperation);
   if (input.task === "creator_profile" && !rawData.needs_input) {
     const analyzed = await analyzeCreatorProfile(rawData);
     rawData = {
@@ -136,11 +120,11 @@ export async function collectStarryKolItems(input: {
     }
   }
   const card = input.task === "email_compose"
-    ? attachComposeLoopCard(emailMcpResultCard(input.task, data), facts, {
+    ? attachComposeLoopCard((await emailMcpResultCard(input.task, data)), facts, {
       ...data,
       handle: String(data.handle || input.handle || ""),
     })
-    : emailMcpResultCard(input.task, data);
+    : (await emailMcpResultCard(input.task, data));
   const items: Json[] = [{
     ...card,
     type: "task_result",
@@ -185,16 +169,23 @@ export async function collectStarryKolItems(input: {
   }
   return { items, operations };
 }
-
-function draftFromMailTemplate(
-  entities: Json,
-  facts: ComposeFacts,
-  ctx: { mailbox: string; recipient: string; handle: string; stage: string },
-): { subject: string; body: string; template_id: string; knowledge_id: string; knowledge_version: number } | null {
+function draftFromMailTemplate(entities: Json, facts: ComposeFacts, ctx: {
+  mailbox: string;
+  recipient: string;
+  handle: string;
+  stage: string;
+}): {
+  subject: string;
+  body: string;
+  template_id: string;
+  knowledge_id: string;
+  knowledge_version: number;
+} | null {
   const mt = entities.mail_template && typeof entities.mail_template === "object"
     ? entities.mail_template as Json
     : null;
-  if (!mt?.id) return null;
+  if (!mt?.id)
+    return null;
   const compiled = compileMailDraft({
     id: String(mt.id),
     version: Number(mt.version || 1),
@@ -260,16 +251,13 @@ function sopRecommendedActions(stageCode: string, handle = ""): string[] {
       : ["风险扫描", "提出阶段变更"];
   }
   const mail = stageMailAction(handle, stageCode);
-  if (handle) return [mail.prompt, `记状态 @${handle}`];
+  if (handle)
+    return [mail.prompt, `记状态 @${handle}`];
   return [mail.prompt, "提出阶段变更", "阶段SOP"];
 }
-
 function sopTrackItems(stageCode: string) {
-  return stageSopView(stageCode).track.map((phase) => (
-    `${phase.current ? "▶ " : ""}${phase.label}：${phase.official_labels.join(" / ")}`
-  ));
+  return stageSopView(stageCode).track.map((phase) => (`${phase.current ? "▶ " : ""}${phase.label}：${phase.official_labels.join(" / ")}`));
 }
-
 export function collectStageSopItems(stageCode: string, handle = ""): Json[] {
   const view = stageSopView(stageCode || "INITIAL_CONTACT");
   const pack = sopPackByStage(view.stage_code);
@@ -305,9 +293,7 @@ export function collectStageSopItems(stageCode: string, handle = ""): Json[] {
       },
       {
         title: "各阶段 SOP",
-        items: phaseSopSummary().map((phase) => (
-          `${phase.label}：${phase.official_labels.join(" / ")} → ${phase.next_action || "查看本阶段 SOP"}`
-        )),
+          items: phaseSopSummary().map((phase) => (`${phase.label}：${phase.official_labels.join(" / ")} → ${phase.next_action || "查看本阶段 SOP"}`)),
       },
       { title: "八段怎么走", items: eightPhaseWalkItems() },
       { title: "异常流程", items: view.exception_flow },
@@ -327,13 +313,12 @@ export function collectStageSopItems(stageCode: string, handle = ""): Json[] {
     phases: view.track,
   }];
 }
-
-export function collectDealMemoryItems(col: Json, handle: string): Json[] {
+export async function collectDealMemoryItems(col: Json, handle: string): Promise<Json[]> {
   const notes = String(col.notes || "").trim();
   const noteItems = notes
     ? notes.split(/[；;。\n]/).map((part) => part.trim()).filter(Boolean).slice(0, 4)
     : [];
-  const mailItems = mailMemoryLines(mailHistoryRows(String(col.id || "")));
+  const mailItems = mailMemoryLines((await mailHistoryRows(String(col.id || ""))));
   return [{
     type: "task_result",
     skill: "deal_memory",
@@ -354,33 +339,35 @@ export async function collectKolClawItems(input: {
   raw: string;
   entities?: Json;
   actor?: string;
-  onOperation?: (operation: { name: string; label: string; status: string }) => void;
-}): Promise<{ items: Json[]; operations: Json[] }> {
-  const { data, operations } = await executeKolClawTask(
-    input.task,
-    { ...extractTaskEntities(input.raw || ""), ...(input.entities || {}) },
-    input.actor || scopedUser()?.id || "demo",
-    input.onOperation,
-  );
+  onOperation?: (operation: {
+    name: string;
+    label: string;
+    status: string;
+  }) => void;
+}): Promise<{
+  items: Json[];
+  operations: Json[];
+}> {
+  const { data, operations } = await executeKolClawTask(input.task, { ...(await extractTaskEntities(input.raw || "")), ...(input.entities || {}) }, input.actor || scopedUser()?.id || "demo", input.onOperation);
   return {
     items: [{ ...kolClawResultCard(input.task, data), type: "task_result", operations }],
     operations,
   };
 }
-
 function starryPayload(item: Json): Json | null {
-  if (item.starrykol_data && typeof item.starrykol_data === "object") return item.starrykol_data as Json;
-  if (item.emailmcp_data && typeof item.emailmcp_data === "object") return item.emailmcp_data as Json;
+  if (item.starrykol_data && typeof item.starrykol_data === "object")
+    return item.starrykol_data as Json;
+  if (item.emailmcp_data && typeof item.emailmcp_data === "object")
+    return item.emailmcp_data as Json;
   return null;
 }
-
 function hasStarryResult(items: Json[]): boolean {
   return items.some((item) => starryPayload(item));
 }
-
 /** An approval rejection is never usable business data, even when a model reports a completed turn. */
 export function starryReadBlockedByApproval(data: Json | null): boolean {
-  if (!data) return false;
+  if (!data)
+    return false;
   const blob = JSON.stringify(data);
   return /approval_policy\s*=\s*never|禁止审批|needs?[_ ]?approval|requires? approval|forbids? approval|approvalPolicy/i.test(blob);
 }
@@ -388,7 +375,8 @@ export function starryReadBlockedByApproval(data: Json | null): boolean {
 export function hasUsableStarryReadResult(items: Json[]): boolean {
   return items.some((item) => {
     const data = starryPayload(item);
-    if (!data || starryReadBlockedByApproval(data)) return false;
+    if (!data || starryReadBlockedByApproval(data))
+      return false;
     return true;
   });
 }
@@ -402,7 +390,8 @@ const READ_RESULT_TYPES = new Set(["task_result", "text", "note", "propose_stage
 /** Analysis / list skills may finish without a Starry payload or sendable draft. */
 function hasReadSkillOutput(items: Json[]): boolean {
   return items.some((item) => {
-    if (READ_RESULT_TYPES.has(String(item.type || ""))) return true;
+    if (READ_RESULT_TYPES.has(String(item.type || "")))
+      return true;
     return Boolean(String(item.title || "").trim() && String(item.summary || item.body || item.text || "").trim());
   });
 }
@@ -415,15 +404,16 @@ function readSkillTitle(skill: string): string {
 /** 模型产出的结果卡没给下一步动作时，补上技能 md 声明的 next_actions。 */
 function withDeclaredNextActions(skill: string, items: Json[]): Json[] {
   return items.map((item) => {
-    if (item.type !== "task_result" || (Array.isArray(item.recommended_actions) && item.recommended_actions.length)) return item;
+    if (item.type !== "task_result" || (Array.isArray(item.recommended_actions) && item.recommended_actions.length))
+      return item;
     const hasResults = Array.isArray(item.sections) && (item.sections as Json[]).some((section) => Array.isArray(section.items) && section.items.length > 0 || String(section.body || "").trim());
     const labels = declaredNextActionLabels(String(item.skill || skill), { hasResults });
     return labels?.length ? { ...item, recommended_actions: labels } : item;
   });
 }
-
 function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
-  if (items.some((item) => item.type === "task_result")) return items;
+  if (items.some((item) => item.type === "task_result"))
+    return items;
   const texts = items.filter((item) => item.type === "text" || item.type === "note");
   const summary = texts
     .map((item) => String(item.text || item.body || item.summary || "").trim())
@@ -434,7 +424,8 @@ function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
   const body = summary
     || String(propose?.reason || propose?.summary || "").trim()
     || (Array.isArray(overdue?.items) ? `已列出 ${(overdue.items as Json[]).length} 条逾期。` : "");
-  if (!body) return items;
+  if (!body)
+    return items;
   return [
     {
       type: "task_result",
@@ -448,18 +439,18 @@ function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
     ...items,
   ];
 }
-
 function composeDraftFromStarry(skill: EmailMcpTask, items: Json[]): Json | null {
-  if (skill !== "email_compose" || items.some((item) => item.type === "create_draft")) return null;
+  if (skill !== "email_compose" || items.some((item) => item.type === "create_draft"))
+    return null;
   const data = items.map(starryPayload).find((payload) => {
-    if (!payload || payload.sent) return false;
-    return Boolean(
-      firstEmail(payload.mailboxEmail || payload.from)
+    if (!payload || payload.sent)
+      return false;
+    return Boolean(firstEmail(payload.mailboxEmail || payload.from)
       && firstEmail(payload.to || payload.recipient)
-      && String(payload.subject || "").trim(),
-    );
+      && String(payload.subject || "").trim());
   });
-  if (!data) return null;
+  if (!data)
+    return null;
   const fromAddr = firstEmail(data.mailboxEmail || data.from);
   const toAddr = firstEmail(data.to || data.recipient);
   const subject = String(data.subject || "");
@@ -489,17 +480,20 @@ function composeDraftFromStarry(skill: EmailMcpTask, items: Json[]): Json | null
     ...(brand ? { brand } : {}),
   };
 }
-
 function isComposeResultItem(item: Json): boolean {
-  if (item.type !== "task_result") return false;
-  if (item.skill === "email_compose") return true;
+  if (item.type !== "task_result")
+    return false;
+  if (item.skill === "email_compose")
+    return true;
   const title = String(item.title || "");
-  if (title === "邮件草稿" || title === "邮件已发送" || title === "报价邮件草稿" || title === "报价草稿") return true;
+  if (title === "邮件草稿" || title === "邮件已发送" || title === "报价邮件草稿" || title === "报价草稿")
+    return true;
   const sections = Array.isArray(item.sections) ? item.sections as Json[] : [];
   if (sections.some((section) => /收发说明|摘要数据|预览正文|已发正文|create_draft/.test(String(section.title || section.heading || "")))) {
     return true;
   }
-  if (extractNestedCreateDrafts(item).length) return true;
+  if (extractNestedCreateDrafts(item).length)
+    return true;
   const actions = Array.isArray(item.recommended_actions) ? item.recommended_actions.map(String).join(" ") : "";
   return /确认发送|补全发件|发件邮箱/.test(actions);
 }
@@ -508,56 +502,56 @@ function contextComposeDraft(extra: Json): Json | null {
   const route = composeRouteFacts({ extra });
   const entities = extra.entities && typeof extra.entities === "object" ? extra.entities as Json : {};
   const subject = String(entities.subject || extra.subject || "").trim();
-  if (!route.from && !route.to && !subject) return null;
+  if (!route.from && !route.to && !subject)
+    return null;
   return { type: "create_draft", from: route.from, to: route.to, subject };
 }
-
-function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Json = {}): Json[] {
+async function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Json = {}): Promise<Json[]> {
   const fallback = contextComposeDraft(extra);
   const siblings = fallback ? [...items, fallback] : items;
-  const rebuilt = items.map((item) => {
-    if (item.type !== "task_result") return item;
+  const rebuilt = (await Promise.all(items.map(async (item) => {
+    if (item.type !== "task_result")
+      return item;
     if (skill === "email_compose") {
-      if (!isComposeResultItem(item) && !starryPayload(item)) return item;
+      if (!isComposeResultItem(item) && !starryPayload(item))
+        return item;
       const data = composePayloadFromItem(item, siblings, composeRouteFacts({ extra }));
       return {
-        ...emailMcpResultCard(skill, data),
+        ...(await emailMcpResultCard(skill, data)),
         type: "task_result",
         ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
       };
     }
     const data = starryPayload(item);
-    if (!data) return item;
+    if (!data)
+      return item;
     return {
-      ...emailMcpResultCard(skill, data),
+      ...(await emailMcpResultCard(skill, data)),
       type: "task_result",
       ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
     };
-  });
+  })));
   const draft = composeDraftFromStarry(skill, rebuilt);
   const withDraft = draft ? [draft, ...rebuilt] : rebuilt;
   if (skill === "email_compose" && withDraft.some((item) => item.type === "create_draft") && !withDraft.some(isComposeResultItem)) {
     const data = composePayloadFromItem({ type: "task_result", title: "邮件草稿" }, withDraft);
     return [
       ...withDraft.filter((item) => item.type === "create_draft"),
-      { ...emailMcpResultCard(skill, data), type: "task_result" },
+      { ...(await emailMcpResultCard(skill, data)), type: "task_result" },
       ...withDraft.filter((item) => item.type !== "create_draft"),
     ];
   }
   return withDraft;
 }
-
-export async function completeTurnItems(
-  skill: string,
-  extra: Json,
-  existing: Json[],
-  log: Json[],
-  onProgress?: (progress: WorkerProgress) => void,
-): Promise<Json[]> {
+export async function completeTurnItems(skill: string, extra: Json, existing: Json[], log: Json[], onProgress?: (progress: WorkerProgress) => void): Promise<Json[]> {
   const raw = String(extra.raw || extra.text || extra.prompt || "");
   const entities = extra.entities && typeof extra.entities === "object" ? extra.entities as Json : {};
   const handle = String(extra.handle || "");
-  const onOperation = (operation: { name: string; label: string; status: string }) => {
+  const onOperation = (operation: {
+    name: string;
+    label: string;
+    status: string;
+  }) => {
     onProgress?.({
       phase: "reading_data",
       operation: {
@@ -594,10 +588,8 @@ export async function completeTurnItems(
     log.push({ method: "compose/preview", params: { source: generated ? "codex" : "seed" } });
     return [draft];
   }
-  if (isEmailMcpTask(skill) && skill === "email_compose" && (
-    existing.some(isComposeResultItem) || existing.some((item) => item.type === "create_draft")
-  )) {
-    return rebuildStarryCards(skill, existing, extra);
+  if (isEmailMcpTask(skill) && skill === "email_compose" && (existing.some(isComposeResultItem) || existing.some((item) => item.type === "create_draft"))) {
+    return (await rebuildStarryCards(skill, existing, extra));
   }
   if (isEmailMcpTask(skill) && !hasUsableStarryReadResult(existing)) {
     const hostReadFallback = isStarryKolReadTask(skill);
@@ -605,14 +597,11 @@ export async function completeTurnItems(
       return surfaceReadSkillItems(skill, existing);
     }
     if (codexMode() !== "stub") {
-      throw new CodexUnavailable(
-        skill === "email_compose"
+      throw new CodexUnavailable(skill === "email_compose"
           ? "生成已结束，但没有产出可映射的邮件草稿。Host 没有代填。"
-          : "生成已结束，但没有产出可映射的任务结果。Host 没有代填。",
-        skill === "email_compose"
+        : "生成已结束，但没有产出可映射的任务结果。Host 没有代填。", skill === "email_compose"
           ? "请重试；若仍失败，请管理员查看该次运行记录（是否调用了预览草稿 / Starry KOL MCP）。"
-          : "请重试；若仍失败，请管理员查看该次运行记录（Skill 是否产出了分析结果）。",
-      );
+        : "请重试；若仍失败，请管理员查看该次运行记录（Skill 是否产出了分析结果）。");
     }
     const generated = existing.find((item) => item.type === "create_draft");
     const givenBody = String(entities.body || extra.body || generated?.body || "").trim();
@@ -655,14 +644,11 @@ export async function completeTurnItems(
     return items;
   }
   if (isEmailMcpTask(skill) && hasStarryResult(existing)) {
-    return rebuildStarryCards(skill, existing, extra);
+    return (await rebuildStarryCards(skill, existing, extra));
   }
   if (isKolClawTask(skill) && !existing.some((item) => item.skill === skill && item.type === "task_result")) {
     if (codexMode() !== "stub") {
-      throw new CodexUnavailable(
-        "生成已结束，但没有产出本 Skill 的 Claw 结果。Host 没有代填。",
-        "请重试；若仍失败，请管理员查看该次运行记录（Skill mcp 与远程 KOL Claw）。",
-      );
+      throw new CodexUnavailable("生成已结束，但没有产出本 Skill 的 Claw 结果。Host 没有代填。", "请重试；若仍失败，请管理员查看该次运行记录（Skill mcp 与远程 KOL Claw）。");
     }
     const { items, operations } = await collectKolClawItems({ task: skill, raw, entities, onOperation });
     log.push({ method: "mcp/kolclaw", params: { task: skill, operations: operations.length } });

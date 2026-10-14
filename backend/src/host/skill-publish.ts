@@ -5,41 +5,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { dataDir, publishedSkillsDir } from "../config.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit, postgresDb, nowIso } from "../postgres/access.js";
 import { nid } from "../ids.js";
-import {
-  MCP_TOOL_REFERENCE,
-  PRESENTATION_OVERLAY_FIELDS,
-  validatePresentationValue,
-  TASK_FUNNELS,
-  TASK_OUTPUTS,
-  TASK_PROFILES,
-  clearTaskRegistryCache,
-  taskDefinition,
-  validateDeclaredTaskContract,
-  type TaskFunnel,
-  type TaskInputField,
-  type TaskMemoryPolicy,
-  type TaskNextAction,
-  type TaskOutput,
-  type TaskProfileId,
-  type TaskResultSchema,
-  type TaskSupports,
-} from "../tasks/registry.js";
+import { MCP_TOOL_REFERENCE, PRESENTATION_OVERLAY_FIELDS, validatePresentationValue, TASK_FUNNELS, TASK_OUTPUTS, TASK_PROFILES, clearTaskRegistryCache, taskDefinition, validateDeclaredTaskContract, type TaskFunnel, type TaskInputField, type TaskMemoryPolicy, type TaskNextAction, type TaskOutput, type TaskProfileId, type TaskResultSchema, type TaskSupports, } from "../tasks/registry.js";
 import { HttpFail } from "./errors.js";
 import { registeredToolCatalog } from "../runtime/skill-coverage.js";
 import { normalizePresentationPatch, pickPresentationFields, savePresentationOverlay } from "./skill-presentation.js";
 import { currentUser } from "./persona.js";
-import { clearSkillCatalogCache, skillFunnelId, type FunnelId, type SkillEntry } from "./skills-catalog.js";
-import {
-  catalogSkill,
-  getSkillSop,
-  isBundledSkill,
-  runtimeSkillsRoot,
-  saveSkillSop,
-  writeRuntimeSkill,
-} from "./skill-sop.js";
-
+import { clearSkillCatalogCache, skillCatalog, skillFunnelId, type FunnelId, type SkillEntry } from "./skills-catalog.js";
+import { catalogSkill, getSkillSop, isBundledSkill, runtimeSkillsRoot, saveSkillSop, writeRuntimeSkill, } from "./skill-sop.js";
 const MAX_TITLE = 80;
 const MAX_DESCRIPTION = 200;
 const MAX_BODY = 32000;
@@ -103,21 +77,23 @@ const PACK_FIELDS = [
 function hasPackPatch(input: UpdateSkillInput): boolean {
   return PACK_FIELDS.some((key) => input[key] !== undefined);
 }
-
 function asList(value: string[] | string | undefined): string[] {
-  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (Array.isArray(value))
+    return value.map((item) => String(item).trim()).filter(Boolean);
   return String(value || "")
     .split(/[,，]/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
-
 function asJsonValue<T>(value: T | string | undefined, field: string): T | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") return value;
+  if (value === undefined)
+    return undefined;
+  if (typeof value !== "string")
+    return value;
   try {
     return JSON.parse(value) as T;
-  } catch {
+  }
+  catch {
     throw new HttpFail(400, `${field} must be valid JSON`);
   }
 }
@@ -125,13 +101,12 @@ function asJsonValue<T>(value: T | string | undefined, field: string): T | undef
 function yamlScalar(value: string): string {
   return JSON.stringify(String(value).trim());
 }
-
 function ensureForbidden(body: string): string {
   const text = body.trim();
-  if (/禁止/.test(text)) return text;
+  if (/禁止/.test(text))
+    return text;
   return `${text}\n\n## 禁止事项\n\n- 禁止发送消息。\n- 禁止修改阶段。\n`;
 }
-
 export function formatSkillMarkdown(input: {
   id: string;
   title: string;
@@ -183,7 +158,8 @@ export function formatSkillMarkdown(input: {
     ...(input.result_title ? [`result_title: ${yamlScalar(input.result_title)}`] : []),
     `in_market: ${input.in_market ? "true" : "false"}`,
   ];
-  if (input.funnel) lines.push(`funnel: ${input.funnel}`);
+  if (input.funnel)
+    lines.push(`funnel: ${input.funnel}`);
   lines.push("---", "", ensureForbidden(input.body).trim(), "");
   return lines.join("\n");
 }
@@ -215,27 +191,38 @@ function normalizeCreate(input: CreateSkillInput): {
   body: string;
 } {
   const id = String(input.id || "").trim();
-  if (!ID_RE.test(id)) throw new HttpFail(400, "id must be snake_case, 2-40 chars");
-  if (id === "inbound") throw new HttpFail(400, "reserved skill id");
+  if (!ID_RE.test(id))
+    throw new HttpFail(400, "id must be snake_case, 2-40 chars");
+  if (id === "inbound")
+    throw new HttpFail(400, "reserved skill id");
   const title = String(input.title || "").trim();
-  if (!title) throw new HttpFail(400, "title required");
-  if (title.length > MAX_TITLE) throw new HttpFail(400, "title too long");
+  if (!title)
+    throw new HttpFail(400, "title required");
+  if (title.length > MAX_TITLE)
+    throw new HttpFail(400, "title too long");
   const description = String(input.description || title).trim();
-  if (description.length > MAX_DESCRIPTION) throw new HttpFail(400, "description too long");
+  if (description.length > MAX_DESCRIPTION)
+    throw new HttpFail(400, "description too long");
   const category = String(input.category || "管理").trim() || "管理";
   const profile = String(input.profile || "commander") as TaskProfileId;
-  if (!TASK_PROFILES.includes(profile)) throw new HttpFail(400, "unknown profile");
+  if (!TASK_PROFILES.includes(profile))
+    throw new HttpFail(400, "unknown profile");
   const output = String(input.output || "task_result") as TaskOutput;
-  if (!TASK_OUTPUTS.includes(output)) throw new HttpFail(400, "unknown output");
+  if (!TASK_OUTPUTS.includes(output))
+    throw new HttpFail(400, "unknown output");
   const funnelRaw = String(input.funnel || skillFunnelId(id, category)).trim();
-  if (!TASK_FUNNELS.includes(funnelRaw as TaskFunnel)) throw new HttpFail(400, "unknown funnel");
+  if (!TASK_FUNNELS.includes(funnelRaw as TaskFunnel))
+    throw new HttpFail(400, "unknown funnel");
   const mcp = asList(input.mcp);
   for (const tool of mcp) {
-    if (!MCP_TOOL_REFERENCE.test(tool)) throw new HttpFail(400, `invalid MCP tool reference ${tool}`);
+    if (!MCP_TOOL_REFERENCE.test(tool))
+      throw new HttpFail(400, `invalid MCP tool reference ${tool}`);
   }
   const body = String(input.body || "").trim();
-  if (!body) throw new HttpFail(400, "skill body required");
-  if (body.length > MAX_BODY) throw new HttpFail(400, "skill body too long");
+  if (!body)
+    throw new HttpFail(400, "skill body required");
+  if (body.length > MAX_BODY)
+    throw new HttpFail(400, "skill body too long");
   const inputSchema = asJsonValue<TaskInputField[]>(input.input_schema, "input_schema");
   const nextActions = asJsonValue<TaskNextAction[]>(input.next_actions, "next_actions");
   const memoryPolicy = asJsonValue<TaskMemoryPolicy>(input.memory_policy, "memory_policy");
@@ -243,12 +230,22 @@ function normalizeCreate(input: CreateSkillInput): {
   const resultType = input.result_type === undefined ? undefined : String(input.result_type).trim();
   const resultSchema = asJsonValue<TaskResultSchema>(input.result_schema, "result_schema");
   const actions = asList(input.actions).length ? asList(input.actions) : ["analyze"];
-  const presentation: { icon?: string; badge?: string; starter?: string; result_title?: string } = {};
+  const presentation: {
+    icon?: string;
+    badge?: string;
+    starter?: string;
+    result_title?: string;
+  } = {};
   for (const key of ["icon", "badge", "starter", "result_title"] as const) {
     const value = input[key];
-    if (value === undefined || value === null || String(value).trim() === "") continue;
-    try { presentation[key] = validatePresentationValue(key, value, id); }
-    catch (error) { throw new HttpFail(400, error instanceof Error ? error.message : `invalid ${key}`); }
+    if (value === undefined || value === null || String(value).trim() === "")
+      continue;
+    try {
+      presentation[key] = validatePresentationValue(key, value, id);
+    }
+    catch (error) {
+      throw new HttpFail(400, error instanceof Error ? error.message : `invalid ${key}`);
+    }
   }
   try {
     validateDeclaredTaskContract({
@@ -262,7 +259,8 @@ function normalizeCreate(input: CreateSkillInput): {
       ...(supports ? { supports } : {}),
       actions,
     });
-  } catch (error) {
+  }
+  catch (error) {
     throw new HttpFail(400, error instanceof Error ? error.message : "invalid skill contract");
   }
   return {
@@ -289,22 +287,18 @@ function normalizeCreate(input: CreateSkillInput): {
     body,
   };
 }
-
-function setMarketFlag(id: string, inMarket: boolean): void {
-  getConn()
-    .prepare(
-      "INSERT INTO skill_flags (id, in_market, updated_at) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET in_market=excluded.in_market, updated_at=excluded.updated_at",
-    )
-    .run(id, inMarket ? 1 : 0, nowIso());
+async function setMarketFlag(id: string, inMarket: boolean): Promise<void> {
+  (await postgresDb().execute("INSERT INTO skill_flags (id, in_market, updated_at) VALUES ($1,$2,$3) ON CONFLICT(id) DO UPDATE SET in_market=excluded.in_market, updated_at=excluded.updated_at", id, inMarket ? 1 : 0, nowIso()));
 }
-
-export function activateSkillForHarness(id: string): string {
+export async function activateSkillForHarness(id: string): Promise<string> {
   clearTaskRegistryCache();
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
-  return writeRuntimeSkill(id);
+  clearSkillCatalogCache();
+  await skillCatalog();
+  if (!catalogSkill(id))
+    throw new HttpFail(404, "unknown skill");
+  return (await writeRuntimeSkill(id));
 }
-
-export function createPublishedSkill(input: CreateSkillInput): SkillEntry {
+export async function createPublishedSkill(input: CreateSkillInput): Promise<SkillEntry> {
   const spec = normalizeCreate(input);
   if (catalogSkill(spec.id) || isBundledSkill(spec.id)) {
     throw new HttpFail(409, "skill already exists");
@@ -312,41 +306,42 @@ export function createPublishedSkill(input: CreateSkillInput): SkillEntry {
   const dir = path.join(publishedSkillsDir(), spec.id);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "SKILL.md"), formatSkillMarkdown(spec), "utf8");
-  getConn()
-    .prepare("INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES (?,?,?,?,?,?,?)")
-    .run(nid("ssh"), spec.id, null, "draft", currentUser().handle, "created", nowIso());
-  setMarketFlag(spec.id, spec.in_market);
-  const runtimePath = activateSkillForHarness(spec.id);
-  audit(currentUser().handle, "skill.create", {
+  (await postgresDb().execute("INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES ($1,$2,$3,$4,$5,$6,$7)", nid("ssh"), spec.id, null, "draft", (await currentUser()).handle, "created", nowIso()));
+  (await setMarketFlag(spec.id, spec.in_market));
+  const runtimePath = await activateSkillForHarness(spec.id);
+  (await audit((await currentUser()).handle, "skill.create", {
     skill: spec.id,
     in_market: spec.in_market,
     runtime: runtimePath,
     extra_roots: runtimeSkillsRoot(),
-  });
+  }));
   const created = catalogSkill(spec.id);
-  if (!created) throw new HttpFail(500, "skill catalog did not pick up the new skill");
+  if (!created)
+    throw new HttpFail(500, "skill catalog did not pick up the new skill");
   return created;
 }
-
-export function setSkillInMarket(id: string, inMarket: boolean): SkillEntry {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
-  setMarketFlag(id, inMarket);
+export async function setSkillInMarket(id: string, inMarket: boolean): Promise<SkillEntry> {
+  if (!catalogSkill(id))
+    throw new HttpFail(404, "unknown skill");
+  (await setMarketFlag(id, inMarket));
   clearSkillCatalogCache();
-  activateSkillForHarness(id);
-  audit(currentUser().handle, "skill.market", { skill: id, in_market: inMarket });
+  await activateSkillForHarness(id);
+  (await audit((await currentUser()).handle, "skill.market", { skill: id, in_market: inMarket }));
   return catalogSkill(id)!;
 }
-
-export function updatePublishedSkill(id: string, input: UpdateSkillInput): SkillEntry {
+export async function updatePublishedSkill(id: string, input: UpdateSkillInput): Promise<SkillEntry> {
   const current = catalogSkill(id);
-  if (!current) throw new HttpFail(404, "unknown skill");
+  if (!current)
+    throw new HttpFail(404, "unknown skill");
   if (!hasPackPatch(input)) {
-    if (typeof input.in_market !== "boolean") throw new HttpFail(400, "in_market required");
-    return setSkillInMarket(id, input.in_market);
+    if (typeof input.in_market !== "boolean")
+      throw new HttpFail(400, "in_market required");
+    return (await setSkillInMarket(id, input.in_market));
   }
-  if (isBundledSkill(id)) throw new HttpFail(400, "bundled skills cannot rewrite pack; use SOP overlay");
+  if (isBundledSkill(id))
+    throw new HttpFail(400, "bundled skills cannot rewrite pack; use SOP overlay");
   const def = taskDefinition(id);
-  const sop = getSkillSop(id);
+  const sop = (await getSkillSop(id));
   const spec = normalizeCreate({
     id,
     title: input.title ?? current.label,
@@ -377,106 +372,118 @@ export function updatePublishedSkill(id: string, input: UpdateSkillInput): Skill
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "SKILL.md"), formatSkillMarkdown(spec), "utf8");
   if (input.body !== undefined) {
-    getConn().prepare("DELETE FROM skill_sops WHERE id = ?").run(id);
+    (await postgresDb().execute("DELETE FROM skill_sops WHERE id = $1", id));
   }
-  setMarketFlag(spec.id, spec.in_market);
+  (await setMarketFlag(spec.id, spec.in_market));
   clearSkillCatalogCache();
-  const runtimePath = activateSkillForHarness(spec.id);
-  audit(currentUser().handle, "skill.update", {
+  const runtimePath = await activateSkillForHarness(spec.id);
+  (await audit((await currentUser()).handle, "skill.update", {
     skill: spec.id,
     in_market: spec.in_market,
     runtime: runtimePath,
-  });
+  }));
   return catalogSkill(spec.id)!;
 }
-
-export type SkillDraft = { id: string; patch: Record<string, unknown>; updated_at: string | null };
+export type SkillDraft = {
+  id: string;
+  patch: Record<string, unknown>;
+  updated_at: string | null;
+};
 const SOP_DRAFT_FIELDS = ["_sop_summary", "_sop_body"] as const;
-
-export function getSkillDraft(id: string): SkillDraft {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
-  const row = getConn().prepare("SELECT payload, updated_at FROM skill_drafts WHERE skill_id=?").get(id) as
-    | { payload: string; updated_at: string }
-    | undefined;
+export async function getSkillDraft(id: string): Promise<SkillDraft> {
+  if (!catalogSkill(id))
+    throw new HttpFail(404, "unknown skill");
+  const row = (await postgresDb().one("SELECT payload, updated_at FROM skill_drafts WHERE skill_id=$1", id)) as {
+    payload: string;
+    updated_at: string;
+  } | undefined;
   return { id, patch: row ? JSON.parse(row.payload) as Record<string, unknown> : {}, updated_at: row?.updated_at || null };
 }
-
 /** Persist candidate edits without changing the catalog, runtime pack, or employee-visible version. */
-export function saveSkillDraft(id: string, patch: Record<string, unknown>): SkillDraft {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+export async function saveSkillDraft(id: string, patch: Record<string, unknown>): Promise<SkillDraft> {
+  if (!catalogSkill(id))
+    throw new HttpFail(404, "unknown skill");
   const bundled = isBundledSkill(id);
   const allowed = new Set<string>(bundled ? [...SOP_DRAFT_FIELDS, ...PRESENTATION_OVERLAY_FIELDS] : PACK_FIELDS);
   const clean = Object.fromEntries(Object.entries(patch).filter(([key, value]) => allowed.has(key) && value !== undefined));
-  if (!Object.keys(clean).length) throw new HttpFail(400, "no editable skill fields supplied");
-  if (bundled) normalizePresentationPatch(id, pickPresentationFields(clean), taskDefinition(id)?.actions);
-  const previous = getSkillDraft(id);
+  if (!Object.keys(clean).length)
+    throw new HttpFail(400, "no editable skill fields supplied");
+  if (bundled)
+    normalizePresentationPatch(id, pickPresentationFields(clean), taskDefinition(id)?.actions);
+  const previous = (await getSkillDraft(id));
   const payload = { ...previous.patch, ...clean };
   const updatedAt = nowIso();
-  getConn().prepare(
-    "INSERT INTO skill_drafts (skill_id,payload,updated_at) VALUES (?,?,?) ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",
-  ).run(id, JSON.stringify(payload), updatedAt);
-  audit(currentUser().handle, "skill.draft.save", { skill: id, fields: Object.keys(clean) });
+  (await postgresDb().execute("INSERT INTO skill_drafts (skill_id,payload,updated_at) VALUES ($1,$2,$3) ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at", id, JSON.stringify(payload), updatedAt));
+  (await audit((await currentUser()).handle, "skill.draft.save", { skill: id, fields: Object.keys(clean) }));
   return { id, patch: payload, updated_at: updatedAt };
 }
-
 /** Apply an already-saved candidate only from the release path. */
-export function applySkillDraft(id: string): { applied: boolean } {
-  const draft = getSkillDraft(id);
-  if (!Object.keys(draft.patch).length) return { applied: false };
+export async function applySkillDraft(id: string): Promise<{
+  applied: boolean;
+}> {
+  const draft = (await getSkillDraft(id));
+  if (!Object.keys(draft.patch).length)
+    return { applied: false };
   if (isBundledSkill(id)) {
-    const current = getSkillSop(id);
+    const current = (await getSkillSop(id));
     if (draft.patch._sop_summary !== undefined || draft.patch._sop_body !== undefined) {
-      saveSkillSop(id, {
+      (await saveSkillSop(id, {
         summary: String(draft.patch._sop_summary ?? current.summary),
         body: String(draft.patch._sop_body ?? current.body),
-      });
+      }));
     }
     const presentation = pickPresentationFields(draft.patch);
     if (Object.keys(presentation).length) {
-      savePresentationOverlay(id, normalizePresentationPatch(id, presentation, taskDefinition(id)?.actions));
+      (await savePresentationOverlay(id, normalizePresentationPatch(id, presentation, taskDefinition(id)?.actions)));
       clearSkillCatalogCache();
-      activateSkillForHarness(id);
+      await activateSkillForHarness(id);
     }
-  } else {
+    }
+  else {
     const packPatch = Object.fromEntries(Object.entries(draft.patch).filter(([key]) => !SOP_DRAFT_FIELDS.includes(key as typeof SOP_DRAFT_FIELDS[number])));
-    if (Object.keys(packPatch).length) updatePublishedSkill(id, packPatch as UpdateSkillInput);
+    if (Object.keys(packPatch).length)
+      (await updatePublishedSkill(id, packPatch as UpdateSkillInput));
   }
-  getConn().prepare("DELETE FROM skill_drafts WHERE skill_id=?").run(id);
-  audit(currentUser().handle, "skill.draft.apply", { skill: id });
+  (await postgresDb().execute("DELETE FROM skill_drafts WHERE skill_id=$1", id));
+  (await audit((await currentUser()).handle, "skill.draft.apply", { skill: id }));
   return { applied: true };
 }
-
-export function deletePublishedSkill(id: string): { ok: true; id: string } {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
-  if (isBundledSkill(id)) throw new HttpFail(400, "bundled skills cannot be deleted");
-  getConn().prepare("DELETE FROM skill_sops WHERE id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_flags WHERE id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_grants WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_lifecycle WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_drafts WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_versions WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_tests WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_test_runs WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_stage_history WHERE skill_id = ?").run(id);
+export async function deletePublishedSkill(id: string): Promise<{
+  ok: true;
+  id: string;
+}> {
+  if (!catalogSkill(id))
+    throw new HttpFail(404, "unknown skill");
+  if (isBundledSkill(id))
+    throw new HttpFail(400, "bundled skills cannot be deleted");
+  (await postgresDb().execute("DELETE FROM skill_sops WHERE id = $1", id));
+  (await postgresDb().execute("DELETE FROM skill_flags WHERE id = $1", id));
+  (await postgresDb().execute("DELETE FROM skill_grants WHERE skill_id = $1", id));
+  (await postgresDb().execute("DELETE FROM skill_lifecycle WHERE skill_id = $1", id));
+  (await postgresDb().execute("DELETE FROM skill_drafts WHERE skill_id = $1", id));
+  (await postgresDb().execute("DELETE FROM skill_versions WHERE skill_id = $1", id));
+  (await postgresDb().execute("DELETE FROM skill_tests WHERE skill_id = $1", id));
+  (await postgresDb().execute("DELETE FROM skill_test_runs WHERE skill_id = $1", id));
+  (await postgresDb().execute("DELETE FROM skill_stage_history WHERE skill_id = $1", id));
   fs.rmSync(path.join(publishedSkillsDir(), id), { recursive: true, force: true });
   fs.rmSync(path.join(runtimeSkillsRoot(), id), { recursive: true, force: true });
   fs.rmSync(path.join(dataDir(), "skill-versions", id), { recursive: true, force: true });
   clearTaskRegistryCache();
   clearSkillCatalogCache();
-  audit(currentUser().handle, "skill.delete", { skill: id });
+  await skillCatalog();
+  (await audit((await currentUser()).handle, "skill.delete", { skill: id }));
   return { ok: true, id };
 }
-
-export function skillAdminMeta(): {
+export async function skillAdminMeta(): Promise<{
   profiles: readonly string[];
   outputs: readonly string[];
   funnels: readonly string[];
   mcp: string[];
-} {
+}> {
   return {
     profiles: TASK_PROFILES,
     outputs: TASK_OUTPUTS,
     funnels: TASK_FUNNELS,
-    mcp: registeredToolCatalog(),
+    mcp: (await registeredToolCatalog()),
   };
 }

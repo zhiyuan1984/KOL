@@ -2,62 +2,57 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { writeRuntimeSkill } from "../src/host/skill-sop.js";
 import { getAgentSkills, getSkillConnectors, setAgentSkill } from "../src/runtime/store.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 let tmp = "";
 let previousEnv: Record<string, string | undefined> = {};
-
 beforeEach(async () => {
   await freshTestDatabase();
-  previousEnv = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"].map((key) => [key, process.env[key]]));
+  previousEnv = Object.fromEntries(["AUTH_MODE", "NODE_ENV"].map((key) => [key, process.env[key]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-agent-manifest-bootstrap-"));
   Object.assign(process.env, {
-    LINGONG_DB: path.join(tmp, "runtime.sqlite"),
-    LINGONG_DATA: tmp,
     AUTH_MODE: "enabled",
     NODE_ENV: "test",
   });
-  resetConn();
+  (await resetDatabase());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const [key, value] of Object.entries(previousEnv)) {
-    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    if (value === undefined)
+      delete process.env[key];
+    else
+      process.env[key] = value;
   }
 });
-
 describe("Agent manifest runtime bootstrap", () => {
-  it("initializes KOL Agent Skills from agents/kol, never from the KOL Expert, and leaves connector/tool approval explicit", () => {
-    const kolSkills = getAgentSkills("agent:kol").filter((row) => row.enabled).map((row) => row.skill_id);
+  it("initializes KOL Agent Skills from agents/kol, never from the KOL Expert, and leaves connector/tool approval explicit", async () => {
+    const kolSkills = (await getAgentSkills("agent:kol")).filter((row) => row.enabled).map((row) => row.skill_id);
     expect(kolSkills).toEqual(expect.arrayContaining([
       "creator_discovery", "creator_profile", "creator_outreach", "email_compose", "reply_analysis", "stage_sop",
     ]));
     expect(kolSkills).not.toContain("today_plan");
-    expect(getAgentSkills("agent:workspace-planner").filter((row) => row.enabled).map((row) => row.skill_id))
+    expect((await getAgentSkills("agent:workspace-planner")).filter((row) => row.enabled).map((row) => row.skill_id))
       .toEqual(expect.arrayContaining(["today_plan", "todo_plan", "today_analyze"]));
-
     // Connector declarations describe intended compatible resources only.
     // Nothing is silently authorized before connector and tool review in Admin.
-    expect(getSkillConnectors("creator_profile")).toEqual([]);
-    const audit = getConn().prepare(
-      "SELECT payload FROM audit_events WHERE event_type='runtime.agent_manifest.migrated'",
-    ).get() as { payload: string };
+    expect((await getSkillConnectors("creator_profile"))).toEqual([]);
+    const audit = (await postgresDb().one("SELECT payload FROM audit_events WHERE event_type='runtime.agent_manifest.migrated'")) as {
+      payload: string;
+    };
     expect(JSON.parse(audit.payload)).toMatchObject({ agent_id: "agent:kol", connectors: ["starrykol", "claw", "kolclaw"] });
-    const runtimeSkill = fs.readFileSync(writeRuntimeSkill("creator_profile"), "utf8");
+    const runtimeSkill = fs.readFileSync((await writeRuntimeSkill("creator_profile")), "utf8");
     expect(runtimeSkill).toContain("Only the local `skill_runtime` MCP server is available");
     expect(runtimeSkill).toContain("rt_starrykol__pageKolProfiles_");
   });
-
-  it("never revives an administrator-disabled Agent binding after a restart", () => {
-    const current = getAgentSkills("agent:kol").find((row) => row.skill_id === "creator_profile")!;
-    setAgentSkill("agent:kol", "creator_profile", false, Number(current.version));
-    resetConn();
-    const row = getAgentSkills("agent:kol").find((item) => item.skill_id === "creator_profile")!;
+  it("never revives an administrator-disabled Agent binding after a restart", async () => {
+    const current = (await getAgentSkills("agent:kol")).find((row) => row.skill_id === "creator_profile")!;
+    (await setAgentSkill("agent:kol", "creator_profile", false, Number(current.version)));
+    (await resetDatabase());
+    const row = (await getAgentSkills("agent:kol")).find((item) => item.skill_id === "creator_profile")!;
     // PostgreSQL 适配层把数值列以字符串返回（SQLite 路径返回数字），按数值归一后再比较。
     expect({ enabled: Number(row.enabled), version: Number(row.version) }).toEqual({ enabled: 0, version: 2 });
   });

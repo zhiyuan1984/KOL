@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { BRAND_MAILBOXES, DEMO_ADMIN } from "../src/config.js";
-import { getConn, listAudit, resetConn, tx } from "../src/db.js";
+import { postgresDb, listAudit, resetDatabase, pgTransaction } from "../src/postgres/access.js";
 import { seedAll, seedIfEmpty } from "../src/seed.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -21,23 +21,21 @@ import { classify } from "../src/host/intent.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import { freshTestDatabase } from "./support/pg.js";
 import { withTicketPrincipal } from "../src/ticket-domain/auth.js";
-
 type Json = Record<string, unknown>;
-
 let tmp: string;
 let app: Hono;
-
-async function request(
-  method: string,
-  url: string,
-  body?: unknown,
-  cookie = "",
-): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string>; cookie: string }> {
+async function request(method: string, url: string, body?: unknown, cookie = ""): Promise<{
+  status: number;
+  json: () => Promise<Json>;
+  text: () => Promise<string>;
+  cookie: string;
+}> {
   const init: RequestInit = {
     method,
     headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) },
   };
-  if (body !== undefined) init.body = JSON.stringify(body);
+  if (body !== undefined)
+    init.body = JSON.stringify(body);
   const res = await app.request(url, init);
   const text = await res.text();
   return {
@@ -47,25 +45,22 @@ async function request(
     cookie: res.headers.get("set-cookie")?.split(";")[0] || "",
   };
 }
-
-async function ask(
-  prompt: string,
-  intent?: string,
-  collaborationId?: string,
-  expectStatus = 200,
-  extra: Json = {},
-): Promise<[string, Json]> {
+async function ask(prompt: string, intent?: string, collaborationId?: string, expectStatus = 200, extra: Json = {}): Promise<[
+  string,
+  Json
+]> {
   const ses = await (await request("POST", "/api/sessions", { title: prompt.slice(0, 20) })).json();
   const payload: Json = { text: prompt, content: prompt, act: "ask", model_tier: "default", ...extra };
-  if (intent) payload.intent = intent;
-  if (collaborationId) payload.collaboration_id = collaborationId;
+  if (intent)
+    payload.intent = intent;
+  if (collaborationId)
+    payload.collaboration_id = collaborationId;
   const r = await request("POST", `/api/sessions/${ses.id}/messages`, payload);
   expect(r.status, await r.text()).toBe(expectStatus);
   return [String(ses.id), await r.json()];
 }
-
-function draftOn(sid: string, extra: Json = {}) {
-  return persistDraft(sid, {
+async function draftOn(sid: string, extra: Json = {}) {
+  return (await persistDraft(sid, {
     skill: "email_compose",
     template_id: "stage_mail.followup",
     from: BRAND_MAILBOXES.LT,
@@ -77,47 +72,39 @@ function draftOn(sid: string, extra: Json = {}) {
     official_stage: "INITIAL_CONTACT",
     collaboration_id: "col_xiaomei",
     ...extra,
-  });
+  }));
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setEmailMcpClientFactory();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("host contracts", () => {
   it("PATCH draft subject and body refresh the email card and compose result", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid, { subject: "发货通知", body: "old interest body" });
-    const card = emailCardPayload(draft);
-    const result = emailMcpResultCard("email_compose", {
+    const draft = (await draftOn(sid, { subject: "发货通知", body: "old interest body" }));
+    const card = (await emailCardPayload(draft));
+    const result = (await emailMcpResultCard("email_compose", {
       mailboxEmail: draft.from_addr,
       from: draft.from_addr,
       to: draft.to_addr,
       subject: draft.subject,
       body: draft.body_en,
-    });
+    }));
     const now = new Date().toISOString();
-    getConn().prepare(
-      "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-    ).run("msg_draft_1", sid, "assistant", "email_card", JSON.stringify(card), now);
-    getConn().prepare(
-      "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-    ).run("msg_result_1", sid, "assistant", "task_result_card", JSON.stringify({
+    (await postgresDb().execute("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)", "msg_draft_1", sid, "assistant", "email_card", JSON.stringify(card), now));
+    (await postgresDb().execute("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)", "msg_result_1", sid, "assistant", "task_result_card", JSON.stringify({
       ...result,
       skill: "email_compose",
       starrykol_data: {
@@ -126,7 +113,7 @@ describe("host contracts", () => {
         subject: draft.subject,
         body: draft.body_en,
       },
-    }), now);
+    }), now));
     const patched = await request("PATCH", `/api/drafts/${draft.id}`, {
       subject: "Re: KOL合作",
       body_en: "Hi, thrilled to hear about your interest.",
@@ -141,18 +128,15 @@ describe("host contracts", () => {
     expect(JSON.stringify(compose)).toContain("thrilled to hear about your interest");
     expect(JSON.stringify(compose)).not.toContain("发货通知");
   });
-
   it("send does not call stage", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid);
+    const draft = (await draftOn(sid));
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status, await sent.text()).toBe(200);
     const sj = await sent.json();
     expect(sj.stage_changed).toBe(false);
     expect(sj.official_stage).toBe("INITIAL_CONTACT");
-    const types = ((await (await request("GET", "/api/audit")).json()) as unknown as Json[]).map(
-      (e) => e.event_type,
-    );
+    const types = ((await (await request("GET", "/api/audit")).json()) as unknown as Json[]).map((e) => e.event_type);
     const sendIdx = types.indexOf("starry.send");
     expect(types.slice(sendIdx)).not.toContain("starry.stage");
   });
@@ -166,9 +150,7 @@ describe("host contracts", () => {
     expect(kinds).toContain("confirm_stage_card");
     const card = (data.messages as Json[]).find((m) => m.kind === "confirm_stage_card")!;
     const target = ((card.payload as Json).targets as Json[])[0].code;
-    const before = ((await (await request("GET", "/api/audit")).json()) as unknown as Json[]).filter(
-      (e) => e.event_type === "starry.send",
-    );
+    const before = ((await (await request("GET", "/api/audit")).json()) as unknown as Json[]).filter((e) => e.event_type === "starry.send");
     const r = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
       stage_code: target,
       collaboration_id: "col_xiaomei",
@@ -177,18 +159,11 @@ describe("host contracts", () => {
     });
     expect(r.status, await r.text()).toBe(200);
     expect((await r.json()).sent).toBe(false);
-    const after = ((await (await request("GET", "/api/audit")).json()) as unknown as Json[]).filter(
-      (e) => e.event_type === "starry.send",
-    );
+    const after = ((await (await request("GET", "/api/audit")).json()) as unknown as Json[]).filter((e) => e.event_type === "starry.send");
     expect(after.length).toBe(before.length);
   });
-
   it("confirm-stage writes official stage and remote changeLifecycleStage", async () => {
-    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
-      "KOLXIAOMEI",
-      "16",
-      "col_xiaomei",
-    );
+    (await postgresDb().execute("UPDATE collaborations SET kol_uid=$1, last_lifecycle_id=$2 WHERE id=$3", "KOLXIAOMEI", "16", "col_xiaomei"));
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const card = (data.messages as Json[]).find((m) => m.kind === "confirm_stage_card")!;
     const target = ((card.payload as Json).targets as Json[])[0].code;
@@ -206,29 +181,27 @@ describe("host contracts", () => {
       updated: true,
       cooperationStageCode: toLegacyStarryStage(String(target)),
     });
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'")) as Json;
     expect(col.stage_code).toBe(target);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await postgresDb().many("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'", sid)) as {
+      payload: string;
+    }[];
     expect(stored.some((row) => Boolean((JSON.parse(row.payload) as Json).resolved))).toBe(true);
   });
-
   it("human skip keeps kind/reason locally and walks Starry with adjacent native hops", async () => {
-    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
-      "KOLXIAOMEI",
-      "320",
-      "col_xiaomei",
-    );
+    (await postgresDb().execute("UPDATE collaborations SET kol_uid=$1, last_lifecycle_id=$2 WHERE id=$3", "KOLXIAOMEI", "320", "col_xiaomei"));
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const recorded: { name: string; args: Json }[] = [];
+    const recorded: {
+      name: string;
+      args: Json;
+    }[] = [];
     setEmailMcpClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
         recorded.push({ name, args });
         const body = JSON.parse(String(args.requestJson || "{}")) as Json;
         return { data: { updated: true, ...body } };
       },
-      async close() { /* noop */ },
+      async close() { },
     }));
     const card = (data.messages as Json[]).find((m) => m.kind === "confirm_stage_card")!;
     const r = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
@@ -269,30 +242,28 @@ describe("host contracts", () => {
         && Object.keys(payload).sort().join(",") === "reason,toStageCode";
     })).toBe(true);
     expect(JSON.stringify(writes.map((row) => row.args))).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"|skip/i);
-    const hopAudits = listAudit("host.confirm_stage.mcp") as Json[];
+    const hopAudits = (await listAudit("host.confirm_stage.mcp")) as Json[];
     expect(hopAudits.filter((row) => (row.payload as Json).native).map((row) => (row.payload as Json).native)).toEqual([
       "INTEREST_CONFIRMED",
       "COOPERATION_EVALUATION",
       "QUOTE_PENDING",
       "BUSINESS_NEGOTIATION",
     ]);
-    const col = getConn().prepare(
-      "SELECT stage_code, last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_xiaomei'",
-    ).get() as Json;
+    const col = (await postgresDb().one("SELECT stage_code, last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_xiaomei'")) as Json;
     expect(col.stage_code).toBe("NEGOTIATING");
     expect(col.last_skip_kind).toBe("skip");
     expect(col.last_skip_reason).toBe("报价已口头同意，直接商务谈判");
     expect(JSON.parse(String(col.last_skipped_stages))).toEqual(["INTERESTED", "EVALUATING", "QUOTE_PENDING"]);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await postgresDb().many("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'", sid)) as {
+      payload: string;
+    }[];
     expect(stored.some((row) => {
       const payload = JSON.parse(row.payload) as Json;
       return payload.resolved
         && payload.skip_kind === "skip"
         && payload.skip_reason === "报价已口头同意，直接商务谈判";
     })).toBe(true);
-    const audits = listAudit("host.confirm_stage") as Json[];
+    const audits = (await listAudit("host.confirm_stage")) as Json[];
     expect(audits.some((row) => {
       const payload = row.payload as Json;
       return payload.to_stage === "NEGOTIATING"
@@ -315,16 +286,15 @@ describe("host contracts", () => {
     const body = await r.json();
     expect(body.rejected).toBe(true);
     expect(body.stage_changed).toBe(false);
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'")) as Json;
     expect(col.stage_code).toBe("INITIAL_CONTACT");
     const afterWorkers = ((await (await request("GET", "/api/workers")).json()) as unknown as Json[]).length;
     expect(afterWorkers).toBe(beforeWorkers);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await postgresDb().many("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'", sid)) as {
+      payload: string;
+    }[];
     expect(stored.some((row) => Boolean((JSON.parse(row.payload) as Json).rejected))).toBe(true);
   });
-
   it("记状态 runs the proposal skill but does not create a draft or write stage", async () => {
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const workers = (await (await request("GET", "/api/workers")).json()) as unknown as Json[];
@@ -332,10 +302,9 @@ describe("host contracts", () => {
     expect((data.worker as Json)?.skill).toBe("confirm_stage");
     expect(data.draft ?? null).toBeNull();
     expect((data.messages as Json[]).map((m) => m.kind)).not.toContain("email_card");
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'")) as Json;
     expect(col.stage_code).toBe("INITIAL_CONTACT");
   });
-
   it("confirm illegal edge 400", async () => {
     const r = await request("POST", "/api/collaborations/col_xiaomei/confirm-stage", {
       stage_code: "PUBLISHED",
@@ -351,11 +320,10 @@ describe("host contracts", () => {
     });
     expect(r.status).toBe(409);
   });
-
   it("terminal states have no outgoing transitions", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='COMPLETED' WHERE id='col_trip'").run();
-    });
+    (await pgTransaction(async (c) => {
+      (await c.execute("UPDATE collaborations SET stage_code='COMPLETED' WHERE id='col_trip'"));
+    }));
     const r = await request("POST", "/api/collaborations/col_trip/confirm-stage", {
       stage_code: "INITIAL_CONTACT",
       expected_version: 0,
@@ -379,10 +347,7 @@ describe("host contracts", () => {
     expect(result.stage_code).toBe("INTERESTED");
     expect(result.new_version).toBe(1);
     expect(result.transition_id).toMatch(/^trn_/);
-
-    const rows = (await (
-      await request("GET", "/api/stage-transitions?collaboration_id=col_xiaomei")
-    ).json()) as unknown as Json[];
+    const rows = (await (await request("GET", "/api/stage-transitions?collaboration_id=col_xiaomei")).json()) as unknown as Json[];
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       collaboration_id: "col_xiaomei",
@@ -399,14 +364,9 @@ describe("host contracts", () => {
     // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较。
     expect(Number(rows[0].data_version_before)).toBe(0);
     expect(Number(rows[0].data_version_after)).toBe(1);
-    expect(() =>
-      getConn().prepare("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = ?").run(rows[0].id),
-    ).toThrow(/immutable/);
-    expect(() =>
-      getConn().prepare("DELETE FROM stage_transitions WHERE id = ?").run(rows[0].id),
-    ).toThrow(/immutable/);
+    await expect((async () => (await postgresDb().execute("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = $1", rows[0].id)))()).rejects.toThrow(/immutable/);
+    await expect((async () => (await postgresDb().execute("DELETE FROM stage_transitions WHERE id = $1", rows[0].id)))()).rejects.toThrow(/immutable/);
   });
-
   it("gated content review queues work approval and writes after agree", async () => {
     const queued = await request("POST", "/api/collaborations/col_mum/confirm-stage", {
       stage_code: "CONTENT_REVIEW",
@@ -420,7 +380,7 @@ describe("host contracts", () => {
     expect(body.approval_id).toBeTruthy();
     expect(body.kind).toBe("content");
     expect(body.stage_code).toBe("CONTENT_PLANNING");
-    const held = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_mum'").get() as Json;
+    const held = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_mum'")) as Json;
     expect(held.stage_code).toBe("CONTENT_PLANNING");
     const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
       decision: "approve",
@@ -428,14 +388,13 @@ describe("host contracts", () => {
       idempotency_key: `host-content-${body.approval_id}`,
     });
     expect(decided.status, await decided.text()).toBe(200);
-    const after = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_mum'").get() as Json;
+    const after = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_mum'")) as Json;
     expect(after.stage_code).toBe("CONTENT_REVIEW");
   });
-
   it("plan-pending stage confirm queues approval and writes after agree", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='NEGOTIATING', stage_version=0 WHERE id='col_laozhang'").run();
-    });
+    (await pgTransaction(async (c) => {
+      (await c.execute("UPDATE collaborations SET stage_code='NEGOTIATING', stage_version=0 WHERE id='col_laozhang'"));
+    }));
     const queued = await request("POST", "/api/collaborations/col_laozhang/confirm-stage", {
       stage_code: "PLAN_PENDING",
       expected_version: 0,
@@ -445,7 +404,7 @@ describe("host contracts", () => {
     expect(body.waiting_approval).toBe(true);
     expect(body.stage_code).toBe("NEGOTIATING");
     expect(body.kind).toBe("stage");
-    const held = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const held = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_laozhang'")) as Json;
     expect(held.stage_code).toBe("NEGOTIATING");
     const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
       decision: "approve",
@@ -453,12 +412,11 @@ describe("host contracts", () => {
       idempotency_key: `host-stage-${body.approval_id}`,
     });
     expect(decided.status, await decided.text()).toBe(200);
-    const after = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const after = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_laozhang'")) as Json;
     expect(after.stage_code).toBe("PLAN_PENDING");
   });
-
   it("POST /api/approvals initiates expense only and leaves confirm_stage unchanged", async () => {
-    const stageBefore = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const stageBefore = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_laozhang'")) as Json;
     const created = await request("POST", "/api/approvals", {
       kind: "expense",
       amount: 5000,
@@ -478,17 +436,19 @@ describe("host contracts", () => {
     });
     expect(rejected.status).toBe(400);
     expect((await rejected.json()).detail).toMatchObject({ code: "unsupported_kind" });
-
-    const stageAfter = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const stageAfter = (await postgresDb().one("SELECT stage_code FROM collaborations WHERE id='col_laozhang'")) as Json;
     expect(stageAfter.stage_code).toBe(stageBefore.stage_code);
-    const audits = listAudit("expense.approval.created") as { payload: { approval_id?: string } }[];
+    const audits = (await listAudit("expense.approval.created")) as {
+      payload: {
+        approval_id?: string;
+      };
+    }[];
     expect(audits.some((event) => event.payload.approval_id === row.id)).toBe(true);
   });
-
   it("allows an evidence-backed jump and still blocks unfinished priors", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'").run();
-    });
+    (await pgTransaction(async (c) => {
+      (await c.execute("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'"));
+    }));
     const jumped = await request("POST", "/api/collaborations/col_xiaomei/confirm-stage", {
       stage_code: "EVALUATING",
       expected_version: 0,
@@ -497,9 +457,9 @@ describe("host contracts", () => {
     });
     expect(jumped.status, await jumped.text()).toBe(200);
     expect((await jumped.json()).stage_code).toBe("EVALUATING");
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'").run();
-    });
+    (await pgTransaction(async (c) => {
+      (await c.execute("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'"));
+    }));
     const blocked = await request("POST", "/api/collaborations/col_xiaomei/confirm-stage", {
       stage_code: "PUBLISHED",
       expected_version: 0,
@@ -533,24 +493,23 @@ describe("host contracts", () => {
     const runner = fs.readFileSync(path.join(import.meta.dirname, "../src/worker/runner.ts"), "utf8");
     expect(runner).toMatch(/codexMode\(\) === "stub"/);
     expect(runner).not.toMatch(/isEmailMcpTask\(skill\) && skill !== "email_compose"/);
-    expect(runner).toContain("deriveChildThread");
+    expect(runner).toContain("runCodex");
     expect(runner).not.toContain("starry.sendConversation");
   });
-
   it("from options authorized only", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid);
-    const card = (await import("../src/host/api.js")).emailCardPayload(draft);
+    const draft = (await draftOn(sid));
+    const card = (await (await import("../src/host/api.js")).emailCardPayload(draft));
     const opts = (card.allowed_from_mailboxes as Json[]) || [];
     expect(opts.length).toBeGreaterThan(0);
     expect(opts.every((o) => o.authorized)).toBe(true);
     const emails = new Set(opts.map((o) => o.email));
-    for (const e of emails) expect(Object.values(BRAND_MAILBOXES)).toContain(e);
+    for (const e of emails)
+      expect(Object.values(BRAND_MAILBOXES)).toContain(e);
   });
-
   it("send exam permission template persistent", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const did = draftOn(sid).id;
+    const did = (await draftOn(sid)).id;
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
     const r = await confirmAndSendDraft(request, String(did), {});
     expect(r.status).toBe(403);
@@ -587,28 +546,26 @@ describe("host contracts", () => {
   it("restart restores the normal operator after an exam-block demo", async () => {
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
     expect(((await (await request("GET", "/api/me")).json()) as Json).exam_passed).toBe(false);
-    seedIfEmpty();
+    (await seedIfEmpty());
     const me = await (await request("GET", "/api/me")).json();
     expect((me as Json).exam_passed).toBe(true);
     expect(me.handle).toBe(DEMO_ADMIN.handle);
   });
-
   it("one-click translation returns the model-produced internal Chinese draft", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const did = String(draftOn(sid).id);
+    const did = String((await draftOn(sid)).id);
     const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: did });
     expect(translated.status).toBe(200);
     const body = await translated.json();
-    const english = String(draftOn(sid).body_en || "");
+    const english = String((await draftOn(sid)).body_en || "");
     expect(String(body.zh)).toMatch(/[\u4e00-\u9fff]/);
     expect(String(body.zh)).not.toBe(english);
     expect(String(body.zh)).not.toContain(`【内部中文译稿 · 不会进入 SMTP】\n${english}`.trim());
     expect(body.internal_only).toBe(true);
   });
-
   it("maps a Starry operator mailbox onto the authorized From dropdown and still translates", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       from: "larry.zhao@amperetime.com",
       to: "xiaomei.beauty@example.com",
@@ -617,10 +574,10 @@ describe("host contracts", () => {
       official_stage: "INITIAL_CONTACT",
       collaboration_id: "col_xiaomei",
       brand: "RO",
-    });
+    }));
     expect(String(draft.from_addr)).toBe("larry.zhao@amperetime.com");
     expect(String(draft.body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
-    const card = emailCardPayload(draft);
+    const card = (await emailCardPayload(draft));
     const opts = (card.allowed_from_mailboxes as Json[]) || [];
     expect(card.from).toBe("larry.zhao@amperetime.com");
     expect(card.send_from).toBe(BRAND_MAILBOXES.RO);
@@ -637,10 +594,9 @@ describe("host contracts", () => {
     expect(sent.status, await sent.text()).toBe(200);
     expect((await sent.json()).status).toBe("sent");
   });
-
   it("generates an internal Chinese draft when the cache is empty", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       template_id: "stage_mail.followup",
       from: BRAND_MAILBOXES.LT,
@@ -650,16 +606,17 @@ describe("host contracts", () => {
       body_zh_internal: " ",
       official_stage: "INITIAL_CONTACT",
       collaboration_id: "col_xiaomei",
-    });
-    getConn().prepare("UPDATE drafts SET body_zh_internal='' WHERE id=?").run(String(draft.id));
+    }));
+    (await postgresDb().execute("UPDATE drafts SET body_zh_internal='' WHERE id=$1", String(draft.id)));
     const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: draft.id });
     expect(translated.status).toBe(200);
     const body = await translated.json();
     expect(String(body.zh)).toMatch(/[\u4e00-\u9fff]/);
     expect(String(body.zh)).not.toContain("Just a follow-up");
-    expect(String((getConn().prepare("SELECT body_zh_internal FROM drafts WHERE id=?").get(String(draft.id)) as { body_zh_internal: string }).body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
+    expect(String(((await postgresDb().one("SELECT body_zh_internal FROM drafts WHERE id=$1", String(draft.id))) as {
+      body_zh_internal: string;
+    }).body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
   });
-
   it("go rejected on messages", async () => {
     const ses = await (await request("POST", "/api/sessions", { title: "x" })).json();
     const r = await request("POST", `/api/sessions/${ses.id}/messages`, { text: "打开建联流水线", act: "go" });
@@ -682,7 +639,7 @@ describe("host contracts", () => {
     expect(recs.every((rec) => rec.category && rec.group && rec.profile)).toBe(true);
     expect(recs.some((rec) => rec.act === "go")).toBe(false);
     for (const rec of recs) {
-      const intent = classify(String(rec.prompt), String(rec.intent));
+      const intent = (await classify(String(rec.prompt), String(rec.intent)));
       expect(intent.skill, String(rec.id)).toBe(rec.id);
       expect(intent.needs_worker, String(rec.id)).toBe(true);
     }
@@ -733,9 +690,7 @@ describe("host contracts", () => {
     const recs = home.recs as Json[];
     const beforePipeline = await (await request("GET", "/api/pipeline")).json();
     const beforeRows = Object.values(beforePipeline.groups as Record<string, Json[]>).flat();
-    const beforeStages = new Map(
-      beforeRows.map((row) => [String(row.id), String(row.stage_code)]),
-    );
+    const beforeStages = new Map(beforeRows.map((row) => [String(row.id), String(row.stage_code)]));
     const artifactKinds = new Set([
       "task_result_card",
       "email_card",
@@ -749,11 +704,10 @@ describe("host contracts", () => {
       const messages = data.messages as Json[];
       // P2.1：confirm_stage / stage_sop 声明了 context.requires=[collaboration, stage]。首页推荐不带
       // 合作对象，按设计不再起箱，只出结构化缺口卡（带合作对象的路径见 ask(..., "confirm_stage", "col_xiaomei")）。
-      if (rec.id === "confirm_stage" || rec.id === "stage_sop") {
+      if (["confirm_stage", "stage_sop", "creator_contact_decrypt", "creator_owner_update"].includes(String(rec.id))) {
         expect(data.worker ?? null, `${rec.id}: no turn without declared context`).toBeNull();
         expect(messages.some((message) => message.kind === "supplement_card"), `${rec.id}: context gap card`).toBe(true);
-        expect(messages.some((message) => ["confirm_stage_card", "task_result_card"].includes(String(message.kind))),
-          `${rec.id}: no result without context`).toBe(false);
+        expect(messages.some((message) => ["confirm_stage_card", "task_result_card"].includes(String(message.kind))), `${rec.id}: no result without context`).toBe(false);
         continue;
       }
       if (rec.id === "deal_memory") {
@@ -774,8 +728,7 @@ describe("host contracts", () => {
         if (operation) {
           expect((operation.payload as Json)?.title, `${rec.id}: operation title`).toBe("系统能力调用记录");
           const operationItems = (operation.payload as Json).items as Json[];
-          expect(operationItems.every((item) => String(item.name || "").startsWith(prefix)),
-            `${rec.id}: only ${prefix} operations`).toBe(true);
+          expect(operationItems.every((item) => String(item.name || "").startsWith(prefix)), `${rec.id}: only ${prefix} operations`).toBe(true);
         }
         continue;
       }
@@ -786,8 +739,7 @@ describe("host contracts", () => {
         expect((operation.payload as Json)?.title, `${rec.id}: operation title`).toBe("系统能力调用记录");
         expect(Array.isArray((operation.payload as Json)?.items), `${rec.id}: operation items`).toBe(true);
         const operationItems = (operation.payload as Json).items as Json[];
-        expect(operationItems.some((item) => String(item.name || "").startsWith("phase:")),
-          `${rec.id}: no simulated phase operations`).toBe(false);
+        expect(operationItems.some((item) => String(item.name || "").startsWith("phase:")), `${rec.id}: no simulated phase operations`).toBe(false);
       }
       expect(messages.some((message) => artifactKinds.has(String(message.kind))), `${rec.id}: artifact`).toBe(true);
     }
@@ -800,8 +752,7 @@ describe("host contracts", () => {
     expect(sends).toHaveLength(0);
     // 该用例逐个跑完全部目录技能，工作树环境（node_modules junction）下整文件执行约为
     // 主检出的 1.5 倍；30s 上限会把这次集成巡检压到超时，断言本身不变。
-  }, 60_000);
-
+  }, 60000);
   it("风险扫描 uses Starry KOL MCP through a worker turn", async () => {
     for (const prompt of ["风险扫描", "扫描在途风险", "超时/风险扫描", "扫描", "T8"]) {
       const [, data] = await ask(prompt);
@@ -826,7 +777,7 @@ describe("host contracts", () => {
     const cron = await withTicketPrincipal({
       id: "test-admin", username: "test-admin", name: "Test Admin", email: null,
       roles: ["admin"], active: true,
-    }, () => request("POST", "/api/cron/risk-scan"));
+    }, async () => (await request("POST", "/api/cron/risk-scan")));
     expect(cron.status, await cron.text()).toBe(200);
     const cronBody = await cron.json() as Json;
     expect(cronBody.run_id).toBeTruthy();
@@ -882,6 +833,8 @@ describe("host contracts", () => {
     expect(bad.status).toBe(401);
     const auth = await request("POST", "/api/login", { username: DEMO_ADMIN.name, password: "123456789" });
     expect(auth.status, await auth.text()).toBe(200);
+    const owner = await request("PATCH", "/api/admin/skills/creator_discovery/lifecycle", { owner: "test:kol-business-owner" });
+    expect(owner.status, await owner.text()).toBe(200);
     const put = await request("PUT", "/api/skills/creator_discovery/sop", {
       summary: "测试改过的达人发现摘要",
       body: "# 达人发现\n\nOPERATOR_SOP_MARK crawl_plan only.\n",
@@ -956,26 +909,30 @@ describe("host contracts", () => {
       expect(put.status, await put.text()).toBe(410);
       const mine = (await (await request("GET", "/api/skills", undefined, employeeCookie)).json()) as unknown as Json[];
       expect(mine.find((s) => s.id === "creator_discovery")).toBeFalsy();
+      // 模板存在默认绑定时先明确撤销，验证员工不得因旧/默认绑定外的事实获得资格。
+      (await postgresDb().execute("UPDATE agent_bindings SET status='revoked' WHERE agent_id='agent:kol'"));
       const ses = await (await request("POST", "/api/sessions", { title: "no-discovery" }, employeeCookie)).json();
       const denied = await request("POST", `/api/sessions/${ses.id}/messages`, {
         text: "搜索 YouTube 露营达人", act: "ask", intent: "creator_discovery",
       }, employeeCookie);
-      expect(denied.status).toBe(400);
-
+      expect(denied.status).toBe(403);
+      expect((await denied.json()).detail).toMatchObject({ code: "runtime_agent_not_usable" });
       // 资格来自 Agent 绑定：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
-      getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(employeeId, "person:ye_guanwang");
-      createAgentBinding({
+      (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", employeeId, "person:ye_guanwang"));
+      (await createAgentBinding({
         agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",
-      });
+      }));
       const granted = (await (await request("GET", "/api/skills", undefined, employeeCookie)).json()) as unknown as Json[];
       expect(granted.find((s) => s.id === "creator_discovery")).toBeTruthy();
-    } finally {
-      if (previousAuthMode === undefined) delete process.env.AUTH_MODE;
-      else process.env.AUTH_MODE = previousAuthMode;
+    }
+    finally {
+      if (previousAuthMode === undefined)
+        delete process.env.AUTH_MODE;
+      else
+        process.env.AUTH_MODE = previousAuthMode;
     }
   });
-
   it("profiles api exposes capability domains on one Codex harness", async () => {
     const profiles = (await (await request("GET", "/api/profiles")).json()) as unknown as Json[];
     expect(profiles).toHaveLength(6);
@@ -988,7 +945,13 @@ describe("host contracts", () => {
     form.append("file", new File(["weekend van test notes"], "brief.txt", { type: "text/plain" }));
     const up = await app.request("/api/attachments", { method: "POST", body: form });
     expect(up.status).toBe(200);
-    const att = (await up.json()) as { id: string; name: string; path: string; size: number; type: string };
+    const att = (await up.json()) as {
+      id: string;
+      name: string;
+      path: string;
+      size: number;
+      type: string;
+    };
     expect(att.name).toBe("brief.txt");
     expect(att.id).toMatch(/^att_/);
     expect(att.size).toBeGreaterThan(0);
@@ -1011,12 +974,8 @@ describe("host contracts", () => {
     expect(ctx).toContain("weekend van test notes");
     expect(fs.existsSync(path.join(String(w!.box_path), "attachments", "brief.txt"))).toBe(true);
   });
-
   it("creator_profile is a catalog skill and does not send mail", async () => {
-    const [, data] = await ask(
-      "为 bili 创作者 cr_bili_NDI3NDk0ODcw（硬核拆解）创建创作者画像任务",
-      "creator_profile",
-    );
+    const [, data] = await ask("为 bili 创作者 cr_bili_NDI3NDk0ODcw（硬核拆解）创建创作者画像任务", "creator_profile");
     expect((data.intent as Json).type).toBe("creator_profile");
     expect((data.intent as Json).extras).toMatchObject({ creator_id: "cr_bili_NDI3NDk0ODcw" });
     expect(data.draft ?? null).toBeNull();
@@ -1030,5 +989,4 @@ describe("host contracts", () => {
     expect(market.some((s) => s.id === "creator_profile")).toBe(true);
   });
 });
-
-void getConn;
+void postgresDb;

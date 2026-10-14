@@ -1,22 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { HttpFail } from "../src/host/errors.js";
-import {
-  DEFAULT_DISCOVERY_SYSTEM_TEMPLATE,
-  normalizeSystemTemplate,
-} from "../src/cron/contracts.js";
-import {
-  assertBackgroundCrawlArgs,
-  backgroundCrawlContext,
-  BACKGROUND_CRAWL_SKILL,
-} from "../src/crawl/background-crawl.js";
+import { DEFAULT_DISCOVERY_SYSTEM_TEMPLATE, normalizeSystemTemplate, } from "../src/cron/contracts.js";
+import { assertBackgroundCrawlArgs, backgroundCrawlContext, BACKGROUND_CRAWL_SKILL, } from "../src/crawl/background-crawl.js";
 import { PLATFORM_PRINCIPAL, PLATFORM_SYNC_AGENT } from "../src/runtime/platform-principal.js";
-
 function failCode(fn: () => void): string {
   try {
     fn();
-  } catch (error) {
+  }
+  catch (error) {
     expect(error).toBeInstanceOf(HttpFail);
-    return String((error as HttpFail).detail && ((error as HttpFail).detail as { code?: string }).code);
+    return String((error as HttpFail).detail && ((error as HttpFail).detail as {
+      code?: string;
+    }).code);
   }
   throw new Error("expected HttpFail");
 }
@@ -45,17 +40,13 @@ describe("normalizeSystemTemplate", () => {
     expect(normalizeSystemTemplate({}).filters).toEqual({});
     expect(failCode(() => normalizeSystemTemplate({ filters: { region: "US" } }))).toBe("invalid_template_filter");
     expect(failCode(() => normalizeSystemTemplate({ filters: { max_notes_count: 0 } }))).toBe("invalid_template_filter");
-    expect(failCode(() => normalizeSystemTemplate({ filters: { max_notes_count: 10001 } }))).toBe(
-      "invalid_template_filter",
-    );
+    expect(failCode(() => normalizeSystemTemplate({ filters: { max_notes_count: 10001 } }))).toBe("invalid_template_filter");
   });
-
-  it("dedup 缺省为 platform_creator_id", () => {
-    expect(normalizeSystemTemplate({}).dedup).toEqual({ dedup_by: "platform_creator_id" });
-    expect(normalizeSystemTemplate({ dedup: { dedup_by: "url" } }).dedup).toEqual({ dedup_by: "url" });
+  it("dedup 缺省为 platform_creator_id，保留30天窗口", () => {
+    expect(normalizeSystemTemplate({}).dedup).toEqual({ dedup_by: "platform_creator_id", window_days: 30 });
+    expect(normalizeSystemTemplate({ dedup: { dedup_by: "url" } }).dedup).toEqual({ dedup_by: "url", window_days: 30 });
   });
 });
-
 describe("backgroundCrawlContext", () => {
   it("使用平台主体与平台系统智能体身份", () => {
     const context = backgroundCrawlContext("cron:cjob:run1");
@@ -65,29 +56,16 @@ describe("backgroundCrawlContext", () => {
     expect(context.runId).toBe("cron:cjob:run1");
   });
 });
-
 describe("assertBackgroundCrawlArgs", () => {
   const valid = { platforms: ["youtube"], crawler_type: "search", keywords: "AI红人" };
-
   it("合法参数通过", () => {
     expect(() => assertBackgroundCrawlArgs(valid)).not.toThrow();
-    expect(() =>
-      assertBackgroundCrawlArgs({ ...valid, max_notes_count: 100 }),
-    ).not.toThrow();
+    expect(() => assertBackgroundCrawlArgs({ ...valid, max_notes_count: 100 })).not.toThrow();
   });
-
   it("非法平台 / 模式 / 未知字段 / 空关键词抛错", () => {
-    expect(failCode(() => assertBackgroundCrawlArgs({ ...valid, platforms: ["tiktok"] }))).toBe(
-      "runtime_crawl_platform_invalid",
-    );
-    expect(failCode(() => assertBackgroundCrawlArgs({ ...valid, crawler_type: "hack" }))).toBe(
-      "runtime_crawl_mode_invalid",
-    );
-    expect(failCode(() => assertBackgroundCrawlArgs({ ...valid, region: "US" }))).toBe(
-      "runtime_crawl_scope_invalid",
-    );
-    expect(failCode(() => assertBackgroundCrawlArgs({ ...valid, keywords: "  " }))).toBe(
-      "runtime_crawl_input_required",
-    );
+    expect(failCode(() => assertBackgroundCrawlArgs({ ...valid, platforms: ["tiktok"] }))).toBe("runtime_crawl_platform_invalid");
+    expect(failCode(() => assertBackgroundCrawlArgs({ ...valid, crawler_type: "hack" }))).toBe("runtime_crawl_mode_invalid");
+    expect(failCode(() => assertBackgroundCrawlArgs({ ...valid, region: "US" }))).toBe("runtime_crawl_scope_invalid");
+    expect(failCode(() => assertBackgroundCrawlArgs({ ...valid, keywords: "  " }))).toBe("runtime_crawl_input_required");
   });
 });

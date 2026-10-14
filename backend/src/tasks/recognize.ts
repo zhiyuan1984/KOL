@@ -4,17 +4,12 @@
  * Host validates catalog ids, required inputs, and that emails came from the user
  * (or the operator's bound Starry mailbox). Regex does not pick the skill.
  */
-import { audit } from "../db.js";
+import { audit } from "../postgres/access.js";
 import { scopedUser } from "../auth.js";
 import { starryBindingRow } from "../host/starry-bind.js";
 import { normalizeEmail } from "../host/identity.js";
 import { taskDefinition } from "./registry.js";
-import {
-  classifyTaskIntent,
-  IntentLlmUnavailable,
-  normalizeIntentVerdict,
-  type IntentVerdict,
-} from "./openai-intent.js";
+import { classifyTaskIntent, IntentLlmUnavailable, normalizeIntentVerdict, type IntentVerdict, } from "./openai-intent.js";
 import { extractTaskEntities, resolveTaskIntent, type ClarificationKind, type TaskResolution } from "./resolver.js";
 import { availableKnowledgeAgentRoutes, currentAgentRoutes, withAgentRoutes } from "./agent-routing.js";
 import { runtimeAgentForSkill } from "../runtime/execution.js";
@@ -26,18 +21,18 @@ export type TaskRecognition = TaskResolution & {
   error?: string;
   next_action?: string;
 };
-
-type ClassifyFn = (text: string) => Promise<Partial<IntentVerdict> & { task_type: string | null; confidence: number }>;
+type ClassifyFn = (text: string) => Promise<Partial<IntentVerdict> & {
+  task_type: string | null;
+  confidence: number;
+}>;
 let classifyOverride: ClassifyFn | null = null;
-
 export function setTaskClassifier(factory?: ClassifyFn): void {
   classifyOverride = factory || null;
 }
-
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gi;
-
 function firstEmail(value: unknown): string {
-  if (Array.isArray(value)) return firstEmail(value[0]);
+  if (Array.isArray(value))
+    return firstEmail(value[0]);
   const match = String(value || "").match(EMAIL_RE);
   return match?.[0] || "";
 }
@@ -45,27 +40,25 @@ function firstEmail(value: unknown): string {
 function emailsInText(text: string): Set<string> {
   return new Set([...text.matchAll(EMAIL_RE)].map((match) => normalizeEmail(match[0])));
 }
-
-function boundMailboxEmail(): string {
+async function boundMailboxEmail(): Promise<string> {
   try {
     const user = scopedUser();
-    if (!user) return "";
-    return normalizeEmail(String(starryBindingRow(user.id)?.mailbox_email || ""));
-  } catch {
+    if (!user)
+      return "";
+    return normalizeEmail(String((await starryBindingRow(user.id))?.mailbox_email || ""));
+  }
+  catch {
     return "";
   }
 }
-
-export function sanitizeIntentEntities(
-  entities: Record<string, unknown>,
-  text: string,
-  boundMailbox = "",
-): Record<string, unknown> {
+export function sanitizeIntentEntities(entities: Record<string, unknown>, text: string, boundMailbox = ""): Record<string, unknown> {
   const allowed = emailsInText(text);
-  if (boundMailbox) allowed.add(normalizeEmail(boundMailbox));
+  if (boundMailbox)
+    allowed.add(normalizeEmail(boundMailbox));
   const out = { ...entities };
   const from = firstEmail(out.mailboxEmail || out.from);
-  if (from && allowed.has(normalizeEmail(from))) out.mailboxEmail = from;
+  if (from && allowed.has(normalizeEmail(from)))
+    out.mailboxEmail = from;
   else {
     delete out.mailboxEmail;
     delete out.from;
@@ -77,23 +70,18 @@ export function sanitizeIntentEntities(
   if (to.length) {
     out.to = to;
     out.email = to[0];
-  } else {
+  }
+  else {
     delete out.to;
     delete out.email;
   }
   return out;
 }
-
-function mergeEntities(
-  extracted: Record<string, unknown>,
-  llm: Record<string, unknown>,
-  supplied: Record<string, unknown>,
-  boundMailbox: string,
-  taskType: string | null,
-): Record<string, unknown> {
+function mergeEntities(extracted: Record<string, unknown>, llm: Record<string, unknown>, supplied: Record<string, unknown>, boundMailbox: string, taskType: string | null): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...extracted };
   for (const [key, value] of Object.entries(llm)) {
-    if (value == null || value === "" || (Array.isArray(value) && value.length === 0)) continue;
+    if (value == null || value === "" || (Array.isArray(value) && value.length === 0))
+      continue;
     const current = merged[key];
     if (current == null || current === "" || (Array.isArray(current) && current.length === 0)) {
       merged[key] = value;
@@ -110,21 +98,21 @@ function mergeEntities(
   }
   return merged;
 }
-
 function kindOf(resolution: TaskResolution): ClarificationKind {
-  if (!resolution.task_type) return "direction";
-  if (resolution.missing_fields.length || Object.keys(resolution.invalid_fields || {}).length) return "missing_fields";
+  if (!resolution.task_type)
+    return "direction";
+  if (resolution.missing_fields.length || Object.keys(resolution.invalid_fields || {}).length)
+    return "missing_fields";
   // The model selects intent; the published schema decides required inputs.
   // Keeping a model's missing_fields flag after successful validation yields
   // an impossible clarification card with no fields the employee can fill.
   return "none";
 }
-
 async function judgeIntent(text: string): Promise<IntentVerdict> {
-  if (classifyOverride) return normalizeIntentVerdict(await classifyOverride(text));
-  return classifyTaskIntent(text);
+  if (classifyOverride)
+    return normalizeIntentVerdict(await classifyOverride(text));
+  return (await classifyTaskIntent(text));
 }
-
 export async function recognizeTaskIntent(input: {
   agent_id?: string;
   text?: string;
@@ -133,7 +121,7 @@ export async function recognizeTaskIntent(input: {
   input?: Record<string, unknown>;
 }): Promise<TaskRecognition> {
   if (scopedUser() && !currentAgentRoutes()) {
-    return withAgentRoutes(await availableKnowledgeAgentRoutes(input.agent_id), () => recognizeTaskIntent(input), input.agent_id);
+    return (await withAgentRoutes(await availableKnowledgeAgentRoutes(input.agent_id), async () => (await recognizeTaskIntent(input)), input.agent_id));
   }
   const text = String(input.text || "").trim();
   let lockedType = input.task_type && taskDefinition(String(input.task_type))
@@ -151,8 +139,7 @@ export async function recognizeTaskIntent(input: {
       source: "none",
     };
   }
-
-  const extractedEarly = extractTaskEntities(text);
+  const extractedEarly = (await extractTaskEntities(text));
   if (!lockedType && extractedEarly.confirm_send) {
     lockedType = "email_compose";
   }
@@ -163,11 +150,13 @@ export async function recognizeTaskIntent(input: {
   if (text && !lockedType) {
     try {
       verdict = await judgeIntent(text);
-    } catch (error) {
+    }
+    catch (error) {
       if (error instanceof IntentLlmUnavailable) {
         llmError = error.message;
         llmNext = error.next_action;
-      } else {
+      }
+      else {
         llmError = "识别服务未就绪，请再试一次。";
         llmNext = "检查 OPENAI_API_KEY 是否已被 Host 加载后，在箱内重试。";
       }
@@ -178,9 +167,9 @@ export async function recognizeTaskIntent(input: {
     return {
       task_type: null,
       confidence: 0,
-      entities: extractTaskEntities(text),
+      entities: (await extractTaskEntities(text)),
       missing_fields: [],
-      alternatives: resolveTaskIntent({ text }).alternatives,
+      alternatives: (await resolveTaskIntent({ text })).alternatives,
       needs_clarification: true,
       clarification_kind: "direction",
       source: "none",
@@ -194,10 +183,11 @@ export async function recognizeTaskIntent(input: {
   const candidates = routes?.filter(route => route.task_type === taskType);
   const selectedId = input.agent_id || verdict?.agent_id;
   let selected = candidates?.find(route => route.agent_id === selectedId);
-  if (!selectedId && candidates?.length === 1) selected = candidates[0];
+  if (!selectedId && candidates?.length === 1)
+    selected = candidates[0];
   // A locked task preserves existing task execution semantics; free text must resolve ownership.
   if (!selectedId && !selected && lockedType && candidates?.length) {
-    const id = runtimeAgentForSkill(lockedType, scopedUser()!.id);
+    const id = (await runtimeAgentForSkill(lockedType, scopedUser()!.id));
     selected = candidates.find(route => route.agent_id === id);
   }
   if (routes && taskType && (!selected || (!lockedType && (verdict?.confidence || 0) < 0.75))) {
@@ -206,14 +196,13 @@ export async function recognizeTaskIntent(input: {
       next_action: candidates?.length ? `请说明要由哪位智能体处理：${candidates.map(route => route.agent_name).join("、")}。`
         : "当前入口没有可用的对应技能，请选择有使用资格的智能体或补充问题归属。" };
   }
-  const bound = boundMailboxEmail();
-  const extracted = extractTaskEntities(text);
+  const bound = (await boundMailboxEmail());
+  const extracted = (await extractTaskEntities(text));
   const llmEntities = sanitizeIntentEntities(verdict?.entities || {}, text, bound);
   const merged = mergeEntities(extracted, llmEntities, input.entities || {}, bound, taskType);
-
   if (!taskType) {
-    const fallback = resolveTaskIntent({ text, entities: merged, input: input.input });
-    audit("host", "task.recognize", { text: text.slice(0, 200), task_type: null, source: "llm" });
+    const fallback = (await resolveTaskIntent({ text, entities: merged, input: input.input }));
+    (await audit("host", "task.recognize", { text: text.slice(0, 200), task_type: null, source: "llm" }));
     return {
       ...fallback,
       task_type: null,
@@ -228,22 +217,21 @@ export async function recognizeTaskIntent(input: {
       source: "llm",
     };
   }
-
-  const locked = resolveTaskIntent({
+  const locked = (await resolveTaskIntent({
     text,
     task_type: taskType,
     entities: merged,
     input: input.input,
-  });
+  }));
   const clarificationKind = kindOf(locked);
   if (verdict && !lockedType) {
-    audit("host", "task.recognize", {
+    (await audit("host", "task.recognize", {
       text: text.slice(0, 200),
       task_type: taskType,
       agent_id: selected?.agent_id,
       confidence: verdict.confidence,
       source: "llm",
-    });
+    }));
   }
   return {
     ...locked,

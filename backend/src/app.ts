@@ -11,7 +11,7 @@ import { clawRouter, starryRouter } from "./adapters/httpMount.js";
 import { clawMode, codexMode, DEMO_ADMIN, DEMO_USER, frontendDist } from "./config.js";
 import { codexBinOk, isTestRuntime } from "./codex-runtime.js";
 import { isSerializationFailure } from "./postgres/pool.js";
-import { getConn } from "./db.js";
+import { postgresDb } from "./postgres/access.js";
 import { host } from "./host/api.js";
 import { HostReject, HttpFail } from "./host/errors.js";
 import { approvals } from "./routers/approvals.js";
@@ -61,7 +61,7 @@ import { seedIfEmpty } from "./seed.js";
 import { events } from "./routers/events.js";
 import { reconcileTickets } from "./tickets.js";
 import { reconcileDocumentJobs } from "./host/knowledge-documents.js";
-
+import { skillCatalog } from "./host/skills-catalog.js";
 /** 需要同步 workbench ticket principal（PG 镜像、可审计外键）的正式权限路径。 */
 export function isFormalAuthorityPath(pathname: string): boolean {
   return pathname.startsWith("/api/tickets")
@@ -74,18 +74,17 @@ export function isFormalAuthorityPath(pathname: string): boolean {
     //（否则 requireTicketPrincipal 401“请先登录工作台”）。
     || pathname.startsWith("/api/kol/");
 }
-
-export function createApp(): Hono {
-  getConn();
-  seedIfEmpty();
-  reconcileTickets();
-  reconcileDocumentJobs();
-  ensureRuntimeSchema();
-  ensureDemoAdmin();
-  restoreActiveCrawlJobs();
-  restoreActiveDiscoveryRuns();
-  restoreActiveHomeDiscoveryRuns();
-
+export async function createApp(): Promise<Hono> {
+  postgresDb();
+  await skillCatalog();
+  (await seedIfEmpty());
+  (await reconcileTickets());
+  (await reconcileDocumentJobs());
+  (await ensureRuntimeSchema());
+  (await ensureDemoAdmin());
+  (await restoreActiveCrawlJobs());
+  (await restoreActiveDiscoveryRuns());
+  (await restoreActiveHomeDiscoveryRuns());
   const app = new Hono();
   const configuredOrigin = process.env.APP_ORIGIN || process.env.CORS_ORIGIN;
   const corsOrigin = process.env.NODE_ENV === "production"
@@ -99,23 +98,25 @@ export function createApp(): Hono {
     const pathname = new URL(c.req.url).pathname;
     // Scheduler tick can authenticate with a dedicated secret and therefore
     // intentionally bypasses browser ticket-session middleware.
-    if (pathname === "/api/cron/internal/tick") return next();
+    if (pathname === "/api/cron/internal/tick")
+      return (await next());
     // The existing workbench session is the only browser authentication domain.
     // Formal-ticket and scheduling requests mirror its server-verified claims
     // into PostgreSQL for auditable foreign keys; they never request another
     // account, password, cookie, setup, or login page.
-    return authMiddleware(c, async () => {
-      if (!isFormalAuthorityPath(pathname)) return next();
+    return (await authMiddleware(c, async () => {
+      if (!isFormalAuthorityPath(pathname))
+        return (await next());
       const user = scopedUser() || (authDisabled() ? {
         id: DEMO_USER.id, username: DEMO_USER.handle, name: DEMO_USER.name,
         email: DEMO_ADMIN.email, roles: ["employee", "admin"], active: true,
       } : undefined);
-      if (!user) return next();
+      if (!user)
+        return (await next());
       const principal = await syncWorkbenchTicketPrincipal(user);
-      return withTicketPrincipal(principal, next);
-    });
+      return (await withTicketPrincipal(principal, next));
+    }));
   });
-
   app.onError((err, c) => {
     if (err instanceof HostReject) {
       return c.json(err.payload, err.statusCode as 400 | 403 | 409 | 422 | 503);
@@ -137,15 +138,24 @@ export function createApp(): Hono {
     console.error(err);
     return c.json({ detail: err.message || "internal error" }, 500);
   });
-
-  app.get("/api/health", (c) => c.json({
+  app.get("/api/health", async (c) => {
+    try {
+      await postgresDb().one("SELECT 1 AS ready");
+    }
+    catch {
+      return c.json({ ok: false, authority_store: "postgresql", code: "postgresql_unavailable" }, 503);
+    }
+    return c.json({
     ok: true,
     name: "灵工",
     ui: "agent-v1",
+      authority_store: "postgresql",
+      storage_mode: "native_async",
     codex_mode: codexMode(),
     codex_bin_ok: codexBinOk(),
     codex_stub_allowed: isTestRuntime(),
-  }));
+    });
+  });
   app.route("/api", authRouter);
   app.route("/api", examRouter);
   app.route("/api", enterprise);
@@ -188,8 +198,8 @@ export function createApp(): Hono {
   app.route("/api", events);
   app.route("/api", crawlRouter);
   app.route("/mock/starry", starryRouter);
-  if (codexMode() === "stub" || clawMode() === "mock") app.route("/mock/claw", clawRouter);
-
+  if (codexMode() === "stub" || clawMode() === "mock")
+    app.route("/mock/claw", clawRouter);
   const dist = frontendDist();
   if (fs.existsSync(dist)) {
     // 带扩展名的静态资源不做 SPA 回退：新构建会换掉 assets 里的 hash 文件名，旧标签页请求的是
@@ -212,18 +222,17 @@ export function createApp(): Hono {
         return serveFile(c, resolved);
       }
       const isAsset = full.startsWith("assets/") || STATIC_EXT.has(path.extname(full).toLowerCase());
-      if (isAsset) return c.json({ detail: "not found" }, 404);
+      if (isAsset)
+        return c.json({ detail: "not found" }, 404);
       return serveFile(c, path.join(dist, "index.html"));
     });
   }
-
   return app;
 }
-
-function serveFile(
-  c: { header: (k: string, v: string) => void; body: (b: Uint8Array) => Response },
-  file: string,
-) {
+function serveFile(c: {
+  header: (k: string, v: string) => void;
+  body: (b: Uint8Array) => Response;
+}, file: string) {
   const buf = fs.readFileSync(file);
   const ext = path.extname(file);
   const types: Record<string, string> = {
@@ -236,6 +245,7 @@ function serveFile(
     ".woff2": "font/woff2",
   };
   c.header("Content-Type", types[ext] || "application/octet-stream");
-  if (ext === ".html") c.header("Cache-Control", "no-cache, no-store, must-revalidate");
+  if (ext === ".html")
+    c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   return c.body(buf);
 }

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { audit, getConn } from "../db.js";
+import { audit, postgresDb } from "../postgres/access.js";
 import { HttpFail } from "../host/errors.js";
 import { assertMailSendAuthority, recheckMailSendAuthority } from "../gateway/mail-authority.js";
 import { createManagedClient } from "../runtime/managed-client.js";
@@ -9,23 +9,8 @@ import { scopedUser } from "../auth.js";
 import { normalizeEmail } from "../host/identity.js";
 import { boundStarryCredentialId, matchesFollowedMailbox, publicStarryBinding, starryBindingRow } from "../host/starry-bind.js";
 import { codexMode } from "../config.js";
-import {
-  dictionaryOptionsFor,
-  enrichListProfile,
-  normalizeRiskTag,
-  RISK_TAG_OPTIONS,
-  starryCooperationStageOptions,
-  starryStageWriteFields,
-} from "./remote-contract.js";
-import {
-  codeFromLabel,
-  evidencedPointer,
-  label,
-  normalizeStage,
-  planStarryAdjacentWalk,
-  stageChecklist,
-  toLegacyStarryStage,
-} from "../stages.js";
+import { dictionaryOptionsFor, enrichListProfile, normalizeRiskTag, RISK_TAG_OPTIONS, starryCooperationStageOptions, starryStageWriteFields, } from "./remote-contract.js";
+import { codeFromLabel, evidencedPointer, label, normalizeStage, planStarryAdjacentWalk, stageChecklist, toLegacyStarryStage, } from "../stages.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { declaredNextActionLabels, declaredResultTitle } from "../tasks/result-presentation.js";
 import { libraryQueryKeyword } from "../tasks/resolver.js";
@@ -72,14 +57,9 @@ export const STARRY_KOL_WRITE_TASKS = [
   "creator_status_update",
   "creator_contact_decrypt",
 ] as const;
-
 export type StarryKolWriteTask = (typeof STARRY_KOL_WRITE_TASKS)[number];
-
 /** L1 reads. Runtime supplies reviewed read-only annotations; rejected model calls are not retried by Host. */
-export const STARRY_KOL_READ_TASKS = STARRY_KOL_TASKS.filter(
-  (task) => !(STARRY_KOL_WRITE_TASKS as readonly string[]).includes(task),
-) as readonly Exclude<StarryKolTask, StarryKolWriteTask>[];
-
+export const STARRY_KOL_READ_TASKS = STARRY_KOL_TASKS.filter((task) => !(STARRY_KOL_WRITE_TASKS as readonly string[]).includes(task)) as readonly Exclude<StarryKolTask, StarryKolWriteTask>[];
 export function isStarryKolTask(value: string | null | undefined): value is StarryKolTask {
   return Boolean(value && (STARRY_KOL_TASKS as readonly string[]).includes(value));
 }
@@ -92,11 +72,12 @@ export function isStarryKolWriteTask(value: string | null | undefined): value is
 export function isStarryKolReadTask(value: string | null | undefined): boolean {
   return isStarryKolTask(value) && !isStarryKolWriteTask(value);
 }
-
-type StarryKolClient = Pick<ReturnType<typeof createManagedClient>, "callTool" | "close">;
+type StarryKolClient = Pick<Awaited<ReturnType<typeof createManagedClient>>, "callTool" | "close">;
 let clientFactory: (() => StarryKolClient) | null = null;
-const callScope = new AsyncLocalStorage<{ credentialAccountId?: string; useBoundCredential?: boolean }>();
-
+const callScope = new AsyncLocalStorage<{
+  credentialAccountId?: string;
+  useBoundCredential?: boolean;
+}>();
 export function withStarryCredential<T>(credentialAccountId: string, action: () => T): T {
   return callScope.run({ credentialAccountId, useBoundCredential: true }, action);
 }
@@ -108,9 +89,9 @@ export function withStarryCredential<T>(credentialAccountId: string, action: () 
 export function withStarryConnectorAuth<T>(action: () => T): T {
   return callScope.run({ useBoundCredential: false }, action);
 }
-
 export function setStarryKolClientFactory(factory?: () => StarryKolClient): void {
-  if (factory && process.env.NODE_ENV !== "test") throw new Error("Starry client fixtures are test-only");
+  if (factory && process.env.NODE_ENV !== "test")
+    throw new Error("Starry client fixtures are test-only");
   clientFactory = factory || null;
 }
 export const setEmailMcpClientFactory = setStarryKolClientFactory;
@@ -132,14 +113,15 @@ function json(value: unknown): Json {
 function asListPayload(items: unknown[], total?: unknown): Json {
   return { list: items as Json[], total: Number.isFinite(Number(total)) ? Number(total) : items.length };
 }
-
 export function normalizeStarryKolResult(value: Json): Json {
-  if (Array.isArray(value)) return asListPayload(value);
+  if (Array.isArray(value))
+    return asListPayload(value);
   if (typeof value.text === "string" && value.text && !value.data && !value.list && !value.records) {
     try {
       const parsed = JSON.parse(value.text);
       return parsed && typeof parsed === "object" ? normalizeStarryKolResult(json(parsed)) : { text: value.text };
-    } catch {
+    }
+    catch {
       return { error: value.text, needs_input: true };
     }
   }
@@ -147,19 +129,22 @@ export function normalizeStarryKolResult(value: Json): Json {
     try {
       const parsed = JSON.parse(value.result);
       return parsed && typeof parsed === "object" ? normalizeStarryKolResult(json(parsed)) : { value: parsed };
-    } catch {
+    }
+    catch {
       return { text: value.result };
     }
   }
-  if (Array.isArray(value.data)) return asListPayload(value.data, value.total);
-  if (value.data && typeof value.data === "object") return normalizeStarryKolResult(json(value.data));
-  if (Array.isArray(value.result)) return asListPayload(value.result, value.total);
-  if (value.result && typeof value.result === "object") return normalizeStarryKolResult(json(value.result));
+  if (Array.isArray(value.data))
+    return asListPayload(value.data, value.total);
+  if (value.data && typeof value.data === "object")
+    return normalizeStarryKolResult(json(value.data));
+  if (Array.isArray(value.result))
+    return asListPayload(value.result, value.total);
+  if (value.result && typeof value.result === "object")
+    return normalizeStarryKolResult(json(value.result));
   return value;
 }
-
 export const normalizeEmailMcpResult = normalizeStarryKolResult;
-
 function mockProfile(overrides: Json = {}): Json {
   return enrichListProfile({
     kolUid: "KOLTEST001",
@@ -323,7 +308,8 @@ function mockCall(name: string, args: Json): Json {
     let body: Json = {};
     try {
       body = json(JSON.parse(String(args.requestJson || "{}")));
-    } catch {
+    }
+    catch {
       body = {};
     }
     const keyword = String(body.keyword || "").trim();
@@ -344,7 +330,8 @@ function mockCall(name: string, args: Json): Json {
     return { total: 2, list: [mockProfile(), mockLarryFollowed()] };
   }
   if (name === "getKolProfileDetail") {
-    if (isQq01Lookup(args.kolUid) || isQq01Lookup(args.kolName)) return mockQq01({ kolUid: args.kolUid || mockQq01().kolUid });
+    if (isQq01Lookup(args.kolUid) || isQq01Lookup(args.kolName))
+      return mockQq01({ kolUid: args.kolUid || mockQq01().kolUid });
     return mockProfile({
       kolUid: args.kolUid || "KOLTEST001",
       bio: "户外电源内容创作者",
@@ -354,7 +341,8 @@ function mockCall(name: string, args: Json): Json {
     let body: Json = {};
     try {
       body = json(JSON.parse(String(args.requestJson || "{}")));
-    } catch {
+    }
+    catch {
       body = {};
     }
     return mockProfile({
@@ -374,7 +362,8 @@ function mockCall(name: string, args: Json): Json {
     let body: Json = {};
     try {
       body = json(JSON.parse(String(args.requestJson || "{}")));
-    } catch {
+    }
+    catch {
       body = {};
     }
     return {
@@ -455,7 +444,8 @@ function mockCall(name: string, args: Json): Json {
       req = json(JSON.parse(String(args.requestJson || "{}")));
       prompt = String(req.prompt || "");
       subject = String(req.subject || subject);
-    } catch {
+    }
+    catch {
       /* keep defaults */
     }
     const rate = parseQuoteRate(prompt);
@@ -486,12 +476,11 @@ function mockCall(name: string, args: Json): Json {
     let body: Json = {};
     try {
       body = json(JSON.parse(String(args.requestJson || "{}")));
-    } catch {
+    }
+    catch {
       body = {};
     }
-    const fields = starryStageWriteFields(String(
-      body.toStageCode || body.cooperationStageCode || body.stageCode || args.stageCode || "INTERESTED",
-    ));
+    const fields = starryStageWriteFields(String(body.toStageCode || body.cooperationStageCode || body.stageCode || args.stageCode || "INTERESTED"));
     return {
       updated: true,
       lifecycleId: args.lifecycleId ?? body.lifecycleId,
@@ -502,34 +491,35 @@ function mockCall(name: string, args: Json): Json {
   }
   throw new Error(`unknown starry-kol-mcp tool: ${name}`);
 }
-
-export async function callStarryKolTool(name: string, args: Json = {}, options: { timeoutMs?: number } = {}): Promise<Json> {
+export async function callStarryKolTool(name: string, args: Json = {}, options: {
+  timeoutMs?: number;
+} = {}): Promise<Json> {
   const { rejectDiscoveryHarnessTool } = await import("../gateway/discovery-harness.js");
-  rejectDiscoveryHarnessTool(name);
-  return call(name, args, options.timeoutMs);
+  (await rejectDiscoveryHarnessTool(name));
+  return (await call(name, args, options.timeoutMs));
 }
-
 /**
  * Starry profiles expose the current 合作轮次 as `lastLifecycleId`, not `lifecycleId`.
  * Only propagate a known remote numeric id. Local placeholders like `lc_*` must not
  * be sent — that is what produced 合作轮次不存在 when the Host omitted/invented the id.
  */
-export function remoteLifecycleIdFrom(
-  ...sources: Array<Record<string, unknown> | null | undefined>
-): number | null {
+export function remoteLifecycleIdFrom(...sources: Array<Record<string, unknown> | null | undefined>): number | null {
   for (const source of sources) {
-    if (!source || typeof source !== "object") continue;
+    if (!source || typeof source !== "object")
+      continue;
     const nested = [
       source.profile,
       source.creator,
       source.payload,
     ].flatMap((value) => {
-      if (value && typeof value === "object" && !Array.isArray(value)) return [value as Record<string, unknown>];
+      if (value && typeof value === "object" && !Array.isArray(value))
+        return [value as Record<string, unknown>];
       if (typeof value === "string" && value.trim().startsWith("{")) {
         try {
           const parsed = JSON.parse(value) as Record<string, unknown>;
           return parsed && typeof parsed === "object" ? [parsed] : [];
-        } catch {
+        }
+        catch {
           return [];
         }
       }
@@ -538,19 +528,23 @@ export function remoteLifecycleIdFrom(
     for (const row of [source, ...nested]) {
       for (const key of ["lastLifecycleId", "last_lifecycle_id", "lifecycleId", "lifecycle_id"]) {
         const id = parseRemoteLifecycleId(row[key]);
-        if (id != null) return id;
+        if (id != null)
+          return id;
       }
     }
   }
   return null;
 }
-
 function parseRemoteLifecycleId(value: unknown): number | null {
-  if (value == null || value === "") return null;
-  if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : null;
+  if (value == null || value === "")
+    return null;
+  if (typeof value === "number")
+    return Number.isInteger(value) && value > 0 ? value : null;
   const text = String(value).trim();
-  if (!text || /^lc_/i.test(text) || /^conv_/i.test(text)) return null;
-  if (!/^\d+$/.test(text)) return null;
+  if (!text || /^lc_/i.test(text) || /^conv_/i.test(text))
+    return null;
+  if (!/^\d+$/.test(text))
+    return null;
   const parsed = Number(text);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
@@ -613,9 +607,10 @@ export async function writeRemoteOfficialStage(input: RemoteStageWriteInput): Pr
     updated: data.updated !== false,
   };
 }
-
 /** Physical adapter: successive adjacent Starry hops. Host already accepted the product edge. */
-export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput & { fromStage: string }): Promise<Json> {
+export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput & {
+  fromStage: string;
+}): Promise<Json> {
   const plan = planStarryAdjacentWalk(input.fromStage, input.stageCode);
   if (plan.kind === "not_forward") {
     return {
@@ -644,7 +639,8 @@ export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput 
         updated: Boolean(data.updated),
       });
       cursor = hop;
-    } catch (error) {
+    }
+    catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
         error: true,
@@ -666,11 +662,12 @@ export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput 
     hops,
   };
 }
-
 async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<Json> {
-  if (name === "sendEmailNow") await recheckMailSendAuthority();
-  if (!clientFactory && codexMode() === "stub") return mockCall(name, args);
-  if (!clientFactory && !starryKolMcpConfigured()) {
+  if (name === "sendEmailNow")
+    await recheckMailSendAuthority();
+  if (!clientFactory && codexMode() === "stub")
+    return mockCall(name, args);
+  if (!clientFactory && !(await starryKolMcpConfigured())) {
     throw new HttpFail(503, {
       code: "starrykol_not_configured",
       message: "Starry KOL MCP 未配置。",
@@ -680,12 +677,13 @@ async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<
   const scope = callScope.getStore();
   const client = clientFactory
     ? clientFactory()
-    : createManagedClient("starrykol", scopedUser()?.id || "",
-      scope?.credentialAccountId || (scope?.useBoundCredential === false ? undefined : boundStarryCredentialId(scopedUser()?.id)), timeoutMs);
+    : (await createManagedClient("starrykol", scopedUser()?.id || "", scope?.credentialAccountId || (scope?.useBoundCredential === false ? undefined : (await boundStarryCredentialId(scopedUser()?.id))), timeoutMs));
   try {
     return normalizeStarryKolResult(await client.callTool(name, args));
-  } catch (error) {
-    if (error instanceof HttpFail) throw error;
+  }
+  catch (error) {
+    if (error instanceof HttpFail)
+      throw error;
     const message = error instanceof Error ? error.message : String(error);
     if (/登录过期|请先登录/.test(message)) {
       throw new HttpFail(401, {
@@ -709,7 +707,8 @@ async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<
       });
     }
     throw error;
-  } finally {
+  }
+  finally {
     await client.close().catch(() => undefined);
   }
 }
@@ -727,18 +726,19 @@ function emails(value: unknown): string[] {
 function firstEmail(value: unknown): string {
   return emails(value)[0] || "";
 }
-
 function firstString(...values: unknown[]): string {
   for (const value of values) {
-    if (Array.isArray(value) && value.length) return firstString(value[0]);
+    if (Array.isArray(value) && value.length)
+      return firstString(value[0]);
     const text = String(value ?? "").trim();
-    if (text) return text;
+    if (text)
+      return text;
   }
   return "";
 }
-
 function codes(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (Array.isArray(value))
+    return value.map((item) => String(item).trim()).filter(Boolean);
   const text = String(value || "").trim();
   return text ? text.split(/[、，,\s]+/).map((item) => item.trim()).filter(Boolean) : [];
 }
@@ -753,25 +753,14 @@ function kolUidOf(source: Json, extra: Json = {}): string {
     : {};
   const creatorId = firstString(source.creator_id, extra.creator_id, nested.creator_id);
   const asUid = creatorId && !/^cr_/i.test(creatorId) ? creatorId : "";
-  return firstString(
-    source.kolUid,
-    source.kol_uid,
-    extra.kolUid,
-    extra.kol_uid,
-    nested.kolUid,
-    nested.kol_uid,
-    extra.uid,
-    source.uid,
-    asUid,
-  );
+  return firstString(source.kolUid, source.kol_uid, extra.kolUid, extra.kol_uid, nested.kolUid, nested.kol_uid, extra.uid, source.uid, asUid);
 }
-
 function profileKeyword(entities: Json): string {
   const raw = firstString(entities.keyword, entities.name, entities.handle, entities.kolUid, entities.email, entities.to);
-  if (raw && raw !== "关键词" && raw !== "[关键词]") return raw;
+  if (raw && raw !== "关键词" && raw !== "[关键词]")
+    return raw;
   return libraryQueryKeyword(firstString(entities.text, entities.prompt, entities.raw, entities.keyword));
 }
-
 function profileQueryBody(entities: Json): Json {
   const keyword = profileKeyword(entities);
   const stageCodes = codes(entities.stageCodes && codes(entities.stageCodes).length ? entities.stageCodes : entities.status);
@@ -807,26 +796,15 @@ const OWNER_FIELD_LABEL: Record<string, string> = {
 function ownerBindingItems(row: Json): string[] {
   const items: string[] = [];
   for (const [key, value] of Object.entries(row)) {
-    if (!isOwnerFieldKey(key) || value == null || Array.isArray(value) || (typeof value === "object")) continue;
+    if (!isOwnerFieldKey(key) || value == null || Array.isArray(value) || (typeof value === "object"))
+      continue;
     items.push(`${OWNER_FIELD_LABEL[key] || "负责人"} ${String(value)}`);
   }
   return items;
 }
-
 function ownerValue(entities: Json): string {
-  return firstString(
-    entities.ownerUserName,
-    entities.owner_user_name,
-    entities.ownerName,
-    entities.owner,
-    entities.ownerUserId,
-    entities.owner_user_id,
-    entities.responsibleUserId,
-    entities.responsibleUserName,
-    entities.assignee,
-  );
+  return firstString(entities.ownerUserName, entities.owner_user_name, entities.ownerName, entities.owner, entities.ownerUserId, entities.owner_user_id, entities.responsibleUserId, entities.responsibleUserName, entities.assignee);
 }
-
 function profileUpdateRequest(entities: Json, detail: Json): Json {
   const kolUid = kolUidOf(entities, detail);
   const owner = ownerValue(entities);
@@ -835,44 +813,48 @@ function profileUpdateRequest(entities: Json, detail: Json): Json {
   if (owner) {
     if (ownerKeys.length) {
       for (const key of ownerKeys) {
-        if (/id/i.test(key) && /^[A-Za-z0-9_-]+$/.test(owner)) body[key] = owner;
-        else if (/name|Name/.test(key) || !/id/i.test(key)) body[key] = owner;
+        if (/id/i.test(key) && /^[A-Za-z0-9_-]+$/.test(owner))
+          body[key] = owner;
+        else if (/name|Name/.test(key) || !/id/i.test(key))
+          body[key] = owner;
       }
-    } else {
+    }
+    else {
       body.ownerUserName = owner;
-      if (/^[A-Za-z0-9_-]+$/.test(owner)) body.ownerUserId = owner;
+      if (/^[A-Za-z0-9_-]+$/.test(owner))
+        body.ownerUserId = owner;
     }
   }
-  if (entities.ownerUserId) body.ownerUserId = String(entities.ownerUserId);
-  if (entities.ownerUserName) body.ownerUserName = String(entities.ownerUserName);
-  const status = firstString(
-    entities.cooperationStageCode,
-    entities.stage,
-    entities.status,
-    entities.cooperationStageName,
-  );
+  if (entities.ownerUserId)
+    body.ownerUserId = String(entities.ownerUserId);
+  if (entities.ownerUserName)
+    body.ownerUserName = String(entities.ownerUserName);
+  const status = firstString(entities.cooperationStageCode, entities.stage, entities.status, entities.cooperationStageName);
   const stageCode = codeFromLabel(status);
   if (stageCode) {
     Object.assign(body, starryStageWriteFields(stageCode));
-  } else if (entities.confirmed) {
+  }
+  else if (entities.confirmed) {
     body.confirmed = String(entities.confirmed);
   }
   for (const key of ["notes", "wechat"] as const) {
     const value = firstString(entities[key]);
-    if (value) body[key] = value;
+    if (value)
+      body[key] = value;
   }
   const followTags = entities.followStyleTags || entities.follow_style_tags;
-  if (followTags) body.followStyleTags = followTags;
+  if (followTags)
+    body.followStyleTags = followTags;
   const nicheTags = entities.nicheTags || entities.niche_tags;
-  if (nicheTags) body.nicheTags = nicheTags;
+  if (nicheTags)
+    body.nicheTags = nicheTags;
   return body;
 }
-
 function searchKeyword(entities: Json): string {
-  if (entities.keyword) return String(entities.keyword).trim();
+  if (entities.keyword)
+    return String(entities.keyword).trim();
   return firstEmail(entities.to || entities.email || entities.recipient);
 }
-
 const CARD_SKIP_KEYS = [
   "needs_input",
   "mailbox_authorized",
@@ -938,15 +920,15 @@ const CARD_SKIP_KEYS = [
   "briefing_summary",
   "briefing_source",
 ];
-
 function conversationListSummary(data: Json, items: Json[]): string {
   const keyword = String(data.keyword || data.recipient || "").trim();
-  if (items.length) return `已返回 ${items.length} 条可核验记录。`;
+  if (items.length)
+    return `已返回 ${items.length} 条可核验记录。`;
   return keyword ? `未找到与 ${keyword} 相关的邮件会话。` : "未找到邮件会话。";
 }
-
 function conversationListActions(data: Json, items: Json[]): string[] {
-  if (items.length) return ["复核结果并选择下一步任务"];
+  if (items.length)
+    return ["复核结果并选择下一步任务"];
   const recipient = firstEmail(data.recipient || data.keyword);
   return [
     recipient ? `写合作邮件 ${recipient}` : "写合作邮件",
@@ -963,30 +945,35 @@ function conversationText(conversation: Json): string {
 function inferCompletedFromText(text: string, current: string): string[] {
   const t = text.toLowerCase();
   const out: string[] = [];
-  if (/interested|有兴趣|愿意合作|rate card|报价单/.test(t)) out.push("INTERESTED");
-  if (/evaluat|评估|选品/.test(t)) out.push("EVALUATING");
-  if (/quote|报价|usd\s*\d+|\$\d+/.test(t)) out.push("QUOTE_PENDING");
-  if (/contract|合同|签署/.test(t)) out.push("CONTRACTING");
-  if (/address|地址|寄样/.test(t)) out.push("SAMPLE_PENDING");
-  if (/shipped|运单|已发货/.test(t)) out.push("SHIPPED");
-  if (/received|签收|testing/.test(t)) out.push("TESTING");
-  if (/https?:\/\/|youtu\.be|published|已发布/.test(t)) out.push("PUBLISHED");
-  if (/invoice|payment sent|已付款/.test(t)) out.push("SETTLING");
+  if (/interested|有兴趣|愿意合作|rate card|报价单/.test(t))
+    out.push("INTERESTED");
+  if (/evaluat|评估|选品/.test(t))
+    out.push("EVALUATING");
+  if (/quote|报价|usd\s*\d+|\$\d+/.test(t))
+    out.push("QUOTE_PENDING");
+  if (/contract|合同|签署/.test(t))
+    out.push("CONTRACTING");
+  if (/address|地址|寄样/.test(t))
+    out.push("SAMPLE_PENDING");
+  if (/shipped|运单|已发货/.test(t))
+    out.push("SHIPPED");
+  if (/received|签收|testing/.test(t))
+    out.push("TESTING");
+  if (/https?:\/\/|youtu\.be|published|已发布/.test(t))
+    out.push("PUBLISHED");
+  if (/invoice|payment sent|已付款/.test(t))
+    out.push("SETTLING");
   const normalized = normalizeStage(current);
   return out.filter((code) => code !== normalized);
 }
-
 function detectReplyException(profile: Json, riskConversations: Json, text: string): Json | null {
-  const stage = normalizeStage(firstString(
-    profile.cooperationStageCode,
-    profile.cooperationStageName,
-    profile.stage,
-    profile.status,
-  ));
-  if (stage === "DISPUTED") return { code: "EXCEPTION_HANDLING", label: "异常处理中" };
+  const stage = normalizeStage(firstString(profile.cooperationStageCode, profile.cooperationStageName, profile.stage, profile.status));
+  if (stage === "DISPUTED")
+    return { code: "EXCEPTION_HANDLING", label: "异常处理中" };
   const uid = kolUidOf(profile);
   const active = rows(riskConversations).find((row) => {
-    if (uid && kolUidOf(row) && kolUidOf(row) !== uid) return false;
+    if (uid && kolUidOf(row) && kolUidOf(row) !== uid)
+      return false;
     const tag = normalizeRiskTag(firstString(row.riskTag, row.code, row.risk_tag, row.tag));
     return /^(DELAY|CONTENT|LOST_CONTACT)$/i.test(tag);
   });
@@ -997,28 +984,31 @@ function detectReplyException(profile: Json, riskConversations: Json, text: stri
       label: firstString(active.name, RISK_TAG_OPTIONS.find((row) => row.code === code)?.name, active.subject, "风险"),
     };
   }
-  if (/lost contact|失联|haven.?t heard|no response/i.test(text)) return { code: "LOST_CONTACT", label: "失联" };
-  if (/\bdelay\b|延期|postponed/i.test(text) && !/interested|有兴趣/.test(text)) return { code: "DELAY", label: "延期" };
+  if (/lost contact|失联|haven.?t heard|no response/i.test(text))
+    return { code: "LOST_CONTACT", label: "失联" };
+  if (/\bdelay\b|延期|postponed/i.test(text) && !/interested|有兴趣/.test(text))
+    return { code: "DELAY", label: "延期" };
   return null;
 }
-
 function usableHandle(value: string): string {
   const handle = String(value || "").trim().replace(/^@+/, "");
-  if (!handle || /@/.test(handle) || /\.(com|cn|net|io|org|edu)$/i.test(handle)) return "";
+  if (!handle || /@/.test(handle) || /\.(com|cn|net|io|org|edu)$/i.test(handle))
+    return "";
   return handle;
 }
-
 function replyAnalysisActions(input: {
   pointer: string | null;
   exception: Json | null;
   recipient: string;
   handle: string;
-  suggestedTags?: { id: string; label: string; reason?: string }[];
+  suggestedTags?: {
+    id: string;
+    label: string;
+    reason?: string;
+  }[];
 }): string[] {
   const handle = usableHandle(input.handle);
-  const tagActions = (input.suggestedTags || []).slice(0, 1).map((tag) => (
-    handle ? `给 @${handle} 打标签 ${tag.label}` : `打标签 ${tag.label}`
-  ));
+  const tagActions = (input.suggestedTags || []).slice(0, 1).map((tag) => (handle ? `给 @${handle} 打标签 ${tag.label}` : `打标签 ${tag.label}`));
   if (input.exception) {
     return ["查看风险会话", handle ? `记状态 @${handle}` : "提出阶段变更", ...tagActions].filter(Boolean);
   }
@@ -1031,9 +1021,11 @@ function replyAnalysisActions(input: {
     ...tagActions,
   ].filter(Boolean);
 }
-
-type Operation = { name: string; label: string; status: "running" | "done" | "failed" };
-
+type Operation = {
+  name: string;
+  label: string;
+  status: "running" | "done" | "failed";
+};
 const TOOL_LABELS: Record<string, string> = {
   pageMailboxes: "查询品牌邮箱",
   listNylasAccounts: "查询 Nylas 账号",
@@ -1070,50 +1062,54 @@ const TOOL_LABELS: Record<string, string> = {
 function title(task: StarryKolTask): string {
   return declaredResultTitle(task) || task;
 }
-
-export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<Json[]> {
+export async function listStarryMailboxes(opts?: {
+  bearer?: string;
+}): Promise<Json[]> {
   const userId = scopedUser()?.id || "";
-  const credential = opts?.bearer ? createCredential({ type: "user_account", owner_user_id: userId,
+  const credential = opts?.bearer ? (await createCredential({ type: "user_account", owner_user_id: userId,
     label: "Starry connection probe", purpose: "Temporary mailbox probe",
-    secret: opts.bearer.replace(/^Bearer\s+/i, "") }, userId) : undefined;
+    secret: opts.bearer.replace(/^Bearer\s+/i, "") }, userId)) : undefined;
   try {
     // Preserve the surrounding connector-auth choice. Without this, the
     // mailbox probe would silently re-enable a broken per-user bearer during
     // an otherwise organization-authenticated mail synchronization.
-    return rows(await callScope.run({ ...callScope.getStore(), ...(credential ? { credentialAccountId: credential.id } : {}) },
-      () => call("pageMailboxes", { pageNo: 1, pageSize: 50 })));
-  } finally { if (credential) deleteCredential(credential.id, credential.version); }
+    return rows(await callScope.run({ ...callScope.getStore(), ...(credential ? { credentialAccountId: credential.id } : {}) }, async () => (await call("pageMailboxes", { pageNo: 1, pageSize: 50 }))));
+  }
+  finally {
+    if (credential)
+      (await deleteCredential(credential.id, credential.version));
+  }
 }
-
 function rows(data: Json): Json[] {
-  if (Array.isArray(data)) return data as Json[];
-  if (data.needs_input && !Array.isArray(data.list) && !Array.isArray(data.records)) return [];
+  if (Array.isArray(data))
+    return data as Json[];
+  if (data.needs_input && !Array.isArray(data.list) && !Array.isArray(data.records))
+    return [];
   if (data.kolUid || data.kolName) {
-    if (Array.isArray(data.list) && data.list.length) return data.list as Json[];
-    if (Array.isArray(data.records) && data.records.length) return data.records as Json[];
+    if (Array.isArray(data.list) && data.list.length)
+      return data.list as Json[];
+    if (Array.isArray(data.records) && data.records.length)
+      return data.records as Json[];
     return [data];
   }
   for (const key of ["list", "records", "rows", "items", "content", "mailboxes", "conversations", "messages", "profiles", "creators"]) {
-    if (Array.isArray(data[key])) return data[key] as Json[];
+    if (Array.isArray(data[key]))
+      return data[key] as Json[];
   }
-  if (data.mailboxEmail || data.subject || data.recipientEmail) return [data];
+  if (data.mailboxEmail || data.subject || data.recipientEmail)
+    return [data];
   return [];
 }
-
 function profileMatches(row: Json, keyword: string, stageCodes: string[]): boolean {
   if (keyword) {
     const hay = JSON.stringify(row).toLowerCase();
-    if (!hay.includes(keyword.toLowerCase())) return false;
+    if (!hay.includes(keyword.toLowerCase()))
+      return false;
   }
   if (stageCodes.length) {
-    const rowStage = firstString(
-      row.cooperationStageCode,
-      row.cooperationStageName,
-      row.stageName,
-      row.stage,
-      row.status,
-    );
-    if (rowStage && !stageCodes.some((code) => rowStage.includes(code) || code.includes(rowStage))) return false;
+    const rowStage = firstString(row.cooperationStageCode, row.cooperationStageName, row.stageName, row.stage, row.status);
+    if (rowStage && !stageCodes.some((code) => rowStage.includes(code) || code.includes(rowStage)))
+      return false;
   }
   return true;
 }
@@ -1160,15 +1156,18 @@ function ownerFromMailboxRow(row: Json): Json {
     ...(ownerOpenId ? { ownerOpenId, ownerUserId: ownerOpenId } : {}),
   };
 }
-
-function ownerFromBinding(fromAddr: string): Json {
-  if (!fromAddr) return {};
+async function ownerFromBinding(fromAddr: string): Promise<Json> {
+  if (!fromAddr)
+    return {};
   try {
     const user = scopedUser();
-    if (!user) return {};
-    const row = starryBindingRow(user.id);
-    if (!row) return {};
-    if (normalizeEmail(String(row.mailbox_email || "")) !== normalizeEmail(fromAddr)) return {};
+    if (!user)
+      return {};
+    const row = (await starryBindingRow(user.id));
+    if (!row)
+      return {};
+    if (normalizeEmail(String(row.mailbox_email || "")) !== normalizeEmail(fromAddr))
+      return {};
     const ownerUserName = firstString(row.owner_name);
     // 绑定表没有 openId 列，但只要有就带出来：只给 ownerUserName 时 addKolProfile
     // 会报「负责人无可用邮箱」，不能在这里静默丢掉。
@@ -1179,7 +1178,8 @@ function ownerFromBinding(fromAddr: string): Json {
       ...(ownerUserName ? { ownerUserName, ownerName: ownerUserName } : {}),
       ...(ownerOpenId ? { ownerOpenId, ownerUserId: ownerOpenId } : {}),
     };
-  } catch {
+  }
+  catch {
     return {};
   }
 }
@@ -1201,20 +1201,19 @@ export async function resolveStarryOwnerForMailbox(input: {
     ...(mailboxEmail ? { mailboxEmail, ownerMailbox: mailboxEmail } : {}),
     ...(ownerName ? { ownerUserName: ownerName, ownerName } : {}),
   };
-  if (!mailboxId && !mailboxEmail) return fallback;
+  if (!mailboxId && !mailboxEmail)
+    return fallback;
   let listed: Json[] = [];
   try {
     listed = rows(await call("pageMailboxes", { pageNo: 1, pageSize: 50 }));
-  } catch {
+  }
+  catch {
     return fallback;
   }
-  const match = listed.find((row) => (
-    (mailboxId && number(row.id ?? row.mailboxId) === mailboxId)
-    || (mailboxEmail && sameMailbox(row, mailboxEmail))
-  ));
+  const match = listed.find((row) => ((mailboxId && number(row.id ?? row.mailboxId) === mailboxId)
+    || (mailboxEmail && sameMailbox(row, mailboxEmail))));
   return match ? { ...fallback, ...ownerFromMailboxRow(match) } : fallback;
 }
-
 function profileAddBody(recipientEmail: string, name?: string, owner: Json = {}): Json {
   return {
     kolName: (name || recipientEmail.split("@")[0] || "邮件联络人").trim(),
@@ -1246,12 +1245,11 @@ function isMissingKolProfile(error: string): boolean {
 function resultError(result: Json): string {
   return firstString(result.error, result.message, result.msg, result.text);
 }
-
 function conversationMissingProfile(result: Json): boolean {
-  if (number(result.conversationId || result.id)) return false;
+  if (number(result.conversationId || result.id))
+    return false;
   return isMissingKolProfile(resultError(result));
 }
-
 function isEmailTakenByOtherKol(error: string): boolean {
   return /联系邮箱已被其他红人占用/.test(error);
 }
@@ -1260,27 +1258,35 @@ function profileMatchesContact(row: Json, email: string): boolean {
   const got = firstEmail(row.contactEmail || row.email || row.contact_email);
   return Boolean(got && email && normalizeEmail(got) === normalizeEmail(email));
 }
-
-function emailParts(value: string): { local: string; domain: string } {
+function emailParts(value: string): {
+  local: string;
+  domain: string;
+} {
   const normalized = normalizeEmail(value);
   const at = normalized.lastIndexOf("@");
-  if (at <= 0 || at === normalized.length - 1) return { local: "", domain: "" };
+  if (at <= 0 || at === normalized.length - 1)
+    return { local: "", domain: "" };
   return { local: normalized.slice(0, at), domain: normalized.slice(at + 1) };
 }
-
 function maskedEmailMatches(masked: unknown, email: string): boolean {
   const mask = String(masked || "").trim().toLowerCase();
-  if (!mask.includes("*") || !email) return false;
+  if (!mask.includes("*") || !email)
+    return false;
   const want = emailParts(email);
   const got = emailParts(mask);
-  if (!want.local || !want.domain || !got.local || !got.domain) return false;
-  if (want.domain !== got.domain) return false;
+  if (!want.local || !want.domain || !got.local || !got.domain)
+    return false;
+  if (want.domain !== got.domain)
+    return false;
   const star = got.local.indexOf("*");
-  if (star < 1) return false;
+  if (star < 1)
+    return false;
   const prefix = got.local.slice(0, star);
   const suffix = got.local.slice(star).replace(/\*+/g, "");
-  if (!want.local.startsWith(prefix)) return false;
-  if (suffix && !want.local.endsWith(suffix)) return false;
+  if (!want.local.startsWith(prefix))
+    return false;
+  if (suffix && !want.local.endsWith(suffix))
+    return false;
   const visible = got.local.replace(/\*/g, "");
   return visible.length > 0 && visible.length < want.local.length;
 }
@@ -1288,61 +1294,78 @@ function maskedEmailMatches(masked: unknown, email: string): boolean {
 function profileMaskedContact(row: Json): string {
   return firstString(row.contactEmailMasked, row.contact_email_masked, row.emailMasked, row.email_masked);
 }
-
-function profileFollowScope(fromAddr?: string): { mailbox_email: string; owner_name: string } {
+async function profileFollowScope(fromAddr?: string): Promise<{
+  mailbox_email: string;
+  owner_name: string;
+}> {
   try {
     const user = scopedUser();
-    const bind = publicStarryBinding(user ? starryBindingRow(user.id) : null);
+    const bind = publicStarryBinding(user ? (await starryBindingRow(user.id)) : null);
     return {
       mailbox_email: fromAddr || bind.mailbox_email,
       owner_name: bind.owner_name,
     };
-  } catch {
+  }
+  catch {
     return { mailbox_email: fromAddr || "", owner_name: "" };
   }
 }
-
-function profileFollowsMailbox(row: Json, fromAddr?: string): boolean {
-  const scope = profileFollowScope(fromAddr);
-  if (!scope.mailbox_email && !scope.owner_name) return false;
+async function profileFollowsMailbox(row: Json, fromAddr?: string): Promise<boolean> {
+  const scope = (await profileFollowScope(fromAddr));
+  if (!scope.mailbox_email && !scope.owner_name)
+    return false;
   return matchesFollowedMailbox({
     owner_name: firstString(row.ownerUserName, row.owner_user_name, row.ownerName, row.owner_name, row.owner),
     owner_mailbox: firstEmail(row.ownerMailbox || row.owner_mailbox || row.mailboxEmail || row.mailbox_from),
     mailbox_from: firstEmail(row.mailbox_from),
     mailboxEmail: firstEmail(row.mailboxEmail),
+    ownership_source_ready: row.ownership_source_ready,
+    verified_owner_mailbox: row.verified_owner_mailbox,
+    owner_open_id: row.owner_open_id,
   }, scope);
 }
-
-function pickContactProfile(list: Json[], email: string, opts?: { allowSingle?: boolean; fromAddr?: string }): Json | undefined {
-  if (!list.length) return undefined;
+async function pickContactProfile(list: Json[], email: string, opts?: {
+  allowSingle?: boolean;
+  fromAddr?: string;
+}): Promise<Json | undefined> {
+  if (!list.length)
+    return undefined;
   const exact = list.filter((row) => profileMatchesContact(row, email) && kolUidOf(row));
-  if (exact.length === 1) return exact[0];
+  if (exact.length === 1)
+    return exact[0];
   if (exact.length > 1) {
-    const followed = exact.filter((row) => profileFollowsMailbox(row, opts?.fromAddr));
+    const followed = (await Promise.all(exact.map(async (row) => ({ row, follows: await profileFollowsMailbox(row, opts?.fromAddr) }))))
+      .filter((result) => result.follows)
+      .map((result) => result.row);
     return followed[0] || exact[0];
   }
   const masked = list.filter((row) => maskedEmailMatches(profileMaskedContact(row), email) && kolUidOf(row));
-  if (masked.length === 1) return masked[0];
+  if (masked.length === 1)
+    return masked[0];
   if (masked.length > 1) {
-    const followed = masked.filter((row) => profileFollowsMailbox(row, opts?.fromAddr));
+    const followed = (await Promise.all(masked.map(async (row) => ({ row, follows: await profileFollowsMailbox(row, opts?.fromAddr) }))))
+      .filter((result) => result.follows)
+      .map((result) => result.row);
     return followed.length === 1 ? followed[0] : undefined;
   }
-  if (opts?.allowSingle && list.length === 1 && kolUidOf(list[0])) return list[0];
+  if (opts?.allowSingle && list.length === 1 && kolUidOf(list[0]))
+    return list[0];
   return undefined;
 }
-
-function localFollowedProfile(email: string, fromAddr?: string): Json | undefined {
-  if (!email) return undefined;
+async function localFollowedProfile(email: string, fromAddr?: string): Promise<Json | undefined> {
+  if (!email)
+    return undefined;
   try {
-    const found = getConn().prepare(
-      "SELECT * FROM collaborations WHERE lower(trim(email)) = ?",
-    ).all(normalizeEmail(email)) as Array<Record<string, unknown>>;
+    const found = (await postgresDb().many("SELECT * FROM collaborations WHERE lower(trim(email)) = $1", normalizeEmail(email))) as Array<Record<string, unknown>>;
     const withUid = found.filter((row) => String(row.kol_uid || "").trim());
-    if (!withUid.length) return undefined;
-    const followed = withUid.filter((row) => matchesFollowedMailbox(row, profileFollowScope(fromAddr)));
+    if (!withUid.length)
+      return undefined;
+    const scope = await profileFollowScope(fromAddr);
+    const followed = withUid.filter((row) => matchesFollowedMailbox(row, scope));
     const chosen = followed.length ? followed : withUid;
     const uids = new Set(chosen.map((row) => String(row.kol_uid || "").trim()));
-    if (uids.size !== 1) return undefined;
+    if (uids.size !== 1)
+      return undefined;
     const row = chosen[0];
     const kolId = number(row.kol_id);
     return {
@@ -1354,7 +1377,8 @@ function localFollowedProfile(email: string, fromAddr?: string): Json | undefine
       ownerMailbox: firstEmail(row.owner_mailbox || row.mailbox_from),
       mailboxEmail: firstEmail(row.owner_mailbox || row.mailbox_from),
     };
-  } catch {
+  }
+  catch {
     return undefined;
   }
 }
@@ -1362,7 +1386,8 @@ function localFollowedProfile(email: string, fromAddr?: string): Json | undefine
 function conversationProfile(row: Json, email: string): Json | undefined {
   const recipient = firstEmail(row.recipientEmail || row.to || row.email || row.kolEmail);
   const uid = kolUidOf(row);
-  if (!uid || !recipient || normalizeEmail(recipient) !== normalizeEmail(email)) return undefined;
+  if (!uid || !recipient || normalizeEmail(recipient) !== normalizeEmail(email))
+    return undefined;
   const kolId = kolIdOf(row);
   const conversationId = existingConversationId(row) || number(row.id);
   return {
@@ -1381,22 +1406,25 @@ function uidInText(text: string): string {
   const match = String(text || "").match(/KOL[A-Z0-9]{8,}/i);
   return match?.[0] || "";
 }
-
 function asJsonObject(value: unknown): Json {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Json;
-  if (typeof value !== "string") return {};
+  if (value && typeof value === "object" && !Array.isArray(value))
+    return value as Json;
+  if (typeof value !== "string")
+    return {};
   try {
     return json(JSON.parse(value));
-  } catch {
+  }
+  catch {
     return {};
   }
 }
-
 function profileFromTaken(source: unknown): Json | undefined {
-  if (!source) return undefined;
+  if (!source)
+    return undefined;
   if (source instanceof Error) {
     const fromJson = profileFromTaken(asJsonObject(source.message));
-    if (fromJson) return fromJson;
+    if (fromJson)
+      return fromJson;
     const uid = uidInText(source.message);
     return uid ? { kolUid: uid } : undefined;
   }
@@ -1404,18 +1432,16 @@ function profileFromTaken(source: unknown): Json | undefined {
   const nested = [row, json(row.data), json(row.profile), json(row.existing), json(row.creator)];
   for (const item of nested) {
     const uid = kolUidOf(item) || uidInText(resultError(item) || JSON.stringify(item));
-    if (uid) return { ...item, kolUid: uid };
+    if (uid)
+      return { ...item, kolUid: uid };
   }
   const uid = uidInText(resultError(row) || String(source));
   return uid ? { ...row, kolUid: uid } : undefined;
 }
-
-function localFollowedCandidates(fromAddr?: string): Json[] {
+async function localFollowedCandidates(fromAddr?: string): Promise<Json[]> {
   try {
-    const found = getConn().prepare(
-      "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''",
-    ).all() as Array<Record<string, unknown>>;
-    const scope = profileFollowScope(fromAddr);
+    const found = (await postgresDb().many("SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''")) as Array<Record<string, unknown>>;
+    const scope = (await profileFollowScope(fromAddr));
     return found.filter((row) => matchesFollowedMailbox(row, scope)).map((row) => ({
       kolUid: String(row.kol_uid || ""),
       kolName: firstString(row.display_name, row.handle),
@@ -1424,20 +1450,24 @@ function localFollowedCandidates(fromAddr?: string): Json[] {
       ownerMailbox: firstEmail(row.owner_mailbox || row.mailbox_from),
       mailboxEmail: firstEmail(row.owner_mailbox || row.mailbox_from),
     }));
-  } catch {
+  }
+  catch {
     return [];
   }
 }
-
-async function findProfileByContact(
-  email: string,
-  invokeOptional: (tool: string, args?: Json) => Promise<Json>,
-  fromAddr?: string,
-): Promise<{ profile: Json; via: "user" } | undefined> {
-  if (!email) return undefined;
-  const local = localFollowedProfile(email, fromAddr);
-  const withLocal = (hit: Json | undefined, via: "user"): { profile: Json; via: "user" } | undefined => {
-    if (!hit) return undefined;
+async function findProfileByContact(email: string, invokeOptional: (tool: string, args?: Json) => Promise<Json>, fromAddr?: string): Promise<{
+  profile: Json;
+  via: "user";
+} | undefined> {
+  if (!email)
+    return undefined;
+  const local = (await localFollowedProfile(email, fromAddr));
+  const withLocal = (hit: Json | undefined, via: "user"): {
+    profile: Json;
+    via: "user";
+  } | undefined => {
+    if (!hit)
+      return undefined;
     if (local && kolUidOf(local) && kolUidOf(hit) && kolUidOf(local) === kolUidOf(hit)) {
       return { profile: { ...local, ...hit }, via };
     }
@@ -1447,48 +1477,54 @@ async function findProfileByContact(
   const keywords = [email, localPart.length >= 5 && localPart !== email ? localPart : ""].filter(Boolean);
   const fromPage = async () => {
     for (const keyword of keywords) {
-      const run = () => invokeOptional("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword }));
+      const run = async () => (await invokeOptional("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword })));
       const payload = await run();
-      const hit = pickContactProfile(rows(payload), email, { allowSingle: true, fromAddr });
-      if (hit) return hit;
+      const hit = await pickContactProfile(rows(payload), email, { allowSingle: true, fromAddr });
+      if (hit)
+        return hit;
     }
     return undefined;
   };
   const fromAll = async () => {
-    const run = () => invokeOptional("listAllKolProfiles", {});
+    const run = async () => (await invokeOptional("listAllKolProfiles", {}));
     const payload = await run();
-    return pickContactProfile(rows(payload), email, { allowSingle: false, fromAddr });
+    return await pickContactProfile(rows(payload), email, { allowSingle: false, fromAddr });
   };
   const fromConversations = async () => {
-    const run = () => invokeOptional("pageEmailConversations", {
+    const run = async () => (await invokeOptional("pageEmailConversations", {
       pageNo: 1,
       pageSize: 20,
       keyword: email,
       ...(fromAddr ? { mailboxEmail: fromAddr } : {}),
-    });
+    }));
     const payload = await run();
     const hits = rows(payload).map((row) => conversationProfile(row, email)).filter(Boolean) as Json[];
-    if (!hits.length) return undefined;
+    if (!hits.length)
+      return undefined;
     const uids = new Set(hits.map((row) => kolUidOf(row)));
     return uids.size === 1 ? hits[0] : undefined;
   };
   const fromFollowedDetails = async () => {
     const seen = new Set<string>();
     const candidates: Json[] = [];
-    const push = (row: Json) => {
+    const push = async (row: Json) => {
       const uid = kolUidOf(row);
-      if (!uid || seen.has(uid)) return;
-      if (fromAddr && !profileFollowsMailbox(row, fromAddr)) return;
+      if (!uid || seen.has(uid))
+        return;
+      if (fromAddr && !(await profileFollowsMailbox(row, fromAddr)))
+        return;
       seen.add(uid);
       candidates.push(row);
     };
-    for (const row of localFollowedCandidates(fromAddr)) push(row);
+    for (const row of (await localFollowedCandidates(fromAddr)))
+      (await push(row));
     const listed = async (tool: "pageKolProfiles" | "listAllKolProfiles", body: Json) => {
-      const run = () => invokeOptional(tool, tool === "pageKolProfiles" ? requestJson(body) : body);
+      const run = async () => (await invokeOptional(tool, tool === "pageKolProfiles" ? requestJson(body) : body));
       const payload = await run();
-      for (const row of rows(payload)) push(row);
+      for (const row of rows(payload))
+        (await push(row));
     };
-    const ownerName = profileFollowScope(fromAddr).owner_name;
+    const ownerName = (await profileFollowScope(fromAddr)).owner_name;
     await listed("pageKolProfiles", {
       pageNo: 1,
       pageSize: 20,
@@ -1497,40 +1533,44 @@ async function findProfileByContact(
     await listed("listAllKolProfiles", {});
     const matches: Json[] = [];
     for (const row of candidates.slice(0, 20)) {
-      const run = () => invokeOptional("getKolProfileDetail", { kolUid: kolUidOf(row) });
+      const run = async () => (await invokeOptional("getKolProfileDetail", { kolUid: kolUidOf(row) }));
       const detail = await run();
       const merged = { ...row, ...json(detail) };
-      if (pickContactProfile([merged], email, { allowSingle: false, fromAddr })) matches.push(merged);
+      if (await pickContactProfile([merged], email, { allowSingle: false, fromAddr }))
+        matches.push(merged);
     }
     return matches.length === 1 ? matches[0] : undefined;
   };
   const userPage = withLocal(await fromPage(), "user");
-  if (userPage) return userPage;
+  if (userPage)
+    return userPage;
   const userConv = withLocal(await fromConversations(), "user");
-  if (userConv) return userConv;
+  if (userConv)
+    return userConv;
   const userAll = withLocal(await fromAll(), "user");
-  if (userAll) return userAll;
+  if (userAll)
+    return userAll;
   const userDetail = withLocal(await fromFollowedDetails(), "user");
-  if (userDetail) return userDetail;
-  if (local) return { profile: local, via: "user" };
+  if (userDetail)
+    return userDetail;
+  if (local)
+    return { profile: local, via: "user" };
   return undefined;
 }
-
-export function describeStarryActor(): Json {
+export async function describeStarryActor(): Promise<Json> {
   const user = scopedUser();
-  const bind = publicStarryBinding(user ? starryBindingRow(user.id) : null);
+  const bind = publicStarryBinding(user ? (await starryBindingRow(user.id)) : null);
   const workbench = user
     ? `${user.name || "未命名"}（${user.handle}${user.email ? `，${user.email}` : ""}）`
     : "未登录（演示会话）";
   const starry = bind.has_token
     ? `个人设置绑定的 Starry 用户 JWT${bind.mailbox_email ? `，发件箱 ${bind.mailbox_email}` : ""}${bind.owner_name ? `，负责人 ${bind.owner_name}` : ""}`
-    : starryKolMcpConfigured()
-      ? "管理侧配置的保险柜身份"
+    : (await starryKolMcpConfigured()) ? "管理侧配置的保险柜身份"
       : "未连接 Starry";
   return {
     workbench,
     starry,
-    via: bind.has_token ? "bound_vault" : (starryKolMcpConfigured() ? "configured_vault" : "none"),
+    via: bind.has_token ? "bound_vault" : ((await starryKolMcpConfigured()) ? "configured_vault" : "none"),
     bound_mailbox: bind.mailbox_email,
     bound_owner: bind.owner_name,
     label: `灵工登录是 ${workbench}。Starry 身份是 ${starry}。`,
@@ -1548,18 +1588,18 @@ function composeRecipient(data: Json): string {
 function isStaleComposeNeedError(error: string): boolean {
   return /还需要补充：必要字段/.test(error);
 }
-
 function composeBlocked(data: Json): boolean {
   const error = String(data.error || "");
-  if (isStaleComposeNeedError(error)) return false;
+  if (isStaleComposeNeedError(error))
+    return false;
   return isOwnerMailboxAsContact(error)
     || isMissingMailboxOwner(error)
     || isEmailTakenByOtherKol(error)
     || isMissingKolProfile(error);
 }
-
 function composeOpenFields(data: Json): string[] {
-  if (data.sent) return [];
+  if (data.sent)
+    return [];
   const mailbox = firstEmail(data.mailboxEmail || data.from);
   const recipient = composeRecipient(data);
   const subject = firstString(data.subject);
@@ -1570,8 +1610,7 @@ function composeOpenFields(data: Json): string[] {
     !subject && !conversationId ? "subject" : "",
   ].filter(Boolean);
 }
-
-function composeNeedsInputSummary(data: Json): string {
+async function composeNeedsInputSummary(data: Json): Promise<string> {
   const error = String(data.error || "");
   const mailbox = firstEmail(data.mailboxEmail || data.from);
   const recipient = composeRecipient(data);
@@ -1592,7 +1631,7 @@ function composeNeedsInputSummary(data: Json): string {
   if (isEmailTakenByOtherKol(error)) {
     const actor = data.starry_actor && typeof data.starry_actor === "object"
       ? data.starry_actor as Json
-      : describeStarryActor();
+      : (await describeStarryActor());
     const owner = firstString(data.profile_owner, data.ownerUserName, data.ownerName);
     const bound = firstEmail(actor.bound_mailbox);
     const alreadyBound = Boolean(mailbox && bound && normalizeEmail(mailbox) === normalizeEmail(bound));
@@ -1631,21 +1670,23 @@ function composeNeedsInputActions(data: Json): string[] {
     return ["该收件人需要先有红人画像才能发出首封邮件", "品牌邮箱列表"];
   }
   const open = composeOpenFields(data);
-  if (open.length) return [`还需要补充：${open.map((field) => fieldLabel(field)).join("、")}`];
+  if (open.length)
+    return [`还需要补充：${open.map((field) => fieldLabel(field)).join("、")}`];
   return ["核对预览后回复「确认发送」"];
 }
-
-async function resolveBrandMailbox(
-  entities: Json,
-  invoke: (tool: string, args?: Json) => Promise<Json>,
-): Promise<{ mailboxEmail: string; mailboxId?: number }> {
+async function resolveBrandMailbox(entities: Json, invoke: (tool: string, args?: Json) => Promise<Json>): Promise<{
+  mailboxEmail: string;
+  mailboxId?: number;
+}> {
   const givenEmail = firstEmail(entities.mailboxEmail || entities.from);
   const givenId = number(entities.mailboxId || entities.mailbox_id);
-  if (givenEmail) return { mailboxEmail: givenEmail, mailboxId: givenId || undefined };
+  if (givenEmail)
+    return { mailboxEmail: givenEmail, mailboxId: givenId || undefined };
   if (givenId) {
     const detail = await invoke("getMailboxDetail", { id: givenId });
     const mailboxEmail = firstEmail(detail.mailboxEmail);
-    if (mailboxEmail) return { mailboxEmail, mailboxId: givenId };
+    if (mailboxEmail)
+      return { mailboxEmail, mailboxId: givenId };
   }
   throw new Error("未指定发件邮箱");
 }
@@ -1667,7 +1708,8 @@ function composeAddressSection(data: Json): Json {
 function labeledComposeValue(line: string, labels: string[]): string {
   for (const label of labels) {
     const prefix = `${label}：`;
-    if (line.startsWith(prefix)) return line.slice(prefix.length).trim();
+    if (line.startsWith(prefix))
+      return line.slice(prefix.length).trim();
   }
   return "";
 }
@@ -1682,10 +1724,8 @@ export function composePayloadFromItem(item: Json, siblings: Json[] = [], contex
     const body = firstString(section.body, section.content);
     return body ? [...rows, `${section.title || section.heading}：${body}`] : rows;
   });
-  let mailbox = firstEmail(
-    nested.mailboxEmail || nested.from || item.mailboxEmail || item.from || draft.from
-    || context.mailboxEmail || context.from,
-  );
+  let mailbox = firstEmail(nested.mailboxEmail || nested.from || item.mailboxEmail || item.from || draft.from
+    || context.mailboxEmail || context.from);
   let to = emails(nested.to || nested.recipient || nested.recipientEmail || item.to || draft.to || context.to);
   let subject = firstString(nested.subject, item.subject, draft.subject, context.subject);
   let body = firstString(nested.body, nested.bodyText, nested.preview, item.body, draft.body);
@@ -1694,7 +1734,8 @@ export function composePayloadFromItem(item: Json, siblings: Json[] = [], contex
   for (const line of lines) {
     mailbox = mailbox || firstEmail(labeledComposeValue(line, ["发件邮箱"]));
     const recipients = labeledComposeValue(line, ["收件邮箱"]);
-    if (recipients && !to.length) to = emails(recipients);
+    if (recipients && !to.length)
+      to = emails(recipients);
     subject = subject || labeledComposeValue(line, ["邮件主题"]);
     body = body || labeledComposeValue(line, ["正文", "已发正文", "预览正文"]);
     state = state || labeledComposeValue(line, ["state", "状态"]);
@@ -1746,14 +1787,17 @@ export function composeFollowupEntities(data: Json): Json {
     ...(body ? { body } : {}),
   };
 }
-
-export function lastComposeFollowup(cards: Json[], opts?: { body?: boolean }): Json {
+export function lastComposeFollowup(cards: Json[], opts?: {
+  body?: boolean;
+}): Json {
   for (const card of [...cards].reverse()) {
     const payload = json(card.payload || card);
-    if (payload.skill !== "email_compose" && payload.title !== "邮件草稿") continue;
+    if (payload.skill !== "email_compose" && payload.title !== "邮件草稿")
+      continue;
     const data = json(payload.starrykol_data || payload.emailmcp_data || payload);
     const next = composeFollowupEntities(data);
-    if (!next.conversationId && !next.mailboxEmail) continue;
+    if (!next.conversationId && !next.mailboxEmail)
+      continue;
     if (opts?.body === false) {
       const { body: _body, ...rest } = next;
       return rest;
@@ -1766,7 +1810,8 @@ export function lastComposeFollowup(cards: Json[], opts?: { body?: boolean }): J
 export function lastKolMailReply(cards: Json[]): Json {
   let fallback: Json = {};
   for (const card of [...cards].reverse()) {
-    if (String(card.kind || "") !== "kol_mail_card") continue;
+    if (String(card.kind || "") !== "kol_mail_card")
+      continue;
     const payload = json(card.payload || card);
     const inbound = String(payload.direction || "inbound") !== "outbound";
     const mailbox = inbound
@@ -1785,10 +1830,14 @@ export function lastKolMailReply(cards: Json[]): Json {
       ...(subject ? { subject } : {}),
       ...(suggested ? { suggested_stage: suggested } : {}),
     };
-    if (!next.conversationId && !next.mailboxEmail && !next.to) continue;
-    if (inbound && next.mailboxEmail) return next;
-    if (inbound && !fallback.mailboxEmail) fallback = next;
-    else if (!fallback.conversationId && !fallback.mailboxEmail && !fallback.to) fallback = next;
+    if (!next.conversationId && !next.mailboxEmail && !next.to)
+      continue;
+    if (inbound && next.mailboxEmail)
+      return next;
+    if (inbound && !fallback.mailboxEmail)
+      fallback = next;
+    else if (!fallback.conversationId && !fallback.mailboxEmail && !fallback.to)
+      fallback = next;
   }
   return fallback;
 }
@@ -1822,14 +1871,14 @@ const SKILL_TITLE_SUBJECTS = new Set([
   "提出阶段变更",
   "邮件草稿",
 ]);
-
 export function isSkillTitleSubject(subject: string, raw = ""): boolean {
   const clean = String(subject || "").replace(/^(Re:\s*)+/i, "").trim();
-  if (!SKILL_TITLE_SUBJECTS.has(clean)) return false;
-  if (clean === "发货通知" && /运单号|tracking|承运商|carrier/i.test(raw)) return false;
+  if (!SKILL_TITLE_SUBJECTS.has(clean))
+    return false;
+  if (clean === "发货通知" && /运单号|tracking|承运商|carrier/i.test(raw))
+    return false;
   return true;
 }
-
 export function resolveComposeSubject(input: {
   raw?: string;
   prior?: Json;
@@ -1839,39 +1888,29 @@ export function resolveComposeSubject(input: {
   const raw = String(input.raw || "");
   const labeled = firstString(input.extracted?.subject);
   const explicit = /(?:主题|subject)\s*[:：]/.test(raw);
-  if (explicit && labeled) return labeled;
+  if (explicit && labeled)
+    return labeled;
   if (input.extracted?.another_letter) {
     const next = anotherLetterSubject(input.prior?.subject || input.entities?.subject);
-    if (next && !isSkillTitleSubject(next, raw)) return next;
+    if (next && !isSkillTitleSubject(next, raw))
+      return next;
   }
   const prior = firstString(input.prior?.subject);
-  if (prior && !isSkillTitleSubject(prior, raw)) return prior;
+  if (prior && !isSkillTitleSubject(prior, raw))
+    return prior;
   const entity = firstString(input.entities?.subject);
-  if (entity && !isSkillTitleSubject(entity, raw)) return entity;
-  if (labeled && !isSkillTitleSubject(labeled, raw)) return labeled;
+  if (entity && !isSkillTitleSubject(entity, raw))
+    return entity;
+  if (labeled && !isSkillTitleSubject(labeled, raw))
+    return labeled;
   return "";
 }
-
 export function anotherLetterSubject(previous?: unknown): string {
   const subject = firstString(previous).replace(/^(Re:\s*)+/i, "").trim();
   return subject ? `Re: ${subject}` : "";
 }
-
 function rowText(row: Json): string {
-  const name = firstString(
-    row.kolName,
-    row.nickname,
-    row.name,
-    row.code && row.name ? `${row.name}` : "",
-    row.mailboxEmail,
-    row.subject,
-    row.recipientEmail,
-    row.ownerUserName,
-    row.account,
-    row.platform,
-    row.kolUid ? `UID ${row.kolUid}` : "",
-    row.id != null ? `ID ${row.id}` : "",
-  ) || "—";
+  const name = firstString(row.kolName, row.nickname, row.name, row.code && row.name ? `${row.name}` : "", row.mailboxEmail, row.subject, row.recipientEmail, row.ownerUserName, row.account, row.platform, row.kolUid ? `UID ${row.kolUid}` : "", row.id != null ? `ID ${row.id}` : "") || "—";
   const details = [
     row.kolUid && name !== `UID ${row.kolUid}` ? `UID ${row.kolUid}` : "",
     row.cooperationStageName || row.stageName || row.stage || row.status
@@ -1894,8 +1933,7 @@ function rowText(row: Json): string {
   ].filter(Boolean);
   return `${name}${details.length ? ` · ${details.join(" · ")}` : ""}`;
 }
-
-export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
+export async function emailMcpResultCard(task: EmailMcpTask, data: Json): Promise<Json> {
   if (task === "creator_profile" && !data.needs_input && !String(data.briefing || "").trim()) {
     const facts = profileBriefingFromFacts(data);
     data = {
@@ -1916,7 +1954,8 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
     .slice(0, 12)
     .map(([key, value]) => `${fieldLabel(key)}：${String(value)}`);
   const sections: Json[] = [];
-  if (task === "email_compose") sections.unshift(composeAddressSection(data));
+  if (task === "email_compose")
+    sections.unshift(composeAddressSection(data));
   const composeSent = task === "email_compose" && Boolean(data.sent);
   const composeOpen = task === "email_compose" ? composeOpenFields(data) : [];
   const composeNeeds = task === "email_compose"
@@ -1927,7 +1966,8 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
       title: "待补充字段",
       items: composeOpen.map((field) => fieldLabel(field)),
     });
-  } else if (task !== "email_compose" && Array.isArray(data.missing_fields) && data.missing_fields.length) {
+  }
+  else if (task !== "email_compose" && Array.isArray(data.missing_fields) && data.missing_fields.length) {
     sections.push({
       title: "待补充字段",
       items: (data.missing_fields as unknown[]).map((field) => fieldLabel(String(field))),
@@ -1936,7 +1976,7 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
   if (data.error && !composeSent && composeNeeds && !isStaleComposeNeedError(String(data.error))) {
     sections.push({
       title: "说明",
-      items: [task === "email_compose" ? (composeNeedsInputSummary(data) || String(data.error)) : String(data.error)],
+      items: [task === "email_compose" ? ((await composeNeedsInputSummary(data)) || String(data.error)) : String(data.error)],
     });
   }
   if (task === "email_conversation_list" && !items.length && !data.needs_input) {
@@ -1976,7 +2016,8 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
   }
   if (task === "creator_profile" && data.needs_input && items.length) {
     sections.push({ title: "候选红人", items: items.slice(0, 50).map(rowText) });
-  } else if (task !== "reply_analysis" && task !== "email_compose" && task !== "creator_profile" && items.length) {
+  }
+  else if (task !== "reply_analysis" && task !== "email_compose" && task !== "creator_profile" && items.length) {
     sections.push({ title: "明细", items: items.slice(0, 50).map(rowText) });
   }
   const ownerItems = ownerBindingItems(data);
@@ -2080,7 +2121,8 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
   const composeBody = firstString(data.body, data.bodyText, data.preview);
   if (task === "email_compose" && composeBody) {
     sections.splice(1, 0, { title: data.sent ? "已发正文" : "预览正文", body: composeBody, items: [] });
-  } else if (task !== "creator_profile" && (data.body || data.preview)) {
+  }
+  else if (task !== "creator_profile" && (data.body || data.preview)) {
     sections.unshift({ title: "预览正文", body: String(data.body || data.preview), items: [] });
   }
   if (task !== "reply_analysis" && task !== "email_compose" && task !== "creator_profile" && primitiveItems.length) {
@@ -2102,11 +2144,10 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
     summary: composeSent
       ? "邮件已提交发送。往来已写入会话，发送邮件不会修改阶段。"
       : composeNeeds && task === "email_compose"
-      ? composeNeedsInputSummary(data)
-      : data.needs_input && task !== "email_compose"
+        ? (await composeNeedsInputSummary(data)) : data.needs_input && task !== "email_compose"
       ? (needsKolInput
         ? missingFieldsMessage(data.missing_fields as unknown[] || [])
-        : composeNeedsInputSummary(data))
+          : (await composeNeedsInputSummary(data)))
       : data.sent
         ? "邮件已提交发送。"
         : data.duplicate
@@ -2167,15 +2208,8 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
     persistent: true,
   };
 }
-
 export const starryKolResultCard = emailMcpResultCard;
-
-export async function executeStarryKolTask(
-  task: StarryKolTask,
-  entities: Json,
-  actor = "host",
-  onOperation?: (operation: Operation) => void,
-): Promise<{
+export async function executeStarryKolTask(task: StarryKolTask, entities: Json, actor = "host", onOperation?: (operation: Operation) => void): Promise<{
   data: Json;
   operations: Json[];
 }> {
@@ -2189,7 +2223,8 @@ export async function executeStarryKolTask(
       operation.status = "done";
       onOperation?.(operation);
       return result;
-    } catch (error) {
+    }
+    catch (error) {
       operation.status = "failed";
       onOperation?.(operation);
       throw error;
@@ -2198,7 +2233,8 @@ export async function executeStarryKolTask(
   const invokeOptional = async (tool: string, args: Json = {}): Promise<Json> => {
     try {
       return await invoke(tool, args);
-    } catch {
+    }
+    catch {
       return {};
     }
   };
@@ -2213,7 +2249,7 @@ export async function executeStarryKolTask(
     });
     const nylas = await invoke("listNylasAccounts");
     data = { ...mailboxes, nylas: Array.isArray(nylas.items) ? nylas.items : rows(nylas) };
-    const localOwners = getConn().prepare("SELECT * FROM mailbox_owners ORDER BY brand, email").all() as Json[];
+    const localOwners = (await postgresDb().many("SELECT * FROM mailbox_owners ORDER BY brand, email")) as Json[];
     if (localOwners.length) {
       data = {
         ...data,
@@ -2230,7 +2266,8 @@ export async function executeStarryKolTask(
         }))],
       };
     }
-  } else if (task === "email_conversation_list") {
+  }
+  else if (task === "email_conversation_list") {
     const keyword = searchKeyword(entities);
     const mailboxEmail = firstEmail(entities.mailboxEmail || entities.from || entities.mailbox);
     const listed = await invoke("pageEmailConversations", {
@@ -2244,20 +2281,25 @@ export async function executeStarryKolTask(
       ...listed,
       ...(keyword ? { keyword, recipient: firstEmail(keyword) || firstEmail(entities.to || entities.email) } : {}),
     };
-  } else if (task === "email_conversation_read") {
+  }
+  else if (task === "email_conversation_read") {
     const conversationId = number(entities.conversationId || entities.conversation_id);
     if (!conversationId) {
       data = { needs_input: true, missing_fields: ["conversationId"] };
-    } else {
+    }
+    else {
       data = await invoke("getEmailConversation", { conversationId });
       if (!firstString(data.subject, data.title)) {
         const groups = await invokeOptional("getEmailConversationSubjectGroups", { conversationId });
         const grouped = conversationSubject(data, groups);
-        if (grouped) data.subject = grouped;
-        if (groups && Object.keys(groups).length) data.subjectGroups = groups;
+        if (grouped)
+          data.subject = grouped;
+        if (groups && Object.keys(groups).length)
+          data.subjectGroups = groups;
       }
     }
-  } else if (task === "creator_library_query") {
+  }
+  else if (task === "creator_library_query") {
     const query = profileQueryBody(entities);
     const listed = await invoke("pageKolProfiles", requestJson(query));
     const sidebar = await invokeOptional("getKolProfileSidebarMetrics", {});
@@ -2265,16 +2307,15 @@ export async function executeStarryKolTask(
     let source: Json = listed;
     if (!list.length) {
       const all = await invokeOptional("listAllKolProfiles", {});
-      const matched = rows(all).filter((row) =>
-        profileMatches(row, String(query.keyword || ""), codes(query.stageCodes)),
-      );
+      const matched = rows(all).filter((row) => profileMatches(row, String(query.keyword || ""), codes(query.stageCodes)));
       const pageNo = number(query.pageNo, 1);
       const pageSize = number(query.pageSize, 20);
       list = matched.slice((pageNo - 1) * pageSize, pageNo * pageSize);
       source = { ...all, total: matched.length, list };
     }
     data = { ...source, query, sidebar, list, total: source.total ?? list.length };
-  } else if (task === "creator_library_sync") {
+  }
+  else if (task === "creator_library_sync") {
     const kolName = firstString(entities.name, entities.kolName, entities.handle);
     const contactEmail = firstEmail(entities.email || entities.to || entities.contactEmail);
     if (!kolName || !contactEmail) {
@@ -2282,7 +2323,8 @@ export async function executeStarryKolTask(
         needs_input: true,
         missing_fields: [!kolName ? "kolName" : "", !contactEmail ? "contactEmail" : ""].filter(Boolean),
       };
-    } else {
+    }
+    else {
       const listed = await invoke("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword: contactEmail }));
       const samePerson = (row: Json) => {
         const email = firstEmail(row.contactEmail || row.email || row.mailboxEmail);
@@ -2298,13 +2340,15 @@ export async function executeStarryKolTask(
         ? { ok: true, duplicate: true, creator: existing, kolUid: kolUidOf(existing) }
         : await ingestCreatorNow(kolName, contactEmail);
     }
-  } else if (task === "creator_profile") {
+  }
+  else if (task === "creator_profile") {
     let kolUid = kolUidOf(entities);
     if (!kolUid) {
       const keyword = profileKeyword(entities);
       if (!keyword) {
         data = { needs_input: true, missing_fields: ["kolUid"] };
-      } else {
+      }
+      else {
         const listed = await invoke("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword }));
         const matches = rows(listed);
         if (matches.length === 1) {
@@ -2312,7 +2356,8 @@ export async function executeStarryKolTask(
           if (!kolUid) {
             data = { needs_input: true, missing_fields: ["kolUid"], query: { keyword }, ...listed, list: matches };
           }
-        } else {
+        }
+        else {
           data = {
             needs_input: true,
             missing_fields: ["kolUid"],
@@ -2339,10 +2384,12 @@ export async function executeStarryKolTask(
         conversations: rows(conversations),
       };
     }
-  } else if (task === "creator_library_all") {
+  }
+  else if (task === "creator_library_all") {
     const listed = await invoke("listAllKolProfiles", {});
     data = { ...listed, list: rows(listed) };
-  } else if (task === "email_app_conversation_list") {
+  }
+  else if (task === "email_app_conversation_list") {
     const keyword = searchKeyword(entities);
     const kolUid = kolUidOf(entities);
     const listed = await invoke("pageAppEmailConversations", {
@@ -2353,31 +2400,26 @@ export async function executeStarryKolTask(
       ...(entities.status ? { status: String(entities.status) } : {}),
     });
     data = { ...listed, ...(keyword ? { keyword } : {}), ...(kolUid ? { kolUid } : {}) };
-  } else if (task === "creator_owner_update" || task === "creator_status_update") {
+  }
+  else if (task === "creator_owner_update" || task === "creator_status_update") {
     let kolUid = kolUidOf(entities);
     if (!kolUid) {
       const keyword = profileKeyword(entities);
       if (!keyword) {
         data = { needs_input: true, missing_fields: ["kolUid"] };
-      } else {
+      }
+      else {
         const listed = await invoke("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword }));
         const matches = rows(listed);
-        if (matches.length === 1) kolUid = kolUidOf(matches[0], entities);
+        if (matches.length === 1)
+          kolUid = kolUidOf(matches[0], entities);
         else {
           data = { needs_input: true, missing_fields: ["kolUid"], ...listed, list: matches };
         }
       }
     }
     const owner = ownerValue(entities);
-    const statusPatch = firstString(
-      entities.status,
-      entities.cooperationStageCode,
-      entities.cooperationStageName,
-      entities.stage,
-      entities.confirmed,
-      entities.notes,
-      entities.wechat,
-    ) || (entities.followStyleTags || entities.follow_style_tags ? "tags" : "");
+    const statusPatch = firstString(entities.status, entities.cooperationStageCode, entities.cooperationStageName, entities.stage, entities.confirmed, entities.notes, entities.wechat) || (entities.followStyleTags || entities.follow_style_tags ? "tags" : "");
     if (!data.needs_input && task === "creator_owner_update" && !owner) {
       data = { needs_input: true, missing_fields: ["owner"] };
     }
@@ -2397,11 +2439,13 @@ export async function executeStarryKolTask(
         previous_owner: ownerBindingItems(before),
       };
     }
-  } else if (task === "creator_contact_decrypt") {
+  }
+  else if (task === "creator_contact_decrypt") {
     const kolUid = kolUidOf(entities);
     if (!kolUid) {
       data = { needs_input: true, missing_fields: ["kolUid"] };
-    } else {
+    }
+    else {
       data = await invoke("decryptKolContact", requestJson({
         kolUid,
         ...(entities.decryptRequest && typeof entities.decryptRequest === "object"
@@ -2410,13 +2454,15 @@ export async function executeStarryKolTask(
       }));
       data = { ...data, kolUid, decrypted: data.decrypted !== false };
     }
-  } else if (task === "creator_lifecycle_kanban") {
+  }
+  else if (task === "creator_lifecycle_kanban") {
     const listed = await invoke("pageLifecycleKanban", {
       pageNo: Math.max(1, number(entities.pageNo, 1)),
       pageSize: Math.max(1, Math.min(50, number(entities.pageSize, 20))),
     });
     data = { ...listed, list: rows(listed) };
-  } else if (task === "creator_risk_conversations" || task === "risk_scan") {
+  }
+  else if (task === "creator_risk_conversations" || task === "risk_scan") {
     const listed = await invoke("pageRiskConversations", {
       pageNo: Math.max(1, number(entities.pageNo, 1)),
       pageSize: Math.max(1, Math.min(50, number(entities.pageSize, 10))),
@@ -2426,9 +2472,12 @@ export async function executeStarryKolTask(
     const summary = await invokeOptional("summarizeRiskConversations", {});
     data = { ...listed, summary: summary.summary || listed.summary, list: rows(listed) };
     if (task === "risk_scan") {
-      const overdue = (getConn()
-        .prepare("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1")
-        .all() as Array<{ handle: string; stage_code: string; days_in_stage: number; brand: string }>)
+      const overdue = ((await postgresDb().many("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1")) as Array<{
+        handle: string;
+        stage_code: string;
+        days_in_stage: number;
+        brand: string;
+      }>)
         .map((row) => ({
           ...row,
           stage_label: label(row.stage_code),
@@ -2436,7 +2485,8 @@ export async function executeStarryKolTask(
         }));
       data = { ...data, overdue };
     }
-  } else if (task === "creator_filter_options") {
+  }
+  else if (task === "creator_filter_options") {
     const parentKey = firstString(entities.parentKey, entities.parent_key) || "kol_primary_platform";
     const dictionary = await invoke("listDictionaryOptions", { parentKey });
     const stages = await invokeOptional("listCooperationStageOptions", {});
@@ -2452,7 +2502,8 @@ export async function executeStarryKolTask(
       styles: rows(styles),
       list: [...rows(dictionary), ...rows(stages), ...rows(risks), ...rows(niches), ...rows(styles)],
     };
-  } else if (task === "reply_analysis") {
+  }
+  else if (task === "reply_analysis") {
     const conversationId = number(entities.conversationId || entities.conversation_id);
     const keyword = searchKeyword(entities) || firstString(entities.handle, entities.name);
     let listed: Json = {};
@@ -2474,7 +2525,8 @@ export async function executeStarryKolTask(
           ? [`写合作邮件 ${firstEmail(keyword) || keyword}`, "邮件会话列表"]
           : ["邮件会话列表", "写合作邮件"],
       };
-    } else {
+    }
+    else {
       const conversation = await invoke("getEmailConversation", { conversationId: id });
       const subjectGroups = await invokeOptional("getEmailConversationSubjectGroups", { conversationId: id });
       const bodyText = conversationText(conversation);
@@ -2488,19 +2540,15 @@ export async function executeStarryKolTask(
       const riskMatrix = await invokeOptional("getStageRiskMatrix", {});
       let profile: Json = {};
       const kolUid = kolUidOf(entities, conversation) || kolUidOf(listedRows[0] || {});
-      if (kolUid) profile = await invokeOptional("getKolProfileDetail", { kolUid });
+      if (kolUid)
+        profile = await invokeOptional("getKolProfileDetail", { kolUid });
       const riskConversations = await invokeOptional("pageRiskConversations", {
         pageNo: 1,
         pageSize: 5,
         ...(kolUid ? { kolUid } : {}),
         ...(keyword ? { keyword } : {}),
       });
-      const current = codeFromLabel(firstString(
-        profile.cooperationStageCode,
-        profile.cooperationStageName,
-        conversation.stage,
-        entities.stage,
-      )) || "INITIAL_CONTACT";
+      const current = codeFromLabel(firstString(profile.cooperationStageCode, profile.cooperationStageName, conversation.stage, entities.stage)) || "INITIAL_CONTACT";
       const summaryZh = firstString(translated.text, translated.zh, translated.translation) || bodyText;
       const evidenced = inferCompletedFromText(`${summaryZh}\n${bodyText}`, current);
       const exception = detectReplyException(profile, riskConversations, `${summaryZh}\n${bodyText}`);
@@ -2514,8 +2562,10 @@ export async function executeStarryKolTask(
       const recipient = firstEmail(conversation.recipientEmail || conversation.to || keyword);
       const handle = firstString(entities.handle, profile.kolName, profile.nickname);
       const local = handle
-        ? getConn().prepare("SELECT * FROM collaborations WHERE handle=? OR display_name=?").get(handle, handle) as
-          | { follow_style_tags?: unknown; handle?: string } | undefined
+        ? (await postgresDb().one("SELECT * FROM collaborations WHERE handle=$1 OR display_name=$2", handle, handle)) as {
+          follow_style_tags?: unknown;
+          handle?: string;
+        } | undefined
         : undefined;
       const currentTags = readFollowStyleTags(local || {});
       const suggestedTags = suggestFollowStyleTags(`${summaryZh}\n${bodyText}`, currentTags);
@@ -2542,24 +2592,28 @@ export async function executeStarryKolTask(
         recommended_actions: actions,
       };
     }
-  } else {
+  }
+  else {
     const to = emails(entities.to || entities.email || entities.recipient);
     const mailboxEmail = firstEmail(entities.mailboxEmail || entities.from);
     const conversationId = number(entities.conversationId || entities.conversation_id);
     const subject = String(entities.subject || "").trim();
     const confirmSend = Boolean(entities.confirm_send || entities.confirmSend);
-    if (confirmSend) assertMailSendAuthority();
+    if (confirmSend)
+      assertMailSendAuthority();
     const missingCompose = [
       !mailboxEmail && !conversationId ? "mailboxEmail" : "",
       !to.length && !conversationId ? "to" : "",
       !subject && !conversationId ? "subject" : "",
     ].filter(Boolean);
     const failFields = (message: string, mailboxAuthorized = false): string[] => {
-      if (isOwnerMailboxAsContact(message)) return ["to"];
+      if (isOwnerMailboxAsContact(message))
+        return ["to"];
       if (isMissingMailboxOwner(message) || /发件箱|未指定发件/i.test(message)) {
         return mailboxAuthorized ? [] : ["mailboxEmail"];
       }
-      if (isEmailTakenByOtherKol(message) || isMissingKolProfile(message)) return to.length ? [] : ["to"];
+      if (isEmailTakenByOtherKol(message) || isMissingKolProfile(message))
+        return to.length ? [] : ["to"];
       return ["mailboxEmail", "to", "subject"];
     };
     if (missingCompose.length) {
@@ -2572,13 +2626,14 @@ export async function executeStarryKolTask(
         subject,
         error: "首封必填发件邮箱、收件邮箱和邮件主题。往来记录会在三项齐全后由发信服务建立，不用先填会话编号。",
       };
-    } else {
+    }
+    else {
       let activeId = conversationId;
       let kolUid = String(entities.kolUid || entities.kol_uid || "").trim();
       let fromAddr = mailboxEmail;
       let profileOwner = "";
       let mailboxAuthorized = false;
-      const actor = describeStarryActor();
+      const actor = (await describeStarryActor());
       const failPayload = (error: string, mailboxAuthorized = false): Json => ({
         needs_input: true,
         missing_fields: failFields(error, mailboxAuthorized),
@@ -2598,24 +2653,24 @@ export async function executeStarryKolTask(
           fromAddr = mailbox.mailboxEmail;
           const listed = rows(await invokeOptional("pageMailboxes", { pageNo: 1, pageSize: 50 }));
           const listedRow = listed.find((row) => sameMailbox(row, fromAddr));
-          const owner = listedRow ? ownerFromMailboxRow(listedRow) : ownerFromBinding(fromAddr);
+          const owner = listedRow ? ownerFromMailboxRow(listedRow) : (await ownerFromBinding(fromAddr));
           mailboxAuthorized = Boolean(listedRow) || Boolean(owner.mailboxEmail);
-          const createFailed = (result: Json) =>
-            conversationMissingProfile(result)
+          const createFailed = (result: Json) => conversationMissingProfile(result)
             || isEmailTakenByOtherKol(resultError(result))
             || !number(result.conversationId || result.id);
           const createOnce = async (uid: string, kolId = 0) => {
-            const run = () => invoke("createEmailConversation", {
+            const run = async () => (await invoke("createEmailConversation", {
               requestJson: JSON.stringify(conversationCreateBody({
                 mailboxEmail: fromAddr,
                 recipientEmail: to[0],
                 ...(kolId ? { kolId } : uid ? { kolUid: uid } : {}),
                 subject,
               })),
-            });
+            }));
             try {
               return await run();
-            } catch (error) {
+            }
+            catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               if (isMissingKolProfile(message) || isEmailTakenByOtherKol(message)) {
                 return { error: message, needs_input: true };
@@ -2625,7 +2680,8 @@ export async function executeStarryKolTask(
           };
           const tryCreate = createOnce;
           const bindFollowedContact = async (uid: string) => {
-            if (!uid || !to[0]) return;
+            if (!uid || !to[0])
+              return;
             await invokeOptional("updateKolProfile", {
               requestJson: JSON.stringify({
                 kolUid: uid,
@@ -2636,22 +2692,29 @@ export async function executeStarryKolTask(
           };
           const reuseExisting = async (profile: Json): Promise<Json | undefined> => {
             const existingId = existingConversationId(profile);
-            if (!existingId) return undefined;
+            if (!existingId)
+              return undefined;
             const conv = await invokeOptional("getEmailConversation", { conversationId: existingId });
             const convBox = firstEmail(conv.mailboxEmail || conv.operatorMailboxEmail);
-            if (convBox && normalizeEmail(convBox) !== normalizeEmail(fromAddr)) return undefined;
-            if (!number(conv.id || conv.conversationId || existingId)) return undefined;
+            if (convBox && normalizeEmail(convBox) !== normalizeEmail(fromAddr))
+              return undefined;
+            if (!number(conv.id || conv.conversationId || existingId))
+              return undefined;
             if (convBox || number(conv.id || conv.conversationId)) {
               return { conversationId: existingId, id: existingId, mailboxEmail: convBox || fromAddr };
             }
             return undefined;
           };
-          const createFromHit = async (hit: { profile: Json; via: "user" }) => {
+          const createFromHit = async (hit: {
+            profile: Json;
+            via: "user";
+          }) => {
             kolUid = kolUidOf(hit.profile);
             const kolId = kolIdOf(hit.profile);
             profileOwner = firstString(hit.profile.ownerUserName, hit.profile.ownerName, hit.profile.owner);
             const existing = await reuseExisting(hit.profile);
-            if (existing) return existing;
+            if (existing)
+              return existing;
             let next = await tryCreate(kolUid, kolId);
             if (createFailed(next) && (kolUid || kolId)) {
               await bindFollowedContact(kolUid);
@@ -2666,36 +2729,39 @@ export async function executeStarryKolTask(
             }
             try {
               const added = await invoke("addKolProfile", {
-                requestJson: JSON.stringify(profileAddBody(
-                  to[0],
-                  entities.name ? String(entities.name) : undefined,
-                  owner,
-                )),
+                requestJson: JSON.stringify(profileAddBody(to[0], entities.name ? String(entities.name) : undefined, owner)),
               });
               const addErr = resultError(added);
               kolUid = kolUidOf(added) || kolUidOf(profileFromTaken(added) || {}) || kolUid;
-              if (addErr && !kolUid) throw Object.assign(new Error(addErr), { taken: added });
+              if (addErr && !kolUid)
+                throw Object.assign(new Error(addErr), { taken: added });
               if (!kolUid) {
                 const found = await findProfileByContact(to[0], invokeOptional, fromAddr);
-                if (found) return createFromHit(found);
+                if (found)
+                  return (await createFromHit(found));
               }
               const next = await createOnce(kolUid, kolIdOf(added));
               if (conversationMissingProfile(next)) {
                 throw new Error(resultError(next) || "红人画像不存在");
               }
               return next;
-            } catch (inner) {
+            }
+            catch (inner) {
               const msg = inner instanceof Error ? inner.message : String(inner);
-              const taken = profileFromTaken((inner as { taken?: unknown }).taken || inner);
+              const taken = profileFromTaken((inner as {
+                taken?: unknown;
+              }).taken || inner);
               if (taken && kolUidOf(taken)) {
                 const next = await createFromHit({ profile: taken, via: "user" });
-                if (!conversationMissingProfile(next) && number(next.conversationId || next.id)) return next;
+                if (!conversationMissingProfile(next) && number(next.conversationId || next.id))
+                  return next;
               }
               if (isEmailTakenByOtherKol(msg) || isMissingKolProfile(msg)) {
                 const found = await findProfileByContact(to[0], invokeOptional, fromAddr);
                 if (found) {
                   const next = await createFromHit(found);
-                  if (!conversationMissingProfile(next) && number(next.conversationId || next.id)) return next;
+                  if (!conversationMissingProfile(next) && number(next.conversationId || next.id))
+                    return next;
                 }
               }
               throw Object.assign(inner instanceof Error ? inner : new Error(String(inner)), { mailboxAuthorized });
@@ -2704,9 +2770,11 @@ export async function executeStarryKolTask(
           const found = await findProfileByContact(to[0], invokeOptional, fromAddr);
           if (found) {
             created = await createFromHit(found);
-          } else if (kolUid) {
+          }
+          else if (kolUid) {
             created = await tryCreate(kolUid);
-          } else {
+          }
+          else {
             created = await createOnce("");
           }
           if (conversationMissingProfile(created) || isEmailTakenByOtherKol(resultError(created))) {
@@ -2717,9 +2785,12 @@ export async function executeStarryKolTask(
             const error = String(created.error || created.text || "无法建立往来记录。");
             data = { ...failPayload(error, mailboxAuthorized), ...created };
           }
-        } catch (error) {
+        }
+        catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          const authorized = Boolean((error as { mailboxAuthorized?: boolean }).mailboxAuthorized);
+          const authorized = Boolean((error as {
+            mailboxAuthorized?: boolean;
+          }).mailboxAuthorized);
           data = failPayload(message, authorized);
         }
       }
@@ -2801,15 +2872,13 @@ export async function executeStarryKolTask(
       }
     }
   }
-
-  audit(actor, `starrykol.${task}`, {
+  (await audit(actor, `starrykol.${task}`, {
     task,
     operations: operations.map((item) => item.name),
     sent: Boolean(data.sent),
     write: ["email_compose", "creator_library_sync", "creator_owner_update", "creator_status_update", "creator_contact_decrypt"].includes(task),
     decrypted: Boolean(data.decrypted),
-  });
+  }));
   return { data, operations };
 }
-
 export const executeEmailMcpTask = executeStarryKolTask;

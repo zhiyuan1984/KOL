@@ -3,9 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
-import { skillCatalog } from "../src/host/skills-catalog.js";
+import { SKILL_ROUTE, skillCatalog } from "../src/host/skills-catalog.js";
+import { activateSkillForHarness } from "../src/host/skill-publish.js";
 import { runtimeSkillsRoot } from "../src/host/skill-sop.js";
 import { DEMO_ADMIN } from "../src/config.js";
 import { clearTaskRegistryCache, taskDefinition } from "../src/tasks/registry.js";
@@ -46,27 +47,30 @@ const NEW_SKILL = {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skill-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("published skills on the Codex harness", () => {
   it("rejects create without product manager login", async () => {
     const denied = await request("POST", "/api/admin/skills", NEW_SKILL);
     expect(denied.status).toBe(403);
   });
-
+  it("rebuilds the PostgreSQL-reset synchronous catalog view and rejects an unknown harness skill", async () => {
+    const id = "not_a_registered_skill";
+    expect((await skillCatalog()).some((row) => row.id === id)).toBe(false);
+    (await resetDatabase());
+    expect(SKILL_ROUTE[id]).toBeUndefined();
+    await expect(activateSkillForHarness(id)).rejects.toMatchObject({ status: 404 });
+    expect(fs.existsSync(path.join(runtimeSkillsRoot(), id, "SKILL.md"))).toBe(false);
+  });
   it("imports a Markdown skill as an ungranted third-party draft and blocks likely secrets", async () => {
     await loginPm();
     const markdown = `---\nid: imported_brief\ntitle: 导入简报\ndescription: 从本地文件导入的技能\ncategory: 管理\nprofile: commander\noutput: task_result\nfunnel: reach\n---\n\n# 导入简报\n\n整理信息，不执行正式动作。\n`;
@@ -98,10 +102,8 @@ describe("published skills on the Codex harness", () => {
     expect(created.body.source).toBe("published");
     expect(created.body.in_market).toBe(true);
     expect(created.body.funnel).toBe("reach");
-
-    expect(skillCatalog().some((row) => row.id === "daily_brief")).toBe(true);
+    expect((await skillCatalog()).some((row) => row.id === "daily_brief")).toBe(true);
     expect(taskDefinition("daily_brief")?.title).toBe("每日简报");
-
     const runtime = path.join(runtimeSkillsRoot(), "daily_brief", "SKILL.md");
     expect(fs.existsSync(runtime)).toBe(true);
     expect(fs.readFileSync(runtime, "utf8")).toContain("每日简报");
@@ -193,17 +195,13 @@ describe("published skills on the Codex harness", () => {
     expect(unlisted.body.in_market).toBe(false);
     const marketAfter = await request("GET", "/api/skills/market");
     expect((marketAfter.body as unknown as Json[]).some((row) => row.id === "daily_brief")).toBe(false);
-
     const duplicate = await request("POST", "/api/admin/skills", NEW_SKILL);
     expect(duplicate.status).toBe(409);
-
     const bundled = await request("DELETE", "/api/admin/skills/email_compose");
     expect(bundled.status).toBe(400);
-
     const removed = await request("DELETE", "/api/admin/skills/daily_brief");
     expect(removed.status).toBe(200);
-    expect(skillCatalog().some((row) => row.id === "daily_brief")).toBe(false);
+    expect((await skillCatalog()).some((row) => row.id === "daily_brief")).toBe(false);
   });
 });
-
-void getConn;
+void postgresDb;

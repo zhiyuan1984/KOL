@@ -27,10 +27,10 @@ export const FORBIDDEN_MEMORY_STARRY_TOOLS = [
   "createEmailConversation",
   "previewEmailDraft",
 ] as const;
-
 const ALLOWED = new Set<string>(MEMORY_STARRY_TOOLS);
-
-export async function callMemoryStarryTool(name: string, args: Json = {}, options: { timeoutMs?: number } = {}): Promise<Json> {
+export async function callMemoryStarryTool(name: string, args: Json = {}, options: {
+  timeoutMs?: number;
+} = {}): Promise<Json> {
   if (name === "decryptKolContact" || (FORBIDDEN_MEMORY_STARRY_TOOLS as readonly string[]).includes(name)) {
     throw new HttpFail(403, {
       code: "starry_tool_forbidden",
@@ -45,22 +45,21 @@ export async function callMemoryStarryTool(name: string, args: Json = {}, option
       tool: name,
     });
   }
-  return callStarryKolTool(name, args, options);
+  return (await callStarryKolTool(name, args, options));
 }
-
-export function pageKolProfiles(args: Json = {}, options: { timeoutMs?: number } = {}): Promise<Json> {
+export async function pageKolProfiles(args: Json = {}, options: {
+  timeoutMs?: number;
+} = {}): Promise<Json> {
   const requestJson = args.requestJson ?? JSON.stringify({
     pageNo: Number(args.pageNo || 1),
     pageSize: Number(args.pageSize || 50),
     ...(args.keyword ? { keyword: args.keyword } : {}),
   });
-  return callMemoryStarryTool("pageKolProfiles", { requestJson }, options);
+  return (await callMemoryStarryTool("pageKolProfiles", { requestJson }, options));
 }
-
-export function getKolProfileDetail(kolUid: string): Promise<Json> {
-  return callMemoryStarryTool("getKolProfileDetail", { kolUid });
+export async function getKolProfileDetail(kolUid: string): Promise<Json> {
+  return (await callMemoryStarryTool("getKolProfileDetail", { kolUid }));
 }
-
-export function pageEmailConversations(args: Json = {}): Promise<Json> {
-  return callMemoryStarryTool("pageEmailConversations", args);
+export async function pageEmailConversations(args: Json = {}): Promise<Json> {
+  return (await callMemoryStarryTool("pageEmailConversations", args));
 }

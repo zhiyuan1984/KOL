@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEMO_USER } from "../src/config.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { buildTaskOperationsDashboard, operationalRowInRange, statusGroup, taskOperationsDashboardRanges, taskOperationsDateRange, taskOperationsPeriod } from "../src/tasks/operations-dashboard.js";
 import { seedAll } from "../src/seed.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -56,8 +56,10 @@ type Json = Record<string, unknown>;
 let tmp: string;
 let app: Hono;
 const hasPostgresTestDatabase = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
-
-async function request(method: string, url: string, body?: unknown): Promise<{ status: number; body: Json }> {
+async function request(method: string, url: string, body?: unknown): Promise<{
+  status: number;
+  body: Json;
+}> {
   const response = await app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
@@ -81,30 +83,24 @@ async function createOperationalTask(input: {
   });
   expect(created.status).toBe(201);
   const id = String(created.body.id);
-  getConn().prepare(
-    "UPDATE tickets SET status=?,created_at=?,completed_at=?,due_at=?,updated_at=? WHERE id=?",
-  ).run(input.status, input.created_at, input.completed_at || null, input.due_at || null, input.created_at, id);
+  (await postgresDb().execute("UPDATE tickets SET status=$1,created_at=$2,completed_at=$3,due_at=$4,updated_at=$5 WHERE id=$6", input.status, input.created_at, input.completed_at || null, input.due_at || null, input.created_at, id));
   return id;
 }
-
 describe.skipIf(!hasPostgresTestDatabase)("GET task operations query contract", () => {
   beforeEach(async () => {
     await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-task-operations-"));
-    process.env.LINGONG_DB = path.join(tmp, "tasks.db");
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
-    seedAll();
+    (await resetDatabase());
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
   });
-
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetDatabase());
     fs.rmSync(tmp, { recursive: true, force: true });
   });
-
   it("keeps paged rows and dashboard totals aligned on an inclusive Shanghai activity day and task type", async () => {
     const createdInWindow = await createOperationalTask({
       title: "operations-window-created", status: "queued", created_at: "2026-10-06T16:00:00.000Z",
@@ -165,14 +161,10 @@ describe.skipIf(!hasPostgresTestDatabase)("GET task operations query contract", 
     expect(empty.body).toMatchObject({ items: [], page: { total: 0 } });
     expect((await request("GET", "/api/tasks?view=history&limit=20&overdue=maybe")).status).toBe(400);
   });
-
   it("retains the existing personal authorization boundary for pages and dashboard aggregates", async () => {
     const stamp = "2026-10-07T00:00:00.000Z";
-    getConn().prepare(
-      `INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run("tsk_operations_foreign", "usr_foreign", "risk_scan", "operations-foreign-private", "manual", "queued", "normal", "risk_scan", "general", "{}", "{}", stamp, stamp);
-
+    (await postgresDb().execute(`INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, "tsk_operations_foreign", "usr_foreign", "risk_scan", "operations-foreign-private", "manual", "queued", "normal", "risk_scan", "general", "{}", "{}", stamp, stamp));
     const page = await request("GET", "/api/tasks?view=history&limit=10&q=operations-foreign-private");
     expect(page.status).toBe(200);
     expect(page.body).toMatchObject({ items: [], page: { total: 0 } });

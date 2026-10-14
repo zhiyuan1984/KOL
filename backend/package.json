@@ -8,12 +8,11 @@
     "dev": "tsx watch src/index.ts",
     "worker:execution": "tsx src/execution-worker.ts",
     "worker:outbox": "tsx src/outbox-publisher.ts",
-    "db:migrate:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
-    "db:verify:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts --verify-only",
     "db:apply:postgres-schema": "tsx scripts/apply-postgres-schema.ts",
     "db:seed:reference": "tsx scripts/seed-reference-data.ts",
     "db:import:org-accounts": "tsx scripts/import-org-accounts.ts",
     "test": "node scripts/test.mjs",
+    "validate:postgres-native": "node scripts/check-postgres-native.cjs",
     "validate:kol-data": "node scripts/validate-kol-data.mjs",
     "validate:registry": "node scripts/validate-registry.mjs",
     "validate:contracts": "node scripts/validate-contracts.mjs",
@@ -31,7 +30,6 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@typesafe-ai/sdk": "0.6.0",
     "adm-zip": "^0.5.16",
-    "better-sqlite3": "^11.8.1",
     "bullmq": "^6.3.11",
     "hono": "^4.7.5",
     "ioredis": "^5.8.2",
@@ -43,7 +41,6 @@
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",
-    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.10",
     "@types/pg": "^8.23.1",
     "typescript": "^5.8.2",
@@ -51,7 +48,6 @@
     "zod": "^4.6.5"
   },
   "allowScripts": {
-    "better-sqlite3": true,
     "esbuild": true
   }
 }

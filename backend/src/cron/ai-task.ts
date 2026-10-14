@@ -17,17 +17,19 @@ async function post(app: typeof tasks | typeof host, path: string, body: Json): 
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
   const payload = await response.json().catch(() => ({})) as Json;
-  if (!response.ok) throw new Error(String(payload.message || payload.error || `${path}: ${response.status}`));
+  if (!response.ok)
+    throw new Error(String(payload.message || payload.error || `${path}: ${response.status}`));
   return payload;
 }
-
 /** Use the same from-text → task run → session message chain as Home. */
 export const runAiTask: CronHandler = async ({ job }): Promise<CronHandlerResult> => {
   const [row] = await postgresQuery<Row>("SELECT * FROM users WHERE id=$1 AND active=1", [job.owner_account_id]);
-  if (!row && !authDisabled()) throw new Error("任务所有者已停用或不存在");
+  if (!row && !authDisabled())
+    throw new Error("任务所有者已停用或不存在");
   const composer = composerOf(job);
   const text = String(composer.text || "").trim();
-  if (!text) throw new Error("定时任务提示词为空");
+  if (!text)
+    throw new Error("定时任务提示词为空");
   const scope = composer.scope && typeof composer.scope === "object" ? composer.scope as Json : {};
   const taskType = String(composer.intent || (Array.isArray(scope.skills) ? scope.skills[0] || "" : ""));
   const definition = taskType ? taskDefinition(taskType) : undefined;
@@ -41,18 +43,21 @@ export const runAiTask: CronHandler = async ({ job }): Promise<CronHandlerResult
       collaboration_id: composer.collaboration_id, knowledge_id: composer.knowledge_id,
       scope, object_refs: composer.object_refs, client_entry: composer.client_entry,
     });
-    if (!created.task || created.needs_clarification) throw new Error(String(created.clarification || "任务需要补充信息"));
+    if (!created.task || created.needs_clarification)
+      throw new Error(String(created.clarification || "任务需要补充信息"));
     const task = created.task as Json;
     const resolved = taskDefinition(String(task.task_type || ""));
-    if (!resolved || resolved.side_effects === "write") throw new Error("此技能不可无人在场自动执行");
+    if (!resolved || resolved.side_effects === "write")
+      throw new Error("此技能不可无人在场自动执行");
     const run = await post(tasks, `/tasks/${encodeURIComponent(String(task.id))}/run`, {});
     const pending = (run.pending_message || run.pending || {}) as Json;
     const sessionId = String(run.session_id || "");
-    if (!sessionId) throw new Error("今日任务没有返回会话入口");
+    if (!sessionId)
+      throw new Error("今日任务没有返回会话入口");
     await post(host, `/sessions/${encodeURIComponent(sessionId)}/messages`, pending);
     return { sessionId, taskId: String(task.id), taskRunId: String(run.run_id || "") };
   };
-  const result = row ? await withScopedUser(mapUser(row), execute) : await execute();
+  const result = row ? await withScopedUser((await mapUser(row)), execute) : await execute();
   return {
     status: "succeeded", session_id: result.sessionId,
     receipt: { handler_key: "ai-task", submitted: true, task_id: result.taskId, task_run_id: result.taskRunId,

@@ -4,29 +4,21 @@ import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEMO_USER } from "../src/config.js";
-import { getConn, nowIso, resetConn } from "../src/db.js";
+import { postgresDb, nowIso, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
-import {
-  classifyTicket,
-  ensureTicketForWorkItem,
-  reconcileTickets,
-  resetTicketTypesCache,
-  ticketStatusFromWorkItem,
-} from "../src/tickets.js";
+import { classifyTicket, ensureTicketForWorkItem, reconcileTickets, resetTicketTypesCache, ticketStatusFromWorkItem, } from "../src/tickets.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
-import { ensureFollowedMailSync, resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import type { Json, Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 const CLASSIFIED_FLAG = "tickets_classified_v1";
-
 let tmp: string;
 let app: Hono;
 let databaseUrl: string | undefined;
-
 async function request(method: string, url: string, body?: unknown) {
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
-  if (body !== undefined) init.body = JSON.stringify(body);
+  if (body !== undefined)
+    init.body = JSON.stringify(body);
   const response = await app.request(url, init);
   const text = await response.text();
   return { status: response.status, body: text ? (JSON.parse(text) as Json) : {} };
@@ -40,51 +32,31 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   process.env.NODE_ENV = "test";
   resetTicketTypesCache();
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setStarryKolClientFactory();
   resetFollowedMailSync();
   resetTicketTypesCache();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
-  if (databaseUrl === undefined) delete process.env.DATABASE_URL;
-  else process.env.DATABASE_URL = databaseUrl;
+  if (databaseUrl === undefined)
+    delete process.env.DATABASE_URL;
+  else
+    process.env.DATABASE_URL = databaseUrl;
 });
-
-function insertTicket(id: string, overrides: Partial<Record<string, string>> = {}): void {
+async function insertTicket(id: string, overrides: Partial<Record<string, string>> = {}): Promise<void> {
   const now = nowIso();
-  getConn().prepare(
-    `INSERT INTO tickets
+  (await postgresDb().execute(`INSERT INTO tickets
      (id,owner_user_id,task_type,title,source,status,priority,skill,profile,collaboration_id,input,entities,data_version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    overrides.owner_user_id || DEMO_USER.id,
-    overrides.task_type || "risk_scan",
-    overrides.title || "测试工单",
-    overrides.source || "manual",
-    overrides.status || "pending",
-    overrides.priority || "normal",
-    overrides.task_type || "risk_scan",
-    overrides.profile || "lead",
-    overrides.collaboration_id || null,
-    "{}",
-    "{}",
-    1,
-    now,
-    now,
-  );
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, id, overrides.owner_user_id || DEMO_USER.id, overrides.task_type || "risk_scan", overrides.title || "测试工单", overrides.source || "manual", overrides.status || "pending", overrides.priority || "normal", overrides.task_type || "risk_scan", overrides.profile || "lead", overrides.collaboration_id || null, "{}", "{}", 1, now, now));
 }
-
-function ticketRow(id: string): Row | undefined {
-  return getConn().prepare("SELECT * FROM tickets WHERE id=?").get(id) as Row | undefined;
+async function ticketRow(id: string): Promise<Row | undefined> {
+  return (await postgresDb().one("SELECT * FROM tickets WHERE id=$1", id)) as Row | undefined;
 }
-
 describe("ticket taxonomy", () => {
   it("classifies kinds and channels from the ticket-types catalog", () => {
     expect(classifyTicket({ task_type: "email_compose", source: "manual" })).toEqual({ kind: "service", channel: "email" });
@@ -108,26 +80,26 @@ describe("ticket taxonomy", () => {
     expect(ticketStatusFromWorkItem("unknown_status")).toBeNull();
   });
 });
-
 describe("ticket rows", () => {
-  it("classifies a ticket row in place (kind/channel/requester) and is idempotent", () => {
-    insertTicket("tsk_tickets_1", { task_type: "email_compose", source: "manual" });
-    ensureTicketForWorkItem("tsk_tickets_1");
-    const row = ticketRow("tsk_tickets_1")!;
+  it("classifies a ticket row in place (kind/channel/requester) and is idempotent", async () => {
+    (await insertTicket("tsk_tickets_1", { task_type: "email_compose", source: "manual" }));
+    (await ensureTicketForWorkItem("tsk_tickets_1"));
+    const row = (await ticketRow("tsk_tickets_1"))!;
     expect(String(row.kind)).toBe("service");
     expect(String(row.channel)).toBe("email");
     expect(String(row.requester_type)).toBe("human");
     expect(String(row.requester_id)).toBe(DEMO_USER.id);
     expect(Number(row.kind_version)).toBeGreaterThanOrEqual(1);
-    ensureTicketForWorkItem("tsk_tickets_1");
-    expect(String(ticketRow("tsk_tickets_1")!.kind)).toBe("service");
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE id=?").get("tsk_tickets_1") as { n: number }).n)).toBe(1);
+    (await ensureTicketForWorkItem("tsk_tickets_1"));
+    expect(String((await ticketRow("tsk_tickets_1"))!.kind)).toBe("service");
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM tickets WHERE id=$1", "tsk_tickets_1")) as {
+      n: number;
+    }).n)).toBe(1);
   });
-
-  it("records collaboration object refs and system requesters", () => {
-    insertTicket("tsk_tickets_2", { task_type: "risk_scan", source: "schedule", collaboration_id: "col_x" });
-    ensureTicketForWorkItem("tsk_tickets_2");
-    const row = ticketRow("tsk_tickets_2")!;
+  it("records collaboration object refs and system requesters", async () => {
+    (await insertTicket("tsk_tickets_2", { task_type: "risk_scan", source: "schedule", collaboration_id: "col_x" }));
+    (await ensureTicketForWorkItem("tsk_tickets_2"));
+    const row = (await ticketRow("tsk_tickets_2"))!;
     expect(String(row.kind)).toBe("risk");
     expect(String(row.channel)).toBe("system");
     expect(String(row.requester_type)).toBe("system");
@@ -135,20 +107,18 @@ describe("ticket rows", () => {
     expect(String(row.object_type)).toBe("collaboration");
     expect(String(row.object_id)).toBe("col_x");
   });
-
-  it("backfills historical rows once and can be forced", () => {
-    insertTicket("tsk_hist_1", { task_type: "risk_scan" });
-    insertTicket("tsk_hist_2", { task_type: "email_compose" });
+  it("backfills historical rows once and can be forced", async () => {
+    (await insertTicket("tsk_hist_1", { task_type: "risk_scan" }));
+    (await insertTicket("tsk_hist_2", { task_type: "email_compose" }));
     // 模拟历史库：清掉已跑标记，对账应重新扫一遍并补齐分类。
-    getConn().prepare("DELETE FROM app_state WHERE key=?").run(CLASSIFIED_FLAG);
-    const first = reconcileTickets();
+    (await postgresDb().execute("DELETE FROM app_state WHERE key=$1", CLASSIFIED_FLAG));
+    const first = (await reconcileTickets());
     expect(first.classified).toBeGreaterThanOrEqual(2);
-    expect(String(ticketRow("tsk_hist_1")!.kind)).toBe("risk");
-    expect(String(ticketRow("tsk_hist_2")!.kind)).toBe("service");
-    expect(reconcileTickets().classified).toBe(0);
-    expect(reconcileTickets({ force: true }).classified).toBeGreaterThanOrEqual(2);
+    expect(String((await ticketRow("tsk_hist_1"))!.kind)).toBe("risk");
+    expect(String((await ticketRow("tsk_hist_2"))!.kind)).toBe("service");
+    expect((await reconcileTickets()).classified).toBe(0);
+    expect((await reconcileTickets({ force: true })).classified).toBeGreaterThanOrEqual(2);
   });
-
   it("exposes ticket fields on the tasks API from the same row", async () => {
     const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "风险扫描工单" });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
@@ -166,25 +136,20 @@ describe("ticket rows", () => {
     expect(found?.ticket_kind).toBe("risk");
   });
 });
-
 describe("email.received wiring", () => {
-  function bindLarry(): void {
+  async function bindLarry(): Promise<void> {
     const now = nowIso();
-    getConn().prepare(
-      `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
-    getConn().prepare(
-      `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)
-       VALUES (?,?,?,?,?,?,?,?)
-       ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at`,
-    ).run(DEMO_USER.id, "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now);
+    (await postgresDb().execute(`INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`, DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now));
+    (await postgresDb().execute(`INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at`, DEMO_USER.id, "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now));
   }
-
   it("records inbound mail arrival as an idempotent business event", async () => {
     await freshTestDatabase();
-    resetConn(); seedAll();
-    bindLarry();
+    (await resetDatabase());
+    (await seedAll());
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
         if (name === "pageEmailConversations") {
@@ -205,63 +170,35 @@ describe("email.received wiring", () => {
         }
         return { data: {} };
       },
-      async close() { /* noop */ },
+      async close() { },
     }));
     await ensureFollowedMailSync(true);
-    const events = getConn().prepare(
-      "SELECT event_type,object_type,object_id,idempotency_key,actor_type,occurred_at,received_at FROM business_events WHERE event_type='email.received'",
-    ).all() as Row[];
+    // 前台同步只承诺已持久化会话索引；正文（及 email.received 事件）在
+    // 受控后台水合中完成。测试必须显式 join，而非把索引回执伪作终态。
+    await waitForBackgroundSync();
+    const events = (await postgresDb().many("SELECT event_type,object_type,object_id,idempotency_key,actor_type,occurred_at,received_at FROM business_events WHERE event_type='email.received'")) as Row[];
     expect(events).toHaveLength(1);
     expect(String(events[0].object_type)).toBe("email");
     expect(String(events[0].idempotency_key)).toMatch(/^email\.received:[a-f0-9]{64}:[a-f0-9]{64}$/);
     await ensureFollowedMailSync(true);
-    expect(getConn().prepare("SELECT id FROM business_events WHERE event_type='email.received'").all()).toHaveLength(1);
+    expect((await postgresDb().many("SELECT id FROM business_events WHERE event_type='email.received'"))).toHaveLength(1);
     expect(String(events[0].actor_type)).toBe("external");
     const response = await request("GET", "/api/events?event_type=email.received");
     expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect((response.body.events as Json[]).length).toBe(1);
   });
 });
-
-describe("work_items → tickets merge migration", () => {
-  it("merges a legacy work_items table (with rows) into tickets on reconnect", async () => {
-    const legacyPath = path.join(tmp, "legacy.db");
-    const { DatabaseSync } = await import("node:sqlite");
-    const raw = new DatabaseSync(legacyPath);
-    raw.exec(`
-      CREATE TABLE work_items (
-        id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, task_type TEXT NOT NULL, title TEXT NOT NULL,
-        source TEXT NOT NULL DEFAULT 'manual', status TEXT NOT NULL DEFAULT 'pending',
-        priority TEXT NOT NULL DEFAULT 'normal', skill TEXT NOT NULL, profile TEXT NOT NULL,
-        project_id TEXT, collaboration_id TEXT, session_id TEXT, due_at TEXT,
-        last_acted_at TEXT, acknowledged_at TEXT, promoted_at TEXT, dismissed_at TEXT,
-        started_at TEXT, completed_at TEXT, input TEXT NOT NULL DEFAULT '{}', entities TEXT NOT NULL DEFAULT '{}',
-        data_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-        content TEXT NOT NULL DEFAULT '', start_date TEXT, risk_level TEXT NOT NULL DEFAULT 'none'
-      );
-    `);
-    raw.prepare(
-      "INSERT INTO work_items (id,owner_user_id,task_type,title,skill,profile,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-    ).run("tsk_legacy_1", DEMO_USER.id, "email_compose", "历史工单", "email_compose", "opportunity", nowIso(), nowIso());
-    raw.close();
-
-    // 指向旧库并重连：initSchema + migrateSchema（含 work_items → tickets 合并）
-    // Only this historical SQLite migration fixture opens its legacy file;
-    // business/API cases above keep their isolated PostgreSQL database.
-    delete process.env.DATABASE_URL;
-    process.env.LINGONG_DB = legacyPath;
-    resetConn();
-    const conn = getConn();
-    const tables = new Set(
-      (conn.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[])
-        .map((row) => String(row.name)),
-    );
-    expect(tables.has("work_items")).toBe(false);
-    expect(tables.has("tickets")).toBe(true);
-    const migrated = ticketRow("tsk_legacy_1");
-    expect(migrated).toBeTruthy();
-    reconcileTickets({ force: true });
-    const classified = ticketRow("tsk_legacy_1")!;
+describe("PostgreSQL ticket schema", () => {
+  it("uses tickets as the sole authoritative work-item relation", async () => {
+    const relations = (await postgresDb().one("SELECT to_regclass('public.tickets') AS tickets, to_regclass('public.work_items') AS work_items")) as {
+      tickets: string | null;
+      work_items: string | null;
+    };
+    expect(relations.tickets).toBe("tickets");
+    expect(relations.work_items).toBeNull();
+    await insertTicket("tsk_native_ticket", { task_type: "email_compose", source: "manual" });
+    await reconcileTickets({ force: true });
+    const classified = (await ticketRow("tsk_native_ticket"))!;
     expect(String(classified.kind)).toBe("service");
     expect(String(classified.channel)).toBe("email");
   });

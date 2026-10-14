@@ -4,39 +4,18 @@
  * ingest outbound and refresh the thread digest. Quote is the 报价待确认 letter,
  * not a special loop that other stages copy.
  */
-import { nowIso } from "../db.js";
+import { nowIso } from "../postgres/access.js";
 import { pickTemplateForSkill, templateById, EMAIL_TEMPLATES, type EmailTemplate } from "../email-templates.js";
 import { firstEmail } from "./mail-to.js";
-import {
-  mailHistoryRows,
-  mailMemoryLines,
-  readThreadDigest,
-  threadDigestOf,
-  type ThreadDigest,
-} from "./mail-summary.js";
+import { mailHistoryRows, mailMemoryLines, readThreadDigest, threadDigestOf, type ThreadDigest, } from "./mail-summary.js";
 import { followStylePromptLine, readFollowStyleTags, type FollowStyleTag } from "../follow-style-tags.js";
 import { normalizeStage } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import { extractTaskEntities } from "../tasks/resolver.js";
 import { formatQuoteRate } from "./quote-amount.js";
-import {
-  composeGapHint,
-  requestedMailKind,
-  stageMailSpec,
-  stageMailSpecByKind,
-  type StageMailKind,
-} from "../skills/email-compose-contract.js";
-
-export {
-  composeGapHint,
-  isNamedMailCommand,
-  isQuoteCompose,
-  requestedMailKind,
-  stageMailAction,
-  stageMailSpec,
-} from "../skills/email-compose-contract.js";
+import { composeGapHint, requestedMailKind, stageMailSpec, stageMailSpecByKind, type StageMailKind, } from "../skills/email-compose-contract.js";
+export { composeGapHint, isNamedMailCommand, isQuoteCompose, requestedMailKind, stageMailAction, stageMailSpec, } from "../skills/email-compose-contract.js";
 export type { ComposeGap, StageMailKind, StageMailSpec } from "../skills/email-compose-contract.js";
-
 export type ComposeFacts = {
   kind: StageMailKind;
   title: string;
@@ -92,28 +71,43 @@ export function composeFactsFromContext(input: {
   const sku = String(input.sku || "").trim();
   const qty = String(input.qty || "").trim();
   const items: string[] = [];
-  if (amount != null) items.push(`金额：${formatQuoteRate(amount, currency || "USD", rateUnit)}`);
-  else if (spec.kind === "quote") items.push("金额未写明，请在草稿里补上价格后再确认发送。");
-  if (deliverables) items.push(`交付：${deliverables}`);
+  if (amount != null)
+    items.push(`金额：${formatQuoteRate(amount, currency || "USD", rateUnit)}`);
+  else if (spec.kind === "quote")
+    items.push("金额未写明，请在草稿里补上价格后再确认发送。");
+  if (deliverables)
+    items.push(`交付：${deliverables}`);
   if (spec.kind === "address") {
-    if (name) items.push(`收件人：${name}`);
-    if (phone) items.push(`电话：${phone}`);
-    if (address) items.push(`地址：${address}`);
-    if (country) items.push(`国家：${country}`);
-    if (postal) items.push(`邮编：${postal}`);
-    if (sku) items.push(`SKU：${sku}`);
-    if (qty) items.push(`数量：${qty}`);
+    if (name)
+      items.push(`收件人：${name}`);
+    if (phone)
+      items.push(`电话：${phone}`);
+    if (address)
+      items.push(`地址：${address}`);
+    if (country)
+      items.push(`国家：${country}`);
+    if (postal)
+      items.push(`邮编：${postal}`);
+    if (sku)
+      items.push(`SKU：${sku}`);
+    if (qty)
+      items.push(`数量：${qty}`);
     if (!name || !phone || !address || !country || !postal || !sku || !qty) {
       items.push("寄样资料未齐，请在草稿里补全后再确认发送。");
     }
   }
-  if (tracking) items.push(`运单号：${tracking}`);
-  else if (spec.kind === "ship") items.push("运单号未写明，请补上后再确认发送。");
-  if (carrier) items.push(`承运商：${carrier}`);
+  if (tracking)
+    items.push(`运单号：${tracking}`);
+  else if (spec.kind === "ship")
+    items.push("运单号未写明，请补上后再确认发送。");
+  if (carrier)
+    items.push(`承运商：${carrier}`);
   const styleTags = Array.isArray(input.style_tags) ? input.style_tags : [];
   const styleLine = followStylePromptLine(styleTags);
-  if (styleLine) items.push(styleLine);
-  if (!items.length) items.push(spec.instruction);
+  if (styleLine)
+    items.push(styleLine);
+  if (!items.length)
+    items.push(spec.instruction);
   return {
     kind: spec.kind,
     title: spec.factTitle,
@@ -168,12 +162,19 @@ export function composePromptFromEntities(entities: Json, fallback: string): str
   });
   return composePreviewPrompt(raw || fallback, digest, facts, String(entities.stage_code || entities.stage || entities.official_stage || ""));
 }
-
 export function composeRouteFacts(input: {
-  col?: { email?: unknown; mailbox_from?: unknown; stage_code?: unknown } | null;
+  col?: {
+    email?: unknown;
+    mailbox_from?: unknown;
+    stage_code?: unknown;
+  } | null;
   extra?: Json;
   boundMailbox?: string | null;
-}): { mailboxEmail: string; from: string; to: string } {
+}): {
+  mailboxEmail: string;
+  from: string;
+  to: string;
+} {
   const extra = input.extra && typeof input.extra === "object" ? input.extra as Json : {};
   const entities = extra.entities && typeof extra.entities === "object" ? extra.entities as Json : {};
   const stage = String(entities.stage_code || extra.stage_code || extra.stage || input.col?.stage_code || "");
@@ -196,22 +197,23 @@ export function pickComposeTemplate(skill: string, stageCode?: string | null, ra
   const requested = requestedMailKind(raw);
   const spec = requested ? stageMailSpecByKind(requested, stageCode || "") : stageMailSpec(stageCode || "");
   const named = templateById(spec.templateId);
-  if (named) return named;
+  if (named)
+    return named;
   const stage = stageCode ? normalizeStage(stageCode) : "";
   const byStage = EMAIL_TEMPLATES.filter((row) => stage && row.stages.includes(stage) && row.kind === "main");
   const hit = [...byStage].sort((a, b) => a.stages.length - b.stages.length)[0];
   return hit || pickTemplateForSkill(skill, stage);
 }
-
-export function composeContextForCollaboration(collaborationId: string | null | undefined): {
+export async function composeContextForCollaboration(collaborationId: string | null | undefined): Promise<{
   digest: ThreadDigest | null;
   memory: string[];
   text: string;
   mail_count: number;
-} {
-  if (!collaborationId) return { digest: null, memory: [], text: "", mail_count: 0 };
-  const rows = mailHistoryRows(collaborationId);
-  const digest = threadDigestOf(rows, readThreadDigest(collaborationId));
+}> {
+  if (!collaborationId)
+    return { digest: null, memory: [], text: "", mail_count: 0 };
+  const rows = (await mailHistoryRows(collaborationId));
+  const digest = threadDigestOf(rows, (await readThreadDigest(collaborationId)));
   return {
     digest,
     memory: mailMemoryLines(rows),
@@ -223,8 +225,10 @@ export function composeContextForCollaboration(collaborationId: string | null | 
 export function composeLoopSections(facts: ComposeFacts): Json[] {
   return [{ title: facts.title, items: facts.items.filter((item) => !item.startsWith("往来依据：")) }];
 }
-
-export function seedComposeDraft(facts: ComposeFacts, _raw = "", stage = ""): { subject: string; body: string } {
+export function seedComposeDraft(facts: ComposeFacts, _raw = "", stage = ""): {
+  subject: string;
+  body: string;
+} {
   const amount = facts.amount_usd ?? null;
   const currency = facts.currency || "USD";
   const rateUnit = facts.rate_unit;
@@ -242,17 +246,16 @@ export function seedComposeDraft(facts: ComposeFacts, _raw = "", stage = ""): { 
   const tpl = pickComposeTemplate("email_compose", stage, _raw);
   return { subject: tpl.subject, body: tpl.body_en };
 }
-
-export function previewComposeForCollaboration(col: Row | null, text: string, extra: Json = {}): {
+export async function previewComposeForCollaboration(col: Row | null, text: string, extra: Json = {}): Promise<{
   subject: string;
   body: string;
   amount_usd: number | null;
   currency: string | null;
   rate_unit: "hour" | null;
   prompt: string;
-} {
-  const digest = composeContextForCollaboration(col?.id ? String(col.id) : null).text;
-  const extracted = extractTaskEntities(text);
+}> {
+  const digest = (await composeContextForCollaboration(col?.id ? String(col.id) : null)).text;
+  const extracted = (await extractTaskEntities(text));
   const facts = composeFactsFromRow(col, {
     ...extra,
     raw: text,
@@ -285,7 +288,7 @@ export async function rememberOutboundAndRefreshDigest(input: {
   providerMessageId?: string;
 }): Promise<void> {
   const { ingestKolMail, refreshMailDigestAfterChange } = await import("./kol-journey.js");
-  ingestKolMail(input.collaborationId, {
+  (await ingestKolMail(input.collaborationId, {
     subject: String(input.subject || ""),
     body: String(input.body || ""),
     from: firstEmail(input.from),
@@ -296,10 +299,9 @@ export async function rememberOutboundAndRefreshDigest(input: {
     conversation_id: String(input.conversationId || ""),
     session_id: input.sessionId,
     provider_message_id: String(input.providerMessageId || ""),
-  });
+  }));
   await refreshMailDigestAfterChange(input.collaborationId, input.sessionId, { retryFailed: true });
 }
-
 function summaryForFacts(facts: ComposeFacts, fallback: string): string {
   if (facts.kind === "quote") {
     return facts.amount_usd != null
@@ -311,10 +313,10 @@ function summaryForFacts(facts: ComposeFacts, fallback: string): string {
       ? `发货通知草稿已生成（${facts.tracking}）。请核对后确认发送。`
       : "发货通知草稿已生成。请补上运单号后再确认发送。";
   }
-  if (facts.kind === "address") return "寄样核对草稿已生成。请核对地址资料后确认发送。";
+  if (facts.kind === "address")
+    return "寄样核对草稿已生成。请核对地址资料后确认发送。";
   return fallback || `${facts.title.replace(/要点|资料/, "")}草稿已生成，请核对后回复「确认发送」。`.replace(/^草稿/, "邮件草稿");
 }
-
 /** Attach this-stage mail facts onto a compose result card without duplicating SOP. */
 export function attachComposeLoopCard(card: Json, facts: ComposeFacts, data: Json): Json {
   const sections = Array.isArray(card.sections) ? [...(card.sections as Json[])] : [];
@@ -326,10 +328,16 @@ export function attachComposeLoopCard(card: Json, facts: ComposeFacts, data: Jso
     ? [...(card.recommended_actions as unknown[])]
     : [];
   if (data.sent) {
-    if (!actions.length) actions.push("再写一封");
-  } else if (gap.field) {
-    actions = actions.filter((row) => !/核对预览后回复「确认发送」/.test(String(typeof row === "string" ? row : (row as { label?: string }).label || "")));
-    if (!actions.some((row) => String(typeof row === "string" ? row : (row as { label?: string }).label || row) === gap.result_action)) {
+    if (!actions.length)
+      actions.push("再写一封");
+  }
+  else if (gap.field) {
+    actions = actions.filter((row) => !/核对预览后回复「确认发送」/.test(String(typeof row === "string" ? row : (row as {
+      label?: string;
+    }).label || "")));
+    if (!actions.some((row) => String(typeof row === "string" ? row : (row as {
+      label?: string;
+    }).label || row) === gap.result_action)) {
       actions.unshift(gap.result_action);
     }
   }

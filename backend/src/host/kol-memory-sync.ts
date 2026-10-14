@@ -4,35 +4,22 @@
  * pageEmailConversations only for B.active → C with effective=0/1
  */
 import { persistStarryOwnership } from "../postgres/kol-source-authority.js";
-import { audit, nowIso } from "../db.js";
+import { audit, nowIso } from "../postgres/access.js";
 import { mailPreview } from "./mail-preview.js";
 import { conversationIdOf, conversationSubject, firstString, listOf, messageOccurredAt } from "../starrykol/mail-fields.js";
 import type { Json } from "../types.js";
-import {
-  classifyCorrespondenceKind,
-  isEffectiveCorrespondence,
-  listActiveFollows,
-  memoryCompanyId,
-  recordEffectiveCorrespondence,
-  upsertPublicProfile,
-  upsertThreadSummary,
-  type EffectiveKind,
-} from "./kol-memory.js";
+import { classifyCorrespondenceKind, isEffectiveCorrespondence, listActiveFollows, memoryCompanyId, recordEffectiveCorrespondence, upsertPublicProfile, upsertThreadSummary, type EffectiveKind, } from "./kol-memory.js";
 import { getKolProfileDetail, pageEmailConversations, pageKolProfiles } from "./starry-connectors.js";
 import { avgPlaysOf, engagementWithSource, followersOf, geoOf, missingPublicMetrics } from "../starrykol/remote-metrics.js";
-
 function homepageOf(profile: Json): string {
-  return firstString(
-    profile.homepageUrl, profile.homepage, profile.platformUrl, profile.profileUrl,
-    profile.homePage, profile.url,
-  );
+  return firstString(profile.homepageUrl, profile.homepage, profile.platformUrl, profile.profileUrl, profile.homePage, profile.url);
 }
-
-function upsertAFromProfile(profile: Json, sourceVersion?: string): void {
+async function upsertAFromProfile(profile: Json, sourceVersion?: string): Promise<void> {
   const kolUid = firstString(profile.kolUid, profile.kol_uid, profile.uid);
-  if (!kolUid) return;
+  if (!kolUid)
+    return;
   const engagement = engagementWithSource(profile);
-  upsertPublicProfile({
+  (await upsertPublicProfile({
     company_id: memoryCompanyId(),
     kol_uid: kolUid,
     handle: firstString(profile.kolName, profile.nickname, profile.name, profile.accountHandle, profile.handle),
@@ -51,9 +38,8 @@ function upsertAFromProfile(profile: Json, sourceVersion?: string): void {
     ingest_source: "starry.pageKolProfiles",
     public_stage: firstString(profile.cooperationStageName, profile.stageName, profile.stage),
     source_version: sourceVersion,
-  });
+  }));
 }
-
 export async function syncKolProfileIndex(pageSize = 50): Promise<{
   ok: boolean;
   count: number;
@@ -75,15 +61,18 @@ export async function syncKolProfileIndex(pageSize = 50): Promise<{
       const data = await pageKolProfiles({ pageNo, pageSize });
       const rows = listOf(data);
       const total = Number(data.total);
-      if (!Number.isSafeInteger(total) || total < 0) throw new Error("starry_snapshot_total_missing");
-      if (expectedTotal !== null && expectedTotal !== total) throw new Error("starry_snapshot_total_changed");
+      if (!Number.isSafeInteger(total) || total < 0)
+        throw new Error("starry_snapshot_total_missing");
+      if (expectedTotal !== null && expectedTotal !== total)
+        throw new Error("starry_snapshot_total_changed");
       expectedTotal = total;
       for (const profile of rows) {
         const uid = firstString(profile.kolUid, profile.kol_uid, profile.uid);
-        if (!uid || seen.has(uid)) throw new Error("starry_snapshot_duplicate_or_missing_uid");
+        if (!uid || seen.has(uid))
+          throw new Error("starry_snapshot_duplicate_or_missing_uid");
         seen.add(uid);
         await persistStarryOwnership([profile], memoryCompanyId(), syncedAt);
-        upsertAFromProfile(profile, syncedAt);
+        (await upsertAFromProfile(profile, syncedAt));
         const kolUid = firstString(profile.kolUid, profile.kol_uid);
         let merged = profile;
         if (kolUid) {
@@ -91,39 +80,48 @@ export async function syncKolProfileIndex(pageSize = 50): Promise<{
             const detail = await getKolProfileDetail(kolUid);
             merged = { ...profile, ...detail };
             await persistStarryOwnership([merged], memoryCompanyId(), syncedAt);
-            upsertAFromProfile(merged, syncedAt);
-          } catch (error) {
+            (await upsertAFromProfile(merged, syncedAt));
+          }
+          catch (error) {
             // 详情是可选补全，但失败必须留痕：此前静默吞掉，主页/头像等字段缺了没人知道。
             detailFailed += 1;
-            if (detailFailedSamples.length < 10) detailFailedSamples.push(kolUid);
-            audit("host", "kol.memory.profile_detail_failed", {
+            if (detailFailedSamples.length < 10)
+              detailFailedSamples.push(kolUid);
+            (await audit("host", "kol.memory.profile_detail_failed", {
               kol_uid: kolUid,
               error: error instanceof Error ? error.message.slice(0, 180) : String(error).slice(0, 180),
-            });
+            }));
           }
         }
-        if (missingPublicMetrics(merged).length) missingMetrics += 1;
+        if (missingPublicMetrics(merged).length)
+          missingMetrics += 1;
         count += 1;
       }
-      if (seen.size === expectedTotal) break;
-      if (!rows.length || seen.size > (expectedTotal ?? 0)) throw new Error("starry_snapshot_pagination_incomplete");
+      if (seen.size === expectedTotal)
+        break;
+      if (!rows.length || seen.size > (expectedTotal ?? 0))
+        throw new Error("starry_snapshot_pagination_incomplete");
       pageNo += 1;
       const safeMaxPages = Math.max(1, Math.ceil((expectedTotal ?? 0) / pageSize) + 2);
-      if (pageNo > safeMaxPages) throw new Error("starry_snapshot_pagination_safety_limit");
+      if (pageNo > safeMaxPages)
+        throw new Error("starry_snapshot_pagination_safety_limit");
     }
-    audit("host", "kol.memory.profile_sync", {
+    (await audit("host", "kol.memory.profile_sync", {
       count, tool: "pageKolProfiles", missing_metrics: missingMetrics, detail_failed: detailFailed,
       detail_failed_samples: detailFailedSamples,
-    });
+    }));
     return { ok: true, count, tool: "pageKolProfiles", missing_metrics: missingMetrics };
-  } catch (error) {
+  }
+  catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    audit("host", "kol.memory.profile_sync_failed", { error: message });
+    (await audit("host", "kol.memory.profile_sync_failed", { error: message }));
     return { ok: false, count: 0, tool: "pageKolProfiles", missing_metrics: 0, error: message };
   }
 }
-
-function conversationEffective(conv: Json): { effective: 0 | 1; kind: EffectiveKind } {
+function conversationEffective(conv: Json): {
+  effective: 0 | 1;
+  kind: EffectiveKind;
+} {
   const subject = conversationSubject(conv);
   const status = firstString(conv.status, conv.deliveryStatus, conv.sendStatus);
   const kind = classifyCorrespondenceKind({
@@ -145,9 +143,13 @@ function conversationEffective(conv: Json): { effective: 0 | 1; kind: EffectiveK
   });
   return { effective: effective ? 1 : 0, kind };
 }
-
-export async function syncActiveFollowThreads(): Promise<{ ok: boolean; follows: number; threads: number; error?: string }> {
-  const follows = listActiveFollows();
+export async function syncActiveFollowThreads(): Promise<{
+  ok: boolean;
+  follows: number;
+  threads: number;
+  error?: string;
+}> {
+  const follows = (await listActiveFollows());
   let threads = 0;
   try {
     for (const follow of follows) {
@@ -163,7 +165,7 @@ export async function syncActiveFollowThreads(): Promise<{ ok: boolean; follows:
         const subject = conversationSubject(conv);
         const occurredAt = messageOccurredAt(conv) || firstString(conv.lastMessageAt, conv.updatedAt);
         const direction = firstString(conv.direction, conv.lastDirection);
-        upsertThreadSummary({
+        (await upsertThreadSummary({
           follow_id: String(follow.id),
           company_id: String(follow.company_id),
           kol_uid: String(follow.kol_uid),
@@ -175,9 +177,9 @@ export async function syncActiveFollowThreads(): Promise<{ ok: boolean; follows:
           key_agreements: mailPreview(firstString(conv.snippet, conv.lastSnippet, conv.body)),
           mail_refs: conversationId,
           source_version: nowIso(),
-        });
+        }));
         if (effective) {
-          recordEffectiveCorrespondence({
+          (await recordEffectiveCorrespondence({
             followId: String(follow.id),
             kolUid: String(follow.kol_uid),
             direction: /in/i.test(direction) ? "inbound" : "outbound",
@@ -185,16 +187,17 @@ export async function syncActiveFollowThreads(): Promise<{ ok: boolean; follows:
             gatewaySuccess: true,
             subject,
             body: firstString(conv.snippet, conv.lastSnippet, conv.body),
-          });
+          }));
         }
         threads += 1;
       }
     }
-    audit("host", "kol.memory.thread_sync", { follows: follows.length, threads, tool: "pageEmailConversations" });
+    (await audit("host", "kol.memory.thread_sync", { follows: follows.length, threads, tool: "pageEmailConversations" }));
     return { ok: true, follows: follows.length, threads };
-  } catch (error) {
+  }
+  catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    audit("host", "kol.memory.thread_sync_failed", { error: message });
+    (await audit("host", "kol.memory.thread_sync_failed", { error: message }));
     return { ok: false, follows: follows.length, threads, error: message };
   }
 }

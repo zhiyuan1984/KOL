@@ -16,22 +16,14 @@
  * - 每一档都写明来源；多候选只出候选、不取第一只（BIZ-04）。
  */
 import type { Persona } from "../config.js";
-import { getConn } from "../db.js";
+import { postgresDb } from "../postgres/access.js";
 import type { Row } from "../types.js";
 import { normalizeEmail } from "./identity.js";
 import { findMailThread, mailboxBindings } from "./mail-memory.js";
 import { boundMailboxEmail } from "./starry-bind.js";
 import { currentUser } from "./persona.js";
 import { firstEmail } from "./mail-to.js";
-
-export type ComposeRecipientSource =
-  | "explicit"
-  | "conversation"
-  | "kol_recent"
-  | "kol_record"
-  | "memory"
-  | "none";
-
+export type ComposeRecipientSource = "explicit" | "conversation" | "kol_recent" | "kol_record" | "memory" | "none";
 export type RecipientCandidate = {
   email: string;
   source: ComposeRecipientSource;
@@ -50,12 +42,13 @@ export type ComposeRecipient = {
   thread_id: string | null;
   collaboration_id: string | null;
   /** 选中会话不在本人邮箱下等拒绝情况 */
-  error?: { code: string; message: string };
+  error?: {
+    code: string;
+    message: string;
+  };
 };
-
 /** 系统/通知类地址：永远不作为收件人，也不出候选。 */
 const SYSTEM_ADDRESS_RE = /^(noreply|no-reply|donotreply|do-not-reply|mailer-daemon|postmaster|bounce|undeliverable|delivery)/i;
-
 const SOURCE_LABEL: Record<ComposeRecipientSource, string> = {
   explicit: "口令里写明的",
   conversation: "通讯页选中的会话",
@@ -64,50 +57,56 @@ const SOURCE_LABEL: Record<ComposeRecipientSource, string> = {
   memory: "最近往来",
   none: "暂无收件人",
 };
-
 function fmtDay(iso: string | null): string {
-  if (!iso) return "";
+  if (!iso)
+    return "";
   const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return "";
+  if (!Number.isFinite(d.getTime()))
+    return "";
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${mm}-${dd}`;
 }
-
-function ownMailboxSet(user: Persona | null | undefined): Set<string> {
+async function ownMailboxSet(user: Persona | null | undefined): Promise<Set<string>> {
   const set = new Set<string>();
   try {
-    for (const binding of mailboxBindings()) {
+    for (const binding of (await mailboxBindings())) {
       const email = normalizeEmail(String(binding.mailbox || ""));
-      if (email) set.add(email);
+      if (email)
+        set.add(email);
     }
-    const bound = normalizeEmail(boundMailboxEmail() || "");
-    if (bound) set.add(bound);
-  } catch {
+    const bound = normalizeEmail((await boundMailboxEmail()) || "");
+    if (bound)
+      set.add(bound);
+    }
+  catch {
     // 读绑定失败时不扩大范围：只按空集合处理，候选照常过滤系统地址。
   }
   void user;
   return set;
 }
-
 function usablePeer(raw: unknown, owned: Set<string>): string {
   const email = normalizeEmail(String(raw || ""));
-  if (!email || !email.includes("@")) return "";
-  if (owned.has(email)) return "";
-  if (SYSTEM_ADDRESS_RE.test(email)) return "";
+  if (!email || !email.includes("@"))
+    return "";
+  if (owned.has(email))
+    return "";
+  if (SYSTEM_ADDRESS_RE.test(email))
+    return "";
   return email;
 }
-
-type ThreadPeer = { id: string; peer: string; collaboration_id: string | null; last_at: string | null };
-
-function recentThreads(mailbox: string, limit: number): ThreadPeer[] {
-  const rows = getConn().prepare(
-    `SELECT id, peer_email, last_from, collaboration_id, last_at
+type ThreadPeer = {
+  id: string;
+  peer: string;
+  collaboration_id: string | null;
+  last_at: string | null;
+};
+async function recentThreads(mailbox: string, limit: number): Promise<ThreadPeer[]> {
+  const rows = (await postgresDb().many(`SELECT id, peer_email, last_from, collaboration_id, last_at
        FROM kol_mail_threads
-      WHERE lower(mailbox)=lower(?)
+      WHERE lower(mailbox)=lower($1)
       ORDER BY last_at DESC NULLS LAST, updated_at DESC
-      LIMIT ?`,
-  ).all(mailbox, limit) as Row[];
+      LIMIT $2`, mailbox, limit)) as Row[];
   return rows.map((row) => ({
     id: String(row.id || ""),
     peer: String(row.peer_email || row.last_from || ""),
@@ -115,15 +114,12 @@ function recentThreads(mailbox: string, limit: number): ThreadPeer[] {
     last_at: row.last_at ? String(row.last_at) : null,
   }));
 }
-
-function collaborationThreads(collaborationId: string, limit: number): ThreadPeer[] {
-  const rows = getConn().prepare(
-    `SELECT id, peer_email, last_from, collaboration_id, last_at
+async function collaborationThreads(collaborationId: string, limit: number): Promise<ThreadPeer[]> {
+  const rows = (await postgresDb().many(`SELECT id, peer_email, last_from, collaboration_id, last_at
        FROM kol_mail_threads
-      WHERE collaboration_id=?
+      WHERE collaboration_id=$1
       ORDER BY last_at DESC NULLS LAST, updated_at DESC
-      LIMIT ?`,
-  ).all(collaborationId, limit) as Row[];
+      LIMIT $2`, collaborationId, limit)) as Row[];
   return rows.map((row) => ({
     id: String(row.id || ""),
     peer: String(row.peer_email || row.last_from || ""),
@@ -131,19 +127,17 @@ function collaborationThreads(collaborationId: string, limit: number): ThreadPee
     last_at: row.last_at ? String(row.last_at) : null,
   }));
 }
-
-export function composeRecipientFor(input: {
+export async function composeRecipientFor(input: {
   /** 已解析的发件箱；为空时 memory 档跳过（最近往来只看当前发件箱） */
   mailbox: string;
   collaboration?: Row | null;
   conversationId?: string | null;
   explicitTo?: string | null;
   user?: Persona | null;
-}): ComposeRecipient {
+}): Promise<ComposeRecipient> {
   const user = input.user || null;
-  const owned = ownMailboxSet(user || currentUserSafe());
+  const owned = (await ownMailboxSet(user || (await currentUserSafe())));
   const mailbox = normalizeEmail(String(input.mailbox || ""));
-
   // 第 1 档：口令里写明的地址。写明了但属于本人/系统地址时不静默换人，
   // 留空并说明（与选中会话对方无效同一口径）。
   const explicitRaw = normalizeEmail(String(input.explicitTo || ""));
@@ -173,7 +167,7 @@ export function composeRecipientFor(input: {
   // 第 2 档：通讯页选中的会话的对方。会话必须在（所选/默认）发件箱下，否则拒绝。
   const conversationId = String(input.conversationId || "").trim();
   if (conversationId) {
-    const thread = findMailThread(conversationId, mailbox || undefined);
+    const thread = (await findMailThread(conversationId, mailbox || undefined));
     if (!thread) {
       return {
         to: "",
@@ -213,7 +207,7 @@ export function composeRecipientFor(input: {
   if (collaboration) {
     const cid = String(collaboration.id || "");
     if (cid) {
-      for (const thread of collaborationThreads(cid, 5)) {
+      for (const thread of (await collaborationThreads(cid, 5))) {
         const peer = usablePeer(thread.peer, owned);
         if (peer) {
           return {
@@ -244,10 +238,12 @@ export function composeRecipientFor(input: {
   if (mailbox) {
     const candidates: RecipientCandidate[] = [];
     let picked: ThreadPeer | null = null;
-    for (const thread of recentThreads(mailbox, 10)) {
+    for (const thread of (await recentThreads(mailbox, 10))) {
       const peer = usablePeer(thread.peer, owned);
-      if (!peer) continue;
-      if (!picked) picked = thread;
+      if (!peer)
+        continue;
+      if (!picked)
+        picked = thread;
       if (!candidates.some((c) => c.email === peer) && candidates.length < 5) {
         candidates.push({
           email: peer,
@@ -256,7 +252,8 @@ export function composeRecipientFor(input: {
           last_at: thread.last_at,
         });
       }
-      if (picked && candidates.length >= 5) break;
+      if (picked && candidates.length >= 5)
+        break;
     }
     if (picked) {
       const peer = usablePeer(picked.peer, owned);
@@ -291,11 +288,11 @@ export function composeRecipientFor(input: {
     collaboration_id: null,
   };
 }
-
-function currentUserSafe(): Persona | null {
+async function currentUserSafe(): Promise<Persona | null> {
   try {
-    return currentUser();
-  } catch {
+    return (await currentUser());
+  }
+  catch {
     return null;
   }
 }

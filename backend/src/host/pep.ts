@@ -3,7 +3,7 @@
  * Codex 不分支业务规则。发送失败走这里，不合成假信。
  */
 import { BRAND_MAILBOXES } from "../config.js";
-import { getConn } from "../db.js";
+import { postgresDb } from "../postgres/access.js";
 import { TEMPLATES, templateAllowedForStage, templateById } from "../email-templates.js";
 import type { Json, Row } from "../types.js";
 import type { Persona } from "../config.js";
@@ -47,89 +47,107 @@ export function stripChinese(text: string): string {
 export function containsChinese(text: string): boolean {
   return CHINESE_TEST.test(text || "");
 }
-
 export function brandOfMailbox(addr: string): string | null {
   for (const [b, m] of Object.entries(BRAND_MAILBOXES)) {
-    if (m.toLowerCase() === (addr || "").toLowerCase()) return b;
+    if (m.toLowerCase() === (addr || "").toLowerCase())
+      return b;
   }
   return null;
 }
-
-export function allowedFromMailboxes(user: Persona | null, brand: string | null): { brand: string; email: string; authorized: boolean }[] {
-  const u = user || currentUser();
+export async function allowedFromMailboxes(user: Persona | null, brand: string | null): Promise<{
+  brand: string;
+  email: string;
+  authorized: boolean;
+}[]> {
+  const u = user || (await currentUser());
   const departmentHead = departmentHeadAccessForUser(u);
   const authorized = departmentHead?.company_wide && departmentHead.brand_scope === "all"
     ? new Set(Object.keys(BRAND_MAILBOXES))
     : new Set(u.brands || []);
-  const out: { brand: string; email: string; authorized: boolean }[] = [];
+  const out: {
+    brand: string;
+    email: string;
+    authorized: boolean;
+  }[] = [];
   for (const [b, m] of Object.entries(BRAND_MAILBOXES)) {
-    if (brand && b !== brand) continue;
+    if (brand && b !== brand)
+      continue;
     out.push({ brand: b, email: m, authorized: authorized.has(b) });
   }
   return out.filter((x) => x.authorized);
 }
-
 export function normalizeBrandCode(value: unknown): string | null {
   const raw = String(value || "").trim().toUpperCase().replace(/品牌$/, "");
-  if (!raw) return null;
-  if (raw === "LT" || raw === "LITIME") return "LT";
-  if (raw === "RO" || raw === "RENOGY") return "RO";
-  if (raw === "PQ" || raw === "POWERQUEEN" || raw === "POWER QUEEN") return "PQ";
+  if (!raw)
+    return null;
+  if (raw === "LT" || raw === "LITIME")
+    return "LT";
+  if (raw === "RO" || raw === "RENOGY")
+    return "RO";
+  if (raw === "PQ" || raw === "POWERQUEEN" || raw === "POWER QUEEN")
+    return "PQ";
   return BRAND_MAILBOXES[raw] ? raw : null;
 }
-
 /**
  * BIZ-04：实际发件箱必须属于员工获准使用的品牌及范围。
  * 品牌白名单之外只认「员工自己挂载的 Starry 邮箱」：品牌先看 mailbox_owners 登记，
  * 没有登记时用调用方给出的明确品牌（当前合作品牌）核对员工授权范围；共用邮箱要求本人
  * 是 owner 或 shared_with。地址本身绝不拿来猜品牌，也绝不从多个候选里取第一只。
  */
-export function authorizedSenderBrand(
-  addr: string,
-  user?: Persona | null,
-  preferredBrand?: string | null,
-): { email: string; brand: string; source: "brand_mailbox" | "user_binding" } | null {
-  const u = user || currentUser();
+export async function authorizedSenderBrand(addr: string, user?: Persona | null, preferredBrand?: string | null): Promise<{
+  email: string;
+  brand: string;
+  source: "brand_mailbox" | "user_binding";
+} | null> {
+  const u = user || (await currentUser());
   const email = String(addr || "").trim();
-  if (!email) return null;
+  if (!email)
+    return null;
   const direct = brandOfMailbox(email);
   if (direct) {
-    return allowedFromMailboxes(u, direct).length ? { email, brand: direct, source: "brand_mailbox" } : null;
+    return (await allowedFromMailboxes(u, direct)).length ? { email, brand: direct, source: "brand_mailbox" } : null;
   }
   const userId = String(u?.id || "").trim();
-  if (!userId) return null;
-  const binding = getConn().prepare(
-    "SELECT mailbox_email, owner_name FROM user_starry_bindings WHERE user_id=? AND lower(mailbox_email)=lower(?)",
-  ).get(userId, email) as Row | undefined;
-  if (!binding) return null;
-  const owner = getConn().prepare(
-    "SELECT brand, owner_name, account_type, shared_with, status FROM mailbox_owners WHERE lower(email)=lower(?)",
-  ).get(String(binding.mailbox_email)) as Row | undefined;
-  if (owner && String(owner.status || "active") !== "active") return null;
+  if (!userId)
+    return null;
+  const binding = (await postgresDb().one("SELECT mailbox_email, owner_name FROM user_starry_bindings WHERE user_id=$1 AND lower(mailbox_email)=lower($2)", userId, email)) as Row | undefined;
+  if (!binding)
+    return null;
+  const owner = (await postgresDb().one("SELECT brand, owner_name, account_type, shared_with, status FROM mailbox_owners WHERE lower(email)=lower($1)", String(binding.mailbox_email))) as Row | undefined;
+  if (owner && String(owner.status || "active") !== "active")
+    return null;
   const brand = (owner ? normalizeBrandCode(owner.brand) : null) || normalizeBrandCode(preferredBrand);
-  if (!brand || !allowedFromMailboxes(u, brand).some((row) => row.brand === brand)) return null;
+  if (!brand || !(await allowedFromMailboxes(u, brand)).some((row) => row.brand === brand))
+    return null;
   if (String(owner?.account_type || "") === "shared") {
     const shared = [owner?.owner_name, owner?.shared_with]
       .map((value) => String(value || "").trim())
       .filter(Boolean);
     const mine = [String(u?.name || "").trim(), String(binding.owner_name || "").trim()].filter(Boolean);
-    if (!shared.some((name) => mine.includes(name))) return null;
+    if (!shared.some((name) => mine.includes(name)))
+      return null;
   }
   return { email: String(binding.mailbox_email).trim(), brand, source: "user_binding" };
 }
-
 /** Map a Starry/operator mailbox onto an authorized Host PEP From, so the dropdown value matches the whitelist. */
-export function resolveAuthorizedFrom(
-  fromAddr: string,
-  user?: Persona | null,
-  preferredBrand?: string | null,
-): { email: string; brand: string | null; allowed: { brand: string; email: string; authorized: boolean }[]; matched: boolean } {
-  const u = user || currentUser();
+export async function resolveAuthorizedFrom(fromAddr: string, user?: Persona | null, preferredBrand?: string | null): Promise<{
+  email: string;
+  brand: string | null;
+  allowed: {
+    brand: string;
+    email: string;
+    authorized: boolean;
+  }[];
+  matched: boolean;
+}> {
+  const u = user || (await currentUser());
   const currentBrand = brandOfMailbox(fromAddr);
   const wanted = currentBrand || normalizeBrandCode(preferredBrand);
-  let allowed = allowedFromMailboxes(u, currentBrand);
-  if (!allowed.length) allowed = allowedFromMailboxes(u, wanted);
-  if (!allowed.length) allowed = allowedFromMailboxes(u, null);
+  let allowed = (await allowedFromMailboxes(u, currentBrand));
+  if (!allowed.length)
+    allowed = (await allowedFromMailboxes(u, wanted));
+  if (!allowed.length)
+    allowed = (await allowedFromMailboxes(u, null));
   const normalized = (fromAddr || "").trim().toLowerCase();
   const matched = allowed.find((row) => row.email.toLowerCase() === normalized);
   if (matched) {
@@ -155,7 +173,8 @@ function templateGateOk(skill: string, templateId: string, officialStage: string
   if (allowed) {
     return Boolean(templateId && allowed.includes(templateId) && templateAllowedForStage(templateId, officialStage));
   }
-  if (spec) return templateAllowedForStage(templateId, officialStage);
+  if (spec)
+    return templateAllowedForStage(templateId, officialStage);
   // MCP compose drafts use `${skill}.v1` and are not in the Host catalog.
   return !templateId || templateId === `${skill}.v1`;
 }
@@ -167,28 +186,30 @@ function ccOk(cc: string): boolean {
     .filter(Boolean)
     .some((p) => p.includes("@"));
 }
-
 function draftExtra(row: Row): Json {
   const raw = row.extra;
-  if (raw && typeof raw === "object") return raw as Json;
+  if (raw && typeof raw === "object")
+    return raw as Json;
   try {
     return raw ? (JSON.parse(String(raw)) as Json) : {};
-  } catch {
+  }
+  catch {
     return {};
   }
 }
-
-export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: string | null, options: { readOnly?: boolean } = {}): Json {
-  const u = user || currentUser();
+export async function enforceSend(draft: Row, user?: Persona | null, ccOverride?: string | null, options: {
+  readOnly?: boolean;
+} = {}): Promise<Json> {
+  const u = user || (await currentUser());
   if (!u.exam_passed) {
     throw new PepFail("blocked_exam", 403, "学习考试未通过：数据安全与最小权限。未发送。", "打开「学习考试」通过后再试");
   }
   const fromAddr = String(draft.from_addr);
   const extra = draftExtra(draft);
   const preferredBrand = String(extra.brand || "") || (draft.collaboration_id
-    ? String((getConn().prepare("SELECT brand FROM collaborations WHERE id=?").get(String(draft.collaboration_id)) as Row | undefined)?.brand || "")
+    ? String(((await postgresDb().one("SELECT brand FROM collaborations WHERE id=$1", String(draft.collaboration_id))) as Row | undefined)?.brand || "")
     : "");
-  const sender = authorizedSenderBrand(fromAddr, u, preferredBrand);
+  const sender = (await authorizedSenderBrand(fromAddr, u, preferredBrand));
   if (!sender) {
     throw new PepFail("blocked_permission", 403, "From 必须是品牌邮箱（LT/RO/PQ）或本人挂载的邮箱。未发送。", "从授权下拉选择 From");
   }
@@ -205,13 +226,15 @@ export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: stri
     throw new PepFail("send_failed", 400, "To 为空。未发送。", "补充收件邮箱后再发");
   }
   if (draft.collaboration_id) {
-    const row = getConn().prepare("SELECT email FROM collaborations WHERE id = ?").get(draft.collaboration_id) as
-      | { email: string }
-      | undefined;
+    const row = (await postgresDb().one("SELECT email FROM collaborations WHERE id = $1", draft.collaboration_id)) as {
+      email: string;
+    } | undefined;
     const bound = String(row?.email || "").trim();
     if (row && !bound) {
-      if (!options.readOnly) getConn().prepare("UPDATE collaborations SET email=? WHERE id=?").run(toAddr, draft.collaboration_id);
-    } else if (row && bound.toLowerCase() !== toAddr.toLowerCase()) {
+      if (!options.readOnly)
+        (await postgresDb().execute("UPDATE collaborations SET email=$1 WHERE id=$2", toAddr, draft.collaboration_id));
+    }
+    else if (row && bound.toLowerCase() !== toAddr.toLowerCase()) {
       throw new PepFail("blocked_permission", 403, "To 必须是已绑定合作邮箱。未发送。", "回到该合作重开草稿");
     }
   }
@@ -221,12 +244,7 @@ export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: stri
     throw new PepFail("send_failed", 400, "主题或正文为空。未发送。", "补全 Subject / Body");
   }
   if (isMissingInputDraft(subject, body)) {
-    throw new PepFail(
-      "send_failed",
-      400,
-      "这不是可发送的催更邮件：正文在索要合作对象，而不是催大纲。未发送。",
-      "指定红人或合作后重新催大纲",
-    );
+    throw new PepFail("send_failed", 400, "这不是可发送的催更邮件：正文在索要合作对象，而不是催大纲。未发送。", "指定红人或合作后重新催大纲");
   }
   body = stripChinese(body);
   subject = stripChinese(subject);

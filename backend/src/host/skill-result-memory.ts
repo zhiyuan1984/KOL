@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { getConn, nowIso, tx } from "../db.js";
+import { postgresDb, nowIso, pgTransaction } from "../postgres/access.js";
 import type { Json } from "../types.js";
 import { HttpFail } from "./errors.js";
 import { ensureEmployeeMemoriesTable } from "./employee-memory.js";
@@ -11,30 +11,33 @@ const SECRET_COMPACT_KEY = /^(?:authorization|password|passwd|secret|apikey|acce
 /** Fail closed before memory persistence. Skill schemas control shape, not permission to
  * retain credentials; reject the entire summary instead of silently redacting evidence. */
 export function isSafeSkillResultForMemory(value: unknown, depth = 0): boolean {
-  if (depth > 16) return false;
-  if (typeof value === "string") return !SECRET_VALUE.test(value);
-  if (Array.isArray(value)) return value.every((item) => isSafeSkillResultForMemory(item, depth + 1));
+  if (depth > 16)
+    return false;
+  if (typeof value === "string")
+    return !SECRET_VALUE.test(value);
+  if (Array.isArray(value))
+    return value.every((item) => isSafeSkillResultForMemory(item, depth + 1));
   if (value && typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>).every(([key, item]) =>
-      !SECRET_KEY.test(key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))
+    return Object.entries(value as Record<string, unknown>).every(([key, item]) => !SECRET_KEY.test(key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))
       && !SECRET_COMPACT_KEY.test(key.replace(/[^a-z]/gi, ""))
       && isSafeSkillResultForMemory(item, depth + 1));
   }
   return value === null || typeof value === "number" || typeof value === "boolean";
 }
-
 /** Stores a pointer and validated display summary; domain rows remain authoritative. */
-export function persistValidatedSkillResult(input: {
+export async function persistValidatedSkillResult(input: {
   owner: string;
   skillId: string;
   runId: string;
   sourceVersion: string;
   staleRefs?: string[];
   summary: Json;
-}): void {
-  if (!input.owner || !input.skillId || !input.runId) return;
-  if (!isSafeSkillResultForMemory(input.summary)) throw new HttpFail(422, "skill result contains credential-like material");
-  ensureEmployeeMemoriesTable();
+}): Promise<void> {
+  if (!input.owner || !input.skillId || !input.runId)
+    return;
+  if (!isSafeSkillResultForMemory(input.summary))
+    throw new HttpFail(422, "skill result contains credential-like material");
+  (await ensureEmployeeMemoriesTable());
   const now = nowIso();
   const kind = "skill_result";
   const key = `${input.skillId}:${input.runId}`;
@@ -50,48 +53,54 @@ export function persistValidatedSkillResult(input: {
   };
   const serialized = JSON.stringify(payload);
   const hash = createHash("sha256").update(serialized, "utf8").digest("hex");
-  tx((db) => {
+  (await pgTransaction(async (db) => {
     const prefix = `${input.skillId}:`;
-    const prior = db.prepare(
-      "SELECT id,payload FROM employee_memory_items WHERE owner_user_id=? AND memory_kind=? AND substr(item_key,1,?)=?",
-    ).all(input.owner, kind, prefix.length, prefix) as Array<{ id: string; payload: string }>;
+    const prior = (await db.many("SELECT id,payload FROM employee_memory_items WHERE owner_user_id=$1 AND memory_kind=$2 AND substr(item_key,1,$3)=$4", input.owner, kind, prefix.length, prefix)) as Array<{
+      id: string;
+      payload: string;
+    }>;
     for (const row of prior) {
       let old: Record<string, unknown> = {};
-      try { old = JSON.parse(row.payload) as Record<string, unknown>; } catch { /* malformed legacy row */ }
-      if (old.run_id === input.runId || old.validity !== "current") continue;
+      try {
+        old = JSON.parse(row.payload) as Record<string, unknown>;
+      }
+      catch { /* malformed legacy row */ }
+      if (old.run_id === input.runId || old.validity !== "current")
+        continue;
       const stale: Json = { ...(old as Record<string, Json>), validity: "stale", stale_reason: `superseded_by:${input.runId}`, invalidated_at: now };
       const raw = JSON.stringify(stale);
       const staleHash = createHash("sha256").update(raw, "utf8").digest("hex");
-      db.prepare("UPDATE employee_memory_items SET payload=?,content_hash=?,revision=revision+1,updated_at=? WHERE id=?")
-        .run(raw, staleHash, now, row.id);
+      (await db.execute("UPDATE employee_memory_items SET payload=$1,content_hash=$2,revision=revision+1,updated_at=$3 WHERE id=$4", raw, staleHash, now, row.id));
     }
-    const existing = db.prepare(
-      "SELECT id,content_hash,revision FROM employee_memory_items WHERE owner_user_id=? AND memory_kind=? AND item_key=?",
-    ).get(input.owner, kind, key) as { id: string; content_hash: string; revision: number } | undefined;
+    const existing = (await db.one("SELECT id,content_hash,revision FROM employee_memory_items WHERE owner_user_id=$1 AND memory_kind=$2 AND item_key=$3", input.owner, kind, key)) as {
+      id: string;
+      content_hash: string;
+      revision: number;
+    } | undefined;
     if (!existing) {
-      db.prepare(
-        `INSERT INTO employee_memory_items
+      (await db.execute(`INSERT INTO employee_memory_items
          (id,owner_user_id,memory_kind,item_key,payload,content_hash,revision,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,1,?,?)`,
-      ).run(`mem_${input.runId}`, input.owner, kind, key, serialized, hash, now, now);
-    } else if (existing.content_hash !== hash) {
-      db.prepare("UPDATE employee_memory_items SET payload=?,content_hash=?,revision=?,updated_at=? WHERE id=?")
-        .run(serialized, hash, Number(existing.revision || 1) + 1, now, existing.id);
+         VALUES ($1,$2,$3,$4,$5,$6,1,$7,$8)`, `mem_${input.runId}`, input.owner, kind, key, serialized, hash, now, now));
     }
-  });
+    else if (existing.content_hash !== hash) {
+      (await db.execute("UPDATE employee_memory_items SET payload=$1,content_hash=$2,revision=$3,updated_at=$4 WHERE id=$5", serialized, hash, Number(existing.revision || 1) + 1, now, existing.id));
+    }
+  }));
 }
-
-export function skillResultMemoryStatus(owner: string, skillId: string, runId: string): string | null {
-  if (!owner || !skillId || !runId) return null;
-  ensureEmployeeMemoriesTable();
-  const row = getConn().prepare(
-    "SELECT payload FROM employee_memory_items WHERE owner_user_id=? AND memory_kind='skill_result' AND item_key=?",
-  ).get(owner, `${skillId}:${runId}`) as { payload?: string } | undefined;
-  if (!row?.payload) return null;
+export async function skillResultMemoryStatus(owner: string, skillId: string, runId: string): Promise<string | null> {
+  if (!owner || !skillId || !runId)
+    return null;
+  (await ensureEmployeeMemoriesTable());
+  const row = (await postgresDb().one("SELECT payload FROM employee_memory_items WHERE owner_user_id=$1 AND memory_kind='skill_result' AND item_key=$2", owner, `${skillId}:${runId}`)) as {
+    payload?: string;
+  } | undefined;
+  if (!row?.payload)
+    return null;
   try {
     const payload = JSON.parse(row.payload) as Record<string, unknown>;
     return typeof payload.validity === "string" ? payload.validity : null;
-  } catch {
+  }
+  catch {
     return null;
   }
 }
@@ -106,47 +115,56 @@ export type SkillResultMemoryView = {
   created_at: string;
   updated_at: string;
 };
-
-export function listSkillResultMemories(input: {
+export async function listSkillResultMemories(input: {
   owner: string;
   skillId: string;
   limit?: number;
   cursor?: string;
-}): { items: SkillResultMemoryView[]; next_cursor: string | null } {
-  if (!input.owner || !input.skillId) return { items: [], next_cursor: null };
-  ensureEmployeeMemoriesTable();
+}): Promise<{
+  items: SkillResultMemoryView[];
+  next_cursor: string | null;
+}> {
+  if (!input.owner || !input.skillId)
+    return { items: [], next_cursor: null };
+  (await ensureEmployeeMemoriesTable());
   const limit = Math.min(Math.max(Math.trunc(Number(input.limit || 20)), 1), 50);
-  let before: { updated_at: string; id: string } | null = null;
+  let before: {
+    updated_at: string;
+    id: string;
+  } | null = null;
   if (input.cursor) {
-    if (input.cursor.length > 512) throw new HttpFail(400, "invalid skill memory cursor");
+    if (input.cursor.length > 512)
+      throw new HttpFail(400, "invalid skill memory cursor");
     try {
       const decoded = JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8")) as Record<string, unknown>;
-      if (typeof decoded.updated_at !== "string" || typeof decoded.id !== "string") throw new Error("invalid cursor");
+      if (typeof decoded.updated_at !== "string" || typeof decoded.id !== "string")
+        throw new Error("invalid cursor");
       before = { updated_at: decoded.updated_at, id: decoded.id };
-    } catch {
+    }
+    catch {
       throw new HttpFail(400, "invalid skill memory cursor");
     }
   }
   const prefix = `${input.skillId}:`;
   const rows = (before
-    ? getConn().prepare(
-      `SELECT id,item_key,payload,created_at,updated_at FROM employee_memory_items
-        WHERE owner_user_id=? AND memory_kind='skill_result' AND substr(item_key,1,?)=?
-          AND (updated_at<? OR (updated_at=? AND id<?))
-        ORDER BY updated_at DESC,id DESC LIMIT ?`,
-    ).all(input.owner, prefix.length, prefix, before.updated_at, before.updated_at, before.id, limit + 1)
-    : getConn().prepare(
-      `SELECT id,item_key,payload,created_at,updated_at FROM employee_memory_items
-        WHERE owner_user_id=? AND memory_kind='skill_result' AND substr(item_key,1,?)=?
-        ORDER BY updated_at DESC,id DESC LIMIT ?`,
-    ).all(input.owner, prefix.length, prefix, limit + 1)) as Array<{
-      id: string; item_key: string; payload: string; created_at: string; updated_at: string;
+    ? (await postgresDb().many(`SELECT id,item_key,payload,created_at,updated_at FROM employee_memory_items
+        WHERE owner_user_id=$1 AND memory_kind='skill_result' AND substr(item_key,1,$2)=$3
+          AND (updated_at<$4 OR (updated_at=$5 AND id<$6))
+        ORDER BY updated_at DESC,id DESC LIMIT $7`, input.owner, prefix.length, prefix, before.updated_at, before.updated_at, before.id, limit + 1)) : (await postgresDb().many(`SELECT id,item_key,payload,created_at,updated_at FROM employee_memory_items
+        WHERE owner_user_id=$1 AND memory_kind='skill_result' AND substr(item_key,1,$2)=$3
+        ORDER BY updated_at DESC,id DESC LIMIT $4`, input.owner, prefix.length, prefix, limit + 1))) as Array<{
+    id: string;
+    item_key: string;
+    payload: string;
+    created_at: string;
+    updated_at: string;
     }>;
   const page = rows.slice(0, limit);
   const items = page.flatMap((row): SkillResultMemoryView[] => {
     try {
       const payload = JSON.parse(row.payload) as Record<string, unknown>;
-      if (payload.skill_id !== input.skillId || (payload.validity !== "current" && payload.validity !== "stale")) return [];
+      if (payload.skill_id !== input.skillId || (payload.validity !== "current" && payload.validity !== "stale"))
+        return [];
       return [{
         id: row.id,
         skill_id: input.skillId,
@@ -157,7 +175,8 @@ export function listSkillResultMemories(input: {
         created_at: row.created_at,
         updated_at: row.updated_at,
       }];
-    } catch {
+    }
+    catch {
       return [];
     }
   });

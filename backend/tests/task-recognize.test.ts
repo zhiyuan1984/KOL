@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { recognizeTaskIntent, setTaskClassifier } from "../src/tasks/recognize.js";
 import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
@@ -34,23 +34,21 @@ async function request(method: string, url: string, body?: unknown) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-recognize-"));
-  process.env.LINGONG_DB = path.join(tmp, "recognize.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.INTENT_LLM_MODE = "stub";
   setTaskClassifier();
   setIntentLlmFetch();
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  employee = agentTestUser();
+  app = (await createApp());
+  employee = (await agentTestUser());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setTaskClassifier();
   setIntentLlmFetch();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.INTENT_LLM_MODE;
 });
@@ -199,10 +197,14 @@ describe("Codex app-server intent", () => {
     delete process.env.FAKE_CODEX_MODE;
     delete process.env.FAKE_CODEX_DELAY;
     delete process.env.TASK_RECOGNIZE_TIMEOUT;
-    if (savedOpenAi) process.env.OPENAI_API_KEY = savedOpenAi;
-    else delete process.env.OPENAI_API_KEY;
-    if (savedCodexKey) process.env.CODEX_API_KEY = savedCodexKey;
-    else delete process.env.CODEX_API_KEY;
+    if (savedOpenAi)
+      process.env.OPENAI_API_KEY = savedOpenAi;
+    else
+      delete process.env.OPENAI_API_KEY;
+    if (savedCodexKey)
+      process.env.CODEX_API_KEY = savedCodexKey;
+    else
+      delete process.env.CODEX_API_KEY;
     process.env.INTENT_LLM_MODE = "stub";
     process.env.CODEX_MODE = "stub";
   });

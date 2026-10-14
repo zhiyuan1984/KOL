@@ -1,5 +1,4 @@
-import { onConnReset } from "../db.js";
-
+import { onDatabaseReset } from "../postgres/access.js";
 /**
  * Short-lived in-process cache for the high-frequency polling endpoints
  * (`GET /api/sessions`, `GET /api/tasks`). Those endpoints are read-only
@@ -34,11 +33,13 @@ export const POLL_CACHE_MAX_ENTRIES = 64;
 export const POLL_CACHE_MAX_VALUE_BYTES = 3 * 1024 * 1024;
 /** Total retained payload bytes across every entry (LRU-first eviction). */
 export const POLL_CACHE_MAX_TOTAL_BYTES = 8 * 1024 * 1024;
-
-type Entry = { at: number; epoch: string; value: unknown; bytes: number };
-
+type Entry = {
+  at: number;
+  epoch: string;
+  value: unknown;
+  bytes: number;
+};
 const store = new Map<string, Entry>();
-
 let hits = 0;
 let misses = 0;
 let retainedBytes = 0;
@@ -50,23 +51,22 @@ function entryBytes(value: unknown): number {
   try {
     const json = JSON.stringify(value ?? null);
     return json ? Buffer.byteLength(json, "utf8") : 0;
-  } catch {
+  }
+  catch {
     // A value that cannot even be stringified must not be retained.
     return Number.POSITIVE_INFINITY;
   }
 }
-
 function drop(key: string): void {
   const entry = store.get(key);
-  if (!entry) return;
+  if (!entry)
+    return;
   retainedBytes -= entry.bytes;
   store.delete(key);
 }
-
-onConnReset(() => {
+onDatabaseReset(() => {
   resetPollCache();
 });
-
 /** Fingerprint parts joined into one epoch token. */
 export function pollEpoch(parts: Array<string | number | null | undefined>): string {
   return parts.map((part) => String(part ?? "")).join("\u0001");
@@ -105,7 +105,8 @@ export function cachedPoll<T>(key: string, epoch: string, produce: () => T): T {
   retainedBytes += bytes;
   while (store.size > POLL_CACHE_MAX_ENTRIES || retainedBytes > POLL_CACHE_MAX_TOTAL_BYTES) {
     const oldest = store.keys().next();
-    if (oldest.done) break;
+    if (oldest.done)
+      break;
     drop(oldest.value);
     evictions += 1;
   }
@@ -125,10 +126,10 @@ export async function cachedPollAsync<T>(key: string, epoch: string, produce: ()
 /** Drop every entry whose key starts with `prefix` (all of them when omitted). */
 export function invalidatePollCache(prefix?: string): void {
   for (const key of [...store.keys()]) {
-    if (!prefix || key.startsWith(prefix)) drop(key);
+    if (!prefix || key.startsWith(prefix))
+      drop(key);
   }
 }
-
 export function resetPollCache(): void {
   store.clear();
   hits = 0;

@@ -17,15 +17,8 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { mcpServerSpecs } from "../mcp/codex-config.js";
 import { calculateCreatorScore, ingestMediacrawler } from "../src/adapters/claw.js";
 import { parseMediaCrawlerConfigMarkdown } from "../src/config.js";
-import {
-  clearRemoteHistory,
-  monitorCrawlJob,
-  retryUpload,
-  setCrawlMcpClientFactory,
-  stopCrawl,
-  startCrawl,
-} from "../src/crawl/service.js";
-import { getConn, resetConn } from "../src/db.js";
+import { clearRemoteHistory, monitorCrawlJob, retryUpload, setCrawlMcpClientFactory, stopCrawl, startCrawl, } from "../src/crawl/service.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { RemoteMcpClient } from "../src/mcp/remote.js";
 import { seedAll } from "../src/seed.js";
 import type { Row } from "../src/types.js";
@@ -47,16 +40,12 @@ async function startMockMcp(): Promise<void> {
   const transports: Record<string, StreamableHTTPServerTransport> = {};
   const makeServer = () => {
     const server = new McpServer({ name: "mock-mediacrawler", version: "1.0.0" });
-    const tool = (name: string, handler: (args: Json) => Json) => server.registerTool(
-      name,
-      { inputSchema: { task_id: z.string().optional(), platform: z.string().optional(),
+    const tool = (name: string, handler: (args: Json) => Json) => server.registerTool(name, { inputSchema: { task_id: z.string().optional(), platform: z.string().optional(),
         mode: z.string().optional(), offset: z.number().optional(), limit: z.number().optional(),
-        keywords: z.union([z.string(), z.array(z.string())]).optional(), confirm: z.boolean().optional() } },
-      async (args) => {
+        keywords: z.union([z.string(), z.array(z.string())]).optional(), confirm: z.boolean().optional() } }, async (args) => {
         calls.push(name);
         return { content: [{ type: "text", text: JSON.stringify(handler(args as Json)) }] };
-      },
-    );
+    });
     tool("start_crawl", () => ({ task_id: "remote-1", status: "running" }));
     tool("get_crawl_status", (args) => {
       statusCallArgs.push(args);
@@ -126,7 +115,6 @@ async function startMockMcp(): Promise<void> {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mediacrawler-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.CLAW_MODE = "mock";
@@ -136,10 +124,10 @@ beforeEach(async () => {
   logCallArgs.length = 0;
   stopCallArgs.length = 0;
   crawlStatus = { task_id: "remote-1", status: "idle" };
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   await startMockMcp();
-  configureCrawlerFixture(baseUrl);
+  (await configureCrawlerFixture(baseUrl));
   process.env.MEDIACRAWLER_MCP_URL = baseUrl;
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
 });
@@ -148,7 +136,7 @@ afterEach(async () => {
   setCrawlMcpClientFactory();
   await new Promise<void>((resolve) => httpServer?.close(() => resolve()) || resolve());
   httpServer = null;
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -158,58 +146,56 @@ afterEach(async () => {
   delete process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE;
   delete process.env.AUTH_MODE;
 });
-
 describe("remote Streamable HTTP MCP", () => {
   it("retires the old start entry after skill cutover without a remote call", async () => {
-    getConn().prepare("INSERT INTO runtime_bootstrap_migrations(id,applied_at) VALUES('runtime.crawler-skill.v1',?)").run(new Date().toISOString());
+    (await postgresDb().execute("INSERT INTO runtime_bootstrap_migrations(id,applied_at) VALUES('runtime.crawler-skill.v1',$1)", new Date().toISOString()));
     await expect(startCrawl({ ownerUserId: "user-a", workItemId: "old-task", platform: "youtube", mode: "search", parameters: { keywords: "test" }, idempotencyKey: "old-entry" }))
       .rejects.toMatchObject({ status: 410, detail: { code: "crawler_skill_entry_required" } });
     expect(calls).toEqual([]);
   });
-  it("migrates only on apply, is idempotent and requires new configuration verification", () => {
-    const before = getConnectorConfig("claw")!.version;
+  it("migrates only on apply, is idempotent and requires new configuration verification", async () => {
+    const before = (await getConnectorConfig("claw"))!.version;
     const input = { url: baseUrl, token: "replacement-secret", apply: false };
-    expect(migrateCrawlerVault(input)).toMatchObject({ pending: true, migrated: false });
-    expect(getConnectorConfig("claw")!.version).toBe(before);
-    const applied = migrateCrawlerVault({ ...input, apply: true });
+    expect((await migrateCrawlerVault(input))).toMatchObject({ pending: true, migrated: false });
+    expect((await getConnectorConfig("claw"))!.version).toBe(before);
+    const applied = (await migrateCrawlerVault({ ...input, apply: true }));
     expect(applied).toMatchObject({ migrated: true, version: before + 1 });
-    expect(getConn().prepare("SELECT enabled,status FROM connectors WHERE id='claw'").get())
+    expect((await postgresDb().one("SELECT enabled,status FROM connectors WHERE id='claw'")))
       .toMatchObject({ enabled: 0, status: "pending_verification" });
-    expect(migrateCrawlerVault({ ...input, apply: true })).toMatchObject({ migrated: false, version: before + 1 });
-    expect(JSON.stringify(getConnectorConfig("claw"))).not.toContain("replacement-secret");
+    expect((await migrateCrawlerVault({ ...input, apply: true }))).toMatchObject({ migrated: false, version: before + 1 });
+    expect(JSON.stringify((await getConnectorConfig("claw")))).not.toContain("replacement-secret");
   });
-
   it("uses vault credentials even when obsolete environment values disagree", async () => {
     process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:1/obsolete";
     process.env.MEDIACRAWLER_MCP_TOKEN = "wrong-token";
-    const client = createMediaCrawlerClient();
-    try { expect((await client.listTools()).map((tool) => tool.name)).toContain("start_crawl"); }
-    finally { await client.close(); }
+    const client = (await createMediaCrawlerClient());
+    try {
+      expect((await client.listTools()).map((tool) => tool.name)).toContain("start_crawl");
+    }
+    finally {
+      await client.close();
+    }
     expect(() => new RemoteMcpClient()).toThrow("MCP URL");
-    expect(() => setConnectorConfig("claw", { url_env: "MEDIACRAWLER_MCP_URL", bearer_env: "MEDIACRAWLER_MCP_TOKEN" }, 1))
-      .toThrow();
+    await expect((async () => (await setConnectorConfig("claw", { url_env: "MEDIACRAWLER_MCP_URL", bearer_env: "MEDIACRAWLER_MCP_TOKEN" }, 1)))()).rejects.toThrow();
   });
-
-  it("fails closed for disabled connectors and revoked vault credentials", () => {
-    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='claw'").run();
-    expect(mediaCrawlerConfigured()).toBe(false);
-    expect(() => createMediaCrawlerClient()).toThrow();
-    getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='claw'").run();
-    const reference = getConnectorConfig("claw")!.config.bearer_secret_ref!;
-    updateCredentialMetadata(reference, { status: "disabled", expected_version: 1 });
-    expect(mediaCrawlerConfigured()).toBe(false);
-    expect(() => createMediaCrawlerClient()).toThrow();
+  it("fails closed for disabled connectors and revoked vault credentials", async () => {
+    (await postgresDb().execute("UPDATE connectors SET enabled=0 WHERE id='claw'"));
+    expect((await mediaCrawlerConfigured())).toBe(false);
+    await expect((async () => (await createMediaCrawlerClient()))()).rejects.toThrow();
+    (await postgresDb().execute("UPDATE connectors SET enabled=1 WHERE id='claw'"));
+    const reference = (await getConnectorConfig("claw"))!.config.bearer_secret_ref!;
+    (await updateCredentialMetadata(reference, { status: "disabled", expected_version: 1 }));
+    expect((await mediaCrawlerConfigured())).toBe(false);
+    await expect((async () => (await createMediaCrawlerClient()))()).rejects.toThrow();
   });
-
   it("parses the remote URL and bearer credential from mcp_server.md", () => {
     expect(parseMediaCrawlerConfigMarkdown(`
       endpoint: http://crawler.example/mcp
       Authorization: Bearer test-token
     `)).toEqual({ url: "http://crawler.example/mcp", token: "test-token" });
   });
-
   it("lists and calls tools with bearer auth and JSON normalization", async () => {
-    const client = createMediaCrawlerClient();
+    const client = (await createMediaCrawlerClient());
     const tools = await client.listTools();
     expect(tools.map((tool) => tool.name)).toContain("start_crawl");
     expect(await client.callTool("start_crawl", { platform: "youtube", mode: "search", keywords: "battery" }))
@@ -233,7 +219,7 @@ describe("remote Streamable HTTP MCP", () => {
     process.env.CODEX_MODE = "real";
     process.env.CLAW_MODE = "remote";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/mock/claw/api/v1/health");
     expect(response.status).toBe(404);
     process.env.CODEX_MODE = "stub";
@@ -245,39 +231,41 @@ describe("creator ingestion and scoring", () => {
   it("authenticates the upload callback with a vault reference, never the obsolete MCP environment token", async () => {
     process.env.AUTH_MODE = "enabled";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const request = () => app.request("/api/integrations/mediacrawler/creators", {
       method: "POST", headers: { "Content-Type": "application/json", "x-mediacrawler-token": "test-secret" },
       body: JSON.stringify({ creators: [] }),
     });
     expect((await request()).status).not.toBe(202);
-    process.env.MEDIACRAWLER_INGEST_SECRET_REF = getConnectorConfig("claw")!.config.bearer_secret_ref!;
+    process.env.MEDIACRAWLER_INGEST_SECRET_REF = (await getConnectorConfig("claw"))!.config.bearer_secret_ref!;
     expect((await request()).status).toBe(202);
-    updateCredentialMetadata(process.env.MEDIACRAWLER_INGEST_SECRET_REF, { status: "disabled", expected_version: 1 });
+    (await updateCredentialMetadata(process.env.MEDIACRAWLER_INGEST_SECRET_REF, { status: "disabled", expected_version: 1 }));
     expect((await request()).status).toBe(403);
   });
-
-  it("deduplicates identities, appends snapshots, and computes transparent score inputs", () => {
-    const first = ingestMediacrawler({ creators: [{
+  it("deduplicates identities, appends snapshots, and computes transparent score inputs", async () => {
+    const first = (await ingestMediacrawler({ creators: [{
       platform: "youtube", platform_creator_id: "same", nickname: "A",
       followers: 1000, recent_views: [100, 300],
-    }] });
-    const second = ingestMediacrawler({ data: { items: [{
+        }] }));
+    const second = (await ingestMediacrawler({ data: { items: [{
       platform: "youtube", platform_creator_id: "same", nickname: "A2",
       followers: 1200, views: [200, 400],
-    }] } });
+          }] } }));
     expect(first).toMatchObject({ accepted: 1, inserted: 1, updated: 0, rejected: 0 });
     expect(second).toMatchObject({ accepted: 1, inserted: 0, updated: 1, rejected: 0 });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM claw_creators WHERE platform_creator_id='same'").get() as { n: unknown }).n)).toBe(1);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_snapshots WHERE platform_creator_id='same'").get() as { n: unknown }).n)).toBe(2);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM claw_creators WHERE platform_creator_id='same'")) as {
+      n: unknown;
+    }).n)).toBe(1);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM creator_snapshots WHERE platform_creator_id='same'")) as {
+      n: unknown;
+    }).n)).toBe(2);
     expect(calculateCreatorScore(1000, [100, 300])).toMatchObject({
       sample_size: 2, view_median: 200, view_mean: 200, view_follower_ratio: 0.2, sample_confidence: 0.2,
     });
   });
-
   it("accepts crawler auto-upload through the ingestion HTTP endpoint", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/api/integrations/mediacrawler/creators", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -298,7 +286,7 @@ describe("creator ingestion and scoring", () => {
   it("rejects anonymous ingest when auth is enabled", async () => {
     process.env.AUTH_MODE = "enabled";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/api/integrations/mediacrawler/creators", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -313,7 +301,7 @@ describe("creator ingestion and scoring", () => {
     process.env.AUTH_MODE = "enabled";
     process.env.MEDIACRAWLER_INGEST_TOKEN = "ingest-secret";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/api/integrations/mediacrawler/creators", {
       method: "POST",
       headers: {
@@ -333,12 +321,11 @@ describe("creator ingestion and scoring", () => {
     expect(await response.json()).toMatchObject({ accepted: 1, inserted: 1, rejected: 0 });
   });
 });
-
 describe("crawl lifecycle", () => {
   it("rejects missing remote configuration before creating a crawl job", async () => {
-    getConn().prepare("DELETE FROM runtime_connector_config WHERE connector_id='claw'").run();
+    (await postgresDb().execute("DELETE FROM runtime_connector_config WHERE connector_id='claw'"));
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -354,12 +341,13 @@ describe("crawl lifecycle", () => {
     expect(await response.json()).toMatchObject({
       detail: { code: "mediacrawler_not_configured", message: "远程采集服务未配置。" },
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS count FROM crawl_jobs").get() as { count: unknown }).count)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS count FROM crawl_jobs")) as {
+      count: unknown;
+    }).count)).toBe(0);
   });
-
   it("routes creator-discovery text to the dedicated discovery workspace", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/api/tasks/from-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -374,10 +362,9 @@ describe("crawl lifecycle", () => {
     });
     expect(calls).not.toContain("start_crawl");
   });
-
   it("pulls creators when only the remote auto-upload step failed", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -416,7 +403,7 @@ describe("crawl lifecycle", () => {
   it("enforces one active job, emits task events, persists result artifact, and supports admin tools", async () => {
     process.env.CODEX_MODE = "stub";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const createTask = async () => {
       const response = await app.request("/api/tasks", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -488,9 +475,12 @@ describe("crawl lifecycle", () => {
     return () => ({
       async callTool(name: string, args: Json = {}) {
         calls.push(name);
-        if (name === "start_crawl") return { task_id: "remote-1", status: "running" };
-        if (name === "get_crawl_status") return { task_id: "remote-1", status: "idle" };
-        if (name === "get_crawl_logs") return { logs: [] };
+        if (name === "start_crawl")
+          return { task_id: "remote-1", status: "running" };
+        if (name === "get_crawl_status")
+          return { task_id: "remote-1", status: "idle" };
+        if (name === "get_crawl_logs")
+          return { logs: [] };
         if (name === "get_creators") {
           pages.push(args);
           const extra = Object.keys(args).filter((key) => !["platform", "offset", "limit"].includes(key));
@@ -510,13 +500,12 @@ describe("crawl lifecycle", () => {
         }
         return {};
       },
-      async close() {},
+      async close() { },
     });
   }
-
   async function runCreatorCrawl(): Promise<Json> {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -529,9 +518,8 @@ describe("crawl lifecycle", () => {
       body: JSON.stringify({ platform: "youtube", mode: "search", keywords: ["户外"] }),
     });
     const job = await started.json() as Json;
-    return monitorCrawlJob(String(job.id));
+    return (await monitorCrawlJob(String(job.id)));
   }
-
   it("pages get_creators with platform/offset/limit; page/page_size would be ignored REAL", async () => {
     process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE = "2";
     const pages: Json[] = [];
@@ -567,19 +555,18 @@ describe("crawl lifecycle", () => {
     expect(pages.map((args) => args.offset)).toEqual([0, 2, 4]);
     expect(pages.every((args) => args.limit === 2)).toBe(true);
     expect(pages.every((args) => !("page" in args) && !("page_size" in args))).toBe(true);
-    const stored = getConn().prepare(
-      "SELECT platform_creator_id FROM claw_creators WHERE platform='youtube' ORDER BY platform_creator_id",
-    ).all() as Array<{ platform_creator_id: string }>;
+    const stored = (await postgresDb().many("SELECT platform_creator_id FROM claw_creators WHERE platform='youtube' ORDER BY platform_creator_id")) as Array<{
+      platform_creator_id: string;
+    }>;
     // 第二页 offset 累加对了，就不会把第一页那批再插一次。
     expect(stored.map((row) => row.platform_creator_id)).toEqual([
       "yt-page-a", "yt-page-b", "yt-page-c", "yt-page-d", "yt-page-e",
     ]);
     expect(((completed.result as Json).candidates as Json[])).toHaveLength(5);
   });
-
   it("calls remote stop_crawl and releases the active lock", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/tasks", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task_type: "creator_discovery" }),

@@ -1,56 +1,55 @@
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
-import { mapUser, withScopedUser } from "../src/auth.js";
+import { hashPassword, mapUser, withScopedUser } from "../src/auth.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Hono } from "hono";
-import { DEMO_USER } from "../src/config.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync, followedMailStatus, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
+import { persistStarryOwnership } from "../src/postgres/kol-source-authority.js";
+import { seedPublishedAgent, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 let tmp: string;
 let app: Hono;
 const calls: string[] = [];
-
+const MAIL_ACTOR_ID = "usr_runtime_fixture";
 async function request(method: string, url: string, body?: unknown) {
-  const actor = getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Json | undefined;
+  const actor = (await postgresDb().one("SELECT * FROM users WHERE id=$1", MAIL_ACTOR_ID)) as Json | undefined;
   const invoke = () => app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
     ...(method === "GET" ? {} : { body: JSON.stringify(body || {}) }),
   });
-  const response = actor ? await withScopedUser(mapUser(actor), invoke) : await invoke();
+  const response = actor ? await withScopedUser((await mapUser(actor)), invoke) : await invoke();
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
-
-function bindLarry(): void {
-  const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
-  getConn().prepare(
-    `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)
-     VALUES (?,?,?,?,?,?,?,?)
-     ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at`,
-  ).run(DEMO_USER.id, "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now);
-  process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "a".repeat(64);
-  saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" });
+async function withMailActor<T>(operation: () => Promise<T>): Promise<T> {
+  const actor = (await postgresDb().one("SELECT * FROM users WHERE id=$1", MAIL_ACTOR_ID)) as Json | undefined;
+  if (!actor)
+    throw new Error("mail runtime fixture actor missing");
+  return await withScopedUser((await mapUser(actor)), operation);
 }
-
+async function syncLarryMailbox(force = true) {
+  return await withMailActor(() => ensureFollowedMailSync(force, "larry.zhao@amperetime.com"));
+}
+async function larryMailboxStatus() {
+  return await withMailActor(() => followedMailStatus("larry.zhao@amperetime.com"));
+}
+async function bindLarry(): Promise<void> {
+  process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "a".repeat(64);
+  (await saveStarryBinding(MAIL_ACTOR_ID, { mailbox_email: "larry.zhao@amperetime.com", mailbox_id: "mbx_larry", owner_name: "赵良玉", bearer: "test-only-token" }));
+}
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-sync-"));
-  process.env.LINGONG_DB = path.join(tmp, "mail.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   calls.length = 0;
@@ -62,7 +61,8 @@ beforeEach(async () => {
         return { data: { total: 0, list: [] } };
       }
       if (name === "pageEmailConversations") {
-        if (Number(args.pageNo || 1) > 1) return { data: { total: 1, list: [] } };
+        if (Number(args.pageNo || 1) > 1)
+          return { data: { total: 1, list: [] } };
         return {
           data: {
             total: 1,
@@ -97,49 +97,57 @@ beforeEach(async () => {
       }
       return { data: {} };
     },
-    async close() { /* noop */ },
+    async close() { },
   }));
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
-  getConn().prepare("UPDATE collaborations SET kol_uid=?, email=? WHERE id='col_xiaomei'")
-    .run("KOL51DA646D8D8A4544BB93", "xiaomei.beauty@example.com");
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
+  (await postgresDb().execute("UPDATE collaborations SET kol_uid=$1, email=$2 WHERE id='col_xiaomei'", "KOL51DA646D8D8A4544BB93", "xiaomei.beauty@example.com"));
+  (await seedPublishedAgent("agent:kol"));
+  (await seedRuntimeTestActor(["email_conversation_list", "email_conversation_read"], true));
+  await persistStarryOwnership([{
+      kolUid: "KOL51DA646D8D8A4544BB93",
+      ownerMailbox: "larry.zhao@amperetime.com",
+    }], "company:amperetime", new Date().toISOString(), true);
 });
-
 afterEach(async () => {
   await waitForBackgroundSync();
   await closePostgresPool();
   setStarryKolClientFactory();
   resetFollowedMailSync();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("followed KOL unread mail sync", () => {
   it("rejects moving a remembered conversation to another collaboration", async () => {
-    bindLarry();
-    await ensureFollowedMailSync(true);
-    getConn().prepare(`INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,kol_uid)
+    (await bindLarry());
+    await syncLarryMailbox(true);
+    await waitForBackgroundSync();
+    (await postgresDb().execute(`INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,kol_uid)
       SELECT 'col_other_source',handle,display_name,brand,email,mailbox_from,lifecycle_id,'other-conversation',stage_code,kol_uid
-      FROM collaborations WHERE id='col_xiaomei'`).run();
-    getConn().prepare("UPDATE collaborations SET kol_uid='OTHER-UID',email='other@example.test' WHERE id='col_other_source'").run();
-    getConn().prepare("UPDATE kol_mail_threads SET collaboration_id='col_other_source' WHERE conversation_id='3901'").run();
-    const result = await ensureFollowedMailSync(true);
+      FROM collaborations WHERE id='col_xiaomei'`));
+    (await postgresDb().execute("UPDATE collaborations SET kol_uid='OTHER-UID',email='other@example.test' WHERE id='col_other_source'"));
+    (await postgresDb().execute("UPDATE kol_mail_threads SET collaboration_id='col_other_source' WHERE conversation_id='3901'"));
+    await syncLarryMailbox(true);
+    await waitForBackgroundSync();
+    const result = await larryMailboxStatus();
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("mail_conversation_association_mismatch");
-    expect(getConn().prepare("SELECT collaboration_id FROM kol_mail_threads WHERE conversation_id='3901'").get()).toMatchObject({collaboration_id: "col_other_source"});
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_mail_items WHERE collaboration_id='col_other_source'").get()).toMatchObject({n: 0});
+    expect(result.error_code).toBe("mail_conversation_association_mismatch");
+    expect(result.error).toContain("关联不一致");
+    expect((await postgresDb().one("SELECT collaboration_id FROM kol_mail_threads WHERE conversation_id='3901'"))).toMatchObject({ collaboration_id: "col_other_source" });
+    expect((await postgresDb().one("SELECT COUNT(*) AS n FROM kol_mail_items WHERE collaboration_id='col_other_source'"))).toMatchObject({ n: 0 });
   });
   it("uses local mail memory and skips unchanged remote conversation details", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
         calls.push(name);
         if (name === "pageEmailConversations") {
-          if (Number(args.pageNo || 1) > 1) return {data: {total: 1,list: []}};
-          return { data: { total: 1,list: [{
+          if (Number(args.pageNo || 1) > 1)
+            return { data: { total: 1, list: [] } };
+          return { data: { total: 1, list: [{
             id: 4901,
             conversationId: 4901,
             subject: "Incremental sync",
@@ -159,27 +167,28 @@ describe("followed KOL unread mail sync", () => {
         }
         return { data: {} };
       },
-      async close() { /* noop */ },
+      async close() { },
     }));
-
-    await ensureFollowedMailSync(true);
+    await syncLarryMailbox(true);
+    await waitForBackgroundSync();
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(1);
-    expect(getConn().prepare("SELECT conversation_id,mailbox,last_at FROM kol_mail_threads WHERE conversation_id='4901'").get()).toBeTruthy();
+    expect((await postgresDb().one("SELECT conversation_id,mailbox,last_at FROM kol_mail_threads WHERE conversation_id='4901'"))).toBeTruthy();
     calls.length = 0;
-    await ensureFollowedMailSync(true);
+    await syncLarryMailbox(true);
+    await waitForBackgroundSync();
     expect(calls).toContain("pageEmailConversations");
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(0);
     // A remembered index cannot certify a missing body. Fetch the authorized
     // detail again, without creating another event for the same source version.
-    getConn().prepare("UPDATE kol_mail_items SET body_text=NULL WHERE provider_message_id='mid-4901'").run();
+    (await postgresDb().execute("UPDATE kol_mail_items SET body_text=NULL WHERE provider_message_id='mid-4901'"));
     calls.length = 0;
-    await ensureFollowedMailSync(true);
+    await syncLarryMailbox(true);
+    await waitForBackgroundSync();
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(1);
-    expect(getConn().prepare("SELECT body_text FROM kol_mail_items WHERE provider_message_id='mid-4901'").get()).toMatchObject({body_text: "Stored once"});
+    expect((await postgresDb().one("SELECT body_text FROM kol_mail_items WHERE provider_message_id='mid-4901'"))).toMatchObject({ body_text: "Stored once" });
   });
-
   it("drops conversations belonging to another mailbox", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -194,16 +203,15 @@ describe("followed KOL unread mail sync", () => {
         }
         return { data: {} };
       },
-      async close() { /* noop */ },
+      async close() { },
     }));
-
-    await ensureFollowedMailSync(true);
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='5901'").get()).toBeUndefined();
+    await syncLarryMailbox(true);
+    await waitForBackgroundSync();
+    expect((await postgresDb().one("SELECT 1 FROM kol_mail_threads WHERE conversation_id='5901'"))).toBeUndefined();
     expect(calls).not.toContain("getEmailConversation");
   });
-
   it("keeps brand-mailbox and external conversations, drops same-domain coworker mailboxes", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -243,34 +251,33 @@ describe("followed KOL unread mail sync", () => {
         }
         return { data: {} };
       },
-      async close() { /* noop */ },
+      async close() { },
     }));
-
-    await ensureFollowedMailSync(true);
+    await syncLarryMailbox(true);
     await waitForBackgroundSync();
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6001'").get()).toBeUndefined();
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6002'").get()).toBeTruthy();
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6003'").get()).toBeTruthy();
+    expect((await postgresDb().one("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6001'"))).toBeUndefined();
+    expect((await postgresDb().one("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6002'"))).toBeTruthy();
+    expect((await postgresDb().one("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6003'"))).toBeTruthy();
   });
-
   it("POST /api/jobs/mail.sync/start accepts immediately and syncs in the background", async () => {
-    bindLarry();
+    (await bindLarry());
     const started = Date.now();
-    const response = await request("POST", "/api/jobs/mail.sync/start");
+    const response = await request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" });
     const elapsed = Date.now() - started;
     expect(response.status).toBe(202);
     expect(response.body.accepted).toBe(true);
     expect(elapsed).toBeLessThan(500);
     expect((response.body.job as Json).status).toBe("queued");
     await processExecutionJobById(String((response.body.job as Json).id));
-    expect((await request("GET", `/api/jobs/${String((response.body.job as Json).id)}`)).body.job).toMatchObject({status: "succeeded"});
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='3901'").get()).toBeTruthy();
+    expect((await request("GET", `/api/jobs/${String((response.body.job as Json).id)}`)).body.job).toMatchObject({ status: "succeeded" });
+    expect((await postgresDb().one("SELECT 1 FROM kol_mail_threads WHERE conversation_id='3901'"))).toBeTruthy();
   });
-
   it("collects Starry inbound threads on home refresh and shows unread by thread id", async () => {
+    (await bindLarry());
     const first = await request("GET", "/api/home/board?refresh=1");
     expect(first.status).toBe(200);
-    await ensureFollowedMailSync(false);
+    await syncLarryMailbox(false);
+    await waitForBackgroundSync();
     const board = await request("GET", "/api/home/board");
     expect(board.status).toBe(200);
     expect(calls).toContain("pageEmailConversations");
@@ -285,25 +292,31 @@ describe("followed KOL unread mail sync", () => {
     expect(Number(threads?.[0].unread_count)).toBeGreaterThan(0);
     expect(board.body.mail).toMatchObject({ ok: true, tool: "pageEmailConversations" });
   });
-
-  it("legacy login kicks a followed-mail collect and session sync uses thread identity", async () => {
-    const { DEMO_ADMIN } = await import("../src/config.js");
+  it("native login kicks a followed-mail collect and session sync uses thread identity", async () => {
+    (await bindLarry());
+    await postgresDb().execute("UPDATE users SET password_hash=$1 WHERE id=$2", await hashPassword("local-mail-login"), MAIL_ACTOR_ID);
     calls.length = 0;
-    const login = await request("POST", "/api/login", { username: DEMO_ADMIN.handle, password: DEMO_ADMIN.password });
-    expect(login.status).toBe(200);
+    process.env.AUTH_MODE = "enabled";
+    try {
+      const login = await request("POST", "/api/auth/login", { username: MAIL_ACTOR_ID, password: "local-mail-login" });
+      expect(login.status, JSON.stringify(login.body)).toBe(200);
+    }
+    finally {
+      process.env.AUTH_MODE = "disabled";
+    }
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(calls).toContain("pageEmailConversations");
-
     const opened = await request("POST", "/api/collaborations/col_xiaomei/session", {});
     expect(opened.status).toBe(200);
-    await expect.poll(async () => Number((await postgresPool().query(
-        "SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE collaboration_id='col_xiaomei'",
-      )).rows[0].n)).toBe(0);
+    await expect.poll(async () => Number((await postgresPool().query("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE collaboration_id='col_xiaomei'")).rows[0].n)).toBe(0);
   });
-
   it("matches inbound by handle suffix and keeps the conversation body", async () => {
-    getConn().prepare("UPDATE collaborations SET handle=?, email=?, kol_uid=? WHERE id='col_xiaomei'")
-      .run("灵工连通测试-qiyou1984", "", "KOLQIYOU1984");
+    (await bindLarry());
+    (await postgresDb().execute("UPDATE collaborations SET handle=$1, email=$2, kol_uid=$3 WHERE id='col_xiaomei'", "灵工连通测试-qiyou1984", "", "KOLQIYOU1984"));
+    await persistStarryOwnership([{
+        kolUid: "KOLQIYOU1984",
+        ownerMailbox: "larry.zhao@amperetime.com",
+      }], "company:amperetime", new Date().toISOString(), true);
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -341,11 +354,12 @@ describe("followed KOL unread mail sync", () => {
         }
         return { data: {} };
       },
-      async close() { /* noop */ },
+      async close() { },
     }));
     const first = await request("GET", "/api/home/board?refresh=1");
     expect(first.status).toBe(200);
-    await ensureFollowedMailSync(false);
+    await syncLarryMailbox(false);
+    await waitForBackgroundSync();
     const board = await request("GET", "/api/home/board");
     expect(board.status).toBe(200);
     const xiaomei = (board.body.kols as Json[]).find((row) => row.id === "col_xiaomei");

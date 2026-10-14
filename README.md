@@ -74,7 +74,7 @@ cp -n .env.example .env   # 把 OPENAI_API_KEY 等写进 .env，不要提交
 chmod +x scripts/start.sh && ./scripts/start.sh
 ```
 
-ECS / 服务器第一次跑如果缺编译链，先装 `gcc-c++ make python3`（例如 `yum install -y gcc-c++ make python3`），再 `./scripts/start.sh`。`start.sh` 在有 lockfile 时用 `npm ci --ignore-scripts=false`，再按 `scripts/native.sh` 编译 better-sqlite3 / esbuild，不依赖 npm 11/12 的 lifecycle。默认 `CODEX_MODE=real`、`AUTH_MODE=enabled`、监听 `0.0.0.0:8765`（可用环境变量或 `.env` 里的 `LINGONG_PORT` 覆盖）。没有 gcc 时 Host 仍用 **node:sqlite** 写同一 SQLite 文件（不是假库）。
+仓库只支持 **PostgreSQL 原生异步访问**。先在 `.env` 设置 `DATABASE_URL`，再运行 `cd backend && npm ci && npm run db:apply:postgres-schema && npm run db:seed:reference`。空库由版本化 baseline 和 migration 建立；已有 PostgreSQL 库只增量应用缺少的迁移，不重新导入历史数据。`scripts/native.sh` 只检查 esbuild，不再需要 SQLite 原生编译链。默认 `CODEX_MODE=real`、`AUTH_MODE=enabled`、监听 `0.0.0.0:8765`。缺少 `DATABASE_URL` 会明确拒绝启动，不创建、读取或回退到任何本地数据库文件。
 
 浏览器打开 http://127.0.0.1:8765
 
@@ -99,16 +99,15 @@ codex login
 ```bash
 # 二选一：宿主机先 codex login（compose 会挂载 ~/.codex），或：
 # export OPENAI_API_KEY=sk-...
-# 首次从既有 SQLite 数据切换：先停止旧服务的写入，再运行一次迁移
-docker compose --profile migration run --rm migrate
-# 指纹核验成功后启动 PostgreSQL、Redis、API、Outbox 发布器及 Worker
+# 设置 POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB（生产不能使用本地默认密码）
+# schema-init 完成版本化建表和参考数据写入后，API 和后台服务才允许启动
 docker compose up --build
 ```
 
 同样是 http://127.0.0.1:8765。宿主机上“已经运行的 Codex 进程”不能跨容器复用；
-Compose 会安装 Codex CLI，并挂载 `${HOME}/.codex`、透传 `OPENAI_API_KEY`。`migrate`
-从 `/app/data/lingong.db` 复制全部现有 SQLite 表与行到 PostgreSQL，并在结束前逐表
-校验内容指纹；迁移完成后 `DATABASE_URL` 使 API 拒绝回退写 SQLite。Redis/BullMQ 仅作
+Compose 会安装 Codex CLI，并挂载 `${HOME}/.codex`、透传 `OPENAI_API_KEY`。`schema-init`
+直接在 PostgreSQL 应用版本化 schema；运行时和部署依赖中不保留 SQLite 迁移器或同步桥。
+现有服务器已经以 PostgreSQL 为权威库，禁止把旧本地快照重新导回非空生产库。Redis/BullMQ 仅作
 派发，`execution_jobs` 和 `execution_outbox` 的 PostgreSQL 记录才是作业状态和回执权威。
 
 **本机无容器的切换：**
@@ -117,9 +116,9 @@ Compose 会安装 Codex CLI，并挂载 `${HOME}/.codex`、透传 `OPENAI_API_KE
 cd backend
 export DATABASE_URL=postgresql://lingong:password@127.0.0.1:5432/lingong
 export REDIS_URL=redis://127.0.0.1:6379
-# 停止旧 SQLite 写入后执行；非空目标默认拒绝覆盖
-npm run db:migrate:postgres -- --source /absolute/path/to/lingong.db
-npm run db:verify:postgres -- --source /absolute/path/to/lingong.db
+# 对 PostgreSQL 进行版本化初始化或幂等增量升级；上线前先备份现有 PG
+npm run db:apply:postgres-schema
+npm run db:seed:reference
 npm run worker:outbox
 # 在另一个终端；可按容量启动多个实例
 npm run worker:execution
@@ -219,9 +218,9 @@ export MAX_ATTACHMENT_BYTES=10485760
 ./scripts/start.sh
 ```
 
-**开发分体（PostgreSQL）：** 先准备数据库 `node scripts/dev-pg.mjs`——缺省连 `127.0.0.1:5432/lingong_dev`；没有本地 PG 时加 `--docker`（起仅监听 127.0.0.1 的 postgres:18 容器），`--fresh` 重建并从 `data/lingong.db` 重迁历史数据；脚本会在 `backend/` 以 PG 模式启动 API（默认 8765），并顺带把测试模板库 `lingong_template` 对齐。再 `cd frontend && npm run dev`（Vite 4177，代理 `/api`）。开发/测试不再以 SQLite `data/` 作为运行库；`data/lingong.db` 仅作一次性迁移源。后端测试从模板库克隆新库：`cd backend && TEST_DATABASE_URL=<同一 PG 的 postgres 库> npm test`。
+**开发分体（PostgreSQL）：** 先准备数据库 `node scripts/dev-pg.mjs`——缺省连 `127.0.0.1:5432/lingong_dev`；没有本地 PG 时加 `--docker`（起仅监听 127.0.0.1 的 postgres:16 容器）。脚本应用版本化 schema、写参考数据并对齐测试模板库 `lingong_template`，随后启动后端（默认 8765）。`--no-start` 只准备数据库；**`--fresh` 会删除指定开发库的数据，仅可用于可丢弃的本地环境**。再 `cd frontend && npm run dev`（Vite 4177，代理 `/api`）。后端数据库测试从模板克隆独立库，并隔离文件数据目录：`cd backend && TEST_DATABASE_URL=<测试 PG 的 postgres 库> npm test`；没有测试管理连接时明确失败，不借用生产 `DATABASE_URL`。
 
-运行时不需要 Python。Host / Gateway / Worker / MCP / mock 都在 `backend/`（Hono；权威存储为 PostgreSQL，桥接层保留 SQLite 方言兼容）。
+运行时不需要 Python。Host / Gateway / Worker / MCP / mock 都在 `backend/`（Hono；权威存储为 PostgreSQL），不再有 SQLite 方言兼容桥或另一套窄应用入口。
 
 ## 被 mock 的东西
 
@@ -324,10 +323,12 @@ From 只能选授权品牌邮箱。一档时锁定文案 **「已按品牌和权
 ## 测试
 
 ```bash
-cd backend && npm test
+export TEST_DATABASE_URL=postgresql://test_user:test_password@127.0.0.1:5432/postgres
+(cd backend && npm test)
 # API 合同测试强制 CODEX_MODE=stub。默认进程仍是真 Codex。
-cd frontend && npx playwright install chromium && npx playwright test
-# Playwright 自己起 CODEX_MODE=stub 的 8876 端口，不复用 start.sh 的 real Codex。
+(cd frontend && npx playwright install chromium && npx playwright test)
+# Stub Playwright 从 lingong_template 克隆独立 PG 库，退出时仅清理自建库和临时数据目录。
+# 自己起 8876，不复用 real Codex；不能回退使用生产 DATABASE_URL / LINGONG_DATA。
 ```
 
 没有登录时，点「写跟进信」应看到 Codex 安装/登录错误，正文里不能出现模板句 `Following up — LiTime collab kit`。登录后应是模型写的英文原文。

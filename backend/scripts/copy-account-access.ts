@@ -19,12 +19,9 @@ function flag(name: string, fallback: string): string {
   const raw = index >= 0 ? String(args[index + 1] || "").trim() : "";
   return raw || fallback;
 }
-
 const from = flag("--from", "sriphy");
 const to = flag("--to", "usr_org_huang_qiyou");
-
-const report = copyAccountAccess({ from, to, apply });
-
+const report = await copyAccountAccess({ from, to, apply });
 console.log(`来源：${report.from.name}（${report.from.id} / ${report.from.username}）`);
 console.log(`目标：${report.to.name}（${report.to.id} / ${report.to.username}）`);
 console.log(`人员锚点：来源 ${report.from_person || "（未找到）"} → 目标 ${report.to_person || "（未找到）"}`);

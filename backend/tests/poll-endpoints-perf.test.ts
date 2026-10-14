@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { postgresPool } from "../src/postgres/pool.js";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { pgTransaction, postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { DEMO_USER } from "../src/config.js";
 import { buildHomeBoard, MAX_BOARD_TASKS, MAX_KOL_MAIL_THREADS, MAX_KOL_TASKS, MAX_WORKBENCH_TASKS, OPEN_WORK_ITEM_SQL } from "../src/host/home-board.js";
 import { POLL_CACHE_MAX_TOTAL_BYTES, POLL_CACHE_MAX_VALUE_BYTES, pollCacheCounters, resetPollCache } from "../src/host/response-cache.js";
@@ -27,24 +27,16 @@ async function request(method: string, url: string, body?: unknown) {
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
-
 /** Production shape: many events per work item, most of them irrelevant to a list. */
-function seedEventTail(workItemId: string, eventCount: number) {
-  const conn = getConn();
-  const start = Number((
-    conn.prepare("SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?").get(workItemId) as { sequence: number }
-  ).sequence);
-  const insert = conn.prepare(
-    `INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  );
+async function seedEventTail(workItemId: string, eventCount: number) {
+  const conn = postgresDb();
+  const start = Number(((await conn.one("SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=$1", workItemId)) as {
+    sequence: number;
+  }).sequence);
+  const insert = "INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
   const last = start + eventCount;
   for (let i = start + 1; i <= last; i += 1) {
-    insert.run(
-      `tev_seed_${workItemId}_${i}`, workItemId, null, i, "trace", `步骤 ${i}`, "running",
-      i === last ? "最后一步 · 进行中" : `中间步骤 ${i}`, `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
-      `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
-    );
+    await conn.execute(insert, `tev_seed_${workItemId}_${i}`, workItemId, null, i, "trace", `步骤 ${i}`, "running", i === last ? "最后一步 · 进行中" : `中间步骤 ${i}`, `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`, `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`);
   }
   return last;
 }
@@ -52,33 +44,30 @@ function seedEventTail(workItemId: string, eventCount: number) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-poll-perf-"));
-  process.env.LINGONG_DB = path.join(tmp, "poll.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetDatabase());
   resetPollCache();
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  seedAll();
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
-  resetDemoRuntimeState();
+  (await resetDemoRuntimeState());
   resetPollCache();
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("GET /api/tasks list payloads", () => {
   it("caps each work item's history tail while keeping the aggregate result correct", async () => {
-    const last = seedEventTail("tsk_home_laozhang_quote", 400);
+    const last = (await seedEventTail("tsk_home_laozhang_quote", 400));
     const queries = vi.spyOn(postgresPool(), "query");
     const listed = await request("GET", "/api/tasks");
     expect(queries.mock.calls.filter(([sql]) => String(sql).includes("unnest($1::text[])"))).toHaveLength(1);
@@ -89,9 +78,7 @@ describe("GET /api/tasks list payloads", () => {
     const history = row.history as Json[];
     // The tail is bounded, ascending, and ends at the newest event.
     expect(history.length).toBe(5);
-    expect(history.map((event) => event.id)).toEqual(
-      Array.from({ length: 5 }, (_, i) => `tev_seed_tsk_home_laozhang_quote_${last - 4 + i}`),
-    );
+    expect(history.map((event) => event.id)).toEqual(Array.from({ length: 5 }, (_, i) => `tev_seed_tsk_home_laozhang_quote_${last - 4 + i}`));
     expect(history[history.length - 1].summary).toBe("最后一步 · 进行中");
     expect(history[history.length - 1].type).toBe("trace");
     // history_summary is derived from the newest event, so it must not drift.
@@ -99,15 +86,13 @@ describe("GET /api/tasks list payloads", () => {
     // Every other task still carries its own (seed) history.
     expect(rows.some((item) => item.id === "tsk_home_trip_stage" && Array.isArray(item.history))).toBe(true);
   });
-
   it("view=open reports the same total before and after the aggregation change", async () => {
-    seedEventTail("tsk_home_laozhang_quote", 40);
+    (await seedEventTail("tsk_home_laozhang_quote", 40));
     const listed = await request("GET", "/api/tasks?view=open");
     expect(listed.status).toBe(200);
-    const expected = Number((
-      getConn().prepare(`SELECT COUNT(*) AS c FROM tickets WHERE owner_user_id=? AND ${OPEN_WORK_ITEM_SQL}`)
-        .get(DEMO_USER.id) as { c: number }
-    ).c);
+    const expected = Number(((await postgresDb().one(`SELECT COUNT(*) AS c FROM tickets WHERE owner_user_id=$1 AND ${OPEN_WORK_ITEM_SQL}`, DEMO_USER.id)) as {
+      c: number;
+    }).c);
     expect(listed.body.total).toBe(expected);
     const tasks = listed.body.tasks as Json[];
     expect(tasks.length).toBe(expected);
@@ -168,10 +153,7 @@ describe("polling result cache", () => {
     // without slowing the suite down with tens of thousands of inserts.
     const stamp = "2026-09-01T00:00:00.000Z";
     const filler = "x".repeat(Math.ceil(POLL_CACHE_MAX_VALUE_BYTES * 1.1));
-    getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES (?,?,?,?,?,?)",
-    ).run("ses_oversize", filler, stamp, stamp, "work", DEMO_USER.id);
-
+    (await postgresDb().execute("INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES ($1,$2,$3,$4,$5,$6)", "ses_oversize", filler, stamp, stamp, "work", DEMO_USER.id));
     const before = pollCacheCounters();
     const first = await request("GET", "/api/sessions");
     expect(first.status).toBe(200);
@@ -197,10 +179,7 @@ describe("polling result cache", () => {
     // shell polls it every 4s per tab, so it must stay inside the budget.
     const stamp = "2026-09-01T00:00:00.000Z";
     const filler = "x".repeat(900 * 1024);
-    getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES (?,?,?,?,?,?)",
-    ).run("ses_big", filler, stamp, stamp, "work", DEMO_USER.id);
-
+    (await postgresDb().execute("INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES ($1,$2,$3,$4,$5,$6)", "ses_big", filler, stamp, stamp, "work", DEMO_USER.id));
     const before = pollCacheCounters();
     const first = await request("GET", "/api/sessions");
     expect(first.status).toBe(200);
@@ -231,22 +210,14 @@ describe("GET /api/sessions projection", () => {
   const SESSIONS_PAYLOAD_CEILING_BYTES = 40 * 1024;
   const FIELD_KEYS = ["agent_status", "archived_at", "id", "title"];
   const ARCHIVED_ROWS = 23;
-
   it("ships no field the shell does not read, under a byte ceiling", async () => {
     const stamp = "2026-09-01T00:00:00.000Z";
-    const insert = getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,collaboration_id,kind,owner_user_id,archived_at,expert_id,thread_ref) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    );
-    getConn().transaction(() => {
+    const insert = "INSERT INTO sessions (id,title,created_at,updated_at,collaboration_id,kind,owner_user_id,archived_at,expert_id,thread_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
+    await pgTransaction(async (db) => {
       for (let i = 0; i < 200; i += 1) {
-        insert.run(
-          `ses_proj_${String(i).padStart(3, "0")}`,
-          `与 达人${i} 的合作会话 · 第 ${i} 轮`,
-          stamp, stamp, `col_proj_${i}`, "work", DEMO_USER.id, i % 9 === 0 ? stamp : null, `expert_${i}`, `thread_${i}`,
-        );
+        await db.execute(insert, `ses_proj_${String(i).padStart(3, "0")}`, `与 达人${i} 的合作会话 · 第 ${i} 轮`, stamp, stamp, `col_proj_${i}`, "work", DEMO_USER.id, i % 9 === 0 ? stamp : null, `expert_${i}`, `thread_${i}`);
       }
-    })();
-
+    });
     const listed = await request("GET", "/api/sessions");
     expect(listed.status).toBe(200);
     const rows = listed.body as unknown as Json[];
@@ -254,7 +225,9 @@ describe("GET /api/sessions projection", () => {
     expect(rows.length).toBe(200 - ARCHIVED_ROWS);
     // No unexpected keys: every row is exactly the shell's projection.
     const keys = new Set<string>();
-    for (const row of rows) for (const key of Object.keys(row)) keys.add(key);
+    for (const row of rows)
+      for (const key of Object.keys(row))
+        keys.add(key);
     expect([...keys].sort()).toEqual(FIELD_KEYS);
     // Archived rows only come back with include_archived=1, and then carry the flag.
     const archived = await request("GET", "/api/sessions?include_archived=1");
@@ -268,15 +241,12 @@ describe("GET /api/sessions projection", () => {
     expect(bytes).toBeLessThan(SESSIONS_PAYLOAD_CEILING_BYTES);
   });
 });
-
 describe("GET /api/home/board list caps", () => {
-  it("caps kol sub-lists and workbench rows while keeping the counts exact", () => {
+  it("caps kol sub-lists and workbench rows while keeping the counts exact", async () => {
     // The board only projects collaborations bound to a remote KOL identity, so
     // without this the per-kol assertions below would be vacuous.
-    getConn().prepare(
-      "UPDATE collaborations SET kol_uid='ku_' || id WHERE id IN ('col_xiaomei','col_laozhang','col_mum','col_trip')",
-    ).run();
-    const board = buildHomeBoard() as Json;
+    (await postgresDb().execute("UPDATE collaborations SET kol_uid='ku_' || id WHERE id IN ('col_xiaomei','col_laozhang','col_mum','col_trip')"));
+    const board = (await buildHomeBoard()) as Json;
     const kols = board.kols as Json[];
     const workbench = board.workbench as Json;
     const summary = workbench.summary as Json;
@@ -306,41 +276,32 @@ describe("GET /api/home/board list caps", () => {
     expect("lifecycle" in workbench).toBe(false);
     expect(Object.keys(workbench).sort()).toEqual(["insights", "open", "recommendations", "summary", "today", "todo"]);
   });
-
-  it("keeps owner_mailbox so 无主 judgment still sees every owner key it had", () => {
+  it("keeps owner_mailbox so 无主 judgment still sees every owner key it had", async () => {
     // frontend/src/home/kolContract.ts#isUnownedRow calls a row 无主 only when
     // *every* owner key present in it is empty. Dropping `owner_mailbox` would
     // leave `owner_name: ""` as the only key and send a 有主 KOL to the public sea.
-    getConn().prepare(
-      "UPDATE collaborations SET kol_uid='ku_xiaomei', owner_name='', owner_mailbox='ops@example.com' WHERE id='col_xiaomei'",
-    ).run();
-    const board = buildHomeBoard() as Json;
+    (await postgresDb().execute("UPDATE collaborations SET kol_uid='ku_xiaomei', owner_name='', owner_mailbox='ops@example.com' WHERE id='col_xiaomei'"));
+    const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === "col_xiaomei") as Json;
     expect(kol.owner_mailbox).toBe("ops@example.com");
     expect("owner_name" in kol).toBe(true);
   });
-
-  it("keeps the unread-inbound signal from the whole thread list even though the board caps it", () => {
-    const conn = getConn();
-    conn.prepare("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'").run();
-    const collab = conn.prepare("SELECT id FROM collaborations WHERE id='col_xiaomei'").get() as { id: string };
-    const insert = conn.prepare(
-      `INSERT INTO kol_mail_threads
-         (id,collaboration_id,conversation_id,subject,mailbox,last_direction,last_snippet,unread_count,last_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    );
+  it("keeps the unread-inbound signal from the whole thread list even though the board caps it", async () => {
+    const conn = postgresDb();
+    (await conn.execute("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'"));
+    const collab = (await conn.one("SELECT id FROM collaborations WHERE id='col_xiaomei'")) as {
+      id: string;
+    };
+    const insert = "INSERT INTO kol_mail_threads (id,collaboration_id,conversation_id,subject,mailbox,last_direction,last_snippet,unread_count,last_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)";
     // Newest first by last_at: the only unread inbound thread is the fourth, so
     // it falls outside the serialized cap and must still raise the recommendation.
     const base = Date.parse("2026-03-01T00:00:00.000Z");
     for (let i = 0; i < 4; i += 1) {
-      const at = new Date(base - i * 3600_000).toISOString();
+      const at = new Date(base - i * 3600000).toISOString();
       const unread = i === 3;
-      insert.run(
-        `thr_cap_${i}`, collab.id, `conv_cap_${i}`, `主题 ${i}`, "brand@example.com",
-        unread ? "inbound" : "outbound", `片段 ${i}`, unread ? 2 : 0, at, at, at,
-      );
+      await conn.execute(insert, `thr_cap_${i}`, collab.id, `conv_cap_${i}`, `主题 ${i}`, "brand@example.com", unread ? "inbound" : "outbound", `片段 ${i}`, unread ? 2 : 0, at, at, at);
     }
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === collab.id) as Json;
     expect(((kol.mail_threads as Json[]) || []).length).toBe(MAX_KOL_MAIL_THREADS);
     const recommendations = (board.workbench as Json).recommendations as Json[];
@@ -359,24 +320,20 @@ describe("GET /api/home/board list caps", () => {
       expect(line.trim(), line.trim()).toContain("definitions");
     }
   });
-
-  it("caps a work item's related tasks per kol without losing the unread total", () => {
-    const conn = getConn();
+  it("caps a work item's related tasks per kol without losing the unread total", async () => {
+    const conn = postgresDb();
     // The board only projects collaborations bound to a remote KOL identity.
-    conn.prepare("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'").run();
-    const collab = conn.prepare("SELECT id,handle FROM collaborations WHERE id='col_xiaomei'").get() as { id: string; handle: string };
-    const insert = conn.prepare(
-      `INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,collaboration_id,project_id,input,entities,created_at,updated_at,content,risk_level)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    );
+    (await conn.execute("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'"));
+    const collab = (await conn.one("SELECT id,handle FROM collaborations WHERE id='col_xiaomei'")) as {
+      id: string;
+      handle: string;
+    };
+    const insert = "INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,collaboration_id,project_id,input,entities,created_at,updated_at,content,risk_level) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)";
     for (let i = 0; i < MAX_KOL_TASKS + 4; i += 1) {
       const stamp = new Date(Date.now() + i * 1000).toISOString();
-      insert.run(
-        `tsk_cap_${i}`, DEMO_USER.id, "email_compose", `跟进 ${i} @${collab.handle}`, "manual", "pending", "normal",
-        "email_compose", "lead", collab.id, collab.id, "{}", "{}", stamp, stamp, "", "none",
-      );
+      await conn.execute(insert, `tsk_cap_${i}`, DEMO_USER.id, "email_compose", `跟进 ${i} @${collab.handle}`, "manual", "pending", "normal", "email_compose", "lead", collab.id, collab.id, "{}", "{}", stamp, stamp, "", "none");
     }
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === collab.id) as Json;
     expect(kol).toBeTruthy();
     expect((kol.tasks as Json[]).length).toBe(MAX_KOL_TASKS);

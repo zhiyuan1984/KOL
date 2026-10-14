@@ -2,12 +2,27 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { managedAgent } from "./runtime/managed-agents.js";
-
 type ScopeRegistry = {
-  companies?: { id: string; status?: string }[];
-  organization_units?: { id: string; parent?: string; brand_scope?: string[] }[];
-  responsibilities?: { id: string; principal_ref?: string; org_unit?: string }[];
-  confirmed_people?: { display_name: string; role?: string; org_unit?: string; user_ref?: string | null }[];
+  companies?: {
+    id: string;
+    status?: string;
+  }[];
+  organization_units?: {
+    id: string;
+    parent?: string;
+    brand_scope?: string[];
+  }[];
+  responsibilities?: {
+    id: string;
+    principal_ref?: string;
+    org_unit?: string;
+  }[];
+  confirmed_people?: {
+    display_name: string;
+    role?: string;
+    org_unit?: string;
+    user_ref?: string | null;
+  }[];
   department_head_scope_policy?: {
     status?: string;
     company_wide?: boolean;
@@ -18,7 +33,14 @@ type ScopeRegistry = {
     high_risk_control?: string;
   };
 };
-type BrandRegistry = { brands?: { id: string; code?: string; status?: string }[]; regions?: string[] };
+type BrandRegistry = {
+  brands?: {
+    id: string;
+    code?: string;
+    status?: string;
+  }[];
+  regions?: string[];
+};
 type AgentManifest = {
   id: string;
   version?: string;
@@ -57,15 +79,16 @@ function readJsonYaml<T>(relative: string): T {
   return JSON.parse(fs.readFileSync(path.join(repoRoot, relative), "utf8")) as T;
 }
 function manifestPath(agentId: string): string {
-  if (!/^agent:[a-z][a-z0-9-]*$/.test(agentId)) throw new Error(`invalid runtime agent id: ${agentId}`);
+  if (!/^agent:[a-z][a-z0-9-]*$/.test(agentId))
+    throw new Error(`invalid runtime agent id: ${agentId}`);
   return `agents/${agentId.slice("agent:".length)}/manifest.yaml`;
 }
 function agentManifest(agentId: string): AgentManifest {
   const manifest = readJsonYaml<AgentManifest>(manifestPath(agentId));
-  if (manifest.id !== agentId) throw new Error(`runtime agent manifest id mismatch: ${agentId}`);
+  if (manifest.id !== agentId)
+    throw new Error(`runtime agent manifest id mismatch: ${agentId}`);
   return manifest;
 }
-
 /**
  * Bounded, configuration-only declaration used to seed Runtime bindings at
  * startup. Experts describe an employee-facing entry point; only this Agent
@@ -83,7 +106,8 @@ export type RuntimeAgentBindingManifest = {
 export function runtimeAgentBindingManifest(agentId: string): RuntimeAgentBindingManifest {
   const manifest = agentManifest(agentId);
   const strings = (value: unknown, field: string) => {
-    if (value === undefined) return [];
+    if (value === undefined)
+      return [];
     if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
       throw new Error(`runtime agent manifest ${field} must be a string array: ${agentId}`);
     }
@@ -112,13 +136,16 @@ function buildScope(agentId: string): RuntimeAgentScope {
     throw new Error(`unregistered agent owner: ${agent.owner_ref}`);
   }
   for (const id of agent.organization_scope) {
-    if (!(org.organization_units || []).some((item) => item.id === id)) throw new Error(`unregistered agent organization: ${id}`);
+    if (!(org.organization_units || []).some((item) => item.id === id))
+      throw new Error(`unregistered agent organization: ${id}`);
   }
   for (const id of agent.brand_scope) {
-    if (!(brands.brands || []).some((item) => item.id === id)) throw new Error(`unregistered agent brand: ${id}`);
+    if (!(brands.brands || []).some((item) => item.id === id))
+      throw new Error(`unregistered agent brand: ${id}`);
   }
   for (const id of agent.region_scope) {
-    if (!(brands.regions || []).includes(id)) throw new Error(`unregistered agent region: ${id}`);
+    if (!(brands.regions || []).includes(id))
+      throw new Error(`unregistered agent region: ${id}`);
   }
   return {
     agent_id: agent.id,
@@ -135,11 +162,10 @@ function buildScope(agentId: string): RuntimeAgentScope {
     department_head_scope_policy: org.department_head_scope_policy || null,
   };
 }
-
 /** Scope sent to every Codex CONTEXT; Host remains the authority for decisions. */
-export function runtimeAgentScopeContext(agentId: string): RuntimeAgentScope {
+export async function runtimeAgentScopeContext(agentId: string): Promise<RuntimeAgentScope> {
   if (agentId.startsWith("agent_")) {
-    const agent = managedAgent(agentId);
+    const agent = (await managedAgent(agentId));
     // Managed agents do not inherit KOL business scope from a static manifest.
     // Resource scope is resolved by each skill at the execution gate.
     return { agent_id: agent.id, agent_version: String(agent.version), status: agent.status,
@@ -148,26 +174,32 @@ export function runtimeAgentScopeContext(agentId: string): RuntimeAgentScope {
       department_head_scope_policy: null };
   }
   const known = cached.get(agentId);
-  if (known) return known;
+  if (known)
+    return known;
   const scope = buildScope(agentId);
   cached.set(agentId, scope);
   return scope;
 }
-
 /** Backward-compatible KOL business-agent scope helper. */
-export function kolAgentScopeContext(): RuntimeAgentScope {
-  return runtimeAgentScopeContext("agent:kol");
+export async function kolAgentScopeContext(): Promise<RuntimeAgentScope> {
+  return (await runtimeAgentScopeContext("agent:kol"));
 }
-
 export function clearContractScopeCache(): void { cached.clear(); }
-
 /** Employee-facing Agent views are configuration published with the KOL Agent manifest. */
 export function kolAgentManifest(): Record<string, unknown> {
   return readJsonYaml<Record<string, unknown>>(manifestPath("agent:kol"));
 }
-
-export function agentPublishState(): { status: string; employee_submission: boolean; state: string } {
-  const agent = readJsonYaml<AgentManifest & { publish_gate?: { state?: string; employee_submission?: boolean } }>(manifestPath("agent:kol"));
+export function agentPublishState(): {
+  status: string;
+  employee_submission: boolean;
+  state: string;
+} {
+  const agent = readJsonYaml<AgentManifest & {
+    publish_gate?: {
+      state?: string;
+      employee_submission?: boolean;
+    };
+  }>(manifestPath("agent:kol"));
   return {
     status: agent.status,
     employee_submission: agent.publish_gate?.employee_submission === true,
@@ -181,27 +213,31 @@ let submissionOverride: boolean | null = null;
 export function setAgentSubmissionOverride(value?: boolean | null): void {
   submissionOverride = value === undefined ? null : value;
 }
-
 export function agentSubmissionAllowed(mode = process.env.CODEX_MODE || "real"): boolean {
-  if (String(mode).toLowerCase() === "stub") return true;
-  if (submissionOverride != null) return submissionOverride;
+  if (String(mode).toLowerCase() === "stub")
+    return true;
+  if (submissionOverride != null)
+    return submissionOverride;
   return agentPublishState().employee_submission;
 }
-
 /**
  * Department heads are company-wide data-scope principals in the confirmed
  * organization policy. This grants ordinary read/write scope; high-risk
  * actions still require their existing Host Gateway and confirmation gates.
  */
-export function departmentHeadAccessForUser(user: { id?: string; name?: string } | null | undefined) {
-  if (!user) return null;
+export function departmentHeadAccessForUser(user: {
+  id?: string;
+  name?: string;
+} | null | undefined) {
+  if (!user)
+    return null;
   const org = readJsonYaml<ScopeRegistry>("config/org-registry.yaml");
   const policy = org.department_head_scope_policy;
-  if (!policy?.company_wide || policy.status !== "confirmed") return null;
-  const person = (org.confirmed_people || []).find((item) =>
-    item.role === "department_head" && (item.display_name === user.name || Boolean(item.user_ref && item.user_ref === user.id)),
-  );
-  if (!person) return null;
+  if (!policy?.company_wide || policy.status !== "confirmed")
+    return null;
+  const person = (org.confirmed_people || []).find((item) => item.role === "department_head" && (item.display_name === user.name || Boolean(item.user_ref && item.user_ref === user.id)));
+  if (!person)
+    return null;
   return {
     principal_ref: person.user_ref || null,
     org_unit: person.org_unit || null,

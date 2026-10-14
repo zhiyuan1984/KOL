@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { importOrganizationAccounts } from "../src/runtime/org-account-import.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -11,10 +11,10 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
-
 async function call(method: string, url: string, body?: unknown, cookie = adminCookie) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   const response = await app.request(url, {
     method,
     headers,
@@ -52,13 +52,11 @@ async function employeeLogin(username = "employee") {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-enterprise-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetDatabase());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const initial = await call("GET", "/api/auth/status", undefined, "");
   expect(initial.json).toMatchObject({ setup_required: true, authenticated: false });
   const setup = await call("POST", "/api/auth/setup", {
@@ -70,9 +68,8 @@ beforeEach(async () => {
   expect(setup.response.status).toBe(201);
   adminCookie = setup.cookie;
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   process.env.CODEX_MODE = "stub";
@@ -88,7 +85,9 @@ describe("production account and enterprise controls", () => {
       title: "Owner private task", idempotency_key: "workbench-task-bridge-1",
     }, ownerCookie);
     expect(created.response.status).toBe(201);
-    const taskId = String((created.json.task as { task_id: string }).task_id);
+    const taskId = String((created.json.task as {
+      task_id: string;
+    }).task_id);
     const dashboard = await call("GET", "/api/task-work-orders/dashboard", undefined, ownerCookie);
     expect(dashboard.response.status).toBe(200);
     expect(dashboard.json).toMatchObject({ tasks: { items: [{ task: { task_id: taskId } }] } });
@@ -106,10 +105,10 @@ describe("production account and enterprise controls", () => {
     const employee = await createEmployee("pool-reader");
     const cookie = await employeeLogin("pool-reader");
     expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(200);
-    getConn().prepare("UPDATE users SET active=0 WHERE id=?").run(employee.id);
+    (await postgresDb().execute("UPDATE users SET active=0 WHERE id=$1", employee.id));
     expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(401);
-    getConn().prepare("UPDATE users SET active=1 WHERE id=?").run(employee.id);
-    getConn().prepare("UPDATE auth_sessions SET expires_at=? WHERE user_id=?").run("2000-01-01T00:00:00.000Z", employee.id);
+    (await postgresDb().execute("UPDATE users SET active=1 WHERE id=$1", employee.id));
+    (await postgresDb().execute("UPDATE auth_sessions SET expires_at=$1 WHERE user_id=$2", "2000-01-01T00:00:00.000Z", employee.id));
     expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(401);
     const renewed = await employeeLogin("pool-reader");
     await call("POST", "/api/auth/logout", {}, renewed);
@@ -135,35 +134,35 @@ describe("production account and enterprise controls", () => {
     expect(logout.response.headers.get("set-cookie")).toContain("HttpOnly");
     expect(logout.response.headers.get("set-cookie")).toContain("SameSite=Lax");
   });
-
   it("enforces admin authorization and Agent-derived skill availability", async () => {
-    // Use the CI stub mode so this test reaches the employee skill PEP
-    // without starting a real Codex turn. Publication no longer 409s.
-    process.env.CODEX_MODE = "stub";
+    // 真实模式下运行时 PEP 在启动 turn 前拒绝，既不调用 Codex 也不需要 stub 绕过授权。
     const employee = await createEmployee();
     const cookie = await employeeLogin();
     expect((await call("GET", "/api/admin/users", undefined, cookie)).response.status).toBe(403);
+    // 模板可提供默认绑定；本用例明确撤销它们，建立「没有任何Agent使用资格」的权威前置。
+    (await postgresDb().execute("UPDATE agent_bindings SET status='revoked' WHERE agent_id='agent:kol'"));
     const session = await call("POST", "/api/sessions", { title: "gated" }, cookie);
     const denied = await call("POST", `/api/sessions/${session.json.id}/messages`, {
       text: "写合作邮件",
       intent: "email_compose",
     }, cookie);
     // 资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号在提交时就被拒绝。
-    expect(denied.response.status).toBe(400);
-    expect(denied.json.detail).toBe("未授权该技能");
+    expect(denied.response.status).toBe(403);
+    expect(denied.json.detail).toMatchObject({ code: "runtime_agent_not_usable" });
     // 逐人技能授权已退役（410），直接授权不再让技能可见或可执行。
     const retiredGrant = await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
     expect(retiredGrant.response.status).toBe(410);
     expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.id), "person:ye_guanwang");
-    createAgentBinding({
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", String(employee.id), "person:ye_guanwang"));
+    (await createAgentBinding({
       agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
+    }));
     const skills = await call("GET", "/api/skills", undefined, cookie);
-    expect((skills.json as unknown as { id: string }[]).map((skill) => skill.id)).toContain("email_compose");
+    expect((skills.json as unknown as {
+      id: string;
+    }[]).map((skill) => skill.id)).toContain("email_compose");
   });
-
   it("stores preferences and versioned Markdown memory", async () => {
     const employee = await createEmployee();
     const cookie = await employeeLogin();
@@ -194,7 +193,9 @@ describe("production account and enterprise controls", () => {
     const archived = await call("POST", `/api/sessions/${session.json.id}/archive`, {});
     expect(archived.json.archived_at).toBeTruthy();
     const withArchived = await call("GET", "/api/sessions?include_archived=1");
-    expect((withArchived.json as unknown as { id: string }[]).some((row) => row.id === session.json.id)).toBe(true);
+    expect((withArchived.json as unknown as {
+      id: string;
+    }[]).some((row) => row.id === session.json.id)).toBe(true);
     const restored = await call("POST", `/api/sessions/${session.json.id}/unarchive`, {});
     expect(restored.json.archived_at).toBeNull();
     const exported = await call("GET", `/api/sessions/${session.json.id}/export?format=json`);
@@ -216,12 +217,10 @@ describe("production account and enterprise controls", () => {
     expect((await call("GET", `/api/shared/${token}`, undefined, "")).json.read_only).toBe(true);
     await call("DELETE", `/api/sessions/${session.json.id}/share/${share.json.id}`);
     expect((await call("GET", `/api/shared/${token}`, undefined, "")).response.status).toBe(404);
-
     const expiring = await call("POST", `/api/sessions/${session.json.id}/share`, { expires_in_seconds: 60 });
-    getConn().prepare("UPDATE session_shares SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(expiring.json.id);
+    (await postgresDb().execute("UPDATE session_shares SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=$1", expiring.json.id));
     expect((await call("GET", `/api/shared/${expiring.json.token}`, undefined, "")).response.status).toBe(404);
   });
-
   it("assigns an exam and derives exam_passed from required attempts", async () => {
     const employee = await createEmployee();
     const exam = await call("POST", "/api/admin/exams", { title: "Data handling" });
@@ -250,20 +249,16 @@ describe("production account and enterprise controls", () => {
   it("replaces employee skill and approval grants without per-person connector grants", async () => {
     const employee = await createEmployee("grantee");
     const now = new Date().toISOString();
-    getConn().prepare("UPDATE connectors SET enabled=1, status='configured' WHERE id IN ('starrykol','claw')").run();
+    (await postgresDb().execute("UPDATE connectors SET enabled=1, status='configured' WHERE id IN ('starrykol','claw')"));
     for (const [id, label] of [["starrykol", "Starry KOL"], ["claw", "Claw"], ["enterprise_mail", "Enterprise Mail"], ["wecom", "WeCom"]]) {
-      getConn().prepare(
-        "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
-      ).run(id, label, 1, "configured", null, now);
+      (await postgresDb().execute("INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING", id, label, 1, "configured", null, now));
     }
     const retired = await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose", "creator_discovery"] });
     // 逐人技能授权退役（ADR-2026-10-03）：直接授权端点 410，不再写入 user_skill_grants；
     // 人员资格改由 Agent 绑定决定，历史授权行只作核对、不再放行。
     expect(retired.response.status).toBe(410);
     for (const [id, access] of [["starrykol", "read"], ["claw", "read"], ["enterprise_mail", "write"], ["wecom", "read"]]) {
-      getConn().prepare(
-        "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
-      ).run(employee.id, id, access, now);
+      (await postgresDb().execute("INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at", employee.id, id, access, now));
     }
     await call("PUT", `/api/admin/users/${employee.id}/approval-roles`, { roles: ["lead"] });
     const detail = await call("GET", `/api/admin/users/${employee.id}`);
@@ -289,17 +284,12 @@ describe("production account and enterprise controls", () => {
   it("returns employee binding detail and the runtime-backed tool list for admin governance", async () => {
     const employee = await createEmployee("directory-user");
     const now = new Date().toISOString();
-    getConn().prepare(
-      `INSERT INTO user_starry_bindings
+    (await postgresDb().execute(`INSERT INTO user_starry_bindings
         (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run(employee.id, "directory@amperetime.com", 1, "mailbox_directory", "Directory User", "secret-bearer", "connected", now);
-    getConn().prepare(
-      `INSERT INTO kol_follow_index
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, employee.id, "directory@amperetime.com", 1, "mailbox_directory", "Directory User", "secret-bearer", "connected", now));
+    (await postgresDb().execute(`INSERT INTO kol_follow_index
         (id,company_id,kol_uid,scope_brand,employee_id,status,claimed_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-    ).run("follow_directory", "company:amperetime", "kol_directory", "LT", employee.id, "active", now, now, now);
-
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, "follow_directory", "company:amperetime", "kol_directory", "LT", employee.id, "active", now, now, now));
     const directory = await call("GET", "/api/admin/users");
     const listed = (directory.json as unknown as Array<Record<string, unknown>>).find((row) => row.id === employee.id);
     expect(listed).toMatchObject({ mailbox_count: 1, kol_count: 1 });
@@ -353,9 +343,8 @@ describe("production account and enterprise controls", () => {
     const cookie = await employeeLogin("org-directory");
     expect((await call("GET", "/api/admin/organization-people", undefined, cookie)).response.status).toBe(403);
   });
-
   it("returns 王想 in the admin employee directory after confirmed organization account import", async () => {
-    importOrganizationAccounts(true);
+    (await importOrganizationAccounts(true));
     const directory = await call("GET", "/api/admin/users");
     expect(directory.response.status).toBe(200);
     const employee = (directory.json as unknown as Array<Record<string, unknown>>).find((row) => row.id === "usr_org_wang_xiang");
@@ -377,17 +366,16 @@ describe("production account and enterprise controls", () => {
     const adminId = String(me.json.id || "");
     expect(adminId).not.toBe("");
     expect(me.json.avatar_url).toBeNull();
-    const db = getConn();
+    const db = postgresDb();
     try {
-      db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?")
-        .run(adminId, "person:ye_guanwang");
+      (await db.execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", adminId, "person:ye_guanwang"));
       const linked = await call("GET", "/api/me");
       expect(linked.json.avatar_url).toBe("/avatars/employees/ye_guanwang.png");
-    } finally {
-      db.prepare("UPDATE organization_people SET user_id = NULL WHERE person_ref = ?").run("person:ye_guanwang");
+    }
+    finally {
+      (await db.execute("UPDATE organization_people SET user_id = NULL WHERE person_ref = $1", "person:ye_guanwang"));
     }
   });
-
   it("updates profile and password, invalidating old sessions", async () => {
     const profile = await call("PATCH", "/api/me", { name: "Renamed Admin", email: "admin@example.com" });
     expect(profile.json).toMatchObject({ name: "Renamed Admin", email: "admin@example.com" });
@@ -426,10 +414,15 @@ describe("production account and enterprise controls", () => {
       body: form,
     });
     expect(uploadedResponse.status).toBe(200);
-    const uploaded = (await uploadedResponse.json()) as { id: string; name: string; path: string };
+    const uploaded = (await uploadedResponse.json()) as {
+      id: string;
+      name: string;
+      path: string;
+    };
     const adminRecent = await call("GET", "/api/files/recent");
-    expect((adminRecent.json as unknown as { id: string }[]).map((item) => item.id)).toContain(uploaded.id);
-
+    expect((adminRecent.json as unknown as {
+      id: string;
+    }[]).map((item) => item.id)).toContain(uploaded.id);
     await createEmployee("file-user");
     const cookie = await employeeLogin("file-user");
     const employeeRecent = await call("GET", "/api/files/recent", undefined, cookie);

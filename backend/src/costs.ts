@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { audit, getConn, nowIso, tx } from "./db.js";
+import { audit, postgresDb, nowIso, pgTransaction } from "./postgres/access.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
@@ -19,12 +19,20 @@ export const COST_NOTES = [
   "auxiliary_codex_calls_unmetered",
   "cost_cents_unavailable",
 ];
-
-export type CostMonthWindow = { month: string; timezone: string; startIso: string; endIso: string };
-export type CostTotals = { input_tokens: number; output_tokens: number; total_tokens: number; events: number };
+export type CostMonthWindow = {
+  month: string;
+  timezone: string;
+  startIso: string;
+  endIso: string;
+};
+export type CostTotals = {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  events: number;
+};
 export type BudgetScope = "company" | "agent" | "user";
 export type BudgetState = "unconfigured" | "disabled" | "ok" | "warn" | "stopped";
-
 export type BudgetRow = {
   scope: BudgetScope;
   scope_ref: string;
@@ -54,18 +62,19 @@ export type ParsedUsage = {
   model: string | null;
   provider: string | null;
 };
-
-export type UsageRpc = { request(method: string, params?: Json, timeout?: number): Promise<Json> };
-
+export type UsageRpc = {
+  request(method: string, params?: Json, timeout?: number): Promise<Json>;
+};
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-
 function intOrNull(value: unknown): number | null {
-  if (value == null || value === "") return null;
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) return Math.round(value);
-  if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
+  if (value == null || value === "")
+    return null;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0)
+    return Math.round(value);
+  if (typeof value === "string" && /^\d+$/.test(value.trim()))
+    return Number(value.trim());
   return null;
 }
-
 function sumRow(row: Row | undefined): CostTotals {
   const source = (row || {}) as Record<string, unknown>;
   return {
@@ -99,30 +108,21 @@ export function monthWindow(month?: string | null): CostMonthWindow {
   const end = new Date(`${shiftMonth(key, 1)}-01T00:00:00${COST_MONTH_OFFSET}`);
   return { month: key, timezone: COST_MONTH_TZ, startIso: start.toISOString(), endIso: end.toISOString() };
 }
-
-const TOTALS_SQL = `SELECT IFNULL(SUM(input_tokens),0) AS input_tokens,
-       IFNULL(SUM(output_tokens),0) AS output_tokens,
-       IFNULL(SUM(total_tokens),0) AS total_tokens,
+const TOTALS_SQL = `SELECT COALESCE(SUM(input_tokens),0) AS input_tokens,
+       COALESCE(SUM(output_tokens),0) AS output_tokens,
+       COALESCE(SUM(total_tokens),0) AS total_tokens,
        COUNT(*) AS events
   FROM cost_events
- WHERE occurred_at >= ? AND occurred_at < ?`;
-
-export function companyUsage(window: CostMonthWindow): CostTotals {
-  return sumRow(getConn().prepare(TOTALS_SQL).get(window.startIso, window.endIso) as Row | undefined);
+ WHERE occurred_at >= $1 AND occurred_at < $2`;
+export async function companyUsage(window: CostMonthWindow): Promise<CostTotals> {
+  return sumRow((await postgresDb().one(TOTALS_SQL, window.startIso, window.endIso)) as Row | undefined);
 }
-
-export function agentUsage(agentId: string, window: CostMonthWindow): CostTotals {
-  return sumRow(
-    getConn().prepare(`${TOTALS_SQL} AND agent_id = ?`).get(window.startIso, window.endIso, agentId) as Row | undefined,
-  );
+export async function agentUsage(agentId: string, window: CostMonthWindow): Promise<CostTotals> {
+  return sumRow((await postgresDb().one(`${TOTALS_SQL} AND agent_id = $3`, window.startIso, window.endIso, agentId)) as Row | undefined);
 }
-
-export function userUsage(userId: string, window: CostMonthWindow): CostTotals {
-  return sumRow(
-    getConn().prepare(`${TOTALS_SQL} AND user_id = ?`).get(window.startIso, window.endIso, userId) as Row | undefined,
-  );
+export async function userUsage(userId: string, window: CostMonthWindow): Promise<CostTotals> {
+  return sumRow((await postgresDb().one(`${TOTALS_SQL} AND user_id = $3`, window.startIso, window.endIso, userId)) as Row | undefined);
 }
-
 export type CostEventInput = {
   agentId?: string | null;
   userId?: string | null;
@@ -143,106 +143,87 @@ export type CostEventInput = {
   raw?: string | null;
   occurredAt?: string | null;
 };
-
-export function recordCostEvent(input: CostEventInput): Row {
+export async function recordCostEvent(input: CostEventInput): Promise<Row> {
   const id = nid("cost");
   const inputTokens = intOrNull(input.inputTokens);
   const outputTokens = intOrNull(input.outputTokens);
   const totalTokens = intOrNull(input.totalTokens) ?? ((inputTokens || 0) + (outputTokens || 0));
   const occurredAt = input.occurredAt || nowIso();
-  getConn().prepare(
-    `INSERT INTO cost_events
+  (await postgresDb().execute(`INSERT INTO cost_events
        (id, occurred_at, agent_id, user_id, skill_id, session_id, run_id, work_item_id, task_run_id, thread_id,
         project_id, source, provider, model, input_tokens, output_tokens, total_tokens, cost_cents, raw, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    occurredAt,
-    input.agentId ?? null,
-    input.userId ?? null,
-    input.skillId ?? null,
-    input.sessionId ?? null,
-    input.runId ?? null,
-    input.workItemId ?? null,
-    input.taskRunId ?? null,
-    input.threadId ?? null,
-    input.projectId ?? null,
-    input.source,
-    input.provider ?? null,
-    input.model ?? null,
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    intOrNull(input.costCents),
-    input.raw ? String(input.raw).slice(0, 2000) : null,
-    nowIso(),
-  );
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, id, occurredAt, input.agentId ?? null, input.userId ?? null, input.skillId ?? null, input.sessionId ?? null, input.runId ?? null, input.workItemId ?? null, input.taskRunId ?? null, input.threadId ?? null, input.projectId ?? null, input.source, input.provider ?? null, input.model ?? null, inputTokens, outputTokens, totalTokens, intOrNull(input.costCents), input.raw ? String(input.raw).slice(0, 2000) : null, nowIso()));
   return { id, occurred_at: occurredAt, total_tokens: totalTokens };
 }
-
-export function listCostEvents(limit = 50, agentId?: string | null): Row[] {
+export async function listCostEvents(limit = 50, agentId?: string | null): Promise<Row[]> {
   const bounded = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 200) : 50;
   const rows = agentId
-    ? getConn().prepare("SELECT * FROM cost_events WHERE agent_id = ? ORDER BY occurred_at DESC, id DESC LIMIT ?")
-      .all(agentId, bounded)
-    : getConn().prepare("SELECT * FROM cost_events ORDER BY occurred_at DESC, id DESC LIMIT ?").all(bounded);
+    ? (await postgresDb().many("SELECT * FROM cost_events WHERE agent_id = $1 ORDER BY occurred_at DESC, id DESC LIMIT $2", agentId, bounded)) : (await postgresDb().many("SELECT * FROM cost_events ORDER BY occurred_at DESC, id DESC LIMIT $1", bounded));
   return rows as Row[];
 }
-
 let cachedCompanyRef: string | null = null;
 export function companyScopeRef(): string {
-  if (cachedCompanyRef) return cachedCompanyRef;
+  if (cachedCompanyRef)
+    return cachedCompanyRef;
   try {
     const parsed = JSON.parse(fs.readFileSync(path.join(repoRoot, "config", "org-registry.yaml"), "utf8")) as {
-      companies?: { id?: unknown }[];
+      companies?: {
+        id?: unknown;
+      }[];
     };
     const id = (parsed.companies || []).find((company) => typeof company?.id === "string")?.id;
     cachedCompanyRef = typeof id === "string" && id.trim() ? id.trim() : "primary";
-  } catch {
+  }
+  catch {
     cachedCompanyRef = "primary";
   }
   return cachedCompanyRef;
 }
-
-export function getBudget(scope: BudgetScope, scopeRef: string): BudgetRow | undefined {
-  return getConn().prepare("SELECT * FROM cost_budgets WHERE scope = ? AND scope_ref = ?")
-    .get(scope, scopeRef) as BudgetRow | undefined;
+export async function getBudget(scope: BudgetScope, scopeRef: string): Promise<BudgetRow | undefined> {
+  return (await postgresDb().one("SELECT * FROM cost_budgets WHERE scope = $1 AND scope_ref = $2", scope, scopeRef)) as BudgetRow | undefined;
 }
-
-export function listBudgets(): BudgetRow[] {
-  return getConn().prepare("SELECT * FROM cost_budgets ORDER BY scope, scope_ref").all() as BudgetRow[];
+export async function listBudgets(): Promise<BudgetRow[]> {
+  return (await postgresDb().many("SELECT * FROM cost_budgets ORDER BY scope, scope_ref")) as BudgetRow[];
 }
-
 export function budgetStateFor(row: BudgetRow | null | undefined, usedTokens: number): {
   percent: number | null;
   state: BudgetState;
 } {
-  if (!row || row.limit_tokens == null || row.limit_tokens <= 0) return { percent: null, state: "unconfigured" };
-  if (!row.enabled) return { percent: Math.round((usedTokens * 100) / row.limit_tokens), state: "disabled" };
+  if (!row || row.limit_tokens == null || row.limit_tokens <= 0)
+    return { percent: null, state: "unconfigured" };
+  if (!row.enabled)
+    return { percent: Math.round((usedTokens * 100) / row.limit_tokens), state: "disabled" };
   const percent = Math.round((usedTokens * 100) / row.limit_tokens);
-  if (usedTokens * 100 >= row.limit_tokens * row.hard_stop_percent) return { percent, state: "stopped" };
-  if (usedTokens * 100 >= row.limit_tokens * row.warn_percent) return { percent, state: "warn" };
+  if (usedTokens * 100 >= row.limit_tokens * row.hard_stop_percent)
+    return { percent, state: "stopped" };
+  if (usedTokens * 100 >= row.limit_tokens * row.warn_percent)
+    return { percent, state: "warn" };
   return { percent, state: "ok" };
 }
-
-function scopeUsage(scope: BudgetScope, scopeRef: string, window: CostMonthWindow): number {
-  if (scope === "company") return companyUsage(window).total_tokens;
-  if (scope === "agent") return agentUsage(scopeRef, window).total_tokens;
-  return userUsage(scopeRef, window).total_tokens;
+async function scopeUsage(scope: BudgetScope, scopeRef: string, window: CostMonthWindow): Promise<number> {
+  if (scope === "company")
+    return (await companyUsage(window)).total_tokens;
+  if (scope === "agent")
+    return (await agentUsage(scopeRef, window)).total_tokens;
+  return (await userUsage(scopeRef, window)).total_tokens;
 }
-
 /** 运行前闸门：命中硬停返回原因；不判定警示（警示只用于展示）。判定顺序：公司 → Agent → 员工。 */
-export function budgetBlockFor(agentId: string, userId?: string | null, now = new Date()): BudgetBlockReason | null {
+export async function budgetBlockFor(agentId: string, userId?: string | null, now = new Date()): Promise<BudgetBlockReason | null> {
   const window = monthWindow(currentCostMonth(now));
-  const candidates: { scope: BudgetScope; scopeRef: string }[] = [
+  const candidates: {
+    scope: BudgetScope;
+    scopeRef: string;
+  }[] = [
     { scope: "company", scopeRef: companyScopeRef() },
     { scope: "agent", scopeRef: agentId },
   ];
-  if (userId && String(userId).trim()) candidates.push({ scope: "user", scopeRef: String(userId).trim() });
+  if (userId && String(userId).trim())
+    candidates.push({ scope: "user", scopeRef: String(userId).trim() });
   for (const candidate of candidates) {
-    const row = getBudget(candidate.scope, candidate.scopeRef);
-    if (!row || !row.enabled || row.limit_tokens == null || row.limit_tokens <= 0) continue;
-    const used = scopeUsage(candidate.scope, candidate.scopeRef, window);
+    const row = (await getBudget(candidate.scope, candidate.scopeRef));
+    if (!row || !row.enabled || row.limit_tokens == null || row.limit_tokens <= 0)
+      continue;
+    const used = (await scopeUsage(candidate.scope, candidate.scopeRef, window));
     if (used * 100 >= row.limit_tokens * row.hard_stop_percent) {
       return {
         scope: candidate.scope,
@@ -293,46 +274,45 @@ export type BudgetUpsertInput = {
   expectedVersion?: number | null;
   actor: string;
 };
-
 function percentOrFail(value: unknown, field: string, fallback: number): number {
-  if (value == null) return fallback;
+  if (value == null)
+    return fallback;
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 100) {
     throw new HttpFail(400, `${field} must be an integer between 0 and 100`);
   }
   return value;
 }
-
-export function upsertBudget(input: BudgetUpsertInput): BudgetRow {
+export async function upsertBudget(input: BudgetUpsertInput): Promise<BudgetRow> {
   if (input.scope !== "company" && input.scope !== "agent" && input.scope !== "user") {
     throw new HttpFail(400, "scope must be company, agent or user");
   }
   const scopeRef = String(input.scopeRef || "").trim();
-  if (!scopeRef) throw new HttpFail(400, "scope_ref is required");
+  if (!scopeRef)
+    throw new HttpFail(400, "scope_ref is required");
   const limitTokens = input.limitTokens == null ? null : intOrNull(input.limitTokens);
   if (input.limitTokens != null && (limitTokens == null || limitTokens <= 0)) {
     throw new HttpFail(400, "limit_tokens must be a positive integer or null");
   }
   const warnPercent = percentOrFail(input.warnPercent, "warn_percent", 80);
   const hardStopPercent = percentOrFail(input.hardStopPercent, "hard_stop_percent", 100);
-  if (hardStopPercent < warnPercent) throw new HttpFail(400, "hard_stop_percent must be >= warn_percent");
+  if (hardStopPercent < warnPercent)
+    throw new HttpFail(400, "hard_stop_percent must be >= warn_percent");
   const enabled = input.enabled === false ? 0 : 1;
   const expectedVersion = input.expectedVersion == null ? null : Number(input.expectedVersion);
-
-  return tx((conn) => {
-    const existing = conn.prepare("SELECT * FROM cost_budgets WHERE scope = ? AND scope_ref = ?")
-      .get(input.scope, scopeRef) as BudgetRow | undefined;
+  return (await pgTransaction(async (conn) => {
+    const existing = (await conn.one("SELECT * FROM cost_budgets WHERE scope = $1 AND scope_ref = $2", input.scope, scopeRef)) as BudgetRow | undefined;
     if (existing) {
       if (expectedVersion != null && expectedVersion !== existing.version) {
         throw new HttpFail(409, { code: "cost_budget_version_conflict", message: "预算已被其他操作更新，请刷新后重试。", current_version: existing.version });
       }
-    } else if (expectedVersion != null && expectedVersion !== 0) {
+    }
+    else if (expectedVersion != null && expectedVersion !== 0) {
       throw new HttpFail(409, { code: "cost_budget_version_conflict", message: "预算不存在，无法按给定版本更新。", current_version: null });
     }
     const version = existing ? existing.version + 1 : 0;
     const updatedAt = nowIso();
-    conn.prepare(
-      `INSERT INTO cost_budgets (scope, scope_ref, limit_tokens, warn_percent, hard_stop_percent, enabled, version, updated_at, updated_by)
-       VALUES (?,?,?,?,?,?,?,?,?)
+    (await conn.execute(`INSERT INTO cost_budgets (scope, scope_ref, limit_tokens, warn_percent, hard_stop_percent, enabled, version, updated_at, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT(scope, scope_ref) DO UPDATE SET
          limit_tokens = excluded.limit_tokens,
          warn_percent = excluded.warn_percent,
@@ -340,9 +320,8 @@ export function upsertBudget(input: BudgetUpsertInput): BudgetRow {
          enabled = excluded.enabled,
          version = excluded.version,
          updated_at = excluded.updated_at,
-         updated_by = excluded.updated_by`,
-    ).run(input.scope, scopeRef, limitTokens, warnPercent, hardStopPercent, enabled, version, updatedAt, input.actor);
-    audit(input.actor, "cost.budget.updated", {
+         updated_by = excluded.updated_by`, input.scope, scopeRef, limitTokens, warnPercent, hardStopPercent, enabled, version, updatedAt, input.actor));
+    (await audit(input.actor, "cost.budget.updated", {
       scope: input.scope,
       scope_ref: scopeRef,
       limit_tokens: limitTokens,
@@ -351,15 +330,13 @@ export function upsertBudget(input: BudgetUpsertInput): BudgetRow {
       enabled,
       version,
       before_version: existing?.version ?? null,
-    });
-    return conn.prepare("SELECT * FROM cost_budgets WHERE scope = ? AND scope_ref = ?")
-      .get(input.scope, scopeRef) as BudgetRow;
-  });
+    }));
+    return (await conn.one("SELECT * FROM cost_budgets WHERE scope = $1 AND scope_ref = $2", input.scope, scopeRef)) as BudgetRow;
+  }));
 }
-
-function budgetEntry(scope: BudgetScope, scopeRef: string, window: CostMonthWindow): Json {
-  const row = getBudget(scope, scopeRef);
-  const used = scopeUsage(scope, scopeRef, window);
+async function budgetEntry(scope: BudgetScope, scopeRef: string, window: CostMonthWindow): Promise<Json> {
+  const row = (await getBudget(scope, scopeRef));
+  const used = (await scopeUsage(scope, scopeRef, window));
   const state = budgetStateFor(row, used);
   return {
     scope,
@@ -374,46 +351,62 @@ function budgetEntry(scope: BudgetScope, scopeRef: string, window: CostMonthWind
     state: state.state,
   };
 }
-
-function agentCandidates(): string[] {
+async function agentCandidates(): Promise<string[]> {
   const set = new Set<string>();
   try {
-    const rows = getConn().prepare("SELECT DISTINCT agent_id FROM runtime_agent_skills").all() as { agent_id: string }[];
-    for (const row of rows) if (row.agent_id) set.add(String(row.agent_id));
-  } catch {
+    const rows = (await postgresDb().many("SELECT DISTINCT agent_id FROM runtime_agent_skills")) as {
+      agent_id: string;
+    }[];
+    for (const row of rows)
+      if (row.agent_id)
+        set.add(String(row.agent_id));
+  }
+  catch {
     // runtime governance table may be absent in isolated module tests
   }
-  const used = getConn().prepare("SELECT DISTINCT agent_id FROM cost_events WHERE agent_id IS NOT NULL").all() as { agent_id: string }[];
-  for (const row of used) if (row.agent_id) set.add(String(row.agent_id));
-  const budgeted = getConn().prepare("SELECT scope_ref FROM cost_budgets WHERE scope = 'agent'").all() as { scope_ref: string }[];
-  for (const row of budgeted) if (row.scope_ref) set.add(String(row.scope_ref));
+  const used = (await postgresDb().many("SELECT DISTINCT agent_id FROM cost_events WHERE agent_id IS NOT NULL")) as {
+    agent_id: string;
+  }[];
+  for (const row of used)
+    if (row.agent_id)
+      set.add(String(row.agent_id));
+  const budgeted = (await postgresDb().many("SELECT scope_ref FROM cost_budgets WHERE scope = 'agent'")) as {
+    scope_ref: string;
+  }[];
+  for (const row of budgeted)
+    if (row.scope_ref)
+      set.add(String(row.scope_ref));
   return [...set].sort();
 }
-
 /** 个人预算候选：本月出现过用量的员工 ∪ 已配置个人预算的员工。 */
-function userCandidates(): string[] {
+async function userCandidates(): Promise<string[]> {
   const set = new Set<string>();
-  const used = getConn().prepare("SELECT DISTINCT user_id FROM cost_events WHERE user_id IS NOT NULL").all() as { user_id: string }[];
-  for (const row of used) if (row.user_id) set.add(String(row.user_id));
-  const budgeted = getConn().prepare("SELECT scope_ref FROM cost_budgets WHERE scope = 'user'").all() as { scope_ref: string }[];
-  for (const row of budgeted) if (row.scope_ref) set.add(String(row.scope_ref));
+  const used = (await postgresDb().many("SELECT DISTINCT user_id FROM cost_events WHERE user_id IS NOT NULL")) as {
+    user_id: string;
+  }[];
+  for (const row of used)
+    if (row.user_id)
+      set.add(String(row.user_id));
+  const budgeted = (await postgresDb().many("SELECT scope_ref FROM cost_budgets WHERE scope = 'user'")) as {
+    scope_ref: string;
+  }[];
+  for (const row of budgeted)
+    if (row.scope_ref)
+      set.add(String(row.scope_ref));
   return [...set].sort();
 }
-
-export function costsSummary(month?: string | null): Json {
+export async function costsSummary(month?: string | null): Promise<Json> {
   const window = monthWindow(month);
-  const totals = companyUsage(window);
-  const byAgent = getConn().prepare(
-    `SELECT agent_id,
-            IFNULL(SUM(input_tokens),0) AS input_tokens,
-            IFNULL(SUM(output_tokens),0) AS output_tokens,
-            IFNULL(SUM(total_tokens),0) AS total_tokens,
+  const totals = (await companyUsage(window));
+  const byAgent = (await postgresDb().many(`SELECT agent_id,
+            COALESCE(SUM(input_tokens),0) AS input_tokens,
+            COALESCE(SUM(output_tokens),0) AS output_tokens,
+            COALESCE(SUM(total_tokens),0) AS total_tokens,
             COUNT(*) AS events
        FROM cost_events
-      WHERE occurred_at >= ? AND occurred_at < ? AND agent_id IS NOT NULL
+      WHERE occurred_at >= $1 AND occurred_at < $2 AND agent_id IS NOT NULL
       GROUP BY agent_id
-      ORDER BY total_tokens DESC, agent_id`,
-  ).all(window.startIso, window.endIso) as Row[];
+      ORDER BY total_tokens DESC, agent_id`, window.startIso, window.endIso)) as Row[];
   const agents = byAgent.map((row) => ({
     agent_id: String(row.agent_id),
     input_tokens: Number(row.input_tokens || 0),
@@ -421,17 +414,15 @@ export function costsSummary(month?: string | null): Json {
     total_tokens: Number(row.total_tokens || 0),
     events: Number(row.events || 0),
   }));
-  const byUser = getConn().prepare(
-    `SELECT user_id,
-            IFNULL(SUM(input_tokens),0) AS input_tokens,
-            IFNULL(SUM(output_tokens),0) AS output_tokens,
-            IFNULL(SUM(total_tokens),0) AS total_tokens,
+  const byUser = (await postgresDb().many(`SELECT user_id,
+            COALESCE(SUM(input_tokens),0) AS input_tokens,
+            COALESCE(SUM(output_tokens),0) AS output_tokens,
+            COALESCE(SUM(total_tokens),0) AS total_tokens,
             COUNT(*) AS events
        FROM cost_events
-      WHERE occurred_at >= ? AND occurred_at < ? AND user_id IS NOT NULL
+      WHERE occurred_at >= $1 AND occurred_at < $2 AND user_id IS NOT NULL
       GROUP BY user_id
-      ORDER BY total_tokens DESC, user_id`,
-  ).all(window.startIso, window.endIso) as Row[];
+      ORDER BY total_tokens DESC, user_id`, window.startIso, window.endIso)) as Row[];
   const users = byUser.map((row) => ({
     user_id: String(row.user_id),
     input_tokens: Number(row.input_tokens || 0),
@@ -440,9 +431,9 @@ export function costsSummary(month?: string | null): Json {
     events: Number(row.events || 0),
   }));
   const budgets = [
-    budgetEntry("company", companyScopeRef(), window),
-    ...agentCandidates().map((agentId) => budgetEntry("agent", agentId, window)),
-    ...userCandidates().map((userId) => budgetEntry("user", userId, window)),
+    (await budgetEntry("company", companyScopeRef(), window)),
+    ...(await Promise.all((await agentCandidates()).map(async (agentId) => (await budgetEntry("agent", agentId, window))))),
+    ...(await Promise.all((await userCandidates()).map(async (userId) => (await budgetEntry("user", userId, window))))),
   ];
   return {
     month: window.month,
@@ -463,21 +454,25 @@ function objectAt(value: unknown): Record<string, unknown> | null {
 /** 解析 app-server `account/usage/read` 返回值；形状不符返回 null（按缺口处理，不得以 0 冒充）。 */
 export function parseThreadUsage(result: Json | null | undefined): ParsedUsage | null {
   const root = objectAt(result);
-  if (!root) return null;
+  if (!root)
+    return null;
   const threadUsage = objectAt(root.threadUsage);
   const candidates = [threadUsage, objectAt(root.usage)].filter(Boolean) as Record<string, unknown>[];
-  if (!candidates.length) return null;
+  if (!candidates.length)
+    return null;
   const pick = (keys: string[]): number | null => {
     for (const candidate of candidates) {
       for (const key of keys) {
         const value = candidate[key];
-        if (typeof value === "number" && Number.isFinite(value) && value >= 0) return Math.round(value);
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0)
+          return Math.round(value);
       }
       const nested = objectAt(candidate.usage);
       if (nested) {
         for (const key of keys) {
           const value = nested[key];
-          if (typeof value === "number" && Number.isFinite(value) && value >= 0) return Math.round(value);
+          if (typeof value === "number" && Number.isFinite(value) && value >= 0)
+            return Math.round(value);
         }
       }
     }
@@ -489,7 +484,8 @@ export function parseThreadUsage(result: Json | null | undefined): ParsedUsage |
   if (totalTokens == null && (inputTokens != null || outputTokens != null)) {
     totalTokens = (inputTokens || 0) + (outputTokens || 0);
   }
-  if (inputTokens == null && outputTokens == null && totalTokens == null) return null;
+  if (inputTokens == null && outputTokens == null && totalTokens == null)
+    return null;
   const modelHolder = candidates.find((candidate) => typeof candidate.model === "string");
   const providerHolder = candidates.find((candidate) => typeof candidate.provider === "string")
     || (typeof root.provider === "string" ? root : null);
@@ -525,7 +521,7 @@ export async function captureThreadUsage(capture: ThreadUsageCapture): Promise<v
       log.push({ method: "account/usage/read", params: { thread_id: threadId, captured: false, reason: "usage_unavailable" } });
       return;
     }
-    recordCostEvent({
+    (await recordCostEvent({
       agentId: capture.agentId,
       userId: capture.userId ?? null,
       skillId: capture.skillId,
@@ -541,7 +537,7 @@ export async function captureThreadUsage(capture: ThreadUsageCapture): Promise<v
       outputTokens: usage.outputTokens,
       totalTokens: usage.totalTokens,
       raw: JSON.stringify(result),
-    });
+    }));
     log.push({
       method: "account/usage/read",
       params: {
@@ -553,7 +549,8 @@ export async function captureThreadUsage(capture: ThreadUsageCapture): Promise<v
         source: COST_SOURCE_THREAD_USAGE,
       },
     });
-  } catch (error) {
+  }
+  catch (error) {
     log.push({
       method: "account/usage/read",
       params: {

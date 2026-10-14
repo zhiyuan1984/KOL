@@ -1,9 +1,7 @@
-import { onConnReset } from "../db.js";
+import { onDatabaseReset } from "../postgres/access.js";
 import { nid } from "../ids.js";
 import type { Intent, Json } from "../types.js";
-
 export const WRITE_SKILLS = new Set(["confirm_stage", "creator_contact_decrypt"]);
-
 export type QueuedAsk = {
   id: string;
   text: string;
@@ -26,8 +24,7 @@ let revision = 0;
 export function runControlRevision(): number {
   return revision;
 }
-
-onConnReset(() => {
+onDatabaseReset(() => {
   running.clear();
   stopped.clear();
   aborts.clear();
@@ -47,9 +44,9 @@ export function beginSessionAsk(sid: string): void {
   stopped.delete(sid);
   revision += 1;
 }
-
 export function markSessionRunning(sid: string): boolean {
-  if (stopped.has(sid)) return false;
+  if (stopped.has(sid))
+    return false;
   running.add(sid);
   revision += 1;
   return true;
@@ -64,12 +61,11 @@ export function clearSessionRunning(sid: string): void {
 export function wasSessionStopped(sid: string): boolean {
   return stopped.has(sid);
 }
-
 export function attachRunAbort(sid: string, controller: AbortController): void {
   aborts.set(sid, controller);
-  if (stopped.has(sid)) controller.abort();
+  if (stopped.has(sid))
+    controller.abort();
 }
-
 export function hasRunAbort(sid: string): boolean {
   return aborts.has(sid);
 }
@@ -103,24 +99,29 @@ export function enqueueAsk(sid: string, item: Omit<QueuedAsk, "id">): QueuedAsk 
   revision += 1;
   return row;
 }
-
 export function removeQueued(sid: string, id: string): boolean {
   const list = queues.get(sid);
-  if (!list?.length) return false;
+  if (!list?.length)
+    return false;
   const next = list.filter((item) => item.id !== id);
-  if (next.length === list.length) return false;
-  if (next.length) queues.set(sid, next);
-  else queues.delete(sid);
+  if (next.length === list.length)
+    return false;
+  if (next.length)
+    queues.set(sid, next);
+  else
+    queues.delete(sid);
   revision += 1;
   return true;
 }
-
 export function shiftQueue(sid: string): QueuedAsk | null {
   const list = queues.get(sid);
-  if (!list?.length) return null;
+  if (!list?.length)
+    return null;
   const next = list.shift() || null;
-  if (list.length) queues.set(sid, list);
-  else queues.delete(sid);
+  if (list.length)
+    queues.set(sid, list);
+  else
+    queues.delete(sid);
   revision += 1;
   return next;
 }

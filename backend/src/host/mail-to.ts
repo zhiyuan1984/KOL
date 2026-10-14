@@ -1,8 +1,6 @@
-import { getConn } from "../db.js";
+import { postgresDb } from "../postgres/access.js";
 import type { Intent, Json, Row } from "../types.js";
-
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
-
 export function firstEmail(value: unknown): string {
   const match = EMAIL_RE.exec(String(value ?? ""));
   return match ? match[0] : "";
@@ -11,13 +9,7 @@ export function firstEmail(value: unknown): string {
 export function isPlaceholderMail(addr: string): boolean {
   return /@example\.com$/i.test(String(addr || "").trim());
 }
-
-export function resolveMailTo(
-  col: Row | null | undefined,
-  intent: Intent | null | undefined,
-  item?: Json,
-  text?: string,
-): string {
+export function resolveMailTo(col: Row | null | undefined, intent: Intent | null | undefined, item?: Json, text?: string): string {
   const entities = intent?.extras?.entities && typeof intent.extras.entities === "object"
     ? intent.extras.entities as Json
     : {};
@@ -29,16 +21,18 @@ export function resolveMailTo(
     || firstEmail(text)
     || firstEmail(intent?.raw);
 }
-
-export function bindCollaborationEmail(collaborationId: string | null | undefined, email: string): boolean {
+export async function bindCollaborationEmail(collaborationId: string | null | undefined, email: string): Promise<boolean> {
   const id = String(collaborationId || "").trim();
   const to = firstEmail(email);
-  if (!id || !to) return false;
-  const row = getConn().prepare("SELECT email FROM collaborations WHERE id=?").get(id) as
-    | { email?: string }
-    | undefined;
-  if (!row) return false;
-  if (String(row.email || "").trim()) return false;
-  getConn().prepare("UPDATE collaborations SET email=? WHERE id=?").run(to, id);
+  if (!id || !to)
+    return false;
+  const row = (await postgresDb().one("SELECT email FROM collaborations WHERE id=$1", id)) as {
+    email?: string;
+  } | undefined;
+  if (!row)
+    return false;
+  if (String(row.email || "").trim())
+    return false;
+  (await postgresDb().execute("UPDATE collaborations SET email=$1 WHERE id=$2", to, id));
   return true;
 }

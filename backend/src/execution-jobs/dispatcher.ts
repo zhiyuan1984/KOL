@@ -11,19 +11,8 @@ import "../knowledge/publication.js";
 import { pgExecutionJobById } from "./postgres-store.js";
 import { executeWorkOrderDecision } from "../ticket-domain/work-order-executor.js";
 import { advanceWorkOrderStageForDecision } from "../ticket-domain/work-order-stage-executor.js";
-import {
-  type ClaimedExecutionJob,
-} from "./contracts.js";
-import {
-  runtimeClaimExecutionJobById,
-  runtimeClaimNextExecutionJob,
-  runtimeCompleteExecutionJob,
-  runtimeFailExecutionJob,
-  runtimeExecutionJobPayload,
-  runtimeQuarantineExecutionJob,
-  runtimeRenewExecutionJobLease,
-} from "./runtime-store.js";
-
+import { type ClaimedExecutionJob, } from "./contracts.js";
+import { runtimeClaimExecutionJobById, runtimeClaimNextExecutionJob, runtimeCompleteExecutionJob, runtimeFailExecutionJob, runtimeExecutionJobPayload, runtimeRenewExecutionJobLease, } from "./runtime-store.js";
 export type ExecutionDispatchResult = {
   execution_job_id: string;
   job_type: string;
@@ -42,14 +31,15 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
   const jobType = String(claimed.job_type);
   try {
     if (jobType === "review.timeout") {
-      const instanceId=await executeReviewTimeout(claimed);
-      return {execution_job_id:id,job_type:jobType,handled:true,outcome:"processed",target_id:instanceId};
+      const instanceId = await executeReviewTimeout(claimed);
+      return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: instanceId };
     }
     const registered = executionHandler(jobType);
     if (registered) {
       const checkpoint = async () => {
         const current = await pgExecutionJobById(id);
-        if (current?.status !== "running" || current.lease_owner !== claimed.worker_id) throw new Error("execution_job_claim_lost_or_cancelled");
+        if (current?.status !== "running" || current.lease_owner !== claimed.worker_id)
+          throw new Error("execution_job_claim_lost_or_cancelled");
       };
       const receipt = await registered(claimed, checkpoint);
       await checkpoint();
@@ -60,7 +50,8 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
       const { executeMailSyncJob } = await import("../mail/sync-job.js");
       const checkpoint = async () => {
         const current = await pgExecutionJobById(id);
-        if (current?.status !== "running" || current.lease_owner !== claimed.worker_id) throw new Error("execution_job_claim_lost_or_cancelled");
+        if (current?.status !== "running" || current.lease_owner !== claimed.worker_id)
+          throw new Error("execution_job_claim_lost_or_cancelled");
       };
       const receipt = await executeMailSyncJob(claimed, checkpoint);
       await checkpoint();
@@ -110,17 +101,8 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: result.work_order?.id || decisionId };
     }
     if (jobType === "work_plan.run" || jobType === "today_analyze.run") {
-      // The compatibility workbench still owns its plan/task-run projection.
-      // Its worker may execute these read-only planning jobs; a true
-      // PostgreSQL-only deployment must quarantine them instead of importing
-      // the compatibility adapter.
-      if (process.env.KOL_RUNTIME_MODE === "postgres-only") {
-        await runtimeQuarantineExecutionJob(id, {
-          code: "needs_takeover",
-          summary: `${jobType} depends on retired planning/task-run storage and is disabled in PostgreSQL-only runtime`,
-        });
-        return { execution_job_id: id, job_type: jobType, handled: false, outcome: "needs_takeover", target_id: String(claimed.ticket_id || "") || null };
-      }
+      // Planning/task-run storage now uses the same native PostgreSQL authority.
+      // There is no compatibility-mode feature split or second application.
       const { executeClaimedPlanningJob } = await import("../host/today-plan-run.js");
       const workItemId = await executeClaimedPlanningJob(claimed);
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: workItemId };
@@ -130,7 +112,8 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
       summary: `No durable execution handler registered for ${jobType}`,
     });
     return { execution_job_id: id, job_type: jobType, handled: false, outcome: "failed", target_id: null };
-  } catch (error) {
+  }
+  catch (error) {
     if (error instanceof ExecutionNotDispatched) {
       await runtimeFailExecutionJob(id, { code: error.code, summary: error.code }, {
         expected_worker: claimed.worker_id, not_dispatched: true,
@@ -164,17 +147,15 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
     return { execution_job_id: id, job_type: jobType, handled: true, outcome: "failed", target_id: null };
   }
 }
-
-export type ExecutionDispatchOptions = { lease_ms?: number; renew_ms?: number };
-
+export type ExecutionDispatchOptions = {
+  lease_ms?: number;
+  renew_ms?: number;
+};
 /** Keep a job's database claim alive while an external handler is still
  * executing. Renewal is ownership-scoped so a stale worker cannot resurrect a
  * claim later owned by another consumer. */
-export async function dispatchClaimedExecutionJob(
-  claimed: ClaimedExecutionJob,
-  options: ExecutionDispatchOptions = {},
-): Promise<ExecutionDispatchResult> {
-  const leaseMs = Math.max(1_000, Number(options.lease_ms || 60_000));
+export async function dispatchClaimedExecutionJob(claimed: ClaimedExecutionJob, options: ExecutionDispatchOptions = {}): Promise<ExecutionDispatchResult> {
+  const leaseMs = Math.max(1000, Number(options.lease_ms || 60000));
   const renewMs = Math.max(500, Math.min(leaseMs - 100, Number(options.renew_ms || Math.floor(leaseMs / 3))));
   const timer = setInterval(() => {
     void runtimeRenewExecutionJobLease(String(claimed.id), String(claimed.worker_id), { lease_ms: leaseMs })
@@ -190,30 +171,24 @@ export async function dispatchClaimedExecutionJob(
   timer.unref();
   try {
     return await dispatchClaimedExecutionJobInner(claimed);
-  } finally {
+  }
+  finally {
     clearInterval(timer);
   }
 }
-
-export async function processNextExecutionJob(
-  workerId = "execution-worker",
-  options: ExecutionDispatchOptions = {},
-): Promise<ExecutionDispatchResult | null> {
+export async function processNextExecutionJob(workerId = "execution-worker", options: ExecutionDispatchOptions = {}): Promise<ExecutionDispatchResult | null> {
   const claimed = await runtimeClaimNextExecutionJob(workerId, { lease_ms: options.lease_ms });
-  if (!claimed) return null;
-  return dispatchClaimedExecutionJob(claimed, options);
+  if (!claimed)
+    return null;
+  return (await dispatchClaimedExecutionJob(claimed, options));
 }
-
 /**
  * Broker consumers may redeliver the same message. The authoritative claim
  * transitions queued/retrying -> running, so a second delivery is harmless.
  */
-export async function processExecutionJobById(
-  executionJobId: string,
-  workerId = "execution-worker",
-  options: ExecutionDispatchOptions = {},
-): Promise<ExecutionDispatchResult | null> {
+export async function processExecutionJobById(executionJobId: string, workerId = "execution-worker", options: ExecutionDispatchOptions = {}): Promise<ExecutionDispatchResult | null> {
   const claimed = await runtimeClaimExecutionJobById(executionJobId, workerId, { lease_ms: options.lease_ms });
-  if (!claimed) return null;
-  return dispatchClaimedExecutionJob(claimed, options);
+  if (!claimed)
+    return null;
+  return (await dispatchClaimedExecutionJob(claimed, options));
 }

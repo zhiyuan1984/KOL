@@ -1,12 +1,10 @@
-import { getConn, nowIso, type SqliteConn } from "../db.js";
+import { postgresDb, nowIso, type PgRepository } from "../postgres/access.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { humanFrequency, nextRunAt } from "./schedule.js";
 import { handlerContract, isCronHandlerKey } from "./handlers.js";
-
 export const SYSTEM_EXECUTE_AS = "system";
 export const DEFAULT_EXPERT = "expert:kol";
-
 export const SYSTEM_JOBS: Array<{
   id: string;
   job_key: string;
@@ -68,84 +66,60 @@ export const SYSTEM_JOBS: Array<{
     condition: { memory_kinds: ["translation", "summary", "digest", "person_digest"] },
   },
 ];
-
 const DEFAULT_RETRY = { max_attempts: 1, backoff_sec: 0 };
 const DEFAULT_TAKEOVER = { after_minutes: 30, action: "needs_takeover" };
-
 function parseJson(raw: unknown, fallback: Json = {}): Json {
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Json;
+  if (raw && typeof raw === "object" && !Array.isArray(raw))
+    return raw as Json;
   try {
     const parsed = JSON.parse(String(raw || "{}"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Json : fallback;
-  } catch {
+  }
+  catch {
     return fallback;
   }
 }
-
-export function ensureSystemCronJobs(db: SqliteConn = getConn(), from = new Date()): void {
+export async function ensureSystemCronJobs(db: PgRepository = postgresDb(), from = new Date()): Promise<void> {
   const now = nowIso();
-  const existing = new Set((db.prepare("SELECT id FROM cron_jobs WHERE owner_account_id IS NULL").all() as Array<{ id: string }>).map((row) => row.id));
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO cron_jobs
-     (id,job_key,title,owner_account_id,execute_as,capability_expert_id,handler_key,
-      scope_json,condition_json,cron_expr,timezone,status,retry_policy_json,takeover_policy_json,
-      published_rev,next_run_at,last_run_at,last_terminal_status,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  );
+  const existing = new Set(((await db.many("SELECT id FROM cron_jobs WHERE owner_account_id IS NULL")) as Array<{
+    id: string;
+  }>).map((row) => row.id));
   for (const job of SYSTEM_JOBS) {
-    if (existing.has(job.id)) continue;
+    if (existing.has(job.id))
+      continue;
     const next = job.status === "published" ? nextRunAt(job.cron_expr, "Asia/Shanghai", from).toISOString() : null;
-    insert.run(
-      job.id,
-      job.job_key,
-      job.title,
-      null,
-      SYSTEM_EXECUTE_AS,
-      DEFAULT_EXPERT,
-      job.handler_key,
-      JSON.stringify(job.scope),
-      JSON.stringify(job.condition),
-      job.cron_expr,
-      "Asia/Shanghai",
-      job.status,
-      JSON.stringify(DEFAULT_RETRY),
-      JSON.stringify(DEFAULT_TAKEOVER),
-      1,
-      next,
-      null,
-      null,
-      now,
-      now,
-    );
+    await db.execute(`INSERT INTO cron_jobs
+         (id,job_key,title,owner_account_id,execute_as,capability_expert_id,handler_key,
+          scope_json,condition_json,cron_expr,timezone,status,retry_policy_json,takeover_policy_json,
+          published_rev,next_run_at,last_run_at,last_terminal_status,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+         ON CONFLICT (id) DO NOTHING`, job.id, job.job_key, job.title, null, SYSTEM_EXECUTE_AS, DEFAULT_EXPERT, job.handler_key, JSON.stringify(job.scope), JSON.stringify(job.condition), job.cron_expr, "Asia/Shanghai", job.status, JSON.stringify(DEFAULT_RETRY), JSON.stringify(DEFAULT_TAKEOVER), 1, next, null, null, now, now);
   }
 }
-
-export function jobById(id: string, db: SqliteConn = getConn()): Row | undefined {
-  return db.prepare("SELECT * FROM cron_jobs WHERE id=? OR job_key=?").get(id, id) as Row | undefined;
+export async function jobById(id: string, db: PgRepository = postgresDb()): Promise<Row | undefined> {
+  return (await db.one("SELECT * FROM cron_jobs WHERE id=$1 OR job_key=$2", id, id)) as Row | undefined;
 }
-
-export function jobByKey(jobKey: string, db: SqliteConn = getConn()): Row | undefined {
-  return db.prepare("SELECT * FROM cron_jobs WHERE job_key=?").get(jobKey) as Row | undefined;
+export async function jobByKey(jobKey: string, db: PgRepository = postgresDb()): Promise<Row | undefined> {
+  return (await db.one("SELECT * FROM cron_jobs WHERE job_key=$1", jobKey)) as Row | undefined;
 }
-
-export function listJobs(db: SqliteConn = getConn()): Row[] {
+export async function listJobs(db: PgRepository = postgresDb()): Promise<Row[]> {
   // The index view never reads prompt, workspace, connectors or run history.
-  return db.prepare(`SELECT id,job_key,title,owner_account_id,execute_as,capability_expert_id,
+  return (await db.many(`SELECT id,job_key,title,owner_account_id,execute_as,capability_expert_id,
     handler_key,cron_expr,timezone,status,next_run_at,last_run_at,last_terminal_status,
     (SELECT r.status FROM cron_runs r WHERE r.job_id=cron_jobs.id AND r.status IN ('queued','running') ORDER BY r.created_at DESC LIMIT 1) AS active_run_status,
-    json_extract(condition_json,'$.schedule.kind') AS schedule_kind,
-    json_extract(condition_json,'$.schedule.interval_minutes') AS interval_minutes,
-    json_extract(condition_json,'$.schedule.once_at') AS once_at
-    FROM cron_jobs ORDER BY title`).all() as Row[];
+    condition_json::jsonb #>> '{schedule,kind}' AS schedule_kind,
+    condition_json::jsonb #>> '{schedule,interval_minutes}' AS interval_minutes,
+    condition_json::jsonb #>> '{schedule,once_at}' AS once_at
+    FROM cron_jobs ORDER BY title`)) as Row[];
 }
-
 function frequencyOf(job: Row, schedule?: Json): string {
   const kind = String(schedule?.kind || job.schedule_kind || "");
-  if (kind === "once") return `单次 · ${String(schedule?.once_at || job.once_at || "")}`;
-  if (kind === "interval") return `每隔 ${String(schedule?.interval_minutes || job.interval_minutes || "?")} 分钟`;
+  if (kind === "once")
+    return `单次 · ${String(schedule?.once_at || job.once_at || "")}`;
+  if (kind === "interval")
+    return `每隔 ${String(schedule?.interval_minutes || job.interval_minutes || "?")} 分钟`;
   return humanFrequency(String(job.cron_expr), String(job.timezone || "Asia/Shanghai"));
 }
-
 export function publicJobSummary(job: Row): Json {
   const schedule = job.condition_json ? parseJson(job.condition_json).schedule as Json | undefined : undefined;
   return {
@@ -161,29 +135,21 @@ export function publicJobSummary(job: Row): Json {
     last_terminal_status: job.last_terminal_status || null,
   };
 }
-
-export function listRuns(jobId: string, limit = 50, db: SqliteConn = getConn()): Row[] {
-  return db.prepare(
-    "SELECT * FROM cron_runs WHERE job_id=? ORDER BY created_at DESC LIMIT ?",
-  ).all(jobId, limit) as Row[];
+export async function listRuns(jobId: string, limit = 50, db: PgRepository = postgresDb()): Promise<Row[]> {
+  return (await db.many("SELECT * FROM cron_runs WHERE job_id=$1 ORDER BY created_at DESC LIMIT $2", jobId, limit)) as Row[];
 }
-
-export function runById(runId: string, db: SqliteConn = getConn()): Row | undefined {
-  return db.prepare("SELECT * FROM cron_runs WHERE id=?").get(runId) as Row | undefined;
+export async function runById(runId: string, db: PgRepository = postgresDb()): Promise<Row | undefined> {
+  return (await db.one("SELECT * FROM cron_runs WHERE id=$1", runId)) as Row | undefined;
 }
-
 export function isSystemJob(job: Row): boolean {
   return job.owner_account_id == null || job.owner_account_id === "" || String(job.execute_as) === SYSTEM_EXECUTE_AS;
 }
-
 export function newJobId(): string {
   return nid("cjob");
 }
-
 export function newRunId(): string {
   return nid("crun");
 }
-
 export function publicJob(job: Row): Json {
   const scope = parseJson(job.scope_json);
   const condition = parseJson(job.condition_json);
@@ -218,7 +184,6 @@ export function publicJob(job: Row): Json {
     legal_fields_readonly: isSystemJob(job),
   };
 }
-
 export function publicRun(run: Row): Json {
   return {
     id: run.id,
@@ -236,7 +201,6 @@ export function publicRun(run: Row): Json {
     created_at: run.created_at,
   };
 }
-
 export function assertRegisteredHandler(handlerKey: string): void {
   if (!isCronHandlerKey(handlerKey)) {
     throw new Error(`unknown handler_key: ${handlerKey}`);

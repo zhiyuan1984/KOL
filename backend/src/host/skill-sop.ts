@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { dataDir, publishedSkillsDir, skillsDir } from "../config.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit, postgresDb, nowIso } from "../postgres/access.js";
 import { HttpFail } from "./errors.js";
 import { SKILL_CATALOG } from "./skills-catalog.js";
 import { currentUser } from "./persona.js";
@@ -30,22 +30,22 @@ export function bundledSkillPath(id: string): string {
 export function publishedSkillPath(id: string): string {
   return path.join(publishedSkillsDir(), id, "SKILL.md");
 }
-
 export function packagedSkillDir(id: string): string | null {
   const bundled = path.join(skillsDir(), id);
-  if (fs.existsSync(path.join(bundled, "SKILL.md"))) return bundled;
+  if (fs.existsSync(path.join(bundled, "SKILL.md")))
+    return bundled;
   const published = path.join(publishedSkillsDir(), id);
-  if (fs.existsSync(path.join(published, "SKILL.md"))) return published;
+  if (fs.existsSync(path.join(published, "SKILL.md")))
+    return published;
   return null;
 }
-
 export function isBundledSkill(id: string): boolean {
   return fs.existsSync(bundledSkillPath(id));
 }
-
 export function readBundledSkill(id: string): string {
   const dir = packagedSkillDir(id);
-  if (!dir) return "";
+  if (!dir)
+    return "";
   const file = path.join(dir, "SKILL.md");
   return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 }
@@ -53,38 +53,46 @@ export function readBundledSkill(id: string): string {
 export function catalogSkill(id: string) {
   return SKILL_CATALOG.find((s) => s.id === id) || null;
 }
-
-export function overlayRow(id: string): { summary: string; body: string; updated_at: string } | null {
-  const row = getConn()
-    .prepare("SELECT id, summary, body, updated_at FROM skill_sops WHERE id = ?")
-    .get(id) as { id: string; summary: string; body: string; updated_at: string } | undefined;
+export async function overlayRow(id: string): Promise<{
+  summary: string;
+  body: string;
+  updated_at: string;
+} | null> {
+  const row = (await postgresDb().one("SELECT id, summary, body, updated_at FROM skill_sops WHERE id = $1", id)) as {
+    id: string;
+    summary: string;
+    body: string;
+    updated_at: string;
+  } | undefined;
   return row || null;
 }
-
-export function effectiveSummary(id: string): string {
+export async function effectiveSummary(id: string): Promise<string> {
   const cat = catalogSkill(id);
-  const over = overlayRow(id);
+  const over = (await overlayRow(id));
   return (over?.summary || cat?.summary || cat?.label || id).trim();
 }
-
 /**
  * One read for every overlay instead of one per skill. `catalogSkill` rebuilds
  * the whole catalog on each call, so a per-skill loop of overlay + summary is
  * quadratic and blocks the single-threaded Host for seconds.
  */
-export function overlaySummaries(): Map<string, { summary: string; updated_at: string }> {
-  const rows = getConn()
-    .prepare("SELECT id, summary, updated_at FROM skill_sops")
-    .all() as { id: string; summary: string; updated_at: string }[];
+export async function overlaySummaries(): Promise<Map<string, {
+  summary: string;
+  updated_at: string;
+}>> {
+  const rows = (await postgresDb().many("SELECT id, summary, updated_at FROM skill_sops")) as {
+    id: string;
+    summary: string;
+    updated_at: string;
+  }[];
   return new Map(rows.map((row) => [String(row.id), row]));
 }
-
-export function effectiveSkillBody(id: string): string {
-  const over = overlayRow(id);
-  if (over?.body) return over.body;
+export async function effectiveSkillBody(id: string): Promise<string> {
+  const over = (await overlayRow(id));
+  if (over?.body)
+    return over.body;
   return readBundledSkill(id);
 }
-
 const RUNTIME_CONNECTOR_INSTRUCTION = `
 
 
@@ -94,9 +102,8 @@ Only the local \`skill_runtime\` MCP server is available in this run. Call its c
 ## Employee-facing wording
 Everything the employee reads (assistant messages, \`task_result\` titles/sections, \`recommended_actions\`, \`next_action\`, draft text) must never contain engine words: MCP, connector, \`skill_runtime\`, tool aliases (\`rt_…\`), Skill ids (such as \`creator_library_query\`), or internal schema names. Name a capability by its business meaning instead (「达人库」「邮件服务」). When a capability is missing, say that 「数据连接暂不可用」 and give the real recovery step; never state that a notification, hand-off or admin action happened when it did not.
 `;
-
 /** The worker receives this constrained supplement even when an administrator has an SOP overlay. */
-export function effectiveRuntimeSkillBody(id: string): string {
+export async function effectiveRuntimeSkillBody(id: string): Promise<string> {
   const definition = taskDefinition(id);
   const contract = definition?.interaction ? `
 ## Registered interaction and execution contract
@@ -106,19 +113,18 @@ The following Host-validated contract is shared with the employee's knowledge te
 ${JSON.stringify({ skill_id: id, interaction: definition.interaction, input_schema: definition.input_schema,
     required_inputs: definition.required_inputs, output: definition.output, side_effects: definition.side_effects })}
 ` : "";
-  return `${effectiveSkillBody(id).trimEnd()}${contract}${RUNTIME_CONNECTOR_INSTRUCTION}\n`;
+  return `${(await effectiveSkillBody(id)).trimEnd()}${contract}${RUNTIME_CONNECTOR_INSTRUCTION}\n`;
 }
-
 /** An SOP update changes the UI/execution pair version, even if its schema is unchanged. */
-export function effectiveSkillTemplate(definition: TaskDefinition) {
-  const overlay = overlayRow(definition.id);
+export async function effectiveSkillTemplate(definition: TaskDefinition) {
+  const overlay = (await overlayRow(definition.id));
   return skillTemplate(definition, overlay ? JSON.stringify({ summary: overlay.summary, body: overlay.body }) : undefined);
 }
-
-export function getSkillSop(id: string): SkillSopRow {
+export async function getSkillSop(id: string): Promise<SkillSopRow> {
   const cat = catalogSkill(id);
-  if (!cat) throw new HttpFail(404, "unknown skill");
-  const over = overlayRow(id);
+  if (!cat)
+    throw new HttpFail(404, "unknown skill");
+  const over = (await overlayRow(id));
   return {
     id,
     summary: over?.summary || cat.summary,
@@ -127,56 +133,60 @@ export function getSkillSop(id: string): SkillSopRow {
     edited: Boolean(over),
   };
 }
-
-export function saveSkillSop(id: string, patch: { summary?: string; body?: string }): SkillSopRow {
+export async function saveSkillSop(id: string, patch: {
+  summary?: string;
+  body?: string;
+}): Promise<SkillSopRow> {
   const cat = catalogSkill(id);
-  if (!cat) throw new HttpFail(404, "unknown skill");
-  const cur = getSkillSop(id);
+  if (!cat)
+    throw new HttpFail(404, "unknown skill");
+  const cur = (await getSkillSop(id));
   const summary = String(patch.summary ?? cur.summary).trim();
   const body = String(patch.body ?? cur.body).trim();
-  if (!summary) throw new HttpFail(400, "summary required");
-  if (summary.length > MAX_SUMMARY) throw new HttpFail(400, "summary too long");
-  if (!body) throw new HttpFail(400, "sop body required");
-  if (body.length > MAX_BODY) throw new HttpFail(400, "sop body too long");
+  if (!summary)
+    throw new HttpFail(400, "summary required");
+  if (summary.length > MAX_SUMMARY)
+    throw new HttpFail(400, "summary too long");
+  if (!body)
+    throw new HttpFail(400, "sop body required");
+  if (body.length > MAX_BODY)
+    throw new HttpFail(400, "sop body too long");
   const ts = nowIso();
-  getConn()
-    .prepare(
-      "INSERT INTO skill_sops (id, summary, body, updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary, body=excluded.body, updated_at=excluded.updated_at",
-    )
-    .run(id, summary, body, ts);
-  audit(currentUser().handle, "skill.sop.save", { skill: id, summary });
-  writeRuntimeSkill(id);
-  return getSkillSop(id);
+  (await postgresDb().execute("INSERT INTO skill_sops (id, summary, body, updated_at) VALUES ($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary, body=excluded.body, updated_at=excluded.updated_at", id, summary, body, ts));
+  (await audit((await currentUser()).handle, "skill.sop.save", { skill: id, summary }));
+  (await writeRuntimeSkill(id));
+  return (await getSkillSop(id));
 }
-
-export function resetSkillSop(id: string): SkillSopRow {
+export async function resetSkillSop(id: string): Promise<SkillSopRow> {
   const cat = catalogSkill(id);
-  if (!cat) throw new HttpFail(404, "unknown skill");
-  getConn().prepare("DELETE FROM skill_sops WHERE id = ?").run(id);
-  audit(currentUser().handle, "skill.sop.reset", { skill: id });
-  writeRuntimeSkill(id);
-  return getSkillSop(id);
+  if (!cat)
+    throw new HttpFail(404, "unknown skill");
+  (await postgresDb().execute("DELETE FROM skill_sops WHERE id = $1", id));
+  (await audit((await currentUser()).handle, "skill.sop.reset", { skill: id }));
+  (await writeRuntimeSkill(id));
+  return (await getSkillSop(id));
 }
-
-export function writeRuntimeSkill(id: string): string {
+export async function writeRuntimeSkill(id: string): Promise<string> {
   const dir = path.join(dataDir(), "skills", id);
   fs.mkdirSync(dir, { recursive: true });
   const dest = path.join(dir, "SKILL.md");
-  fs.writeFileSync(dest, effectiveRuntimeSkillBody(id), "utf8");
+  fs.writeFileSync(dest, (await effectiveRuntimeSkillBody(id)), "utf8");
   return dest;
 }
-
-export function writeSkillIntoBox(box: string, skill: string): string {
+export async function writeSkillIntoBox(box: string, skill: string): Promise<string> {
   const dest = path.join(box, "SKILL.md");
-  fs.writeFileSync(dest, effectiveRuntimeSkillBody(skill), "utf8");
+  fs.writeFileSync(dest, (await effectiveRuntimeSkillBody(skill)), "utf8");
   const srcDir = packagedSkillDir(skill);
   if (srcDir) {
     for (const name of fs.readdirSync(srcDir)) {
-      if (name === "SKILL.md" || name.startsWith(".")) continue;
+      if (name === "SKILL.md" || name.startsWith("."))
+        continue;
       const from = path.join(srcDir, name);
       const stat = fs.statSync(from);
-      if (stat.isFile()) fs.copyFileSync(from, path.join(box, name));
-      if (stat.isDirectory()) fs.cpSync(from, path.join(box, name), { recursive: true });
+      if (stat.isFile())
+        fs.copyFileSync(from, path.join(box, name));
+      if (stat.isDirectory())
+        fs.cpSync(from, path.join(box, name), { recursive: true });
     }
   }
   return dest;

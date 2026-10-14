@@ -4,21 +4,15 @@
  * Worker / Skill / MCP 禁止调这个函数。
  */
 import { starry } from "../adapters/clients.js";
-import { audit } from "../db.js";
+import { audit } from "../postgres/access.js";
 import type { Json, StageTransitionInput } from "../types.js";
-
-export function confirmStarryStage(
-  lifecycleId: string,
-  stageCode: string,
-  actor = "host",
-  transition?: StageTransitionInput,
-): Json {
-  const result = starry.confirmStage(lifecycleId, stageCode, actor, transition);
-  audit("gateway", "gateway.confirm_stage", {
+export async function confirmStarryStage(lifecycleId: string, stageCode: string, actor = "host", transition?: StageTransitionInput): Promise<Json> {
+  const result = (await starry.confirmStage(lifecycleId, stageCode, actor, transition));
+  (await audit("gateway", "gateway.confirm_stage", {
     lifecycle_id: lifecycleId,
     stage_code: stageCode,
     actor,
     transition_id: result.transition_id,
-  });
+  }));
   return result;
 }

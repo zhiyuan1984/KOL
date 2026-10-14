@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { freshTestDatabase } from "./support/pg.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { postgresPool } from "../src/postgres/pool.js";
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
@@ -18,9 +18,9 @@ import { operationRouter } from "../src/runtime/operations.js";
 import { runtimeActionOperations } from "../src/runtime/action-operations.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
 import { Hono } from "hono";
+import { HttpFail } from "../src/host/errors.js";
 import type { Json } from "../src/types.js";
 import type { ClaimedExecutionJob } from "../src/execution-jobs/contracts.js";
-
 /**
  * 采集排队集成测试（需要 TEST_DATABASE_URL / DATABASE_URL 指向的真实 PostgreSQL）。
  * 覆盖：终态出队 → starter 派发（单任务不变量）、监控超时自动停止、
@@ -46,16 +46,22 @@ const descriptors: Tool[] = [
 ];
 let server: http.Server;
 let url: string;
-let calls: Array<{ name: string; args: Json }>;
+let calls: Array<{
+  name: string;
+  args: Json;
+}>;
 let remoteTasks: number;
-let statusByTask: Record<string, { status: string; error_message?: string }>;
+let statusByTask: Record<string, {
+  status: string;
+  error_message?: string;
+}>;
 let previous: Record<string, string | undefined>;
-
-async function insertJob(id: string, state: string, opts: { remoteTaskId?: string; createdAt?: string } = {}) {
-  await postgresPool().query(
-    `INSERT INTO runtime_crawl_jobs(id,instance_key,actor_id,context_json,config_version,args_json,remote_task_id,state,created_at)
-     VALUES($1,$2,$3,$4,1,$5,$6,$7,COALESCE($8, now()))`,
-    [id, runtimeHash(url), context.userId, JSON.stringify(context),
+async function insertJob(id: string, state: string, opts: {
+  remoteTaskId?: string;
+  createdAt?: string;
+} = {}) {
+  await postgresPool().query(`INSERT INTO runtime_crawl_jobs(id,instance_key,actor_id,context_json,config_version,args_json,remote_task_id,state,created_at)
+     VALUES($1,$2,$3,$4,1,$5,$6,$7,COALESCE($8, now()))`, [id, runtimeHash(url), context.userId, JSON.stringify(context),
       JSON.stringify({ platforms: ["youtube"], crawler_type: "search", keywords: "kw" }),
       opts.remoteTaskId || null, state, opts.createdAt || null]);
 }
@@ -64,77 +70,95 @@ async function jobState(id: string) {
 }
 /** 直接运行最早的一个指定类型 execution job（不断言 worker 流程，只验证 handler 语义）。 */
 async function runHandler(type: string) {
-  const row = (await postgresPool().query(
-    "SELECT * FROM execution_jobs WHERE job_type=$1 AND status='queued' ORDER BY created_at LIMIT 1", [type])).rows[0];
+  const row = (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type=$1 AND status='queued' ORDER BY created_at LIMIT 1", [type])).rows[0];
   expect(row, `expected a queued ${type} job`).toBeTruthy();
   const handler = executionHandler(type)!;
-  return handler({ ...row, worker_id: "test", lease_until: new Date().toISOString() } as ClaimedExecutionJob, async () => {});
+  return (await handler({ ...row, worker_id: "test", lease_until: new Date().toISOString() } as ClaimedExecutionJob, async () => { }));
 }
 async function runMonitor(crawlId: string, sequence = 0) {
   const enqueued = await pgEnqueueExecutionJob({ job_type: "crawler.monitor", tenant_ref: "runtime", actor_ref: context.userId,
     idempotency_key: `queue-test-monitor:${crawlId}:${sequence}:${Date.now()}`, risk_level: "low", max_attempts: 3,
     object_ref: { crawl_id: crawlId }, payload: { crawl_id: crawlId, sequence } });
   const row = (await postgresPool().query("SELECT * FROM execution_jobs WHERE id=$1", [enqueued.job.id])).rows[0];
-  return monitorRuntimeCrawl({ ...row, worker_id: "test", lease_until: new Date().toISOString() } as ClaimedExecutionJob,
-    async () => {}, (ctx) => new SkillExecution(ctx));
+  return (await monitorRuntimeCrawl({ ...row, worker_id: "test", lease_until: new Date().toISOString() } as ClaimedExecutionJob, async () => { }, (ctx) => new SkillExecution(ctx)));
 }
-
 beforeEach(async () => {
   previous = Object.fromEntries(["AUTH_MODE", "RUNTIME_CREDENTIAL_MASTER_KEY"].map(key => [key, process.env[key]]));
   process.env.AUTH_MODE = "enabled";
-  await freshTestDatabase(); resetConn();
-  calls = []; remoteTasks = 0; statusByTask = {};
+  await freshTestDatabase();
+  (await resetDatabase());
+  calls = [];
+  remoteTasks = 0;
+  statusByTask = {};
   server = http.createServer(async (req, res) => {
-    if (req.method !== "POST") { res.writeHead(405).end(); return; }
-    const chunks: Buffer[] = []; for await (const part of req) chunks.push(Buffer.from(part));
+    if (req.method !== "POST") {
+      res.writeHead(405).end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    for await (const part of req)
+      chunks.push(Buffer.from(part));
     const mcp = new Server({ name: "queue-fixture", version: "1" }, { capabilities: { tools: {} } });
     mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: descriptors }));
-    mcp.setRequestHandler(CallToolRequestSchema, async request => {
+    mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
       const args = (request.params.arguments || {}) as Json;
       calls.push({ name: request.params.name, args });
       let result: Json;
       if (request.params.name === "start_crawl") {
         remoteTasks += 1;
         result = { ok: true, task_id: `remote-q${remoteTasks}`, status: "running" };
-      } else if (request.params.name === "get_crawl_status") {
+      }
+      else if (request.params.name === "get_crawl_status") {
         const taskId = String(args.task_id || "");
         result = { task_id: taskId, ...(statusByTask[taskId] || { status: "running" }) };
-      } else if (request.params.name === "stop_crawl") {
+      }
+      else if (request.params.name === "stop_crawl") {
         result = { ok: true, task_id: String(args.task_id || ""), status: "idle" };
-      } else {
+      }
+      else {
         result = { task_id: String(args.task_id || ""), total: 0, creators: [] };
       }
       return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
     });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    try { await mcp.connect(transport); await transport.handleRequest(req, res, JSON.parse(Buffer.concat(chunks).toString())); }
-    finally { await mcp.close(); }
+    try {
+      await mcp.connect(transport);
+      await transport.handleRequest(req, res, JSON.parse(Buffer.concat(chunks).toString()));
+    }
+    finally {
+      await mcp.close();
+    }
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  url = `http://127.0.0.1:${(server.address() as { port: number }).port}/mcp`;
-  const db = getConn();
-  db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,'fixture','[\"employee\"]','[]','',1,'now','now')")
-    .run(context.userId, context.userId, "Queue fixture");
-  seedPublishedAgent(context.agentId, "Queue fixture");
-  createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" });
-  db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref='person:ye_guanwang'").run(context.userId);
-  configureCrawlerFixture(url);
-  setAgentSkill(context.agentId, context.skillId, true, 0);
-  setSkillConnector(context.skillId, "claw", true, 0);
+  url = `http://127.0.0.1:${(server.address() as {
+    port: number;
+  }).port}/mcp`;
+  const db = postgresDb();
+  (await db.execute("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,'fixture','[\"employee\"]','[]','',1,'now','now')", context.userId, context.userId, "Queue fixture"));
+  (await seedPublishedAgent(context.agentId, "Queue fixture"));
+  (await createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" }));
+  (await db.execute("UPDATE organization_people SET user_id=$1 WHERE person_ref='person:ye_guanwang'", context.userId));
+  (await configureCrawlerFixture(url));
+  (await setAgentSkill(context.agentId, context.skillId, true, 0));
+  (await setSkillConnector(context.skillId, "claw", true, 0));
   for (const descriptor of descriptors) {
-    setToolPolicy("claw", descriptor.name, { enabled: true,
+    (await setToolPolicy("claw", descriptor.name, { enabled: true,
       risk: descriptor.name === "start_crawl" ? "L3" : "L1", access: descriptor.name === "start_crawl" ? "write" : "read",
-      schema_hash: toolSchemaHash(descriptor as unknown as Json) }, 0);
-    setSkillTool(context.skillId, "claw", descriptor.name, true, 0);
+      schema_hash: toolSchemaHash(descriptor as unknown as Json) }, 0));
+    (await setSkillTool(context.skillId, "claw", descriptor.name, true, 0));
   }
 });
-
 afterEach(async () => {
-  if (server) await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); });
-  resetConn();
-  for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  if (server)
+    await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); });
+  (await resetDatabase());
+  for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined)
+      delete process.env[key];
+    else
+      process.env[key] = value;
+  }
 });
-
 it("drains on terminal: the queued job is started exactly once (single-flight)", async () => {
   await insertJob("active-1", "running", { remoteTaskId: "remote-1" });
   await insertJob("queued-1", "queued");
@@ -202,12 +226,19 @@ it("sweep cancels expired queued jobs but keeps fresh ones", async () => {
 it("dequeue cancels a queued job through the operation", async () => {
   const actionId = "queue-action-1";
   await postgresPool().query(`INSERT INTO runtime_actions(id,actor_id,session_id,context_json,connector_id,tool_name,args_json,snapshot,proposal_key,state)
-    VALUES($1,$2,'queue-session',$3,'claw','start_crawl',$4,'snap','queue-proposal-1','succeeded')`,
-    [actionId, context.userId, JSON.stringify(context), JSON.stringify({ platforms: ["youtube"] })]);
+    VALUES($1,$2,'queue-session',$3,'claw','start_crawl',$4,'snap','queue-proposal-1','succeeded')`, [actionId, context.userId, JSON.stringify(context), JSON.stringify({ platforms: ["youtube"] })]);
   await insertJob(actionId, "queued");
   const app = new Hono();
+  // operationRouter is mounted below createApp() in production, whose error
+  // boundary serializes HttpFail. Keep this focused integration fixture on the
+  // public HTTP contract instead of Hono's unhandled-error fallback (500).
+  app.onError((error, c) => {
+    if (error instanceof HttpFail)
+      return c.json({ detail: error.detail }, error.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503);
+    return c.json({ detail: "internal_error" }, 500);
+  });
   app.route("/api", operationRouter(runtimeActionOperations));
-  const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
+  const owner = (await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", context.userId)) as Json));
   const response = await withScopedUser(owner, () => app.request("/api/actions/runtime.crawl.dequeue", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: actionId }),
   }));
@@ -218,4 +249,5 @@ it("dequeue cancels a queued job through the operation", async () => {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: actionId }),
   }));
   expect(again.status).toBe(409);
+  expect(await again.json()).toEqual({ detail: { code: "runtime_crawl_not_queued" } });
 });

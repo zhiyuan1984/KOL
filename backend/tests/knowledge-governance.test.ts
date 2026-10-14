@@ -3,30 +3,31 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { setPersona } from "../src/host/persona.js";
-import { resolveForSkill, resolveMailTemplate } from "../src/host/knowledge.js";
+import { editKnowledge, grantsForKnowledge, getKnowledgeVersion, handleFeedback, knowledgeRow, listVersions, resolveForSkill, resolveMailTemplate, rollbackKnowledge, setKnowledgeGrants } from "../src/host/knowledge.js";
 import { freshTestDatabase } from "./support/pg.js";
-
+import { publishKnowledgeThroughNativeGovernance } from "./helpers/knowledge-governance-native.js";
 type Json = Record<string, unknown>;
-
 let tmp: string;
 let app: Hono;
-
-async function request(
-  method: string,
-  url: string,
-  body?: unknown,
-  cookie = "",
-): Promise<{ status: number; cookie: string; json: () => Promise<Json>; text: () => Promise<string> }> {
+let previousAuthMode: string | undefined;
+async function request(method: string, url: string, body?: unknown, cookie = ""): Promise<{
+  status: number;
+  cookie: string;
+  json: () => Promise<Json>;
+  text: () => Promise<string>;
+}> {
   const init: RequestInit = { method, headers: {} };
   const headers = init.headers as Record<string, string>;
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   if (body instanceof FormData) {
     init.body = body;
-  } else if (body !== undefined) {
+  }
+  else if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
@@ -47,56 +48,60 @@ async function rows(url: string): Promise<Json[]> {
 async function auditTypes(): Promise<string[]> {
   return (await rows("/api/audit")).map((row) => String(row.event_type));
 }
-
 async function createPublished(input: Json): Promise<Json> {
-  // 分层后条目必须归属知识库（base_id 必填）；演示/历史条目统一落默认结构化库。
-  const created = await (await request("POST", "/api/admin/knowledge", { base_id: "kbase_legacy", ...input })).json();
-  expect(created.status).toBe("published");
-  return created;
+  // 新建只能是草稿；发布必须走模板确认、独立 reviewer、回执和 executePublication。
+  (await setPersona("sriphy"));
+  const response = await request("POST", "/api/admin/knowledge", { base_id: "kbase_legacy", ...input, status: "draft" });
+  expect(response.status).toBe(201);
+  const created = await response.json();
+  expect(created.status).toBe("draft");
+  const receipt = await publishKnowledgeThroughNativeGovernance(String(created.id));
+  expect(receipt.publishedVersion).toBe(Number(created.current_version));
+  const entry = await knowledgeRow(String(created.id));
+  expect(entry.status).toBe("published");
+  return entry;
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kbgov-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
-  process.env.LINGONG_DATA = tmp;
+  previousAuthMode = process.env.AUTH_MODE;
+  // 聚焦用例验证 persona 组织范围；直接运行时不能继承外层全量测试的登录闸门。
+  process.env.AUTH_MODE = "disabled";
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
+  if (previousAuthMode === undefined)
+    delete process.env.AUTH_MODE;
+  else
+    process.env.AUTH_MODE = previousAuthMode;
 });
-
 describe("knowledge governance", () => {
   it("keeps published knowledge visible until a grant row narrows it", async () => {
     const before = await rows("/api/knowledge");
     expect(before.map((row) => row.id)).toContain("kb_mail_kol");
-
-    await request("PUT", "/api/admin/knowledge/kb_mail_kol/grants", { org: ["org_litime"] });
-    setPersona("employee"); // lingong: org_litime only
+    await setKnowledgeGrants("kb_mail_kol", { org: ["org_litime"] });
+    (await setPersona("employee")); // lingong: org_litime only
     const orgVisible = await rows("/api/knowledge");
     expect(orgVisible.map((row) => row.id)).toContain("kb_mail_kol");
-
-    await request("PUT", "/api/admin/knowledge/kb_mail_kol/grants", { team: ["team_kol"] });
+    (await setPersona("sriphy"));
+    await setKnowledgeGrants("kb_mail_kol", { team: ["team_kol"] });
+    (await setPersona("employee"));
     const teamHidden = await rows("/api/knowledge");
     expect(teamHidden.map((row) => row.id)).not.toContain("kb_mail_kol");
-
-    setPersona("sriphy"); // 演示管理员身份（handle jeffrey）: org_litime + team_kol
+    (await setPersona("sriphy")); // 演示管理员身份（handle jeffrey）: org_litime + team_kol
     const teamVisible = await rows("/api/knowledge");
     expect(teamVisible.map((row) => row.id)).toContain("kb_mail_kol");
-
-    const grants = await (await request("GET", "/api/admin/knowledge/kb_mail_kol/grants")).json();
+    const grants = await grantsForKnowledge("kb_mail_kol");
     expect(grants).toMatchObject({ org: [], team: ["team_kol"], user: [] });
-    const bad = await request("PUT", "/api/admin/knowledge/kb_mail_kol/grants", { org: ["org_nope"] });
-    expect(bad.status).toBe(400);
+    await expect(setKnowledgeGrants("kb_mail_kol", { org: ["org_nope"] })).rejects.toMatchObject({ status: 400 });
   });
-
   it("marks a row hidden only when a personal hide record exists", async () => {
     const before = await rows("/api/knowledge");
     expect(before.length).toBeGreaterThan(0);
@@ -147,29 +152,21 @@ describe("knowledge governance", () => {
     // 转义与参数个数仍对齐：字面量 % 不变成通配符。
     expect(await rows("/api/knowledge?q=%25")).toEqual([]);
   });
-
-  it("binds approval to the reviewed version", async () => {
-    const created = await (await request("POST", "/api/admin/knowledge", {
+  it("binds publication to the reviewed version through the formal workflow", async () => {
+    (await setPersona("sriphy"));
+    const createdResponse = await request("POST", "/api/admin/knowledge", {
       title: "审批版本对象",
       body: "v1 body",
       kind: "policy",
       base_id: "kbase_legacy",
       status: "draft",
-    })).json();
-
-    const missing = await request("POST", `/api/admin/knowledge/${created.id}/approve`, {});
-    expect(missing.status).toBe(400);
-
-    const stale = await request("POST", `/api/admin/knowledge/${created.id}/approve`, {
-      expected_version: Number(created.current_version) + 1,
     });
-    expect(stale.status).toBe(409);
-    expect(((await stale.json()).detail as Json).code).toBe("knowledge_version_conflict");
-
-    await request("PUT", `/api/admin/knowledge/${created.id}`, { body: "v2 body" });
-    const ok = await request("POST", `/api/admin/knowledge/${created.id}/approve`, { expected_version: 2 });
-    expect(ok.status).toBe(200);
-    const published = await ok.json();
+    expect(createdResponse.status).toBe(201);
+    const created = await createdResponse.json();
+    await editKnowledge(String(created.id), { body: "v2 body" });
+    const receipt = await publishKnowledgeThroughNativeGovernance(String(created.id));
+    expect(receipt.publishedVersion).toBe(2);
+    const published = await knowledgeRow(String(created.id));
     expect(published.status).toBe("published");
     expect(published.current_version).toBe(2);
   });
@@ -182,26 +179,22 @@ describe("knowledge governance", () => {
       base_id: "kbase_legacy",
       status: "draft",
     })).json();
-    await request("PUT", `/api/admin/knowledge/${created.id}`, { body: "second body" });
-
-    const rolled = await (await request("POST", `/api/admin/knowledge/${created.id}/rollback`, { version: 1 })).json();
+    await editKnowledge(String(created.id), { body: "second body" });
+    const rolled = await rollbackKnowledge(String(created.id), 1);
     expect(rolled.body).toBe("first body");
     expect(rolled.status).toBe("draft");
     expect(rolled.current_version).toBe(3);
-
-    const versions = await rows(`/api/knowledge/${created.id}/versions`);
+    const versions = await listVersions(String(created.id));
     // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较/查找。
     expect(versions.map((row) => Number(row.version))).toEqual([1, 2, 3]);
     expect(versions.find((row) => Number(row.version) === 1)?.body).toBe("first body");
     expect(versions.find((row) => Number(row.version) === 2)?.body).toBe("second body");
     expect(String(versions.find((row) => Number(row.version) === 3)?.note || "")).toContain("rollback from v1");
-
-    const detail = await (await request("GET", `/api/admin/knowledge/${created.id}/versions/1`)).json();
+    const detail = await getKnowledgeVersion(String(created.id), 1);
     expect(detail.body).toBe("first body");
-    expect((await request("GET", `/api/admin/knowledge/${created.id}/versions/99`)).status).toBe(404);
+    await expect(getKnowledgeVersion(String(created.id), 99)).rejects.toMatchObject({ status: 404 });
     expect(await auditTypes()).toContain("knowledge.rollback");
   });
-
   it("validates binding selectors and saves, patches, deletes bindings", async () => {
     const badKey = await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "email_compose",
@@ -236,9 +229,8 @@ describe("knowledge governance", () => {
     expect((await request("PATCH", `/api/admin/knowledge/bindings/${saved.id}`, { enabled: true })).status).toBe(404);
     expect((await auditTypes()).filter((type) => type === "knowledge.binding.save").length).toBeGreaterThanOrEqual(3);
   });
-
   it("resolves bindings by priority with explainable skip reasons", async () => {
-    setPersona("employee");
+    (await setPersona("employee"));
     const exact = await createPublished({
       title: "报价模板",
       body: "exact",
@@ -256,17 +248,16 @@ describe("knowledge governance", () => {
       brand: "LT",
       status: "published",
     });
-    for (const id of [exact.id, wildcard.id]) await request("POST", `/api/knowledge/${id}/cite`, {});
-
-    const unbound = resolveForSkill("calendar_sync");
+    (await setPersona("employee"));
+    for (const id of [exact.id, wildcard.id])
+      await request("POST", `/api/knowledge/${id}/cite`, {});
+    const unbound = (await resolveForSkill("calendar_sync"));
     expect(unbound).toEqual({ resolved: [], skipped: [], bound: false });
-
     const binding = await (await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "email_compose",
       selector: { kinds: ["mail_template"] },
     })).json();
-
-    const quote = resolveForSkill("email_compose", { stageCode: "QUOTE_PENDING" });
+    const quote = (await resolveForSkill("email_compose", { stageCode: "QUOTE_PENDING" }));
     expect(quote.bound).toBe(true);
     expect(quote.resolved.map((item) => item.id)).toEqual([exact.id, wildcard.id]);
     expect(quote.resolved[0]).toMatchObject({ id: exact.id, version: 1, kind: "mail_template" });
@@ -275,13 +266,11 @@ describe("knowledge governance", () => {
       reason: "shadowed_by_higher_priority",
     }));
     expect(quote.skipped).toContainEqual(expect.objectContaining({ knowledge_id: "kb_mail_kol", reason: "not_cited" }));
-
-    const testing = resolveForSkill("email_compose", { stageCode: "TESTING" });
+    const testing = (await resolveForSkill("email_compose", { stageCode: "TESTING" }));
     expect(testing.resolved.map((item) => item.id)).toEqual([wildcard.id, exact.id]);
-
     await request("POST", "/api/knowledge/kb_mail_kol/cite", {});
     await request("POST", "/api/knowledge/kb_mail_kol/deprecate", { reason: "过时" });
-    expect(resolveForSkill("email_compose", {}).skipped).toContainEqual(expect.objectContaining({
+    expect((await resolveForSkill("email_compose", {})).skipped).toContainEqual(expect.objectContaining({
       knowledge_id: "kb_mail_kol",
       reason: "deprecated_by_user",
     }));
@@ -294,8 +283,9 @@ describe("knowledge governance", () => {
       brand: "ZZ",
       status: "published",
     });
+    (await setPersona("employee"));
     await request("POST", `/api/knowledge/${foreign.id}/cite`, {});
-    expect(resolveForSkill("email_compose", {}).skipped).toContainEqual(expect.objectContaining({
+    expect((await resolveForSkill("email_compose", {})).skipped).toContainEqual(expect.objectContaining({
       knowledge_id: foreign.id,
       reason: "scope_mismatch",
     }));
@@ -307,31 +297,34 @@ describe("knowledge governance", () => {
       base_id: "kbase_legacy",
       status: "draft",
     })).json();
+    // 原生 taxonomy trigger 禁止把不存在的 asset 持久化为 selector；
+    // 这比运行时再悄悄跳过缺失 ID 更强，仍保留草稿的解析期 not_published 断言。
+    const missingBinding = await request("POST", "/api/admin/knowledge/bindings", {
+      skill_id: "content_nudge",
+      selector: { ids: ["kb_missing"] },
+    });
+    expect(missingBinding.status).toBe(400);
     await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "content_nudge",
-      selector: { ids: ["kb_missing", draft.id] },
+      selector: { ids: [draft.id] },
     });
-    const pinned = resolveForSkill("content_nudge", {});
+    const pinned = (await resolveForSkill("content_nudge", {}));
     expect(pinned.bound).toBe(true);
-    expect(pinned.skipped).toContainEqual({ knowledge_id: "kb_missing", reason: "missing" });
     expect(pinned.skipped).toContainEqual(expect.objectContaining({ knowledge_id: draft.id, reason: "not_published" }));
-
     const order = await (await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "report_draft",
       selector: { ids: [exact.id, wildcard.id] },
     })).json();
     expect(order.id).toBeTruthy();
-    const byIds = resolveForSkill("report_draft", { stageCode: "TESTING" });
+    const byIds = (await resolveForSkill("report_draft", { stageCode: "TESTING" }));
     expect(byIds.resolved.map((item) => item.id)).toEqual([exact.id, wildcard.id]);
-
     await request("PATCH", `/api/admin/knowledge/bindings/${binding.id}`, { enabled: false });
-    const disabled = resolveForSkill("email_compose", {});
+    const disabled = (await resolveForSkill("email_compose", {}));
     expect(disabled.bound).toBe(false);
     expect(disabled.resolved).toEqual([]);
   });
-
   it("applies the personal gates to pinned selector ids", async () => {
-    setPersona("employee");
+    (await setPersona("employee"));
     const pinnedTemplate = await createPublished({
       title: "钉住模板",
       body: "pinned",
@@ -345,30 +338,27 @@ describe("knowledge governance", () => {
       skill_id: "email_compose",
       selector: { ids: [pinnedTemplate.id] },
     });
-
-    const uncited = resolveForSkill("email_compose", {});
+    (await setPersona("employee"));
+    const uncited = (await resolveForSkill("email_compose", {}));
     expect(uncited.bound).toBe(true);
     expect(uncited.resolved.map((item) => item.id)).not.toContain(pinnedTemplate.id);
     expect(uncited.skipped).toContainEqual(expect.objectContaining({
       knowledge_id: pinnedTemplate.id,
       reason: "not_cited",
     }));
-
     await request("POST", `/api/knowledge/${pinnedTemplate.id}/cite`, {});
-    const cited = resolveForSkill("email_compose", {});
+    const cited = (await resolveForSkill("email_compose", {}));
     expect(cited.resolved.map((item) => item.id)).toContain(pinnedTemplate.id);
-
     await request("POST", `/api/knowledge/${pinnedTemplate.id}/deprecate`, { reason: "过时" });
-    const deprecated = resolveForSkill("email_compose", {});
+    const deprecated = (await resolveForSkill("email_compose", {}));
     expect(deprecated.resolved.map((item) => item.id)).not.toContain(pinnedTemplate.id);
     expect(deprecated.skipped).toContainEqual(expect.objectContaining({
       knowledge_id: pinnedTemplate.id,
       reason: "deprecated_by_user",
     }));
   });
-
   it("maps an explicit preview user id to its grant handle", async () => {
-    setPersona("employee");
+    (await setPersona("employee"));
     const scoped = await createPublished({
       title: "定向授权模板",
       body: "scoped",
@@ -376,9 +366,9 @@ describe("knowledge governance", () => {
       skill_id: "email_compose",
       status: "published",
     });
+    (await setPersona("employee"));
     await request("POST", `/api/knowledge/${scoped.id}/cite`, {});
-
-    setPersona("sriphy");
+    (await setPersona("sriphy"));
     await request("PUT", `/api/admin/knowledge/${scoped.id}/grants`, { user: ["lingong"] });
     await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "email_compose",
@@ -431,12 +421,10 @@ describe("knowledge governance", () => {
     const noSkill = await request("POST", "/api/admin/knowledge/resolve-preview", {});
     expect(noSkill.status).toBe(400);
   });
-
   it("prefers a binding over the legacy staged pick and keeps the legacy fallback", async () => {
     await request("POST", "/api/knowledge/kb_mail_followup/cite", {});
-    const legacy = resolveMailTemplate({ skillId: "email_compose", stageCode: "INITIAL_CONTACT" });
+    const legacy = (await resolveMailTemplate({ skillId: "email_compose", stageCode: "INITIAL_CONTACT" }));
     expect(legacy?.id).toBe("kb_mail_followup");
-
     const created = await createPublished({
       title: "绑定优先模板",
       body: "bound body",
@@ -451,55 +439,33 @@ describe("knowledge governance", () => {
       skill_id: "email_compose",
       selector: { ids: [created.id] },
     });
-
-    const bound = resolveMailTemplate({ skillId: "email_compose", stageCode: "INITIAL_CONTACT" });
+    const bound = (await resolveMailTemplate({ skillId: "email_compose", stageCode: "INITIAL_CONTACT" }));
     expect(bound?.id).toBe(created.id);
     expect(bound?.subject).toBe("Bound subject");
-
     const events = (await rows("/api/audit")).filter((row) => row.event_type === "knowledge.resolve");
     const sources = events.map((row) => String((row.payload as Json).source));
     expect(sources).toContain("binding");
     expect(sources).toContain("legacy");
   });
-
   it("handles employee feedback with an audited decision", async () => {
-    setPersona("employee");
+    (await setPersona("employee"));
     await request("POST", "/api/knowledge/kb_mail_ship/deprecate", { reason: "过时", note: "已过季" });
-
     const feedback = await rows("/api/admin/knowledge/feedback");
     const entry = feedback.find((row) => row.knowledge_id === "kb_mail_ship");
     expect(entry?.user_id).toBe("usr_lingong");
     expect(entry?.title).toBe("发货通知");
     expect(entry?.handled_at).toBeFalsy();
-
-    const handled = await request("POST", "/api/admin/knowledge/kb_mail_ship/feedback-handle", {
-      user_id: "usr_lingong",
-      action: "to_revision",
-      note: "转修订",
-    });
-    expect(handled.status).toBe(200);
-    const record = await handled.json();
+    const record = await handleFeedback("kb_mail_ship", "usr_lingong", "to_revision", "转修订");
     expect(record.handle_action).toBe("to_revision");
     expect(record.handle_note).toBe("转修订");
     expect(record.handled_by).toBeTruthy();
-
-    const page = await (await request("GET", "/api/knowledge/kb_mail_ship")).json();
+    const page = await knowledgeRow("kb_mail_ship");
     expect(page.status).toBe("draft");
     expect(page.current_version).toBe(2);
-
-    const again = await request("POST", "/api/admin/knowledge/kb_mail_ship/feedback-handle", {
-      user_id: "usr_lingong",
-      action: "ignore",
-    });
-    expect(again.status).toBe(409);
-    const unknown = await request("POST", "/api/admin/knowledge/kb_mail_ship/feedback-handle", {
-      user_id: "usr_sriphy",
-      action: "ignore",
-    });
-    expect(unknown.status).toBe(404);
+    await expect(handleFeedback("kb_mail_ship", "usr_lingong", "ignore")).rejects.toMatchObject({ status: 409 });
+    await expect(handleFeedback("kb_mail_ship", "usr_sriphy", "ignore")).rejects.toMatchObject({ status: 404 });
     expect(await auditTypes()).toContain("knowledge.feedback.handle");
   });
-
   it("records the governance audit events", async () => {
     const created = await (await request("POST", "/api/admin/knowledge", {
       title: "审计对象",
@@ -508,25 +474,20 @@ describe("knowledge governance", () => {
       base_id: "kbase_legacy",
       status: "draft",
     })).json();
-    await request("POST", `/api/admin/knowledge/${created.id}/rollback`, { version: 1 });
+    await rollbackKnowledge(String(created.id), 1);
     await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "email_compose",
       selector: { ids: ["kb_mail_followup"] },
     });
     await request("POST", "/api/knowledge/kb_mail_followup/cite", {});
-    const picked = resolveMailTemplate({ skillId: "email_compose", stageCode: "INITIAL_CONTACT" });
+    const picked = (await resolveMailTemplate({ skillId: "email_compose", stageCode: "INITIAL_CONTACT" }));
     expect(picked?.id).toBe("kb_mail_followup");
     await request("POST", "/api/knowledge/kb_mail_followup/deprecate", { reason: "内容过时" });
     // 反馈归属人取真实记录：usr_sriphy 已在 2d2a1bb 退役，写死字面量会静默 404。
     const [feedback] = (await rows("/api/admin/knowledge/feedback"))
       .filter((row) => row.knowledge_id === "kb_mail_followup");
-    const handled = await request("POST", "/api/admin/knowledge/kb_mail_followup/feedback-handle", {
-      user_id: String(feedback?.user_id || ""),
-      action: "ignore",
-      note: "保持现状",
-    });
-    expect(handled.status).toBe(200);
-
+    const handled = await handleFeedback("kb_mail_followup", String(feedback?.user_id || ""), "ignore", "保持现状");
+    expect(handled.handle_action).toBe("ignore");
     const events = await auditTypes();
     expect(events).toContain("knowledge.resolve");
     expect(events).toContain("knowledge.binding.save");
@@ -558,25 +519,15 @@ describe("knowledge governance", () => {
         password: "employee-password",
       });
       expect(login.status).toBe(200);
-
       const anonymous = await request("POST", "/api/admin/knowledge/resolve-preview", { skill_id: "email_compose" });
       expect(anonymous.status).toBe(401);
-      const denied = await request(
-        "POST",
-        "/api/admin/knowledge/resolve-preview",
-        { skill_id: "email_compose" },
-        login.cookie,
-      );
+      const denied = await request("POST", "/api/admin/knowledge/resolve-preview", { skill_id: "email_compose" }, login.cookie);
       expect(denied.status).toBe(403);
       expect((await request("GET", "/api/admin/knowledge/bindings", undefined, login.cookie)).status).toBe(403);
-      const allowed = await request(
-        "POST",
-        "/api/admin/knowledge/resolve-preview",
-        { skill_id: "email_compose" },
-        adminCookie,
-      );
+      const allowed = await request("POST", "/api/admin/knowledge/resolve-preview", { skill_id: "email_compose" }, adminCookie);
       expect(allowed.status).toBe(200);
-    } finally {
+    }
+    finally {
       process.env.AUTH_MODE = "disabled";
     }
   });

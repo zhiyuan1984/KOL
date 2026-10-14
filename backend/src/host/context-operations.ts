@@ -13,14 +13,16 @@ import { resolveContext } from "./context-resolve.js";
 const resolveAction: Operation["handle"] = async (c, input) => {
   const body = input as Json;
   const skillId = String(body.skill_id || "").trim();
-  if (!skillId) throw new HttpFail(400, { code: "skill_id_required", message: "需要 skill_id" });
-  if (!taskDefinition(skillId)) throw new HttpFail(400, { code: "unknown_task_type", task_type: skillId });
-  requireTaskAccess(skillId);
+  if (!skillId)
+    throw new HttpFail(400, { code: "skill_id_required", message: "需要 skill_id" });
+  if (!taskDefinition(skillId))
+    throw new HttpFail(400, { code: "unknown_task_type", task_type: skillId });
+  (await requireTaskAccess(skillId));
   const sessionId = String(body.session_id || "").trim();
-  return c.json(resolveContext({
+  return c.json(await resolveContext({
     skillId,
     body,
-    session: sessionId ? sessionRow(sessionId) : null,
+    session: sessionId ? (await sessionRow(sessionId)) : null,
     text: String(body.text || ""),
   }));
 };

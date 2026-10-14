@@ -1,19 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  classifyIntentWithJev,
-  classifyTaskIntent,
-  codexRecognizeThreadConfig,
-  extractRemoteIntentText,
-  jevIntentModel,
-  intentLlmModel,
-  intentOutputSchema,
-  parseIntentVerdict,
-  setJevIntentFetch,
-  setIntentLlmFetch,
-  stubClassifyIntent,
-} from "../src/tasks/openai-intent.js";
+import { classifyIntentWithJev, classifyTaskIntent, codexRecognizeThreadConfig, extractRemoteIntentText, jevIntentModel, intentLlmModel, intentOutputSchema, parseIntentVerdict, setJevIntentFetch, setIntentLlmFetch, stubClassifyIntent, } from "../src/tasks/openai-intent.js";
 import { sanitizeIntentEntities } from "../src/tasks/recognize.js";
-
 const LARRY = "larry.zhao@amperetime.com";
 const QQ = "100705721@qq.com";
 const FIRST_TOUCH = `首封建联 发件: ${LARRY} 收件: ${QQ} 主题: LiTime MCP 连通测试`;
@@ -81,9 +68,8 @@ describe("gpt-5.6 Luna intent verdict", () => {
     expect(cleaned.mailboxEmail).toBe(LARRY);
     expect(cleaned.to).toEqual([QQ]);
   });
-
-  it("stub-classifies the operator sentence as compose with no missing fields", () => {
-    const verdict = stubClassifyIntent(FIRST_TOUCH);
+  it("stub-classifies the operator sentence as compose with no missing fields", async () => {
+    const verdict = await stubClassifyIntent(FIRST_TOUCH);
     expect(verdict).toMatchObject({
       task_type: "email_compose",
       clarification_kind: "none",
@@ -92,9 +78,8 @@ describe("gpt-5.6 Luna intent verdict", () => {
     expect(verdict.entities.mailboxEmail).toBe(LARRY);
     expect(verdict.entities.to).toEqual([QQ]);
   });
-
-  it("stub-classifies vague mailbox language as direction", () => {
-    const verdict = stubClassifyIntent("帮我看一下邮箱情况");
+  it("stub-classifies vague mailbox language as direction", async () => {
+    const verdict = await stubClassifyIntent("帮我看一下邮箱情况");
     expect(verdict.task_type).toBeNull();
     expect(verdict.clarification_kind).toBe("direction");
     expect(verdict.alternatives.map((row) => row.task_type)).toEqual([
@@ -108,7 +93,12 @@ describe("gpt-5.6 Luna intent verdict", () => {
     const schema = intentOutputSchema(["email_compose", "creator_discovery"]) as {
       required?: string[];
       additionalProperties?: boolean;
-      properties?: { entities?: { required?: string[]; additionalProperties?: boolean } };
+      properties?: {
+        entities?: {
+          required?: string[];
+          additionalProperties?: boolean;
+        };
+      };
     };
     expect(schema.additionalProperties).toBe(false);
     expect(schema.required).toEqual(expect.arrayContaining([
@@ -128,34 +118,40 @@ describe("gpt-5.6 Luna intent verdict", () => {
       expect(codexRecognizeThreadConfig()).not.toHaveProperty("model", "gpt-5.6-luna");
       process.env.CODEX_MODEL = "gpt-5.4";
       expect(codexRecognizeThreadConfig()).toEqual({ mcp_servers: {}, model: "gpt-5.4" });
-    } finally {
-      if (prev === undefined) delete process.env.CODEX_MODEL;
-      else process.env.CODEX_MODEL = prev;
+    }
+    finally {
+      if (prev === undefined)
+        delete process.env.CODEX_MODEL;
+      else
+        process.env.CODEX_MODEL = prev;
     }
   });
-
   it("defaults to gpt-5.6-luna, not gpt-4o", () => {
     const prev = process.env.INTENT_LLM_MODEL;
     delete process.env.INTENT_LLM_MODEL;
     try {
       expect(intentLlmModel()).toBe("gpt-5.6-luna");
-    } finally {
-      if (prev === undefined) delete process.env.INTENT_LLM_MODEL;
-      else process.env.INTENT_LLM_MODEL = prev;
+    }
+    finally {
+      if (prev === undefined)
+        delete process.env.INTENT_LLM_MODEL;
+      else
+        process.env.INTENT_LLM_MODEL = prev;
     }
   });
-
   it("defaults Jev to a pinned version, not the moving latest alias", () => {
     const previous = process.env.JEV_MODEL;
     delete process.env.JEV_MODEL;
     try {
       expect(jevIntentModel()).toBe("jev-1.13");
-    } finally {
-      if (previous === undefined) delete process.env.JEV_MODEL;
-      else process.env.JEV_MODEL = previous;
+    }
+    finally {
+      if (previous === undefined)
+        delete process.env.JEV_MODEL;
+      else
+        process.env.JEV_MODEL = previous;
     }
   });
-
   it("sends bounded task choices to OpenRouter System One without entity extraction", async () => {
     const previousKey = process.env.OPENROUTER_API_KEY;
     process.env.OPENROUTER_API_KEY = "sk-or-test";
@@ -171,7 +167,9 @@ describe("gpt-5.6 Luna intent verdict", () => {
       expect(hit).toBe("https://openrouter.ai/api/v1/systemone");
       expect(body.model).toBe("jev-1.13");
       expect(body.state).toEqual({ user_text: FIRST_TOUCH });
-      const criteria = ((body.questions as Record<string, { criteria?: Record<string, string> }>).task_type.criteria || {});
+      const criteria = ((body.questions as Record<string, {
+        criteria?: Record<string, string>;
+      }>).task_type.criteria || {});
       expect(criteria.email_compose).toContain("邮件");
       expect(criteria.clarification).toContain("不能可靠匹配");
       expect(verdict).toMatchObject({
@@ -180,13 +178,15 @@ describe("gpt-5.6 Luna intent verdict", () => {
         entities: {},
         clarification_kind: "none",
       });
-    } finally {
+    }
+    finally {
       setJevIntentFetch();
-      if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-      else process.env.OPENROUTER_API_KEY = previousKey;
+      if (previousKey === undefined)
+        delete process.env.OPENROUTER_API_KEY;
+      else
+        process.env.OPENROUTER_API_KEY = previousKey;
     }
   });
-
   it("uses high-confidence Jev before Luna and does not call the text model", async () => {
     const previousMode = process.env.INTENT_LLM_MODE;
     const previousRouterKey = process.env.OPENROUTER_API_KEY;
@@ -202,16 +202,20 @@ describe("gpt-5.6 Luna intent verdict", () => {
       const verdict = await classifyTaskIntent(FIRST_TOUCH);
       expect(verdict).toMatchObject({ task_type: "email_compose", reason_zh: "Jev 分类" });
       expect(lunaCalled).toBe(false);
-    } finally {
+    }
+    finally {
       setJevIntentFetch();
       setIntentLlmFetch();
-      if (previousMode === undefined) delete process.env.INTENT_LLM_MODE;
-      else process.env.INTENT_LLM_MODE = previousMode;
-      if (previousRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
-      else process.env.OPENROUTER_API_KEY = previousRouterKey;
+      if (previousMode === undefined)
+        delete process.env.INTENT_LLM_MODE;
+      else
+        process.env.INTENT_LLM_MODE = previousMode;
+      if (previousRouterKey === undefined)
+        delete process.env.OPENROUTER_API_KEY;
+      else
+        process.env.OPENROUTER_API_KEY = previousRouterKey;
     }
   });
-
   it("asks for clarification on low-confidence Jev without escalating to Luna", async () => {
     const previousMode = process.env.INTENT_LLM_MODE;
     const previousRouterKey = process.env.OPENROUTER_API_KEY;
@@ -227,16 +231,20 @@ describe("gpt-5.6 Luna intent verdict", () => {
       const verdict = await classifyTaskIntent("帮我处理一下");
       expect(verdict).toMatchObject({ task_type: null, clarification_kind: "direction" });
       expect(lunaCalled).toBe(false);
-    } finally {
+    }
+    finally {
       setJevIntentFetch();
       setIntentLlmFetch();
-      if (previousMode === undefined) delete process.env.INTENT_LLM_MODE;
-      else process.env.INTENT_LLM_MODE = previousMode;
-      if (previousRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
-      else process.env.OPENROUTER_API_KEY = previousRouterKey;
+      if (previousMode === undefined)
+        delete process.env.INTENT_LLM_MODE;
+      else
+        process.env.INTENT_LLM_MODE = previousMode;
+      if (previousRouterKey === undefined)
+        delete process.env.OPENROUTER_API_KEY;
+      else
+        process.env.OPENROUTER_API_KEY = previousRouterKey;
     }
   });
-
   it("sends medium-confidence Jev to Luna for a second judgment", async () => {
     const previousMode = process.env.INTENT_LLM_MODE;
     const previousRouterKey = process.env.OPENROUTER_API_KEY;
@@ -263,18 +271,24 @@ describe("gpt-5.6 Luna intent verdict", () => {
       const verdict = await classifyTaskIntent("帮我找一批户外达人");
       expect(verdict).toMatchObject({ task_type: "creator_discovery", confidence: 0.93 });
       expect(lunaCalled).toBe(true);
-    } finally {
+    }
+    finally {
       setJevIntentFetch();
       setIntentLlmFetch();
-      if (previousMode === undefined) delete process.env.INTENT_LLM_MODE;
-      else process.env.INTENT_LLM_MODE = previousMode;
-      if (previousRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
-      else process.env.OPENROUTER_API_KEY = previousRouterKey;
-      if (previousOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = previousOpenAiKey;
+      if (previousMode === undefined)
+        delete process.env.INTENT_LLM_MODE;
+      else
+        process.env.INTENT_LLM_MODE = previousMode;
+      if (previousRouterKey === undefined)
+        delete process.env.OPENROUTER_API_KEY;
+      else
+        process.env.OPENROUTER_API_KEY = previousRouterKey;
+      if (previousOpenAiKey === undefined)
+        delete process.env.OPENAI_API_KEY;
+      else
+        process.env.OPENAI_API_KEY = previousOpenAiKey;
     }
   });
-
   it("reads Luna Responses output_text", () => {
     expect(extractRemoteIntentText({
       output_text: JSON.stringify({ task_type: "email_compose", confidence: 1, clarification_kind: "none" }),
@@ -292,7 +306,9 @@ describe("gpt-5.6 Luna intent verdict", () => {
     let model = "";
     setIntentLlmFetch(async (input, init) => {
       hit = String(input);
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { model?: string } : {};
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as {
+        model?: string;
+      } : {};
       model = String(body.model || "");
       return lunaResponse({
         task_type: "email_compose",
@@ -311,14 +327,21 @@ describe("gpt-5.6 Luna intent verdict", () => {
         task_type: "email_compose",
         clarification_kind: "none",
       });
-    } finally {
+    }
+    finally {
       setIntentLlmFetch();
-      if (prevMode === undefined) delete process.env.INTENT_LLM_MODE;
-      else process.env.INTENT_LLM_MODE = prevMode;
-      if (prevKey === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = prevKey;
-      if (prevModel === undefined) delete process.env.INTENT_LLM_MODEL;
-      else process.env.INTENT_LLM_MODEL = prevModel;
+      if (prevMode === undefined)
+        delete process.env.INTENT_LLM_MODE;
+      else
+        process.env.INTENT_LLM_MODE = prevMode;
+      if (prevKey === undefined)
+        delete process.env.OPENAI_API_KEY;
+      else
+        process.env.OPENAI_API_KEY = prevKey;
+      if (prevModel === undefined)
+        delete process.env.INTENT_LLM_MODEL;
+      else
+        process.env.INTENT_LLM_MODEL = prevModel;
     }
   });
 });

@@ -10,27 +10,18 @@ import os from "node:os";
 import path from "node:path";
 import { CodexUnavailable } from "./errors.js";
 import type { Json } from "../types.js";
-import {
-  codexChildEnv,
-  inspectLocalCodexAuth,
-  isolatedCodexModelConfig,
-  redactSecrets,
-  resolveAuthState,
-} from "./auth.js";
-
+import { codexChildEnv, inspectLocalCodexAuth, isolatedCodexModelConfig, redactSecrets, resolveAuthState, } from "./auth.js";
 const CLIENT_INFO = { name: "lingong_kol", title: "灵工 KOL", version: "0.1.0" };
-
 export function findCodex(): string {
   const override = process.env.CODEX_BIN;
   if (override) {
     try {
       fs.accessSync(override, fs.constants.X_OK);
-      if (fs.statSync(override).isFile()) return override;
-    } catch {
-      throw new CodexUnavailable(
-        `CODEX_BIN=${override} 不可执行，无法启动 Codex。未生成结果。`,
-        "安装 Codex CLI：npm i -g @openai/codex，然后 `codex login` 或设置 OPENAI_API_KEY。",
-      );
+      if (fs.statSync(override).isFile())
+        return override;
+    }
+    catch {
+      throw new CodexUnavailable(`CODEX_BIN=${override} 不可执行，无法启动 Codex。未生成结果。`, "安装 Codex CLI：npm i -g @openai/codex，然后 `codex login` 或设置 OPENAI_API_KEY。");
     }
   }
   const pathEnv = process.env.PATH || "";
@@ -40,25 +31,26 @@ export function findCodex(): string {
       const candidate = path.join(dir, name);
       try {
         fs.accessSync(candidate, fs.constants.X_OK);
-        if (fs.statSync(candidate).isFile()) return candidate;
-      } catch {
+        if (fs.statSync(candidate).isFile())
+          return candidate;
+      }
+      catch {
         /* next candidate */
       }
     }
   }
-  throw new CodexUnavailable(
-    "本机 PATH 上没有 `codex`。默认 Worker 必须走真实 app-server，不会用模板假信。",
-    "先安装：npm i -g @openai/codex 或按官方文档安装，再执行 `codex login`（或设置 OPENAI_API_KEY），然后重新运行任务。",
-  );
+  throw new CodexUnavailable("本机 PATH 上没有 `codex`。默认 Worker 必须走真实 app-server，不会用模板假信。", "先安装：npm i -g @openai/codex 或按官方文档安装，再执行 `codex login`（或设置 OPENAI_API_KEY），然后重新运行任务。");
 }
-
 export class CodexAppServer {
   timeout: number;
   private deadlineMs: number;
   bin: string;
   proc: ChildProcessWithoutNullStreams;
   private nextId = 0;
-  private pending = new Map<number, { resolve: (v: Json) => void; reject: (e: Error) => void }>();
+  private pending = new Map<number, {
+    resolve: (v: Json) => void;
+    reject: (e: Error) => void;
+  }>();
   notifications: Json[] = [];
   agentTexts: string[] = [];
   reasoningTexts: string[] = [];
@@ -97,21 +89,25 @@ export class CodexAppServer {
       : command === process.execPath ? [this.bin, "app-server"] : ["app-server"];
     const env = codexChildEnv();
     if (privateEnv) {
-      for (const name of privateEnv) delete env[name];
+      for (const name of privateEnv)
+        delete env[name];
       // Inherited home MCP definitions must not bypass the run's authorization proxy.
       const local = inspectLocalCodexAuth();
       this.isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), "skill-runtime-codex-"));
       fs.chmodSync(this.isolatedHome, 0o700);
-      if (local.hasAuthFile) fs.copyFileSync(local.authPath, path.join(this.isolatedHome, "auth.json"));
-      if (local.hasAuthFile) fs.chmodSync(path.join(this.isolatedHome, "auth.json"), 0o600);
+      if (local.hasAuthFile)
+        fs.copyFileSync(local.authPath, path.join(this.isolatedHome, "auth.json"));
+      if (local.hasAuthFile)
+        fs.chmodSync(path.join(this.isolatedHome, "auth.json"), 0o600);
       const configFile = path.join(local.home, "config.toml");
       try {
         if (fs.existsSync(configFile)) {
-          if (fs.statSync(configFile).size > 1_000_000) throw new Error("config too large");
-          fs.writeFileSync(path.join(this.isolatedHome, "config.toml"),
-            isolatedCodexModelConfig(fs.readFileSync(configFile, "utf8")), { mode: 0o600 });
+          if (fs.statSync(configFile).size > 1000000)
+            throw new Error("config too large");
+          fs.writeFileSync(path.join(this.isolatedHome, "config.toml"), isolatedCodexModelConfig(fs.readFileSync(configFile, "utf8")), { mode: 0o600 });
         }
-      } catch {
+      }
+      catch {
         this.dropIsolatedHome();
         throw new CodexUnavailable("无法读取安全的模型配置。", "请检查 Codex 模型配置格式；运行时不会回退到旧 MCP 配置。");
       }
@@ -127,7 +123,8 @@ export class CodexAppServer {
     this.proc.once("error", () => {
       this.dead = true;
       this.dropIsolatedHome();
-      for (const pending of this.pending.values()) pending.reject(new CodexUnavailable("无法启动 Codex 进程。", "请检查可执行文件及权限。"));
+      for (const pending of this.pending.values())
+        pending.reject(new CodexUnavailable("无法启动 Codex 进程。", "请检查可执行文件及权限。"));
       this.pending.clear();
     });
     this.proc.stdout.setEncoding("utf8");
@@ -139,7 +136,8 @@ export class CodexAppServer {
       while ((idx = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, idx).trim();
         buf = buf.slice(idx + 1);
-        if (line) this.onLine(line);
+        if (line)
+          this.onLine(line);
       }
     });
     this.proc.stderr.on("data", (chunk: string) => {
@@ -159,10 +157,12 @@ export class CodexAppServer {
   private dropIsolatedHome(): void {
     const dir = this.isolatedHome;
     this.isolatedHome = undefined;
-    if (!dir) return;
+    if (!dir)
+      return;
     try {
       fs.rmSync(dir, { recursive: true, force: true });
-    } catch {
+    }
+    catch {
       /* Best-effort cleanup only. */
     }
   }
@@ -171,7 +171,8 @@ export class CodexAppServer {
     let msg: Json;
     try {
       msg = JSON.parse(line) as Json;
-    } catch {
+    }
+    catch {
       return;
     }
     if (msg.id != null && msg.method && msg.result === undefined && msg.error === undefined) {
@@ -196,36 +197,40 @@ export class CodexAppServer {
   private collectAgent(method: string | undefined, params: Json): void {
     const isDelta = method === "item/agentMessage/delta" || method === "item/agent_message/delta";
     const isItem = method === "item/completed" || method === "item/started";
-    if (!isDelta && !isItem) return;
-
+    if (!isDelta && !isItem)
+      return;
     if (isDelta) {
       const id = String(params.itemId || params.item_id || params.id || "");
       const delta = String(params.delta || params.text || "");
-      if (delta) this.recordAgentText(id, delta, true);
+      if (delta)
+        this.recordAgentText(id, delta, true);
       return;
     }
-
     const item = (params.item as Json) || params;
     const type = String(item.type || item.itemType || "").replace(/[-_]/g, "").toLowerCase();
     if (type === "reasoning") {
       const text = this.textFromReasoningItem(item);
-      if (text) this.recordReasoning(String(item.id || ""), text);
+      if (text)
+        this.recordReasoning(String(item.id || ""), text);
       return;
     }
-    if (type !== "agentmessage") return;
+    if (type !== "agentmessage")
+      return;
     const text = this.textFromAgentItem(item);
-    if (text) this.recordAgentText(String(item.id || ""), text, false);
+    if (text)
+      this.recordAgentText(String(item.id || ""), text, false);
   }
-
   private textFromReasoningItem(item: Json): string {
     const direct = String(item.text || "").trim();
-    if (direct) return direct;
+    if (direct)
+      return direct;
     const content = Array.isArray(item.content) ? (item.content as unknown[]) : [];
     const summary = Array.isArray(item.summary) ? (item.summary as unknown[]) : [];
     const blocks = content.length ? content : summary;
     return blocks
       .map((block) => {
-        if (typeof block === "string") return block;
+      if (typeof block === "string")
+        return block;
         if (block && typeof block === "object") {
           const rec = block as Json;
           return String(rec.text || rec.value || "");
@@ -242,19 +247,22 @@ export class CodexAppServer {
     const key = id || `anonymous:${this.reasoningOrder.length}`;
     const current = this.reasoningById.get(key) || "";
     this.reasoningById.set(key, current ? `${current}\n${text}` : text);
-    if (!this.reasoningOrder.includes(key)) this.reasoningOrder.push(key);
+    if (!this.reasoningOrder.includes(key))
+      this.reasoningOrder.push(key);
     this.reasoningTexts = this.reasoningOrder
       .map((entry) => this.reasoningById.get(entry) || "")
       .filter(Boolean);
   }
-
   private textFromAgentItem(item: Json): string {
     const direct = String(item.text || "").trim();
-    if (direct) return direct;
-    if (!Array.isArray(item.content)) return "";
+    if (direct)
+      return direct;
+    if (!Array.isArray(item.content))
+      return "";
     return (item.content as Json[])
       .map((block) => {
-        if (typeof block !== "object" || !block) return "";
+      if (typeof block !== "object" || !block)
+        return "";
         return String(block.text || block.value || "");
       })
       .join("")
@@ -265,7 +273,8 @@ export class CodexAppServer {
     const key = id || `anonymous:${this.agentTextOrder.length}`;
     const current = this.agentTextById.get(key) || "";
     this.agentTextById.set(key, append ? current + text : text);
-    if (!this.agentTextOrder.includes(key)) this.agentTextOrder.push(key);
+    if (!this.agentTextOrder.includes(key))
+      this.agentTextOrder.push(key);
     this.agentTexts = this.agentTextOrder
       .map((entry) => this.agentTextById.get(entry) || "")
       .filter(Boolean);
@@ -274,7 +283,8 @@ export class CodexAppServer {
   private answerServerRequest(msg: Json): void {
     if (/approval/i.test(String(msg.method || ""))) {
       this.write({ id: msg.id, result: { decision: "decline" } });
-    } else {
+    }
+    else {
       this.write({ id: msg.id, error: { code: -32601, message: "Unsupported server request; authorization is not implicit" } });
     }
   }
@@ -318,9 +328,7 @@ export class CodexAppServer {
         if (this.pending.has(rid)) {
           this.pending.delete(rid);
           clearTimeout(timer);
-          reject(
-            new CodexUnavailable("codex app-server 在等待响应时退出。未生成结果。", "确认已 `codex login` 或设置 OPENAI_API_KEY。"),
-          );
+          reject(new CodexUnavailable("codex app-server 在等待响应时退出。未生成结果。", "确认已 `codex login` 或设置 OPENAI_API_KEY。"));
         }
       });
     });
@@ -335,12 +343,10 @@ export class CodexAppServer {
   notify(method: string, params: Json = {}): void {
     this.write({ method, params });
   }
-
   /** Commander 派生子 Thread；仍复用当前 app-server harness 和鉴权连接。 */
   async deriveChildThread(threadId: string): Promise<Json> {
-    return this.request("thread/fork", { threadId });
+    return (await this.request("thread/fork", { threadId }));
   }
-
   async waitTurn(timeout?: number): Promise<Json> {
     const deadline = Date.now() + Math.max(0, this.remainingMs(timeout));
     while (Date.now() < deadline) {
@@ -366,25 +372,22 @@ export class CodexAppServer {
     const turn = params.turn && typeof params.turn === "object" ? params.turn as Json : {};
     const items = Array.isArray(turn.items) ? turn.items : [];
     for (const item of items) {
-      if (item && typeof item === "object") this.collectAgent("item/completed", { item: item as Json });
+      if (item && typeof item === "object")
+        this.collectAgent("item/completed", { item: item as Json });
     }
     const output = turn.output;
     if (output && typeof output === "object") {
       const item = output as Json;
       const type = String(item.type || item.itemType || "").replace(/[-_]/g, "").toLowerCase();
-      if (type === "agentmessage") this.collectAgent("item/completed", { item });
+      if (type === "agentmessage")
+        this.collectAgent("item/completed", { item });
     }
   }
-
   async handshake(): Promise<Json> {
-    const result = await this.request(
-      "initialize",
-      {
+    const result = await this.request("initialize", {
         clientInfo: CLIENT_INFO,
         capabilities: { experimentalApi: false },
-      },
-      Math.min(this.timeout, 15),
-    );
+    }, Math.min(this.timeout, 15));
     this.notify("initialized", {});
     return result;
   }
@@ -393,9 +396,11 @@ export class CodexAppServer {
     const deadline = Date.now() + ms;
     while (Date.now() < deadline) {
       for (const n of this.notifications) {
-        if (n.method === "account/updated") return (n.params as Json) || {};
+        if (n.method === "account/updated")
+          return (n.params as Json) || {};
       }
-      if (this.proc.exitCode != null) return null;
+      if (this.proc.exitCode != null)
+        return null;
       await new Promise((r) => setTimeout(r, 50));
     }
     return null;
@@ -416,7 +421,8 @@ export class CodexAppServer {
       try {
         acct = await this.request("account/read", { refreshToken: true }, authSec);
         state = resolveAuthState(acct, process.env, local);
-      } catch {
+      }
+      catch {
         /* 文件登录仍可继续起箱 */
       }
     }
@@ -431,12 +437,8 @@ export class CodexAppServer {
       return acct;
     }
     const hint = this.authHint(local, acct);
-    throw new CodexUnavailable(
-      "Codex 未登录（account/read 无账号）。未起箱写假信。",
-      hint,
-    );
+    throw new CodexUnavailable("Codex 未登录（account/read 无账号）。未起箱写假信。", hint);
   }
-
   private isUsable(acct: Json): boolean {
     const a = acct.account;
     return Boolean(a && typeof a === "object" && typeof (a as Json).type === "string");
@@ -452,24 +454,24 @@ export class CodexAppServer {
       err ? `codex: ${err}` : "在同一用户执行 `codex login`，或把 OPENAI_API_KEY 写入 .env 后重启 ./scripts/start.sh。",
     ].join(" ");
   }
-
   close(): void {
-    if (this.dead) return;
+    if (this.dead)
+      return;
     this.dead = true;
-    const stopped = new CodexUnavailable(
-      "Codex 任务已停止，未生成结果。",
-      "检查登录状态后重试。",
-    );
-    for (const pending of this.pending.values()) pending.reject(stopped);
+    const stopped = new CodexUnavailable("Codex 任务已停止，未生成结果。", "检查登录状态后重试。");
+    for (const pending of this.pending.values())
+      pending.reject(stopped);
     this.pending.clear();
     try {
       if (this.proc.exitCode == null) {
         this.proc.kill("SIGTERM");
         setTimeout(() => {
-          if (this.proc.exitCode == null) this.proc.kill("SIGKILL");
+          if (this.proc.exitCode == null)
+            this.proc.kill("SIGKILL");
         }, 3000);
       }
-    } catch {
+    }
+    catch {
       /* ignore */
     }
   }
