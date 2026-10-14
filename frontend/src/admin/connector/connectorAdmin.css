@@ -1918,15 +1918,19 @@
 .enable-alert-main {
   flex: 1 1 auto;
   min-width: 0;
-  display: grid;
-  gap: var(--space-1);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
 }
 .enable-alert-main strong {
   color: var(--text);
+  white-space: nowrap;
 }
 .enable-alert-main > span {
   color: var(--text-muted);
   font-size: var(--ds-font-xs);
+  min-width: 0;
 }
 .enable-alert .admin-status {
   flex: none;
@@ -1957,43 +1961,41 @@
 /* antd Descriptions 形态：三列 bordered 描述表 */
 .enable-facts {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
   margin: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  background: var(--bg);
+  background: var(--border);
   overflow: hidden;
 }
 .enable-facts-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--border-quiet);
   min-width: 0;
+  background: var(--bg);
 }
-.enable-facts-item:first-child {
-  border-top: 0;
+.enable-facts-item dt {
+  flex: none;
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  font-weight: 400;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.enable-facts-item dd {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
 }
 @container (min-width: 720px) {
   .enable-facts {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .enable-facts-item:nth-child(-n+3) {
-    border-top: 0;
-  }
-  .enable-facts-item:not(:nth-child(3n+1)) {
-    border-left: 1px solid var(--border-quiet);
-  }
-}
-.enable-facts-item dt {
-  margin: 0 0 var(--space-1);
-  font-size: var(--ds-font-xs);
-  font-weight: 400;
-  color: var(--text-muted);
-}
-.enable-facts-item dd {
-  margin: 0;
-  font-size: var(--ds-font-sm);
-  color: var(--text);
-  overflow-wrap: anywhere;
 }
 
 /* 挂载进度条：形状表达比例，数值同时文字给出（DESIGN.md §4.1） */

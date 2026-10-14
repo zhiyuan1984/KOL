@@ -25,7 +25,7 @@ export type AdminNavGroup = {
  *  2026-10-04 按用户口径「治理」改名「Agent」、图标对齐员工端（ADR-2026-10-04）；上面 2026-09-27 行的「治理」即该条目前名。
  *  2026-10-12 按用户口径（ADR-2026-10-12）：线索漏斗 + 项目交付并为「业务地图」一行（sections 映射两个看板路由）；
  *  「知识」改名「知识库」；「审批」从菜单去掉（分节保留于 ADMIN_HIDDEN_SECTIONS，深链仍可用）；
- *  「Agent」由数字员工簇移入资产簇、排在「知识库」与「本体」之间（连接 / 知识库 / Agent 同组）。 */
+ *  「Agent」由数字员工簇移入资产簇、排在「知识库」与「本体」之间（连接器 / 知识库 / Agent 同组）。 */
 export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: "治理日常",
@@ -57,7 +57,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     rows: [
       {
         id: "connectors",
-        label: "连接",
+        label: "连接器",
         href: "/admin/connectors",
         icon: "M10 13a5 5 0 0 0 7.1.4l1.5-1.5a5 5 0 1 0-7.1-7.1L10.3 6 M14 11a5 5 0 0 0-7.1-.4L5.4 12.1a5 5 0 1 0 7.1 7.1L13.7 18",
       },

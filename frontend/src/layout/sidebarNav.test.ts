@@ -89,7 +89,7 @@ describe("admin sidebar parity", () => {
       "员工",
       "工作战报",
       "业务地图",
-      "连接",
+      "连接器",
       "知识库",
       "Agent",
       "本体",
@@ -103,7 +103,7 @@ describe("admin sidebar parity", () => {
       "审计中心",
       "配置",
     ]);
-    // 资产簇内「连接 / 知识库 / Agent / 本体」同组且顺序固定；「审批」已从菜单去掉（隐藏分节）。
+    // 资产簇内「连接器 / 知识库 / Agent / 本体」同组且顺序固定；「审批」已从菜单去掉（隐藏分节）。
     const assetIds = ADMIN_NAV_GROUPS.find((group) => group.label === "资产")!.rows.map((row) => row.id);
     expect(assetIds).toEqual(["connectors", "knowledge", "agents", "ontology", "approval-types"]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.id))).not.toContain("approvals");
