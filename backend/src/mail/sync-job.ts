@@ -157,10 +157,13 @@ export async function startMailSyncJob(input: Json): Promise<Json> {
   if (!/^[\w-]{1,160}$/.test(requestId)) throw new HttpFail(400, "invalid request_id");
   const conversationId = input.conversation_id === undefined ? "" : String(input.conversation_id || "").trim();
   if (conversationId && !/^[A-Za-z0-9_.:-]{1,160}$/.test(conversationId)) throw new HttpFail(400, "invalid conversation_id");
+  // 定向补全（带 conversation_id）必须与通用同步分属不同的去重实体：
+  // 否则去重会把新请求的 conversation_id 静默丢弃，旧任务跑完目标会话仍无正文，
+  // 用户反复点“收取”也同步不到（图1）。通用同步（无 conversation_id）仍按邮箱去重。
   const { job } = await pgEnqueueExecutionJob({
     job_type: "mail.sync", actor_ref: actor, tenant_ref: actor,
     idempotency_key: `mail.sync:${actor}:${mailbox}:${requestId}`,
-    object_ref: { mailbox }, scope_snapshot: { mailbox },
+    object_ref: { mailbox, ...(conversationId ? { conversation_id: conversationId } : {}) }, scope_snapshot: { mailbox },
     payload: { mailbox, ...(conversationId ? { conversation_id: conversationId } : {}) },
     risk_level: "low", max_attempts: 3,
   }, { deduplicate_active: true });
@@ -266,6 +269,7 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
       ok: true, mailbox, synced_at: result.synced_at, scope: "mail_index",
       note: "邮件索引已同步；正文补全完成；摘要与翻译未生成。", diagnostic_id: result.diagnostic_id || null,
       ...receiptProgress(progress), ai: { summary: "not_generated", translation: "not_generated" },
+      ...(result.requested_conversation ? { requested_conversation: result.requested_conversation } : {}),
     };
   }));
 }
