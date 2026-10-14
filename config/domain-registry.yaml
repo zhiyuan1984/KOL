@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "_comment": "企业业务域注册表。企业级业务本体 Track A（A1 域地图）的机器可读版本。域主与试点决策：qiyou 2026-10-12。六构件口径见 docs/ontop/本体六构件-定义与实例.md。本文件只声明域→构件的映射；构件实例数据来自各注册表。",
+  "domains": [
+    {
+      "code": "brand",
+      "name": "品牌域",
+      "owner": "张慧玲",
+      "owner_title": "",
+      "pilot": true,
+      "master_data_kinds": ["brand"],
+      "object_codes": ["brand", "brand_scope", "campaign"],
+      "description": "品牌主数据与品牌资产"
+    },
+    {
+      "code": "hr",
+      "name": "HR 域",
+      "owner": "赵海龙",
+      "owner_title": "人力资源总监",
+      "pilot": false,
+      "master_data_kinds": ["person", "org_unit"],
+      "object_codes": ["user", "org_unit", "role", "organization_membership", "employee_ref"],
+      "description": "人员与组织单元（三级部门 + 品牌/区域双属性），向全域提供责任人/审批人主数据"
+    },
+    {
+      "code": "site",
+      "name": "独立站域",
+      "owner": "邢海龚",
+      "owner_title": "独立站运营经理",
+      "pilot": false,
+      "master_data_kinds": ["site"],
+      "object_codes": [],
+      "description": "站点（LT/RO/PQ）与订单；对象注册待补"
+    },
+    {
+      "code": "finance",
+      "name": "财务域",
+      "owner": "彭学知",
+      "owner_title": "财务总监",
+      "pilot": false,
+      "master_data_kinds": ["account", "cost_center"],
+      "object_codes": ["settlement", "payment_request", "cost_approval_elements", "invoice_received"],
+      "description": "会计科目、成本中心与结算单据"
+    },
+    {
+      "code": "supply",
+      "name": "供应链域",
+      "owner": "晏琼瑶",
+      "owner_title": "供应链总监",
+      "pilot": false,
+      "master_data_kinds": ["sku", "warehouse"],
+      "object_codes": ["delivery", "logistics_receipt", "sample"],
+      "description": "SKU、仓库与物流单据"
+    },
+    {
+      "code": "marketing",
+      "name": "营销域",
+      "owner": "qiyou",
+      "owner_title": "牵头（已有资产）",
+      "pilot": true,
+      "master_data_kinds": [],
+      "object_codes": ["creator_candidate", "kol_profile", "collaboration", "project", "quote", "contract", "content"],
+      "description": "KOL 营销：达人、线索、合作项目；已有线索/合作对象、统一事件码、两张看板"
+    }
+  ],
+  "relations": [
+    { "from": "brand", "to": "site", "label": "站点归属品牌", "kind": "master_data" },
+    { "from": "brand", "to": "supply", "label": "SKU 归属品牌", "kind": "master_data" },
+    { "from": "brand", "to": "marketing", "label": "合作归属品牌", "kind": "business" },
+    { "from": "marketing", "to": "site", "label": "KOL 带量", "kind": "business" },
+    { "from": "marketing", "to": "finance", "label": "合作结算", "kind": "business" },
+    { "from": "site", "to": "supply", "label": "订单→发货", "kind": "business" },
+    { "from": "site", "to": "finance", "label": "订单→应收", "kind": "business" },
+    { "from": "hr", "to": "brand", "label": "人员/组织主数据", "kind": "master_data" },
+    { "from": "hr", "to": "hr", "label": "自包含", "kind": "none" },
+    { "from": "hr", "to": "site", "label": "人员/组织主数据", "kind": "master_data" },
+    { "from": "hr", "to": "finance", "label": "人员/组织主数据", "kind": "master_data" },
+    { "from": "hr", "to": "supply", "label": "人员/组织主数据", "kind": "master_data" },
+    { "from": "hr", "to": "marketing", "label": "人员/组织主数据", "kind": "master_data" }
+  ]
+}
