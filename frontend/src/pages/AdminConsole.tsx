@@ -8,12 +8,14 @@ import AdminKnowledge from "./AdminKnowledge";
 import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
 import AdminCosts from "./AdminCosts";
+import AdminMasterData from "./AdminMasterData";
 import AdminScheduling from "./AdminScheduling";
 import AdminWorkOrders from "./AdminWorkOrders";
 import AdminWorkReport from "./AdminWorkReport";
 import AdminBusinessMap from "./AdminBusinessMap";
 import AdminAudit from "./AdminAudit";
 import AdminOntology from "./AdminOntology";
+import AdminBusinessDomains from "./AdminBusinessDomains";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
 import type { DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
@@ -118,6 +120,7 @@ export default function AdminConsole() {
         )}
         {tab === "exams" && <AdminExams exams={exams} assignments={assignments} users={users} onReload={load} />}
         {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
+        {tab === "master-data" && <AdminMasterData />}
         {tab === "cost" && <AdminCosts />}
         {tab === "overview" && <AdminWorkReport />}
         {(tab === "lead-funnel" || tab === "project-delivery") && (
@@ -128,6 +131,7 @@ export default function AdminConsole() {
         {tab === "audit" && <AdminAudit />}
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "ontology" && <AdminOntology />}
+        {tab === "business-domains" && <AdminBusinessDomains />}
         {tab === "kol" && <LegacyAdmin />}
       </div>
     </div>

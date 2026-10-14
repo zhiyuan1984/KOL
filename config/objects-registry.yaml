@@ -1899,6 +1899,22 @@
           "rule": "某次高风险动作的审批权",
           "clauses": ["org-permissions §关系模型"], "gap": null, "source_ref": "属性清单 §3.6" }
       ]
+    },
+    {
+      "id": "C15",
+      "code": "master_data_batch",
+      "name": "主数据导入批次",
+      "name_en": "MasterDataBatch",
+      "group": "C",
+      "layer": "platform",
+      "stable_id": "导入批次 ID（mdb_）",
+      "authority_source": "Excel 导入（C1 链路）",
+      "authority_source_status": "defined",
+      "clauses": ["企业级业务本体 Track C（C1 Excel 导入链路）"],
+      "carrier": ["master_data_records"],
+      "implementation_status": "built",
+      "source_ref": "对象清单 §五",
+      "properties": []
     }
   ]
 }

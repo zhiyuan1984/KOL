@@ -1077,6 +1077,28 @@
 
 .mail-page.mail-gmail .mr-label-confirm { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1); color: var(--mail-gmail-muted); font-size: var(--ds-font-xs); }
 
+/* 标签弹窗收紧：推荐按钮统一样式 + 手动输入行压缩（2026-10-12 三处截图反馈）。 */
+.mail-page.mail-gmail .mail-label-picker-panel > p.muted { margin: 0; }
+.mail-page.mail-gmail .mail-label-recommend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--mail-gmail-line-strong);
+  border-radius: var(--radius-control);
+  background: var(--mail-gmail-shell);
+  color: var(--mail-gmail-ink);
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+}
+.mail-page.mail-gmail .mail-label-recommend:hover:not(:disabled) { background: var(--mail-gmail-hover); }
+.mail-page.mail-gmail .mail-label-recommend:disabled { opacity: .45; cursor: default; }
+.mail-page.mail-gmail .mr-label-form { gap: var(--space-1); }
+.mail-page.mail-gmail .mr-label-form input { min-height: 28px; }
+.mail-page.mail-gmail .mail-label-options { display: grid; gap: 2px; }
+
 .mail-page.mail-gmail .mi-stagewrap {
   margin: 0;
   padding: var(--space-3) 0;
