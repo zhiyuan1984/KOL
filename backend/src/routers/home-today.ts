@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import { databaseEngine } from "../db.js";
+import { startNativeTodayPlan } from "../postgres/today-plan-repository.js";
 import { TASK_MEMORY } from "../host/memory-kinds.js";
-import { ownerId, PLAN_SCOPES, SCOPE_TABLE } from "../host/today-plan-context.js";
+import { ownerId, PLAN_SCOPES, SCOPE_TABLE, packTodayPlanContext, planningRunInput } from "../host/today-plan-context.js";
 import { planTaskType } from "../host/planning-types.js";
 import { loadTodayTaskResults } from "../host/today-tasks.js";
 import { startTodayAnalyze, startTodayPlan, todayBriefSnapshot } from "../host/today-plan-run.js";
@@ -29,7 +31,10 @@ homeToday.post("/workbench/plan-runs", async (c) => {
   if (mode !== "agent_plan" && mode !== "deterministic_organize") {
     throw new HttpFail(400, "invalid planning mode");
   }
-  const started = startTodayPlan(ownerId(), "today", mode);
+  const owner = ownerId();
+  const started = databaseEngine() === "postgres"
+    ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: mode, payload: planningRunInput(packTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: mode }, queuedLabel: "工作计划已入队", progress: [] })
+    : startTodayPlan(owner, "today", mode);
   return c.json({
     ...started,
     mode,
@@ -76,8 +81,11 @@ for (const scope of PLAN_SCOPES) {
   });
 
   /** Think POST. Locks the scope's plan task_type and runs internally. Never from-text. */
-  homeToday.post(`/home/${scope}-brief/plan`, (c) => {
-    const started = startTodayPlan(ownerId(), scope, "agent_plan");
+  homeToday.post(`/home/${scope}-brief/plan`, async (c) => {
+    const owner = ownerId();
+    const started = databaseEngine() === "postgres"
+      ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: "agent_plan", payload: planningRunInput(packTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: "agent_plan" }, queuedLabel: "工作计划已入队", progress: [] })
+      : startTodayPlan(owner, scope, "agent_plan");
     return c.json({
       ...started,
       // Both scopes answer the same shape; the pane renders one component.
