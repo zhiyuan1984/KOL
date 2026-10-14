@@ -1,4 +1,5 @@
 import { postgresTransaction } from "../postgres/pool.js";
+import { postgresReviewCompanies, postgresReviewContext } from "../approval/review-postgres-access.js";
 import { publicationProjection } from "../knowledge-publication/service.js";
 import { reviewIntake } from "../approval/review-rollout.js";
 import { bodyLimit } from "hono/body-limit";
@@ -27,6 +28,13 @@ export function reviewContext(
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "请登录后使用通用评审");
   return reviewContextForActor(db, user.id, selectedTenant);
+}
+
+async function nativeReviewContext(selectedTenant?: string): Promise<ReviewContext> {
+  const user = scopedUser();
+  if (!user) throw new HttpFail(401, "请登录后使用通用评审");
+  if (!process.env.DATABASE_URL) return reviewContextForActor(getConn(), user.id, selectedTenant);
+  return postgresTransaction((db) => postgresReviewContext(db, user.id, selectedTenant));
 }
 export const reviews = new Hono();
 reviews.use("/approvals/v2/*", async (_c, next) => {
@@ -130,10 +138,12 @@ reviews.get("/approvals/v2/attachments/:id", (c) => {
   c.header("Content-Security-Policy", "sandbox");
   return c.body(new Uint8Array(a.content));
 });
-reviews.get("/approvals/v2/companies", (c) => {
+reviews.get("/approvals/v2/companies", async (c) => {
   const actor = scopedUser();
   if (!actor) throw new HttpFail(401, "请登录");
-  return c.json(reviewCompaniesForActor(getConn(), actor.id));
+  if (!process.env.DATABASE_URL) return c.json(reviewCompaniesForActor(getConn(), actor.id));
+  const companies = await postgresTransaction((db) => postgresReviewCompanies(db, actor.id));
+  return c.json(companies);
 });
 reviews.get("/approvals/v2/drafts", (c) =>
   c.json(service(c.req.header("X-Review-Company")).drafts()),
@@ -146,11 +156,11 @@ reviews.post("/approvals/v2/drafts", async (c) => {
     ),
   );
 });
-reviews.get("/approvals/v2/context", (c) => {
-  const s = service(c.req.header("X-Review-Company"));
+reviews.get("/approvals/v2/context", async (c) => {
+  const ctx = await nativeReviewContext(c.req.header("X-Review-Company"));
   return c.json({
-    ...s.ctx,
-    intake: reviewIntake(s.ctx.tenant),
+    ...ctx,
+    intake: reviewIntake(ctx.tenant),
     capabilities: {
       fields: [
         "text",
@@ -195,7 +205,7 @@ reviews.get("/approvals/v2/source/collaboration/:id", (c) => {
 });
 reviews.post("/approvals/v2/preview", async (c) => {
   const b = await body(c);
-  await guardKnowledgeReview(b, reviewContext(getConn(), c.req.header("X-Review-Company")));
+  await guardKnowledgeReview(b, await nativeReviewContext(c.req.header("X-Review-Company")));
   return c.json(service(c.req.header("X-Review-Company")).submissionPreview(b));
 });
 reviews.post("/admin/approval-types/v2/choice-options", async (c) => {
@@ -233,7 +243,7 @@ reviews.post("/approvals/v2/notifications/:id/read", (c) =>
 );
 reviews.post("/approvals/v2/prepare", async (c) => {
   const b = await body(c);
-    await guardKnowledgeReview(b, reviewContext(getConn(), c.req.header("X-Review-Company")));
+    await guardKnowledgeReview(b, await nativeReviewContext(c.req.header("X-Review-Company")));
   const prepared=reviewTx((db) => service(c.req.header("X-Review-Company"), db).prepare(b));
   if (process.env.DATABASE_URL && typeof b.instanceId === "string") {
     const tenant=service(c.req.header("X-Review-Company")).ctx.tenant;
@@ -244,7 +254,7 @@ reviews.post("/approvals/v2/prepare", async (c) => {
 });
 reviews.post("/approvals/v2/commands", async (c) => {
   const b = await body(c);
-  await guardKnowledgeReview(b.command, reviewContext(getConn(), c.req.header("X-Review-Company")));
+  await guardKnowledgeReview(b.command, await nativeReviewContext(c.req.header("X-Review-Company")));
   return c.json(
     reviewTx((db) =>
       service(c.req.header("X-Review-Company"), db).execute(
