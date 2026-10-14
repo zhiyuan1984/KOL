@@ -54,6 +54,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261013_employee_skill_preferences", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "037_employee_skill_preferences.sql"), "utf8")] },
   { id: "20261013_employee_agent_preferences", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "038_employee_agent_preferences.sql"), "utf8")] },
   { id: "20261009_kol_authority_sync_health", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "033_kol_authority_sync_health.sql"), "utf8")] },
+  { id: "20261014_kol_pool_sync_run_columns_repair", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "041_kol_pool_sync_run_columns_repair.sql"), "utf8")] },
   { id: "20261010_skill_biz_taxonomy", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "034_skill_biz_taxonomy.sql"), "utf8")] },
   { id: "20261009_kol_source_authority", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "032_kol_source_authority.sql"), "utf8")] },
   { id: "20261005_public_pool_read_indexes", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "023_public_pool_read_indexes.sql"), "utf8")] },
