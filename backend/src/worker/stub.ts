@@ -334,7 +334,7 @@ function stubTodayBrief(extra: Json): Json {
       ? {
         verb: "open",
         label: "打开未了结任务",
-        object_id: String(firstTask.id || ""),
+        object_id: String(firstTask.work_item_id || firstTask.id || ""),
         object_type: String(firstTask.object_type || "task"),
         person_id: firstTask.person_id ? String(firstTask.person_id) : null,
       }
@@ -371,6 +371,19 @@ function stubTodayBrief(extra: Json): Json {
         items: added.map((item) => `${item.kind || ""} ${item.title || item.id}`),
       },
     ],
+    // CODEX_MODE=stub is test-only, but it must honor the same strict planner
+    // contract as a model turn so native persistence tests cannot rely on a
+    // legacy todo_layout fallback.
+    display_tasks: unfinished.filter((item) => item.work_item_id).map((item, index) => ({
+      work_item_id: String(item.work_item_id),
+      rank: index + 1,
+      title: String(item.title || item.work_item_id),
+      why: String(item.reason || "未了结"),
+      next_action: "打开任务",
+      verb: "open",
+      label: "打开任务",
+      view: "today",
+    })),
     todo_layout: unfinished.filter((item) => item.work_item_id).map((item, index) => ({
       work_item_id: String(item.work_item_id),
       rank: index + 1,

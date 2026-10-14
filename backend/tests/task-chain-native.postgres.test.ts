@@ -21,7 +21,7 @@ function input(owner = OWNER) {
     taskType: "today_plan" as const,
     title: "原生今日计划",
     scope: "today" as const,
-    producer: "deterministic_organize" as const,
+    producer: "agent_plan" as const,
     payload: { mode: "today_plan", skip_user_memory: true } as Json,
     extraPayload: { producer: "deterministic_organize" } as Json,
     queuedLabel: "工作计划已入队",
@@ -52,7 +52,7 @@ describe("task-chain native PostgreSQL plan", () => {
     expect(facts.rows[0]).toEqual({ sessions: "1", tickets: "1", runs: "1", jobs: "1", events: "1" });
   });
 
-  it("executes deterministic plan with native artifacts and excludes a different tenant's task", async () => {
+  it("executes real worker plan with native artifacts and excludes a different tenant's task", async () => {
     const now = new Date().toISOString();
     await postgresPool().query(
       `INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
@@ -72,13 +72,13 @@ describe("task-chain native PostgreSQL plan", () => {
       ticket_id: started.work_item_id,
       run_id: started.run_id,
       worker_id: "test-worker",
-      payload_json: JSON.stringify({ owner: OWNER, work_item_id: started.work_item_id, run_id: started.run_id, session_id: started.session_id, scope: "today", pack, producer: "deterministic_organize" }),
+      payload_json: JSON.stringify({ owner: OWNER, work_item_id: started.work_item_id, run_id: started.run_id, session_id: started.session_id, scope: "today", pack, producer: "agent_plan" }),
     } as unknown as ClaimedExecutionJob;
     const [receipt, duplicate] = await Promise.all([
       executeNativeClaimedPlanningJob(claimed),
       executeNativeClaimedPlanningJob({ ...claimed, worker_id: "second-test-worker" } as ClaimedExecutionJob),
     ]);
-    expect(receipt).toMatchObject({ work_item_id: started.work_item_id, run_id: started.run_id, mode: "deterministic_organize" });
+    expect(receipt).toMatchObject({ work_item_id: started.work_item_id, run_id: started.run_id, mode: "agent_plan" });
     expect(duplicate).toMatchObject({ work_item_id: started.work_item_id, run_id: started.run_id, duplicate: true });
     const snapshot = await nativeTodayBriefSnapshot(OWNER);
     expect(snapshot).toMatchObject({ status: "ready", work_item_id: started.work_item_id });

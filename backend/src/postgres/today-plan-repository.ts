@@ -4,7 +4,8 @@ import { pgEnqueueExecutionJob } from "../execution-jobs/postgres-store.js";
 import { postgresPool, postgresQuery, postgresTransaction } from "./pool.js";
 import type { Json, Row } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
-import type { PlanScope, SourceItem, TodayPlanPack } from "../host/today-plan-context.js";
+import { planningRunInput, type PlanScope, type SourceItem, type TodayPlanPack } from "../host/today-plan-context.js";
+import { runWorker } from "../worker/runner.js";
 
 export type NativePlanStart = {
   work_item_id: string;
@@ -194,19 +195,31 @@ export async function startNativeTodayPlan(input: NativePlanInput): Promise<Nati
   }, { isolation: "SERIALIZABLE" });
 }
 
-function deterministicBrief(pack: TodayPlanPack): Json {
-  const formal = pack.catalog.filter((item) => item.kind === "formal_task");
-  const first = formal[0];
-  return {
-    lead: first ? `先处理 ${first.title || "最高优先级任务"}` : "当前没有需要优先处理的开放任务",
-    sections: [{ title: "工作计划", body: `${formal.length} 项未了结正式任务已按优先级和期限排序。`, items: formal.slice(0, 6).map((item) => item.title) }],
-    primary: first ? { verb: "open", label: "打开任务", object_id: first.work_item_id || null, object_type: "task", person_id: first.person_id || null } : { verb: "open", label: "查看任务列表", object_id: null, object_type: "task", person_id: null },
-    stats: { unfinished: formal.length, failed_runs: pack.now_counts.failed_runs, stage_counts: pack.stage_counts }, source_cursor: pack.source_cursor,
-    display_tasks: formal.map((item, index) => ({ work_item_id: item.work_item_id, title: item.title, why: item.reason || "未了结正式任务", rank: index + 1, verb: "open", label: "打开任务", next_action: "打开任务", view: "today" })),
-  };
+/** Extract only a structured planner response. Production never turns a host-side
+ * deterministic projection into an AI result; the worker/model (or its explicit
+ * CODEX_MODE=stub test implementation) is the sole producer. */
+function briefFromWorkerItems(items: Json[]): Json | null {
+  const candidates = items.filter((item) => item && typeof item === "object" && !Array.isArray(item)
+    && (item.type === "today_brief" || (item.lead != null && item.sections != null)));
+  if (!candidates.length) return null;
+  const preferred = [...candidates].reverse().find((item) => Array.isArray(item.display_tasks)) || candidates[candidates.length - 1];
+  const { type: _type, narrative: _narrative, ...brief } = preferred;
+  return brief as Json;
 }
 
-async function writeNativeBrief(client: PoolClient, input: { owner: string; workItemId: string; runId: string; scope: PlanScope; brief: Json; producer: string }): Promise<{ artifactId: string }> {
+/** Every formal unfinished ticket must have its own model-generated display row.
+ * Do not fill missing rows with host defaults: that would conceal a partial model
+ * result as a completed plan. */
+function missingDisplayCoverage(brief: Json | null, pack: TodayPlanPack): string[] {
+  if (!brief || !Array.isArray(brief.display_tasks)) return pack.history.unfinished_tasks
+    .map((item) => String(item.work_item_id || item.id || "")).filter(Boolean);
+  const displayed = new Set(brief.display_tasks.map((item) => item && typeof item === "object"
+    ? String((item as Json).work_item_id || "") : "").filter(Boolean));
+  return pack.history.unfinished_tasks.map((item) => String(item.work_item_id || item.id || ""))
+    .filter((id) => id && !displayed.has(id));
+}
+
+async function writeNativeBrief(client: PoolClient, input: { owner: string; workItemId: string; runId: string; scope: PlanScope; brief: Json; producer: "agent_plan" }): Promise<{ artifactId: string }> {
   const now = stamp(); const artifactId = nid("art"); const table = pointerTable(input.scope);
   const snapshot: Json = { ...input.brief, producer: input.producer, source_revision: String((input.brief.source_cursor as Json | undefined)?.cursor_to || ""), generated_at: now };
   await client.query(`INSERT INTO task_artifacts (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at) VALUES ($1,$2,$3,'today_brief',NULL,1,$4,$5)`, [artifactId, input.workItemId, input.runId, JSON.stringify(snapshot), now]);
@@ -218,50 +231,71 @@ async function writeNativeBrief(client: PoolClient, input: { owner: string; work
   return { artifactId };
 }
 
-async function nativePlanTerminal(workItemId: string, runId: string, ok: boolean, reason?: string): Promise<void> {
-  await postgresTransaction(async (client) => {
-    const now = stamp();
-    await client.query(`UPDATE task_runs SET status=$1,error=$2,completed_at=$3 WHERE id=$4 AND work_item_id=$5`, [ok ? "completed" : "failed", ok ? null : JSON.stringify({ message: reason || "planning failed" }), now, runId, workItemId]);
-    await client.query(`UPDATE tickets SET status=$1,completed_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3`, [ok ? "waiting" : "failed", now, workItemId]);
-    await appendNativeTaskEventIn(client, workItemId, runId, ok ? "run.completed" : "run.failed", ok ? "今日规划已完成" : "今日规划失败", ok ? "completed" : "failed", ok ? "PostgreSQL 原生任务链已完成" : String(reason || "planning failed"));
-  });
+async function nativePlanTerminalIn(client: PoolClient, workItemId: string, runId: string, ok: boolean, reason?: string): Promise<void> {
+  const now = stamp();
+  await client.query(`UPDATE task_runs SET status=$1,error=$2,completed_at=$3 WHERE id=$4 AND work_item_id=$5`, [ok ? "completed" : "failed", ok ? null : JSON.stringify({ message: reason || "planning failed" }), now, runId, workItemId]);
+  await client.query(`UPDATE tickets SET status=$1,completed_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3`, [ok ? "waiting" : "failed", now, workItemId]);
+  await appendNativeTaskEventIn(client, workItemId, runId, ok ? "run.completed" : "run.failed", ok ? "今日规划已完成" : "今日规划失败", ok ? "completed" : "failed", ok ? "真实模型计划结果已写入 PostgreSQL" : String(reason || "planning failed"));
 }
 
-/** Executor used by the PostgreSQL dispatcher; it never imports execution-jobs/store or the SQLite plan projection. */
+async function nativePlanTerminal(workItemId: string, runId: string, ok: boolean, reason?: string): Promise<void> {
+  await postgresTransaction((client) => nativePlanTerminalIn(client, workItemId, runId, ok, reason));
+}
+
+/** PostgreSQL durable executor. The model is authoritative in normal runtime;
+ * a stub is reachable only through runWorker's explicit CODEX_MODE=stub test
+ * branch. No deterministic plan is substituted for a real AI execution. */
 export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJob): Promise<Json> {
   const payload = asJson((claimed as Row).payload_json);
-  const workItemId = String(payload.work_item_id || claimed.ticket_id || ""); const runId = String(payload.run_id || claimed.run_id || ""); const owner = String(payload.owner || claimed.actor_ref || "");
+  const workItemId = String(payload.work_item_id || claimed.ticket_id || "");
+  const runId = String(payload.run_id || claimed.run_id || "");
+  const owner = String(payload.owner || claimed.actor_ref || "");
   if (!workItemId || !runId || !owner) throw new Error("invalid planning execution job payload");
   const claimedRun = await postgresTransaction(async (client) => {
     const row = await client.query<Row>(`SELECT t.status AS ticket_status,r.status AS run_status,r.session_id FROM tickets t JOIN task_runs r ON r.work_item_id=t.id WHERE t.id=$1 AND r.id=$2 AND t.owner_user_id=$3 FOR UPDATE`, [workItemId, runId, owner]);
     const current = row.rows[0]; if (!current) throw new Error("planning task run not found or tenant mismatch");
-    // The execution-job lease should normally serialize workers. Keep an
-    // independent task-run CAS as defense in depth: a second claimant cannot
-    // create a second artifact while the first one is running.
-    if (["completed", "failed", "cancelled", "running"].includes(String(current.run_status)) || ["completed", "failed", "cancelled"].includes(String(current.ticket_status))) return { duplicate: true };
+    if (["completed", "failed", "cancelled", "running"].includes(String(current.run_status)) || ["completed", "failed", "cancelled"].includes(String(current.ticket_status))) return { duplicate: true, sessionId: "" };
+    const sessionId = String(payload.session_id || current.session_id || "");
+    if (!sessionId) throw new Error("planning task run has no session");
     const now = stamp();
     await client.query("UPDATE task_runs SET status='running',started_at=COALESCE(started_at,$1) WHERE id=$2", [now, runId]);
     await client.query("UPDATE tickets SET status='running',started_at=COALESCE(started_at,$1),updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, workItemId]);
-    await appendNativeTaskEventIn(client, workItemId, runId, "run.started", "开始生成统一工作计划", "running", "持久执行器已领取作业");
-    return { duplicate: false };
+    await appendNativeTaskEventIn(client, workItemId, runId, "run.started", "开始生成统一工作计划", "running", "PostgreSQL 执行器已领取真实模型作业");
+    return { duplicate: false, sessionId };
   });
   if (claimedRun.duplicate) return { work_item_id: workItemId, run_id: runId, duplicate: true };
   try {
     if (String(claimed.job_type) === "today_analyze.run") {
+      const taskPayload = payload.task_payload && typeof payload.task_payload === "object" && !Array.isArray(payload.task_payload) ? payload.task_payload as Json : {};
+      const result = await Promise.resolve(runWorker(claimedRun.sessionId, "today_analyze", String(payload.prompt || "分析所选对象并建议下一步，不要改状态。"), { ...taskPayload, work_item_id: workItemId, task_run_id: runId }));
       await nativePlanTerminal(workItemId, runId, true);
-      return { work_item_id: workItemId, run_id: runId, mode: "today_analyze", side_effect: "none" };
+      return { work_item_id: workItemId, run_id: runId, mode: "agent_plan", side_effect: "none", worker_id: result.worker_id };
     }
-    const packRaw = payload.pack;
-    const pack = packRaw && typeof packRaw === "object" && !Array.isArray(packRaw) ? packRaw as TodayPlanPack : await nativeTodayPlanContext(owner, String(payload.scope) === "todo" ? "todo" : "today");
     const scope: PlanScope = String(payload.scope) === "todo" ? "todo" : "today";
-    const producer = payload.producer === "agent_plan" ? "agent_plan" : "deterministic_organize";
-    // Planning output remains deterministic in this native path. It retains the declared producer for audit but never crosses a compatibility storage bridge.
-    const brief = deterministicBrief(pack);
-    const stored = await postgresTransaction((client) => writeNativeBrief(client, { owner, workItemId, runId, scope, brief, producer }));
-    await nativePlanTerminal(workItemId, runId, true);
-    return { work_item_id: workItemId, run_id: runId, artifact_id: stored.artifactId, mode: producer, scope };
+    const packRaw = payload.pack;
+    const pack = packRaw && typeof packRaw === "object" && !Array.isArray(packRaw) ? packRaw as TodayPlanPack : await nativeTodayPlanContext(owner, scope);
+    const extra = planningRunInput(pack, { work_item_id: workItemId, task_run_id: runId }, scope);
+    const result = await Promise.resolve(runWorker(claimedRun.sessionId, planTaskType(scope), scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。", extra));
+    const brief = briefFromWorkerItems(result.items);
+    const missing = missingDisplayCoverage(brief, pack);
+    if (!brief || missing.length) {
+      const reason = !brief ? "真实模型没有返回 today_brief 结构化结果" : `真实模型展示行漏了 ${missing.length} 项任务（${missing.slice(0, 3).join("、")}）`;
+      await nativePlanTerminal(workItemId, runId, false, reason);
+      throw new Error(reason);
+    }
+    // Cursor provenance is an authority fact calculated from native PostgreSQL
+    // reads. Do not trust a model to reconstruct it from the prompt excerpt.
+    const persistedBrief: Json = { ...brief, source_cursor: pack.source_cursor };
+    const stored = await postgresTransaction(async (client) => {
+      const written = await writeNativeBrief(client, { owner, workItemId, runId, scope, brief: persistedBrief, producer: "agent_plan" });
+      await nativePlanTerminalIn(client, workItemId, runId, true);
+      return written;
+    });
+    return { work_item_id: workItemId, run_id: runId, artifact_id: stored.artifactId, mode: "agent_plan", scope, worker_id: result.worker_id };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    // A validation failure was terminalized above; this compare-and-set remains
+    // harmless and records real worker/model failures exactly once.
     await nativePlanTerminal(workItemId, runId, false, reason);
     throw error;
   }
