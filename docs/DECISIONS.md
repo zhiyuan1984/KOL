@@ -2,7 +2,29 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-15（二）：通讯紧凑工作台——正文补全、标签跟人走、AI 候选确认
+
+- **状态**：已接受（用户批准本轮目标与计划，并选定 D1=A：标签跟人走，peer_email 级）。
+- **审宪记录**：需求 → 通讯成为「快速找到往来、直接阅读、原位处理、随时调用 AI」的紧凑工作台（心智链：哪个邮箱 → 谁来信 → 信说什么 → 往来到哪 → 回复 / 整理 / AI 协助）→ 主责角色 → UI/UX 专家（布局视觉交互）+ 前端专家 + 后端专家（同步/标签模型/事务）+ KOL 业务专家（分工与「发送≠推进阶段」）+ 架构师（接口分工）；标签归属由用户作为产品发起人裁决 D1=A → 宪法 → CONST-01/02/03/05/06/07/09/10 均符合：标签采纳需确认 + 版本 + 审计；标签是个人偏好不写 collaboration/stage；AI 推荐仍走 Codex；摘要/译文直接读已存事实；不偷偷改法；验收明确 → 基本法 → TECHNOLOGY.md TECH-BE-03/04、TECH-FE-01、TECH-TEST-02/04；DESIGN.md §1/§2/§3/§4/§5；BUSINESS.md 不涉阶段/SOP → 结论 → **符合** → 下一步 → 实施。
+- **决定**：
+  1. **正文补全**：`pgEnqueueExecutionJob` 去重键 `object_ref` 带上 `conversation_id`（有则定向、无则通用，分属不同去重实体），定向请求不再被通用同步任务静默吞掉；`hydrateRequestedConversationIfNeeded` 失败只记回执（`requested_conversation: { conversation_id, hydrated, error }`），不拖垮整箱同步。前端时间线正文缺失态给 `[补全正文]`（调定向同步），失败时呈现原因 + 重试。
+  2. **标签跟人走（D1=A）**：指派粒度从会话改为对方（`peer_email`）。迁移 `042_20261015_mail_labels_peer_email`：指派表加 `peer_email` 列、回填、删孤行、同对方多会话指派合并一行、新 PK `(user_id, mailbox, peer_email, label_id)`、删旧 PK + `conversation_id` 列。API 表面不变（仍收/返 conversation_id），后端内部解析对方；推导不出不静默落到会话本身。删会话行不再清除该对方的标签。
+  3. **peer 修正（数据 bug 修复，非规则变更）**：`persistConversationIndex` 原先不分方向一律取发件人作 peer，发件会话的 peer 变成自己（mailbox），导致重复邮箱芯片。改为按方向取（收件取 from，发件取 to，为空回落 from）；水合时按最新消息方向推导 peer；重同步纠正旧行。
+  4. **AI 候选确认**：标签编辑器面板不再内置 AI 推荐；推荐走提问框（`mail_label_recommend` 任务 → Codex 编排 → 候选列表在提问框下方 → 点候选 → 独立确认条确认后只提交 receipt）。切会话清零候选，旧回执不可保存到新对象。手动输入标签走 name（不存在则新建），取代 §31 旧限制。
+  5. **布局**：阅读头补对方邮箱行（+「复制」文字链）；工具栏重组（回复/标记已读/标签编辑器/推进阶段 L4 链接形态），删工具栏内「复制对方邮箱」按钮；输入区外壳取消 `min-height`/`overflow: auto`（不再第二滚动轴）；上下文芯片带角色（发件箱/对方/邮件）。「更多」暂无内容，不设空按钮（空按钮即哑按钮）。
+- **证据**：后端 tsc / 前端 tsc 零报错（adm-zip 缺失为沙箱 node_modules 环境缺口，补装声明版本后通过，不属本次改动）；前端 mail 单测 29/29；mail-gmail-v2 e2e 12/12（含 3 项新/改写标签用例）；mail.spec.ts e2e 待后台结果。PG 集成测试（mail-private-labels / mail-label-suggestions / followed-mail-sync / mail-sync-pg-regression）在沙箱因无 PG（`TEST_DATABASE_URL` 未设置）无法运行，待 qiyou 环境；其失败均为 setup 阶段抛环境错误，未进入业务断言。
+- **限制**：PG 集成验证待 qiyou 环境；真机视觉待用户；本 patch 基于 main@cf5ab357（含顶栏恢复），与旧版 `mail-immersive-v2-topbar-from-cf5ab357.patch` 合并为一条新 patch 交付，旧 patch 作废。
+
+## ADR-2026-10-15：通讯恢复全宽顶栏（以原 immersive D1/D5 为准）
+
+- **状态**：已接受（用户 2026-10-15 明确「还是用你的」——以原 immersive 设计为准，分析现有代码重做）。
+- **背景**：现有 main 的通讯已是原 immersive 设计的演进（a8040019 直接以 feat/mail-immersive 为基线细化；9910fab7 Gmail 主题；b24cd819 标签）。核对 D1–D7 发现唯一未被批准的结构漂移：b24cd819 的 three-image redesign 删了全宽 `mi-topbar`（返回/标题/搜索问 AI/同步状态/写信），把这组控件塞进左导航 `mr-railtools`，导致搜索/AI 问在视觉上被收进左导航、失去"全局"属性。其余漂移均已获批准，不动：inline 一个 Composer（ADR-2026-10-12「仅一个完整 ComposerDock」）、标签体系、Gmail 主题 token、诚实空态、工作台保留在底下。
+- **决定**：恢复 `mi-topbar`（返回工作台 / 通讯 / 搜索联系人·主题·预览回车问 AI / 同步状态点 / 写信），左导航删 `mr-railtools`；写信按钮用 Gmail 主题的 `mr-compose` 脸（浅蓝圆角）保持主题一致；左导航 railfoot 保留同步操作（收取/取消/刷新/重试），顶栏只放同步状态。Gmail 层补 `mi-topbar` 样式（`--mail-gmail-*` token），顶栏本地沙箱渲染验证通过。
+- **理由**：D1（全屏覆盖 + 顶栏）/ D5（顶栏全局搜索/AI 问）为原批准设计；CONST-10（如实：顶栏同步状态与 railfoot 操作分离，状态不冒充操作）。
+- **限制**：真机视觉待用户；本 patch 基于 main@cf5ab357（三处修复已随 PR #238 合并）。
+
 ## ADR-2026-10-12：侧栏 IA 调整——工作台 / 业务地图 / 知识库 / 去审批 / Agent 移组
+## ADR-2026-10-12（二）：通讯三处截图反馈修复（…菜单平铺 / 同步卡死如实报错 / 标签手动输入）
 
 - **状态**：已接受（用户 2026-10-12 两张标注截图 + 同日当面更正：Agent 是**菜单条目挪位**，不是把页面嵌进连接/本体）。
 - **决定者**：用户（产品发起人）；UI/UX 专家负责导航文字、分簇与 tab 交互，平台产品经理负责 IA 记录，前端专家负责实现。
