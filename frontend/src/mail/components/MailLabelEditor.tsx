@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { MailConversation } from "../types";
 import type { useMailLabels } from "../useMailLabels";
 import { MailIcon, mailLabelTone } from "./MailIcon";
@@ -14,7 +14,11 @@ export function MailLabelEditor({ actorId, mailbox, conversation, stage, labels,
   onRecommend?: () => void; onAdopt?: (candidate: MailLabelCandidate) => Promise<boolean>;
 }) {
   const scope = `${actorId}\0${mailbox}\0${conversation?.conversation_id || ""}`;
+  const inputId = useId();
   const [query, setQuery] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const text = drafts[scope] || "";
+  const updateDraft = (next: string) => setDrafts(previous => ({ ...previous, [scope]: next }));
   const picker = useRef<HTMLDetailsElement>(null);
   const [pending, setPending] = useState<{scope: string; mode: "add" | "remove" | "adopt"; id?: string; candidate?: MailLabelCandidate} | null>(null);
   const [adopting, setAdopting] = useState(false);
@@ -23,6 +27,13 @@ export function MailLabelEditor({ actorId, mailbox, conversation, stage, labels,
   const selectedName = selection?.candidate?.name || labels.data?.labels.find(label => label.id === selection?.id)?.name || "";
   const disabled = labels.loading || labels.saving || adopting || !labels.data || !conversation;
   const filtered = labels.data?.labels.filter(label => label.name.toLowerCase().includes(query.trim().toLowerCase())) || [];
+  const addManual = async () => {
+    if (!text.trim() || disabled) return;
+    const normalized = text.normalize("NFKC").trim().toLowerCase();
+    const existing = labels.data?.labels.find(label => label.name.normalize("NFKC").trim().toLowerCase() === normalized);
+    const ok = await labels.mutate(existing ? { mode: "add", label_id: existing.id } : { mode: "add", name: text.trim() });
+    if (ok) { updateDraft(""); setQuery(""); }
+  };
   const confirm = async () => {
     if (!selection || disabled) return;
     if (selection.mode === "adopt" && selection.candidate) {
@@ -37,6 +48,15 @@ export function MailLabelEditor({ actorId, mailbox, conversation, stage, labels,
         <div className="mail-label-panel mail-label-picker-panel">
           <p className="muted">仅自己可见 · 当前会话</p>
           <input type="search" aria-label="筛选已有标签" data-mail-label-search placeholder="查找已有标签" value={query} onChange={event => setQuery(event.target.value)} />
+          <form className="mr-label-form" data-mail-label-manual onSubmit={event => { event.preventDefault(); void addManual(); }}>
+            <label className="sr-only" htmlFor={inputId}>手动输入新标签</label>
+            <input id={inputId} list={`${inputId}-labels`} data-mail-label-input placeholder="手动输入新标签…" maxLength={40}
+              value={text} disabled={disabled} onChange={event => updateDraft(event.target.value)} />
+            <datalist id={`${inputId}-labels`}>{labels.data?.labels.map(label => <option key={label.id} value={label.name} />)}</datalist>
+            <button type="submit" className="btn ghost sm" data-mail-label-add disabled={disabled || !text.trim()}>
+              {labels.saving ? "保存中…" : "确认打标"}
+            </button>
+          </form>
           <div className="mail-label-options" role="group" aria-label="已有标签">
             {filtered.map(label => <button type="button" key={label.id} className="mail-label-option" data-mail-label-option={label.id}
               data-label-tone={mailLabelTone(label.name)} disabled={disabled} aria-pressed={labels.data?.selected_label_ids.includes(label.id)}
