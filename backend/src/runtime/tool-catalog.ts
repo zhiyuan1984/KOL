@@ -38,7 +38,7 @@ export type ToolCatalogRegistration = { total: number; created: number; refreshe
  * 管理员也可继续用既有策略接口覆盖。既有行保留风险档与启用状态（覆盖不被回写），
  * 只在远端指纹变化时刷新指纹。L3 可挂载；执行由统一提交门禁控制。
  */
-export function registerDiscoveredToolPolicies(connectorId: string, tools: Json[]): ToolCatalogRegistration {
+export async function registerDiscoveredToolPolicies(connectorId: string, tools: Json[]): Promise<ToolCatalogRegistration> {
   const result: ToolCatalogRegistration = { total: tools.length, created: 0, refreshed: 0, skipped: 0 };
   for (const tool of tools) {
     const name = typeof tool.name === "string" ? tool.name.trim() : "";
@@ -47,10 +47,10 @@ export function registerDiscoveredToolPolicies(connectorId: string, tools: Json[
       continue;
     }
     const schemaHash = policyHashOf(tool);
-    const existing = getToolPolicy(connectorId, name);
+    const existing = await getToolPolicy(connectorId, name);
     if (!existing) {
       const derived = deriveToolPolicy(name);
-      setToolPolicy(connectorId, name, {
+      await setToolPolicy(connectorId, name, {
         enabled: true,
         risk: derived.risk,
         access: derived.access,
@@ -60,7 +60,7 @@ export function registerDiscoveredToolPolicies(connectorId: string, tools: Json[
       continue;
     }
     if (String(existing.schema_hash || "").trim().toLowerCase() !== schemaHash) {
-      setToolPolicy(connectorId, name, {
+      await setToolPolicy(connectorId, name, {
         enabled: Number(existing.enabled) === 1,
         risk: String(existing.risk) as DerivedToolPolicy["risk"],
         access: String(existing.access) as DerivedToolPolicy["access"],
