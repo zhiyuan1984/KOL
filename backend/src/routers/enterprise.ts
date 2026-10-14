@@ -37,6 +37,8 @@ import { pgCreateOrganizationUser, pgDeactivateOrganizationUser, pgSyncOrganizat
 import { pgBindApprovalRole, pgSetApprovalRoles, pgUnbindApprovalRole, pgUpdatePreferences } from "../postgres/account-access-repository.js";
 import { pgCreateConnector, pgDeleteConnector, pgUpdateConnector } from "../postgres/connector-authorization-repository.js";
 
+import { pgEnterpriseAccount, pgEnterpriseAccounts, pgEnterpriseEmployeeContext } from "../postgres/enterprise-account-read-repository.js";
+
 export const enterprise = new Hono();
 
 enterprise.use("/sessions/:sid/*",async (c,next) => {
@@ -173,6 +175,10 @@ function employeeTools(row: Row): Json {
     (getConn().prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(row.id) as Row[])
       .map((grant) => String(grant.skill_id)),
   );
+  return projectEmployeeTools(granted);
+}
+
+function projectEmployeeTools(granted: Set<string>): Json {
   return {
     tools: SKILL_CATALOG
       .filter((skill) => skill.employee_visible || granted.has(skill.id))
@@ -495,8 +501,9 @@ enterprise.get("/admin/organization-people", (c) => {
   return c.json({ people });
 });
 
-enterprise.get("/admin/users", () => {
+enterprise.get("/admin/users", async () => {
   requireAdmin();
+  if (process.env.DATABASE_URL) return Response.json(await pgEnterpriseAccounts());
   return Response.json((getConn().prepare("SELECT * FROM users ORDER BY created_at").all() as Row[]).map(safeUser));
 });
 
@@ -520,18 +527,25 @@ enterprise.post("/admin/users", async (c) => {
   syncUserOrganization(id, unitId); audit(admin.id, "admin.user.create", { user_id: id }); return c.json(safeUser(userById(id)), 201);
 });
 
-enterprise.get("/admin/users/:uid", (c) => {
+enterprise.get("/admin/users/:uid", async (c) => {
   requireAdmin();
+  if (process.env.DATABASE_URL) return c.json(await pgEnterpriseAccount(c.req.param("uid")));
   return c.json(safeUser(userById(c.req.param("uid"))));
 });
 
-enterprise.get("/admin/users/:uid/context", (c) => {
+enterprise.get("/admin/users/:uid/context", async (c) => {
   requireAdmin();
+  if (process.env.DATABASE_URL) return c.json(await pgEnterpriseEmployeeContext(c.req.param("uid")));
   return c.json(employeeContext(userById(c.req.param("uid"))));
 });
 
-enterprise.get("/admin/users/:uid/tools", (c) => {
+enterprise.get("/admin/users/:uid/tools", async (c) => {
   requireAdmin();
+  if (process.env.DATABASE_URL) {
+    const row = await pgEnterpriseAccount(c.req.param("uid"));
+    const granted = new Set(Array.isArray(row.skill_grants) ? row.skill_grants.map(String) : []);
+    return c.json(projectEmployeeTools(granted));
+  }
   return c.json(employeeTools(userById(c.req.param("uid"))));
 });
 
