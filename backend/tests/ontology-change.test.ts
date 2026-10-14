@@ -42,20 +42,22 @@ describe("ontology_change approval kind", () => {
     expect(router).toContain('ontology.get("/admin/ontology/registries"');
   });
 
-  it("has a release gate that records an explicit bootstrap receipt once and rejects later changed registries without matching PG approvals", () => {
+  it("has a release check that records an explicit bootstrap receipt once and warns (never blocks) on changed registries without matching PG approvals", () => {
     const gate = source("backend/scripts/check-ontology-release.ts");
     expect(gate).toContain("ontology_release_ledger");
     expect(gate).toContain("approval_not_claimed: true");
-    expect(gate).toContain("ontology_change_approval_required");
     expect(gate).toContain("target_digest");
+    expect(gate).toContain("仅提醒");
+    // 2026-10-15：审批只提醒、不阻断部署（部署等审批是死锁）。禁止用环境开关绕过——
+    // 提醒本身是代码写死的，不存在开关；不要再加 SKIP/DISABLE/BYPASS。
     expect(gate).not.toMatch(/SKIP_?ONTOLOGY|DISABLE_?ONTOLOGY|BYPASS_?ONTOLOGY/i);
   });
 
-  it("invokes the release gate before asset replacement and records its factual baseline only after health", () => {
+  it("invokes the release check before asset replacement and records its factual baseline only after health", () => {
     const deploy = source("scripts/deploy.sh");
     expect(deploy).toContain('"$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts"');
     expect(deploy).toContain('"$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts" --record');
-    expect(deploy.indexOf("检查本体 registry 发布门禁")).toBeLessThan(deploy.indexOf("构建前端 → frontend/dist.new"));
+    expect(deploy.indexOf("检查本体 registry 发布状态")).toBeLessThan(deploy.indexOf("构建前端 → frontend/"));
     expect(deploy.lastIndexOf("record_ontology_release")).toBeGreaterThan(deploy.indexOf("服务已恢复："));
   });
 

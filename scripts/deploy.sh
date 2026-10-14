@@ -78,12 +78,13 @@ if need_install "$ROOT/frontend" "vite"; then
   install_pkg "$ROOT/frontend"
 fi
 
-# 本体 registry 发布是独立的真实 PG 审批门禁。首次治理安装会明确输出
-# bootstrap/approval_not_claimed，并只在服务健康后写入事实基线；之后不接受
-# 环境跳过。门禁位于构建和 dist 替换之前，失败时不改静态产物、不中断服务。
+# 本体 registry 发布检查是提醒，不是阻断（2026-10-15 qiyou 决策，ADR-2026-10-15）：
+# 部署时系统正在替换，审批人无法在系统里审批；部署等审批是死锁。
+# 审批是治理留痕，不是部署前置条件。缺失审批只警告、不拦部署。
+# 首次治理安装会明确输出 bootstrap/approval_not_claimed，并只在服务健康后写入事实基线。
 ONTOLOGY_GATE="$ROOT/backend/node_modules/.bin/tsx"
 [ -x "$ONTOLOGY_GATE" ] || die "缺少 backend/node_modules/.bin/tsx，未构建、未重启"
-echo "检查本体 registry 发布门禁（真实 PostgreSQL 审批/发布账本）"
+echo "检查本体 registry 发布状态（提醒，不阻断部署）"
 "$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts"
 
 record_ontology_release() {
