@@ -12,7 +12,7 @@ import type { EmployeeAgentBrowse, EmployeeAgentScope } from "../../../shared/em
 export async function employeeAgentBrowse(): Promise<EmployeeAgentBrowse> {
   const actor = scopedUser();
   if (!actor?.active) throw new HttpFail(401, { code: "authentication_required", message: "请先登录" });
-  const experts = employeeExperts();
+  const experts = await employeeExperts();
   const skillIds = [...new Set(experts.flatMap(row => Array.isArray(row.skill_ids) ? row.skill_ids.map(String) : []))];
   const bindings = skillIds.length ? await postgresQuery<{ skill_id: string; selector: string | BindingSelector }>(
     "SELECT skill_id,selector FROM knowledge_bindings WHERE enabled=1 AND skill_id=ANY($1::text[])", [skillIds],
@@ -57,7 +57,7 @@ export async function employeeAgentBrowse(): Promise<EmployeeAgentBrowse> {
       COALESCE(u.name,CASE WHEN v.published_by='legacy-release' THEN '组织发布' END) AS published_by
     FROM managed_agents a LEFT JOIN agent_workspace_versions v ON v.agent_id=a.id AND v.version=a.published_revision
     LEFT JOIN users u ON u.id=v.published_by WHERE a.id=ANY($1::text[])`, [agentIds]) : [];
-  const current = employeeExperts();
+  const current = await employeeExperts();
   const rows = experts.filter(row => current.some(value => value.id === row.id)).map(row => {
     // Revalidate assembly after async reads; do not retain scope from a removed skill.
     const skills = current.find(value => value.id === row.id)?.skill_ids;

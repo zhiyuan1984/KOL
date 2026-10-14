@@ -32,11 +32,10 @@ async function confirmKnowledgeReleases(agentId:string,actor:string) {
 
 export const adminAgentsRouter = new Hono();
 
-function agentView(id: string) {
-  const agent = managedAgent(id);
+async function agentView(id: string) {
+  const agent = await managedAgent(id);
   const skills = getAgentSkills(id);
-  const bindings = listAgentBindings(id);
-  const coverage = effectiveAgentUsers(id);
+  const [bindings, coverage] = await Promise.all([listAgentBindings(id), effectiveAgentUsers(id)]);
   const knowledge = getConn().prepare(
     `SELECT kb.id,kb.skill_id,kb.selector,kb.enabled,kb.note FROM knowledge_bindings kb
       JOIN runtime_agent_skills ras ON ras.skill_id=kb.skill_id AND ras.agent_id=? AND ras.enabled=1
@@ -53,11 +52,11 @@ type BindingBody = {
  * 绑定与预览共用的目标解析：类型合法、目标存在、同公司（CONST-05）。
  * 预览（syncPerson=false）不写 users/site：person 按 personRefForUser 只读解析，组织关系由预览内核模拟。
  */
-function resolveBindingTarget(body: BindingBody, opts: { syncPerson: boolean }): {
+async function resolveBindingTarget(body: BindingBody, opts: { syncPerson: boolean }): Promise<{
   targetType: "organization_unit" | "person";
   targetId: string;
   companyId: string;
-} {
+}> {
   const db = getConn();
   if (body.target_type !== "organization_unit" && body.target_type !== "person") throw new HttpFail(400, "绑定类型无效");
   const targetType = body.target_type;
@@ -66,15 +65,15 @@ function resolveBindingTarget(body: BindingBody, opts: { syncPerson: boolean }):
     const user = db.prepare("SELECT id,site,active FROM users WHERE id=?").get(body.user_id) as
       { id: string; site: string | null; active: number } | undefined;
     if (!user?.active) throw new HttpFail(404, "员工不存在或已停用");
-    targetId = opts.syncPerson ? syncUserOrganization(user.id, user.site) : (personRefForUser(user.id) || "");
+    targetId = opts.syncPerson ? await syncUserOrganization(user.id, user.site) : (await personRefForUser(user.id) || "");
     if (!targetId) throw new HttpFail(404, "员工不存在或已停用");
   }
-  const units = listOrganizationUnits();
+  const units = await listOrganizationUnits();
   // 组织单元覆盖任意层级（一级/二级/三级组），只要求 status='active'（CONST-05）。
   const unit = units.find((row) => row.id === targetId && row.status === "active");
   if (targetType === "organization_unit" && !unit) throw new HttpFail(400, "请选择有效的组织单元");
   const person = targetType === "person"
-    ? listOrganizationPeople().find((row) => row.person_ref === targetId && row.status === "active")
+    ? (await listOrganizationPeople()).find((row) => row.person_ref === targetId && row.status === "active")
     : null;
   // 已同步人员（含绑定接口）必须是已确认人员；仅预览尚未同步的账号时放行，交给预览内核模拟。
   if (targetType === "person" && !person && !(body.user_id && !opts.syncPerson)) {
@@ -93,13 +92,13 @@ function resolveBindingTarget(body: BindingBody, opts: { syncPerson: boolean }):
   return { targetType, targetId, companyId: selectedCompany };
 }
 
-adminAgentsRouter.get("/admin/agents", (c) => {
+adminAgentsRouter.get("/admin/agents", async (c) => {
   requireAdmin();
-  const memberships = listOrganizationMemberships().filter((membership) => membership.status === "active");
+  const memberships = (await listOrganizationMemberships()).filter((membership) => membership.status === "active");
   return c.json({
-    agents: listManagedAgents().map((row) => agentView(row.id)),
-    units: listOrganizationUnits().filter((unit) => unit.status === "active"),
-    people: listOrganizationPeople().filter((person) => person.status === "active").map((person) => {
+    agents: await Promise.all((await listManagedAgents()).map((row) => agentView(row.id))),
+    units: (await listOrganizationUnits()).filter((unit) => unit.status === "active"),
+    people: (await listOrganizationPeople()).filter((person) => person.status === "active").map((person) => {
       const personMemberships = memberships.filter((membership) => membership.person_ref === person.person_ref);
       return { ...person, company_id: personMemberships[0]?.company_id || null, unit_ids: personMemberships.map((membership) => membership.org_unit_id) };
     }),
@@ -111,9 +110,9 @@ adminAgentsRouter.get("/admin/agents", (c) => {
 adminAgentsRouter.post("/admin/agents", async (c) => {
   const admin = requireAdmin();
   const body = await c.req.json() as { name?: string; description?: string };
-  const created = createManagedAgent({ name: String(body.name || ""), description: body.description });
+  const created = await createManagedAgent({ name: String(body.name || ""), description: body.description });
   audit(admin.id, "admin.agent.create", { agent_id: created.id });
-  return c.json(agentView(created.id), 201);
+  return c.json(await agentView(created.id), 201);
 });
 
 adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
@@ -123,25 +122,25 @@ adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
   const body = await c.req.json() as {
     name?: string; description?: string; status?: "draft" | "published" | "disabled"; expected_version: number;
   };
-  if(Number(body.expected_version)!==Number(managedAgent(id).version))throw new HttpFail(409,'Agent 已变化，请刷新后重试。');
+  if(Number(body.expected_version)!==Number((await managedAgent(id)).version))throw new HttpFail(409,'Agent 已变化，请刷新后重试。');
   if (body.status === "published") {
     if (!getAgentSkills(id).some((skill) => Number(skill.enabled) === 1)) {
       throw new HttpFail(409, "发布前请先装配至少一项技能");
     }
     // 平台系统智能体不对应人员，没有绑定点；其余 Agent 发布前必须绑定组织或人员。
-    if (!listAgentBindings(id).length && !isPlatformAgent(id)) throw new HttpFail(409, "发布前请先绑定组织或人员");
+    if (!(await listAgentBindings(id)).length && !isPlatformAgent(id)) throw new HttpFail(409, "发布前请先绑定组织或人员");
     await confirmKnowledgeReleases(id,admin.id);
   }
-  const updated = updateManagedAgent(id, body);
+  const updated = await updateManagedAgent(id, body);
   audit(admin.id, "admin.agent.update", { agent_id: id, status: updated.status, version: updated.version });
-  return c.json(agentView(id));
+  return c.json(await agentView(id));
 });
 
 adminAgentsRouter.put("/admin/agents/:id/skills", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
   await assertLegacyAgentWriteAllowed(id);
-  managedAgent(id);
+  await managedAgent(id);
   const body = await c.req.json() as { skills?: Array<{ skill_id?: string; enabled?: boolean; expected_version?: number }> };
   if (!Array.isArray(body.skills) || body.skills.length > 200) throw new HttpFail(400, "skills 必须是最多 200 项的数组");
   const skills = body.skills.map((row) => ({
@@ -150,18 +149,18 @@ adminAgentsRouter.put("/admin/agents/:id/skills", async (c) => {
     expected_version: Number(row.expected_version),
   }));
   const updated = setAgentSkills(id, skills);
-  if(managedAgent(id).status==='published')await confirmKnowledgeReleases(id,admin.id);
+  if((await managedAgent(id)).status==='published')await confirmKnowledgeReleases(id,admin.id);
   audit(admin.id, "admin.agent.skills", {
     agent_id: id,
     changed: skills.map((row) => ({ skill_id: row.skill_id, enabled: row.enabled })),
   });
-  return c.json(agentView(id));
+  return c.json(await agentView(id));
 });
 
 adminAgentsRouter.post("/admin/agents/:id/skill-recommendations", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
-  const agent = managedAgent(id);
+  const agent = await managedAgent(id);
   const body = await c.req.json() as { candidate_skill_ids?: unknown };
   if (!Array.isArray(body.candidate_skill_ids) || body.candidate_skill_ids.length > 80
     || body.candidate_skill_ids.some((value) => typeof value !== "string")) {
@@ -190,21 +189,21 @@ adminAgentsRouter.put("/admin/agents/:id/skills/:skillId", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
   await assertLegacyAgentWriteAllowed(id);
-  managedAgent(id);
+  await managedAgent(id);
   const body = await c.req.json() as { enabled?: boolean; expected_version?: number };
   if (typeof body.enabled !== "boolean" || !Number.isInteger(body.expected_version)) {
     throw new HttpFail(400, "enabled 与 expected_version 必填");
   }
   const row = setAgentSkill(id, c.req.param("skillId"), body.enabled, Number(body.expected_version));
   audit(admin.id, "admin.agent.skill", { agent_id: id, skill_id: row.skill_id, enabled: row.enabled, version: row.version });
-  return c.json(agentView(id));
+  return c.json(await agentView(id));
 });
 
 adminAgentsRouter.post("/admin/agents/:id/knowledge", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
   await assertLegacyAgentWriteAllowed(id);
-  managedAgent(id);
+  await managedAgent(id);
   const body = await c.req.json() as { skill_id?: string; base_id?: string };
   const skillId = String(body.skill_id || "").trim();
   const baseId = String(body.base_id || "").trim();
@@ -229,54 +228,51 @@ adminAgentsRouter.post("/admin/agents/:id/knowledge", async (c) => {
 adminAgentsRouter.post("/admin/agents/:id/bindings", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
-  managedAgent(id);
+  await managedAgent(id);
   const body = await c.req.json() as BindingBody;
-  const target = resolveBindingTarget(body, { syncPerson: true });
-  const row = createAgentBinding({
+  const target = await resolveBindingTarget(body, { syncPerson: true });
+  const row = await createAgentBinding({
     agent_id: id, target_type: target.targetType, target_id: target.targetId,
     company_id: target.companyId, created_by: admin.id, reason: body.reason || null, source: "admin",
   });
   audit(admin.id, "admin.agent.bind", { agent_id: id, binding_id: row.id, target_type: row.target_type, target_id: row.target_id });
-  return c.json(agentView(id));
+  return c.json(await agentView(id));
 });
 
 adminAgentsRouter.delete("/admin/agents/:id/bindings/:bindingId", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
-  managedAgent(id);
+  await managedAgent(id);
   const bindingId = c.req.param("bindingId");
-  if (!listAgentBindings(id).some((row) => row.id === bindingId)) throw new HttpFail(404, "绑定不存在");
+  if (!(await listAgentBindings(id)).some((row) => row.id === bindingId)) throw new HttpFail(404, "绑定不存在");
   const body = await c.req.json().catch(() => ({})) as { reason?: string;org_version?:number;preview_signature?:string };
   const reason = String(body.reason || "管理员撤销");
-  txImmediate(()=>{
-    getConn().exec("LOCK TABLE agent_bindings,organization_units,organization_people,organization_memberships,org_versions IN SHARE ROW EXCLUSIVE MODE");
-    const preview=previewAgentBinding(id,{remove:bindingId});
-    if(body.org_version!==undefined&&preview.org_version!==body.org_version)throw new HttpFail(409,"组织版本已变化，请重新预览撤销影响");
-    if(body.preview_signature!==undefined&&preview.preview_signature!==body.preview_signature)throw new HttpFail(409,"覆盖依据已变化，请重新预览撤销影响");
-    revokeAgentBinding(bindingId, { reason });
-  });
+  const preview = await previewAgentBinding(id, { remove: bindingId });
+  if (body.org_version !== undefined && preview.org_version !== body.org_version) throw new HttpFail(409, "组织版本已变化，请重新预览撤销影响");
+  if (body.preview_signature !== undefined && preview.preview_signature !== body.preview_signature) throw new HttpFail(409, "覆盖依据已变化，请重新预览撤销影响");
+  await revokeAgentBinding(bindingId, { reason });
   audit(admin.id, "admin.agent.unbind", { agent_id: id, binding_id: bindingId, reason });
-  return c.json(agentView(id));
+  return c.json(await agentView(id));
 });
 
 adminAgentsRouter.post("/admin/agents/:id/bindings/preview", async (c) => {
   requireAdmin();
   const id = c.req.param("id");
-  managedAgent(id);
+  await managedAgent(id);
   const body = await c.req.json() as BindingBody;
-  const target = resolveBindingTarget(body, { syncPerson: false });
-  return c.json(previewAgentBinding(id, {
+  const target = await resolveBindingTarget(body, { syncPerson: false });
+  return c.json(await previewAgentBinding(id, {
     add: { target_type: target.targetType, target_id: target.targetId, company_id: target.companyId },
   }));
 });
 
 type BulkBindingTarget = { target_type?: "organization_unit" | "person"; target_id?: string; user_id?: string };
-function resolveBulkTargets(rows: BulkBindingTarget[], syncPerson: boolean) {
+async function resolveBulkTargets(rows: BulkBindingTarget[], syncPerson: boolean) {
   if (!rows.length || rows.length > 200) throw new HttpFail(400, "请选择 1 至 200 个绑定目标");
-  const targets = rows.map((row) => {
-    const resolved = resolveBindingTarget(row, { syncPerson });
+  const targets = await Promise.all(rows.map(async (row) => {
+    const resolved = await resolveBindingTarget(row, { syncPerson });
     return { target_type: resolved.targetType, target_id: resolved.targetId, company_id: resolved.companyId } as const;
-  });
+  }));
   const unique = [...new Map(targets.map((target) => [`${target.target_type}:${target.target_id}`, target])).values()];
   return unique;
 }
@@ -284,30 +280,26 @@ function resolveBulkTargets(rows: BulkBindingTarget[], syncPerson: boolean) {
 adminAgentsRouter.post("/admin/agents/:id/bindings/bulk-preview", async (c) => {
   requireAdmin();
   const id = c.req.param("id");
-  managedAgent(id);
+  await managedAgent(id);
   const body = await c.req.json() as { targets?: BulkBindingTarget[] };
   if (!Array.isArray(body.targets)) throw new HttpFail(400, "targets 必须是数组");
-  const targets = resolveBulkTargets(body.targets, false);
-  return c.json(previewAgentBinding(id, { add_many: targets }));
+  const targets = await resolveBulkTargets(body.targets, false);
+  return c.json(await previewAgentBinding(id, { add_many: targets }));
 });
 
 adminAgentsRouter.post("/admin/agents/:id/bindings/bulk", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
-  managedAgent(id);
+  await managedAgent(id);
   const body = await c.req.json() as { targets?: BulkBindingTarget[]; org_version?: number; reason?: string;preview_signature?:string };
   if (!Array.isArray(body.targets) || !Number.isInteger(body.org_version)) throw new HttpFail(400, "targets 和 org_version 必填");
-  const targets = resolveBulkTargets(body.targets, true);
-  const preview=txImmediate(() => {
-    getConn().exec("LOCK TABLE agent_bindings,organization_units,organization_people,organization_memberships,org_versions IN SHARE ROW EXCLUSIVE MODE");
-    const preview = previewAgentBinding(id, { add_many: targets });
-    if (preview.org_version !== body.org_version) throw new HttpFail(409, "组织版本已变化，请重新预览绑定影响");
-    if(body.preview_signature!==undefined&&preview.preview_signature!==body.preview_signature)throw new HttpFail(409,"覆盖依据已变化，请重新预览绑定影响");
-    for (const target of targets) createAgentBinding({
-      agent_id: id, target_type: target.target_type, target_id: target.target_id,
-      company_id: target.company_id, created_by: admin.id, reason: body.reason || "管理侧批量绑定", source: "admin",
-    });
-    return preview;
+  const targets = await resolveBulkTargets(body.targets, true);
+  const preview = await previewAgentBinding(id, { add_many: targets });
+  if (preview.org_version !== body.org_version) throw new HttpFail(409, "组织版本已变化，请重新预览绑定影响");
+  if (body.preview_signature !== undefined && preview.preview_signature !== body.preview_signature) throw new HttpFail(409, "覆盖依据已变化，请重新预览绑定影响");
+  for (const target of targets) await createAgentBinding({
+    agent_id: id, target_type: target.target_type, target_id: target.target_id,
+    company_id: target.company_id, created_by: admin.id, reason: body.reason || "管理侧批量绑定", source: "admin",
   });
   audit(admin.id, "admin.agent.bind.bulk", {
     agent_id: id, org_version: preview.org_version, count: targets.length,
@@ -316,20 +308,20 @@ adminAgentsRouter.post("/admin/agents/:id/bindings/bulk", async (c) => {
   return c.json({ agent: agentView(id), preview });
 });
 
-adminAgentsRouter.post("/admin/agents/:id/bindings/:bindingId/revoke-preview", (c) => {
+adminAgentsRouter.post("/admin/agents/:id/bindings/:bindingId/revoke-preview", async (c) => {
   requireAdmin();
   const id = c.req.param("id");
-  managedAgent(id);
+  await managedAgent(id);
   const bindingId = c.req.param("bindingId");
-  if (!listAgentBindings(id).some((row) => row.id === bindingId)) throw new HttpFail(404, "绑定不存在");
-  return c.json(previewAgentBinding(id, { remove: bindingId }));
+  if (!(await listAgentBindings(id)).some((row) => row.id === bindingId)) throw new HttpFail(404, "绑定不存在");
+  return c.json(await previewAgentBinding(id, { remove: bindingId }));
 });
 
 adminAgentsRouter.delete("/admin/agents/:id/knowledge/:bindingId", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
   await assertLegacyAgentWriteAllowed(id);
-  managedAgent(id);
+  await managedAgent(id);
   const bindingId = c.req.param("bindingId");
   // 只允许解绑「该 Agent 已启用技能」上的知识库绑定；技能未装配的绑定不属于本 Agent。
   const owned = getConn().prepare(
@@ -340,7 +332,7 @@ adminAgentsRouter.delete("/admin/agents/:id/knowledge/:bindingId", async (c) => 
   if (!owned) throw new HttpFail(404, "知识库绑定不存在");
   deleteBinding(bindingId, admin.id);
   audit(admin.id, "admin.agent.knowledge.unbind", { agent_id: id, binding_id: bindingId });
-  return c.json(agentView(id));
+  return c.json(await agentView(id));
 });
 
 const AGENT_AUDIT_DEFAULT_LIMIT = 50;
@@ -355,10 +347,10 @@ type AgentAuditRow = {
   payload_size: number;
 };
 
-adminAgentsRouter.get("/admin/agents/:id/audit", (c) => {
+adminAgentsRouter.get("/admin/agents/:id/audit", async (c) => {
   requireAdmin();
   const id = c.req.param("id");
-  managedAgent(id);
+  await managedAgent(id);
   const limit = Math.min(
     Math.max(1, Number(c.req.query("limit") || AGENT_AUDIT_DEFAULT_LIMIT) || AGENT_AUDIT_DEFAULT_LIMIT),
     AGENT_AUDIT_MAX_LIMIT,
@@ -382,13 +374,14 @@ adminAgentsRouter.get("/admin/agents/:id/audit", (c) => {
   });
 });
 
-adminAgentsRouter.get("/admin/users/:uid/agents", (c) => {
+adminAgentsRouter.get("/admin/users/:uid/agents", async (c) => {
   requireAdmin();
   const uid = c.req.param("uid");
   const user = getConn().prepare("SELECT id FROM users WHERE id=?").get(uid);
   if (!user) throw new HttpFail(404, "员工不存在");
-  return c.json({ agents: listManagedAgents().map((agent) => {
-    const access = effectiveAgentUsers(agent.id).users.find((entry) => entry.user_id === uid);
+  const agents = await Promise.all((await listManagedAgents()).map(async (agent) => {
+    const access = (await effectiveAgentUsers(agent.id)).users.find((entry) => entry.user_id === uid);
     return access ? { id: agent.id, name: agent.name, status: agent.status, ...access } : null;
-  }).filter(Boolean) });
+  }));
+  return c.json({ agents: agents.filter(Boolean) });
 });

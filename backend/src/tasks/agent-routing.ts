@@ -14,20 +14,25 @@ export function currentAgentRoutes(): AgentRoute[] | undefined { return routing.
 export function currentSelectedAgentId(): string | undefined { return routing.getStore()?.selectedAgentId; }
 
 /** Filter before giving the catalog to a model. Execution revalidates the chosen pair. */
-export function availableAgentRoutes(agentId?: string): AgentRoute[] {
+export async function availableAgentRoutes(agentId?: string): Promise<AgentRoute[]> {
   const user = scopedUser();
   if (!user) return [];
-  return listManagedAgents().filter(agent => agent.status === "published" && (!agentId || agent.id === agentId)).flatMap(agent =>
-    getAgentSkills(agent.id).flatMap(binding => {
-      if (!binding.enabled) return [];
+  const routes: AgentRoute[] = [];
+  for (const agent of await listManagedAgents()) {
+    if (agent.status !== "published" || (agentId && agent.id !== agentId)) continue;
+    for (const binding of getAgentSkills(agent.id)) {
+      if (!binding.enabled) continue;
       const skill = taskDefinition(String(binding.skill_id));
-      if (!skill) return [];
-      try { assertRuntimeSkill({ agentId: agent.id, skillId: skill.id, userId: user.id, runId: "agent-routing" }); }
-      catch { return []; }
-      return [{ agent_id: agent.id, agent_name: agent.name, description: agent.description,
+      if (!skill) continue;
+      try {
+        await assertRuntimeSkill({ agentId: agent.id, skillId: skill.id, userId: user.id, runId: "agent-routing" });
+      } catch { continue; }
+      routes.push({ agent_id: agent.id, agent_name: agent.name, description: agent.description,
         task_type: skill.id, title: skill.title,
-        summary: `${skill.employee_summary || skill.description}${skill.aliases.length ? `；常见说法：${skill.aliases.join("、")}` : ""}${skill.input_schema?.length ? `；输入：${skill.input_schema.map(field => `${field.key}:${field.kind}${field.required ? "!" : ""}`).join(",")}` : ""}` }];
-    }));
+        summary: `${skill.employee_summary || skill.description}${skill.aliases.length ? `；常见说法：${skill.aliases.join("、")}` : ""}${skill.input_schema?.length ? `；输入：${skill.input_schema.map(field => `${field.key}:${field.kind}${field.required ? "!" : ""}`).join(",")}` : ""}` });
+    }
+  }
+  return routes;
 }
 
 export function withAgentRoutes<T>(routes: AgentRoute[], action: () => T, selectedAgentId?: string): T {
@@ -36,7 +41,7 @@ export function withAgentRoutes<T>(routes: AgentRoute[], action: () => T, select
 export function routeChoice(route: AgentRoute): string { return JSON.stringify([route.agent_id, route.task_type]); }
 
 export async function availableKnowledgeAgentRoutes(agentId?: string): Promise<AgentRoute[]> {
-  const routes=availableAgentRoutes(agentId),user=scopedUser();
+  const routes=await availableAgentRoutes(agentId),user=scopedUser();
   if(!user)return [];
   const manifests=new Map<string,Awaited<ReturnType<typeof runtimeKnowledgeManifest>>>();
   for(const id of [...new Set(routes.filter(r=>hasDocumentTool(r.task_type)).map(r=>r.task_type))]) {

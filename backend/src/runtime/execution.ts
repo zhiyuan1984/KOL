@@ -97,7 +97,7 @@ function assertNoCredentialEcho(value: unknown, headers: Record<string, string> 
     reject("runtime_credential_in_result", 502);
   }
 }
-export function assertRuntimeSkill(context: RuntimeContext): { user: Row; binding: Row; skillVersion: string } {
+export async function assertRuntimeSkill(context: RuntimeContext): Promise<{ user: Row; binding: Row; skillVersion: string }> {
   ensureRuntimeSchema();
   const platform = isPlatformPrincipal(context.userId);
   // 平台系统主体只能用平台系统智能体；人员（含管理员）不能用平台系统智能体。
@@ -112,13 +112,13 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
   }
   const binding = getAgentSkills(context.agentId).find((row) => row.skill_id === context.skillId);
   if (!binding?.enabled) reject("runtime_skill_unbound");
-  if (!agentIsPublished(context.agentId)) reject("runtime_agent_not_usable");
+  if (!(await agentIsPublished(context.agentId))) reject("runtime_agent_not_usable");
   const definition = requireTaskDefinition(context.skillId);
   const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(context.skillId) as Row | undefined;
   if (lifecycle && lifecycle.stage !== "published") reject("runtime_skill_not_published");
   if (!lifecycle && definition.source === "published") reject("runtime_skill_not_published");
   // 人员资格锚点是「人 → Agent」使用绑定（CONST-05 / ADR-2026-10-03），不再有逐人技能授权。
-  if (!platform && !parseRoles(user.roles).includes("admin") && !canUseAgent(context.userId, context.agentId)) {
+  if (!platform && !parseRoles(user.roles).includes("admin") && !(await canUseAgent(context.userId, context.agentId))) {
     reject("runtime_agent_not_usable");
   }
   const skillVersion=runtimeSkillVersion(context.skillId);
@@ -139,14 +139,19 @@ export function runtimeSkillVersion(skillId:string):string {
 }
 
 /** Agents through which this person may run the skill (published, skill enabled, person covered). */
-export function runtimeAgentCandidates(skillId: string, userId: string): string[] {
+export async function runtimeAgentCandidates(skillId: string, userId: string): Promise<string[]> {
   ensureRuntimeSchema();
   requireTaskDefinition(skillId);
   const user = getConn().prepare("SELECT active,roles FROM users WHERE id=?").get(userId) as Row | undefined;
   if (!user?.active) reject("runtime_identity_unavailable", 401);
   const admin = parseRoles(user.roles).includes("admin");
   const rows = getConn().prepare("SELECT agent_id FROM runtime_agent_skills WHERE skill_id=? AND enabled=1 ORDER BY agent_id").all(skillId) as Row[];
-  return rows.map((row) => String(row.agent_id)).filter((id) => !isPlatformAgent(id) && agentIsPublished(id) && (admin || canUseAgent(userId, id)));
+  const candidates: string[] = [];
+  for (const row of rows) {
+    const id = String(row.agent_id);
+    if (!isPlatformAgent(id) && await agentIsPublished(id) && (admin || await canUseAgent(userId, id))) candidates.push(id);
+  }
+  return candidates;
 }
 
 /**
@@ -154,9 +159,9 @@ export function runtimeAgentCandidates(skillId: string, userId: string): string[
  * Background callers keep the skill's declared runtime Agent when it is usable. Employee-initiated
  * submissions pass `employeeChoice`: when several Agents qualify, the employee chooses — never a silent pick.
  */
-export function runtimeAgentForSkill(skillId: string, userId: string, options: { employeeChoice?: boolean } = {}): string {
+export async function runtimeAgentForSkill(skillId: string, userId: string, options: { employeeChoice?: boolean } = {}): Promise<string> {
   const definition = requireTaskDefinition(skillId);
-  const usable = runtimeAgentCandidates(skillId, userId);
+  const usable = await runtimeAgentCandidates(skillId, userId);
   if (!options.employeeChoice && usable.includes(definition.runtime_agent_id)) return definition.runtime_agent_id;
   if (usable.length === 1) return usable[0];
   if (usable.length > 1) {
@@ -176,8 +181,8 @@ export function runtimeAgentForSkill(skillId: string, userId: string, options: {
  * enabled connector and the internal gates (tool policy and controlled-action
  * submission). Connectors and tools are never granted per person.
  */
-export function authorizeConnector(context: RuntimeContext, connectorId: string) {
-  const skill = assertRuntimeSkill(context);
+export async function authorizeConnector(context: RuntimeContext, connectorId: string) {
+  const skill = await assertRuntimeSkill(context);
   if (!isPlatformPrincipal(context.userId) && !parseRoles(skill.user.roles).includes("admin") && !canUseSkill(context.userId, context.skillId)) {
     reject("runtime_agent_not_usable");
   }

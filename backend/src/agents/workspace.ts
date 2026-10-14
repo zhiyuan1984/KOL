@@ -95,7 +95,7 @@ export async function agentWorkspace(filters:Partial<AgentBrowseFilters>={}) {
     for (const item of await rows(db, "SELECT * FROM managed_agents ORDER BY created_at,id")) {
       const bound = await bindings(db, item.id);
       agents.push({ ...await state(db, item, catalog,directory), bindings: bound,
-        coverage: computeEffectiveAgentUsers(item.id, bound, undefined, org) });
+        coverage: await computeEffectiveAgentUsers(item.id, bound, undefined, org) });
     }
     return { agents, browse:agentBrowse(agents,directory.units,filters),organization_directory:directory, skills: catalog, units: org.units, people: org.people.map(person => ({ ...person,
       company_id: org.memberships.find(row => row.person_ref === person.person_ref)?.company_id || null,
@@ -108,7 +108,7 @@ export async function agentWorkspaceDetail(id: string) {
   return postgresTransaction(async db => {
     const item = await agent(db, id), catalog = await agentSkillCatalog(db);
     const bound = await bindings(db, id), org = await organization(db);
-    const coverage = computeEffectiveAgentUsers(id, bound, undefined, org);
+    const coverage = await computeEffectiveAgentUsers(id, bound, undefined, org);
     const versions = (await rows(db, "SELECT * FROM agent_workspace_versions WHERE agent_id=$1 ORDER BY version DESC", [id]))
       .map(row => ({ ...json(row.content), version: Number(row.version), published_at: row.published_at, published_by: row.published_by, receipt_id: row.receipt_id })) as AgentVersionRecord[];
     const examBlocked = await rows(db, `SELECT a.user_id,u.name,COUNT(*) AS missing FROM exam_assignments a
@@ -172,9 +172,9 @@ export async function saveAgentDraft(actor: string, id: string | null, input: { 
 async function releaseContext(db: PoolClient, id: string) {
   const item = await agent(db, id), catalog = await agentSkillCatalog(db), current = await state(db, item, catalog);
   if (!current.draft) throw new HttpFail(409, "请先保存 Agent 修订草稿");
-  const bound = await bindings(db, id), org = await organization(db),beforeCoverage=computeEffectiveAgentUsers(id,bound,undefined,org),owner=await organizationState(db,id);
+  const bound = await bindings(db, id), org = await organization(db),beforeCoverage=await computeEffectiveAgentUsers(id,bound,undefined,org),owner=await organizationState(db,id);
   const governance=current.draft.governance;
-  const candidateBound=governance?proposedBindings(id,governance.bindings,bound):bound,coverage=computeEffectiveAgentUsers(id,candidateBound,undefined,org);
+  const candidateBound=governance?proposedBindings(id,governance.bindings,bound):bound,coverage=await computeEffectiveAgentUsers(id,candidateBound,undefined,org);
   const blockers: string[] = [], warnings: string[] = [];
   let proposedOwner=owner.assignment;
   if(governance){try{validateGovernance(governance,governanceBasis(bound,owner),id,org);proposedOwner=(await organizationProposal(db,id,governance.organization?.company_id||null,governance.organization?.org_unit_id||null)).after;}catch(e){blockers.push(e instanceof Error?e.message:'治理草稿依据无效');}}

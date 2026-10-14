@@ -16,19 +16,19 @@ function actorId(): string {
 
 export async function employeeAgentPreferences(): Promise<EmployeeAgentPreference[]> {
   const userId = actorId();
-  const visibleIds = employeeExperts().map(row => String(row.id));
+  const visibleIds = (await employeeExperts()).map(row => String(row.id));
   if (!visibleIds.length) return [];
   const rows = await postgresQuery<EmployeeAgentPreference>(
     "SELECT expert_id,favorite,viewed_at FROM employee_agent_preferences WHERE user_id=$1 AND expert_id=ANY($2::text[])",
     [userId, visibleIds],
   );
-  const stillVisible = new Set(employeeExperts().map(row => String(row.id)));
+  const stillVisible = new Set((await employeeExperts()).map(row => String(row.id)));
   return rows.filter(row => stillVisible.has(row.expert_id));
 }
 
 export async function updateEmployeeAgentPreference(id: string, body: unknown): Promise<EmployeeAgentPreference> {
   const userId = actorId();
-  employeeExpert(id);
+  await employeeExpert(id);
   const value = body as { favorite?: unknown; viewed?: unknown } | null;
   if (!value || typeof value !== "object" || Array.isArray(value)
     || Object.keys(value).some(key => key !== "favorite" && key !== "viewed")
@@ -52,7 +52,7 @@ export async function updateEmployeeAgentPreference(id: string, body: unknown): 
 /** Only the owner's active session for this exact entry can be continued. */
 export async function resumeEmployeeAgentSession(id: string, sessionId: string) {
   const userId = actorId();
-  const expert = employeeExpert(id);
+  const expert = await employeeExpert(id);
   if (expert.primary_entry !== "think" || expert.kind === "collector" || expert.kind === "governance") {
     throw new HttpFail(409, { code: "agent_entry_not_conversation", message: "请使用该 Agent 的作业或审批入口" });
   }
@@ -61,15 +61,15 @@ export async function resumeEmployeeAgentSession(id: string, sessionId: string) 
     [sessionId, userId, id],
   );
   if (!rows[0]) throw new HttpFail(404, { code: "agent_session_unavailable", message: "原会话不可用，请重新选择工作" });
-  employeeExpert(id);
+  await employeeExpert(id);
   return { session_id: rows[0].id, expert_id: id, expert_version: rows[0].expert_version || String(expert.version || ""), intro: "" };
 }
 
 export async function employeeAgentWorkspace(id: string, sourceSession?: string): Promise<EmployeeAgentWorkspace> {
   const userId = actorId();
-  const expert = employeeExpert(id);
+  const expert = await employeeExpert(id);
   const agentId = agentForExpert(id);
-  const routes = availableAgentRoutes(agentId);
+  const routes = await availableAgentRoutes(agentId);
   const skills = routes.map(route => {
     const definition = taskDefinition(route.task_type);
     return { id: route.task_type, name: route.title, summary: definition?.employee_summary || definition?.description || "" };
