@@ -2467,7 +2467,7 @@
   gap: var(--space-3);
   margin: var(--space-1) 0;
 }
-@container (max-width: 560px) {
+@container (max-width: 440px) {
   .enable-facts {
     grid-template-columns: minmax(0, 1fr);
   }
